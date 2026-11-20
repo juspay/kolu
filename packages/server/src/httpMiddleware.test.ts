@@ -1,10 +1,3 @@
-/** `routeErrorLogging` — the catch-all that makes a fault raised AFTER a route
- *  handler produced its response (the artifact-sdk HTML decorator draining a
- *  faulting preview stream) a LOGGED 500 instead of an unlogged one; and the
- *  guard that keeps a router's own answers (404, 400) out of that path.
- *
- *  Plus `requestLogging` — the `hono-pino` replacement. */
-
 import { Effect, Stream } from "effect";
 import {
   HttpServerError,
@@ -16,8 +9,6 @@ import { requestLogging, routeErrorLogging } from "./httpMiddleware.ts";
 
 const encode = (s: string) => new TextEncoder().encode(s);
 
-/** A `text/html` body that yields one chunk then FAULTS — mimics a remote
- *  preview whose per-chunk dial drops mid-stream. */
 const faultingHtml = () =>
   HttpServerResponse.stream(
     Stream.make(encode("<html>")).pipe(
@@ -30,10 +21,6 @@ const faultingHtml = () =>
     { status: 200, headers: { "content-type": "text/html" } },
   );
 
-/** Mimic the artifact-sdk decorator seam: after the route produced its response,
- *  drain any `text/html` body (which FAULTS if the stream errored) and re-emit
- *  it. Hand-rolled rather than importing `withArtifactSdk` so this test pins the
- *  MIDDLEWARE, not the decorator. */
 const draining = (
   handler: Effect.Effect<HttpServerResponse.HttpServerResponse>,
 ) =>
@@ -57,7 +44,6 @@ const withRequest = <A, E>(
     HttpServerRequest.fromWeb(new Request(`http://kolu${path}`)),
   );
 
-/** Read a response body back to text. */
 const bodyText = (response: HttpServerResponse.HttpServerResponse): string =>
   response.body._tag === "Uint8Array"
     ? new TextDecoder().decode(response.body.body)
@@ -73,11 +59,8 @@ describe("routeErrorLogging", () => {
       ),
     );
 
-    // Loud to the client...
     expect(response.status).toBe(500);
     expect(bodyText(response)).toBe("internal server error");
-    // ...AND logged. Without the middleware, Effect answers a bare 500 through
-    // its default reporter (console) and the real link fault never reaches pino.
     expect(log.error).toHaveBeenCalledOnce();
     const [payload, message] = log.error.mock.calls[0] as [
       { err: unknown; method: string; url: string },
@@ -101,10 +84,6 @@ describe("routeErrorLogging", () => {
     expect(log.error).not.toHaveBeenCalled();
   });
 
-  // The router's own answers already carry a status through Effect's
-  // `Respondable` protocol. Swallowing them here would turn every unmatched path
-  // into a logged 500 — and kill the 404 `ci::dev-smoke` relies on when no static
-  // layer is installed.
   it("re-raises a router answer (404) instead of logging it as a fault", async () => {
     const log = { error: vi.fn() };
     const notFound = Effect.flatMap(
@@ -126,16 +105,6 @@ describe("routeErrorLogging", () => {
   });
 
   it("re-raises a RESPONSE delivered through the failure channel — never a 500 over a real answer", async () => {
-    // The second `Respondable` shape: a handler may FAIL with a fully-formed
-    // `HttpServerResponse`, which the machinery downstream then sends. Treating
-    // that as an unhandled fault replaces a real answer with `500 internal
-    // server error`.
-    //
-    // Found in production shape, not in theory: `GET /` — the SPA shell, an
-    // index.html file stream — arrived here exactly this way under load, and the
-    // browser got an error page for a request the server had already prepared.
-    // Pre-fix this test fails with `status 500` and a logged "unhandled error
-    // serving request".
     const log = { error: vi.fn() };
     const shell = HttpServerResponse.text("<!doctype html>", {
       headers: { "content-type": "text/html" },
@@ -145,8 +114,6 @@ describe("routeErrorLogging", () => {
       withRequest(Effect.flip(routeErrorLogging(log)(Effect.fail(shell)))),
     );
 
-    // Re-raised verbatim, so the response the handler built is the one that goes
-    // out — identity, not a copy.
     expect(failure).toBe(shell);
     expect(log.error).not.toHaveBeenCalled();
   });

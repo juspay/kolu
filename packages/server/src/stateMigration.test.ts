@@ -1,20 +1,3 @@
-/**
- * The 1.31.0 BURIAL migration — `stripLegacyStateKeys_1_31_0` — driven against a
- * real `Conf` under an ephemeral temp dir. Two invariants:
- *   (i)  a file WITH legacy keys is BACKED UP (`.pre-1.31-strip.bak` retains
- *        them) before the live file is stripped to just `preferences`;
- *   (ii) a file WITHOUT legacy keys grows no `.bak` (harmless-if-absent).
- *
- * BACKUP-FIRST is load-bearing: a direct pre-W2.2 → W2.3 upgrade runs this strip
- * before a fresh padi imports the legacy session, so the copy is the recovery
- * path if the strip runs first.
- *
- * The 1.50.0 rung is driven the same way: `worksFromWatched_1_50_0` by calling
- * it (the grouping decision and the frozen values it writes), and
- * `migrateConductorToWorks_1_50_0` against a real `Conf` under a temp dir —
- * where the transcript file it writes beside that store can be read back.
- */
-
 import {
   existsSync,
   mkdirSync,
@@ -42,10 +25,6 @@ import {
   transcriptFileStore,
   writeTranscriptFile,
 } from "./conductor/transcriptFile.ts";
-// Importing state.ts opens its own throwaway store at the test harness's
-// KOLU_STATE_DIR (set by the `test:unit` script) — unrelated to the fixtures
-// below, which each build their own Conf under a fresh temp dir. The rungs
-// themselves come from `stateLadder.ts`, which opens nothing.
 import { decodeStateBackup } from "./state.ts";
 import {
   collapseFlappingChecks_1_51_0,
@@ -79,8 +58,6 @@ afterEach(() => {
     rmSync(dir, { recursive: true, force: true });
 });
 
-/** A real `Conf` under a fresh temp dir, seeded with `preferences` plus whatever
- *  extra (legacy) keys the case wants on disk. */
 function makeStore(
   extra: Record<string, unknown>,
 ): Conf<Record<string, unknown>> {
@@ -110,7 +87,6 @@ describe("stripLegacyStateKeys_1_31_0", () => {
 
     stripLegacyStateKeys_1_31_0(conf as never);
 
-    // (i) the backup retains every legacy key verbatim...
     expect(existsSync(bakPath)).toBe(true);
     const bak = readJson(bakPath);
     expect(bak.session).toEqual({ active: null, terminals: [{ id: "t1" }] });
@@ -121,7 +97,6 @@ describe("stripLegacyStateKeys_1_31_0", () => {
     expect(bak.sleepingTerminals).toEqual([{ id: "s1" }]);
     expect(bak.lastPairedDaemon).toEqual({ stateRoot: "/root" });
 
-    // ...and the live file has them stripped, keeping only `preferences`.
     const live = readJson(conf.path);
     expect(live.preferences).toBeDefined();
     expect(live.session).toBeUndefined();
@@ -142,11 +117,6 @@ describe("stripLegacyStateKeys_1_31_0", () => {
   });
 
   it("preserves the FULL first backup across a partial-strip rerun (write-once)", () => {
-    // Simulate a crash mid-strip: the first run backs up the whole file, then the
-    // process dies after deleting only `session` (conf persists each delete
-    // synchronously but records the migration as done only when the handler
-    // returns, so the ladder reruns). The second run must NOT re-copy the now
-    // session-less live file over the full first backup.
     const conf = makeStore({
       session: { active: null, terminals: [{ id: "t1" }] },
       activityFeed: { recentRepos: ["/repo"], recentAgents: [] },
@@ -155,21 +125,15 @@ describe("stripLegacyStateKeys_1_31_0", () => {
     });
     const bakPath = `${conf.path}.pre-1.31-strip.bak`;
 
-    // First (partial) run: back up, then lose `session` from the live file only.
     stripLegacyStateKeys_1_31_0(conf as never);
     expect(existsSync(bakPath)).toBe(true);
-    // The live file is now stripped; re-seed the residual legacy keys the crash
-    // left behind so the rerun still sees legacy state (hence `hasLegacy`).
     conf.set("activityFeed", { recentRepos: ["/repo"], recentAgents: [] });
     conf.set("sleepingTerminals", [{ id: "s1" }]);
     conf.set("lastPairedDaemon", { stateRoot: "/root" });
 
-    // Second (rerun) run: sees legacy keys but MUST keep the full first backup.
     stripLegacyStateKeys_1_31_0(conf as never);
 
     const bak = readJson(bakPath);
-    // The zero-loss guarantee: `session` — deleted from the live file on the first
-    // run — still survives verbatim in the backup padi imports from.
     expect(bak.session).toEqual({ active: null, terminals: [{ id: "t1" }] });
     expect(bak.activityFeed).toEqual({
       recentRepos: ["/repo"],
@@ -179,7 +143,6 @@ describe("stripLegacyStateKeys_1_31_0", () => {
 });
 
 describe("the 1.50.0 rung — a piece of work is a stored thing", () => {
-  /** A 1.49.0-shaped watch entry: everything that rung guarantees. */
   const entry = (over: {
     ref: string;
     name?: string;
@@ -201,8 +164,6 @@ describe("the 1.50.0 rung — a piece of work is a stored thing", () => {
   const IMPL = "local/22222222-2222-4222-8222-222222222222";
   const ALONE = "remote:box/33333333-3333-4333-8333-333333333333";
 
-  /** What `hostOf` would read off a carried-over work: the host decision's
-   *  one picked answer. */
   const hostAnswer = (work: Record<string, unknown>): unknown =>
     (
       (work.decisions as ReadonlyArray<Record<string, unknown>>).find(
@@ -211,10 +172,6 @@ describe("the 1.50.0 rung — a piece of work is a stored thing", () => {
     ).picked[0];
 
   it("makes ONE work of the terminals the panel drew as one, and its own of the rest", () => {
-    // The grouping is the one the file already carries: `root` is what the
-    // watching panel showed as a piece of work, so a person's two terminals
-    // come back as one card and the lone one as its own — rather than three
-    // cards nobody recognizes, or one card holding unrelated machines.
     let minted = 0;
     const carried = worksFromWatched_1_50_0(
       [
@@ -240,8 +197,6 @@ describe("the 1.50.0 rung — a piece of work is a stored thing", () => {
       Record<string, unknown>,
       Record<string, unknown>,
     ];
-    // The root's remembered name is the title; the age is the EARLIEST join,
-    // not this boot — a person's hour-old waterfall must not come back new.
     expect(waterfall.title).toBe("plan the cutover");
     expect(waterfall.startedAt).toBe("2026-01-01T00:00:00.000Z");
     expect(waterfall.members).toEqual([
@@ -260,10 +215,6 @@ describe("the 1.50.0 rung — a piece of work is a stored thing", () => {
         worktree: null,
       },
     ]);
-    // ... and what kolu KNEW about each of those terminals comes out as the
-    // `members` key, keyed by the same refs: two keys out of one watch list,
-    // because an entry was always a fact about a work and a fact about a
-    // terminal.
     expect(carried.members).toEqual({
       [PLANNER]: {
         name: "plan the cutover",
@@ -290,8 +241,6 @@ describe("the 1.50.0 rung — a piece of work is a stored thing", () => {
         ran: true,
       },
     });
-    // The timeline is never empty: it opens with the carry-over and then says
-    // who was there.
     expect(waterfall.events).toEqual([
       {
         at: "2026-01-01T00:00:00.000Z",
@@ -315,18 +264,12 @@ describe("the 1.50.0 rung — a piece of work is a stored thing", () => {
         detail: "other",
       },
     ]);
-    // The lone entry is a work of its own, titled by what kolu last saw the
-    // terminal called, and on ITS machine.
     expect(alone.title).toBe("a watch");
     expect((alone.members as unknown[]).length).toBe(1);
     expect(hostAnswer(alone)).toBe("remote:box");
   });
 
   it("records mode and host as DECISIONS answered from nowhere", () => {
-    // `modeOf`/`hostOf` read decisions, so a carried-over work has to carry
-    // them as decisions or the card would show a work with no mode and no
-    // machine. Nobody was asked — not in a card, not in a chat, not in a
-    // request — so `from` is null, which is the only honest value.
     const [work] = worksFromWatched_1_50_0(
       [entry({ ref: ALONE })],
       () => "w",
@@ -340,7 +283,6 @@ describe("the 1.50.0 rung — a piece of work is a stored thing", () => {
       text: null,
       from: null,
     });
-    // ONE ask for the pair: they were decided together, by the same file.
     expect(decisions[0]?.ask).toBe(decisions[1]?.ask);
     expect(decisions[1]?.question).toBe(
       "Carried over from before kolu stored work",
@@ -356,9 +298,6 @@ describe("the 1.50.0 rung — a piece of work is a stored thing", () => {
   });
 
   it("moves the rows into the transcript file and the watch list into works", () => {
-    // The whole rung, against a REAL `Conf` — the rows leave `config.json` for
-    // a file stamped with the ladder's number, the watch list becomes works,
-    // and both keys are gone so no later reader can find a stale copy.
     const conf = makeStore({
       conductor: {
         sessionId: "sess-held",
@@ -383,7 +322,6 @@ describe("the 1.50.0 rung — a piece of work is a stored thing", () => {
       version: TRANSCRIPT_FILE_VERSION,
       rows: [{ id: "u1", seq: 1, kind: "user", text: "do the thing" }],
     });
-    // Owner-only: a transcript carries whatever a person pasted into it.
     expect(statSync(transcript).mode & 0o777).toBe(0o600);
     const works = conf.get("works") as ReadonlyArray<Record<string, unknown>>;
     expect(works.length).toBe(1);
@@ -391,8 +329,6 @@ describe("the 1.50.0 rung — a piece of work is a stored thing", () => {
   });
 
   it("leaves a conductor record alone when its rows are not a list", () => {
-    // Not an older shape — a broken file. The rung declines it so the READ
-    // refuses it by name, rather than quietly dropping somebody's chat.
     const conf = makeStore({ conductor: { rows: "nonsense", watched: [] } });
     migrateConductorToWorks_1_50_0(conf as never);
     expect(conf.get("conductor")).toEqual({ rows: "nonsense", watched: [] });
@@ -409,10 +345,6 @@ describe("the 1.51.0 rung — the check ping-pong, swept out", () => {
   const HEAD = "4f21a9c0d3e5b7a9c1d3e5f7a9b1c3d5e7f9a1b3";
   const PUSHED = "9b7e3d1aa5c7e9b1d3f5a7c9e1b3d5f7a9c1e3b5";
 
-  /** A work shaped like the human's: two members in ONE worktree, and
-   *  hundreds of check events alternating between their two readings of one
-   *  pull request — every `checks-running` naming the implementor, every
-   *  `checks-passed` the planner, several a second. */
   const flapping = (pairs: number, detail = ""): Record<string, unknown> => ({
     id: "w-flap",
     title: "Rewrite odu's docs",
@@ -462,9 +394,6 @@ describe("the 1.51.0 rung — the check ping-pong, swept out", () => {
     collapseFlappingChecks_1_51_0(conf as never);
     const works = conf.get("works") as ReadonlyArray<Record<string, unknown>>;
     const events = works[0]?.events as ReadonlyArray<Record<string, unknown>>;
-    // 432 events in, 4 out: what was asked for, the PR, the checks running,
-    // the checks passing, the file — and the two check events are the FIRST
-    // ones, so the timeline still says when the checks started.
     expect(events.map((one) => one.kind)).toEqual([
       "requested",
       "pr-opened",
@@ -526,8 +455,6 @@ describe("the 1.51.0 rung — the check ping-pong, swept out", () => {
   });
 
   it("walks past a works key this build would refuse", () => {
-    // A rung runs against a file written by an older build: a shape it does
-    // not understand is left alone for the READ to refuse by name.
     const conf = makeStore({ works: "nonsense" });
     collapseFlappingChecks_1_51_0(conf as never);
     expect(conf.get("works")).toBe("nonsense");
@@ -535,11 +462,6 @@ describe("the 1.51.0 rung — the check ping-pong, swept out", () => {
 });
 
 describe("the 1.52.0 rung — a store this branch wrote before the member bookkeeping moved", () => {
-  /** The human's REAL store, as their deployed build of this branch wrote it
-   *  (juspay/kolu#2376, round 3): stamped 1.50.0, each work member carrying a
-   *  `watch`, a top-level `members: {}`, decisions with no `header`, and the
-   *  429 flapping check events. Host names and home paths are replaced;
-   *  nothing else is touched. */
   const DEPLOYED = JSON.parse(
     readFileSync(
       new URL("./fixtures/deployed-1.50.0-old-members.json", import.meta.url),
@@ -550,16 +472,10 @@ describe("the 1.52.0 rung — a store this branch wrote before the member bookke
   const IMPL = "remote:host-d/415ebfc7-4a42-4561-a54b-c47f9d62284b";
 
   it("brings the deployed store through the WHOLE ladder, and every persisted key decodes", () => {
-    // `decodeStateBackup` is the real ladder on a scratch copy, then the
-    // full persisted schema — works, members, conductor, preferences, hosts,
-    // viewerMode — decoded, throwing on any key that fails.
     const decoded = decodeStateBackup(DEPLOYED, "the deployed store");
-    // ONE work, keyed by its branch (1.53.0), still Open.
     const work = Object.values(decoded.works)[0];
     expect(work).toBeDefined();
     expect(work?.state.kind).toBe("open");
-    // The members are the ONE map now, each row carrying where it worked AND
-    // the bookkeeping that used to sit beside it.
     expect(
       Object.entries(decoded.members).map(([ref, one]) => [
         ref,
@@ -599,15 +515,9 @@ describe("the 1.52.0 rung — a store this branch wrote before the member bookke
     const { worktree: _worktree, ...implWatch } = (implMember?.watch ??
       {}) as Record<string, unknown>;
     expect(decoded.members[IMPL]?.watch).toEqual(implWatch);
-    // The 1.51.0 sweep ran on the same store: the flapping check events are
-    // one per kind per commit, and every other event is kept.
     const kinds = work?.events.map((one) => one.kind) ?? [];
     expect(kinds.filter((kind) => kind === "checks-running")).toHaveLength(1);
     expect(kinds.filter((kind) => kind === "checks-passed")).toHaveLength(1);
-    // Decisions: every one of them an arm of the sum. The `host` ones the
-    // 1.53.0 rung dropped are not even sayable any more — a setup key is one
-    // of the six the live schema names, which is what this decode proves —
-    // and 1.55.0 left the rest as setup questions about the work's own run.
     expect(
       work?.decisions.filter((one) => one.topic === "setup").length,
     ).toBeGreaterThan(0);
@@ -692,20 +602,10 @@ describe("the 1.52.0 rung — a store this branch wrote before the member bookke
 });
 
 describe("what an EARLIER COMMIT of this branch wrote, read by head", () => {
-  // The rule the state skill now states: a branch somebody has deployed has
-  // released its saved shape onto their disk, so every commit of it that
-  // moved a persisted shape has to be readable by head. These are the two
-  // shapes no fixture above stands for — the store an intermediate commit
-  // wrote (members already moved, decisions not yet carrying a header), and
-  // the transcript FILE, which rides this ladder without a rung of its own.
   const REF = "remote:host-a/11111111-1111-4111-8111-111111111111";
   const AT = "2026-02-02T10:00:00.000Z";
 
   it("decodes a store written AFTER the members moved and BEFORE a decision had a header", () => {
-    // Commits 910515439 … 3c4b46f90^: the member bookkeeping already sits in
-    // the top-level `members` record and the member carries `worktree`, but
-    // `Decision.header` does not exist yet and no check event names a head
-    // commit. Stamped 1.50.0, because 1.51.0 was not written until later.
     const decoded = decodeStateBackup(
       {
         __internal__: { migrations: { version: "1.50.0" } },
@@ -732,9 +632,6 @@ describe("what an EARLIER COMMIT of this branch wrote, read by head", () => {
                 terminal: REF,
                 detail: "#7 docs",
               },
-              // Check events in the grammar of the day: the failing names
-              // alone, no head commit. They all key the same, so the 1.51.0
-              // sweep keeps the first of each kind.
               {
                 at: AT,
                 by: "ci",
@@ -788,33 +685,21 @@ describe("what an EARLIER COMMIT of this branch wrote, read by head", () => {
       },
       "the mid-branch store",
     );
-    // The 1.53.0 rung re-keyed the works by their branch, so there is one
-    // value rather than one row.
     const work = Object.values(decoded.works)[0];
-    // 1.52.0 backfilled the two fields the decision was written without, and
-    // 1.55.0 took them back off a SETUP question — whose label is its key's
-    // own name, so there is nowhere to write either.
     expect(work?.decisions[0]?.topic).toBe("setup");
     expect("header" in (work?.decisions[0] ?? {})).toBe(false);
     expect("file" in (work?.decisions[0] ?? {})).toBe(false);
-    // … and left everything the commit DID write exactly as it was.
     expect(work?.decisions[0]?.question).toBe("How should this run?");
-    // … and 1.53.0 moved the membership into the one map, where the watch
-    // bookkeeping already was.
     expect(decoded.members[REF]?.worktree).toEqual({
       kind: "read",
       path: "/home/person/code/odu",
     });
     expect(decoded.members[REF]?.watch.name).toBe("Planner: odu docs");
-    // The 1.51.0 sweep read the old detail grammar as "names no commit", so
-    // the two failures collapse to the first and the running one stands.
     expect(work?.events.map((one) => one.kind)).toEqual([
       "pr-opened",
       "checks-running",
       "checks-failed",
     ]);
-    // The detail string became typed fields: the gates that are red are a
-    // list, and the event carries the pull request it is about.
     const failed = work?.events[2];
     expect(failed?.kind === "checks-failed" && failed.failing).toEqual([
       "build",
@@ -823,13 +708,6 @@ describe("what an EARLIER COMMIT of this branch wrote, read by head", () => {
   });
 
   it("reads a transcript file written when the rows first moved into it", () => {
-    // The file is stamped by the ladder, not by a ladder of its own, so a
-    // row-shape change is a rung that rewrites it and moves
-    // TRANSCRIPT_FILE_VERSION — which 1.53.0 did, splitting the work-carrying
-    // ask row off into its own kind. The rows a 1.50.0 file holds that did
-    // NOT move (a user row with no `attachments`, a tool row, an ask about no
-    // work, a wake) must still come back whole through the reader the
-    // conversation uses, once the rung has restamped the file.
     const root = mkdtempSync(join(tmpdir(), "kolu-transcript-compat-"));
     dirs.push(root);
     const path = transcriptFilePath(root);
@@ -917,10 +795,6 @@ describe("what an EARLIER COMMIT of this branch wrote, read by head", () => {
       },
     ]);
 
-    // THE RUNGS: the work-carrying ask row becomes its own kind (1.53.0), its
-    // outcome becomes where it stands (1.55.0), a mention says what it is
-    // (1.58.0), and the stamp moves, so the reader of today accepts the file
-    // they leave behind.
     splitWorkAskRows_1_53_0(root);
     workAskStanding_1_55_0(root);
     mentionsSayTheirKind_1_58_0(root);
@@ -943,13 +817,10 @@ describe("what an EARLIER COMMIT of this branch wrote, read by head", () => {
     ]);
     const user = rows[0];
     if (user?.kind !== "user") throw new Error("the user row went missing");
-    // Written without the key; read as "nothing rode along", not refused.
     expect(user.attachments).toEqual([]);
-    // The ask about NO work stayed an `ask` — and has nowhere to put a work.
     const ask = rows[2];
     if (ask?.kind !== "ask") throw new Error("the ask row went missing");
     expect("work" in ask).toBe(false);
-    // ... and the one that named a work is the kind that carries one.
     const workAsk = rows[3];
     if (workAsk?.kind !== "work-ask")
       throw new Error("the work-ask row went missing");
@@ -959,11 +830,6 @@ describe("what an EARLIER COMMIT of this branch wrote, read by head", () => {
 });
 
 describe("the 1.53.0 rung — three cards for one branch become one piece of work", () => {
-  /** The human's REAL store at 1.52.0, as their deployed build left it after
-   *  the false "gone" (juspay/kolu#2376, round 4): ONE waterfall — odu's docs
-   *  on `docs-human-reading`, PR #181 — written down three times, two of them
-   *  ended `abandoned`. Host names and home paths are replaced; nothing else
-   *  is touched. */
   const THREE = JSON.parse(
     readFileSync(
       new URL("./fixtures/deployed-1.52.0-three-works.json", import.meta.url),
@@ -987,8 +853,6 @@ describe("the 1.53.0 rung — three cards for one branch become one piece of wor
       }),
     );
     const work = works[id] as Record<string, unknown>;
-    // `abandoned` does not exist: nothing kolu merely failed to SEE ends a
-    // piece of work, so the human's real waterfall is in progress again.
     expect(work.state).toEqual({ kind: "open" });
     expect(work.title).toBe(
       "Rewrite odu's docs for human reading (like kolu PR #2375)",
@@ -1003,15 +867,11 @@ describe("the 1.53.0 rung — three cards for one branch become one piece of wor
     };
     expect(work.decisions.length).toBeGreaterThanOrEqual(8);
     expect(work.decisions.some((one) => one.key === "host")).toBe(false);
-    // Every decision is one arm of the sum or the other, never "answered with
-    // null".
     expect(
       work.decisions.every(
         (one) => one.kind === "asked" || one.kind === "answered",
       ),
     ).toBe(true);
-    // ONE pull request, said once, however many of the three works saw it
-    // open — and every check event carries it.
     const prs = work.events.filter((one) => one.kind === "pr-opened");
     expect(prs).toHaveLength(1);
     expect(prs[0]?.pr).toBe(181);
@@ -1020,8 +880,6 @@ describe("the 1.53.0 rung — three cards for one branch become one piece of wor
         .filter((one) => String(one.kind).startsWith("checks-"))
         .every((one) => one.pr === 181),
     ).toBe(true);
-    // The full timeline: what the three recorded between them, in time order,
-    // with nothing kolu cannot say any more.
     expect(work.events.length).toBeGreaterThan(40);
     expect(work.events.some((one) => one.kind === "ended")).toBe(false);
   });
@@ -1036,7 +894,6 @@ describe("the 1.53.0 rung — three cards for one branch become one piece of wor
       "implementor",
       "planner",
     ]);
-    // The watch bookkeeping rides in the same row — one member, one place.
     expect(rows.every((one) => recordLike(one.watch))).toBe(true);
     expect(
       rows.every(
@@ -1079,11 +936,6 @@ describe("the 1.53.0 rung — three cards for one branch become one piece of wor
 });
 
 describe("the 1.53.0 rung — the human's store as it stands, and its kept files", () => {
-  /** The SAME waterfall, a round later: the human's live 1.52.0 store after
-   *  the Conductor merged PR #181 and closed both terminals, so all THREE
-   *  works are ended `abandoned` and each kept the twenty-odd documents of
-   *  the one `.waterfall/` (juspay/kolu#2376, round 5). Sanitized exactly as
-   *  its sibling fixture is. */
   const ALL_ENDED = JSON.parse(
     readFileSync(
       new URL("./fixtures/deployed-1.52.0-all-ended.json", import.meta.url),
@@ -1104,19 +956,11 @@ describe("the 1.53.0 rung — the human's store as it stands, and its kept files
       state: { kind: string };
       events: Array<Record<string, unknown>>;
     };
-    // Nothing the forge said ended these: `abandoned` is kolu losing sight of
-    // its own terminals, so the work is in progress.
     expect(work.state.kind).toBe("open");
     const files = work.events.filter((one) => one.kind === "file");
-    // Three cards watched one worktree fill up, so the naive union listed
-    // every document three times over.
     expect(files.length).toBeGreaterThan(20);
     expect(new Set(files.map((one) => one.path)).size).toBe(files.length);
-    // Kept files are what an ENDED work left behind; this one is open, and
-    // its files are still in its worktree.
     expect(work.events.some((one) => one.kind === "kept")).toBe(false);
-    // What a person ASKED FOR is not a repetition — three requests were three
-    // things said, and all three stay.
     expect(work.events.filter((one) => one.kind === "requested")).toHaveLength(
       3,
     );
@@ -1128,8 +972,6 @@ describe("the 1.53.0 rung — the human's store as it stands, and its kept files
     const [one, two, three] = ALL_ENDED.works;
     if (one === undefined || two === undefined || three === undefined)
       throw new Error("the fixture lost a work");
-    // Three REAL directories, named by the ids the works are about to lose,
-    // with a file only one of them has and a file all three kept.
     for (const [work, body] of [
       [one, "oldest"],
       [two, "middle"],
@@ -1151,15 +993,12 @@ describe("the 1.53.0 rung — the human's store as it stands, and its kept files
       "oldest.md",
       "plan.md",
     ]);
-    // The same path from three works: the copy of the one that ended LAST is
-    // the one a person reads.
     expect(readFileSync(join(dir, ".waterfall/plan.md"), "utf8")).toBe(
       "newest",
     );
     expect(readFileSync(join(dir, ".waterfall/oldest.md"), "utf8")).toBe(
       "oldest",
     );
-    // No orphan left behind for the sweep to find.
     for (const work of [one, two, three])
       expect(existsSync(join(root, work.id))).toBe(false);
   });
@@ -1171,11 +1010,6 @@ const recordLike = (value: unknown): boolean =>
 describe("the 1.54.0 rung — a role's harness and model are kolu's options", () => {
   const AT_54 = "2026-11-01T00:00:00.000Z";
 
-  /** A real store stamped at 1.53.0, holding the works record below, reopened
-   *  through the LIVE ladder AS FAR AS `to` — 1.54.0 by default, so this
-   *  describe reads what THAT rung produces rather than what a later one does
-   *  to its output. (1.55.0 takes these same decisions to their arms; it has
-   *  its own describe below, and its own walk to the live head.) */
   const walk = (
     works: Record<string, unknown>,
     to = "1.54.0",
@@ -1208,7 +1042,6 @@ describe("the 1.54.0 rung — a role's harness and model are kolu's options", ()
       title: "the setup form",
       startedAt: AT_54,
       decisions: [
-        // (a) an OPEN question the Conductor offered its own model list for.
         {
           kind: "asked",
           id: "d-model",
@@ -1221,7 +1054,6 @@ describe("the 1.54.0 rung — a role's harness and model are kolu's options", ()
           multiple: false,
           file: "",
         },
-        // (b) an ANSWERED harness question, options and all.
         {
           kind: "answered",
           id: "d-harness",
@@ -1241,7 +1073,6 @@ describe("the 1.54.0 rung — a role's harness and model are kolu's options", ()
             from: "card",
           },
         },
-        // ... and a question whose options are still the asker's.
         {
           kind: "asked",
           id: "d-mode",
@@ -1254,7 +1085,6 @@ describe("the 1.54.0 rung — a role's harness and model are kolu's options", ()
           multiple: false,
           file: "",
         },
-        // (c) a LEGACY TYPED answer: the value lived in `text`.
         {
           kind: "answered",
           id: "d-typed",
@@ -1274,8 +1104,6 @@ describe("the 1.54.0 rung — a role's harness and model are kolu's options", ()
             from: "card",
           },
         },
-        // (d) a legacy MULTIPLE answer, with a typed value beside it: the
-        // reading took `picked[0]`, so that is the one value kept.
         {
           kind: "answered",
           id: "d-many",
@@ -1295,7 +1123,6 @@ describe("the 1.54.0 rung — a role's harness and model are kolu's options", ()
             from: "card",
           },
         },
-        // (e) a typed value kolu will refuse at start — kept VERBATIM here.
         {
           kind: "answered",
           id: "d-fable",
@@ -1313,7 +1140,6 @@ describe("the 1.54.0 rung — a role's harness and model are kolu's options", ()
             from: "card",
           },
         },
-        // (f) a DECLINED kolu-choice answer: no value at all.
         {
           kind: "answered",
           id: "d-declined",
@@ -1331,7 +1157,6 @@ describe("the 1.54.0 rung — a role's harness and model are kolu's options", ()
             from: "card",
           },
         },
-        // (g) an ANSWERED `mode` question, typed: not kolu's to narrow.
         {
           kind: "answered",
           id: "d-mode-answered",
@@ -1351,7 +1176,6 @@ describe("the 1.54.0 rung — a role's harness and model are kolu's options", ()
             from: "card",
           },
         },
-        // (h) a KEYLESS answered question: nothing here names it.
         {
           kind: "answered",
           id: "d-keyless",
@@ -1389,15 +1213,11 @@ describe("the 1.54.0 rung — a role's harness and model are kolu's options", ()
   it("drops options and multiple from the four kolu-choice decisions only", () => {
     const after = decisionsOf(walk(structuredClone(WORKS)));
 
-    // The open question becomes one kolu draws the options for — which is
-    // what makes it answerable at all after this change.
     expect(after["d-model"]).toBeDefined();
     expect("options" in (after["d-model"] ?? {})).toBe(false);
     expect("multiple" in (after["d-model"] ?? {})).toBe(false);
     expect(after["d-model"]?.question).toBe("Which model should plan?");
 
-    // The answered one loses the same two fields and keeps its answer: that
-    // `picked` is what the readings read.
     expect("options" in (after["d-harness"] ?? {})).toBe(false);
     expect("multiple" in (after["d-harness"] ?? {})).toBe(false);
     expect(after["d-harness"]?.answer).toEqual({
@@ -1408,7 +1228,6 @@ describe("the 1.54.0 rung — a role's harness and model are kolu's options", ()
       from: "card",
     });
 
-    // A question whose options are the asker's keeps them.
     expect(after["d-mode"]?.options).toEqual(["full", "trivial"]);
     expect(after["d-mode"]?.multiple).toBe(false);
   });
@@ -1416,7 +1235,6 @@ describe("the 1.54.0 rung — a role's harness and model are kolu's options", ()
   it("narrows every kolu-choice answer to the one value the reading took", () => {
     const after = decisionsOf(walk(structuredClone(WORKS)));
 
-    // A legacy TYPED answer: the value moves out of `text` into `picked`.
     expect(after["d-typed"]?.answer).toEqual({
       at: AT_54,
       how: "answered",
@@ -1424,8 +1242,6 @@ describe("the 1.54.0 rung — a role's harness and model are kolu's options", ()
       text: null,
       from: "card",
     });
-    // A legacy MULTIPLE answer keeps the first pick — what was read before —
-    // and the typed text beside it goes.
     expect(after["d-many"]?.answer).toEqual({
       at: AT_54,
       how: "answered",
@@ -1433,8 +1249,6 @@ describe("the 1.54.0 rung — a role's harness and model are kolu's options", ()
       text: null,
       from: "card",
     });
-    // A typed value kolu cannot offer is kept VERBATIM: refusing it is the
-    // start's job, not the rung's.
     expect(after["d-fable"]?.answer).toEqual({
       at: AT_54,
       how: "answered",
@@ -1442,7 +1256,6 @@ describe("the 1.54.0 rung — a role's harness and model are kolu's options", ()
       text: null,
       from: "card",
     });
-    // Declined: no value, and the text that came with it goes too.
     expect(after["d-declined"]?.answer).toEqual({
       at: AT_54,
       how: "declined",
@@ -1486,13 +1299,9 @@ describe("the 1.54.0 rung — a role's harness and model are kolu's options", ()
   });
 
   it("decodes through the live works schema once the ladder is walked out, and runs again as a no-op", () => {
-    // The live schema is the HEAD's, so the record is taken to the head: what
-    // 1.54.0 leaves is 1.55.0's input, and the two together are what a
-    // person's store does on the boot after this change.
     const once = walk(structuredClone(WORKS), SCHEMA_VERSION);
     const decoded = Schema.decodeUnknownResult(PersistedWorksSchema)(once);
     expect(Result.isSuccess(decoded)).toBe(true);
-    // Idempotent: the walked record fed back through the rungs is unchanged.
     expect(walk(structuredClone(once), SCHEMA_VERSION)).toEqual(once);
   });
 });
@@ -1502,10 +1311,6 @@ describe("the 1.55.0 rung — no hole in the work model", () => {
   const ID = "branch:local/%2Frepo/setup-choices";
   const REF = "local/aaaa";
 
-  /** A real store stamped at 1.54.0, walked to the LIVE head — what the boot
-   *  after this change does to a person's file, transcript and all. Answers
-   *  the whole config plus the state root, so a case can read the transcript
-   *  the rung rewrote beside it. */
   const walk = (
     seed: Record<string, unknown>,
   ): { readonly state: Record<string, unknown> } => {
@@ -1528,7 +1333,6 @@ describe("the 1.55.0 rung — no hole in the work model", () => {
     return { state: readJson(store.path) };
   };
 
-  /** One work's decisions after the walk, by their own ids. */
   const decisionsOf = (
     state: Record<string, unknown>,
   ): Record<string, Record<string, unknown>> => {
@@ -1541,7 +1345,6 @@ describe("the 1.55.0 rung — no hole in the work model", () => {
     return all;
   };
 
-  /** A 1.54.0 work, open unless the case ends it. */
   const workWith = (
     decisions: ReadonlyArray<Record<string, unknown>>,
     events: ReadonlyArray<Record<string, unknown>> = [],
@@ -1557,8 +1360,6 @@ describe("the 1.55.0 rung — no hole in the work model", () => {
     },
   });
 
-  /** The shape a 1.54.0 decision has: every field, including the two a setup
-   *  question has no use for and the `key: null` a work question carried. */
   const decision = (fields: Record<string, unknown>) => ({
     kind: "asked",
     ask: "ask-1",
@@ -1635,8 +1436,6 @@ describe("the 1.55.0 rung — no hole in the work model", () => {
         },
       },
     });
-    // No key at all on a question about the work — and an answer kolu
-    // carried over from the file it kept says so by name.
     expect("key" in (after["d-typed"] ?? {})).toBe(false);
     expect(after["d-typed"]?.header).toEqual({ kind: "none" });
     expect(after["d-typed"]?.file).toEqual({ kind: "none" });
@@ -1659,7 +1458,6 @@ describe("the 1.55.0 rung — no hole in the work model", () => {
           key: "mode",
           header: "How",
           question: "How should this run?",
-          // `stop` is nobody's word for a mode: it cannot be offered.
           options: ["full", "trivial", "stop"],
           multiple: true,
           answer: {
@@ -1735,15 +1533,12 @@ describe("the 1.55.0 rung — no hole in the work model", () => {
       options: ["full", "trivial"],
       answer: { how: "answered", at: AT, from: "card", value: "full" },
     });
-    // A typed on-green answer is one of kolu's words once it is trimmed.
     expect(after["d-green"]?.answer).toEqual({
       how: "answered",
       at: AT,
       from: "chat",
       value: "merge",
     });
-    // Kolu's own choices carry no options at all — and, walked on to head,
-    // say how they were chosen (1.56.0).
     expect("options" in (after["d-harness"] ?? {})).toBe(false);
     expect(after["d-harness"]?.answer).toEqual({
       how: "answered",
@@ -1752,8 +1547,6 @@ describe("the 1.55.0 rung — no hole in the work model", () => {
       value: "omp",
       chosen: "picked",
     });
-    // A decline keeps the face it was said on; a decline with no face is
-    // nobody declining, which is what `dropped` means.
     expect(after["d-declined"]?.answer).toEqual({
       how: "declined",
       at: AT,
@@ -1872,8 +1665,6 @@ describe("the 1.55.0 rung — no hole in the work model", () => {
     expect(events[3]?.why).toEqual({ kind: "reason", text: "needs a model" });
     expect(events[4]?.head).toEqual({ kind: "unreported" });
     expect(events[5]?.head).toEqual({ kind: "commit", sha: "abc1234" });
-    // The ask this rung just re-opened was never finished, so the line that
-    // said it was says what is true instead.
     expect(events[6]?.kind).toBe("answered-part");
   });
 
@@ -1993,12 +1784,9 @@ describe("the 1.55.0 rung — no hole in the work model", () => {
     const file = readJson(transcriptFilePath(dir));
     expect(file.version).toBe("1.55.0");
     const rows = file.rows as Array<Record<string, unknown>>;
-    // A plain ask — the agent holding a call open on a person — is not this
-    // rung's business.
     expect(rows[0]).toEqual(plain);
     const askOf = (at: number) => rows[at]?.ask as Record<string, unknown>;
     expect(askOf(1)).toEqual({ fields: [], standing: { kind: "open" } });
-    // The link goes, and only the answers that HAVE values are answers.
     expect(askOf(2)).toEqual({
       fields: [],
       standing: {
@@ -2006,20 +1794,15 @@ describe("the 1.55.0 rung — no hole in the work model", () => {
         answers: [{ key: "planner.harness", values: ["omp"] }],
       },
     });
-    // "Answered" with nothing in it is nobody answering.
     expect(askOf(3)).toEqual({ fields: [], standing: { kind: "declined" } });
     expect(askOf(4)).toEqual({ fields: [], standing: { kind: "withdrawn" } });
 
-    // Idempotent, and a file with nothing left to do is not rewritten.
     const again = readFileSync(transcriptFilePath(dir), "utf8");
     workAskStanding_1_55_0(dir);
     expect(readFileSync(transcriptFilePath(dir), "utf8")).toBe(again);
   });
 
   it("restamps a transcript with no work-ask row, and names why a refusal was signed out", () => {
-    // A transcript after a New session holds no form at all — and the reader
-    // takes exactly the stamp it was built with, so leaving this at 1.53.0
-    // would refuse the file on the boot that ran the rung.
     const dir = mkdtempSync(join(tmpdir(), "kolu-transcript-stamp-"));
     dirs.push(dir);
     writeTranscriptFile(transcriptFilePath(dir), "1.53.0", [
@@ -2083,10 +1866,6 @@ describe("the 1.55.0 rung — no hole in the work model", () => {
   });
 
   describe("the human's own bytes", () => {
-    /** THE DECISION THIS ROUND EXISTS FOR, exactly as it sits in the human's
-     *  store: "answered", from the chat, with nothing picked and nothing
-     *  typed. Two of them — one model question per role — on an OPEN work
-     *  whose harness, mode and on-green answers all landed. */
     const emptyModel = (role: string) => ({
       id: `d-${role}-model`,
       ask: "ask-setup",
@@ -2163,7 +1942,6 @@ describe("the 1.55.0 rung — no hole in the work model", () => {
         expect(one?.key).toBe(`${role}.model`);
         expect("answer" in (one ?? {})).toBe(false);
       }
-      // What they DID answer is still answered.
       expect(after["d-mode"]?.answer).toEqual({
         how: "answered",
         at: AT,
@@ -2177,8 +1955,6 @@ describe("the 1.55.0 rung — no hole in the work model", () => {
         value: "omp",
         chosen: "picked",
       });
-      // The form was not finished, so the line that said it was does not say
-      // it any more.
       const events = (
         state.works as Record<
           string,
@@ -2187,7 +1963,6 @@ describe("the 1.55.0 rung — no hole in the work model", () => {
       )[ID]?.events;
       expect(events?.[0]?.kind).toBe("answered-part");
 
-      // ... and the whole record reads back through the live schema.
       const decoded = Schema.decodeUnknownResult(PersistedWorksSchema)(
         state.works,
       );
@@ -2210,7 +1985,6 @@ describe("the 1.56.0 rung — an answer to one of kolu's questions says how it w
   const AT = "2026-11-15T00:00:00.000Z";
   const ID = "branch:local/%2Frepo/setup-choices";
 
-  /** One 1.55.0 decision: settled, in the shape that rung left. */
   const settled = (id: string, key: string, answer: Record<string, unknown>) =>
     key === "mode" || key === "on-green"
       ? {
@@ -2270,8 +2044,6 @@ describe("the 1.56.0 rung — an answer to one of kolu's questions says how it w
     },
   };
 
-  /** A real store stamped at 1.55.0 — the shape the human's store holds —
-   *  walked to the live head. */
   const walk = (works: Record<string, unknown>) => {
     const dir = mkdtempSync(join(tmpdir(), "kolu-how-chosen-"));
     dirs.push(dir);
@@ -2307,7 +2079,6 @@ describe("the 1.56.0 rung — an answer to one of kolu's questions says how it w
       chosen: "picked",
     });
     expect(answerOf("d-model")).toMatchObject({ chosen: "picked" });
-    // Not one of kolu's choices, or not answered: the same bytes.
     expect(answerOf("d-mode")).toEqual({
       how: "answered",
       at: AT,
@@ -2341,8 +2112,6 @@ describe("the 1.57.0 rung — a PR's address and the forge's merge answer", () =
   const HEAD = { kind: "commit", sha: "4f21a9c" };
   const WORK = { kind: "work" };
 
-  /** A finished work as 1.56.0 stores it: a PR opened with no address, its
-   *  checks passed (which then WAS green) and the forge merged it. */
   const SEED = {
     [ID]: {
       key: { kind: "branch", host: "local", repo: "/repo", branch: "b" },
@@ -2412,8 +2181,6 @@ describe("the 1.57.0 rung — a PR's address and the forge's merge answer", () =
     head,
     failing: [],
   });
-  /** A work still in flight whose checks passed, a finished one that had two
-   *  PRs, and a pass already followed by the forge saying it cannot merge. */
   const MORE = {
     [OPEN]: {
       key: { kind: "branch", host: "local", repo: "/repo", branch: "o" },
@@ -2454,7 +2221,6 @@ describe("the 1.57.0 rung — a PR's address and the forge's merge answer", () =
     },
   };
 
-  /** A real store stamped at 1.56.0, walked to the live head. */
   const walk = (works: Record<string, unknown>) => {
     const dir = mkdtempSync(join(tmpdir(), "kolu-pr-facts-"));
     dirs.push(dir);
@@ -2511,15 +2277,10 @@ describe("the 1.57.0 rung — a PR's address and the forge's merge answer", () =
       string,
       { events: Record<string, unknown>[] }
     >;
-    // IN FLIGHT: an address it will learn, and no answer it never had — its
-    // next reading records GitHub's. (The walk runs to head, so the 1.61.0
-    // rung's draft word is on it too.)
     expect(works[OPEN]?.events).toEqual([
       { ...opened(4), url: { kind: "unrecorded" }, draft: "unrecorded" },
       passed(4, HEAD),
     ]);
-    // FINISHED, TWO PRs: the first was closed unmerged, so its pass gets no
-    // answer; the second's pass already had its answer, which stands.
     const two = works[TWO]?.events ?? [];
     expect(two.map((one) => one.kind)).toEqual([
       "pr-opened",
@@ -2578,9 +2339,6 @@ describe("the 1.58.0 rung — a mention says what it is", () => {
     mentionsSayTheirKind_1_58_0(dir);
 
     const file = readJson(transcriptFilePath(dir));
-    // THIS RUNG'S OWN NUMBER, frozen: a rung keeps the number it stamped even
-    // after head moves on (`TRANSCRIPT_VERSION_1_58_0`), and the rung after it
-    // is what carries the file to the live version.
     expect(file.version).toBe("1.58.0");
     expect(file.rows).toEqual([
       { id: "u1", seq: 1, since: AT, kind: "user", text: "hi" },
@@ -2594,18 +2352,10 @@ describe("the 1.58.0 rung — a mention says what it is", () => {
       },
       { id: "a1", seq: 3, since: AT, kind: "agent", text: "Looking." },
     ]);
-    // Idempotent: a file with nothing left to do is not rewritten. Asked of a
-    // file at THIS rung's number, which is the only state in which this rung
-    // ever runs — the ladder runs only rungs above what a file holds.
     const again = readFileSync(transcriptFilePath(dir), "utf8");
     mentionsSayTheirKind_1_58_0(dir);
     expect(readFileSync(transcriptFilePath(dir), "utf8")).toBe(again);
 
-    // ... AND THE READER OF TODAY TAKES WHAT IT LEAVES BEHIND only once the
-    // rungs after it have run: a file stamped with anything but the live
-    // version is refused BY NAME, which is what makes a half-walked file a
-    // refusal rather than a guess. This rung's own number is frozen; the one
-    // after it carries the file to head.
     toolOutings_1_59_0(dir);
     expect(readJson(transcriptFilePath(dir)).version).toBe(
       TRANSCRIPT_FILE_VERSION,
@@ -2638,10 +2388,6 @@ describe("the 1.59.0 rung — a tool row may say when this outing began", () => 
   ];
 
   it("leaves every row exactly as it found it, and moves the stamp", () => {
-    // `resumed` is a field a row may now CARRY, never one a saved row was
-    // missing: a reader takes its absence as "first outing". So this rung
-    // rewrites nothing — the file's stamp is the whole of its work, and the
-    // reader of today accepts what it leaves behind.
     const dir = mkdtempSync(join(tmpdir(), "kolu-tool-outings-"));
     dirs.push(dir);
     writeTranscriptFile(transcriptFilePath(dir), "1.58.0", ROWS as never);
@@ -2671,9 +2417,6 @@ describe("the 1.59.0 rung — a tool row may say when this outing began", () => 
   });
 
   it("leaves a file it cannot read exactly as it is, for the reader to refuse by name", () => {
-    // A transcript file that is not JSON at all. A rung that "repaired" it
-    // would be a rung that ate somebody's conversation; leaving it is what
-    // lets the reader refuse it by name with the bytes still on disk.
     const dir = mkdtempSync(join(tmpdir(), "kolu-tool-outings-torn-"));
     dirs.push(dir);
     const path = transcriptFilePath(dir);
@@ -2749,9 +2492,6 @@ describe("the 1.61.0 rung — a pull request says whether it opened as a draft",
     outcome: { kind: "merged", pr },
     kept: [],
   });
-  /** A 1.60.0 store: a finished work, a work in progress holding GitHub's
-   *  `can`, a work that had two PRs, a work with no PR — and a member's
-   *  watch, which the rung must leave alone. */
   const SEED = {
     [FINISHED]: work(
       "finished",
@@ -2807,7 +2547,6 @@ describe("the 1.61.0 rung — a pull request says whether it opened as a draft",
     },
   };
 
-  /** A real store stamped at 1.60.0, walked to the live head. */
   const walk = () => {
     const dir = mkdtempSync(join(tmpdir(), "kolu-pr-draft-"));
     dirs.push(dir);
@@ -2835,8 +2574,6 @@ describe("the 1.61.0 rung — a pull request says whether it opened as a draft",
       string,
       { events: ReadonlyArray<Record<string, unknown>> }
     >;
-    // Every `pr-opened` gains the word; every other event is as it was, and
-    // no `draft-state` is invented.
     const expected = Object.fromEntries(
       Object.entries(SEED).map(([id, one]) => [
         id,
@@ -2880,8 +2617,6 @@ describe("the 1.61.0 rung — a pull request says whether it opened as a draft",
     const decoded = Schema.decodeUnknownSync(PersistedWorksSchema)(state.works);
     const upgraded = decoded[IN_PROGRESS];
     if (upgraded === undefined) throw new Error("no work in progress");
-    // 1.60.0's reading is the one a PR opened READY gets today: the open
-    // ends the build. The upgraded work must read the same, cell for cell.
     const asBefore = {
       ...upgraded,
       events: upgraded.events.map((event) =>

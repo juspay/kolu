@@ -1,8 +1,3 @@
-/** A profile's lock, for the references that need no Nix — a path is used as
- *  it is, a relative one or a bare word is refused — and how a failed Nix run
- *  reads: the cause on one line, Nix's output under it. (Fetching a flake
- *  reference and building one run Nix, and are the delivery's e2e.) */
-
 import type { ExecFileException } from "node:child_process";
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -54,9 +49,6 @@ describe("nixWords", () => {
   });
 
   it("takes the thrown message, not an `error:` frame the trace above it prints", () => {
-    // What `builtins.throw` in agent-distro's `mkProfile` prints for a
-    // repository that still carries an `agent-distro.nix`: the trace frames
-    // come first, and one of them carries `error:` too.
     expect(
       nixWords(
         [
@@ -82,9 +74,6 @@ describe("nixWords", () => {
 
 describe("nixFailure — a failed Nix run as one failure message", () => {
   const TIMEOUT = 15 * 60_000;
-  /** `execFile`'s error for a run that ended as `fields` say (its shape
-   *  confirmed against Node: a timeout kill sets `killed`, an overflow sets
-   *  `code`). */
   const ended = (fields: Partial<ExecFileException>): ExecFileException =>
     Object.assign(new Error("Command failed: nix build"), fields);
   const read = (stderr: string, error: ExecFileException) =>

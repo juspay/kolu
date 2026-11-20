@@ -1,26 +1,3 @@
-/**
- * THE REFUSAL THAT DOES NOT STRAND ANYBODY — `conductor.recoverStore`'s two
- * ways out of a record this build cannot read, over the REAL store, the REAL
- * backup ring and a real conductor host.
- *
- * Four promises:
- *  - the refusal itself says what happened in plain words and tells nobody to
- *    edit a file;
- *  - *Restore the newest backup that reads* steps OVER the snapshots that
- *    carry the corruption (the newest ones usually do) and takes the newest
- *    one that decodes through the real ladder — and the Conductor comes up
- *    without a restart;
- *  - *Start with no works* keeps the unreadable value in a named file beside
- *    `config.json` and starts the record empty — never a silent reset;
- *  - when no backup reads either, that is a sentence a person is told, not a
- *    crash.
- *
- * The store is kolu-server's own module singleton under the harness's
- * ephemeral `KOLU_STATE_DIR`, for the reason `persistence.test.ts` states:
- * what is under test is the FILE, and a parallel `Conf` built here would
- * prove something about a store nothing ships.
- */
-
 import {
   existsSync,
   mkdirSync,
@@ -71,8 +48,6 @@ const conductorStore = confStore<PersistedConductor>(store, "conductor");
 const worksStore = confStore<PersistedWorks>(store, "works");
 const membersStore = confStore<PersistedMembers>(store, "members");
 
-/** A piece of work in today's shape — no members, because what these tests
- *  are about is the KEY, not what is inside it. */
 const work = (branch: string, title: string): Work => ({
   key: { kind: "branch", host: "local", repo: "/srv/repo", branch },
   title,
@@ -82,13 +57,9 @@ const work = (branch: string, title: string): Work => ({
   state: { kind: "open" },
 });
 
-/** The same, as the one-entry record the store holds. */
 const works = (...all: ReadonlyArray<Work>): PersistedWorks =>
   Object.fromEntries(all.map((one) => [workIdOf(one.key), one]));
 
-/** A host over the REAL conf store and the REAL transcript file, with the
- *  conversation itself absent: every one of these scenarios is a bring-up
- *  that never reaches an agent, so a spawn that is never called is honest. */
 function hostOver(): ConductorHost {
   return startConductorHost({
     log,
@@ -123,8 +94,6 @@ function hostOver(): ConductorHost {
   });
 }
 
-/** The recovery, driven exactly as the `conductor.recoverStore` handler drives
- *  it. */
 const recover = (
   host: ConductorHost,
   key: "conductor" | "works" | "members" | "transcript",
@@ -135,7 +104,6 @@ const recover = (
     { state: () => host.state(), reload: () => host.reloadRecords() },
   );
 
-/** Snapshot the live store into the ring, and answer the file it landed in. */
 function snapshot(): string {
   const outcome = stateBackupRing.snapshot();
   if (outcome.kind !== "created") {
@@ -144,13 +112,10 @@ function snapshot(): string {
   return outcome.file;
 }
 
-/** The value a corrupt `works` key holds: a work whose title is a number —
- *  the shape a rolled-back binary or a half-written rung leaves behind. */
 const CORRUPT_WORKS = {
   "branch:local/%2Fsrv%2Frepo/bad": { ...work("bad", "the bad one"), title: 7 },
 } as unknown as PersistedWorks;
 
-/** Make the first reader trip, and hand back what the panel is now showing. */
 function refuse(host: ConductorHost): {
   refusal: string;
   unreadable: ConductorUnreadable;
@@ -164,7 +129,6 @@ function refuse(host: ConductorHost): {
   return { refusal: state.refusal, unreadable };
 }
 
-/** Every file the recovery may have kept aside, newest-ish first. */
 const keptAside = (): string[] =>
   existsSync(join(stateRoot, "conductor"))
     ? readdirSync(join(stateRoot, "conductor")).filter((name) =>
@@ -195,13 +159,9 @@ describe("a record this build cannot read", () => {
     expect(said.refusal).toBe(
       `kolu could not read the Conductor's saved works — the saved value is in a shape this build does not understand. Nothing has been changed: ${store.path} still holds them.`,
     );
-    // The whole of the old sentence's advice, gone: no key to fix, no file to
-    // delete, no editor to open.
     expect(said.refusal).not.toMatch(/fix|delete|edit/i);
     expect(said.unreadable.key).toBe("works");
     expect(said.unreadable.path).toBe(store.path);
-    // ...and the schema's own words ride along for a bug report, beside the
-    // sentence rather than inside it.
     expect(said.unreadable.detail).toContain("title");
   });
 
@@ -218,9 +178,6 @@ describe("a record this build cannot read", () => {
 
 describe("restore the newest backup that reads", () => {
   it("steps over the snapshots that carry the corruption and brings the Conductor up", () => {
-    // Three snapshots: one work, then two, then the corruption — which is the
-    // ordinary shape of this accident, because the newest snapshots were taken
-    // after whatever broke the store.
     worksStore.set(works(work("one", "the first")));
     snapshot();
     worksStore.set(works(work("one", "the first"), work("two", "the second")));
@@ -232,24 +189,15 @@ describe("restore the newest backup that reads", () => {
     refuse(host);
     const { said } = recover(host, "works", "backup");
 
-    // The snapshot it took is NAMED — the same file name the backups dialog
-    // shows, so a person can tell which one came back.
     expect(said).toContain(good);
     expect(said).toContain("2 pieces of work came back");
     expect(said).toContain("The Conductor is up.");
-    // ...and the Conductor IS up, in this process, with no restart: the state
-    // it publishes carries no refusal, and the works are the snapshot's.
     expect(host.state().refusal).toBeNull();
     expect(host.state().unreadable).toBeNull();
     expect(host.works().map(([, one]) => one.title)).toEqual([
       "the first",
       "the second",
     ]);
-    // The store that could not be read is STILL IN THE RING, so the recovery
-    // is itself undoable: the ring takes its own undo snapshot before `apply`
-    // runs, and skips it only when it would be byte-identical to the newest
-    // member — which here it is, because the corrupt store was snapshotted a
-    // moment ago. Three members, one of them the corruption.
     expect(stateBackupRing.list().length).toBe(3);
   });
 
@@ -270,9 +218,7 @@ describe("restore the newest backup that reads", () => {
     }
     expect(why).toContain("no backup reads either");
     expect(why).toContain("2 saved snapshots");
-    // The refusal points at the other button rather than at a text editor.
     expect(why).toContain("keeps the unreadable one in a file of its own");
-    // Nothing was written: the record is still exactly what it was.
     expect(store.get("works")).toEqual({ "work:worse": { title: 1 } });
   });
 
@@ -300,15 +246,11 @@ describe("start with the record empty", () => {
     expect(kept.length).toBe(1);
     const name = kept[0] ?? "";
     expect(name).toMatch(/^unreadable-works-.*\.json$/);
-    // The answer NAMES the file, because "nothing was deleted" is a promise
-    // and a path is a fact.
     expect(said).toContain(join(stateRoot, "conductor", name));
     expect(said).toContain("nothing was deleted");
-    // The bytes are the ones that could not be read, kept whole...
     expect(
       JSON.parse(readFileSync(join(stateRoot, "conductor", name), "utf8")),
     ).toEqual(CORRUPT_WORKS);
-    // ...the key is empty, and the Conductor is up in this process.
     expect(store.get("works")).toEqual({});
     expect(host.state().refusal).toBeNull();
     expect(host.works()).toEqual([]);
@@ -326,8 +268,6 @@ describe("start with the record empty", () => {
 
     const kept = keptAside();
     expect(kept.length).toBe(1);
-    // MOVED, not copied and not parsed: bytes this build could not read are
-    // bytes it has no business rewriting.
     expect(existsSync(path)).toBe(false);
     expect(
       readFileSync(join(stateRoot, "conductor", kept[0] ?? ""), "utf8"),

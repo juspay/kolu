@@ -1,9 +1,3 @@
-/** The real ops: the index read — which package a host pulls, read off
- *  agent-distro's index over HTTPS (a 200 is the paths, a 404 says "not
- *  published", anything else is loud) — the words a pull that did not land is
- *  reported in, and how a profile built here is shipped to a host and the
- *  words a refusal is reported in. */
-
 import { deliverClosure, pullClosure } from "@kolu/surface-remote";
 import { describe, expect, it, vi } from "vitest";
 import { readPublishedPackage, realDeliveryOps } from "./ops.ts";
@@ -45,8 +39,6 @@ describe("readPublishedPackage", () => {
       "agent-distro has not published its agents for armv7l-linux yet",
     );
   });
-  // The reader's own faults (no answer, another status, not an entry) are
-  // `@kolu/surface-remote`'s `closureIndex.test.ts`.
 });
 
 const CACHE = "https://cache.example.org/oss";
@@ -75,7 +67,7 @@ describe("realDeliveryOps.pull", () => {
 
   it("a Linux host pulls the content-addressed package, trusting no key, rooted under kolu's package link", async () => {
     vi.mocked(pullClosure).mockResolvedValueOnce({ ok: true });
-    expect(await pull()).toEqual({ ok: true, bundle: ENTRY.ca });
+    expect(await pull()).toEqual({ ok: true, value: ENTRY.ca });
     expect(pulled()).toMatchObject({
       host: "ci@box",
       cacheUrl: CACHE,
@@ -89,7 +81,7 @@ describe("realDeliveryOps.pull", () => {
     vi.mocked(pullClosure).mockResolvedValueOnce({ ok: true });
     expect(await pull("aarch64-darwin")).toEqual({
       ok: true,
-      bundle: ENTRY.ia,
+      value: ENTRY.ia,
     });
     expect(pulled()).toMatchObject({ storePath: ENTRY.ia, signedBy: KEY });
   });
@@ -98,7 +90,7 @@ describe("realDeliveryOps.pull", () => {
     vi.mocked(pullClosure).mockResolvedValueOnce({ ok: true });
     expect(await pull("x86_64-linux", "ci@box", "2.35.2")).toEqual({
       ok: true,
-      bundle: ENTRY.ia,
+      value: ENTRY.ia,
     });
     expect(pulled()).toMatchObject({ storePath: ENTRY.ia, signedBy: KEY });
     vi.mocked(pullClosure).mockResolvedValueOnce({
@@ -179,7 +171,7 @@ describe("realDeliveryOps.ship", () => {
       ok: true,
       outPath: "/nix/store/ca-on-box",
     });
-    expect(await ship()).toEqual({ ok: true, path: "/nix/store/ca-on-box" });
+    expect(await ship()).toEqual({ ok: true, value: "/nix/store/ca-on-box" });
     const args = delivered();
     expect(args).toMatchObject({
       host: "ci@box",
@@ -190,7 +182,6 @@ describe("realDeliveryOps.ship", () => {
       /^\.local\/state\/kolu\/agent-distro\/gcroots\/profile-[0-9a-f]{16}$/,
     );
     expect(await args?.system()).toBe("x86_64-linux");
-    // The same reference keeps its root; another gets its own.
     vi.mocked(deliverClosure).mockResolvedValueOnce({
       ok: true,
       outPath: BUILT,

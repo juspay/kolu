@@ -1,20 +1,7 @@
-/**
- * `padiFailureOf` — the `serveHostMap` `failureOf` classifier pulled out of the
- * composition root so its contract is a tested pure function (not buried in
- * `index.ts`). It is the seam where a padi arm's arm-local
- * {@link PadiEntryFailedDetail} plus the transport DOWN state become the map's
- * schema-valid {@link PadiEntryFailure} — and, crucially, where a LOCAL arm's
- * terminal give-up (whose `entryFailedDetail()` is ALWAYS null) is classified as
- * `local-start-failed` instead of yielding `null` into `serveHostMap`'s fail-loud
- * `UnclassifiedHostFailureError` (the F1 regression).
- */
-
 import type { DownSessionState } from "@kolu/surface-remote";
 import { describe, expect, it } from "vitest";
 import { padiFailureOf } from "./padiSession.ts";
 
-/** A minimal terminal-`failed` DOWN state (the give-up arm: `cause` is the
- *  `"remote"` literal by `SessionState`'s own type). */
 const failed = (error: string): DownSessionState => ({
   phase: "failed",
   error,
@@ -24,7 +11,6 @@ const failed = (error: string): DownSessionState => ({
   campaignEpoch: 0,
 });
 
-/** A minimal transient `disconnected` DOWN state (still retrying). */
 const disconnected = (
   error: string,
   cause: "network" | "remote" = "network",
@@ -37,9 +23,6 @@ const disconnected = (
   campaignEpoch: 0,
 });
 
-// `provisions`: false = the LOCAL endpoint arm (no agent provisioning), true = a provisioning
-// ssh arm. It's the runtime twin of the session's `Prov` and the discriminant
-// `padiFailureOf` uses to name a no-detail terminal give-up.
 const LOCAL = false;
 const REMOTE = true;
 
@@ -74,12 +57,6 @@ describe("padiFailureOf — detail + transport state → published PadiEntryFail
     expect(padiFailureOf(REMOTE, null, disconnected("link blip"))).toBeNull();
   });
 
-  // F1: the LOCAL arm's `entryFailedDetail()` is ALWAYS null, but it can still reach a
-  // terminal `failed` (repeated bounded give-ups: a spawn-error / wedged handshake that
-  // never respawns). A null detail on a terminal give-up must NOT ride into the map's
-  // `UnclassifiedHostFailureError` seam. Classified off the ARM (`provisions`): a
-  // non-provisioning give-up is `local-start-failed` (a distinct producer: the padi
-  // couldn't start on this machine), never collapsed into a remote give-up.
   it("classifies a LOCAL (non-provisioning) terminal give-up with no detail as local-start-failed", () => {
     expect(
       padiFailureOf(
@@ -93,10 +70,6 @@ describe("padiFailureOf — detail + transport state → published PadiEntryFail
     });
   });
 
-  // The remote arm's generic give-up carries no finer detail (its `link-failed`
-  // convergence is not copied into one): it classifies off the arm and the session's
-  // own state — a remote give-up named by its transport cause, never mislabeled
-  // `local-start-failed`.
   it("classifies a REMOTE (provisioning) terminal give-up with no detail by its transport cause", () => {
     expect(
       padiFailureOf(REMOTE, null, failed("ssh gave up after 5 dials")),
@@ -104,8 +77,6 @@ describe("padiFailureOf — detail + transport state → published PadiEntryFail
       cause: "host-setup-failed",
       reason: "ssh gave up after 5 dials",
     });
-    // A `"network"` give-up is the silence budget running out — it never learned
-    // the host is unreachable, and the cause says only what it knows.
     expect(
       padiFailureOf(REMOTE, null, {
         ...failed("'nix build' no output for 960000ms — giving up"),

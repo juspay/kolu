@@ -6,12 +6,6 @@ export interface TlsOptions {
   cert: string;
 }
 
-/**
- * Resolve TLS options from CLI flags.
- * Returns `undefined` when TLS is not requested — the same spelling for "absent"
- * that `serveSurfaceApp`'s optional `tls` takes, so the boot hands the result
- * straight through instead of translating one flavour of nothing into another.
- */
 export async function resolveTlsOptions(flags: {
   tls: boolean;
   tlsCert?: string;

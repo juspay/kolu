@@ -1,57 +1,33 @@
-/**
- * D2 pin — the stale-reserve-on-flap eviction (relocated out of the map layer into
- * kolu-server's own mirror cache). A guest host that leaves the pool must have its cached
- * re-serve mirror dropped, so a remove→re-add of the SAME key builds a FRESH mirror over the
- * new session rather than reusing the dead one pinned to the destroyed session (#1708).
- *
- * `pruneToMembers` is the body wired to `pool.subscribe` in `index.ts`; testing it directly
- * pins the eviction wiring (drop non-members, keep members) without booting the whole server.
- * The remove→re-add → fresh-mirror behaviour then follows from this eviction (the slot is
- * gone) composed with `reServeFor`'s build-on-cache-miss (`if (r === undefined) build`).
- */
-
 import { describe, expect, it, vi } from "vitest";
 import { pruneToMembers } from "./reServeEviction.ts";
 
-// `index.ts` keys its real `reServes` cache by the pool's canonical STRING
-// (`encodeHostKey`) — plain strings exercise the same key-membership logic without
-// dragging in the HostKey codec.
 describe("pruneToMembers", () => {
   it("drops entries whose host has left the pool, keeps members", () => {
-    // Sentinel values stand in for the real `ReServedSurface` mirrors — the prune only cares
-    // about key membership, never the value.
     const cache = new Map<string, string>([
       ["remote:zest", "zest-mirror"],
       ["remote:bogus", "bogus-mirror"],
     ]);
 
-    // `remote:zest` is still a pool member; `remote:bogus` has been removed.
     const members = new Set(["remote:zest"]);
     const onEvict = vi.fn();
     pruneToMembers(cache, (h) => members.has(h), onEvict);
 
-    expect(cache.has("remote:bogus")).toBe(false); // the departed host's mirror is evicted…
-    expect(cache.get("remote:zest")).toBe("zest-mirror"); // …the surviving member's mirror is untouched.
-    // Cleanup fires exactly once, for the dropped entry, carrying its value.
+    expect(cache.has("remote:bogus")).toBe(false);
+    expect(cache.get("remote:zest")).toBe("zest-mirror");
     expect(onEvict).toHaveBeenCalledTimes(1);
     expect(onEvict).toHaveBeenCalledWith("bogus-mirror");
   });
 
   it("re-add after eviction is a cache MISS — the corpse can never be re-handed out", () => {
-    // The flap: build a mirror for `guest` over session A, remove the host (evict), then
-    // re-add the SAME key over session B. Because eviction deleted the slot, the re-add path
-    // (`reServeFor`'s `reServes.get(h) === undefined`) sees a MISS and builds fresh — it can
-    // never resolve to the mirror pinned to the destroyed session A.
     const cache = new Map<string, string>([
       ["remote:guest", "mirror-over-sessionA"],
     ]);
 
-    // Host leaves the pool → eviction runs with `guest` no longer a member.
     const onEvict = vi.fn();
     pruneToMembers(cache, () => false, onEvict);
 
-    expect(cache.get("remote:guest")).toBeUndefined(); // MISS ⇒ the re-add would build a fresh mirror.
-    expect(onEvict).toHaveBeenCalledExactlyOnceWith("mirror-over-sessionA"); // the corpse was closed on its way out.
+    expect(cache.get("remote:guest")).toBeUndefined();
+    expect(onEvict).toHaveBeenCalledExactlyOnceWith("mirror-over-sessionA");
   });
 
   it("no-op when every cached host is still a member (steady state)", () => {
@@ -63,15 +39,11 @@ describe("pruneToMembers", () => {
     const onEvict = vi.fn();
     pruneToMembers(cache, () => true, onEvict);
 
-    expect(cache.size).toBe(2); // nobody left the pool, nothing evicted.
-    expect(onEvict).not.toHaveBeenCalled(); // …and no cleanup fired.
+    expect(cache.size).toBe(2);
+    expect(onEvict).not.toHaveBeenCalled();
   });
 
   it("cleanup is TOTAL — it fires for a removed entry whose value is `undefined`", () => {
-    // The generic `V` is unrestricted, so a `Map<K, undefined>` entry is valid; the
-    // prune must still call `onEvict` for it (a `cache.get(host) !== undefined`
-    // guard would wrongly skip it, since a missing key and an `undefined` value are
-    // indistinguishable through `get`).
     const cache = new Map<string, undefined>([["remote:ghost", undefined]]);
     const onEvict = vi.fn();
 

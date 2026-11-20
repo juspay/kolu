@@ -20,14 +20,8 @@ import {
   migratePreferences_1_43_0,
 } from "./stateLadder.ts";
 
-// KOLU_STATE_DIR is set by the `test:unit` script in package.json — state.ts
-// reads it at module load.
-
 describe("viewerMode (the 1.36.0 domain key)", () => {
   it("reads `dark` on a store that has never seen a browser", () => {
-    // conf merges the `defaults` entry, so a fresh install (and every pre-1.36 file the
-    // ladder's rung seeds) resolves an "auto" shuffle exactly as `colorScheme: "dark"`
-    // — the equality `resolveNewTerminalPolicy(DEFAULT_PREFERENCES, …)` rests on.
     expect(store.get("viewerMode")).toBe(DEFAULT_PREFERENCES.colorScheme);
   });
 });
@@ -55,9 +49,6 @@ describe("migratePreferences_1_30_0", () => {
   });
 
   it("legacy shuffleTheme wins over spread-injected new-field defaults", () => {
-    // A very old record re-runs the 1.10.0 step first, which spreads the
-    // current DEFAULT_PREFERENCES (newTerminalTheme: "shuffle") in alongside the
-    // still-present shuffleTheme. The user's real off intent must override.
     const migrated = migratePreferences_1_30_0({
       shuffleTheme: false,
       newTerminalTheme: "shuffle",
@@ -80,16 +71,10 @@ describe("migratePreferences_1_32_0", () => {
       newTerminalTheme: "inherit",
       rightPanel: { collapsed: true, size: 0.4, codeTabTreeSize: 0.5 },
     });
-    // The old GLOBAL collapse preference is carried forward into the new
-    // top-level seed — `true` here, NOT reset to the default `false`. This is
-    // the falsifiable carry-forward: a user who kept the panel collapsed keeps
-    // it as their new-terminal default across the upgrade.
     expect(migrated.newTerminalCollapsed).toBe(true);
-    expect(DEFAULT_PREFERENCES.newTerminalCollapsed).toBe(false); // guards the above from a default flip
-    // …the stale per-record collapsed is gone…
+    expect(DEFAULT_PREFERENCES.newTerminalCollapsed).toBe(false);
     expect(migrated.rightPanel).toEqual({ size: 0.4, codeTabTreeSize: 0.5 });
     expect(migrated.rightPanel).not.toHaveProperty("collapsed");
-    // …and unrelated preferences carry through verbatim.
     expect(migrated.newTerminalTheme).toBe("inherit");
   });
 
@@ -103,9 +88,6 @@ describe("migratePreferences_1_32_0", () => {
   });
 
   it("a record with no rightPanel key backfills the default geometry + top-level seed", () => {
-    // No `rightPanel` on the input → the spread-defaults shape backfills the
-    // default geometry (never a `collapsed` field, which no longer lives there)
-    // and seeds the new top-level default; the caller's field wins.
     const migrated = migratePreferences_1_32_0({ newTerminalTheme: "shuffle" });
     expect(migrated.rightPanel).toEqual(DEFAULT_PREFERENCES.rightPanel);
     expect(migrated.rightPanel).not.toHaveProperty("collapsed");
@@ -118,16 +100,13 @@ describe("migratePreferences_1_32_0", () => {
 
 describe("migratePreferences_1_34_0", () => {
   it("renames activityAlerts → attentionAlerts, carrying the OFF value forward", () => {
-    // The falsifiable carry-forward: a user who turned alerts OFF keeps them off
-    // across the rename, NOT reset to the `true` default.
     const migrated = migratePreferences_1_34_0({
       activityAlerts: false,
       scrollLock: true,
     });
     expect(migrated.attentionAlerts).toBe(false);
-    expect(DEFAULT_PREFERENCES.attentionAlerts).toBe(true); // guards the above from a default flip
+    expect(DEFAULT_PREFERENCES.attentionAlerts).toBe(true);
     expect(migrated).not.toHaveProperty("activityAlerts");
-    // …unrelated preferences carry through verbatim.
     expect(migrated.scrollLock).toBe(true);
   });
 
@@ -143,10 +122,6 @@ describe("migratePreferences_1_34_0", () => {
   });
 
   it("REPRO: a pre-1.34 blob that never set activityAlerts still gets attentionAlerts", () => {
-    // The latent deploy bug: `confStore` reads the raw stored object with NO
-    // schema-default back-fill, so a blob that relied on the old default (no
-    // `activityAlerts` key) must NOT migrate to a MISSING `attentionAlerts` — that
-    // surfaces as `undefined` on the client and silently disables every alert.
     const migrated = migratePreferences_1_34_0({ scrollLock: true });
     expect(typeof migrated.attentionAlerts).toBe("boolean");
     expect(migrated.attentionAlerts).toBe(DEFAULT_PREFERENCES.attentionAlerts);
@@ -162,7 +137,6 @@ describe("migratePreferences_1_38_0 — never chosen is the absence of a value",
 
   it("an absent agentDistro stays absent (1.37 seeds it first)", () => {
     expect(migratePreferences_1_38_0(prefs())).toEqual(prefs());
-    // …and walked through 1.37 first, it lands on never chosen.
     expect(
       migratePreferences_1_38_0(migratePreferences_1_37_0(prefs())).agentDistro,
     ).toBeNull();
@@ -318,17 +292,6 @@ describe("migratePreferences_1_42_0 — Juspay leaves the stack: it is opt-in", 
 });
 
 describe("the CHAINED preference ladder (a pre-1.30 blob walking every rung)", () => {
-  /** The rungs that read the `preferences` blob, in ladder order. 1.31.0 /
-   *  1.33.0 / 1.35.0 / 1.36.0 never touch it (key strip, `hosts` seed, no-op,
-   *  `viewerMode` seed), so these nine (1.37.0 seeds `agentDistro`, 1.38.0 turns
-   *  an Off one into "never chosen", 1.39.0 seeds `tipBarCollapsed`, 1.40.0
-   *  seeds `agentProfilesRecent`, 1.41.0 turns `profile` into `profiles`,
-   *  1.42.0 takes Juspay's reference out of a stack that reached 1.41.0,
-   *  1.43.0 seeds `hostOrder`) ARE
-   *  the whole walk a pre-1.30 file
-   *  makes. Testing each rung in isolation cannot catch a cross-rung defect:
-   *  1.32.0 spreads today's `DEFAULT_PREFERENCES` into the record, which hands
-   *  1.34.0 an `attentionAlerts` the user never chose. */
   const walkLadder = (blob: Record<string, unknown>) =>
     migratePreferences_1_43_0(
       migratePreferences_1_42_0(
@@ -348,9 +311,6 @@ describe("the CHAINED preference ladder (a pre-1.30 blob walking every rung)", (
       ),
     );
 
-  /** The literal shape a pre-1.30 install carries on disk: the retired
-   *  `shuffleTheme` boolean, the pre-1.32 `rightPanel.collapsed` beside the
-   *  geometry, and — when the user touched it — the pre-1.34 `activityAlerts`. */
   const pre_1_30 = (alerts?: boolean): Record<string, unknown> => ({
     seenTips: ["shuffle"],
     startupTips: true,
@@ -365,9 +325,8 @@ describe("the CHAINED preference ladder (a pre-1.30 blob walking every rung)", (
   it("an OFF activityAlerts survives the full walk (the defaults spread must not outrank it)", () => {
     const migrated = walkLadder(pre_1_30(false));
     expect(migrated.attentionAlerts).toBe(false);
-    expect(DEFAULT_PREFERENCES.attentionAlerts).toBe(true); // guards the above from a default flip
+    expect(DEFAULT_PREFERENCES.attentionAlerts).toBe(true);
     expect(migrated).not.toHaveProperty("activityAlerts");
-    // The other two carry-forwards still land, so the fix did not cost them.
     expect(migrated.newTerminalTheme).toBe("inherit");
     expect(migrated.newTerminalCollapsed).toBe(true);
   });
@@ -379,11 +338,7 @@ describe("the CHAINED preference ladder (a pre-1.30 blob walking every rung)", (
   });
 
   it("a pre-1.43 file reaches the strip with NO arrangement — pool order stands", () => {
-    // `hostOrder` is an overlay: an empty one means the strip keeps pool order
-    // with local pinned first, which is exactly what every existing install saw
-    // before the drag gesture existed.
     expect(walkLadder(pre_1_30()).hostOrder).toEqual([]);
-    // An arrangement already on disk is never re-seeded over.
     expect(
       migratePreferences_1_43_0({ hostOrder: ["remote:zest"] }).hostOrder,
     ).toEqual(["remote:zest"]);
@@ -400,8 +355,6 @@ describe("the CHAINED preference ladder (a pre-1.30 blob walking every rung)", (
           ),
         ),
       ).agentDistro;
-    // juspay was a bundle, then a reference (1.40) — and, once the
-    // never-chosen default, it never becomes an entry: Juspay is opt-in.
     expect(walkAgents({ enabled: true, profile: "juspay" })).toEqual({
       enabled: true,
       profiles: [],
@@ -410,9 +363,7 @@ describe("the CHAINED preference ladder (a pre-1.30 blob walking every rung)", (
       enabled: true,
       profiles: [],
     });
-    // Off was never really chosen (1.38), and stays so.
     expect(walkAgents({ enabled: false, profile: "vanilla" })).toBeNull();
-    // A pre-1.37 file never chose at all.
     expect(walkLadder(pre_1_30()).agentDistro).toBeNull();
   });
 
@@ -425,8 +376,6 @@ describe("the CHAINED preference ladder (a pre-1.30 blob walking every rung)", (
 
 describe("backfillRemoteUrl", () => {
   it("backfills remoteUrl: null on an already-migrated git record missing the field", () => {
-    // The common shape: a session saved between the 1.18 migration and 1.25
-    // carries a populated `git` with no `remoteUrl`.
     const migrated = backfillRemoteUrl({
       id: "term-1",
       cwd: "/home/alice/app",
@@ -494,9 +443,6 @@ describe("backfillLocation", () => {
   });
 
   it("is idempotent — a record that already carries a location passes through", () => {
-    // A future remote terminal (or a re-run of the migration): the saved
-    // location wins, never clobbered back to local — including a remote host
-    // that happens to be named "local", which the DU keeps distinct.
     const record = {
       id: "t",
       cwd: "/r",
@@ -525,9 +471,6 @@ describe("backfillTerminalState", () => {
   });
 
   it("is idempotent — a record that already carries a state passes through", () => {
-    // A future sleeping terminal (or a re-run of the migration): the saved
-    // state wins, never clobbered back to active, and its sleeping-only
-    // `sleptAt` rides through untouched.
     const record = {
       id: "t",
       cwd: "/r",

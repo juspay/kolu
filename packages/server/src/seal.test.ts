@@ -1,33 +1,3 @@
-/**
- * The package-boundary SEAL for `packages/server` (W1.R7 — the final member).
- *
- * By the end of W1.R the terminal domain has fully relocated into `@kolu/padi`:
- * kolu-server is the staying WEB SHELL (HTTP/ws transport, static serving, the
- * surface wiring, the memory sampler, TLS, branding) and reaches the terminal
- * domain ONLY through `@kolu/padi`'s published entry points that `ALLOWED_PADI`
- * names (`/assembly`, `/dial`, `/surface`, `/log`). This test makes that boundary a
- * compile-and-CI fact rather than a convention — it fails the moment a
- * terminal-domain module reappears under `packages/server/src`, a deep
- * `@kolu/padi/src/...` import bypasses the barrel, or a root `terminal.*` /
- * `git.*` namespace is reintroduced on the contract.
- *
- * Modeled on `@kolu/surface-daemon-supervisor`'s `deps.closure.test.ts` (the
- * parser-backed import-graph walk), extended with the file-list
- * allowlist (a), the root-namespace assertion (c), and the two REVERSE arms that
- * prove the dependency ARROW POINTS OUT of `@kolu/padi` (the terminal-domain
- * AUTHORITY): (d) no `packages/padi/src` file references the `koluSurface`
- * spec/ctx in any form, and (e) padi's whole dependency cone excludes the app
- * (`kolu-common`/`kolu-server`/`kolu-client`). The terminal vocabulary lives in
- * `@kolu/padi` now, so padi imports nothing from the app; the app consumes padi.
- *
- * The forward `@kolu/padi` boundary (b) walks only PRODUCTION reachable from
- * `index.ts`; arm (f) closes the remaining flank (W4 ledger L13) by walking the
- * SERVER's TEST files too — a test may reach any of padi's PUBLISHED subpaths
- * (derived from `package.json`'s `exports`, so it can't drift), but never a deep
- * `@kolu/padi/src/...` that bypasses the barrel. `ALLOWED_PADI` (the tighter
- * production door) is a documented SUBSET of that published set.
- */
-
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { dirname, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -41,229 +11,62 @@ import { buildAppRouter } from "./router.ts";
 const SRC = dirname(fileURLToPath(import.meta.url));
 const ENTRY = resolve(SRC, "index.ts");
 
-// ── (a) The web-shell file-list allowlist ─────────────────────────────────
-
-/** The EXACT set of non-test `.ts` modules that may live under
- *  `packages/server/src` after the seal — the web shell and nothing else. A new
- *  file here is a conscious decision: either it is web-shell code (add it) or it
- *  is terminal-domain code that belongs in `@kolu/padi` (the seal caught it).
- *
- *  The **padi hosting arm** — the binder cluster (local + remote), its convergence
- *  declaration, session shape, link projection, and the pool satellites
- *  (`reServeEviction`, `supervisorClaim`, `daemonInventory`) — lives under the
- *  `padi/` subdirectory (W4 ledger L27: the arm co-varies on every remote/switch
- *  phase, so it earns its own home). It is STILL web-shell code (it re-serves
- *  padi's surface; it runs no terminal domain), so these modules stay inside the
- *  seal — just under `padi/`. The serving shell and the true leaves stay top-level. */
 const WEB_SHELL_FILES = [
-  // ── the padi hosting arm (packages/server/src/padi/) ──
-  // The attach-burst logger (#2336): it wraps ONE host's `entryDispatch` mirror
-  // arm and only OBSERVES the `terminalAttach` subscriptions it relays, stamping
-  // them and logging one line per burst. Web-shell telemetry on the re-serve,
-  // not a terminal-domain module: it neither opens nor shapes a terminal.
   "padi/attachTelemetry",
-  // The read-only host-daemon inventory sampler — the web shell's diagnostic
-  // enumeration of every running kaval + padi (reusing kaval/padi discovery), marking
-  // kolu's active one. Shell code (it publishes koluSurface's `daemonInventory` cell,
-  // runs no terminal domain), not a terminal-domain module.
   "padi/daemonInventory",
-  // Where ONE host entry's calls go: padi's own members to that host's mirror,
-  // a nested sibling's straight down the host's link. Web-shell routing — it
-  // decides which dispatch answers a tag and runs no terminal domain.
   "padi/entryDispatch",
-  // The new-terminal THEME POLICY pusher — derives the resolved policy from the web
-  // shell's own `preferences` + `viewerMode` cells and writes it into every bound padi's
-  // `newTerminalPolicy` cell on connect (#2045). Web-shell orchestration: it drives the
-  // padi pool from the server shell and runs no terminal domain — the theme DECISION
-  // (inherit vs shuffle, against which peers) is padi's, in @kolu/padi.
   "padi/newTerminalPolicy",
-  // The shared mechanism behind that pusher and the Agents-setting pusher: push a
-  // fact kolu-server derives from its own cells into a memory-only padi cell on
-  // every connect edge. Same web-shell orchestration, one level more generic.
   "padi/padiCellPusher",
-  // The W2.2 padi BINDER — the web shell's supervisor/client of the padi PROCESS
-  // (spawn/adopt + dial + the reconnect-mirror session `reServeSurface` consumes).
-  // Web-shell code (it runs no terminal domain — it re-serves padi's), so it lives
-  // beside the shell, not in @kolu/padi.
   "padi/padiBinding",
-  // padi's CONVERGENCE declaration into the shared daemon-convergence kit (the
-  // contract-skew policy, the frozen-control-core probe, the drain plumbing) —
-  // carved out of `padiBinding` in W4 ledger L6 as its own volatility. Web-shell
-  // code (it declares padi's policy + adapts its hello; the kit owns the mechanism),
-  // so it lives beside the binder, not in @kolu/padi.
   "padi/padiConvergence",
-  // The W3.1 REMOTE padi binder — the ssh twin of `padiBinding`: it fronts a padi on
-  // another host over `getHostSession`/`padi --stdio` and re-serves its surface through
-  // the SAME `reServeSurface` seam. Web-shell code (it runs no terminal domain — it
-  // re-serves a remote padi's), so it lives beside the shell, not in @kolu/padi.
   "padi/remotePadiBinding",
-  // The stale-reserve-on-flap eviction: prunes `index.ts`'s per-host `reServeSurface`
-  // mirror cache to the pool's live membership (wired to `pool.subscribe`), so a guest
-  // remove→re-add of the same key builds a FRESH mirror over the new session rather than
-  // reusing the dead one pinned to the destroyed session (#1708). Web-shell glue (a cache
-  // prune keyed by pool membership), not terminal domain.
   "padi/reServeEviction",
-  // The padi SESSION shape both arms return (post-S9): a base `Session` from
-  // `makeSession` + the daemon-supervision members by spread — no `BoundPadi`, no
-  // wrapper class. Web-shell glue (the arms' shared session type + spread helper).
   "padi/padiSession",
-  // The pure `SessionState.phase` → koluSurface `padiLink` mapping — the web
-  // shell's own honest view of its binding to padi (#1034), driven off the binding
-  // session. Shell code (a projection of the binder's state onto kolu-server's OWN
-  // surface), not terminal domain.
   "padi/padiLink",
-  // The P0 local-supervisor ownership gate — the web shell's own "only one
-  // kolu-server supervises this padi state root" fence (a `supervisor.pid` claim
-  // reusing the daemon pid-gate). Shell/supervisor code (it guards the binder's
-  // ownership; runs no terminal domain), so it lives beside the binder.
   "padi/supervisorClaim",
-  // ── the port-forward arm (packages/server/src/portForward/) ──
-  // PRT2's forward subsystem, isolated the same way the padi arm is: a POLICY
-  // over `@kolu/port-forward`'s map (auto-vs-manual death, "only a real port
-  // observation may close a door"), the port READING the reaper acts on, and the
-  // per-viewer identity RESOLVER (its pure decision table graduated to
-  // `@kolu/surface/viewer-identity` — proxy topology is not a kolu concern). All
-  // web-shell code by construction — the LISTENERS are sockets in THIS process on
-  // THIS machine, and the identity fact is a property of a connection only the
-  // serving process can see. None of it runs terminal domain.
   "portForward/forwards",
   "portForward/hostPorts",
   "portForward/resolveViewerHost",
-  // ── the agent-delivery arm (packages/server/src/agentDelivery/) ──
-  // kolu-server delivering agent-distro's bundles to every host: read each
-  // host's content-addressed bundle off upstream's index (one HTTPS GET per
-  // system per run), have the host pull it from the cache over
-  // `@kolu/surface-remote`'s `pullClosure`, and tell each host's padi how it
-  // went — on upstream's schedule. It runs FROM this machine to the
-  // hosts (the same arrow as the padi arm), and runs no terminal domain.
   "agentDelivery/bake",
   "agentDelivery/delivery",
   "agentDelivery/install",
   "agentDelivery/ops",
   "agentDelivery/profiles",
-  // ...and the CI check that the package upstream's index publishes answers
-  // every call kolu makes (`just test-agent-published`): the same index read
-  // and cache, from this machine; no terminal domain.
   "agentDelivery/publishedAnswers",
   "agentDelivery/schedule",
   "agentDelivery/timer",
-  // ── the serving shell + true leaves (top-level) ──
-  // The web face's boot CONTRACT — the `KoluBootFlags` interface `bootKoluWeb` is
-  // written against, and nothing else. A LEAF with ZERO imports: the FLAG schema
-  // and its projection live in the command tree (`kolu-cli/src/webFlags.ts`),
-  // because how argv is parsed is the CLI's volatility and a flag declaration is
-  // a runtime call this package must not hold. kolu-cli deep-imports this as a
-  // TYPE (erased) and annotates its projection with it, so schema and contract
-  // still cannot drift. Web-shell code (it names how the web face boots), not
-  // terminal domain.
   "bootFlags",
-  // The agent-distro profile listing Settings offers — reads the floor's
-  // profile bundles once at boot and seeds koluSurface's `agentDistroListing`
-  // cell. Web-shell code (a read of a build fact for the shell's own surface).
   "agentDistroListing",
   "hostname",
-  // W10 host-membership persistence — the pool (the web shell's authority for map
-  // membership) is its one writer, so its atomic-JSON load/validate/save leaf lives
-  // beside the shell, wired into `buildRemotePool`'s `persist` hook from `index.ts`.
-  // Pure shell glue (a file codec keyed by pool membership), not terminal domain.
   "hostPersistence",
-  // The liveness probe route — a constant 200 `kolu` with no dependencies, so it
-  // answers as soon as the HTTP handler is attached (which is what `ci::dev-smoke`
-  // and the packaged-binary smoke both wait on). Pure HTTP shell code.
   "healthRoute",
-  // The web shell's HTTP middleware: the catch-all fault logger (an uncaught route
-  // fault — e.g. the artifact-sdk HTML decorator draining a remote-preview stream
-  // that faults past the route's own 503 `try` — becomes a LOGGED 500) plus the
-  // per-request debug log. The one bridge between the serving stack and pino.
-  // Pure HTTP shell code, runs no terminal domain.
   "httpMiddleware",
   "iframePreviewRoute",
-  // The kept-file byte route — `@kolu/serve-dir` rooted at one work's corner
-  // of the state root, so a finished work's plan still opens after its
-  // worktree is gone. Pure HTTP shell code.
   "workFilesRoute",
   "index",
   "log",
-  // The pure process-memory poll READ behind koluSurface's derived `processMemory`
-  // cell (the retired sampler LOOP's read half — SR8.a). Web-shell code.
   "memorySampler",
-  // The memory-rail liveness POLICY (`padiMemoryReadable` — LIVE-FIX): `readPadiMemoryOnce`
-  // gates its deferred mirror read on padi's honest connected phase, read off
-  // `padiSession.currentState()`, never `currentClient()`. A side-effect-free leaf so the
-  // gate is pinnable apart from index.ts's boot-only closure. Web-shell policy.
   "padiMemoryGate",
   "pwaIdentity",
   "router",
   "state",
-  // The state-backup ring's server face (#1658) — web-shell store management,
-  // not terminal domain (the generic ring mechanics live in `kolu-shared`).
   "stateBackups",
-  // The saved shape and its version (`stateShape`), and the ladder's frozen
-  // rungs with their table (`stateLadder`) — `state.ts` split by clock; both
-  // pure, no terminal domain.
   "stateLadder",
   "stateShape",
   "surface",
   "tls",
-  // `kolu-rpc` — the harness CLIENT of this shell's own wire: one call by wire tag
-  // over `/rpc/ws`, printing the answer as JSON, so a shell (the NixOS adoption VM
-  // probes) can reach in now that the HTTP RPC arm is gone. Web-shell code by the
-  // seal's own test: it dials the shell's transport and runs no terminal domain —
-  // the terminal verbs it can NAME are padi's, reached the way any client reaches
-  // them, over the wire. `wireCallMain` is its argv entry (nix wraps it); nothing
-  // in `index.ts`'s graph imports either.
   "wireCall",
   "wireCallMain",
-  // ── the conductor's MOUNT (packages/server/src/conductor/) ──
-  // WHAT KOLU OFFERS for the setup's harness and model questions: this kolu's
-  // agent-distro listing, and a host's own `agentDistro.models` answer asked
-  // over its padi client — plus the readiness gate in front of them. Shell
-  // code: it holds no PTY and reads every host over the wire.
   "conductor/koluOffer",
-  // kolu's ONE supervising conversation lives in `kolu-conductor` now — the
-  // host, the record, the standing prompt and the surface members are that
-  // package's, and the dependency arrow points out of this one. What stays
-  // here is the COMPOSITION ROOT: the file that knows what is server-owned
-  // and pushes it in (the conf store and the state directory, the fleet
-  // endpoint and the prover that speaks the MCP pin, the cell writer, this
-  // machine's name, the spawn). Web-shell code by this seal's own test: it
-  // runs no terminal domain, and every terminal the conversation touches it
-  // touches through a padi client, over the wire, like any other consumer.
   "conductor/live",
-  // ...and the WATCHER that wakes it: the host map's padi clients read the way
-  // the fleet face reads them (each host's `urgency` cell and `terminals`
-  // collection, over the wire), folded into readings the conversation decides
-  // on. Shell code by the same argument — it owns no PTY and runs no terminal
-  // domain; it subscribes to padi like any other consumer.
   "conductor/watcher",
-  // ...the TRANSCRIPT FILE the conversation's rows live in, and the ladder
-  // rule that governs it (`stateLadder.ts`'s rungs write it; this file refuses a
-  // stamp that ladder did not write). A file beside `config.json`: shell
-  // storage, no terminal domain.
   "conductor/transcriptFile",
-  // ...and the WORK FILES port: listing a worktree's `.waterfall/` over a
-  // host's padi and copying those bytes under the state root through the same
-  // remote-safe read the preview route uses. Shell code — it holds no PTY and
-  // reads every host the way any other consumer does.
   "conductor/workFiles",
-  // ...and the RECOVERY the Conductor's screen offers when one of those
-  // records will not decode: the backup-ring walk and the keep-aside write
-  // behind `conductor.recoverStore`. Shell code for the same reason the two
-  // above are — it moves conf keys and files under the state root, and holds
-  // no terminal of any kind.
   "conductorRecovery",
-  // ── the fleet MCP face's server side (packages/server/src/fleet/) ──
-  // The loopback listener the conductor's agent reaches the fleet through,
-  // and kolu-server's implementation of `@kolu/kolu-mcp`'s `FleetHosts` port
-  // over the host map. Shell code: a socket in THIS process and a projection of
-  // the pool the shell already owns.
   "fleet/fleetHosts",
   "fleet/mcpEndpoint",
 ].sort();
 
-/** Terminal-domain modules that MUST NOT reappear under `packages/server/src` —
- *  they all live in `@kolu/padi` now. An explicit denylist beside the exact
- *  allowlist so a regression names the offender, not just "the set changed". */
 const FORBIDDEN_TERMINAL_MODULES = [
   "terminal-registry",
   "terminals",
@@ -283,12 +86,6 @@ const FORBIDDEN_TERMINAL_MODULES = [
   "sessionRestore",
 ];
 
-/** Every `.ts` under `packages/server/src`, as forward-slash relative paths.
- *  Walk RECURSIVELY: a terminal-domain module smuggled back into a NEW
- *  subdirectory (e.g. a resurrected `terminalEndpoint/` or `ptyHost/`) must be
- *  seen too, not just a top-level file. `recursive` yields subdir-prefixed
- *  relative paths (`sub/mod.ts`), normalized here to `sub/mod.ts`. The two
- *  callers below split this one walk into complementary sets. */
 function serverSrcTsFiles(): string[] {
   return readdirSync(SRC, { recursive: true })
     .map((f) => String(f).split(sep).join("/"))
@@ -296,54 +93,21 @@ function serverSrcTsFiles(): string[] {
 }
 
 function serverSrcModules(): string[] {
-  // The non-test modules, as bare `sub/mod` keys — any nested module that isn't
-  // in the flat WEB_SHELL_FILES set fails the allowlist.
   return serverSrcTsFiles()
     .filter((f) => !f.endsWith(".test.ts") && !f.endsWith(".test-d.ts"))
     .map((f) => f.replace(/\.ts$/, ""))
     .sort();
 }
 
-/** Every `.ts` test file under `packages/server/src` (recursive — the padi arm's
- *  tests live in `padi/` now), as absolute paths. Arm (f) walks these so a TEST
- *  file's `@kolu/padi` imports are checked too, closing the flank the
- *  production-only forward walk (arm b) leaves open. */
 function serverTestFiles(): string[] {
   return serverSrcTsFiles()
     .filter((f) => f.endsWith(".test.ts") || f.endsWith(".test-d.ts"))
     .map((f) => resolve(SRC, f));
 }
 
-// ── (d/e) The REVERSE seals — the arrow points OUT of @kolu/padi ───────────
-//
-// The forward seal (a–c) proves kolu-server reaches padi only through the barrel.
-// The REVERSE arms prove padi (the terminal-domain AUTHORITY) never reaches back
-// into the kolu app:
-//   (d) no `packages/padi/src` file references the `koluSurface` SPEC/ctx — the
-//       reverse dependency the `surfaceCtx`-style holder once was (a
-//       `createLateBoundSurfaceCtx<(typeof koluSurface)["spec"]>` in padi, the
-//       mechanism behind the boot-recursion crash) — in ANY form (named import,
-//       `typeof`, namespace member, re-export).
-//   (e) padi's whole dependency CONE (package.json + import graph + one transitive
-//       hop) excludes the app packages `kolu-common`/`kolu-server`/`kolu-client`.
-// The terminal VOCABULARY (`SavedSession` / `ActivityFeed` / `TerminalInfo` … and
-// the whole Authored/Saved/compose family) LIVES IN `@kolu/padi` now — padi owns
-// it and imports it locally; the app consumes it FROM padi. So (e) can ban every
-// `kolu-common` import outright, not just the surface value: nothing terminal
-// remains in the app for padi to reach for.
-
 const PADI_SRC = resolve(SRC, "..", "..", "padi", "src");
-/** The terminal domain's CLIENT half. It is padi's — the spec padi serves, the
- *  dial its clients share — carved into its own package only so a consumer can
- *  hydrate it without the daemon (juspay/kolu#2216). So every reverse seal below
- *  covers it too: a `koluSurface` reference or an app import here would be the
- *  exact inversion arms (d)/(e) exist to forbid, and carving the files out must
- *  not be a way to leave the seal. */
 const PADI_CLIENT_SRC = resolve(SRC, "..", "..", "padi-client", "src");
 
-/** Every `.ts` under the terminal domain's two package roots, INCLUDING tests —
- *  the whole cone must be app-free, not just production (a test importing the app
- *  is still a reverse edge). */
 function padiSrcFilesAll(): string[] {
   return [PADI_SRC, PADI_CLIENT_SRC].flatMap((root) =>
     readdirSync(root, { recursive: true })
@@ -353,18 +117,9 @@ function padiSrcFilesAll(): string[] {
   );
 }
 
-/** THE CONDUCTOR'S PACKAGE — kolu's one supervising conversation, carved out
- *  of this one at the owner's call so that "a face kolu mounts" is a package
- *  rather than a wing of the web server (the `kolu-mcp` precedent). The wall
- *  needs holding in BOTH directions and neither direction is the other's
- *  mirror: forward, kolu-server may only reach it through its published doors;
- *  reverse, it must never reach back in — a package that imports its own
- *  mounter is not a package, it is a file in a trench coat. */
 const CONDUCTOR_SRC = resolve(SRC, "..", "..", "conductor", "src");
 const CONDUCTOR_PKG = resolve(CONDUCTOR_SRC, "..", "package.json");
 
-/** Every `.ts` under it, tests included — a test that imports the app is still
- *  a reverse edge. */
 function conductorSrcFiles(): string[] {
   return readdirSync(CONDUCTOR_SRC, { recursive: true })
     .map((f) => String(f).split(sep).join("/"))
@@ -377,8 +132,6 @@ const REPO_ROOT = resolve(PACKAGES_DIR, "..");
 const PADI_PKG = resolve(PADI_SRC, "..", "package.json");
 const PADI_CLIENT_PKG = resolve(PADI_CLIENT_SRC, "..", "package.json");
 
-/** The app packages @kolu/padi (the terminal-domain AUTHORITY) must never depend
- *  on — the arrow points OUT. `@kolu/padi/*` is not among them (it IS padi). */
 const APP_PACKAGES = ["kolu-common", "kolu-server", "kolu-client"];
 
 function declaredDeps(pkgJsonPath: string): string[] {
@@ -435,10 +188,6 @@ const identifierName = (node: unknown): string | null =>
 const nodeList = (value: unknown): AstNode[] =>
   Array.isArray(value) ? value.filter(isAstNode) : [];
 
-/** The two ways a module could BIND the `koluSurface` surface value: a named
- *  import of it, or a `typeof koluSurface` type-query. Parsed off the AST, so a
- *  comment or string that merely MENTIONS "koluSurface" is NOT a hit (the arrow
- *  ban is about a real dependency, not the word). */
 function koluSurfaceBindings(file: string): string[] {
   const hits: string[] = [];
   visitAst(parseTsFile(file), (node) => {
@@ -460,8 +209,6 @@ function koluSurfaceBindings(file: string): string[] {
     ) {
       hits.push("typeof koluSurface");
     }
-    // Namespace access: `import * as ns from "…"; ns.koluSurface` — reaching the
-    // surface value through a namespace member (value position).
     if (
       (node.type === "MemberExpression" ||
         node.type === "OptionalMemberExpression") &&
@@ -469,17 +216,12 @@ function koluSurfaceBindings(file: string): string[] {
     ) {
       hits.push("ns.koluSurface (namespace member)");
     }
-    // Qualified type: `typeof ns.koluSurface` / `ns.koluSurface[…]` in type position.
     if (
       node.type === "TSQualifiedName" &&
       identifierName(node.right) === "koluSurface"
     ) {
       hits.push("ns.koluSurface (qualified type)");
     }
-    // Re-export FROM another module — a padi barrel forwarding the surface value:
-    //   `export { koluSurface } from "…"`   (named re-export)
-    //   `export * from "kolu-common/surface"` (star re-export of the module that
-    //                                          owns koluSurface)
     if (node.type === "ExportNamedDeclaration") {
       const spec = stringLiteralValue(node.source) ?? "";
       for (const el of nodeList(node.specifiers)) {
@@ -501,62 +243,12 @@ function koluSurfaceBindings(file: string): string[] {
   return hits;
 }
 
-// ── (b) The @kolu/padi import-boundary walk ───────────────────────────────
-
-/** The packages that ARE the terminal domain, listed. Membership is what arms
- *  (b) and (f) police, so it must be a fact a reviewer edits rather than a shape
- *  a name happens to have: `startsWith("@kolu/padi")` reads like a rule and is a
- *  coincidence, and it fails silently in both directions — a third domain
- *  package under a different name (`@kolu/terminal-domain`) would slip out of the
- *  seal while the arrow it polices inverts, and an unrelated `@kolu/padi-foo`
- *  would slip in. */
 const TERMINAL_DOMAIN = ["@kolu/padi", "@kolu/padi-client"] as const;
 
-/** True for a specifier naming the terminal domain — the package itself or one
- *  of its subpaths.
- *
- *  The exact-or-`root/` shape is spelled again in `packages/kolu-mcp/src/tools.test.ts`.
- *  That duplication is DELIBERATE: sharing three lines would cost kolu-mcp a new
- *  devDependency on this package's home, which is a worse trade than typing them twice. */
 function inTerminalDomain(spec: string): boolean {
   return TERMINAL_DOMAIN.some((n) => spec === n || spec.startsWith(`${n}/`));
 }
 
-/** The `@kolu/padi` specifiers kolu-server's PRODUCTION code (everything reachable
- *  from `index.ts`) may import — the TIGHT boundary. A DELIBERATE subset of padi's
- *  published `exports` (arm f asserts the subset relation): production reaches the
- *  terminal domain through the narrowest surface that works, so e.g.
- *  `supervisorClaim` routes through `/assembly` rather than importing
- *  `@kolu/padi/stateRoot` directly (its own header records that choice). Each entry
- *  earns its place:
- *   - `@kolu/padi-client/surface` — the terminal VOCABULARY (schemas · records ·
- *     pure helpers). It moved to the client package at juspay/kolu#2216 so a
- *     consumer can hydrate the contract without the daemon; the DOOR is the same
- *     door, and the seal counts `@kolu/padi-client` as part of the terminal
- *     domain (`TERMINAL_DOMAIN` names both), never as a way out of it;
- *   - `/assembly` — the padi binder's assembly surface (socket paths, preview, the
- *     kaval/padi probe types) — the one production door for state-root-adjacent needs;
- *   - `@kolu/padi-client/dial` — the shared dial kit (`connectPadi`), so `padi-tui`
- *     and the binder share ONE control-core handshake (the kaval precedent);
- *   - `/log` — padi's pino logger, so a server log line joins padi's stream;
- *   - `/remote-dial` — the ssh half of the dial: the closure this build
- *     provisions onto a host (`PADI_REMOTE_DIAL`) and the one-shot dial through
- *     it. It stayed in `@kolu/padi` when the local dial left, because what it
- *     names is a nix package and a binary — the daemon, not the contract — and
- *     the binder is the one production caller that genuinely ships a padi;
- *   - `/convergence-policy` — padi's own declaration of WHO IT IS and how a
- *     supervisor of it converges (juspay/kolu#2101). It earned a door of its own
- *     rather than riding `/assembly` precisely because of the rule above: it is
- *     NARROWER. Two pure factories, no terminal domain, no state-root vocabulary
- *     — and it must be shared, because `padi --stdio` now converges its own daemon
- *     too, so this binder and padi's front cannot be allowed to hold two opinions
- *     about padi's contract version or its drain semantics.
- *   - `/agentDistroBake` — the NAMES of the agent-distro bake env vars a nix
- *     wrapper sets, so the binder forwards exactly the set padi reads onto the
- *     padi it spawns, and the profile listing reads the same floor path. Names
- *     and a pure reader only — no terminal domain.
- *  A deep `@kolu/padi/src/...` import (bypassing the barrel) or any UNLISTED subpath
- *  fails arm (b). TESTS get a wider door — the full published set — via arm (f). */
 const ALLOWED_PADI = [
   "@kolu/padi/agentDistroBake",
   "@kolu/padi/assembly",
@@ -567,13 +259,6 @@ const ALLOWED_PADI = [
   "@kolu/padi-client/surface",
 ];
 
-/** The terminal domain's PUBLISHED subpaths, derived from BOTH package.jsons'
- *  `exports` (so this can't drift from the real contract). This is the deliberate
- *  published surface — the set a TEST file may reach (arm f), and the superset
- *  `ALLOWED_PADI` (the production door) is a documented subset of.
- *
- *  Two manifests, one door set: the split into `@kolu/padi-client` is about what a
- *  consumer HYDRATES, not about how many contracts the server may reach past. */
 function padiPublishedSubpaths(): Set<string> {
   const published = new Set<string>();
   for (const [pkgJson, name] of [
@@ -617,8 +302,6 @@ function resolveRelative(from: string, spec: string): string {
   return p.endsWith(".ts") ? p : `${p}.ts`;
 }
 
-/** Every external specifier reached from `index.ts` (following only relative
- *  edges within `packages/server/src`). */
 function externalsFromEntry(): Set<string> {
   const reached = new Set<string>();
   const externals = new Set<string>();
@@ -630,9 +313,6 @@ function externalsFromEntry(): Set<string> {
     if (file.endsWith(".test.ts")) continue;
     for (const spec of importsOf(file)) {
       if (spec.startsWith(".")) {
-        // Follow only relative edges to a real `.ts` module — a relative `.json`
-        // import (e.g. `../package.json` for the version) resolves to a
-        // non-existent `.ts` and is a leaf, not a module to walk into.
         const resolved = resolveRelative(file, spec);
         if (resolved.endsWith(".ts") && existsSync(resolved))
           stack.push(resolved);
@@ -659,16 +339,6 @@ describe("packages/server package-boundary seal (W1.R7)", () => {
   });
 
   it("(a) no hand-rolled setInterval sampler remains in the web shell (SR8.a — zero allowlist)", () => {
-    // SR8 converted the campaign's three hand-rolled samplers to the framework poll
-    // cell (`derived.cell(source({ read, install }))`); SR8.a converts the last two
-    // kolu-server holdouts (`processMemory`, `daemonInventory`) and grounding found a
-    // SECOND structurally-identical hand-roll one seam over (`daemonInventory`), so the
-    // negative property ships with ZERO allowlist: NO non-test web-shell module drives a
-    // sampler with a raw `setInterval`. The reactor's `everyMs` owns every interval now
-    // (in `@kolu/surface`, not here), so a re-introduced `setInterval(` under
-    // `packages/server/src` is a resurrected hand-rolled cadence — the exact defect
-    // SR8.a closed. (The fused-cadence leaf `pollCadence.ts` graduated into
-    // `@kolu/surface`'s reactor at SR8.c and is gone from the web shell.)
     const offenders: string[] = [];
     for (const rel of serverSrcTsFiles()) {
       if (rel.endsWith(".test.ts") || rel.endsWith(".test-d.ts")) continue;
@@ -681,7 +351,6 @@ describe("packages/server package-boundary seal (W1.R7)", () => {
         `Sampler cadence rides the reactor's poll source (@kolu/surface's everyMs) ` +
         `since SR8.a — a hand-rolled setInterval sampler is the retired defect.`,
     ).toEqual([]);
-    // Non-vacuous: the walk actually read web-shell modules.
     expect(serverSrcTsFiles().length).toBeGreaterThan(0);
   });
 
@@ -689,8 +358,6 @@ describe("packages/server package-boundary seal (W1.R7)", () => {
     const padiSpecs = [...externalsFromEntry()]
       .filter((s) => inTerminalDomain(s))
       .sort();
-    // Every @kolu/padi edge is one of the ALLOWED_PADI published entry points; a
-    // `@kolu/padi/src/...` deep import (or any other subpath) fails here.
     const illegal = padiSpecs.filter((s) => !ALLOWED_PADI.includes(s));
     expect(
       illegal,
@@ -700,25 +367,12 @@ describe("packages/server package-boundary seal (W1.R7)", () => {
         `@kolu/padi/{assembly,convergence-policy,log,remote-dial} and ` +
         `@kolu/padi-client/{surface,dial}.`,
     ).toEqual([]);
-    // And it genuinely reaches the barrel (not a vacuous pass).
     expect(padiSpecs.length).toBeGreaterThan(0);
   });
 
   it("(f) test files reach @kolu/padi only through PUBLISHED subpaths — no deep src bypass", () => {
-    // The forward arm (b) walks only production reachable from `index.ts`, so a
-    // TEST file's `@kolu/padi` imports were never checked — the one flank the seal
-    // left open (W4 ledger L13). A test legitimately needs MORE of padi than
-    // production does (it drives internals: `padi/padiBinding.test` reaches
-    // `@kolu/padi/stateRoot`, `exportTranscriptHtml.test` reaches
-    // `@kolu/padi-client/surface` — both PUBLISHED entry points other packages
-    // (`tests`, `client`) consume too, so narrowing them out of padi's exports
-    // would break real consumers). But a test must still go through the PUBLISHED
-    // contract, never a deep `@kolu/padi/src/...` that bypasses the barrel.
     const published = padiPublishedSubpaths();
 
-    // ALLOWED_PADI (the production door) is a documented SUBSET of the published
-    // exports — so the two "agree on purpose", and a typo or a removed export in
-    // ALLOWED_PADI is caught here rather than passing vacuously.
     const notPublished = ALLOWED_PADI.filter((s) => !published.has(s));
     expect(
       notPublished,
@@ -727,7 +381,6 @@ describe("packages/server package-boundary seal (W1.R7)", () => {
         `subset of the deliberate export set.`,
     ).toEqual([]);
 
-    // Every @kolu/padi import in a server TEST file is a published subpath.
     const offenders: string[] = [];
     let sawPadiImport = false;
     for (const file of serverTestFiles()) {
@@ -748,14 +401,10 @@ describe("packages/server package-boundary seal (W1.R7)", () => {
         `${offenders.join(", ")}. Tests reach padi through its published exports, ` +
         `same as any consumer — never a deep src path.`,
     ).toEqual([]);
-    // Non-vacuous: the walk actually found a padi import to check.
     expect(sawPadiImport).toBe(true);
   });
 
   it("(c) the root terminal/* and git/* tag namespaces are gone — only server, daemon, hosts beside surface/", () => {
-    // Under Effect RPC the contract is one FLAT `RpcGroup` and a "namespace" is a
-    // tag's first segment, so the same seal reads off `requests` rather than off
-    // object keys. Nothing else about the assertion moved.
     const roots = new Set(
       [...contract.requests.keys()].map((tag) => tag.split("/")[0]),
     );
@@ -763,9 +412,6 @@ describe("packages/server package-boundary seal (W1.R7)", () => {
     expect(roots.has("git")).toBe(false);
     expect([...roots].sort()).toEqual(["daemon", "hosts", "server", "surface"]);
 
-    // The bound ROOT handlers are assembled in `index.ts`'s async boot now, so
-    // build them here with stub deps to assert the same fact on the serving side:
-    // no terminal/git root tag survives beside server/daemon/hosts.
     const bound = new Set(
       Object.keys(
         buildAppRouter({
@@ -776,8 +422,6 @@ describe("packages/server package-boundary seal (W1.R7)", () => {
           renewHostDaemon: () => Effect.void,
           listStateBackups: () => ({ backups: [] }),
           restoreStateBackup: async () => ({ hostFailures: [] }),
-          // No viewer identity in a shape assertion — `null` is the answer for
-          // every uncertain case anyway.
           viewerHost: async () => null,
         }).handlers,
       ).map((tag) => tag.split("/")[0]),
@@ -788,8 +432,6 @@ describe("packages/server package-boundary seal (W1.R7)", () => {
 
   it("(d) REVERSE seal — no @kolu/padi src file references koluSurface (import/type/namespace/re-export)", () => {
     const files = padiSrcFilesAll();
-    // Non-vacuous: the scan actually found padi modules (a wrong path would make
-    // this pass trivially).
     expect(files.length).toBeGreaterThan(0);
     const offenders = files
       .map((f) => ({ f, refs: koluSurfaceBindings(f) }))
@@ -814,14 +456,7 @@ describe("packages/server package-boundary seal (W1.R7)", () => {
   });
 
   it("(g) the conductor package never reaches back into kolu-server", () => {
-    // THE REVERSE WALL, and the one the extraction is for. `kolu-conductor`
-    // owns the conversation; kolu-server mounts it and pushes in everything
-    // server-owned (the conf store, the state directory, the fleet endpoint
-    // and its prover, the cell writer, this machine's name, the spawn). An
-    // import of `kolu-server` — or a reach into its `src/` — would invert that
-    // arrow and the mount would stop being a mount.
     const files = conductorSrcFiles();
-    // Non-vacuous: a wrong path would make this pass trivially.
     expect(files.length).toBeGreaterThan(0);
     const offenders: string[] = [];
     for (const file of files) {
@@ -843,8 +478,6 @@ describe("packages/server package-boundary seal (W1.R7)", () => {
         "what the conversation needs from the server is PUSHED IN at the mount " +
         "(packages/server/src/conductor/live.ts), never pulled.",
     ).toEqual([]);
-    // …and the manifest says the same thing, so the wall cannot be crossed by
-    // adding a dependency and an import in one commit.
     expect(
       declaredDeps(CONDUCTOR_PKG).filter((d) => d === "kolu-server"),
       "kolu-conductor's package.json declares kolu-server — the mount is the " +
@@ -853,10 +486,6 @@ describe("packages/server package-boundary seal (W1.R7)", () => {
   });
 
   it("(g) kolu-server reaches the conductor only through its published doors", () => {
-    // THE FORWARD WALL. The package publishes `.`, `./persisted` and
-    // `./surface`; a deep `kolu-conductor/src/...` would make its internals
-    // this server's business again, which is the whole thing the carve-out
-    // undid.
     const published = new Set(
       Object.keys(
         JSON.parse(readFileSync(CONDUCTOR_PKG, "utf8")).exports ?? {},
@@ -882,13 +511,6 @@ describe("packages/server package-boundary seal (W1.R7)", () => {
   });
 
   it("(e) REVERSE seal — @kolu/padi's dependency cone excludes the app (packages/{common,server,client})", () => {
-    // The structural inversion the human reviewer caught: padi (the terminal-
-    // domain AUTHORITY) must not depend on the kolu APP. Three checks pin the
-    // cone — package.json, the import graph, and one transitive hop.
-
-    // (1) NEITHER terminal-domain package.json declares an app package (runtime
-    //     OR dev). Both, because the vocabulary lives in the client half now and a
-    //     manifest edge there would invert the arrow just as surely.
     for (const pkgJson of [PADI_PKG, PADI_CLIENT_PKG]) {
       expect(
         declaredDeps(pkgJson).filter((d) => APP_PACKAGES.includes(d)),
@@ -897,7 +519,6 @@ describe("packages/server package-boundary seal (W1.R7)", () => {
       ).toEqual([]);
     }
 
-    // (2) no @kolu/padi src file (INCLUDING tests) imports an app package.
     const APP_SPEC = new RegExp(`^(${APP_PACKAGES.join("|")})($|/)`);
     const importOffenders: string[] = [];
     for (const file of padiSrcFilesAll()) {
@@ -911,7 +532,7 @@ describe("packages/server package-boundary seal (W1.R7)", () => {
         }
       }
     }
-    expect(importOffenders.length).toBeGreaterThanOrEqual(0); // (padi src exists — the loop ran)
+    expect(importOffenders.length).toBeGreaterThanOrEqual(0);
     expect(padiSrcFilesAll().length).toBeGreaterThan(0);
     expect(
       importOffenders,
@@ -919,25 +540,6 @@ describe("packages/server package-boundary seal (W1.R7)", () => {
         "The terminal vocabulary lives in @kolu/padi now; import it locally, not from the app.",
     ).toEqual([]);
 
-    // (3) transitive: padi's WHOLE workspace dependency cone — every workspace
-    //     runtime dep (integrations included, at any nesting under `packages/**`)
-    //     reachable from either terminal-domain manifest — must be free of app
-    //     packages. A one-hop check saw only padi's DIRECT deps, so
-    //     `padi → <lib> → <lib2> → app` slipped through.
-    //
-    //     The cone itself is `declaredDependencyClosure`'s, not a third
-    //     hand-rolled fixpoint beside it and nix's `depClosure` — "the transitive
-    //     workspace-dependency closure" is one derivation and this file consumes
-    //     it. That also retires the old vacuity guard here (`byName.has("kolu-pty")`,
-    //     which existed because a top-level-only discovery once silently dropped
-    //     `packages/integrations/*`): the shared walk THROWS on an entry that is
-    //     not a workspace member, so a stale seed can no longer be answered with a
-    //     quiet empty closure.
-    //
-    //     Seeded from BOTH manifests. `@kolu/padi-client` is a declared dep of
-    //     padi, so the walk would reach it anyway — naming it keeps the arm honest
-    //     if that edge ever inverts (the client half is the one an out-of-repo
-    //     consumer hydrates alone, so its cone matters on its own terms).
     const cone = declaredDependencyClosure({
       repoRoot: REPO_ROOT,
       entries: TERMINAL_DOMAIN,

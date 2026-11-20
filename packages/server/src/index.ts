@@ -4,10 +4,6 @@ import {
   withArtifactSdk,
 } from "@kolu/artifact-sdk/server";
 import { startHeapDiagnostics } from "@kolu/heap-diag";
-// The web shell reaches the terminal domain ONLY through @kolu/padi's published
-// entry points (the package-boundary seal). Post-cutover it keeps the streaming
-// preview read (`previewFile`, used by `iframePreviewRoute.ts`) and its own
-// publisher size (a diagnostic); it no longer runs the terminal domain.
 import {
   discoverPadiDaemons,
   probeKavalStatus,
@@ -15,6 +11,7 @@ import {
   resolvePadiStateRoot,
 } from "@kolu/padi/assembly";
 import {
+  DEFAULT_PADI_PROCESS_MEMORY,
   PADI_FORWARDING_POLICY,
   type PadiProcessMemory,
   padiSurface,
@@ -24,10 +21,11 @@ import { siblingTagPrefix } from "@kolu/surface/define";
 import { directDispatch } from "@kolu/surface/links/direct";
 import { surfaceClientRef } from "@kolu/surface/project";
 import { parseAllowedOrigins } from "@kolu/surface/ws-origin";
-import { serveSurfaceApp } from "@kolu/surface-app/serve";
+import { type SurfaceAppEvent, serveSurfaceApp } from "@kolu/surface-app/serve";
 import type { ManifestOptions } from "@kolu/surface-app/server";
 import {
   buildRemotePool,
+  type RemotePool,
   type ReServedSurface,
   reServeSurface,
   serveHostMap,
@@ -41,6 +39,7 @@ import { HttpRouter } from "effect/http";
 import { discoverKavalDaemons, legacyKavalSocketPath } from "kaval";
 import { agentDiagnostics } from "kolu-agents";
 import { decodeHostKey, encodeHostKey } from "kolu-common/hostKey";
+import type { PwaIdentity } from "kolu-common/contract";
 import {
   type HostKey,
   LOCAL_HOST,
@@ -134,108 +133,21 @@ import {
   workFileRouteHandler,
 } from "./workFilesRoute.ts";
 
-// The web face's boot contract (`KoluBootFlags`) lives in `bootFlags.ts` —
-// the leaf `packages/kolu-cli`'s command tree also imports, so schema and
-// contract can't drift. The PARSE lives in `packages/kolu-cli` (the composition
-// root owning the `effect/cli` command tree —
-// docs/atlas/src/content/atlas/kolu-cli.mdx); this package only receives the
-// result via `bootKoluWeb`'s signature. Note the server is reached as
-// `kolu web` now: bare `kolu` lists subcommands, and the bind address is
-// `--bind` (`--host` names which padi a terminal verb talks to).
-
-/** "Runs once per process" was mechanical while this was a top-level script
- *  (the module cache); the function form re-enforces it here — a second call
- *  would double-register the process-global signal/fatal handlers and
- *  double-boot, so it crashes loudly instead. */
 let booted = false;
 
-/** Boot the kolu web server — everything that used to be this module's
- *  top-level script, parameterized on the parsed flags. `packages/server`
- *  stopped being the bin at kolu-cli PR1: the `kolu` binary lives in
- *  `packages/kolu-cli`, whose `web` arm calls this. The returned promise
- *  resolves once the boot sequence has run; the server's live handles keep
- *  the process up, exactly as the script form did. Call-at-most-once (see
- *  `booted` above). */
-export async function bootKoluWeb(flags: KoluBootFlags): Promise<void> {
-  if (booted) throw new Error("bootKoluWeb called twice in one process");
-  booted = true;
+type PollRead<A> = () => Promise<A>;
 
-  const PWA_BACKGROUND_COLOR = "#0c0c0e";
-
-  // CSWSH defense: extra browser origins (beyond same-origin) allowed to reach
-  // the unauthenticated RPC surface at the `/rpc/ws` upgrade — the ONE transport
-  // (the oRPC-era `/rpc/*` HTTP arm is gone, and with it `gateHttpRpcOrigin`).
-  // Empty by default — loopback + same-origin is the common case; set
-  // `KOLU_ALLOWED_ORIGINS` (comma-separated) for a reverse-proxy /
-  // `tailscale serve` front-end whose browser origin differs from the `Host` it
-  // forwards. See `gateWsOrigin` in the upgrade handler below.
-  const allowedOrigins = parseAllowedOrigins(process.env.KOLU_ALLOWED_ORIGINS);
-
-  // `--verbose` drops the server's logger to debug. padi runs in its OWN process
-  // now: its daemon-spine stderr logger emits every level unconditionally, but its
-  // DOMAIN code logs through `@kolu/padi`'s own pino logger (`packages/padi/src/log.ts`),
-  // which filters at `LOG_LEVEL ?? "info"`. So `--verbose` alone would leave padi's
-  // domain debug lines dropped (the split-process regression the pre-cutover
-  // `padiLog.level = "debug"` guarded against). We forward the intent instead: the
-  // binding launches padi with `LOG_LEVEL=debug` when verbose (see `daemonEnv` in
-  // `padiBinding.ts`), the cross-process twin of raising that logger in place.
-  if (flags.verbose) {
-    log.level = "debug";
-  }
-
-  // The slow re-snapshot tick (#1658): `state.ts` took the boot snapshot at
-  // module load (it must precede the `Conf` construction, which rewrites the
-  // file); the daily tick is armed HERE instead, because "this process runs
-  // long" is a boot fact, not an import fact — every unit test that imports
-  // `state.ts` would otherwise arm a process-lifetime timer. padi's `daemonMain`
-  // makes the same split, for the same reason. `unref`'d — disarming rides
-  // process exit.
-  stateBackupRing.startTicker();
-
-  // The local-supervisor gate's release (set once the gate is claimed at boot,
-  // below). Released on a clean shutdown so a same-lineage restart re-claims
-  // immediately rather than reaping a stale (still-correct-but-tidier) gate. `null`
-  // until the claim lands; a crash skips it and the next boot's liveness reap
-  // handles the stale pid.
-  let releaseLocalSupervisor: (() => void) | null = null;
-  /** The Conductor's watch over the fleet, once it is started — far below,
-   *  after the surface exists. Declared HERE because the shutdown handler
-   *  closes over it and is installed before it: a teardown that could not
-   *  reach it would leave a standing subscription per host running under a
-   *  process that is exiting. */
-  let conductorWatcher: ConductorWatcher | undefined;
-
-  // --- Graceful shutdown ---
-  // Signals map to a clean exit; the fatal handlers make a floating promise or a
-  // sync throw as terminal as each other (the supervisor restarts clean). There is
-  // NO on-exit scratch cleanup here anymore: the per-process scratch dir moved into
-  // the padi process (padi owns `ensureKoluRoot`/`shutdownCleanup` under its
-  // state-root), so kolu-server has nothing to wipe.
-  //
-  // THE ACP CHILD FIRST, and this is why the handler is async now. The
-  // conductor's adapter is spawned `detached` — deliberately, so a crashing
-  // kolu-server cannot take a conversation's subprocess down by accident —
-  // which means nothing ELSE in this teardown reaches it. A SIGTERM that
-  // skipped `disposeServerConductor` would leave the adapter and the
-  // `claude` under it running with nothing on the other end, and the next boot
-  // would spawn a second set beside them. (The same ordering padi's
-  // `serveDaemonSurfaces.close` had, carried over with the hosting.)
+function installProcessLifecycleHandlers(deps: {
+  shutdown: () => Promise<void>;
+}): void {
   let shuttingDown = false;
   for (const sig of ["SIGTERM", "SIGINT", "SIGHUP"] as const) {
     process.on(sig, () => {
-      // A second signal while the first teardown is in flight must not start a
-      // second one — the dispose is idempotent, but a double `process.exit`
-      // would cut the first one off mid-write.
       if (shuttingDown) return;
       shuttingDown = true;
       log.info({ signal: sig }, "shutting down");
       void (async () => {
-        // The watch first: its subscriptions are what could still start a turn,
-        // and a wake delivered into a conversation that is being disposed is a
-        // row written to a file the next boot reads as unfinished business.
-        await conductorWatcher?.dispose();
-        await disposeServerConductor();
-        releaseLocalSupervisor?.();
+        await deps.shutdown();
         process.exit(0);
       })();
     });
@@ -245,448 +157,16 @@ export async function bootKoluWeb(flags: KoluBootFlags): Promise<void> {
     process.exit(1);
   });
   process.on("unhandledRejection", (reason) => {
-    // Deliberately fatal — same as an uncaught exception. A floating promise
-    // is as corrupting as a sync throw, and a context-free global handler is
-    // the wrong place to make a recover-or-die call (per-task error boundaries
-    // own that; see the provider DAG). If this fires, a background task is
-    // missing its boundary — fix the source, don't soften the net. The
-    // supervisor (systemd `Restart=on-failure` / launchd) restarts clean.
     log.fatal(
       { reason },
       "unhandled rejection — a background task is missing its error boundary",
     );
     process.exit(1);
   });
+}
 
-  // ─────────────────────────────────────────────────────────────────────────────
-  // ASYNC BOOT — bind the padi PROCESS, re-serve its surface, assemble the router.
-  //
-  // The cutover replaces the in-process padi (and its kaval endpoint) with a bound
-  // padi PROCESS. `ensurePadiBinding` spawns/adopts padi and hands back a
-  // reconnect-mirror session; `reServeSurface` mirrors `padiSurface` (per its
-  // forwarding policy) onto a per-binding router. That router is spliced under the
-  // `padi` key beside kolu-server's own `kolu`+`surfaceApp` fragment, so the browser
-  // reaches padi's members at `/surface/padi/*`.
-  //
-  // NEVER awaited before the HTTP server listens — for EITHER arm. A slow/failed padi
-  // (a stale gate, a wedged spawn, a genuinely down host) must not hold `serve()` back;
-  // a boot failure reports the down state through the re-serve's `connection` cell
-  // rather than crashing OR blocking (fail-open). See the LOCAL-arm pin below for the
-  // W4 fix that extended this from remote-only to both arms.
-  // ─────────────────────────────────────────────────────────────────────────────
-  // The KOLU_PADI_HOST seed — the pool's host set. LOCAL_HOST is the implicit,
-  // UNREMOVABLE default (always `seed[0]`); the env may append remote hosts. ALWAYS-MAP:
-  // env-unset = a 1-member pool = pixel-identical to today's single local padi.
-  const seed = parseKoluPadiHostSeed();
-  // LOCAL_HOST — the unremovable default the canvas boots on (always `seed[0]`; the `??`
-  // only satisfies the indexed-access optional — the parser always prepends it).
-  const defaultHost = seed[0] ?? LOCAL_HOST;
-
-  // W10 — restore the remembered fleet. Guest hosts added via the selector strip in a
-  // prior run are persisted in the conf state store (server-side, beside its one writer —
-  // the pool); merge them into the initial host set so they re-enter through the SAME seed
-  // → `buildEntry` → W6 connect pipeline the env seed uses (a gone host surfaces as a
-  // `failed` entry, never silently dropped). Deduped against the env seed so a host listed
-  // in BOTH `KOLU_PADI_HOST` and the store counts once. Seeding at construction (rather
-  // than a post-build `pool.add` loop) keeps the boot replay from re-firing `persist` — the
-  // store is only ever rewritten by a genuine runtime add/remove, so an interrupted boot
-  // can't truncate it. A store that PARSES but fails the hosts schema CRASHES here naming
-  // the store (`getPersistedHosts` — fail-loud), never starting with an empty fleet; an
-  // UNPARSEABLE store already threw in conf's own read (fail-fast, `clearInvalidConfig` false).
-  const persistedAtBoot = getPersistedHosts();
-  const envSeedKeys = seed.map(encodeHostKey);
-  const initialHostKeys = [...new Set([...envSeedKeys, ...persistedAtBoot])];
-  // Env-seed provenance (the `persist` hook's exclusion set): a `KOLU_PADI_HOST` seed is
-  // a DECLARATIVE knob, not a strip-added membership fact — persisting it would complect
-  // the two and make an env host permanent on disk after any unrelated add/remove (and
-  // survive its own removal from the env). Exclude env seeds from the store UNLESS they
-  // were already persisted at boot — persisted-at-boot wins, so a host a user
-  // strip-added and then LATER also named in `KOLU_PADI_HOST` keeps its persisted claim.
-  const persistedAtBootSet = new Set(persistedAtBoot);
-  const declarativeSeedKeys = new Set(
-    envSeedKeys.filter((k) => !persistedAtBootSet.has(k)),
-  );
-
-  // ── P0: the local-supervisor ownership gate ────────────────────────────────────
-  // kolu-server SUPERVISES the local padi (spawns / adopts / drains it). A SECOND
-  // kolu-server pointed at the SAME state root would co-supervise the one padi and
-  // the two would drain-and-respawn it in a livelock (the two-local-kolu war). Claim
-  // a `supervisor.pid` gate BEFORE building the pool (so a foreign owner fails fast
-  // before we touch padi at all); a LIVE foreign holder is structurally unresolvable
-  // (retrying can't make it go away), so — exactly like a `PadiBindingFatalError`
-  // (adoption refusal #1313, vanished state root #2010)
-  // — exit loud with the remedy rather than fight. A same-lineage restart (dead
-  // predecessor pid) reaps the stale gate and claims `self`, so it still drains. The
-  // REMOTE arm's twin is `remotePadiBinding.ts`'s anti-livelock fight-detection →
-  // `cross-supervisor` cause (D3), with `KOLU_REMOTE_PADI_STATE_DIR` the isolation lever.
-  const localSupervisorStateRoot = resolvePadiStateRoot();
-  const supervisorClaim = claimLocalSupervisor(localSupervisorStateRoot);
-  if (supervisorClaim.kind !== "self") {
-    const err = supervisorConflictError(
-      supervisorClaim,
-      localSupervisorStateRoot,
-    );
-    log.fatal({ err }, err.message);
-    process.exit(1);
-  }
-  releaseLocalSupervisor = supervisorClaim.release;
-
-  // The warm padi pool — one session per seed host. `buildRemotePool`'s host set is ALWAYS
-  // a plain string (the ssh pool's own key), so the seed's `HostKey` objects are ENCODED
-  // going in; `buildEntry` DECODES back to pick the local/remote arm and, for a remote,
-  // pass its bare ssh target (never the "remote:"-prefixed wire form) to `sshConnector`.
-  // `buildEntry` is SYNC (`makeSession` defers the dial into its own reconnect loop), so an
-  // unreachable seed host surfaces as a `failed` entry, never a boot throw. BOTH the
-  // default (local) arm and remote arms are fail-open (a local spawn+connect, or ssh
-  // provisioning, both take real time — each session publishes its honest fine phase
-  // meanwhile: local starts at connecting; remote starts at probing). The `?host=` handler is unused (the
-  // map forwards by key-in-input, not a per-host socket), so `H = undefined`.
-  const pool = buildRemotePool<PadiSession, undefined>({
-    initialHosts: initialHostKeys,
-    // W10 — persist membership in the conf store beside its one writer (the pool). Fires on
-    // every runtime add/remove with the intended post-mutation host list; the pool's own
-    // contract orders this write BEFORE the in-memory commit, serializes it through one
-    // mutation queue, and rolls back the just-built session if it throws. The callback only
-    // shapes WHAT is written — the unremovable local default drops out (seeded in code, never
-    // persisted, so the store can't mint a second authority for "local always exists").
-    persist: (hosts) => savePoolMembership(hosts, declarativeSeedKeys),
-    buildEntry: (h) => {
-      const key = decodeHostKey(h);
-      return {
-        session:
-          key.kind === "local"
-            ? ensurePadiBinding({
-                nixShellWhitelist: flags.allowNixShellWithEnvWhitelist,
-                legacyKavalSocket: legacyKavalSocketPath(flags.port),
-                spawnVersion: serverVersion,
-                verbose: flags.verbose,
-                // A structurally-unresolvable verdict — an adoption refusal, or the
-                // state root deleted under a live server (#2010) — is fatal on ANY
-                // dial, not just the boot pin's first one below: a reconnect's own
-                // fire-and-forget loop would otherwise swallow a LATER verdict
-                // silently (see the option's doc in padiBinding.ts). Wired to the
-                // SAME handler the boot pin's catch uses, so a first-dial and a
-                // later-dial verdict fail identically.
-                onFatalBindingError: (err) =>
-                  handlePadiBootFailure(err, { log, exit: process.exit }),
-              })
-            : ensureRemotePadiBinding({
-                host: key.target,
-                spawnVersion: serverVersion,
-              }),
-        handler: undefined,
-      };
-    },
-  });
-
-  // W4: pin the LOCAL padi arm WITHOUT awaiting it — extends the REMOTE arm's
-  // fail-open stance to local too, so a slow/wedged local padi (e.g. the #1713-class
-  // XDG_RUNTIME_DIR socket-path mismatch this fix half addresses, or any other spawn
-  // stall) can no longer hold the HTTP server's `serve()` back for its ~30s connect
-  // timeout. `makeSession` warms on the first `pin()`; this call (like the REMOTE
-  // arm's, and `reServeSurface`'s own pump below — `pin()` is idempotent, ref-counted)
-  // merely KICKS OFF that warm-up. A request racing the warm-up window sees the SAME
-  // thing a remote host's guest already shows meanwhile: the map/`padiLink` cell
-  // reports `connecting`/`disconnected` (never a lying `copying` — the local arm is a
-  // non-provisioning session, `serveHostMap`'s belt in juspay/kolu#1716), and a
-  // procedure call in that window fails loudly rather than silently (reServeSurface's
-  // documented "a call while the link is down throws"; the client already retries via
-  // its warming-chip UX, exactly as it does for a remote host). Fail-OPEN: a boot
-  // failure surfaces on the connection cell and the loop retries, so don't crash boot.
-  //
-  // ONE exception class, handled by `handlePadiBootFailure`: a `PadiBindingFatalError`
-  // is structurally UNRESOLVABLE — an adoption refusal (a resident padi owns this
-  // state root at a contract skew #1313 forbids touching) or a vanished state root
-  // (the workspace deleted out from under this server, #2010) — retrying forever
-  // would just be a silent spinner behind the fail-open UI, which the boot acceptance
-  // bar forbids, so those exit loudly instead, naming the conflict + the remedy the
-  // error already composed.
-  pool
-    .getSession(encodeHostKey(LOCAL_HOST))
-    ?.pin()
-    .catch((err: unknown) =>
-      handlePadiBootFailure(err, { log, exit: process.exit }),
-    );
-
-  // The default (local) session — kolu-server's OWN binding. The samplers (memory,
-  // daemon-inventory, uptime) and the `padiLink` `onState` below are kolu-server's own
-  // host-INDEPENDENT facts, so they bind to THIS unremovable default; the per-host padi
-  // facts (urgency, terminals, daemonStatus) ride the map's `entries`/members instead.
-  // `defaultHost` was just seeded into the pool above, so this lookup can't miss — but PROVE it
-  // (a named throw, not a bare `!`), so a future seed/pool refactor that broke the invariant fails
-  // fast with a clear error instead of a silent non-null narrowing. The IIFE keeps `padiSession`
-  // typed non-nullable so the closures below (samplers, `onState`) don't re-widen it to `undefined`.
-  const padiSession = ((): PadiSession => {
-    const s = pool.getSession(encodeHostKey(defaultHost));
-    if (s === undefined)
-      throw new Error(
-        `boot invariant violated: default host "${encodeHostKey(defaultHost)}" was seeded but has no pool session`,
-      );
-    return s;
-  })();
-
-  // `padiSession` is a `PadiSession` (a `DaemonSession<PadiSurfaceClient>`, from the
-  // local or remote arm's `makeSession` + spread); it plugs into `reServeSurface`'s loose
-  // `Session` receptacle checked (S3 dropped the dead contract `<C>` at the role
-  // boundary, so only the SURFACE spec is named here).
-  // Re-serve one host's padi surface on demand, CACHED per host — keyed by the CANONICAL
-  // STRING (`encodeHostKey`), never the `HostKey` object itself (a `Map`/`===` compares an
-  // object by reference, so two logically-equal `HostKey`s would never collide). `.done`
-  // enacts the #1708 pump-fault pins: the DEFAULT (local) host's pump death is FATAL
-  // (fail-fast — the supervisor restarts kolu-server clean); a GUEST host's death RETIRES
-  // just that host (`pool.retire` ends its map subs typed; the client's `hostReconcile`
-  // effect then switches `activeHost` off the departed host to the local default, so the
-  // canvas falls back with a toast rather than stranding the tab on a dead host). This uses
-  // `retire`, NOT `remove`: the pool sheds the dead host on its OWN initiative, which must
-  // not be confused with the user's explicit remove — so it does not persist the departure
-  // (a membership store re-seeds the host next boot). The map forwards each host's calls to
-  // `directLink(reServeFor(h, s).router)`.
-  const reServes = new Map<string, ReServedSurface<typeof padiSurface.spec>>();
-  const reServeFor = (
-    h: HostKey,
-    s: PadiSession,
-  ): ReServedSurface<typeof padiSurface.spec> => {
-    const enc = encodeHostKey(h);
-    let r = reServes.get(enc);
-    if (r === undefined) {
-      r = reServeSurface<typeof padiSurface.spec>({
-        source: padiSurface, // the BASE surface; reServeSurface adds `connection` internally.
-        policy: PADI_FORWARDING_POLICY, // per-member value|delta forwarding.
-        session: s,
-        // CHATTER at debug (reconnects, link ends) — filtered in production, and
-        // that is fine because it is no longer the only channel. FAULTS ride
-        // `onFault` at ERROR level: a projection-layer death used to reach this
-        // `log.debug` alone, which production drops, so the deploy-#2 freeze
-        // produced not one line (juspay/kolu#2101 G5).
-        log: (line) => log.debug({ line, host: enc }, "padi re-serve"),
-        onFault: (fault) =>
-          log.error(
-            {
-              err: fault.err,
-              host: enc,
-              member: fault.label,
-              scope: fault.scope,
-            },
-            fault.scope === "key"
-              ? "padi projection: a collection key stopped being mirrored (key-local; the host mirror is still live)"
-              : "padi projection: a mirrored member's upstream stream died — the mirror is dead",
-          ),
-      });
-      reServes.set(enc, r);
-      // A HOST's padi is held open whether or not anybody is subscribed to it.
-      // Demand-gating is the re-serve's default — an upstream nobody is looking
-      // at is never dialled — and it is the wrong default HERE: a host's link
-      // state is itself a thing the fleet shows (the host tab's dot, the connect
-      // overlay), terminals keep running behind it, and a host that only dialled
-      // once a browser subscribed to one of its streams would report
-      // `connecting` for as long as nobody looked at it. So kolu-server states
-      // the hold, once, where the host is bound.
-      s.pin().catch(() => {
-        /* the failure rides the session's own state cell, which the map publishes */
-      });
-      r.done
-        .then(() =>
-          // A CLEAN resolve means what it says again, now that an upstream fault
-          // rejects instead (#2101 G5): every subscription ended without failing.
-          // Over one link that is the session going away or a supervised close —
-          // so this line no longer has to guess at "session destroyed" as the
-          // cause of what might have been a silent death.
-          log.info(
-            { host: enc },
-            "padi re-serve ended cleanly (link closed or supervision stopped)",
-          ),
-        )
-        .catch((err) => {
-          if (enc === encodeHostKey(defaultHost)) {
-            log.fatal(
-              { err, host: enc },
-              "default padi re-serve pump died — binding is unrecoverable",
-            );
-            process.exit(1);
-          }
-          log.error(
-            { err, host: enc },
-            "guest padi re-serve pump died — retiring the host",
-          );
-          // `retire`, not `remove`: an internal shed, not a user removal — it tears the
-          // host out of the live pool WITHOUT persisting, so a remembered host returns on
-          // the next boot. `retire` has no persist step and swallows its own teardown
-          // fault, so it can't reject — a bare `void` needs no `.catch` to stay off the
-          // fatal `unhandledRejection` handler.
-          void pool.retire(enc);
-        });
-    }
-    return r;
-  };
-
-  // Evict a re-served mirror when its host leaves the pool (see `pruneToMembers` for the full
-  // stale-reserve-on-flap rationale): a guest remove→re-add of the SAME key must build a FRESH
-  // mirror, never the dead one still pinned to the destroyed session. `pool.subscribe` fires
-  // only after `has()` reflects the drop, so the slot is gone before any re-add can re-request
-  // it; the unremovable LOCAL host never leaves, so its eager mirror stays.
-  // On eviction, close() the dropped re-serve — abort its pump and release the
-  // supervised runtime's owned sources (SRT-PR1), rather than leaving them to the
-  // session-destroy GC race. close() is idempotent and resolves cleanly (the pump's
-  // own `done` still drives the retire/fatal observer above), so this fire-and-forget
-  // teardown changes no disposition — it just makes the release deterministic.
-  pool.subscribe(() =>
-    pruneToMembers(
-      reServes,
-      (h) => pool.has(h),
-      (r) => void r.close(),
-    ),
-  );
-
-  /** Which tags belong to a SIBLING rather than to the entry surface, derived
-   *  from the map's own declaration so a sibling added there is routed without
-   *  a second list to remember. Upstream — on the host's own socket — a sibling
-   *  member is `surface/<sibling>/<member>/<verb>`, which is exactly the tag
-   *  `serveHostMap` forwards. */
-  const siblingTagPrefixes = Object.keys(padiHostMap.siblings).map(
-    siblingTagPrefix,
-  );
-
-  // Eagerly re-serve the LOCAL (default) host so the memory sampler has its in-process
-  // client — a `directLink` over the mirror's own router, no socket/ssh hop. It reads
-  // padi's `{ padi, kaval }` off the value the re-serve already folds into its per-binding
-  // store, instead of opening a second transport to padi.
-  // `padiSession` (above) already holds the resolved LOCAL/default session — reuse it rather
-  // than re-looking it up + re-asserting non-null (defaultHost === LOCAL_HOST by construction).
-  const localReServe = reServeFor(LOCAL_HOST, padiSession);
-  const reServedPadiClient = surfaceClientRef(
-    localReServe.surface,
-    localReServe,
-  );
-
-  // Serve the padi MAP over the warm pool — the key-folded members + the `entries`
-  // membership collection, keyed by host. env-unset = a 1-member map = pixel-identical.
-  // The local arm is a non-provisioning `makeSession<_, never>` (padiBinding), typed
-  // without "copying"; `serveHostMap`'s belt (juspay/kolu#1716) checks that off each
-  // session's own `provisions` fact now, so there is no app-nominated "local key" to pass.
-  const padiMap = serveHostMap(padiHostMap, pool, {
-    // The per-host forwarding target — see `entryDispatch` for why padi's own
-    // members are mirrored here and a sibling's are not.
-    dispatchFor: (h, s) =>
-      entryDispatch({
-        siblingTagPrefixes,
-        // Observed, not altered: `terminalAttach` subscriptions on this host are
-        // timed per burst and reported in ONE journald line (a host switch is
-        // such a burst) — see `attachTelemetry.ts` for what the line says.
-        mirror: withAttachTelemetry(
-          directDispatch({ handlers: reServeFor(h, s).handlers }),
-          { host: encodeHostKey(h), log },
-        ),
-        link: () => s.currentDispatch?.(),
-        host: encodeHostKey(h),
-      }),
-    // The clock offset is no longer injected: `makeSession` measures it off the
-    // framework-reserved `system.clockNow` at admit and carries it on each session's
-    // own `connected` state, which `serveHostMap` reads directly. Readiness is
-    // LINK-liveness: the entry is `connected` the moment its link is live and carries
-    // `clockOffset: null` through until the first probe stamps it — never demoted to
-    // `connecting`.
-    // D1 + D2: classify a DOWN session into the schema-valid `PadiEntryFailure` —
-    // padi's own knowledge (`session.entryFailedDetail()`, derived from
-    // `convergence()`/the drv-resolution fault, both arm-local), never guessed
-    // generically by `serveHostMap` (a transport-only adapter). PR4: this is REQUIRED
-    // and TOTAL — the classification lives in `padiFailureOf` (the ONE tested source of
-    // truth): a finer arm-local detail pairs with the transport `reason`; a transient
-    // `disconnected` with no detail keeps the entry warming (`null`, the single-meaning
-    // absent); and a terminal give-up (`state.phase === "failed"`) that carries no finer
-    // detail is classified off the ARM via `session.provisions` — a non-provisioning
-    // (LOCAL) give-up is `local-start-failed` (its own named producer, distinct from the
-    // remote arm's give-ups), a provisioning (remote) one is `connect-stalled` /
-    // `host-setup-failed` by its transport cause — rather
-    // than yielding `null` into `serveHostMap`'s fail-loud `UnclassifiedHostFailureError`
-    // seam. So a genuinely-failed entry always classifies.
-    failureOf: (_host, session, state): PadiEntryFailure | null =>
-      padiFailureOf(session.provisions, session.entryFailedDetail(), state),
-    // SR9 — the entry's fine `connection` payload (the word), co-produced with the coarse dot
-    // from the SAME frame in `serveHostMap.resolve`. `project` is the shared `sessionConnection`
-    // total projection (folds the gate-closed `connecting` for a not-yet-seeded member);
-    // `isConnected` is padi's connected-discriminant, which serveHostMap asserts AGAINST the
-    // coarse dot — so a "connected dot, connecting word" pair fails loud before publication
-    // (drishti#102 made structurally unspellable, not merely a convention).
-    connection: {
-      project: sessionConnection,
-      isConnected: (c) => c.phase === "connected",
-    },
-  });
-
-  // ── The FLEET MCP face, and the door it is served through ────────────────
-  //
-  // ONE conversation for the whole fleet, hosted here. Its hands are the kolu
-  // MCP expose map lifted over the host map just built above — every terminal
-  // on every host, `host/id` on the wire — served in-process over streamable
-  // HTTP on a loopback listener of its own (`fleet/mcpEndpoint.ts` argues why
-  // its own door and not a route on the app listener below).
-  //
-  // AWAITED, and before anything can ask for the conductor. Binding a
-  // loopback socket is immediate and bounded — unlike a padi dial, which is
-  // why THOSE are fail-open — so there is no window to defend and nothing to
-  // degrade into: a failure here throws out of `bootKoluWeb` naming itself,
-  // rather than leaving the endpoint null and a conductor quietly
-  // handless.
-  //
-  // ONE host port, a face PER SESSION. The door mints a transport for each MCP
-  // client that initializes (`fleet/mcpEndpoint.ts` argues why: a stateful
-  // transport serves exactly one), so `serve` runs once per session — but the
-  // host map is this process's, not a client's, and building a second one per
-  // session would re-dial nothing and re-cache everything, handing each face
-  // its own copy of a per-session padi client this boot has already paid for.
-  const fleetHosts = fleetHostsOver({
-    pool,
-    // THE SERVED MAP ITSELF — `padiMap` above, the same `{ group, handlers }`
-    // pair spliced into the app's wire and reached by the browser's socket.
-    // The fleet face dials it in process, so the agent and the operator read
-    // one surface at one set of tags; handing this port the re-serve cache
-    // instead is what made the agent's face and this process's runtime two
-    // different surfaces (`fleet/fleetHosts.ts` tells that story).
-    padiMap,
-    // The local host's display name, as the host tab shows it: this machine by
-    // its hostname, a remote by its ssh target. An agent holding three hosts
-    // at once cannot do anything with "local".
-    localName: serverHostname,
-  });
-  // THE CONDUCTOR'S FLEET, handed to the conversation before anything can ask
-  // for it: a work's `.waterfall/` files are read off the machine its
-  // terminals are on, through these clients. Registered rather than imported
-  // for the reason every other conductor seam here is — the host is built on
-  // its first reader, and this module is one of three callers that hold no
-  // handle on each other.
-  setConductorFleetHosts(() => fleetHosts);
-  // THE WORKS, as the fleet face reaches them. The record lives with the
-  // conversation (it is saved under the state root, and the Conductor's own
-  // `work_open` / `work_adopt` / `work_leave` / `work_note` move it); what the
-  // face needs is this handful of verbs, and kolu-server is what knows that
-  // "the conversation" means `liveServerConductor()`. Read through the thunk
-  // on every call rather than captured, for the reason every other conductor
-  // seam here is: the host is built on its first reader, and a face held at
-  // boot would force it up.
-  //
-  // `lifecycle_create` on the fleet face takes a work and a role and `join`s
-  // what it creates, so a terminal the Conductor starts is a member without it
-  // having to ask — and says HOW it was created, because a terminal opened
-  // with a command is the only one whose return to a shell prompt means
-  // anything (`kolu-conductor`'s `WatchJoin`). `said` is every `agent_say`
-  // that landed its keystrokes, for any terminal: the conversation ignores the
-  // refs that are not members, and the face has no business knowing which
-  // those are. `closed` is every `lifecycle_kill` that landed, on the same
-  // terms: a terminal the Conductor closed leaves its work without a `gone`
-  // wake about its own action.
-  //
-  // `rows` is the READ — the `works` resource the Conductor reads its own work
-  // from — and `subscribe` is how that resource hears the record move without
-  // the Conductor calling anything. The subscribers are fired from the
-  // conversation's own "the works moved" event below — its own sink, beside
-  // the one that re-scopes the watcher.
-  //
-  // Every ROW here is a READING of the stored record (`kolu-work`'s
-  // `hostOf`/`modeOf`/`onGreenOf`/`standing`), never a second copy of it: the
-  // setup is decisions, so the one place "what to do on green" is written is
-  // the decision the script reads back through `onGreen`.
-  const worksReaders = new Set<() => void>();
-  const works: FleetWorks = {
+function fleetWorksOver(worksReaders: Set<() => void>): FleetWorks {
+  return {
     rows: () => {
       const stored = liveServerConductor().works();
       const detail = liveServerConductor().membersDetail();
@@ -706,18 +186,11 @@ export async function bootKoluWeb(flags: KoluBootFlags): Promise<void> {
               .map((one) => ({
                 ref: one.ref,
                 role: one.role,
-                // "" is the member's "nothing has read this terminal yet", and
-                // a reader handed it would be told the terminal is called
-                // nothing.
                 name: one.name === "" ? null : one.name,
                 agent: one.agent,
                 joined: one.joined,
-                // WHOSE KEYBOARD IT IS — a reading of the work's own timeline.
                 driver: driverOf(work, one.ref, Option.some(one)),
               })),
-            // The questions still standing, in the words they were put in: an
-            // agent reading its own work must see what the human has not
-            // answered yet without guessing at an ask id.
             openQuestions: work.decisions
               .filter((one) => one.kind === "asked")
               .map((one) => one.question),
@@ -742,21 +215,11 @@ export async function bootKoluWeb(flags: KoluBootFlags): Promise<void> {
         worksReaders.delete(cb);
       };
     },
-    // The host answers with the SETUP READING (host, mode, roles, on-green —
-    // all of it read back off the decisions recorded so far) and the ask the
-    // questions went out as; the face's answer carries that reading WHOLE,
-    // so the agent is told what it asked for without a second shape in
-    // between — and without a flattening that would have to invent a value
-    // for a role nobody has chosen one for.
-    // NOTHING WAITS: the human's answers arrive later, as a wake.
     open: async (intent) => {
       const { work, setup, ask, asked, created, reopened } =
         await liveServerConductor().openWork(intent);
       return { work, setup, ask, asked, created, reopened };
     },
-    // WHAT A PLANNER OR IMPLEMENTOR STARTS, read off the work's own answers
-    // and judged again — the face builds the command from this, so there is
-    // one source for it.
     startOf: (work, role) => liveServerConductor().startOf(work, role),
     stop: (work) => {
       liveServerConductor().stopWork(work, "conductor");
@@ -776,10 +239,6 @@ export async function bootKoluWeb(flags: KoluBootFlags): Promise<void> {
     closed: (ref) => {
       liveServerConductor().closedTerminal(ref);
     },
-    // The PRE-CHECK `lifecycle_create` runs before anything is created, off
-    // the same record every other row is read from: a work the face cannot
-    // find, or one that has ended, is a refusal with nothing spawned behind
-    // it. None means there is nothing to refuse.
     check: (work) => {
       const found = liveServerConductor()
         .works()
@@ -790,6 +249,305 @@ export async function bootKoluWeb(flags: KoluBootFlags): Promise<void> {
         : Option.none();
     },
   };
+}
+
+const PWA_BACKGROUND_COLOR = "#0c0c0e";
+
+function koluManifest(pwaIdentity: PwaIdentity): ManifestOptions {
+  return {
+    name: pwaIdentity.name,
+    description:
+      "Real terminals on an infinite canvas — run any coding agent, pin it as an app, reach it from anywhere.",
+    launch_handler: { client_mode: "focus-existing" },
+    themeColor: pwaIdentity.themeColor,
+    backgroundColor: PWA_BACKGROUND_COLOR,
+    icons: [
+      { src: "/icon-192.png", sizes: "192x192", type: "image/png" },
+      { src: "/icon-512.png", sizes: "512x512", type: "image/png" },
+      {
+        src: "/icon-512-maskable.png",
+        sizes: "512x512",
+        type: "image/png",
+        purpose: "maskable",
+      },
+    ],
+  };
+}
+
+function appRoutesLayer(deps: {
+  pool: RemotePool<PadiSession, undefined>;
+  sdkScriptPath: SdkScriptPath;
+  workFileStateRoot: string;
+}) {
+  return Layer.mergeAll(
+    healthRouteLayer,
+
+    artifactSdkBundleLayer({ sdkScriptPath: deps.sdkScriptPath }),
+
+    HttpRouter.add(
+      "GET",
+      PREVIEW_ROUTE_PATTERN,
+      withArtifactSdk(deps.sdkScriptPath)(
+        previewRouteHandler({ pool: deps.pool, log }),
+      ),
+    ),
+
+    HttpRouter.add(
+      "GET",
+      WORK_FILE_ROUTE_PATTERN,
+      withArtifactSdk(deps.sdkScriptPath)(
+        workFileRouteHandler({ stateRoot: deps.workFileStateRoot }),
+      ),
+    ),
+  );
+}
+
+function serveEventLogger(
+  pool: RemotePool<PadiSession, undefined>,
+): (event: SurfaceAppEvent) => void {
+  let liveConnections = 0;
+  return (event) => {
+    switch (event._tag) {
+      case "Connected":
+        log.info(
+          { ws: event.connection.id, total: ++liveConnections },
+          "connected",
+        );
+        for (const h of pool.hosts()) pool.getSession(h)?.nudge();
+        return;
+      case "Disconnected":
+        log.info(
+          {
+            ws: event.connection.id,
+            code: event.code,
+            ...(event.reason && { reason: event.reason }),
+            remaining: --liveConnections,
+          },
+          "disconnected",
+        );
+        return;
+      case "SocketError":
+        log.error({ err: event.error }, "ws error");
+        return;
+      case "GenerationRefused":
+        log.error({ err: event.error }, "ws live generation refused");
+        return;
+      case "StaleTab":
+        log.info(
+          { claimedPid: event.claimedPid, serverProcessId },
+          "rejecting stale client — server restarted since it last connected",
+        );
+        return;
+      case "DisallowedOrigin":
+        log.warn(
+          { origin: event.origin },
+          "rejecting ws upgrade: disallowed Origin",
+        );
+        return;
+      case "ServingFailed":
+        log.error(
+          { err: event.cause, ws: event.connection.id },
+          "ws rpc serving stack faulted",
+        );
+        return;
+    }
+  };
+}
+
+/** Boot the kolu web server: the `kolu` binary's `web` arm (`packages/kolu-cli`)
+ *  calls this, at most once per process — a second call throws. The returned
+ *  promise resolves once the boot sequence has run and the HTTP listener is
+ *  accepting; the server's live handles keep the process up from there. */
+export async function bootKoluWeb(flags: KoluBootFlags): Promise<void> {
+  if (booted) throw new Error("bootKoluWeb called twice in one process");
+  booted = true;
+
+  const allowedOrigins = parseAllowedOrigins(process.env.KOLU_ALLOWED_ORIGINS);
+
+  if (flags.verbose) {
+    log.level = "debug";
+  }
+
+  stateBackupRing.startTicker();
+
+  let releaseLocalSupervisor: (() => void) | null = null;
+  let conductorWatcher: ConductorWatcher | undefined;
+
+  installProcessLifecycleHandlers({
+    shutdown: async () => {
+      await conductorWatcher?.dispose();
+      await disposeServerConductor();
+      releaseLocalSupervisor?.();
+    },
+  });
+
+  const seed = parseKoluPadiHostSeed();
+  const defaultHost = seed[0] ?? LOCAL_HOST;
+
+  const persistedAtBoot = getPersistedHosts();
+  const envSeedKeys = seed.map(encodeHostKey);
+  const initialHostKeys = [...new Set([...envSeedKeys, ...persistedAtBoot])];
+  const persistedAtBootSet = new Set(persistedAtBoot);
+  const declarativeSeedKeys = new Set(
+    envSeedKeys.filter((k) => !persistedAtBootSet.has(k)),
+  );
+
+  const localSupervisorStateRoot = resolvePadiStateRoot();
+  const supervisorClaim = claimLocalSupervisor(localSupervisorStateRoot);
+  if (supervisorClaim.kind !== "self") {
+    const err = supervisorConflictError(
+      supervisorClaim,
+      localSupervisorStateRoot,
+    );
+    log.fatal({ err }, err.message);
+    process.exit(1);
+  }
+  releaseLocalSupervisor = supervisorClaim.release;
+
+  const pool = buildRemotePool<PadiSession, undefined>({
+    initialHosts: initialHostKeys,
+    persist: (hosts) => savePoolMembership(hosts, declarativeSeedKeys),
+    buildEntry: (h) => {
+      const key = decodeHostKey(h);
+      return {
+        session:
+          key.kind === "local"
+            ? ensurePadiBinding({
+                nixShellWhitelist: flags.allowNixShellWithEnvWhitelist,
+                legacyKavalSocket: legacyKavalSocketPath(flags.port),
+                spawnVersion: serverVersion,
+                verbose: flags.verbose,
+                onFatalBindingError: (err) =>
+                  handlePadiBootFailure(err, { log, exit: process.exit }),
+              })
+            : ensureRemotePadiBinding({
+                host: key.target,
+                spawnVersion: serverVersion,
+              }),
+        handler: undefined,
+      };
+    },
+  });
+
+  pool
+    .getSession(encodeHostKey(LOCAL_HOST))
+    ?.pin()
+    .catch((err: unknown) =>
+      handlePadiBootFailure(err, { log, exit: process.exit }),
+    );
+
+  const padiSession = ((): PadiSession => {
+    const s = pool.getSession(encodeHostKey(defaultHost));
+    if (s === undefined)
+      throw new Error(
+        `boot invariant violated: default host "${encodeHostKey(defaultHost)}" was seeded but has no pool session`,
+      );
+    return s;
+  })();
+
+  const reServes = new Map<string, ReServedSurface<typeof padiSurface.spec>>();
+  const reServeFor = (
+    h: HostKey,
+    s: PadiSession,
+  ): ReServedSurface<typeof padiSurface.spec> => {
+    const enc = encodeHostKey(h);
+    let r = reServes.get(enc);
+    if (r === undefined) {
+      r = reServeSurface<typeof padiSurface.spec>({
+        source: padiSurface,
+        policy: PADI_FORWARDING_POLICY,
+        session: s,
+        log: (line) => log.debug({ line, host: enc }, "padi re-serve"),
+        onFault: (fault) =>
+          log.error(
+            {
+              err: fault.err,
+              host: enc,
+              member: fault.label,
+              scope: fault.scope,
+            },
+            fault.scope === "key"
+              ? "padi projection: a collection key stopped being mirrored (key-local; the host mirror is still live)"
+              : "padi projection: a mirrored member's upstream stream died — the mirror is dead",
+          ),
+      });
+      reServes.set(enc, r);
+      s.pin().catch((err: unknown) =>
+        log.debug(
+          { err, host: enc },
+          "padi session pin failed while warming a mirror — the host map carries the failure",
+        ),
+      );
+      r.done
+        .then(() =>
+          log.info(
+            { host: enc },
+            "padi re-serve ended cleanly (link closed or supervision stopped)",
+          ),
+        )
+        .catch((err) => {
+          if (enc === encodeHostKey(defaultHost)) {
+            log.fatal(
+              { err, host: enc },
+              "default padi re-serve pump died — binding is unrecoverable",
+            );
+            process.exit(1);
+          }
+          log.error(
+            { err, host: enc },
+            "guest padi re-serve pump died — retiring the host",
+          );
+          void pool.retire(enc);
+        });
+    }
+    return r;
+  };
+
+  pool.subscribe(() =>
+    pruneToMembers(
+      reServes,
+      (h) => pool.has(h),
+      (r) => void r.close(),
+    ),
+  );
+
+  const siblingTagPrefixes = Object.keys(padiHostMap.siblings).map(
+    siblingTagPrefix,
+  );
+
+  const localReServe = reServeFor(LOCAL_HOST, padiSession);
+  const reServedPadiClient = surfaceClientRef(
+    localReServe.surface,
+    localReServe,
+  );
+
+  const padiMap = serveHostMap(padiHostMap, pool, {
+    dispatchFor: (h, s) =>
+      entryDispatch({
+        siblingTagPrefixes,
+        mirror: withAttachTelemetry(
+          directDispatch({ handlers: reServeFor(h, s).handlers }),
+          { host: encodeHostKey(h), log },
+        ),
+        link: () => s.currentDispatch?.(),
+        host: encodeHostKey(h),
+      }),
+    failureOf: (_host, session, state): PadiEntryFailure | null =>
+      padiFailureOf(session.provisions, session.entryFailedDetail(), state),
+    connection: {
+      project: sessionConnection,
+      isConnected: (c) => c.phase === "connected",
+    },
+  });
+
+  const fleetHosts = fleetHostsOver({
+    pool,
+    padiMap,
+    localName: serverHostname,
+  });
+  setConductorFleetHosts(() => fleetHosts);
+  const worksReaders = new Set<() => void>();
+  const works = fleetWorksOver(worksReaders);
   const fleetMcp = await startFleetMcpEndpoint({
     log,
     serve: (transport) =>
@@ -800,117 +558,36 @@ export async function bootKoluWeb(flags: KoluBootFlags): Promise<void> {
         works,
       }),
   });
-  // The conductor PROVES this endpoint before it names it to an agent — the
-  // same `initialize` the adapter's client will send, answered with a session
-  // (the discipline padi's socket probe already had) — so what it is handed is
-  // a reading, not a promise.
   setFleetMcpEndpoint(() => ({ url: fleetMcp.url, token: fleetMcp.token }));
 
-  // ── SR8.a: serve kolu-server's OWN surface HERE, after padiSession ───────
-  //
-  // kolu-server's own two siblings (kolu + surfaceApp) are served NOW — in the async
-  // boot, after `padiSession` exists — not at `surface.ts` module load. The reason is
-  // the two DERIVED poll cells below: their read + install seams (`readPadiMemoryOnce`
-  // off the re-serve mirror, the padi-identity closures, and `padiSession.onState`) all
-  // exist only here. Serving is a single straight-line call whose returned router/ctx
-  // are used immediately (the splice + the onState wiring), so the rejected late-bind
-  // registrar slot (an override-knob) is unnecessary — control flow IS the fail-fast.
-
-  // The reading returned when padi is BELIEVED up (a live bound client) yet its
-  // memory read fails — a link drop mid-read, a schema/protocol fault, an empty
-  // subscription. Both processes fold to the honest `error` (not `absent`): padi's
-  // `ProcessRss` schema keeps `error` distinct from `absent` precisely so a failed
-  // read never renders identically to "no process to measure" (the
-  // `caught-error-must-not-collapse-to-empty` rule). `absent` is reserved for the
-  // true no-client case (padi genuinely down), returned as `null` below.
-  const PADI_MEMORY_READ_ERROR: PadiProcessMemory = {
+  const PADI_MEMORY_READ_FAILED: PadiProcessMemory = {
     padi: { status: "error" },
     kaval: { status: "error" },
   };
 
-  // Read padi's `{ padi, kaval }` memory pair off the RE-SERVE MIRROR — a one-shot
-  // read of the mirror's own `processMemory` cell (a snapshot-first subscription; take
-  // the first frame — the value the re-serve already folded into its per-binding store
-  // — and stop). This is the SAME reading the browser sees on `/surface/padi/*`, so
-  // the rail consumes the source of truth once folded rather than re-dialing padi on a
-  // second transport. Returns `null` when padi is DOWN (no live client), so a down padi
-  // folds to the honest `absent` — the liveness GATE decides down-ness, NOT the mirror
-  // store, which deliberately HOLDS its last value across an upstream drop (reading the
-  // store alone would report a dead process's stale-but-live figure). The one window the
-  // gate does not cover is a fresh REBIND: `currentClient()` flips live the instant padi
-  // reconnects, a beat before the mirror re-folds, so a resample in that beat can briefly
-  // surface the last-known reading until the next fold/tick overwrites it — bounded to one
-  // fold cycle and self-correcting on the coarse rail (a named, accepted residual; Ledger
-  // L14). A read that FAILS through a live mirror returns the `error` reading instead
-  // (never `null`), so a real anomaly stays distinct from `absent`. kaval runs inside the
-  // padi process now, so padi (not kolu-server) is the source of that pair; the
-  // `processMemory` poll cell folds it in below.
-  function readPadiMemoryOnce(): Effect.Effect<PadiProcessMemory | null> {
-    // LIVENESS GATE — read padi's HONEST published phase, not `currentClient()`. The
-    // reactor defers this poll read a microtask; `padiSession.currentState()` returns the
-    // freshest connection frame (the same value `onState` publishes), so the deferred read
-    // sees the true phase at the read instant. Only `connected` means the mirror holds a
-    // live reading; every up-but-not-connected phase (connecting/probing/…) and every down
-    // phase (disconnected/failed) folds to the honest `absent` (`null`), the gate — not the
-    // held store — deciding down-ness.
-    //
-    // This TIGHTENS the old `currentClient() !== null` gate, which meant "dialing-OR-
-    // connected": it read truthy through `connecting` AND — because `scheduleReconnect`
-    // retains the rejected `clientPromise` across the backoff wait — through entire
-    // reconnect backoff windows, republishing the mirror's held stale RSS the whole time.
-    // Reading the phase closes that: liveness is now `phase === "connected"`, which is app
-    // POLICY (`padiMemoryReadable`: "a live reading exists only when connected AND not
-    // destroyed"), named as such — no accessor pointer stands in for it. A fresh rebind still
-    // has one bounded fold cycle where the mirror hasn't re-folded the newest reading yet
-    // (Ledger L14, orthogonal to the gate).
-    //
-    // The whole gate — the phase-tightening AND the `isDestroyed()` fold (the frame can't
-    // carry destroyed-ness; see `padiMemoryReadable`'s module doc) — is the named leaf now, so
-    // the mirror read below can't run against a destroyed re-serve.
-    if (!padiMemoryReadable(padiSession)) return Effect.succeed(null);
+  function readPadiMemoryOnce(): Effect.Effect<PadiProcessMemory> {
+    if (!padiMemoryReadable(padiSession))
+      return Effect.succeed(DEFAULT_PADI_PROCESS_MEMORY);
     return Effect.gen(function* () {
-      // `reServedPadiClient` is an in-process `directDispatch` face over the mirror's
-      // handlers, so this reads the folded store with no socket/ssh hop and the same
-      // cell verb. A cell `get` is a lazy `Stream` now (D10/#18): `Stream.runHead`
-      // takes the snapshot frame and INTERRUPTS the rest, which is the Effect
-      // successor of the old `AbortController` + `firstFrameOrUndefined` pair —
-      // fiber interruption IS the unsubscribe, so nothing is left running.
       const frame = yield* Stream.runHead(
         reServedPadiClient.surface.processMemory.get(undefined),
       );
-      // The client was live but the cell yielded no frame — an operational anomaly,
-      // not "no process to measure". Report `error`, not `absent`, and log at `error`
-      // (a live-client read that produced nothing is a failed read, not a degraded-but-
-      // recoverable state — the `errors-must-log-at-error` rule).
       if (Option.isNone(frame)) {
         log.error({}, "padi memory read yielded no frame through the mirror");
-        return PADI_MEMORY_READ_ERROR;
+        return PADI_MEMORY_READ_FAILED;
       }
       return frame.value;
     }).pipe(
-      // padi was BELIEVED up (a live client) yet the mirror read failed — surface the
-      // honest `error` state, distinct from `absent`, rather than collapsing a caught
-      // error to the empty "no process" reading. padi's liveness still rides the
-      // re-serve's own `connection` cell; this only affects the memory rail's three-way
-      // readout. A caught read failure is a real error, not `warn`
-      // (errors-must-log-at-error). `catchCause` rather than `catch`, so a DEFECT in the
-      // mirror read degrades this one cell too instead of faulting the poll.
       Effect.catchCause((cause) => {
         log.error(
           { err: Cause.squash(cause) },
           "padi memory read failed through the mirror",
         );
-        return Effect.succeed(PADI_MEMORY_READ_ERROR);
+        return Effect.succeed(PADI_MEMORY_READ_FAILED);
       }),
     );
   }
 
-  // Map the base `session.identity()` sum onto the daemon-inventory readouts the dialog
-  // reads (uptime · contract version · navigable commit). `identity()` is TOTAL
-  // (disconnected | anonymous | identified); padi always DECLARES its build, so a bound
-  // padi is always `identified`, a mid-reconnect gap is `disconnected` (never
-  // `anonymous`). `padiStartedAt` also feeds the `processStartedAt` cell off `onState`
-  // below; `padiSurfaceVersion`/`padiBuildCommit` feed the `daemonInventory` poll cell.
   const padiStartedAt = (): number | null => {
     const id = padiSession.identity();
     return id.kind === "disconnected" ? null : id.startedAt;
@@ -921,27 +598,11 @@ export async function bootKoluWeb(flags: KoluBootFlags): Promise<void> {
   };
   const padiBuildCommit = (): string | null => {
     const id = padiSession.identity();
-    // A navigable commit → its sha; a dev build (or unidentified) → null (honest "—").
     return id.kind === "identified" && id.baked.commit.kind === "commit"
       ? id.baked.commit.sha
       : null;
   };
 
-  // The daemon-inventory poll read — TOTAL, mirroring `readPadiMemoryOnce` and the sibling
-  // `processMemory` read. `enumerateDaemonInventoryOnce` is NOT total (a remote-arm discovery
-  // fs-walk or a session readout can throw), and a poll source's T+0 SEED throw faults the
-  // runtime's `done` → `process.exit(1)` (`surface.ts`'s fatal policy) — crashing the whole
-  // web shell (terminal serving included) over a purely diagnostic panel, where the retired
-  // `startDaemonInventorySampler`'s first tick was non-fatal (its `.catch` covered every tick
-  // including the seed). So catch here: a structured `log.error` (the reactor's own poll
-  // catch is a bare `console.error`, no serverId/cell tag) and the honest empty default, so an
-  // enumeration fault degrades this one cell instead of the process — the same "make the read
-  // total" discipline the sibling `readPadiMemoryOnce` follows. Enumeration is designed not to
-  // throw, so this is defence in depth.
-  // The RAW host-daemon enumeration — what only kolu-server knows (the binding host, its
-  // own-machine scan under a remote binding, the bound padi's identity + convergence). Its
-  // readouts ride `padiSession`, so it's built here and passed as a domain dep;
-  // `implementKoluSurface` wraps it TOTAL (one home for the guard, beside the cell build).
   const readDaemonInventoryEffect = () =>
     enumerateDaemonInventoryOnce({
       discoverKavals: discoverKavalDaemons,
@@ -950,55 +611,16 @@ export async function bootKoluWeb(flags: KoluBootFlags): Promise<void> {
       activePadiSurfaceVersion: () => padiSurfaceVersion(),
       activePadiBuildCommit: () => padiBuildCommit(),
       activePadiConvergence: () => padiSession.convergence(),
-      // Under ALWAYS-MAP this describes the unremovable LOCAL default (`padiSession` binds
-      // it), so `boundHost` is null — the local default padi's `hostInventory` member
-      // already covers this machine, so no duplicate `localScan`.
-      boundHost: null,
+      binding: { kind: "local" },
     });
 
-  /**
-   * THE reactor-poll Promise edge, named once (governance:
-   * `packages/tests/governance/runEdges.ts`).
-   *
-   * A poll cell's dep is `read: () => Promise<T>` and the reactor is deliberately
-   * non-Effect (locked decision 1; B4a H1) — its `connectPoll` is public and has a
-   * consumer outside any wire member, so converting the read would put an
-   * `Effect.runPromise` inside `reactor.ts` instead of here. kolu-server's two poll
-   * READS are Effect-native (a mirror stream read; an enumeration that dials every
-   * local kaval), so this is where they meet that seam — one function, so the
-   * boundary is countable rather than one crossing per cell.
-   *
-   * It takes a THUNK, not an effect: `readPadiMemoryOnce` reads the liveness gate
-   * SYNCHRONOUSLY before it builds anything, so a single effect value captured at
-   * wiring time would freeze that gate at boot. One `Effect` per read, exactly as one
-   * `Promise` per read before it.
-   *
-   * Totality is the CALLER's, and both callers have it: the memory read folds every
-   * failure to its honest `error` reading, and the inventory read is wrapped TOTAL by
-   * `implementKoluSurface` beside the cell it feeds. A poll seed needs that — a T+0
-   * seed rejection faults the runtime's `done` → `process.exit(1)`.
-   */
   const pollRead =
-    <A>(program: () => Effect.Effect<A, unknown>): (() => Promise<A>) =>
+    <A>(program: () => Effect.Effect<A, unknown>): PollRead<A> =>
     () =>
       Effect.runPromise(program());
 
-  // ── Port forwards (PRT2) ────────────────────────────────────────────────
-  //
-  // kolu-server EMBEDS `@kolu/port-forward`: the doors are listeners in THIS
-  // process, so they die with it — which is the property the whole design was
-  // chosen for, and the reason there is no forwarding daemon to supervise. A
-  // deploy restarts kolu, the kernel closes every listener, and the restarted
-  // Inspector's empty list is the truth rather than an orphaned lie.
-
-  /** The forward reaper's port reading, over this host's re-serve mirror. The
-   *  reader itself lives in `portForward/` — this only hands it the padi seam. */
   const readHostPorts = makeHostPortsReader({
     log,
-    // The host's `hostListeners` cell off its re-serve mirror — a CELL, so the
-    // spec's typed read face reaches it directly (the terminals collection this
-    // used to walk needed a structural cast, because that face declines
-    // collections).
     listenersOf: (host) => {
       const session = pool.getSession(encodeHostKey(host));
       if (session === undefined) return null;
@@ -1009,112 +631,40 @@ export async function bootKoluWeb(flags: KoluBootFlags): Promise<void> {
     },
   });
 
-  /** The forward map + kolu's policy over it. Its `subscribe` is the cell's
-   *  fused change EDGE — a bare tick that makes the poll re-read at once — so an
-   *  act reaches the wire without waiting out the reap interval. Nothing here
-   *  holds a copy of the list: the cell's read is its only reader. */
   const forwards = createKoluForwards({
     readHostPorts,
     hostIsMember: (host) => pool.has(encodeHostKey(host)),
     log,
   });
 
-  // A host leaving the pool takes its doors with it — a forward to a machine kolu
-  // no longer has is a door to nowhere, and that holds for `manual` forwards too
-  // (the one thing besides an explicit cancel that may close one). This is pool
-  // MEMBERSHIP, not link liveness: a flapping ssh connection must not reap
-  // anything, and it does not need to — a remote forward's ssh child dies with its
-  // own connection and the map hears about it through `onLost`.
   pool.subscribe(() => {
-    // Once per departed HOST. Walking the forwards and firing per row meant
-    // three doors on one machine started three concurrent `hostDeparted` runs
-    // over the same keys, and the losers logged a cancel failure for every key
-    // the winner had already taken down — noise shaped exactly like a fault.
-    // `heldHosts`, not `list`: a host whose only door is still OPENING holds
-    // no listable forward yet, so walking the list made it look like a host with
-    // no doors and `hostDeparted` was never called for it — leaving the very
-    // in-flight door that function now knows how to cancel.
     for (const host of forwards.heldHosts()) {
       if (!pool.has(encodeHostKey(host))) void forwards.hostDeparted(host);
     }
   });
 
-  /** "Which of kolu's hosts is this browser at?" — resolver in `portForward/`;
-   *  this supplies the pool membership it walks. */
   const viewerHost = makeViewerHostResolver({ hosts: () => pool.hosts() });
 
-  // The new-terminal THEME POLICY pusher (#2045). padi resolves every new terminal's
-  // theme now — for the browser, the CLI, and an MCP agent alike — but it knows nothing
-  // about preferences, so kolu-server derives the resolved policy off its own
-  // `preferences` + `viewerMode` cells and writes it into each bound padi's memory-only
-  // cell whenever that padi's link turns honest-`connected` (first bind AND every
-  // reconnect). Installed BEFORE `implementKoluSurface` because its `republish` is the
-  // surface's `onPolicyInputsChanged` nudge; it awaits nothing, so the boot invariant
-  // asserted just below still holds.
   const newTerminalPolicyPusher = installNewTerminalPolicyPusher({
     pool,
-    getPolicy: currentNewTerminalPolicy,
+    resolvePolicyNow: currentNewTerminalPolicy,
     log,
   });
-  // AGENT DELIVERY — kolu-server delivers agent-distro's package, and the
-  // profiles of the Agents setting it builds, to every host (`./agentDelivery/`): on upstream's schedule, on the user's check, and to a
-  // host the moment its padi takes the Agents setting (the pusher below). Read
-  // once, here: a broken listing or delivery bake crashes the boot; a kolu built
-  // from source has no delivery bake and delivers nothing (its hosts read
-  // `undelivered`).
   const agentDistroListing = readAgentDistroListing();
-  // WHAT KOLU OFFERS for a work's harness and model questions — this listing
-  // and every host's own word on its models — handed to the conversation
-  // before the surface is served, so every work is checked against one thing.
   setConductorOffer(
     koluOfferOver({ listing: agentDistroListing, hosts: fleetHosts }),
   );
   const deliveryBake = readAgentDistroDeliveryBake();
-  // The delivery itself is installed BELOW, once kolu's surface — whose
-  // `agentProfiles` cell it writes — is served: installing it delivers at once
-  // (the schedule's first tick runs on install, and publishes). Nothing between
-  // here and there calls it: the closures that do (the pusher's `onPushed`, the
-  // surface's setting and check hooks) run on a padi connect or a user's act,
-  // and the boot invariant below proves no padi is connected yet. A call
-  // before the install anyway is a boot-order bug, and throws.
   let installedAgentDelivery: AgentDeliveryHandle | undefined;
-  const agentDelivery = (): AgentDeliveryHandle | undefined => {
-    if (deliveryBake !== null && installedAgentDelivery === undefined)
-      throw new Error("the agent delivery was called before it was installed");
-    return installedAgentDelivery;
-  };
-  // The AGENTS SETTING pusher — the same mechanism, for padi's memory-only
-  // `agentDistro` cell: every bound padi (local and every remote host) learns the
-  // user's choice on each connect edge and on every preferences write, and applies
-  // it to its next new terminal. A host that TOOK the setting is delivered its
-  // set.
   const agentDistroPusher = installPadiCellPusher({
     cell: "agentDistro",
     pool,
     getValue: currentAgentDistroSetting,
     equals: agentDistroSettingEqual,
-    onPushed: (host) => agentDelivery()?.deliverTo(host),
+    onPushed: (host) => installedAgentDelivery?.deliverTo(host),
     log,
   });
 
-  // Serve kolu-server's own surface. SR8.c: `implementKoluSurface` builds EVERY member from
-  // these plain domain deps — index.ts imports no reactor primitive, and no member is
-  // ctx-written (the reactor graph is each one's writer). The `onState` dep projects each
-  // bound-padi `SessionState` into the rail payload the PUSH cells (`padiLink` /
-  // `processStartedAt`) derive from — `phase → link` (`mapConnectionToPadiLink`), the honest
-  // padi boot time off `identity()` (`padiStartedAt`); it ALSO drives the two POLL cells'
-  // fused cadence (a bare tick that ignores the payload). `onState` fires the current state
-  // synchronously on subscribe, so each member's seed reflects the live binding.
-  //
-  // SEED INVARIANT, ENFORCED (SR8.c): `processStartedAt` seeds from the static
-  // `{ padi: null }` and — because the two push cells share ONE ref-counted `onState`
-  // source, and a second `scan` subscriber doesn't replay the install-time frame — that
-  // seed is only correct while padi is still WARMING here. The local `pin()` above is
-  // fire-and-forget (never awaited), so the dial cannot have completed and `padiStartedAt()`
-  // is `null`. This is index.ts's ordering to keep, so index.ts asserts it: a future change
-  // that awaits the pin before this point would seed the uptime rail stale until the next
-  // event — crash loudly at boot instead of shipping that silent staleness (fail-fast; the
-  // fix then is to seed both cells from a live snapshot, not to relax this).
   if (padiStartedAt() !== null) {
     throw new Error(
       "kolu boot invariant violated: padi must still be warming (padiStartedAt null) when " +
@@ -1128,40 +678,22 @@ export async function bootKoluWeb(flags: KoluBootFlags): Promise<void> {
     onState: (cb) =>
       padiSession.onState((s) =>
         cb({
-          // Through the ONE projection (`projectConnection`), so this cell reads
-          // the same connection family the browser does — including its fold of
-          // any arm a host session cannot reach.
           link: mapConnectionToPadiLink(projectConnection(s).phase),
           padiStartedAt: padiStartedAt(),
         }),
       ),
     forwards: {
-      // Reconcile, then report — ONE call, so the list that reaches the wire has
-      // already had its dead doors closed. It is one call rather than a reap
-      // followed by a read for a reason paid for in production: when the reap
-      // announced its own result on `onChange`, and `onChange` is this read's own
-      // trigger, a single live `auto` forward spun the event loop forever. TOTAL
-      // by construction — `reconcile` logs and continues past every failure, and
-      // the list is an in-memory map — so this poll's seed cannot throw and take
-      // the runtime's `done` with it.
       read: forwards.reconcile,
       onChange: forwards.subscribe,
       create: forwards.create,
       cancel: forwards.cancel,
     },
-    // A policy input moved (a theme preference, or a browser reporting its OS mode):
-    // re-derive and re-push to every connected padi, so the next terminal any face
-    // opens follows the setting the user just changed.
     onPolicyInputsChanged: () => newTerminalPolicyPusher.republish(),
     onAgentDistroChanged: () => {
       agentDistroPusher.republish();
-      agentDelivery()?.onSettingChanged();
+      installedAgentDelivery?.onSettingChanged();
     },
-    deliverAgents: (host) => agentDelivery()?.deliverNow(host),
-    // Read once, above: a baked floor that does not describe itself is a broken
-    // build and crashes the boot; an unbaked (from-source) kolu reads
-    // `unavailable`. A profile kolu cannot describe in plain words crashes the
-    // boot too.
+    deliverAgents: (host) => installedAgentDelivery?.deliverNow(host),
     agentDistroListing,
   });
   installedAgentDelivery =
@@ -1177,61 +709,23 @@ export async function bootKoluWeb(flags: KoluBootFlags): Promise<void> {
           log,
         });
 
-  // ── The CONDUCTOR'S WATCH, started now that the cell exists ──────────────
-  //
-  // AFTER `implementKoluSurface`, and that order is load-bearing: the watcher
-  // reads the works' membership, which reads the remembered record, which
-  // PUBLISHES what it restored — and a publish before the cell writers are
-  // registered is the boot-order crash `conductor/live.ts` states. It is also
-  // why nothing above this line asks the conversation anything.
-  //
-  // It may WAKE the conversation (that is the whole feature) but it must never
-  // start the agent merely to read the membership, which is the line
-  // `ConductorHost.memberRefs` draws: reading is bookkeeping, a wake is a turn.
   conductorWatcher = startConductorWatcher({
     hosts: fleetHosts,
     conductor: liveServerConductor,
     log,
   });
-  // WHAT MOVED, as the conversation itself says it — two facts, two sinks.
-  //
-  // The WATCH'S SCOPE is the member refs and the branches with work in
-  // flight: a terminal created for a work, one the Conductor adopted or
-  // released, one that went away, a work opened, reopened or ended. The
-  // watcher re-chooses its legs off it, and compares the scope itself, so
-  // saying it when nothing moved costs one comparison.
-  //
-  // The `works` RESOURCE moves for one more reason than the scope does: a
-  // reading that renames a terminal, finds an agent in it or appends an event
-  // leaves the scope alone and still changes every row an agent reads.
   setWorksListener(() => {
     for (const tell of worksReaders) tell();
   });
   setWatchScopeListener(() => conductorWatcher?.scopeMoved());
 
-  // The ROOT procedures — kolu-server's own seven, bound as the third served
-  // fragment. There is no router SPLICE any more: the wire namespace is flat, so the
-  // padi map's members already carry their own `surface/padi/*` tags and the
-  // assembly below is a handler-record merge whose route-set identity is asserted.
   const rootServed = buildAppRouter({
-    // The re-targeted "restart": drain the DEFAULT bound padi (persist + exit; kaval + its
-    // PTYs survive; the reconnect loop re-spawns padi). Never a kill-9.
     drainBoundPadi: () => padiSession.renew(),
-    // Runtime pool membership (the selector strip's add/remove). `pool.add` uses the
-    // pool's stored `buildEntry` — a guest host takes the remote ssh arm. `remove` fails
-    // LOUD for the unremovable default (LOCAL_HOST / the boot default): the canvas must
-    // always keep a host to fall back to, and "being able to override" is never a feature.
     addHost: (host) => pool.add(encodeHostKey(host)),
     removeHost: async (host) => {
       assertRemovableHost(host, defaultHost);
       await pool.remove(encodeHostKey(host));
     },
-    // The host-down card's [Reconnect]: force the held session to RE-DIAL now via
-    // `recheck()` (force-cycle the held connection through the reconnect loop). A
-    // STANDING refuse (cross-supervisor / contract-skew / unconverged) holds degraded
-    // WITHOUT auto-reconnecting, so once the operator clears the cause this is the only
-    // recovery path short of remove+re-add. An unknown host is a loud throw (the strip
-    // surfaces it as a rejected call), never a silent no-op.
     reconnectHost: (host) => {
       const s = pool.getSession(encodeHostKey(host));
       if (s === undefined)
@@ -1240,13 +734,6 @@ export async function bootKoluWeb(flags: KoluBootFlags): Promise<void> {
         );
       s.recheck();
     },
-    // The skew card's [Update & restart kaval] (SK5): drain THIS host's padi via
-    // the binder-owned `renew()` — padi persists + exits, the reconnect loop
-    // re-dials (re-realising the CURRENT closure on the host — `resolveDrvPath`
-    // runs fresh at the top of every dial), and the new padi's converge policy
-    // recycles the old kaval from its new build. One seam for local and remote
-    // alike (D1): the local session is a pool member exactly like a remote one.
-    // An unknown host is a loud throw, never a silent no-op.
     viewerHost,
     renewHostDaemon: (host) =>
       Effect.suspend(() => {
@@ -1257,19 +744,11 @@ export async function bootKoluWeb(flags: KoluBootFlags): Promise<void> {
           );
         return s.renew();
       }),
-    // The state-backup ring (#1658). Restore drives the two Conf-backed cells'
-    // server-internal writers (returned by `implementKoluSurface` above),
-    // converges the pool through the SAME add/remove path the strip's
-    // `hosts/add`/`hosts/remove` take — the pool stays membership's one writer —
-    // and hands the snapshot's works to the live conversation, which is THEIR
-    // one writer for exactly the same reason.
     listStateBackups: listServerStateBackups,
     restoreStateBackup: (input) =>
       restoreServerStateBackup(input, {
         ...koluServed.storeCellWriters,
         currentHostKeys: getPersistedHosts,
-        // `getHandler` is the documented membership probe — entry presence,
-        // never the handler's own value.
         hasLiveHost: (key) => pool.getHandler(key) !== undefined,
         addHostKey: (key) => pool.add(key),
         removeHostKey: (key) => pool.remove(key),
@@ -1279,321 +758,52 @@ export async function bootKoluWeb(flags: KoluBootFlags): Promise<void> {
       }),
   });
 
-  // --- The served surface: one group, one handler record ---------------------
-  //
-  // `servedGroup` (static, asserted tag-complete at import in `surface.ts`) is the
-  // superset kolu-server advertises; `assembleServedHandlers` merges the three
-  // fragments that implement it and PROVES the bound tag set matches the group
-  // exactly, in both directions. A tag carries its own route, so there is no
-  // router to assemble and no matcher tree to keep in sync — the boot-time 404 the
-  // retired `implement(servedContract)` widening guarded against is now a crash
-  // here, before the server listens.
   const servedHandlers = assembleServedHandlers({
     kolu: koluServed,
     padiMap,
     root: rootServed,
   });
 
-  // NOTE — the HTTP RPC arm is GONE, deliberately. oRPC served every procedure on a
-  // second, request/response transport at `/rpc/*`; Effect RPC has no such arm in
-  // this stack — every call (a cell subscription, a collection delta stream, an
-  // imperative procedure) rides the one ndjson socket at `/rpc/ws`, which is the
-  // only transport kolu's own UI ever used. Keeping an empty `/rpc/*` route would
-  // advertise a transport that answers nothing, so it is deleted rather than
-  // ported — and with it the `gateHttpRpcOrigin` CSWSH gate, whose whole reason for
-  // existing was that oRPC's HTTP codec was browser-reachable with no preflight.
-  // Deleting the transport removes that attack surface outright instead of gating
-  // it. The ws-upgrade gate (`gateWsOrigin`, below) is untouched and still
-  // load-bearing. Same call the surface examples made in W2.
-
-  // --- kolu's OWN routes: one composed router layer ---------------------------
-  //
-  // Every route kolu-server serves beyond the shell is an `HttpRouter` layer,
-  // merged here and handed to `serveSurfaceApp` as its `routes` (the shell
-  // itself — the manifest and, in production, the static bundle — is that call's
-  // business, not this layer's). Registration ORDER carries no meaning: the
-  // router ranks by SPECIFICITY, so the literal `/api/health`, the parameterised
-  // preview pattern and the shell's `/*` catch-all each win where they should
-  // whichever way round they were merged. (Under hono the preview route had to be
-  // registered before the static catch-all or `serveStatic`'s `/*` shadowed it;
-  // that ordering constraint died with hono.)
-
-  /** Where the in-iframe artifact-sdk bundle is served AND the `src` the HTML
-   *  decorator injects — one constant, so the route and the tag cannot drift. */
   const SDK_SCRIPT_PATH: SdkScriptPath = "/api/artifact-sdk.js";
 
-  // surface-app owns manifest assembly + the install-friendly defaults
-  // (start_url, display); kolu supplies the per-host branding.
-  const pwaIdentity = pwaIdentityForHostname(serverHostname);
-
-  // The client bundle, when there is one. In DEV there is not (`just dev` runs
-  // Vite, which proxies `/api`, `/manifest.webmanifest` and `/rpc` here), so the
-  // static layer is simply absent and an unmatched path 404s through the
-  // router's own `RouteNotFound` — which is exactly what `ci::dev-smoke` proves.
-  // `undefined` is how `serveSurfaceApp` is told there is no bundle.
   const clientDist = process.env.KOLU_CLIENT_DIST;
 
-  // --- The dynamic PWA manifest (it carries the hostname) ---
-  // Served UNCONDITIONALLY, dist or no dist: in dev the Vite proxy forwards
-  // `/manifest.webmanifest` here, so it must answer with no built client. That
-  // used to force this file to hand-compose `pwaManifestLayer` +
-  // `freshStaticLayer`, because the convenience layer PAIRED the manifest with
-  // the dist; `surfaceAppLayer` mounts the two independently now, so both are
-  // plain options on the one listener call below.
-  const manifest: ManifestOptions = {
-    name: pwaIdentity.name,
-    // `...extra` passthrough in pwaManifestLayer carries these through to the
-    // served manifest — they upgrade Chromium's native install card (and the
-    // pwa-install preview) from a bare icon to a richer app entry.
-    description:
-      "Real terminals on an infinite canvas — run any coding agent, pin it as an app, reach it from anywhere.",
-    // Deep-link PWA capture: an in-scope https link (`#/t/…`, `#/h/…`, …) focuses
-    // the ALREADY-OPEN installed window and hands the URL to the app's
-    // `launchQueue`, instead of spawning a second window. Rides the `...extra`
-    // passthrough (a plain manifest key — no surface-app change). See the
-    // deep-links Atlas note + `useDeepLinks`.
-    launch_handler: { client_mode: "focus-existing" },
-    themeColor: pwaIdentity.themeColor,
-    backgroundColor: PWA_BACKGROUND_COLOR,
-    icons: [
-      { src: "/icon-192.png", sizes: "192x192", type: "image/png" },
-      { src: "/icon-512.png", sizes: "512x512", type: "image/png" },
-      // Maskable variant (logo inside the safe zone on the brand background) so
-      // installed icons fill the OS mask instead of being letterboxed.
-      {
-        src: "/icon-512-maskable.png",
-        sizes: "512x512",
-        type: "image/png",
-        purpose: "maskable",
-      },
-    ],
-    // No `screenshots`: they only prettify the install card (install works without
-    // them), and committed product shots go stale as the UI moves. Not worth the
-    // maintenance — the icon + description carry the install entry.
-  };
+  const manifest = koluManifest(pwaIdentityForHostname(serverHostname));
 
-  const appLayer = Layer.mergeAll(
-    // `/api/health` — the liveness probe four independent consumers freeze; see
-    // `healthRoute.ts` for the list. Deliberately dependency-free, so it answers
-    // the moment the handler is attached.
-    healthRouteLayer,
+  const appLayer = appRoutesLayer({
+    pool,
+    sdkScriptPath: SDK_SCRIPT_PATH,
+    workFileStateRoot: dirname(store.path),
+  });
 
-    // The artifact-sdk (comments-on-files) bundle bytes: esbuild'd at first
-    // request, cached, hash-keyed via `?v=<hash>` so the immutable cache-control
-    // is honest.
-    artifactSdkBundleLayer({ sdkScriptPath: SDK_SCRIPT_PATH }),
-
-    // The iframe preview byte route — repo files referenced by
-    // `FsReadFileOutput.kind === "binary"`. The URL contract (base + builder +
-    // parser), the `..`/`%2f` guards and every refusal status live in
-    // `iframePreviewRoute.ts`; the composition root supplies only the host pool
-    // and the logger.
-    //
-    // DECORATED with `withArtifactSdk`, and that decoration is REQUIRED: it
-    // splices the SDK `<script>` into a `text/html` preview so comments-on-files
-    // works inside the iframe. It is applied HERE rather than inside the route
-    // because it is kolu's product decision, not the byte route's — artifact-sdk
-    // exports a handler combinator now, since a router that scopes middleware
-    // per LAYER (never per path prefix) has no successor to hono's prefix glob.
-    // Drop it and everything still compiles and every unit test still passes,
-    // while the in-iframe SDK silently never loads; `code-tab.feature:1538,1561`
-    // and `file-ref-link.feature:209-219` are the only things that would catch
-    // it.
-    HttpRouter.add(
-      "GET",
-      PREVIEW_ROUTE_PATTERN,
-      withArtifactSdk(SDK_SCRIPT_PATH)(previewRouteHandler({ pool, log })),
-    ),
-
-    // The KEPT-FILE byte route — the `.waterfall/` files kolu copied under the
-    // state root when a work ended, which is the only place they still exist
-    // once the worktree is gone. Rooted per work and guarded in
-    // `workFilesRoute.ts`; the composition root supplies only the state root,
-    // taken off the store so this and the conductor's own corner can never
-    // name different directories.
-    //
-    // DECORATED the same way the preview route is, and for the same reason: a
-    // kept `review.html` is a document an agent wrote, and the Code tab's
-    // comments-on-files has to work inside it.
-    HttpRouter.add(
-      "GET",
-      WORK_FILE_ROUTE_PATTERN,
-      withArtifactSdk(SDK_SCRIPT_PATH)(
-        workFileRouteHandler({ stateRoot: dirname(store.path) }),
-      ),
-    ),
-  );
-
-  // (SR8.c: `padiLink` + `processStartedAt` are now PUSH-source derived cells scanning the
-  // bound padi's `onState` inside `surface.ts` — the reactor graph is their one writer, so
-  // the hand-rolled `onState` → `ctx.set` handler that used to live here is retired.)
-
-  // --- TLS setup ---
   const tlsOptions = await resolveTlsOptions(flags);
 
-  // `bind` is the flag's name (`kolu web --bind`); `host` stays the local name
-  // because that is the key the listener takes.
   const { bind: host, port } = flags;
 
-  // --- Start serving: the shell over HTTP, the surface over ONE websocket -----
-  //
-  // ONE call. `serveSurfaceApp` (`@kolu/surface-app/serve`) owns the node
-  // `http(s).Server` and the whole order this file used to spell out by hand:
-  // the CSWSH origin gate on the RAW pre-upgrade socket → the upgrade (on
-  // `SURFACE_WS_PATH` and no other path) → the stale-tab gate → heartbeat
-  // enrolment → one Effect `RpcServer` per connection over the shared handlers.
-  // Every step is still load-bearing and every argument for it still holds —
-  // they are just made in one place now (see that module's header) rather than
-  // re-made in each app that grew a listener. PLAN D5/#6/#15's requirement that
-  // the ws seam be hand-wired rather than `RpcServer.layerProtocolWebsocket` is
-  // satisfied by the primitive, which hand-wires it for exactly those reasons:
-  // owning the upgrade is owning the ordering, and all three gates need the RAW
-  // `ws` socket that Effect's `HttpServerRequest.upgrade` wraps away.
-  //
-  // Three things that used to be gaps are now options, because this listener is
-  // what asked for them: `tls` (an `https.Server` when material is configured),
-  // `middleware` (kolu's pino bridge), and an OPTIONAL `clientDist` — so the
-  // manifest can be unconditional while the statics are not, which is the exact
-  // pairing that kept kolu hand-composing shell layers.
-  //
-  // The inbound frame cap arrives with it, which is what closes
-  // juspay/kolu#2142: the primitive reads `RPC_MAX_FRAME_BYTES` and offers no
-  // option to move it, where this listener used to leave `ws`'s `maxPayload`
-  // unset — a 100 MiB default buffering six times what the 16 MiB decoder can
-  // ever deliver.
-
-  // The listener's scope is the PROCESS's: this server serves until the process
-  // ends, and the fatal boundary above (never a scope close) is what ends it.
-  // Its finalizers — every socket dropped, the server closed — are registered on
-  // this scope by `serveSurfaceApp`, so nothing here holds a shutdown function.
   const listenerScope = Scope.makeUnsafe();
 
-  /** Live browser connections, for the `total` / `remaining` an operator reads
-   *  off the connect and disconnect lines. Counted here rather than asked of the
-   *  listener: its sink reports each connection's OWN transitions, and exactly
-   *  one `Disconnected` follows every `Connected`, so the count is this file's to
-   *  keep and the aggregate is nobody's to guess. */
-  let liveConnections = 0;
+  const onServeEvent = serveEventLogger(pool);
 
   const address = await Effect.runPromise(
-    // The http stack's ONE run edge (governance: `packages/tests/governance/
-    // runEdges.ts`). `bootKoluWeb` is an orderly async function (locked decision
-    // 1), so binding the listener — an `Effect` needing a `Scope` — into that
-    // sequence is a genuine process edge.
     serveSurfaceApp({
       group: servedGroup,
       handlers: servedHandlers,
-      // kolu's own routes; the shell (manifest + statics) is the two options
-      // below. MERGED, not ordered — the router ranks by specificity.
       routes: appLayer,
       manifest,
-      // Absent in dev, and then there is simply no static route. surface-app's
-      // freshness contract on the wire when there IS one: no-store shell,
-      // immutable hashed `/assets/*`, 404 on an asset miss (never the HTML
-      // shell), the `/sw.js` worker, and the SPA fallback.
       clientDist,
-      // The fetch-less notification worker: kolu fires agent-finished alerts via
-      // `ServiceWorkerRegistration.showNotification()`, the only notification
-      // path that works in an installed PWA. Pairs with `registerServiceWorker()`
-      // in the client's `index.tsx`.
       serviceWorker: "notify",
       host,
       port,
-      // `undefined` unless `--tls` / `--tls-cert` asked for it, and then the
-      // listener is an `https.Server` and the address below an `https://` one.
       tls: tlsOptions,
-      // pino stays the sink. `koluHttpMiddleware` is the successor to BOTH hono
-      // pieces it replaced: `app.onError` (log every uncaught route fault, then
-      // answer 500) and `hono-pino` (one debug line per request and response).
-      // Scoped to the HTTP surface deliberately — see `httpMiddleware.ts` for
-      // why not a process-wide `ErrorReporter`.
       middleware: koluHttpMiddleware(log),
-      // CSWSH gate: reject a cross-site browser Origin before a socket exists at
-      // all. The RPC surface is unauthenticated and cookie-less, so without this
-      // any page the operator visits could open `/rpc/ws` and drive every
-      // procedure. Loopback binding does NOT help — the attacker page runs in the
-      // operator's own browser. Non-browser clients send no Origin and pass;
-      // same-origin UI traffic passes; see `@kolu/surface/ws-origin`.
       allowedOrigins,
-      // The ONE header kolu reads off an upgrade: it trusts its reverse proxy
-      // for the forwarded ADDRESS and for nothing else, and `viewerHost` weighs
-      // that claim against the direct peer below. Why naming it here is the only
-      // way it reaches a connection at all: `serveSurfaceApp`'s own header.
       upgradeHeaders: ["x-forwarded-for"],
-      // The viewer's connection facts, provided as this connection's OWN service
-      // — the shape review #15 forced. Effect's socket-server RPC protocol
-      // forwards no per-request context and no headers
-      // (`makeProtocolSocketServer` calls `run(onSocket)` with the socket alone),
-      // so a per-caller fact cannot ride the request; a per-connection serving
-      // stack simply PROVIDES it. BOTH the direct peer and the forwarded header,
-      // because behind a reverse proxy they name different machines; `viewerHost`
-      // gates which to believe. An absent address stays an honest `undefined` —
-      // never a guess.
       services: (connection) =>
         Layer.succeed(CurrentViewer)({
           viewerAddress: connection.remoteAddress,
           forwardedFor: connection.headers["x-forwarded-for"],
         }),
-      // The listener's ONE narration sink — every line this file used to write
-      // from four separate callbacks, and the `nudge` fan-out that has to happen
-      // the moment a tab comes back.
-      onEvent: (event) => {
-        switch (event._tag) {
-          case "Connected":
-            log.info(
-              { ws: event.connection.id, total: ++liveConnections },
-              "connected",
-            );
-            // H2 (juspay/kolu#2101): a waking laptop's FIRST observable act is its
-            // browser reconnecting — so that signal fast-forwards every down host's
-            // already-scheduled probe instead of leaving it to a wait of up to the
-            // 60s backoff cap. No phase filter here: the filter IS the verb
-            // (`nudge()` no-ops on a live link, an in-flight dial, and a terminal
-            // `failed`, and never refills the give-up budget — unlike `recheck()`),
-            // so a wake storm across N tabs coalesces to one dial per host.
-            for (const h of pool.hosts()) pool.getSession(h)?.nudge();
-            return;
-          case "Disconnected":
-            log.info(
-              {
-                ws: event.connection.id,
-                code: event.code,
-                ...(event.reason && { reason: event.reason }),
-                remaining: --liveConnections,
-              },
-              "disconnected",
-            );
-            return;
-          case "SocketError":
-            log.error({ err: event.error }, "ws error");
-            return;
-          case "GenerationRefused":
-            log.error({ err: event.error }, "ws live generation refused");
-            return;
-          case "StaleTab":
-            log.info(
-              { claimedPid: event.claimedPid, serverProcessId },
-              "rejecting stale client — server restarted since it last connected",
-            );
-            return;
-          case "DisallowedOrigin":
-            log.warn(
-              { origin: event.origin },
-              "rejecting ws upgrade: disallowed Origin",
-            );
-            return;
-          case "ServingFailed":
-            // A per-connection fault is per-connection: log it loudly and let the
-            // socket die. The listener already keeps the rejection observed, so it
-            // can never reach the process-level `unhandledRejection` boundary and
-            // take the whole server down over ONE dead socket.
-            log.error(
-              { err: event.cause, ws: event.connection.id },
-              "ws rpc serving stack faulted",
-            );
-            return;
-        }
-      },
+      onEvent: onServeEvent,
     }).pipe(Scope.provide(listenerScope)),
   );
 
@@ -1603,26 +813,14 @@ export async function bootKoluWeb(flags: KoluBootFlags): Promise<void> {
       pid: process.pid,
       node: process.version,
       rss: `${Math.round(process.memoryUsage().rss / 1024 / 1024)}MB`,
-      // The address the listener ACTUALLY bound, scheme and all — the line an
-      // operator reads to open a browser. An all-interfaces IPv6 bind printed
-      // bare is `http://:::7314`, not a URL anything can follow; the primitive
-      // brackets it (`hostAuthority`) so this is always paste-able.
       address,
     },
     "kolu listening",
   );
 
-  // Interim heap instrumentation (no-op unless KOLU_DIAG_DIR is set) — logs the
-  // heap curve with kolu-server's OWN subsystem counts. The padi-domain columns
-  // (live-terminal count, active claude sessions) dropped at the cutover: they
-  // read padi's in-process registry, which lives in the padi PROCESS now, and
-  // padi keeps its OWN heap diag. This log tracks kolu-server's memory.
   startHeapDiagnostics({
     log,
     snapshotPrefix: "baseline",
-    // "diag" preserves the server's long-standing log events
-    // (diag_enabled / diag / diag_baseline_snapshot_*) that grep/alerting
-    // depend on — kept decoupled from the snapshot file basename above.
     logPrefix: "diag",
     extraColumns: () => ({
       publisherSize: publisherSize(),

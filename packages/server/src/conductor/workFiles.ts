@@ -1,50 +1,3 @@
-/**
- * THE FILES A PIECE OF WORK LEAVES BEHIND — `kolu-conductor`'s {@link WorkFiles}
- * port, implemented over the fleet's padi clients.
- *
- * A waterfall writes its plan, its notes and its review into `.waterfall/` in
- * the worktree it works in. kolu records each one appearing as an event, and
- * when the work ENDS it copies them here, under the state root, so they outlive
- * the worktree a merge deletes. The record is the conductor's
- * (`kolu-conductor` decides WHEN to list and what to keep); this module is the
- * I/O half, which is the part that needs the host map, a padi client per host
- * and a disk to write on.
- *
- * ## Two reads, both the fleet's existing ones
- *
- * LISTING is `kolu-common/workFiles`' walk — every file under `.waterfall/`,
- * at any depth, up to its entry limit — over `fs.listDirectory`, the same
- * one-level read the Code tab's file tree expands a folder with. The browser
- * lists a live work's files with the same walk over its own procedures, so
- * the card, the timeline and what is kept read one list. An absent
- * `.waterfall/` is an EMPTY list (the walk's rule, on padi's `FileGone`);
- * every other failure rejects with a sentence, because "the machine did not
- * answer" must never render as "the work produced nothing".
- *
- * KEEPING is the iframe preview's remote byte read — `preview.read` driven in
- * bounded ranges by `assembleRemotePreview` (`iframePreviewRoute.ts`), the one
- * remote-safe file read this server has. Reusing it is the brief's "no new
- * transport": a remote host's bytes come back through the daemon that already
- * serves them, with an O(chunk) heap on both hops, and the local host rides the
- * same path rather than a second, local-only one — one code path, one set of
- * guards, no "which arm am I on" question at the call site.
- *
- * ## Where the bytes land, the budget, and the containment guard
- *
- * `<stateRoot>/works/<work>/<path>`, owner-only, and NOTHING may land outside
- * that directory. A work's directory holds at most `WORK_FILES_KEPT_BYTES`,
- * whatever its earlier endings left there, counted as the bytes arrive: a
- * file that would take it past that is deleted rather than left half-written,
- * named as left out, and the copy goes on — a smaller file after it can still
- * fit. The paths come from a remote host's listing, so
- * they are UNTRUSTED input to this process's disk: both the work id and each
- * path are resolved and checked against the work's own directory before
- * anything is written. `sweep` deletes every directory under `works/` that no
- * stored work names — run after the 20-work cap drops one and after a backup
- * restore replaces the set wholesale, which is the only reason kolu is
- * allowed to delete them.
- */
-
 import type { Dirent } from "node:fs";
 import { createWriteStream } from "node:fs";
 import { mkdir, readdir, rm, stat } from "node:fs/promises";
@@ -65,25 +18,11 @@ import {
   remotePreviewReader,
 } from "../iframePreviewRoute.ts";
 
-/** A file that would take a keep past its budget — thrown by the counting
- *  stream, caught by the copy, never seen by a caller. */
 class OverBudget extends Error {}
 
-/** `<stateRoot>/works/<dir>`, with the name checked for containment — the ONE
- *  place a work's directory name becomes a directory on this machine's disk.
- *
- *  THE NAME, NEVER THE WORK ID: a work id is `branch:<host>/<repo>/<branch>`
- *  and carries separators, so what every caller passes is `workDirOf(id)`
- *  (`kolu-conductor`'s hash, beside the port this implements) — the writer,
- *  the sweep (which reads these names back off the directory) and the route
- *  that serves them all spell the layout that one way.
- *
- *  The guard is about what COULD arrive rather than what does: the callers
- *  write, DELETE and SERVE under what this returns, and `workFilesRoute.ts`
- *  reaches it from a URL.
- *
- *  Throws rather than answering null: every caller has already decided it is
- *  acting on this work, and there is no sensible directory to fall back to. */
+const webStreamOf = (body: ReadableStream): WebReadableStream =>
+  body as unknown as WebReadableStream;
+
 export function workFilesDir(stateRoot: string, dir: string): string {
   const root = join(stateRoot, "works");
   const full = resolve(root, dir);
@@ -95,9 +34,6 @@ export function workFilesDir(stateRoot: string, dir: string): string {
   return full;
 }
 
-/** Where ONE kept file goes, with the same containment check against the
- *  work's own directory — the paths are a remote host's listing, and a listing
- *  is not an authority over this machine's disk. */
 function keptPath(dir: string, path: string): string {
   const abs = resolve(dir, path);
   if (!abs.startsWith(dir + sep)) {
@@ -108,9 +44,6 @@ function keptPath(dir: string, path: string): string {
   return abs;
 }
 
-/** EVERY FILE A WORK'S DIRECTORY HOLDS, worktree-relative with its size, in
- *  tree order. Nothing there at all — nothing was ever kept for this work —
- *  is an empty list, not a failure. */
 async function keptIn(dir: string): Promise<ReadonlyArray<KeptFile>> {
   let present: Dirent[];
   try {
@@ -129,19 +62,12 @@ async function keptIn(dir: string): Promise<ReadonlyArray<KeptFile>> {
 }
 
 export function workFilesOverHosts(deps: {
-  /** The fleet, for the client behind a host key — the SAME map the watch
-   *  reads, so a work's files are read over the link its terminals are read
-   *  over. */
   readonly hosts: Pick<FleetHosts, "padi" | "display" | "state">;
-  /** `<KOLU_STATE_DIR>` — `works/` is its corner for this. */
   readonly stateRoot: string;
   readonly log: Logger;
 }): WorkFiles {
   const { hosts, stateRoot, log } = deps;
 
-  /** That host's client, or a refusal naming the host and what it is doing.
-   *  Disconnected is not "no files": the conversation records a keep that
-   *  could not happen (`keepFailed`), and this sentence is what it records. */
   const clientOf = (host: string) => {
     const padi = hosts.padi(host);
     if (padi === null) {
@@ -172,12 +98,6 @@ export function workFilesOverHosts(deps: {
     keep: async ({ host, worktree, work, paths }) => {
       const padi = clientOf(host);
       const dir = workFilesDir(stateRoot, work);
-      // THE BUDGET IS THE WORK'S, not this ending's. A work that ended, was
-      // reopened and ends again still holds what its earlier ending kept, so
-      // everything already in its directory is spent — and a file this keep
-      // rewrites gives its older copy's bytes back as it replaces it. A file
-      // that has left the worktree since (the 404 arm) keeps its older copy,
-      // which simply stays spent.
       const before = new Map(
         (await keptIn(dir)).map((one) => [one.path, one.bytes] as const),
       );
@@ -186,9 +106,6 @@ export function workFilesOverHosts(deps: {
         [...before.values()].reduce((sum, bytes) => sum + bytes, 0);
       const tooBig: string[] = [];
 
-      // TREE ORDER, whatever order the caller gave: a folder's files before
-      // its folders, so the plan (a top-level file) is copied before anything
-      // in a folder has a chance to spend the budget.
       for (const path of [...paths].sort(compareWaterfallPaths)) {
         const dest = keptPath(dir, path);
         const served = await Effect.runPromise(
@@ -196,9 +113,6 @@ export function workFilesOverHosts(deps: {
             remotePreviewReader(
               (input) => padi.surface.preview.read(input),
               worktree,
-              // serve-dir decodes the tail it is handed exactly once, so the
-              // path crosses as kolu's own preview encoding — a file with a
-              // space or a `#` in its name reads back as itself.
               encodePreviewPath(path),
             ),
             undefined,
@@ -207,10 +121,6 @@ export function workFilesOverHosts(deps: {
           ),
         );
         if (served.status === 404) {
-          // Listed a moment ago, gone now — an agent cleaning up, a worktree
-          // removed between the end of the work and this copy. Not a failure
-          // of the keep: the other files still land, and a file that is not
-          // there is not kept.
           log.debug(
             { work, path },
             "kolu-server: a work's file went away before it could be kept",
@@ -223,24 +133,11 @@ export function workFilesOverHosts(deps: {
           );
         }
         await mkdir(dirname(dest), { recursive: true, mode: 0o700 });
-        // Streamed into the file rather than buffered: the body is already a
-        // bounded-chunk stream, and a kept file is whatever the agent wrote.
-        // COUNTED as it goes: the first byte past what is left of the budget
-        // stops the copy (and, through the pipeline, the reads behind it).
-        //
-        // The cast is the two `ReadableStream` TYPES node ships — the global
-        // (lib.dom) one serve-dir's `ServeResult` is written against, and
-        // `node:stream/web`'s, which `Readable.fromWeb` takes. One runtime
-        // object, two structurally-near declarations; nothing is being
-        // asserted about the value.
-        //
-        // What this file may take: what is left of the work's budget, plus
-        // the older copy it replaces.
         const older = before.get(path) ?? 0;
         let wrote = 0;
         try {
           await pipeline(
-            Readable.fromWeb(served.body as unknown as WebReadableStream),
+            Readable.fromWeb(webStreamOf(served.body)),
             new Transform({
               transform(chunk: Buffer, _encoding, next) {
                 wrote += chunk.byteLength;
@@ -251,8 +148,6 @@ export function workFilesOverHosts(deps: {
             createWriteStream(dest, { mode: 0o600 }),
           );
         } catch (err) {
-          // Never left half-written, whatever stopped it — and the older
-          // copy went with it, so its bytes are free again.
           await rm(dest, { force: true });
           if (!(err instanceof OverBudget)) throw err;
           tooBig.push(path);
@@ -261,32 +156,16 @@ export function workFilesOverHosts(deps: {
         }
         budget += older - wrote;
       }
-      // WHAT THE DIRECTORY HOLDS, not what this call copied: what an earlier
-      // ending left here stays (the sweep spares every stored work's
-      // directory, Open or Ended), so the list a card shows is the directory
-      // itself — read back after the copy, which is the only reading that
-      // cannot disagree with the disk.
       return { kept: await keptIn(dir), tooBig };
     },
 
     sweep: async (keep) => {
-      // ONE RULE, run after any cap and after a restore: a kept-files
-      // directory no stored work names is nobody's, so it goes. EVERY stored
-      // work names one, Open or Ended: a work that ended, kept its files and
-      // was reopened still owns what it left here, and deleting it the moment
-      // the card said "in progress" would lose a merged branch's plan. Stating
-      // it as "delete what is not named" rather than "delete this id" is what
-      // makes a RESTORE safe — the snapshot's works are a different set, not a
-      // difference anyone computed — and it is also the only reason kolu is
-      // allowed to delete these files at all.
       const wanted = new Set(keep);
       const root = join(stateRoot, "works");
       let present: Dirent[];
       try {
         present = await readdir(root, { withFileTypes: true });
       } catch (err) {
-        // Nothing has ever been kept on this machine — the ordinary state of a
-        // fresh install, and nothing to sweep.
         if ((err as NodeJS.ErrnoException).code === "ENOENT") return;
         throw err;
       }

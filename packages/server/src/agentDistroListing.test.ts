@@ -1,7 +1,3 @@
-/** The harnesses Settings shows: read off the floor's package, as its
- *  manifest names it, with every boot check applied. (Reading a versions file
- *  is upstream's parser, behind `@kolu/agent-distro/listing`, tested there.) */
-
 import type { AgentVersion } from "@kolu/agent-distro/listing";
 import { versionsFile } from "@kolu/agent-distro/bundle";
 import { manifestFile } from "@kolu/agent-distro/manifest";
@@ -18,8 +14,6 @@ const HARNESSES: readonly AgentVersion[] = [
   { name: "codex", title: "Codex", version: "0.160.1" },
 ];
 
-/** The floor on disk: its manifest naming the package, and the package's
- *  versions file. */
 const floorFiles = (
   harnesses: readonly AgentVersion[] = HARNESSES,
 ): Record<string, string> => ({

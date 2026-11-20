@@ -3,7 +3,6 @@ import { MIB } from "@kolu/byte-units";
 import { processMemoryMiBEqual, surfaces } from "kolu-common/surface";
 import { describe, expect, it } from "vitest";
 
-/** A readout with all three processes `ok`; override per test. */
 function mem(over: Partial<ProcessMemory> = {}): ProcessMemory {
   return {
     serverRssBytes: 100 * MIB,
@@ -15,9 +14,6 @@ function mem(over: Partial<ProcessMemory> = {}): ProcessMemory {
 
 describe("surfaces map — two siblings (the W1 padi seam)", () => {
   it("serves exactly the kolu / surfaceApp siblings — terminalWorkspace retired", () => {
-    // The dormant `terminalWorkspace` sibling was retired: the client reads padi's
-    // `terminals` collection, and pulam-tui dials the pulam daemon directly, so
-    // kolu-server's copy had zero consumers. kolu-server adds `padi` locally.
     expect(Object.keys(surfaces).sort()).toEqual(["kolu", "surfaceApp"]);
     expect(Object.keys(surfaces)).not.toContain("terminalWorkspace");
   });
@@ -28,33 +24,6 @@ describe("surfaces map — two siblings (the W1 padi seam)", () => {
       collections?: Record<string, unknown>;
       events?: Record<string, unknown>;
     };
-    // Every terminal-derived wire member — `session`, `activityFeed`, `terminalList`,
-    // and the `terminalExit` event — relocated onto `padiSurface` (the W1 padi
-    // seam). koluSurface keeps only kolu-server's OWN cells: `preferences`,
-    // `processMemory`, `padiLink` (kolu-server's live view of its binding to padi
-    // — a #1034 honesty leg, server-authored, NOT a terminal member),
-    // `processStartedAt` (the server + padi boot times the rail renders as uptime),
-    // `daemonInventory` (the read-only host-daemon enumeration the Kaval/Padi
-    // dialogs list — presentation/diagnostic data, NOT a terminal member), and
-    // `forwards` (PRT2's open port forwards — listeners in the kolu-server
-    // PROCESS, so a fact about this server rather than about any host's
-    // terminals, even when the far end of one is a remote host's port), and
-    // `viewerMode` (the browser's raw OS light/dark reading — an observation
-    // about the VIEWER, and the second input to the new-terminal policy
-    // kolu-server derives; a terminal never appears in it), and
-    // `agentDistroListing` (the harnesses THIS kolu's build's agent-distro
-    // package brings, read once off the floor — a build fact, not a host's),
-    // and `agentProfiles` (whether each profile of the Agents setting builds,
-    // as kolu-server's delivery finds when it locks and builds them HERE),
-    // and `conductor` (kolu's ONE supervising conversation — hosted HERE
-    // because its hands reach every host at once, where a padi can only see
-    // its own terminals; what it drives is terminals, but the member is a
-    // conversation this process owns). TWO COLLECTIONS ride with it — `works`
-    // and `memberReadings`, the pieces of work that conversation is running
-    // and what kolu has read off each member terminal: facts about a WORK
-    // rather than about a terminal, published per key because a reader of one
-    // has no business re-receiving the others. No events; the one STREAM is
-    // that conversation's transcript.
     expect(Object.keys(spec.cells ?? {}).sort()).toEqual([
       "agentDistroListing",
       "agentProfiles",
@@ -83,12 +52,6 @@ describe("surfaces map — two siblings (the W1 padi seam)", () => {
   });
 
   it("koluSurface's only procedures move the forward map and deliver agents", () => {
-    // koluSurface had NO procedures before PRT2 — every mutation the client made
-    // rode padi's per-host surface. These are here rather than there because
-    // they act from kolu-SERVER's own machine: the listener a forward opens is a
-    // socket in this process, and agent delivery runs from this machine to
-    // every host (kolu-server reads upstream's index, builds each profile here,
-    // and ships them).
     const spec = surfaces.kolu.spec as {
       procedures?: Record<string, Record<string, unknown>>;
     };
@@ -104,8 +67,6 @@ describe("surfaces map — two siblings (the W1 padi seam)", () => {
     expect(Object.keys(spec.procedures?.agentDistro ?? {})).toEqual([
       "deliver",
     ]);
-    // The verbs that ASK the one conversation for something. The cell beside
-    // them is read-only, which is why every write is here.
     expect(Object.keys(spec.procedures?.conductor ?? {})).toEqual([
       "prompt",
       "attach",
@@ -122,21 +83,14 @@ describe("surfaces map — two siblings (the W1 padi seam)", () => {
       "clearSession",
       "takeOver",
       "handBack",
-      // The two endings nobody observed, and the way back from one: a work is
-      // stopped and reopened from its card.
       "stopWork",
       "reopenWork",
-      // ...and the one that runs BECAUSE there is no conversation: putting a
-      // remembered record this build cannot read back in a state it can.
       "recoverStore",
     ]);
   });
 });
 
 describe("processMemoryMiBEqual", () => {
-  // The cell carries all three server-side processes (kolu-server + padi + kaval);
-  // it dedups at whole-MiB granularity across every one so a sub-MiB wobble on any
-  // process never re-publishes to every connected client.
   it("treats sub-MiB wobble as equal (so the cell doesn't re-publish)", () => {
     expect(
       processMemoryMiBEqual(
@@ -177,7 +131,6 @@ describe("processMemoryMiBEqual", () => {
         mem({ kaval: { status: "error" } }),
       ),
     ).toBe(false);
-    // Two absent (or two error) readings carry no number — equal.
     expect(
       processMemoryMiBEqual(
         mem({ kaval: { status: "absent" } }),

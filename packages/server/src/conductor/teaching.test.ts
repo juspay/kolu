@@ -1,20 +1,3 @@
-/**
- * THE STANDING PROMPT, CHECKED RULE BY RULE.
- *
- * `teaching.md` is sent as the Markdown it is, so these tests read it as
- * Markdown: a section by its heading, a table by its rows, a rule by the one
- * list item or paragraph that states it. Each test names the rule it guards
- * (the inventory ids, R1…R92, from the change that compacted the script) and
- * looks for what the rule SAYS, not for a sentence — rewording a rule keeps it
- * green, deleting it turns it red. Where a list exists in the code (the wake
- * kinds, the modes, the roles, the setup keys, the served resources), the
- * test reads that list, so a new entry without its line in the script fails
- * the build. The tool names the script uses are checked against the fleet
- * face in `conductor.test.ts`; the rules the script leaves to a tool's own
- * description are checked on those descriptions in
- * `packages/kolu-mcp/src/fleet/fleet.test.ts`.
- */
-
 import { parseTeaching, teaching } from "kolu-conductor";
 import { ConductorWakeLevelSchema } from "kolu-common/conductor";
 import {
@@ -27,9 +10,6 @@ import { describe, expect, it } from "vitest";
 
 const SCRIPT = teaching("zest");
 
-/** The text under a heading, up to the next heading of the same or a higher
- *  level. Throws when the heading is not there: a section that went missing
- *  is a rule set that went missing. */
 function section(title: string): string {
   const lines = SCRIPT.split("\n");
   const at = lines.findIndex(
@@ -43,8 +23,6 @@ function section(title: string): string {
   return lines.slice(at + 1, end === -1 ? undefined : end).join("\n");
 }
 
-/** A section's blocks — each list item, table row or paragraph, its wrapped
- *  lines joined. A rule is stated in ONE block. */
 function blocks(text: string): string[] {
   const out: string[] = [];
   let current: string[] = [];
@@ -64,11 +42,9 @@ function blocks(text: string): string[] {
   return out;
 }
 
-/** Does ONE block of the section state every one of these? */
 const says = (text: string, ...patterns: ReadonlyArray<RegExp>): boolean =>
   blocks(text).some((block) => patterns.every((one) => one.test(block)));
 
-/** A section's first Markdown table: its header cells and its rows. */
 function table(text: string): {
   header: ReadonlyArray<string>;
   rows: ReadonlyArray<ReadonlyArray<string>>;
@@ -97,7 +73,6 @@ const STEPS = table(section("Steps"));
 const BRIEF = section("The brief");
 const NEVER = section("Rules you never break");
 
-/** One row of the waterfall table, by its step, as `{full, trivial}`. */
 const step = (name: string): { full: string; trivial: string } => {
   const row = STEPS.rows.find((one) => one[0] === name);
   if (row === undefined) throw new Error(`the waterfall has no "${name}" step`);

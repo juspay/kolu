@@ -1,19 +1,3 @@
-/**
- * The baked Kolu source ref is validated LAZILY inside the resolver thunk (F6).
- * A missing value means kolu-server was NOT run from its
- * Nix wrapper, so a remote padi binding is impossible — but that is THIS entry's TERMINAL
- * fault, NOT a boot-brick: `ensureRemotePadiBinding` returns a session that warms, and the
- * source-ref throw surfaces on the FIRST dial, re-raised as a TERMINAL `ResolveDrvError` (so
- * the entry settles `failed(reason)` and the chip reads it, while the server + the healthy
- * local default keep serving). These arms prove: (1) the SEED call NEVER throws — boot
- * survives a bad/absent source ref — and (2) the resolver thunk rejects with the exact reason.
- * This is the seed invariant Group-1a's boot-brick class died for, held at the seed path.
- *
- * The ssh machinery (`sshConnector` + `makeSession`) and derivation resolver are
- * mocked so no arm touches real ssh/nix; the resolver thunk `sshConnector` receives is
- * captured + invoked to observe the lazy fault (or the resolved drv).
- */
-
 import { PADI_REMOTE_DIAL } from "@kolu/padi/remote-dial";
 import type { padiSurface } from "@kolu/padi-client/surface";
 import {
@@ -25,10 +9,6 @@ import {
   type SshConnectorOptions,
 } from "@kolu/surface-remote";
 
-/** `SshConnectorOptions` is generic over the dialed surface's spec now (the
- *  connector needs the surface as a VALUE to build its link and face). Only the
- *  `resolveDrvPath` field matters here, and it does not vary with the spec — so
- *  the alias is pinned once, at padi's spec, rather than at every reference. */
 type PadiSshConnectorOptions = SshConnectorOptions<typeof padiSurface.spec>;
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -39,9 +19,6 @@ const h = vi.hoisted(() => ({
   resolveBakedAgentDrv: vi.fn(),
 }));
 
-// Partial mock — override ONLY the ssh seam (the connector + the session appliance +
-// the drv resolver), keep every other real export (`ResolveDrvError` etc.) so nothing in
-// the binder's import graph breaks on load.
 vi.mock("@kolu/surface-remote", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@kolu/surface-remote")>();
   return {
@@ -54,19 +31,12 @@ vi.mock("@kolu/surface-remote", async (importOriginal) => {
 
 import { ensureRemotePadiBinding } from "./remotePadiBinding.ts";
 
-/** The `onState` callbacks the arm registered, so a test can push a later frame
- *  (a terminal give-up) at the binder the way the real session would. */
 const stateHooks: ((s: unknown) => void)[] = [];
 
-/** Push a state frame at every live binder — the fake transport's stand-in for
- *  the session loop reporting a phase change. */
 function pushState(state: unknown): void {
   for (const cb of stateHooks) cb(state);
 }
 
-/** A minimal `Session` stand-in — the arm calls `onState` (snapshot-then-delta) at
- *  construction and spreads the rest through `asPadiSession`. Seed `onState` with a
- *  benign "connecting" frame; stub the remaining role methods as no-ops. */
 function fakeSession() {
   return {
     onState: (cb: (s: unknown) => void) => {
@@ -88,28 +58,15 @@ function fakeSession() {
   };
 }
 
-/** Seed a remote binding and hand back the resolver thunk `sshConnector` was given (the
- *  lazy source-ref validation lives INSIDE it). The SEED call must NOT throw — the whole point of
- *  F6 is that a bad/absent source never bricks boot; it faults only THIS entry, on dial. */
 const resolverContext: ResolveDrvPathContext = {
   signal: new AbortController().signal,
   localProgress: vi.fn(),
-  // The same sink under `ResolveSystemOptions`'s name, so `resolveSystem(host,
-  // ctx)` — the documented idiom — typechecks against this context.
   onProgress: vi.fn(),
   resolveAgentDrv: vi.fn(),
-  // The arch probe a real connector hands the resolver PRE-BOUND to the dial.
-  // This resolver never reaches it (it faults on the source ref first), so the
-  // stub only has to exist.
   resolveSystem: vi.fn(),
-  // The dial's ssh dead-peer policy, which a real connector threads into the
-  // resolver's arch probe. kolu is the interactive consumer, so it is the default.
   keepalive: DEFAULT_SSH_KEEPALIVE,
 };
 
-/** Seed a binding and keep it LIVE, handing back both the captured resolver thunk
- *  and the session — so an arm can fault the resolver and then read the domain
- *  cause the binder publishes (`entryFailedDetail`). */
 function seedLiveBinding(): {
   binding: ReturnType<typeof ensureRemotePadiBinding>;
   resolve: PadiSshConnectorOptions["resolveDrvPath"];
@@ -118,14 +75,13 @@ function seedLiveBinding(): {
   h.sshConnector.mockImplementation(
     (opts: { resolveDrvPath: PadiSshConnectorOptions["resolveDrvPath"] }) => {
       captured = opts.resolveDrvPath;
-      // The connector is never invoked (makeSession is mocked); return a dummy.
       return async () => {
         throw new Error("mock connector should not run");
       };
     },
   );
   const binding = ensureRemotePadiBinding({ host: "nix@prod" });
-  expect(binding).toBeDefined(); // ← boot survives: the seed call did not throw (F6)
+  expect(binding).toBeDefined();
   expect(h.sshConnector).toHaveBeenCalledTimes(1);
   if (captured === undefined)
     throw new Error("resolver thunk was not captured");
@@ -158,7 +114,6 @@ describe("padi source-flake resolution — LAZY entry-scope fault (F6)", () => {
     await expect(resolve(resolverContext)).rejects.toThrow(
       /SURFACE_AGENT_FLAKE_REF is not set/,
     );
-    // Terminal, not a retry: a missing baked source can't self-heal, so the entry settles failed.
     await expect(resolve(resolverContext)).rejects.toBeInstanceOf(
       ResolveDrvError,
     );
@@ -171,9 +126,6 @@ describe("padi source-flake resolution — LAZY entry-scope fault (F6)", () => {
   });
 
   it("(a'') a BAKED ref whose source has no binary-cache declaration gets its OWN cause", async () => {
-    // Distinct from (a) on purpose: the ref IS baked here, so the host-down
-    // card must not tell the operator to launch through the Nix wrapper. A
-    // shared cause would render exactly that false remedy.
     h.resolveBakedAgentDrv.mockRejectedValue(
       new AgentBinaryCacheUnbakedError("/nix/store/pre-contract", "ENOENT"),
     );
@@ -188,7 +140,6 @@ describe("padi source-flake resolution — LAZY entry-scope fault (F6)", () => {
     expect(binding.entryFailedDetail()).toEqual({
       cause: "agent-cache-unbaked",
     });
-    // The binder appends its own unset-host hint, as it does for (a).
     await expect(resolve(resolverContext)).rejects.toThrow(
       /unset KOLU_PADI_HOST/,
     );
@@ -207,12 +158,6 @@ describe("padi source-flake resolution — LAZY entry-scope fault (F6)", () => {
       drvPath: "/nix/store/bbb-padi.drv",
       installable: "/nix/store/source#packages.x86_64-linux.padi",
     });
-    // `.package` (`padi-agent`), NOT `.binary` (`padi`) — the attr names the
-    // CLOSURE shipped to the host (daemon + the client CLIs a terminal there
-    // needs); the binary names what runs inside it. Asserted against the shared
-    // constant, not a literal: the two dial paths are held equal by ONE value,
-    // so this test goes red if either path is repointed rather than only if
-    // someone remembers to edit the literal here too.
     expect(h.resolveBakedAgentDrv).toHaveBeenCalledWith(
       PADI_REMOTE_DIAL.package,
       resolverContext,
@@ -246,10 +191,6 @@ describe("padi source-flake resolution — LAZY entry-scope fault (F6)", () => {
     );
   });
 
-  /** An ssh gate kolu can never pass non-interactively (a credential, a host-key
-   *  trust decision) arrives from the framework already TERMINAL; the binder's job
-   *  is to name it in padi's own vocabulary so the host-down card can state the
-   *  operator's actual remedy. */
   describe.each([
     {
       what: "a credential refusal",
@@ -281,9 +222,6 @@ describe("padi source-flake resolution — LAZY entry-scope fault (F6)", () => {
       h.resolveBakedAgentDrv.mockRejectedValue(refusal());
       const { binding, resolve } = seedLiveBinding();
       await expect(resolve(resolverContext)).rejects.toMatchObject({
-        // The binder ENRICHES; it never reclassifies retry policy. A refusal
-        // that came back retryable would resume the eternal reconnect this
-        // whole path exists to end.
         resolution: { kind, failureCause: "remote", terminal: true },
       });
       expect(binding.entryFailedDetail()).toEqual({ cause });
@@ -291,10 +229,6 @@ describe("padi source-flake resolution — LAZY entry-scope fault (F6)", () => {
     });
 
     it("outranks the generic link-failed banner a terminal give-up raises", async () => {
-      // The session's terminal give-up sets `convergence = link-failed`, whose
-      // card says only "can't reach this host". The dial's own finding is the
-      // finer, actionable truth, so it must win — otherwise the remedy the
-      // operator needs is masked by a reachability message.
       h.resolveBakedAgentDrv.mockRejectedValue(refusal());
       const { binding, resolve } = seedLiveBinding();
       await expect(resolve(resolverContext)).rejects.toBeInstanceOf(
@@ -312,7 +246,6 @@ describe("padi source-flake resolution — LAZY entry-scope fault (F6)", () => {
         ResolveDrvError,
       );
       expect(binding.entryFailedDetail()).toEqual({ cause });
-      // The operator fixed it: the next dial's resolution succeeds.
       await expect(resolve(resolverContext)).resolves.toBeDefined();
       expect(binding.entryFailedDetail()).toBeNull();
       binding.destroy();

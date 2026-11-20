@@ -1,12 +1,3 @@
-/**
- * The delivery schedule on a fake clock and a fake delivery, with upstream's
- * real numbers (every six hours from 02:00 UTC; up to three runs a boundary,
- * five minutes after a FAILED one ended): a run when due at start, a failed
- * run retried, a run that reached no host retried (never stamped), a
- * succeeded run not repeated before the next boundary,
- * and nothing while agents are off.
- */
-
 import {
   SCHEDULED_ATTEMPTS,
   SCHEDULED_RETRY_SECONDS,
@@ -28,7 +19,6 @@ import {
   startDeliverySchedule,
 } from "./schedule.ts";
 
-/** Upstream's schedule: every six hours from 02:00 UTC. */
 const UPSTREAM: UpdaterSchedule = { periodSeconds: 21600, offsetSeconds: 7200 };
 const at = (iso: string) => Date.parse(iso);
 const MIN = 60_000;
@@ -40,7 +30,6 @@ const log = {
   debug: vi.fn(),
 } as unknown as Logger;
 
-/** Let a resolved run's bookkeeping (`.then`) land. */
 const settle = () => new Promise((r) => setTimeout(r, 0));
 
 function fakeClock(start: number) {
@@ -65,8 +54,6 @@ function fakeClock(start: number) {
   };
 }
 
-/** A delivery whose every run ends at once with `outcome()`, recording when
- *  each run started and its trigger. */
 function fakeDelivery(
   outcome: () => readonly HostOutcome[],
   now: () => number,
@@ -83,7 +70,6 @@ function fakeDelivery(
   return { delivery, runs };
 }
 
-/** Fire the clock's looks (settling each run) until it reaches `until`. */
 async function runUntil(clock: ReturnType<typeof fakeClock>, until: number) {
   await settle();
   while ((clock.armedFor() ?? Number.POSITIVE_INFINITY) <= until) {
@@ -161,7 +147,6 @@ describe("startDeliverySchedule", () => {
       at("2026-10-08T09:00:00Z") + 5 * MIN,
       at("2026-10-08T09:00:00Z") + 10 * MIN,
     ]);
-    // The next boundary starts a fresh count.
     await runUntil(clock, at("2026-10-08T14:10:00Z"));
     expect(runs.slice(3).map((r) => r.at)).toEqual([
       at("2026-10-08T14:00:00Z"),
@@ -225,7 +210,6 @@ describe("startDeliverySchedule", () => {
 });
 
 describe("scheduledAskNow — a boundary, a missed ask, and upstream's retries", () => {
-  // A fake clock walked in the timer's 5-minute steps from the 08:00 boundary.
   const t0 = at("2026-10-08T08:00:00Z") / 1000;
   const ask = (
     now: number,
@@ -248,27 +232,25 @@ describe("scheduledAskNow — a boundary, a missed ask, and upstream's retries",
   it("a failed run (offline at the boundary) is retried twice, five minutes apart, then waits for the next boundary", () => {
     expect(ask(t0, undefined, { boundaryPassed: true })).toBe(true);
     let a = attemptEnded(attemptStarted(undefined, t0, UPSTREAM), t0, true);
-    expect(ask(t0 + 60, a)).toBe(false); // too soon
+    expect(ask(t0 + 60, a)).toBe(false);
     expect(ask(t0 + 300, a)).toBe(true);
     a = attemptEnded(attemptStarted(a, t0 + 300, UPSTREAM), t0 + 300, true);
     expect(a.count).toBe(2);
     expect(ask(t0 + 600, a)).toBe(true);
     a = attemptEnded(attemptStarted(a, t0 + 600, UPSTREAM), t0 + 600, true);
     expect(a.count).toBe(3);
-    expect(ask(t0 + 900, a)).toBe(false); // out of attempts
+    expect(ask(t0 + 900, a)).toBe(false);
     expect(ask(t0 + 3 * 3600, a)).toBe(false);
-    // The next boundary starts over.
     const next = t0 + 6 * 3600;
     expect(ask(next, a, { boundaryPassed: true })).toBe(true);
     expect(attemptStarted(a, next, UPSTREAM).count).toBe(1);
   });
 
   it("the five minutes count from the failed run's END, as upstream's sleep does", () => {
-    // A run that fails four minutes in.
     const started = attemptStarted(undefined, t0, UPSTREAM);
-    expect(ask(t0 + 300, started)).toBe(false); // still running: no retry
+    expect(ask(t0 + 300, started)).toBe(false);
     const a = attemptEnded(started, t0 + 240, true);
-    expect(ask(t0 + 300, a)).toBe(false); // a minute after it failed
+    expect(ask(t0 + 300, a)).toBe(false);
     expect(ask(t0 + 539, a)).toBe(false);
     expect(ask(t0 + 540, a)).toBe(true);
   });

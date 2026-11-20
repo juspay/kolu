@@ -1,28 +1,3 @@
-/**
- * BYTE-LEVEL fixtures for the conf store — `~/.config/kolu/state.json`, the
- * DISK-highest-compat-risk format in the repo (`recon/zod.md` hit list).
- *
- * The zod→Effect Schema swap must not move one byte of it. `kolu-common` already
- * pins each DOMAIN schema's encoded form (`surfaceByteCompat.test.ts` for
- * `preferences` / `viewerMode`, `hostKey.test.ts` for `hosts`). What lives HERE is
- * what only `state.ts` owns:
- *
- *  1. the AGGREGATE bytes — the exact `state.json` `conf` writes for a full
- *     persisted state, asserted as a literal STRING (not decode-equality), against
- *     a real `Conf` under a temp dir rather than a schema round trip, because the
- *     file is the artifact a user's install actually carries;
- *  2. the MIGRATION LADDER — a legacy 1.30 / 1.32 / 1.34-era blob walked through
- *     the exported ladder bodies, with the resulting bytes pinned AND the result
- *     proved decodable by the live `PreferencesSchema`. A ladder step that stopped
- *     producing a schema-valid record used to surface as a wire validation failure
- *     at the first client connect (#1237); here it is a unit failure.
- *
- * `PersistedStateSchema` is deliberately unexported (`dev/skills/state/SKILL.md`), so
- * nothing below reaches for it: the aggregate is pinned at the FILE, and the
- * per-domain decode is pinned through the same exported schemas `state.ts`
- * composes.
- */
-
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -60,9 +35,6 @@ afterEach(() => {
     rmSync(dir, { recursive: true, force: true });
 });
 
-/** A real `Conf` with `state.ts`'s own construction options, under a fresh temp
- *  dir — so the bytes asserted are the ones conf really writes, key order and
- *  indentation included. */
 function makeStore(): Conf<Record<string, unknown>> {
   const dir = mkdtempSync(join(tmpdir(), "kolu-state-bytes-"));
   dirs.push(dir);
@@ -87,7 +59,6 @@ const accepts = <T, E>(schema: Schema.Codec<T, E>, value: unknown): boolean =>
 describe("the persisted state file — aggregate bytes", () => {
   it("a fresh install writes exactly the default state", () => {
     const store = makeStore();
-    // Touch the store so conf materializes the file with its merged defaults.
     store.set("viewerMode", "dark");
     expect(readFileSync(store.path, "utf8")).toBe(
       `{
@@ -136,12 +107,6 @@ describe("the persisted state file — aggregate bytes", () => {
     });
     store.set("hosts", ["remote:zest", "remote:srid@box"]);
     store.set("viewerMode", "light");
-    // A conversation with something in it: the two halves of a resume (the
-    // session and the fleet it was working with), a chosen model, whether the
-    // standing prompt has already gone out in that session, and a row
-    // carrying the fields every transcript row has. The fleet entry is a
-    // FLEET REF — one conversation spans every host, so a bare id would be
-    // the one shape this record must never go back to.
     store.set("conductor", {
       sessionId: "sess-live",
       cwd: "/home/tester",
@@ -149,11 +114,6 @@ describe("the persisted state file — aggregate bytes", () => {
       fleet: ["local/11111111-1111-4111-8111-111111111111"],
       taught: true,
     });
-    // ... and the terminals kolu wakes it about: their own key since 1.50.0,
-    // keyed by fleet ref — which work the terminal is in and what part it
-    // plays, beside what was last seen of it: the level the conversation has
-    // already been told, how it joined, whether it has been spoken to and
-    // whether a command was seen running in it.
     store.set("works", {
       "branch:local/%2Fsrv%2Frepo/fix-the-parser": {
         key: {
@@ -190,9 +150,6 @@ describe("the persisted state file — aggregate bytes", () => {
       string,
       unknown
     >;
-    // Every domain value the file carries DECODES, and re-encodes to the SAME
-    // bytes it was read as — the round trip the migration is allowed to change
-    // nothing about.
     for (const [key, schema] of [
       ["preferences", PreferencesSchema],
       ["hosts", PersistedHostsSchema],
@@ -210,11 +167,6 @@ describe("the persisted state file — aggregate bytes", () => {
       '["remote:zest","remote:srid@box"]',
     );
     expect(JSON.stringify(onDisk.viewerMode)).toBe('"light"');
-    // The record's own bytes, pinned: the two halves of a resume, the model a
-    // person chose, and whether the session has been taught — with the fleet
-    // as a list of `host/id` strings. The rows left for the transcript FILE
-    // at 1.50.0, the watch list became the `works` and `members` keys beside
-    // this one, and `taught` joined at 1.60.0.
     expect(JSON.stringify(onDisk.conductor)).toBe(
       '{"sessionId":"sess-live","cwd":"/home/tester","model":"claude-sonnet-4",' +
         '"fleet":["local/11111111-1111-4111-8111-111111111111"],"taught":true}',
@@ -230,32 +182,20 @@ describe("the persisted state file — aggregate bytes", () => {
   });
 
   it("REJECTS a store whose preferences lost a required field", () => {
-    // conf is fail-fast on an unparseable file but NOT on a parseable-invalid one;
-    // that is precisely what the boot-time decode in `state.ts` logs, and what
-    // `getPersistedHosts` throws on. A missing field must not be tolerated into a
-    // silent default — `Schema.Struct` has no optional key anywhere in this shape.
     const { colorScheme: _dropped, ...missing } = DEFAULT_PREFERENCES;
     expect(accepts(PreferencesSchema, missing)).toBe(false);
-    // …and a hand-edited `hosts` that names the never-persisted local default
-    // still fails LOUD rather than normalizing.
     expect(accepts(PersistedHostsSchema, ["local"])).toBe(false);
   });
 });
 
 describe("the migration ladder over legacy on-disk blobs", () => {
   it("a 1.30-era blob (shuffleTheme) migrates to bytes the live schema decodes", () => {
-    // The literal shape a pre-1.30 install carries on disk: the retired
-    // `shuffleTheme` boolean, no `newTerminalTheme` / `shuffleBehavior`, and the
-    // pre-1.32 `rightPanel.collapsed` still sitting beside the geometry.
     const legacy = JSON.parse(
       `{"seenTips":["shuffle"],"startupTips":true,"shuffleTheme":false,` +
         `"scrollLock":true,"activityAlerts":false,"colorScheme":"dark",` +
         `"terminalRenderer":"auto","rightPanel":{"collapsed":true,"size":0.25,"codeTabTreeSize":0.35}}`,
     ) as Record<string, unknown>;
 
-    // The ladder, in order — the same nine bodies `state.ts`'s `migrations`
-    // map calls at 1.30.0 / 1.32.0 / 1.34.0 / 1.37.0 / 1.38.0 / 1.39.0 / 1.40.0 /
-    // 1.41.0 / 1.43.0.
     const migrated = migratePreferences_1_43_0(
       migratePreferences_1_41_0(
         migratePreferences_1_40_0(
@@ -272,10 +212,6 @@ describe("the migration ladder over legacy on-disk blobs", () => {
       ),
     );
 
-    // The BYTES the ladder produces, key order included (the 1.32 step's
-    // `...DEFAULT_PREFERENCES, ...current` spread fixes it). Pinned as OBSERVED,
-    // which is the whole job of a byte fixture: the Effect Schema swap must move
-    // none of it.
     expect(JSON.stringify(migrated)).toBe(
       `{"seenTips":["shuffle"],"startupTips":true,"newTerminalTheme":"inherit",` +
         `"newTerminalCollapsed":true,"shuffleBehavior":"auto","scrollLock":true,` +
@@ -284,20 +220,10 @@ describe("the migration ladder over legacy on-disk blobs", () => {
         `"agentDistro":null,"agentProfilesRecent":[],"tipBarCollapsed":false,` +
         `"hostOrder":[]}`,
     );
-    // …and it DECODES. This is the assertion a drifted zod→Schema mapping breaks:
-    // under zod a stray/missing key surfaced only at the first client connect
-    // (#1237's EVENT_ITERATOR_VALIDATION_FAILED).
     expect(accepts(PreferencesSchema, migrated)).toBe(true);
     const decoded = Schema.decodeUnknownSync(PreferencesSchema)(migrated);
-    // All three carry-forwards survive the walk.
     expect(decoded.newTerminalTheme).toBe("inherit");
     expect(decoded.newTerminalCollapsed).toBe(true);
-    // The cross-rung one, and the only assertion here whose bytes moved off the
-    // shipped zod-era fixture: the 1.32 step spreads today's
-    // `DEFAULT_PREFERENCES`, which carries `attentionAlerts: true`, so the 1.34
-    // rename is handed a new key the user never chose. It must still take its
-    // answer from the legacy `activityAlerts: false` — a pre-1.30 install that
-    // silenced alerts must not have them re-enabled by an upgrade.
     expect(decoded.attentionAlerts).toBe(false);
   });
 
@@ -335,7 +261,6 @@ describe("the migration ladder over legacy on-disk blobs", () => {
       string,
       unknown
     >;
-    // A record from before 1.37: no Agents value, and no later field either.
     delete pre.agentDistro;
     delete pre.tipBarCollapsed;
     expect(JSON.stringify(migratePreferences_1_37_0(pre))).toBe(
@@ -344,7 +269,6 @@ describe("the migration ladder over legacy on-disk blobs", () => {
         agentDistro: { enabled: false, profile: "vanilla" },
       }),
     );
-    // An existing install is upgraded to OFF: nobody's PATH changes.
     expect(
       (migratePreferences_1_37_0(pre).agentDistro as { enabled: boolean })
         .enabled,
@@ -372,7 +296,6 @@ describe("the migration ladder over legacy on-disk blobs", () => {
       agentDistro: { enabled: true, profile: "juspay" },
     };
     expect(migratePreferences_1_38_0(on)).toEqual(on);
-    // The rest of the ladder carries it into a shape the live schema decodes.
     expect(
       accepts(
         PreferencesSchema,
@@ -397,26 +320,14 @@ describe("the migration ladder over legacy on-disk blobs", () => {
   });
 
   it("the ladder is fed RAW stored JSON, which cannot carry an explicit `undefined`", () => {
-    // PLAN #17's obligation for in-process decode callers is to strip explicit
-    // `undefined` keys first, because `Schema.optionalKey` REJECTS a present
-    // `undefined` where zod's `.optional()` accepted it. It has no site on this
-    // format, and that is a property of the schema rather than an omission: the
-    // disk shape has NO optional key at any level. This test is what makes that
-    // claim falsifiable — add an `optionalKey` field to the persisted shape and it
-    // fails, pointing at the strip that then becomes necessary.
     const optionalKeysOf = (fields: Record<string, { ast: SchemaAST.AST }>) =>
       Object.entries(fields)
         .filter(([, field]) => field.ast.context?.isOptional === true)
         .map(([name]) => name);
     expect(optionalKeysOf(PreferencesSchema.fields)).toEqual([]);
-    // NON-VACUOUS: the same probe over the WIRE patch schema — the one place the
-    // repo does use `optionalKey` — reports its keys, so an `[]` above is a fact
-    // about the disk shape rather than a broken reflection.
     expect(
       optionalKeysOf(PreferencesPatchSchema.fields).length,
     ).toBeGreaterThan(0);
-    // …and a value that DOES spell `undefined` is rejected rather than tolerated,
-    // so a future in-process writer cannot slip one past the decode unnoticed.
     expect(
       accepts(PreferencesSchema, {
         ...DEFAULT_PREFERENCES,

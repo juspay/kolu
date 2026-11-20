@@ -1,32 +1,3 @@
-/**
- * REGRESSION PIN (SRT-PR1, restated on the tag axis): the SERVED wire surface must
- * carry the re-served `surface/padi/*` sibling, the two siblings kolu-server owns,
- * and the root procedures — all of them, and nothing else.
- *
- * The trap this pins, in its oRPC form: `buildAppRouter` re-adapted the assembled
- * surface through `implement(servedContract)`, and a `servedContract` that failed to
- * widen the base (padi-less) contract SILENTLY DROPPED every `/surface/padi/*` route
- * from the wire matcher — a boot-time 404 that made padi "never become live" in the
- * e2e, and which the `directLink`-based `padiBinding` test could not see (directLink
- * bypasses the matcher).
- *
- * Under Effect RPC there is no matcher tree to inspect: the wire namespace is FLAT,
- * a tag carries its own route, and the served surface IS a `{ group, handlers }`
- * pair. So the same regression is pinned two ways, both of which the old
- * `StandardRPCMatcher` assertions stood in for:
- *
- *  1. **`servedGroup` carries the exact tag SUPERSET** — the root procedures, the
- *     `surface/kolu/*` + `surface/surfaceApp/*` siblings, and the padi MAP's folded
- *     members + `entries`. `RpcGroup.merge` is a last-writer-wins `Map.set` with
- *     zero collision detection (#16), so "nothing was silently overwritten" is a
- *     COUNT — and that count now lives inside `mergeDisjointGroups`, which runs at
- *     the import of the one assembly (`koluWireGroup`). What is spelled here is the
- *     half a count cannot state: WHICH tags, by name.
- *  2. **Every advertised tag has a handler, and every handler is advertised** —
- *     `assembleServedHandlers`, which is what turns an advertised-but-unbound tag
- *     (the silent 404) into a boot crash.
- */
-
 import type { SurfaceHandlers } from "@kolu/surface/server";
 import { Effect } from "effect";
 import { koluRootGroup, ROOT_RPC_TAGS } from "kolu-common/contract";
@@ -36,7 +7,6 @@ import { describe, expect, it } from "vitest";
 import { buildAppRouter } from "./router.ts";
 import { assembleServedHandlers, servedGroup } from "./surface.ts";
 
-/** The root fragment, over deps that are never called by these tests. */
 function rootFragment() {
   return buildAppRouter({
     drainBoundPadi: () => Effect.void,
@@ -50,7 +20,6 @@ function rootFragment() {
   });
 }
 
-/** A handler record bound at exactly `tags` — the stand-in for a real fragment. */
 function handlersAt(tags: Iterable<string>): SurfaceHandlers {
   const out: SurfaceHandlers = Object.create(null) as SurfaceHandlers;
   for (const tag of tags) out[tag] = () => Effect.void;
@@ -62,38 +31,20 @@ const servedTags = () => [...servedGroup.requests.keys()];
 describe("the served group — the wire surface kolu-server advertises", () => {
   it("carries the re-served padi sibling's folded members AND its entries collection", () => {
     const tags = servedTags();
-    // The regression: these tags were DROPPED when the builder bound the padi-less
-    // contract, so every `/surface/padi/*` request 404'd at the wire.
     expect(tags).toContain("surface/padi/entries/keys");
     expect(tags).toContain("surface/padi/entries/get");
-    // A folded MEMBER, not just the membership collection — the map's own key-folded
-    // half is what a browser actually drives a host's terminals through.
     expect(tags).toContain("surface/padi/terminals/keys");
     expect(tags).toContain("surface/padi/lifecycle/create");
-    // No double prefix from the assembly (the `/surface/surface/…` shape the old
-    // matcher-tree assertion watched for).
     expect(tags.filter((t) => t.startsWith("surface/surface/"))).toEqual([]);
   });
 
   it("the odu SIBLING's forward tags are the tags a per-host dispatch must answer", () => {
-    // THE DEFECT THIS PINS, measured on a live host: the map forwards
-    // `entry(h).odu.<member>` onto the entry's dispatch at the SIBLING's upstream
-    // tag (`surface/odu/*`), and the per-host wiring answered at the BARE
-    // surface's tags (`surface/*`) because it was built from `oduCarriedSurface`
-    // instead of `oduSibling`. Both halves typechecked, both were wired, and the
-    // readout was simply never reached: `no handler bound at
-    // "surface/odu/checkout/get"`. It is also why the forward is literal: the
-    // tag the map hands down IS the tag padi serves odu at, so kolu-server
-    // re-prefixes nothing.
     const forwardTags = [...oduSibling.group.requests.keys()].sort();
     expect(forwardTags).toContain("surface/odu/checkout/get");
     expect(forwardTags).toContain("surface/odu/service/get");
-    // The bare surface's tags are NOT those tags — which is the whole trap.
     expect([...oduCarriedSurface.group.requests.keys()].sort()).not.toEqual(
       forwardTags,
     );
-    // …and the MAP advertises the sibling under the padi mount, which is what a
-    // browser addresses.
     const served = servedTags();
     expect(served).toContain("surface/padi/odu/checkout/get");
     expect(served).toContain("surface/padi/odu/service/get");
@@ -104,28 +55,15 @@ describe("the served group — the wire surface kolu-server advertises", () => {
     expect(tags).toContain("surface/kolu/preferences/get");
     expect(tags).toContain("surface/kolu/forwards/create");
     expect(tags).toContain("surface/surfaceApp/buildInfo/get");
-    // The restart axis: the framework-reserved member, not a surface-app duplicate.
     expect(tags).toContain("surface/surfaceApp/system/identity");
     for (const tag of ROOT_RPC_TAGS) expect(tags).toContain(tag);
-    // A root tag is not under `surface/` — which is exactly what keeps a
-    // hand-written root procedure from ever colliding with a surface member.
     for (const tag of ROOT_RPC_TAGS)
       expect(tag.startsWith("surface/")).toBe(false);
   });
 
   it("is EXACTLY the three halves — nothing dropped, nothing extra (#16)", () => {
-    // "Nothing was dropped" is no longer a count restated here: the merge CANNOT be
-    // widened without the proof, because the proof is inside `mergeDisjointGroups`
-    // and runs at import. Restating the sum from the same three sources would assert
-    // the merge against itself. What is left is the half of this block that says
-    // something the merge does not: the root walk carries exactly its declared tags,
-    // and the padi half is the MAP's rather than the plain sibling's — a plain padi
-    // sibling would also carry the three reserved `system/*` tags, which the map does
-    // not serve, so they must not be advertised.
     expect(koluRootGroup.requests.size).toBe(ROOT_RPC_TAGS.length);
     expect(servedTags()).not.toContain("surface/padi/system/live");
-    // …and the padi map's own tags ARE all advertised, which is the regression this
-    // file exists for, stated against the map itself rather than against a count.
     for (const tag of padiHostMap.group.requests.keys())
       expect(servedTags()).toContain(tag);
   });
@@ -136,9 +74,6 @@ describe("assembleServedHandlers — route-set identity", () => {
     const root = rootFragment();
     const handlers = assembleServedHandlers({
       root,
-      // The two surface halves are stood in for by handler records bound at the
-      // exact tags their groups advertise — this test is about the MERGE, and the
-      // real producers assert their own tag/handler identity internally.
       kolu: {
         group: servedGroup,
         handlers: handlersAt(
@@ -155,13 +90,10 @@ describe("assembleServedHandlers — route-set identity", () => {
       },
     });
     expect(new Set(Object.keys(handlers))).toEqual(new Set(servedTags()));
-    // A null-prototype record, like every framework handler record: a member named
-    // `toString` must not resolve to an inherited function nobody bound.
     expect(Object.getPrototypeOf(handlers)).toBe(null);
   });
 
   it("THROWS when an advertised tag has no handler — the silent 404, made loud", () => {
-    // Everything EXCEPT one padi tag — so the failure names exactly that tag.
     const allButOne = servedTags().filter(
       (t) => t !== "surface/padi/entries/keys",
     );

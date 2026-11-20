@@ -1,28 +1,3 @@
-/**
- * The profiles of the Agents setting, made deliverable — kolu-server's two
- * steps before a profile can go to a host, both run HERE, on the machine
- * running kolu (which already needs Nix and GitHub to provision padi):
- *
- *   - LOCK (`lockProfile`): a flake reference is fetched once with
- *     `nix flake prefetch` and pinned to the tree and revision it resolved to;
- *     a path (absolute, or `~/`) names a tree on this machine and is used as
- *     it is. So a `Custom…` path works on every host: the host never reads it.
- *   - BUILD (`buildProfile`): agent-distro's own `lib.mkProfile`, from the
- *     revision the host's package was published at, for the host's system,
- *     into a store path holding everything a launch reads — nothing is
- *     fetched, evaluated or compiled at launch.
- *
- * Shipping the built path to a host is `./ops.ts`'s, beside the package's
- * pull. Every failure throws with Nix's own words — the cause on its first
- * line, Nix's whole output (capped) after it (`@kolu/agent-distro/failure`):
- * a profile that will not lock or build is said under its entry in Settings
- * and on the hosts it could not reach, never dropped.
- *
- * A profile is an Agent Plugin — its tree holds a `plugin.json`. A tree still
- * holding an `agent-distro.nix` does not build: upstream refuses that format,
- * and its message is what the red line under the row says, kolu adding none.
- */
-
 import { type ExecFileException, execFile } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
@@ -34,27 +9,18 @@ import {
 import { failureMessage } from "@kolu/agent-distro/failure";
 import { parseProfileFile, profileFile } from "@kolu/agent-distro/profileFile";
 
-/** A reference pinned: the tree it names (a store path, or a path on this
- *  machine) and, for a flake reference, the revision it was locked to. */
 export interface LockedProfile {
   readonly reference: string;
   readonly tree: string;
   readonly rev?: string;
 }
 
-/** A profile built for a host's system: its store path on this machine, and
- *  the name and description the build gives itself. */
 export interface BuiltProfile {
   readonly path: string;
   readonly name: string;
   readonly description: string;
 }
 
-/** Nix's words for a failure — the cause's one line: its LAST `error:` and
- *  what follows, else its last line. Nix prints the trace that led to a
- *  `throw` above the thrown message, and the row under a profile must say the
- *  message, not the frames; the whole output follows it as evidence
- *  ({@link nixFailure}). */
 export function nixWords(stderr: string, fallback: string): string {
   const text = stderr.trim();
   const at = text.lastIndexOf("error:");
@@ -66,17 +32,10 @@ export function nixWords(stderr: string, fallback: string): string {
   return words === "" ? fallback : words;
 }
 
-/** Locking a reference the first time fetches it; a build fetches agent-distro
- *  and nixpkgs the first time, and may substitute packages. */
 const NIX_TIMEOUT_MS = 15 * 60_000;
 
-/** How much of Nix's output kolu reads before it gives up on the run. */
 const NIX_MAX_BUFFER = 64 * 1024 * 1024;
 
-/** A failed Nix run as one failure message: `what` and why — how the process
- *  ended when it was stopped (more output than kolu reads, the timeout, or a
- *  signal from elsewhere — the OOM killer, say), else Nix's own words — on the
- *  first line, and everything Nix printed after it as evidence. */
 export function nixFailure(
   what: string,
   run: { readonly stderr: string; readonly error: ExecFileException },
@@ -115,12 +74,6 @@ function runNix(args: readonly string[], what: string): Promise<string> {
   });
 }
 
-/** Pin `reference` — see the module header. What a reference names, the
- *  fetch's arguments and where its answer put the tree are upstream's own
- *  rules (`@juspay/agent-distro/profile/reference`, which its launch reads a
- *  reference with); kolu-server runs the fetch itself, asynchronously, and
- *  reads nothing against a working directory — it has none of the user's — so
- *  a relative path is refused. */
 export async function lockProfile(reference: string): Promise<LockedProfile> {
   const kind = classifyReference(reference, { home: homedir() });
   if (kind === null)
@@ -143,15 +96,6 @@ export async function lockProfile(reference: string): Promise<LockedProfile> {
   };
 }
 
-/** Build `locked` for `hostSystem` with agent-distro's own `lib.mkProfile`,
- *  from `flake` at `rev` — the revision the host's package was published at,
- *  so the same nixpkgs and the same plugin reader as the launcher that reads
- *  the profile there, and a launch fetches, evaluates and compiles nothing.
- *  A host of another system gets a profile built for this machine's, without
- *  packages — or, when it has packages for the host's system, mkProfile's
- *  refusal naming the profile and both systems (its `hostSystem`). Impure for
- *  `getFlake`, and for mkProfile locking a plugin named by a flake
- *  reference. */
 export async function buildProfile(args: {
   readonly flake: string;
   readonly rev: string;

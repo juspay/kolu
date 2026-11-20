@@ -1,28 +1,8 @@
-/**
- * The app pin (LIVE-FIX): `readPadiMemoryOnce` (index.ts) gates its deferred mirror read
- * on `padiMemoryReadable(padiSession)`, returning `null` (→ honest `absent`) unless the
- * session is BOTH not-destroyed AND `connected`.
- *
- * The FRAMEWORK pin (surface-remote `currentState.test.ts`) proves `currentState()`
- * returns the honest phase even while `currentClient()` stays non-null through a backoff.
- * This pins the app policy — the WHOLE gate, both halves:
- *  - the PHASE half reads `phase === "connected"` ONLY, so it CANNOT regress to the retired
- *    `currentClient() !== null`, which leaked truthy through connecting and whole backoff
- *    windows;
- *  - the DESTROYED half folds a torn-down session to NOT readable even when its stale frame
- *    still reads `connected` (the frame carries no "destroyed" phase), so the named leaf
- *    covers the whole decision and no caller must AND in `!isDestroyed()` by hand.
- */
 import type { SessionState, SshProv } from "@kolu/surface-remote";
 import { match } from "ts-pattern";
 import { describe, expect, it } from "vitest";
 import { padiMemoryReadable } from "./padiMemoryGate.ts";
 
-/** A minimal valid `SessionState` for any phase. Typed at the REMOTE arm `SshProv`
- *  (`SessionState<SshProv>` — a closed 7-phase union), which is assignable to the gate's
- *  `SessionState<string>` param, so the fixture also covers the provisioning phases
- *  (`probing`/`provisioning`) a `PadiSession<SshProv>` passes in. `.exhaustive()` over
- *  the closed union means a new phase forces this fixture to compile-fail until handled. */
 const at = (phase: SessionState<SshProv>["phase"]): SessionState<SshProv> =>
   match<typeof phase, SessionState<SshProv>>(phase)
     .with("connected", (p) => ({
@@ -32,9 +12,6 @@ const at = (phase: SessionState<SshProv>["phase"]): SessionState<SshProv> =>
       sinceMs: 0,
       campaignEpoch: 0,
     }))
-    // Unreachable for THIS session (the local padi arm dials an endpoint, not a
-    // unix path) and spelled anyway: the fixture's `.exhaustive()` is what makes
-    // a new session phase a compile error here rather than a silent gap.
     .with("absent", (p) => ({
       phase: p,
       error: "nothing is serving there",
@@ -58,8 +35,6 @@ const at = (phase: SessionState<SshProv>["phase"]): SessionState<SshProv> =>
       sinceMs: 0,
       campaignEpoch: 0,
     }))
-    // The up-but-not-connected arms (local `connecting` + the remote provisioning phases)
-    // share one shape — collapsed with a multi-pattern `.with`.
     .with("connecting", "probing", "provisioning", (p) => ({
       phase: p,
       log: [],
@@ -68,7 +43,6 @@ const at = (phase: SessionState<SshProv>["phase"]): SessionState<SshProv> =>
     }))
     .exhaustive();
 
-/** A two-line fake session carrying just the two accessors the leaf reads. */
 const session = (opts: {
   destroyed: boolean;
   phase: SessionState<SshProv>["phase"];
@@ -85,8 +59,6 @@ describe("padiMemoryReadable — the memory-rail liveness policy (LIVE-FIX)", ()
   });
 
   it("is false for every up-but-not-connected and down phase, local AND remote (the honest absent)", () => {
-    // Local up-but-not-connected + down, plus the remote arm's provisioning phases the
-    // `SessionState<string>`-typed gate must also fold to absent.
     for (const phase of [
       "connecting",
       "probing",

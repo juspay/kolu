@@ -1,14 +1,3 @@
-/**
- * The Agents-setting push — `installPadiCellPusher` writing padi's memory-only
- * `agentDistro` cell. Same fakes as `newTerminalPolicy.test.ts`: the pusher's
- * pool/session/client slices are narrow on purpose, so no real padi is needed.
- * What this pins for THIS cell: a push on every connect (first bind and
- * reconnect — padi forgets the setting with its link), a re-push when the
- * preference moves (the stack's order is part of it), nothing for an unrelated
- * preference write, a refusal logged and contained, and `onPushed` —
- * the agent delivery's trigger — fired per host only after its padi took it.
- */
-
 import { Effect } from "effect";
 import type { Logger } from "@kolu/log";
 import {
@@ -122,21 +111,19 @@ describe("the agentDistro push", () => {
     local.to("connected");
     remote.to("connected");
     await settle();
-    pusher.republish(); // an unrelated preference write
+    pusher.republish();
     await settle();
     value = JUSPAY;
     pusher.republish();
     await settle();
     expect(local.pushed).toEqual([VANILLA, JUSPAY]);
     expect(remote.pushed).toEqual([VANILLA, JUSPAY]);
-    // A profile added, then the same profiles reordered: each is a change.
     value = STACKED;
     pusher.republish();
     await settle();
     value = { ...REORDERED, profiles: [...REORDERED.profiles] };
     pusher.republish();
     await settle();
-    // An equal stack in a new array is no change.
     value = { ...REORDERED, profiles: [...REORDERED.profiles] };
     pusher.republish();
     await settle();
@@ -159,7 +146,6 @@ describe("the agentDistro push", () => {
     remote.to("connected");
     await settle();
     expect(pushedTo).toEqual(["local"]);
-    // A reconnect re-pushes, and so fires again.
     local.to("reconnecting");
     local.to("connected");
     await settle();

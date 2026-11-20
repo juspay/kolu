@@ -1,10 +1,3 @@
-/**
- * `parseKoluPadiHostSeed` — `KOLU_PADI_HOST` as a comma-separated pool SEED list
- * (W4 "the switch"). LOCAL_HOST is always the implicit unremovable default; env
- * unset → exactly one member (pixel-identical single-host). Plus the
- * `UnremovableHostError` the remove path rejects the default with.
- */
-
 import { encodeHostKey, parseHostInput } from "kolu-common/hostKey";
 import { LOCAL_HOST } from "kolu-common/surfacesWithPadi";
 import { describe, expect, it } from "vitest";
@@ -59,10 +52,6 @@ describe("parseKoluPadiHostSeed", () => {
   });
 
   it("a bare loopback spelling ('localhost') listed explicitly is ALSO not doubled — exactly two members, never three", () => {
-    // The `nix run` bug: 'localhost' and `{kind:"local"}` are the SAME host, two
-    // spellings — `parseHostInput` used to take 'localhost' literally as a remote
-    // target, so this seed rendered THREE chips (local + localhost + srid@zest)
-    // instead of two.
     withEnv("localhost,srid@zest", () => {
       const seed = parseKoluPadiHostSeed().map(encodeHostKey);
       expect(seed).toEqual(["local", "remote:srid@zest"]);
@@ -73,7 +62,7 @@ describe("parseKoluPadiHostSeed", () => {
   it("every entry is a HostKey (LOCAL_HOST included)", () => {
     withEnv("srid@zest", () => {
       const seed = parseKoluPadiHostSeed();
-      expect(seed[0]).toEqual(LOCAL_HOST); // the local default, by value
+      expect(seed[0]).toEqual(LOCAL_HOST);
       expect(seed).toHaveLength(2);
     });
   });
@@ -102,8 +91,6 @@ describe("assertRemovableHost — the remove-path guard", () => {
   });
 
   it("throws for the boot default host (guard is defaultHost-parameterized)", () => {
-    // defaultHost is LOCAL_HOST today, but the guard rejects whatever the boot default
-    // is — so a future non-local default is protected by the same LOUD rejection.
     expect(() => assertRemovableHost(zest, zest)).toThrow(UnremovableHostError);
   });
 

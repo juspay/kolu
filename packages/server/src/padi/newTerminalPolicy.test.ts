@@ -1,14 +1,3 @@
-/**
- * The new-terminal policy PUSHER (#2045) — kolu-server's half of "every face gets the
- * user's theme setting". padi's `newTerminalPolicy` cell is memory-only, so what makes
- * it true is exactly this: a push on every honest connect (first bind AND reconnect),
- * a re-push on every policy-input change, and nothing in between.
- *
- * Driven against two-line fakes (the `padiMemoryGate.test.ts` idiom) — the module's
- * pool/session/client slices are narrow on purpose, so no real padi is needed to pin
- * the policy.
- */
-
 import { Effect } from "effect";
 import type { Logger } from "@kolu/log";
 import type { NewTerminalPolicy } from "kolu-common/surface";
@@ -29,12 +18,8 @@ const log = {
   debug: vi.fn(),
 } as unknown as Logger;
 
-/** Let the fire-and-forget push (a `.then` chain off `currentClient()`) settle. */
 const settle = () => new Promise((r) => setTimeout(r, 0));
 
-/** A fake padi session: a snapshot-then-delta `onState`, an honest `currentState`, and
- *  a client whose `set` records what it was handed. `client: null` models the (anomalous)
- *  connected-but-clientless session; `failSet` models a padi refusing the write. */
 function fakeSession(opts: { client?: "none"; failSet?: boolean } = {}) {
   const listeners = new Set<(s: { phase: string }) => void>();
   let state = { phase: "connecting" };
@@ -56,7 +41,7 @@ function fakeSession(opts: { client?: "none"; failSet?: boolean } = {}) {
   const session: NewTerminalPolicySession = {
     onState(cb) {
       listeners.add(cb);
-      cb(state); // snapshot-then-delta, exactly as a real session seeds
+      cb(state);
       return () => {
         listeners.delete(cb);
       };
@@ -68,7 +53,6 @@ function fakeSession(opts: { client?: "none"; failSet?: boolean } = {}) {
   return {
     session,
     pushed,
-    /** Move the session to a phase and publish the frame. */
     to(phase: string) {
       state = { phase };
       for (const l of [...listeners]) l(state);
@@ -76,7 +60,6 @@ function fakeSession(opts: { client?: "none"; failSet?: boolean } = {}) {
   };
 }
 
-/** A fake pool: membership + the session behind a key, with a change edge. */
 function fakePool() {
   const sessions = new Map<string, NewTerminalPolicySession>();
   const subs = new Set<() => void>();
@@ -112,12 +95,10 @@ describe("installNewTerminalPolicyPusher — the connect edge", () => {
     pool.add("local", local.session);
     installNewTerminalPolicyPusher({
       pool: pool.pool,
-      getPolicy: () => INHERIT,
+      resolvePolicyNow: () => INHERIT,
       log,
     });
 
-    // Seeded at `connecting` — a dialing session is NOT a live one, even though its
-    // `currentClient()` is non-null (the retired `currentClient() !== null` gate).
     await settle();
     expect(local.pushed).toEqual([]);
 
@@ -132,7 +113,7 @@ describe("installNewTerminalPolicyPusher — the connect edge", () => {
     pool.add("local", local.session);
     installNewTerminalPolicyPusher({
       pool: pool.pool,
-      getPolicy: () => INHERIT,
+      resolvePolicyNow: () => INHERIT,
       log,
     });
 
@@ -149,12 +130,12 @@ describe("installNewTerminalPolicyPusher — the connect edge", () => {
     pool.add("local", local.session);
     installNewTerminalPolicyPusher({
       pool: pool.pool,
-      getPolicy: () => INHERIT,
+      resolvePolicyNow: () => INHERIT,
       log,
     });
 
     local.to("connected");
-    local.to("connected"); // e.g. a clock-offset stamp on the same live link
+    local.to("connected");
     await settle();
     expect(local.pushed).toEqual([INHERIT]);
   });
@@ -165,7 +146,7 @@ describe("installNewTerminalPolicyPusher — the connect edge", () => {
     pool.add("local", local.session);
     installNewTerminalPolicyPusher({
       pool: pool.pool,
-      getPolicy: () => INHERIT,
+      resolvePolicyNow: () => INHERIT,
       log,
     });
 
@@ -187,7 +168,7 @@ describe("installNewTerminalPolicyPusher — republish", () => {
     let policy: NewTerminalPolicy = INHERIT;
     const pusher = installNewTerminalPolicyPusher({
       pool: pool.pool,
-      getPolicy: () => policy,
+      resolvePolicyNow: () => policy,
       log,
     });
 
@@ -196,8 +177,6 @@ describe("installNewTerminalPolicyPusher — republish", () => {
     await settle();
 
     guest.to("disconnected");
-    // The preference moved: the policy is re-READ at push time, never captured at
-    // install time.
     policy = SHUFFLE_LIGHT;
     pusher.republish();
     await settle();
@@ -212,7 +191,7 @@ describe("installNewTerminalPolicyPusher — republish", () => {
     pool.add("guest", guest.session);
     const pusher = installNewTerminalPolicyPusher({
       pool: pool.pool,
-      getPolicy: () => INHERIT,
+      resolvePolicyNow: () => INHERIT,
       log,
     });
 
@@ -228,15 +207,12 @@ describe("installNewTerminalPolicyPusher — republish", () => {
 
 describe("installNewTerminalPolicyPusher — no-change dedup", () => {
   it("pushes nothing when the derived policy has not moved", async () => {
-    // `onPolicyInputsChanged` hangs off the WHOLE preferences cell, so a splitter drag
-    // or a seen tip nudges it too. Without the dedup each of those is an ssh round trip
-    // per remote host to rewrite a byte-identical fact.
     const pool = fakePool();
     const guest = fakeSession();
     pool.add("guest", guest.session);
     const pusher = installNewTerminalPolicyPusher({
       pool: pool.pool,
-      getPolicy: () => ({ kind: "shuffle", mode: "light" }),
+      resolvePolicyNow: () => ({ kind: "shuffle", mode: "light" }),
       log,
     });
 
@@ -255,7 +231,7 @@ describe("installNewTerminalPolicyPusher — no-change dedup", () => {
     pool.add("guest", guest.session);
     installNewTerminalPolicyPusher({
       pool: pool.pool,
-      getPolicy: () => INHERIT,
+      resolvePolicyNow: () => INHERIT,
       log,
     });
 
@@ -263,7 +239,6 @@ describe("installNewTerminalPolicyPusher — no-change dedup", () => {
     guest.to("disconnected");
     guest.to("connected");
     await settle();
-    // Same value both times: the dedup must NOT suppress the reconnect's re-prime.
     expect(guest.pushed).toEqual([INHERIT, INHERIT]);
   });
 });
@@ -276,7 +251,7 @@ describe("installNewTerminalPolicyPusher — a failing push", () => {
     const errors = vi.fn();
     installNewTerminalPolicyPusher({
       pool: pool.pool,
-      getPolicy: () => INHERIT,
+      resolvePolicyNow: () => INHERIT,
       log: { ...log, error: errors } as unknown as Logger,
     });
 
@@ -289,12 +264,8 @@ describe("installNewTerminalPolicyPusher — a failing push", () => {
     const pool = fakePool();
     const listeners = { fail: true };
     const local = fakeSession();
-    // A `set` that refuses once, then accepts — the skew-fence-then-upgrade shape.
     const cell = local.session.currentClient();
     if (cell === null) throw new Error("fake session must have a client");
-    // The session role types its client `unknown` (the surface READ face names no
-    // write verb — see `NewTerminalPolicySession.currentClient`), so the fake is
-    // re-narrowed here to the same slice the pusher narrows to.
     const client = (await cell) as NewTerminalPolicyClient;
     const real = client.surface.newTerminalPolicy.set.bind(
       client.surface.newTerminalPolicy,
@@ -306,7 +277,7 @@ describe("installNewTerminalPolicyPusher — a failing push", () => {
     pool.add("local", local.session);
     const pusher = installNewTerminalPolicyPusher({
       pool: pool.pool,
-      getPolicy: () => INHERIT,
+      resolvePolicyNow: () => INHERIT,
       log,
     });
 
@@ -327,7 +298,7 @@ describe("installNewTerminalPolicyPusher — a failing push", () => {
     const errors = vi.fn();
     installNewTerminalPolicyPusher({
       pool: pool.pool,
-      getPolicy: () => INHERIT,
+      resolvePolicyNow: () => INHERIT,
       log: { ...log, error: errors } as unknown as Logger,
     });
 

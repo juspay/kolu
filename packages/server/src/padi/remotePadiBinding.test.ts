@@ -1,42 +1,3 @@
-/**
- * The ssh arm's adapter logic — the control-core `hello` handshake, skew/build
- * convergence (`decide` + the instance-keyed drain fence + adopt-loudly), scoping to
- * `.surface.padi`, identity, and the drain — WITHOUT a real ssh hop.
- *
- * Post-S9 there is no `RemotePadiSession` class: the arm is
- * `makeSession({ connectOnce: sshConnector({ binary: "padi" }), admit: padiAdmit })`
- * plus the daemon-supervision spread. So the transport is mocked at the ssh seam —
- * `sshConnector` is replaced (via `vi.mock` of `@kolu/surface-remote`) with a fake
- * connector that hands the loop a fake PADI DAEMON client per (re)dial, exactly the way
- * `recheck.test.ts` / `liveness.test.ts` mock the child. Everything ELSE — the real
- * `makeSession` reconnect loop, the real `admit` hook, the real `decide()` table — runs
- * unmocked, and the tests drive it through the public {@link PadiSession} API:
- *   - `pin()` / `currentClient()` — a fresh spawn's scoped client, or a WITHHELD
- *     (rejected) client on a refuse/drain (the pump cursor waits on it);
- *   - `convergence()` — the standing anomaly (skew-refused / adopted-stale / unconverged
- *     / link-failed), or null when healthy;
- *   - `identity()` — the null-free identity sum read off padi's `system.identity`
- *     (replacing the deleted `padiStartedAt`/`padiSurfaceVersion`/`padiBuildCommit`);
- *   - `renew()` — the drain (replacing `drainBoundPadi`);
- *   - `onState()` — the connection cell.
- *
- * The fake daemon client answers the frozen control core (`hello`/`drain`) and carries a
- * `.surface.padi` sibling (with a `system.identity`) so `scopePadiSurface` + the base
- * session's identity poll work. Skew/build-mismatch is driven by VARYING the hello's
- * `surfaceVersion`/`buildId`/`startedAt`; a drain's link-death is modelled by `hello()`
- * rejecting AFTER `drain()`. Injected {@link RemotePadiSessionDeps} (small
- * `maxBuildDrainsPerInstance`, short ceilings, explicit `binderVersion`/`binderBuildId`)
- * reach the drain/adopt-stale/unconverged paths with no real build.
- *
- * NOTE (mechanism vs outcome): a few OLD assertions read internals the class exposed
- * (`markConnectedCount`, a nulled `currentClient()` on a standing skew). The refactor
- * preserves the OUTCOME through makeSession: a refused/unconverged bind WITHHOLDS the
- * client as a REJECTED promise (the cursor still waits — the pump never folds it), and an
- * intended drain resets the give-up budget by classifying its disconnect `"network"`
- * (never `"remote"`). Those assertions are re-expressed against the new observation, not
- * weakened.
- */
-
 import { collectLogger } from "@kolu/log/loggerStubs.testutil";
 import { PADI_SURFACE_VERSION } from "@kolu/padi-client/surface";
 import { directDispatch } from "@kolu/surface/links/direct";
@@ -69,11 +30,6 @@ import {
   type RemotePadiSessionDeps,
 } from "./remotePadiBinding.ts";
 
-// ── Mock the ssh transport ONLY ──────────────────────────────────────────────
-// Replace `sshConnector` with a fake connector the per-test harness drives; keep the
-// rest of `@kolu/surface-remote` (the REAL `makeSession` loop, `ConnectError`, …)
-// intact via `importOriginal`. This is the ssh seam the arm layers padi's admit over —
-// mocking it is the exact analog of `recheck`/`liveness` mocking `node:child_process`.
 const hoisted = vi.hoisted(() => ({
   nextConnector: null as
     | null
@@ -83,12 +39,9 @@ vi.mock("@kolu/surface-remote", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@kolu/surface-remote")>();
   return {
     ...actual,
-    // Ignore the ssh opts; delegate to the harness's queue-driven connector.
     sshConnector: () => (ctx: ConnectContext) => hoisted.nextConnector?.(ctx),
   };
 });
-
-// ── The fake PADI daemon client + its per-spawn handle ───────────────────────
 
 type HelloOver = Partial<{
   surfaceVersion: string;
@@ -97,8 +50,6 @@ type HelloOver = Partial<{
   buildId: string;
 }>;
 
-/** A control-core `hello` payload — the wire the admit reads (surfaceVersion / startedAt
- *  / buildId drive skew + build convergence; commit rides identity). */
 function helloVals(over: HelloOver = {}) {
   return {
     stateRoot: "/remote/.local/state/padi",
@@ -119,9 +70,6 @@ function helloVals(over: HelloOver = {}) {
 
 type Hello = ReturnType<typeof helloVals>;
 
-/** The reserved `system.identity` the fake padi surface serves — derived from the SAME
- *  hello so identity() and the convergence hello stay consistent (padi always DECLARES
- *  its build → `identified`). */
 function servedIdentity(hello: Hello) {
   return {
     kind: "identified" as const,
@@ -137,59 +85,30 @@ function servedIdentity(hello: Hello) {
   };
 }
 
-/** A spawn the connector hands out: a served daemon (its hello + drain behaviour) or a
- *  connector-level rejection (a provision/ssh failure). */
+type PostDrainBehaviour =
+  | { kind: "exits"; graceHellos: number }
+  | { kind: "wedges" }
+  | { kind: "keeps-serving" }
+  | { kind: "link-lost"; closeKind: ClosedInfo["kind"] };
+
+const EXITS_ON_DRAIN: PostDrainBehaviour = { kind: "exits", graceHellos: 0 };
+const exitsAfterHellos = (graceHellos: number): PostDrainBehaviour => ({
+  kind: "exits",
+  graceHellos,
+});
+
 type ServeOpts = {
-  /** Hold every hello on this gate so a test can settle an old admit after a
-   * newer dial has already been adopted. */
   helloGate?: Promise<void>;
-  /** Drain kills the link (default true). `false` = a wedged daemon that keeps answering
-   *  after the drain (the drain did not take). */
-  diesOnDrain?: boolean;
-  /** Answer this many MORE hellos after the drain before dying (a link that takes several
-   *  polls to tear down). */
-  graceHellos?: number;
-  /** After the drain, `hello()` HANGS forever (a wedged post-drain link the per-probe
-   *  ceiling race must bound). */
-  wedgeAfterDrain?: boolean;
-  /**
-   * ClosedInfo kind resolved when the drain "kills" the link (default `"exit"`).
-   * F3: `transport-failed` models ssh link loss — must NOT count as process exit,
-   * so the process oracle stays unsettled and the ceiling yields drain-not-taken.
-   */
-  closeKind?: ClosedInfo["kind"];
+  postDrain?: PostDrainBehaviour;
 };
 type SpawnSpec =
   | ({ kind: "serve"; hello: Hello } & ServeOpts)
   | { kind: "reject"; cause: "remote" | "network"; reason: string }
-  /**
-   * POST-FIX: the ssh connector's readiness gate refused before it built any
-   * client (juspay/kolu#2101). The remote front converged, could not settle, and
-   * said so on the wire; `sshConnector` turns that banner into a `"remote"`
-   * `ConnectError` carrying the front's typed anomaly opaquely.
-   *
-   * The byte-level trigger is NOT expressible here — this file mocks
-   * `sshConnector` entirely, so there is no stream to put a banner on. What is
-   * modelled is the connector's OUTCOME, which is exactly the seam the binder
-   * owns: decode the anomaly, stand it up, count it `"remote"`.
-   */
   | { kind: "gate-refused"; reason: string; anomaly: unknown }
-  /**
-   * PRE-FIX: the incident's own shape. The link is built with no epoch check, the
-   * previous-epoch daemon accepts it and answers nothing, and Effect RPC's pinger
-   * kills the transport ~10s later. The admit hook sees a hello that never
-   * returns, classifies the death `"network"`, and `"network"` is never counted
-   * and never terminal — the infinite loop, by construction.
-   *
-   * Used ONLY by the falsifier below, which asserts the loop; the arm above is
-   * what replaced it.
-   */
   | { kind: "silent-peer" };
 
 interface SpawnHandle {
-  /** How many times THIS spawn's `drain()` was invoked. */
   drainCount: number;
-  /** Model a link death (a respawn/re-adopt trigger) by resolving this spawn's `closed`. */
   kill: () => void;
 }
 
@@ -199,24 +118,15 @@ const serve = (hello: Hello, opts: ServeOpts = {}): SpawnSpec => ({
   ...opts,
 });
 
-// ── The harness ──────────────────────────────────────────────────────────────
-
 const sessions: PadiSession[] = [];
 
 interface Arm {
   session: PadiSession;
-  /** Queue a spawn the connector hands out on the next (re)dial. */
   enqueue: (spec: SpawnSpec) => void;
-  /** The per-spawn handles, in dial order. */
   handles: SpawnHandle[];
-  /** How many dials the connector has served — the loop's own tempo, which is
-   *  what the pre-fix falsifier measures. */
   dialCount: () => number;
 }
 
-/** How long a pre-fix blind attach survived before Effect RPC's pinger killed it:
- *  two unanswered 5s pings. The measured number from the incident gist, used only
- *  to give the falsifier the incident's real tempo. */
 const PINGER_KILL_MS = 10_000;
 
 function makeArm(deps: RemotePadiSessionDeps = {}): Arm {
@@ -236,9 +146,6 @@ function makeArm(deps: RemotePadiSessionDeps = {}): Arm {
       throw new ConnectError(spec.reason, "remote", false, spec.anomaly);
     }
     if (spec.kind === "silent-peer") {
-      // A connection that LOOKS fine — the pre-fix blind attach. Its control-core
-      // hello never answers (the peer speaks another epoch), and the transport
-      // dies shortly after, which is what the pinger did in production.
       let killSilent!: (info: ClosedInfo) => void;
       const silentClosed = new Promise<ClosedInfo>((r) => {
         killSilent = r;
@@ -263,62 +170,56 @@ function makeArm(deps: RemotePadiSessionDeps = {}): Arm {
     }
 
     const hello = spec.hello;
-    const dies = spec.diesOnDrain ?? true;
-    let grace = spec.graceHellos ?? 0;
+    const postDrain = spec.postDrain ?? EXITS_ON_DRAIN;
+    let graceLeft = postDrain.kind === "exits" ? postDrain.graceHellos : 0;
     let drained = false;
     const handle: SpawnHandle = { drainCount: 0, kill: () => {} };
     handles.push(handle);
 
-    // The COMBINED daemon client `sshConnector` yields — the frozen control core plus a
-    // `.surface.padi` sibling (scoped by `scopePadiSurface`; its `system.identity` feeds
-    // the base session's identity poll).
     const combined = {
       surface: {
         control: {
           core: {
             hello: async (): Promise<Hello> => {
               await spec.helloGate;
-              if (drained && spec.wedgeAfterDrain)
-                return new Promise<Hello>(() => {}); // wedged: never settles
-              if (drained && dies) {
-                if (grace <= 0) throw new Error("link dead (padi exited)");
-                grace -= 1;
+              if (!drained) return hello;
+              if (postDrain.kind === "wedges")
+                return new Promise<Hello>(() => {});
+              if (postDrain.kind === "exits") {
+                if (graceLeft <= 0) throw new Error("link dead (padi exited)");
+                graceLeft -= 1;
               }
               return hello;
             },
             drain: async (): Promise<void> => {
               handle.drainCount += 1;
               drained = true;
-              // F3 process oracle: resolve `closed` after grace window when the
-              // drain "kills" the link (diesOnDrain) OR when a test injects an
-              // explicit closeKind (e.g. transport-failed while hello still
-              // answers — link loss ≠ process exit).
-              const closeKind = spec.closeKind;
-              if ((!dies && closeKind === undefined) || spec.wedgeAfterDrain) {
+              if (
+                postDrain.kind === "wedges" ||
+                postDrain.kind === "keeps-serving"
+              )
                 return;
-              }
-              const graceMs = (spec.graceHellos ?? 0) * 20 + 5;
-              const kind = closeKind ?? "exit";
+              const graceMs =
+                (postDrain.kind === "exits" ? postDrain.graceHellos : 0) * 20 +
+                5;
               setTimeout(() => {
-                if (kind === "exit") {
+                if (postDrain.kind === "exits") {
                   resolveClosed({ kind: "exit", code: 0, signal: null });
-                } else if (kind === "spawn-error") {
+                } else if (postDrain.closeKind === "spawn-error") {
                   resolveClosed({
                     kind: "spawn-error",
                     message: "spawn failed",
                   });
+                } else if (postDrain.closeKind === "exit") {
+                  resolveClosed({ kind: "exit", code: 0, signal: null });
                 } else {
-                  resolveClosed({ kind });
+                  resolveClosed({ kind: postDrain.closeKind });
                 }
               }, graceMs);
             },
           },
         },
         padi: {
-          // The framework-reserved `system.*` members the padi-scoped session client
-          // probes: `identity` (the identity poll) and `clockNow` (the clock-offset
-          // poll `makeSession` fires at admit) — real padi auto-answers both via
-          // `implementSurface`; mirrored here so both probes succeed like production.
           system: {
             identity: async () => servedIdentity(hello),
             clockNow: async () => ({ epochMs: Date.now() }),
@@ -327,12 +228,6 @@ function makeArm(deps: RemotePadiSessionDeps = {}): Arm {
       },
     };
 
-    // The link's DISPATCH — what the binder actually builds both padi faces over
-    // now (`padiClientOver(conn.dispatch)`), since a sibling is a tag PREFIX on one
-    // flat wire rather than a nested namespace on one client. Binding the fake
-    // bodies at their real wire tags and routing them through the framework's own
-    // `directDispatch` keeps this a fake DAEMON rather than a fake CLIENT: the face
-    // the binder holds is production's, built by production's walk.
     const fakeHandlers: SurfaceHandlers = Object.assign(
       Object.create(null) as SurfaceHandlers,
       {
@@ -375,15 +270,6 @@ function makeArm(deps: RemotePadiSessionDeps = {}): Arm {
   };
 }
 
-/** The session hands back PADI's face, not the frozen control core's — the
- *  flat-wire successor of the fake's old `marker` field.
- *
- *  Under oRPC the scoped view was a nested object a marker could be hung on. A
- *  sibling is a TAG PREFIX now and the face is built by production's own walk over
- *  padi's spec, so the proof is the MEMBER SET that walk mints: padi's members are
- *  present, and the control core's `core` namespace — the other sibling's only
- *  member — is not. A regression that handed back the control face (or the raw
- *  combined value) fails on both halves. */
 function expectPadiScoped(scoped: unknown): void {
   const face = (scoped as { surface: Record<string, unknown> }).surface;
   expect(Object.keys(face)).toEqual(
@@ -392,10 +278,6 @@ function expectPadiScoped(scoped: unknown): void {
   expect(face.core).toBeUndefined();
 }
 
-/** Narrow a `SessionState` snapshot to its DOWN arm (`disconnected`/`failed`) —
- *  the UP arm carries no `error`/`cause` fields at all, so a test that expects a
- *  down state asserts it here rather than reading a field that doesn't exist on a
- *  live/warming snapshot. */
 function down(
   s: SessionState<SshProv>,
 ): Extract<SessionState, { phase: "disconnected" | "failed" }> {
@@ -405,19 +287,13 @@ function down(
   return s;
 }
 
-/** Advance fake timers by `ms` and drain microtasks — runs the admit handshake, the
- *  drain poll loop, the identity poll, and (with a large enough `ms`) a reconnect. */
 async function flush(ms = 0): Promise<void> {
   await vi.advanceTimersByTimeAsync(ms);
 }
 
-// Ceilings small enough that a single `flush(CEIL)` covers a drain but not the 2s
-// makeSession reconnect backoff. `RECONNECT` steps past that backoff → the next (re)dial.
 const CEIL = 60;
 const RECONNECT = 2600;
 
-/** Pin a session that is expected to ADOPT (possibly after a drain that did not take),
- *  advance past the drain ceiling + the identity poll, and return the scoped client. */
 async function pinAdopt(session: PadiSession): Promise<unknown> {
   const p = session.pin();
   p.catch(() => {});
@@ -425,8 +301,6 @@ async function pinAdopt(session: PadiSession): Promise<unknown> {
   await flush();
   return await p;
 }
-
-// ── Setup ────────────────────────────────────────────────────────────────────
 
 beforeEach(() => {
   vi.useFakeTimers();
@@ -439,12 +313,8 @@ afterEach(() => {
   vi.clearAllMocks();
 });
 
-// ── Tests ────────────────────────────────────────────────────────────────────
-
 describe("remote padi arm — the ssh arm's handshake + scope + drain", () => {
   it("a post-hello superseded generation cannot fire a build-mismatch drain or produce a verdict", async () => {
-    // The hello has resolved and its identity is assembled. Supersede this
-    // generation before convergeAdmit enacts the resulting mismatch decision.
     await Promise.resolve(helloVals({ buildId: "build-old" }));
     const generation = new AbortController();
     const fireDrain = vi.fn(() => {});
@@ -481,25 +351,18 @@ describe("remote padi arm — the ssh arm's handshake + scope + drain", () => {
   });
 
   it("handshakes a fresh spawn, scopes to .surface.padi, and reads identity", async () => {
-    // Off-nix binder ("") never drains on build grounds → a compatible contract ADOPTS
-    // deterministically regardless of the survivor's buildId.
     const { session, enqueue } = makeArm({ binderBuildId: "" });
     enqueue(serve(helloVals({ commit: "deadbee", startedAt: 4242 })));
 
     const scoped = await pinAdopt(session);
-    // The scoped client's members address `surface/padi/*` (the re-serve mirrors
-    // `.surface.<member>` at that prefix).
     expectPadiScoped(scoped);
 
-    // Identity graduates to the base `identity()` off padi's `system.identity` (the old
-    // padiSurfaceVersion / padiBuildCommit / padiStartedAt readouts, now one sum).
     const id = session.identity();
     expect(id.kind).toBe("identified");
     if (id.kind !== "identified") throw new Error("expected identified");
     expect(id.baked.contractVersion).toBe(PADI_SURFACE_VERSION);
     expect(id.baked.commit).toEqual({ kind: "commit", sha: "deadbee" });
     expect(id.startedAt).toBe(4242);
-    // Healthy bind → no standing anomaly.
     expect(session.convergence()).toBeNull();
   });
 
@@ -510,33 +373,21 @@ describe("remote padi arm — the ssh arm's handshake + scope + drain", () => {
     const p = session.pin();
     p.catch(() => {});
     await flush();
-    // The mirrored client REJECTS so the pump's cursor keeps waiting (no crash).
     await expect(p).rejects.toThrow(/skew/i);
     await flush();
 
-    // The connection cell reads a loud, honest degraded/remote frame.
     const s = session.currentState();
     expect(s.phase).toBe("disconnected");
     expect(down(s).cause).toBe("remote");
-    // Identity is the honest `disconnected` arm (nothing adopted) — the old
-    // padiSurfaceVersion()===null.
     expect(session.identity().kind).toBe("disconnected");
 
-    // M2: a STANDING skew WITHHOLDS the live client — the base session keeps the client
-    // promise REJECTED (the cursor waits; the pump never folds a rejected client), which
-    // is how makeSession expresses the old class's nulled `currentClient()`.
     await expect(session.currentClient() as Promise<unknown>).rejects.toThrow(
       /skew/i,
     );
 
-    // …and the reason is a STANDING, surfaced convergence state so the Padi dialog shows WHY.
     expect(session.convergence()?.kind).toBe("skew-refused");
     expect(session.convergence()?.detail).toMatch(/contract skew|refusing/i);
 
-    // THE PROJECTION INVARIANT (`@kolu/surface-map`'s `projectStatus` discriminates the
-    // `disconnected` arm on cause-specificity): a REFUSE verdict sets a SPECIFIC domain
-    // cause on the DOWN state — so the standing refuse projects to `failed` + card, never
-    // masked as a transient `warming`. D2's typed running/expected pair rides along.
     expect(session.entryFailedDetail()).toMatchObject({
       cause: "contract-skew-refused",
       running: "99.0",
@@ -545,8 +396,6 @@ describe("remote padi arm — the ssh arm's handshake + scope + drain", () => {
 
   it("a TERMINAL link failure (host unreachable / provisioning failed) surfaces as a standing link-failed state, canvas dead", async () => {
     const { session, enqueue } = makeArm({ binderBuildId: "" });
-    // The connector rejects every dial (remote-store `nix build` provisioning failed) → after the bounded
-    // give-up budget the session goes terminal `failed`.
     for (let i = 0; i < 5; i++)
       enqueue({
         kind: "reject",
@@ -557,19 +406,13 @@ describe("remote padi arm — the ssh arm's handshake + scope + drain", () => {
     const p = session.pin();
     p.catch(() => {});
     await expect(p).rejects.toThrow(/nix build|exited with code/i);
-    // Walk the exponential backoff (2s+4s+8s+16s) to the give-up.
     await flush(60_000);
 
     expect(session.currentState().phase).toBe("failed");
-    // No live client (canvas dead) — currentClient is null (honest absent).
     expect(session.currentClient()).toBeNull();
-    // …but the REASON is a standing, surfaced convergence state.
     const conv = session.convergence();
     expect(conv?.kind).toBe("link-failed");
     expect(conv?.detail).toMatch(/nix build|exited with code/i);
-    // WHY it gave up is the session's own state, never a copy on the convergence:
-    // the generic give-up carries no finer detail, and the published failure is
-    // named from the `failed` state's transport cause.
     expect(session.entryFailedDetail()).toBeNull();
     const state = session.currentState();
     if (state.phase !== "failed") throw new Error("expected a failed session");
@@ -578,19 +421,7 @@ describe("remote padi arm — the ssh arm's handshake + scope + drain", () => {
     ).toMatchObject({ cause: "host-setup-failed" });
   });
 
-  // ── The epoch gate, at the binder seam (juspay/kolu#2101) ──────────────────
-  //
-  // These two are a matched pair and must be read together. The first pins what
-  // the fix DOES; the second pins what it replaced, so the first cannot silently
-  // stop testing anything. Both drive the same production scenario — a remote
-  // host whose padi speaks a previous protocol epoch — and they end in opposite
-  // places, which is the whole claim.
-
   it("a gate REFUSAL counts as `remote`, goes terminal within the give-up budget, and stands up the typed epoch verdict", async () => {
-    // The front on that host converged, met a daemon it cannot decode, could not
-    // take it over, and refused on the wire. `sshConnector` never built a client,
-    // so no pinger ever ran; the refusal arrives as a `"remote"` ConnectError
-    // carrying the front's anomaly.
     const anomaly = {
       kind: "unconverged",
       running: null,
@@ -608,8 +439,6 @@ describe("remote padi arm — the ssh arm's handshake + scope + drain", () => {
         "the daemon at this rendezvous speaks a protocol epoch this supervisor cannot decode",
     };
     const { session, enqueue, dialCount } = makeArm({ binderBuildId: "" });
-    // One more than the budget, so "it stopped at five" is a real observation and
-    // not the queue running dry.
     for (let i = 0; i < 6; i++) {
       enqueue({
         kind: "gate-refused",
@@ -622,17 +451,12 @@ describe("remote padi arm — the ssh arm's handshake + scope + drain", () => {
     const p = session.pin();
     p.catch(() => {});
     await expect(p).rejects.toThrow(/previous protocol epoch/i);
-    // Walk the exponential backoff (2s+4s+8s+16s) to the give-up.
     await flush(60_000);
 
-    // TERMINAL — the inverse of the incident. `"remote"` counts; five is the
-    // EXISTING budget, not a new one invented for this path.
     expect(session.currentState().phase).toBe("failed");
     expect(dialCount()).toBeLessThanOrEqual(5);
     expect(session.currentClient()).toBeNull();
 
-    // The typed verdict is STANDING, decoded from the front's opaque payload with
-    // the wire schema — no string parsing anywhere on this path.
     const conv = session.convergence();
     expect(conv?.kind).toBe("unconverged");
     expect(conv?.kind === "unconverged" && conv.cause).toMatchObject({
@@ -640,27 +464,13 @@ describe("remote padi arm — the ssh arm's handshake + scope + drain", () => {
       pid: 25494,
     });
 
-    // …and the host map gets its OWN cause, so the card says "previous protocol
-    // epoch" instead of the generic unconverged copy or an eternal spinner.
     expect(session.entryFailedDetail()).toMatchObject({
       cause: "previous-protocol-epoch",
     });
   });
 
   it("FALSIFIER: the PRE-FIX blind attach never goes terminal — a silent peer loops forever (the incident's signature)", async () => {
-    // This is the give-up test INVERTED, and it is the reason the arm above is a
-    // real test rather than a tautology. Model the pre-fix path exactly: the link
-    // is attached with no epoch check, the previous-epoch daemon answers nothing,
-    // the pinger kills the transport ~10s later. The admit hook's catch hard-codes
-    // `"network"` for a dead handshake, `"network"` never counts toward
-    // MAX_CONSECUTIVE_FAILURES, and so the session redials forever.
-    //
-    // Every assertion below FAILS against the fixed path (which reaches `failed`
-    // within five dials) and PASSES against the incident — which is what the gist
-    // recorded: connecting → dead at :15, :25, :37, :51, :09, without end.
     const { session, enqueue, dialCount } = makeArm({ binderBuildId: "" });
-    // Far more than the give-up budget: if this path counted at all, it would be
-    // terminal long before the queue ran out.
     for (let i = 0; i < 20; i++) enqueue({ kind: "silent-peer" });
     const seenDownCauses = new Set<string>();
     session.onState((s) => {
@@ -671,17 +481,10 @@ describe("remote padi arm — the ssh arm's handshake + scope + drain", () => {
 
     const p = session.pin();
     p.catch(() => {});
-    // TEN MINUTES of fake time — an order of magnitude past the give-up budget,
-    // and past the exponential backoff's 60s ceiling several times over.
     await flush(600_000);
 
-    // Never terminal, however long it runs.
     expect(session.currentState().phase).not.toBe("failed");
-    // And it really did keep dialing — past the budget that should have stopped it.
     expect(dialCount()).toBeGreaterThan(5);
-    // Worst of all, every down frame it ever published said "network" — nothing
-    // here distinguishes a previous-epoch daemon from a box that is simply off,
-    // which is exactly what the incident log looked like.
     expect(seenDownCauses).toEqual(new Set(["network"]));
     expect(session.entryFailedDetail()).toBeNull();
   });
@@ -694,7 +497,6 @@ describe("remote padi arm — the ssh arm's handshake + scope + drain", () => {
         cause: "remote",
         reason: "provisioning failed",
       });
-    // The post-failed re-arm brings up a REFUSED skew — its handshake rejects.
     enqueue(serve(helloVals({ surfaceVersion: "99.0" })));
 
     const p = session.pin();
@@ -708,10 +510,6 @@ describe("remote padi arm — the ssh arm's handshake + scope + drain", () => {
     };
     process.on("unhandledRejection", onUnhandled);
     try {
-      // Re-arm the failed session with a NEW spawn that will be REFUSED. makeSession's
-      // reconnect path attaches its own `.catch` to the launched attempt, so the refused
-      // handshake's rejection must NOT float (else index.ts's unhandledRejection handler
-      // process.exit(1)s the whole server).
       session.reconnect();
       await flush();
       await flush();
@@ -723,16 +521,16 @@ describe("remote padi arm — the ssh arm's handshake + scope + drain", () => {
 
   it("drains the bound padi and WAITS for its exit (the restart verb) — resolves only once the link dies", async () => {
     const { session, enqueue, handles } = makeArm({
-      binderBuildId: "", // off-nix → adopt on bind, no build drain
+      binderBuildId: "",
       drainTeardownCeilingMs: 200,
     });
-    enqueue(serve(helloVals())); // dies on drain (graceHellos 0)
-    await pinAdopt(session); // adopt → bound
+    enqueue(serve(helloVals()));
+    await pinAdopt(session);
 
     const r = Effect.runPromise(session.renew());
     r.catch(() => {});
     await flush(200);
-    await r; // resolves only after the modelled link death
+    await r;
     expect(handles[0]!.drainCount).toBe(1);
   });
 
@@ -779,22 +577,18 @@ describe("remote padi arm — the ssh arm's handshake + scope + drain", () => {
       binderBuildId: "",
       drainTeardownCeilingMs: 40,
     });
-    // The daemon keeps answering after drain (the drain did not take) — the fail-fast
-    // window elapses and the restart verb THROWS. Never a kill.
-    enqueue(serve(helloVals(), { diesOnDrain: false }));
+    enqueue(serve(helloVals(), { postDrain: { kind: "keeps-serving" } }));
     await pinAdopt(session);
 
     const r = Effect.runPromise(session.renew());
     r.catch(() => {});
     await flush(80);
     await expect(r).rejects.toThrow(/did not (complete|exit)/i);
-    expect(handles[0]!.drainCount).toBe(1); // attempted once, no kill
+    expect(handles[0]!.drainCount).toBe(1);
   });
 
   it("throws on drain when unbound (no crash, an honest error)", async () => {
     const { session } = makeArm({ binderBuildId: "" });
-    // Never pinned → no combined client → renew throws honestly (the arm's message is
-    // "not bound — cannot drain", the new spelling of the old "no adopted daemon").
     await expect(Effect.runPromise(session.renew())).rejects.toThrow(
       /not bound|cannot drain/i,
     );
@@ -807,9 +601,7 @@ describe("remote padi arm — the ssh arm's handshake + scope + drain", () => {
     p.catch(() => {});
     await flush();
     await expect(p).rejects.toThrow(/skew/i);
-    await flush(); // let the disconnect frame null `combined`
-    // The restart verb must NOT reach the raw host client for a padi we never adopted —
-    // an older binder draining a refused newer padi would DOWNGRADE it (anti-monotonic).
+    await flush();
     await expect(Effect.runPromise(session.renew())).rejects.toThrow(
       /not bound|cannot drain/i,
     );
@@ -823,13 +615,11 @@ describe("remote padi arm — the ssh arm's handshake + scope + drain", () => {
     if (first.kind !== "identified") throw new Error("expected identified");
     expect(first.baked.commit).toEqual({ kind: "commit", sha: "aaa1111" });
 
-    // Link drops: identity clears to the honest `disconnected`, no live client.
     handles[0]!.kill();
     await flush();
     expect(session.identity().kind).toBe("disconnected");
     expect(session.currentClient()).toBeNull();
 
-    // A fresh spawn (a respawned / re-adopted padi) re-handshakes with fresh identity.
     enqueue(serve(helloVals({ commit: "bbb2222" })));
     await flush(RECONNECT);
     await flush();
@@ -844,11 +634,8 @@ describe("remote padi arm — the ssh arm's handshake + scope + drain", () => {
     await pinAdopt(session);
     const a = session.currentClient();
     const b = session.currentClient();
-    // Stable within a spawn — the memoized promise, so a cursor keeps waiting instead of
-    // busy-spinning on a fresh object each poll.
     expect(a).toBe(b);
 
-    // A genuinely new spawn (drop → reconnect → re-adopt) → a new promise identity.
     handles[0]!.kill();
     await flush();
     enqueue(serve(helloVals()));
@@ -862,13 +649,13 @@ describe("remote padi arm — the ssh arm's handshake + scope + drain", () => {
   it("pin() kicks a fresh spawn; markConnected + destroy forward", async () => {
     const { session, enqueue, handles } = makeArm({ binderBuildId: "" });
     enqueue(serve(helloVals()));
-    expect(handles.length).toBe(0); // nothing dialed until pinned
+    expect(handles.length).toBe(0);
 
     await pinAdopt(session);
-    expect(handles.length).toBe(1); // pin kicked exactly one spawn
+    expect(handles.length).toBe(1);
     expect(session.currentState().phase).toBe("connected");
 
-    session.markConnected(); // idempotent — a second mark is a no-op
+    session.markConnected();
     expect(session.currentState().phase).toBe("connected");
 
     session.destroy();
@@ -894,8 +681,6 @@ describe("remote padi arm — build/contract convergence at the bind (over ssh)"
       binderBuildId: "build-NEW",
       drainTeardownCeilingMs: CEIL,
     });
-    // Spawn 1 — an OLD build (instance 1000). The mismatch DRAINS + rejects (the cursor
-    // waits) to reconnect. The flagship #1670 redeploy, over ssh.
     enqueue(serve(helloVals({ buildId: "build-OLD", startedAt: 1000 })));
     const p = session.pin();
     p.catch(() => {});
@@ -903,8 +688,6 @@ describe("remote padi arm — build/contract convergence at the bind (over ssh)"
     await expect(p).rejects.toThrow(/build mismatch/i);
     expect(handles[0]!.drainCount).toBe(1);
 
-    // Spawn 2 — the drain TOOK: the reconnect respawned a FRESH instance (2000) running
-    // THIS binder's build. It matches → ADOPT, no second drain.
     enqueue(serve(helloVals({ buildId: "build-NEW", startedAt: 2000 })));
     await flush(RECONNECT);
     await flush();
@@ -917,8 +700,6 @@ describe("remote padi arm — build/contract convergence at the bind (over ssh)"
       binderBuildId: "build-NEW",
       drainTeardownCeilingMs: CEIL,
     });
-    // 1. build-MISMATCH survivor (1000, build-OLD) → drain took → reject. Budget remembers
-    //    the drained (build-OLD, 1000) lineage.
     enqueue(serve(helloVals({ buildId: "build-OLD", startedAt: 1000 })));
     const p = session.pin();
     p.catch(() => {});
@@ -926,19 +707,13 @@ describe("remote padi arm — build/contract convergence at the bind (over ssh)"
     await expect(p).rejects.toThrow(/build mismatch/i);
     expect(handles[0]!.drainCount).toBe(1);
 
-    // 2. reconnect brings up a MATCHED build (2000) → ADOPT. Budget is NOT reset
-    //    (survives adopts — the old reset-on-adopt wiped the memory needed to notice
-    //    a cross-supervisor fight).
     enqueue(serve(helloVals({ buildId: "build-NEW", startedAt: 2000 })));
     await flush(RECONNECT);
     await flush();
     expectPadiScoped(await session.currentClient());
     expect(handles[1]!.drainCount).toBe(0);
 
-    // 3. LATER a NEW instance of the ALREADY-DRAINED build-OLD appears (3000). That is
-    //    another supervisor respawning the old build → cross-supervisor, NOT a fresh
-    //    drain (drainCount stays 0).
-    handles[1]!.kill(); // the matched build's link drops → reconnect
+    handles[1]!.kill();
     await flush();
     enqueue(serve(helloVals({ buildId: "build-OLD", startedAt: 3000 })));
     await flush(RECONNECT);
@@ -956,7 +731,6 @@ describe("remote padi arm — build/contract convergence at the bind (over ssh)"
       maxBuildDrainsPerInstance: 2,
       drainTeardownCeilingMs: CEIL,
     });
-    // Blip 1: build-OLD, instance 5000. drain → reconnect. Drained once, NOT adopted.
     enqueue(serve(helloVals({ buildId: "build-OLD", startedAt: 5000 })));
     const p = session.pin();
     p.catch(() => {});
@@ -964,8 +738,6 @@ describe("remote padi arm — build/contract convergence at the bind (over ssh)"
     await expect(p).rejects.toThrow(/build mismatch|link death/i);
     expect(handles[0]!.drainCount).toBe(1);
 
-    // The daemon SURVIVED the blip: reconnect re-adopts the SAME instance (5000), still
-    // build-OLD → RE-DRAIN (never adopt the stale build).
     enqueue(serve(helloVals({ buildId: "build-OLD", startedAt: 5000 })));
     await flush(RECONNECT);
     await expect(session.currentClient() as Promise<unknown>).rejects.toThrow(
@@ -973,8 +745,6 @@ describe("remote padi arm — build/contract convergence at the bind (over ssh)"
     );
     expect(handles[1]!.drainCount).toBe(1);
 
-    // Budget (2) exhausted for instance 5000: the SAME instance again → ADOPT-LOUDLY the
-    // resident build (canvas WORKS), never a pointless re-drain.
     enqueue(serve(helloVals({ buildId: "build-OLD", startedAt: 5000 })));
     await flush(RECONNECT);
     await flush();
@@ -990,7 +760,7 @@ describe("remote padi arm — build/contract convergence at the bind (over ssh)"
     expect(conv?.detail).toMatch(
       /flapping|will not converge|riding the resident/i,
     );
-    expect(session.currentState().phase).toBe("connected"); // canvas alive
+    expect(session.currentState().phase).toBe("connected");
     const id = session.identity();
     expect(id.kind === "identified" && id.baked.contractVersion).toBe(
       PADI_SURFACE_VERSION,
@@ -1009,11 +779,6 @@ describe("remote padi arm — build/contract convergence at the bind (over ssh)"
     await expect(p).rejects.toThrow(/build mismatch|link death/i);
     expect(handles[0]!.drainCount).toBe(1);
 
-    // reconnect brings up a DIFFERENT instance (2000) STILL build-OLD — another supervisor
-    // is respawning its OWN build (the remote twin of the local supervisor.pid war). D3:
-    // STOP + fail-honest with the TYPED `cross-supervisor` cause, never ADOPT the contested
-    // build (the build we'd ride is the loser of a race). No fresh drain; the host goes down
-    // and the Skew-UX card offers [Switch to local] / isolate via KOLU_REMOTE_PADI_STATE_DIR.
     enqueue(serve(helloVals({ buildId: "build-OLD", startedAt: 2000 })));
     await flush(RECONNECT);
     await flush();
@@ -1021,8 +786,6 @@ describe("remote padi arm — build/contract convergence at the bind (over ssh)"
       /anti-livelock|respawning/i,
     );
     expect(handles[1]!.drainCount).toBe(0);
-    // Parked under the `unconverged` convergence banner, but the TYPED map cause is
-    // `cross-supervisor` (the dedicated flag wins over `unconverged` in the detail hook).
     expect(session.convergence()?.kind).toBe("cross-supervisor");
     expect(session.entryFailedDetail()).toEqual({ cause: "cross-supervisor" });
   });
@@ -1033,9 +796,6 @@ describe("remote padi arm — build/contract convergence at the bind (over ssh)"
       maxBuildDrainsPerInstance: 1,
       drainTeardownCeilingMs: CEIL,
     });
-    // Reach adopted-stale via BUDGET exhaustion (a flapping SAME instance — a link blip, NOT
-    // a cross-supervisor fight): drain 7000 once, the blip reconnects the SAME 7000 still
-    // mismatched → budget (1) spent → adopt-stale the resident (a LIVE daemon).
     enqueue(serve(helloVals({ buildId: "build-OLD", startedAt: 7000 })));
     const p = session.pin();
     p.catch(() => {});
@@ -1044,11 +804,9 @@ describe("remote padi arm — build/contract convergence at the bind (over ssh)"
     enqueue(serve(helloVals({ buildId: "build-OLD", startedAt: 7000 })));
     await flush(RECONNECT);
     await flush();
-    await session.currentClient(); // adopts-stale the resident (a LIVE daemon)
+    await session.currentClient();
     expect(session.convergence()?.kind).toBe("adopted-stale");
 
-    // Restart the resident: renew must DRAIN it (it exits), not reject "not bound" —
-    // adopted-stale is a live adopted daemon.
     const r = Effect.runPromise(session.renew());
     r.catch(() => {});
     await flush(CEIL);
@@ -1061,10 +819,6 @@ describe("remote padi arm — build/contract convergence at the bind (over ssh)"
       binderBuildId: "build-NEW",
       drainTeardownCeilingMs: CEIL,
     });
-    // A hello with neither identity field — `?? ""` folds the honest unknown pair to
-    // off-nix, which never matches the binder's known id, so it drains (a pre-field padi
-    // is an older build). The fields entered the frozen schema together; a one-sided
-    // payload is contradictory, not a historical generation.
     const h = {
       ...helloVals({ startedAt: 1000 }),
       buildId: undefined,
@@ -1093,23 +847,21 @@ describe("remote padi arm — build/contract convergence at the bind (over ssh)"
       binderBuildId: "build-NEW",
       drainTeardownCeilingMs: CEIL,
     });
-    // `diesOnDrain: false` — the daemon keeps answering after drain (a wedged link). The
-    // fail-fast window elapses → could not drain-replace, so ADOPT LOUDLY, never a kill.
-    enqueue(serve(helloVals({ buildId: "build-OLD" }), { diesOnDrain: false }));
+    enqueue(
+      serve(helloVals({ buildId: "build-OLD" }), {
+        postDrain: { kind: "keeps-serving" },
+      }),
+    );
     const client = await pinAdopt(session);
     expect(client).toBeTruthy();
-    expect(handles[0]!.drainCount).toBe(1); // attempted once, no kill
+    expect(handles[0]!.drainCount).toBe(1);
     const conv = session.convergence();
     expect(conv?.kind).toBe("adopted-stale");
     expect(conv?.detail).toMatch(/did not take|kept answering/i);
-    expect(session.currentState().phase).toBe("connected"); // canvas stays live
+    expect(session.currentState().phase).toBe("connected");
   });
 
   it("F3: transport-failed ClosedInfo during drain is NOT process exit → drain-not-taken (real adapter)", async () => {
-    // Drives the REAL remotePadiBinding awaitExitViaProcessOracle over conn.closed
-    // (not a synthetic awaitExit). On drain, closed resolves as transport-failed
-    // while hello still answers — link loss must NOT count as process exit; the
-    // process oracle stays unsettled until the ceiling → drain-not-taken → adopt-stale.
     const { session, enqueue, handles } = makeArm({
       binderBuildId: "build-NEW",
       drainTeardownCeilingMs: CEIL,
@@ -1117,16 +869,13 @@ describe("remote padi arm — build/contract convergence at the bind (over ssh)"
     });
     enqueue(
       serve(helloVals({ buildId: "build-OLD" }), {
-        // Keep answering hello (not process death); inject transport-failed close.
-        diesOnDrain: false,
-        closeKind: "transport-failed",
+        postDrain: { kind: "link-lost", closeKind: "transport-failed" },
       }),
     );
     const client = await pinAdopt(session);
     expect(client).toBeTruthy();
     expect(handles[0]!.drainCount).toBe(1);
     const conv = session.convergence();
-    // Must NOT have been treated as successful process exit → replaced.
     expect(conv?.kind).toBe("adopted-stale");
     if (conv?.kind === "adopted-stale") {
       expect(conv.detail).toMatch(/did not take|not take|kept answering/i);
@@ -1150,17 +899,15 @@ describe("remote padi arm — build/contract convergence at the bind (over ssh)"
   it("P4: contract drain → respawn on a COMPATIBLE contract → ADOPTS (newest-wins convergence completes)", async () => {
     const { session, enqueue } = makeArm({
       binderVersion: "5.0",
-      binderBuildId: "", // isolate the CONTRACT axis (off-nix never build-drains)
+      binderBuildId: "",
       drainTeardownCeilingMs: CEIL,
     });
-    // An OLD-contract survivor → binder newer → DRAIN (took) → reconnect.
     enqueue(serve(helloVals({ surfaceVersion: "1.1", startedAt: 1000 })));
     const p = session.pin();
     p.catch(() => {});
     await flush(CEIL);
     await expect(p).rejects.toThrow(/newer contract/i);
 
-    // reconnect brings up this binder's OWN (compatible) contract → ADOPT, converged.
     enqueue(serve(helloVals({ surfaceVersion: "5.0", startedAt: 2000 })));
     await flush(RECONNECT);
     await flush();
@@ -1168,7 +915,7 @@ describe("remote padi arm — build/contract convergence at the bind (over ssh)"
     expect(client).toBeTruthy();
     const id = session.identity();
     expect(id.kind === "identified" && id.baked.contractVersion).toBe("5.0");
-    expect(session.convergence()).toBeNull(); // healthy — no degraded banner
+    expect(session.convergence()).toBeNull();
   });
 
   it("D3: contract-skew TREADMILL — a DIFFERENT skewed instance after a drain → CROSS-SUPERVISOR fail-honest (anti-livelock), never drains forever (M1)", async () => {
@@ -1177,7 +924,6 @@ describe("remote padi arm — build/contract convergence at the bind (over ssh)"
       binderBuildId: "b",
       drainTeardownCeilingMs: CEIL,
     });
-    // Drain instance 1000 (old contract 1.1) → took → reconnect.
     enqueue(serve(helloVals({ surfaceVersion: "1.1", startedAt: 1000 })));
     const p = session.pin();
     p.catch(() => {});
@@ -1185,10 +931,6 @@ describe("remote padi arm — build/contract convergence at the bind (over ssh)"
     await expect(p).rejects.toThrow(/newer contract/i);
     expect(handles[0]!.drainCount).toBe(1);
 
-    // reconnect brings up a DIFFERENT instance (2000), STILL old contract — another
-    // supervisor is respawning it. Do NOT re-drain: STOP + fail-honest with the TYPED
-    // `cross-supervisor` cause (framework anomaly arm). The isolation
-    // lever is KOLU_REMOTE_PADI_STATE_DIR; the client card offers [Switch to local].
     enqueue(serve(helloVals({ surfaceVersion: "1.1", startedAt: 2000 })));
     await flush(RECONNECT);
     await flush();
@@ -1201,11 +943,6 @@ describe("remote padi arm — build/contract convergence at the bind (over ssh)"
   });
 
   it("an INTENDED drain resets the give-up budget — its disconnect is classified 'network', never the bounded 'remote'", async () => {
-    // The OLD arm marked the HostSession connected BEFORE a drain to reset the give-up
-    // budget so a deliberate drain-exit isn't counted a connect failure. makeSession
-    // preserves the OUTCOME differently: a `replaced` (drain) disconnect carries
-    // failureCause "network" — and network failures are NEVER terminal — so an intended
-    // drain treadmill can never trip the bounded give-up gate to `failed`.
     const { session, enqueue } = makeArm({
       binderBuildId: "build-NEW",
       drainTeardownCeilingMs: CEIL,
@@ -1226,45 +963,33 @@ describe("remote padi arm — build/contract convergence at the bind (over ssh)"
       drainTeardownCeilingMs: CEIL,
     });
     enqueue(
-      serve(helloVals({ surfaceVersion: "1.1" }), { diesOnDrain: false }),
+      serve(helloVals({ surfaceVersion: "1.1" }), {
+        postDrain: { kind: "keeps-serving" },
+      }),
     );
     const p = session.pin();
     p.catch(() => {});
     await flush(CEIL);
     await expect(p).rejects.toThrow(/did not take|kept answering|skew/i);
-    expect(handles[0]!.drainCount).toBe(1); // attempted once, no kill
+    expect(handles[0]!.drainCount).toBe(1);
     await flush();
     const s = session.currentState();
     expect(s.phase).toBe("disconnected");
     expect(down(s).cause).toBe("remote");
     expect(session.identity().kind).toBe("disconnected");
-    // Surfaced as a standing `unconverged` state (NOT adopted — an incompatible contract
-    // can't be ridden, unlike a build mismatch).
     expect(session.convergence()?.kind).toBe("unconverged");
-    // THE PROJECTION INVARIANT: `unconverged` is a REFUSE, so it sets a SPECIFIC cause on
-    // the down state (→ `failed` + card, never masked as warming).
     expect(session.entryFailedDetail()).toEqual({ cause: "unconverged" });
-    // The client is WITHHELD (rejected) on subsequent live-client reads (like skew).
     await expect(session.currentClient() as Promise<unknown>).rejects.toThrow(
       /did not take|kept answering|newer/i,
     );
   });
 
   it("PROJECTION INVARIANT: a plain TRANSIENT link drop (healthy bind that dropped) yields NO domain detail → null → warming", async () => {
-    // The other half of the invariant the failure projection rides on: a link that
-    // dropped WITHOUT a refuse verdict has no standing failure, so `entryFailedDetail()`
-    // returns `null`. On a still-retrying `disconnected` state `padiFailureOf` projects
-    // that `null` straight through (the single-meaning absent, PR4), and `serveHostMap`
-    // reads the absent failure as RETRIABLE warming (coming back up), never a masked-
-    // standing `failed`. (A terminal give-up is the OTHER case — `padiFailureOf` names
-    // it by the session's transport cause; see `padiSession.test.ts`.)
     const { session, enqueue, handles } = makeArm({ binderBuildId: "build-X" });
-    enqueue(serve(helloVals({ buildId: "build-X" }))); // same build → clean ADOPT
+    enqueue(serve(helloVals({ buildId: "build-X" })));
     await pinAdopt(session);
-    expect(session.entryFailedDetail()).toBeNull(); // connected, nothing to classify
+    expect(session.entryFailedDetail()).toBeNull();
 
-    // The link drops (a transient network blip — no skew, no cross-supervisor, no drv
-    // fault). The healthy bind's convergence clears to null → no domain cause.
     handles[0]!.kill();
     await flush();
     expect(session.currentState().phase).toBe("disconnected");
@@ -1276,16 +1001,15 @@ describe("remote padi arm — build/contract convergence at the bind (over ssh)"
       binderBuildId: "build-NEW",
       drainTeardownCeilingMs: 40,
     });
-    // After the drain the daemon's `hello` NEVER settles — a wedged ssh link. The per-probe
-    // ceiling race must give up within the window and ADOPT the old build (degraded).
     enqueue(
-      serve(helloVals({ buildId: "build-OLD" }), { wedgeAfterDrain: true }),
+      serve(helloVals({ buildId: "build-OLD" }), {
+        postDrain: { kind: "wedges" },
+      }),
     );
     const p = session.pin();
     p.catch(() => {});
     await flush(80);
     await flush();
-    // `currentClient()` RESOLVING at all (to a live client) is the bound-ceiling proof.
     const client = await p;
     expect(client).toBeTruthy();
     expect(session.convergence()?.kind).toBe("adopted-stale");
@@ -1299,9 +1023,11 @@ describe("remote padi arm — build/contract convergence at the bind (over ssh)"
       binderBuildId: "build-NEW",
       drainTeardownCeilingMs: 500,
     });
-    // The daemon answers 4 more hellos after the drain, then dies — drainAndAwaitClose must
-    // still detect the exit ("took" → reconnect) rather than time out.
-    enqueue(serve(helloVals({ buildId: "build-OLD" }), { graceHellos: 4 }));
+    enqueue(
+      serve(helloVals({ buildId: "build-OLD" }), {
+        postDrain: exitsAfterHellos(4),
+      }),
+    );
     const p = session.pin();
     p.catch(() => {});
     await flush(500);
@@ -1323,15 +1049,12 @@ describe("composePadiExtraArgs (F2: the remote front never re-adds --stdio)", ()
   });
 
   it("D3: forwards KOLU_REMOTE_PADI_STATE_DIR as --state-root so two kolus isolate their remote padis", () => {
-    // The primary defense against a remote cross-supervisor war: a per-kolu remote
-    // state-root → distinct digest → distinct socket → no shared padi to fight over.
     expect(composePadiExtraArgs("1.2.3", "/srv/kolu-a/padi")).toEqual([
       "--state-root",
       "/srv/kolu-a/padi",
       "--spawn-version",
       "1.2.3",
     ]);
-    // Unset / empty → omitted (single-kolu common case: the remote padi picks its own default).
     expect(composePadiExtraArgs("1.2.3", undefined)).toEqual([
       "--spawn-version",
       "1.2.3",
@@ -1362,10 +1085,6 @@ describe("KOLU_PADI_HOST seed parse (W4 the switch)", () => {
   });
 
   it("a seed entry that would have been a reserved channel name is now just an honest remote (the reject retired)", () => {
-    // `HostKey` is a nominal sum now, not an in-band string a bad value could collide
-    // with — every remote's encoded form is `remote:<target>`, which can never equal a
-    // reserved collection channel suffix (`keys`/`deltas`) — so there is nothing left to
-    // reject. `parseHostInput` is total: every token seeds cleanly.
     process.env[KOLU_PADI_HOST_ENV] = "srid@zest,keys,srid@pu";
     const seed = parseKoluPadiHostSeed();
     expect(seed).toEqual([

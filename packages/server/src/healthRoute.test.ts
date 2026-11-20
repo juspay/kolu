@@ -1,8 +1,3 @@
-/** `/api/health` is read by four independent consumers (see `healthRoute.ts`),
- *  two of which — `smoke.feature` and the packaged-binary `ci::smoke` recipe —
- *  are frozen text. This is the cheap, local proof that the bytes they expect
- *  are the bytes the route serves. */
-
 import { Effect } from "effect";
 import { HttpRouter, HttpServerRequest } from "effect/http";
 import { describe, expect, it } from "vitest";

@@ -1,18 +1,4 @@
 #!/usr/bin/env bash
-# Typing-echo latency baseline — conductor.
-#
-# Boots a PRIVATE, self-contained nix-built kolu (its own kaval, its own state
-# dir, a throwaway $HOME, an OS-assigned free port), runs the client probe
-# (`typingEchoLatency.ts`) against its `/rpc/ws`, prints/writes the percentiles,
-# and tears everything down. Nothing here can touch a production kolu/kaval: the
-# private $XDG_RUNTIME_DIR + KOLU_KAVAL_SOCKET means kolu's always-recycle only
-# ever reaps ITS OWN kaval.
-#
-# Run from inside the devshell (for `tsx`):  just bench-typing-echo
-# Or directly:  nix develop . -c bash packages/server/bench/run.sh
-#
-# Env passthrough: any KOLU_BENCH_* var (TERMINALS/SAMPLES/WARMUP/OUT/...) is
-# honored by the probe. KOLU_BENCH_BIN=<path/to/bin/kolu> skips the nix build.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
@@ -37,7 +23,6 @@ cleanup() {
 }
 trap cleanup EXIT
 
-# Private, isolated server on an OS-assigned free port (--port 0).
 env -i \
   HOME="$RT/home" \
   PATH="$PATH" \

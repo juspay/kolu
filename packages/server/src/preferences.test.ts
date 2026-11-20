@@ -16,8 +16,6 @@ describe("preference persistence", () => {
       attentionAlerts: false,
     });
 
-    // A new Conf instance is the server-restart boundary. Reading the same
-    // on-disk config proves these are persisted fields, not module memory.
     const restarted = new Conf<{ preferences: Preferences }>({
       cwd: dirname(store.path),
       defaults: { preferences: DEFAULT_PREFERENCES },

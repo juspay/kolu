@@ -1,8 +1,3 @@
-/** KEEPING A WORK'S FILES, against a fake padi whose byte read is the REAL
- *  serve-dir read over a temporary worktree — the same stand-in the preview
- *  route's own tests use. What is pinned: where nested files land, the size
- *  budget, and the containment guard. */
-
 import {
   mkdirSync,
   mkdtempSync,
@@ -38,7 +33,6 @@ const write = (path: string, content: string): void => {
   writeFileSync(join(worktree, path), content);
 };
 
-/** A host whose padi reads bytes the way padi's `preview.read` does. */
 const files = () =>
   workFilesOverHosts({
     hosts: {
@@ -103,7 +97,6 @@ describe("keeping a work's files", () => {
   it("leaves out a file past the budget, off the disk, and keeps a smaller one after it", async () => {
     write(".waterfall/plan.md", "# Plan");
     write(".waterfall/big.bin", "");
-    // Past the budget on its own, whatever is copied before it.
     truncateSync(
       join(worktree, ".waterfall/big.bin"),
       WORK_FILES_KEPT_BYTES + 1,
@@ -129,7 +122,6 @@ describe("keeping a work's files", () => {
   });
 
   it("copies in tree order whatever order it is handed, so the plan lands first", async () => {
-    // A folder's file that would fit only if copied before the plan.
     write(".waterfall/mockup/big.bin", "");
     truncateSync(
       join(worktree, ".waterfall/mockup/big.bin"),
@@ -147,7 +139,6 @@ describe("keeping a work's files", () => {
   });
 
   it("holds the budget per work, across endings, without counting a rewrite twice", async () => {
-    // The first ending keeps a file that leaves 10 bytes of the budget.
     write(".waterfall/first.bin", "");
     truncateSync(
       join(worktree, ".waterfall/first.bin"),
@@ -156,8 +147,6 @@ describe("keeping a work's files", () => {
     const keep = (paths: ReadonlyArray<string>) =>
       files().keep({ host: "local", worktree, work: "w1", paths });
     await keep([".waterfall/first.bin"]);
-    // Reopened and ended again with different files: what the first ending
-    // left is still the work's, so only 10 bytes are free.
     write(".waterfall/notes.md", "twenty bytes of note");
     write(".waterfall/tiny.md", "five!");
     const again = await keep([".waterfall/notes.md", ".waterfall/tiny.md"]);
@@ -168,8 +157,6 @@ describe("keeping a work's files", () => {
       ".waterfall/first.bin",
       ".waterfall/tiny.md",
     ]);
-    // A third ending that rewrites both: each replaces its own copy, so
-    // neither is charged on top of what it replaces.
     const third = await keep([".waterfall/first.bin", ".waterfall/tiny.md"]);
     expect(third.tooBig).toEqual([]);
   });

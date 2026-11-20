@@ -1,13 +1,3 @@
-/**
- * Reading a host's listening ports for the forward reaper — what counts as an
- * observation, and that the read TERMINATES.
- *
- * This reader runs inside a reactor poll cell. A read that never resolves does
- * not merely miss a sample: `pollSource`'s in-flight latch stays held, so the
- * `forwards` cell stops recomputing for the life of the process — every door
- * frozen, none reaped, nothing logged. Hence the deadline case below.
- */
-
 import type { Logger } from "@kolu/log";
 import { Stream } from "effect";
 import type { HostListeners, HostPort } from "kolu-common/surface";
@@ -19,7 +9,6 @@ import {
 } from "./hostPorts.ts";
 
 const host = { kind: "local" } as const;
-const TEST_DEADLINE_MS = 10_000;
 
 const log = {
   error: vi.fn(),
@@ -28,7 +17,6 @@ const log = {
   debug: vi.fn(),
 } as unknown as Logger;
 
-/** A cell stream that yields its frames and then stays OPEN, as a live cell does. */
 function stream<T>(frames: readonly T[]): Stream.Stream<T> {
   return Stream.concat(Stream.fromArray(frames), Stream.never);
 }
@@ -42,27 +30,24 @@ const claimed = (port: number, family: "v4" | "v6" = "v4"): HostPort => ({
   heldByTerminal: false,
 });
 
-function knownOf(ports: HostPorts): [number, string][] {
-  if (ports.status !== "known") throw new Error("expected an observation");
+function observedOf(ports: HostPorts): [number, string][] {
+  if (ports.status !== "observed") throw new Error("expected an observation");
   return [...ports.ports];
 }
 
 describe("hostPortsOf — what the reaper may act on", () => {
   it("counts a listener no terminal holds", () => {
-    // The defect this reading replaced: a door onto a DETACHED server was reaped
-    // within one interval, because the old evidence was the union of every
-    // terminal's own ports, and a detached server is in none of them.
     const reading: HostListeners = {
       status: "known",
       claimed: [claimed(18440)],
       unclaimed: { status: "known", list: [] },
     };
-    expect(knownOf(hostPortsOf(reading))).toEqual([[18440, "v4"]]);
+    expect(observedOf(hostPortsOf(reading))).toEqual([[18440, "v4"]]);
   });
 
   it("counts another user's socket when that half was read", () => {
     expect(
-      knownOf(
+      observedOf(
         hostPortsOf({
           status: "known",
           claimed: [],
@@ -76,10 +61,8 @@ describe("hostPortsOf — what the reaper may act on", () => {
   });
 
   it("folds a claimed and an unclaimed bind of one port by SCOPE first, then family", () => {
-    // Our `[::1]:5173` beside another user's `192.168.1.5:5173`: the loopback
-    // bind is the one a door can dial, so its family wins over the v4 interface.
     expect(
-      knownOf(
+      observedOf(
         hostPortsOf({
           status: "known",
           claimed: [claimed(5173, "v6")],
@@ -93,11 +76,8 @@ describe("hostPortsOf — what the reaper may act on", () => {
   });
 
   it("dials the listener the user was SHOWN when both halves hold one scope", () => {
-    // Our `[::1]:3000` beside another user's `127.0.0.1:3000`, both loopback:
-    // the card and the Ports row name our program, so the door dials v6 — never
-    // the other user's server on the other family.
     expect(
-      knownOf(
+      observedOf(
         hostPortsOf({
           status: "known",
           claimed: [claimed(3000, "v6")],
@@ -111,10 +91,8 @@ describe("hostPortsOf — what the reaper may act on", () => {
   });
 
   it("keeps the claimed half an observation when the unclaimed half is blind", () => {
-    // macOS 27. Every auto door there was born onto a claimed listener, so that
-    // listener leaving the claimed set is its death.
     expect(
-      knownOf(
+      observedOf(
         hostPortsOf({
           status: "known",
           claimed: [claimed(5173)],
@@ -124,14 +102,16 @@ describe("hostPortsOf — what the reaper may act on", () => {
     ).toEqual([[5173, "v4"]]);
   });
 
-  it("is unknown for a host that is not being scanned", () => {
-    expect(hostPortsOf({ status: "unknown" })).toEqual({ status: "unknown" });
+  it("is unobserved for a host that is not being scanned", () => {
+    expect(hostPortsOf({ status: "unknown" })).toEqual({
+      status: "unobserved",
+    });
   });
 });
 
 describe("makeHostPortsReader", () => {
   it("reads the cell's current frame", async () => {
-    const read = makeHostPortsReader({
+    const reader = makeHostPortsReader({
       listenersOf: () =>
         stream<HostListeners>([
           {
@@ -142,47 +122,63 @@ describe("makeHostPortsReader", () => {
         ]),
       log,
     });
-    expect(knownOf(await read(host, TEST_DEADLINE_MS))).toEqual([
+    expect(observedOf(await reader.forReap(host))).toEqual([[18440, "v4"]]);
+    expect(observedOf(await reader.forOpeningClick(host))).toEqual([
       [18440, "v4"],
     ]);
   });
 
-  it("reports `unknown` rather than an empty map when the host has no session", async () => {
-    // "We could not look" must never read as "nothing is listening" — an empty
-    // map here would reap every auto door on the host.
-    const read = makeHostPortsReader({ listenersOf: () => null, log });
-    await expect(read(host, TEST_DEADLINE_MS)).resolves.toEqual({
-      status: "unknown",
+  it("reports `unobserved` rather than an empty map when the host has no session", async () => {
+    const reader = makeHostPortsReader({ listenersOf: () => null, log });
+    await expect(reader.forReap(host)).resolves.toEqual({
+      status: "unobserved",
     });
   });
 
-  it("TERMINATES with `unknown` when the mirror never answers", async () => {
-    const read = makeHostPortsReader({
+  it("TERMINATES with `unobserved` when the mirror never answers", async () => {
+    const reader = makeHostPortsReader({
       listenersOf: () => Stream.never,
       log,
+      budgetsMs: { reap: 100, openingClick: 100 },
     });
     const began = Date.now();
-    await expect(read(host, 100)).resolves.toEqual({ status: "unknown" });
+    await expect(reader.forReap(host)).resolves.toEqual({
+      status: "unobserved",
+    });
     expect(Date.now() - began).toBeLessThan(2_000);
   });
 
-  it("reports `unknown` when the stream fails — a failed read is not a dead port", async () => {
-    const read = makeHostPortsReader({
+  it("spends the reaper's budget on a reap and the click's on an opening click", async () => {
+    const reader = makeHostPortsReader({
+      listenersOf: () => Stream.never,
+      log,
+      budgetsMs: { reap: 400, openingClick: 50 },
+    });
+    const reapBegan = Date.now();
+    await reader.forReap(host);
+    const reapTook = Date.now() - reapBegan;
+    const clickBegan = Date.now();
+    await reader.forOpeningClick(host);
+    expect(Date.now() - clickBegan).toBeLessThan(reapTook);
+  });
+
+  it("reports `unobserved` when the stream fails — a failed read is not a dead port", async () => {
+    const reader = makeHostPortsReader({
       listenersOf: () => Stream.fail(new Error("link dropped")),
       log,
     });
-    await expect(read(host, TEST_DEADLINE_MS)).resolves.toEqual({
-      status: "unknown",
+    await expect(reader.forReap(host)).resolves.toEqual({
+      status: "unobserved",
     });
   });
 
-  it("reports `unknown` when the stream ends without a frame", async () => {
-    const read = makeHostPortsReader({
+  it("reports `unobserved` when the stream ends without a frame", async () => {
+    const reader = makeHostPortsReader({
       listenersOf: () => Stream.empty,
       log,
     });
-    await expect(read(host, TEST_DEADLINE_MS)).resolves.toEqual({
-      status: "unknown",
+    await expect(reader.forReap(host)).resolves.toEqual({
+      status: "unobserved",
     });
   });
 });

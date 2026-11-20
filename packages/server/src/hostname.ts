@@ -1,40 +1,13 @@
-/** System hostname and process identity, resolved once at startup. */
-
 import { hostname } from "node:os";
 import { surfaceProcessId } from "@kolu/surface/identity";
 import pkg from "../package.json" with { type: "json" };
 
 export const serverHostname = hostname();
 
-/** Unique ID for this server process — changes on every restart.
- *
- *  The FRAMEWORK's id, not a second `randomUUID()` of kolu's own. A process has
- *  one identity: `@kolu/surface` mints it, the reserved `system/identity` member
- *  answers with it, a reconnecting tab echoes it back as `?pid=`, and
- *  `gateStaleSocket` compares against it. Minting a separate one here would put a
- *  different string in the log than on the wire — and, back when the gate took its
- *  live id as an argument, would have been the way to build a gate that rejected
- *  every reconnect or none. Log lines and the handshake now name the same
- *  process. */
 export const serverProcessId = surfaceProcessId();
 
-/** kolu-server's boot time (ms epoch), stamped once at module init — the honest
- *  process start (this module loads at boot), the twin of padi's `PADI_STARTED_AT`.
- *  Surfaced on koluSurface's `processStartedAt` cell so the rail's Kolu dialog can
- *  render `now − this` as the server's uptime (the kolu-server sibling of the Kaval
- *  dialog's `daemonStatus.startedAt` uptime). */
 export const serverStartedAt = Date.now();
 
-/** Git commit this server was built from — the nix wrapper bakes
- *  `KOLU_COMMIT_HASH`. `""` off-nix (dev / tsx, where the wrapper isn't in
- *  play). Surfaced on `server.info` for the ChromeBar's `srv` column. */
 export const serverCommit = process.env.KOLU_COMMIT_HASH ?? "";
 
-/** The app version — single source of truth is `packages/server/package.json`.
- *  `/release` bumps it before tagging; Nix reads the *same* file for the
- *  derivation version (no nix literal to drift). It's a committed, bundled
- *  file, so it's always present — no env var, nothing to "propagate" or fail
- *  hard on. This ONE accessor feeds the rail's `srv` column (`vX.Y.Z ·
- *  <hash>`), the startup log, the pty's `TERM_PROGRAM_VERSION`, and the `kolu`
- *  binary's `--version` (packages/kolu-cli imports it as a leaf). */
 export const serverVersion = pkg.version;

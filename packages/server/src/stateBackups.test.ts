@@ -1,12 +1,3 @@
-/**
- * The server face of the state-backup ring (#1658): the list's summary, the
- * scratch-copy decode that walks the REAL migration ladder on an old snapshot,
- * and the restore orchestration — cells written, pool converged (adds and
- * removes both), an already-live host skipped rather than re-added, and the
- * hosts that would not converge NAMED in the answer rather than collapsing to
- * either a silent success or a "restore failed" that contradicts what applied.
- */
-
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { encodeHostKey } from "kolu-common/hostKey";
@@ -21,8 +12,6 @@ import {
   restoreServerStateBackup,
 } from "./stateBackups.ts";
 
-// Canonical encoded guest keys — `hosts` is schema-validated on decode, so the
-// fixtures must be real encodings, not ad-hoc strings.
 const remote = (target: string) => encodeHostKey({ kind: "remote", target });
 const KEEP = remote("zest-keep");
 const FROM_BACKUP = remote("zest-from-backup");
@@ -32,9 +21,6 @@ const HOST_A = remote("zest-a");
 const HOST_B = remote("zest-b");
 const AT = "2026-01-01T00:00:00.000Z";
 
-// The module-level `store` is a process-wide singleton shared with
-// `state.test.ts` (the suites run serially in one process) — put back every
-// key a fixture wrote so the sibling suite still sees a virgin store.
 afterEach(() => {
   store.set("preferences", DEFAULT_PREFERENCES);
   store.set("hosts", []);
@@ -43,7 +29,6 @@ afterEach(() => {
   store.set("members", {});
 });
 
-/** Snapshot the CURRENT live store into the ring and hand back the file name. */
 function takeSnapshot(): string {
   const outcome = stateBackupRing.snapshot();
   if (outcome.kind !== "created" && outcome.kind !== "unchanged") {
@@ -55,9 +40,6 @@ function takeSnapshot(): string {
   return newest.file;
 }
 
-/** Restore deps that record every write instead of performing one. `live` is the
- *  pool's LIVE membership, which the persisted baseline need not equal (an env
- *  seed is live-but-unpersisted). */
 function recordingDeps(
   current: readonly string[],
   live: readonly string[] = [],
@@ -89,8 +71,6 @@ function recordingDeps(
   return { calls, deps };
 }
 
-/** A stored work in today's shape, keyed by its own id — one branch work with
- *  one member terminal, which is what a restore has to carry across whole. */
 function storedWork(branch: string, name: string): PersistedWorks {
   const key = {
     kind: "branch",
@@ -125,7 +105,6 @@ function storedWork(branch: string, name: string): PersistedWorks {
   };
 }
 
-/** ... and what kolu knew about its member terminal, in the one members map. */
 function storedMembers(branch: string, name: string): PersistedMembers {
   return {
     "local/t1": {
@@ -174,10 +153,6 @@ describe("listServerStateBackups", () => {
 
 describe("decodeStateBackup", () => {
   it("walks the real migration ladder on an old snapshot (scratch copy)", () => {
-    // A pre-1.34 snapshot: `activityAlerts` not yet renamed, no `hosts` /
-    // `viewerMode` keys yet. The scratch decode must carry the user's OFF
-    // through the 1.34 rename and seed the missing domains — the live store
-    // stays untouched throughout.
     const before = JSON.stringify(store.store);
     const decoded = decodeStateBackup(
       {
@@ -215,8 +190,6 @@ describe("restoreServerStateBackup", () => {
     store.set("viewerMode", "light");
     const file = takeSnapshot();
 
-    // The pool now holds `keep` + `stale`; the snapshot says `keep` +
-    // `from-backup` — so restore must add one and remove the other.
     const { calls, deps } = recordingDeps([KEEP, STALE]);
     expect(await restoreServerStateBackup({ file }, deps)).toEqual({
       hostFailures: [],
@@ -230,12 +203,9 @@ describe("restoreServerStateBackup", () => {
   });
 
   it("hands the snapshot's WORKS to the live conductor, which is their one writer", async () => {
-    // The works as the snapshot holds them...
     store.set("works", storedWork("work-from-backup", "last week's work"));
     store.set("members", storedMembers("work-from-backup", "last week's work"));
     const file = takeSnapshot();
-    // ...and the works this process has moved on to since. A restore must
-    // replace them with the snapshot's, through the host rather than behind it.
     store.set("works", storedWork("work-today", "today's work"));
 
     const { calls, deps } = recordingDeps([]);
@@ -247,8 +217,6 @@ describe("restoreServerStateBackup", () => {
     expect(calls.works[0]).toEqual(
       storedWork("work-from-backup", "last week's work"),
     );
-    // The two keys travel together: works without their members come back as
-    // terminals nobody has read, which rings about everything again.
     expect(calls.members[0]).toEqual(
       storedMembers("work-from-backup", "last week's work"),
     );
@@ -257,10 +225,6 @@ describe("restoreServerStateBackup", () => {
   it("skips a host that is LIVE but unpersisted — an env seed is not a failed add", async () => {
     store.set("hosts", [FROM_BACKUP]);
     const file = takeSnapshot();
-    // The snapshot names a host the pool already carries as a declarative
-    // `KOLU_PADI_HOST` seed: it is absent from the persisted baseline but live,
-    // so `pool.add` would throw "host already exists" and the restore would
-    // report a failure that never happened.
     const { calls, deps } = recordingDeps([], [FROM_BACKUP]);
     const result = await restoreServerStateBackup({ file }, deps);
     expect(calls.added).toEqual([]);
@@ -274,14 +238,11 @@ describe("restoreServerStateBackup", () => {
     deps.addHostKey = async (key) => {
       throw new Error(`no route to ${key}`);
     };
-    // A partial convergence is an ANSWER, not a throw: the cells DID apply, and
-    // telling the user "Restore failed" about that contradicts what they see.
     const result = await restoreServerStateBackup({ file }, deps);
     expect(result.hostFailures).toHaveLength(2);
     expect(result.hostFailures.join("; ")).toMatch(
       /no route to .*zest-a.*no route to .*zest-b/s,
     );
-    // The remove half still ran — every diff was attempted.
     expect(calls.removed).toEqual([GONE]);
   });
 
