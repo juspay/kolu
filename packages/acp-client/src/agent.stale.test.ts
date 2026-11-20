@@ -1,20 +1,3 @@
-/**
- * Leftovers from a conversation that just closed must not land on the next
- * one. The e2e flake was two sightings of that one leak: a new-conversation
- * transcript that did not empty, and a server still `connected` on a
- * conversation nobody had spoken in.
- *
- * The fixture emits both leftovers on the second `session/new` BEFORE it
- * answers — which is the window olai is in after announcing the next roster
- * as `handed` and before `entered` records the new id. Pre-fix both leftovers
- * apply; post-fix neither does.
- *
- * THE AGENT IS BUILT WITH NO PROBES, by omission ({@link ./agent.ts}'s
- * `Options.probes`), so the window this file is about is the one the fixture
- * makes and not one this machine happens to add. It used to be said by
- * emptying `PATH` and unsetting a daemon's socket variable in a `beforeEach`.
- */
-
 import { afterEach, beforeEach, describe, expect, test } from "vitest";
 import { Effect } from "effect";
 import { mkdtempSync, rmSync } from "node:fs";
@@ -109,9 +92,6 @@ describe("leftovers from a conversation that just closed", () => {
       expect(standingOf(events, "olai")).toBe("connected");
 
       await run(agent.newSession);
-      // The next conversation has been handed its servers and nobody has
-      // spoken in it. A leftover `init` from the last turn naming `connected`
-      // is news about a conversation nobody is in.
       expect(standingOf(events, "olai")).toBe("handed");
     });
   }, 15_000);
@@ -128,9 +108,6 @@ describe("leftovers from a conversation that just closed", () => {
   }, 15_000);
 
   test("PIN: a load of a conversation we left still replays", async () => {
-    // The un-close. Refusing every named leftover while `session` is null
-    // would also drop the replay of a conversation we just left — the frames
-    // name that id before `entered` records it.
     await withAgent(async (agent, events) => {
       await run(agent.boot);
       await run(agent.newSession);

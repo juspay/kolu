@@ -1,18 +1,3 @@
-/**
- * PERMISSION MODES — what the client does with a leg's `bypassMode` on every
- * way a conversation is opened (the boot, a new session, a load), and what a
- * refusal of that mode leaves behind.
- *
- * A REQUIRED mode the agent refuses is a conversation that must not run: the
- * open fails, nothing is remembered, no prompt reaches the agent, and a later
- * open can still recover. An OPTIONAL one is a conversation that runs on the
- * agent's own default and says so.
- *
- * Driven against `mode-agent.ts`, which logs every request it gets to
- * `requests.log` in its working directory and refuses `session/set_mode`
- * while a `reject-mode` file sits beside it.
- */
-
 import { Effect } from "effect";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -25,7 +10,6 @@ import { fixtureAgent } from "./testlib/index.ts";
 import { SAYS_NOTHING } from "./testlib/legs.ts";
 
 const run = Effect.runPromise;
-/** One turn of plain words, in the BLOCKS a prompt is made of. */
 const words = (text: string) => [{ type: "text" as const, text }];
 
 const withAgent = async (
@@ -57,8 +41,6 @@ const withAgent = async (
       command: process.execPath,
       args: [fixtureAgent("mode-agent.ts"), ...(stored ? ["--stored"] : [])],
       cwd,
-      // A PRODUCT'S OWN SERVER, as a composition root hands it over: an
-      // endpoint with its bearer line already composed.
       tools: () => [
         {
           kind: "http" as const,
@@ -189,7 +171,7 @@ describe("session permission selection", () => {
           ).toBe(true);
           expect(events.some((event) => event._tag === "session")).toBe(false);
           expect(remembered).toEqual([]);
-          await run(agent.sessions); // The fixture sends a late chunk before the list response.
+          await run(agent.sessions);
           expect(
             events.some(
               (event) =>

@@ -1,19 +1,8 @@
 /**
- * THE CHANNEL ITSELF, through the actual SDK dispatcher — which is the one
- * thing about it that cannot be asserted over values.
- *
- * What the channel has to survive is the pinned SDK's CLOSED unions: a
- * `sessionUpdate` kind it has never heard of fails validation before any
- * callback can see it, and a notification method it does not know is likewise
- * not something a connected app may ignore. So the proof has to run a real
- * connection.
- *
- * THE DIALECT HERE IS A FIXTURE and names no agent, for the reason every other
- * fixture in this package does (`./agents/legs.testlib.ts`): a wire's spelling
- * is an engine plugin's, this is the general package that seats them, and a
- * case that borrowed a real engine's words would go red on that engine's own
- * release clock for a claim that is not about it. Each engine's own dialect is
- * asserted in its own package against payloads captured off its real wire.
+ * The pinned SDK's unions are CLOSED: a `sessionUpdate` kind it has never
+ * heard of fails validation before any callback can see it, and a
+ * notification method it does not know is likewise not something a connected
+ * app may ignore. So the proof has to run a real connection.
  */
 import { expect, test } from "vitest";
 import { client, methods, type Stream } from "@agentclientprotocol/sdk";
@@ -23,9 +12,6 @@ import {
   type NativeActivity,
 } from "@kolu/acp";
 
-/** An agent that narrates child sessions with a word the SDK does not know,
- *  and nests the child's own frames inside a notification of its own — the two
- *  shapes the two real dialects are between them. */
 const DIALECT: NativeActivity = {
   clientMeta: { fixture: { version: 1 } },
   readIn: (message) => {
@@ -72,8 +58,6 @@ const DIALECT: NativeActivity = {
   },
 };
 
-/** A JSON-RPC message as this fixture puts one on the stream: enough shape for
- *  the SDK's reader, and no more. */
 interface Sent {
   readonly jsonrpc: "2.0";
   readonly method: string;
@@ -130,8 +114,6 @@ test("a dialect's own words leave the stream and the ordinary ones do not", asyn
       update: { kind: "child", id: "child", name: "Explorer", task: "inspect" },
     },
   ]);
-  // The unknown `sessionUpdate` never reached the SDK's closed union, and the
-  // ordinary chunk behind it still arrived — which is the whole claim.
   expect(ordinary).toHaveLength(1);
 });
 

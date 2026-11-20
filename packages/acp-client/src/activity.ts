@@ -1,6 +1,3 @@
-/** Activity remembered for one conversation. Explicit child-session ancestry
- * owns agent cards, tools and questions; task lifecycles own command status.
- * Wire decoding and negotiation are @kolu/acp's; row policy is chat's. */
 import type { ActivityUpdate } from "@kolu/acp";
 import type { AgentEvent } from "./events.ts";
 
@@ -63,11 +60,10 @@ export class Activity {
     this.#children.clear();
     this.#tasks.clear();
   }
-  /** Only the task's terminal event can extinguish a background command row. */
-  status(id: string, reported: Tool["status"]): Tool["status"] {
+  taskStatusFor(id: string): Task["status"] | undefined {
     for (const task of this.#tasks.values())
       if (task.row === id) return task.status;
-    return reported;
+    return undefined;
   }
   report(session: string, text: string): void {
     const child = this.#children.get(session);
@@ -125,8 +121,6 @@ export class Activity {
         this.emit(
           tool(task.row, {
             progress: update.summary,
-            // `null` is "this frame says nothing" — a report REFINES the task
-            // and a consumer keeps what an earlier one said.
             armed: {
               task: id,
               description: update.description ?? null,

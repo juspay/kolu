@@ -1,14 +1,3 @@
-/**
- * WHAT THE CLIENT ASKS ITS CALLER TO REMEMBER, as the interfaces its options
- * take.
- *
- * Where a machine keeps "which conversation, on which model" is the product's
- * fact, not a protocol fact, so the client never stores anything itself: it is
- * handed a {@link Memory} and a {@link Models} and calls them. These are the
- * shapes of those two doors and of the one failure they report; the stores
- * behind them stay with the product that owns them.
- */
-
 import { Data, type Effect } from "effect";
 
 /** A remembered store could not be read or written, and why. */
@@ -30,14 +19,6 @@ export interface MemorySnapshot {
   readonly model: string | null;
 }
 
-/**
- * Two verbs and a record: the socket, and everything volatile is behind it.
- *
- * What CHANGES back there is where the file lives, what is in it, whether it is
- * one file or a row of an index, and whether a machine keeps this at all. What
- * does not is the pair below — the client says where it is and what it is on,
- * and a boot asks what that was.
- */
 export interface Memory {
   /** What this directory's client was last in and on, or `null` when nothing
    *  has been written down yet. */

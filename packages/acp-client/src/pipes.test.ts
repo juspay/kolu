@@ -1,19 +1,9 @@
-/**
- * The ACP pipe's close is load-bearing for every live subprocess, and the
- * one place a dying child's leftover stdout used to throw
- * `Controller is already closed` into the test (and into a stopped
- * conversation). `deliveries.test.ts` is where that showed under full-suite
- * load; this file is the cause, without a subprocess.
- */
-
 import { describe, expect, test } from "vitest";
 import { EventEmitter } from "node:events";
 import type { Readable, Writable } from "node:stream";
 
 import { streamOver } from "./pipes.ts";
 
-/** Enough of a child's stdio for {@link streamOver}: stdout as an emitter
- *  we can fire `data`/`end`/`error` on in any order, stdin as a sink. */
 const fake = (): { stdout: EventEmitter } => {
   const stdout = new EventEmitter();
   const stdin = {

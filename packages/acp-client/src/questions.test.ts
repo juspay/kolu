@@ -1,12 +1,3 @@
-/**
- * The one rule: a question ends exactly once, and the row hears about it.
- *
- * All of it over values — no subprocess, no browser, no turn. The bug this file
- * exists for (`withdrawAll` settling nothing, because settling is what removes
- * an entry) needed an agent, a cancelled turn and a browser to see while the
- * registry lived inside the ACP client's closure; here it is one test.
- */
-
 import type { Form } from "@kolu/acp";
 import type { AskField, AskOutcome } from "@kolu/acp/wire";
 import { describe, expect, test } from "vitest";
@@ -30,15 +21,12 @@ const form: Form = {
   link: null,
 };
 
-/** A registry, plus what it reported settling — the two are always read
- *  together, because a settle nobody was told about is the failure mode. */
 const registry = () => {
   const settled: Array<readonly [string, AskOutcome]> = [];
   const questions = make((id, outcome) => settled.push([id, outcome]));
   return { questions, settled };
 };
 
-/** One question, and the id it was announced under. */
 const asked = (
   questions: ReturnType<typeof make>,
   signal = new AbortController().signal,
@@ -77,7 +65,6 @@ describe("answering", () => {
   });
 
   test("a dismissal is a decline, and carries no answers", async () => {
-    // Never a fabricated choice: the agent is told a person would not say.
     const { questions } = registry();
     const { id, waiting } = asked(questions);
 
@@ -89,9 +76,6 @@ describe("answering", () => {
   });
 
   test("an answer that does not fit leaves the question waiting", async () => {
-    // The whole reason the check is here rather than where the answer goes on
-    // the wire: settling the row and then sending something else would leave a
-    // transcript claiming an answer the agent never got.
     const { questions, settled } = registry();
     const { id, waiting } = asked(questions);
 
@@ -100,7 +84,6 @@ describe("answering", () => {
     ).toBeInstanceOf(AnswerRefused);
     expect(settled).toEqual([]);
 
-    // ... and it can still be answered properly.
     expect(questions.answer(id, [{ key: "question_0", values: ["oak"] }])).toBe(
       "settled",
     );
@@ -108,7 +91,6 @@ describe("answering", () => {
   });
 
   test("the second answer is too late rather than a second settle", async () => {
-    // Two tabs watch one conversation, so this is ordinary rather than a fault.
     const { questions, settled } = registry();
     const { id, waiting } = asked(questions);
 
@@ -127,10 +109,6 @@ describe("answering", () => {
 
 describe("withdrawing", () => {
   test("every question waiting is settled, not just the map emptied", async () => {
-    // THE bug this module was pulled out for. `withdrawAll` cleared the map and
-    // then settled what it had taken out — which settles nothing, because
-    // settling is what removes an entry — so every promise, and every row on
-    // screen, hung on a conversation that had already ended.
     const { questions, settled } = registry();
     const one = asked(questions);
     const two = asked(questions);
@@ -155,8 +133,6 @@ describe("withdrawing", () => {
   });
 
   test("a signal that aborted BEFORE the question settles it anyway", async () => {
-    // An already-aborted signal never fires its event, so a question that only
-    // listened would wait forever for something that had already happened.
     const { questions } = registry();
     const already = new AbortController();
     already.abort();

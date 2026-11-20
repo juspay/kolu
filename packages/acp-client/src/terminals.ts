@@ -1,5 +1,3 @@
-/** Client-owned commands and their retained output. Released handles cannot be
- * used by the agent again, but their snapshots remain available to tool rows. */
 import type {
   CreateTerminalRequest,
   TerminalOutputRequest,
@@ -13,7 +11,6 @@ import type { TerminalView } from "@kolu/acp/wire";
 const DEFAULT_LIMIT = 64 * 1024;
 const MAX_LIMIT = 1024 * 1024;
 
-/** Keep the newest complete UTF-8 characters, including for a zero-byte limit. */
 export const tailBytes = (
   text: string,
   limit: number,
@@ -53,7 +50,6 @@ export class Terminals {
     );
   }
 
-  /** Client origin survives release alongside the retained snapshot. */
   clientOwned(id: string): boolean {
     return this.records.get(id)?.client !== undefined;
   }

@@ -54,8 +54,6 @@ for (const opening of ["new", "load"] as const) {
           opening === "new" ? agent.newSession : agent.loadSession("stored"),
         );
         await entered.promise;
-        // The browser treats the session event as ready/idle. Restarting at
-        // that boundary must not race the still-pending local-state write.
         expect(remembered).toEqual(previous);
         expect(events.some((event) => event._tag === "session")).toBe(false);
         release.resolve();

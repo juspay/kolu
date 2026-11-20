@@ -32,7 +32,7 @@ describe("native session activity", () => {
     expect(activity.toolId("root", "same")).not.toBe(
       activity.toolId("child", "same"),
     );
-    spawn("grandchild", "root"); // cycles and duplicate announcements are inert
+    spawn("grandchild", "root");
     spawn();
     expect(events).toHaveLength(2);
     expect(activity.root("grandchild")).toBe("root");
@@ -82,7 +82,7 @@ describe("native session activity", () => {
     const { activity, events, task } = setup();
     task();
     const row = activity.toolId("root", "command");
-    expect(activity.status(row, "completed")).toBe("in_progress");
+    expect(activity.taskStatusFor(row)).toBe("in_progress");
     activity.read("root", {
       kind: "taskProgress",
       id: "task",
@@ -98,10 +98,10 @@ describe("native session activity", () => {
       id: row,
       armed: { task: "task", ended: state },
     });
-    expect(activity.status(row, "in_progress")).toBe(
+    expect(activity.taskStatusFor(row)).toBe(
       state === "completed" ? "completed" : "failed",
     );
-    task(); // restored duplicate cannot resurrect the old task
+    task();
     expect(events).toHaveLength(3);
   });
   test("task IDs are scoped, and unlinked restored tasks have their own rows", () => {

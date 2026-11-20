@@ -41,7 +41,6 @@ test("settings retain agent ordering, grouped choices and descriptions", () => {
     value: "high",
     choices: [{ value: "high", label: "High", hint: "More thought" }],
   });
-  // A boolean with nothing to pick is a switch, and its value travels as text.
   expect(settings[1]).toMatchObject({ kind: "boolean", value: "false" });
   expect(acceptsSetting(settings[0]!, "high")).toBe(true);
   expect(acceptsSetting(settings[0]!, "unknown")).toBe(false);
@@ -51,8 +50,6 @@ test("settings retain agent ordering, grouped choices and descriptions", () => {
 });
 
 test("the model row is in the list, first, and marked as the model", () => {
-  // Left out of the list, the model was a header with no picker under it: the
-  // popover offered every setting except the one people open it to change.
   const settings = settingsIn([THINK, MODEL, FAST], "model");
   expect(settings.map((row) => [row.id, row.kind])).toEqual([
     ["model", "model"],
