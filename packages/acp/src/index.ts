@@ -8,7 +8,8 @@
  * imports them from here rather than re-declaring them: the package that
  * speaks the foreign thing owns its words.
  * THIS entry is the other half and only this half — {@link ./asks.ts},
- * {@link ./diffs.ts}, {@link ./identity.ts} and {@link ./usage.ts}, the
+ * {@link ./compaction.ts}, {@link ./diffs.ts}, {@link ./identity.ts} and
+ * {@link ./usage.ts}, the
  * projections between the protocol's own payloads and that vocabulary, which
  * only `@kolu/acp-harness` — the package that runs an ACP subprocess —
  * consumes. The two entries are disjoint on purpose: everyone
@@ -39,6 +40,11 @@ export {
   Refused,
   urlOf,
 } from "./asks.ts";
+export {
+  type CompactionReport,
+  type CompactionStatus,
+  compactionIn,
+} from "./compaction.ts";
 export { diffsOf, relativeTo } from "./diffs.ts";
 export { AUTH_STATUS_METHOD, identityIn } from "./identity.ts";
 

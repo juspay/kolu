@@ -11998,6 +11998,66 @@
       "exampleRows": [],
       "executions": 1,
       "firstSeenSha": "75cb51bb37476ee3f92852f67e24f5ceebcca13d"
+    },
+    {
+      "revisionId": "revision-21fb6aa10ba9639b7a3c",
+      "scenarioKey": "scenario-53d5d90e76d848c7559f",
+      "feature": "features/conductor-compaction.feature",
+      "scenario": "A compaction is one line, and it opens to the summary",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "f96f327adb7232df5ded418ee6eb25454d86c31663b25342e0d5645433175a61",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "3b3c5a8f85f754c28b06d07c2478a6b5ca1a6c56"
+    },
+    {
+      "revisionId": "revision-2c12aefdcc45fa4457c1",
+      "scenarioKey": "scenario-5bbcc8d18bb3dcecdb25",
+      "feature": "features/conductor-compaction.feature",
+      "scenario": "A compaction that failed says why",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "f64109c76405c938ba0048a498ee65699ce6904d6064db6b1aa0aa3e17c4ebd6",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "3b3c5a8f85f754c28b06d07c2478a6b5ca1a6c56"
+    },
+    {
+      "revisionId": "revision-7bbf56ac16f991ee3801",
+      "scenarioKey": "scenario-3ba66995f9d76e902030",
+      "feature": "features/conductor-compaction.feature",
+      "scenario": "The context meter's tip names where the conversation is compacted",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "19a0bc8ba717b8d2c457c949c547087bb53e69233cc641daff46ab3ce96140e3",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "3b3c5a8f85f754c28b06d07c2478a6b5ca1a6c56"
+    },
+    {
+      "revisionId": "revision-f0333f67566f222f1ef0",
+      "scenarioKey": "scenario-d541f59b5ea47d580adc",
+      "feature": "features/conductor-compaction.feature",
+      "scenario": "The message sent past the limit carries the rules, and only that one",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "dd4f986c29c4218bf1f53624d1cc24e197478907afcdea5d49563881a1d3c09e",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "3b3c5a8f85f754c28b06d07c2478a6b5ca1a6c56"
+    },
+    {
+      "revisionId": "revision-4cda13b9cadd9d689235",
+      "scenarioKey": "scenario-68762001ceadc4955342",
+      "feature": "features/conductor-compaction.feature",
+      "scenario": "The status line says the conversation is compacting while it runs",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "e21d7f4701aa063ecfe47a9cb5c4848de6038e10a37837b74b3d27c927ad6acc",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "3b3c5a8f85f754c28b06d07c2478a6b5ca1a6c56"
     }
   ]
 }

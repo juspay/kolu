@@ -2050,6 +2050,7 @@ export function prFactsOnTheTimeline_1_57_0(store: Conf<PersistedState>): void {
 const TRANSCRIPT_VERSION_1_58_0 = "1.58.0";
 /** ... and what {@link toolOutings_1_59_0} stamped. */
 const TRANSCRIPT_VERSION_1_59_0 = "1.59.0";
+const TRANSCRIPT_VERSION_1_62_0 = "1.62.0";
 
 /** The 1.58.0 rung — A MENTION SAYS WHAT IT IS. A user row's `mentions`
  *  could only name terminals; it now names a terminal or a piece of work,
@@ -2078,6 +2079,21 @@ export function toolOutings_1_59_0(stateRoot: string): void {
   if (record === null || !Array.isArray(record.rows)) return;
   if (record.version === TRANSCRIPT_VERSION_1_59_0) return;
   writeTranscriptFile(path, TRANSCRIPT_VERSION_1_59_0, record.rows);
+}
+
+export function compactionRows_1_62_0(stateRoot: string): void {
+  const path = transcriptFilePath(stateRoot);
+  if (!existsSync(path)) return;
+  let held: unknown;
+  try {
+    held = JSON.parse(readFileSync(path, "utf8"));
+  } catch {
+    return;
+  }
+  const record = recordOf(held);
+  if (record === null || !Array.isArray(record.rows)) return;
+  if (record.version === TRANSCRIPT_VERSION_1_62_0) return;
+  writeTranscriptFile(path, TRANSCRIPT_VERSION_1_62_0, record.rows);
 }
 
 export function mentionsSayTheirKind_1_58_0(stateRoot: string): void {
@@ -2910,4 +2926,6 @@ export const CONF_MIGRATIONS = {
   // (`prOpenedSaysDraft_1_61_0` argues it). The transcript file is untouched,
   // so TRANSCRIPT_FILE_VERSION stays at 1.59.0.
   "1.61.0": prOpenedSaysDraft_1_61_0,
+  "1.62.0": (store: Conf<PersistedState>) =>
+    compactionRows_1_62_0(dirname(store.path)),
 };

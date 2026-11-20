@@ -1,8 +1,8 @@
 /**
- * WHERE THIS AGENT LIVES ON THE HOST it is run on — the two facts a process
+ * WHERE THIS AGENT LIVES ON THE HOST it is run on — the facts a process
  * cannot read off the wire.
  *
- * Both are about the ENVIRONMENT rather than about a frame, which is why they
+ * They are about the ENVIRONMENT rather than about a frame, which is why they
  * are not in {@link ./leg.ts}: a leg reads what an agent said, and nothing here
  * waits for an agent to say anything.
  */
@@ -28,6 +28,20 @@ export const REMOTE_SIGNALS: ReadonlyArray<string> = [
   "SSH_CLIENT",
   "SSH_TTY",
   "CLAUDE_CODE_REMOTE",
+];
+
+/**
+ * THE VARIABLES THAT WOULD OVERRIDE THE COMPACTION A SESSION IS OPENED WITH
+ * (`compactingAt` in {@link ./leg.ts}): set on a host, any one of them turns
+ * compaction off or moves where it fires, whatever the session's settings
+ * say. A product that sets the number strips them, as it strips
+ * {@link REMOTE_SIGNALS}.
+ */
+export const COMPACTION_OVERRIDES: ReadonlyArray<string> = [
+  "DISABLE_AUTO_COMPACT",
+  "DISABLE_COMPACT",
+  "CLAUDE_CODE_AUTO_COMPACT_WINDOW",
+  "CLAUDE_AUTOCOMPACT_PCT_OVERRIDE",
 ];
 
 /**

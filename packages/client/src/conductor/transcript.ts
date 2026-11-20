@@ -32,6 +32,7 @@ import {
 } from "kolu-common/conductor";
 import { isEncodedHostKey } from "kolu-common/hostKey";
 import { askLead, askRecord } from "./askRecord";
+import { compactionHeadline } from "./compactionWords";
 import {
   agentLineSubject,
   callSubject,
@@ -65,12 +66,9 @@ function appendSaying(
   }
   const row = rows[index];
   if (row === undefined) return rows;
-  // The plan row is the one kind with no `text` at all — it is replaced
-  // wholesale on every update — so an append addressed to one is a producer bug,
-  // and saying so beats silently growing a field the renderer never reads.
-  if (row.kind === "plan") {
+  if (!("text" in row)) {
     console.warn(
-      "conductor transcript: append addressed to a plan row",
+      `conductor transcript: append addressed to a ${row.kind} row`,
       saying.of,
     );
     return rows;
@@ -294,7 +292,8 @@ export function foldToolRuns(
       kind !== "agent" &&
       kind !== "user" &&
       kind !== "divider" &&
-      kind !== "wake"
+      kind !== "wake" &&
+      kind !== "compaction"
     ) {
       run.push(entry);
       continue;
@@ -503,6 +502,12 @@ function rowText(row: ConductorRow): string {
       return `note: ${row.text}`;
     case "divider":
       return `— ${row.text} —`;
+    case "compaction":
+      return [
+        `— ${compactionHeadline(row)} —`,
+        ...(row.state === "failed" && row.error !== null ? [row.error] : []),
+        ...(row.state === "done" && row.summary !== null ? [row.summary] : []),
+      ].join("\n");
     case "wake":
       // The ACCOUNT, not the headline: a transcript pasted into an issue is
       // read by somebody reconstructing what the agent was told, and the

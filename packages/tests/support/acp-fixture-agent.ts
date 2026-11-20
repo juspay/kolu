@@ -96,6 +96,17 @@
  *   a kolu wake      — any prompt kolu-server STARTED (it opens with
  *                      `[kolu] I am waking you`) is answered `woke: <refs>`,
  *                      naming the fleet refs the account carried
+ *   be <N> tokens long — reports a context of N tokens out of 1M, as the
+ *                      pinned adapter's `usage_update` does after a turn
+ *   compact          — a compaction at the start of the turn: the opening
+ *                      report, the summary in two chunks, the terminal report
+ *                      and its status-only duplicate, then a small context
+ *   compact and fail — the opening report, then a failure with a reason
+ *   compact until steered — the opening report, then nothing until a steer
+ *                      arrives, then the terminal report: a compaction that
+ *                      is still running for as long as a scenario needs
+ *   which kolu blocks — `carried: <the [kolu] headings this message carried>`,
+ *                      or `carried: nothing`: what kolu sent under the words
  *
  * Turns are served FIFO and one at a time: `queued` is a fact about the agent's
  * own queue, so an adapter that answered out of order could not be used to
@@ -893,6 +904,67 @@ const turn = async (
     setTimeout(slept.resolve, 12_000);
     await slept.promise;
     say("worked");
+    endTurn(id);
+    return;
+  }
+  const tokens = /^be (\d+) tokens long$/.exec(text)?.[1];
+  if (tokens !== undefined) {
+    update({
+      sessionUpdate: "usage_update",
+      used: Number(tokens),
+      size: 1_000_000,
+    });
+    say(`now ${tokens}`);
+    endTurn(id);
+    return;
+  }
+  if (
+    text === "compact" ||
+    text === "compact and fail" ||
+    text === "compact until steered"
+  ) {
+    const compactionId = randomUUID();
+    const report = (body: Record<string, unknown>): void =>
+      update({ sessionUpdate: "compaction_update", compactionId, ...body });
+    report({ status: "in_progress" });
+    if (text === "compact and fail") {
+      report({
+        status: "failed",
+        error: "the summary request was refused (overloaded)",
+      });
+      say("carried on");
+      endTurn(id);
+      return;
+    }
+    if (text === "compact until steered") {
+      const steered = Promise.withResolvers<string>();
+      awaitingSteer = steered.resolve;
+      const gaveUp = setTimeout(() => steered.resolve("(nothing)"), 30_000);
+      await steered.promise;
+      clearTimeout(gaveUp);
+      awaitingSteer = null;
+    }
+    for (const chunk of ["Two works are open. ", "Nothing waits on you."])
+      update({
+        sessionUpdate: "compaction_summary_chunk",
+        compactionId,
+        content: { type: "text", text: chunk },
+      });
+    report({ status: "completed" });
+    report({
+      status: "completed",
+      _meta: { contextCompaction: { trigger: "automatic" } },
+    });
+    update({ sessionUpdate: "usage_update", used: 14_000, size: 1_000_000 });
+    say("carried on");
+    endTurn(id);
+    return;
+  }
+  if (text === "which kolu blocks") {
+    const blocks = [...whole.matchAll(/^# (\[kolu\] .+)$/gm)].map(
+      (one) => one[1],
+    );
+    say(`carried: ${blocks.length === 0 ? "nothing" : blocks.join(" · ")}`);
     endTurn(id);
     return;
   }

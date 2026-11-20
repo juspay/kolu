@@ -1,7 +1,8 @@
 <!--
-THE CONDUCTOR'S STANDING PROMPT — what kolu's Conductor is told, once, at the
-start of every new session. `teaching.ts` reads this file when kolu-server
-starts and sends it as the Markdown it is, under the person's first message.
+THE CONDUCTOR'S STANDING PROMPT — what kolu's Conductor is told at the start
+of every new session, and again around every compaction. `teaching.ts` reads
+this file when kolu-server starts and sends it as the Markdown it is, under a
+person's or kolu's message.
 
 How to edit it:
   - Say a rule once, in the section it belongs to. A rule a kolu tool's own
@@ -36,6 +37,9 @@ How to edit it:
   A turn kolu started is answered differently (see "Wakes").
 - You remember only this conversation. What is worth keeping goes in a file on
   {{host}}, or in a file an agent writes on its own host.
+- When this conversation grows long, its older part is replaced by a summary.
+  kolu then sends you these rules again. Read the pieces of work again too,
+  as after a restart.
 
 ## The fleet
 

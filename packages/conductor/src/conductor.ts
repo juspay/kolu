@@ -101,6 +101,7 @@
 import type { NotHere } from "@kolu/acp/engine";
 import type { AgentModelLaunch } from "@kolu/agent-distro/models";
 import {
+  type Compaction,
   type Harness,
   type HarnessOptions,
   HarnessRefused,
@@ -117,6 +118,7 @@ import {
 import {
   type AskField,
   appendedText,
+  COMPACTION_SUMMARY_CAP,
   type ConductorAnswerWorkOutcome,
   type ConductorAttachment,
   type ConductorFrame,
@@ -942,7 +944,7 @@ const sentenceOf = (err: unknown): string => {
  *
  *  A turn is a prompt that WENT — a person's line or a wake, unless it was
  *  `refused` (nothing took it) — OR anything only a turn produces: the
- *  agent's prose, a plan, a tool call, a question. The second half is not
+ *  agent's prose, a plan, a tool call, a question, a compaction. The second half is not
  *  redundant: the record is capped from the OLD end (`persisted.ts`'s
  *  `ROW_CAP`), and a
  *  turn long enough to push its own prompt out must still count as one. */
@@ -960,6 +962,7 @@ const hadATurn = (rows: ReadonlyArray<ConductorRow>): boolean => {
       case "plan":
       case "tool":
       case "ask":
+      case "compaction":
         return true;
     }
   }
@@ -1001,11 +1004,6 @@ export function startConductorHost(deps: ConductorDeps): ConductorHost {
   });
   const absent: NotHere | null = "why" in seating ? seating : null;
 
-  /** The three fields THIS SERVER is the author of — whether the adapter is
-   *  seated on this machine, what the agent is called, and the directory this
-   *  conversation is in — known here at boot from the engine and the home this
-   *  process was started with. Folded back over every state the harness
-   *  reports, so each has exactly ONE author. */
   const serverAuthored = {
     install:
       absent === null
@@ -1018,7 +1016,11 @@ export function startConductorHost(deps: ConductorDeps): ConductorHost {
           },
     agentName: ENGINE.name,
     cwd: home,
-  } satisfies Pick<ConductorState, "install" | "agentName" | "cwd">;
+    compactsAt: ENGINE.compacts?.at ?? null,
+  } satisfies Pick<
+    ConductorState,
+    "install" | "agentName" | "cwd" | "compactsAt"
+  >;
 
   let state: ConductorState = {
     ...DEFAULT_CONDUCTOR_STATE,
@@ -1597,6 +1599,60 @@ export function startConductorHost(deps: ConductorDeps): ConductorHost {
     });
   };
 
+  const UNFINISHED = "it stopped before it finished";
+
+  const sayCompaction = (report: Compaction): void => {
+    const id = `kolu:compaction:${report.id}`;
+    const held = byId.get(id);
+    const was = held?.kind === "compaction" ? held : null;
+    applyRows({
+      upserts: [
+        {
+          kind: "compaction",
+          id,
+          seq: was?.seq ?? (rows().at(-1)?.seq ?? 0) + 1,
+          since: was?.since ?? new Date().toISOString(),
+          state:
+            report.status === "in_progress"
+              ? "running"
+              : report.status === "completed"
+                ? "done"
+                : "failed",
+          at: was === null ? (state.usage?.used ?? null) : was.at,
+          summary:
+            report.summary === null || report.summary === ""
+              ? null
+              : report.summary.length > COMPACTION_SUMMARY_CAP
+                ? `${report.summary.slice(0, COMPACTION_SUMMARY_CAP)}…`
+                : report.summary,
+          error:
+            report.status === "cancelled"
+              ? (report.error ?? UNFINISHED)
+              : report.error,
+          rules: report.teaching,
+        },
+      ],
+      removes: [],
+      appends: [],
+    });
+  };
+
+  const settleStrandedCompactions = (): void => {
+    const stranded = rows().flatMap((row) =>
+      row.kind === "compaction" && row.state === "running"
+        ? [
+            {
+              ...row,
+              state: "failed" as const,
+              error: UNFINISHED,
+            },
+          ]
+        : [],
+    );
+    if (stranded.length === 0) return;
+    applyRows({ upserts: stranded, removes: [], appends: [] });
+  };
+
   /** KOLU'S OWN QUESTION, SAID IN THE TRANSCRIPT — one row, under the ask's
    *  own id, naming the work it is about.
    *
@@ -1683,6 +1739,7 @@ export function startConductorHost(deps: ConductorDeps): ConductorHost {
       });
     }
     remembered();
+    settleStrandedCompactions();
     // WHETHER THIS SPAWN IS COMING BACK TO A CONVERSATION. Decided at EVERY
     // spawn, not once at boot: a replacement adapter over a "new session"
     // nobody has spoken into yet is the same id with nothing behind it, and a
@@ -1766,6 +1823,13 @@ export function startConductorHost(deps: ConductorDeps): ConductorHost {
         numbering: "continues",
         whenLoadRefused: "fresh",
         whenReplayed: "drop",
+        ...(ENGINE.compacts === undefined
+          ? {}
+          : { compacts: ENGINE.compacts.due }),
+        onCompaction: (compaction) => {
+          if (disposed || mine !== generation) return;
+          sayCompaction(compaction);
+        },
         model: chosenModel,
         onChange: (change) => {
           if (change.kind === "state") {

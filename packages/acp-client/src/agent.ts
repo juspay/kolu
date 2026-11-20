@@ -113,6 +113,8 @@ import type {
 } from "@agentclientprotocol/sdk";
 import {
   AUTH_STATUS_METHOD,
+  type CompactionStatus,
+  compactionIn,
   diffsOf,
   type Form,
   formOf,
@@ -1071,6 +1073,13 @@ export const make = (options: Options): Effect.Effect<Agent, never, never> =>
      *  published — never a shape of prose. */
     let prologue: string | null = null;
 
+    let compacting: {
+      readonly id: string;
+      readonly status: CompactionStatus;
+      readonly summary: string | null;
+      readonly error: string | null;
+    } | null = null;
+
     /** The questions on the wire right now ({@link ./questions.ts}), told to
      *  report every ending down the same channel everything else uses. */
     const questions = Questions.make((id, outcome) => {
@@ -1816,6 +1825,28 @@ export const make = (options: Options): Effect.Effect<Agent, never, never> =>
           if (usage !== null) emit({ _tag: "usage", usage });
           return;
         }
+        case "compaction_update":
+        case "compaction_summary_chunk": {
+          const report = compactionIn(update);
+          if (report === null) return;
+          const held = compacting?.id === report.id ? compacting : null;
+          compacting =
+            report.kind === "chunk"
+              ? {
+                  id: report.id,
+                  status: held?.status ?? "in_progress",
+                  summary: (held?.summary ?? "") + report.text,
+                  error: held?.error ?? null,
+                }
+              : {
+                  id: report.id,
+                  status: report.status,
+                  summary: report.summary ?? held?.summary ?? null,
+                  error: report.error ?? held?.error ?? null,
+                };
+          emit({ _tag: "compaction", ...compacting });
+          return;
+        }
         default:
           // Thoughts and plans. Real parts of the protocol that this panel
           // does not draw; ignored quietly rather than half-rendered.
@@ -2419,7 +2450,10 @@ export const make = (options: Options): Effect.Effect<Agent, never, never> =>
                 "terminal-auth": true,
                 ...extension.clientMeta,
               },
-              session: { configOptions: { boolean: {} } },
+              session: {
+                configOptions: { boolean: {} },
+                ...(options.leg.compaction ? { compaction: {} } : {}),
+              },
               // WHAT IS NOT ASKED FOR, named here because this is where it
               // would be asked for and a decision recorded anywhere else is a
               // decision nobody finds: `_meta["subagent-transcript"]: true`.

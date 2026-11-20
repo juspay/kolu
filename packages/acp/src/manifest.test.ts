@@ -225,6 +225,7 @@ describe("the manifest", () => {
       "AUTH_STATUS_METHOD",
       "PERMISSION_FIELD",
       "Refused",
+      "compactionIn",
       "contentOf",
       "diffsOf",
       "formOf",
