@@ -1,16 +1,3 @@
-/** The family-name guard, against synthetic faces.
- *
- *  Synthetic rather than the real Nix closure: those files are only present
- *  inside `nix develop`, and what is under test is the RULE — that a face
- *  declaring the wrong family is refused by name — not that today's nixpkgs
- *  happens to ship the right ones. The real closure is exercised by
- *  `render.smoke.ts`, which loads it for real and would now die at thread
- *  start rather than emitting tofu.
- *
- *  The builder below writes just enough sfnt for the reader: a table directory
- *  with one `name` table in it. That is the whole surface `familyNamesOf`
- *  touches, so a fixture with a glyf/CFF table would only be scenery. */
-
 import { describe, expect, it } from "vitest";
 import {
   assertFamilyCoverage,
@@ -18,7 +5,6 @@ import {
   PNG_FONT_FAMILIES,
 } from "./pngFonts.ts";
 
-/** UTF-16BE, the encoding every non-Macintosh name record uses. */
 function utf16be(value: string): number[] {
   return [...value].flatMap((ch) => {
     const code = ch.charCodeAt(0);
@@ -26,8 +12,6 @@ function utf16be(value: string): number[] {
   });
 }
 
-/** A one-table sfnt whose `name` table carries the given `(nameId, value)`
- *  records, Windows platform (3). */
 function face(
   records: readonly { nameId: number; value: string }[],
 ): Uint8Array {
@@ -104,10 +88,6 @@ describe("familyNamesOf", () => {
   });
 
   it("prefers the TYPOGRAPHIC family (16) and does not union it with the legacy one", () => {
-    // fontdb — the database inside resvg — resolves 16 when a face has one and
-    // never falls back to 1 in that case. A guard that accepted the legacy name
-    // too would pass on a face resvg cannot match, which is the whole failure
-    // being guarded against.
     const both = face([
       { nameId: 1, value: "FiraCode NF Mono" },
       { nameId: 16, value: "FiraCode Nerd Font Mono" },
@@ -116,7 +96,6 @@ describe("familyNamesOf", () => {
   });
 
   it("has no families to offer when the file carries no name table", () => {
-    // The empty header alone: no `name` record for `tableOffset` to find.
     expect(
       familyNamesOf(Uint8Array.from([0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0])),
     ).toEqual([]);
@@ -134,10 +113,6 @@ describe("assertFamilyCoverage", () => {
   });
 
   it("names the family a renamed face took away", () => {
-    // The real scenario: a nixpkgs bump renames a face's internal family. The
-    // directory is still populated and every file still parses, so nothing else
-    // in the pipeline notices — the render just comes out as tofu wherever the
-    // primary face lacks a glyph.
     const renamed = PNG_FONT_FAMILIES.map((name) =>
       face([
         {

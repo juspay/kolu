@@ -1,20 +1,3 @@
-/** What a terminal cell IS, independent of how it will be painted.
- *
- *  This is the fact the PTY host owns and the renderer consumes: the
- *  characters a VT stream put on the grid, plus the attributes it asked for —
- *  and NOT the pixels those attributes resolve to. The split is deliberate and
- *  load-bearing: a colour here is what the escape sequence *said*
- *  (`palette 4`, `rgb 0x00ff88`, or "whatever default means"), never a CSS
- *  string, because "what default means" is a THEME question and the mirror
- *  that produced these cells has no theme. Resolution happens once, in
- *  {@link ../scene.ts}, against the theme the caller chose.
- *
- *  Structural, not nominal, and deliberately so — `@xterm/headless`'s
- *  `IBufferCell` (the daemon's mirror) and `@xterm/xterm`'s (the browser's)
- *  both satisfy {@link ReadableCell} without either package being imported
- *  here. That is what lets ONE renderer serve a headless daemon and a live
- *  browser tab. */
-
 /** A colour as the VT stream expressed it.
  *
  *  A closed union rather than a nullable index + a nullable rgb: "palette 4"
@@ -117,15 +100,11 @@ function colorOf(isRgb: boolean, isPalette: boolean, value: number): CellColor {
   return DEFAULT_COLOR;
 }
 
-/** True when a cell would paint nothing at all — blank text on default
- *  background with no attribute that could still show (inverse paints the
- *  foreground colour as a block, so an inverse blank is NOT skippable). */
 function isBlank(cell: SnapshotCell): boolean {
   return (
     cell.chars.trim() === "" &&
     cell.bg.kind === "default" &&
     !cell.inverse &&
-    // An underline shows on a blank cell; dim without ink does not.
     !cell.underline
   );
 }
@@ -148,9 +127,6 @@ export function readGrid(
   rowCount: number,
 ): SnapshotGrid {
   const lines: SnapshotRow[] = [];
-  // ONE scratch cell reused across the whole read — xterm's `getCell(x, dst)`
-  // fills the destination in place, which is the documented way to walk a
-  // buffer without allocating a cell object per column.
   const scratch = buffer.getNullCell();
   for (let y = 0; y < rowCount; y++) {
     const line = buffer.getLine(startLine + y);
@@ -163,16 +139,7 @@ export function readGrid(
       const raw = line.getCell(x, scratch);
       if (!raw) continue;
       const width = raw.getWidth();
-      // The trailing half of a wide glyph — its leader already covers this
-      // column. Painting it again would double-strike the glyph.
       if (width === 0) continue;
-      // A wide glyph whose LEADER lands on the last column of the slice: its
-      // second half is outside the grid this read describes, and a renderer
-      // told to draw it there paints over the window chrome (`scene.ts`
-      // refuses such a cell outright, so it would fail the whole screenshot).
-      // A live buffer never puts one there — xterm wraps instead — but a
-      // narrowed read can cut exactly through one, and half a glyph is not a
-      // glyph.
       if (x + width > cols) continue;
       const cell: SnapshotCell = {
         col: x,

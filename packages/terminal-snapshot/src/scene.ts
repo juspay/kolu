@@ -1,22 +1,3 @@
-/** A terminal screen laid out as flat, backend-free drawing instructions.
- *
- *  This module answers "what goes where, in what colour" exactly once. Two
- *  backends then execute the answer without re-deciding any of it: the
- *  browser paints a {@link SnapshotScene} onto a 2D canvas (kolu's
- *  copy-screenshot-to-clipboard action), and the daemon emits the same scene
- *  as SVG and rasterises it (the `screen_image` MCP tool and `kolu
- *  screenshot`). That is the whole reason this IR exists: "the browser's
- *  screenshot and the agent's screenshot look the same" is true BY
- *  CONSTRUCTION — one layout, one palette resolution, one set of chrome
- *  geometry — rather than by two code paths being kept in agreement by
- *  prose.
- *
- *  Everything here is pure and browser-safe: no canvas, no DOM, no fs, no
- *  fonts. The one thing a scene deliberately does NOT carry is glyph
- *  metrics — `cellW`/`cellH` are an INPUT, because only the backend can
- *  measure its own font (the browser via `measureText`, the daemon from the
- *  font file's advance width). */
-
 import type { ITheme } from "terminal-themes";
 import { parseColor, type RGB } from "terminal-themes/color";
 import type { CellColor, SnapshotGrid } from "./cell.ts";
@@ -49,56 +30,22 @@ export const CHROME = {
   strokeWidth: 1,
 } as const;
 
-/** Where the underline rule sits inside its cell, and how thick it is. Pixels
- *  rather than a ratio: at kolu's type sizes a scaled rule rounds to the same
- *  1px anyway, and a constant keeps the two backends from rounding differently. */
 const UNDERLINE_INSET = 2;
 const UNDERLINE_THICKNESS = 1;
 
-/** macOS-style traffic lights. Decoration only — they are drawn, never
- *  wired to anything. */
 const DOT_COLORS = ["#ff5f57", "#febc2e", "#28c840"] as const;
 
-/** Code points no terminal renderer can paint and no serialization can carry:
- *  the C0 controls (bar tab/LF/CR, which a terminal cell never holds), DEL and
- *  the C1 block, and the two noncharacters at the end of the BMP.
- *
- *  Surrogates are matched only when UNPAIRED — `\p{Surrogate}` under the `u`
- *  flag never matches a well-formed pair, where a blanket `\uD800-\uDFFF`
- *  class would tear every astral glyph (emoji, and the CJK a wide cell holds)
- *  in half. */
 const UNPAINTABLE =
   /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F-\u009F\uFFFE\uFFFF]|\p{Surrogate}/gu;
 
-/** The paintable characters of a string a PTY produced.
- *
- *  A terminal cell holds whatever bytes the stream put there. Dropping is not
- *  a silent degradation of a MEANINGFUL value: these code points have no
- *  glyph, so what is left is the picture xterm itself draws — and for the SVG
- *  backend the alternative is worse than a lost character, because a single
- *  stray control byte anywhere in the scrollback makes the whole document
- *  unparseable and fails every screenshot of that terminal.
- *
- *  HERE rather than in a backend, and that is the load-bearing part. It used
- *  to live in `svg.ts`, so only ONE of the two backends did it: the canvas
- *  painter handed the raw string to `fillText`, where Chromium draws an
- *  unpaired surrogate as U+FFFD and a C1 control as a box. Same scene, two
- *  visibly different pictures — the one thing this module exists to make
- *  impossible. What a cell's paintable characters are is a layout question,
- *  and it is answered once, here. */
 function paintable(s: string): string {
   return s.replace(UNPAINTABLE, "");
 }
 
-/** Standard xterm 256-colour palette geometry: indices 16-231 form a 6x6x6
- *  RGB cube, 232-255 a 24-step greyscale ramp. */
 const CUBE_STEPS: readonly [number, number, number, number, number, number] = [
   0, 95, 135, 175, 215, 255,
 ];
 
-/** Indexed read into the 6-step palette. The tuple-index cast asserts that
- *  `% 6` produced a valid index — same blast radius as a runtime check, and
- *  visible to the type checker at the read site. */
 function cubeStep(idx: number): number {
   return CUBE_STEPS[(idx % 6) as 0 | 1 | 2 | 3 | 4 | 5];
 }
@@ -117,10 +64,6 @@ function rgbColor(packed: number): string {
   return `rgb(${(packed >> 16) & 0xff},${(packed >> 8) & 0xff},${packed & 0xff})`;
 }
 
-/** How much taller than the type size a row is drawn.
- *
- *  xterm's own default lineHeight is 1.0; the extra 20% is what stops a
- *  descender (g, y) being clipped by the next row's background. */
 export const CELL_HEIGHT_RATIO = 1.2;
 
 /** Row height for a given type size — the ONE derivation both backends land
@@ -134,9 +77,6 @@ export const CELL_HEIGHT_RATIO = 1.2;
 export const cellHeight = (fontSize: number): number =>
   Math.ceil(fontSize * CELL_HEIGHT_RATIO);
 
-/** A theme with every colour a cell can reference resolved to a concrete
- *  string — the defaults are xterm.js's own, so an under-specified theme
- *  renders the way the live terminal renders it rather than failing. */
 export interface ResolvedTheme {
   readonly fg: string;
   readonly bg: string;
@@ -169,12 +109,6 @@ export function resolveTheme(theme: ITheme): ResolvedTheme {
 }
 
 function paletteColor(idx: number, t: ResolvedTheme): string {
-  // xterm's palette is exactly 256 entries. An index past it cannot be
-  // rendered honestly and must not be approximated: `greyColor` extrapolates
-  // linearly, so index 300 yields `rgb(688,688,688)` — not a colour any
-  // renderer can show, and a PNG that comes out looking plausible while being
-  // wrong. The wire schema bounds this too; the throw is what makes an
-  // unbounded producer a loud failure instead of a quiet lie.
   if (idx < 0 || idx > 255) {
     throw new Error(
       `terminal-snapshot: palette index ${idx} is outside xterm's 256-colour table`,
@@ -185,19 +119,6 @@ function paletteColor(idx: number, t: ResolvedTheme): string {
   return greyColor(idx);
 }
 
-/** Resolve one VT colour against the theme. `fallback` is what "default"
- *  means in this position — the theme's foreground for a cell's fg, its
- *  background for a cell's bg.
- *
- *  A bare `switch` rather than the repo's usual `match(...).exhaustive()`, and
- *  deliberately: `ts-pattern` is not a dependency of this package and must not
- *  become one. `terminal-snapshot` is a browser-safe leaf whose whole point is
- *  that the client can pull the scene builder into a bundle — a runtime
- *  dependency for a three-arm dispatch is a real cost paid by every user's
- *  first paint, in exchange for nothing this switch does not already give:
- *  `CellColor` is a closed union and the function's return type is `string`,
- *  so a new arm makes the implicit `undefined` fall-through a type error
- *  exactly where `.exhaustive()` would have raised one. */
 function resolveColor(
   color: CellColor,
   t: ResolvedTheme,
@@ -215,10 +136,6 @@ function resolveColor(
 
 const BLACK: RGB = { r: 0, g: 0, b: 0 };
 
-/** Mix two colours in sRGB — used for the chrome tints derived from the
- *  theme, so the window border and title bar belong to whatever palette the
- *  terminal is wearing. An unparseable colour mixes as black, which is the
- *  same visual answer a missing colour would give. */
 function mix(a: string, b: string, ratio: number): string {
   const pa = parseColor(a).unwrapOr(BLACK);
   const pb = parseColor(b).unwrapOr(BLACK);
@@ -234,7 +151,6 @@ export interface SceneBox {
   readonly h: number;
 }
 
-/** A box with a colour to fill it with. */
 export interface SceneRect extends SceneBox {
   readonly fill: string;
 }
@@ -258,12 +174,6 @@ export interface SceneGlyph {
 }
 
 /** A piece of title-bar text, positioned and sized by the scene.
- *
- *  Here rather than in each backend because it is exactly the kind of small
- *  geometric decision that looks too trivial to share and then silently
- *  diverges: the brand's right margin lived as a bare `14` in the SVG writer
- *  while the canvas painter read `CHROME.brandRightMargin`, and nothing would
- *  have caught the two drifting apart.
  *
  *  `y` is the text's optical centre — both backends centre on it (canvas
  *  `textBaseline: "middle"`, SVG `dominant-baseline: "central"`), so neither
@@ -379,8 +289,6 @@ export function buildScene(input: SceneInput): SnapshotScene {
   const titleFg = mix(theme.bg, theme.fg, 0.7);
 
   const dotY = CHROME.titleHeight / 2;
-  // Title-bar text sits a pixel below the true centre: the dots are measured
-  // from their own centre, and matching them exactly reads as slightly high.
   const textY = dotY + 1;
   const dots = DOT_COLORS.map((fill, i) => ({
     cx: CHROME.dotMarginLeft + i * (CHROME.dotRadius * 2 + CHROME.dotGap),
@@ -396,23 +304,12 @@ export function buildScene(input: SceneInput): SnapshotScene {
     for (const cell of line.cells) {
       let fg = resolveColor(cell.fg, theme, theme.fg);
       let bg = resolveColor(cell.bg, theme, theme.bg);
-      // ANSI reverse video, applied once, here — so both backends inherit
-      // the swap instead of each remembering to do it.
       if (cell.inverse) [fg, bg] = [bg, fg];
-      // A cell outside the grid it claims to belong to is an inconsistency
-      // in the producer, not a value to paint at a clamped position: it would
-      // draw outside the terminal's own box and over the window chrome. Fail
-      // loud — a screenshot that silently lost a column is worse than none.
       if (cell.col < 0 || cell.col >= grid.cols) {
         throw new Error(
           `terminal-snapshot: cell at column ${cell.col} is outside the ${grid.cols}-column grid it was read from`,
         );
       }
-      // The same rule for the cell's FAR edge: a wide (CJK/emoji) leader
-      // parked on the last column would paint its second half into the window
-      // padding, over the chrome. Clamping it to the edge is the silent
-      // wrong-place draw the check above refuses for the near edge, so this
-      // refuses it too.
       if (cell.col + cell.width > grid.cols) {
         throw new Error(
           `terminal-snapshot: a width-${cell.width} cell at column ${cell.col} overruns the ${grid.cols}-column grid it was read from`,
@@ -422,14 +319,7 @@ export function buildScene(input: SceneInput): SnapshotScene {
       if (bg !== theme.bg) {
         rects.push({ x, y, w: cellW * cell.width, h: cellH, fill: bg });
       }
-      // SGR 2, applied AFTER the inverse swap so a dim inverse cell dims the
-      // colour actually being painted. Half-way to the background is what
-      // xterm's own reduced-intensity looks like, and doing it here means both
-      // backends inherit it without either knowing the rule.
       const ink = cell.dim ? mix(fg, bg, 0.5) : fg;
-      // SGR 4 as an explicit rule rather than a font feature: `text-decoration`
-      // and a canvas stroke disagree about thickness and position, and this
-      // scene exists so they cannot. One rect, one place, both backends.
       if (cell.underline) {
         rects.push({
           x,
@@ -439,10 +329,6 @@ export function buildScene(input: SceneInput): SnapshotScene {
           fill: ink,
         });
       }
-      // The cell's paintable text, decided once for both backends — see
-      // {@link paintable}. A cell holding nothing BUT unpaintable code points
-      // reduces to "" here and falls through the same "no glyph" arm a blank
-      // already takes.
       const chars = paintable(cell.chars);
       if (chars !== "" && chars !== " ") {
         glyphs.push({
@@ -461,10 +347,6 @@ export function buildScene(input: SceneInput): SnapshotScene {
     width,
     height,
     radius: CHROME.radius,
-    // The family name and both captions go through `paintable` for the same
-    // reason a cell's characters do: they are strings a backend will draw or
-    // write into a document, and the scene is where "what can be painted" is
-    // settled — not in whichever backend happens to be strict about it.
     font: { family: paintable(fontFamily), size: fontSize },
     window: {
       bg: theme.bg,

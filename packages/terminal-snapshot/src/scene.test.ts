@@ -1,7 +1,3 @@
-/** The layout decisions both backends inherit. Pinned here because a drift in
- *  any of them silently changes BOTH the browser's screenshot and the daemon's
- *  — the whole point of there being one scene builder. */
-
 import { describe, expect, it } from "vitest";
 import type { SnapshotCell, SnapshotGrid } from "./cell.ts";
 import { buildScene, CHROME, resolveTheme } from "./scene.ts";
@@ -45,7 +41,6 @@ const scene = (grid: SnapshotGrid) =>
     cellH: 12,
   });
 
-/** A one-cell scene holding exactly these characters. */
 const cellSceneOf = (chars: string) => scene(gridOf([[cell({ chars })]]));
 
 describe("theme resolution", () => {
@@ -71,7 +66,6 @@ describe("cell colours", () => {
   });
 
   it("computes the 6x6x6 cube for indices 16-231 without consulting the theme", () => {
-    // 196 = pure red at the cube's corner: r=5 (255), g=0, b=0.
     const s = scene(gridOf([[cell({ fg: { kind: "palette", index: 196 } })]]));
     expect(s.glyphs[0]?.fill).toBe("rgb(255,0,0)");
   });
@@ -88,8 +82,6 @@ describe("cell colours", () => {
 
   it("swaps foreground and background for an inverse cell, once, in the scene", () => {
     const s = scene(gridOf([[cell({ inverse: true })]]));
-    // fg becomes the theme background, and the cell now paints a background
-    // (the theme foreground) where a default cell painted none.
     expect(s.glyphs[0]?.fill).toBe("#1d1f21");
     expect(s.rects[0]?.fill).toBe("#c5c8c6");
   });
@@ -130,8 +122,6 @@ describe("layout", () => {
   });
 
   it("takes the row count from the lines themselves, so the two cannot disagree", () => {
-    // There is no `rows` field to get wrong: an image is exactly as tall as
-    // the content it carries.
     const s = scene(gridOf([[cell()], [cell()], [cell()]]));
     expect(s.height).toBe(12 * 3 + CHROME.titleHeight + CHROME.pad * 2);
     expect(s.term.h).toBe(12 * 3);
@@ -145,8 +135,6 @@ describe("svg", () => {
         gridOf([[cell({ col: 0, chars: "!" }), cell({ col: 1, chars: "=" })]]),
       ),
     );
-    // The two cells are separate elements even though they are adjacent and
-    // identically styled — `!=` must never become one FiraCode ligature.
     expect(svg.match(/>!</g)).toHaveLength(1);
     expect(svg.match(/>=</g)).toHaveLength(1);
   });
@@ -160,30 +148,18 @@ describe("svg", () => {
   });
 
   it("draws the window outline as a rounded <rect>, the primitive the canvas backend also names", () => {
-    // Both backends must round the corner the SAME way. `<rect rx>` and
-    // `ctx.roundRect()` are both true elliptical arcs; the hand-built paths
-    // these replaced were an `A r,r` circular arc here against a
-    // `quadraticCurveTo` parabola there — two different corners from one scene.
     const s = scene(gridOf([[cell()]]));
     const svg = sceneToSvg(s);
     expect(svg).not.toContain("<path");
-    // Clip, fill and stroke are the same shape — three rects, one geometry.
     expect(svg.match(new RegExp(`rx="${s.radius}"`, "g"))).toHaveLength(3);
   });
 
   it("names the font stack ONCE, on the group every glyph inherits from", () => {
-    // The family list is 96 characters. Respelling it on every `<text>` made
-    // the document ~4x larger for a renderer that reads the same thing either
-    // way — `font-family` and `font-size` are inheritable SVG presentation
-    // attributes. The per-glyph attributes that are genuinely per-CELL (bold,
-    // italic, fill) stay where they are; this pins only the hoist.
     const svg = sceneToSvg(
       scene(gridOf([[cell({ col: 0 }), cell({ col: 1 })]])),
     );
     expect(svg.match(/font-family=/g)).toHaveLength(1);
     expect(svg).toMatch(/<g clip-path="url\(#win\)" font-family=/);
-    // The title bar's two texts are sized by the scene, not by the grid, so
-    // they keep their own `font-size` — and nothing else does.
     expect(svg.match(/font-size=/g)).toHaveLength(3);
   });
 
@@ -203,21 +179,9 @@ describe("svg", () => {
 });
 
 describe("what a cell can paint is decided once, in the scene", () => {
-  // These live here rather than under `svg` on purpose. The DROP used to be
-  // the SVG writer's, so the canvas painter never did it and Chromium drew an
-  // unpaired surrogate as U+FFFD and a C1 control as a box — the same scene,
-  // two visibly different pictures. Asserting on the SCENE is what pins the
-  // fix: whatever a backend does next, it is handed text it can paint.
-  //
-  // Spelled as an ESCAPE rather than as a raw byte: an invisible control
-  // character in the source reads to a reviewer as a case that exercises
-  // nothing.
   it("drops a control character no renderer can paint, keeping the text around it", () => {
     const s = cellSceneOf("a\u0001b");
     expect(s.glyphs[0]?.text).toBe("ab");
-    // And the document that comes out is parseable, which is the failure this
-    // prevents in the SVG backend specifically: XML 1.0 cannot carry a C0
-    // control even as an entity.
     const svg = sceneToSvg(s);
     expect(svg).toContain(">ab<");
     expect(svg).not.toContain("\u0001");
@@ -238,8 +202,6 @@ describe("what a cell can paint is decided once, in the scene", () => {
   });
 
   it("cleans the title-bar caption too — it is text a backend draws", () => {
-    // The caption comes from a terminal's cwd and git branch, which are
-    // strings the filesystem can make as strange as it likes.
     const s = buildScene({
       grid: gridOf([[cell()]]),
       theme: THEME,
@@ -257,9 +219,6 @@ describe("what a cell can paint is decided once, in the scene", () => {
 
 describe("a grid that contradicts itself is refused, not approximated", () => {
   it("rejects a cell outside the column count it was read from", () => {
-    // Reachable only from a producer bug or a peer that lied on the wire, and
-    // the honest answer is neither to clamp it (a column silently in the wrong
-    // place) nor to drop it (a column silently missing) — it is to fail.
     expect(() => scene(gridOf([[cell({ col: 12 })]], 10))).toThrow(
       /outside the 10-column grid/,
     );
@@ -272,8 +231,6 @@ describe("a grid that contradicts itself is refused, not approximated", () => {
   });
 
   it("rejects a wide cell that would overrun the right edge into the chrome", () => {
-    // The same rule for the cell's FAR edge: a wide leader parked on the last
-    // column would paint its second half over the window chrome.
     expect(() => scene(gridOf([[cell({ col: 9, width: 2 })]], 10))).toThrow(
       /overruns the 10-column grid/,
     );
@@ -286,8 +243,6 @@ describe("a grid that contradicts itself is refused, not approximated", () => {
   });
 
   it("rejects a palette index outside xterm's 256-colour table", () => {
-    // greyColor would extrapolate index 300 to rgb(688,688,688) — not a colour,
-    // in a PNG that otherwise looks fine.
     expect(() =>
       scene(gridOf([[cell({ fg: { kind: "palette", index: 300 } })]])),
     ).toThrow(/outside xterm's 256-colour table/);
@@ -323,9 +278,6 @@ describe("title-bar geometry is the scene's, not a backend's", () => {
 
 describe("attributes a terminal uses to mean something", () => {
   it("paints a dim cell toward the background, not at full intensity", () => {
-    // An agent TUI's secondary voice — Claude Code's tool-result lines are
-    // dim. Rendering them at full strength makes the picture disagree with the
-    // screen, which is the one thing this feature must not do.
     const plain = scene(
       gridOf([[cell({ fg: { kind: "palette", index: 1 } })]]),
     );
@@ -333,7 +285,6 @@ describe("attributes a terminal uses to mean something", () => {
       gridOf([[cell({ fg: { kind: "palette", index: 1 }, dim: true })]]),
     );
     expect(dim.glyphs[0]?.fill).not.toBe(plain.glyphs[0]?.fill);
-    // Halfway between the red and the theme background.
     expect(dim.glyphs[0]?.fill).toBe("rgb(117,67,68)");
   });
 
@@ -343,7 +294,6 @@ describe("attributes a terminal uses to mean something", () => {
     expect(rule?.h).toBe(1);
     expect(rule?.w).toBe(6);
     expect(rule?.fill).toBe(s.glyphs[0]?.fill);
-    // Sits inside the cell, near its bottom.
     expect(rule?.y).toBe(s.term.y + 12 - 2);
   });
 

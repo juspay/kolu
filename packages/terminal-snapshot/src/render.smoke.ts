@@ -1,12 +1,3 @@
-/** Manual smoke: drive a real @xterm/headless buffer through the whole
- *  pipeline and write a PNG, so the render can be LOOKED AT.
- *
- *  Not a unit test — it needs the Nix font directory and writes a file.
- *  Run it from the repo root with:
- *    nix develop . -c ./node_modules/.bin/tsx \\
- *      packages/terminal-snapshot/src/render.smoke.ts ./out.png
- */
-
 import { writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { DEFAULT_THEME } from "terminal-themes";
@@ -17,9 +8,6 @@ const require = createRequire(import.meta.url);
 const { Terminal } =
   require("@xterm/headless") as typeof import("@xterm/headless");
 
-// The output path is REQUIRED, not defaulted. A hardcoded `/tmp/<fixed name>`
-// is a predictable path any local user can pre-create or symlink, and this
-// script happily writes through it — so the caller says where the PNG goes.
 const out = process.argv[2];
 if (!out) {
   console.error(
