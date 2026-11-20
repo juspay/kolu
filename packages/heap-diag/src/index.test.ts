@@ -11,16 +11,12 @@ import {
 } from "vitest";
 import { startHeapDiagnostics } from "./index.ts";
 
-// `writeHeapSnapshot` would actually dump a multi-MB file and block the loop —
-// stub it so the baseline-snapshot path is observable without side effects.
 vi.mock("node:v8", () => ({
   default: { writeHeapSnapshot: vi.fn(() => "/stub.heapsnapshot") },
 }));
 
 const writeHeapSnapshot = v8.writeHeapSnapshot as unknown as Mock;
 
-/** A logger that records every (msg, obj) pair, so a test can assert on the
- *  event-name contract (the whole point of the `logPrefix` split). */
 function recordingLogger(): {
   log: Logger;
   events: Array<{ level: "info" | "error"; msg: string; obj: object }>;
@@ -68,8 +64,6 @@ describe("startHeapDiagnostics", () => {
 
   it("throws on a relative diagDir rather than writing to cwd silently", () => {
     const { log } = recordingLogger();
-    // A relative dir would make path.join land the snapshot in the process cwd
-    // — the wrong place, no error. Fail fast on the misconfiguration instead.
     expect(() =>
       startHeapDiagnostics({ ...opts(), log, diagDir: "relative/diag" }),
     ).toThrow(/absolute path/);
@@ -88,8 +82,6 @@ describe("startHeapDiagnostics", () => {
     const { log, events } = recordingLogger();
     startHeapDiagnostics({ ...opts(), log });
     expect(events[0]).toMatchObject({ level: "info", msg: "diag_enabled" });
-    // T+0 anchor row uses logPrefix (not snapshotPrefix) and merges memory
-    // bands + the host's extra columns.
     const anchor = events[1];
     expect(anchor).toBeDefined();
     expect(anchor?.msg).toBe("diag");
@@ -100,12 +92,10 @@ describe("startHeapDiagnostics", () => {
 
   it("decouples the log event name (logPrefix) from the snapshot file (snapshotPrefix)", () => {
     const { log, events } = recordingLogger();
-    // server-shaped: file basename "baseline", events stem "diag".
     startHeapDiagnostics({ ...opts(), log });
     const names = events.map((e) => e.msg);
     expect(names).toContain("diag_enabled");
     expect(names).toContain("diag");
-    // The file basename must NOT leak into log event names.
     expect(names.some((n) => n.startsWith("baseline"))).toBe(false);
   });
 
@@ -113,7 +103,7 @@ describe("startHeapDiagnostics", () => {
     const { log, events } = recordingLogger();
     startHeapDiagnostics({ ...opts(), log });
     const curveCount = () => events.filter((e) => e.msg === "diag").length;
-    expect(curveCount()).toBe(1); // T+0 anchor
+    expect(curveCount()).toBe(1);
     vi.advanceTimersByTime(5 * 60 * 1000);
     expect(curveCount()).toBe(2);
     vi.advanceTimersByTime(5 * 60 * 1000);
@@ -126,7 +116,6 @@ describe("startHeapDiagnostics", () => {
     expect(writeHeapSnapshot).not.toHaveBeenCalled();
     vi.advanceTimersByTime(5 * 60 * 1000);
     expect(writeHeapSnapshot).toHaveBeenCalledTimes(1);
-    // file basename comes from snapshotPrefix; the dir from diagDir.
     expect(writeHeapSnapshot).toHaveBeenCalledWith(
       "/tmp/diag/baseline.heapsnapshot",
     );
