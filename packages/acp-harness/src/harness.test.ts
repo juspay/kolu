@@ -24,6 +24,7 @@ import {
 } from "@kolu/acp/engine";
 import { afterEach, describe, expect, test } from "vitest";
 import {
+  type Compaction,
   type Harness,
   type HarnessChange,
   type HarnessOptions,
@@ -237,6 +238,8 @@ const open = async (
     whenNewSession?: "divide" | "clear";
     whenLoadRefused?: "fresh" | "report";
     whenReplayed?: "drop" | "keep";
+    compacts?: HarnessOptions<FixtureRow>["compacts"];
+    onCompaction?: HarnessOptions<FixtureRow>["onCompaction"];
     /** Extra argv for the fixture — a scripted agent that models two agents
      *  takes the difference on its command line rather than in a second copy
      *  of sixty lines of JSON-RPC. */
@@ -283,6 +286,10 @@ const open = async (
     ],
     teaching: TEACHING,
     taught: extra.taught ?? false,
+    ...(extra.compacts === undefined ? {} : { compacts: extra.compacts }),
+    ...(extra.onCompaction === undefined
+      ? {}
+      : { onCompaction: extra.onCompaction }),
     log: silent,
     opens:
       extra.resume === undefined || extra.resume === null
@@ -2215,5 +2222,113 @@ describe("a turn this end started — nobody typed it", () => {
     // waiting for a turn nothing is going to run.
     const row = rowOf(running, rowId);
     expect(row.kind === "rung" ? row.queued : "n/a").toBeUndefined();
+  });
+});
+
+describe("the standing prompt around a compaction", () => {
+  const compacts = ({ used }: { readonly used: number }): boolean =>
+    used >= 200_000;
+
+  const send = async (running: Running, text: string): Promise<void> => {
+    await running.harness.prompt(typed(text, []), false);
+    await settled(running, `the \`${text}\` turn never ended`);
+  };
+
+  /** Which of the messages sent so far carried the standing prompt. */
+  const taughtSoFar = async (
+    running: Running,
+  ): Promise<ReadonlyArray<boolean>> => {
+    const bodies = (await asked(running, "prompts")) as ReadonlyArray<string>;
+    return bodies.map((body) => body.startsWith(TEACHING));
+  };
+
+  test("a message sent past the limit is taught, and only that one while nothing compacts", async () => {
+    const running = await open("agent.ts", { compacts });
+    await send(running, "used 250000");
+    await send(running, "hello");
+    await send(running, "hello");
+    expect(await taughtSoFar(running)).toEqual([true, true, false]);
+  });
+
+  test("the compaction that message sets off leaves the rules where they are", async () => {
+    const seen: Array<Compaction> = [];
+    const running = await open("agent.ts", {
+      compacts,
+      onCompaction: (compaction) => seen.push(compaction),
+    });
+    await send(running, "used 250000");
+    await send(running, "compact");
+    expect(running.harness.state().taught).toBe(true);
+    await send(running, "hello");
+    expect(await taughtSoFar(running)).toEqual([true, true, false]);
+    expect(seen.map(({ status, rules }) => [status, rules])).toEqual([
+      ["in_progress", null],
+      ["in_progress", null],
+      ["in_progress", null],
+      ["completed", "sent"],
+      ["completed", "sent"],
+    ]);
+    expect(seen.at(-1)?.summary).toBe(
+      "Two works are open. Nothing waits on you.",
+    );
+  });
+
+  test("a compaction nobody saw coming sends the rules with the next message", async () => {
+    const seen: Array<Compaction> = [];
+    const running = await open("agent.ts", {
+      compacts,
+      onCompaction: (compaction) => seen.push(compaction),
+    });
+    await send(running, "used 1000");
+    await send(running, "compactLate");
+    expect(running.harness.state().taught).toBe(false);
+    expect(seen.at(-1)).toMatchObject({
+      status: "completed",
+      rules: "next",
+      summary: "The turn was half done.",
+    });
+    await send(running, "hello");
+    expect(await taughtSoFar(running)).toEqual([true, false, true]);
+  });
+
+  test("a compaction that failed changes nothing", async () => {
+    const seen: Array<Compaction> = [];
+    const running = await open("agent.ts", {
+      compacts,
+      onCompaction: (compaction) => seen.push(compaction),
+    });
+    await send(running, "used 1000");
+    await send(running, "compactFails");
+    expect(seen.at(-1)).toMatchObject({
+      status: "failed",
+      rules: null,
+      error: "the summary request was refused (overloaded)",
+    });
+    await send(running, "hello");
+    expect(await taughtSoFar(running)).toEqual([true, false, false]);
+  });
+
+  test("a loaded session whose usage is not known is taught once, until a reading says it is under the limit", async () => {
+    const running = await open("agent.ts", {
+      resume: "sess-1",
+      resumedSeq: 12,
+      taught: true,
+      compacts,
+      args: ["--quiet-load"],
+    });
+    expect(running.harness.state().usage).toBeNull();
+    await send(running, "used 1000");
+    await send(running, "hello");
+    await send(running, "used 250000");
+    await send(running, "hello");
+    expect(await taughtSoFar(running)).toEqual([true, false, false, true]);
+  });
+
+  test("a new session is taught its first message and not the second, usage or none", async () => {
+    const running = await open("agent.ts", { compacts });
+    await send(running, "hello");
+    await send(running, "hello");
+    expect(running.harness.state().usage).toBeNull();
+    expect(await taughtSoFar(running)).toEqual([true, false]);
   });
 });

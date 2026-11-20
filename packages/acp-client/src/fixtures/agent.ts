@@ -221,6 +221,9 @@ const noQueue = process.argv.includes("--no-queue");
 /** A cancel that ends EVERY prompt the agent holds, each with `cancelled`,
  *  rather than only the one it is running — one press, several turns over. */
 const cancelEndsAll = process.argv.includes("--cancel-ends-all");
+/** `--quiet-load`: a load reports no usage, as the pinned adapter's does —
+ *  nothing about how full the context is arrives until the first turn. */
+const quietLoad = process.argv.includes("--quiet-load");
 
 function enqueue(message: Message): void {
   if (busy && noQueue) {
@@ -704,11 +707,12 @@ function handle(message: Message): void {
           { name: "cost", description: "what this has cost" },
         ],
       });
-      update(session, {
-        sessionUpdate: "usage_update",
-        used: 22102,
-        size: 200000,
-      });
+      if (!quietLoad)
+        update(session, {
+          sessionUpdate: "usage_update",
+          used: 22102,
+          size: 200000,
+        });
       respond(message.id, { configOptions: configOptions() });
       return;
     }
@@ -875,6 +879,35 @@ function turn(message: Message): void {
   }
   if (text === "capabilities") {
     says(JSON.stringify(capabilities));
+    finish(message.id, "end_turn");
+    return;
+  }
+  const used = /^used (\d+)$/.exec(text)?.[1];
+  if (used !== undefined) {
+    update(session, {
+      sessionUpdate: "usage_update",
+      used: Number(used),
+      size: 1000000,
+    });
+    says("noted");
+    finish(message.id, "end_turn");
+    return;
+  }
+  if (text === "compactLate") {
+    // A COMPACTION IN THE MIDDLE OF A TURN, after the agent has said something.
+    says("working");
+    update(session, {
+      sessionUpdate: "compaction_update",
+      compactionId: `compaction-${prompts.length}`,
+      status: "in_progress",
+    });
+    update(session, {
+      sessionUpdate: "compaction_update",
+      compactionId: `compaction-${prompts.length}`,
+      status: "completed",
+      summary: [{ type: "text", text: "The turn was half done." }],
+    });
+    says("done");
     finish(message.id, "end_turn");
     return;
   }
