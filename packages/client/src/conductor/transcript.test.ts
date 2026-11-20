@@ -247,6 +247,29 @@ describe("foldToolRuns", () => {
     ).toEqual(["a", ["t1", "t2", "t3"], "b"]);
   });
 
+  it("starts a new fold after a compaction — the calls before it are in a context the agent no longer has", () => {
+    const compaction: ConductorRow = {
+      id: "kolu:compaction:c1",
+      seq: 3,
+      since: SINCE,
+      kind: "compaction",
+      state: "done",
+      at: 201_000,
+      summary: "Two works are open.",
+      error: null,
+      rules: "sent",
+    };
+    expect(
+      drawn([
+        user("u", 1),
+        tool("t1", 2),
+        compaction,
+        tool("t2", 4),
+        agentRow("b", 5, "Done."),
+      ]),
+    ).toEqual(["u", ["t1"], "kolu:compaction:c1", ["t2"], "b"]);
+  });
+
   it("folds a run's settled calls while the turn is still going, and leaves the running one out", () => {
     // The Conductor has not said a word yet: what a person sees is ONE
     // "Details" and the call in flight, not a wall of finished cards.
@@ -711,5 +734,40 @@ describe("transcriptText", () => {
     expect(transcriptText([askRow({ how: "declined", answers: [] })])).toBe(
       ["ask:", "  Mode", "  Implementor", "  [declined]"].join("\n"),
     );
+  });
+
+  it("carries a compaction as its line, with the summary or the reason under it", () => {
+    const compaction = (
+      over: Partial<Extract<ConductorRow, { kind: "compaction" }>>,
+    ): ConductorRow => ({
+      id: "kolu:compaction:c1",
+      seq: 1,
+      since: "2026-01-01T00:00:00.000Z",
+      kind: "compaction",
+      state: "done",
+      at: 201_000,
+      summary: "Two works are open.",
+      error: null,
+      rules: "sent",
+      ...over,
+    });
+    expect(transcriptText([compaction({})])).toBe(
+      "— compacted at 201k —\nTwo works are open.",
+    );
+    expect(
+      transcriptText([
+        compaction({
+          state: "failed",
+          at: null,
+          summary: null,
+          error: "the summary request was refused (overloaded)",
+        }),
+      ]),
+    ).toBe(
+      "— could not compact —\nthe summary request was refused (overloaded)",
+    );
+    expect(
+      transcriptText([compaction({ state: "running", summary: null })]),
+    ).toBe("— compacting at 201k —");
   });
 });

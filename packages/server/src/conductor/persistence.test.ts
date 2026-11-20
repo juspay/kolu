@@ -149,9 +149,10 @@ const OTHER_KEY = {
  * `kind`, a terminal or a piece of work; 1.59.0 lets a tool row say when
  * the CURRENT outing of a call began; 1.60.0 gives the remembered
  * conversation `taught` — whether the standing prompt has already gone out in
- * the session it names, which only the record can carry across a restart; and
- * 1.61.0 says whether each pull request opened as a draft. */
-const STATE_SCHEMA_VERSION = "1.61.0";
+ * the session it names, which only the record can carry across a restart;
+ * 1.61.0 says whether each pull request opened as a draft; and 1.62.0 lets a
+ * transcript row be a compaction. */
+const STATE_SCHEMA_VERSION = "1.62.0";
 
 const log = {
   debug() {},

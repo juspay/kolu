@@ -57,6 +57,7 @@ import {
   koluChoicesSayHowChosen_1_56_0,
   mentionsSayTheirKind_1_58_0,
   toolOutings_1_59_0,
+  compactionRows_1_62_0,
   moveKeptFiles_1_53_0,
   prFactsOnTheTimeline_1_57_0,
   prOpenedSaysDraft_1_61_0,
@@ -925,6 +926,7 @@ describe("what an EARLIER COMMIT of this branch wrote, read by head", () => {
     workAskStanding_1_55_0(root);
     mentionsSayTheirKind_1_58_0(root);
     toolOutings_1_59_0(root);
+    compactionRows_1_62_0(root);
     expect(
       JSON.parse(readFileSync(path, "utf8")) as { version: string },
     ).toMatchObject({ version: TRANSCRIPT_FILE_VERSION });
@@ -2607,6 +2609,7 @@ describe("the 1.58.0 rung — a mention says what it is", () => {
     // refusal rather than a guess. This rung's own number is frozen; the one
     // after it carries the file to head.
     toolOutings_1_59_0(dir);
+    compactionRows_1_62_0(dir);
     expect(readJson(transcriptFilePath(dir)).version).toBe(
       TRANSCRIPT_FILE_VERSION,
     );
@@ -2641,7 +2644,8 @@ describe("the 1.59.0 rung — a tool row may say when this outing began", () => 
     // `resumed` is a field a row may now CARRY, never one a saved row was
     // missing: a reader takes its absence as "first outing". So this rung
     // rewrites nothing — the file's stamp is the whole of its work, and the
-    // reader of today accepts what it leaves behind.
+    // reader of today accepts what it leaves behind once the rungs after it
+    // have carried that stamp to head.
     const dir = mkdtempSync(join(tmpdir(), "kolu-tool-outings-"));
     dirs.push(dir);
     writeTranscriptFile(transcriptFilePath(dir), "1.58.0", ROWS as never);
@@ -2649,8 +2653,9 @@ describe("the 1.59.0 rung — a tool row may say when this outing began", () => 
     toolOutings_1_59_0(dir);
 
     const file = readJson(transcriptFilePath(dir));
-    expect(file.version).toBe(TRANSCRIPT_FILE_VERSION);
+    expect(file.version).toBe("1.59.0");
     expect(file.rows).toEqual(ROWS);
+    compactionRows_1_62_0(dir);
     const read = readPersistedTranscript(
       transcriptFileStore(dir, TRANSCRIPT_FILE_VERSION),
       transcriptFilePath(dir),
@@ -2860,7 +2865,7 @@ describe("the 1.61.0 rung — a pull request says whether it opened as a draft",
     expect(
       (state.__internal__ as { migrations: { version: string } }).migrations
         .version,
-    ).toBe("1.61.0");
+    ).toBe(SCHEMA_VERSION);
   });
 
   it("decodes, and walking it again changes nothing", () => {
@@ -2904,5 +2909,76 @@ describe("the 1.61.0 rung — a pull request says whether it opened as a draft",
     if (read.kind !== "staged") throw new Error(read.kind);
     expect(read.current).toBe("merge");
     expect(Option.getOrThrow(prOf(upgraded)).merge).toEqual({ kind: "can" });
+  });
+});
+
+describe("the 1.62.0 rung — a row may be a compaction", () => {
+  const AT = "2026-11-20T14:31:00.000Z";
+  const ROWS = [
+    { id: "u1", seq: 1, since: AT, kind: "user", text: "how are the works?" },
+    { id: "a1", seq: 2, since: AT, kind: "agent", text: "Both are moving." },
+  ];
+
+  it("leaves every row of a 1.59.0 file as it was, and the reader takes it and a compaction after it", () => {
+    // No saved row is a compaction, so the stamp is the rung's whole work —
+    // and the file it leaves takes the new kind beside the old ones.
+    const dir = mkdtempSync(join(tmpdir(), "kolu-compaction-rows-"));
+    dirs.push(dir);
+    writeTranscriptFile(transcriptFilePath(dir), "1.59.0", ROWS as never);
+
+    compactionRows_1_62_0(dir);
+
+    const file = readJson(transcriptFilePath(dir));
+    expect(file.version).toBe(TRANSCRIPT_FILE_VERSION);
+    expect(file.rows).toEqual(ROWS);
+    const compaction = {
+      id: "kolu:compaction:c1",
+      seq: 3,
+      since: AT,
+      kind: "compaction",
+      state: "done",
+      at: 201_000,
+      summary: "Two works are open.",
+      error: null,
+      rules: "sent",
+    };
+    writeTranscriptFile(transcriptFilePath(dir), TRANSCRIPT_FILE_VERSION, [
+      ...ROWS,
+      compaction,
+    ] as never);
+    const read = readPersistedTranscript(
+      transcriptFileStore(dir, TRANSCRIPT_FILE_VERSION),
+      transcriptFilePath(dir),
+      dir,
+    );
+    expect(read.rows.map((one) => one.kind)).toEqual([
+      "user",
+      "agent",
+      "compaction",
+    ]);
+    expect(read.rows[2]).toEqual(compaction);
+  });
+
+  it("is safe to run twice — a file at its own number is not rewritten", () => {
+    const dir = mkdtempSync(join(tmpdir(), "kolu-compaction-rows-twice-"));
+    dirs.push(dir);
+    writeTranscriptFile(transcriptFilePath(dir), "1.59.0", ROWS as never);
+
+    compactionRows_1_62_0(dir);
+    const once = readFileSync(transcriptFilePath(dir), "utf8");
+    compactionRows_1_62_0(dir);
+    expect(readFileSync(transcriptFilePath(dir), "utf8")).toBe(once);
+  });
+
+  it("leaves a file it cannot read exactly as it is, for the reader to refuse by name", () => {
+    const dir = mkdtempSync(join(tmpdir(), "kolu-compaction-rows-torn-"));
+    dirs.push(dir);
+    const path = transcriptFilePath(dir);
+    mkdirSync(dirname(path), { recursive: true });
+    writeFileSync(path, "{ this is not json", "utf8");
+
+    compactionRows_1_62_0(dir);
+
+    expect(readFileSync(path, "utf8")).toBe("{ this is not json");
   });
 });

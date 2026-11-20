@@ -101,6 +101,7 @@
 import type { NotHere } from "@kolu/acp/engine";
 import type { AgentModelLaunch } from "@kolu/agent-distro/models";
 import {
+  type Compaction,
   type Harness,
   type HarnessOptions,
   HarnessRefused,
@@ -111,12 +112,14 @@ import type { CellStore } from "@kolu/surface/server";
 import type { PrResult } from "@kolu/terminal-vocab/schema";
 import { Option, Schema } from "effect";
 import {
+  CONDUCTOR_COMPACTS_AT,
   conductorConfigDir,
   CONDUCTOR_ENGINE as ENGINE,
 } from "kolu-agents/acp";
 import {
   type AskField,
   appendedText,
+  COMPACTION_SUMMARY_CAP,
   type ConductorAnswerWorkOutcome,
   type ConductorAttachment,
   type ConductorFrame,
@@ -1001,11 +1004,11 @@ export function startConductorHost(deps: ConductorDeps): ConductorHost {
   });
   const absent: NotHere | null = "why" in seating ? seating : null;
 
-  /** The three fields THIS SERVER is the author of — whether the adapter is
-   *  seated on this machine, what the agent is called, and the directory this
-   *  conversation is in — known here at boot from the engine and the home this
-   *  process was started with. Folded back over every state the harness
-   *  reports, so each has exactly ONE author. */
+  /** The fields THIS SERVER is the author of — whether the adapter is seated
+   *  on this machine, what the agent is called, the directory this
+   *  conversation is in, and where it compacts — known here at boot from the
+   *  engine and the home this process was started with. Folded back over
+   *  every state the harness reports, so each has exactly ONE author. */
   const serverAuthored = {
     install:
       absent === null
@@ -1018,7 +1021,11 @@ export function startConductorHost(deps: ConductorDeps): ConductorHost {
           },
     agentName: ENGINE.name,
     cwd: home,
-  } satisfies Pick<ConductorState, "install" | "agentName" | "cwd">;
+    compactsAt: CONDUCTOR_COMPACTS_AT,
+  } satisfies Pick<
+    ConductorState,
+    "install" | "agentName" | "cwd" | "compactsAt"
+  >;
 
   let state: ConductorState = {
     ...DEFAULT_CONDUCTOR_STATE,
@@ -1597,6 +1604,65 @@ export function startConductorHost(deps: ConductorDeps): ConductorHost {
     });
   };
 
+  /** A COMPACTION, AS ONE ROW — minted at its first report and updated in
+   *  place by every report after it, under kolu's own id for it
+   *  (`kolu:compaction:<id>`), the way {@link sayNotice} mints its rows. `at`
+   *  is the usage this conversation last reported when it began. */
+  const sayCompaction = (report: Compaction): void => {
+    const id = `kolu:compaction:${report.id}`;
+    const held = byId.get(id);
+    const was = held?.kind === "compaction" ? held : null;
+    applyRows({
+      upserts: [
+        {
+          kind: "compaction",
+          id,
+          seq: was?.seq ?? (rows().at(-1)?.seq ?? 0) + 1,
+          since: was?.since ?? new Date().toISOString(),
+          state:
+            report.status === "in_progress"
+              ? "running"
+              : report.status === "completed"
+                ? "done"
+                : "failed",
+          at: was === null ? (state.usage?.used ?? null) : was.at,
+          summary:
+            report.summary === ""
+              ? (was?.summary ?? null)
+              : report.summary.length > COMPACTION_SUMMARY_CAP
+                ? `${report.summary.slice(0, COMPACTION_SUMMARY_CAP)}…`
+                : report.summary,
+          error:
+            report.status === "cancelled"
+              ? (report.error ?? "the turn ended before it finished")
+              : report.error,
+          rules: report.rules ?? was?.rules ?? null,
+        },
+      ],
+      removes: [],
+      appends: [],
+    });
+  };
+
+  /** A compaction still running when its agent went away never reports again:
+   *  the process that was doing it is gone. Settled as failed before the next
+   *  agent comes up, so the line does not say "compacting" for good. */
+  const settleStrandedCompactions = (): void => {
+    const stranded = rows().flatMap((row) =>
+      row.kind === "compaction" && row.state === "running"
+        ? [
+            {
+              ...row,
+              state: "failed" as const,
+              error: "the agent stopped before it finished",
+            },
+          ]
+        : [],
+    );
+    if (stranded.length === 0) return;
+    applyRows({ upserts: stranded, removes: [], appends: [] });
+  };
+
   /** KOLU'S OWN QUESTION, SAID IN THE TRANSCRIPT — one row, under the ask's
    *  own id, naming the work it is about.
    *
@@ -1683,6 +1749,7 @@ export function startConductorHost(deps: ConductorDeps): ConductorHost {
       });
     }
     remembered();
+    settleStrandedCompactions();
     // WHETHER THIS SPAWN IS COMING BACK TO A CONVERSATION. Decided at EVERY
     // spawn, not once at boot: a replacement adapter over a "new session"
     // nobody has spoken into yet is the same id with nothing behind it, and a
@@ -1766,6 +1833,14 @@ export function startConductorHost(deps: ConductorDeps): ConductorHost {
         numbering: "continues",
         whenLoadRefused: "fresh",
         whenReplayed: "drop",
+        // WHEN THE AGENT COMPACTS, which is the engine's to say: the standing
+        // prompt rides the message it compacts before, and each report is one
+        // line in the chat ({@link sayCompaction}).
+        ...(ENGINE.compacts === undefined ? {} : { compacts: ENGINE.compacts }),
+        onCompaction: (compaction) => {
+          if (disposed || mine !== generation) return;
+          sayCompaction(compaction);
+        },
         model: chosenModel,
         onChange: (change) => {
           if (change.kind === "state") {

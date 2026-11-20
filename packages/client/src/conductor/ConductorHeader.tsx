@@ -21,15 +21,7 @@ import { isDesktop } from "../useMobile";
 import ConductorMenu from "./ConductorMenu";
 import ConductorSettings from "./ConductorSettings";
 import { useShown } from "../ui/shown";
-
-/** Tokens at the scale a context window is discussed in. Not bytes — these are
- *  the agent's own units, and `148k` is how a person says the number. */
-function tokens(count: number): string {
-  if (count < 1_000) return String(count);
-  if (count < 1_000_000) return `${Math.round(count / 1_000)}k`;
-  const millions = count / 1_000_000;
-  return `${millions >= 10 || Number.isInteger(millions) ? Math.round(millions) : millions.toFixed(1)}M`;
-}
+import { tokens } from "./tokens";
 
 /** NO PHASE CHIP HERE. What the conversation is doing moved to the ONE status
  *  line directly above the composer (`ConductorStatus`), where a person is
@@ -162,7 +154,21 @@ const ConductorHeader: Component<{
         {(u) => (
           <Tip
             class="flex items-center"
-            label="Context used — tokens in the window, and how many fit"
+            label={
+              <>
+                <span class="block">
+                  Context used — tokens in the window, and how many fit.
+                </span>
+                <Show when={props.state.compactsAt}>
+                  {(at) => (
+                    <span class="block" data-testid="conductor-usage-compacts">
+                      {props.state.agentName} compacts it at about{" "}
+                      {tokens(at())}.
+                    </span>
+                  )}
+                </Show>
+              </>
+            }
           >
             <span
               data-testid="conductor-usage"

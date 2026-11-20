@@ -32,6 +32,7 @@ import {
 } from "kolu-common/conductor";
 import { isEncodedHostKey } from "kolu-common/hostKey";
 import { askLead, askRecord } from "./askRecord";
+import { compactionHeadline } from "./compactionWords";
 import {
   agentLineSubject,
   callSubject,
@@ -65,12 +66,13 @@ function appendSaying(
   }
   const row = rows[index];
   if (row === undefined) return rows;
-  // The plan row is the one kind with no `text` at all — it is replaced
-  // wholesale on every update — so an append addressed to one is a producer bug,
-  // and saying so beats silently growing a field the renderer never reads.
-  if (row.kind === "plan") {
+  // A plan row is replaced wholesale on every update and a compaction row is
+  // kolu's own, upserted in place — neither has `text` to grow, so an append
+  // addressed to one is a producer bug, and saying so beats silently growing
+  // a field the renderer never reads.
+  if (!("text" in row)) {
     console.warn(
-      "conductor transcript: append addressed to a plan row",
+      `conductor transcript: append addressed to a ${row.kind} row`,
       saying.of,
     );
     return rows;
@@ -289,12 +291,14 @@ export function foldToolRuns(
     // it STARTS a turn. The calls before it belong to the work that was
     // running when the terminal rang, and a fold that reached across it would
     // put the Conductor's answer to the wake in the same closed "Details" as
-    // whatever it had been doing beforehand.
+    // whatever it had been doing beforehand. A COMPACTION is one too: the
+    // calls before it are in a context the agent no longer has.
     if (
       kind !== "agent" &&
       kind !== "user" &&
       kind !== "divider" &&
-      kind !== "wake"
+      kind !== "wake" &&
+      kind !== "compaction"
     ) {
       run.push(entry);
       continue;
@@ -503,6 +507,12 @@ function rowText(row: ConductorRow): string {
       return `note: ${row.text}`;
     case "divider":
       return `— ${row.text} —`;
+    case "compaction":
+      return [
+        `— ${compactionHeadline(row)} —`,
+        ...(row.state === "failed" && row.error !== null ? [row.error] : []),
+        ...(row.state === "done" && row.summary !== null ? [row.summary] : []),
+      ].join("\n");
     case "wake":
       // The ACCOUNT, not the headline: a transcript pasted into an issue is
       // read by somebody reconstructing what the agent was told, and the

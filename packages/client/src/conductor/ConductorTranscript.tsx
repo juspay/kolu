@@ -50,6 +50,7 @@ import {
 } from "solid-js";
 import ScrollToBottom from "../terminal/ScrollToBottom";
 import ConductorAsk from "./ConductorAsk";
+import CompactionLine from "./CompactionLine";
 import ConductorProse from "./ConductorProse";
 import ConductorToolCard from "./ConductorToolCard";
 import { useShown } from "../ui/shown";
@@ -357,7 +358,7 @@ const ConductorTranscript: Component<{
   const signature = createMemo(() => {
     const rows = props.rows;
     const last = rows[rows.length - 1];
-    return `${rows.length}:${last === undefined || last.kind === "plan" ? 0 : last.text.length}`;
+    return `${rows.length}:${last === undefined || !("text" in last) ? 0 : last.text.length}`;
   });
 
   /** How many times a row's prose DOM was rewritten. It matters for the one
@@ -490,12 +491,17 @@ const ConductorTranscript: Component<{
                 { equals: sameWorks },
               );
               /** A QUESTION IS NEVER FOLDED AWAY: it is the one thing in the
-               *  conversation that waits on a person. */
-              const asked = createMemo(() => turn().asks.has(first().id));
+               *  conversation that waits on a person. Nor is a COMPACTION: it
+               *  is the line between what the agent still has and what it
+               *  holds only as a summary. */
+              const kept = createMemo(
+                () =>
+                  turn().asks.has(first().id) || first().kind === "compaction",
+              );
               const drawn = createMemo(
                 () =>
                   inScope(first().id) &&
-                  (!turn().folds || opened(turn()) || asked()),
+                  (!turn().folds || opened(turn()) || kept()),
               );
               return (
                 <>
@@ -763,6 +769,9 @@ function TranscriptRow(props: {
           </Match>
           <Match when={props.row.kind === "wake" && props.row}>
             {(row) => <WakeRow row={row()} works={works()} />}
+          </Match>
+          <Match when={props.row.kind === "compaction" && props.row}>
+            {(row) => <CompactionLine row={row()} />}
           </Match>
           <Match when={props.row.kind === "divider" && props.row}>
             {(row) => (

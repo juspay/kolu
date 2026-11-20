@@ -2205,6 +2205,156 @@ describe("a run of NEW SESSION dividers", () => {
   });
 });
 
+describe("a compaction, as one line in the chat", () => {
+  const reported = async (
+    usage: { used: number; size: number } | null,
+  ): Promise<{ r: Rig; agent: Spawned }> => {
+    const r = rig();
+    await r.host.prompt("hello", [], [], false);
+    const agent = r.spawns[0];
+    if (agent === undefined) throw new Error("the host spawned nothing");
+    agent.push({
+      kind: "state",
+      state: {
+        ...DEFAULT_CONDUCTOR_STATE,
+        taught: true,
+        methods: [],
+        title: null,
+        queues: false,
+        phase: "working",
+        usage,
+      },
+    });
+    return { r, agent };
+  };
+
+  const compactions = (r: Rig): ReadonlyArray<ConductorRow> =>
+    served(r.host).filter((one) => one.kind === "compaction");
+
+  it("hands the harness the engine's own reading of when it compacts", async () => {
+    const { agent } = await reported(null);
+    expect(agent.options.compacts?.({ used: 201_000, size: 1_000_000 })).toBe(
+      true,
+    );
+    expect(agent.options.compacts?.({ used: 150_000, size: 1_000_000 })).toBe(
+      false,
+    );
+  });
+
+  it("is one row from the moment it begins, settled in place with its summary", async () => {
+    const { r, agent } = await reported({ used: 201_000, size: 1_000_000 });
+    const report = {
+      id: "c1",
+      summary: "",
+      error: null,
+      rules: null,
+    } as const;
+    agent.options.onCompaction?.({ ...report, status: "in_progress" });
+    expect(compactions(r)).toMatchObject([
+      {
+        id: "kolu:compaction:c1",
+        state: "running",
+        at: 201_000,
+        summary: null,
+      },
+    ]);
+    // The count it began at stays, though the context has emptied since.
+    agent.push({
+      kind: "state",
+      state: {
+        ...DEFAULT_CONDUCTOR_STATE,
+        taught: true,
+        methods: [],
+        title: null,
+        queues: false,
+        phase: "working",
+        usage: { used: 14_000, size: 1_000_000 },
+      },
+    });
+    agent.options.onCompaction?.({
+      ...report,
+      status: "completed",
+      summary: "Two works are open.",
+      rules: "sent",
+    });
+    agent.options.onCompaction?.({
+      ...report,
+      status: "completed",
+      summary: "Two works are open.",
+      rules: "sent",
+    });
+    expect(compactions(r)).toMatchObject([
+      {
+        id: "kolu:compaction:c1",
+        state: "done",
+        at: 201_000,
+        summary: "Two works are open.",
+        rules: "sent",
+        error: null,
+      },
+    ]);
+  });
+
+  it("says why one failed, and that one the turn abandoned did not finish", async () => {
+    const { r, agent } = await reported({ used: 203_000, size: 1_000_000 });
+    agent.options.onCompaction?.({
+      id: "c1",
+      status: "failed",
+      summary: "",
+      error: "the summary request was refused (overloaded)",
+      rules: null,
+    });
+    agent.options.onCompaction?.({
+      id: "c2",
+      status: "cancelled",
+      summary: "",
+      error: null,
+      rules: null,
+    });
+    expect(compactions(r)).toMatchObject([
+      {
+        state: "failed",
+        error: "the summary request was refused (overloaded)",
+      },
+      { state: "failed", error: "the turn ended before it finished" },
+    ]);
+  });
+
+  it("has no number when kolu knew no usage as it began", async () => {
+    const { r, agent } = await reported(null);
+    agent.options.onCompaction?.({
+      id: "c1",
+      status: "completed",
+      summary: "Two works are open.",
+      error: null,
+      rules: "sent",
+    });
+    expect(compactions(r)).toMatchObject([{ state: "done", at: null }]);
+  });
+
+  it("is settled as failed when the agent that was running it is replaced", async () => {
+    const { r, agent } = await reported({ used: 201_000, size: 1_000_000 });
+    agent.options.onCompaction?.({
+      id: "c1",
+      status: "in_progress",
+      summary: "",
+      error: null,
+      rules: null,
+    });
+    agent.die();
+    await r.host.prompt("still there?", [], [], false);
+    expect(r.spawns.length).toBe(2);
+    expect(compactions(r)).toMatchObject([
+      { state: "failed", error: "the agent stopped before it finished" },
+    ]);
+  });
+
+  it("tells the browser where it compacts", async () => {
+    const r = rig();
+    expect(r.host.state().compactsAt).toBe(200_000);
+  });
+});
+
 /** Two member terminals, as fleet refs — one per host, because a work's
  *  membership spans the fleet and a bare id would name two terminals on a
  *  two-host one. */
