@@ -112,11 +112,6 @@ test("kill of a gone child is ESRCH, and ESRCH is success", async () => {
 });
 
 test("stop escalates from SIGTERM to SIGKILL when the child ignores the first", async () => {
-  // A shell that traps SIGTERM, not a JS process: a JS process that listens
-  // for SIGTERM would exit on it and make this a SIGTERM success, never
-  // exercising the escalation. Echo first so
-  // the trap is installed before we signal — a spawn-then-kill race
-  // would otherwise SIGTERM a shell that had not trapped yet.
   const child = start(
     "sh",
     ["-c", 'trap "" TERM; echo ready; while true; do :; done'],

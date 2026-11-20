@@ -1,6 +1,7 @@
 import {
   spawn,
   type ChildProcess,
+  type SpawnOptions,
   type StdioOptions,
 } from "node:child_process";
 import type { Readable, Writable } from "node:stream";
@@ -12,11 +13,6 @@ const KILL_MS = 1_000;
 /**
  * The child did not do what the wait asked, in the time it was given — and
  * what it SAID while not doing it.
- *
- * A boolean `false` after a deadline is how a hang becomes "expected false to
- * be true" in the runner's summary. Throwing here puts the sentence and the
- * child's own words in the failure, which is the whole of the wait discipline
- * the flake campaign (#347/#359/#361/#364) re-earned three times.
  */
 export class Hung extends Error {
   readonly said: string;
@@ -53,16 +49,13 @@ export interface Start {
   readonly stdio?: StdioOptions;
   /**
    * Drain these into the box so a pipe nobody reads cannot block the child.
-   * Default: stderr when it is a pipe, not stdout — stdout is often a
-   * protocol (ACP, JSON-RPC) and stealing it is worse than not logging it.
-   * A one-shot ({@link run}) and a test that reads the serving line opt in.
+   * Default: stderr when it is a pipe, not stdout.
    */
   readonly drain?: { readonly stdout?: boolean; readonly stderr?: boolean };
   /**
    * Cap on each drained stream. Overflow keeps the tail and raises
    * {@link Child.overrun}; {@link run} answers `ok: false` with that tail
-   * quoted. Unset is unbounded. A silent truncate is how a parser of the
-   * output would drop the head of a `git status` and still say `ok`.
+   * quoted. Unset is unbounded.
    */
   readonly maxBuffer?: number;
 }
@@ -90,15 +83,13 @@ export interface Child {
   readonly out: () => string;
   readonly err: () => string;
   /** True once a drained stream passed {@link Start.maxBuffer}. The box
-   *  still holds the tail; {@link run} refuses rather than handing a parser
-   *  a truncated `ok`. */
+   *  still holds the tail; {@link run} refuses. */
   readonly overrun: () => boolean;
   /** `close` — the process is gone AND its stdio has drained. Attached at spawn. */
   readonly closed: Promise<Close>;
   /**
    * The close, or {@link Hung} after `ms` with what the child said. The
-   * listener is the one attached at spawn — attaching after the action is
-   * the hazard this exists to not have.
+   * listener is the one attached at spawn.
    */
   readonly wait: (ms: number, why: string) => Promise<Close>;
   /**
@@ -109,7 +100,7 @@ export interface Child {
     readonly graceMs?: number;
     readonly signal?: NodeJS.Signals;
   }) => Promise<Close>;
-  /** One signal, no wait. Tests that then {@link Child.wait} use this. */
+  /** One signal, no wait. */
   readonly kill: (signal?: NodeJS.Signals) => void;
 }
 
@@ -133,13 +124,41 @@ const slotIsPipe = (stdio: StdioOptions | undefined, slot: 1 | 2): boolean => {
   return item === "pipe" || item === undefined || item === null;
 };
 
+interface Spawned {
+  readonly child: ChildProcess;
+  readonly unstartable: Promise<string>;
+  readonly failed: () => string | undefined;
+  readonly closed: Promise<Close>;
+}
+
+const spawned = (
+  file: string,
+  args: ReadonlyArray<string>,
+  options: SpawnOptions,
+): Spawned => {
+  const child = spawn(file, [...args], options);
+  let execFail: string | undefined;
+  const unstartable = new Promise<string>((resolve) => {
+    child.once("error", (cause) => {
+      execFail = reasonOf(cause);
+      resolve(execFail);
+    });
+  });
+  const closed = new Promise<Close>((resolve) => {
+    child.on("close", (code, signal) =>
+      resolve({ code: code ?? null, signal: signal ?? null }),
+    );
+  });
+  return { child, unstartable, failed: () => execFail, closed };
+};
+
 export const start = (
   file: string,
   args: ReadonlyArray<string> = [],
   options: Start = {},
 ): Child => {
   const stdio = options.stdio ?? ["ignore", "pipe", "pipe"];
-  const child = spawn(file, [...args], {
+  const { child, unstartable, failed, closed } = spawned(file, args, {
     cwd: options.cwd,
     env: options.env,
     stdio,
@@ -176,23 +195,6 @@ export const start = (
     child.stderr.on("data", (chunk: string) => take("err", chunk));
   }
 
-  // BOTH listeners on the line after spawn. `unstartable` is the exec
-  // failure; `closed` is the end. Attaching either later is how a caller
-  // that asks after the fact waits for an event that will not come again,
-  // or lets an unhandled `error` take the process down.
-  let execFail: string | undefined;
-  const unstartable = new Promise<string>((resolve) => {
-    child.once("error", (cause) => {
-      execFail = reasonOf(cause);
-      resolve(execFail);
-    });
-  });
-  const closed = new Promise<Close>((resolve) => {
-    child.on("close", (code, signal) =>
-      resolve({ code: code ?? null, signal: signal ?? null }),
-    );
-  });
-
   const collected = () => ({ said: `${out}${err}`, out, err });
 
   const kill = (signal: NodeJS.Signals = "SIGTERM"): void => {
@@ -204,6 +206,10 @@ export const start = (
     } catch (cause) {
       if (!isEsrch(cause)) throw cause;
     }
+  };
+
+  const sweepGroup = (): void => {
+    if (options.processGroup === true) kill("SIGKILL");
   };
 
   const wait = (ms: number, why: string): Promise<Close> =>
@@ -232,8 +238,7 @@ export const start = (
         grace,
         `${file} did not stop after ${opts.signal ?? "SIGTERM"}`,
       );
-      // The leader can exit while a descendant keeps running with redirected I/O.
-      if (options.processGroup) kill("SIGKILL");
+      sweepGroup();
       return result;
     } catch (cause) {
       if (!(cause instanceof Hung)) throw cause;
@@ -254,7 +259,7 @@ export const start = (
     stdout: child.stdout,
     stderr: child.stderr,
     unstartable,
-    failed: () => execFail,
+    failed,
     said: () => `${out}${err}`,
     out: () => out,
     err: () => err,
@@ -279,8 +284,7 @@ export interface Said {
 }
 
 export interface Run extends Start {
-  /** Hang detector: {@link Hung} with what the child said. A caller that
-   *  wants a timeout as an ANSWER (git: every outcome is a value) catches. */
+  /** Hang detector: {@link Hung} with what the child said. */
   readonly timeout?: number;
 }
 
@@ -379,11 +383,7 @@ export const run = async (
 
 /**
  * A spawned process's environment: this one's, plus what the caller asked to
- * add, MINUS what it must not see.
- *
- * A `delete` on a COPY and never on what was handed in: `process.env` is the
- * host's own environment, a child is not entitled to edit it, and a mutation
- * there would outlive the spawn for every later child of this process.
+ * add, MINUS what it must not see. `base` is never mutated.
  */
 export const childEnvOf = (
   base: NodeJS.ProcessEnv,
