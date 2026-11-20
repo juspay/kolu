@@ -31,8 +31,6 @@ describe("findCodexStateDbPath", () => {
   });
 
   it("picks the highest numbered version when multiple are present", () => {
-    // Future-proof: user upgrades Codex, new state_7.sqlite appears
-    // alongside legacy state_5.sqlite. We must pick v7 — v5 is stale.
     fs.writeFileSync(path.join(dir, "state_5.sqlite"), "");
     fs.writeFileSync(path.join(dir, "state_7.sqlite"), "");
     fs.writeFileSync(path.join(dir, "state_6.sqlite"), "");
@@ -40,16 +38,12 @@ describe("findCodexStateDbPath", () => {
   });
 
   it("compares by numeric value, not lexicographic order", () => {
-    // "10" < "9" lexicographically; must treat them as numbers.
     fs.writeFileSync(path.join(dir, "state_9.sqlite"), "");
     fs.writeFileSync(path.join(dir, "state_10.sqlite"), "");
     expect(findCodexStateDbPath(dir)).toBe(path.join(dir, "state_10.sqlite"));
   });
 
   it("ignores files that don't match state_<digits>.sqlite", () => {
-    // logs_*.sqlite is a sibling family (different schema, different
-    // purpose). state_5.sqlite.backup, state_5.sqlite-wal etc. are also
-    // excluded — only the canonical filename matches.
     fs.writeFileSync(path.join(dir, "logs_2.sqlite"), "");
     fs.writeFileSync(path.join(dir, "state_5.sqlite-wal"), "");
     fs.writeFileSync(path.join(dir, "state_5.sqlite.backup"), "");

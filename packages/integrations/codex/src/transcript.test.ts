@@ -217,8 +217,6 @@ describe("normalizeCodexToolInput", () => {
     ].join("\n");
     const out = normalizeCodexToolInput("apply_patch", envelope);
     if (out.kind !== "patch") throw new Error("expected kind:patch");
-    // Every file lands as its own `diff --git` block — multi-file
-    // payloads round-trip through Pierre's `parsePatchFiles`.
     expect(out.text).toContain("diff --git a/foo.ts b/foo.ts");
     expect(out.text).toContain("new file mode 100644");
     expect(out.text).toContain("@@ -0,0 +1,2 @@");
@@ -228,7 +226,6 @@ describe("normalizeCodexToolInput", () => {
     expect(out.text).toContain("+new line");
     expect(out.text).toContain("diff --git a/baz.ts b/baz.ts");
     expect(out.text).toContain("deleted file mode 100644");
-    // The original envelope markers don't leak through.
     expect(out.text).not.toContain("*** Begin Patch");
     expect(out.text).not.toContain("*** Add File:");
   });

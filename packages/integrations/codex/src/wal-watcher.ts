@@ -1,9 +1,3 @@
-/**
- * Shared WAL watcher for Codex's threads DB. Wraps anyagent's
- * `createWalSubscription` — the refcounted singleton, parent-dir
- * fallback, and promote-on-appearance dance all live upstream.
- */
-
 import { createWalSubscription } from "kolu-shared/sqlite";
 import { CODEX_DB_PATH, CODEX_DB_WAL_PATH } from "./config.ts";
 

@@ -2,10 +2,6 @@ import { Result, Schema } from "effect";
 import { describe, expect, it } from "vitest";
 import { type CodexInfo, CodexInfoSchema } from "./schemas.ts";
 
-/** `CodexInfo` rides the surface wire (agent info on a terminal snapshot), so
- *  the ENCODED JSON — key set, key order, value shapes — is a contract with
- *  every client build that may be older or newer than the server emitting it.
- *  These fixtures pin the bytes, not just decode-equality. */
 describe("CodexInfoSchema wire bytes", () => {
   const encode = Schema.encodeSync(CodexInfoSchema);
   const decode = Schema.decodeUnknownSync(CodexInfoSchema);

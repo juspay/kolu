@@ -1,41 +1,3 @@
-/**
- * Codex core — pure functions and IO helpers for detecting Codex sessions
- * and deriving state from its SQLite threads DB + per-session JSONL rollout
- * transcripts.
- *
- * Codex stores:
- *  - `~/.codex/state_<N>.sqlite` — authoritative thread metadata.
- *    The `<N>` is Codex's schema-version suffix, currently v5;
- *    `findCodexStateDbPath` enumerates and picks the highest at startup
- *    so a user who upgrades Codex past v5 isn't silently blind. The
- *    `threads` table carries: id, rollout_path, cwd, title, tokens_used,
- *    model, updated_at_ms, source, archived.
- *  - `~/.codex/sessions/YYYY/MM/DD/rollout-<ts>-<id>.jsonl` — per-thread
- *    append-only event log. Each line is a typed event; the first line
- *    is `session_meta`, followed by a mix of `event_msg` (lifecycle:
- *    task_started, task_complete, turn_aborted, token_count,
- *    thread_name_updated, exec_command_end) and `response_item`
- *    (assistant I/O:
- *    function_call, function_call_output, message, reasoning).
- *
- * Division of labor:
- *  - **SQLite** — session discovery (`findSessionsByDirectory` joins
- *    cwd→thread in O(indexed-row-count)) and mutable metadata (title,
- *    model). Cheap indexed reads.
- *  - **JSONL** — state derivation (thinking / tool_use / waiting) and
- *    the per-turn context-token count. The SQLite row has no `state`
- *    column, and `threads.tokens_used` is a session-lifetime cumulative
- *    total (climbs to millions; unusable as a context-window percentage).
- *
- * The two sources are written atomically in the same cycle (verified:
- * WAL and JSONL mtimes agree to the nanosecond), so one fs.watch on the
- * WAL covers both.
- *
- * Structure note: this file holds the leaf module. Peers `session-watcher.ts`,
- * `wal-watcher.ts`, and `agent-adapter.ts` import from here; `index.ts` is
- * a pure barrel re-exporting from all of them plus `schemas.ts` / `config.ts`.
- */
-
 import { DatabaseSync } from "node:sqlite";
 import { classifyByAwaiting } from "anyagent";
 import type { Logger } from "kolu-shared";
@@ -43,12 +5,6 @@ import { readDbList, withDb as sharedWithDb } from "kolu-shared/sqlite";
 import { CODEX_DB_PATH } from "./config.ts";
 import type { CodexInfo } from "./schemas.ts";
 
-// --- Database helpers ---
-
-/** Codex-specific `withDb` — partial application of anyagent's shared
- *  helper over our `openDb`. Callers stay unaware that the machinery
- *  lives upstream; they just get the same `(fn, errorMsg, errorCtx,
- *  log?, db?) → T | null` signature they had before. */
 function withDb<T>(
   fn: (db: DatabaseSync) => T,
   errorMsg: string,
@@ -59,14 +15,6 @@ function withDb<T>(
   return sharedWithDb<DatabaseSync, T>(openDb, fn, errorMsg, errorCtx, log, db);
 }
 
-// --- Database session lookup ---
-
-/** Cap on the candidate list. The arbiter needs at most one distinct candidate
- *  per terminal sharing the directory, and this query re-runs per terminal on
- *  every reconcile — so an uncapped ORDER BY over a directory a user has run the
- *  agent in for years would re-materialize that whole history each time. Ordered
- *  most-recent-first, so the cap only ever drops sessions older than 64 others in
- *  the same directory, which no plausible number of concurrent terminals reaches. */
 const MAX_CANDIDATES = 64;
 
 export interface CodexSession {
@@ -96,7 +44,6 @@ const UUID_V7_RE =
  *  never guess a timestamp from a non-v7 / malformed id. */
 export function uuidV7TimestampMs(id: string): number | null {
   if (!UUID_V7_RE.test(id)) return null;
-  // The first 12 hex digits (48 bits) are the unix-ms timestamp.
   const ms = Number.parseInt(id.replace(/-/g, "").slice(0, 12), 16);
   return Number.isFinite(ms) ? ms : null;
 }
@@ -129,10 +76,6 @@ export function missingThreadColumns(db: DatabaseSync): string[] {
   return REQUIRED_THREAD_COLUMNS.filter((c) => !observed.has(c));
 }
 
-/** One-shot guard: has openDb already logged a schema-mismatch error
- *  for this process? The mismatch can't resolve without a restart
- *  (CODEX_DB_PATH is resolved once at module load), so re-logging on
- *  every openDb call would be noise. */
 let loggedSchemaError = false;
 
 /** Open a read-only connection to Codex's threads database. Returns null
@@ -235,8 +178,6 @@ export function findSessionsByDirectory(
   );
 }
 
-// --- Thread row refresh (title + model) ---
-
 /** Fields the watcher re-reads from the DB on every WAL event. */
 export interface ThreadMetadata {
   title: string | null;
@@ -283,30 +224,13 @@ export function getThreadMetadata(
   );
 }
 
-// --- JSONL state derivation ---
-
-/** Subset of a rollout line's shape that the parsers below read.
- *  Codex's actual records carry far more — we intentionally read only
- *  the fields the state machine + token accounting need, so unexpected
- *  additions upstream can't break parsing. */
 interface RolloutLine {
   type?: string;
   payload?: {
     type?: string;
-    /** On `task_started` / `task_complete` / `turn_aborted` event_msgs.
-     *  Carried here only so we can use its presence as the "this is a
-     *  real event" gate — its value is not needed by the state machine
-     *  (Codex emits completion or abort after the start of a turn, so
-     *  "last lifecycle signal ended the turn" is sufficient without
-     *  matching ids). */
     turn_id?: string;
-    /** On `response_item` payloads for function_call/function_call_output. */
     call_id?: string;
-    /** Function-call name on `response_item:function_call` payloads
-     *  (e.g. `shell`, `request_user_input`, `update_plan`). */
     name?: string;
-    /** On `token_count` event_msgs. Nested because Codex envelopes the
-     *  accounting under `.info` alongside rate-limit metadata. */
     info?: {
       /** Token usage for the MOST RECENT turn. In OpenAI's schema
        *  (which Codex follows), `input_tokens` is the TOTAL prompt
@@ -328,36 +252,6 @@ interface RolloutLine {
   };
 }
 
-/**
- * Derive Codex state from the rollout JSONL's tail.
- *
- * Algorithm (single forward pass, O(lines)):
- *  1. Track the latest lifecycle event: `task_started`,
- *     `task_complete`, or `turn_aborted`. Turn ids are NOT matched
- *     across events: the last lifecycle event dictates the outcome.
- *     This handles a tail that captured only `task_complete` or
- *     `turn_aborted` without its matching `task_started` (long
- *     tool-heavy turns that exceed TAIL_BYTES).
- *  2. Track open function calls by `call_id` **scoped to the current
- *     turn**: add on `function_call`, remove on `function_call_output`,
- *     clear on `task_started`. Scoping matters — a `function_call` from
- *     a prior turn that never got a matching `function_call_output`
- *     (user aborted mid-tool, or tail head clipped the output) would
- *     otherwise pin state at `tool_use` forever into the next turn.
- *     `exec_command_end` is ignored — it carries a call_id but is a
- *     mid-tool event; the call stays open until its
- *     `function_call_output` arrives.
- *  3. Decide:
- *     - No lifecycle events seen → null (fresh thread, suppress badge).
- *     - Last lifecycle event was `task_complete` or `turn_aborted` →
- *       **waiting**, regardless of open calls.
- *     - Last lifecycle event was `task_started` + any call_id open
- *       **for the current turn** → **tool_use**.
- *     - Last lifecycle event was `task_started` + no open calls →
- *       **thinking**.
- *
- * Pure function — unit-testable without touching the filesystem.
- */
 /** Codex function-call names whose pending invocation means the agent
  *  is awaiting the human. All three handlers `await session.<…>(…)` on
  *  the user before resolving:
@@ -387,8 +281,6 @@ export function parseRolloutState(lines: string[]): CodexInfo["state"] | null {
     try {
       entry = JSON.parse(line) as RolloutLine;
     } catch {
-      // Skip malformed lines — Codex writes well-formed JSONL, but a
-      // truncated final write during tail read is possible.
       continue;
     }
     const outer = entry.type;
@@ -397,7 +289,6 @@ export function parseRolloutState(lines: string[]): CodexInfo["state"] | null {
     if (outer === "event_msg") {
       if (inner === "task_started" && entry.payload?.turn_id) {
         lastLifecycle = "started";
-        // Scope openCalls to the current turn — see algorithm doc.
         openCalls.clear();
       } else if (
         (inner === "task_complete" || inner === "turn_aborted") &&
@@ -459,9 +350,6 @@ export function parseRolloutContextTokens(lines: string[]): number | null {
     if (entry.payload?.type !== "token_count") continue;
     const input = entry.payload.info?.last_token_usage?.input_tokens;
     if (typeof input !== "number") continue;
-    // 0 means the event landed before the first assistant turn
-    // accounted (empty placeholder) — render as "not yet" rather than
-    // "0 tokens used."
     return input > 0 ? input : null;
   }
   return null;

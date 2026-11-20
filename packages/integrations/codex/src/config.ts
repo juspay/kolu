@@ -1,6 +1,3 @@
-/** Configuration constants for the Codex integration.
- *  Leaf module — no imports from other package files. */
-
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -41,8 +38,6 @@ export function findCodexStateDbPath(dir: string = CODEX_DIR): string | null {
   for (const name of entries) {
     const match = /^state_(\d+)\.sqlite$/.exec(name);
     if (!match) continue;
-    // Group 1 is required by the pattern; the destructure with explicit
-    // tuple type is the localized cast.
     const [, versionStr] = match as unknown as [string, string];
     const version = Number.parseInt(versionStr, 10);
     if (version > bestVersion) {

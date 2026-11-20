@@ -8,12 +8,6 @@ import {
   uuidV7TimestampMs,
 } from "./core.ts";
 
-/** Build a token_count event_msg with the given `last_token_usage`
- *  fields. `cached` is written to the event (real Codex rollouts
- *  always include it), but the parser must ignore it — that's the
- *  core invariant these tests protect. In OpenAI's schema
- *  `input_tokens` already includes the cached portion, so a reader
- *  that adds the two double-counts every cache hit. */
 function tokenCount(input: number, cached: number): string {
   return JSON.stringify({
     type: "event_msg",
@@ -29,7 +23,6 @@ function tokenCount(input: number, cached: number): string {
   });
 }
 
-/** Build a JSONL line. Thin helper so the tests read like the data. */
 function line(obj: unknown): string {
   return JSON.stringify(obj);
 }
@@ -103,7 +96,6 @@ describe("parseRolloutState", () => {
       funcCall("call-B"),
       funcOutput("call-A"),
     ];
-    // call-B is still open → tool_use
     expect(parseRolloutState(lines)).toBe("tool_use");
   });
 
@@ -197,7 +189,6 @@ describe("parseRolloutState", () => {
     const lines = [
       line({ type: "event_msg", payload: { type: "task_started" } }),
     ];
-    // No turn_id → not counted as a real task_started
     expect(parseRolloutState(lines)).toBeNull();
   });
 
@@ -220,8 +211,6 @@ describe("parseRolloutState", () => {
   });
 
   it("stays tool_use when request_user_input runs alongside another tool", () => {
-    // Mixed batch: a question is pending, but so is a shell call —
-    // there's still compute in flight, so the conservative state wins.
     const lines = [
       taskStarted("turn-1"),
       funcCall("call-A", "request_user_input"),
@@ -231,23 +220,11 @@ describe("parseRolloutState", () => {
   });
 
   it("returns waiting when tail kept task_complete but chopped the start", () => {
-    // Simulates a Codex turn whose events exceed TAIL_BYTES: the tail
-    // slid past task_started(A) and captured only task_complete(A).
-    // The old two-variable implementation misclassified this as
-    // thinking (matching-turn-id check failed). The last-signal model
-    // handles it structurally.
     const lines = [taskComplete("turn-A")];
     expect(parseRolloutState(lines)).toBe("waiting");
   });
 
   it("discards an orphan function_call from a prior turn when the next turn starts", () => {
-    // User aborted turn-1 mid-tool: function_call(call-A) was emitted
-    // but no function_call_output ever arrived. task_complete still
-    // fires (Codex closes the turn on abort). Then the user starts a
-    // fresh turn-2 that's just thinking — no tool calls yet.
-    // Without per-turn scoping, call-A would stay in openCalls forever
-    // and pin state at `tool_use` for the new turn. Scoping on
-    // task_started clears the set so turn-2 is correctly `thinking`.
     const lines = [
       taskStarted("turn-1"),
       funcCall("call-A"),
@@ -258,11 +235,6 @@ describe("parseRolloutState", () => {
   });
 
   it("discards an orphan function_call even when the tail began mid-prior-turn", () => {
-    // Tail head chopped everything before `function_call(call-A)` —
-    // the earlier task_started and any matching function_call_output
-    // are gone. Without scoping, call-A would pin the new turn to
-    // `tool_use`. With scoping, task_started(turn-2) resets the set
-    // and the new turn reads as `thinking`.
     const lines = [
       funcCall("call-A"),
       taskComplete("turn-1"),
@@ -272,11 +244,6 @@ describe("parseRolloutState", () => {
   });
 
   it("scopes openCalls to the new turn — prior-turn orphans don't prevent tool_use detection", () => {
-    // Prior turn had a dangling call-A; new turn starts its own call-B.
-    // Without scoping, the decision would be tool_use for the wrong
-    // reason (we'd be reporting on call-A from a dead turn). With
-    // scoping, call-A is cleared at task_started(turn-2) and only
-    // call-B drives the decision.
     const lines = [
       funcCall("call-A"),
       taskComplete("turn-1"),
@@ -293,18 +260,10 @@ describe("parseRolloutContextTokens", () => {
   });
 
   it("returns input_tokens alone — cached_input_tokens is a subset, not additional", () => {
-    // Real numbers from the live dainty-island rollout. Codex's own
-    // `/status` command showed "48.9K used / 258K" — matching
-    // input_tokens, NOT input + cached. `cached_input_tokens` is the
-    // breakdown of how many of those input_tokens were cache hits,
-    // per OpenAI's usage schema.
     expect(parseRolloutContextTokens([tokenCount(48843, 48640)])).toBe(48843);
   });
 
   it("picks the LATEST token_count when the tail holds several", () => {
-    // Codex emits token_count once per turn; a tail spanning multiple
-    // turns has multiple events. Only the newest reflects current
-    // context usage — earlier ones are stale.
     const lines = [
       tokenCount(10000, 5000),
       taskStarted("turn-2"),
@@ -314,10 +273,6 @@ describe("parseRolloutContextTokens", () => {
   });
 
   it("reads input_tokens even when cached_input_tokens is absent", () => {
-    // Early-session token_count events sometimes land before the
-    // prompt cache warms up — cached_input_tokens can be absent.
-    // Since the parser reads only input_tokens, this case is
-    // indistinguishable from the fully-populated case.
     const line = JSON.stringify({
       type: "event_msg",
       payload: {
@@ -329,16 +284,10 @@ describe("parseRolloutContextTokens", () => {
   });
 
   it("returns null when input_tokens is zero (accounting not yet happened)", () => {
-    // A token_count can land with a zero/empty last_token_usage in the
-    // narrow window before the first assistant turn — rendering 0
-    // would flash a misleading "0k" badge.
     expect(parseRolloutContextTokens([tokenCount(0, 0)])).toBeNull();
   });
 
   it("ignores token_count events that lack last_token_usage", () => {
-    // Codex writes one token_count without the `info` field at
-    // rate-limit refresh time (seen in the live rollouts as the
-    // very first token_count event).
     const noInfo = JSON.stringify({
       type: "event_msg",
       payload: { type: "token_count", info: null },
@@ -347,9 +296,6 @@ describe("parseRolloutContextTokens", () => {
   });
 
   it("is independent of state — fires even mid-turn", () => {
-    // Context tokens should surface even when the lifecycle parser
-    // would return `thinking` or `tool_use`; they aren't gated on
-    // the last event being a `task_complete`.
     const lines = [
       taskStarted("turn-1"),
       tokenCount(32549, 4480),
@@ -365,9 +311,6 @@ describe("parseRolloutContextTokens", () => {
 });
 
 describe("missingThreadColumns", () => {
-  /** Build a throwaway in-memory DB with a `threads` table containing
-   *  exactly the named columns. Types don't matter — we only inspect
-   *  column names via PRAGMA. */
   function dbWithColumns(cols: string[]): DatabaseSync {
     const db = new DatabaseSync(":memory:");
     db.exec(
@@ -383,9 +326,6 @@ describe("missingThreadColumns", () => {
   });
 
   it("tolerates extra columns beyond the required set", () => {
-    // Real Codex `threads` has ~27 columns. We only depend on 8 — any
-    // others (git_sha, cli_version, sandbox_policy, …) must not
-    // register as a problem.
     const db = dbWithColumns([
       ...REQUIRED_THREAD_COLUMNS,
       "created_at",
@@ -398,9 +338,6 @@ describe("missingThreadColumns", () => {
   });
 
   it("lists every column the schema is missing", () => {
-    // Simulate a hypothetical v6 rename: Codex renames rollout_path and
-    // drops archived. Both must show up so the operator can see what's
-    // gone.
     const kept = REQUIRED_THREAD_COLUMNS.filter(
       (c) => c !== "rollout_path" && c !== "archived",
     );
@@ -412,13 +349,6 @@ describe("missingThreadColumns", () => {
   });
 
   it("reports every required column as missing when the threads table does not exist", () => {
-    // SQLite's `PRAGMA table_info(<unknown>)` returns zero rows rather
-    // than erroring, so a completely foreign DB (wrong file, early
-    // migration state, …) surfaces as "every required column missing."
-    // That's the same observable behavior openDb treats as "schema
-    // unusable," and the error log lists all 8 columns — an operator
-    // seeing that list can immediately tell the table is gone, not
-    // that 8 individual columns got renamed.
     const db = new DatabaseSync(":memory:");
     expect(missingThreadColumns(db).sort()).toEqual(
       [...REQUIRED_THREAD_COLUMNS].sort(),
@@ -430,13 +360,12 @@ describe("missingThreadColumns", () => {
 describe("uuidV7TimestampMs", () => {
   it("round-trips the embedded unix-ms timestamp of a uuidv7", () => {
     const ms = 1_700_000_000_000;
-    const hex = ms.toString(16).padStart(12, "0"); // 48-bit timestamp prefix
+    const hex = ms.toString(16).padStart(12, "0");
     const id = `${hex.slice(0, 8)}-${hex.slice(8, 12)}-7abc-89ab-0123456789ab`;
     expect(uuidV7TimestampMs(id)).toBe(ms);
   });
 
   it("decodes a real-world Codex thread id into a plausible recent time", () => {
-    // The id shape Codex stamps (see CodexInfoSchema.sessionId example).
     const ms = uuidV7TimestampMs("019db605-1234-7abc-89ab-0123456789ab");
     expect(ms).not.toBeNull();
     expect(ms).toBeGreaterThan(Date.UTC(2025, 0, 1));
@@ -444,7 +373,6 @@ describe("uuidV7TimestampMs", () => {
   });
 
   it("returns null for a non-v7 uuid (wrong version nibble)", () => {
-    // Version 4 — its 13th hex digit is `4`, not `7`; never guess a time.
     expect(
       uuidV7TimestampMs("0192b450-0000-4abc-89ab-0123456789ab"),
     ).toBeNull();
@@ -456,14 +384,10 @@ describe("uuidV7TimestampMs", () => {
   });
 
   it("returns null for a truncated id whose 13th char happens to be 7", () => {
-    // Bare 13 hex chars with `7` at index 12 used to slip through a version-
-    // nibble-only check and decode to a bogus timestamp; the full-shape check
-    // rejects it (no dashes, wrong length, no variant nibble).
     expect(uuidV7TimestampMs("019db60512347")).toBeNull();
   });
 
   it("returns null for a v7-looking id with an invalid variant nibble", () => {
-    // Variant nibble must be 8/9/a/b; `0` here is out of spec.
     expect(
       uuidV7TimestampMs("019db605-1234-7abc-0123-0123456789ab"),
     ).toBeNull();

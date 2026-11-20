@@ -54,8 +54,6 @@ export const CodexInfoSchema = Schema.Struct({
 
 export type CodexInfo = typeof CodexInfoSchema.Type;
 
-/** Codex / OpenAI knot mark — simple-icons `openai`, 24×24. ONE mark for both
- *  the tile-chrome icon and the dock pip. */
 const CODEX_MARK = {
   viewBox: "0 0 24 24",
   paint: "fill" as const,

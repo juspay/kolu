@@ -1,24 +1,3 @@
-/**
- * CodexWatcher — encapsulates all per-session lifecycle state.
- *
- * Wraps `kolu-shared`'s generic `createDebounceWatcher` with codex's
- * SQLite + JSONL refresh logic. The factory owns the destroy flag,
- * debounce timer, DB lifetime, equality-gated dispatch, and lifecycle
- * logs; this file only owns the per-event `refresh` body and codex's
- * `cachedDerive` JSONL-tail short-circuit.
- *
- * Data flow per WAL event (inside the factory's debounce):
- *   1. re-read `threads.{title, model, tokens_used}` from SQLite
- *   2. tail the matched rollout JSONL (last TAIL_BYTES) — skipped when
- *      the file size is unchanged from the last parse
- *   3. assemble CodexInfo; the factory gates dispatch on `agentInfoEqual`
- *
- * Mirrors `OpenCodeWatcher` (SQLite side) composed with `SessionWatcher`
- * (JSONL tail side). The merge happens here because Codex is the one
- * integration where state lives only in the JSONL but metadata lives
- * only in SQLite — neither source is sufficient alone.
- */
-
 import fs from "node:fs";
 import type { DatabaseSync } from "node:sqlite";
 import { agentInfoEqual } from "anyagent";
@@ -35,25 +14,9 @@ import {
 import type { CodexInfo } from "./schemas.ts";
 import { subscribeCodexDb } from "./wal-watcher.ts";
 
-// --- Tuning constants ---
-
-/** Trailing-edge debounce for WAL fs.watch callbacks. Codex writes a
- *  WAL frame and appends a JSONL line on every thread mutation; during
- *  active generation these fire several times per second. 150 ms
- *  coalesces bursts into one handler run while staying imperceptible.
- *  Matches WAL_DEBOUNCE_MS in kolu-opencode and TRANSCRIPT_DEBOUNCE_MS
- *  in kolu-claude-code. */
 const WAL_DEBOUNCE_MS = 150;
 
-/** Tail window for reading the rollout JSONL. Matches kolu-claude-code's
- *  TAIL_BYTES — sized to comfortably contain the last few turns
- *  (task_started → agent_message → task_complete/turn_aborted, plus tool calls).
- *  Codex rollout lines are smaller than Claude's (assistant content is
- *  split into many `response_item` records rather than one monolithic
- *  `assistant` entry), so 256 KB is generous. */
 const TAIL_BYTES = 256 * 1024;
-
-// --- Watcher ---
 
 export interface CodexWatcher {
   readonly session: CodexSession;
@@ -73,17 +36,6 @@ export function createCodexWatcher(
   onChange: (info: CodexInfo) => void,
   log?: Logger,
 ): CodexWatcher {
-  /** Cache of the last-parsed rollout state + context-token count,
-   *  scoped to a specific JSONL byte size. On a WAL event whose
-   *  corresponding stat size matches `size`, we reuse the cached
-   *  values instead of re-reading and re-parsing the tail. Null
-   *  until the first successful derive.
-   *
-   *  This is the hot-path optimization: DB-only WAL events (e.g.
-   *  title updates, row touches) don't append to the rollout, so
-   *  `state` and `contextTokens` can't have changed. Without the
-   *  short-circuit, we'd re-read + re-parse 256 KB on every such
-   *  fire. */
   let cachedDerive: {
     size: number;
     state: CodexInfo["state"];
@@ -93,12 +45,6 @@ export function createCodexWatcher(
   function refresh(db: DatabaseSync): CodexInfo | null {
     const meta = getThreadMetadata(session.id, log, db);
     if (!meta) {
-      // The row existed at match time (otherwise we wouldn't have a
-      // CodexSession at all) — a null here means Codex deleted it
-      // after we subscribed. That's a real anomaly, not a race window,
-      // so it warrants `warn`, not `debug`. Conflating it with the
-      // expected "no turns yet" path below would hide the distinction
-      // from an operator filtering logs.
       log?.warn(
         { session: session.id },
         "codex thread row disappeared after match",
@@ -167,11 +113,6 @@ export function createCodexWatcher(
   });
 }
 
-/** Stat the rollout JSONL. Returns `{ size }` on success, null on any
- *  failure (ENOENT silently; other errnos at `error`). Split out from
- *  the parse step so the caller can use the size as a cache key — if
- *  it matches the last-parsed size, the expensive open/read/parse pass
- *  can be skipped entirely. */
 function statRollout(
   session: CodexSession,
   log?: Logger,
@@ -189,14 +130,6 @@ function statRollout(
   }
 }
 
-/** Read the last TAIL_BYTES of the rollout JSONL at the given size
- *  via kolu-shared's tail reader, then derive state and context-token
- *  count from the same buffer in two passes. Returns null on hard read
- *  error (logged at `error`) or when the state machine found no task
- *  events in the tail (logged at `debug` — the caller treats this
- *  uniformly as "skip"). `contextTokens` may independently be null
- *  when the tail contains a lifecycle event but no `token_count`
- *  event yet. */
 function readAndParseTail(
   session: CodexSession,
   size: number,

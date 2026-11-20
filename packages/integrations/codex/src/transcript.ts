@@ -1,15 +1,3 @@
-/** One-shot transcript loader for the HTML export feature.
- *
- *  Codex's rollout JSONL mixes lifecycle events (`event_msg:*`),
- *  per-turn context payloads (`turn_context`), and the assistant's I/O
- *  (`response_item:*`). Only a subset reads as conversation content:
- *  user messages, agent messages (visible reply), reasoning summaries,
- *  function/custom tool calls, and their matching outputs. Everything
- *  else (session_meta, turn_context, task_started/complete, token_count,
- *  exec_command_end, patch_apply_end, developer-role messages) is
- *  silently skipped — those are state-derivation signals, not
- *  conversation. */
-
 import fs from "node:fs";
 import type { DatabaseSync } from "node:sqlite";
 import type { Logger } from "kolu-shared";
@@ -29,28 +17,19 @@ interface RolloutLine {
   type?: string;
   payload?: {
     type?: string;
-    /** event_msg:user_message */
     message?: string;
-    /** response_item:message (role-tagged) */
     role?: string;
     content?: Array<{ type?: string; text?: string }>;
-    /** response_item:reasoning */
     summary?: Array<{ type?: string; text?: string }>;
-    /** response_item:function_call */
     name?: string;
     arguments?: string;
     call_id?: string;
-    /** response_item:function_call_output */
     output?: string;
-    /** response_item:custom_tool_call */
     input?: string;
     status?: string;
   };
 }
 
-/** Parse a JSON string but fall back to the raw string when invalid —
- *  Codex's tool arguments are always JSON-encoded, but we don't want a
- *  parse error to drop content silently. */
 function tryParseJson(raw: string | undefined): unknown {
   if (raw === undefined) return undefined;
   try {
@@ -130,7 +109,6 @@ function eventFromLine(entry: RolloutLine): TranscriptEvent | null {
         ts,
       };
     }
-    // Skip developer-role messages and anything else.
     return null;
   }
 
@@ -147,9 +125,6 @@ export function parseCodexRollout(content: string): TranscriptEvent[] {
     try {
       entry = JSON.parse(line) as RolloutLine;
     } catch {
-      // Malformed line — skip. Codex writes the JSONL itself; a
-      // truncated final write is the only practical failure mode. One
-      // corrupt entry shouldn't fail the entire export.
       continue;
     }
     const ev = eventFromLine(entry);
@@ -267,7 +242,6 @@ export function codexEnvelopeToUnifiedDiff(text: string): string {
         ) {
           hunk.push(l);
         } else {
-          // Bare line (no prefix) — treat as context.
           hunk.push(` ${l}`);
         }
         i++;
@@ -275,7 +249,6 @@ export function codexEnvelopeToUnifiedDiff(text: string): string {
       flushHunk();
       continue;
     }
-    // Unknown marker / stray line — skip.
     i++;
   }
   return out.join("\n");
@@ -289,11 +262,6 @@ export function normalizeCodexToolInput(
   toolName: string,
   parsed: unknown,
 ): ToolInput {
-  // apply_patch's payload is the patch text itself. Codex emits
-  // OpenAI's `*** Begin Patch / *** Update File / *** Add File`
-  // envelope, not standard unified diff — convert it here so the
-  // IR's `kind: "patch"` always carries unified-diff text and the
-  // renderer doesn't need to know about Codex's wire format.
   if (toolName === "apply_patch") {
     const raw =
       typeof parsed === "string"
@@ -317,9 +285,6 @@ export function normalizeCodexToolInput(
   switch (toolName) {
     case "exec_command":
     case "shell": {
-      // Codex's exec_command historically used `cmd` (a string command);
-      // newer versions use `command` (often an array of argv). Accept
-      // both, joining argv with spaces for display.
       if (Array.isArray(o.command)) {
         return {
           kind: "bash",
@@ -342,9 +307,6 @@ export function normalizeCodexToolInput(
       return { kind: "web_search", query: str("query") };
     case "skill":
     case "Skill": {
-      // Codex doesn't ship Skills today, but if a future release lands
-      // a Skill-shaped tool, we want it to round-trip through the
-      // typed union rather than silently degrade to `unknown`.
       const argsField = typeof o.args === "string" ? (o.args as string) : null;
       return {
         kind: "skill",
@@ -353,7 +315,6 @@ export function normalizeCodexToolInput(
       };
     }
     case "update_plan": {
-      // Codex's TODO/plan tool. Payload is `{ plan: [{ step, status }] }`.
       const plan = Array.isArray(o.plan) ? o.plan : [];
       return {
         kind: "task",
@@ -362,10 +323,6 @@ export function normalizeCodexToolInput(
       };
     }
     case "spawn_agent": {
-      // Codex subagent dispatch. `agent_type` is the recipient's
-      // role/preset; `message` is the directive prompt. Surfacing
-      // through `send_message` lets the renderer show
-      // "Message → explorer: Task: research…" inline.
       return {
         kind: "send_message",
         to: str("agent_type") || str("agent"),
@@ -373,8 +330,6 @@ export function normalizeCodexToolInput(
       };
     }
     case "send_input": {
-      // Send keystrokes / a follow-up message to an existing subagent.
-      // Same shape conceptually as Claude Code's `SendMessage`.
       return {
         kind: "send_message",
         to: str("target") || str("agentId"),
@@ -382,9 +337,6 @@ export function normalizeCodexToolInput(
       };
     }
     case "view_image":
-      // Codex's image-viewing tool — semantically equivalent to a
-      // `read` against a binary file. The renderer's "Read · …/path"
-      // summary is exactly the right shape.
       return { kind: "read", filePath: str("path") || str("file_path") };
     default:
       return { kind: "unknown", toolName, raw: parsed };
@@ -400,8 +352,6 @@ function withDb<T>(
   return sharedWithDb<DatabaseSync, T>(openDb, fn, errorMsg, errorCtx, log);
 }
 
-/** Look up the rollout path for a thread and return null if the thread
- *  was deleted or the DB is unavailable. */
 function findRolloutPath(sessionId: string, log?: Logger): string | null {
   return withDb(
     (db) => {

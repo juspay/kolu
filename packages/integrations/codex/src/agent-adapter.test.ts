@@ -26,8 +26,6 @@ function makeState(over: Partial<AgentTerminalState>): AgentTerminalState {
     cwd: "/repo",
     readForegroundBasename: () => null,
     lastAgentCommandName: null,
-    // codex matches on basename + cwd and never reads the process snapshot;
-    // the contract still requires the field.
     readProcessSnapshot: () => null,
     ...over,
   };
@@ -64,9 +62,6 @@ describe("codexAdapter.resolveSessions", () => {
   });
 
   it("hands back EVERY thread in the directory, not just the newest", () => {
-    // Two harnesses in one repo: the adapter cannot tell which thread is this
-    // terminal's, so it offers both and the orchestrator's ownership arbiter
-    // gives each terminal one of its own (juspay/kolu#2057).
     findSessionsMock.mockReturnValue([
       { id: "newer", rolloutPath: "/tmp/b.jsonl" },
       { id: "older", rolloutPath: "/tmp/a.jsonl" },
@@ -78,10 +73,6 @@ describe("codexAdapter.resolveSessions", () => {
   });
 
   it("passes a null through — an unreadable DB is not an empty directory", () => {
-    // `findSessionsByDirectory` answers null when the query THREW, and the
-    // orchestrator must be able to tell that from "this directory has no
-    // threads": the latter releases the terminal's session, the former must
-    // change nothing.
     findSessionsMock.mockReturnValue(null);
     const state = makeState({ readForegroundBasename: () => "codex" });
     expect(codexAdapter.resolveSessions(state, noopLog)).toBeNull();
