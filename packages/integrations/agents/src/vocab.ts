@@ -24,8 +24,6 @@ import { opencodeVocab } from "kolu-opencode/schemas";
 import { piVocab } from "kolu-pi/schemas";
 import { xyneVocab } from "kolu-xyne/schemas";
 
-/** The agent vocabs, keyed by kind — the ONE list. Adding an agent is one import
- *  and one row here, plus the agent's own package. */
 export const AGENT_VOCABS = {
   "claude-code": claudeCodeVocab,
   codex: codexVocab,
@@ -36,16 +34,10 @@ export const AGENT_VOCABS = {
   xyne: xyneVocab,
 } as const satisfies Record<string, AnyAgentVocab>;
 
-/** The closed agent-kind union, derived from the registry — not a hand-copied
- *  literal list. */
 export type AgentKind = keyof typeof AGENT_VOCABS;
 
 /** The keys that SUBMIT a prompt to some registered agent — the last key of
- *  each agent's own idle say recipe (`AgentSayRecipe.idle`, re-verified per
- *  agent release), de-duplicated. The registry's answer to "which keystroke
- *  hands the program in front its prompt", read by padi's input seam to know an
- *  agent was prompted before its transcript says so; an agent whose submit
- *  ritual changes moves padi's reading with it in the one edit that changes. */
+ *  each agent's own idle say recipe (`AgentSayRecipe.idle`), de-duplicated. */
 export const AGENT_SUBMIT_KEYS: readonly string[] = [
   ...new Set(
     Object.values(AGENT_VOCABS as Record<string, AnyAgentVocab>).flatMap(
@@ -54,66 +46,33 @@ export const AGENT_SUBMIT_KEYS: readonly string[] = [
   ),
 ];
 
-/** The `AgentInfo` member for one kind — correlation so `agentVocab(kind)` and
- *  the wire union stay typed per kind. */
 export type AgentInfoOf<K extends AgentKind> =
   (typeof AGENT_VOCABS)[K]["infoSchema"]["Type"];
 
-/** The closed kind vocabulary as an Effect schema, derived from the registry. */
 export const AgentKindSchema = Schema.Literals(
   Object.keys(AGENT_VOCABS) as [AgentKind, ...AgentKind[]],
 );
 
-/** The info-schema tuple type — a tuple (not a bare array) so `Schema.Union`
- *  infers `Members[number]` as the union of the concrete schemas rather than a
- *  widened `Schema.Top`, which would erase each member's `DecodingServices`
- *  (it must stay `never` for the composed snapshot schema to typecheck). */
-type AgentInfoSchemaTuple = readonly [
-  (typeof AGENT_VOCABS)[AgentKind]["infoSchema"],
-  ...(typeof AGENT_VOCABS)[AgentKind]["infoSchema"][],
-];
+type AgentInfoSchemaMember = (typeof AGENT_VOCABS)[AgentKind]["infoSchema"];
 
 const SessionAgentInfoSchema = Schema.Union(
-  Object.values(AGENT_VOCABS).map(
-    (v) => v.infoSchema,
-  ) as unknown as AgentInfoSchemaTuple,
+  Object.values(AGENT_VOCABS).map((v) => v.infoSchema) as [
+    AgentInfoSchemaMember,
+    ...AgentInfoSchemaMember[],
+  ],
 );
 
-/** THE TWO STATE SETS ARE DISJOINT — the one fact {@link isAgentPresence} and
- *  the wire decode both rest on. A transcript state that ever names a presence
- *  state would make that agent's real session narrow as a presence everywhere
- *  the predicate guards (no restore target, no transcript, no resume),
- *  silently. So a colliding literal fails to compile HERE, where the union is
- *  composed. */
 type TranscriptPresenceCollision = Extract<
   typeof SessionAgentInfoSchema.Type.state,
   AgentPresenceState
 >;
-const _presenceStatesAreNoTranscriptState: [
-  TranscriptPresenceCollision,
-] extends [never]
+true satisfies [TranscriptPresenceCollision] extends [never]
   ? true
   : [
       "a transcript state collides with a presence state",
       TranscriptPresenceCollision,
-    ] = true;
-void _presenceStatesAreNoTranscriptState;
+    ];
 
-/** An agent that is HERE but has no session kolu can read yet — the daemon's
- *  process fact ({@link AGENT_PRESENCE_STATES}: `starting`, then `fresh`, then
- *  `prompted` once something is submitted to it), minted for every kind from
- *  the foreground and the input padi forwards. Every transcript field is
- *  `null` because there is no transcript; `sessionId` is `null` unless the
- *  agent itself names its session before writing it (omp's `fresh`
- *  breadcrumb, Claude's `sessions/<pid>.json` — `AgentAdapter.presenceSessionId`).
- *
- *  ONE member for every kind rather than three literals in every agent's own
- *  `state` set: no agent package can derive any of them from its transcript,
- *  and a presence carries none of an agent's own fields (omp's `sessionPath`,
- *  Claude's `workflow`), so code that narrows to one kind's info must first
- *  rule presence out — which the compiler now asks of it. The state sets are
- *  disjoint, so the wire decode picks this member exactly when the state is a
- *  presence state. */
 export const AgentPresenceSchema = Schema.Struct({
   kind: AgentKindSchema,
   state: AgentPresenceStateSchema,
@@ -126,9 +85,6 @@ export const AgentPresenceSchema = Schema.Struct({
 });
 export type AgentPresence = typeof AgentPresenceSchema.Type;
 
-/** The discriminated `AgentInfo` union: every vocab's session-backed schema,
- *  plus {@link AgentPresenceSchema}. Stays a CLOSED union so consumers can
- *  `match(...).exhaustive()` on kind. */
 export const AgentInfoSchema = Schema.Union([
   SessionAgentInfoSchema,
   AgentPresenceSchema,
@@ -136,19 +92,12 @@ export const AgentInfoSchema = Schema.Union([
 
 export type AgentInfo = typeof AgentInfoSchema.Type;
 
-/** An agent value that came from its own transcript — `AgentInfo` minus
- *  presence. */
 export type SessionAgentInfo = Exclude<AgentInfo, AgentPresence>;
 
-/** Is this agent value a PRESENCE — an agent with no readable session yet? The
- *  one test, read off the state (the two state sets are disjoint), so the
- *  narrowing and the wire decode cannot disagree. */
 export function isAgentPresence(info: AgentInfo): info is AgentPresence {
   return (AGENT_PRESENCE_STATES as readonly string[]).includes(info.state);
 }
 
-/** Build the presence value for one agent — the ONE constructor, so a field
- *  added to {@link AgentPresenceSchema} is filled in one place. */
 export function agentPresence(
   kind: AgentKind,
   state: AgentPresenceState,
@@ -166,18 +115,12 @@ export function agentPresence(
   };
 }
 
-/** Look up one agent's vocab by kind. */
 export function agentVocab<K extends AgentKind>(
   kind: K,
 ): (typeof AGENT_VOCABS)[K] {
   return AGENT_VOCABS[kind];
 }
 
-/** One agent's say recipe, its steer sight read over the WIRE union — the
- *  kind → info correlation made once, here, where the registry already erases
- *  it (`AnyAgentVocab`), so `agent_say` holds an `AgentInfo` and never casts.
- *  The sight reads only a session-backed agent of THIS kind: a presence has no
- *  transcript, so it has no prompt to name. */
 export function agentSayRecipe(
   kind: AgentKind,
 ): AgentSayRecipe<AgentInfo> | null {
@@ -209,34 +152,23 @@ export function agentSayRecipe(
   };
 }
 
-/** Narrow a raw string to an `AgentKind` — `Object.hasOwn`, never `in`, so a
- *  wire word like `"toString"` cannot narrow as a kind it is not. */
 export function isAgentKind(raw: string): raw is AgentKind {
   return Object.hasOwn(AGENT_VOCABS, raw);
 }
 
-/** The CLI grammar (binary name + stable-flag allowlist) for an OPEN kind —
- *  the sensor's argv filter reads it. CRASHES when this build does not know the
- *  kind: for a caller holding kolu's own data (our adapters, our registry) that
- *  is a programming error, not a user-facing condition. A PERSISTED record takes
- *  the non-throwing door (`resumeFormFor` → bare shell) instead. */
+/** The CLI grammar (binary name + stable-flag allowlist) for one kind. THROWS
+ *  when this build does not know the kind. */
 export function agentCliGrammar(kind: string): AgentCliGrammar {
   if (!isAgentKind(kind)) throw new Error(`unknown agent kind: ${kind}`);
   return AGENT_VOCABS[kind].cli;
 }
 
-/** Does this basename name one of kolu's agent binaries? The sensor asks it of a
- *  PTY mark's head token to decide whether an agent may be launching — a
- *  question about our registry, never about the mark's content. */
 export function isAgentBinaryName(name: string): boolean {
   return Object.values(AGENT_VOCABS).some(
     (vocab) => vocab.cli.basename === name,
   );
 }
 
-/** Map every registered vocab to a uniform value, preserving the kind key — a
- *  typed `Object.fromEntries` whose call sites need no cast. The ONE cast lives
- *  here, where the key set is the registry itself. */
 export function mapAgentVocabs<R>(
   f: (vocab: AnyAgentVocab, kind: AgentKind) => R,
 ): Record<AgentKind, R> {
@@ -247,43 +179,31 @@ export function mapAgentVocabs<R>(
   return out;
 }
 
-/** The persisted resume ref for a LIVE agent's info — `vocab.resume.ref(info)`.
- *  The single place the kind↔Info correlation lost at a union-typed
- *  `agent.kind` is re-asserted (the one `AnyAgentVocab` widening in the
- *  registry). Takes a SESSION-BACKED info only: a presence has no conversation
- *  to resume, so the caller rules it out first ({@link isAgentPresence}). */
 export function resumeRefFor(agent: SessionAgentInfo): string {
   const vocab: AnyAgentVocab = AGENT_VOCABS[agent.kind];
   return vocab.resume.ref(agent);
 }
 
-/** The kind-keyed CLI registry. Built once at module init; a duplicate kind
- *  throws there (crash loudly, AGENTS.md) — the compile fence the old
- *  `BASENAME_TO_KIND` record had becomes a load-time fence. */
 export const AGENT_CLI: AgentCliRegistry = buildCliRegistry(
   Object.values(AGENT_VOCABS),
 );
 
-/** Render a restore target into the resume form a fresh shell is typed. */
 export const resumeFormFor = (
   target: RestoreTarget | undefined,
 ): string | null => cliResumeFormFor(AGENT_CLI, target);
 
-/** Would a wake resume this target? The ONE gate the display/decision sites ask
- *  instead of rendering a full command line to compare with `null`. */
 export const willResume = (
   target: RestoreTarget | undefined,
 ): target is Extract<RestoreTarget, { kind: "exact" }> =>
   cliWillResume(AGENT_CLI, target);
 
-/** The launch line a display site shows (gated on wake actually resuming). */
+/** The launch line a display site shows; `null` unless a wake would resume. */
 export const resumableCommand = (
   target: RestoreTarget | undefined,
 ): string | null => cliResumableCommand(AGENT_CLI, target);
 
-/** Render `kind argv…` for the recent-agents palette and the typed launch line
- *  — the ONE renderer of a stored `{ kind, argv }` fact. `null` for a kind this
- *  build no longer knows (a stale MRU row renders nothing, never a guess). */
+/** Render `kind argv…` for a stored `{ kind, argv }` fact; `null` for a kind
+ *  this build no longer knows. */
 export const agentLaunchLine = (
   kind: string,
   argv: readonly string[],

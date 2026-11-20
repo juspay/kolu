@@ -2,7 +2,7 @@ import { Result, Schema } from "effect";
 import { buildCliRegistry } from "anyagent";
 import type { OmpInfo } from "kolu-omp/schemas";
 import type { PiInfo } from "kolu-pi/schemas";
-import { describe, expect, it } from "vitest";
+import { describe, expect, expectTypeOf, it } from "vitest";
 import { AGENT_DIR_ENV_KEYS, AGENT_PLUGINS } from "./index.ts";
 import {
   AGENT_CLI,
@@ -68,14 +68,8 @@ describe("AgentInfoSchema — a closed discriminated union", () => {
   });
 
   it("narrows on `kind` per member (kind ↔ Info correlation survives)", () => {
-    const check: Extract<AgentInfo, { kind: "pi" }> extends PiInfo
-      ? true
-      : false = true;
-    expect(check).toBe(true);
-    const ompCheck: Extract<AgentInfo, { kind: "omp" }> extends OmpInfo
-      ? true
-      : false = true;
-    expect(ompCheck).toBe(true);
+    expectTypeOf<Extract<AgentInfo, { kind: "pi" }>>().toExtend<PiInfo>();
+    expectTypeOf<Extract<AgentInfo, { kind: "omp" }>>().toExtend<OmpInfo>();
   });
 
   it("decodes an oh-my-pi payload through the union on its `kind`", () => {
@@ -129,10 +123,6 @@ describe("the CLI registry", () => {
 
 describe("AGENT_DIR_ENV_KEYS", () => {
   it("is the unique, KOLU_-prefixed union of every plugin's env keys", () => {
-    // Structural invariants, NOT a pinned list: a pinned list is the old
-    // padiBinding table moved into a test, and the next agent with a
-    // `KOLU_<AGENT>_DIR` key would have to edit it — the per-agent edit the
-    // registry exists to remove.
     const keys = [...AGENT_DIR_ENV_KEYS];
     expect(new Set(keys).size).toBe(keys.length);
     for (const key of keys) expect(key.startsWith("KOLU_")).toBe(true);
