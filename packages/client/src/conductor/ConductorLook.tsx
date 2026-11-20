@@ -141,7 +141,9 @@ const ConductorLook: Component<{
           then a lead's own parts down to their floors. */}
       <div class="flex min-w-0 items-center gap-2">
         {props.lead}
-        <span class={`h-2 w-2 shrink-0 rounded-full ${STATUS_DOT[status().tone]}`} />
+        <span
+          class={`h-2 w-2 shrink-0 rounded-full ${STATUS_DOT[status().tone]}`}
+        />
         <span
           data-testid="conductor-look-status"
           class="min-w-0 flex-1 truncate text-fg-2"

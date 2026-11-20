@@ -27,10 +27,7 @@ export function peekNatural(
 }
 
 /** Does a terminal of this width need to be panned in the room it has? */
-export function peekPans(
-  naturalWidth: number,
-  availWidth: number,
-): boolean {
+export function peekPans(naturalWidth: number, availWidth: number): boolean {
   return naturalWidth > availWidth;
 }
 

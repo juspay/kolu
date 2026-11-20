@@ -2,7 +2,10 @@ import { makeEventListener } from "@solid-primitives/event-listener";
 import { isSnapshotFrame } from "@kolu/padi-client/attach";
 import { activeArm } from "@kolu/padi-client/surface";
 import { unenrolledStreamCall } from "@kolu/surface/client";
-import { isReadingReport, isTerminalQueryResponse } from "@kolu/terminal-protocol";
+import {
+  isReadingReport,
+  isTerminalQueryResponse,
+} from "@kolu/terminal-protocol";
 import {
   type TerminalGrid,
   Xterm,
@@ -28,11 +31,7 @@ import { applyStickyModifiers } from "../../terminal/stickyModifiers";
 import { useShown } from "../../ui/shown";
 import { padiMap, padiRpcOf, preferences } from "../../wire";
 import { personInputAt } from "../personInput";
-import {
-  applyPeekFrame,
-  peekAttachInput,
-  type PeekScreen,
-} from "./peekAttach";
+import { applyPeekFrame, peekAttachInput, type PeekScreen } from "./peekAttach";
 import type { PeekCell, PeekPad } from "./peekSize";
 
 /** The keyboard door the window's own bars use to take Esc back from the terminal. */
@@ -73,8 +72,8 @@ const PeekTerminal: Component<{
     if (!isReadingReport(data) && !personInputAt(ref)) return;
     runAction(
       "send input",
-      padiRpcOf(hostKey).lifecycle
-        .sendInput({ id: props.id, data: applyStickyModifiers(data) })
+      padiRpcOf(hostKey)
+        .lifecycle.sendInput({ id: props.id, data: applyStickyModifiers(data) })
         .pipe(Effect.ignore),
     );
   };

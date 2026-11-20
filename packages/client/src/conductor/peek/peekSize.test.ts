@@ -4,7 +4,11 @@ import { fitFontSize, peekNatural, peekPans } from "./peekSize";
 describe("peekNatural", () => {
   it("is the grid at the cell size plus the terminal's padding", () => {
     expect(
-      peekNatural({ cols: 110, rows: 34 }, { width: 8.4, height: 17 }, { x: 26, y: 12 }),
+      peekNatural(
+        { cols: 110, rows: 34 },
+        { width: 8.4, height: 17 },
+        { x: 26, y: 12 },
+      ),
     ).toEqual({ width: 950, height: 590 });
   });
 });

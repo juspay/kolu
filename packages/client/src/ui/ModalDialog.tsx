@@ -140,9 +140,7 @@ const ModalDialog: Component<{
           }}
         />
         <div
-          class={
-            props.size === "fit" ? FRAME_CLASS.fit : FRAME_CLASS.top
-          }
+          class={props.size === "fit" ? FRAME_CLASS.fit : FRAME_CLASS.top}
           classList={{ hidden: !props.open }}
         >
           <div class={`pointer-events-auto ${SIZE_CLASS[props.size ?? "md"]}`}>
