@@ -48,6 +48,7 @@ const drawn = (one: ConductorCompactionRow) => {
     toggle: () => text("conductor-compaction-toggle"),
     sentence: () => text("conductor-compaction-sentence"),
     summary: () => text("conductor-compaction-summary"),
+    unfolds: () => line.querySelector("details") !== null,
     open: () => line.querySelector("details")?.open ?? false,
   };
 };
@@ -58,11 +59,13 @@ describe("the compaction line", () => {
     expect(seen.line.dataset.state).toBe("running");
     expect(seen.toggle()).toContain("compacting at 201k");
     expect(seen.sentence()).toBeNull();
+    expect(seen.unfolds()).toBe(false);
   });
 
   it("done: folded, and unfolds to whether the rules were sent and the summary", () => {
     const seen = drawn(row({}));
     expect(seen.toggle()).toContain("compacted at 201k");
+    expect(seen.unfolds()).toBe(true);
     expect(seen.open()).toBe(false);
     expect(seen.sentence()).toBe(
       "Claude Code replaced the conversation above with this summary. The rules were sent again.",
@@ -93,5 +96,6 @@ describe("the compaction line", () => {
       "Claude Code tried to compact this conversation and could not: the summary request was refused (overloaded).",
     );
     expect(seen.summary()).toBeNull();
+    expect(seen.unfolds()).toBe(false);
   });
 });
