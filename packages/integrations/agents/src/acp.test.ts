@@ -30,16 +30,24 @@ describe("the Conductor's engine", () => {
     });
   });
 
-  test("opens its sessions to compact at 200k and says when it will", () => {
+  test("opens its sessions to compact at 200k with attribution kept off, and says when it will", () => {
     expect(ENGINE.leg.compaction).toBe(true);
-    expect(ENGINE.leg.rawMessages?.openMeta).toMatchObject({
+    expect(ENGINE.leg.rawMessages?.openMeta).toEqual({
       claudeCode: {
+        emitRawSDKMessages: [{ type: "system", subtype: "init" }],
         options: {
-          settings: { autoCompactEnabled: true, autoCompactWindow: 233_000 },
+          settings: {
+            attribution: { commit: "", pr: "" },
+            autoCompactEnabled: true,
+            autoCompactWindow: 233_000,
+          },
         },
       },
     });
-    expect(ENGINE.compacts?.({ used: 199_000, size: 1_000_000 })).toBe(false);
-    expect(ENGINE.compacts?.({ used: 201_000, size: 1_000_000 })).toBe(true);
+    expect(ENGINE.compacts?.at).toBe(200_000);
+    expect(ENGINE.compacts?.due({ used: 199_000, size: 1_000_000 })).toBe(
+      false,
+    );
+    expect(ENGINE.compacts?.due({ used: 201_000, size: 1_000_000 })).toBe(true);
   });
 });

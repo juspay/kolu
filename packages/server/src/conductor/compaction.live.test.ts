@@ -15,12 +15,15 @@
  *     has them compacts on its first message — the upgrade;
  *   - a loaded session reports no usage until its first turn, which is why
  *     kolu sends the rules when it does not know the count;
- *   - Claude Code's own memory is still on for the Conductor.
+ *   - Claude Code's own memory is still on for the Conductor, and its
+ *     attribution stays off, as agent-distro's launcher sets it, although
+ *     the session's settings replace the launcher's.
  *
  * NO REAL MODEL, NO CREDENTIAL, NO REAL HOME: the spawn is handed a scratch
  * `$HOME` and a `CLAUDE_CONFIG_DIR` under it, a key the fake never checks,
- * and `ANTHROPIC_BASE_URL` pointing at the fake. Opt-in like
- * `signedOut.live.test.ts` (`KOLU_ACP_LIVE=1`).
+ * and `ANTHROPIC_BASE_URL` pointing at the fake, and every variable that
+ * could point it anywhere else is removed from it ({@link ELSEWHERE}). Opt-in
+ * like `signedOut.live.test.ts` (`KOLU_ACP_LIVE=1`).
  */
 
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
@@ -57,7 +60,26 @@ interface Asked {
   readonly system: string;
   readonly messages: ReadonlyArray<string>;
   readonly summary: boolean;
+  /** Whether anything in the request carries Claude Code's own co-author
+   *  instructions — what its attribution setting adds. */
+  readonly coAuthored: boolean;
 }
+
+/**
+ * WHAT COULD SEND A REQUEST SOMEWHERE REAL, removed from the spawn whatever
+ * shell runs this file. agent-distro's launcher composes a profile's
+ * environment, secrets included, from `AI_PROFILE` and
+ * `AGENT_DISTRO_PLUGINS`, and the rest name an endpoint or a credential the
+ * CLI would use before `ANTHROPIC_BASE_URL`.
+ */
+const ELSEWHERE: ReadonlyArray<string> = [
+  "AI_PROFILE",
+  "AGENT_DISTRO_PLUGINS",
+  "LITELLM_BASE_URL",
+  "LITELLM_API_KEY",
+  "ANTHROPIC_AUTH_TOKEN",
+  "CLAUDE_CODE_OAUTH_TOKEN",
+];
 
 const textOf = (content: unknown): string =>
   typeof content === "string"
@@ -104,7 +126,12 @@ const fakeApi = () => {
         res.end("{}");
         return;
       }
-      asked.push({ system, messages, summary });
+      asked.push({
+        system,
+        messages,
+        summary,
+        coAuthored: /Co-Authored-By/i.test(raw),
+      });
       const text = summary
         ? `<summary>\n${SUMMARY_CANARY} the earlier talk.\n</summary>`
         : "noted";
@@ -233,6 +260,7 @@ describe.skipIf(!LIVE)(
         leg: over.leg ?? ENGINE.leg,
         adapter: {
           ...seated,
+          unset: [...(seated.unset ?? []), ...ELSEWHERE],
           env: {
             ...seated.env,
             HOME: home,
@@ -247,7 +275,9 @@ describe.skipIf(!LIVE)(
         mcpServers: [],
         teaching: TEACHING,
         taught: over.taught ?? false,
-        ...(ENGINE.compacts === undefined ? {} : { compacts: ENGINE.compacts }),
+        ...(ENGINE.compacts === undefined
+          ? {}
+          : { compacts: ENGINE.compacts.due }),
         onCompaction: (one) => compactions.push(one),
         log: silent,
         opens:
@@ -376,6 +406,20 @@ describe.skipIf(!LIVE)(
         const from = api.asked.length;
         await say("first", 1_000);
         expect(turnsFrom(from)[0]?.system).toContain("# Memory");
+      },
+      DEADLINE,
+    );
+
+    test(
+      "keeps Claude Code's attribution off, as the launcher sets it",
+      async () => {
+        const { say } = await started();
+        const from = api.asked.length;
+        await say("first", 1_000);
+        await say("second", 1_000);
+        const asked = api.asked.slice(from);
+        expect(asked.length).toBeGreaterThan(0);
+        expect(asked.filter((one) => one.coAuthored)).toEqual([]);
       },
       DEADLINE,
     );

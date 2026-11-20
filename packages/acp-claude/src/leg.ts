@@ -974,8 +974,17 @@ export const COMPACT_RESERVE = 33_000;
  * session's own settings), so they reach a LOADED session as well as a new
  * one. `autoCompactEnabled` is said because a person's own settings can turn
  * compaction off, and the session's win over theirs.
+ *
+ * MEASURED: session settings REPLACE a `--settings` the CLI was launched
+ * with, they do not merge. So whatever the launcher in front of this adapter
+ * set is lost unless it is said again, and `launched` is that: the caller's,
+ * because which launcher this adapter runs behind is a build fact of the
+ * product, not of this package.
  */
-export const compactingAt = (tokens: number): Leg => ({
+export const compactingAt = (
+  tokens: number,
+  launched: { readonly [setting: string]: unknown },
+): Leg => ({
   ...CLAUDE,
   compaction: true,
   rawMessages: {
@@ -986,6 +995,7 @@ export const compactingAt = (tokens: number): Leg => ({
         ...OPEN_SESSION_META.claudeCode,
         options: {
           settings: {
+            ...launched,
             autoCompactEnabled: true,
             autoCompactWindow: tokens + COMPACT_RESERVE,
           },

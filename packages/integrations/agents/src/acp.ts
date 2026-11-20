@@ -72,7 +72,17 @@ const INSTALL: NotHere = {
  * number rather than the agent's default (about 967k on a 1M model): every
  * wake re-reads the whole conversation, and a short one is a cheap one.
  */
-export const CONDUCTOR_COMPACTS_AT = 200_000;
+const COMPACTS_AT = 200_000;
+
+/**
+ * WHAT THE LAUNCHER IN FRONT OF THIS ADAPTER SETS, said again. The adapter
+ * drives agent-distro's `claude`, which launches the CLI with `--settings`
+ * turning Claude Code's own attribution off; the session settings the leg
+ * opens with replace those rather than merge with them (measured), so they
+ * carry this too. A person who turned attribution on in their own settings is
+ * overridden by it, for the Conductor's session only.
+ */
+const LAUNCHER_SETTINGS = { attribution: { commit: "", pr: "" } };
 
 /**
  * THE CLAUDE CODE ENGINE, as a VALUE — everything kolu's side of the wall adds
@@ -84,8 +94,8 @@ export const CONDUCTOR_COMPACTS_AT = 200_000;
  */
 export const ENGINE: Registering = {
   name: NAME,
-  leg: compactingAt(CONDUCTOR_COMPACTS_AT),
-  compacts: compactsPast(CONDUCTOR_COMPACTS_AT),
+  leg: compactingAt(COMPACTS_AT, LAUNCHER_SETTINGS),
+  compacts: { at: COMPACTS_AT, due: compactsPast(COMPACTS_AT) },
   // SHIPPED, NOT FOUND, which is why the probe is a variable read and never a
   // search-path lookup: the adapter is a wrapper inside the nix store and is on
   // nobody's PATH — `where.found` is not consulted here and padi hands one that
@@ -115,7 +125,7 @@ export const ENGINE: Registering = {
       // changes who is looking at the screen.
       //
       // ... AND FOUR MORE THAT WOULD OVERRIDE THE COMPACTION the open's
-      // settings ask for ({@link CONDUCTOR_COMPACTS_AT}): a host that exports
+      // settings ask for ({@link COMPACTS_AT}): a host that exports
       // one would otherwise turn it off or move it, for this conversation and
       // without a word.
       unset: [...REMOTE_SIGNALS, ...COMPACTION_OVERRIDES],

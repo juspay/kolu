@@ -218,10 +218,17 @@ export interface Registering {
   /** Which channel this engine's standing prompt rides —
    *  {@link PromptChannel}. */
   readonly prompt: PromptChannel;
-  /** Whether this engine will compact its conversation before it reads the
-   *  next message, given the last usage it reported. Absent for an engine
-   *  whose compaction kolu does not set. */
-  readonly compacts?: (usage: Usage) => boolean;
+  /** Where this engine compacts its conversation, in tokens of context, and
+   *  whether it will before it reads the next message, given the last usage
+   *  it reported. Absent for an engine whose compaction is not set. */
+  readonly compacts?: CompactionPoint;
+}
+
+/** {@link Registering.compacts}: the number a person is told, and the reading
+ *  the harness acts on — one value, so the two cannot disagree. */
+export interface CompactionPoint {
+  readonly at: number;
+  readonly due: (usage: Usage) => boolean;
 }
 
 /**

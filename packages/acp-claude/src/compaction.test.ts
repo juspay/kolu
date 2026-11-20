@@ -8,12 +8,30 @@ import {
 } from "./leg.ts";
 
 describe("a leg that compacts at a number of kolu's choosing", () => {
-  test("opens every session with the settings beside the raw-message subscription", () => {
-    const leg = compactingAt(200_000);
+  test("opens every session with the launcher's settings and its own, beside the raw-message subscription", () => {
+    const leg = compactingAt(200_000, { attribution: { commit: "", pr: "" } });
     expect(leg.compaction).toBe(true);
     expect(leg.rawMessages?.openMeta).toEqual({
       claudeCode: {
         emitRawSDKMessages: [{ type: "system", subtype: "init" }],
+        options: {
+          settings: {
+            attribution: { commit: "", pr: "" },
+            autoCompactEnabled: true,
+            autoCompactWindow: 233_000,
+          },
+        },
+      },
+    });
+  });
+
+  test("keeps its own compaction settings over any the launcher passed", () => {
+    const leg = compactingAt(200_000, {
+      autoCompactEnabled: false,
+      autoCompactWindow: 1,
+    });
+    expect(leg.rawMessages?.openMeta).toMatchObject({
+      claudeCode: {
         options: {
           settings: { autoCompactEnabled: true, autoCompactWindow: 233_000 },
         },
@@ -25,7 +43,7 @@ describe("a leg that compacts at a number of kolu's choosing", () => {
   });
 
   test("leaves the shared leg as it was", () => {
-    compactingAt(200_000);
+    compactingAt(200_000, {});
     expect(CLAUDE.compaction).toBeUndefined();
     expect(CLAUDE.rawMessages?.openMeta).toBe(OPEN_SESSION_META);
     expect(OPEN_SESSION_META).toEqual({

@@ -112,7 +112,6 @@ import type { CellStore } from "@kolu/surface/server";
 import type { PrResult } from "@kolu/terminal-vocab/schema";
 import { Option, Schema } from "effect";
 import {
-  CONDUCTOR_COMPACTS_AT,
   conductorConfigDir,
   CONDUCTOR_ENGINE as ENGINE,
 } from "kolu-agents/acp";
@@ -1021,7 +1020,7 @@ export function startConductorHost(deps: ConductorDeps): ConductorHost {
           },
     agentName: ENGINE.name,
     cwd: home,
-    compactsAt: CONDUCTOR_COMPACTS_AT,
+    compactsAt: ENGINE.compacts?.at ?? null,
   } satisfies Pick<
     ConductorState,
     "install" | "agentName" | "cwd" | "compactsAt"
@@ -1836,7 +1835,9 @@ export function startConductorHost(deps: ConductorDeps): ConductorHost {
         // WHEN THE AGENT COMPACTS, which is the engine's to say: the standing
         // prompt rides the message it compacts before, and each report is one
         // line in the chat ({@link sayCompaction}).
-        ...(ENGINE.compacts === undefined ? {} : { compacts: ENGINE.compacts }),
+        ...(ENGINE.compacts === undefined
+          ? {}
+          : { compacts: ENGINE.compacts.due }),
         onCompaction: (compaction) => {
           if (disposed || mine !== generation) return;
           sayCompaction(compaction);
