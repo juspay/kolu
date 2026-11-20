@@ -14,10 +14,7 @@ import {
   QUEUES_WHEN_BUSY,
   spawnedIn,
   spelling,
-  STEER_METHOD,
-  STEER_WHEN_IDLE,
-  STEERING_ADVERTISED,
-  steerTaken,
+  STEERING,
   taskNotificationIn,
   toolNameIn,
 } from "./leg.ts";
@@ -662,13 +659,13 @@ describe("what the adapter says it can do at the handshake", () => {
   });
 
   test("... and it takes an interruption, said one level out", () => {
-    expect(STEERING_ADVERTISED(HANDSHAKE)).toBe(true);
+    expect(STEERING.advertised(HANDSHAKE)).toBe(true);
   });
 
   test("an agent that says NEITHER is promised nothing and offered nothing", () => {
     const quiet = { protocolVersion: 1, agentCapabilities: {} };
     expect(QUEUES_WHEN_BUSY(quiet)).toBe(false);
-    expect(STEERING_ADVERTISED(quiet)).toBe(false);
+    expect(STEERING.advertised(quiet)).toBe(false);
   });
 
   test("and neither is read out of the OTHER one's corner", () => {
@@ -676,7 +673,7 @@ describe("what the adapter says it can do at the handshake", () => {
       QUEUES_WHEN_BUSY({ _meta: { claudeCode: { promptQueueing: true } } }),
     ).toBe(false);
     expect(
-      STEERING_ADVERTISED({
+      STEERING.advertised({
         agentCapabilities: { _meta: { steering: { supported: true } } },
       }),
     ).toBe(false);
@@ -691,8 +688,8 @@ describe("what the adapter says it can do at the handshake", () => {
         agentCapabilities: { _meta: { claudeCode: { promptQueueing: "yes" } } },
       }),
     ).toBe(false);
-    expect(STEERING_ADVERTISED({ _meta: { steering: {} } })).toBe(false);
-    expect(STEERING_ADVERTISED({ _meta: { steering: "supported" } })).toBe(
+    expect(STEERING.advertised({ _meta: { steering: {} } })).toBe(false);
+    expect(STEERING.advertised({ _meta: { steering: "supported" } })).toBe(
       false,
     );
   });
@@ -700,36 +697,36 @@ describe("what the adapter says it can do at the handshake", () => {
   test("a handshake that is not an object at all answers no", () => {
     for (const nothing of [null, undefined, "", 0, []]) {
       expect(QUEUES_WHEN_BUSY(nothing)).toBe(false);
-      expect(STEERING_ADVERTISED(nothing)).toBe(false);
+      expect(STEERING.advertised(nothing)).toBe(false);
     }
   });
 });
 
 describe("steering a turn that is already running", () => {
   test("the method and the idle behaviour are the wire's own spellings", () => {
-    expect(STEER_METHOD).toBe("_session/steering");
-    expect(STEER_WHEN_IDLE).toEqual({
+    expect(STEERING.method).toBe("_session/steering");
+    expect(STEERING.meta).toEqual({
       steering: { idleBehavior: "promptRequired" },
     });
   });
 
   test("`injected` is the answer that means the running turn has it", () => {
-    expect(steerTaken({ outcome: "injected" })).toBe(true);
+    expect(STEERING.taken({ outcome: "injected" })).toBe(true);
   });
 
   test("nothing was running, so the caller still has the message", () => {
     expect(
-      steerTaken({ outcome: "promptRequired", reason: "noRunningTurn" }),
+      STEERING.taken({ outcome: "promptRequired", reason: "noRunningTurn" }),
     ).toBe(false);
   });
 
   test("an outcome nobody here knows is NOT taken", () => {
-    expect(steerTaken({ outcome: "startedNewTurn" })).toBe(false);
-    expect(steerTaken({ outcome: "somethingLater" })).toBe(false);
-    expect(steerTaken({})).toBe(false);
-    expect(steerTaken(null)).toBe(false);
-    expect(steerTaken(undefined)).toBe(false);
-    expect(steerTaken({ outcome: true })).toBe(false);
+    expect(STEERING.taken({ outcome: "startedNewTurn" })).toBe(false);
+    expect(STEERING.taken({ outcome: "somethingLater" })).toBe(false);
+    expect(STEERING.taken({})).toBe(false);
+    expect(STEERING.taken(null)).toBe(false);
+    expect(STEERING.taken(undefined)).toBe(false);
+    expect(STEERING.taken({ outcome: true })).toBe(false);
   });
 });
 

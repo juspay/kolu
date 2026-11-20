@@ -100,9 +100,9 @@ taught where the arithmetic belongs). The reader of both stamps is
 
 ## Steering, and the hang this pin still has
 
-The leg's steering bits — `STEER_METHOD` (`_session/steering`),
-`STEER_WHEN_IDLE` (`_meta.steering.idleBehavior: "promptRequired"`),
-`STEER_TIMEOUT`, `steerTaken`, `STEERING_ADVERTISED` and `QUEUES_WHEN_BUSY` —
+The leg's steering bits — `STEERING` (`method: "_session/steering"`,
+`meta: { steering: { idleBehavior: "promptRequired" } }`, `timeout`, `taken`
+and `advertised`) and `QUEUES_WHEN_BUSY` —
 are **vendored from olai** (whose `packages/plugins/claude/src/leg.ts` this
 file began as) at this same
 0.81.2 pin, where they were written and measured. They are not a patch: the

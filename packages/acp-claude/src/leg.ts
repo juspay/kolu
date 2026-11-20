@@ -7,6 +7,7 @@ import {
   mcpCallBy,
   type Reported,
   type Spawn,
+  type Steering,
   type TaskNotice,
 } from "@kolu/acp/engine";
 
@@ -15,11 +16,9 @@ import { MODELS } from "./models.ts";
 export const BYPASS_MODE = "bypassPermissions";
 
 /**
- * How this agent spells the tools an MCP server contributes.
- *
- * `mcp__<server>__<tool>` is the Claude Code CLI's own naming. An agent that
- * names its MCP tools some other way matches nothing here and every request
- * goes to a person, which is the losing direction this can afford.
+ * How this agent spells the tools an MCP server contributes:
+ * `mcp__<server>__<tool>` is the Claude Code CLI's own naming, and an agent
+ * that names its MCP tools some other way matches nothing here.
  */
 export const spelling = (server: string) => `mcp__${server}__`;
 
@@ -27,13 +26,9 @@ export const spelling = (server: string) => `mcp__${server}__`;
  * The option a permission request is answered with WITHOUT asking a person, or
  * `null` when it is a person's to answer.
  *
- * Everything else is a person's, and THAT direction is the load-bearing one.
- * The adapter maps plan mode's "Ready to code?" onto a permission request whose
- * first allow-flavoured option switches the session to `auto` — so a client
- * that answered every request with the first allow it found was silently saying
- * "yes, and stop asking me" on somebody's behalf, every time. The rule is
- * POSITIVE RECOGNITION: the tool is named, and the name is one of ours, or
- * nothing is bypassed.
+ * The adapter maps plan mode's "Ready to code?" onto a permission request
+ * whose first allow-flavoured option switches the session to `auto`, so the
+ * first allow in a request's list is not a safe pick.
  */
 export const allowedWithoutAsking = allowingOurs(spelling);
 
@@ -48,35 +43,14 @@ export const asksThroughForm = (toolName: string): boolean =>
 export const parentToolUseIn = (meta: Meta): string | null =>
   stringIn(meta, "parentToolUseId");
 
-/**
- * What this frame says about an agent this call STARTED, or `null` for a frame
- * that says nothing about one.
- *
- * WHAT IS DELIBERATELY NOT READ, and this is the important half, because it is
- * the reading a future reader will find in the payload and re-add:
- * `toolResponse.subagentType`. `_meta.claudeCode.toolResponse` is not one
- * thing: on the `tool_progress` path the adapter builds it, and on the
- * PostToolUse path it forwards **the tool's own response object, verbatim, for
- * any tool** (`onPostToolUseHook`). So that field is reachable by anything a
- * session can call — an MCP server kolu never handed this conversation has only
- * to answer with a `subagentType` in its structured output to be drawn as an
- * agent somebody spawned.
- */
+type AgentToolInput = {
+  readonly subagent_type?: unknown;
+  readonly description?: unknown;
+};
+
 export const spawnedIn = (meta: Meta, input: unknown): Spawn | null => {
-  // THE FLAG IS THE ONLY THING THAT OPENS THIS DOOR. Everything below is read
-  // off a frame the adapter itself said was an Agent call, and a frame that
-  // does not say so is answered `null` however suggestively it is shaped.
   if (claudeIn(meta)?.subagent !== true) return null;
-  // ... and then the kind, off the `Agent` tool's own arguments. `rawInput` is
-  // the tool's payload rather than the adapter's word, which is exactly why it
-  // may not be read on its own: `subagent_type` is a name ONE tool gives one of
-  // its arguments, the tools on a session are not a closed set, and an MCP
-  // server kolu never handed this conversation is free to take an argument by
-  // that name.
-  const args = input as
-    | { readonly subagent_type?: unknown; readonly description?: unknown }
-    | null
-    | undefined;
+  const args = input as AgentToolInput | null | undefined;
   const asked = args?.subagent_type;
   const said = args?.description;
   return {
@@ -85,7 +59,11 @@ export const spawnedIn = (meta: Meta, input: unknown): Spawn | null => {
   };
 };
 
-const betweenIn = (text: string, open: string, close: string): string => {
+const betweenOutermost = (
+  text: string,
+  open: string,
+  close: string,
+): string => {
   const from = text.indexOf(open);
   if (from === -1) return "";
   const to = text.lastIndexOf(close);
@@ -106,21 +84,25 @@ export const taskNotificationIn = (
     xml.match(/<tool-use-id>([^<]*)<\/tool-use-id>/u)?.[1] ?? ""
   ).trim();
   const task = (xml.match(/<task-id>([^<]*)<\/task-id>/u)?.[1] ?? "").trim();
-  const report = betweenIn(xml, "<result>", "</result>");
+  const report = betweenOutermost(xml, "<result>", "</result>");
   return toolUseId === "" || task === ""
     ? { onto: null }
     : { onto: { toolUseId, task, report } };
 };
 
+type PatchedBackgroundTask = { readonly [field: string]: unknown };
+
 export const backgroundTaskIn = (meta: Meta): Background | null => {
   const said = claudeIn(meta)?.backgroundTask;
-  if (typeof said !== "object" || said === null) return null;
-  const task = said as { readonly [field: string]: unknown };
-  const id = wordIn(task, "taskId");
+  const stamped =
+    typeof said === "object" && said !== null
+      ? (said as PatchedBackgroundTask)
+      : undefined;
+  const id = wordIn(stamped, "taskId");
   if (id === null) return null;
-  const description = wordIn(task, "description");
-  const ended = wordIn(task, "status");
-  const report = wordIn(task, "report");
+  const description = wordIn(stamped, "description");
+  const ended = wordIn(stamped, "status");
+  const report = wordIn(stamped, "report");
   return {
     task: id,
     ...(description === null ? {} : { description }),
@@ -200,11 +182,10 @@ export const liveServersIn = (
   });
 };
 
-/** The one word this CLI's `init` uses for a server it has. Matched POSITIVELY
- *  and never widened: every other word it could send — a failure, a
- *  `needs-auth`, one no version has emitted yet — is read as "not attached",
- *  which is the direction this bet is safe to lose in. A tick over tools that
- *  are not there is the direction it may not. */
+/** The one word this CLI's `init` uses for a server it has. The SDK types
+ *  `mcp_servers[].status` as a bare `string` (an open set: failures,
+ *  `needs-auth`, words no version has emitted yet), so the match is positive
+ *  and every other word reads as not attached. */
 const CONNECTED = "connected";
 
 const initIn = (
@@ -217,8 +198,13 @@ const initIn = (
   return shape;
 };
 
-export const provisionalTitleIn = (update: unknown): boolean => {
-  const frame = record(update);
+type ToolCallFrame = {
+  readonly sessionUpdate?: unknown;
+  readonly rawInput?: unknown;
+};
+
+export const announcedBeforeArgumentsIn = (update: unknown): boolean => {
+  const frame = record(update) as ToolCallFrame | undefined;
   if (frame?.sessionUpdate !== "tool_call") return false;
   const input = record(frame.rawInput);
   return input !== undefined && Object.keys(input).length === 0;
@@ -254,8 +240,6 @@ export const replyIn = (
   try {
     return record(JSON.parse(text));
   } catch {
-    // Claude forwards only MCP text blocks, dropping `structuredContent`. The
-    // owned MCP server's branded refusal still carries its kind and reason.
     return refusalIn(text);
   }
 };
@@ -265,35 +249,25 @@ export const QUEUES_WHEN_BUSY = (initialized: unknown): boolean =>
     "promptQueueing"
   ] === true;
 
-export const STEER_METHOD = "_session/steering";
-
-export const STEERING_ADVERTISED = (initialized: unknown): boolean =>
-  (
-    fieldIn(initialized, "_meta")?.["steering"] as
-      | { readonly supported?: unknown }
-      | undefined
-  )?.supported === true;
-
-export const STEER_WHEN_IDLE = {
-  steering: { idleBehavior: "promptRequired" },
+export const STEERING: Steering = {
+  method: "_session/steering",
+  meta: { steering: { idleBehavior: "promptRequired" } },
+  timeout: "30 seconds",
+  taken: (answered: unknown): boolean =>
+    (answered as { readonly outcome?: unknown } | null | undefined)?.outcome ===
+    "injected",
+  advertised: (initialized: unknown): boolean =>
+    (
+      fieldIn(initialized, "_meta")?.["steering"] as
+        | { readonly supported?: unknown }
+        | undefined
+    )?.supported === true,
 };
-
-export const STEER_TIMEOUT = "30 seconds";
-
-export const steerTaken = (answered: unknown): boolean =>
-  (answered as { readonly outcome?: unknown } | null | undefined)?.outcome ===
-  "injected";
 
 /**
  * THE ERROR KINDS THAT ARE ABOUT THE ACCOUNT, as the pinned adapter forwards
- * them. A turn the Claude SDK classifies as failed carries a categorical
- * `error` on its assistant message, and adapter 0.81.2 rejects the prompt with
- * `data: { errorKind }` (its own words: "sparing them from pattern-matching
- * on text"). These are the kinds a different signature can change: the
- * account cannot sign in or is not allowed, has no billing or is on hold, or
- * has hit its usage limit — which the SDK reports as `rate_limit`, the same
- * kind as a passing rate limit. Signing in is offered beside it, not forced:
- * waiting is the other remedy, and the person reading the limit knows which.
+ * them: adapter 0.81.2 rejects a failed prompt with `data: { errorKind }`, and
+ * a usage limit arrives as `rate_limit` — the same kind as a passing one.
  */
 const ACCOUNT_ERROR_KINDS: ReadonlySet<string> = new Set([
   "authentication_failed",
@@ -328,13 +302,7 @@ export const CLAUDE: Leg = {
   prologueIn: () => null,
   bypassMode: BYPASS_MODE,
   bypassModeRequired: false,
-  steering: {
-    method: STEER_METHOD,
-    meta: STEER_WHEN_IDLE,
-    timeout: STEER_TIMEOUT,
-    taken: steerTaken,
-    advertised: STEERING_ADVERTISED,
-  },
+  steering: STEERING,
   queues: QUEUES_WHEN_BUSY,
   listedIn,
   terminalOutput: true,
@@ -344,6 +312,6 @@ export const CLAUDE: Leg = {
     modelIn: liveModelIn,
     serversIn: liveServersIn,
   },
-  provisionalTitle: provisionalTitleIn,
+  provisionalTitle: announcedBeforeArgumentsIn,
   models: MODELS,
 };

@@ -1,17 +1,3 @@
-/**
- * The inference `acp/patches/session-list-info.patch` runs inside the pinned
- * claude-agent-acp adapter. The patch's module-level helper block is this
- * file's content with the `export` keywords off (`regenerate.sh` splices it,
- * from the banner line below); the patch's `listSessions` body is the caller
- * and stays hand-written there, against these three functions.
- *
- * DEPENDENCY-FREE by construction: this text has to survive verbatim in the
- * adapter's compiled bundle, so anything it needs — the SDK's readers, a log,
- * a cache map — is a parameter.
- */
-
-// ── reading the opening ──────────────────────────────────────────────
-
 const OPENING_STRETCH = 10
 
 const COMMAND_MARKER = /<command-name>\s*(\S+)\s*<\/command-name>/
@@ -50,21 +36,10 @@ export const clearOpenedAtOf = (messages) => {
 /**
  * Read the two transcript facts for ONE listed session.
  *
- * `session` — the SDK's row: `{ sessionId, fileSize?, lastModified, dir? }`.
- * `deps`:
- *   - `messages(id, { dir })` — like the SDK's `getSessionMessages`;
- *   - `info(id, { dir })` — like the SDK's `getSessionInfo`, the DESCRIBE
- *     oracle for the messages call's empty answer: `getSessionMessages`
- *     answers `[]` for "not readable" as for "never anyone spoke" — which is
- *     why the count cannot be read off `[]` alone;
- *   - `say(line)` — the operator's channel rather than the row's;
- *   - `cache` — a `Map`; keyed by session id with the row's own
- *     `(fileSize, lastModified)` carried beside the facts. Only READS that
- *     produced facts are cached: a transient failure must be allowed to mend
- *     on the next list rather than be remembered for the process's life.
- *
- * Answers `{ messageCount, clearedAt?, timestampLoss }`, or `undefined`: a
- * row nobody read a word of carries NO stamps, not a zero.
+ * `deps.info` is the arbiter for an empty `deps.messages` answer: the SDK's
+ * `getSessionMessages` returns `[]` for a session it cannot read as for one
+ * nobody spoke in, so a row nobody read a word of answers `undefined` — no
+ * stamps, rather than a zero.
  */
 export const sessionListFactsOf = async (session, deps) => {
     const id = session.sessionId

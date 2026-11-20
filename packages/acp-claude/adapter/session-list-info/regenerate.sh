@@ -1,16 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# The bundle the diff is taken from has to be the pin's PRISTINE extract — any
-# build found in the store already carries olai's patches, and a patch against
-# them fails. The pin version comes out of the lockfile, the one input the
-# derivation itself reads, so version and bundle move together
-# (`mechanism, never convention`).
-#
-# Anchoring is by the SURROUNDING text, not line numbers, so a pin bump that
-# moves the content fails HERE with a visible name — and at the build, which
-# is the point of `patch -p1 -F0`.
-
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 facts="$here/facts.js"
 out="$here/../patches/session-list-info.patch"
@@ -30,10 +20,6 @@ echo "source bundle: pristine claude-agent-acp $version"
 
 cp "$bundle" "$work/original.js"
 
-# ── region 1: the helper block, before `export class ClaudeAcpAgent {` ──
-
-first_line="$(grep -n '── reading the opening' "$facts" | head -1 | cut -d: -f1)"
-
 {
   cat <<'BUNDLEHEAD'
 /**
@@ -51,10 +37,9 @@ const sessionListFactsCache = new Map();
 const timestampLossOnce = { told: false };
 
 BUNDLEHEAD
-  tail -n +"$first_line" "$facts" | sed -E -e 's/^export //'
+  sed -E -e 's/^export //' "$facts"
 } > "$work/helpers.js"
 
-# ── region 2: the new listSessions body ──
 cat > "$work/listSessions.js" <<'BODY'
     async listSessions(params) {
         const dir = params.cwd ?? undefined;
@@ -131,30 +116,19 @@ cat > "$work/listSessions.js" <<'BODY'
     }
 BODY
 
-# ── splice the two regions into a copy by ANCHOR, never by line number ──
-
 awk -v helpers="$work/helpers.js" -v listbody="$work/listSessions.js" '
   BEGIN {
     while ((getline l < helpers) > 0) helper_block = helper_block l ORS
     while ((getline l < listbody) > 0) list_block = list_block l "\n"
     in_list = 0
   }
-  # Anchor 0: 0.73.0 moved getSessionInfo out of acp-agent.js (session-titles
-  # is the only remaining caller). listSessions still needs it for the
-  # empty-transcript arbiter; restore the named import when the pin dropped it.
   /^import \{ deleteSession, getSessionMessages, listSessions, query, \} from "@anthropic-ai\/claude-agent-sdk";$/ {
     print "import { deleteSession, getSessionInfo, getSessionMessages, listSessions, query, } from \"@anthropic-ai/claude-agent-sdk\";"
     next
   }
-  # Anchor 1: directly before the class, splice the helpers.
-  # The marker has to be unique: one top-level `export class ... {`.
    /^export class ClaudeAcpAgent {/{
     printf "%s", helper_block
   }
-  # Anchor 2: the method: replace it through its closing `    }`, by the
-  # shape of its own frame: "    async listSessions(params) {" … first
-  # following "    }" — the method is self-contained enough across the pin
-  # that the FIRST close brace at method indent is its own end.
   /^    async listSessions\(params\) \{$/ {
     in_list = 1
     printf "%s", list_block
@@ -165,12 +139,6 @@ awk -v helpers="$work/helpers.js" -v listbody="$work/listSessions.js" '
   { print }
 ' "$work/original.js" > "$work/rebuilt.js"
 
-# THE SPLICE ACTUALLY HAPPENED, and this is the check the `-F0` at the build
-# CANNOT make. Both regions above are spliced by ANCHOR, and an anchor that
-# stops matching (which is exactly what a pin bump can do) makes awk emit the
-# original file unchanged, so `diff -u` writes an EMPTY patch. An empty patch
-# applies at `patch -p1 -F0` with status 0: the build would be green and the
-# behaviour would be gone.
 for marker in sessionListFactsOf 'const sessionListFactsCache' pairSupersessions sayTimestampLossOnce getSessionInfo; do
   if [[ "$(grep -c "$marker" "$work/rebuilt.js" || true)" -lt 1 ]]; then
     echo "anchor missed: '$marker' is not in the rebuild — the anchor moved; fix the script's anchors." >&2
@@ -182,8 +150,6 @@ diff -u --label a/dist/acp-agent.js --label b/dist/acp-agent.js \
   "$work/original.js" "$work/rebuilt.js" > "$work/raw.patch" || test $? -eq 1
 
 mv "$work/raw.patch" "$out"
-# The build applies with `patch -p1 -d <package>`; check exactly that, on a
-# pristine copy, rather than a git repo path the diff was never addressed to.
 mkdir -p "$work/check/dist" && cp "$work/original.js" "$work/check/dist/acp-agent.js"
 (cd "$work/check" && patch -p1 -F0 --dry-run -d . < "$out" >/dev/null)
 echo "$out regenerated (anchored splice, diff-computed hunks; $(grep -c '^+' "$out") additions)"
