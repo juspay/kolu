@@ -1,14 +1,3 @@
-/**
- * The host key codec + its persisted list.
- *
- * `hosts` is a field of the on-disk conf store (`PersistedStateSchema`, in
- * `packages/server/src/state.ts`) and every element is a string this module's
- * `encodeHostKey` produced, so the assertions below are on the ENCODED BYTES,
- * not on decode-equality: a schema change that started emitting objects, or
- * quietly normalized a bad element away, would pass a `toEqual` and eat a
- * user's fleet on upgrade.
- */
-
 import { Result, Schema } from "effect";
 import { describe, expect, it } from "vitest";
 import {
@@ -23,15 +12,11 @@ import {
   PersistedHostsSchema,
 } from "./hostKey.ts";
 
-/** zod's `.safeParse(x).success`, in Effect terms. */
 const accepts =
   <T, E>(schema: Schema.Codec<T, E>) =>
   (value: unknown): boolean =>
     Result.isSuccess(Schema.decodeUnknownResult(schema)(value));
 
-/** The failure message a rejected decode carries — the user-visible text a boot
- *  log / toast shows, which is the half of a refinement a `success: false`
- *  assertion cannot see. */
 const rejectionMessage = <T, E>(
   schema: Schema.Codec<T, E>,
   value: unknown,
@@ -49,7 +34,6 @@ describe("HostKey — a discriminated sum, not an in-band string sentinel", () =
     expect(acceptsHostKey({ kind: "local" })).toBe(true);
     expect(acceptsHostKey({ kind: "remote", target: "srid@zest" })).toBe(true);
     expect(acceptsHostKey({ kind: "remote", target: "" })).toBe(false);
-    // A bare string is no longer a HostKey at all — the union is nominal on `.kind`.
     expect(acceptsHostKey("local")).toBe(false);
   });
 
@@ -58,9 +42,6 @@ describe("HostKey — a discriminated sum, not an in-band string sentinel", () =
   });
 
   it("decodeHostKeyValue is the ONE re-validation entry, and it THROWS", () => {
-    // The P5 wire re-validation: a `HostKey`-shaped value that is not one is a
-    // caller bug, so it throws (zod's `.parse` semantic) rather than returning a
-    // branchable result.
     expect(decodeHostKeyValue({ kind: "local" })).toEqual(LOCAL_HOST);
     expect(decodeHostKeyValue({ kind: "remote", target: "zest" })).toEqual({
       kind: "remote",
@@ -99,9 +80,6 @@ describe("parseHostInput vs decodeHostKey — two boundaries, same string, diffe
   });
 
   it("parseHostInput canonicalizes bare loopback spellings to the local variant (dedupes with 'local')", () => {
-    // 'localhost' / '127.0.0.1' / '::1' name the SAME machine `{ kind: "local" }`
-    // already names — a `KOLU_PADI_HOST=localhost,srid@zest` seed used to mint a
-    // SECOND, ssh-bound pool entry for the loopback (three chips instead of two).
     expect(parseHostInput("localhost")).toEqual({ kind: "local" });
     expect(parseHostInput("127.0.0.1")).toEqual({ kind: "local" });
     expect(parseHostInput("::1")).toEqual({ kind: "local" });
@@ -116,8 +94,6 @@ describe("parseHostInput vs decodeHostKey — two boundaries, same string, diffe
 
   it("parseHostInput('') THROWS rather than mint an illegal empty-target remote", () => {
     expect(() => parseHostInput("")).toThrow();
-    // And the schema agrees: the shape parseHostInput would otherwise have minted is
-    // exactly what HostKeySchema rejects (see the schema test above).
     expect(acceptsHostKey({ kind: "remote", target: "" })).toBe(false);
   });
 });
@@ -144,9 +120,6 @@ describe("encodeHostKey / decodeHostKey — the canonical wire codec round-trips
   });
 
   it("keeps the persisted STRING form byte-identical for every spelling", () => {
-    // These strings are on disk in every existing install AND are the map's wire
-    // `mapKey` / channel-name source. A change here silently renames every
-    // remembered host.
     const cases: ReadonlyArray<readonly [HostKey, string]> = [
       [LOCAL_HOST, "local"],
       [{ kind: "remote", target: "zest" }, "remote:zest"],
@@ -181,8 +154,6 @@ describe("PersistedHostsSchema — the conf store's `hosts` field", () => {
   });
 
   it("REJECTS a non-canonical element — never normalizes it away", () => {
-    // The fail-fast stance: `getPersistedHosts` throws where it reads rather
-    // than silently shrinking the fleet to the entries it happened to like.
     expect(acceptsPersistedHosts(["zest"])).toBe(false);
     expect(acceptsPersistedHosts(["remote:"])).toBe(false);
     expect(acceptsPersistedHosts([{ kind: "remote", target: "zest" }])).toBe(

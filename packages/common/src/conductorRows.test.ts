@@ -1,36 +1,10 @@
-/**
- * THE STORED ROWS DECODE UNCHANGED — the fence around a schema whose fields
- * moved home.
- *
- * Every JSON string below was produced by `ConductorRowSchema` AS IT STOOD
- * before the row-level vocabulary moved into `@kolu/acp/wire` (the tool status,
- * the delivery mark, a streamed piece, an armed task, a spawned subagent, a plan
- * step, an ask, what is being watched). kolu-server writes those rows to a file
- * (`packages/server/src/conductor/transcriptFile.ts`), so a conversation
- * recorded before the move has to open after it.
- *
- * THE CLAIM IS DECODE EQUALITY, not byte equality. The rows are now built by
- * SPREADING the shared field objects and adding kolu's own after them, so a
- * `user` or `tool` row's keys come out in a different order — which changes the
- * bytes and changes nothing a reader sees. What must not change is the VALUE a
- * stored row decodes to, and re-encoding it must decode to that same value again
- * (a key that moved into a differently-typed field, or one that started being
- * emitted, would show up here and nowhere else).
- *
- * `String.raw` because these strings ARE escapes — a tool call's `detail` is
- * folded JSON with its quotes escaped, and a plain template literal would eat
- * the backslashes and test a string no schema ever wrote.
- */
-
 import { Schema } from "effect";
 import { describe, expect, it } from "vitest";
 import { ConductorRowSchema } from "./conductorSchema.ts";
 
-/** One row, as an older schema wrote it. */
 const decode = (stored: string): unknown =>
   Schema.decodeUnknownSync(ConductorRowSchema)(JSON.parse(stored));
 
-/** ... and the value read back off this build's own encoding of it. */
 const roundTrip = (stored: string): unknown =>
   Schema.decodeUnknownSync(ConductorRowSchema)(
     JSON.parse(
@@ -51,7 +25,6 @@ const DIVIDER = `{"id":"divider:10","seq":10,"since":"2026-01-01T00:00:00.000Z",
 const WAKE = `{"id":"wake:11","seq":11,"since":"2026-01-01T00:00:00.000Z","kind":"wake","from":"kolu","events":[{"ref":"local/11111111-1111-4111-8111-111111111111","host":"local","terminalId":"11111111-1111-4111-8111-111111111111","hostName":"naiveintent","name":"fix-parser","agent":"claude-code","level":"stopped","at":"2026-01-01T00:00:00.000Z"}],"text":"fix-parser stopped","queued":true,"delivery":"unanswered"}`;
 const WORK_ASK = `{"id":"work-ask:12","seq":12,"since":"2026-01-01T00:00:00.000Z","kind":"work-ask","text":"Which harness?","ask":{"fields":[],"standing":{"kind":"part","answers":[{"key":"harness","values":["claude"]}]}},"work":"local/repo@main","parent":"tool:1"}`;
 
-/** Every fixture, named the way a reader asks about one. */
 const STORED: ReadonlyArray<readonly [string, string]> = [
   ["agent", AGENT],
   ["ask (answered)", ASK_ANSWERED],
@@ -123,15 +96,11 @@ describe("a row written before the vocabulary moved", () => {
   });
 
   it("decodes the kinds the class writes but this test used to miss", () => {
-    // EVERY KIND a stored conversation can hold, because the fence is about the
-    // file: a row this build could not read is a conversation that will not
-    // open, and the kind left untested is the one that breaks.
     expect(decode(AGENT)).toMatchObject({ kind: "agent", streaming: true });
     expect(decode(NOTICE)).toMatchObject({ kind: "notice" });
     expect(decode(DIVIDER)).toMatchObject({ kind: "divider" });
     expect(decode(WAKE)).toMatchObject({
       kind: "wake",
-      // ... the two delivery marks a wake carries like any other delivered row
       queued: true,
       delivery: "unanswered",
       events: [{ level: "stopped", name: "fix-parser" }],
@@ -144,11 +113,6 @@ describe("a row written before the vocabulary moved", () => {
   });
 
   it("re-encodes every one of them to a value that decodes the same", () => {
-    // NOT byte equality: the rows are built by spreading the shared field
-    // objects, so kolu's own fields follow them and the KEY ORDER moved. What
-    // must hold is that what this build writes is what this build reads — a key
-    // that landed on a field of another type, or one now emitted where it was
-    // absent, would decode differently here.
     for (const [name, stored] of STORED) {
       expect([name, roundTrip(stored)]).toEqual([name, decode(stored)]);
     }

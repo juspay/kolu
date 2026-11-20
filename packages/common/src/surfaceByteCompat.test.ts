@@ -1,18 +1,3 @@
-/**
- * BYTE-level fixtures for the app surface's DISK and WIRE formats.
- *
- * `preferences` and `viewerMode` are fields of the on-disk conf store
- * (`PersistedStateSchema` in `packages/server/src/state.ts`, `SCHEMA_VERSION`
- * + its migration ladder), so a change to their encoded shape is a change to
- * every existing install's state file. `KoluForward` / `DaemonInventory` /
- * `PadiEntryFailure` ride the wire between the server and every browser tab.
- *
- * The assertions are on the encoded JSON **string**, not on decode-equality: a
- * schema change that reorders keys, renames a discriminant, or starts omitting
- * (or emitting) a key would pass a `toEqual` and still eat a user's preferences
- * or dark-screen a host card.
- */
-
 import { Result, Schema } from "effect";
 import { describe, expect, it } from "vitest";
 import {
@@ -26,8 +11,6 @@ import {
 } from "./surface.ts";
 import { PadiEntryFailureSchema } from "./surfacesWithPadi.ts";
 
-/** Encode through the schema and serialize — the only assertion that catches a
- *  key reorder, a dropped key, or a renamed discriminant. */
 const encodeJson =
   <T, E>(schema: Schema.Codec<T, E>) =>
   (value: T): string =>
@@ -60,9 +43,6 @@ describe("Preferences — the conf store's `preferences` field", () => {
   });
 
   it("DROPS an unknown key rather than rejecting — the migration ladder's tolerance", () => {
-    // `state.ts`'s ladder spreads `DEFAULT_PREFERENCES` over an old record and
-    // strips retired keys; a record that still carries one (a downgrade, a
-    // hand-edit) must load, exactly as zod's default `strip` object behaved.
     const decoded = Schema.decodeUnknownSync(PreferencesSchema)({
       ...DEFAULT_PREFERENCES,
       shuffleTheme: true,
@@ -119,9 +99,6 @@ describe("PreferencesPatch — the local-authority write shape", () => {
   });
 
   it("REJECTS an explicit `undefined` value — an absent key is the only spelling", () => {
-    // The #17 consequence, pinned rather than discovered: `optionalKey` admits a
-    // MISSING key only, so an in-process caller that builds `{ scrollLock:
-    // undefined }` must strip the key before decoding.
     expect(
       Result.isSuccess(
         Schema.decodeUnknownResult(PreferencesPatchSchema)({

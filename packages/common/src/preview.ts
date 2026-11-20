@@ -1,18 +1,6 @@
 /** File-extension classification for the Code browser's preview pipeline.
  *  Node-free and dependency-free so the node server AND the browser client
- *  import the *same* source — the seam that historically drifted when a
- *  server list and a client list were kept in step only by a prose comment
- *  (an image format added on one side rendered as garbage on the other).
- *
- *  Lives in kolu-common, not kolu-git: classification is a preview concern
- *  shared across client and server, not a git operation. It feeds two
- *  decisions:
- *    - SERVER: `isBinaryPreviewable` picks the `FsReadFileOutput.kind` wire
- *      variant (inline text vs a route-served URL) — the schema lives in
- *      `kolu-git/schemas.ts`.
- *    - CLIENT: `binaryPreviewFamily` / `isMarkdown` pick the rendered appliance
- *      in `@kolu/solid-fileview` — a plain `<img>`, a PDF viewer, a sandboxed
- *      iframe, or a rendered Markdown document.
+ *  import the *same* source.
  *
  *  Four disjoint sets partition the binary-previewable space:
  *    - SANDBOX — rendered in an `allow-scripts`, opaque-origin iframe.
@@ -22,24 +10,16 @@
  *      sandbox branch because Chromium's PDF viewer does not instantiate inside
  *      Kolu's opaque-origin HTML/SVG sandbox.
  *    - RASTER — rendered with a plain `<img>` (image bytes can't execute).
- *      This is a volatile axis (new formats: avif, jxl, …).
  *    - VIDEO — rendered with a `<video controls>` element (the file route
  *      serves it with a real `video/*` Content-Type and HTTP range support
- *      so the player can seek). Also volatile (new codecs/containers).
+ *      so the player can seek).
  *
  *  `BINARY_PREVIEWABLE_EXTENSIONS` is their union, so a new previewable
- *  format cannot be added without being placed in exactly one category —
- *  the "every non-document binary is an image or a video" assumption is
- *  structural, not a convention a future edit can quietly break.
+ *  format cannot be added without being placed in exactly one category.
  *
  *  Markdown is a *separate* axis: it stays `kind:"text"` on the wire (there's
  *  no server URL — the client renders it from `content`), so `isMarkdown`
- *  isn't part of the binary partition. It tells the client a text file also
- *  has a rendered form, which is what lights the Source ⇄ Rendered toggle. */
-
-// The one import: padi's `UPLOAD_VIDEO_EXTENSIONS` (a zero-dependency, node-free
-// constants leaf) is the canonical container list `VIDEO_EXTENSIONS` derives from
-// (L17) — the app→padi arrow the seal sanctions. Node-free still holds.
+ *  isn't part of the binary partition. */
 import { UPLOAD_VIDEO_EXTENSIONS } from "@kolu/padi-client/upload";
 
 export const SANDBOX_PREVIEWABLE_EXTENSIONS = [
@@ -64,12 +44,9 @@ export const RASTER_IMAGE_EXTENSIONS = [
  *  and Safari play; non-web codecs (`.mkv`, `.avi`) are deliberately absent —
  *  they'd serve as a binary URL the player can't decode.
  *
- *  DERIVED from padi's canonical `UPLOAD_VIDEO_EXTENSIONS` (padi owns the
- *  upload/file domain; L17 homed the container list there) by prepending the
+ *  DERIVED from padi's canonical `UPLOAD_VIDEO_EXTENSIONS` by prepending the
  *  leading dot this module's `hasExtension` path checks use — so the *droppable*
- *  set and the *playable* set ARE one list and cannot drift. This replaces the
- *  hand-kept copy + the kolu-common drift-guard test that policed it: drift is
- *  now unspellable, not merely caught. */
+ *  set and the *playable* set ARE one list and cannot drift. */
 export const VIDEO_EXTENSIONS: readonly string[] = UPLOAD_VIDEO_EXTENSIONS.map(
   (ext) => `.${ext}`,
 );
@@ -124,10 +101,7 @@ export function isVideo(filePath: string): boolean {
 }
 
 /** Client: of the binary-previewable files, render this one in the sandboxed
- *  iframe (`.html`/`.htm`/`.svg`) rather than an `<img>`, `<video>`, or PDF viewer?
- *  Names the sandbox branch of the binary partition at the dispatch site so
- *  an unclassified binary surfaces as a visible no-match instead of silently
- *  landing in an iframe that can't render it. */
+ *  iframe (`.html`/`.htm`/`.svg`) rather than an `<img>`, `<video>`, or PDF viewer? */
 export function isSandboxPreviewable(filePath: string): boolean {
   return hasExtension(filePath, SANDBOX_PREVIEWABLE_EXTENSIONS);
 }
@@ -139,15 +113,9 @@ export function isMarkdown(filePath: string): boolean {
 }
 
 /** Per-segment codec for the repo-relative path embedded in the iframe-preview
- *  URL (`/api/terminals/{host}/{id}/file/{encoded/path}`). Same kolu-common rationale
- *  as the classifiers above: both sides of the wire must agree. The CLIENT
- *  builds the URL (`buildTerminalFileUrl` in `right-panel/BrowseFileDispatcher.tsx`)
- *  and also inverts it (`@kolu/solid-browser`'s `pathFromPreviewPathname`, with
- *  this codec bound in `right-panel/BrowseIframeRenderer.tsx`, to follow
- *  in-iframe link navigation); the HTTP route decodes the same encoding to
- *  stream the bytes (re-backed by padi's `preview.read`, see `iframePreviewRoute.ts`)
- *  — a single source keeps the encode/decode from drifting, so links into
- *  subdirectories or paths with spaces resolve to the right file.
+ *  URL (`/api/terminals/{host}/{id}/file/{encoded/path}`). Both sides of the wire
+ *  must agree: the CLIENT builds the URL and also inverts it, and the HTTP route
+ *  decodes the same encoding to stream the bytes.
  *
  *  Slashes stay literal (segment boundaries); each segment is percent-encoded
  *  so a name with spaces or reserved characters survives the URL round-trip. */
@@ -162,9 +130,7 @@ export function decodePreviewPath(encoded: string): string {
 }
 
 /** Kolu's preview-URL codec — the `{ encode, decode }` pairing the inversion
- *  in `@kolu/solid-browser` (`pathFromPreviewPathname`) injects. The concept
- *  "these two functions form kolu's codec" lives here, where both halves are
- *  defined, rather than being rebuilt at each consumer. Typed structurally
+ *  in `@kolu/solid-browser` (`pathFromPreviewPathname`) injects. Typed structurally
  *  (not against `@kolu/solid-browser`'s `PreviewPathCodec`, which would invert
  *  the dependency) — the shape is the wire contract both sides agree on. */
 export const previewPathCodec: {
@@ -173,9 +139,8 @@ export const previewPathCodec: {
 } = { encode: encodePreviewPath, decode: decodePreviewPath };
 
 /** Base of the per-terminal file route + its `file` segment. Shared so the
- *  HTTP route registration (re-backed by padi's `preview.read`), the client's
- *  URL builder, and the client (which resolves repo-relative Markdown image
- *  srcs) all agree on one shape —
+ *  HTTP route registration, the client's URL builder, and the client (which
+ *  resolves repo-relative Markdown image srcs) all agree on one shape —
  *  `${BASE}/{host}/{terminalId}/${FILE}/{encoded/path}`. The leading `{host}`
  *  segment names WHICH padi in the pool owns the terminal, so a tab viewing a
  *  remote host reads that host's bytes (not the local default's). */
@@ -185,12 +150,9 @@ export const TERMINAL_FILE_ROUTE_FILE_SEGMENT = "file";
 /** Build the per-terminal file-route URL for a repo-relative path (no cache
  *  key). `host` is the pool key of the padi that owns the terminal (the tab's
  *  active host) — it rides as a leading path segment so the HTTP route resolves
- *  the bytes against the RIGHT host, and an in-iframe relative link keeps it in
- *  the path prefix. The client appends `?v=<tag>` (from
- *  `fs.filePreviewTag`, in `BrowseFileDispatcher`) for the iframe surface —
- *  a CONTENT hash, not the mtime, so an identical-content rewrite (a `git
- *  checkout` across branches) doesn't reload the preview; the rendered-Markdown
- *  image path uses the bare URL to point at the actual repo file it references. */
+ *  the bytes against the RIGHT host. The client appends `?v=<tag>` (from
+ *  `fs.filePreviewTag`) for the iframe surface — a CONTENT hash, not the mtime,
+ *  so an identical-content rewrite doesn't reload the preview. */
 export function buildTerminalFileUrl(
   host: string,
   terminalId: string,

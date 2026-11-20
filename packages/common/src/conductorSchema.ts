@@ -1,38 +1,3 @@
-/**
- * THE CONDUCTOR'S WIRE VOCABULARY — one conversation over every host, as data.
- *
- * kolu-server holds ONE ACP conversation (the "Conductor"): a Claude session
- * whose hands are kolu's own MCP face lifted over the host map, which creates,
- * briefs, watches and answers the agents in the terminals of every host kolu
- * knows. What that conversation IS — its phase, its model, its transcript rows
- * — travels `koluSurface` to every reader, and this module is where those
- * shapes are declared.
- *
- * WHY HERE. `kolu-common` is the shared browser-safe half of kolu-server's
- * contract, and kolu-server is what hosts the conversation, so the shapes a
- * browser draws of it belong beside `koluSurface`. The protocol's own
- * vocabulary — the ask fields, the file diff, the usage pair — is NOT
- * re-declared: it is imported from `@kolu/acp/wire`, because the package that
- * speaks the foreign thing owns its words, and a second declaration of
- * `AskField` is a second thing to keep in step. That import is the one reason
- * this file names ACP at all; nothing here reads a protocol payload (that is
- * `@kolu/acp-harness`'s job) and nothing here touches `node:`.
- *
- * A TERMINAL IS NAMED `host/id`. One conversation reaches every host, so a
- * bare terminal id is ambiguous on this wire: a FLEET REF is the encoded host
- * key, a `/`, and the terminal id (`@kolu/kolu-mcp`'s `fleetTerminalRef`,
- * parsed at the LAST `/` because a remote target may contain one). The rows
- * that name a terminal carry the two halves SEPARATELY — `terminalId` keeps
- * its UUID check and `host` rides beside it — so a card can switch to the
- * host before it focuses the tile; only `ConductorState.fleet`, which is
- * pure membership, carries the joined ref.
- *
- * WHAT A ROW IS. A transcript row is keyed and UPSERTED, never appended twice:
- * a tool call arrives as `pending` and is refined by later frames, so the panel
- * updates one card instead of growing a column of five. `seq` is explicit so a
- * reader never has to depend on key order after a reconnect replays a snapshot.
- */
-
 import {
   agentRowFields,
   askRowFields,
@@ -66,12 +31,6 @@ import { TerminalIdSchema } from "@kolu/terminal-vocab/schema";
 import { AnsweredFromFaceSchema, TypedAnswerSchema } from "kolu-work";
 import { Effect, Schema } from "effect";
 
-/** `YES_NO` is a VALUE, not a schema, and it is the one piece of this
- *  vocabulary both ends must spell identically: a boolean answer travels as
- *  the string `"true"` or `"false"`, and a panel that invented its own
- *  spelling would send the agent an answer it refuses. It rides here with the
- *  schemas so a consumer that has the contract has the agreement too — a
- *  browser never needs `@kolu/acp` itself. */
 export {
   AskAnswer,
   AskChoice,
@@ -84,26 +43,8 @@ export {
   YES_NO,
 };
 
-// ── The rows ──────────────────────────────────────────────────────────────
-
 /** WHAT A MESSAGE WAS ABOUT — a terminal, or a piece of work — as the
- *  composer was armed with it when it was sent, resolved at that moment.
- *
- *  A row of the conversation rather than a fact the browser keeps: what was
- *  sent is what kolu-server put here, so a reload still says what the
- *  question was about, and the prompt that reached the agent carried exactly
- *  these fields as its structured reference block.
- *
- *  A TERMINAL'S TWO HALVES OF IDENTITY ARE SEPARATE. `terminalId` stays the
- *  UUID-checked id a padi mints and `host` is the encoded host key it lives
- *  on; the server joins them into the `host/id` the agent is told. Re-typing
- *  `terminalId` to a ref string would drop the UUID check from every persisted
- *  user row for a fact that is only ever needed joined at one seam.
- *
- *  A WORK is named by the id it is filed under (`kolu-work`'s `WorkId`, the
- *  canonical encoding of its host, repo and branch) and the title it had
- *  when the message went: the chip and the prompt say the same words even
- *  if the title is never seen again. */
+ *  composer was armed with it when it was sent, resolved at that moment. */
 export const ConductorTerminalMentionSchema = Schema.Struct({
   kind: Schema.Literal("terminal"),
   terminalId: TerminalIdSchema,
@@ -140,19 +81,7 @@ export type ConductorMention = typeof ConductorMentionSchema.Type;
  *  IT CARRIES NO BYTES, and that is the whole shape. The file is uploaded
  *  first, in frame-sized pieces, by {@link ConductorAttachInputSchema};
  *  what rides the prompt and the row afterwards is a REFERENCE to what
- *  kolu-server wrote. Base64 on the prompt frame is what this shape exists to
- *  prevent: a policy-legal 12 MiB of attachments is ~16.4 MiB encoded, the
- *  RPC decoder does not fail an oversized frame but CLOSES THE SOCKET with
- *  1009, and that takes every subscription in the tab with it — the incident,
- *  and the chunked answer to it, are written up at the top of
- *  `packages/client/src/terminal/pasteDelivery.ts`.
- *
- *  ONE SHAPE FOR EVERY LIFE, which is the second thing it buys. A row minted
- *  this session and a row restored from disk after a kolu-server restart are the
- *  same value, so "send again" on an hour-old message reads the same file the
- *  first send did. The thumbnail is the only thing that does not survive, and
- *  it was never on this wire: the browser keeps its own picture for the rows
- *  it minted, and every other reader draws the name and the size.
+ *  kolu-server wrote.
  *
  *  `bytes` is PADI'S number — what it actually wrote, measured from the file
  *  — never the sender's claim about it. */
@@ -161,11 +90,8 @@ export const ConductorAttachmentSchema = Schema.Struct({
    *  the attachments directory — so it is a plain name or it is refused; see
    *  kolu-server's `SAFE_ATTACHMENT_ID`. */
   id: Schema.String,
-  /** What the person called it — a filename, or a minted one for a paste. */
   name: Schema.String,
   mimeType: Schema.String,
-  /** Size on disk, as kolu-server measured it; the chip draws it and the per-prompt
-   *  cap refuses on it. */
   bytes: Schema.Int,
   /** Absolute, under `<stateRoot>/conductor/attachments/`. The agent is
    *  handed this path and the harness reads the bytes off it. */
@@ -174,78 +100,32 @@ export const ConductorAttachmentSchema = Schema.Struct({
 export type ConductorAttachment = typeof ConductorAttachmentSchema.Type;
 
 /** How big ONE attachment may be, and how big a single prompt's worth may be
- *  together.
- *
- *  Two numbers rather than one because they refuse different mistakes: a
- *  screenshot of a 5K display is one file worth refusing on its own, and
- *  thirty small ones are a prompt worth refusing as a whole. The bytes land
- *  in kolu-server's state root, so the ceiling is the server's, not the browser's —
- *  which is why the numbers live on the contract both ends read rather than
- *  in either one. They are POLICY caps on a file, deliberately unrelated to
- *  the wire's frame cap: the upload is chunked, so how big an attachment may
- *  be and how much of it fits in one frame are independent numbers.
- *
- *  The agent is never told about a file that was refused. A silent drop would
- *  leave a person watching a conversation answer a question about an image it
- *  was never shown. */
+ *  together. */
 export const ATTACHMENT_BYTE_CAP = 10 * MIB;
 export const PROMPT_ATTACHMENT_BYTE_CAP = 20 * MIB;
 
-/** The two refusals, spelled ONCE. The composer refuses before it sends and
- *  kolu-server refuses what reaches it anyway, and a person who sees both must not
- *  be reading two different rules. */
 export const attachmentTooBig = (name: string, bytes: number): string =>
   `“${name}” is ${formatBytes(bytes)}, and one attachment may be at most ${formatBytes(ATTACHMENT_BYTE_CAP)}.`;
 
 export const promptAttachmentsTooBig = (bytes: number): string =>
   `These attachments come to ${formatBytes(bytes)}, and one message may carry at most ${formatBytes(PROMPT_ATTACHMENT_BYTE_CAP)}. Send them across more than one message.`;
 
-/** What a prompt naming a file kolu-server no longer holds is told. Reachable:
- *  an upload abandoned long enough to be swept, or a composer left open across
- *  a kolu-server restart. Said rather than silently dropped — a message that arrived
- *  without the screenshot it was about is worse than one that did not go. */
 export const attachmentGone = (name: string): string =>
   `“${name}” is no longer on this host, so the message was not sent. Attach it again.`;
 
-/** WHY SIGNING IN COULD FIX A REFUSED MESSAGE — nobody is signed in, or the
- *  account that is cannot run it.
- *
- *  `@kolu/acp/wire`'s `SignInReason`, re-exported under this file's own name:
- *  what can be said about a refused message is the CLIENT's vocabulary, and the
- *  client that reports it (`@kolu/acp-harness`) must not reach into a product's
- *  schema to say it. Two names for one schema rather than two schemas. */
 export const ConductorSignInReasonSchema = SignInReasonSchema;
 export type ConductorSignInReason = typeof ConductorSignInReasonSchema.Type;
 
-/** What a person typed. Never markdown — it is quoted, not rendered.
- *
- *  THE SHARED FIELDS ARE `@kolu/acp/wire`'S, spread here rather than re-typed:
- *  the head, the kind, the text, and the two marks a delivery puts on a row
- *  (`queued`, `delivery`). kolu's own follow — what the message was ABOUT, which
- *  sign-in would fix a refusal, and what rode along with it — and they follow the
- *  shared ones because the shared ones are the vocabulary both chat UIs speak. */
+/** What a person typed. Never markdown — it is quoted, not rendered. */
 export const ConductorUserRowSchema = Schema.Struct({
   ...userRowFields,
   mentions: Schema.optionalKey(Schema.Array(ConductorMentionSchema)),
-  /** ...and, on a refusal SIGNING IN could fix, which kind: nobody is signed
-   *  in, or the account that is cannot run it (its limit, its billing, its
-   *  organisation). Read off what the agent sent as structure, never off its
-   *  words; the panel puts the sign-in door beside *send again*. */
   signIn: Schema.optionalKey(ConductorSignInReasonSchema),
-  /** What rode along with the words. A DECODING DEFAULT rather than an
-   *  optional key, because this row is read back off `config.json` as well as
-   *  off the wire: a transcript persisted before attachments existed has no
-   *  such key, and the alternative to backfilling `[]` is a state-root that
-   *  no longer decodes. The decoded row always carries the array, so no
-   *  reader needs a second spelling for "none". */
   attachments: Schema.Array(ConductorAttachmentSchema).pipe(
     Schema.withDecodingDefaultKey(Effect.succeed([])),
   ),
 });
 
-/** The agent's prose, accumulated. Rendered as markdown — and the whole of the
- *  row is the shared one, `streaming` included: a settled row carries no claim
- *  about a stream that has ended. */
 export const ConductorAgentRowSchema = Schema.Struct({
   ...agentRowFields,
 });
@@ -259,68 +139,28 @@ export const ConductorPlanRowSchema = Schema.Struct({
   steps: Schema.Array(PlanStep),
 });
 
-/** WHO the call is about — the one trio every arm carries, hoisted so a sixth
- *  reading cannot spell it a sixth time. `terminalId` and `host` are nullable
- *  TOGETHER, which is the rule the union below states; `name` is the
- *  terminal's own name and may be known without them (a create still in
- *  flight). Spread first in each arm, in this order, because the emitted
- *  field order is the wire's. */
 const CALL_SUBJECT = {
   terminalId: Schema.NullOr(TerminalIdSchema),
   host: Schema.NullOr(Schema.String),
   name: Schema.NullOr(Schema.String),
 };
 
-/**
- * THE KOLU READING of a tool call — the structured half the kolu-aware cards
- * draw from.
- *
- * A generic card can always be drawn from `text` + `detail`; this is what lets
- * a `lifecycle_create` card say *fix-parser · kolu/.worktrees/fix-parser ·
- * claude* with an "open tile" that actually opens one. It is minted by the
- * harness ONLY for a call it positively recognises as belonging to the `kolu`
- * MCP server we handed the session — a tool it cannot name gets no reading and
- * the generic card, which is the direction this is safe to fail in.
- *
- * EVERY ARM CARRIES `host` BESIDE `terminalId`, split out of the `host/id` the
- * fleet face spoke, because the two are used for different things: the host
- * decides which canvas the card's "open tile" switches to, the id decides
- * which tile it then focuses. Both are nullable together — a call the harness
- * read but whose ref it could not resolve says so rather than guessing a host.
- *
- * `terminalId` IS CHECKED HERE, not by the type: `TerminalIdSchema` is a UUID
- * check applied when the row is encoded, and TypeScript accepts any string in
- * its place. A row holding one that fails it does not encode — on the wire or
- * back off `config.json` — so the harness only ever writes an id that passed
- * `isTerminalId` first; a ref whose id half is anything else (a `watch_next`
- * subscription's name, a half-written argument) is read as no terminal.
- */
 export const ConductorKoluCallSchema = Schema.Union([
   Schema.Struct({
     kind: Schema.Literal("create"),
     ...CALL_SUBJECT,
-    /** Where it opened: the `cwd` asked for, or the worktree cut for it. */
     cwd: Schema.NullOr(Schema.String),
-    /** The command the create typed at the first prompt (its `run`) —
-     *  `claude`, typically, which is what names the agent it started. */
     agent: Schema.NullOr(Schema.String),
   }),
   Schema.Struct({
     kind: Schema.Literal("sendInput"),
     ...CALL_SUBJECT,
-    /** Exactly one of the two is present, as the tool itself requires. */
     text: Schema.NullOr(Schema.String),
     key: Schema.NullOr(Schema.String),
   }),
   Schema.Struct({
-    /** `wait_outputSettled`, `wait_agentState`, `watch_next` — the three ways
-     *  of waiting, which draw the same card: who, what state, how long, and
-     *  the screen tail folded underneath. A `watch_next` card is about a
-     *  terminal only when every event it drained was about that one. */
     kind: Schema.Literal("settle"),
     ...CALL_SUBJECT,
-    /** What it stopped on: what fired, the agent state it was caught in, or
-     *  the latest event's word — else the wait's own `result` (`timeout`). */
     state: Schema.NullOr(Schema.String),
     elapsedMs: Schema.NullOr(Schema.Int),
     screenTail: Schema.NullOr(Schema.String),
@@ -331,16 +171,11 @@ export const ConductorKoluCallSchema = Schema.Union([
     snapshot: Schema.NullOr(Schema.String),
   }),
   Schema.Struct({
-    /** `agent_say` — words put to the agent in a terminal, NOW, with kolu
-     *  doing the keystrokes that agent needs (idle or working). */
     kind: Schema.Literal("say"),
     ...CALL_SUBJECT,
     text: Schema.NullOr(Schema.String),
   }),
   Schema.Struct({
-    /** `work_adopt` / `work_leave` — a terminal joining one of the
-     *  Conductor's works, or leaving it. (Rows stored before works existed
-     *  read the same way off `watch_terminal` / `unwatch_terminal`.) */
     kind: Schema.Literal("watch"),
     ...CALL_SUBJECT,
     watching: Schema.Boolean,
@@ -352,20 +187,6 @@ export const ConductorKoluCallSchema = Schema.Union([
 ]);
 export type ConductorKoluCall = typeof ConductorKoluCallSchema.Type;
 
-/** A tool call, as the shared row fields spell it — the head, the kind, the
- *  title, the status, its folded JSON and live content, what it armed and what
- *  it sent out, the lane it belongs to, whether its turn walked away, and the
- *  two stamps a reader's clock counts from.
- *
- *  KOLU'S OWN FOLLOW, because only a kolu-aware card draws them: which MCP
- *  server and tool a recognised call named, whether its question reached a
- *  person as a FORM (the agent's built-in "ask the human" tool, as that agent's
- *  own leg names it — `@kolu/acp`'s `Leg.asksThroughForm`; the ask row beside it
- *  IS that question, so a panel draws no card for the call), and kolu's own
- *  reading of the call.
- *
- *  A record written before any one of those existed decodes unchanged: every
- *  field is optional, and the shared ones are optional in the same way. */
 export const ConductorToolRowSchema = Schema.Struct({
   ...toolRowFields,
   server: Schema.optionalKey(Schema.String),
@@ -374,40 +195,16 @@ export const ConductorToolRowSchema = Schema.Struct({
   kolu: Schema.optionalKey(ConductorKoluCallSchema),
 });
 
-/** The agent asking a PERSON something — a permission request it was not
- *  allowed to answer for itself, an `AskUserQuestion` form, a URL to visit. */
 export const ConductorAskRowSchema = Schema.Struct({
   ...askRowFields,
 });
 
-/** WHAT A PERSON FILLED IN for one of kolu's work questions, as the chat's
- *  copy of the ask carries it: the DECISION's own id, and what was said for
- *  it. Never empty — a question left blank is not an answer, it is a question
- *  still being asked ({@link ConductorWorkAskStandingSchema}'s `part`). */
 export const ConductorWorkAnswerSchema = Schema.Struct({
   key: Schema.String,
   values: Schema.NonEmptyArray(Schema.String),
 });
 export type ConductorWorkAnswer = typeof ConductorWorkAnswerSchema.Type;
 
-/** WHERE ONE OF KOLU'S WORK FORMS STANDS IN THE CHAT, as a SUM — the same
- *  fact the work's own decisions hold, said in the row the question was asked
- *  in.
- *
- *  An elicitation's outcome ({@link Ask}) cannot say this: it
- *  is an all-or-nothing settlement of a call the agent is holding open, and a
- *  work form is several questions a person may answer ONE of. `part` is that
- *  state — what they filled in is recorded, the rest is still in front of
- *  them, in the same form — and it is an arm rather than a nullable outcome
- *  with a flag beside it because "answered with nothing" and "answered the
- *  lot" were the two readings that disagreed.
- *
- *   - `open` — nobody has said anything yet;
- *   - `part` — some questions are answered, the rest are still asked;
- *   - `answered` — nothing is open any more, and this is what was filled in;
- *   - `declined` — they would not say, and nothing was filled in;
- *   - `withdrawn` — the questions went away unanswered (the work ended under
- *     them, or the conversation that asked them is gone). */
 export const ConductorWorkAskStandingSchema = Schema.Union([
   Schema.Struct({ kind: Schema.Literal("open") }),
   Schema.Struct({
@@ -424,64 +221,42 @@ export const ConductorWorkAskStandingSchema = Schema.Union([
 export type ConductorWorkAskStanding =
   typeof ConductorWorkAskStandingSchema.Type;
 
-/** KOLU'S OWN FORM, as the chat holds it: the fields it put and where it
- *  stands. No `link`: a url to visit is an ACP elicitation's other mode, and
- *  kolu's questions about a piece of work are never one. */
 export const ConductorWorkAskSchema = Schema.Struct({
   fields: Schema.Array(AskField),
   standing: ConductorWorkAskStandingSchema,
 });
 export type ConductorWorkAsk = typeof ConductorWorkAskSchema.Type;
 
-/** KOLU asking a person something ABOUT A PIECE OF WORK — its own row kind,
- *  not an `ask` row with a work field bolted on.
- *
- *  Two different things were living under one tag: an ELICITATION the agent
- *  is holding a call open for, and a DECISION on a work that nothing waits
- *  on. Every reader had to re-discriminate them on the presence of an
- *  optional field, and the two are answered through different procedures
- *  (`conductor.answer` and `conductor.answerWork`). `work` is required here,
- *  because a work question about no work is not a thing. */
 export const ConductorWorkAskRowSchema = Schema.Struct({
   ...rowHead,
   kind: Schema.Literal("work-ask"),
   text: Schema.String,
   ask: ConductorWorkAskSchema,
   parent: Schema.optionalKey(Schema.String),
-  /** THE WORK this question is about — stated when it was asked (kolu's own
-   *  `work_ask` / `work_open` put it), never inferred from timing. The work's
-   *  card draws the same decision, so answering either face answers the one
-   *  question. */
   work: Schema.String,
 });
 
-/** The conversation reporting on itself: the agent died, a turn was cancelled,
- *  a session was loaded, a turn said nothing, a background task ended. */
 export const ConductorNoticeRowSchema = Schema.Struct({
   ...noticeRowFields,
 });
 
-/** `— new session —`. Drawn as a rule, not a sentence. */
 export const ConductorDividerRowSchema = Schema.Struct({
   ...rowHead,
   kind: Schema.Literal("divider"),
   text: Schema.String,
 });
 
-/** THE FOUR LEVELS A READING AND A WAKE BOTH SPELL — the ones that come off a
- *  host AND are worth waking the Conductor about. Declared once and spread
- *  into both unions below, because the two lists are not one list: a reading
- *  can never say `ready` or `ended` (those are conclusions kolu's watch draws
- *  from a SEQUENCE of readings) and a wake can never say `working` or `shell`
- *  (neither is news). Four literals spelled twice is how two lists drift;
- *  one union covering both is a type that admits values its own producer
- *  cannot make. */
 const SHARED_LEVELS = ["stopped", "asking", "gone", "asleep"] as const;
 
+const CONCLUDED_LEVELS = ["ready", "ended", "exited"] as const;
+
+const HANDOVER_LEVELS = ["taken-over", "handed-back"] as const;
+
+const READ_OFF_HOST_LEVELS = ["working", "shell", "starting", "fresh"] as const;
+
+export type ConcludedLevel = (typeof CONCLUDED_LEVELS)[number];
+
 /** HOW A WATCHED TERMINAL STANDS when kolu wakes the Conductor about it.
- *
- *  Seven values, and every one of them is a thing the Conductor can DO
- *  something about:
  *
  *  - `stopped` — the agent's turn ended and its output went quiet (padi's
  *    `finishedIds`).
@@ -489,75 +264,32 @@ const SHARED_LEVELS = ["stopped", "asking", "gone", "asleep"] as const;
  *  - `gone` — the terminal left its host's roster while that host was
  *    answering.
  *  - `ready` — the agent in it has COME UP and nothing has been said to it
- *    yet. TWO ways to it, and they are not the same claim: a `fresh` reading
- *    is padi SAYING so (the agent's screen has settled and it has never been
- *    prompted), while a `stopped` reading of an agent this conversation has
- *    never spoken to is kolu INFERRING it — the case of a session that was
- *    already running when the terminal was watched. Either way it rings
- *    instead of `stopped`, because an agent sitting at its prompt unbriefed
- *    is not a turn that ended: it is one that has not been given.
+ *    yet.
  *  - `asleep` — the terminal an agent was seen in was put to sleep, so that
- *    agent is gone with it. The entry stays watched: waking the terminal
- *    brings it back to the ordinary levels.
+ *    agent is gone with it.
  *  - `ended` — a terminal the Conductor created WITH a command: the command
  *    ran and the terminal is back at its shell prompt with no agent ever
- *    seen in it. What kolu has to decide this is padi's foreground process
- *    and its agent detection, and NO exit status — so a command that fails
- *    before any non-shell foreground is sampled (`omp: command not found`,
- *    answered by the shell itself) does not ring at all.
- *  - `exited` — the OTHER half of that pair, and the one a waiting Conductor
- *    used to die on: an agent WAS seen in this terminal, and now its program
+ *    seen in it.
+ *  - `exited` — an agent WAS seen in this terminal, and now its program
  *    has left the foreground and the terminal is back at its shell prompt.
- *    The agent crashed, was quit, or ran out of something. It rings because
- *    the thing the Conductor was waiting for cannot happen any more — no
- *    `stopped`, no `asking`, no `gone` will ever follow — and the screen the
- *    agent left behind is where the reason is. Like `ended` it carries no
- *    exit status: kolu saw the program go, not why.
- *
  *  - `taken-over` / `handed-back` — the PERSON took the terminal off the
- *    Conductor, or gave it back. Not a reading of the terminal at all: it is
- *    an act, and it rings for the same reason the others do — what the
- *    Conductor was about to do to that terminal is no longer its to do (or is
- *    again).
- *
- *  Nothing else rings: an agent that is working, a plain shell nobody
- *  created with a command, a host that is merely not answering. */
+ *    Conductor, or gave it back. */
 export const ConductorWakeLevelSchema = Schema.Literals([
   ...SHARED_LEVELS,
-  "ready",
-  "ended",
-  "exited",
-  "taken-over",
-  "handed-back",
+  ...CONCLUDED_LEVELS,
+  ...HANDOVER_LEVELS,
 ]);
 export type ConductorWakeLevel = typeof ConductorWakeLevelSchema.Type;
 
 /** WHAT A WATCHED TERMINAL IS DOING, as the watch READS it off its host: the
  *  four shared levels, plus the two readings that never ring on their own —
  *  `working` (an agent visibly moving) and `shell` (a prompt with nothing in
- *  front of it) — plus the two PRESENCE readings. Both of the first pair MOVE
- *  the entry, so both are read, and a panel that says how long a terminal has
- *  stood as it stands has to be able to name them.
- *
- *  `starting` and `fresh` are padi's own presence states, read off the record's
- *  agent rather than off an urgency list: an agent program is in the foreground
- *  and its screen is still being drawn (`starting`), or it has settled and
- *  nothing has ever been said to it (`fresh`). They exist here because they
- *  arrive BEFORE any transcript does — the watch used to say nothing at all
- *  about a terminal whose agent had come up but had not yet written a session,
- *  which is exactly the moment the Conductor is waiting to brief it in.
- *
- *  `ready`, `ended` and `exited` are NOT in here: they never come off a host,
- *  so a reading that carried one would be a frame nothing can produce.
- *  `fresh` is the reading `ready` is concluded from, and a `shell` reading is
- *  where the other two are decided; they are not the same words, because the
- *  conclusion is the watch's ({@link ConductorWakeLevelSchema}). */
+ *  front of it) — plus the two PRESENCE readings: an agent program is in the
+ *  foreground and its screen is still being drawn (`starting`), or it has
+ *  settled and nothing has ever been said to it (`fresh`). */
 export const ConductorReadingLevelSchema = Schema.Literals([
   ...SHARED_LEVELS,
-  "working",
-  "shell",
-  "starting",
-  "fresh",
+  ...READ_OFF_HOST_LEVELS,
 ]);
 export type ConductorReadingLevel = typeof ConductorReadingLevelSchema.Type;
 
@@ -572,13 +304,9 @@ export const ConductorWakeEventSchema = Schema.Struct({
   terminalId: TerminalIdSchema,
   /** What a person calls the host — its hostname, or its ssh target. */
   hostName: Schema.String,
-  /** The terminal's own name, as kolu last read it. */
   name: Schema.String,
   /** The agent kolu detected in it (`claude-code`, `codex`, …), or EMPTY for
-   *  a terminal no agent was ever seen in — which is `ended` and nothing
-   *  else: every other level is about an agent, so every other level names
-   *  one. A reader draws the terminal alone rather than inventing a word for
-   *  an agent that never existed. */
+   *  a terminal no agent was ever seen in. */
   agent: Schema.String,
   level: ConductorWakeLevelSchema,
   /** When kolu saw it enter this level. */
@@ -586,27 +314,10 @@ export const ConductorWakeEventSchema = Schema.Struct({
 });
 export type ConductorWakeEvent = typeof ConductorWakeEventSchema.Type;
 
-/** A MACHINE'S LINE — kolu itself starting a Conductor turn, because a
- *  watched terminal's agent came up, stopped, asked, slept or died
- *  ({@link ConductorWakeLevelSchema}).
- *
- *  In the lane a prompt goes out on (it IS a prompt, to the agent), but never
- *  the human's bubble: it is drawn full width on the left, one line that
- *  opens for the rest, saying who speaks and when. `text` is exactly what the
- *  agent was handed — the whole account, opening with who wrote it, because a
- *  resumed conversation is rebuilt from the agent's own store, which carries
- *  the words and not this row's mark. No *send again*: what it says is how
- *  something STOOD when it rang, and the thing that rang rings again.
- *
- *  `queued` and `delivery` are the user row's own two facts, because a turn
- *  kolu started is a turn like any other — it can wait behind one, be
- *  refused, or go unanswered. */
 export const ConductorWakeRowSchema = Schema.Struct({
   ...rowHead,
   kind: Schema.Literal("wake"),
-  /** Who speaks — `kolu`. */
   from: Schema.String,
-  /** Every terminal this turn is about, one each, in the order they rang. */
   events: Schema.Array(ConductorWakeEventSchema),
   text: Schema.String,
   queued: Schema.optionalKey(Schema.Literal(true)),
@@ -631,40 +342,12 @@ export type ConductorUserRow = typeof ConductorUserRowSchema.Type;
 export type ConductorAskRow = typeof ConductorAskRowSchema.Type;
 export type ConductorWorkAskRow = typeof ConductorWorkAskRowSchema.Type;
 
-/** The OFFSET RULE, written once for both folds.
- *
- *  `at` is AUTHORITATIVE: a piece that was delivered twice starts at an offset
- *  the row already covers, and truncating to `at` before appending makes the
- *  re-send a no-op instead of a stutter. A piece that starts PAST the end — a
- *  frame went missing — is appended at the end rather than padded with invented
- *  characters; the next snapshot is what fixes that. Two readers doing this
- *  arithmetic two ways is two different transcripts, and one of them is the one
- *  kolu-server writes to disk. */
 export const appendedText = (
   current: string,
   at: number,
   text: string,
 ): string => current.slice(0, Math.min(at, current.length)) + text;
 
-/**
- * SNAPSHOT-THEN-DELTAS, explicitly discriminated.
- *
- * The framework's retry fence re-runs a dropped stream from the top, so the
- * first frame after a reconnect must be a full replacement a reducer can
- * assign over its accumulator. A reader that appended an implicit replay into
- * an already-populated map would double every row — which is exactly why the
- * discriminant is on the wire rather than agreed by convention.
- *
- * A delta is folded in ONE order, and both folds (the server's `applyRows`, the
- * client's `transcript.ts`) obey it: **removes, then upserts, then appends.**
- * The order is load-bearing in both directions. Removes first means a frame
- * that drops a row and re-upserts the same id is a REPLACEMENT rather than a
- * row deleted after it was rewritten; appends last means text that arrives in
- * the same frame as the row it belongs to lands on the row that frame just
- * put there, instead of on the row it replaced. Two readers folding the same
- * frame in two orders is two different transcripts, and the wire has nothing
- * in it that would ever reveal the disagreement.
- */
 export const ConductorFrameSchema = Schema.Union([
   Schema.Struct({
     kind: Schema.Literal("snapshot"),
@@ -681,16 +364,6 @@ export const ConductorFrameSchema = Schema.Union([
 ]);
 export type ConductorFrame = typeof ConductorFrameSchema.Type;
 
-// ── The cell ──────────────────────────────────────────────────────────────
-
-/**
- * WHETHER THERE IS AN CONDUCTOR HERE AT ALL.
- *
- * The ACP adapter is baked into kolu's closure, so `absent` is not a
- * degradation anything works around: the panel shows the sentence whoever
- * found out wrote, and there is no fallback path. `why` is a WHOLE SENTENCE
- * and nothing composes around it.
- */
 export const ConductorInstallSchema = Schema.Union([
   Schema.Struct({ kind: Schema.Literal("installed") }),
   Schema.Struct({
@@ -701,11 +374,6 @@ export const ConductorInstallSchema = Schema.Union([
   }),
 ]);
 
-/** THE FOUR RECORDS A RESTART READS, by name — the `conductor`, `works` and
- *  `members` keys of kolu-server's `config.json`, and the transcript file
- *  beside it. The one vocabulary a refusal names a record by and a recovery
- *  names one back: spelled here, on the wire, so the panel's copy, the
- *  procedure's input and the server's switch cannot drift into three lists. */
 export const ConductorStoreKeySchema = Schema.Literals([
   "conductor",
   "works",
@@ -714,15 +382,6 @@ export const ConductorStoreKeySchema = Schema.Literals([
 ]);
 export type ConductorStoreKey = typeof ConductorStoreKeySchema.Type;
 
-/** A REMEMBERED RECORD THIS BUILD CANNOT READ — what the Conductor's screen
- *  turns into two buttons.
- *
- *  It carries the fact, never an instruction: `key` says which record,
- *  `path` says which file is holding it (so a person can take a copy before
- *  anything moves, and so a bug report names the right file), and the
- *  sentence a person reads is `refusal` beside it. Nothing here ever asks
- *  anybody to edit JSON — the two things kolu can do about it are
- *  `conductor.recoverStore`'s two `how`s. */
 export const ConductorUnreadableSchema = Schema.Struct({
   key: ConductorStoreKeySchema,
   /** The file the unreadable value is in — `config.json` for the three keys,
@@ -732,14 +391,9 @@ export const ConductorUnreadableSchema = Schema.Struct({
    *  that record empty — the exact path `recoverStore { how: "empty" }`
    *  writes, so the confirm quotes it instead of guessing at it. */
   keepsAt: Schema.String,
-  /** Whether the state-backup ring covers this record at all. The transcript
-   *  is NOT in it (it is most of the conversation's bytes and moves on every
-   *  keystroke), so the "restore the newest backup" button has nothing to
-   *  offer for that key — a fact the screen reads here rather than knowing. */
   inBackups: Schema.Boolean,
   /** WHAT IT TRIPPED ON, verbatim (a schema path, a version stamp, a JSON
-   *  parse error). Not the sentence a person reads — that is `refusal` — but
-   *  the one line a bug report needs, drawn small under it. */
+   *  parse error). */
   detail: Schema.String,
 });
 export type ConductorUnreadable = typeof ConductorUnreadableSchema.Type;
@@ -747,7 +401,6 @@ export type ConductorUnreadable = typeof ConductorUnreadableSchema.Type;
 export const ConductorStateSchema = Schema.Struct({
   install: ConductorInstallSchema,
   phase: Phase,
-  /** What the agent is called — "Claude Code". The panel never spells it. */
   agentName: Schema.String,
   sessionId: Schema.NullOr(Schema.String),
   /** `$HOME` of the machine kolu-server runs on: the directory the
@@ -767,22 +420,12 @@ export const ConductorStateSchema = Schema.Struct({
   openAsks: Schema.Array(Schema.String),
   /** THE QUESTIONS KOLU PUT ABOUT A PIECE OF WORK that are still open, as ask
    *  ids — derived by the server from the works' decisions, so nothing stores
-   *  them twice.
-   *
-   *  TWO LISTS, NOT ONE, because a reader must know WHICH a question is the
-   *  moment it appears: a work's question reaches a browser here before that
-   *  work's own record does, and read as the conversation's it would be rung
-   *  (or silenced) by the conversation's rule instead of its work's. */
+   *  them twice. */
   workAsks: Schema.Array(Schema.String),
   /** Every terminal this conductor has created or sent input to, as FLEET
    *  REFS (`<encodedHostKey>/<terminalId>`) — one conversation spans every
-   *  host, so a bare id here would name two terminals on a two-host fleet.
-   *  Live state for each is read from that host's `terminals` collection,
-   *  never remembered here — this is membership, not a mirror. */
+   *  host, so a bare id here would name two terminals on a two-host fleet. */
   fleet: Schema.Array(Schema.String),
-  /** The sign-in this conversation is offering or running, which is the
-   *  PANEL's state and not the client's event — {@link SigningIn} argues the
-   *  difference. `null` when there is nothing to draw. */
   signIn: Schema.NullOr(SigningIn),
   /** WHO the agent process is signed in as, as the agent itself reports it
    *  (`_auth/status_update`). CONNECTION-scoped, not session-scoped: it
@@ -793,36 +436,16 @@ export const ConductorStateSchema = Schema.Struct({
    *  a payload of its own (`kind: "none"`) and the chip says so. */
   identity: Schema.NullOr(AuthStatus),
   /** WHICH REMEMBERED RECORD kolu could not read, when that is why there is
-   *  no conversation — `null` whenever the records read.
-   *
-   *  A SENTENCE IS NOT ENOUGH HERE, which is why this rides beside
-   *  {@link ConductorStateSchema.refusal} rather than inside it: the two
-   *  things kolu can actually DO about an unreadable record (restore the
-   *  newest backup that reads, or keep the unreadable value aside and start
-   *  with the record empty) are `conductor.recoverStore` calls, and a button
-   *  cannot be drawn off prose. The prose stays in `refusal`, which is what a
-   *  person reads; this is what the two buttons are made of. */
+   *  no conversation — `null` whenever the records read. */
   unreadable: Schema.NullOr(ConductorUnreadableSchema),
-  /** A conversation the agent would not OPEN, in the agent's own words. There
-   *  is no composer under this and the panel offers *try again*, which asks
-   *  for the same thing that was refused. */
+  /** A conversation the agent would not OPEN, in the agent's own words. */
   refusal: Schema.NullOr(Schema.String),
-  /** Whether a message may be STEERED into the turn that is running (Alt+Enter)
-   *  — BOTH halves in one bit, so the composer derives nothing: the agent's leg
-   *  advertised steering at the handshake, AND this conversation has never
-   *  held a message behind a running turn. The second half is a guard around
-   *  the pinned adapter's defect (a steer into a session that has ever queued
-   *  never settles its turn), brought over from olai with its measurement;
-   *  a new session gets it back. */
+  /** Whether a message may be STEERED into the turn that is running
+   *  (Alt+Enter). */
   steers: Schema.Boolean,
-  /** When the turn in flight began, or `null` while nothing is running — so
-   *  every reader's "working · 2m" counts from the same instant. */
   busySince: Schema.NullOr(Schema.String),
   /** The member terminals whose news is HELD because a turn is running — one
-   *  per terminal, in the order the first of each rang. NEVER saved: a
-   *  restart looks at every member terminal again instead. The status line's
-   *  "N waiting" is this list's length. The works themselves are the `works`
-   *  cell's: a work outlives the conversation that opened it. */
+   *  per terminal, in the order the first of each rang. */
   held: Schema.Array(Schema.String),
 });
 export type ConductorState = typeof ConductorStateSchema.Type;
@@ -851,33 +474,22 @@ export const DEFAULT_CONDUCTOR_STATE: ConductorState = {
   held: [],
 };
 
-// ── Procedure I/O ─────────────────────────────────────────────────────────
-
 export const ConductorPromptInputSchema = Schema.Struct({
   text: Schema.String,
   mentions: Schema.Array(ConductorMentionSchema),
-  /** The files that ride with the words — NAMES, not bytes. Each was already
-   *  uploaded by `conductor.attach`, so what kolu-server does here is look
-   *  each one up under its own attachments directory, measure it, and hand the
-   *  agent a path. A decoding default so a browser served by an earlier
-   *  build, which omits the key entirely, still sends a prompt rather than
-   *  being refused by the decoder for having nothing to attach. */
   attachments: Schema.Array(ConductorAttachmentSchema).pipe(
     Schema.withDecodingDefaultKey(Effect.succeed([])),
   ),
   /** STEER rather than queue: put the words INTO the turn that is running
    *  (Alt+Enter). Honoured only while a turn runs and `steers` holds; a steer
    *  the agent did not take — the turn ended under it — goes out as a plain
-   *  prompt, so the words are never lost. A decoding default so an older
-   *  browser's prompt is an ordinary one. */
+   *  prompt, so the words are never lost. */
   steer: Schema.Boolean.pipe(
     Schema.withDecodingDefaultKey(Effect.succeed(false)),
   ),
 });
 
 export const ConductorPromptOutputSchema = Schema.Struct({
-  /** The transcript row the words landed in, so the composer can follow its
-   *  delivery without guessing which row is its own. */
   rowId: Schema.String,
 });
 
@@ -885,31 +497,16 @@ export const ConductorPromptOutputSchema = Schema.Struct({
  *  off the prompt frame.
  *
  *  The first call for an id omits `appendTo` and CREATES the file; each later
- *  one passes back the `path` it was handed and APPENDS. The sender cuts the
- *  base64 with `chunkBase64` and refuses ahead of the first call with
- *  `frameBytesFor` + `exceedsFrameLimit` (`@kolu/surface/frame-chunking`,
- *  `@kolu/surface/frame-limit`) — the same arithmetic a terminal paste rides,
- *  derived once and never twice.
- *
- *  STRICTLY SEQUENTIAL. kolu-server appends to one growing file, so two chunks
- *  of the same attachment in flight at once interleave and corrupt it silently;
- *  a sender awaits each call before making the next. */
+ *  one passes back the `path` it was handed and APPENDS. */
 export const ConductorAttachInputSchema = Schema.Struct({
   /** The attachment id, which is also the filename kolu-server writes under —
    *  so it must be a plain name, and `..` is refused rather than repaired. */
   id: Schema.String,
-  /** What the person called it. Carried per chunk because it is what the
-   *  refusals are said about, and a refusal naming an id is not a sentence. */
   name: Schema.String,
   mimeType: Schema.String,
   /** This chunk's bytes, base64. Boundaries are 4-character-aligned so each
    *  chunk decodes on its own (see `chunkBase64`). */
   data: Schema.String,
-  /** Absent on the FIRST chunk: create the file. Present on every later one:
-   *  the path the previous call returned. It is VALIDATED, not trusted — a
-   *  path that resolves outside the attachments directory is a refusal, not a
-   *  write, because a trusted continuation token turns an upload into an
-   *  arbitrary-file append. */
   appendTo: Schema.optionalKey(Schema.String),
 });
 
@@ -935,17 +532,6 @@ export const ConductorAnswerOutputSchema = Schema.Struct({
   settled: Schema.Boolean,
 });
 
-/** THE HUMAN'S ANSWER TO ONE OF KOLU'S OWN QUESTIONS about a piece of work.
- *
- *  Not {@link ConductorAnswerInputSchema}: that one settles a question the
- *  AGENT is holding a call open for, and this one writes a DECISION onto a
- *  work. The work is named because the decision lives on it and the ask id
- *  alone would have to be searched for; `answers` is keyed by the DECISION's
- *  own id, which is what every face draws its buttons from.
- *
- *  A question nobody answered is `answers: null` — declined. A question left
- *  alone inside an ask that was answered simply has no key here, and the
- *  record says exactly that about it. */
 export const ConductorAnswerWorkInputSchema = Schema.Struct({
   work: Schema.String,
   ask: Schema.String,
@@ -963,22 +549,9 @@ export const ConductorAnswerWorkInputSchema = Schema.Struct({
       ]),
     ),
   ),
-  /** WHERE the human was when they answered: the work's card, the chat, the
-   *  reader a file is open in, or that reader popped out into a window of its
-   *  own. One decision whichever face answered it, and the decision records
-   *  which — which is the only thing that tells them apart afterwards. */
   from: AnsweredFromFaceSchema,
 });
 
-/** WHAT THE ANSWER DID TO THE ASK — a SUM, because a reply may settle only
- *  PART of a form: a question left blank stays asked, in the same ask, and
- *  the face that sent this must know whether to keep the form in front of the
- *  person (`part`, naming the decisions still open) or to close it.
- *
- *  `nothing-open` is the two-tab race and the work that ended under the
- *  question: there was nothing left to settle. A reported state, not a fault
- *  — a reply that fills in nothing at all is refused by the conductor
- *  (`nothing-answered`) and never reaches here. */
 export const ConductorAnswerWorkOutcomeSchema = Schema.Union([
   Schema.Struct({ kind: Schema.Literal("answered") }),
   Schema.Struct({
@@ -1000,25 +573,11 @@ export const ConductorSignInInputSchema = Schema.Struct({
   method: Schema.String,
 });
 
-/**
- * WHAT THE RESTART AFTER A SIGNATURE DID — the second half of what a sign-in
- * answers.
- *
- * A running adapter keeps the credential it read at `initialize`, so a login
- * that landed is only half the job: the agent is restarted into the
- * conversation that was live when the button was pressed. That restart can be
- * REFUSED (a turn is running) or fail, and when it does the person has two
- * facts to be told, not one — they ARE signed in, and the next turn is still
- * the old account's. Rejecting the call instead is how a sign-in that worked
- * reached the screen as "Sign-in failed".
- */
 export const ConductorRestartAfterSignInSchema = Schema.Union([
-  /** Nothing was signed in, so no restart was owed. */
   Schema.Struct({ kind: Schema.Literal("not-due") }),
   Schema.Struct({ kind: Schema.Literal("restarted") }),
   Schema.Struct({
     kind: Schema.Literal("did-not-restart"),
-    /** The refusal's own sentence, shown as it is. */
     why: Schema.String,
   }),
 ]);
@@ -1040,14 +599,11 @@ export const ConductorTextInputSchema = Schema.Struct({
   text: Schema.String,
 });
 
-/** One terminal, by the `<host>/<id>` ref every face names it with — the input
- *  of `conductor.takeOver` / `conductor.handBack`. */
+/** One terminal, by the `<host>/<id>` ref every face names it with. */
 export const ConductorTerminalInputSchema = Schema.Struct({
   terminal: Schema.String,
 });
 
-/** ONE PIECE OF WORK, by its id — the input of `conductor.stopWork` /
- *  `conductor.reopenWork`. */
 export const ConductorWorkInputSchema = Schema.Struct({
   work: Schema.String,
 });
@@ -1057,9 +613,7 @@ export const ConductorWorkInputSchema = Schema.Struct({
  *  `backup` walks the state-backup ring newest first and takes the newest
  *  snapshot whose whole store decodes through the real migration ladder.
  *  `empty` moves the unreadable value aside into a file of its own beside
- *  `config.json` and starts that record empty. Neither deletes anything, and
- *  neither asks a person to open an editor — which is the whole reason this
- *  procedure exists rather than a sentence telling them to. */
+ *  `config.json` and starts that record empty. */
 export const ConductorRecoverInputSchema = Schema.Struct({
   key: ConductorStoreKeySchema,
   how: Schema.Literals(["backup", "empty"]),

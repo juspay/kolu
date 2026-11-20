@@ -3,16 +3,14 @@ import { Effect, Option } from "effect";
 import { describe, expect, it } from "vitest";
 import { listWorkFiles, notKeptWhy, WORK_FILES_LISTED } from "./workFiles.ts";
 
-/** A worktree's folders as `fs.listDirectory` answers them, one level each —
- *  keyed by the folder without its slash, which is how the walk asks. */
-const host =
-  (tree: Record<string, ReadonlyArray<string>>) => (dirPath: string) =>
-    dirPath in tree
-      ? Effect.succeed({ paths: tree[dirPath] ?? [] })
+const listDirectoryFrom =
+  (levels: Record<string, ReadonlyArray<string>>) => (dirPath: string) =>
+    dirPath in levels
+      ? Effect.succeed({ paths: levels[dirPath] ?? [] })
       : Effect.fail(new FileGone({ path: dirPath }));
 
-const walk = (tree: Record<string, ReadonlyArray<string>>) =>
-  Effect.runPromise(listWorkFiles(host(tree)));
+const walk = (levels: Record<string, ReadonlyArray<string>>) =>
+  Effect.runPromise(listWorkFiles(listDirectoryFrom(levels)));
 
 describe("listing a work's files", () => {
   it("finds every file three levels deep, in tree order", async () => {
@@ -71,12 +69,10 @@ describe("listing a work's files", () => {
     });
     expect(listed.more).toBe(true);
     expect(listed.paths).toContain(".waterfall/plan.md");
-    // Files and folders both count: the folder and the plan are two of them.
     expect(listed.paths).toHaveLength(WORK_FILES_LISTED - 1);
   });
 
   it("ends on a folder symlinked onto itself", async () => {
-    // Every level holds a file and the same folder again, one deeper.
     const listed = await Effect.runPromise(
       listWorkFiles((dirPath) =>
         Effect.succeed({ paths: [`${dirPath}/a.md`, `${dirPath}/self/`] }),

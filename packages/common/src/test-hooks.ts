@@ -1,18 +1,3 @@
-/**
- * Test-only hooks installed on `window` by the client at app startup and
- * read by Cucumber e2e step definitions. Plus the Badging API surface
- * the alert tests stub out. Declared here in `kolu-common` so both sides
- * (client setter, test reader) type-check against the same shape —
- * without this, `(window as any).__koluFoo` and `(navigator as any)`
- * casts proliferate at every call site (the noExplicitAny migration
- * in #710 / #721).
- *
- * Usage: `import "kolu-common/test-hooks"` for side-effect (loads the
- * `Window` / `Navigator` augmentations). They're module-scoped — TS
- * only sees these properties in files that transitively import this
- * module.
- */
-
 export {};
 
 declare global {
@@ -41,10 +26,7 @@ declare global {
      *
      *  `opts.viewport` narrows the read to the rows the user can actually SEE
      *  (`[viewportY, viewportY + rows)`) instead of the whole buffer including
-     *  scrollback. The distinction is load-bearing: a terminal can hold the
-     *  right bytes while showing the wrong window onto them, which is exactly
-     *  the split-render defect — a whole-buffer read passes on a screen the
-     *  user sees as broken. */
+     *  scrollback. */
     __readXtermBuffer?: (
       sel: string,
       idx: number,
@@ -59,11 +41,7 @@ declare global {
 
     /** Append-only history of every `pendingLayouts.applyMany(...)`
      *  call — set by `usePendingLayouts`. Each entry records the ids
-     *  the call seeded. E2e tests use this to assert that arrange
-     *  seeded pending synchronously without depending on the read
-     *  hitting the brief window before `dropEvicted` clears entries
-     *  (which under CI load can be shorter than the polling
-     *  interval). The history survives the cleanup. */
+     *  the call seeded. The history survives the cleanup. */
     __koluPendingApplyHistory?: string[][];
   }
 

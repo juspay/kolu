@@ -127,7 +127,6 @@ describe("isMarkdown", () => {
     expect(isMarkdown("README.md")).toBe(true);
     expect(isMarkdown("docs/Guide.MD")).toBe(true);
     expect(isMarkdown("notes.markdown")).toBe(true);
-    // MDX is Markdown + JSX — same reading preview as .md (not Source-only).
     expect(isMarkdown("docs/atlas/note.mdx")).toBe(true);
     expect(isMarkdown("page.MDX")).toBe(true);
   });
@@ -159,10 +158,6 @@ describe("the binary-previewable partition is structural", () => {
   });
 
   it("every binary-previewable extension matches exactly one renderer family — no silent extra category", () => {
-    // Guards the client's `binaryPreviewFamily` dispatch: a future
-    // non-image, non-video, non-PDF, non-document binary
-    // (`.wasm`, a font) cannot slip in without landing in exactly one set —
-    // the runtime counterpart to the explicit "unsupported" no-match renderer.
     for (const ext of BINARY_PREVIEWABLE_EXTENSIONS) {
       const path = `file${ext}`;
       expect(binaryPreviewFamily(path)).not.toBe(null);
@@ -174,8 +169,6 @@ describe("the binary-previewable partition is structural", () => {
   });
 
   it("markdown is its own axis — never binary-previewable (stays kind:text)", () => {
-    // Markdown renders client-side from `content`, so it must never be
-    // routed to the binary URL path; it's a text file with a rendered form.
     for (const ext of MARKDOWN_EXTENSIONS) {
       expect(isBinaryPreviewable(`file${ext}`)).toBe(false);
       expect(isMarkdown(`file${ext}`)).toBe(true);

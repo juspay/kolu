@@ -1,39 +1,3 @@
-/**
- * The app's RPC contract: the typed API shape shared by server and client, as
- * ONE flat `RpcGroup` (Effect RPC).
- *
- * The typed reactive layer lives in `./surface` (`defineSurfaceWithPolicy(...)`)
- * and appears at the wire tags `surface/<sibling>/<member>/<verb>`. The terminal
- * domain's raw procedures (lifecycle, attach, screen, git worktrees, …)
- * relocated onto `@kolu/padi`'s `padiSurface` across W1.R — the root `terminal/*`
- * / `git/*` namespaces this contract once carried were DELETED at W1.R7 (the
- * package-boundary seal). What remains are the host-level raw procedures that
- * never fit a surface primitive and stay kolu-server's own: `server/info`
- * (synchronous per-host branding), `daemon/restart`, and the four-plus-one
- * `hosts/*` membership verbs.
- *
- * ── Why a flat group, and what that changes ────────────────────────────
- *
- * oRPC's `oc.router({...})` nested namespaces; Effect RPC's namespace is FLAT —
- * one `Rpc` per tag, and a tag is the slash-joined wire path (PLAN D1). So the
- * old `server: { info }` object literal is the tag `"server/info"`, and the
- * surface siblings' tags all begin `surface/`, which is exactly what keeps a
- * hand-written root procedure from ever colliding with a surface member.
- *
- * `RpcGroup.make` / `.merge` are last-writer-wins `Map.set`s with ZERO collision
- * detection (#16), so nothing here is assembled unproven — but the two assemblies
- * are proved by different primitives, because they are different acts. The root
- * procedure WALK (`RpcGroup.make(...)` over a declared tag list) is counted by
- * {@link assertTagCount}; the two HALVES are fused by `mergeDisjointGroups`
- * (`@kolu/surface/define`), which claims every half's tags before merging and names
- * both halves of any collision. Either way a collision fails at import, not by
- * silently serving a contract that is quietly missing a member.
- *
- * The procedure I/O schemas this contract consumes are declared in this file.
- * Schemas shared with the surface layer live in `./surface` and are imported
- * there, not here.
- */
-
 import {
   composeSurfaceContracts,
   mergeDisjointGroups,
@@ -43,8 +7,6 @@ import { Rpc, RpcGroup } from "effect/rpc";
 import { HostKeySchema } from "./hostKey.ts";
 import { surfaces } from "./surface";
 
-// ── Root procedure I/O schemas ────────────────────────────────────────
-
 export const PwaIdentitySchema = Schema.Struct({
   hostname: Schema.String,
   name: Schema.String,
@@ -52,14 +14,6 @@ export const PwaIdentitySchema = Schema.Struct({
 });
 export type PwaIdentity = typeof PwaIdentitySchema.Type;
 
-// The `processId` (restart axis) and `commit` (build-identity / skew axis) that
-// used to ride this probe now live on the surface, owned by @kolu/surface-app:
-// `processId` is the framework-reserved `surface/surfaceApp/system/identity`
-// member (`@kolu/surface`), and `commit` is the server-pushed `buildInfo` cell
-// (`koluBuildInfo`); the kaval expected/reported identities ride padi's `status`
-// cell + `daemonStatus` collection, not this probe. This raw probe keeps only the
-// per-host BRANDING the shell needs synchronously at boot (document title,
-// watermark, PWA theme).
 export const ServerInfoSchema = Schema.Struct({
   identity: PwaIdentitySchema,
 });
@@ -116,19 +70,15 @@ export type ServerBackupsRestore = typeof ServerBackupsRestoreSchema.Type;
 
 /** `server/backups/restore`'s ANSWER. The restore is not atomic — the two cells
  *  apply before the host pool converges — so a host that would not dial is a
- *  FACT the caller renders ("restored; 1 host did not reconnect"), not a throw:
- *  squeezing it through the error channel forced the dialog to say "Restore
- *  failed:" about a restore that had already applied. `hostFailures` empty ⇒
- *  fully converged. Genuine fail-fast anomalies — a bad name, an unreadable or
- *  undecodable snapshot, a failed undo snapshot — still throw, because they
- *  happen BEFORE anything is applied. */
+ *  FACT the caller renders ("restored; 1 host did not reconnect"), not a throw.
+ *  `hostFailures` empty ⇒ fully converged. Genuine fail-fast anomalies — a bad
+ *  name, an unreadable or undecodable snapshot, a failed undo snapshot — still
+ *  throw, because they happen BEFORE anything is applied. */
 export const ServerBackupsRestoreResultSchema = Schema.Struct({
   hostFailures: Schema.Array(Schema.String),
 });
 export type ServerBackupsRestoreResult =
   typeof ServerBackupsRestoreResultSchema.Type;
-
-// ── The root procedures ───────────────────────────────────────────────
 
 /** Every ROOT wire tag this contract declares, spelled literally. The assertion
  *  below compares it against what `RpcGroup.make` actually carried, so a typo, a
@@ -165,8 +115,7 @@ export const koluRootGroup = RpcGroup.make(
    *  runs on a scratch copy first), push `preferences`/`viewerMode` through
    *  their cells (every connected client updates reactively), and converge the
    *  host pool onto the snapshot's fleet through the SAME pool add/remove path
-   *  the strip uses. No server restart — unlike padi's session, this store is
-   *  plain data served from cells. The current file is pushed into the ring
+   *  the strip uses. No server restart. The current file is pushed into the ring
    *  first (and the restore is REFUSED if that snapshot fails), so a restore is
    *  itself undoable. Answers with the hosts that would not converge — an empty
    *  list is a clean restore. */
@@ -179,30 +128,21 @@ export const koluRootGroup = RpcGroup.make(
    *  connect), and leaves the empty canvas + preserved session the restore
    *  card consumes. Resolves once the fresh daemon is connected — the daemon's
    *  live state rides the `daemonStatus` surface (`restarting`→`connected`),
-   *  not this return value. The user reaches it from the kaval rail dialog (a
-   *  running or degraded daemon) or the DegradedCanvas (a dead one). No payload:
-   *  one local host today, host-count-agnostic shapes deferred to R-2. */
+   *  not this return value. No payload. */
   Rpc.make("daemon/restart"),
-  // Runtime membership of the keyed padi host map — the selector strip's add/remove
-  // actions. Root RPCs (not surface members): they mutate the POOL, not one host's
-  // surface. These exist on the shared contract (not a kolu-server-local splice like
-  // the `padi` sibling) because the CLIENT strip calls them.
   /** WHICH of kolu's hosts the calling browser is sitting AT, or `null` when
    *  none of them is (the ordinary case) or kolu cannot tell.
    *
    *  A ROOT rpc rather than a surface member for a structural reason: the
    *  answer is per-CALLER — it depends on the address this particular
    *  connection comes from — and a surface cell is broadcast, so it has no
-   *  shape that can carry a different answer to each viewer. A procedure call
-   *  is inherently per-caller; under Effect RPC the caller's address reaches
-   *  the handler as a `CurrentViewer` service provided by an `RpcMiddleware`
-   *  kolu-server installs at its ws/HTTP entry points (PLAN D5/W4) — the
+   *  shape that can carry a different answer to each viewer. The caller's
+   *  address reaches the handler as a `CurrentViewer` service provided by an
+   *  `RpcMiddleware` kolu-server installs at its ws/HTTP entry points — the
    *  contract only DECLARES the procedure, it never names the transport.
    *
-   *  Used by the Ports section: a port on a host you are physically at is
-   *  reachable on your OWN loopback, so forwarding it through the kolu server
-   *  and back is a pointless round trip. `null` keeps the forward, which is why
-   *  every uncertain case answers `null` rather than guessing. */
+   *  `null` keeps the forward, which is why every uncertain case answers
+   *  `null` rather than guessing. */
   Rpc.make("hosts/viewer", { success: ViewerHostSchema }),
   /** Add a padi host to the warm pool at runtime. Resolves once the pool has seeded
    *  the binding; the entry then warms through the map's `entries` collection
@@ -216,20 +156,15 @@ export const koluRootGroup = RpcGroup.make(
   /** Force a held host to RE-DIAL now — the host-down card's [Reconnect] verb. A
    *  STANDING refuse (cross-supervisor / contract-skew / unconverged) holds degraded
    *  WITHOUT auto-reconnecting by design (a persistent skew must not spin), so once
-   *  the user CLEARS the cause (kills the other kolu, sets KOLU_REMOTE_PADI_STATE_DIR,
-   *  upgrades), NOTHING re-dials on its own — this re-dials via the session's
-   *  `recheck()` (force-cycle the held connection through the reconnect loop). A
-   *  TRANSIENT disconnect already auto-retries, so this is a harmless no-op there;
-   *  it is NOT the inert-retry we forbade — it genuinely re-dials the held arm. An
-   *  unknown host is a typed reject. */
+   *  the user CLEARS the cause, NOTHING re-dials on its own — this re-dials via the
+   *  session's `recheck()`. A TRANSIENT disconnect already auto-retries, so this is
+   *  a harmless no-op there. An unknown host is a typed reject. */
   Rpc.make("hosts/reconnect", { payload: HostRefSchema }),
   /** Update & restart a host's daemon stack — the CONTRACT-SKEW recovery (SK5).
    *  The binder DRAINS that host's padi (session persisted; the reconnect loop
    *  re-dials, re-realising the CURRENT closure on the host) and the fresh
    *  padi's converge policy recycles the old kaval from its new build. The one
-   *  action that changes the BINARY — offered by the `incompatible` skew card,
-   *  where a plain restart provably respawns the same old kaval. Applies to
-   *  BOTH local and remote hosts (D1 — the local drain rides the same seam).
+   *  action that changes the BINARY. Applies to BOTH local and remote hosts.
    *  An unknown host rejects loudly (a plain server error the caller's
    *  toast surfaces — same shape as `hosts/reconnect`'s guard). */
   Rpc.make("hosts/renewDaemon", { payload: HostRefSchema }),
@@ -239,9 +174,6 @@ export const koluRootGroup = RpcGroup.make(
  *  `RpcGroup.make`/`.merge` overwrite a colliding tag silently (#16), so the
  *  only way a caller learns about a collision is by counting. */
 function assertTagCount(
-  // Structural, not `RpcGroup<…>`: the two groups this file assembles have
-  // different (precise) element unions, and `requests` is the only thing the
-  // check reads — naming the shape keeps the helper free of a cast.
   group: { readonly requests: ReadonlyMap<string, unknown> },
   expected: number,
   what: string,
@@ -264,21 +196,6 @@ for (const tag of ROOT_RPC_TAGS) {
   }
 }
 
-// Two sibling surfaces multiplexed over one transport (kolu#1197): kolu's OWN
-// primitives under `kolu`, and surface-app's complete surface (buildInfo cell
-// + identity probe) under `surfaceApp`. `composeSurfaceContracts` re-walks each
-// sibling at its own tag prefix, producing tags `surface/<key>/<member>/<verb>`.
-// `surfaces` is the single source shared with the server + client. (The generic
-// `terminalWorkspace` sibling was retired at W1.R7 — it had zero consumers once
-// the client moved onto padi's `terminals` collection; the terminal domain is
-// `padiSurface` now.)
-//
-// `padiSurface` (the padi plan of record, PR #1649) is NOT here — it lives in
-// `@kolu/padi`, which OWNS the terminal vocabulary (its `./vocab.ts` schemas);
-// the arrow points `kolu-common → @kolu/padi`, so kolu-common must not depend
-// BACK on `padiSurface`. kolu-server composes the padi-ful registry locally
-// (`server/src/surface.ts`) and serves it; the client consumes the padi-less
-// contract.
 const composedSurfaces = composeSurfaceContracts(surfaces);
 
 /** The composed padi-less surface group — every sibling's members in one flat
@@ -289,11 +206,10 @@ export const koluSurfaceGroup = composedSurfaces.group;
 
 /** THE contract: the composed surface siblings PLUS the root procedures, one
  *  flat group. Merging is safe HERE (unlike between two surfaces, which share
- *  the three reserved `system/*` tags — PLAN D1) because the two halves live in
+ *  the three reserved `system/*` tags) because the two halves live in
  *  disjoint tag roots, `surface/` and `server|daemon|hosts/` — and
  *  `mergeDisjointGroups` is what proves that rather than assuming it. It erases
- *  the element union (every serving seam takes the erased `RpcGroup<Rpc.Any>`
- *  anyway); the PRECISE halves stay available as the two exports above. */
+ *  the element union; the PRECISE halves stay available as the two exports above. */
 export const contract = mergeDisjointGroups({
   koluSurfaces: koluSurfaceGroup,
   root: koluRootGroup,

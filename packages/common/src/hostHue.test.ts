@@ -3,8 +3,6 @@ import { HOST_HUE_PALETTE, hostHueFor } from "./hostHue";
 
 describe("hostHueFor", () => {
   it("pins the deterministic FNV-1a palette mapping for known seeds", () => {
-    // These are the CONTRACT: the server's PWA theme-color and the client's
-    // host tabs both read this function, so a drift here recolours real hosts.
     expect(hostHueFor("atlas")).toBe("#0f766e");
     expect(hostHueFor("boreal")).toBe("#7c3aed");
     expect(hostHueFor("deneb")).toBe("#047857");

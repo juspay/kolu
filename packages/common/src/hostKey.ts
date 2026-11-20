@@ -1,25 +1,3 @@
-/**
- * The per-host key — the padi host a browser tab can select in the keyed map.
- *
- * A DISCRIMINATED SUM, not a branded string: the map's local member used to be the
- * in-band sentinel string `"local"` (indistinguishable, at the type level, from any
- * remote host string). `HostKey` makes the two cases NOMINALLY distinct — `{ kind:
- * "local" }` has no `target` to confuse with a remote's ssh destination, and every
- * consumer switches on `.kind` instead of comparing against a magic string.
- *
- * Two boundaries need a STRING form of the key (persisted prefs, URL path segments,
- * `KOLU_PADI_HOST` env tokens, the map's wire `mapKey`/channel names) — `encodeHostKey`
- * / `decodeHostKey` are the CANONICAL wire codec (round-trips exactly), and
- * `parseHostInput` is the separate HUMAN-input codec (the picker + env seed), which
- * takes a raw target LITERALLY rather than interpreting the `"remote:"` wire prefix.
- *
- * Lives in its OWN padi-LESS module (not `surfacesWithPadi.ts`, which imports
- * `@kolu/padi`) so the padi-less `contract.ts` — which needs the key to type the
- * `hosts.add`/`hosts.remove` root RPCs the client's selector strip calls — can import it
- * WITHOUT pulling `@kolu/padi` into the client's contract (the package-boundary seal).
- * `surfacesWithPadi.ts` re-exports it and builds `padiHostMap` from it.
- */
-
 import { Schema } from "effect";
 
 /** The wire schema for {@link HostKey} — validates the OBJECT (the discriminant
@@ -27,12 +5,9 @@ import { Schema } from "effect";
  *  handler re-validates every `HostKey`-shaped input through this SAME schema (P5),
  *  via {@link decodeHostKeyValue}. `target` is checked non-empty — a remote with an
  *  empty target is not a valid `HostKey`, which is why {@link HostKey} is DERIVED
- *  from this schema (`typeof …Type`) rather than hand-rolled: a hand-rolled
- *  `target: string` would silently admit the empty string the schema rejects, so
- *  the two could never disagree in the first place. The emptiness rule itself is
- *  enforced only at the value-construction boundary ({@link parseHostInput}) and by
- *  re-validating through this schema — TS has no non-empty-string type to check it
- *  statically.
+ *  from this schema (`typeof …Type`) rather than hand-rolled. The emptiness rule
+ *  itself is enforced only at the value-construction boundary
+ *  ({@link parseHostInput}) and by re-validating through this schema.
  *
  *  A `Schema.Union` of two structs, NOT `Schema.TaggedUnion`: the discriminant is
  *  `kind`, not `_tag`, and these bytes are persisted (`PersistedHostsSchema`'s
@@ -56,8 +31,8 @@ export type HostKey = typeof HostKeySchema.Type;
  *  somewhere untyped (a wire payload, a URL segment already through
  *  {@link decodeHostKey}, an env seed) — P5's "re-validate at the wire" rule with
  *  ONE decode site instead of a `.parse` spelled at each caller. THROWS
- *  (`SchemaError`) on anything the schema rejects, exactly as zod's `.parse` did:
- *  a value that is not a `HostKey` is a caller bug, never a condition to branch on. */
+ *  (`SchemaError`) on anything the schema rejects: a value that is not a `HostKey`
+ *  is a caller bug, never a condition to branch on. */
 export const decodeHostKeyValue: (value: unknown) => HostKey =
   Schema.decodeUnknownSync(HostKeySchema);
 
@@ -126,8 +101,7 @@ export function decodeHostKey(s: string): HostKey {
 /** Whether a string is a CANONICAL encoded host key — exactly what {@link decodeHostKey}
  *  accepts (`"local"` or `"remote:<target>"`). The total, throw-free predicate for a
  *  parse-boundary guard: validate a candidate key HERE (drop/reject a malformed one)
- *  rather than let it throw inside `decodeHostKey` downstream. Used by the attention
- *  click-envelope guard (client) and the persisted-hosts schema (server). */
+ *  rather than let it throw inside `decodeHostKey` downstream. */
 export function isEncodedHostKey(s: string): boolean {
   try {
     decodeHostKey(s);
@@ -145,8 +119,7 @@ export function isEncodedHostKey(s: string): boolean {
  *  keys, no `local` (the code-seeded default is never persisted — persisting it would mint
  *  a second authority for "local always exists"), no duplicates. Each is a schema-level
  *  invariant, so a hand-edited store that violates one is REJECTED loud where it's read
- *  (`getPersistedHosts` throws) rather than silently normalized — the fail-fast stance a
- *  silently-shrunk fleet would violate. */
+ *  (`getPersistedHosts` throws) rather than silently normalized. */
 export const PersistedHostsSchema = Schema.Array(
   Schema.String.check(
     Schema.makeFilter((s) =>
@@ -169,17 +142,11 @@ export const PersistedHostsSchema = Schema.Array(
 export type PersistedHosts = typeof PersistedHostsSchema.Type;
 
 /** Bare-loopback spellings of "this machine, as the current user" — the SAME host
- *  `{ kind: "local" }` already names, just three other words for it. Without this,
- *  `parseHostInput("localhost")` took the word LITERALLY as a remote target and
- *  `parseKoluPadiHostSeed` (whose dedup compares ENCODED strings) minted a second,
- *  ssh-bound pool entry for a host already in the pool as the implicit default —
- *  `KOLU_PADI_HOST=localhost,srid@zest` rendered THREE chips (`local` + `localhost`
- *  + `srid@zest`) instead of two. Deliberately NOT the machine's own hostname: this
- *  module is shared with the BROWSER bundle (no `os.hostname()` import belongs
- *  here) — a consumer that needs that comparison resolves it server-side, outside
- *  this codec. `user@localhost` is excluded on purpose — ssh-ing to the loopback
- *  AS ANOTHER USER is a genuinely different session, so only the BARE spelling
- *  (no `@`) dedupes. */
+ *  `{ kind: "local" }` already names, just three other words for it. Deliberately NOT
+ *  the machine's own hostname: this module is shared with the BROWSER bundle (no
+ *  `os.hostname()` import belongs here). `user@localhost` is excluded on purpose —
+ *  ssh-ing to the loopback AS ANOTHER USER is a genuinely different session, so only
+ *  the BARE spelling (no `@`) dedupes. */
 const LOOPBACK_SELF_SPELLINGS = new Set(["localhost", "127.0.0.1", "::1"]);
 
 /** PARSE — raw HUMAN/env input (the add-host picker, a `KOLU_PADI_HOST` seed token):
@@ -190,15 +157,10 @@ const LOOPBACK_SELF_SPELLINGS = new Set(["localhost", "127.0.0.1", "::1"]);
  *  prefix — a user typing an ssh alias literally named `remote:zest` gets a remote
  *  target of exactly `"remote:zest"`), and including `user@localhost` (ssh as a
  *  DIFFERENT user to the loopback is a distinct remote target, not the local
- *  default). Total over every non-empty string: unlike the old branded-string schema,
- *  there is no reserved-name reject to fail. An EMPTY string is the one input this
+ *  default). Total over every non-empty string. An EMPTY string is the one input this
  *  codec refuses — `{ kind: "remote", target: "" }` is not a `HostKey` {@link
  *  HostKeySchema} would accept, so admitting it here would silently mint a value that
- *  fails validation the moment it crosses the wire. Every real caller already filters
- *  blank tokens before parsing (the picker's own guard, `parseKoluPadiHostSeed`'s
- *  `.filter((h) => h.length > 0)`), so this is a defensive floor, not a path taken in
- *  practice — but it means a FUTURE caller that forgets to filter fails loud here
- *  instead of minting an illegal `HostKey` downstream. */
+ *  fails validation the moment it crosses the wire. */
 export function parseHostInput(userStr: string): HostKey {
   if (userStr === "local" || LOOPBACK_SELF_SPELLINGS.has(userStr)) {
     return LOCAL_HOST;
