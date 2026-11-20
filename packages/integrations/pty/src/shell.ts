@@ -1,23 +1,3 @@
-/**
- * Shell environment preparation for PTY spawning.
- *
- * Two cooperating layers reach the spawned PTY:
- *   1. cleanEnv() — sanitizes the parent env passed to the PTY.
- *   2. prepareShellInit() — writes a wrapper rcfile that replays the shell's
- *      normal startup chain (which our --rcfile / ZDOTDIR override would
- *      otherwise suppress) and injects kolu's OSC hooks.
- *
- * The split matters under macOS launchd user agents, where the parent env
- * is near-empty and cleanEnv's canonical-allowlist composition alone wouldn't
- * carry a usable PATH — the wrapper's replay step compensates by sourcing user
- * dotfiles directly. Linux/systemd masks this because PAM seeds the user-instance
- * env from the login session.
- *
- * Nix devshell pollution is handled at startup: the server refuses to run
- * inside a nix shell unless --allow-nix-shell-with-env-whitelist is passed
- * (used by `just dev` / `just test`).
- */
-
 import { userInfo } from "node:os";
 import { join } from "node:path";
 
@@ -38,15 +18,6 @@ import { join } from "node:path";
  */
 export const NIX_ENV_WHITELIST =
   "HOME,USER,PATH,TERM,LANG,LC_ALL,LOGNAME,DISPLAY";
-
-// The ONE canonical allowlist of env keys safe to carry into a kolu-spawned process,
-// composed from THREE named classes so a future addition must name a class it belongs
-// to — and an identity-ish key has no class to claim. It is an ALLOWLIST, not a
-// blacklist: a key NOT named here is DROPPED, so an identity var that doesn't exist yet
-// (a future agent's `CLAUDE_CODE_CHILD_SESSION` kin, an orchestrator's private marker)
-// cannot ride ambient env into any kolu-spawned process (the #1872 class). The line is
-// not "narrow for its own sake" — it is "no ambient IDENTITY, finite, pinned"; a
-// non-identity CAPABILITY var the user's login session owns is in-scope.
 
 /** Class 1 — FUNCTIONAL base: what a shell or daemon needs to run at all. */
 export const SPAWN_ENV_FUNCTIONAL = [
@@ -95,9 +66,6 @@ export const SPAWN_ENV_OPERATIONAL = [
   "XDG_CACHE_HOME",
   "XDG_STATE_HOME",
   "SSH_AUTH_SOCK",
-  // The GUI-session display group, all minted by the login session: `DISPLAY` (X11)
-  // is a session capability like its Wayland sibling, NOT a "run at all" functional
-  // var — a shell runs fine without it — so it lives here, not in FUNCTIONAL.
   "DISPLAY",
   "WAYLAND_DISPLAY",
   "XAUTHORITY",
@@ -154,8 +122,6 @@ export function composeSpawnEnv(
   return pickEnv(SPAWN_ENV_ALLOWLIST, source);
 }
 
-/** Set once at startup. `undefined` (production) means compose from the canonical
- *  SPAWN_ENV_ALLOWLIST; a set value is the dev/nix-shell WIDENING of that base. */
 let envWhitelist: Set<string> | undefined;
 
 /**
@@ -185,9 +151,6 @@ const KOLU_INTERNAL_ENV_EXACT = new Set([
   "KAVAL_COMMIT_HASH",
 ]);
 
-/** True for any env key the kolu nix wrapper bakes into the server for its own
- *  use — the `KOLU_*` namespace plus the two baked kaval identity vars. These
- *  are stripped at the `cleanEnv` boundary so none ride into a hosted shell. */
 function isKoluInternalEnvKey(key: string): boolean {
   return key.startsWith("KOLU_") || KOLU_INTERNAL_ENV_EXACT.has(key);
 }
@@ -214,8 +177,6 @@ export function configureNixShellEnv(whitelist: string | undefined): void {
   process.exit(1);
 }
 
-/** Read a colon-joined `PATH`-shaped value as its list of entries, dropping the
- *  empty ones POSIX would read as "the current directory". */
 function splitPathEntries(value: string): string[] {
   return value.split(":").filter((entry) => entry !== "");
 }
@@ -238,7 +199,6 @@ function splitPathEntries(value: string): string[] {
  * `isKoluInternalEnvKey`), then drop empty `PATH` entries, which POSIX reads as
  * "the current directory". This is the ONE place that sanitizes a PATH; the
  * prepend rule (`prependPathEntries` / `PATH_REASSERT`) deliberately does not.
- * See the inline notes above each step.
  *
  * Scope note: this layer only filters what the parent process exposes.
  * Restoring user env that the parent doesn't carry (e.g. PATH from
@@ -246,61 +206,19 @@ function splitPathEntries(value: string): string[] {
  * prepareShellInit.
  */
 export function cleanEnv(): Record<string, string> {
-  // Resolve the login shell once — used in both branches.
   const loginShell = userInfo().shell || "/bin/sh";
   let env: Record<string, string>;
   if (envWhitelist) {
-    // Dev/test inside a nix devshell: start from the SAME canonical allowlist base
-    // production composes — so the OPERATIONAL login-session vars (XDG_RUNTIME_DIR,
-    // SSH_AUTH_SOCK, WAYLAND_DISPLAY, DBUS_SESSION_BUS_ADDRESS, TMPDIR) are present
-    // in dev too, matching production and the class's own rationale (dropping them
-    // silently breaks an interactive terminal). Then ADDITIVELY widen with the
-    // nix-devshell vars the whitelist names, on top. The whitelist is a dev-only
-    // WIDENING, not a replacement, so a developer running `just dev` never silently
-    // gets a narrower env than production.
     env = composeSpawnEnv(process.env);
     Object.assign(env, pickEnv(envWhitelist, process.env));
-    // Nix sets SHELL to /nix/store/.../bash which lacks features like progcomp
-    // that user bashrc files expect. Use the real login shell from /etc/passwd.
     env.SHELL = loginShell;
   } else {
-    // Production: compose from the shared SPAWN_ENV_ALLOWLIST — NOT a wholesale
-    // `{...process.env}` copy. The daemon's own process env can carry an
-    // orchestrator's leaked identity vars (CLAUDE_CODE_CHILD_SESSION and kin,
-    // #1872) or any other ambient marker; forwarding it verbatim leaked those into
-    // EVERY hosted PTY. Composing from the allowlist closes the whole class in one
-    // move — an unknown future identity var is dropped by construction. The wrapper
-    // rcfile replay (prepareShellInit) re-sources the user's dotfiles, so their
-    // real shell env is restored and the wholesale passthrough was never
-    // load-bearing (holds even under the macOS launchd near-empty parent env).
     env = composeSpawnEnv(process.env);
-    // Ensure SHELL is set — systemd user services may not have it, and it may be
-    // absent from the allowlist mine above.
     env.SHELL ??= loginShell;
   }
-  // Don't forward kolu's own internal env into the user's shell. The nix
-  // wrapper bakes these into the SERVER's process for its own use (e.g.
-  // KOLU_KAVAL_BIN, which tells the server which kaval to spawn, and the kaval
-  // identity vars KAVAL_BUILD_ID / KAVAL_COMMIT_HASH that buildId.ts reads to
-  // derive the "update pending" signal) — never meant for a hosted terminal.
-  // Forwarded, they leak into every PTY child: a nested from-source kolu
-  // (`just dev` run inside a kolu terminal) inherits a STALE KOLU_KAVAL_BIN and
-  // spawns a contract-skewed daemon, and inherits the OUTER kaval identity so
-  // its staleness readout reports the wrong build. kolu owns this env, so
-  // stripping it here — at the leak boundary — can't drop a var a user shell
-  // legitimately needs (and a user-defined KOLU_* set in their own dotfiles is
-  // re-applied by the rcfile replay, see prepareShellInit). One shared strip
-  // for both branches: the invariant is a property of cleanEnv, not of one
-  // branch (and independent of NIX_ENV_WHITELIST's future contents).
   env = Object.fromEntries(
     Object.entries(env).filter(([k]) => !isKoluInternalEnvKey(k)),
   );
-  // Drop empty entries from PATH. An empty entry ("/usr/bin::/bin", a leading or
-  // trailing ":") is not cosmetic — POSIX reads it as "the current directory", so
-  // every hosted shell would resolve commands out of whatever tree the user
-  // happens to have cd'd into. For a terminal we host and hand to an agent that is
-  // a real hazard, and the daemon's own inherited PATH is the one place we can fix
-  // it for everyone downstream.
   if (env.PATH != null) {
     env.PATH = splitPathEntries(env.PATH).join(":");
   }
@@ -426,8 +344,6 @@ export const PS0_PREEXEC_BASH = [
   `  [ "$h" = "$__kolu_hist_last" ] && return 0`,
   `  __kolu_preexec "\${h#*[[:digit:]][* ] }"`,
   `}`,
-  // Append to any PS0 the user's dotfiles set (rare, but theirs) — ours is
-  // invisible output, so order doesn't matter; last keeps theirs verbatim.
   `PS0="\${PS0-}"'$(__kolu_ps0)'`,
 ].join("\n");
 
@@ -552,10 +468,7 @@ export const PATH_PREPEND_CASES: ReadonlyArray<{
   expect: string;
 }> = [
   { path: "/usr/bin:/bin", dirs: ["/a", "/b"], expect: "/a:/b:/usr/bin:/bin" },
-  // Already present, but behind something: moved to the front.
   { path: "/usr/bin:/a", dirs: ["/a"], expect: "/a:/usr/bin" },
-  // A dotfile prepended its own dir after the spawn env did: the stamped dirs
-  // still come first, in their order, each once.
   {
     path: "/home/u/.local/bin:/a:/b:/usr/bin",
     dirs: ["/a", "/b"],
@@ -563,9 +476,7 @@ export const PATH_PREPEND_CASES: ReadonlyArray<{
   },
   { path: "", dirs: ["/a"], expect: "/a" },
   { path: "/usr/bin:/bin", dirs: [], expect: "/usr/bin:/bin" },
-  // The caller's PATH is passed through unedited, empty entry and all.
   { path: "/usr/bin::/bin", dirs: ["/a"], expect: "/a:/usr/bin::/bin" },
-  // A dir named twice among the stamped dirs lands once.
   { path: "/usr/bin", dirs: ["/a", "/a"], expect: "/a:/usr/bin" },
 ];
 
@@ -588,8 +499,6 @@ export function prependPathEntries(
   dirs: readonly string[],
 ): string {
   const current = currentPath ?? "";
-  // A wholly empty (or absent) PATH is ZERO entries, not one empty entry — the
-  // same reading the shell half takes.
   const existing = current === "" ? [] : current.split(":");
   const fresh = [...new Set(dirs.filter((d) => d !== ""))];
   const rest = existing.filter((e) => !fresh.includes(e));
@@ -601,9 +510,9 @@ export function prependPathEntries(
  *
  *  Spawn-env alone is not enough. The replay above re-sources `~/.bashrc` /
  *  `~/.zshrc`, and a dotfile that does an ABSOLUTE `export PATH=…` (common, and
- *  the whole reason the replay exists — see this module's header) silently drops
- *  whatever the spawn env put there, while one that PREPENDS (`export
- *  PATH=$HOME/.local/bin:$PATH`) pushes its own dir ahead of it. So the dirs are
+ *  the whole reason the replay exists) silently drops whatever the spawn env
+ *  put there, while one that PREPENDS (`export PATH=$HOME/.local/bin:$PATH`)
+ *  pushes its own dir ahead of it. So the dirs are
  *  asserted twice: once in the spawn env (so a shell we don't wrap, and any
  *  non-shell argv, still gets them) and once here (so a wrapped shell has them
  *  first no matter what the user's dotfiles do to PATH).
@@ -626,7 +535,6 @@ export function prependPathEntries(
  *  real bash and zsh, not against a paraphrase of it. */
 export const PATH_REASSERT = [
   `__kolu_path_reassert() {`,
-  // 1. The stamped dirs, in order, each once, empties dropped.
   `  __kolu_new=""; __kolu_rest="\${1-}"`,
   `  while [ -n "$__kolu_rest" ]; do`,
   `    __kolu_dir="\${__kolu_rest%%:*}"`,
@@ -636,7 +544,6 @@ export const PATH_REASSERT = [
   `    __kolu_new="\${__kolu_new:+$__kolu_new:}$__kolu_dir"`,
   `  done`,
   `  if [ -n "$__kolu_new" ]; then`,
-  // 2. Every other PATH entry, verbatim and in order (empties included).
   `    __kolu_kept=""; __kolu_any=0`,
   `    if [ -n "\${PATH-}" ]; then`,
   `      __kolu_rest="$PATH:"`,
@@ -693,13 +600,8 @@ type ShellInit = {
 
 const BASH_INIT: ShellInit = {
   replay: (home) => [
-    // /etc/profile pulls in distro-wide additions (e.g. NixOS sources
-    // /etc/profile.d/hm-session-vars.sh, which sets PATH).
     `[ -f /etc/profile ] && . /etc/profile`,
-    // Bash login priority: first existing of these wins. Mirrors bash's
-    // own login-shell semantics — only one of the three is sourced.
     `__kolu_login=0; for __f in "${home}/.bash_profile" "${home}/.bash_login" "${home}/.profile"; do [ -f "$__f" ] && { . "$__f"; __kolu_login=1; break; }; done`,
-    // Fallback to interactive rc if no login file matched.
     `[ "$__kolu_login" = 0 ] && [ -f "${home}/.bashrc" ] && . "${home}/.bashrc"`,
     `unset __kolu_login __f`,
   ],
@@ -708,13 +610,6 @@ const BASH_INIT: ShellInit = {
     OSC2_PREEXEC_FN,
     PS0_PREEXEC_BASH,
     OSC2_PRECMD_BASH,
-    // PROMPT_COMMAND: our precmd hooks first, user's after. `__kolu_hist_sync`
-    // must run at EVERY prompt (it baselines what `history 1` held before the
-    // next command) but its position within the prompt chain is not
-    // order-sensitive — the baseline only changes when a command lands in
-    // history, never during the chain itself. No DEBUG trap and no arm flag:
-    // preexec emission rides PS0 (see PS0_PREEXEC_BASH, #2119), which a
-    // dotfile's bash-preexec/atuin cannot displace.
     `PROMPT_COMMAND="__kolu_osc7;__kolu_title_precmd;__kolu_hist_sync\${PROMPT_COMMAND:+;$PROMPT_COMMAND}"`,
   ],
   plan: (rcContent, terminalId, rcDir) => {
