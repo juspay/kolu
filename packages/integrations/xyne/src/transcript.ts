@@ -1,20 +1,3 @@
-/** One-shot transcript loader for the HTML export feature.
- *
- *  Xyne's conversation lives in the per-cwd session file
- *  `~/.xyne/agent/sessions/<encoded-cwd>/<timestamp>_<session-id>.jsonl`
- *  — a flat JSONL of pi-format rows. Only conversation-relevant rows
- *  become IR events; the envelope rows (`session` header, `model_change`,
- *  `thinking_level_change`, `custom`, `session_info`, `compaction`,
- *  `custom_message`) are transport metadata, dropped the way the grok
- *  loader drops its system rows.
- *
- *  Xyne's assistant message carries token usage on the row itself
- *  (`message.usage`), so the FetcherInput.contextTokens hint is
- *  secondary — if the row is present it's fresher than the hint passed
- *  in. The loader reads it but the IR's `contextTokens` comes from
- *  deriveXyneInfo for the badge; the loader doesn't re-publish it.
- */
-
 import fs from "node:fs";
 import path from "node:path";
 import type {
@@ -37,15 +20,11 @@ interface XyneUsage {
 
 interface XyneContentBlock {
   type: string;
-  /** type=text */
   text?: string;
-  /** type=thinking */
   thinking?: string;
-  /** type=toolCall */
   id?: string;
   name?: string;
   arguments?: Record<string, unknown> | string;
-  /** type=image (dropped — not a text event) */
 }
 
 interface XyneLine {
@@ -174,11 +153,9 @@ function parseTs(entry: XyneLine): number | null {
   return Number.isFinite(ms) ? ms : null;
 }
 
-/** Convert one pi JSONL line into zero or more transcript events.
- *  Exported for unit testing. */
+/** Convert one pi JSONL line into zero or more transcript events. */
 export function eventsFromXyneLine(entry: XyneLine): TranscriptEvent[] {
   const ts = parseTs(entry);
-  // Everything except `{"type":"message", ...}` is session bookkeeping.
   if (entry.type !== "message") return [];
   const msg = entry.message;
   if (!msg) return [];
@@ -238,8 +215,7 @@ export function eventsFromXyneLine(entry: XyneLine): TranscriptEvent[] {
   return [];
 }
 
-/** Parse a Xyne session JSONL body into transcript events.
- *  Exported for unit testing. */
+/** Parse a Xyne session JSONL body into transcript events. */
 export function parseXyneSessionJsonl(content: string): TranscriptEvent[] {
   const events: TranscriptEvent[] = [];
   for (const line of content.split("\n")) {
@@ -248,7 +224,6 @@ export function parseXyneSessionJsonl(content: string): TranscriptEvent[] {
     try {
       entry = JSON.parse(line) as XyneLine;
     } catch {
-      // Truncated final write — drop the line, keep the export.
       continue;
     }
     for (const ev of eventsFromXyneLine(entry)) events.push(ev);
@@ -256,22 +231,6 @@ export function parseXyneSessionJsonl(content: string): TranscriptEvent[] {
   return events;
 }
 
-/** Read the session JSONL for a Xyne session and normalize to the unified
- *  IR. Returns null when the file is absent (brand-new session or the
- *  per-cwd dir hasn't been flushed yet) — same `Transcript | null`
- *  contract as the other loaders.
- *
- *  Token usage: Xyne stamps `message.usage` onto every assistant row, so
- *  the most recent row's usage is fresher than any seed the sensor
- *  passed in. The Fetcher contract doesn't model usage on the output
- *  side; the renderer reads `contextTokens` from the AgentInfo (which the
- *  sensor already derived from the same file). This loader doesn't
- *  re-publish a stale snapshot.
- */
-/** Pull the freshest `usage.totalTokens` off the tail of the parsed lines.
- *  Xyne stamps every assistant row; the badge's own deriveXyneInfo reads the
- *  same value from the same file — one source of truth for "how full is the
- *  window right now". */
 function latestTotalTokens(content: string): number | null {
   for (const line of content.split("\n").reverse()) {
     if (!line) continue;
@@ -287,9 +246,6 @@ function latestTotalTokens(content: string): number | null {
     if (usage && typeof usage.totalTokens === "number") {
       return usage.totalTokens;
     }
-    // Missing usage on the newest assistant row is the "no telemetry yet"
-    // case — don't walk further back inventing an older snapshot as
-    // "current".
     return null;
   }
   return null;
@@ -305,9 +261,6 @@ export const loadXyneTranscript: Fetcher = (input) => {
     if ((err as NodeJS.ErrnoException).code === "ENOENT") return null;
     throw err;
   }
-  // Match by sessionId, not by recency — `resolveXyneSession` owns the
-  // newest-file rule; the export must read the exact session the AgentInfo
-  // was built from, regardless of what else has been written since.
   const name = names.find((n) => n.includes(`_${input.sessionId}.jsonl`));
   if (!name) return null;
   const transcriptPath = path.join(dir, name);
@@ -325,11 +278,6 @@ export const loadXyneTranscript: Fetcher = (input) => {
     repoName: input.repoName,
     cwd: input.cwd,
     model: input.model,
-    // Token usage: Xyne stamps `message.usage` on every assistant row, so the
-    // freshest row's totalTokens is authoritative. The hint passed in is a
-    // fallback for a session whose newest row carries no telemetry (a
-    // compaction boundary, a corrupt line — cases the sensor itself reads
-    // as "no current total").
     contextTokens: latestTotalTokens(raw) ?? input.contextTokens,
     pr: input.pr,
     exportedAt: Date.now(),

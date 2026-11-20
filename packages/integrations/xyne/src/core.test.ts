@@ -1,13 +1,3 @@
-/**
- * Xyne core unit tests — fixtures mimic the real on-disk layout:
- *
- *   <tmp>/agent/sessions/<encoded-cwd>/<timestamp>_<uuid>.jsonl
- *   <tmp>/agent/sessions/<encoded-cwd>/<timestamp>_<uuid>_summary.json
- *
- * `config.ts` resolves `KOLU_XYNE_DIR` at import time, so the env must be
- * set before the module graph loads — hence the `await import` below.
- */
-
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -17,7 +7,7 @@ const XYNE_TMP = fs.mkdtempSync(path.join(os.tmpdir(), "kolu-xyne-core-"));
 // `config.ts` evaluates `KOLU_XYNE_DIR` at import time — set it BEFORE the
 // module graph loads (the `beforeAll` would run after the import below).
 process.env.KOLU_XYNE_DIR = XYNE_TMP;
-void beforeAll; // keep the import used (no hook needed; top-level awaits serialise)
+void beforeAll;
 
 const {
   deriveXyneInfo,
@@ -33,7 +23,6 @@ const ID_A = "019fca61-be8e-75b0-b72f-b68984e0d3c0";
 const ID_B = "027fca61-be8e-75b0-b72f-b68984e0d3c0";
 const ID_BARE = "00000000-0000-7000-8000-000000000099";
 
-/** Filename timestamp (`2026-08-04T01-27-11-247Z`) → ISO string. */
 function isoOf(tsName: string): string {
   return tsName.replace(
     /^(\d{4}-\d{2}-\d{2})T(\d{2})-(\d{2})-(\d{2})-(\d{3})Z$/,
@@ -120,9 +109,6 @@ describe("resolveXyneSession", () => {
   });
 
   it("ranks by parsed timestamp, not filename string order", () => {
-    // Regression for the lens-debate bytewise-`<` finding: an id whose
-    // leading hex sorts HIGH must not outrank a genuinely NEWER timestamp
-    // whose leading hex sorts low.
     const OLDER_HIGH_ID = "ffffffff-ffff-7fff-bfff-ffffffffffff";
     const NEWER_LOW_ID = "00000000-0000-7000-8000-0000000000ff";
     writeSession({
@@ -139,8 +125,6 @@ describe("resolveXyneSession", () => {
   });
 
   it("resolves per-cwd independently (a newer session elsewhere doesn't bleed)", () => {
-    // Regression for the lens-debate F2 finding: resolution is per-cwd, so
-    // a newer transcript in a DIFFERENT cwd must not be picked.
     writeSession({
       id: ID_A,
       tsName: "2026-08-04T01-00-00-000Z",
@@ -200,8 +184,6 @@ describe("deriveXyneInfo", () => {
       tsName: "2026-08-04T05-00-00-000Z",
       cwd: "/mismatch",
     });
-    // Rewrite the header with a different id — a shape violation the derive
-    // must refuse rather than lie about.
     const rest = fs.readFileSync(transcriptPath, "utf8").split("\n").slice(1);
     fs.writeFileSync(
       transcriptPath,

@@ -1,9 +1,3 @@
-/** Effect Schema definitions for Xyne session info — browser-safe.
- *
- *  Lives in its own module so `kolu-common` (and any client code) can import
- *  the schema without pulling the package root, which imports `node:fs`.
- *  Mirrors the `kolu-grok/schemas` precedent. */
-
 import { type AgentVocab, TaskProgressSchema, UUID_RE } from "anyagent";
 import { Schema } from "effect";
 
@@ -40,9 +34,6 @@ export const XyneInfoSchema = Schema.Struct({
 
 export type XyneInfo = typeof XyneInfoSchema.Type;
 
-/** Xyne "X" monogram — xyne-cli ships no brand mark in simple-icons, so a
- *  bold geometric X stands in; weight matched to the other filled marks.
- *  ONE mark for both the tile-chrome icon and the dock pip. */
 const XYNE_MARK = {
   viewBox: "0 0 24 24",
   paint: "fill" as const,
@@ -66,22 +57,10 @@ export const xyneVocab: AgentVocab<XyneInfo> = {
     ]),
   },
   resume: {
-    // The exact form: `--session <uuid>` (cli-parser takes space-separated too).
-    // kolu never renders the most-recent `--continue` form — a target names the
-    // conversation it observed, never "whatever is newest in this directory".
     byId: (id) => `--session ${id}`,
     idPattern: UUID_RE,
     ref: (info) => info.sessionId,
   },
-  // Measured: `xyne` 0.4.8-dev in a kolu terminal on 2026-11-13. Idle, text
-  // plus one Enter submits (the prompt leaves the composer and opens a
-  // session). WHILE WORKING, the same keys show xyne's "Steering: …" line
-  // under the running turn — the pi-derived steering pane, delivered at the
-  // turn's next step. Observed with the provider request held open by a
-  // never-answering proxy, for the reason pi's note gives. kolu reads xyne as
-  // permanently `waiting` (its transcript has no live phase), so this working
-  // arm is reached only by a just-prompted presence, which has no transcript
-  // to see a steer land in: the sight is unmeasured.
   say: {
     idle: ["Enter"],
     working: { keys: ["Enter"], delivery: "steer", sight: "unmeasured" },

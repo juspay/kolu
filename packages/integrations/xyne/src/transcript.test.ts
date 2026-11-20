@@ -310,7 +310,7 @@ describe("loadXyneTranscript", () => {
       repoName: null,
       cwd: "/home/me/kolu",
       model: null,
-      contextTokens: 47100, // stale input — the on-disk tail must win
+      contextTokens: 47100,
       pr: null,
     });
     expect(transcript?.contextTokens).toBe(905);
