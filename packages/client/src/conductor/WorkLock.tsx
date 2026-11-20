@@ -74,10 +74,6 @@ const WorkLock: Component<{
   );
   const carded = () => driven() !== undefined && lockCardShown(props.terminal);
 
-  /** The card's own box, so a press INSIDE it is not the click-elsewhere that
-   *  dismisses it. */
-  let card: HTMLDivElement | undefined;
-
   /** ESC AND A CLICK ELSEWHERE, listened for only while the card is up.
    *
    *  Esc is taken in the CAPTURE phase and SWALLOWED: while the card is up,
@@ -99,7 +95,11 @@ const WorkLock: Component<{
     };
     const onDown = (e: Event) => {
       const target = e.target;
-      if (target instanceof Node && card?.contains(target)) return;
+      if (
+        target instanceof Element &&
+        target.closest('[data-testid="work-lock-card"]') !== null
+      )
+        return;
       dismissLockCard();
     };
     document.addEventListener("keydown", onKey, true);
@@ -163,7 +163,6 @@ const WorkLock: Component<{
           <Show when={carded()}>
             <div class="pointer-events-none absolute inset-0 z-30 flex items-center justify-center p-3">
               <div
-                ref={card}
                 data-testid="work-lock-card"
                 data-lock-terminal={props.terminal}
                 data-work={at().work}
