@@ -15,9 +15,9 @@
  *     has them compacts on its first message — the upgrade;
  *   - a loaded session reports no usage until its first turn, which is why
  *     kolu sends the rules when it does not know the count;
- *   - Claude Code's own memory is still on for the Conductor, and its
- *     attribution stays off, as agent-distro's launcher sets it, although
- *     the session's settings replace the launcher's.
+ *   - Claude Code's own memory is OFF for the Conductor (kolu keeps its
+ *     memory), and its attribution stays off, as agent-distro's launcher
+ *     sets it, although the session's settings replace the launcher's.
  *
  * NO REAL MODEL, NO CREDENTIAL, NO REAL HOME: the spawn is handed a scratch
  * `$HOME` and a `CLAUDE_CONFIG_DIR` under it, a key the fake never checks,
@@ -230,7 +230,15 @@ describe.skipIf(!LIVE)(
     });
 
     const started = async (
-      over: { leg?: Leg; resume?: string | null; taught?: boolean } = {},
+      over: {
+        leg?: Leg;
+        resume?: string | null;
+        taught?: boolean;
+        /** The control: the adapter WITHOUT the engine row's own
+         *  environment (all of it is the engine's addition), and with those
+         *  names unset in case this shell exports one. */
+        withoutEngineEnv?: boolean;
+      } = {},
     ) => {
       if (home === "")
         home = await mkdtemp(path.join(tmpdir(), "kolu-compacting-"));
@@ -250,9 +258,15 @@ describe.skipIf(!LIVE)(
         leg: over.leg ?? ENGINE.leg,
         adapter: {
           ...seated,
-          unset: [...(seated.unset ?? []), ...ELSEWHERE],
+          unset: [
+            ...(seated.unset ?? []),
+            ...ELSEWHERE,
+            ...(over.withoutEngineEnv === true
+              ? Object.keys(seated.env ?? {})
+              : []),
+          ],
           env: {
-            ...seated.env,
+            ...(over.withoutEngineEnv === true ? {} : seated.env),
             HOME: home,
             CLAUDE_CONFIG_DIR: configDir,
             ANTHROPIC_BASE_URL: base,
@@ -386,9 +400,20 @@ describe.skipIf(!LIVE)(
     );
 
     test(
-      "leaves Claude Code's own memory on",
+      "keeps Claude Code's own memory off, as the engine row says",
       async () => {
         const { say } = await started();
+        const from = api.asked.length;
+        await say("first", 1_000);
+        expect(turnsFrom(from)[0]?.system).not.toContain("# Memory");
+      },
+      DEADLINE,
+    );
+
+    test(
+      "has Claude Code's own memory without the engine row's environment — the control",
+      async () => {
+        const { say } = await started({ withoutEngineEnv: true });
         const from = api.asked.length;
         await say("first", 1_000);
         expect(turnsFrom(from)[0]?.system).toContain("# Memory");

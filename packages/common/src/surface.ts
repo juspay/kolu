@@ -1504,6 +1504,14 @@ export const koluSurface = defineSurfaceWithPolicy<ToastOnlyPolicy>()({
         output: MemoryImportOutputSchema,
         error: Schema.Union([MemoryRefused]),
       },
+      /** BRING OVER WHAT THE AGENT REMEMBERED ON ITS OWN — a message kolu
+       *  writes, sent in the person's name, asking the Conductor to propose
+       *  what is still true. It asks the agent, so it refuses as `prompt`
+       *  does. */
+      importOwnMemory: {
+        input: ConductorEmptySchema,
+        error: Schema.Union([ConductorUnavailable, ConductorRefused]),
+      },
     },
   },
 });

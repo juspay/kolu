@@ -35,6 +35,7 @@ import { editMemory } from "./MemoryEditor";
 import { memoryImport } from "./MemoryImport";
 import MemoryProposalCard from "./MemoryProposalCard";
 import { memorySheet, useMemory } from "./useMemory";
+import { useConductorFacts } from "../useConductorFacts";
 
 const DELETE_COPY =
   "Delete this memory? The Conductor is told with its next message. There is no undo.";
@@ -191,6 +192,7 @@ const sheetChrome = surface({ portalled: true });
 export const MemorySheet: Component = () => {
   const memory = useMemory();
   const shown = useShown();
+  const facts = useConductorFacts();
   createEffect(() => {
     if (!shown()) memorySheet.close();
   });
@@ -299,12 +301,24 @@ export const MemorySheet: Component = () => {
               {MEMORY_CAP.toLocaleString("en")} characters
             </span>
           </div>
-          <DocLink
-            slug="conductor-memory"
-            class="text-[0.72rem] text-accent hover:underline"
-          >
-            About memory →
-          </DocLink>
+          <div class="flex items-center gap-3">
+            <Show when={facts().ownMemory}>
+              <button
+                type="button"
+                data-testid="memory-bring-over"
+                class="text-[0.72rem] text-accent hover:underline cursor-pointer"
+                onClick={() => void memory.bringOver()}
+              >
+                Bring over from {facts().agentName}
+              </button>
+            </Show>
+            <DocLink
+              slug="conductor-memory"
+              class="text-[0.72rem] text-accent hover:underline"
+            >
+              About memory →
+            </DocLink>
+          </div>
         </footer>
       </Dialog.Content>
     </ModalDialog>

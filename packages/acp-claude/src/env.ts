@@ -45,6 +45,17 @@ export const COMPACTION_OVERRIDES: ReadonlyArray<string> = [
 ];
 
 /**
+ * CLAUDE CODE'S OWN MEMORY, OFF — for an engine whose memory is kept by the
+ * product that runs it. Measured on the pinned pair: with this in the
+ * adapter's environment the system prompt has no `# Memory` section and a
+ * seeded `MEMORY.md` is not sent. It is an environment variable on one child
+ * process, so it changes nothing for any other `claude`.
+ */
+export const OWN_MEMORY_OFF: Readonly<Record<string, string>> = {
+  CLAUDE_CODE_DISABLE_AUTO_MEMORY: "1",
+};
+
+/**
  * WHERE THIS AGENT KEEPS ITS SIGNATURE on the host kolu-server is running on.
  *
  * The CLI under the adapter reads `$CLAUDE_CONFIG_DIR` when one is exported
@@ -64,3 +75,14 @@ export const configDirIn = (
   env: { readonly [name: string]: string | undefined },
   home: string,
 ): string => env.CLAUDE_CONFIG_DIR ?? join(home, ".claude");
+
+/**
+ * WHERE CLAUDE CODE KEEPS ITS OWN MEMORY for a session opened in `cwd`, as a
+ * sentence for the agent to act on: under the config directory's
+ * `projects/`, in the folder named after that directory's path, in its
+ * `memory/` folder, with `MEMORY.md` as the index. The folder's name is
+ * Claude Code's to spell, so the sentence describes it rather than
+ * computing it.
+ */
+export const ownMemoryHint = (configDir: string, cwd: string): string =>
+  `Claude Code keeps its own memory under ${join(configDir, "projects")}, in the folder named after the directory ${cwd}, inside that folder's memory/ folder; MEMORY.md there is the index.`;

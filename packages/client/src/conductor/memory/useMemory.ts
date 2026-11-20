@@ -53,6 +53,9 @@ export interface ConductorMemory {
   readonly importEntries: (
     entries: ReadonlyArray<MemoryText>,
   ) => Promise<MemoryAnswer>;
+  /** Ask the Conductor to bring over what the agent remembered on its own,
+   *  as proposals. */
+  readonly bringOver: () => Promise<MemoryAnswer>;
 }
 
 const refusalOf = (err: unknown): string | null =>
@@ -128,6 +131,8 @@ export const useMemory = createSharedRoot((): ConductorMemory => {
           );
         },
       ),
+    bringOver: () =>
+      choose("Could not ask the Conductor", memory.importOwnMemory({})),
   };
 });
 

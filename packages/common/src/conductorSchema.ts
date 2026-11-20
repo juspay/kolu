@@ -803,6 +803,9 @@ export const ConductorStateSchema = Schema.Struct({
   /** Where the agent compacts the conversation, in tokens of context — kolu's
    *  number, said by this server. `null` for an agent kolu sets none for. */
   compactsAt: Schema.NullOr(Schema.Int),
+  /** Whether this agent kept a memory of its own that the person can bring
+   *  over once into kolu's — what draws "Bring over from Claude Code". */
+  ownMemory: Schema.Boolean,
   options: Schema.Array(Setting),
   commands: Schema.Array(Command),
   servers: Schema.Array(Server),
@@ -881,6 +884,7 @@ export const DEFAULT_CONDUCTOR_STATE: ConductorState = {
   model: null,
   usage: null,
   compactsAt: null,
+  ownMemory: false,
   options: [],
   commands: [],
   servers: [],

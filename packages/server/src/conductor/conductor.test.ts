@@ -232,6 +232,8 @@ interface Spawned {
   /** How many times this conversation was told its next message is taught
    *  again — what a change to the memory's entries asks of it. */
   readonly taughtAgain: () => number;
+  /** Every message this conversation was sent, as the agent got it. */
+  readonly said: () => ReadonlyArray<string>;
 }
 
 /** WHICH CONVERSATION a spawn was asked for — the id its opening names, or
@@ -264,6 +266,7 @@ function fakeSpawner(): {
     let wakeFails: string | null = null;
     const wiped: string[] = [];
     let taughtAgain = 0;
+    const said: string[] = [];
     let state: HarnessState = {
       ...DEFAULT_CONDUCTOR_STATE,
       phase: "idle",
@@ -279,8 +282,9 @@ function fakeSpawner(): {
       state: () => state,
       rows: () => [],
       alive: () => alive,
-      prompt: async (said) => {
-        handed.push(said.files);
+      prompt: async (message) => {
+        handed.push(message.files);
+        said.push(message.body);
         return { rowId: "sent" };
       },
       // KOLU'S OWN LINE arrives as the ROW it is drawn as, and the words to
@@ -382,6 +386,7 @@ function fakeSpawner(): {
       },
       wiped: () => wiped,
       taughtAgain: () => taughtAgain,
+      said: () => said,
     });
     return harness;
   };
@@ -5519,5 +5524,23 @@ describe("a proposal is not memory", () => {
     const second = rig({ memory: first.memory.value() });
     expect(second.host.memory().entries).toEqual([]);
     expect(second.host.memory().proposals.map((one) => one.id)).toEqual([id]);
+  });
+});
+
+describe("bringing over Claude Code's own memory", () => {
+  it("is offered, and sends one message in the person's name saying where to read and what to propose", async () => {
+    const r = rig();
+    expect(r.host.state().ownMemory).toBe(true);
+    await r.host.importOwnMemory();
+    const agent = r.spawns[0];
+    if (agent === undefined) throw new Error("the host spawned nothing");
+    const sent = agent.said().at(-1) ?? "";
+    expect(sent).toMatch(
+      /^Bring over what you remembered in Claude Code's own memory\. Claude Code keeps its own memory under .+\/projects, in the folder named after the directory .+, inside that folder's memory\/ folder; MEMORY\.md there is the index\./u,
+    );
+    expect(sent).toContain("call `memory_propose`");
+    expect(sent).toContain("propose twenty at most");
+    expect(sent).toContain("name the file it came from in `why`");
+    expect(r.host.memory().entries).toEqual([]);
   });
 });

@@ -20,6 +20,12 @@ vi.mock("../../ui/ModalDialog", () => ({
   default: (props: { children: JSX.Element }) => <div>{props.children}</div>,
 }));
 vi.mock("../../ui/shown", () => ({ useShown: () => () => true }));
+vi.mock("../useConductorFacts", () => ({
+  useConductorFacts: () => () => ({
+    ownMemory: true,
+    agentName: "Claude Code",
+  }),
+}));
 vi.mock("./MemoryEditor", () => ({ editMemory: () => {} }));
 vi.mock("./MemoryImport", () => ({ memoryImport: { openDialog: () => {} } }));
 vi.mock("./MemoryProposalCard", () => ({ default: () => null }));
@@ -67,6 +73,10 @@ describe("the Memory sheet", () => {
       "the Conductor, approved by you",
     );
     expect(document.body.textContent).toContain("you · 3 Nov");
+    expect(
+      document.body.querySelector('[data-testid="memory-bring-over"]')
+        ?.textContent,
+    ).toBe("Bring over from Claude Code");
   });
 
   it("turns the size to the warning colour past nine tenths of the cap", () => {

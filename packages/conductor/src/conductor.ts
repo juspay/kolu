@@ -113,6 +113,7 @@ import type { PrResult } from "@kolu/terminal-vocab/schema";
 import { Option, Schema } from "effect";
 import {
   conductorConfigDir,
+  conductorOwnMemoryHint,
   CONDUCTOR_ENGINE as ENGINE,
 } from "kolu-agents/acp";
 import {
@@ -231,7 +232,7 @@ import {
   type MemoryImported,
   memoryStore,
 } from "./memoryStore.ts";
-import { memoryBlock } from "./memoryBlock.ts";
+import { bringOverMessage, memoryBlock } from "./memoryBlock.ts";
 import { recordWrites } from "./recordWrites.ts";
 import { teaching } from "./teaching.ts";
 import { wakes } from "./wakes.ts";
@@ -635,6 +636,11 @@ export interface ConductorHost {
     change: MemoryChange,
     why: string | null,
   ) => MemoryProposal;
+  /** BRING OVER WHAT THE ENGINE REMEMBERED ON ITS OWN — a message in the
+   *  person's name, written by kolu, asking the Conductor to read that
+   *  memory and propose what is still true. Its proposals wait on the human
+   *  like any other. Refused for an engine that kept no memory of its own. */
+  readonly importOwnMemory: () => Promise<{ rowId: string }>;
   /** READ THE RECORDS AGAIN — the one caller is a recovery that has just put
    *  readable bytes under a record this build refused
    *  ({@link UnreadablePersisted}), and the whole point of it is that nobody
@@ -1061,6 +1067,7 @@ export function startConductorHost(deps: ConductorDeps): ConductorHost {
     found: () => null,
   });
   const absent: NotHere | null = "why" in seating ? seating : null;
+  const ownMemoryHint = conductorOwnMemoryHint(process.env, home, home);
 
   const serverAuthored = {
     install:
@@ -1075,9 +1082,10 @@ export function startConductorHost(deps: ConductorDeps): ConductorHost {
     agentName: ENGINE.name,
     cwd: home,
     compactsAt: ENGINE.compacts?.at ?? null,
+    ownMemory: ownMemoryHint !== null,
   } satisfies Pick<
     ConductorState,
-    "install" | "agentName" | "cwd" | "compactsAt"
+    "install" | "agentName" | "cwd" | "compactsAt" | "ownMemory"
   >;
 
   let state: ConductorState = {
@@ -2197,6 +2205,19 @@ export function startConductorHost(deps: ConductorDeps): ConductorHost {
         spool.sweep();
         throw err;
       }
+    },
+    importOwnMemory: async () => {
+      if (ownMemoryHint === null)
+        throw new ConductorRefused({
+          why: `${ENGINE.name} keeps no memory of its own to bring over.`,
+        });
+      const text = bringOverMessage(ownMemoryHint);
+      return ask((agent) =>
+        agent.prompt(
+          { text, body: text, extra: { attachments: [] }, files: [] },
+          false,
+        ),
+      );
     },
     works: () => {
       // The works are on disk before they are in memory, and reading them

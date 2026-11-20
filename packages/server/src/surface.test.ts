@@ -137,6 +137,9 @@ describe("surfaces map — two siblings (the W1 padi seam)", () => {
       "saveMemory",
       "deleteMemory",
       "importMemory",
+      // ...and bringing over what the agent remembered on its own, which is a
+      // message to the conversation.
+      "importOwnMemory",
     ]);
   });
 });
