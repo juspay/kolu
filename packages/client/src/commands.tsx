@@ -44,7 +44,11 @@ import {
 import { offerRestartVerb } from "./kaval/daemonPresentation";
 import { restartDaemon } from "./kaval/useDaemonRestart";
 import { activeKavalPresence } from "./kaval/useDaemonStatus";
-import { conductorMode } from "./conductor/useConductorMode";
+import {
+  conductorMode,
+  enterConductorMode,
+} from "./conductor/useConductorMode";
+import { memorySheet, useMemoryNeed } from "./conductor/memory/useMemory";
 import { useNeedsYou, useWorks } from "./conductor/useWorks";
 import { showWork } from "./conductor/workListing";
 import { workHost, workSubtitle } from "./conductor/workReadings";
@@ -234,6 +238,7 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
   /** The one needs-you reading and the works, for the palette's two work
    *  sections — each row takes the one route to a work. */
   const needs = useNeedsYou();
+  const memory = useMemoryNeed();
   const works = useWorks();
 
   return createMemo((): PaletteCommand[] => [
@@ -263,6 +268,25 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
           ),
       }),
     ),
+    // Memory: ONE row however many proposals wait, onto the Memory sheet.
+    ...((): PaletteAction[] => {
+      const need = memory();
+      if (need === null || need === undefined) return [];
+      return [
+        {
+          kind: "action",
+          name:
+            need.title ??
+            `${need.count} things the Conductor would like to remember`,
+          description: "Memory · waiting for you",
+          section: "needs-you",
+          onSelect: () => {
+            enterConductorMode();
+            memorySheet.openDialog();
+          },
+        },
+      ];
+    })(),
     ...works().map(
       ([id, work]): PaletteAction => ({
         kind: "action",

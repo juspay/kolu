@@ -24,6 +24,7 @@
 
 import { dualPhrase } from "@kolu/terminal-vocab/duration";
 import { Option } from "effect";
+import type { MemoryNeed } from "kolu-common/conductorMemory";
 import { decodeHostKey, isEncodedHostKey } from "kolu-common/hostKey";
 import { fleetTerminalRef } from "kolu-mcp/fleetRef";
 import {
@@ -928,12 +929,18 @@ export function roleRuns(work: Work, role: WorkRole): Option.Option<string> {
  *  waiting on you counts once however many questions it holds, the card is
  *  the one place to go), plus every question the conversation asks about NO
  *  work — `ownAsks`, the conductor cell's own list, which never holds a
- *  work's question. */
+ *  work's question — plus ONE for memory while any proposal waits, however
+ *  many (`memoryNeed`): the Memory sheet is the one place to go. */
 export function waitingCount(
   needs: ReadonlyArray<NeedsYou>,
   ownAsks: ReadonlyArray<string>,
+  memory: MemoryNeed | null | undefined,
 ): number {
-  return needs.length + ownAsks.length;
+  return (
+    needs.length +
+    ownAsks.length +
+    (memory === null || memory === undefined ? 0 : 1)
+  );
 }
 
 /** The sentence the status line reads: `N pieces of work · M need you` — the

@@ -37,6 +37,9 @@ export type AttentionClick =
    *  conversation covers every host, so this arm carries neither a terminal
    *  id nor a host key — the click opens the conversation and nothing else. */
   | { kind: "conductor" }
+  /** Proposals the Conductor would like to remember: the click opens the
+   *  conversation with the Memory sheet. */
+  | { kind: "memory" }
   /** A piece of work that needs you — the click takes the one route to a
    *  work (`#/work/…`'s), onto its card and the question. */
   | WorkRoute;
@@ -57,6 +60,7 @@ function parseAttentionClick(data: unknown): AttentionClick | undefined {
     // every conductor envelope for lacking fields it never had.
     return { kind: "conductor" };
   }
+  if (d.kind === "memory") return { kind: "memory" };
   if (d.kind === "work") {
     // The same check a `#/work/…` link gets: a work id that names a work
     // key, an ask that is a question id or none.

@@ -53,6 +53,7 @@ import {
 } from "kolu-common/surface";
 import "kolu-common/test-hooks";
 import { Effect, Semaphore } from "effect";
+import type { MemoryNeed } from "kolu-common/conductorMemory";
 import type { NeedsYou } from "kolu-work";
 import { createEffect, mapArray, onCleanup, untrack } from "solid-js";
 import { match } from "ts-pattern";
@@ -68,6 +69,7 @@ import {
   enterConductorMode,
   conductorMode,
 } from "../conductor/useConductorMode";
+import { memorySheet, useMemoryNeed } from "../conductor/memory/useMemory";
 import { useMembership, useNeedsYou, useWorkMap } from "../conductor/useWorks";
 import { showWork } from "../conductor/workListing";
 import { drivenByConductor } from "../conductor/workReadings";
@@ -223,6 +225,7 @@ export function useAttention(deps: AttentionDeps): {
   const deliverNeeds = (
     items: ReadonlyArray<NeedsYou>,
     ownOpen: number | null,
+    memory: MemoryNeed | null,
   ): void => {
     try {
       playSound();
@@ -249,6 +252,18 @@ export function useAttention(deps: AttentionDeps): {
           icon: "/favicon.svg",
           data: { kind: "conductor" },
         });
+      // ONE NOTIFICATION FOR MEMORY, tagged so a newer one replaces it.
+      if (memory !== null)
+        void notify.show({
+          tag: "memory",
+          title: "The Conductor would like to remember something",
+          body:
+            memory.title !== null
+              ? memory.title
+              : `${memory.count} proposals are waiting`,
+          icon: "/favicon.svg",
+          data: { kind: "memory" },
+        });
     } catch (err) {
       console.error("useAttention: conductor delivery failed", err);
     }
@@ -266,6 +281,7 @@ export function useAttention(deps: AttentionDeps): {
   // DECIDE AFTER THE PAGE HAS DRAWN IT: a question that just arrived says it
   // is in view only once it has been laid out and observed.
   const decide = afterViewKnown(() => conductorBell.settle());
+  const memoryNeed = useMemoryNeed();
   createEffect(() => {
     const asks = conductorAsks();
     // Silence is not an empty list: before the server's first frame there is
@@ -275,6 +291,7 @@ export function useAttention(deps: AttentionDeps): {
       ...asks,
       works: new Set(workMap().keys()),
       needs: needs(),
+      memory: memoryNeed(),
     });
     if (heard) decide();
   });
@@ -434,6 +451,11 @@ export function useAttention(deps: AttentionDeps): {
           // No terminal to focus and no host to switch to — the question
           // belongs to the one conversation, so the click just opens it.
           enterConductorMode();
+        })
+        // Memory: the conversation, with the Memory sheet open on it.
+        .with({ kind: "memory" }, () => {
+          enterConductorMode();
+          memorySheet.openDialog();
         })
         // A work that needs you: the one route to a work, onto its card and
         // the question the notification was about.

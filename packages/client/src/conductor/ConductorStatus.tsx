@@ -38,6 +38,7 @@ import Tip from "../ui/Tip";
 import WorkColumn from "./WorkColumn";
 import { useNeedsYou, useWorks } from "./useWorks";
 import { isListingOut, toggleListing } from "./workListing";
+import { useMemoryNeed } from "./memory/useMemory";
 import { waitingCount, worksStatusWords } from "./workReadings";
 import { conductorWide } from "./conductorLayout";
 import { useShownClock } from "../ui/shown";
@@ -99,10 +100,13 @@ const ConductorStatus: Component<{
    *  conversation's own. A part that would read `0` is simply not there. */
   const works = useWorks();
   const needs = useNeedsYou();
+  const memory = useMemoryNeed();
   const pieces = createMemo(
     () => works().filter(([, one]) => isOpen(one)).length,
   );
-  const waiting = createMemo(() => waitingCount(needs(), props.state.openAsks));
+  const waiting = createMemo(() =>
+    waitingCount(needs(), props.state.openAsks, memory()),
+  );
   const words = createMemo(() => worksStatusWords(pieces(), waiting()));
   const held = () => props.state.held.length;
   /** The column is OPENED from here only below the breakpoint. On a wide

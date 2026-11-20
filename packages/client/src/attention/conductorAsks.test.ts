@@ -63,11 +63,13 @@ const reading = (
   ),
   works: new Set([OLAI, KOLU]),
   needs,
+  memory: null,
   ...over,
 });
 
 function harness() {
   const rang: Array<{ items: string[]; own: number | null }> = [];
+  const memoryRang: string[] = [];
   const gates = {
     alerts: true,
     onScreen: new Set<string>(),
@@ -77,8 +79,11 @@ function harness() {
     alertsEnabled: () => gates.alerts,
     isItemWatched: (item) => gates.onScreen.has(item.key),
     isConversationWatched: () => gates.conversation,
-    deliver: (items, own) =>
-      rang.push({ items: items.map((one) => one.wanted), own }),
+    deliver: (items, own, memory) => {
+      if (items.length > 0 || own !== null)
+        rang.push({ items: items.map((one) => one.wanted), own });
+      if (memory !== null) memoryRang.push(memory.identity);
+    },
   };
   const raw = createConductorBell(hooks);
   /** One reading, and the decision the page makes about it once drawn. */
@@ -88,7 +93,7 @@ function harness() {
       raw.settle();
     },
   };
-  return { bell, raw, rang, gates };
+  return { bell, raw, rang, memoryRang, gates };
 }
 
 describe("the Conductor's bell decides after the page has drawn", () => {
@@ -342,5 +347,55 @@ describe("the Conductor's bell, over real work records", () => {
     read(work);
     read(work);
     expect(rang).toEqual([{ items: ["Merge PR #702"], own: null }]);
+  });
+});
+
+describe("the Conductor's bell, for memory", () => {
+  const waiting = (identity: string, count: number) => ({
+    identity,
+    count,
+    title: count === 1 ? "Run the linter first" : null,
+  });
+
+  it("never rings on the first reading, however much waits", () => {
+    const { bell, memoryRang } = harness();
+    bell.observe(reading([], { memory: waiting("u1", 3) }));
+    expect(memoryRang).toEqual([]);
+  });
+
+  it("rings once for a batch, however many proposals it holds", () => {
+    const { bell, memoryRang } = harness();
+    bell.observe(reading([]));
+    bell.observe(reading([], { memory: waiting("u2", 1) }));
+    bell.observe(reading([], { memory: waiting("u2", 2) }));
+    bell.observe(reading([], { memory: waiting("u2", 5) }));
+    expect(memoryRang).toEqual(["u2"]);
+  });
+
+  it("rings again for a proposal from a later turn", () => {
+    const { bell, memoryRang } = harness();
+    bell.observe(reading([]));
+    bell.observe(reading([], { memory: waiting("u2", 1) }));
+    bell.observe(reading([], { memory: waiting("u3", 2) }));
+    expect(memoryRang).toEqual(["u2", "u3"]);
+  });
+
+  it("is quiet while the Conductor is on screen in a focused window, and does not ring later for it", () => {
+    const { bell, memoryRang, gates } = harness();
+    bell.observe(reading([]));
+    gates.conversation = true;
+    bell.observe(reading([], { memory: waiting("u2", 1) }));
+    gates.conversation = false;
+    bell.observe(reading([], { memory: waiting("u2", 1) }));
+    expect(memoryRang).toEqual([]);
+  });
+
+  it("takes the memory's own first frame as its baseline, even after the conversation's", () => {
+    const { bell, memoryRang } = harness();
+    bell.observe(reading([], { memory: undefined }));
+    bell.observe(reading([], { memory: waiting("u1", 2) }));
+    expect(memoryRang).toEqual([]);
+    bell.observe(reading([], { memory: waiting("u4", 3) }));
+    expect(memoryRang).toEqual(["u4"]);
   });
 });

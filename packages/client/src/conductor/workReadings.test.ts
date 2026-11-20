@@ -1176,7 +1176,7 @@ describe("the tab's one number", () => {
   const needsOf = (works: ReadonlyArray<Work>) =>
     needsYou(works.map((one, at): [string, Work] => [`w${at}`, one]));
   const count = (works: ReadonlyArray<Work>, own: ReadonlyArray<string>) =>
-    waitingCount(needsOf(works), own);
+    waitingCount(needsOf(works), own, null);
 
   it("counts a work waiting on you ONCE, however many questions it holds", () => {
     const two = work({
@@ -1193,6 +1193,17 @@ describe("the tab's one number", () => {
     expect(count([waitingWork], ["ask-chat"])).toBe(2);
     expect(count([], ["ask-chat"])).toBe(1);
     expect(count([work()], [])).toBe(0);
+  });
+
+  it("adds ONE for memory while proposals wait, however many", () => {
+    expect(
+      waitingCount(needsOf([waitingWork]), [], {
+        identity: "u1",
+        count: 5,
+        title: null,
+      }),
+    ).toBe(2);
+    expect(waitingCount([], [], null)).toBe(0);
   });
 
   it("leaves a part that would read zero out of the status line", () => {

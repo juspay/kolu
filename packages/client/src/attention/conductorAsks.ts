@@ -34,6 +34,7 @@
  *      merge its card. The conversation's own question has no card, so it is
  *      quiet while the Conductor is on screen in a focused window. */
 
+import type { MemoryNeed } from "kolu-common/conductorMemory";
 import type { NeedsYou, WorkId } from "kolu-work";
 
 /** One reading of everything the bell watches. */
@@ -48,6 +49,11 @@ export interface BellReading {
   readonly works: ReadonlySet<WorkId>;
   /** The one needs-you reading. */
   readonly needs: ReadonlyArray<NeedsYou>;
+  /** Memory's one item, `null` while no proposal waits — `undefined` until
+   *  the memory's first frame, which is its own baseline. Its identity is the
+   *  turn of its newest waiting proposal, so a batch rings once and a later
+   *  turn rings again. */
+  readonly memory: MemoryNeed | null | undefined;
 }
 
 export interface ConductorBellHooks {
@@ -56,11 +62,16 @@ export interface ConductorBellHooks {
   /** Is this item on screen in a focused window? (`isNeedInView`) */
   isItemWatched(item: NeedsYou): boolean;
   /** Is the conversation on screen in a focused window? — the silence for a
-   *  question that belongs to no work. */
+   *  question that belongs to no work, and for memory. */
   isConversationWatched(): boolean;
-  /** Reach the user — one sound — with each work item that rang, and how many
-   *  of the conversation's own questions are open if one of them rang. */
-  deliver(items: ReadonlyArray<NeedsYou>, ownOpen: number | null): void;
+  /** Reach the user — one sound — with each work item that rang, how many
+   *  of the conversation's own questions are open if one of them rang, and
+   *  memory's item if it rang. */
+  deliver(
+    items: ReadonlyArray<NeedsYou>,
+    ownOpen: number | null,
+    memory: MemoryNeed | null,
+  ): void;
 }
 
 export interface ConductorBell {
@@ -87,15 +98,30 @@ export function createConductorBell(hooks: ConductorBellHooks): ConductorBell {
   /** What was heard and not yet decided about. */
   let pending: NeedsYou[] = [];
   let pendingOwn = false;
-  /** The latest reading's items, and how many of the conversation's own
-   *  questions it had open — what is still waiting when the bell comes to
-   *  decide. */
+  let memoryStarted = false;
+  let pendingMemory = false;
+  /** The latest reading's items, how many of the conversation's own
+   *  questions it had open, and memory's item — what is still waiting when
+   *  the bell comes to decide. */
   let current: ReadonlySet<string> = new Set();
   let ownOpen = 0;
+  let memory: MemoryNeed | null = null;
   return {
     observe(reading) {
       current = new Set(reading.needs.map(tokenOf));
       ownOpen = reading.ownAsks.length;
+      if (reading.memory !== undefined) {
+        memory = reading.memory;
+        const token =
+          reading.memory === null ? null : `memory:${reading.memory.identity}`;
+        if (!memoryStarted) {
+          memoryStarted = true;
+          if (token !== null) heard.add(token);
+        } else if (token !== null && !heard.has(token)) {
+          heard.add(token);
+          pendingMemory = true;
+        }
+      }
       if (!started) {
         started = true;
         for (const id of [...reading.ownAsks, ...reading.workAsks])
@@ -118,7 +144,7 @@ export function createConductorBell(hooks: ConductorBellHooks): ConductorBell {
         pendingOwn = true;
       }
       for (const work of reading.works) known.add(work);
-      return pending.length > 0 || pendingOwn;
+      return pending.length > 0 || pendingOwn || pendingMemory;
     },
     settle() {
       const items = pending.filter(
@@ -132,9 +158,18 @@ export function createConductorBell(hooks: ConductorBellHooks): ConductorBell {
         ownOpen > 0 &&
         hooks.alertsEnabled() &&
         !hooks.isConversationWatched();
+      const rang =
+        pendingMemory &&
+        memory !== null &&
+        hooks.alertsEnabled() &&
+        !hooks.isConversationWatched()
+          ? memory
+          : null;
       pending = [];
       pendingOwn = false;
-      if (items.length > 0 || own) hooks.deliver(items, own ? ownOpen : null);
+      pendingMemory = false;
+      if (items.length > 0 || own || rang !== null)
+        hooks.deliver(items, own ? ownOpen : null, rang);
     },
   };
 }

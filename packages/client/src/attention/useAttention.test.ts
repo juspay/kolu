@@ -41,6 +41,10 @@ vi.mock("../conductor/useConductorMode", () => ({
   enterConductorMode: () => {},
 }));
 vi.mock("../conductor/workListing", () => ({ showWork: () => {} }));
+vi.mock("../conductor/memory/useMemory", () => ({
+  memorySheet: { openDialog: () => {} },
+  useMemoryNeed: () => () => undefined,
+}));
 vi.mock("../attentionNotify", () => ({
   notify: {
     requestPermission: async () => {},
