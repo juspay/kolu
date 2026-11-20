@@ -1,23 +1,3 @@
-/**
- * Shared tail-read helper for line-oriented files (JSONL transcripts,
- * text logs, etc.).
- *
- * Extracted from kolu-claude-code's `tailJsonlLines` and kolu-codex's
- * `readAndParseTail`. Both read a bounded trailing window of a growing
- * file, split into lines, and drop a possibly-partial first line so
- * the caller sees only complete records.
- *
- * Upstreaming here fixes two bugs that existed in claude-code's copy:
- *   1. **FD leak on read failure** — the old code's `openSync → readSync`
- *      had no `try/finally`, so a `readSync` throw (EIO, EINTR after
- *      retries exhausted) leaked the file descriptor.
- *   2. **Silent failure modes** — the old code's single `try/catch`
- *      returned `[]` for ENOENT, EACCES, EMFILE alike, making the
- *      difference between "file absent" and "permission denied"
- *      invisible in logs. The new `onError` callback lets each caller
- *      pick the severity for non-ENOENT errors.
- */
-
 import fs from "node:fs";
 
 /** Configuration for `readTailLines`. */
@@ -69,9 +49,6 @@ export function readTailLines(config: TailReadConfig): string[] | null {
 
   const text = buf.toString("utf8");
   const lines = text.split("\n").filter((l) => l.length > 0);
-  // First line may be mid-content if we started partway through the
-  // file. Only drop it when we didn't start from byte 0 — otherwise
-  // the first line is a real first record and should be kept intact.
   if (start > 0 && lines.length > 0) lines.shift();
   return lines;
 }

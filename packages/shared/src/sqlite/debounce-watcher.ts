@@ -1,21 +1,3 @@
-/** Generic debounced refresh-watcher backed by an event source (typically
- *  a SQLite WAL `fs.watch` subscription) and a long-lived DB connection.
- *
- *  Codex and OpenCode session-watchers are byte-for-byte the same shape:
- *  hold a DB across the watcher's lifetime, re-read state on every WAL
- *  event (debounced 150 ms), gate dispatch on structural equality, log
- *  install/retire at the watcher boundary. Only the per-event `refresh`
- *  body is integration-specific. The factory captures the shared frame.
- *
- *  Trailing-edge debounce is essential — Linux `fs.watch` fires multiple
- *  events per write, and active-generation bursts are several events per
- *  second. Without coalescing, every burst triggers N refresh passes
- *  (each running SQL queries and JSONL tails) for the same logical state
- *  change. A pure trailing window would starve under a continuous burst
- *  (juspay/kolu#1952); maxWait is baked via `COALESCE_MAX_WAIT_MS` from
- *  `kolu-io` — not a per-call opt-out.
- */
-
 import {
   COALESCE_MAX_WAIT_MS,
   createCoalesceSchedule,
@@ -87,8 +69,6 @@ export function createDebounceWatcher<Session, Info, Db extends Closable>(
     config.onChange(info);
   }
 
-  // Quiet window + hard maxWait (COALESCE_MAX_WAIT_MS) — pure trailing would
-  // starve under continuous WAL edges (#1952).
   const coalesce: CoalesceSchedule = createCoalesceSchedule({
     debounceMs: config.debounceMs,
     maxWaitMs: COALESCE_MAX_WAIT_MS,

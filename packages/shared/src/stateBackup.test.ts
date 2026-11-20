@@ -1,14 +1,3 @@
-/**
- * The #1658 acceptance cases, pinned: boot with an existing state file → backup
- * created; boot again unchanged → no new backup (byte-dedupe); ring past N →
- * oldest pruned; backup-write failure → the call answers `failed` and throws
- * nothing (fail-soft — the one sanctioned deviation from fail-fast, see the
- * module doc). Plus the restore side's fail-FAST: a wire-crossing file name
- * that is not a ring member's is refused (path traversal unspellable), and a
- * restore whose undo snapshot fails is REFUSED rather than silently
- * irreversible.
- */
-
 import {
   mkdirSync,
   mkdtempSync,
@@ -94,7 +83,6 @@ describe("snapshot", () => {
     }
     const entries = ring.list();
     expect(entries).toHaveLength(STATE_BACKUP_RING_SIZE);
-    // The newest survives; the oldest three were pruned.
     expect(readFileSync(join(ring.dir, entries[0]!.file), "utf8")).toBe(
       `{"i":${STATE_BACKUP_RING_SIZE + 2}}`,
     );
@@ -110,7 +98,6 @@ describe("snapshot", () => {
 
   it("fail-soft: an unwritable ring dir logs and answers failed, never throws", () => {
     writeFileSync(configPath, '{"a":1}');
-    // Occupy the ring dir's name with a FILE so mkdir/copy must fail.
     writeFileSync(ring.dir, "not a directory");
     expect(ring.snapshot()).toEqual({ kind: "failed" });
     expect(logged.some((l) => l.level === "error")).toBe(true);
@@ -122,8 +109,6 @@ describe("the ring's file-name grammar", () => {
     writeFileSync(configPath, '{"a":1}');
     const first = ring.snapshot();
     if (first.kind !== "created") throw new Error("expected a snapshot");
-    // A same-millisecond sibling: the writer bumps rather than overwriting, and
-    // the reader must accept the bumped name too.
     writeFileSync(join(ring.dir, first.file.replace(".json", "-2.json")), "{}");
     for (const file of ring.list().map((e) => e.file)) {
       expect(() => ring.pathOf(file)).not.toThrow();
@@ -132,7 +117,6 @@ describe("the ring's file-name grammar", () => {
   });
 
   it("refuses a name the writer could never mint", () => {
-    // Syntactically `[0-9TZ-]+`, but no instant — the old regex accepted it.
     expect(() => ring.pathOf("config.--.json")).toThrow(
       /not a state-backup file name/,
     );
@@ -155,7 +139,6 @@ describe("the ring's file-name grammar", () => {
     expect(session.file.startsWith("session.")).toBe(true);
     expect(ring.list().map((e) => e.file)).toEqual([config.file]);
     expect(sessionRing.list().map((e) => e.file)).toEqual([session.file]);
-    // Neither ring can be handed the other's member.
     expect(() => ring.read(session.file)).toThrow(
       /not a state-backup file name/,
     );
@@ -166,7 +149,6 @@ describe("the ring's file-name grammar", () => {
     const outcome = ring.snapshot();
     if (outcome.kind !== "created") throw new Error("expected a snapshot");
     const before = ring.list()[0]!.savedAtMs;
-    // `touch` the copy a decade forward — the row's age must not move.
     const decade = new Date(Date.now() + 10 * 365 * 24 * 60 * 60 * 1000);
     utimesSync(join(ring.dir, outcome.file), decade, decade);
     expect(ring.list()[0]!.savedAtMs).toBe(before);
@@ -215,9 +197,6 @@ describe("listWith", () => {
   });
 
   it("marks a parseable-but-alien member unreadable when summarize chokes on it", () => {
-    // `JSON.parse` accepts any literal — a member whose body is `null` parses
-    // fine and then blows up a summarizer that indexes into it. That must cost
-    // ONE row, not the enumeration.
     writeFileSync(configPath, '{"n":1}');
     const good = ring.snapshot();
     if (good.kind !== "created") throw new Error("expected a snapshot");
@@ -226,7 +205,6 @@ describe("listWith", () => {
       "null",
     );
     const rows = ring.listWith((raw) => {
-      // The exact shape both domain summarizers have: index into the value.
       return `n=${(raw as { n: number }).n.toFixed(0)}`;
     }, "unreadable");
     expect(rows.find((r) => r.file === good.file)?.summary).toBe("n=1");
@@ -245,7 +223,6 @@ describe("restore", () => {
     writeFileSync(configPath, '{"gen":2}');
     const applied = ring.restore(first.file, (raw) => raw);
     expect(applied).toEqual({ gen: 1 });
-    // Two members now: the restored-from snapshot and the pre-restore undo.
     const files = ring
       .list()
       .map((e) => readFileSync(join(ring.dir, e.file), "utf8"));
@@ -254,24 +231,16 @@ describe("restore", () => {
   });
 
   it("protects the restored member from its own undo snapshot's prune (full ring, oldest picked)", () => {
-    // The #1658 recovery shape: the ring is FULL, the newest members carry the
-    // corruption, and the user restores the OLDEST good snapshot. The undo
-    // snapshot pushes a new member in — without protection the prune would
-    // delete exactly the member being restored, mid-restore.
     for (let i = 0; i < STATE_BACKUP_RING_SIZE; i += 1) {
       writeFileSync(configPath, `{"gen":${i}}`);
       expect(ring.snapshot().kind).toBe("created");
     }
     const oldest = ring.list().at(-1);
     if (!oldest) throw new Error("expected a full ring");
-    // Diverge the live file so the undo snapshot is a genuine `created`.
     writeFileSync(configPath, '{"gen":"live-corrupt"}');
     const applied = ring.restore(oldest.file, (raw) => raw);
     expect(applied).toEqual({ gen: 0 });
-    // The restored-from member SURVIVED its own undo's prune…
     expect(ring.list().map((e) => e.file)).toContain(oldest.file);
-    // …and the undo landed at the head (the ring runs one over size until the
-    // next ordinary snapshot).
     expect(readFileSync(join(ring.dir, ring.list()[0]!.file), "utf8")).toBe(
       '{"gen":"live-corrupt"}',
     );
@@ -282,9 +251,6 @@ describe("restore", () => {
     const first = ring.snapshot();
     if (first.kind !== "created") throw new Error("expected a snapshot");
     writeFileSync(configPath, '{"gen":2}');
-    // Break the ring's NEWEST member (a directory where a snapshot should be),
-    // so the dedupe read throws and the undo snapshot answers `failed` — while
-    // the member being restored FROM still reads fine.
     mkdirSync(join(ring.dir, "config.2999-01-01T00-00-00-000Z.json"));
     let applied = false;
     expect(() =>

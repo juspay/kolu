@@ -1,8 +1,3 @@
-/** SQLite-flavored shared utilities — connection lifecycle wrapper and
- *  refcounted WAL-file `fs.watch` subscription factory. Generic across
- *  `node:sqlite`, `better-sqlite3`, or any handle with a `close()`
- *  method; the helpers themselves don't import a SQLite driver. */
-
 export {
   createDebounceWatcher,
   type DebounceWatcher,

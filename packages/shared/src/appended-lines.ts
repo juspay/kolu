@@ -1,24 +1,3 @@
-/**
- * Follow a growing line-oriented file (a JSONL transcript): each `read()`
- * hands over the complete lines appended since the previous one.
- *
- * The companion to `readTailLines`, for a reader that needs EVERY line rather
- * than a recent window — a fact written once near the top of a session file
- * and not repeated. The first `read()` covers the whole file; later ones only
- * what was appended, so a large file is read once.
- *
- * - **A half-written line waits.** The bytes after the last newline are held
- *   back until their newline lands.
- * - **A character split across two reads stays whole** (a `StringDecoder`
- *   holds back a partial multi-byte sequence).
- * - **A rewritten file is read again from byte 0.** A file replaced
- *   atomically (a new inode), or rewritten shorter than the point already
- *   read, cannot be continued from the old offset — that would start
- *   mid-line in different content — so `onRestart` fires and every line is
- *   handed over again.
- * - **Bounded memory per step**: the file is read in fixed-size chunks.
- */
-
 import fs from "node:fs";
 import { StringDecoder } from "node:string_decoder";
 

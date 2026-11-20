@@ -1,27 +1,3 @@
-/**
- * Shared `withDb` wrapper — run a function against a SQLite handle and
- * close it on the way out, with uniform error handling.
- *
- * Extracted from opencode + codex (byte-identical copies). Both read
- * their upstream's SQLite DB in WAL mode via `node:sqlite`'s
- * `DatabaseSync`; the body of this helper knows nothing about SQLite
- * specifically — it only requires that the handle type has a
- * `close()` method, so it works for any handle that follows the same
- * contract (better-sqlite3, future Node built-ins, etc.).
- *
- * Design points:
- *   - If `db` is passed, the caller owns the connection's lifetime
- *     (commonly the case inside a long-lived watcher that hoists one
- *     connection across many refreshes). The wrapper won't close it.
- *   - If `db` is absent, the wrapper opens one via `openDb(log)`, runs
- *     `fn`, and closes it in a `finally`. This is for one-shot
- *     queries that don't justify caller-held state.
- *   - `fn` throws are caught and logged at `error` with `errorCtx`
- *     merged in for context, returning `null` to the caller. Callers
- *     that need to distinguish "no rows" from "query failed" should
- *     not use this wrapper for that query.
- */
-
 import type { Logger } from "../log.ts";
 
 /** Minimal shape a DB handle must satisfy to be managed by `withDb`. */
@@ -107,7 +83,6 @@ export function readDbList<Db extends Closable, T>(
     case "failed":
       return null;
     default:
-      // A fourth outcome must force a decision here, not fall through one.
       return read satisfies never;
   }
 }

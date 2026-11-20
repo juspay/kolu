@@ -7,7 +7,6 @@ import { createAppendedLineReader } from "./appended-lines.ts";
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "kolu-appended-lines-"));
 afterAll(() => fs.rmSync(tmp, { recursive: true, force: true }));
 
-/** A reader over `file` whose every event lands in one log, in order. */
 function follow(file: string) {
   const events: string[] = [];
   const errors: unknown[] = [];
@@ -17,7 +16,6 @@ function follow(file: string) {
     onRestart: () => events.push("<restart>"),
     onError: (err) => errors.push(err),
   });
-  /** Read, and answer what that read handed over. */
   const read = (): string[] => {
     const from = events.length;
     reader.read();
@@ -41,7 +39,6 @@ describe("createAppendedLineReader", () => {
   });
 
   it("keeps a character whole when a read boundary splits it", () => {
-    // Put a 3-byte character across the 1 MiB read boundary.
     const file = path.join(tmp, "utf8.jsonl");
     const filler = "x".repeat(1024 * 1024 - 1);
     fs.writeFileSync(file, `${filler}—tail\n`);
@@ -55,12 +52,9 @@ describe("createAppendedLineReader", () => {
     const { read } = follow(file);
     expect(read()).toEqual(["alpha", "bravo", "charlie"]);
 
-    // Rewritten in place, shorter: the old offset is past the end.
     fs.writeFileSync(file, "delta\n");
     expect(read()).toEqual(["<restart>", "delta"]);
 
-    // Replaced (a new inode) by a LONGER file: the old offset is inside it,
-    // and continuing from there would start mid-line.
     const next = path.join(tmp, "rewrite.next");
     fs.writeFileSync(next, "echo\nfoxtrot\ngolf\n");
     fs.renameSync(next, file);
