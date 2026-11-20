@@ -3,20 +3,9 @@
  *
  * `@kolu/acp` is not kolu's private vocabulary. It is vendored as raw
  * TypeScript by [olai](https://github.com/juspay/olai) through its
- * `nix/consumer.nix`. kolu reads all of it today — `Steering` and
- * `Leg.steering` are read by `@kolu/acp-harness` when a message is steered
- * into the turn that is running, and `nativeActivity`, `Leg.queues` and
- * `terminalMetaIn` by `@kolu/acp-client` as it reads the wire — but a name
- * with an in-tree caller is not what this ledger is about. kolu is a SUPERSET
- * keeper, not an owner: the question is never whether THIS repository calls a
- * name, it is whether the other one does, and only one of the two compilers
- * is in reach when the answer changes.
- *
- * THE DEFECT THIS EXISTS FOR actually happened, in this package, in review:
- * "ported surface with no consumer" was read as a *kolu* question, three files
- * and five `Leg` members were deleted as dead, and nothing in the tree went
- * red because nothing in the tree used them. A type-level contract with an
- * out-of-tree consumer has no compiler watching it, so it gets a test instead.
+ * `nix/consumer.nix`. kolu is a SUPERSET keeper, not an owner: the question is
+ * never whether THIS repository calls a name, it is whether the other one
+ * does, and only one of the two compilers is in reach when the answer changes.
  *
  * THE RULE, in one line: a name recorded in `sharedVocabulary.json` must still
  * be exported, and a member recorded there must still be declared. ADDING is
@@ -41,8 +30,6 @@ import path from "node:path";
 import { describe, expect, test } from "vitest";
 import ledger from "./sharedVocabulary.json" with { type: "json" };
 
-/** Every top-level `export` DECLARATION's name — values and types alike, which
- *  is the half a runtime inventory cannot see. */
 const exportsOf = (text: string): ReadonlySet<string> =>
   new Set(
     [
@@ -52,11 +39,6 @@ const exportsOf = (text: string): ReadonlySet<string> =>
     ].map((match) => match[1] ?? ""),
   );
 
-/** ... and every `readonly` member declared in the file, flat across its
- *  interfaces. Flat on purpose: what a consumer reaches for is
- *  `leg.steering`, and a member that moved between two interfaces in this
- *  package is still there to be reached. A member that is GONE is the thing
- *  this catches, and it catches it wherever it was declared. */
 const membersOf = (text: string): ReadonlySet<string> =>
   new Set(
     [...text.matchAll(/^\s+readonly\s+([A-Za-z_$][\w$]*)\??\s*[:(]/gm)].map(
@@ -73,10 +55,6 @@ describe("the shared vocabulary olai also reads", () => {
       test("every recorded export is still exported", () => {
         const live = exportsOf(sourceOf(file));
         const gone = recorded.exports.filter((name) => !live.has(name));
-        // The ledger is a FLOOR: this says nothing about names the file has
-        // gained, only about ones it lost. A failure here names exactly what
-        // an olai build would fail on, which is the whole point of reading it
-        // in this repository instead of in that one.
         expect(gone, `${file} dropped exports olai may read`).toEqual([]);
       });
 
@@ -89,9 +67,6 @@ describe("the shared vocabulary olai also reads", () => {
   }
 
   test("the ledger names files that exist", () => {
-    // A ledger row for a deleted file would otherwise throw a bare ENOENT from
-    // the first assertion, which says "no such file" where the real sentence
-    // is "this package deleted a module a consumer imports".
     for (const file of Object.keys(ledger)) {
       expect(
         () => sourceOf(file),

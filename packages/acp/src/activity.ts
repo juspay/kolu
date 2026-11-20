@@ -1,26 +1,3 @@
-/**
- * THE CHANNEL AN AGENT RUNS ITS OWN CHILD SESSIONS AND BACKGROUND TASKS ON —
- * as one door, with the wire SPELLING supplied by whoever speaks it.
- *
- * Core ACP has no place for either fact. An agent that sends another agent out,
- * or arms a task that outlives the turn, says so in an extension of its own:
- * codex-acp's AIR v1 writes five `sessionUpdate` kinds into the ordinary
- * session stream, opencode 2 sends a notification of its own with the child's
- * frames nested inside it. Both are the same two lifecycles underneath, which
- * is why {@link ActivityUpdate} is one union and not one per agent.
- *
- * WHAT IS HERE is the half that is nobody's agent in particular: the union,
- * the extension method the rest of the reader listens on, and the stream
- * surgery that keeps an unknown update out of the pinned SDK's closed one.
- * WHAT IS NOT is any agent's words — those are a {@link NativeActivity},
- * declared by the integration that owns that agent, exactly as every other
- * reading of one agent's spelling is ({@link ./leg.ts}).
- *
- * That split is why this file names no agent. It used to name one: AIR's five
- * words were written here, so the second agent to grow child sessions could
- * only be served by a branch in a general package. Row policy — what a child
- * session IS to a transcript — stays the chat reader's either way.
- */
 import type { ClientApp, Stream } from "@agentclientprotocol/sdk";
 
 export type ActivityUpdate =
@@ -101,9 +78,6 @@ export interface NativeActivity {
   readonly readIn: (message: unknown) => Heard | null;
 }
 
-/** The method the rest of the reader listens on. A client-side spelling on
- *  purpose: what reaches it has already been read by a dialect, so no agent's
- *  words travel past this point. */
 const METHOD = "_kolu/session_activity";
 
 /**
@@ -125,8 +99,6 @@ export const nativeActivity = (
 ) => {
   app.onNotification(
     METHOD,
-    // Already validated by the dialect that read it; this is the SDK's door
-    // and the value went through it unchanged.
     (params: unknown) => params as ActivityNotification | null,
     ({ params }) => {
       if (params !== null) receive(params);
@@ -141,13 +113,6 @@ export const nativeActivity = (
           transform(message, controller) {
             const heard = dialect.readIn(message);
             if (heard === null) return controller.enqueue(message);
-            // The SDK's stream carries its own message union, and a dialect
-            // hands back a plain object. Asserted rather than validated
-            // because what a dialect may do is bounded by `Heard`: unwrap a
-            // frame the agent already sent through this stream, or correct one
-            // field of it. Either way it is a message this connection
-            // produced, and the SDK validates its contents at the far end
-            // exactly as it validates an untouched one.
             const rewritten = (
               heard.kind === "message"
                 ? heard.value

@@ -1,12 +1,3 @@
-/**
- * The agent's own account of who it is signed in as, over values.
- *
- * The payloads are the two pinned adapters' shapes — Claude Code's
- * `auth-status.js` and Codex's `AuthStatusMeta.ts` — plus the near misses that
- * decide whether the panel says something, says nothing, or says "not signed
- * in": three different things a person acts on differently.
- */
-
 import { describe, expect, test } from "vitest";
 
 import { identityIn } from "./identity.ts";
@@ -51,8 +42,6 @@ describe("who an agent says it is signed in as", () => {
   });
 
   test("a known logged-out state is a payload, not silence", () => {
-    // The distinction the whole feature rests on: `kind: "none"` means the
-    // agent LOOKED and found nobody signed in; `null` means it did not say.
     expect(
       identityIn({ authStatus: { kind: "none", label: "Not logged in" } }),
     ).toEqual({
@@ -64,9 +53,6 @@ describe("who an agent says it is signed in as", () => {
   });
 
   test("a kind this build has no word for keeps its label", () => {
-    // A sixth kind is a payload this client has not met, not a reason to say
-    // "not reported". `kind: null` is the honest reading, and the label — the
-    // one field the protocol promises — still reaches a person.
     expect(
       identityIn({
         authStatus: {

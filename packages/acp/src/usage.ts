@@ -1,23 +1,3 @@
-/**
- * The protocol's usage report, read as data.
- *
- * `usage_update` is ACP's own — it sits in the `SessionUpdate` union beside
- * `tool_call` and `config_option_update`, and any agent may send one — so it is
- * read HERE rather than in an ENGINE package's leg
- * (`packages/acp-claude/src/leg.ts`), which are the files for values only
- * one agent means
- * anything by. The boundary is not which payload a reader touches but who has
- * to have sent it.
- *
- * What it carries is two numbers ({@link Usage}) and, on the turn's last frame,
- * a cost this does not read. What this file adds is the one judgement between
- * the payload and the panel: WHETHER THERE IS ANYTHING TO SAY.
- *
- * PURE, and tested as such — the {@link ./diffs.ts} pattern, for the same
- * reason: a reading of somebody else's payload is a function over a value, not
- * a branch reachable only by talking a subprocess into sending one.
- */
-
 import type { Usage } from "./wire.ts";
 
 /**

@@ -1,27 +1,4 @@
 /**
- * WHAT AN AGENT MEANS by what it sends — as one interface, with one
- * implementation per agent kolu knows how to talk to.
- *
- * The protocol proper is read where it is spoken (`@kolu/acp-harness`'s `agent.ts`,
- * and the rest of this package). What is read HERE is everything that is only
- * true of ONE agent: a `_meta` extension one adapter writes, a tool-naming
- * convention one CLI uses, a permission mode one of them has and the other
- * refuses, a steering method that exists on one wire and not the other. Before
- * there were two agents this was a file called `interpret.ts` and the bets were
- * simply the Claude Code adapter's; that file is `@kolu/claude-code`'s `leg.ts`
- * now, meaning unchanged, and it answers to this shape instead of being it.
- *
- * ## WHY IT IS IN THIS PACKAGE, one floor under everybody
- *
- * A leg is written by a PLUGIN — one per engine, each in its own directory,
- * with its own release clock — and it is read by `@kolu/acp-harness`, which is a
- * general package a plugin may not import and which may not import a plugin.
- * The shape both ends spell has to live under both of them, and this is the
- * package that is under both: it is the PROTOCOL, and a leg is a reading of one
- * agent's spelling of the protocol. `@kolu/acp` stays a general package for
- * exactly that reason — the protocol is the language, not an integration — and
- * this module is the part of the language that says *how this speaker says it*.
- *
  * THE RULE THAT SURVIVES THE SPLIT, and the one a reviewer should check every
  * new leg against: **every bet is safe to lose in one direction only, and that
  * is the direction it loses in.** An agent that says none of this matches
@@ -30,17 +7,6 @@
  * not positively recognised, or an allow-option for a tool it could not name,
  * would be approving somebody's permissions on their behalf — which is the one
  * failure in this package that is not recoverable by pressing something.
- *
- * EVERY MEMBER IS A PURE FUNCTION OR A CONSTANT, for the reason the old file
- * gave: the rule that stops this panel approving its own permissions is a
- * function with unit tests rather than a branch reachable only by starting a
- * subprocess and talking it into asking.
- *
- * WHAT IS NOT HERE is anything the PROTOCOL carries for everybody — a content
- * block, a usage report, a diff — which is `@kolu/acp`'s, and anything a leg
- * would have to KNOW ABOUT A CONVERSATION to answer, which is the caller's.
- * Which side of the boundary a new reader belongs on is not which payload it
- * reads but WHO has to have sent it.
  */
 
 import type { PermissionOption } from "@agentclientprotocol/sdk";

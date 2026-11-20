@@ -1,22 +1,3 @@
-/**
- * ACP's vocabulary, as kolu spells it on its own wire.
- *
- * Every shape here is the Agent Client Protocol's — an elicitation's fields
- * and choices, an answer going back, how a question stopped waiting, a tool
- * call's file diff — projected once into the flat, drawable form the rest of
- * kolu carries around. The package that speaks the foreign thing owns its
- * words, so these are declared HERE rather than inside a wire spec, and the
- * surface declaration that carries an orchestrator's transcript imports them.
- *
- * This module is the half of the package a SURFACE may re-export — schemas
- * only, no protocol payload in sight — and it sits on its own `./wire`
- * subpath. The other half
- * ({@link ./asks.ts}, {@link ./diffs.ts}) reads the protocol's own payloads
- * into these shapes, and only the packages that run an ACP subprocess
- * (`@kolu/acp-client`, and `@kolu/acp-harness` above it) have any business
- * importing it.
- */
-
 import { Schema } from "effect";
 
 /**
@@ -394,13 +375,6 @@ export type AuthMethod = typeof AuthMethod.Type;
 export const SignInReason = Schema.Literals(["signed-out", "account"]);
 export type SignInReason = typeof SignInReason.Type;
 
-// ── The conversation's STATE ──────────────────────────────────────────────
-//
-// What a conversation stands on rather than what it said: the slash commands
-// the agent advertises, the settings it offers, the MCP servers it was handed,
-// and the sign-in it is in the middle of. The client reports each as an event;
-// a product holds the latest of each in its own state and draws it.
-
 /** A slash command the agent advertises. */
 export const Command = Schema.Struct({
   name: Schema.String,
@@ -647,19 +621,6 @@ export const SigningIn = Schema.Struct({
   ),
 });
 export type SigningIn = typeof SigningIn.Type;
-
-// ── The row FIELDS ────────────────────────────────────────────────────────
-//
-// One row of a conversation, in the five kinds both products draw, as FIELD
-// OBJECTS rather than as finished schemas. A product spreads them into its own
-// row schema and adds what is its own — kolu's mentions, attachments and sign-in
-// reason; olai's node context, its ring, its refused-write detail — and the
-// writer class in `@kolu/acp-harness` owns exactly these fields, so neither
-// product's extra can drift into the other's rows.
-//
-// `rowHead` is what makes a row ONE row: a stable key (`id`), the conversation
-// order (`seq`), and when the row was minted (`since`), stamped once by the
-// writer so every reader's clock agrees.
 
 /** Stable within a session, so a frame refines a row rather than duplicating
  *  it; `seq` is the conversation order the panel draws in; `since` is when the

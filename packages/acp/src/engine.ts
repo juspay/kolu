@@ -1,29 +1,3 @@
-/**
- * WHAT IT TAKES TO SEAT AN ACP AGENT ON THIS HOST — the shape one AGENT
- * INTEGRATION hands over, and the shape the harness reads it back as.
- *
- * ## Why this is a module and not a table
- *
- * A table would put every agent's leg, id and probe in one file, so a second
- * agent is a PR in two packages. Each agent kolu knows how to talk to is one
- * package under `packages/integrations/` instead — its own adapter pin, its
- * own release clock (the Claude adapter's moved five times in a month) — so
- * what would have been a table is a REGISTRATION, and this is what it carries.
- *
- * ## Why it lives in `@kolu/acp`
- *
- * An integration registers these data and `@kolu/acp-harness` owns their
- * detection and use. An integration may not import the harness and the harness
- * may not import an integration, so the shared shape belongs below both
- * owners, at the protocol boundary.
- *
- * An integration hands over EITHER the adapter to spawn OR the sentence a
- * machine without it is owed, so `null` — the arm that silently dropped a row
- * from every face — is unspellable. This is the engine contract's canonical
- * `NotHere`; non-ACP probes declare their own structural absence below their
- * own boundary rather than depending on the engine protocol.
- */
-
 import type { Leg } from "./leg.ts";
 
 export * from "./leg.ts";
