@@ -1,5 +1,6 @@
 import assert from "node:assert";
 import { Then, When } from "@cucumber/cucumber";
+import type { Locator } from "playwright";
 import { OMP_HEARD_MARKER, OMP_UP_MARKER } from "../support/agent-mock-omp.ts";
 import { readBufferText } from "../support/buffer.ts";
 import { pollFor } from "../support/poll.ts";
@@ -144,17 +145,24 @@ async function waitForDriver(
   world: KoluWorld,
   driver: "conductor" | "you",
 ): Promise<void> {
+  const probe = (locator: Locator, attribute: string) =>
+    locator.getAttribute(attribute, { timeout: 500 }).catch(() => null);
   await pollFor({
-    observe: async () => ({
-      driver: await world.page.locator(LOCK).last().getAttribute("data-driver"),
-      cardRef: await world.page
-        .locator(CARD)
-        .last()
-        .getAttribute("data-lock-terminal"),
-      peekRef: `${await world.page.locator(PEEK).getAttribute("data-peek-host")}/${await world.page.locator(PEEK).getAttribute("data-peek-terminal")}`,
-      toasts: await world.page.locator("[data-sonner-toast]").allTextContents(),
-      errors: world.errors,
-    }),
+    observe: async () => {
+      const peek = world.page.locator(PEEK);
+      return {
+        driver: await probe(world.page.locator(LOCK).last(), "data-driver"),
+        cardRef: await probe(
+          world.page.locator(CARD).last(),
+          "data-lock-terminal",
+        ),
+        peekRef: `${await probe(peek, "data-peek-host")}/${await probe(peek, "data-peek-terminal")}`,
+        toasts: await world.page
+          .locator("[data-sonner-toast]")
+          .allTextContents(),
+        errors: world.errors,
+      };
+    },
     isDone: (seen) => seen.driver === driver,
     timeoutMs: POLL_TIMEOUT,
     onTimeout: (last, ms) =>
