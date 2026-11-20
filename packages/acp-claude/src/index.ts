@@ -35,12 +35,6 @@ export {
   configDirIn,
   REMOTE_SIGNALS,
 } from "./env.ts";
-export {
-  CLAUDE,
-  COMPACT_RESERVE,
-  compactingAt,
-  compactsPast,
-  spelling,
-} from "./leg.ts";
+export { CLAUDE, compactingAt, spelling } from "./leg.ts";
 export { MODELS, modelNameIn } from "./models.ts";
 export { NAME } from "./name.ts";

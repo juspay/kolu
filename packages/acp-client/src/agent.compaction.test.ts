@@ -93,7 +93,7 @@ describe("compaction reports", () => {
           error,
         })),
       ).toEqual([
-        { status: "in_progress", summary: "", error: null },
+        { status: "in_progress", summary: null, error: null },
         {
           status: "in_progress",
           summary: "Two works are open. ",
@@ -127,7 +127,7 @@ describe("compaction reports", () => {
       const failed = compactions(events.slice(from));
       expect(failed.at(-1)).toMatchObject({
         status: "failed",
-        summary: "",
+        summary: null,
         error: "the summary request was refused (overloaded)",
       });
       expect(failed[0]?.id).not.toBe(compactions(events)[0]?.id);

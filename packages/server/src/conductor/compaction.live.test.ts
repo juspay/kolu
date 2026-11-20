@@ -342,7 +342,7 @@ describe.skipIf(!LIVE)(
         await say("MESSAGE-CANARY past the limit", 1_000);
         expect(compactions.at(-1)).toMatchObject({
           status: "completed",
-          rules: "sent",
+          teaching: "sent",
         });
         expect(compactions.at(-1)?.summary).toContain(SUMMARY_CANARY);
         const next = afterSummary(from);

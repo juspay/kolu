@@ -20,6 +20,7 @@
 
 import type { ConductorRow, ConductorState } from "kolu-common/conductor";
 import { elapsedSince } from "../time/duration";
+import { COMPACTING } from "./compactionWords";
 import { toolLabel } from "./toolCard";
 
 /** How much of a spoken line the status row carries. Past this the line is
@@ -78,8 +79,7 @@ export function conductorDoing(rows: readonly ConductorRow[]): string | null {
     if (row === undefined) continue;
     if (TURN_OPENERS[row.kind] === true) break;
     // A COMPACTION holds the whole turn: nothing after it runs until it ends.
-    if (row.kind === "compaction" && row.state === "running")
-      return "compacting the conversation";
+    if (row.kind === "compaction" && row.state === "running") return COMPACTING;
     if (
       row.kind === "tool" &&
       row.asksThroughForm !== true &&

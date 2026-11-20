@@ -14,7 +14,7 @@ products cannot disagree about which adapter is pinned or what its wire means.
 
 | file | what it owns |
 |---|---|
-| `src/leg.ts` | what THIS adapter means by what it sends — kolu's instance of `@kolu/acp/engine`'s `Leg`: the `claudeCode` `_meta` corner, the `mcp__<server>__<tool>` naming, the permission mode it offers and refuses, background tasks, task-notifications, steering and queueing, and what a `session/list` row carries beyond the protocol. `compactingAt(tokens)` is that leg opening every session with auto-compaction forced on at `tokens` (the CLI fires `COMPACT_RESERVE`, 33k, below the window it is given), and `compactsPast(tokens)` says when it will |
+| `src/leg.ts` | what THIS adapter means by what it sends — kolu's instance of `@kolu/acp/engine`'s `Leg`: the `claudeCode` `_meta` corner, the `mcp__<server>__<tool>` naming, the permission mode it offers and refuses, background tasks, task-notifications, steering and queueing, and what a `session/list` row carries beyond the protocol. `compactingAt(tokens, launched)` is that leg opening every session with auto-compaction forced on at `tokens` (the CLI fires a measured 33k below the window it is given) and the launcher's own settings said again, together with the point it compacts at (`compacts`) |
 | `src/models.ts` | the model table: which `configOptions` entry names the model, what the picker calls each id, and each model's context window |
 | `src/env.ts` | `REMOTE_SIGNALS` (the five variables the adapter reads as "remote", which the host must strip), `COMPACTION_OVERRIDES` (the four that would override `compactingAt`'s settings) and `configDirIn` (where the CLI keeps its signature) |
 | `src/name.ts` | `NAME` — "Claude Code", which is a name rather than a word with a capital letter |

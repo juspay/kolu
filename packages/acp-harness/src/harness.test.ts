@@ -2261,7 +2261,7 @@ describe("the standing prompt around a compaction", () => {
     expect(running.harness.state().taught).toBe(true);
     await send(running, "hello");
     expect(await taughtSoFar(running)).toEqual([true, true, false]);
-    expect(seen.map(({ status, rules }) => [status, rules])).toEqual([
+    expect(seen.map(({ status, teaching }) => [status, teaching])).toEqual([
       ["in_progress", null],
       ["in_progress", null],
       ["in_progress", null],
@@ -2284,11 +2284,19 @@ describe("the standing prompt around a compaction", () => {
     expect(running.harness.state().taught).toBe(false);
     expect(seen.at(-1)).toMatchObject({
       status: "completed",
-      rules: "next",
+      teaching: "next",
       summary: "The turn was half done.",
     });
     await send(running, "hello");
     expect(await taughtSoFar(running)).toEqual([true, false, true]);
+  });
+
+  test("a compaction that failed after the rules rode its message does not send them again", async () => {
+    const running = await open("agent.ts", { compacts });
+    await send(running, "used 250000");
+    await send(running, "compactFails");
+    await send(running, "hello");
+    expect(await taughtSoFar(running)).toEqual([true, true, false]);
   });
 
   test("a compaction that failed changes nothing", async () => {
@@ -2301,7 +2309,7 @@ describe("the standing prompt around a compaction", () => {
     await send(running, "compactFails");
     expect(seen.at(-1)).toMatchObject({
       status: "failed",
-      rules: null,
+      teaching: null,
       error: "the summary request was refused (overloaded)",
     });
     await send(running, "hello");
@@ -2331,7 +2339,10 @@ describe("the standing prompt around a compaction", () => {
       onCompaction: (compaction) => seen.push(compaction),
     });
     await send(running, "compact");
-    expect(seen.at(-1)).toMatchObject({ status: "completed", rules: "sent" });
+    expect(seen.at(-1)).toMatchObject({
+      status: "completed",
+      teaching: "sent",
+    });
     expect(running.harness.state().taught).toBe(true);
     await send(running, "hello");
     expect(await taughtSoFar(running)).toEqual([true, false]);

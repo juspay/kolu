@@ -944,7 +944,7 @@ const sentenceOf = (err: unknown): string => {
  *
  *  A turn is a prompt that WENT — a person's line or a wake, unless it was
  *  `refused` (nothing took it) — OR anything only a turn produces: the
- *  agent's prose, a plan, a tool call, a question. The second half is not
+ *  agent's prose, a plan, a tool call, a question, a compaction. The second half is not
  *  redundant: the record is capped from the OLD end (`persisted.ts`'s
  *  `ROW_CAP`), and a
  *  turn long enough to push its own prompt out must still count as one. */
@@ -962,6 +962,7 @@ const hadATurn = (rows: ReadonlyArray<ConductorRow>): boolean => {
       case "plan":
       case "tool":
       case "ask":
+      case "compaction":
         return true;
     }
   }
@@ -1603,6 +1604,10 @@ export function startConductorHost(deps: ConductorDeps): ConductorHost {
     });
   };
 
+  /** What a compaction that never reached an end is said to have done: the
+   *  turn that held it ended, or the agent running it went away. */
+  const UNFINISHED = "it stopped before it finished";
+
   /** A COMPACTION, AS ONE ROW — minted at its first report and updated in
    *  place by every report after it, under kolu's own id for it
    *  (`kolu:compaction:<id>`), the way {@link sayNotice} mints its rows. `at`
@@ -1626,16 +1631,16 @@ export function startConductorHost(deps: ConductorDeps): ConductorHost {
                 : "failed",
           at: was === null ? (state.usage?.used ?? null) : was.at,
           summary:
-            report.summary === ""
-              ? (was?.summary ?? null)
+            report.summary === null || report.summary === ""
+              ? null
               : report.summary.length > COMPACTION_SUMMARY_CAP
                 ? `${report.summary.slice(0, COMPACTION_SUMMARY_CAP)}…`
                 : report.summary,
           error:
             report.status === "cancelled"
-              ? (report.error ?? "the turn ended before it finished")
+              ? (report.error ?? UNFINISHED)
               : report.error,
-          rules: report.rules ?? was?.rules ?? null,
+          rules: report.teaching,
         },
       ],
       removes: [],
@@ -1653,7 +1658,7 @@ export function startConductorHost(deps: ConductorDeps): ConductorHost {
             {
               ...row,
               state: "failed" as const,
-              error: "the agent stopped before it finished",
+              error: UNFINISHED,
             },
           ]
         : [],

@@ -38,6 +38,7 @@
 import {
   allowingOurs,
   type Background,
+  type CompactionPoint,
   type Leg,
   type ListedFacts,
   type Meta,
@@ -963,11 +964,15 @@ export const CLAUDE: Leg = {
  * 168k, 233k between 198k and 201k. On a model whose own window is smaller
  * than the one given, that smaller window is the one it fires under.
  */
-export const COMPACT_RESERVE = 33_000;
+const COMPACT_RESERVE = 33_000;
 
 /**
  * {@link CLAUDE}, asking for the protocol's compaction reports and opening
- * every session with auto-compaction forced on to fire at `tokens`.
+ * every session with auto-compaction forced on to fire at `tokens` — and the
+ * point it fires at, read off the same number, so the two cannot be built
+ * apart: `due` is whether a session so opened compacts before it reads the
+ * next message, at `tokens` or sooner on a model whose own window puts the
+ * line lower.
  *
  * The settings ride the open's `_meta` beside the raw-message subscription
  * (`claudeCode.options.settings`, which the adapter hands the CLI as the
@@ -984,31 +989,30 @@ export const COMPACT_RESERVE = 33_000;
 export const compactingAt = (
   tokens: number,
   launched: { readonly [setting: string]: unknown },
-): Leg => ({
-  ...CLAUDE,
-  compaction: true,
-  rawMessages: {
-    ...RAW_MESSAGES,
-    openMeta: {
-      ...OPEN_SESSION_META,
-      claudeCode: {
-        ...OPEN_SESSION_META.claudeCode,
-        options: {
-          settings: {
-            ...launched,
-            autoCompactEnabled: true,
-            autoCompactWindow: tokens + COMPACT_RESERVE,
+): { readonly leg: Leg; readonly compacts: CompactionPoint } => ({
+  leg: {
+    ...CLAUDE,
+    compaction: true,
+    rawMessages: {
+      ...RAW_MESSAGES,
+      openMeta: {
+        ...OPEN_SESSION_META,
+        claudeCode: {
+          ...OPEN_SESSION_META.claudeCode,
+          options: {
+            settings: {
+              ...launched,
+              autoCompactEnabled: true,
+              autoCompactWindow: tokens + COMPACT_RESERVE,
+            },
           },
         },
       },
     },
   },
+  compacts: {
+    at: tokens,
+    due: (usage) =>
+      usage.used >= Math.min(tokens, usage.size - COMPACT_RESERVE),
+  },
 });
-
-/** Whether a session opened by {@link compactingAt}`(tokens)` compacts before
- *  it reads the next message, at this usage: at `tokens`, or sooner on a model
- *  whose own window puts the line lower. */
-export const compactsPast =
-  (tokens: number) =>
-  (usage: { readonly used: number; readonly size: number }): boolean =>
-    usage.used >= Math.min(tokens, usage.size - COMPACT_RESERVE);

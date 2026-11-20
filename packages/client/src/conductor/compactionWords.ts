@@ -1,6 +1,7 @@
-/** The words of a compaction row — its one line, and the sentence under it.
- *  Pure, and read by the line itself, the status line and Copy transcript, so
- *  the three cannot say different things about one compaction. */
+/** The words of a compaction row — its one line, the sentence under it, and
+ *  what the status line says while it runs. Pure, and read by the line
+ *  itself, the status line and Copy transcript, so the three cannot say
+ *  different things about one compaction. */
 
 import type { ConductorCompactionRow } from "kolu-common/conductor";
 import { tokens } from "./tokens";
@@ -19,14 +20,18 @@ export function compactionHeadline(row: ConductorCompactionRow): string {
   }
 }
 
-/** The sentence a settled row says under its line, naming the agent. */
+/** What the status line says while a compaction runs. */
+export const COMPACTING = "compacting the conversation";
+
+/** The sentence a SETTLED row says under its line, naming the agent; a
+ *  running one has none. */
 export function compactionSentence(
   row: ConductorCompactionRow,
   agent: string,
-): string {
+): string | null {
   switch (row.state) {
     case "running":
-      return `${agent} is compacting this conversation…`;
+      return null;
     case "done":
       return `${agent} replaced the conversation above with this summary. ${
         row.rules === "sent"

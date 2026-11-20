@@ -1079,7 +1079,7 @@ export const make = (options: Options): Effect.Effect<Agent, never, never> =>
     let compacting: {
       readonly id: string;
       readonly status: CompactionStatus;
-      readonly summary: string;
+      readonly summary: string | null;
       readonly error: string | null;
     } | null = null;
 
@@ -1844,7 +1844,7 @@ export const make = (options: Options): Effect.Effect<Agent, never, never> =>
               : {
                   id: report.id,
                   status: report.status,
-                  summary: report.summary ?? held?.summary ?? "",
+                  summary: report.summary ?? held?.summary ?? null,
                   error: report.error ?? held?.error ?? null,
                 };
           emit({ _tag: "compaction", ...compacting });

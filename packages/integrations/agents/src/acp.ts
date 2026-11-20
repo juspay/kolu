@@ -36,7 +36,6 @@ import {
 import {
   COMPACTION_OVERRIDES,
   compactingAt,
-  compactsPast,
   configDirIn as claudeConfigDir,
   NAME,
   REMOTE_SIGNALS,
@@ -94,8 +93,7 @@ const LAUNCHER_SETTINGS = { attribution: { commit: "", pr: "" } };
  */
 export const ENGINE: Registering = {
   name: NAME,
-  leg: compactingAt(COMPACTS_AT, LAUNCHER_SETTINGS),
-  compacts: { at: COMPACTS_AT, due: compactsPast(COMPACTS_AT) },
+  ...compactingAt(COMPACTS_AT, LAUNCHER_SETTINGS),
   // SHIPPED, NOT FOUND, which is why the probe is a variable read and never a
   // search-path lookup: the adapter is a wrapper inside the nix store and is on
   // nobody's PATH — `where.found` is not consulted here and padi hands one that

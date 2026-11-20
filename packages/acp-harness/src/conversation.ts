@@ -257,14 +257,11 @@ export interface ToolReading<Row extends AnyRow> {
 }
 
 /** One compaction as the agent last reported it ({@link
- *  HarnessOptions.onCompaction}). `summary` is `""` until one arrives;
- *  `rules` is `null` until it has completed. */
-export interface Compaction {
-  readonly id: string;
-  readonly status: Extract<AgentEvent, { _tag: "compaction" }>["status"];
-  readonly summary: string;
-  readonly error: string | null;
-  readonly rules: "sent" | "next" | null;
+ *  HarnessOptions.onCompaction}). `summary` is `null` until one arrives;
+ *  `teaching` is `null` until it has completed. */
+export interface Compaction
+  extends Omit<Extract<AgentEvent, { _tag: "compaction" }>, "_tag"> {
+  readonly teaching: "sent" | "next" | null;
 }
 
 export interface HarnessOptions<Row extends AnyRow> {
@@ -340,7 +337,7 @@ export interface HarnessOptions<Row extends AnyRow> {
    * Whether the agent will compact this conversation before it reads the
    * next message, given the usage it last reported. When it will, or when the
    * usage of a loaded session is not known yet, the message is taught: it is
-   * the first thing after the summary. Once, until a compaction is reported,
+   * the first thing after the summary. Once, until a compaction completes,
    * the session changes, or a reading arrives for which this says no. Absent:
    * the standing prompt rides the first message only.
    */
@@ -1457,15 +1454,19 @@ export const startHarness = async <Row extends AnyRow>(
             id: event.id,
             rode: taughtAt !== null && heard === taughtAt,
           };
+        // ONLY A COMPLETED ONE REPLACED THE CONTEXT. A failed or cancelled
+        // compaction left the rules where they were, so it re-arms nothing.
         const completed = event.status === "completed";
-        if (event.status !== "in_progress") primed = false;
-        if (completed && !compacting.rode) taught = false;
+        if (completed) {
+          primed = false;
+          if (!compacting.rode) taught = false;
+        }
         options.onCompaction?.({
           id: event.id,
           status: event.status,
           summary: event.summary,
           error: event.error,
-          rules: completed ? (compacting.rode ? "sent" : "next") : null,
+          teaching: completed ? (compacting.rode ? "sent" : "next") : null,
         });
         if (completed) publish();
         return;

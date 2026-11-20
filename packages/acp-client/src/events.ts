@@ -401,12 +401,12 @@ export type AgentEvent =
   | { readonly _tag: "usage"; readonly usage: Usage }
   /** Where the agent's compaction of this conversation is, as it last
    *  reported it. `summary` is every chunk and replacement folded so far,
-   *  `""` until one arrives; a duplicate terminal report repeats it. */
+   *  `null` until one arrives; a duplicate terminal report repeats it. */
   | {
       readonly _tag: "compaction";
       readonly id: string;
       readonly status: CompactionStatus;
-      readonly summary: string;
+      readonly summary: string | null;
       readonly error: string | null;
     }
   /** Which stored conversation this now is. `title` is `null` until the agent

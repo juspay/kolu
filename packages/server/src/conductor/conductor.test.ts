@@ -2245,9 +2245,9 @@ describe("a compaction, as one line in the chat", () => {
     const { r, agent } = await reported({ used: 201_000, size: 1_000_000 });
     const report = {
       id: "c1",
-      summary: "",
+      summary: null,
       error: null,
-      rules: null,
+      teaching: null,
     } as const;
     agent.options.onCompaction?.({ ...report, status: "in_progress" });
     expect(compactions(r)).toMatchObject([
@@ -2275,13 +2275,13 @@ describe("a compaction, as one line in the chat", () => {
       ...report,
       status: "completed",
       summary: "Two works are open.",
-      rules: "sent",
+      teaching: "sent",
     });
     agent.options.onCompaction?.({
       ...report,
       status: "completed",
       summary: "Two works are open.",
-      rules: "sent",
+      teaching: "sent",
     });
     expect(compactions(r)).toMatchObject([
       {
@@ -2300,23 +2300,23 @@ describe("a compaction, as one line in the chat", () => {
     agent.options.onCompaction?.({
       id: "c1",
       status: "failed",
-      summary: "",
+      summary: null,
       error: "the summary request was refused (overloaded)",
-      rules: null,
+      teaching: null,
     });
     agent.options.onCompaction?.({
       id: "c2",
       status: "cancelled",
-      summary: "",
+      summary: null,
       error: null,
-      rules: null,
+      teaching: null,
     });
     expect(compactions(r)).toMatchObject([
       {
         state: "failed",
         error: "the summary request was refused (overloaded)",
       },
-      { state: "failed", error: "the turn ended before it finished" },
+      { state: "failed", error: "it stopped before it finished" },
     ]);
   });
 
@@ -2327,7 +2327,7 @@ describe("a compaction, as one line in the chat", () => {
       status: "completed",
       summary: "Two works are open.",
       error: null,
-      rules: "sent",
+      teaching: "sent",
     });
     expect(compactions(r)).toMatchObject([{ state: "done", at: null }]);
   });
@@ -2337,15 +2337,15 @@ describe("a compaction, as one line in the chat", () => {
     agent.options.onCompaction?.({
       id: "c1",
       status: "in_progress",
-      summary: "",
+      summary: null,
       error: null,
-      rules: null,
+      teaching: null,
     });
     agent.die();
     await r.host.prompt("still there?", [], [], false);
     expect(r.spawns.length).toBe(2);
     expect(compactions(r)).toMatchObject([
-      { state: "failed", error: "the agent stopped before it finished" },
+      { state: "failed", error: "it stopped before it finished" },
     ]);
   });
 
