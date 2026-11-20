@@ -1,0 +1,53 @@
+---
+title: What the Conductor remembers
+description: "How the Conductor's conversation stays a workable size: Claude Code compacts it at about 200k tokens, and kolu sends the rules again."
+order: 52.52
+section: "Agents & Attention"
+---
+
+The Conductor works from three things: its conversation, the rules kolu gives it, and the pieces of work. This page says what happens to each when the conversation grows long, and where longer-term memory lives.
+
+## The conversation and its limit
+
+The header shows how full the conversation's context is, as `148k/1M`. Every turn reads the whole conversation again, so a long one is slow and costly.
+
+Past about 200k tokens, Claude Code **compacts** the conversation: it replaces the older part with a summary it writes itself, and the count in the header drops. You never type `/compact`. Hover the count to see where the conversation is compacted.
+
+kolu sets this point for the Conductor alone, whatever your own Claude Code settings say. The `claude` you run in your terminals is unchanged. On a model with a 200k window, the conversation is compacted sooner, at about 167k.
+
+## The compaction line
+
+Each compaction is one line in the chat, drawn like the `— new session —` line.
+
+| Line | What it means |
+| --- | --- |
+| **compacting at 201k** | Claude Code is compacting now. The status line says **compacting the conversation**. |
+| **compacted at 201k** | It is done. Click the line to read the summary, under a sentence saying whether the rules were sent again or go with the next message. |
+| **could not compact** | It failed, with Claude Code's reason under the line. The conversation carries on as it was. |
+
+The number is how full the context was when the compaction began. Right after a restart kolu does not know it yet, and the line has no number.
+
+The line stays in view when replies to a wake are folded, and **Copy transcript** includes it with its summary.
+
+## What kolu sends again
+
+The rules, **How you work**, go with the first message of every session. kolu sends them again:
+
+- with the message that sets off a compaction, so they are the first thing after the summary;
+- with the first message after kolu-server restarts, because kolu does not yet know how full the conversation is;
+- with the next message after a compaction kolu did not see coming.
+
+Two cases run on the summary alone until the next message brings the rules: one turn that passes the limit by itself, and a message you send while a turn is running. Wakes wait until the turn is over, so they are not affected.
+
+## What a compaction keeps
+
+| Thing | After a compaction |
+| --- | --- |
+| The pieces of work | Unchanged. They are kolu's own record, and the rules tell the Conductor to read them again. |
+| The rules | Sent again, as above. |
+| Claude Code's own memory | Loaded again from its files by Claude Code. |
+| The rest of the conversation | Only what the summary kept. |
+
+## Longer-term memory
+
+What the Conductor remembers beyond one conversation is Claude Code's own memory. It lives in Claude Code's memory folder for your home directory, under `~/.claude` unless you set `CLAUDE_CONFIG_DIR`, and any `claude` you start in your home directory uses it too. kolu does not read or change those files.

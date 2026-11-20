@@ -169,14 +169,14 @@ export interface Where {
  * one law. WHICH CHANNEL it rides is not: it is a fact about the engine, so the
  * engine's own integration package says it.
  *
- * ONE ARM TODAY, and the arm is the ruling rather than a placeholder. ACP has no
- * system prompt — `session/new` carries a cwd and a list of MCP servers and
- * nothing else a client may put words in — so every engine kolu ships rides the
- * first turn: the text goes under the first message a person sends, which puts
- * it IN THE TRANSCRIPT where the person can read what their agent was told,
- * costs a turn only where somebody says something, and survives a `/clear` by
- * construction because "has this session been taught" is written down per
- * session.
+ * ONE ARM TODAY, and the arm is the ruling rather than a placeholder. ACP's
+ * standard system prompt is not taken by the adapter kolu pins, which has only
+ * a private field of its own, so every engine kolu ships rides messages: the
+ * text goes under the first message of a session (and again around a
+ * compaction, `Registering.compacts`), which puts it IN THE TRANSCRIPT where
+ * the person can read what their agent was told, costs a turn only where
+ * somebody says something, and survives a `/clear` by construction because
+ * "has this session been taught" is written down per session.
  *
  * A SECOND ARM IS A `tsc` ERROR UNTIL CORE HANDLES IT, which is the whole point
  * of the field being data rather than an assumption: `@kolu/acp-harness` switches on

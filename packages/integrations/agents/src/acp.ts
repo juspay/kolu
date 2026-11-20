@@ -121,10 +121,10 @@ export const ENGINE: Registering = {
       unset: [...REMOTE_SIGNALS, ...COMPACTION_OVERRIDES],
     };
   },
-  // ACP has no system prompt on any wire, this one included, so the standing
-  // instruction rides the first turn — where a person can read what their agent
-  // was told. `@kolu/acp/engine`'s `PromptChannel` argues it, and the harness
-  // switches on it exhaustively.
+  // This adapter takes ACP's standard system prompt nowhere and its own only
+  // through a private field, so the standing instruction rides messages —
+  // where a person can read what their agent was told. `@kolu/acp/engine`'s
+  // `PromptChannel` argues it, and the harness switches on it exhaustively.
   prompt: { kind: "first-turn" },
 };
 

@@ -1,24 +1,26 @@
 /**
- * WHAT KOLU'S CONDUCTOR IS TOLD, ONCE — AND HOW IT ARRIVES.
+ * WHAT KOLU'S CONDUCTOR IS TOLD — AND HOW IT ARRIVES.
  *
- * ## THE CHANNEL: a first-turn preamble, and not a system prompt
+ * ## THE CHANNEL: a message preamble, and not a system prompt
  *
- * ACP has no system prompt. `session/new` carries a cwd and a list of MCP
- * servers and nothing else a client may put words in, so there is no field to
- * put this in on any wire kolu talks to; getting one would mean patching a
- * pinned adapter, and the feature would then be absent on every other engine —
- * exactly the shape this repo refuses, because a capability silently missing
- * cannot be told apart from one that is broken.
+ * The pinned adapter takes a system prompt only through a private field of
+ * its own (`_meta.systemPrompt`); it ignores ACP's standard one and does not
+ * advertise it. Measured, text given there survives a compaction — but it is
+ * one adapter's door, and a change to it makes that adapter rebuild the
+ * session.
  *
- * So it rides the FIRST MESSAGE of the session, and the three consequences are
- * the argument for it. It is IN THE TRANSCRIPT, where a person can read what
- * their conductor was told, rather than being a thing that happened to
- * somebody else's process. It costs a turn only where there is one: a kolu
- * nobody talks to spends nothing, and the lines go out with the words rather
- * than as a turn of their own. And it survives a `/clear` by construction,
- * because "has this session been taught" is written down per SESSION — a new
- * session is untaught, which is right, since the whole point is that the
- * transcript is not what carries the contract.
+ * So it rides MESSAGES of the session, and the consequences are the argument
+ * for it. It is IN THE TRANSCRIPT, where a person can read what their
+ * conductor was told, rather than being a thing that happened to somebody
+ * else's process. It costs a turn only where there is one: the lines go out
+ * with the words rather than as a turn of their own. And it survives a
+ * `/clear` by construction, because "has this session been taught" is written
+ * down per SESSION.
+ *
+ * WHEN IT RIDES is the harness's: under the first message of a session, under
+ * the message the agent will compact before it reads (measured, that message
+ * is still there whole after the summary), under the first message after a
+ * restart, and under the next message after a compaction nobody saw coming.
  *
  * ## WHERE THE WORDS LIVE: `./teaching.md`, read once at start
  *

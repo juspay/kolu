@@ -14,11 +14,17 @@ Three things make the conversation work and they are all here:
   session id is resumed only when the rows since the last break show a turn:
   the agent writes nothing for a session until its first prompt, so one nobody
   spoke into is opened again in silence rather than "lost" with a notice;
-- **the standing prompt** — what the agent is told, once, on the first turn.
+- **the standing prompt** — what the agent is told on the first turn, and again
+  around a compaction (the harness says when, off the engine's `compacts`).
   The words are in [`src/teaching.md`](src/teaching.md), a Markdown file of
   sections, lists and tables, read when kolu-server starts (a missing or
   malformed file stops the boot) and sent as the Markdown it is. Each rule is
   said once; a rule about one kolu tool lives in that tool's description.
+- **compactions** — each one the agent reports is one `compaction` row, minted
+  here (`kolu:compaction:<id>`) and updated in place from running to done or
+  failed, with the usage it began at and its summary; a row still running
+  when its agent went away is settled as failed at the next spawn. The cell
+  says where the agent compacts (`compactsAt`).
 
 The `koluSurface` members a browser subscribes to are here too (`./surface`),
 because an implementation of "what `conductor.prompt` does" belongs with the
