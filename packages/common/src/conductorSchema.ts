@@ -65,6 +65,7 @@ import { formatBytes, MIB } from "@kolu/byte-units";
 import { TerminalIdSchema } from "@kolu/terminal-vocab/schema";
 import { AnsweredFromFaceSchema, TypedAnswerSchema } from "kolu-work";
 import { Effect, Schema } from "effect";
+import { MemoryChangeSchema } from "./conductorMemory.ts";
 
 /** `YES_NO` is a VALUE, not a schema, and it is the one piece of this
  *  vocabulary both ends must spell identically: a boolean answer travels as
@@ -633,6 +634,24 @@ export const ConductorWakeRowSchema = Schema.Struct({
 });
 export type ConductorWakeRow = typeof ConductorWakeRowSchema.Type;
 
+/** A memory the Conductor proposed, in the chat where it proposed it. The
+ *  row carries the proposal's id, its words and the title it is shown by;
+ *  whether it still waits is the memory record's to say, and `ended` is how
+ *  it settled, written in place when the human chose. */
+export const ConductorMemoryProposalRowSchema = Schema.Struct({
+  ...rowHead,
+  kind: Schema.Literal("memory-proposal"),
+  proposal: Schema.String,
+  title: Schema.String,
+  change: MemoryChangeSchema,
+  why: Schema.NullOr(Schema.String),
+  ended: Schema.NullOr(
+    Schema.Literals(["remembered", "edited", "forgotten", "declined"]),
+  ),
+});
+export type ConductorMemoryProposalRow =
+  typeof ConductorMemoryProposalRowSchema.Type;
+
 export const ConductorRowSchema = Schema.Union([
   ConductorUserRowSchema,
   ConductorAgentRowSchema,
@@ -643,6 +662,7 @@ export const ConductorRowSchema = Schema.Union([
   ConductorNoticeRowSchema,
   ConductorDividerRowSchema,
   ConductorCompactionRowSchema,
+  ConductorMemoryProposalRowSchema,
   ConductorWakeRowSchema,
 ]);
 export type ConductorRow = typeof ConductorRowSchema.Type;
@@ -721,15 +741,17 @@ export const ConductorInstallSchema = Schema.Union([
   }),
 ]);
 
-/** THE FOUR RECORDS A RESTART READS, by name — the `conductor`, `works` and
- *  `members` keys of kolu-server's `config.json`, and the transcript file
- *  beside it. The one vocabulary a refusal names a record by and a recovery
- *  names one back: spelled here, on the wire, so the panel's copy, the
- *  procedure's input and the server's switch cannot drift into three lists. */
+/** THE FIVE RECORDS A RESTART READS, by name — the `conductor`, `works`,
+ *  `members` and `memory` keys of kolu-server's `config.json`, and the
+ *  transcript file beside it. The one vocabulary a refusal names a record by
+ *  and a recovery names one back: spelled here, on the wire, so the panel's
+ *  copy, the procedure's input and the server's switch cannot drift into
+ *  three lists. */
 export const ConductorStoreKeySchema = Schema.Literals([
   "conductor",
   "works",
   "members",
+  "memory",
   "transcript",
 ]);
 export type ConductorStoreKey = typeof ConductorStoreKeySchema.Type;

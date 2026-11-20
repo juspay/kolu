@@ -75,12 +75,14 @@ import {
 import {
   type ConductorHost,
   EMPTY_PERSISTED_CONDUCTOR,
+  EMPTY_PERSISTED_MEMORY,
   type FleetMcpEndpoint,
   type KoluOffer,
   type MemberDetail,
   type MemberWatch,
   type PersistedConductor,
   type PersistedMembers,
+  type PersistedMemory,
   type PersistedTranscript,
   type PersistedWorks,
   PersistedWorksSchema,
@@ -484,6 +486,8 @@ interface Remembered {
    *  their member terminals, by fleet ref. Its own key, so a fixture says
    *  what was READ about a terminal apart from what the work claims. */
   readonly members?: PersistedMembers;
+  /** `config.json`'s `memory` key. */
+  readonly memory?: PersistedMemory;
   readonly endpoint?: FleetMcpEndpoint | null;
   readonly root?: string;
 }
@@ -589,6 +593,7 @@ interface Rig {
   transcript: Counted<PersistedTranscript>;
   works: Counted<PersistedWorks>;
   members: Counted<PersistedMembers>;
+  memory: Counted<PersistedMemory>;
   files: FakeFiles;
   /** Every frame a reader was actually given, in order. The host publishes
    *  only when the frame says something different from the last one, so this
@@ -634,6 +639,9 @@ function rig(over: Remembered = {}): Rig {
   });
   const works = countingStore<PersistedWorks>(over.works ?? {});
   const members = countingStore<PersistedMembers>(over.members ?? {});
+  const memory = countingStore<PersistedMemory>(
+    over.memory ?? EMPTY_PERSISTED_MEMORY,
+  );
   const files = fakeFiles();
   const published: ConductorState[] = [];
   let worksMoved = 0;
@@ -682,6 +690,7 @@ function rig(over: Remembered = {}): Rig {
     transcript: transcript.store,
     works: works.store,
     members: members.store,
+    memory: memory.store,
     workFiles: files.port,
     storePath: () => join(root, "config.json"),
     transcriptPath: () => join(root, "conductor", "transcript.json"),
@@ -695,6 +704,7 @@ function rig(over: Remembered = {}): Rig {
     transcript,
     works,
     members,
+    memory,
     files,
     published: () => published,
     worksPublished: () => worksPublished,
@@ -1693,6 +1703,7 @@ describe("teardown (B2)", () => {
       transcript: countingStore<PersistedTranscript>({ rows: [] }).store,
       works: countingStore<PersistedWorks>({}).store,
       members: countingStore<PersistedMembers>({}).store,
+      memory: countingStore(EMPTY_PERSISTED_MEMORY).store,
       workFiles: fakeFiles().port,
       storePath: () => "/state/config.json",
       transcriptPath: () => "/state/conductor/transcript.json",
@@ -1767,6 +1778,7 @@ describe("teardown (B2)", () => {
       transcript: countingStore<PersistedTranscript>({ rows: [] }).store,
       works: countingStore<PersistedWorks>({}).store,
       members: countingStore<PersistedMembers>({}).store,
+      memory: countingStore(EMPTY_PERSISTED_MEMORY).store,
       workFiles: fakeFiles().port,
       storePath: () => "/state/config.json",
       transcriptPath: () => "/state/conductor/transcript.json",

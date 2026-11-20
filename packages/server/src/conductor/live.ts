@@ -31,6 +31,7 @@ import {
   type KoluOffer,
   type PersistedConductor,
   type PersistedMembers,
+  type PersistedMemory,
   type PersistedWorks,
   startConductorHost,
 } from "kolu-conductor";
@@ -251,9 +252,9 @@ export function liveServerConductor(): ConductorHost {
     // boot-wiring fault to see rather than a frame to protect.
     worksMoved: () => onWorks?.(),
     watchScopeMoved: () => onWatchScope?.(),
-    // THE FOUR RECORDS, each where its volatility says it belongs. The
-    // conversation, the works and what kolu knows about their member
-    // terminals are keys of the one conf store (one schema, one ladder —
+    // THE FIVE RECORDS, each where its volatility says it belongs. The
+    // conversation, the works, what kolu knows about their member terminals
+    // and the memory are keys of the one conf store (one schema, one ladder —
     // `dev/skills/state/SKILL.md`); the transcript is a file of its own
     // because it is most of the bytes and it moves on every keystroke, and it
     // rides the SAME ladder from there (`transcriptFile.ts`).
@@ -265,6 +266,7 @@ export function liveServerConductor(): ConductorHost {
     store: confStore<PersistedConductor>(store, "conductor"),
     works: confStore<PersistedWorks>(store, "works"),
     members: confStore<PersistedMembers>(store, "members"),
+    memory: confStore<PersistedMemory>(store, "memory"),
     transcript: transcriptFileStore(
       dirname(store.path),
       TRANSCRIPT_FILE_VERSION,

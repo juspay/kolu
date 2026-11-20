@@ -41,8 +41,10 @@ import {
 import {
   EMPTY_PERSISTED_CONDUCTOR,
   EMPTY_PERSISTED_MEMBERS,
+  EMPTY_PERSISTED_MEMORY,
   PersistedConductorSchema,
   PersistedMembersSchema,
+  PersistedMemorySchema,
   PersistedWorksSchema,
 } from "kolu-conductor";
 
@@ -80,6 +82,7 @@ export const PersistedStateSchema = Schema.Struct({
   conductor: PersistedConductorSchema,
   works: PersistedWorksSchema,
   members: PersistedMembersSchema,
+  memory: PersistedMemorySchema,
 });
 
 /** The DECODED disk shape. Effect's `Struct.Type` is deep-`readonly`; `Conf` is
@@ -131,7 +134,7 @@ export function readPersistedRecord(
  * Must be valid semver. `conf` runs all migration handlers
  * whose keys are > the last-seen version and ≤ this value.
  */
-export const SCHEMA_VERSION = "1.62.0";
+export const SCHEMA_VERSION = "1.63.0";
 
 /** THE VERSION STAMPED INTO THE TRANSCRIPT FILE
  *  (`<stateDir>/conductor/transcript.json`), and the one a reader accepts.
@@ -153,11 +156,12 @@ export const SCHEMA_VERSION = "1.62.0";
  *  file keeps its OWN frozen copy of the number it stamped
  *  (`TRANSCRIPT_VERSION_1_53_0`, `TRANSCRIPT_VERSION_1_55_0`,
  *  `TRANSCRIPT_VERSION_1_58_0`, `TRANSCRIPT_VERSION_1_59_0`,
- *  `TRANSCRIPT_VERSION_1_62_0`) — this one is the live head. It reads 1.62.0
- *  because a row may now be a `compaction`: the agent replacing the older part
- *  of the conversation with a summary. No older row is one, which is why the
- *  rung rewrites no row — it only re-stamps the file. */
-export const TRANSCRIPT_FILE_VERSION = "1.62.0";
+ *  `TRANSCRIPT_VERSION_1_62_0`, `TRANSCRIPT_VERSION_1_63_0`) — this one is
+ *  the live head. It reads 1.63.0 because a row may now be a
+ *  `memory-proposal`: a memory the Conductor proposed, waiting on the human.
+ *  No older row is one, which is why the rung rewrites no row — it only
+ *  re-stamps the file. */
+export const TRANSCRIPT_FILE_VERSION = "1.63.0";
 
 /** The store's `defaults` — hoisted so {@link decodeStateBackup}'s scratch
  *  store merges the same seed the live store does. */
@@ -186,4 +190,7 @@ export const CONF_DEFAULTS: PersistedState = {
   // out of the same rung: `members` is the watch's own memory, keyed by fleet
   // ref, and a fresh install has read no host yet.
   members: EMPTY_PERSISTED_MEMBERS,
+  // NOTHING REMEMBERED YET. The 1.63.0 migration seeds this onto an existing
+  // file for the same on-disk-shape reason the keys above give.
+  memory: EMPTY_PERSISTED_MEMORY,
 };

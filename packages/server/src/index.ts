@@ -1276,6 +1276,9 @@ export async function bootKoluWeb(flags: KoluBootFlags): Promise<void> {
         restoreWorks: (works, members) => {
           liveServerConductor().restoreWorks(works, members);
         },
+        restoreMemory: (memory) => {
+          liveServerConductor().restoreMemory(memory);
+        },
       }),
   });
 

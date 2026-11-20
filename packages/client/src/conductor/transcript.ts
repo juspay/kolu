@@ -508,6 +508,8 @@ function rowText(row: ConductorRow): string {
         ...(row.state === "failed" && row.error !== null ? [row.error] : []),
         ...(row.state === "done" && row.summary !== null ? [row.summary] : []),
       ].join("\n");
+    case "memory-proposal":
+      return `memory proposed: ${row.title}${row.ended === null ? "" : ` [${row.ended}]`}`;
     case "wake":
       // The ACCOUNT, not the headline: a transcript pasted into an issue is
       // read by somebody reconstructing what the agent was told, and the

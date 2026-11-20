@@ -63,6 +63,10 @@ const OFFERS: Record<
     backupLabel: "Restore the newest backup that reads",
     emptyLabel: "Start a fresh conversation",
   },
+  memory: {
+    backupLabel: "Restore the newest backup that reads",
+    emptyLabel: "Start with nothing remembered",
+  },
   transcript: {
     backupLabel: "Restore the newest backup that reads",
     emptyLabel: "Start with an empty transcript",

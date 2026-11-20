@@ -1,6 +1,6 @@
 /**
- * WHAT SURVIVES A kolu-server RESTART — the conversation, the transcript, and
- * the WORKS.
+ * WHAT SURVIVES A kolu-server RESTART — the conversation, the transcript, the
+ * WORKS and the MEMORY.
  *
  * kolu-server is restarted on every upgrade, so a restart is the NORMAL path
  * rather than a crash recovery: a person who was mid-conversation when a new
@@ -8,7 +8,7 @@
  * with a sentence about why. That makes resume the default and these records
  * the things that make it possible.
  *
- * THREE RECORDS, because they survive differently and are written at different
+ * FOUR RECORDS, because they survive differently and are written at different
  * cadences:
  *
  *  - {@link PersistedConductorSchema} — the CONVERSATION, in `config.json`'s
@@ -23,6 +23,9 @@
  *    A piece of work OUTLIVES the conversation that opened it: "New session"
  *    clears the chat and keeps the work, so the work cannot live inside the
  *    conversation's record.
+ *  - {@link PersistedMemorySchema} — the MEMORY, in `config.json`'s `memory`
+ *    key: what the human approved for the Conductor to remember, and the
+ *    proposals waiting on them. It outlives every session, as the works do.
  *
  * WHAT IS IN THE CONVERSATION'S RECORD, and why each of the four:
  *
@@ -61,6 +64,7 @@ import {
   type ConductorState,
   type ConductorStoreKey,
 } from "kolu-common/conductor";
+import { EMPTY_MEMORY, MemorySchema } from "kolu-common/conductorMemory";
 import type { CellStore } from "@kolu/surface/server";
 import { Result, Schema } from "effect";
 import {
@@ -174,6 +178,11 @@ export type PersistedMembers = typeof PersistedMembersSchema.Type;
 export const EMPTY_PERSISTED_WORKS: PersistedWorks = {};
 export const EMPTY_PERSISTED_MEMBERS: PersistedMembers = {};
 
+/** THE CONDUCTOR'S MEMORY — the `memory` key of `config.json`. */
+export const PersistedMemorySchema = MemorySchema;
+export type PersistedMemory = typeof PersistedMemorySchema.Type;
+export const EMPTY_PERSISTED_MEMORY: PersistedMemory = EMPTY_MEMORY;
+
 /** The re-validations, compiled once. `decodeUnknownResult` is a BRANCH rather
  *  than a throw, which is what lets each failure arm name the RECORD — the
  *  one thing the screen a person is looking at has to be able to act on. */
@@ -181,6 +190,7 @@ const decodePersisted = Schema.decodeUnknownResult(PersistedConductorSchema);
 const decodeTranscript = Schema.decodeUnknownResult(PersistedTranscriptSchema);
 const decodeWorks = Schema.decodeUnknownResult(PersistedWorksSchema);
 const decodeMembers = Schema.decodeUnknownResult(PersistedMembersSchema);
+const decodeMemory = Schema.decodeUnknownResult(PersistedMemorySchema);
 
 /** EVERY REMEMBERED RECORD'S IDENTITY, IN ONE TABLE keyed by its store key:
  *  what it is CALLED in a sentence a person reads (not the JSON key — `works`
@@ -223,6 +233,12 @@ export const RECORD_FACTS: Record<
     them: "it",
     inBackups: true,
     keptFile: "unreadable-members.json",
+  },
+  memory: {
+    noun: "the Conductor's memory",
+    them: "it",
+    inBackups: true,
+    keptFile: "unreadable-memory.json",
   },
   transcript: {
     noun: "the Conductor's saved transcript",
@@ -377,6 +393,26 @@ export function readPersistedMembers(
   if (Result.isFailure(result)) {
     throw new UnreadablePersisted({
       key: "members",
+      path,
+      stateRoot,
+      why: WRONG_SHAPE,
+      detail: String(result.failure),
+    });
+  }
+  return result.success;
+}
+
+/** Read the Conductor's memory, or REFUSE naming the record: it is the
+ *  human's own words, approved one by one, and there is no second copy. */
+export function readPersistedMemory(
+  store: CellStore<PersistedMemory>,
+  path: string,
+  stateRoot: string,
+): PersistedMemory {
+  const result = decodeMemory(store.get());
+  if (Result.isFailure(result)) {
+    throw new UnreadablePersisted({
+      key: "memory",
       path,
       stateRoot,
       why: WRONG_SHAPE,

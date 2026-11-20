@@ -29,7 +29,11 @@ import type {
   ServerStateBackup,
 } from "kolu-common/contract";
 import type { Preferences, ViewerMode } from "kolu-common/surface";
-import type { PersistedMembers, PersistedWorks } from "kolu-conductor";
+import type {
+  PersistedMembers,
+  PersistedMemory,
+  PersistedWorks,
+} from "kolu-conductor";
 import { log } from "./log.ts";
 import {
   type DecodedStateBackup,
@@ -108,6 +112,9 @@ export interface RestoreServerStateBackupDeps {
    *  without their members come back as terminals nobody has ever read, which
    *  rings the conversation about every state it was already told about. */
   restoreWorks: (works: PersistedWorks, members: PersistedMembers) => void;
+  /** THE CONDUCTOR'S MEMORY, replaced by the snapshot's — handed to the live
+   *  host, its one writer, for the reason `restoreWorks` gives. */
+  restoreMemory: (memory: PersistedMemory) => void;
 }
 
 /** Every persisted key has a restore path: `preferences` and `viewerMode`
@@ -126,7 +133,8 @@ export interface RestoreServerStateBackupDeps {
  *  half on `session/load`, and kolu's half is on screen in front of the person
  *  pressing restore. The works, which outlive any conversation, ARE restored —
  *  with the `members` key that says what kolu knows about each of their
- *  terminals, in the same call (`restoreWorks` above).
+ *  terminals, in the same call (`restoreWorks` above). So is the memory
+ *  (`restoreMemory`).
  *
  *  Two things a work refers to are outside the ring and say so in the dialog:
  *  the transcript FILE (`<stateDir>/conductor/transcript.json` — the ring
@@ -136,7 +144,13 @@ export interface RestoreServerStateBackupDeps {
  *  gone, plainly. */
 type UnrestoredPersistedKey = Exclude<
   keyof DecodedStateBackup,
-  "preferences" | "viewerMode" | "hosts" | "works" | "members" | "conductor"
+  | "preferences"
+  | "viewerMode"
+  | "hosts"
+  | "works"
+  | "members"
+  | "memory"
+  | "conductor"
 >;
 const _everyPersistedKeyRestored: [UnrestoredPersistedKey] extends [never]
   ? true
@@ -171,6 +185,7 @@ export async function restoreServerStateBackup(
     // member, publish, re-scope the watch) for the restore to be anything a
     // person can see.
     deps.restoreWorks(decoded.works, decoded.members);
+    deps.restoreMemory(decoded.memory);
 
     // Converge the pool onto the snapshot's fleet. The ADD phase completes
     // before the REMOVE phase begins (a dial failure must not leave the fleet

@@ -203,17 +203,20 @@ import { observing } from "./observing.ts";
 import {
   type PersistedConductor,
   type PersistedMembers,
+  type PersistedMemory,
   type PersistedTranscript,
   type PersistedWorks,
   persistedFrom,
   readPersistedConductor,
   readPersistedMembers,
+  readPersistedMemory,
   readPersistedTranscript,
   readPersistedWorks,
   parsePersistedStore,
   transcriptFrom,
   UnreadablePersisted,
 } from "./persisted.ts";
+import { memoryStore } from "./memoryStore.ts";
 import { recordWrites } from "./recordWrites.ts";
 import { teaching } from "./teaching.ts";
 import { wakes } from "./wakes.ts";
@@ -594,6 +597,8 @@ export interface ConductorHost {
     works: PersistedWorks,
     members: PersistedMembers,
   ) => void;
+  /** THE MEMORY, REPLACED by a restored backup's. */
+  readonly restoreMemory: (memory: PersistedMemory) => void;
   /** READ THE RECORDS AGAIN — the one caller is a recovery that has just put
    *  readable bytes under a record this build refused
    *  ({@link UnreadablePersisted}), and the whole point of it is that nobody
@@ -855,6 +860,8 @@ export interface ConductorDeps {
    *  own memory of a terminal rather than part of what a work IS, and it moves
    *  on its own clock. */
   readonly members: CellStore<PersistedMembers>;
+  /** THE CONDUCTOR'S MEMORY — `config.json`'s `memory` key. */
+  readonly memory: CellStore<PersistedMemory>;
   /** A WORK'S FILES, where they live: listed on the host the work is on, and
    *  copied into kolu when it ends ({@link WorkFiles}). */
   readonly workFiles: WorkFiles;
@@ -963,6 +970,7 @@ const hadATurn = (rows: ReadonlyArray<ConductorRow>): boolean => {
       case "tool":
       case "ask":
       case "compaction":
+      case "memory-proposal":
         return true;
     }
   }
@@ -986,6 +994,7 @@ export function startConductorHost(deps: ConductorDeps): ConductorHost {
     transcript: transcriptStore,
     works: worksStore,
     members: membersStore,
+    memory: memoryCell,
     workFiles,
     storePath,
     transcriptPath,
@@ -1163,9 +1172,17 @@ export function startConductorHost(deps: ConductorDeps): ConductorHost {
       transcript: () => transcriptStore.set(transcriptFrom(rows())),
       works: () => worksStore.set(works.persisted()),
       members: () => membersStore.set(members.saved()),
+      memory: () => memoryCell.set(memories.persisted()),
     },
     PERSIST_THROTTLE_MS,
   );
+
+  const memories = memoryStore({
+    records,
+    publish: () => {},
+    entriesChanged: () => {},
+    now: () => new Date(),
+  });
 
   // ── the hands ──────────────────────────────────────────────────────────
 
@@ -1370,10 +1387,12 @@ export function startConductorHost(deps: ConductorDeps): ConductorHost {
     let kept: PersistedWorks;
     let watched: PersistedMembers;
     let transcript: PersistedTranscript;
+    let memory: PersistedMemory;
     try {
       record = readPersistedConductor(store, storePath(), stateRoot);
       kept = readPersistedWorks(worksStore, storePath(), stateRoot);
       watched = readPersistedMembers(membersStore, storePath(), stateRoot);
+      memory = readPersistedMemory(memoryCell, storePath(), stateRoot);
       transcript = readPersistedTranscript(
         transcriptStore,
         transcriptPath(),
@@ -1404,6 +1423,7 @@ export function startConductorHost(deps: ConductorDeps): ConductorHost {
     // and a store that breaks one is refused by name.
     parsePersistedStore(kept, watched, storePath(), stateRoot);
     works.load(kept, watched);
+    memories.load(memory);
     if (works.all().length > 0) {
       works.publishWorks();
       // A RESTORE IS THE MEMBERSHIP MOVING: it went from nothing to whatever
@@ -2529,6 +2549,10 @@ export function startConductorHost(deps: ConductorDeps): ConductorHost {
       // read — and nothing left to say.
       for (const ref of works.restore(restored, watched)) wake.withdraw(ref);
       publishState();
+    },
+    restoreMemory: (restored) => {
+      remembered();
+      memories.restore(restored);
     },
     reloadRecords: () => {
       if (read) {

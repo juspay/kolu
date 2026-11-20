@@ -771,6 +771,9 @@ function TranscriptRow(props: {
           <Match when={props.row.kind === "compaction" && props.row}>
             {(row) => <CompactionLine row={row()} />}
           </Match>
+          <Match when={props.row.kind === "memory-proposal" && props.row}>
+            {(row) => <p class="text-fg-2">{row().title}</p>}
+          </Match>
           <Match when={props.row.kind === "divider" && props.row}>
             {(row) => (
               <div class="flex items-center gap-2 text-fg-3 font-mono text-[0.62rem] uppercase tracking-[0.12em]">
