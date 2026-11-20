@@ -12226,6 +12226,54 @@
       "exampleRows": [],
       "executions": 1,
       "firstSeenSha": "2bf25c141b5bc387ccd2d028f345827ae8cfd5c1"
+    },
+    {
+      "revisionId": "revision-264be2f31d8bdb55d721",
+      "scenarioKey": "scenario-9b28f8e4105169c10ba6",
+      "feature": "features/phone-first-view.feature",
+      "scenario": "A fresh open at a link to a terminal lands on that terminal",
+      "kind": "scenario",
+      "tags": ["@fresh-open", "@mobile"],
+      "bodyHash": "6f427859a866e49521dff6d1dcdbf4010a103f5df197be2f756c28c8b4a98a81",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "38671110f65ca18b9ae6e090a232cce8f0fce029"
+    },
+    {
+      "revisionId": "revision-fbbd42eb49debc6633a0",
+      "scenarioKey": "scenario-7a3d0266459f99d4b276",
+      "feature": "features/phone-first-view.feature",
+      "scenario": "A fresh open on a phone lands on the Conductor",
+      "kind": "scenario",
+      "tags": ["@fresh-open", "@mobile"],
+      "bodyHash": "945ce9f7ef5d115c2de0a9dc48698cd2f0b9f4a00bcf7dc8b1e27e458d7ef51e",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "38671110f65ca18b9ae6e090a232cce8f0fce029"
+    },
+    {
+      "revisionId": "revision-cb14f71a8fd20be0c0de",
+      "scenarioKey": "scenario-a0150f2a68a9f9c0e5b2",
+      "feature": "features/phone-first-view.feature",
+      "scenario": "A reload stays where you were",
+      "kind": "scenario",
+      "tags": ["@fresh-open", "@mobile"],
+      "bodyHash": "32585e898dbca6ffb6217c7ce81983d4676c2d193f04a04319ed6bf60da6db02",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "38671110f65ca18b9ae6e090a232cce8f0fce029"
+    },
+    {
+      "revisionId": "revision-e9a14f6d7b5bbc79f7b5",
+      "scenarioKey": "scenario-adb871aa9e189ab29471",
+      "feature": "features/phone-first-view.feature",
+      "scenario": "A tablet's fresh open lands on its host",
+      "kind": "scenario",
+      "tags": ["@compact", "@fresh-open"],
+      "bodyHash": "0a95d6f146c6f28f0444593612d19af755ab335f0cdc355408e870908d2b1ef3",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "38671110f65ca18b9ae6e090a232cce8f0fce029"
     }
   ]
 }
