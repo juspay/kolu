@@ -170,12 +170,6 @@ class ShellRunner {
   }
 }
 
-// LAZY runners (F4): the pair used to be constructed at MODULE LOAD, so `new
-// ShellRunner(...)` forked a real bash AND zsh even when every describe was skipped
-// (a module-load fork runs regardless of `describe.skip`). Construct on first use
-// instead, behind the daemon-spawn leash (`assertDaemonSpawnAllowed`), so a gate-off
-// bare vitest never forks a shell — and only the gated `describeDaemon` blocks below
-// (KOLU_DAEMON_TESTS=1) ever reach them.
 let bashRunner: ShellRunner | undefined;
 let zshRunner: ShellRunner | undefined;
 function bash(): ShellRunner {
@@ -428,20 +422,25 @@ describeDaemon("OSC2_PRECMD_BASH", () => {
 });
 
 describeDaemon("PS0_PREEXEC_BASH", () => {
-  const prelude = [
+  const ps0HarnessPrelude = [
     OSC2_PREEXEC_FN,
     PS0_PREEXEC_BASH,
     `HISTFILE=/dev/null`,
     `set -o history`,
     "",
   ].join("\n");
+  const readlineAccepts = (command: string) =>
+    `history -s ${shQuote(command)}\n`;
+  const promptDraws = `__kolu_hist_sync\n`;
+  const ps0Expands = `__kolu_ps0\n`;
 
   it("emits both OSC marks for the entry readline just appended", async () => {
     const out = await runBash(
-      `${prelude}history -s "ls -la"\n` +
-        `__kolu_hist_sync\n` +
-        `history -s "claude --resume abc"\n` +
-        `__kolu_ps0\n`,
+      ps0HarnessPrelude +
+        readlineAccepts("ls -la") +
+        promptDraws +
+        readlineAccepts("claude --resume abc") +
+        ps0Expands,
     );
     expect(out).toContain("\x1b]633;E;claude --resume abc\x1b\\");
     expect(out).toContain("\x1b]2;claude --resume abc\x1b\\");
@@ -449,14 +448,18 @@ describeDaemon("PS0_PREEXEC_BASH", () => {
 
   it("emits for the FIRST command of a session (the #2119 slot)", async () => {
     const out = await runBash(
-      `${prelude}__kolu_hist_sync\nhistory -s "claude"\n__kolu_ps0\n`,
+      ps0HarnessPrelude + promptDraws + readlineAccepts("claude") + ps0Expands,
     );
     expect(out).toContain("\x1b]633;E;claude\x1b\\");
   });
 
   it("skips when history gained nothing (HISTCONTROL=ignorespace)", async () => {
     const out = await runBash(
-      `${prelude}history -s "claude"\n__kolu_hist_sync\n__kolu_ps0\necho done\n`,
+      ps0HarnessPrelude +
+        readlineAccepts("claude") +
+        promptDraws +
+        ps0Expands +
+        `echo done\n`,
     );
     expect(out).not.toContain("\x1b]633;E;");
     expect(out).toContain("done");
@@ -472,7 +475,10 @@ describeDaemon("PS0_PREEXEC_BASH", () => {
 
   it("strips history's numeric prefix, preserving the command verbatim", async () => {
     const out = await runBash(
-      `${prelude}__kolu_hist_sync\nhistory -s 'grep "a  b" file.txt'\n__kolu_ps0\n`,
+      ps0HarnessPrelude +
+        promptDraws +
+        readlineAccepts('grep "a  b" file.txt') +
+        ps0Expands,
     );
     expect(out).toContain('\x1b]633;E;grep "a  b" file.txt\x1b\\');
   });
@@ -522,7 +528,6 @@ describe("prepareShellInit — fully-specified plan (B0)", () => {
     expect(file.name).toBe(`bashrc-${id}`);
     expect(existsSync(join(rcDir, `bashrc-${id}`))).toBe(false);
     const content = file.content;
-    // replay (user dotfiles) precedes hooks (OSC injection) — load-bearing.
     expect(content).toContain("/etc/profile");
     expect(content).toContain("/home/x/.bashrc");
     expect(content).toContain(OSC7_FN);
@@ -644,7 +649,7 @@ describe("readAgentToolsBake", () => {
 
 describe("prependPathEntries", () => {
   for (const c of PATH_PREPEND_CASES) {
-    it(`PATH=${JSON.stringify(c.path)} + [${c.dirs.join(", ")}] → ${c.expect}`, () => {
+    it(`${c.name} — PATH=${JSON.stringify(c.path)} + [${c.dirs.join(", ")}]`, () => {
       expect(prependPathEntries(c.path, c.dirs)).toBe(c.expect);
     });
   }
@@ -768,7 +773,7 @@ describeDaemon("prepareShellInit PATH re-assert (real shells)", () => {
 
 describeDaemon("PATH_PREPEND_CASES — one oracle, both implementations", () => {
   for (const c of PATH_PREPEND_CASES) {
-    const label = `PATH=${JSON.stringify(c.path)} + [${c.dirs.join(", ")}]`;
+    const label = `${c.name} — PATH=${JSON.stringify(c.path)} + [${c.dirs.join(", ")}]`;
 
     it(`bash: ${label}`, async () => {
       const out = await runBash(

@@ -85,6 +85,10 @@ export const SPAWN_ENV_ALLOWLIST = [
   ...SPAWN_ENV_OPERATIONAL,
 ] as const;
 
+function protoFreeEnvRecord(): Record<string, string> {
+  return Object.create(null);
+}
+
 /**
  * The atomic env-mining primitive: pick a fixed set of `keys` out of an env
  * `source`, keeping only the defined ones. Every kolu env composer is one binding
@@ -97,9 +101,7 @@ export function pickEnv(
   keys: Iterable<string>,
   source: NodeJS.ProcessEnv,
 ): Record<string, string> {
-  // Null-prototype so a key literally named `__proto__` (a caller's `--env __proto__=…`
-  // layered on top downstream) is a real data property, never a prototype mutation.
-  const env: Record<string, string> = Object.create(null);
+  const env = protoFreeEnvRecord();
   for (const key of keys) {
     const value = source[key];
     if (value != null) env[key] = value;
@@ -124,28 +126,6 @@ export function composeSpawnEnv(
 
 let envWhitelist: Set<string> | undefined;
 
-/**
- * Kolu-family internal env that the nix wrapper bakes into the SERVER's own
- * process (see `default.nix`'s `koluBin` / `default` `--set`s) and that must
- * never reach a hosted shell. Two groups, both server-internal:
- *
- *   - `KOLU_*` — the server's own config (`KOLU_KAVAL_BIN`, `KOLU_STATE_DIR`,
- *     `KOLU_COMMIT_HASH`, …). `KOLU_KAVAL_BIN` is the spawn-deciding one: a
- *     nested from-source kolu that inherits a stale value spawns a
- *     contract-skewed daemon.
- *   - `KAVAL_BUILD_ID` / `KAVAL_COMMIT_HASH` — the running kaval's *identity*,
- *     baked onto the kolu wrapper (default.nix:336-337) because kaval runs
- *     in-process there. `buildId.ts` reads these to derive the "update
- *     pending" / staleKey signal. A from-source kolu spawned inside a
- *     production kolu terminal would otherwise inherit the OUTER production
- *     identity and report the wrong build (masking the stale-daemon nudge) —
- *     the same wrapper-baked-env leak as `KOLU_*`, one prefix over.
- *
- * Note this is NOT the `KAVAL_*` namespace wholesale: a user could legitimately
- * have their own `KAVAL_*` env, and `SURFACE_AGENT_FLAKE_REF` (kaval-tui) is a
- * different concern. Only the two identity vars the kolu wrapper bakes are
- * internal, so they're listed explicitly rather than matched by prefix.
- */
 const KOLU_INTERNAL_ENV_EXACT = new Set([
   "KAVAL_BUILD_ID",
   "KAVAL_COMMIT_HASH",
@@ -181,6 +161,34 @@ function splitPathEntries(value: string): string[] {
   return value.split(":").filter((entry) => entry !== "");
 }
 
+function composeDevEnv(whitelist: Set<string>): Record<string, string> {
+  const env = composeSpawnEnv(process.env);
+  Object.assign(env, pickEnv(whitelist, process.env));
+  env.SHELL = userInfo().shell || "/bin/sh";
+  return env;
+}
+
+function composeProductionEnv(): Record<string, string> {
+  const env = composeSpawnEnv(process.env);
+  env.SHELL ??= userInfo().shell || "/bin/sh";
+  return env;
+}
+
+function stripKoluInternalEnv(
+  env: Record<string, string>,
+): Record<string, string> {
+  return Object.fromEntries(
+    Object.entries(env).filter(([key]) => !isKoluInternalEnvKey(key)),
+  );
+}
+
+function sanitizePathEntries(
+  env: Record<string, string>,
+): Record<string, string> {
+  if (env.PATH != null) env.PATH = splitPathEntries(env.PATH).join(":");
+  return env;
+}
+
 /**
  * Sanitize the parent env that will reach the PTY shell.
  *
@@ -206,23 +214,11 @@ function splitPathEntries(value: string): string[] {
  * prepareShellInit.
  */
 export function cleanEnv(): Record<string, string> {
-  const loginShell = userInfo().shell || "/bin/sh";
-  let env: Record<string, string>;
-  if (envWhitelist) {
-    env = composeSpawnEnv(process.env);
-    Object.assign(env, pickEnv(envWhitelist, process.env));
-    env.SHELL = loginShell;
-  } else {
-    env = composeSpawnEnv(process.env);
-    env.SHELL ??= loginShell;
-  }
-  env = Object.fromEntries(
-    Object.entries(env).filter(([k]) => !isKoluInternalEnvKey(k)),
+  return sanitizePathEntries(
+    stripKoluInternalEnv(
+      envWhitelist ? composeDevEnv(envWhitelist) : composeProductionEnv(),
+    ),
   );
-  if (env.PATH != null) {
-    env.PATH = splitPathEntries(env.PATH).join(":");
-  }
-  return env;
 }
 
 /**
@@ -463,21 +459,53 @@ export function readAgentToolsBake(
  *  `PATH` is a DIFFERENT job and lives in exactly one place, `cleanEnv` — see
  *  the empty-entry note there. */
 export const PATH_PREPEND_CASES: ReadonlyArray<{
+  name: string;
   path: string;
   dirs: readonly string[];
   expect: string;
 }> = [
-  { path: "/usr/bin:/bin", dirs: ["/a", "/b"], expect: "/a:/b:/usr/bin:/bin" },
-  { path: "/usr/bin:/a", dirs: ["/a"], expect: "/a:/usr/bin" },
   {
+    name: "stamped dirs lead, in their order",
+    path: "/usr/bin:/bin",
+    dirs: ["/a", "/b"],
+    expect: "/a:/b:/usr/bin:/bin",
+  },
+  {
+    name: "a dir already on PATH is moved to the front, not duplicated",
+    path: "/usr/bin:/a",
+    dirs: ["/a"],
+    expect: "/a:/usr/bin",
+  },
+  {
+    name: "stamped dirs still lead a dotfile's own prepended dir",
     path: "/home/u/.local/bin:/a:/b:/usr/bin",
     dirs: ["/a", "/b"],
     expect: "/a:/b:/home/u/.local/bin:/usr/bin",
   },
-  { path: "", dirs: ["/a"], expect: "/a" },
-  { path: "/usr/bin:/bin", dirs: [], expect: "/usr/bin:/bin" },
-  { path: "/usr/bin::/bin", dirs: ["/a"], expect: "/a:/usr/bin::/bin" },
-  { path: "/usr/bin", dirs: ["/a", "/a"], expect: "/a:/usr/bin" },
+  {
+    name: "an empty PATH becomes exactly the stamped dirs",
+    path: "",
+    dirs: ["/a"],
+    expect: "/a",
+  },
+  {
+    name: "no stamped dirs leaves PATH untouched",
+    path: "/usr/bin:/bin",
+    dirs: [],
+    expect: "/usr/bin:/bin",
+  },
+  {
+    name: "an empty entry the caller carried survives verbatim",
+    path: "/usr/bin::/bin",
+    dirs: ["/a"],
+    expect: "/a:/usr/bin::/bin",
+  },
+  {
+    name: "a dir stamped twice lands once",
+    path: "/usr/bin",
+    dirs: ["/a", "/a"],
+    expect: "/a:/usr/bin",
+  },
 ];
 
 /** Put `dirs` at the front of a `PATH` value, in their order, each once — moving
@@ -571,27 +599,6 @@ export type ShellInitPlan = {
   initFiles: InitFile[];
 };
 
-/**
- * Per-shell wrapper-rc strategy.
- *
- * Two volatility axes are separated here so neither hides regressions in
- * the other:
- *
- *   - **replay**: the user dotfiles the shell would have auto-sourced if
- *     our wrapper override didn't suppress the lookup. New entries land
- *     here when shell startup semantics change (e.g. zsh's ~/.zshenv
- *     gap, fixed in #800). Anything missing is silently stripped from
- *     PTY shells whenever the parent env is empty.
- *
- *   - **hooks**: OSC injection script lines. Conceptually the same goal
- *     across shells but expressed differently (bash DEBUG trap vs zsh
- *     add-zsh-hook), so the lists aren't merge-able.
- *
- * The wrapper *mechanism* (--rcfile vs ZDOTDIR) is encapsulated in `plan`,
- * which names the assembled rcContent under `rcDir` and returns spawn args +
- * env override + the init-file specs. It writes nothing — the pty-host
- * materialises the files on the disk it owns.
- */
 type ShellInit = {
   replay: (home: string) => string[];
   hooks: string[];
