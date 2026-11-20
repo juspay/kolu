@@ -27,6 +27,7 @@ export function agentBucket(
   state: AgentInfo["state"],
 ): "working" | "awaiting" | "waiting" | "starting" | "fresh" | "other" {
   switch (state) {
+    case "prompted":
     case "thinking":
     case "tool_use":
     case "running_background":
@@ -39,8 +40,6 @@ export function agentBucket(
       return "starting";
     case "fresh":
       return "fresh";
-    case "prompted":
-      return "working";
     default:
       state satisfies never;
       return "other";
@@ -118,17 +117,7 @@ export type AgentPaintClass = "awaiting" | "linger" | "working" | "none";
 /** Rename an ATTENTION class into the PAINT vocabulary — the ONE table that
  *  translates between the two. */
 export function paintClassOf(klass: AttentionClass): AgentPaintClass {
-  switch (klass) {
-    case "working":
-      return "working";
-    case "asking":
-      return "awaiting";
-    case "linger":
-    case "finished":
-      return "linger";
-    case "idle":
-      return "none";
-  }
+  return PAINT_CLASS_OF[klass];
 }
 
 /** Map an agent's state to its PAINT class — a state-only fold, which does not
@@ -175,18 +164,15 @@ export type AttentionClass =
   | "finished"
   | "idle";
 
-/** The partition enumerated ONCE, beside the type it enumerates — what a
- *  consumer builds a per-class structure from (a wire frame's id lists, a
- *  count's fold) instead of hand-writing the five literals again. */
-const ATTENTION_CLASS_KEYS: Record<AttentionClass, null> = {
-  asking: null,
-  working: null,
-  linger: null,
-  finished: null,
-  idle: null,
+const PAINT_CLASS_OF: Record<AttentionClass, AgentPaintClass> = {
+  asking: "awaiting",
+  working: "working",
+  linger: "linger",
+  finished: "linger",
+  idle: "none",
 };
 export const ATTENTION_CLASSES = Object.keys(
-  ATTENTION_CLASS_KEYS,
+  PAINT_CLASS_OF,
 ) as readonly AttentionClass[];
 
 /** Partition a terminal into its attention class. `finished` is the caller's
@@ -309,8 +295,11 @@ export function compareAgentUrgency(
   return urgencyRankDelta(a.agent, b.agent) || a.id.localeCompare(b.id);
 }
 
-function recencyRank(lastActivityAt: number | null): number {
-  return lastActivityAt ?? Number.NEGATIVE_INFINITY;
+function compareRecency(a: number | null, b: number | null): number {
+  if (a === b) return 0;
+  if (a === null) return 1;
+  if (b === null) return -1;
+  return b - a;
 }
 
 /** Order two agents within a scope: needs-you first, then most-recently-active,
@@ -327,9 +316,7 @@ export function compareAgents(
     id: string;
   },
 ): number {
-  const ra = recencyRank(a.lastActivityAt);
-  const rb = recencyRank(b.lastActivityAt);
-  const recencyDelta = ra === rb ? 0 : rb - ra;
+  const recencyDelta = compareRecency(a.lastActivityAt, b.lastActivityAt);
   return (
     urgencyRankDelta(a.agent, b.agent) ||
     recencyDelta ||

@@ -68,6 +68,18 @@ export interface AttentionTransitions {
   reset(): void;
 }
 
+declare const OWNED: unique symbol;
+
+type OwnedFrame = AttentionFrame & { readonly [OWNED]: true };
+
+function ownFrame(frame: AttentionFrame): OwnedFrame {
+  const copy: AttentionFrame = {
+    asking: [...frame.asking],
+    finished: [...frame.finished],
+  };
+  return copy as OwnedFrame;
+}
+
 /** Remember the previous frame so a caller only ever hands over the current one.
  *
  *  `seed` is a previous frame the caller REMEMBERED from before it started — a
@@ -76,15 +88,11 @@ export interface AttentionTransitions {
 export function createAttentionTransitions(
   seed: AttentionFrame | null = null,
 ): AttentionTransitions {
-  const copy = (frame: AttentionFrame): AttentionFrame => ({
-    asking: [...frame.asking],
-    finished: [...frame.finished],
-  });
-  let prev: AttentionFrame | null = seed === null ? null : copy(seed);
+  let prev: OwnedFrame | null = seed === null ? null : ownFrame(seed);
   return {
     observe(cur) {
       const transition = attentionTransitions(prev, cur);
-      prev = copy(cur);
+      prev = ownFrame(cur);
       return transition;
     },
     reset() {

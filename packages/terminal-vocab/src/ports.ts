@@ -93,9 +93,6 @@ export type PortBind = typeof PortBindSchema.Type;
 /** One listening TCP port and the program holding it — "what is this thing
  *  serving?". */
 export const PortInfoSchema = Schema.Struct({
-  // The bind's own field schemas, in the PERSISTED key order — `port` first,
-  // `scope`/`family` last. Spreading `PortBindSchema.fields` up front would
-  // reorder the encoded keys of every stored snapshot (schemaByteCompat pins it).
   port: PortBindSchema.fields.port,
   /** The PROGRAM holding the listener (`node`, `workerd`, …), for a glanceable
    *  "who is this?" beside the number — `argv[0]`'s basename on linux, the
@@ -116,10 +113,7 @@ export type PortInfo = typeof PortInfoSchema.Type;
  *  sorted by port, deduplicated, with `scope` folded to the widest bind. */
 export function foldPorts(rows: readonly PortInfo[]): PortInfo[] {
   return foldByPort(rows, (prior, row) => {
-    const rowFirst =
-      row.name < prior.name ||
-      (row.name === prior.name && row.command < prior.command);
-    const owner = rowFirst ? row : prior;
+    const owner = smallestOwner(prior, row);
     return {
       port: prior.port,
       name: owner.name,
@@ -127,6 +121,13 @@ export function foldPorts(rows: readonly PortInfo[]): PortInfo[] {
       ...mergeBind(prior, row),
     };
   });
+}
+
+function smallestOwner<
+  T extends { readonly name: string; readonly command: string },
+>(a: T, b: T): T {
+  if (a.name !== b.name) return a.name < b.name ? a : b;
+  return a.command <= b.command ? a : b;
 }
 
 /** {@link foldPorts} for bare binds — one row per port, the widest bind, sorted. */
@@ -153,17 +154,20 @@ function mergeBind(
   prior: { readonly scope: PortScope; readonly family: PortFamily },
   row: { readonly scope: PortScope; readonly family: PortFamily },
 ): { scope: PortScope; family: PortFamily } {
-  const scope = widerScope(prior.scope, row.scope);
-  const family =
-    scope !== prior.scope
-      ? row.family
-      : row.scope === scope
-        ? preferredFamily(prior.family, row.family)
-        : prior.family;
-  return { scope, family };
+  if (prior.scope === row.scope) {
+    return {
+      scope: prior.scope,
+      family: preferredFamily(prior.family, row.family),
+    };
+  }
+  const winner =
+    widerScope(prior.scope, row.scope) === prior.scope ? prior : row;
+  return { scope: winner.scope, family: winner.family };
 }
 
-const PORT_INFO_KEYS = Object.keys(PortInfoSchema.fields) as (keyof PortInfo)[];
+const PORT_INFO_COMPARED_KEYS = Object.keys(
+  PortInfoSchema.fields,
+) as (keyof PortInfo)[];
 
 /** Are two port LISTS the same fact? The dedup gate a scanner applies BEFORE a
  *  sample reaches its consumer. Order-sensitive by design: every producer sorts
@@ -176,7 +180,7 @@ export function samePortList(
     a.length === b.length &&
     a.every((p, i) => {
       const q = b[i]!;
-      return PORT_INFO_KEYS.every((k) => p[k] === q[k]);
+      return PORT_INFO_COMPARED_KEYS.every((k) => p[k] === q[k]);
     })
   );
 }

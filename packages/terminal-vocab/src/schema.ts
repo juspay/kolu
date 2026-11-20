@@ -158,11 +158,7 @@ export type PortReach =
  *     `127.0.0.1` here.
  *   - on the kolu host, `any` → no door at all: the listener answers on EVERY
  *     interface of the very host whose name is in the viewer's address bar.
- *
- *  The REMOTE-HOST precedence is load-bearing: an any-address bind on a remote ssh
- *  host is reachable from THAT machine, and `location.hostname` is not that
- *  machine — reading the scope first would offer an open that lands on the kolu
- *  server's own (probably empty) port. */
+ */
 export function portReach(opts: {
   scope: PortScope;
   onKoluHost: boolean;
@@ -355,33 +351,26 @@ export type TerminalSnapshot = typeof TerminalSnapshotSchema.Type;
 export type AgentIdentity = typeof AgentIdentitySchema.Type;
 export type RestoreTarget = typeof RestoreTargetSchema.Type;
 
+const NeverObservedOrEpochSchema = Schema.NullOr(Schema.Number).pipe(
+  Schema.withDecodingDefaultKey(Effect.succeed(null)),
+);
+
 /** The facts a host CANNOT observe — recency and the first live turn are CLOCK
  *  readings. Irrecoverable from a screen, so kolu remembers them; written by
  *  kolu's fold ALONE (a producer's `TerminalSnapshot` cannot spell any of them).
  *  Kept FLAT on kolu's authored record (`updateMemory` is the one narrowed
  *  writer), so the on-disk JSON path for each is a top-level key. */
 export const AgentMemorySchema = Schema.Struct({
-  /** Workspace-switcher recency: epoch-millis of the last LIVE agent observation,
-   *  on kolu's clock. HONEST form: an idle/never-active terminal is `null` — a
-   *  real absence, not an in-band `0`. A required key (never absent) — always
-   *  `null` or a real epoch.
-   *
-   *  The decoding default is a BACKFILL, not a fallback: a record written before
-   *  the field existed decodes to `null`. It is key-level
-   *  (`withDecodingDefaultKey`) — a MISSING key backfills, an explicit
-   *  `undefined` does not. Encoding passes the value through, so a decoded
-   *  record re-encodes WITH the key. */
-  lastActivityAt: Schema.NullOr(Schema.Number).pipe(
-    Schema.withDecodingDefaultKey(Effect.succeed(null)),
-  ),
+  /** Workspace-switcher recency: epoch-millis of the last LIVE agent
+   *  observation, on kolu's clock. `null` is a real absence (never active), not
+   *  an in-band `0`. A required key — never absent. */
+  lastActivityAt: NeverObservedOrEpochSchema,
   /** When the CURRENT agent (its identity: kind + session id) first went LIVE —
    *  working or blocked on you (`agentLive`, in `agentProjection`) — on kolu's
    *  clock. `null` while no agent runs, and while a freshly started agent still
    *  sits at its first prompt (`waiting`). Stamped once per agent identity; a
-   *  new identity resets it. Same key-level backfill as `lastActivityAt`. */
-  promptedAt: Schema.NullOr(Schema.Number).pipe(
-    Schema.withDecodingDefaultKey(Effect.succeed(null)),
-  ),
+   *  new identity resets it. */
+  promptedAt: NeverObservedOrEpochSchema,
 });
 export type AgentMemory = typeof AgentMemorySchema.Type;
 

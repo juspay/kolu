@@ -8,8 +8,12 @@ export function shortenCwd(cwd: string): string {
 /** Last segment of a path, with `~` for home directory and the same `~`
  *  as a fallback for empty input — never returns the empty string. */
 export function cwdBasename(cwd: string): string {
-  const segments = shortenCwd(cwd).split("/").filter(Boolean);
-  return segments[segments.length - 1] ?? "~";
+  return lastPathSegment(shortenCwd(cwd)) ?? "~";
+}
+
+function lastPathSegment(path: string): string | undefined {
+  const segments = path.split("/").filter(Boolean);
+  return segments[segments.length - 1];
 }
 
 /** `(group, label)` plus an optional `suffix` for ids that collide on
