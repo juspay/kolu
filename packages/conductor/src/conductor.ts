@@ -132,6 +132,12 @@ import {
   DEFAULT_CONDUCTOR_STATE,
 } from "kolu-common/conductor";
 import {
+  type ConductorMemoryView,
+  type MemoryEntry,
+  type MemoryText,
+  memoryView,
+} from "kolu-common/conductorMemory";
+import {
   ConductorRefused,
   ConductorUnavailable,
   isConductorDeclaredError,
@@ -216,7 +222,11 @@ import {
   transcriptFrom,
   UnreadablePersisted,
 } from "./persisted.ts";
-import { memoryStore } from "./memoryStore.ts";
+import {
+  type MemoryApproved,
+  type MemoryImported,
+  memoryStore,
+} from "./memoryStore.ts";
 import { recordWrites } from "./recordWrites.ts";
 import { teaching } from "./teaching.ts";
 import { wakes } from "./wakes.ts";
@@ -599,6 +609,18 @@ export interface ConductorHost {
   ) => void;
   /** THE MEMORY, REPLACED by a restored backup's. */
   readonly restoreMemory: (memory: PersistedMemory) => void;
+  /** THE HUMAN'S CHOICES ON THE MEMORY. Each writes the record and asks the
+   *  agent nothing, so each works while the conversation is down; each
+   *  throws `MemoryRefused` with the sentence for a choice it cannot make. A
+   *  proposal's row in the chat settles in place. */
+  readonly approveMemory: (
+    proposal: string,
+    edited: MemoryText | null,
+  ) => MemoryApproved;
+  readonly declineMemory: (proposal: string) => void;
+  readonly saveMemory: (text: MemoryText, entry: string | null) => MemoryEntry;
+  readonly deleteMemory: (entry: string) => void;
+  readonly importMemory: (texts: ReadonlyArray<MemoryText>) => MemoryImported;
   /** READ THE RECORDS AGAIN — the one caller is a recovery that has just put
    *  readable bytes under a record this build refused
    *  ({@link UnreadablePersisted}), and the whole point of it is that nobody
@@ -831,6 +853,8 @@ export interface ConductorDeps {
     terminal: string,
     reading: MemberReading | null,
   ) => void;
+  /** THE MEMORY MOVED — the `conductorMemory` cell's writer. */
+  readonly publishMemory: (memory: ConductorMemoryView) => void;
   /** SOMETHING A `works` READER WOULD SEE MOVED — a work, a member row or a
    *  reading. The in-process event for readers that follow the works
    *  themselves rather than the browser's frame.
@@ -1179,7 +1203,7 @@ export function startConductorHost(deps: ConductorDeps): ConductorHost {
 
   const memories = memoryStore({
     records,
-    publish: () => {},
+    publish: (memory) => deps.publishMemory(memoryView(memory)),
     entriesChanged: () => {},
     now: () => new Date(),
   });
@@ -1424,6 +1448,7 @@ export function startConductorHost(deps: ConductorDeps): ConductorHost {
     parsePersistedStore(kept, watched, storePath(), stateRoot);
     works.load(kept, watched);
     memories.load(memory);
+    deps.publishMemory(memoryView(memory));
     if (works.all().length > 0) {
       works.publishWorks();
       // A RESTORE IS THE MEMBERSHIP MOVING: it went from nothing to whatever
@@ -1655,6 +1680,15 @@ export function startConductorHost(deps: ConductorDeps): ConductorHost {
       removes: [],
       appends: [],
     });
+  };
+
+  const settleProposalRow = (
+    proposal: string,
+    ended: MemoryApproved | "declined",
+  ): void => {
+    const held = byId.get(`kolu:memory:${proposal}`);
+    if (held?.kind !== "memory-proposal") return;
+    applyRows({ upserts: [{ ...held, ended }], removes: [], appends: [] });
   };
 
   const settleStrandedCompactions = (): void => {
@@ -2553,6 +2587,29 @@ export function startConductorHost(deps: ConductorDeps): ConductorHost {
     restoreMemory: (restored) => {
       remembered();
       memories.restore(restored);
+    },
+    approveMemory: (proposal, edited) => {
+      remembered();
+      const ended = memories.approve(proposal, edited ?? undefined);
+      settleProposalRow(proposal, ended);
+      return ended;
+    },
+    declineMemory: (proposal) => {
+      remembered();
+      memories.decline(proposal);
+      settleProposalRow(proposal, "declined");
+    },
+    saveMemory: (text, entry) => {
+      remembered();
+      return memories.save(text, entry ?? undefined);
+    },
+    deleteMemory: (entry) => {
+      remembered();
+      memories.remove(entry);
+    },
+    importMemory: (texts) => {
+      remembered();
+      return memories.importEntries(texts);
     },
     reloadRecords: () => {
       if (read) {

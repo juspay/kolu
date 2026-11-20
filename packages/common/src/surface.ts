@@ -107,6 +107,19 @@ import {
   ConductorTextInputSchema,
 } from "./conductorSchema.ts";
 import { ConductorRefused, ConductorUnavailable } from "./conductorErrors.ts";
+import {
+  ConductorMemoryViewSchema,
+  EMPTY_MEMORY_VIEW,
+  MemoryApproveInputSchema,
+  MemoryApproveOutputSchema,
+  MemoryEntryInputSchema,
+  MemoryEntrySchema,
+  MemoryImportInputSchema,
+  MemoryImportOutputSchema,
+  MemoryProposalInputSchema,
+  MemoryRefused,
+  MemorySaveInputSchema,
+} from "./conductorMemory.ts";
 export * from "./conductorSchema.ts";
 export * from "./conductorErrors.ts";
 import { MemberReadingSchema } from "./worksSchema.ts";
@@ -1186,6 +1199,16 @@ export const koluSurface = defineSurfaceWithPolicy<ToastOnlyPolicy>()({
       // rather than one per host.
       client: { onError: { kind: "toast", label: "Conductor" } },
     },
+    /** THE CONDUCTOR'S MEMORY — what is remembered, and the proposals
+     *  waiting on the human. Its own cell rather than a field of `conductor`:
+     *  it outlives every session, and it moves when a person chooses, not on
+     *  the conversation's keystrokes. */
+    conductorMemory: {
+      schema: ConductorMemoryViewSchema,
+      default: EMPTY_MEMORY_VIEW,
+      verbs: ["get"],
+      client: { onError: { kind: "toast", label: "Memory" } },
+    },
   },
 
   collections: {
@@ -1453,6 +1476,33 @@ export const koluSurface = defineSurfaceWithPolicy<ToastOnlyPolicy>()({
         input: ConductorRecoverInputSchema,
         output: ConductorRecoverOutputSchema,
         error: Schema.Union([ConductorRefused]),
+      },
+      /** THE HUMAN'S CHOICES ON THE CONDUCTOR'S MEMORY. `MemoryRefused`
+       *  alone, as `answerWork`: they write the record and ask the agent
+       *  nothing, so they work while the conversation is down. Each refusal
+       *  is a sentence with its numbers in it. */
+      approveMemory: {
+        input: MemoryApproveInputSchema,
+        output: MemoryApproveOutputSchema,
+        error: Schema.Union([MemoryRefused]),
+      },
+      declineMemory: {
+        input: MemoryProposalInputSchema,
+        error: Schema.Union([MemoryRefused]),
+      },
+      saveMemory: {
+        input: MemorySaveInputSchema,
+        output: MemoryEntrySchema,
+        error: Schema.Union([MemoryRefused]),
+      },
+      deleteMemory: {
+        input: MemoryEntryInputSchema,
+        error: Schema.Union([MemoryRefused]),
+      },
+      importMemory: {
+        input: MemoryImportInputSchema,
+        output: MemoryImportOutputSchema,
+        error: Schema.Union([MemoryRefused]),
       },
     },
   },

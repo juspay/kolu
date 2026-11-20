@@ -59,6 +59,7 @@ describe("surfaces map — two siblings (the W1 padi seam)", () => {
       "agentDistroListing",
       "agentProfiles",
       "conductor",
+      "conductorMemory",
       "daemonInventory",
       "forwards",
       "padiLink",
@@ -129,6 +130,13 @@ describe("surfaces map — two siblings (the W1 padi seam)", () => {
       // ...and the one that runs BECAUSE there is no conversation: putting a
       // remembered record this build cannot read back in a state it can.
       "recoverStore",
+      // The human's choices on the Conductor's memory, which ask the agent
+      // nothing either.
+      "approveMemory",
+      "declineMemory",
+      "saveMemory",
+      "deleteMemory",
+      "importMemory",
     ]);
   });
 });

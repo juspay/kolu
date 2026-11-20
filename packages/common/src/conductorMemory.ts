@@ -95,6 +95,50 @@ export const EMPTY_MEMORY: Memory = {
   next: 1,
 };
 
+/** What a browser is told: the entries and the proposals waiting. The
+ *  declined list stays on the server, and the room is measured from the
+ *  entries with {@link memoryUsed}, so it is never a second number. */
+export const ConductorMemoryViewSchema = Schema.Struct({
+  entries: Schema.Array(MemoryEntrySchema),
+  proposals: Schema.Array(MemoryProposalSchema),
+});
+export type ConductorMemoryView = typeof ConductorMemoryViewSchema.Type;
+
+export const EMPTY_MEMORY_VIEW: ConductorMemoryView = {
+  entries: [],
+  proposals: [],
+};
+
+export const memoryView = (memory: Memory): ConductorMemoryView => ({
+  entries: memory.entries,
+  proposals: memory.proposals,
+});
+
+export const MemoryApproveInputSchema = Schema.Struct({
+  proposal: Schema.String,
+  edited: Schema.NullOr(MemoryTextSchema),
+});
+export const MemoryApproveOutputSchema = Schema.Struct({
+  ended: Schema.Literals(["remembered", "edited", "forgotten"]),
+});
+export const MemoryProposalInputSchema = Schema.Struct({
+  proposal: Schema.String,
+});
+export const MemorySaveInputSchema = Schema.Struct({
+  entry: Schema.NullOr(Schema.String),
+  text: MemoryTextSchema,
+});
+export const MemoryEntryInputSchema = Schema.Struct({
+  entry: Schema.String,
+});
+export const MemoryImportInputSchema = Schema.Struct({
+  entries: Schema.Array(MemoryTextSchema),
+});
+export const MemoryImportOutputSchema = Schema.Struct({
+  added: Schema.Int,
+  already: Schema.Int,
+});
+
 export const MemoryRefusalKindSchema = Schema.Literals([
   "invalid",
   "too-long",

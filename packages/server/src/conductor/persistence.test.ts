@@ -216,6 +216,7 @@ const recordDeps = () => ({
   publishWork: () => {},
   publishMember: () => {},
   publishReading: () => {},
+  publishMemory: () => {},
   worksMoved: () => {},
   watchScopeMoved: () => {},
   workFiles: {

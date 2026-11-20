@@ -348,6 +348,19 @@ describe("the human's own hand", () => {
   });
 });
 
+describe("the ids", () => {
+  it("are never given out twice, whichever verb mints them", () => {
+    const { store } = harness();
+    const { id } = store.propose(add("Approved"), null, "t1");
+    store.approve(id);
+    store.save(text("Saved"));
+    store.importEntries([text("Imported one"), text("Imported two")]);
+    store.save(text("Saved again"));
+    const ids = store.read().entries.map((entry) => entry.id);
+    expect(ids).toEqual(["m2", "m3", "m4", "m5", "m6"]);
+  });
+});
+
 describe("an import", () => {
   it("adds what is new, counts what is already there, and deletes nothing", () => {
     const { store, taughtAgain } = harness();

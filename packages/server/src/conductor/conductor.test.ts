@@ -73,6 +73,11 @@ import {
   PROMPT_ATTACHMENT_BYTE_CAP,
 } from "kolu-common/conductor";
 import {
+  type ConductorMemoryView,
+  type MemoryProposal,
+  MemoryRefused,
+} from "kolu-common/conductorMemory";
+import {
   type ConductorHost,
   EMPTY_PERSISTED_CONDUCTOR,
   EMPTY_PERSISTED_MEMORY,
@@ -603,6 +608,8 @@ interface Rig {
    *  value, or `null` for one it removed. Per work, because the host tells a
    *  reader only what MOVED. */
   worksPublished: () => Array<{ id: string; work: Work | null }>;
+  /** Every value the `conductorMemory` cell was given, in order. */
+  memoryPublished: () => ReadonlyArray<ConductorMemoryView>;
   /** ... and the same for how each member terminal stands. */
   readingsPublished: () => Array<{
     terminal: string;
@@ -647,6 +654,7 @@ function rig(over: Remembered = {}): Rig {
   let worksMoved = 0;
   let watchScopeMoved = 0;
   const worksPublished: Array<{ id: string; work: Work | null }> = [];
+  const memoryPublished: Array<ConductorMemoryView> = [];
   const readingsPublished: Array<{
     terminal: string;
     reading: { level: ConductorReadingLevel; since: string } | null;
@@ -680,6 +688,9 @@ function rig(over: Remembered = {}): Rig {
     publishReading: (terminal, reading) => {
       readingsPublished.push({ terminal, reading });
     },
+    publishMemory: (view) => {
+      memoryPublished.push(view);
+    },
     worksMoved: () => {
       worksMoved += 1;
     },
@@ -709,6 +720,7 @@ function rig(over: Remembered = {}): Rig {
     published: () => published,
     worksPublished: () => worksPublished,
     readingsPublished: () => readingsPublished,
+    memoryPublished: () => memoryPublished,
     worksMoved: () => worksMoved,
     watchScopeMoved: () => watchScopeMoved,
     modelAsks: offered.modelAsks,
@@ -1697,6 +1709,7 @@ describe("teardown (B2)", () => {
       publishWork: () => {},
       publishMember: () => {},
       publishReading: () => {},
+      publishMemory: () => {},
       worksMoved: () => {},
       watchScopeMoved: () => {},
       store: countingStore(EMPTY_PERSISTED_CONDUCTOR).store,
@@ -1772,6 +1785,7 @@ describe("teardown (B2)", () => {
       publishWork: () => {},
       publishMember: () => {},
       publishReading: () => {},
+      publishMemory: () => {},
       worksMoved: () => {},
       watchScopeMoved: () => {},
       store: countingStore(EMPTY_PERSISTED_CONDUCTOR).store,

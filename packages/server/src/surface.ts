@@ -96,11 +96,17 @@ import { FORWARD_REAP_INTERVAL_MS } from "./portForward/forwards.ts";
 import { conductorSurfaceMembers } from "kolu-conductor/surface";
 import type { ConductorStoreKey } from "kolu-common/conductor";
 import { ConductorRefused } from "kolu-common/conductorErrors";
+import {
+  EMPTY_MEMORY_VIEW,
+  type MemoryText,
+  MemoryRefused,
+} from "kolu-common/conductorMemory";
 import { recoverConductorStore } from "./conductorRecovery.ts";
 import { type Work, type WorkMember, WorkRefusal } from "kolu-work";
 import {
   liveServerConductor,
   setConductorCellWriter,
+  setConductorMemoryWriter,
   setWorksCollectionWriters,
 } from "./conductor/live.ts";
 import { store } from "./state.ts";
@@ -349,6 +355,19 @@ function handOver(act: () => void): Effect.Effect<void, ConductorRefused> {
   });
 }
 
+/** THE MEMORY BRIDGE — the human's choices on the Conductor's memory as the
+ *  one declared failure they carry: the store's refusal, with its sentence.
+ *  Anything else is a bug and dies loudly. */
+function onMemory<A>(act: () => A): Effect.Effect<A, MemoryRefused> {
+  return Effect.suspend(() => {
+    try {
+      return Effect.succeed(act());
+    } catch (err) {
+      return err instanceof MemoryRefused ? Effect.fail(err) : Effect.die(err);
+    }
+  });
+}
+
 /** Serve kolu-server's OWN two sibling surfaces (kolu + surfaceApp) on the shared
  *  `@kolu/padi` publisher, wire the runtime's deliberately-fatal `done`, and return the
  *  built router + kolu ctx. `index.ts`'s boot splices the RE-SERVED `padi` sibling into
@@ -528,6 +547,9 @@ export function implementKoluSurface(deps: KoluSurfaceDeps) {
       // first reader's edge and publishes it through the writer registered
       // below a moment later, the same way `agentDistroStatus` lands on padi.
       conductor: { store: inMemoryStore(conductorMembers.state()) },
+      // THE MEMORY, empty until the host reads its record on the first
+      // reader's edge and publishes it through the writer registered below.
+      conductorMemory: { store: inMemoryStore(EMPTY_MEMORY_VIEW) },
     },
     // THE WORKS and their members' readings, each EMPTY until the host reads
     // its record off disk on the first reader's edge (the watch, started right
@@ -683,6 +705,36 @@ export function implementKoluSurface(deps: KoluSurfaceDeps) {
                 : Effect.die(err),
             ),
           ),
+        // THE HUMAN'S CHOICES ON THE MEMORY, bound here for answerWork's
+        // reason: they write the record and ask the agent nothing.
+        approveMemory: ({
+          input,
+        }: {
+          input: { proposal: string; edited: MemoryText | null };
+        }) =>
+          onMemory(() => ({
+            ended: liveServerConductor().approveMemory(
+              input.proposal,
+              input.edited,
+            ),
+          })),
+        declineMemory: ({ input }: { input: { proposal: string } }) =>
+          onMemory(() => liveServerConductor().declineMemory(input.proposal)),
+        saveMemory: ({
+          input,
+        }: {
+          input: { entry: string | null; text: MemoryText };
+        }) =>
+          onMemory(() =>
+            liveServerConductor().saveMemory(input.text, input.entry),
+          ),
+        deleteMemory: ({ input }: { input: { entry: string } }) =>
+          onMemory(() => liveServerConductor().deleteMemory(input.entry)),
+        importMemory: ({
+          input,
+        }: {
+          input: { entries: ReadonlyArray<MemoryText> };
+        }) => onMemory(() => liveServerConductor().importMemory(input.entries)),
       },
     },
   };
@@ -765,6 +817,9 @@ export function implementKoluSurface(deps: KoluSurfaceDeps) {
   // this registration rather than swallowing one.
   setConductorCellWriter((state) => {
     koluSurfaces.ctx.kolu.cells.conductor.set(state);
+  });
+  setConductorMemoryWriter((memory) => {
+    koluSurfaces.ctx.kolu.cells.conductorMemory.set(memory);
   });
   // ...and the works', registered in the same breath. Separate members because
   // a keystroke in the chat, a work moving and a member's agent going quiet are

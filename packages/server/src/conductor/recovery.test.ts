@@ -105,6 +105,7 @@ function hostOver(): ConductorHost {
     publishWork: () => {},
     publishMember: () => {},
     publishReading: () => {},
+    publishMemory: () => {},
     worksMoved: () => {},
     watchScopeMoved: () => {},
     store: conductorStore,

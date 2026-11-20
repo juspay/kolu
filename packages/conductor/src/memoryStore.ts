@@ -258,12 +258,10 @@ export const memoryStore = (deps: MemoryStoreDeps): MemoryStore => {
       mustBeNew(text, replacing?.id);
       mustFit(text, replacing);
       settle(id);
-      if (replacing === undefined)
-        memory = {
-          ...memory,
-          entries: [...memory.entries, entryFrom(text, "conductor", edited)],
-        };
-      else
+      if (replacing === undefined) {
+        const entry = entryFrom(text, "conductor", edited);
+        memory = { ...memory, entries: [...memory.entries, entry] };
+      } else
         memory = {
           ...memory,
           entries: memory.entries.map((entry) =>
@@ -338,13 +336,8 @@ export const memoryStore = (deps: MemoryStoreDeps): MemoryStore => {
           `This import needs ${needs.toLocaleString("en")} characters and ${left.toLocaleString("en")} are left, so nothing was added. Delete or shorten an entry first.`,
         );
       if (fresh.length > 0) {
-        memory = {
-          ...memory,
-          entries: [
-            ...memory.entries,
-            ...fresh.map((text) => entryFrom(text, "you", false)),
-          ],
-        };
+        const added = fresh.map((text) => entryFrom(text, "you", false));
+        memory = { ...memory, entries: [...memory.entries, ...added] };
         moved(true);
       }
       return { added: fresh.length, already: texts.length - fresh.length };
