@@ -1,12 +1,5 @@
-# Example configuration using kolu's home-manager module.
-# Built in CI to ensure the module evaluates correctly.
-# Linux: NixOS VM test that boots the config and verifies the systemd
-# service actually starts. Darwin: standalone home-manager eval-build that
-# verifies the launchd path produces a valid plist (no runtime test —
-# CI builders don't have a launchd session).
 {
   inputs = {
-    # CI overrides this to the repo root; nixpkgs remains owned by this flake's lock.
     kolu.url = "github:juspay/kolu";
     nixpkgs.url = "github:nixos/nixpkgs/nixpkgs-unstable";
     home-manager.url = "github:nix-community/home-manager";
@@ -20,8 +13,6 @@
       linuxPkgs = nixpkgs.legacyPackages.${linuxSystem};
       darwinPkgs = nixpkgs.legacyPackages.${darwinSystem};
 
-      # Pure home-manager module — used both inside the NixOS VM (Linux
-      # systemd path) and standalone on Darwin (launchd path).
       koluHmModule = { pkgs, ... }: {
         imports = [ kolu.homeManagerModules.default ];
         services.kolu = {
@@ -42,7 +33,6 @@
         ];
       };
 
-      # NixOS module: minimal system + home-manager with kolu enabled.
       nixosModule = {
         boot.loader.grub.devices = [ "nodev" ];
         fileSystems."/" = { device = "none"; fsType = "tmpfs"; };
@@ -50,19 +40,12 @@
 
         users.users.alice = {
           isNormalUser = true;
-          # Auto-login so the user session (and its systemd units) starts in the VM
           initialPassword = "pass";
         };
 
         home-manager.users.alice = koluHmModule;
       };
 
-      # Bound in the `let` (not inline under `nixosConfigurations`) because the
-      # I1 containment check asks a question ABOUT this exact generation —
-      # `agent-containment.nix` takes its `system.build.toplevel` as the root
-      # whose closure must carry every exposed agent. One definition, so the
-      # check can never end up interrogating a different system than the one
-      # `nixosConfigurations.example` deploys.
       exampleSystem = nixpkgs.lib.nixosSystem {
         system = linuxSystem;
         modules = [
@@ -74,18 +57,13 @@
     {
       nixosConfigurations.example = exampleSystem;
 
-      # Linux checks — all run on the x86_64-linux lane (NixOS VM tests are
-      # Linux-only): the kolu-service smoke (vm-test) + B3.3 adoption.
       checks.${linuxSystem} = {
-        # I1 (juspay/kolu#2101): the deployed generation must CARRY every agent
-        # closure a remote connect can provision — cheap, always-on, no VM.
         agent-closure-containment = import ./agent-containment.nix {
           pkgs = linuxPkgs;
           inherit kolu;
           generation = exampleSystem.config.system.build.toplevel;
         };
 
-        # vm-test boots the config and verifies kolu listens on its port.
         vm-test = linuxPkgs.testers.nixosTest {
           name = "kolu-service";
 
@@ -95,7 +73,6 @@
               nixosModule
             ];
 
-            # Auto-login alice so her user session starts
             services.getty.autologinUser = "alice";
           };
 
@@ -131,15 +108,6 @@
                 timeout=120,
             )
 
-            # kaval-tui (auto-installed via home.packages) lists the running
-            # server's (empty) terminals — end-to-end proof of both the R-4
-            # Phase 1 CLI and its automatic install. NO `--socket`: kolu-server
-            # namespaces its daemon per listen port ($XDG_RUNTIME_DIR/kaval-<port>/
-            # pty-host.sock), so an explicit path would have to restate the port
-            # and an explicit `--socket` BYPASSES discovery; flag-less `list`
-            # `discoverPtyHostSockets()` finds the single kaval-7681 daemon in
-            # this VM. The login shell picks up the home-manager profile PATH; the
-            # socket binds just after the HTTP listener, so retry briefly.
             # `</dev/null` is load-bearing: machinectl forwards its stdin to the
             # session PTY, and the test driver's stdin pipe never EOFs — without
             # the redirect machinectl never returns even after kaval-tui exits,
@@ -153,22 +121,12 @@
           '';
         };
       }
-      # B3.3 adoption VM tests (positive adopt + negative contract-skew):
-      # terminals survive a kolu-server restart when the kaval daemon outlives it,
-      # and a contract-skewed survivor is recycled (not adopted) with the session
-      # preserved — the one path the Playwright e2e harness can't reach (no
-      # systemd, one server per worker). Kept in its own folder so this flake stays
-      # lean; all are plain checks of this flake, so they ride the Linux arm of
-      # `ci::home-manager`.
       // import ./adoption {
         pkgs = linuxPkgs;
         inherit kolu home-manager nixosModule;
         system = linuxSystem;
       };
 
-      # Darwin: standalone home-manager activation package. Building this
-      # exercises the launchd.agents.kolu path end-to-end (plist generation,
-      # wait4path wrapping, etc.) without needing a live launchd session.
       checks.${darwinSystem} = {
         home-activation = darwinHome.activationPackage;
 

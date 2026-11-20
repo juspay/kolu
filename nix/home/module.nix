@@ -2,8 +2,6 @@
 let
   cfg = config.services.kolu;
 
-  # Three-state TLS: explicit cert+key pair, auto-signed self-signed, or off.
-  # The certFile/keyFile pairing is enforced by an assertion below.
   tlsArgs =
     if cfg.tls.certFile != null then
       [ "--tls-cert" (toString cfg.tls.certFile) "--tls-key" (toString cfg.tls.keyFile) ]
@@ -12,10 +10,6 @@ let
     else
       [ ];
 
-  # `web` is spelled explicitly: bare `kolu` lists its subcommands and exits
-  # non-zero now (it stopped being an alias for the server when the terminal
-  # verbs landed), and the bind address is `--bind` — `--host` means "which
-  # padi" on every verb, so the server's listen address took the clearer name.
   args = [
     (lib.getExe cfg.package)
     "web"
@@ -27,53 +21,9 @@ let
   ++ tlsArgs
   ++ lib.optionals cfg.verbose [ "--verbose" ];
 
-  # ── I1 (juspay/kolu#2101): the generation IS the agent depot ────────────────
-  # Every agent closure a connect from this deployment can provision, aggregated
-  # into ONE symlink forest so the generation has a single thing to point at.
-  #
-  # WHY THIS EXISTS AT ALL. `padi-agent` — the attr both dial paths resolve — is
-  # NOT in `.#default`'s closure and never can be: it *contains* `default`. So a
-  # deploy used to install the server plus the baked agent SOURCE, learn the
-  # closure's store path at dial time, and then have to fetch the bits from a
-  # cache or compile them on the target host. That is the production incident
-  # (F5a, G7). The DEPLOYED ARTIFACT is not `.#default` though — it is this
-  # home-manager generation, and a generation may reference both `default` and
-  # `padi-agent` with no cycle. Referencing them here makes "the binder holds
-  # every agent closure it can ship" true BY CONSTRUCTION, on every host that
-  # deploys the module, with no cache and no preflight.
-  #
-  # WHY NOT `home.packages`. `padi-agent/bin` carries `kolu`, `kaval-tui` and
-  # `padi-tui` (it is the remote toolchain), which collide with `cliPackage` /
-  # `tuiPackage` / `padiTuiPackage` in the profile buildEnv. The closures must
-  # be IN the generation, not ON `$PATH`; a linkFarm referenced from the service
-  # definition is exactly that and nothing more.
-  #
-  # WHAT IT COSTS — MEASURED, NOT ESTIMATED. On x86_64-linux at this branch's
-  # HEAD, `.#default`'s closure is 776,842,136 B / 139 paths and
-  # `.#padi-agent`'s is 776,843,896 B / 140 paths: a delta of **1,760 bytes,
-  # exactly ONE store path** (the buildEnv symlink forest itself). `padi`,
-  # `kaval`, `kaval-tui` and `padi-tui` already sit inside `default`'s closure,
-  # so deduplication makes all of them free. End to end, the example's deployed
-  # generation goes 739 → 741 paths and 2,130,132,144 → 2,130,134,536 B: **+2
-  # store paths, +2,392 bytes**, i.e. +0.0001% — nowhere near the ≥10% stop
-  # threshold the round was given.
   agentClosures = pkgs.linkFarm "kolu-agent-closures"
     (map (p: { name = lib.getName p; path = p; }) cfg.agentPackages);
 
-  # Shared by both supervisors. systemd wants `[ "KEY=val" ]`; launchd wants
-  # the attrset as a plist dict — converted at each call site. Carries the
-  # baked-agent anchor, the optional diagnostics dir, and the optional
-  # WebSocket Origin allowlist.
-  #
-  # `KOLU_BAKED_AGENT_CLOSURES` IS READ BY NOTHING, ON PURPOSE. An env var no
-  # code consults is normally a smell; here the VALUE is the point. It is a
-  # store-path reference on the unit file, so the agent closures are (a) in the
-  # generation's closure, (b) GC-rooted for exactly as long as the generation is
-  # — nothing extra to arm, nothing to expire — and (c) anchored on the very
-  # unit whose connects are the reason they must exist, where a reader meets
-  # them. Deleting it does not break a build; it re-opens the incident. The
-  # `agent-closure-containment` check in nix/home/example/ is what fails if it
-  # ever stops holding.
   envAttrs =
     {
       KOLU_BAKED_AGENT_CLOSURES = "${agentClosures}";
@@ -242,10 +192,6 @@ in
       }
     ];
 
-    # Ship the terminal-side CLIs (kaval-tui + padi-tui) AND the kolu binary
-    # itself on PATH so they can reach a pty-host / padi socket from any
-    # shell — `kolu mcp` is how a coding agent gets this host's terminals.
-    # Each is skipped only when its package is explicitly set null.
     home.packages =
       lib.optional (cfg.tuiPackage != null) cfg.tuiPackage
       ++ lib.optional (cfg.padiTuiPackage != null) cfg.padiTuiPackage
@@ -260,8 +206,6 @@ in
         Service = {
           ExecStart = toString args;
           Restart = "on-failure";
-          # Always non-empty: `KOLU_BAKED_AGENT_CLOSURES` is unconditional, and
-          # it is this line that puts the agent closures in the generation.
           Environment = lib.mapAttrsToList (k: v: "${k}=${v}") envAttrs;
         };
         Install = {
@@ -288,8 +232,6 @@ in
           # launchd drops stdout/stderr by default; keep service crashes visible.
           StandardOutPath = "${config.home.homeDirectory}/Library/Logs/kolu.out.log";
           StandardErrorPath = "${config.home.homeDirectory}/Library/Logs/kolu.err.log";
-          # Always non-empty — same reason as the systemd `Environment` above:
-          # this is the darwin seat of the baked-agent anchor.
           EnvironmentVariables = envAttrs;
         };
       };

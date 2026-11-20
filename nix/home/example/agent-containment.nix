@@ -1,23 +1,3 @@
-# I1 (juspay/kolu#2101) — the by-construction containment proof.
-#
-# ONE claim: every agent closure a remote may be provisioned with is IN the
-# closure of the generation a `services.kolu` deploy installs. If that holds, a
-# `--host` connect can never consult a binary cache and can never ask the target
-# to realise a daemon from source, because the bits are already in the binder's
-# own store and GC-rooted by its current generation.
-#
-# THE SIBLING TO `ci::agent-flake-nix`, AND THE DIFFERENCE. That recipe proves
-# every `expose` attr EVALUATES from the baked agent source — it forces
-# `drvPath` and stops. This one proves the same attrs are PRESENT: it forces the
-# out-paths and asks `closureInfo` whether the deployed generation reaches them.
-# Eval-provable and present are independent failures (the incident was the
-# second with the first green), so they are two checks, not one.
-#
-# The inventory is read from `nix/agent-packages.json`'s `expose` inside the
-# kolu input — the same manifest the module's flake wrapper maps over. Reading
-# it here rather than restating it is what makes this check able to FAIL: a
-# hand-listed set would silently stop covering a newly exposed agent, which is
-# precisely the drift the assertion is for.
 { pkgs, kolu, generation }:
 let
   inherit (pkgs) lib;
@@ -34,14 +14,8 @@ let
     })
     expose;
 
-  # `closureInfo` realises the generation and writes the full transitive path
-  # set to `store-paths`, one per line — the same question `nix path-info -r`
-  # answers, asked at build time so a red is a build failure rather than a
-  # recipe nobody runs.
   closure = pkgs.closureInfo { rootPaths = [ generation ]; };
 
-  # One `grep -qxF` per agent, each keeping its OWN failure line, so a red names
-  # the attr that went missing instead of reporting "some agent".
   probes = lib.concatMapStrings
     (agent: ''
       if grep -qxF '${agent.path}' "${closure}/store-paths"; then
@@ -52,10 +26,6 @@ let
       fi
     '')
     agents;
-  # The remedy, as a FILE rather than an in-script heredoc: a heredoc's
-  # terminator has to sit at a fixed column, which makes the prose hostage to
-  # whatever the nix formatter decides about indentation inside `''` strings.
-  # `cat`ing a `writeText` has no such coupling.
   remedy = pkgs.writeText "kolu-agent-closure-containment-remedy" ''
 
     A host running this generation would have to find those closures somewhere

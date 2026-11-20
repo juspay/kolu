@@ -1,10 +1,3 @@
-# Shared env vars consumed by the kolu build, the devShell, and the wrapper.
-# KOLU_COMMIT_HASH excluded — it busts the derivation cache on every commit.
-# The build uses a placeholder; koluClientDist stamps the real hash afterwards.
-#
-# Where possible, pass derivation references directly instead of
-# "${drv}/subpath" string interpolation — this defers store path
-# resolution from Nix eval time to realization time (~350ms savings).
 { pkgs }:
 let
   sources = import ../npins;
@@ -12,46 +5,13 @@ let
   rhaiGrammar = pkgs.runCommand "rhai.tmLanguage.json" { } ''
     cp ${rhaiLsp}/editors/vscode/syntax/rhai.tmLanguage.json $out
   '';
-  # ONE definition — same store path as `nix build .#osfacts`. The tool lives
-  # in its own repo now (juspay/osfacts, OSF5); npins pins it, and its
-  # default.nix still takes `{ pkgs }`, so kolu's pin builds it.
   osfacts = import sources.osfacts { inherit pkgs; };
 in
 {
   KOLU_FONTS_DIR = pkgs.kolu-fonts;
-  # The daemon-side font set — the outline faces @resvg/resvg-wasm loads to
-  # rasterise a terminal screen to PNG (packages/terminal-snapshot/src/pngFonts.ts,
-  # `fontDir()` throws when this is unset). Same footing as KOLU_GH_BIN/
-  # KOLU_OSFACTS_BIN: a required absolute path baked by Nix, present in the
-  # packaged wrappers AND the dev shell, with no PATH search and no bundled
-  # fallback in the reader — a screenshot drawn in a substitute face would look
-  # plausible and be wrong.
   KOLU_SNAPSHOT_FONTS_DIR = pkgs.kolu-snapshot-fonts;
-  # Official Rhai TextMate grammar, pinned through npins and exposed as a file
-  # so Vite can lazy-load it without vendoring an upstream snapshot.
   KOLU_RHAI_GRAMMAR = rhaiGrammar;
-  # Pinned gh binary — padi's PR sensor consumes this directly. Required, not
-  # optional: the GitHub provider throws if unset. Set here so both the
-  # packaged wrappers (default.nix) and the dev shell (shell.nix) pick it up
-  # via `koluEnv`. The wrappers bake it with `--set-default` so the e2e lane's
-  # scripted `gh` reaches padi through kolu-server (see `daemonEnv`).
   KOLU_GH_BIN = "${pkgs.gh}/bin/gh";
-  # osfacts — the single OS process/socket fact sampler padi's port scan spawns
-  # (OSF2). Same footing as `KOLU_GH_BIN`: a required absolute path baked by Nix,
-  # present in the packaged wrappers AND the dev shell, with no PATH fallback in
-  # the reader. Lives here rather than only in default.nix because
-  # `ports/scan.live.test.ts` runs under bare vitest and never sees the padi
-  # wrapper — the drift that made every live test throw when the bake was
-  # wrapper-only.
   KOLU_OSFACTS_BIN = "${osfacts}/bin/osfacts";
-  # Claude Code's ACP adapter (nix/packages/acp-adapter.nix) — the binary
-  # kolu-server spawns for THE conductor conversation (one, covering every
-  # host). Same footing as KOLU_GH_BIN / KOLU_OSFACTS_BIN: a required absolute
-  # path baked by Nix, with no PATH search and no `npx` fallback — an
-  # conductor that resolved some ambient adapter would speak a protocol
-  # version this build never proved. `koluBin`'s wrapper bakes this value too
-  # (default.nix), which is what pulls the adapter into kolu-server's closure.
-  # A REMOTE host no longer carries it: padi hosts no conversation, so the
-  # adapter left padi's closure with the hosting.
   KOLU_ACP_AGENT = "${pkgs.kolu-acp-adapter}/bin/claude-agent-acp";
 }

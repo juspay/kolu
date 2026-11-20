@@ -1,10 +1,3 @@
-# Flake with the minimal output surface needed to resolve remote daemons.
-#
-# default.nix assembles this file with the canonical workspace source, the
-# shared Nix/npins tree, and the parent build's derived commit hash. It exposes
-# exactly the agents Kolu composes—no app, website, examples, checks, or dev
-# shells. The inventory is application policy in nix/agent-packages.json;
-# @kolu/surface-remote owns only the generic provisioning mechanism.
 {
   # Same cache the root flake declares — and the SOURCE OF TRUTH for the
   # provisioning prefetch: mkProvenAgentSource derives `binary-cache.json`
@@ -27,9 +20,6 @@
     let
       platform = import ./nix/each-system.nix;
       commitHash = builtins.readFile ./commit-hash;
-      # `expose` — every attr a remote may resolve from this tree. Its sibling
-      # `prove` (a strict subset, read by default.nix) is what must EVALUATE
-      # before the tree is handed out; see that file for why the two differ.
       agentPackages =
         (builtins.fromJSON
           (builtins.readFile ./nix/agent-packages.json)).expose;

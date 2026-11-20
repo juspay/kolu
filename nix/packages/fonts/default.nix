@@ -1,15 +1,8 @@
-# Nix derivation that fetches and bundles all web font assets.
-# DM Sans (variable weight 400–600) from Google Fonts, FiraCode Nerd Font from nerdfont-webfonts.
-#
-# Outputs:
-#   $out/*.woff2   — font files (copied into client/public/fonts/ at build time)
-#   $out/fonts.css — @font-face declarations (imported via vite alias "kolu-fonts")
 { lib, runCommand, fetchurl, biome }:
 let
   fetchFont = name: url: hash:
     fetchurl { inherit url hash; inherit name; };
 
-  # Each entry: { subset, url, hash, unicodeRange }
   dmSansSubsets = [
     {
       subset = "latin-ext";
@@ -36,8 +29,6 @@ let
 
   allFonts = map (s: fetchFont "dm-sans-${s.subset}.woff2" s.url s.hash) dmSansSubsets ++ firacode;
 
-  # Generate @font-face CSS. URLs use /fonts/ (absolute) so they resolve
-  # correctly whether the CSS is loaded via vite alias or from the public dir.
   dmSansFaces = builtins.concatStringsSep "\n" (map
     (s: ''
       /* ${s.subset} */
