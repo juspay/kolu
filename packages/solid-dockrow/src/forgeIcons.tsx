@@ -1,15 +1,6 @@
-/** The forge marks the PR pip draws — a registry module, not inline SVG.
- *
- *  They live apart from the component for the same reason kolu keeps its icons
- *  in one place and this PR emptied these three OUT of `client/src/ui/Icons.tsx`:
- *  an icon is a named, reusable mark, and a mark defined inside the one
- *  component that happens to draw it today is the shape that gets copy-pasted
- *  the second time somebody needs it. Nothing else in the repo drew them, which
- *  is why they came here rather than staying — but "one consumer" is a fact
- *  about today, not a reason to inline.
- *
- *  GitHub's own Octicons geometry, 16×16, `currentColor` fill — the colour is
- *  the caller's (`PrStateIcon` paints per PR state). */
+/** The forge marks the PR pip draws: GitHub's own Octicons geometry, 16×16,
+ *  `currentColor` fill — the colour is the caller's (`PrStateIcon` paints per
+ *  PR state). */
 
 import type { Component } from "solid-js";
 

@@ -1,28 +1,10 @@
 // @vitest-environment happy-dom
 
-/** The row's MODEL tag — line 2's trailing "on what", beside the status words'
- *  "doing what".
- *
- *  The facts the row is fed come from `dockRowFacts` in production, but what a
- *  consumer observes is what the row RENDERS, so this drives the component with
- *  the props a row is handed. Three promises are worth pinning, and they are the
- *  three ways this could silently be wrong: the name shows up at all; the words
- *  it sits beside still render next to it; and an agent that has not named a
- *  model draws nothing rather than an "unknown".
- *
- *  Both are PRESENCE checks, and deliberately so: happy-dom lays nothing out, so
- *  the geometry the tag defends — the words' `min-w-0 truncate` yielding before
- *  the tag's capped slot, so a long pinned id cannot squeeze them out — is not
- *  assertable here. That one is the class list's job on `DockRow.tsx`'s line 2,
- *  and the e2e scenario's is the rendered tag. */
-
 import type { TerminalId } from "@kolu/terminal-vocab/schema";
 import { render } from "solid-js/web";
 import { describe, expect, it } from "vitest";
 import { DockRow, type DockRowProps } from "./DockRow.tsx";
 
-/** A working agent row as the dock wires it. `surface="desktop"` only picks the
- *  text sizes; nothing here reads them. */
 function rowProps(overrides: Partial<DockRowProps> = {}): DockRowProps {
   return {
     id: "t1" as TerminalId,
@@ -68,7 +50,6 @@ describe("DockRow's model tag", () => {
     const { host, dispose } = renderRow(rowProps());
     try {
       expect(modelTag(host)?.textContent).toBe("claude-opus-4-6");
-      // Both are on line 2: the tag did not replace the words.
       expect(subline(host)).toBe("Running tools");
     } finally {
       dispose();
@@ -76,8 +57,6 @@ describe("DockRow's model tag", () => {
   });
 
   it("keeps the whole name reachable when the slot ellipsises", () => {
-    // The tag caps its width so a long pinned id cannot push the words out, so
-    // the full name has to survive somewhere: the tooltip is that somewhere.
     const { host, dispose } = renderRow(
       rowProps({ model: "claude-sonnet-4-5-20250929" }),
     );
@@ -117,13 +96,8 @@ describe("DockRow's tree contract", () => {
     try {
       expect(rowEl(host).getAttribute("data-parent-id")).toBe("tile-1");
       expect(rowEl(host).getAttribute("data-depth")).toBe("2");
-      // The indent is the row's own left padding — the mechanism that steps the
-      // indicator, the label AND line 2 in together (a subgrid row cannot: it
-      // shares the section's lines). Depth 2 is one hop past the first.
       expect(rowEl(host).style.paddingLeft).toBe("calc(0.75rem + 2rem)");
-      // The DOM keeps every entry a flat sibling, so the marker IS the tree.
       expect(rowEl(host).textContent).toContain("└");
-      // …and the split still renders the whole row: words, model.
       expect(subline(host)).toBe("Running tools");
       expect(modelTag(host)?.textContent).toBe("claude-opus-4-6");
     } finally {
@@ -138,7 +112,6 @@ describe("DockRow's tree contract", () => {
       expect(rowEl(host).hasAttribute("data-parent-id")).toBe(false);
       expect(rowEl(host).textContent).not.toContain("└");
       expect(rowEl(host).style.paddingLeft).toBe("");
-      // …and it subgrids into the section rather than declaring its own tracks.
       expect(rowEl(host).className).toContain("grid-cols-subgrid");
     } finally {
       dispose();
@@ -146,9 +119,6 @@ describe("DockRow's tree contract", () => {
   });
 
   it("paints a label with no ink in the dock's quiet ink, not the inherited default", () => {
-    // `labelColor: undefined` means "this row has no display identity of its
-    // own" — a split whose tile has no display row yet. Inheriting gave it the
-    // app's heaviest text colour, louder than the parent it hangs under.
     const { host, dispose } = renderRow(rowProps({ labelColor: undefined }));
     try {
       const label = host.querySelector(".dock-cards-row-label") as HTMLElement;
@@ -167,9 +137,6 @@ describe("DockRow's drag sockets", () => {
     host.querySelector("[data-testid='dock-row-grip']") as HTMLElement | null;
 
   it("renders no grip without a handle, and a labelled one when wired", () => {
-    // No handle = no grip in the DOM at all (touch rows, rows whose terminal
-    // is not live) — not a hidden one. The package renders the grip itself,
-    // so the consumer never spells the markup.
     const bare = renderRow(rowProps());
     try {
       expect(gripEl(bare.host)).toBeNull();
@@ -190,16 +157,11 @@ describe("DockRow's drag sockets", () => {
   });
 
   it("keeps a grip pointerdown from reaching an ancestor listener", () => {
-    // The stopPropagation contract: the cluster's activator wraps the row, so
-    // a grip drag bubbles through it — and must NOT lift the whole branch.
-    //
     // Both handlers here are Solid DELEGATED ones (the wrapper's, and the
-    // grip's own), because that is what the cluster's activator is too: the
-    // contract is delegated-handler-to-delegated-handler. A native listener on
-    // an ancestor would fire before the document-level delegated dispatch even
-    // walks the path, so it could not observe the stop. The host is attached
-    // to the document for the same reason — a detached tree never reaches the
-    // delegated listener at all.
+    // grip's own). A native listener on an ancestor would fire before the
+    // document-level delegated dispatch even walks the path, so it could not
+    // observe the stop. The host is attached to the document for the same
+    // reason — a detached tree never reaches the delegated listener at all.
     let gripFired = 0;
     let ancestorFired = 0;
     const host = document.createElement("div");

@@ -1,12 +1,3 @@
-/** The narrowing a consumer fills the prop bag with — and, above all, what it
- *  does with a state this build has never heard of.
- *
- *  The bag is the ONE closed set for kolu's agent-state vocabulary. A mirror
- *  whose wire carries that state as plain text must be able to get from the
- *  string into the bag without declaring a second copy of the literals, and an
- *  unrecognised literal must reach the screen rather than vanish — those two
- *  facts are what these tests hold. */
-
 import {
   isPipGlyphId,
   isPipMotionKind,
@@ -44,8 +35,6 @@ describe("every closed set the prop bag names is enumerable and guarded", () => 
       expect(set.all.length).toBeGreaterThan(0);
       for (const member of set.all) expect(set.is(member)).toBe(true);
       expect(set.is("definitely-not-a-member")).toBe(false);
-      // The guard must not answer yes for an inherited `Object.prototype` key —
-      // an `in` check over a plain object record would (`"toString" in {}`).
       expect(set.is("toString")).toBe(false);
       expect(set.is("constructor")).toBe(false);
     });
@@ -73,14 +62,9 @@ describe("narrowAgentState", () => {
     }
   });
 
-  // THE ONE THIS FILE EXISTS FOR. A mirror pinned to an older kolu meets a
-  // state a newer padi invented. It must not be silently normalised onto a
-  // neighbouring state, and it must not disappear: the word reaches the row.
   it("keeps an unrecognised state VISIBLE and withholds only the typed literal", () => {
     const out = narrowAgentState("compacting_context");
-    // No fold is handed a state it cannot decide...
     expect(out.state).toBeUndefined();
-    // ...but the row still shows the word, in the attribute AND in the subline.
     expect(out.attr).toBe("compacting_context");
     expect(out.label).toBe("compacting_context");
     expect(out.known).toBe(false);
@@ -95,8 +79,6 @@ describe("narrowAgentState", () => {
   });
 });
 
-/** A quiet shell — no agent driving it. `hasAgentOf` reads the live arm, so
- *  what matters here is that no active agent is present. */
 function shellMeta(): TerminalMetadata {
   return {
     state: "active",
@@ -112,11 +94,6 @@ function shellMeta(): TerminalMetadata {
 }
 
 describe("narrowRowVocab — the guards WITH their defaults", () => {
-  /** A fully-known wire row. The typed facts are the ones that must pass through
-   *  untouched; the three closed-set words are the ones under test. `motion` and
-   *  `shellLive` are deliberately absent — neither is a wire fact — and
-   *  `hasAgent` is present because it is the input the second of them is folded
-   *  from. */
   const wire = () => ({
     pip: {
       variant: "working",
@@ -132,8 +109,6 @@ describe("narrowRowVocab — the guards WITH their defaults", () => {
     bucket: "working",
   });
 
-  /** The wire row's typed facts, minus the input that exists only to be folded
-   *  away — what a narrowed `pip` carries beside the two derived members. */
   const carried = () => {
     const { hasAgent: _hasAgent, ...rest } = wire().pip;
     return rest;
@@ -160,17 +135,11 @@ describe("narrowRowVocab — the guards WITH their defaults", () => {
     const n = narrowRowVocab(w);
     const got = field === "bucket" ? n.bucket : n.pip[field];
     expect(got).toBe(fallback);
-    // The fallback is what the row DRAWS; this is the fact it must not cost.
-    // Reading it at all means having checked `known` — the union sees to that.
     expect(n.known).toBe(false);
     if (!n.known) expect(n.unrecognised[field]).toBe("sideways");
   });
 
   it("FOLDS the motion rather than transporting it — always, not only on a miss", () => {
-    // `pipMotionKind` is a total function of the variant and `active`, so a
-    // transported motion could only agree with the fold or contradict it. It is
-    // recomputed from the variant this build will PAINT, which after a fallback
-    // is not the one the wire named.
     expect(narrowRowVocab(wire()).pip.motion).toBe("spin");
 
     const asking = narrowRowVocab({
@@ -185,9 +154,6 @@ describe("narrowRowVocab — the guards WITH their defaults", () => {
     });
     expect(still.pip.motion).toBe("none");
 
-    // The tell that it follows the NARROWED variant: an unrecognised variant
-    // falls back to `idle`, whose active motion is `spin` — not whatever an
-    // unknown variant might have meant.
     const strange = narrowRowVocab({
       ...wire(),
       pip: { ...wire().pip, variant: "sideways" },
@@ -197,25 +163,18 @@ describe("narrowRowVocab — the guards WITH their defaults", () => {
   });
 
   it("FOLDS shellLive too — the bag's OTHER variant-derived member", () => {
-    // `{ variant: "working", shellLive: true }` is a combination the producer
-    // cannot generate, and a transported `shellLive` made it spellable. Folded
-    // from the NARROWED variant, it cannot be.
     const quietShell = narrowRowVocab({
       ...wire(),
       pip: { ...wire().pip, variant: "idle", hasAgent: false, bytesLive: true },
     });
     expect(quietShell.pip.shellLive).toBe(true);
 
-    // An agent is driving it: busy-orange is the wrong paint, whatever a wire
-    // claimed.
     const driven = narrowRowVocab({
       ...wire(),
       pip: { ...wire().pip, variant: "idle", hasAgent: true, bytesLive: true },
     });
     expect(driven.pip.shellLive).toBe(false);
 
-    // And it follows the variant this build will PAINT: an unrecognised variant
-    // narrows to `idle`, so an agentless live terminal reads as a busy shell.
     const strange = narrowRowVocab({
       ...wire(),
       pip: {
@@ -229,9 +188,6 @@ describe("narrowRowVocab — the guards WITH their defaults", () => {
   });
 
   it("round-trips a bound bag through toWireRowVocab, deriving both members back", () => {
-    // The producer half. `motion` and `shellLive` leave by construction rather
-    // than by a caller remembering to strip them — excess-property checks do not
-    // fire through a variable, so the type alone would not have stopped it.
     const bag = {
       variant: "idle" as const,
       glyph: "shell" as const,
@@ -244,9 +200,6 @@ describe("narrowRowVocab — the guards WITH their defaults", () => {
       alert: false,
       alertLabel: "unread alert",
     };
-    // The producer hands the RECORD, not the answer — `hasAgent` is derived by
-    // the package that owns the read, so a producer cannot send one that
-    // disagrees with the variant beside it.
     const sent = toWireRowVocab({
       pip: bag,
       bucket: "idle",
@@ -262,10 +215,6 @@ describe("narrowRowVocab — the guards WITH their defaults", () => {
   });
 
   it("never derives the ORDER bucket from the PAINT variant — they disagree", () => {
-    // kolu's own case: a fresh `waiting` agent PAINTS `linger` (a dim glow)
-    // while the ORDER fold ranks it `idle`. `Exclude<DockRowBucket, "linger">`
-    // is the proof the two are different folds — so a wire that says so must
-    // survive intact rather than have one re-derived from the other.
     const n = narrowRowVocab({
       pip: { ...wire().pip, variant: "linger" },
       bucket: "idle",
@@ -276,9 +225,6 @@ describe("narrowRowVocab — the guards WITH their defaults", () => {
   });
 
   it("treats an inherited property name as the stranger it is", () => {
-    // `Object.hasOwn`, never `in` — a wire word of "toString" must not narrow
-    // as a member of a set it is not in. The guards already do this; this pins
-    // that narrowRowVocab inherits it rather than re-testing membership itself.
     const n = narrowRowVocab({
       pip: { ...wire().pip, glyph: "toString" },
       bucket: "constructor",

@@ -275,8 +275,8 @@ deliberately different subscriptions. So `now` is a parameter.
 
 Everything else is the package's, the WORDS included: which of the three
 renderings a row gets (`recencyMode`), which timestamp that rendering means
-(`displayRecencyAt`), what it says (`recencyText`), the violet capsule, and the
-reserved 8ch track.
+(`displayRecencyAt`), what each says (`agoText`, `waitText`), the violet
+capsule, and the reserved 8ch track.
 
 ```ts
 rowRecency(
@@ -311,10 +311,12 @@ both modes at once: "7m" where the Dock says "5m ago", and the empty string wher
 the wait chip must say the dash, because a violet pill with no glyph reads as a
 rendering bug rather than as "unknown".
 
-`recencyMode`, `displayRecencyAt` and `recencyText` remain exported — they are
-the pieces `rowRecency` is composed from, for a surface assembling a different
-set. `recencyText` does not accept `"hidden"`: that mode has no text, and the
-type says so rather than a comment.
+`recencyMode`, `displayRecencyAt`, `agoText` and `waitText` remain exported —
+they are the pieces `rowRecency` is composed from, for a surface assembling a
+different set. The two renderings are two folds rather than one function taking
+a mode: `agoText` is an AGE and carries its suffix (the empty string for a
+terminal with no activity), `waitText` is a live DURATION and says the dash
+where it has none. `hidden` has no text, so no fold takes it.
 
 ## What a consumer needs
 

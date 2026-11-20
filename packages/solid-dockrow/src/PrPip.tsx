@@ -1,19 +1,3 @@
-/** Pull-request presentation carried on a dock row — the state icon, the
- *  checks dot, and the tooltip that names which gate is red.
- *
- *  It rides in the ROW package rather than in the app because the PR badge is
- *  part of what a dock row IS: a fleet mirror that got the pip, the words, the
- *  annotation and the recency but had to re-draw the PR pip would be inventing
- *  exactly the thing this package exists to stop it inventing. The forge
- *  vocabulary it speaks (`anyforge/schemas`) costs a consumer nothing it does
- *  not already install — `@kolu/padi-client`, the surface a mirror dials,
- *  already names it — so leanness is not on the other side of this trade.
- *
- *  The GLYPHS are this package's too — `./forgeIcons`, a registry module beside
- *  this one, because nothing else in the repo drew them. kolu's other PR surfaces (tile title bar, workspace
- *  switcher, close-confirm) import them back from this package, which is the
- *  same shape as the dock reading `StatePip` out of `@kolu/solid-statepip`. */
-
 import type { CheckStatus, PrInfo } from "anyforge/schemas";
 import { type Component, Show } from "solid-js";
 import {

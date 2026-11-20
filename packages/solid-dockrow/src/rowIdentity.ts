@@ -1,33 +1,8 @@
-/** **What a row is CALLED and what colour it is** — the two folds that decide
- *  the annotation slot's text and its ink.
- *
- *  They ride with the row because a consumer that re-implements them gets a row
- *  whose words and hues differ from the Dock's, in the package built precisely
- *  so they cannot. That is not a hypothetical: both are small enough to look
- *  like something you would just write, and both have a rule inside them that
- *  is invisible from the outside — the annotation slot takes intent line 1 and
- *  NOT the branch when an intent exists (never both stacked), and the hue is a
- *  function of the key ALONE and not of which keys happen to be on screen.
- *
- *  kolu reads them back from here at its other altitudes (the title bar, the
- *  command palette, the switcher cards, the sub-panel tabs, the restore card),
- *  which is the same shape as the Dock reading `StatePip` out of
- *  `@kolu/solid-statepip`: the row owns what the row renders, and the surfaces
- *  that echo a row's identity read the row's own answer rather than a parallel
- *  one. */
-
 /** Line 1 of an intent — what a compact slot shows of a multi-line intent. */
 export function firstIntentLine(intent: string): string {
   return intent.split(/\r?\n/, 1)[0] ?? "";
 }
 
-/** The annotation line for a render site: intent line-1 when the user set one,
- *  otherwise the supplied fallback (typically the branch name or sub-tab
- *  label).
- *
- *  ONE slot per render site — never both stacked. That is the rule worth not
- *  re-deriving: it is why the intent's first-grapheme glyph appears here and
- *  not as a separate chip elsewhere on the same card. */
 export function annotationLine(
   intent: string | undefined,
   fallback: string,
@@ -36,9 +11,6 @@ export function annotationLine(
   return fallback;
 }
 
-/** Stable 32-bit FNV-1a → hue in [0, 360) with full-hash precision.
- *  Using the full 32-bit range (not `% 360`) keeps ordinary names from
- *  colliding on exact hues. */
 function stableHue(key: string): number {
   // NFC so the hue matches a monogram built from an NFD/NFC-equivalent name
   // (macOS paths). Empty / unexpected keys still get a deterministic hue.
