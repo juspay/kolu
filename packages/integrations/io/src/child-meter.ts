@@ -1,33 +1,3 @@
-/**
- * The child meter — one record per child process this Node process starts,
- * kept for the last minute, so a daemon can say which commands it ran, how
- * long each one blocked the start call, and how long each ran.
- *
- * ## Why at Node's spawn seam, not at the call sites
- *
- * Children are started in three ways in this tree: `node:child_process`
- * directly, `simple-git`, and `osfacts-client`. A wrapper at the call site
- * reaches only the first. Every ASYNC child in Node, whoever starts it, passes
- * through `ChildProcess.prototype.spawn(options)`, which receives
- * `options.file` / `options.args` and returns `0` or a negative errno. Wrapping
- * that one method covers every library and every future call site with no edit.
- *
- * It is an undocumented method, so {@link installChildMeter} THROWS when it is
- * not a function, and `child-meter.test.ts` starts a real child and asserts the
- * meter saw it: a Node release that moves the seam fails the build, not a user.
- *
- * `execFileSync` / `spawnSync` do not pass through it. A synchronous child is
- * metered at its call site with {@link meterSyncChild}.
- *
- * ## Scopes
- *
- * "Which call is this child part of" and "why did this child run" are ambient
- * by nature: nobody can thread a parameter through simple-git's task queue. A
- * caller runs its work inside {@link runInChildScope}; the spawn seam reads the
- * scope in force (one `AsyncLocalStorage`) and records the scope's `cause` and
- * adds to its tally.
- */
-
 import { AsyncLocalStorage } from "node:async_hooks";
 import { ChildProcess } from "node:child_process";
 import path from "node:path";
@@ -80,15 +50,12 @@ export function runInChildScope<T>(
   );
 }
 
-/** Subcommand words that make a kind, per program. The count is FIXED per
- *  program, so a branch name or a path can never become a kind. */
 const SUBCOMMAND_WORDS: Readonly<Record<string, number>> = {
   git: 1,
   gh: 2,
   osfacts: 1,
 };
 
-/** Global options that take the NEXT argument as their value, per program. */
 const VALUE_OPTIONS: Readonly<Record<string, readonly string[]>> = {
   git: ["-c", "-C"],
 };
@@ -116,19 +83,15 @@ export function childKind(argv: readonly string[]): string {
 
 interface ChildRecord {
   readonly kind: string;
-  /** `performance.now()` at the start call. */
   readonly startedAt: number;
   readonly startCallMs: number;
   readonly failedToStart: boolean;
   readonly cause: string | undefined;
-  /** Start-to-exit, once exited. */
   runMs: number | undefined;
 }
 
 let installed = false;
-/** Records of children started inside the window, in start order. */
 const recent: ChildRecord[] = [];
-/** Children started BEFORE the window that have not exited yet. */
 const longRunning = new Set<ChildRecord>();
 
 function prune(now: number): void {
@@ -166,8 +129,6 @@ function exited(rec: ChildRecord, tally: ChildTally | undefined): void {
   if (tally) tally.runMs += rec.runMs;
 }
 
-/** `ChildProcess.prototype.spawn` as Node calls it: the resolved program and
- *  its full argv (argv[0] included), answering `0` or a negative errno. */
 type SpawnSeam = (
   this: ChildProcess,
   options: { file?: string; args?: readonly string[] },
@@ -178,7 +139,6 @@ type SpawnSeam = (
  *  already installed. */
 export function installChildMeter(): void {
   if (installed) throw new Error("child meter: already installed");
-  // Node's typings do not declare the seam; it is reached as what it is.
   const proto = ChildProcess.prototype as unknown as { spawn: unknown };
   const original = proto.spawn;
   if (typeof original !== "function") {

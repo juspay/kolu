@@ -1,10 +1,3 @@
-/**
- * The two shapes every diagnostic number takes, whoever measures it — the
- * child meter here, padi's stall monitor and call table, the watcher rows.
- * Their wire twins are `@kolu/padi-client`'s `measuredSchema` and
- * `TimingSummarySchema`.
- */
-
 /** A number that was measured, or why it was not. Never a zero or a null
  *  standing in for "unknown". */
 export type Measured<T> =

@@ -5,12 +5,6 @@ import { readProcessSnapshot } from "./process-snapshot.ts";
 
 describe("readProcessSnapshot", () => {
   describeDaemon("reads a child's exec-time argv + env", () => {
-    // NOTE: /proc/<pid>/environ reflects the EXEC-TIME env only (a setenv
-    // after start does not reach it) — which is also exactly the launch env
-    // an agent integration needs. Tests therefore spawn a child carrying the
-    // marker rather than mutating this process's own env. (describeDaemon-
-    // gated: the child is a real fork, so this case runs only where forks are
-    // allowed.)
     it("returns the launch env and argv", () => {
       if (process.platform !== "linux" && process.platform !== "darwin") return;
       // The child parks on stdin rather than on a timer: it must stay alive
@@ -30,8 +24,6 @@ describe("readProcessSnapshot", () => {
         expect(child.pid).toBeDefined();
         const snap = readProcessSnapshot(child.pid!);
         expect(snap).not.toBeNull();
-        // The exact token array — the value stays ONE argv element on every
-        // platform (Linux `/proc`, darwin KERN_PROCARGS2 via osfacts).
         expect(snap?.argv.slice(1)).toEqual([
           "-e",
           "process.stdin.resume()",
@@ -42,9 +34,6 @@ describe("readProcessSnapshot", () => {
         if (process.platform === "linux") {
           expect(snap?.env?.KOLU_SNAPSHOT_MARKER).toBe("present");
         } else {
-          // Darwin: macOS redacts even same-user environments from ps, so the
-          // env is `null` (explicitly unreadable, NOT an empty map) by OS
-          // policy — documented in process-snapshot.ts.
           expect(snap?.env).toBeNull();
         }
       } finally {

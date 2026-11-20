@@ -1,17 +1,3 @@
-/**
- * Generic refcounted shared `fs.watch` watcher keyed by directory.
- *
- * The directory is the watch target, not the file: most editors and tools
- * rewrite files via temp+rename, which destroys an `fs.watch` handle pointed
- * at the original file. A parent-directory watcher catches the rename event
- * cleanly on both Linux inotify and macOS FSEvents.
- *
- * Refcounted singleton per resolved dir: first subscribe installs, last
- * unsubscribe tears down and drops the registry entry. Idempotent
- * unsubscribe; teardown clears the debounce timer so late callbacks can't
- * fire on a closed watcher.
- */
-
 import type { Logger } from "@kolu/log";
 import fs from "node:fs";
 import path from "node:path";
@@ -98,15 +84,9 @@ interface Subscriber {
 interface SharedFilenameWatcher {
   subscribe(onChange: () => void, asker: WatchAsker): () => void;
   row(): DirWatcherRow;
-  /** Test-only: tear down the underlying `fs.watch` handle and clear the poll
-   *  and debounce timers, regardless of subscriber count. Invoked by
-   *  `DirFilenameWatcher._reset()` to break the module-scope leak that
-   *  cascades vitest `afterEach` failures (see #955). */
   _forceClose(): void;
 }
 
-/** Every factory {@link createDirFilenameWatcher} has built, so one read can
- *  list every live entry across all of them. */
 const factories = new Set<{ rows(): DirWatcherRow[] }>();
 
 /** One row per live entry of every dir+filename watcher in this process. */
@@ -176,12 +156,7 @@ export function createDirFilenameWatcher(
   config: DirFilenameWatcherConfig,
 ): DirFilenameWatcher {
   const watchers = new Map<string, SharedFilenameWatcher>();
-  // In-flight `watch()` resolutions, so a test can await them settling
-  // before asserting `_watcherCount()`. Each entry removes itself on settle.
   const pending = new Set<Promise<void>>();
-  // Bumped by `_reset()`. A resolution that started before a reset carries
-  // its origin generation; on settle it compares against the live token and
-  // discards itself if they differ, so it can't install into a fresh registry.
   let generation = 0;
 
   function install(
@@ -229,10 +204,6 @@ export function createDirFilenameWatcher(
       return null;
     }
 
-    // `fs.watch` is a fast edge, not a delivery guarantee. Capture an
-    // authoritative baseline after the handle attaches, then stat on a bounded
-    // cadence so a dropped/coalesced edge self-heals. The consumer re-reads and
-    // equality-gates the derived state, so an edge/poll double pulse is benign.
     let observed = observeFile(filePath, log, config.logLabel);
     let pollTimer: NodeJS.Timeout = setTimeout(function poll(): void {
       const next = observeFile(filePath, log, config.logLabel);
@@ -253,11 +224,6 @@ export function createDirFilenameWatcher(
         const listener: Subscriber = { onChange, asker };
         listeners.add(listener);
         return () => {
-          // `Set.delete` returns false if this listener was already removed —
-          // double-call from the same caller can't double-tear-down. A
-          // later subscribe under the same dir installs a fresh singleton;
-          // this closure stays bound to the old one, so it can't
-          // accidentally tear that fresh entry down.
           if (!listeners.delete(listener)) return;
           if (listeners.size === 0) {
             coalesce.destroy();
@@ -289,10 +255,6 @@ export function createDirFilenameWatcher(
   const factory: DirFilenameWatcher = {
     watch(cwd, asker, onChange, log) {
       const watchStartedAt = performance.now();
-      // The resolution (a git subprocess, a realpath) must not block the
-      // event loop, so it runs async and `fs.watch` attaches once it
-      // settles. The unsubscribe is returned synchronously; if it runs
-      // before the install settles, `cancelled` short-circuits the install.
       const startGeneration = generation;
       let cancelled = false;
       let unsubscribe: (() => void) | null = null;
@@ -307,9 +269,6 @@ export function createDirFilenameWatcher(
           );
           return;
         }
-        // Unsubscribed during resolution, or the registry was reset out from
-        // under us — drop the install. (No `await` between here and
-        // `subscribe()` below, so neither flag can flip mid-install.)
         if (cancelled || startGeneration !== generation || dir === null) return;
         let entry = watchers.get(dir);
         if (!entry) {
@@ -324,19 +283,6 @@ export function createDirFilenameWatcher(
           entry = fresh;
         }
         unsubscribe = entry.subscribe(onChange, asker);
-        // Post-install reconciliation. The consumer takes its snapshot (a `git
-        // status`, a `resolveGitInfo`) and *then* calls `watch()`; this resolve
-        // + `fs.watch` attach lands on a LATER tick (an `execFile` git subprocess
-        // + a `realpath` ago). A change to the watched file inside that window is
-        // in neither the already-sent snapshot nor a future `fs.watch` event, so
-        // the consumer would sit on a stale view until the *next* unrelated
-        // change. Fire one reconcile tick now that the handle is live so the
-        // consumer re-reads and converges. Mirrors `watchWorkingTree`'s own
-        // post-install reconciliation (and the @parcel/watcher skill's guidance)
-        // — the git-dir axes (HEAD/reflog/index/config) need the same lost-update
-        // protection the working-tree axis already has. Wrapped like the event
-        // dispatch so a throwing listener can't reject this settle promise (which
-        // would surface as an unhandledRejection and, in the server, exit).
         try {
           onChange();
         } catch (e) {
@@ -358,9 +304,6 @@ export function createDirFilenameWatcher(
     },
     _watcherCount: () => watchers.size,
     async _whenSettled() {
-      // Loop: a settling resolution can, in principle, leave another pending
-      // (it can't today — install spawns no watch() — but the barrier stays
-      // honest if that changes).
       while (pending.size > 0) await Promise.allSettled([...pending]);
     },
     _reset() {

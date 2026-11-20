@@ -1,23 +1,3 @@
-/**
- * Trailing-edge coalescing scheduler with a hard maxWait cap.
- *
- * ## Why (juspay/kolu#1952)
- *
- * A pure trailing debounce (reset the quiet timer on every edge) starves under
- * a hot source: Grok's `phase_changed` firehose, dense `fs.watch` bursts, WAL
- * write storms. While edges keep arriving faster than the quiet window, the
- * callback never fires — and any append-poll floor that feeds the *same*
- * `schedule()` is defeated the same way (#1754 + #1952).
- *
- * `maxWaitMs` caps how long a pending fire can be postponed from the first
- * edge in a burst. Quiet sources still settle in `debounceMs`; hot sources
- * publish at least every `maxWaitMs`.
- *
- * Production watch sites bake `COALESCE_MAX_WAIT_MS` as a module constant
- * (no per-call opt-out — conventions.md). Tests pass short intervals under
- * Vitest's fake global clock; production uses the host clock and timers.
- */
-
 /** Default quiet-window used by agent / git / WAL watchers (150 ms). */
 export const COALESCE_DEBOUNCE_MS = 150;
 

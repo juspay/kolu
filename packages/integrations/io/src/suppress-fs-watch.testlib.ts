@@ -1,10 +1,3 @@
-/**
- * Test helper: suppress every `fs.watch` EDGE so the `statSync` poll floor is
- * exercised in isolation (juspay/kolu#1754). Shared by the kolu-io primitive
- * test and every consumer-watcher test (grok / claude / WAL), which otherwise
- * each hand-rolled the identical no-op FSWatcher stub.
- */
-
 import fs from "node:fs";
 
 /**

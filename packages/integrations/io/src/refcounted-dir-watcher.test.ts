@@ -9,8 +9,6 @@ import {
   listDirWatcherRows,
 } from "./refcounted-dir-watcher.ts";
 
-/** A promise plus its resolver — lets a test hold a `resolveDir` open and
- *  release it on demand, so the async-install window is observable. */
 function deferred<T>(): { promise: Promise<T>; resolve: (v: T) => void } {
   let resolve!: (v: T) => void;
   const promise = new Promise<T>((r) => {
@@ -19,8 +17,6 @@ function deferred<T>(): { promise: Promise<T>; resolve: (v: T) => void } {
   return { promise, resolve };
 }
 
-/** A no-op logger that records `error` payloads, so a test can assert a
- *  caught failure was logged rather than thrown. */
 function makeTestLog(): { log: unknown; errors: string[] } {
   const errors: string[] = [];
   const log = {
@@ -39,9 +35,6 @@ describe("createDirFilenameWatcher async install", () => {
 
   beforeEach(() => {
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "refcounted-watcher-test-"));
-    // These tests pin install/reconcile/refcount semantics, not Node's kernel
-    // watcher. A real fs.watch adds an unrelated inotify/FSEvents scheduling
-    // race to the exact async-install window under test.
     vi.spyOn(fs, "watch").mockReturnValue({
       close() {},
     } as FSWatcher);
@@ -52,10 +45,6 @@ describe("createDirFilenameWatcher async install", () => {
     fs.rmSync(tmpDir, { recursive: true, force: true });
   });
 
-  // The core regression guard: a `resolveDir` that blocks must NOT block the
-  // caller. A synchronous resolver (the old design) would freeze the event
-  // loop here; the async contract returns immediately and attaches later.
-  // This is the property whose absence caused the 2026-06-28 25-minute wedge.
   it("watch() returns synchronously while resolveDir is still pending", async () => {
     const gate = deferred<string | null>();
     const w = createDirFilenameWatcher({
@@ -65,18 +54,13 @@ describe("createDirFilenameWatcher async install", () => {
       logLabel: "test",
     });
 
-    // If `watch()` awaited `resolveDir`, this line would never be reached
-    // until the gate opened. It returns an unsubscribe immediately, and the
-    // install has not happened yet (the resolver hasn't resolved).
     const stop = w.watch(tmpDir, "test", () => {});
     expect(typeof stop).toBe("function");
     expect(w._watcherCount()).toBe(0);
 
-    // The event loop is live: a microtask runs while resolveDir is parked.
     await Promise.resolve();
     expect(w._watcherCount()).toBe(0);
 
-    // Release the gate at the real dir → the install settles and attaches.
     gate.resolve(tmpDir);
     await w._whenSettled();
     expect(w._watcherCount()).toBe(1);
@@ -85,10 +69,6 @@ describe("createDirFilenameWatcher async install", () => {
     expect(w._watcherCount()).toBe(0);
   });
 
-  // Lost-update guard: the consumer snapshots BEFORE `watch()` and the handle
-  // attaches a tick later, so a change in that window would be invisible without
-  // a reconciliation tick. `watch()` must fire `onChange` once the handle is
-  // live so the consumer re-reads and converges.
   it("fires a reconciliation tick once the watcher is installed", async () => {
     let fires = 0;
     const w = createDirFilenameWatcher({
@@ -101,11 +81,9 @@ describe("createDirFilenameWatcher async install", () => {
     const stop = w.watch(tmpDir, "test", () => {
       fires++;
     });
-    // Nothing fires synchronously — the resolve hasn't settled yet.
     expect(fires).toBe(0);
 
     await w._whenSettled();
-    // Exactly one reconcile tick after the handle attaches.
     expect(fires).toBe(1);
 
     stop();
@@ -124,11 +102,9 @@ describe("createDirFilenameWatcher async install", () => {
 
     const stop = w.watch(tmpDir, "test", onChange);
     await w._whenSettled();
-    expect(onChange).toHaveBeenCalledTimes(1); // install reconciliation
+    expect(onChange).toHaveBeenCalledTimes(1);
     onChange.mockClear();
 
-    // `beforeEach` replaced fs.watch with a no-op handle, so only the stat
-    // floor can observe this post-install branch-identity rewrite.
     fs.writeFileSync(head, "ref: refs/heads/watcher-test\n");
     await new Promise((resolve) =>
       setTimeout(resolve, DIR_FILENAME_POLL_MS + 500),
@@ -138,8 +114,6 @@ describe("createDirFilenameWatcher async install", () => {
     stop();
   });
 
-  // A throwing reconcile listener must be caught (logged), never reject the
-  // settle promise — otherwise the server's unhandledRejection handler exits.
   it("a throwing reconcile listener is caught, not propagated", async () => {
     const { log, errors } = makeTestLog();
     const w = createDirFilenameWatcher({
@@ -157,7 +131,6 @@ describe("createDirFilenameWatcher async install", () => {
       },
       log as never,
     );
-    // Must settle without an unhandled rejection.
     await w._whenSettled();
     expect(errors.some((e) => e.includes("reconcile boom"))).toBe(true);
     expect(w._watcherCount()).toBe(1);
@@ -175,11 +148,10 @@ describe("createDirFilenameWatcher async install", () => {
     });
 
     const stop = w.watch(tmpDir, "test", () => {});
-    stop(); // cancel while the resolver is still pending
+    stop();
 
     gate.resolve(tmpDir);
     await w._whenSettled();
-    // The pending install saw the cancellation and never attached.
     expect(w._watcherCount()).toBe(0);
   });
 
@@ -247,9 +219,7 @@ describe("createDirFilenameWatcher async install", () => {
       logLabel: "test",
     });
 
-    // Must not throw synchronously...
     const stop = w.watch(tmpDir, "test", () => {}, log as never);
-    // ...nor reject the in-flight install (otherwise an unhandled rejection).
     await w._whenSettled();
 
     expect(w._watcherCount()).toBe(0);
@@ -267,11 +237,10 @@ describe("createDirFilenameWatcher async install", () => {
     });
 
     w.watch(tmpDir, "test", () => {});
-    w._reset(); // bumps the generation while the resolution is in flight
+    w._reset();
 
     gate.resolve(tmpDir);
     await w._whenSettled();
-    // The stale resolution must not install into the fresh registry.
     expect(w._watcherCount()).toBe(0);
   });
 });

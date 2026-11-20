@@ -1,9 +1,3 @@
-/**
- * The stamped cache's three load-bearing behaviours: it does not re-read an
- * unmoved file, it DOES re-read a moved one, and it never remembers an absent
- * one (which would make "the agent has not started yet" a permanent verdict).
- */
-
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -38,7 +32,6 @@ it("re-derives only when (mtimeMs, size) moves", () => {
   expect(read()).toBe("v1");
   expect(derivations).toBe(1);
 
-  // A different LENGTH, so the stamp moves even inside one millisecond.
   writeFileSync(file, "another value");
   expect(read()).toBe("v2");
   expect(derivations).toBe(2);
@@ -57,13 +50,12 @@ it("never caches an absent file, and hands the reader no stat for it", () => {
 
   expect(read()).toBe("absent");
   expect(read()).toBe("absent");
-  expect(cache.size).toBe(0); // nothing held — absence is not a cacheable fact
+  expect(cache.size).toBe(0);
 
   writeFileSync(file, "now here");
   expect(read()).toBe("present");
   expect(seen).toEqual([false, false, true]);
 
-  // And a file that goes away stops answering from the cache.
   rmSync(file);
   expect(read()).toBe("absent");
   expect(cache.size).toBe(0);
@@ -86,13 +78,13 @@ it("stays within its bound, evicting the least recently used", () => {
 
   read(files[0]!);
   read(files[1]!);
-  read(files[0]!); // `a` is now the most recently used, `b` the least
+  read(files[0]!);
   expect(derivations).toBe(2);
 
-  read(files[2]!); // evicts `b`
+  read(files[2]!);
   expect(cache.size).toBe(2);
-  read(files[0]!); // still held
+  read(files[0]!);
   expect(derivations).toBe(3);
-  read(files[1]!); // was evicted — re-derived
+  read(files[1]!);
   expect(derivations).toBe(4);
 });

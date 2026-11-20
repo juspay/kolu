@@ -1,9 +1,3 @@
-/**
- * Primitive-level starvation regression for `createCoalesceSchedule`
- * (juspay/kolu#1952). No fs.watch — pure schedule() bursts so the maxWait
- * guarantee is proven at the source, independent of OS edge delivery.
- */
-
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   COALESCE_DEBOUNCE_MS,
@@ -54,14 +48,11 @@ describe("createCoalesceSchedule", () => {
 
     const started = Date.now();
     s.schedule();
-    // A synthetic source schedules every 25ms — strictly below the 80ms quiet
-    // window. Fake time makes the no-quiet-gap premise exact under host load.
     for (let elapsed = 25; elapsed <= 300; elapsed += 25) {
       await vi.advanceTimersByTimeAsync(25);
       s.schedule();
     }
 
-    // Must have fired *during* the burst (maxWait), not only after quiet.
     expect(fires).toBeGreaterThanOrEqual(1);
     expect(firstFireAt).not.toBeNull();
     expect(firstFireAt! - started).toBe(maxWaitMs);
@@ -81,7 +72,7 @@ describe("createCoalesceSchedule", () => {
     s.destroy();
     await vi.advanceTimersByTimeAsync(50);
     expect(fires).toBe(0);
-    s.schedule(); // no-op
+    s.schedule();
     await vi.advanceTimersByTimeAsync(50);
     expect(fires).toBe(0);
   });
