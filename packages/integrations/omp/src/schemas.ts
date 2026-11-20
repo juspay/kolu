@@ -1,9 +1,5 @@
 /** Effect Schema definitions for oh-my-pi session info — browser-safe.
  *
- *  Lives in its own module so `@kolu/terminal-vocab` (and any client code) can
- *  import the schema without pulling the package root, which imports
- *  `node:fs`. Mirrors the `kolu-pi/schemas` precedent.
- *
  *  Anything exported here MUST stay free of `node:*` imports and filesystem
  *  access — Effect Schema and `anyagent`'s schema re-exports only. */
 
@@ -86,25 +82,14 @@ export const OmpInfoSchema = Schema.Struct({
 
 export type OmpInfo = typeof OmpInfoSchema.Type;
 
-/** oh-my-pi's mark — the EXACT glyph from omp's own site favicon, scaled
- * 0.375 from its 64×64 canvas onto the contract's 24×24 one: a top bar with
- * two uneven stems hanging off it (a stylized π), source
- *  `packages/collab-web/public/favicon.svg` in oh-my-pi's repo, byte-identical
- *  to https://omp.sh/favicon.svg. The upstream branding paints this glyph in
- *  a pink→purple→cyan diagonal gradient over a dark rounded square; the
- *  `AgentMark` contract is one-ink (`currentColor`) BY DESIGN — the dock pip's
- *  color is agent STATE, not brand — so what carries here is the silhouette.
- *  The uneven stem heights (not π's equal legs) are also the detail that keeps
- *  it readable apart from `PI_MARK` at dock size. ONE mark for both the
- *  tile-chrome icon and the dock pip. */
 const OMP_MARK = {
   viewBox: "0 0 24 24",
   paint: "fill" as const,
   paths: ["M5.25 6h13.5v3H15v12h-3V9H9.75v8.25H6.75V9H5.25z"],
 };
 
-/** omp's vocabulary — display name, brand mark, CLI grammar (including its
- *  one-shot/subcommand carve-outs), resume policy, and wire schema.
+/** omp's vocabulary — display name, brand mark, CLI grammar, resume policy,
+ *  and wire schema.
  *
  *  The CLI grammar is transcribed from `omp --help` (18.1.21) and omp's own
  *  `cli/flag-tables.ts` (`STRING_SETTERS` = value flags, `VALUELESS_FLAGS` =
@@ -132,34 +117,12 @@ export const ompVocab: AgentVocab<OmpInfo> = {
       ["--no-title", "boolean"],
       ["--hide-thinking", "boolean"],
     ]),
-    // omp's one-shot surface (`-v`, `--export`, `-p`, `--alias`) and its
-    // subcommand words (`list`, `config`, …) used to be carved out here so a
-    // TYPED line could not enter the recent-agents MRU. Nothing reads a typed
-    // line any more: the MRU is fed by a detected LIVE agent, so a one-shot
-    // invocation (which has no session and exits) can never appear in it.
   },
   resume: {
     byId: (id) => `--resume ${id}`,
     idPattern: SESSION_PATH_OR_UUID_RE,
-    // omp prefers the PATH over the id: `--resume <ref>` accepts an id prefix, a
-    // filename prefix, OR an absolute path, and only the path survives a store
-    // that moved (a `--session-dir` run, a profile switch) — the breadcrumb
-    // hands kolu that path, so it is always available.
     ref: (info) => info.sessionPath,
   },
-  // Measured: `omp` 18.20.2 in a kolu terminal on 2026-11-15. Idle, text plus
-  // ONE Enter submits — including a multiline bracketed paste: an Enter sent in
-  // the same breath as the paste is swallowed by the TUI's paste debounce, so
-  // it is the SETTLE between the two writes that fixes it, never a second key.
-  // WHILE WORKING, the same one Enter puts the words in omp's steering pane
-  // ("Steering · 1") — a short line, a 654-byte line and a multiline paste
-  // alike — and the turn takes them at its next step. During a `bash` call
-  // that is at once (omp backgrounds the command to take the message); during
-  // an eval cell it is when the cell ends, on its own. A SECOND Enter on the
-  // empty prompt delivers a held steer by interrupting the running tool (the
-  // cell died with KeyboardInterrupt and was run again), so it is never part
-  // of the recipe. The user entry lands in the transcript only when the turn
-  // takes the words, which is what `lastPromptId` reads.
   say: {
     idle: ["Enter"],
     working: {

@@ -1,11 +1,3 @@
-/** Wire-format gate for `OmpInfoSchema`.
- *
- *  `OmpInfo` rides the agent-info wire (padi → client) and is folded into
- *  terminal-vocab's `AgentInfoSchema` union on the `kind` discriminant, so both
- *  directions are pinned here at the BYTE level rather than by
- *  decode-equality: the encoded JSON string (field order included) and the
- *  tolerances a rolling deploy leans on. Mirrors pi's gate. */
-
 import { Schema } from "effect";
 import { describe, expect, it } from "vitest";
 import { type OmpInfo, OmpInfoSchema } from "./schemas.ts";

@@ -18,8 +18,6 @@ const SESSION_ID = "01a0a0e3-1843-701b-bfde-c9c816e3e92f";
 const SESSION_FILE = `2026-09-14T17-07-12-579Z_${SESSION_ID}.jsonl`;
 const STARTED_AT = Date.parse("2026-09-14T17:07:12.579Z");
 
-/** omp's crumb, written the way `writeTerminalBreadcrumb` writes it — cwd,
- *  session path, and `fresh` only for a session whose JSONL is not on disk. */
 function crumb(
   name: string,
   opts: { target: boolean; fresh?: boolean },
@@ -67,19 +65,11 @@ describe("readBreadcrumb", () => {
   });
 
   it("reports ABSENT when omp itself would ignore the crumb", () => {
-    // No crumb at all — omp has never run on this tty.
     expect(readBreadcrumb(path.join(tmp, "never-written"))).toEqual({
       kind: "absent",
     });
-    // A materialized-then-deleted session, NOT marked fresh: omp's own
-    // `--continue` refuses this crumb, so kolu binds nothing rather than
-    // claiming a session that can never light up.
     const { file } = crumb("stale", { target: false });
     expect(readBreadcrumb(file)).toEqual({ kind: "absent" });
-    // …and the same crumb whose target ALSO carries an unparseable name. omp
-    // would ignore it for the first reason alone, so the dead-target check has
-    // to run BEFORE the name-parse verdict (juspay/kolu#2289 review): parsing
-    // first turned this into a reconcile-rate `unusable` plus an error log.
     const junkDir = path.join(tmp, "stale-and-unnameable");
     fs.mkdirSync(junkDir, { recursive: true });
     const junkCrumb = path.join(junkDir, "crumb");
@@ -97,10 +87,7 @@ describe("readBreadcrumb", () => {
   });
 
   it("reports UNUSABLE for a crumb it cannot read", () => {
-    // A crumb that is not a readable file (EISDIR here) is a fault, never a
-    // silent "no session".
     expect(readBreadcrumb(tmp)).toEqual({ kind: "unusable" });
-    // An unreadable crumb (the EACCES path) behaves identically.
     if (typeof process.getuid !== "function" || process.getuid() !== 0) {
       const { file } = crumb("no-perm", { target: true });
       fs.chmodSync(file, 0o000);
@@ -113,12 +100,9 @@ describe("readBreadcrumb", () => {
   });
 
   it("reports UNUSABLE for a crumb that names no session", () => {
-    // A truncated crumb (one line).
     const half = path.join(tmp, "half");
     fs.writeFileSync(half, "/work/proj\n");
     expect(readBreadcrumb(half)).toEqual({ kind: "unusable" });
-    // A target whose filename carries no id — the file exists, so this is not
-    // "omp has no session", it is a crumb kolu cannot turn into one.
     const dir = path.join(tmp, "unnameable");
     fs.mkdirSync(dir, { recursive: true });
     const target = path.join(dir, "junk.jsonl");
@@ -132,8 +116,6 @@ describe("readBreadcrumb", () => {
 describe("ttyIdForPid", () => {
   it("derives omp's tty id for this process on Linux", () => {
     if (process.platform !== "linux") return;
-    // Under vitest this process may have no tty (CI), in which case omp would
-    // derive nothing either — the contract is "null, never a guess".
     const id = ttyIdForPid(process.pid);
     const stdin = fs.readlinkSync("/proc/self/fd/0");
     if (stdin.startsWith("/dev/")) {

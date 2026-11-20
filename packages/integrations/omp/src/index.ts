@@ -1,24 +1,3 @@
-/**
- * oh-my-pi integration — public barrel.
- *
- * Module layout:
- *   - `agent-dir.ts`       — omp's agent-directory (profile / env / XDG) fold
- *   - `breadcrumb.ts`      — the tty → session breadcrumb (omp's own anchor)
- *   - `core.ts`            — leaf helpers (state fold, title slot,
- *                            breadcrumb-directory watcher)
- *   - `screen-scrape.ts`   — the awaiting-user dialog detector + promote policy
- *   - `session-watcher.ts` — per-session transcript watch → OmpInfo stream
- *   - `todo.ts`            — the `todo` list's current snapshot → taskProgress
- *   - `branch.ts`          — omp's active branch (the leaf rule), shared by
- *                            the todo reader and the transcript export
- *   - `agent-adapter.ts`   — `AgentAdapter` the sensors consume
- *   - `schemas.ts`         — Effect schemas + types (browser-safe)
- *   - `config.ts`          — env-resolved home paths
- *
- * Peers import from their leaves; `index.ts` is a pure barrel so nothing has
- * to reach back through it (the codex/grok cycle precedent, #710).
- */
-
 export type { Logger } from "kolu-shared";
 export {
   type AgentDirResolution,
@@ -57,12 +36,6 @@ export {
   normalizeOmpToolInput,
   parseOmpTranscript,
 } from "./transcript.ts";
-// The screen-scrape detector + promote policy stays INTERNAL (claude-code keeps
-// its own `screen.ts` private too): its only consumer is this package's
-// adapter, which imports the leaf directly. A public policy surface with no
-// consumer is surface a reader has to classify and maintain for nothing.
-
-// ── The plugin — the ONE contribution the registry (`kolu-agents`) folds. ──
 import type { AgentPlugin } from "anyagent";
 import type { Fetcher } from "kolu-transcript-core";
 import { ompAdapter } from "./agent-adapter.ts";

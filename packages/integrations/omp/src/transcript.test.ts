@@ -23,13 +23,9 @@ afterAll(() => {
 
 const line = (o: object) => JSON.stringify(o);
 
-/** omp's line-1 title slot (its fixed 256-byte header; the loader must skip it,
- *  exactly as the fold reads only the `title` out of it). */
 const titleSlot = (title: string) =>
   line({ type: "title", v: 1, title, source: "auto", pad: "  " });
 
-/** The session header on line 2 — note omp carries `title` here too; neither
- *  the slot nor the header is a conversation entry. */
 const header = line({
   type: "session",
   version: 3,
@@ -173,8 +169,6 @@ describe("parseOmpTranscript", () => {
           ...(role === "assistant" ? { model: "m" } : {}),
         },
       });
-    // File order interleaves an abandoned branch (b1→b2) with the live one:
-    // in-file branching re-pointed the leaf from b2 back to u1.
     const events = parseOmpTranscript(
       [
         titleSlot("branching"),
@@ -194,10 +188,6 @@ describe("parseOmpTranscript", () => {
   });
 
   it("keeps the newest turn while a `model_usage` entry is the last line", () => {
-    // Cut from a real session at the moment omp had just appended the title
-    // request's `model_usage`: it hangs off the user prompt (its `parentId`)
-    // and names the real leaf, the third tool result, as `activeLeafId`.
-    // Walking back from the last line instead dropped the whole turn.
     const events = parseOmpTranscript(
       fs.readFileSync(
         path.join(
@@ -292,15 +282,8 @@ describe("loadOmpTranscript", () => {
     ).toBeNull();
   });
 
-  // describeDaemon-gated: the stand-in foreground omp is a real forked child
-  // whose stdin is INHERITED (so the adapter derives the same tty id omp
-  // would), and its env is the one this test hands it — a real fork, so this
-  // case runs only where forks are allowed.
   describeDaemon("the breadcrumb the adapter recorded", () => {
     it("loads the session, title and all, from that path", () => {
-      // The tty anchor only exists when the test runner itself has a tty; a
-      // tty-less CI worker is the "omp derives no id either" case, covered by
-      // the e2e lane against a real PTY.
       if (process.platform !== "linux") return;
       let stdinTty: string;
       try {
@@ -333,8 +316,6 @@ describe("loadOmpTranscript", () => {
 
       const child = spawn(process.execPath, ["-e", "process.stdin.resume()"], {
         stdio: ["inherit", "ignore", "ignore"],
-        // The child's env is exactly this — no ambient OMP_*/PI_* can leak in,
-        // so the adapter's directory fold is deterministic.
         env: { PATH: process.env.PATH },
       });
       try {
@@ -390,9 +371,6 @@ describe("loadOmpTranscript", () => {
       }
       if (!stdinTty.startsWith("/dev/")) return;
 
-      // The lazy-session window: omp has written the crumb but not the first
-      // JSONL line, so resolveSessions PUBLISHES a path that does not exist
-      // yet. A fetch inside that window is "transcript not available".
       const sessionId = "01a0a0e3-1843-701b-bfde-c9c816e3e921";
       const transcriptPath = path.join(
         tmpHome,
@@ -424,8 +402,6 @@ describe("loadOmpTranscript", () => {
           log,
         );
         expect(offered?.map((s) => s.id)).toEqual([sessionId]);
-        // …and the presence padi publishes while that JSONL is missing carries
-        // the id the fresh crumb names, rather than none.
         expect(
           offered?.map((s) => ompAdapter.presenceSessionId?.(s) ?? null),
         ).toEqual([sessionId]);
@@ -448,14 +424,6 @@ describe("loadOmpTranscript", () => {
 
     it("answers no session for a `--no-session` run, ignoring the tty's stale crumb", () => {
       if (process.platform !== "linux") return;
-      // Fable's scenario (review #5202486673): `omp --no-session` never
-      // re-stamps the tty's breadcrumb, so a crumb an earlier run left still
-      // points at a real, existing transcript. The crumb must lose.
-      //
-      // No tty needed: the `--no-session` guard runs on the foreground
-      // process's argv (readable from /proc on any stdin) BEFORE the adapter
-      // derives a tty id — so unlike its neighbours this test genuinely runs
-      // wherever vitest does, never early-returning on a pipe stdin.
       const sessionId = "01a0a0e3-1843-701b-bfde-c9c816e3e930";
       const dir = path.join(tmpHome, "sessions", "-work-proj");
       fs.mkdirSync(dir, { recursive: true });

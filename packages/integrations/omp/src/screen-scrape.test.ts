@@ -8,10 +8,6 @@ import {
 } from "./screen-scrape.ts";
 import type { OmpInfo } from "./schemas.ts";
 
-/** The tool-approval dialog, captured live from omp 18.1.21 in a 140×45 PTY
- *  (`omp --approval-mode always-ask`, a `bash` call) — the box title is
- *  `formatApprovalPrompt`'s first line, the options come from
- *  `uiContext.select(prompt, ["Approve", "Deny"])`. */
 const APPROVAL_DIALOG = [
   " run the bash command: echo hello",
   "",
@@ -33,8 +29,6 @@ const APPROVAL_DIALOG = [
   "",
 ].join("\n");
 
-/** The `ask` tool's dialog, captured live the same way (omp's `which colour do
- *  you prefer?` question). */
 const ASK_DIALOG = [
   "  ⎋ Asking user for colour preference",
   "╭─ Ask ────────────────────────────────────────╮",
@@ -88,7 +82,6 @@ describe("screenHasOmpPrompt", () => {
     expect(
       screenHasOmpPrompt("Ask me anything — I'm idle at the prompt.\n"),
     ).toBe(false);
-    // A dialog scrolled into history is not the dialog at the cursor.
     const scrolled = `${APPROVAL_DIALOG}\n${Array.from(
       { length: TAIL_REGION_LINES + 5 },
       (_, i) => `line ${i}`,
@@ -101,8 +94,6 @@ describe("isOmpScreenPollable", () => {
   it("polls only the states a dialog can appear in", () => {
     expect(isOmpScreenPollable(info("tool_use"))).toBe(true);
     expect(isOmpScreenPollable(info("thinking"))).toBe(true);
-    // An idle agent has no dialog to find, and a lifted state is already
-    // awaiting — the poll clock stays off for both.
     expect(isOmpScreenPollable(info("waiting"))).toBe(false);
     expect(isOmpScreenPollable(info("awaiting_user"))).toBe(false);
   });
@@ -133,8 +124,6 @@ describe("promoteOmpFromScreen", () => {
   });
 });
 
-/** The steering pane as omp 18.20.2 drew it in an 80-column kolu terminal on
- *  2026-11-15, while an eval cell it could not interrupt held a steer. */
 const HELD = [
   "│ print('EVAL2DONE')                                                           │",
   "╰──────────────────────────────────────────────────────────────────────────────╯",
@@ -146,8 +135,6 @@ const HELD = [
   "  ⎋ sleep 150 again                            😴 SLEEP: Run sleep 90 echo SLEPT",
   "╰─                                                                              ",
 ].join("\n");
-/** The same pane holding a 654-byte line (cut at the width) and a multiline
- *  paste (joined with `↵`) — both captured from the same run. */
 const HELD_LONG = HELD.replace(
   "STEER-FOUR: also say the word LYCHEE. ",
   "STEER-THREE: this is a deliberately long single line, the length of a re… ",
@@ -156,7 +143,6 @@ const HELD_MULTILINE = HELD.replace(
   "STEER-FOUR: also say the word LYCHEE. ",
   "STEER-FIVE, a multiline steer. ↵ Line two of it. ↵ When you reply, also … ",
 );
-/** The words still in the INPUT BOX — typed, and no Enter has reached them. */
 const TYPED_ONLY = [
   "  ⎋ sleep 150                                  😴 SLEEP: Run sleep 90 echo SLEPT",
   "╰─ STEER-FOUR: also say the word LYCHEE.                                       ",
@@ -193,9 +179,6 @@ describe("ompSteerPane", () => {
   });
 
   it("a pane whose rows do not parse into the count it states is UNREADABLE", () => {
-    // omp says it holds two and only one row reads as an item — a wrapped
-    // item, or a layout a new omp draws differently. Not an empty pane: an
-    // `absent` here would be `agent_say` reporting a non-delivery nobody saw.
     const WRAPPED = [
       " Steering · 2 ",
       "   1. the first message, which wrapped onto ",
@@ -208,8 +191,6 @@ describe("ompSteerPane", () => {
   });
 
   it("a pane whose header is above the rows kolu was GIVEN is UNREADABLE", () => {
-    // The caller cut the screen below the pane's header: its items are off
-    // the top of what this reader got, and part of a pane is not an absence.
     const tall = [
       "   7. a message kolu never sees the header of ",
       "   └ Alt+↑ to edit ",

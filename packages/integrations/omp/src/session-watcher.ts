@@ -1,24 +1,3 @@
-/** OmpWatcher — per-session lifecycle. Watches the session's JSONL transcript
- *  with the shared append-robust subscription (`subscribeFileAppends`, which
- *  tolerates absence, fires on the absent→present transition, and keys on
- *  `size:mtime:ino` so a rewrite also re-fires) plus the shared coalesce
- *  schedule, and emits `OmpInfo` on change, gated by the schema's own
- *  equivalence — every field, so a new prompt id (a steer that landed while the
- *  state stayed `thinking`) is a change. The
- *  todo list's progress rides the same tick: `createTodoProgressReader` reads
- *  only the bytes appended since the last tick (see `todo.ts`).
- *
- *  Pure observer: never creates paths under the agent dir. A session whose
- *  JSONL has not materialized yet (omp's `fresh` crumb) emits nothing until the
- *  file lands — the absent→present floor is what lights the session-backed
- *  state then, with no nudge. Until it does, padi shows the agent from its
- *  foreground alone (`starting` → `fresh`), carrying the session id this
- *  adapter names through `presenceSessionId`.
- *
- *  Debounce rationale mirrors pi's: during an active turn omp appends per tool
- *  call, so a pure trailing-edge debounce would starve; `createCoalesceSchedule`
- *  with maxWait caps the freeze while quiet turns still settle fast. */
-
 import { Schema } from "effect";
 import {
   COALESCE_DEBOUNCE_MS,
@@ -33,8 +12,6 @@ import { deriveOmpInfo } from "./core.ts";
 import { type OmpInfo, OmpInfoSchema } from "./schemas.ts";
 import { createTodoProgressReader } from "./todo.ts";
 
-/** Equality over EVERY field of `OmpInfo`, derived from its schema — the
- *  shared `agentInfoEqual` compares only the fields every agent has. */
 const sameOmpInfo = Schema.toEquivalence(OmpInfoSchema);
 
 export interface OmpWatcher {
@@ -54,7 +31,7 @@ export function createOmpWatcher(
   function emitIfChanged(): void {
     if (destroyed) return;
     const derived = deriveOmpInfo(session, log);
-    if (derived === null) return; // absent transcript / no turn entries yet
+    if (derived === null) return;
     const info: OmpInfo = {
       kind: "omp",
       state: derived.state,
@@ -106,7 +83,6 @@ export function createOmpWatcher(
     { session: session.id, path: session.transcriptPath },
     "omp: session watcher installed",
   );
-  // Initial emit — lights the indicator immediately on match.
   emitIfChanged();
 
   return {

@@ -1,35 +1,3 @@
-/** omp core — pure functions and IO helpers for folding an oh-my-pi session
- *  transcript into live state.
- *
- *  omp stores one append-only JSONL file per session:
- *
- *    `<agent dir>/sessions/<encoded cwd>/<timestamp>_<uuid>.jsonl`
- *
- *  The file's FIRST line is a fixed-width 256-byte **title slot**, rewritten in
- *  place (`{"type":"title","v":1,"title":…,"source":"auto"|"user",…,"pad":…}`);
- *  the `session` header follows on line 2. Every later line is an entry with
- *  `{ type, id, parentId, timestamp, … }` forming a tree (in-file branching).
- *  Types kolu reads:
- *
- *   - `message` — the conversation: roles `user`, `assistant`, `toolResult`
- *     (plus `bashExecution` / `pythonExecution` / `developer` / `fileMention` —
- *     interactive artifacts, not model turns, walked past like pi's).
- *   - `model_change` — the user switched models mid-session (its field is
- *     **`model`**, where pi's fork spells it `modelId`).
- *
- *  Everything else (`custom` tool-execution markers, `thinking_level_change`,
- *  `title_change`, `compaction`, …) is state-derivation or extension material
- *  and is skipped by the fold's `type === "message"` gate. The `todo` list —
- *  its tool results and `user_todo_edit` entries — is read by `todo.ts` over
- *  the whole file, not by this tail fold.
- *
- *  An assistant message is persisted only when it completes (a mid-turn tail
- *  ends on `user` or `toolResult`, never on a half-written assistant entry),
- *  which is what makes a tail fold honest.
- *
- *  Structure note: this file holds the leaf module. Peers `session-watcher.ts`
- *  and `agent-adapter.ts` import from here; `index.ts` is a pure barrel. */
-
 import fs from "node:fs";
 import { watchDirWhenReady } from "kolu-io";
 import type { Logger } from "kolu-shared";
@@ -38,24 +6,14 @@ import { promptTextOfParts } from "anyagent";
 import type { OmpInfo } from "./schemas.ts";
 import type { OmpSession } from "./breadcrumb.ts";
 
-// --- State fold (pure) ---
-
-/** The slice of an omp entry the fold reads. Entries carry far more; reading
- *  only these fields keeps upstream additions incapable of breaking the
- *  parse. */
 interface OmpEntry {
   type?: string;
-  /** Every entry's own id — the newest `user` message's is what a steer that
-   *  landed changes. */
   id?: string;
-  /** `model_change` entries (`model`, not pi's `modelId`). */
   model?: string;
   message?: {
     role?: string;
     model?: string;
     stopReason?: string;
-    /** A user entry's parts — the text `agent_say` compares a landing against
-     *  (`promptTextOfParts`). */
     content?: unknown;
     usage?: {
       input?: number;
@@ -86,9 +44,8 @@ interface OmpEntry {
  *     assistant record accounts rather than one hop back.
  *   - lastPromptId / lastPromptText: the newest `user` message entry's `id`
  *     and its text. omp writes a steer as a user entry only when the running
- *     turn TAKES it (measured, 18.20.2: one held behind an eval cell was
- *     written when the cell ended), so a new id whose text is the words said
- *     is the proof a steer landed — `agent_say` reads both.
+ *     turn TAKES it, so a new id whose text is the words said is the proof a
+ *     steer landed — `agent_say` reads both.
  *
  *  Pure — unit-testable without touching the filesystem. Returns null when the
  *  tail carries no turn entry at all (a file with only its title slot and
@@ -109,10 +66,6 @@ export function deriveOmpState(lines: string[]): {
   for (let i = lines.length - 1; i >= 0; i--) {
     const raw = lines[i];
     if (raw === undefined) continue;
-    // The walk's terminal condition, stated once: every independent projection
-    // has an answer. Below, each line is offered to whichever projection is
-    // still unset — "first unset slot wins" readers of one parsed line, each
-    // verifiable without the others.
     if (
       state !== null &&
       model !== null &&
@@ -124,7 +77,7 @@ export function deriveOmpState(lines: string[]): {
     try {
       entry = JSON.parse(raw) as OmpEntry;
     } catch {
-      continue; // partial trailing write / malformed line — skip
+      continue;
     }
 
     if (model === null) {
@@ -158,9 +111,6 @@ export function deriveOmpState(lines: string[]): {
       typeof entry.id === "string"
     ) {
       lastPromptId = entry.id;
-      // The TEXT of that entry, in the same step: `agent_say` compares it to
-      // what it said, so a prompt that moved for someone ELSE's words is not
-      // read as this steer landing.
       lastPromptText = promptTextOfParts(entry.message.content);
     }
 
@@ -168,15 +118,6 @@ export function deriveOmpState(lines: string[]): {
       const role = entry.message?.role;
       if (role === "assistant") {
         const stopReason = entry.message?.stopReason;
-        // omp persists an assistant entry only on COMPLETION, so any recorded
-        // stopReason means the turn ended and `toolUse` is the only WORKING
-        // reason. No table to drift against: a vocabulary upstream adds still
-        // classifies as the turn ended. NO reason is an entry that parsed yet
-        // carries none — a shape omp's writer cannot produce (`stopReason` is
-        // a REQUIRED field of its assistant message type; a line cut mid-append
-        // fails JSON.parse above and never gets here). Kept because some
-        // answer must be given: an unverifiable entry reads as in flight
-        // rather than a falsely completed turn.
         state =
           stopReason === "toolUse"
             ? "tool_use"
@@ -184,21 +125,14 @@ export function deriveOmpState(lines: string[]): {
               ? "thinking"
               : "waiting";
       } else if (role === "user" || role === "toolResult") {
-        // A human prompt just landed, or a tool returned and the model is
-        // about to be re-invoked — omp persists assistant messages only on
-        // completion, so both read as work in flight.
         state = "thinking";
       }
-      // bashExecution / pythonExecution / developer / fileMention: interactive
-      // artifacts — walk past to the genuine prior turn.
     }
   }
 
   if (state === null) return null;
   return { state, model, contextTokens, lastPromptId, lastPromptText };
 }
-
-// --- Tail reading ---
 
 /** Tail window for the state fold. omp entries are many small lines, but a
  *  toolResult can carry a large output payload — 256 KB comfortably holds the
@@ -217,8 +151,7 @@ export const TITLE_SLOT_BYTES = 256;
  *  launched with `--no-title`), and `null` when the file is absent — the lazy
  *  session whose breadcrumb says `fresh`, which is why absence is not an error
  *  here. A slot that cannot be parsed, or that parses to something other than an
- *  object, is a fault and IS logged — the difference between "not titled yet"
- *  and "corrupt slot" must not be invisible. */
+ *  object, is a fault and IS logged. */
 export function readTitleSlot(file: string, log?: Logger): string | null {
   let size: number;
   try {
@@ -229,11 +162,6 @@ export function readTitleSlot(file: string, log?: Logger): string | null {
     }
     return null;
   }
-  // Clamp the window to the head: `readTailLines` starts at `size - maxBytes`,
-  // so a size of at most one slot makes byte 0 the window's start and the FIRST
-  // line the slot (the claude-code precedent for a head read). The shared helper
-  // owns the FD lifetime — the hand-rolled open/read/close this replaces leaked
-  // the descriptor on a throwing read.
   const lines = readTailLines({
     path: file,
     size: Math.min(size, TITLE_SLOT_BYTES),
@@ -304,24 +232,7 @@ export function deriveOmpInfo(
   return { ...folded, summary: readTitleSlot(session.transcriptPath, log) };
 }
 
-// --- Breadcrumb-directory watcher (externalChanges) ---
-
-/** Watch a `terminal-sessions` directory and fire on any event in it.
- *
- *  Why a directory watch and not the transcript: omp writes its breadcrumb
- *  when a session is created or switched — including the rewrite that lands
- *  when `omp` starts in a tty that still carried an earlier session's crumb
- *  (`omp -c`'s own anchor). The foreground preexec hint fires BEFORE that
- *  rewrite, so without this signal a terminal would stay bound to the previous
- *  session until some other event arrived. The ONLY writes into this directory
- *  are breadcrumbs (one small file per tty), so every event is a match-relevant
- *  change — unlike a session store, where content appends are the per-session
- *  traffic `externalChanges` must not report.
- *
- *  `watchDirWhenReady` carries the ancestor-wait, so a directory that does not
- *  exist yet re-arms all the way up instead of dying at install time —
- *  `externalChanges.install` runs at most once per process, so a failed install
- *  would blind detection for the daemon's lifetime. */
+/** Watch a `terminal-sessions` directory and fire on any event in it. */
 export function subscribeBreadcrumbDir(
   dir: string,
   onChange: () => void,

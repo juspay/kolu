@@ -10,7 +10,6 @@ import {
   TITLE_SLOT_BYTES,
 } from "./core.ts";
 
-/** One transcript line, exactly as omp writes it (field subset the fold reads). */
 const line = (entry: object): string => JSON.stringify(entry);
 
 const user = (t = "2026-09-14T17:07:20.000Z") =>
@@ -54,9 +53,6 @@ const toolResult = () =>
     },
   });
 
-/** The non-conversation entries a real session interleaves (captured from an
- *  omp 18.1.21 session file): a `custom` tool-execution marker, a
- *  thinking-level change, and a title change. */
 const custom = (customType: string) =>
   line({ type: "custom", customType, id: `c-${customType}`, parentId: null });
 const thinkingLevel = () =>
@@ -77,10 +73,6 @@ describe("deriveOmpState", () => {
       "waiting",
     );
     expect(deriveOmpState([user(), assistant("error")])?.state).toBe("waiting");
-    // Vocabulary drift: a reason kolu has never recorded still means the turn
-    // ENDED — the persistence invariant, not an enumeration, does the
-    // classifying, so upstream adding a terminal reason cannot repaint a
-    // settled turn as in-flight.
     expect(deriveOmpState([user(), assistant("max_tokens")])?.state).toBe(
       "waiting",
     );
@@ -98,7 +90,6 @@ describe("deriveOmpState", () => {
   });
 
   it("walks past non-message entries rather than reading them as turns", () => {
-    // A trailing title/thinking-level/custom run must not fabricate a state.
     expect(
       deriveOmpState([
         user(),
@@ -108,7 +99,6 @@ describe("deriveOmpState", () => {
         custom("session_exit"),
       ])?.state,
     ).toBe("waiting");
-    // Nor may a file with no turn entries at all report anything.
     expect(
       deriveOmpState([thinkingLevel(), custom("session_exit")]),
     ).toBeNull();
@@ -123,16 +113,13 @@ describe("deriveOmpState", () => {
       model: "litellm/kimi-k3",
       timestamp: "2026-09-14T17:07:23.000Z",
     });
-    // The switch lands after the last assistant record → the switch wins.
     expect(deriveOmpState([user(), assistant("stop"), change])?.model).toBe(
       "litellm/kimi-k3",
     );
-    // An older switch does not mask what the latest turn actually ran.
     expect(
       deriveOmpState([change, user(), assistant("stop", { model: "z-ai/glm" })])
         ?.model,
     ).toBe("z-ai/glm");
-    // A session whose only model evidence is the switch still reports it.
     expect(deriveOmpState([change, user()])?.model).toBe("litellm/kimi-k3");
     expect(deriveOmpState([user()])?.model).toBeNull();
   });
@@ -142,8 +129,6 @@ describe("deriveOmpState", () => {
       usage: { input: 100, output: 9, cacheRead: 20, cacheWrite: 3 },
     });
     expect(deriveOmpState([user(), before])?.contextTokens).toBe(123);
-    // The newest assistant record with usage accounts, even if a later
-    // assistant record carried none.
     expect(
       deriveOmpState([
         user(),
@@ -152,7 +137,6 @@ describe("deriveOmpState", () => {
         user(),
       ])?.contextTokens,
     ).toBe(123);
-    // An all-zero usage object is the answer (0), not a reason to look further.
     expect(
       deriveOmpState([
         before,
@@ -176,8 +160,6 @@ describe("readTitleSlot", () => {
     fs.rmSync(tmp, { recursive: true, force: true });
   });
 
-  /** omp's line-1 slot: one JSON object whose `pad` fills it to exactly the
-   *  fixed slot width. */
   function slot(fields: Record<string, string>): string {
     const base = {
       type: "title",
@@ -210,12 +192,8 @@ describe("readTitleSlot", () => {
   });
 
   it("reports null for an untitled slot, a short file, and a missing file", () => {
-    // An untitled session: the slot carries `""` (what omp writes before the
-    // auto-title lands, and always under `--no-title`).
     expect(readTitleSlot(write("untitled.jsonl", slot({})))).toBeNull();
-    // A file shorter than the slot cannot hold one.
     expect(readTitleSlot(write("short.jsonl", '{"type":"title"'))).toBeNull();
-    // A lazy session whose JSONL has not materialized — not an error.
     expect(readTitleSlot(path.join(tmp, "absent.jsonl"))).toBeNull();
   });
 });
@@ -272,7 +250,6 @@ describe("deriveOmpState — the newest prompt, which a landed steer moves", () 
     expect(deriveOmpState(turn)?.lastPromptId).toBe(
       "u-2026-11-15T22:37:00.000Z",
     );
-    // omp writes the held steer as a user entry when the step ends.
     expect(
       deriveOmpState([...turn, toolResult(), user("2026-11-15T22:37:07.023Z")])
         ?.lastPromptId,
@@ -280,8 +257,6 @@ describe("deriveOmpState — the newest prompt, which a landed steer moves", () 
   });
 
   it("reads that entry's TEXT, which is what makes a landing THIS steer's", () => {
-    // Without the text, any prompt moving inside the watch — an older held
-    // steer being handed over, the human typing — reads as the words landing.
     expect(deriveOmpState([user()])?.lastPromptText).toBe("hi");
   });
 

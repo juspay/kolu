@@ -10,7 +10,6 @@ import {
 const HOME = "/home/u";
 const CWD = "/work/proj";
 
-/** A pure probe: only the paths listed "exist" on disk. */
 function probe(paths: readonly string[]): (candidate: string) => boolean {
   const present = new Set(paths);
   return (candidate) => present.has(candidate);
@@ -22,9 +21,6 @@ const base = {
   existsSync: probe([]),
 };
 
-/** Resolve and demand an answer: the cases below that read a FIELD are all
- *  resolvable ones, and a surprising null should fail loudly rather than
- *  type-error its way past. */
 function resolved(
   opts: Parameters<typeof resolveAgentDir>[0],
 ): AgentDirResolution {
@@ -42,8 +38,6 @@ describe("parseProfileFlag", () => {
     expect(parseProfileFlag(["omp", "--profile", "a", "--profile", "b"])).toBe(
       "a",
     );
-    // A later `--profile` in prompt text is still the flag as far as argv goes —
-    // omp's own parser treats it the same way.
     expect(parseProfileFlag(["omp", "hi", "--profile", "work"])).toBe("work");
   });
 });
@@ -59,11 +53,11 @@ describe("normalizeProfileName", () => {
   it("returns the name for a valid profile and null for one omp would refuse", () => {
     expect(normalizeProfileName("work")).toBe("work");
     expect(normalizeProfileName("work-2.x")).toBe("work-2.x");
-    expect(normalizeProfileName("Work")).toBeNull(); // omp's grammar is lowercase
+    expect(normalizeProfileName("Work")).toBeNull();
     expect(normalizeProfileName("-work")).toBeNull();
     expect(normalizeProfileName("..")).toBeNull();
     expect(normalizeProfileName("work.")).toBeNull();
-    expect(normalizeProfileName("CON")).toBeNull(); // reserved on every platform
+    expect(normalizeProfileName("CON")).toBeNull();
     expect(normalizeProfileName("x".repeat(65))).toBeNull();
   });
 });
@@ -85,7 +79,6 @@ describe("resolveAgentDir — the default chain", () => {
       breadcrumbDir: "/home/u/.omp-nightly/agent/terminal-sessions",
       source: "default",
     });
-    // An EMPTY PI_CONFIG_DIR falls back to the default name (omp's `||`).
     expect(resolved({ ...base, env: { PI_CONFIG_DIR: "" } }).agentDir).toBe(
       "/home/u/.omp/agent",
     );
@@ -118,8 +111,6 @@ describe("resolveAgentDir — the default chain", () => {
       breadcrumbDir: "/fixtures/omp/agent/terminal-sessions",
       source: "override",
     });
-    // A PI_CODING_AGENT_DIR from the omp process itself still wins: it is what
-    // omp would actually use.
     expect(
       resolved({
         ...base,
@@ -215,7 +206,6 @@ describe("resolveAgentDir — the XDG state dir", () => {
       breadcrumbDir: `${XDG}/omp/terminal-sessions`,
       source: "xdg",
     });
-    // The env var alone proves nothing — omp trusts the DIRECTORY.
     expect(
       resolved({
         ...base,
@@ -257,8 +247,6 @@ describe("resolveAgentDir — the XDG state dir", () => {
       breadcrumbDir: `${profileRoot}/terminal-sessions`,
       source: "profile-xdg",
     });
-    // The BASE app root existing does not move a profile that was never
-    // migrated: its location is pinned at first activation.
     expect(
       resolved({
         ...base,

@@ -1,60 +1,12 @@
-/** omp agent-directory resolution — the per-terminal answer to "where does
- *  THIS omp keep its state".
- *
- *  omp's own chain (omp 18.1.21, `packages/utils/src/dirs.ts` — the
- *  `DirResolver` constructor and `resolveProfileEnv`/`normalizeProfileName`):
- *
- *    configRoot   = <home>/<PI_CONFIG_DIR || ".omp">
- *    profile      = `--profile <name>` (argv), else `OMP_PROFILE`, else
- *                   `PI_PROFILE`; ""/"default" mean the default profile, and an
- *                   explicitly-empty `OMP_PROFILE` therefore selects the
- *                   DEFAULT profile rather than inheriting `PI_PROFILE`
- *    agentDir     = profile  → <configRoot>/profiles/<name>/agent
- *                   else `PI_CODING_AGENT_DIR` (truthy) → path.resolve(cwd, …)
- *                   else <configRoot>/agent
- *
- *  Breadcrumbs — `terminal-sessions/<tty id>`, the one thing kolu reads — are
- *  omp's STATE category. On Linux/macOS omp redirects it into
- *  `$XDG_STATE_HOME/omp` **only when that app root already exists** (`omp
- *  config init-xdg` creates it), and for a named profile only when
- *  `$XDG_STATE_HOME/omp/profiles/<name>` exists — pinned on the profile path,
- *  so a profile's location is decided at first activation and never moves when
- *  the base appears. `PI_CODING_AGENT_DIR` suppresses the XDG probe entirely
- *  (`isDefault` is false once the agent dir is overridden), while a named
- *  profile does NOT (its derived agent dir IS its default).
- *
- *  These overrides live in the omp process's own argv/environment, not in
- *  padi's, so resolution reads the foreground process (`kolu-io`'s
- *  `readProcessSnapshot`) and folds it through the chain.
- *
- *  One deliberate difference from pi: there is **no fallback to a default dir**
- *  when the invocation's directory cannot be determined. The breadcrumb is the
- *  only anchor kolu has, and a guessed directory would point at a tree this
- *  terminal does not write to — so an unresolvable answer is `null` ("keep what
- *  was published"), never a substituted path. `omp` refuses to start on an
- *  invalid profile name, which is the one input that makes the answer
- *  unknowable rather than merely unread. */
-
 import path from "node:path";
 
-/** omp's profile-name grammar (`normalizeProfileName`): lowercase
- *  alnum first, then `.`/`_`/`-`, ≤64 chars. */
 const PROFILE_NAME_RE = /^[a-z0-9][a-z0-9._-]{0,63}$/;
 
-/** Platform-reserved basenames omp refuses as profile names (they would create
- *  unopenable directories on Windows). omp applies the check on every platform,
- *  so kolu mirrors it: refusing the same names keeps "did omp accept this
- *  profile" a single answer. */
 const WINDOWS_RESERVED_BASENAME_RE =
   /^(?:CON|PRN|AUX|NUL|COM[0-9]|LPT[0-9])(?:\..*)?$/i;
 
-/** omp's APP_NAME — the XDG app root is `$XDG_STATE_HOME/omp` regardless of
- *  `PI_CONFIG_DIR`. */
 const XDG_APP_NAME = "omp";
 
-/** The breadcrumb ("state") subdirectory name — part of the directory-layout
- *  volatility this module exists to encapsulate, so it is spelled once here and
- *  consumed by every arm below AND by `config.ts`'s default `BREADCRUMB_DIR`. */
 export const BREADCRUMB_SUBDIR = "terminal-sessions";
 
 export type AgentDirSource =
@@ -134,7 +86,6 @@ export function resolveAgentDir(opts: {
    *  NOT expand a leading `~` here, so neither does kolu: both agree on the
    *  literal path omp would use.) */
   cwd: string;
-  /** Filesystem probe for the XDG app root — injected so the fold stays pure. */
   existsSync: (candidate: string) => boolean;
 }): AgentDirResolution | null {
   const { argv, env, home, agentDirOverride, cwd, existsSync } = opts;
@@ -149,13 +100,9 @@ export function resolveAgentDir(opts: {
   const profile = normalizeProfileName(rawProfile);
   if (profile === null) return null;
 
-  // omp's `getConfigDirName()`: a truthy PI_CONFIG_DIR, else ".omp".
   const configRoot = path.join(home, env?.PI_CONFIG_DIR || ".omp");
 
   if (profile !== undefined) {
-    // A named profile's XDG home is its own directory, not the base app root —
-    // and it is consulted whenever it exists, because the profile's derived
-    // agent dir IS the profile's default (`isDefault` in omp's resolver).
     const xdgProfileRoot = xdgAppRoot(env, existsSync, ["profiles", profile]);
     const agentDir = path.join(configRoot, "profiles", profile, "agent");
     return {
@@ -165,9 +112,6 @@ export function resolveAgentDir(opts: {
     };
   }
 
-  // `PI_CODING_AGENT_DIR` moves omp's whole agent directory (sessions and
-  // breadcrumbs included). It is read only here — never for a named profile,
-  // which omp resolves from the profile root alone.
   const envDir = env?.PI_CODING_AGENT_DIR;
   if (envDir) {
     const agentDir = path.resolve(cwd, envDir);
@@ -195,8 +139,6 @@ export function resolveAgentDir(opts: {
   };
 }
 
-/** An existing `$XDG_STATE_HOME/omp[/<sub…>]`, or `undefined` — omp trusts the
- *  directory's existence (its `resolveIf`), never the env var alone. */
 function xdgAppRoot(
   env: Record<string, string | undefined> | undefined,
   existsSync: (candidate: string) => boolean,

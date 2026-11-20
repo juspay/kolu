@@ -1,36 +1,3 @@
-/** One-shot transcript loader for the HTML export feature.
- *
- *  omp's session JSONL lines carry one entry each; only `message` entries
- *  become conversation IR events, and within them only the four model-turn
- *  roles. Everything else — the line-1 title slot, the `session` header,
- *  `model_change` / `thinking_level_change`, `compaction` / `branch_summary`
- *  summaries, `title_change`, `label`, `custom` — is state-derivation or
- *  extension material, not conversation, so it is skipped.
- *
- *  Entries form a tree (`id`/`parentId`) because omp supports in-file branching
- *  (omp forked pi's session format): abandoned branches stay in the file
- *  interleaved with the live conversation. The export emits only the entries
- *  on the active branch (`branch.ts` — omp's own leaf rule, which the file's
- *  last line alone does not give), in file order. Abandoned branches, which a
- *  dead file cannot present as anything but confusion, are dropped.
- *
- *  Where the file is: the breadcrumb, and nothing else. `resolveSessions`
- *  records the absolute path omp itself handed kolu, keyed by session id; this
- *  loader reads that map and returns `null` — the `Fetcher` contract's
- *  "transcript not available" value — for a session this padi never observed
- *  live. No cwd glob, no second lookup: omp's session-directory key is lossy,
- *  and the store moves per invocation, so any re-derivation would be a guess.
- *
- *  This loader is a near-copy of `kolu-pi`'s, and by intention: the mock parses
- *  the SAME forked wire format but the dependency fence forbids
- *  `kolu-omp` → `kolu-pi`. The one genuinely agent-neutral piece —
- *  `contentToText`, which reads only the shared `{ type: "text", text }` block
- *  — lives in `kolu-transcript-core` (grok / pi / omp's three identical copies
- *  graduated there); the rest (`eventsFromEntry`'s role/stopReason vocabulary,
- *  the toolCall argument keys) is pi's wire format, and naming it in the
- *  neutral core would move a vendor format the core's header deliberately
- *  keeps on this side of `Fetcher`. */
-
 import fs from "node:fs";
 import {
   contentToText,
@@ -55,7 +22,6 @@ interface OmpEntry {
     role?: string;
     model?: string;
     content?: unknown;
-    /** assistant toolCall blocks + toolResult envelope fields. */
     toolCallId?: string;
     isError?: boolean;
   };
@@ -64,10 +30,7 @@ interface OmpEntry {
 /** Map an omp toolCall name + its already-parsed arguments onto the typed
  *  `ToolInput` union. omp forked pi's built-ins (`read` / `bash` / `edit` /
  *  `write`, with omp's own namespaced additions); anything unrecognized falls
- *  through to `unknown` with the raw arguments intact. Copied from `kolu-pi`'s
- *  equivalent rather than imported — the dependency fence forbids
- *  `kolu-omp` → `kolu-pi`, and the two agents' tool vocabularies are forks that
- *  may drift. Exported for tests. */
+ *  through to `unknown` with the raw arguments intact. Exported for tests. */
 export function normalizeOmpToolInput(
   toolName: string,
   args: unknown,
@@ -179,16 +142,12 @@ export function parseOmpTranscript(content: string): TranscriptEvent[] {
     try {
       parsed = JSON.parse(line);
     } catch {
-      // Malformed line — skip. A truncated final write is the only practical
-      // failure mode; one corrupt entry must not fail the export.
       continue;
     }
     ordered.push(parsed as OmpEntry);
     const entry = branchEntryOf(parsed);
     if (entry !== undefined) branch.add(entry);
   }
-  // Tree linkage exists at all? An older file with ids but no parent chain
-  // renders whole — filter ONLY on a linkage witness.
   const onActivePath = branch.hasLinkage()
     ? new Set(branch.idsFromLeaf())
     : null;
@@ -210,16 +169,14 @@ export function parseOmpTranscript(content: string): TranscriptEvent[] {
  *  read — the same "transcript not available" answer the other integrations
  *  give for a session they cannot locate). One file-level fact collapses the
  *  same way: ENOENT. A `fresh` breadcrumb for omp's lazy session publishes the
- *  path BEFORE the JSONL exists (resolveSessions records every found crumb),
- *  so a fetch in that window — or a race with an `omp` that just moved the
- *  store — is "not available", not a crash. Every OTHER read failure after a
- *  path was positively recorded still THROWS: a race mid-export must not
- *  render as "session does not exist", and a real I/O fault must not render
- *  as "transcript not available".
+ *  path BEFORE the JSONL exists, so a fetch in that window — or a race with an
+ *  `omp` that just moved the store — is "not available", not a crash. Every
+ *  OTHER read failure after a path was positively recorded still THROWS: a race
+ *  mid-export must not render as "session does not exist", and a real I/O fault
+ *  must not render as "transcript not available".
  *
  *  The title is read from the file's own line-1 title slot rather than taken
- *  from `input.title` — the export renders the FILE, and the live summary the
- *  caller carries came from that identical slot. */
+ *  from `input.title`. */
 export const loadOmpTranscript: Fetcher = (input, log) => {
   const path = knownOmpSessionPath(input.sessionId);
   if (path === null) return null;
@@ -228,7 +185,6 @@ export const loadOmpTranscript: Fetcher = (input, log) => {
   try {
     raw = fs.readFileSync(path, "utf8");
   } catch (err) {
-    // Only absence is "not available" — everything else is a real read fault.
     if ((err as NodeJS.ErrnoException).code === "ENOENT") return null;
     throw err;
   }

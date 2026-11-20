@@ -1,15 +1,3 @@
-/** omp's todo list → taskProgress, pinned against lines cut from real omp
- *  session files (`fixtures/todo/*.jsonl`). Each fixture keeps the entries
- *  around the todo traffic it is about — the `todo` calls and results, and the
- *  `session_exit` / `model_change` / `compaction` / `user_todo_edit` entries
- *  between them — with ids, timestamps and `details` exactly as omp wrote
- *  them; every kept entry was on its session's active branch. Slimmed: each
- *  result's text is cut to omp's own `Overall: N/M done` line, other tools'
- *  payloads to `…`, and each `parentId` re-linked to the previous kept entry so
- *  the cut stays one unbroken branch. `rm` and `resume` come from sessions in
- *  other repositories, so their task and phase names are replaced with
- *  `task N` / `phase N`. */
-
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -32,8 +20,6 @@ afterAll(() => fs.rmSync(tmp, { recursive: true, force: true }));
 const isSnapshot = (line: string): boolean =>
   todoSnapshotOf(JSON.parse(line)) !== undefined;
 
-/** What kolu publishes as omp writes these lines: one reader over a growing
- *  file, read after each snapshot lands. */
 function progression(lines: string[]): (TaskProgress | null)[] {
   const file = path.join(tmp, `grow-${files++}.jsonl`);
   fs.writeFileSync(file, "");
@@ -46,8 +32,6 @@ function progression(lines: string[]): (TaskProgress | null)[] {
   return out;
 }
 
-/** The answer a fresh reader gives over exactly these lines — a watcher
- *  starting on the file, as on a resume. */
 function readerOver(lines: string[]): TaskProgress | null {
   const file = path.join(tmp, `read-${files++}.jsonl`);
   fs.writeFileSync(file, lines.map((line) => `${line}\n`).join(""));
@@ -81,7 +65,6 @@ describe("countTodo — omp's list, counted the way omp counts it", () => {
 
 describe("createTodoProgressReader — the current list of a session file", () => {
   it("a new init replaces the list: the finished one's count does not carry over", () => {
-    // 17 tasks in 4 phases, finished, then a fresh 9-task init in 3 phases.
     expect(progression(fixtureLines("reinit"))).toEqual([
       progress(0, 17),
       progress(17, 17),
@@ -93,13 +76,12 @@ describe("createTodoProgressReader — the current list of a session file", () =
   it("`rm` takes a task out of the total; `drop` closes it", () => {
     expect(progression(fixtureLines("rm"))).toEqual([
       progress(1, 15),
-      progress(1, 14), // rm
-      progress(1, 15), // append
+      progress(1, 14),
+      progress(1, 15),
     ]);
-    // A list finished with one task dropped reads done, as omp says.
     expect(progression(fixtureLines("drop"))).toEqual([
       progress(3, 5),
-      progress(4, 5), // drop
+      progress(4, 5),
       progress(5, 5),
     ]);
   });
@@ -107,7 +89,7 @@ describe("createTodoProgressReader — the current list of a session file", () =
   it("a blocked task stays open", () => {
     expect(progression(fixtureLines("blocked"))).toEqual([
       progress(12, 13),
-      progress(12, 13), // the last open task, blocked
+      progress(12, 13),
     ]);
   });
 
@@ -125,8 +107,6 @@ describe("createTodoProgressReader — the current list of a session file", () =
 
   it("a resumed session shows the list from before omp exited", () => {
     const lines = fixtureLines("resume");
-    // Through the resumed session's first prompt: omp exited, relaunched
-    // (`model_change`), and the user typed — no todo call yet.
     const firstPrompt = lines.findIndex((line) =>
       line.includes('"role":"user"'),
     );
@@ -134,7 +114,6 @@ describe("createTodoProgressReader — the current list of a session file", () =
       lines.findIndex((line) => line.includes('"session_exit"')),
     );
     expect(readerOver(lines.slice(0, firstPrompt + 1))).toEqual(progress(4, 5));
-    // Hours later the resumed session blocks the last task.
     expect(readerOver(lines)).toEqual(progress(4, 5));
   });
 
@@ -143,15 +122,10 @@ describe("createTodoProgressReader — the current list of a session file", () =
     const compaction = lines.findIndex((line) =>
       line.includes('"type":"compaction"'),
     );
-    // Through the compaction and the turn after it: nothing re-states the
-    // list, and it still stands.
     expect(readerOver(lines.slice(0, compaction + 3))).toEqual(progress(9, 24));
     expect(readerOver(lines)).toEqual(progress(10, 24));
   });
 
-  // No real session here jumped back across a todo call, so the jump itself
-  // is written the way omp writes one: the next entry after `/tree` hangs off
-  // the entry the user went back to.
   const jumpBackTo = (parentId: string) =>
     JSON.stringify({
       type: "message",
@@ -164,19 +138,15 @@ describe("createTodoProgressReader — the current list of a session file", () =
   it("a `/tree` jump back before the newest todo call shows that branch's list", () => {
     const lines = fixtureLines("reinit");
     const snapshots = lines.filter(isSnapshot);
-    // Back to the finished 17-task list, before the 9-task init replaced it.
     const finished = JSON.parse(snapshots[1] ?? "").id as string;
     expect(readerOver([...lines, jumpBackTo(finished)])).toEqual(
       progress(17, 17),
     );
-    // Back to before any list at all.
     const first = JSON.parse(lines[0] ?? "").id as string;
     expect(readerOver([...lines, jumpBackTo(first)])).toBeNull();
   });
 
   it("a cleared list is no list", () => {
-    // What omp writes when it empties the list (a background clone starts
-    // with `user_todo_edit { phases: [] }`); no real session here has one.
     const lines = fixtureLines("drop");
     const cleared = JSON.stringify({
       type: "custom",
