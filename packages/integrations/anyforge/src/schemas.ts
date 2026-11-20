@@ -209,30 +209,28 @@ export function prResultEqual<S extends PrUnavailableSourceBase>(
   // compile error here — without it, a new variant would fall through to
   // always-equal and the dedup gate would swallow every update to it
   // invisibly.
-  return (
-    match(a)
-      .with({ kind: "ok" }, (a) => {
-        const bv = (b as Extract<PrResult<S>, { kind: "ok" }>).value;
-        return (
-          a.value.number === bv.number &&
-          a.value.title === bv.title &&
-          a.value.url === bv.url &&
-          a.value.state === bv.state &&
-          a.value.checks === bv.checks &&
-          checkRunsEqual(a.value.checkRuns, bv.checkRuns) &&
-          a.value.reviewDecision === bv.reviewDecision &&
-          a.value.mergeStateStatus === bv.mergeStateStatus &&
-          a.value.headSha === bv.headSha &&
-          a.value.isDraft === bv.isDraft
-        );
-      })
-      .with({ kind: "unavailable" }, (a) => {
-        const bs = (b as Extract<PrResult<S>, { kind: "unavailable" }>).source;
-        return a.source.provider === bs.provider && a.source.code === bs.code;
-      })
-      .with({ kind: P.union("pending", "absent", "unsupported") }, () => true)
-      .exhaustive()
-  );
+  return match(a)
+    .with({ kind: "ok" }, (a) => {
+      const bv = (b as Extract<PrResult<S>, { kind: "ok" }>).value;
+      return (
+        a.value.number === bv.number &&
+        a.value.title === bv.title &&
+        a.value.url === bv.url &&
+        a.value.state === bv.state &&
+        a.value.checks === bv.checks &&
+        checkRunsEqual(a.value.checkRuns, bv.checkRuns) &&
+        a.value.reviewDecision === bv.reviewDecision &&
+        a.value.mergeStateStatus === bv.mergeStateStatus &&
+        a.value.headSha === bv.headSha &&
+        a.value.isDraft === bv.isDraft
+      );
+    })
+    .with({ kind: "unavailable" }, (a) => {
+      const bs = (b as Extract<PrResult<S>, { kind: "unavailable" }>).source;
+      return a.source.provider === bs.provider && a.source.code === bs.code;
+    })
+    .with({ kind: P.union("pending", "absent", "unsupported") }, () => true)
+    .exhaustive();
 }
 
 /** Shallow per-element equality for the per-check breakdown. Same length
