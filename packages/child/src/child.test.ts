@@ -1,13 +1,3 @@
-/**
- * The socket, against real children.
- *
- * Two claims used to be false in the copies this package replaces, and they
- * are the ones a mock cannot hold: an exec that fails arrives as an event
- * after spawn has returned (an unhandled one is an uncaught exception), and
- * a close listener attached after the kill misses a child that is already
- * gone. Both are asserted here, against processes this host actually starts.
- */
-
 import { expect, test } from "vitest";
 
 import { Hung, run, start } from "./child.ts";
@@ -80,10 +70,6 @@ test("wait throws Hung with what the child said, rather than answering false", a
     "process.stderr.write('still here\\n'); setTimeout(() => {}, 10_000)",
   ]);
   try {
-    // The chunk is the event; 200ms is only the hang detector after it.
-    // Under CI load the write can land after 200ms, and a clock-first
-    // wait then throws Hung with an empty box — the flake the wait
-    // discipline exists to not have.
     await new Promise<void>((resolve, reject) => {
       const look = () => {
         if (child.err().includes("still here")) resolve();
@@ -115,9 +101,6 @@ test("wait throws Hung with what the child said, rather than answering false", a
 
 test("wait resolves from the listener attached at spawn, even when the child is already gone", async () => {
   const child = start(process.execPath, ["-e", "process.exit(7)"]);
-  // The close may already have happened. The listener was attached at spawn,
-  // so this is a read of a settled promise, not a wait for an event that
-  // will never come again.
   const close = await child.wait(5_000, "already gone");
   expect(close.code).toBe(7);
 });
@@ -185,11 +168,6 @@ test("run answers the exec failure rather than throwing it", async () => {
 });
 
 test("run refuses when the child said more than maxBuffer, quoting the tail", async () => {
-  // The contract execFile had and this socket inverted: a cap is a loud
-  // refusal, never a silent truncate. Probe shape from #367's review: a
-  // 100 KB child against a 64 KB cap used to answer ok:true with 65536
-  // bytes of tail; a parser of that output would drop the head and still
-  // say the listing was complete.
   const cap = 64 * 1024;
   const result = await run(
     process.execPath,
@@ -205,8 +183,6 @@ test("run refuses when the child said more than maxBuffer, quoting the tail", as
 });
 
 test("run throws Hung on a hang, with what the child said", async () => {
-  // 3s is a hang detector, not a wait: the child sleeps 10s. 200ms
-  // lost to spawn under CI load and quoted an empty box.
   try {
     await run(
       process.execPath,

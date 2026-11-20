@@ -1,31 +1,3 @@
-/**
- * A subprocess, as one socket.
- *
- * Node's `spawn` returns before the exec has happened, so a `try` around the
- * call never sees the failure that actually happens — a bad interpreter line,
- * a path that stopped existing between being configured and being started, an
- * architecture this host cannot run. That failure arrives as an `error` EVENT,
- * and two things hang on somebody listening for it: an unhandled one is an
- * uncaught exception, and every other door then reports `Cannot call write
- * after a stream was destroyed` in place of the name of the file that would
- * not run. This file attaches that listener on the line after spawn, so a
- * caller races {@link Child.unstartable} against its own conversation and the
- * reason a person reads is the one about their machine.
- *
- * The rest of the socket is the same axis: drain the pipes so a child nobody
- * is reading cannot block; attach the close listener at spawn so a caller that
- * asks after the child is gone is not waiting for an event that will never
- * come again; kill with a grace period so SIGTERM has a chance and SIGKILL is
- * the escalation, not the opening. A clock is a hang detector that throws
- * {@link Hung} with what the child said — never the wait itself.
- *
- * What is not here, by design: whether the child is READY (the serving line,
- * the ACP handshake), how its pipes become a protocol, whether a dead one
- * should restart, and sweeping orphans. Those are each a different axis, and
- * each has an owner (#355 answered the last of them: the harness reaper and
- * PDEATHSIG).
- */
-
 import {
   spawn,
   type ChildProcess,
@@ -33,13 +5,8 @@ import {
 } from "node:child_process";
 import type { Readable, Writable } from "node:stream";
 
-/** How long SIGTERM gets before SIGKILL, when nobody said. Two seconds is
- *  long enough for a process that honours the signal and short enough that a
- *  wedged one cannot hold a shutdown. */
 const GRACE_MS = 2_000;
 
-/** How long SIGKILL itself is allowed to take. A process the kernel has been
- *  asked to destroy and has not is a hang, not a slow shutdown. */
 const KILL_MS = 1_000;
 
 /**
