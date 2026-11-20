@@ -95,10 +95,6 @@ export function writeTextToClipboard(
   if (!navigator.clipboard?.writeText) return execCommandWrite(text);
   return Effect.tryPromise(() => navigator.clipboard.writeText(text)).pipe(
     Effect.catch((err) =>
-      // Fall through to execCommand — navigator.clipboard can reject for
-      // reasons other than missing secure context (permission denied,
-      // document-not-focused, etc.). Log so the original rejection isn't
-      // invisible if the fallback also fails.
       Effect.sync(() => {
         console.debug(
           "navigator.clipboard.writeText rejected; trying execCommand fallback:",

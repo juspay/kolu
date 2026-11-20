@@ -1,13 +1,4 @@
 // @vitest-environment happy-dom
-/**
- * `LogTail` — the block every tail wears, and the clipboard write it owns. The
- * behaviours worth pinning are the pair a person depends on and cannot read off a
- * class string: Copy writes the WHOLE log it was handed (never the window the
- * block happens to show) and confirms in place, and a write that FAILS reports
- * the failure rather than a copy. The follow-the-newest-line behaviour is a
- * layout fact (scroll heights), which happy-dom does not compute — it is
- * verified on screen instead.
- */
 
 import { render } from "solid-js/web";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -28,8 +19,7 @@ vi.mock("./clipboard", async () => {
       h.written.push(text);
       return h.failWith === undefined
         ? Effect.succeed(undefined)
-        : // The real shape: `Cause.UnknownError` wraps the browser's own error.
-          Effect.fail(new Cause.UnknownError(new Error(h.failWith)));
+        : Effect.fail(new Cause.UnknownError(new Error(h.failWith)));
     },
   };
 });
@@ -43,8 +33,6 @@ afterEach(() => {
   document.body.innerHTML = "";
 });
 
-/** Let the write's promise settle — one macrotask, so an `await` in the test is
- *  enough without reaching for fake timers. */
 async function tick(): Promise<void> {
   const { promise, resolve } = Promise.withResolvers<void>();
   setTimeout(resolve, 0);
@@ -63,9 +51,6 @@ const mount = (props: Parameters<typeof LogTail>[0]) => {
 describe("LogTail", () => {
   it("copies the whole retained log, not the visible tail — and says so", async () => {
     const full = ["one", "two", "three", "four"].map(line);
-    // A four-line log shown through a two-line WINDOW: the lines the block had
-    // to hide are the ones a person reaches for Copy for, and copying the
-    // window would hide exactly them.
     mount({
       testid: "t",
       lines: full.slice(-2),
@@ -95,7 +80,6 @@ describe("LogTail", () => {
     button()?.click();
     await tick();
 
-    // Not Effect's wrapper text ("An error occurred in Effect.try") — the cause.
     expect(errors).toEqual(["clipboard access blocked"]);
     expect(button()?.textContent).toBe("Copy");
   });
@@ -112,7 +96,6 @@ describe("LogTail", () => {
       onCopyError: () => {},
     });
     expect(block()?.className).toContain("pr-12");
-    // ...and the button is OUTSIDE the scroller, so it cannot scroll away.
     expect(button()?.parentElement).toBe(block()?.parentElement);
   });
 });
