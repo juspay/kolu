@@ -64,12 +64,15 @@ type PadiTerminalId = PadiUrgency["awaitingIds"][number];
  *     established is not an empty roster. This is the state the old shape could
  *     not express — a freshly started padi served ONE information-free frame,
  *     the watcher read "not in the keys" as `gone`, and every member of every
- *     work was recorded as having left on each redeploy (#2376).
- *   - **ready** — padi has finished adopting. NOW the three things a reading is
- *     folded from exist: the roster (what the host has), padi's urgency fold
- *     (what its agents are doing) and the member records. They live on THIS ARM
- *     ONLY, so {@link readingsOf} can reach them — and therefore say `gone` —
- *     nowhere else.
+ *     work was recorded as having left on each redeploy (#2376). A host whose
+ *     roster is established but whose urgency fold says `settled: false` (a
+ *     redeploy still reading its survivors' agents) is settling too: its empty
+ *     lists mean nobody has looked.
+ *   - **ready** — padi has finished adopting and reading. NOW the three things a
+ *     reading is folded from exist: the roster (what the host has), padi's
+ *     urgency fold (what its agents are doing) and the member records. They
+ *     live on THIS ARM ONLY, so {@link readingsOf} can reach them — and
+ *     therefore say `gone` — nowhere else.
  *
  *  Complete by construction, as the old shape was: a leg says nothing until
  *  padi's urgency fold, the roster and its standing have all landed, because

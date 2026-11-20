@@ -744,6 +744,14 @@ const COMMAND_RUN_RECONCILE_DELAYS_MS = [0, 75, 300, 1000] as const;
  *  while the agent is in a pollable (idle) state, so it's off the hot path. */
 const SCREEN_SCRAPE_POLL_MS = 1000;
 
+/** A matched session's screen-scrape poll. `firstRead` settles when its first
+ *  tick has finished — whatever it found, or that the read failed — and is
+ *  `null` when this adapter does not scrape or the host cannot read a screen. */
+interface ScreenScrapePoll {
+  readonly firstRead: Promise<void> | null;
+  stop(): void;
+}
+
 /** True for the pty-host's "no PTY with id" ORPCError — the benign teardown
  *  race where the terminal vanished between a poll being scheduled and its
  *  screen read landing. Read `.code` structurally rather than via `instanceof`
@@ -848,12 +856,20 @@ export function startAgentSensor<Session, Info extends AgentInfoShape>(
   emit: (o: TerminalEvent) => void,
   log: Logger,
   commandRooted: boolean,
+  /** Called ONCE, after this detector's first reconcile against a REAL
+   *  foreground sample — whatever it concluded: its agent found, a plain
+   *  shell, or that it cannot tell. Not the install-time reconcile below,
+   *  which runs against the seeded "nothing observed yet" foreground. A shell
+   *  with no agent emits nothing, so this is the only way a host learns the
+   *  detector has looked. */
+  onFirstPass: () => void,
 ): () => void {
   const plog = log.child({ provider: adapter.kind, terminal: terminalId });
   let current: {
     watcher: AgentWatcher;
     key: string;
-    stopPoll: () => void;
+    /** The matched session's screen-scrape poll — see `startScreenScrapePoll`. */
+    poll: ScreenScrapePoll;
   } | null = null;
   // When resolution is ABSENT (no session), its FLAVOR: was the foreground SHELL-IDLE
   // (the shell/no process → authoritative end) or a defined NON-SHELL process (an
@@ -1228,7 +1244,7 @@ export function startAgentSensor<Session, Info extends AgentInfoShape>(
         },
         plog,
       ),
-      stopPoll: startScreenScrapePoll(),
+      poll: startScreenScrapePoll(),
     };
     // A MATCHED SESSION WITH NOTHING TO READ YET — its transcript has not landed
     // (omp's lazy session, Claude's session file ahead of its JSONL). The agent is
@@ -1252,7 +1268,7 @@ export function startAgentSensor<Session, Info extends AgentInfoShape>(
    *  derived info, so a stale read can't leak across a session change. */
   function destroyCurrent() {
     current?.watcher.destroy();
-    current?.stopPoll();
+    current?.poll.stop();
     current = null;
     latestInfo = null;
   }
@@ -1270,10 +1286,10 @@ export function startAgentSensor<Session, Info extends AgentInfoShape>(
    *  change gate can silently drop the settling write that would otherwise
    *  demote. Recursive
    *  `setTimeout` (not `setInterval`) so a slow screen read can't overlap. */
-  function startScreenScrapePoll(): () => void {
+  function startScreenScrapePoll(): ScreenScrapePoll {
     const scrape = adapter.screenScrape;
     const readScreen = readScreenText;
-    if (!scrape || !readScreen) return () => {};
+    if (!scrape || !readScreen) return { stop: () => {}, firstRead: null };
     let pollStopped = false;
     let timer: ReturnType<typeof setTimeout> | null = null;
     const tick = async () => {
@@ -1321,21 +1337,28 @@ export function startAgentSensor<Session, Info extends AgentInfoShape>(
         if (!pollStopped) timer = setTimeout(tick, SCREEN_SCRAPE_POLL_MS);
       }
     };
-    timer = setTimeout(tick, SCREEN_SCRAPE_POLL_MS);
+    // The FIRST read runs at the match, not one interval later: a prompt already
+    // on screen when padi looks — a survivor blocked on you, adopted after a
+    // redeploy — is part of what padi first sees of this agent, and the
+    // detector's first pass waits on it (`firstRead`). `tick` never rejects.
+    const firstRead = tick();
     plog.info(
       { terminal: terminalId },
       "claude-code: screen-scrape poll installed",
     );
-    return () => {
-      pollStopped = true;
-      if (timer) {
-        clearTimeout(timer);
-        timer = null;
-      }
-      plog.info(
-        { terminal: terminalId },
-        "claude-code: screen-scrape poll retired",
-      );
+    return {
+      firstRead,
+      stop: () => {
+        pollStopped = true;
+        if (timer) {
+          clearTimeout(timer);
+          timer = null;
+        }
+        plog.info(
+          { terminal: terminalId },
+          "claude-code: screen-scrape poll retired",
+        );
+      },
     };
   }
 
@@ -1364,11 +1387,28 @@ export function startAgentSensor<Session, Info extends AgentInfoShape>(
     onEvent: () => reconcile(),
     onError: (err) => plog.error({ err }, "publisher subscription failed"),
   });
+  // Has this detector started its first pass over a real sample? The report
+  // itself may follow a screen read, by which time the terminal can be gone.
+  let firstPassReported = false;
+  const reportFirstPass = (): void => {
+    if (!stopped) onFirstPass();
+  };
   const cleanupForeground = signals.foreground.consume({
     onEvent: (fg) => {
       noteEpisode(fg);
       currentForeground = fg;
       reconcile();
+      if (firstPassReported || stopped) return;
+      firstPassReported = true;
+      // `reconcile` is synchronous and every emit it makes has reached the
+      // host's fold by now. What it cannot have done is read the screen, and
+      // for an agent whose question lives only there (a permission prompt
+      // over a `tool_use` transcript) the screen IS the reading: so the first
+      // pass is said once the matched session's first screen read has
+      // resolved — promoted, not, or failed — and at once when there is none.
+      const screenRead = current?.poll.firstRead ?? null;
+      if (screenRead === null) reportFirstPass();
+      else void screenRead.then(reportFirstPass);
     },
     onError: (err) => plog.error({ err }, "foreground subscription failed"),
   });
@@ -1473,6 +1513,12 @@ export interface SensorInputs {
   signals: SensorSignals;
   readScreenText?: ReadScreenText;
   log: Logger;
+  /** Called ONCE, when EVERY agent detector has made its first pass over a
+   *  real foreground sample (`startAgentSensor`'s `onFirstPass`) — the moment
+   *  this terminal's agent, or the absence of one, is what padi holds. padi
+   *  waits on it after adopting a survivor before it reports attention
+   *  (`attention/fleetGate.ts`). */
+  onAgentsRead: () => void;
 }
 
 /** Start the memoryless per-terminal awareness PRODUCER. It emits per-field
@@ -1487,7 +1533,15 @@ export function startSensors(
   inputs: SensorInputs,
   emit: (o: TerminalEvent) => void,
 ): () => void {
-  const { pid, cwd, commandRooted, signals, readScreenText, log } = inputs;
+  const {
+    pid,
+    cwd,
+    commandRooted,
+    signals,
+    readScreenText,
+    log,
+    onAgentsRead,
+  } = inputs;
   // Transient working state — re-seeded empty each start (a producer is memoryless).
   const agentState: AgentEngineState = freshAgentEngineState();
 
@@ -1534,6 +1588,23 @@ export function startSensors(
     log,
   );
   const stopPr = startPrSensor(terminalId, gitChannel, emit, log);
+  // THE FIRST PASS, over every detector. There is one detector per agent kind,
+  // each on its own subscription to the foreground, so the terminal has been
+  // read once only when the LAST of them has reported. Counted here, where
+  // the list of detectors is.
+  const plugins = Object.values(AGENT_PLUGINS);
+  let unreadDetectors = plugins.length;
+  const detectorRead = (): void => {
+    unreadDetectors -= 1;
+    if (unreadDetectors !== 0) return;
+    // A throw here would escape into the last detector's `consume` loop and
+    // silence it for the terminal's life, so it is caught and said.
+    try {
+      onAgentsRead();
+    } catch (err) {
+      log.error({ err, terminal: terminalId }, "agents-read report failed");
+    }
+  };
   // Every registered agent's detector — the list is the registry, not a
   // hand-maintained set of imports. A new agent joins by adding its plugin to
   // `kolu-agents`, with no edit here. `Info` is erased to `AgentInfoShape` at
@@ -1551,10 +1622,9 @@ export function startSensors(
       emit,
       log,
       commandRooted,
+      detectorRead,
     );
-  const stopAgents = Object.values(AGENT_PLUGINS).map((plugin) =>
-    startAgent(plugin.adapter),
-  );
+  const stopAgents = plugins.map((plugin) => startAgent(plugin.adapter));
   const stopProcess = startForegroundSensor(
     terminalId,
     signals,

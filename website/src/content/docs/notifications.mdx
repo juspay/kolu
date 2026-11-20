@@ -95,6 +95,21 @@ quiet.
 If notifications do not appear, see
 [Troubleshooting](/troubleshooting#i-am-not-getting-desktop-notifications).
 
+## After kolu restarts or the page reloads
+
+When kolu restarts, or you reload the page, while your terminals keep running,
+your unread marks come back as they were:
+
+| Before | After |
+| --- | --- |
+| An agent finished and you had opened it | Read. Nothing rings. |
+| An agent finished and you had not opened it | Still unread. Nothing rings again. |
+| An agent finished or started asking while kolu was down | Unread. A tab that stayed open chimes once. A page you open afterwards marks it without a chime. |
+| An agent quit while kolu was down | No mark. |
+
+Marks are kept per browser. Opening a terminal on your phone does not clear its
+mark on your laptop.
+
 ## What the Conductor rings for
 
 [The Conductor](/conductor) reaches you through the same chime, notification and app badge as a terminal, plus a violet count on its chrome-bar entry. It rings for one thing: a [piece of work](/work-card) that needs you, which is either a question it asked about that work, or a green pull request handed over for you to merge. A pull request it merges itself never rings, and neither does a draft: it rings once it is marked ready and green.

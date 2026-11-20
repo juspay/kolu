@@ -63,6 +63,10 @@ import type { ForegroundSample, PtyHostClient, PtyHostListEntry } from "kaval";
 import type { SnapshotGrid } from "terminal-snapshot";
 import { abortableDelay } from "../abortableDelay.ts";
 import { trackRecentAgent, trackRecentRepo } from "../activity/activity.ts";
+import {
+  markAwaitingFirstRead,
+  markFirstRead,
+} from "../attention/fleetGate.ts";
 import type {
   EndpointGrid,
   PtySpawnOpts,
@@ -457,9 +461,14 @@ export class PtyHostTerminalProxy implements TerminalHandle {
  *
  *  `foreground` is passed in — the handler HAS the capability to publish — precisely so
  *  the invariant is TESTABLE: a regression that "clears stale foreground on disconnect"
- *  would light up the pin in `bridgeStream.test.ts`. It is deliberately unused here. */
+ *  would light up the pin in `bridgeStream.test.ts`. It is deliberately unused here.
+ *
+ *  The tap is opened once and never re-opened, so the terminal's agent detectors
+ *  will get no sample from it: their first pass is "cannot tell", and it is said
+ *  here, so a redeploy's attention fold is not held closed by a terminal padi
+ *  cannot see (`fleetGate.ts`). A no-op for a terminal nobody waits on. */
 export function onForegroundTapError(
-  id: string,
+  id: TerminalId,
   foreground: Pick<SensorSignals["foreground"], "publish">,
   err: unknown,
 ): void {
@@ -468,6 +477,7 @@ export function onForegroundTapError(
     { err, terminal: id },
     "pty-host foreground tap failed — keeping last foreground sample (blind)",
   );
+  markFirstRead(id);
 }
 
 /**
@@ -1016,6 +1026,11 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
       snapshot,
       handle: proxy,
     };
+    // The survivor arrives with no agent on it (the sensors re-read it), so
+    // padi's attention fold must not take the frame this registration makes
+    // as a reading of it. Said BEFORE registering, which is what runs that
+    // fold; a no-op for a mid-session adoption (`fleetGate.ts`).
+    markAwaitingFirstRead(id);
     registerAndInstall(id, entry);
     // The PTY already exists on the survivor — release the handle's queued /
     // awaited verbs at the live pid with no spawn RPC (the sole structural
@@ -1453,6 +1468,7 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
         signals,
         readScreenText: (tailLines) => readScreenTextFor(id, tailLines),
         log,
+        onAgentsRead: () => markFirstRead(id),
       },
       emit,
     );

@@ -74,7 +74,12 @@ import { drivenByConductor } from "../conductor/workReadings";
 import { runAction } from "../runAction";
 import type { TerminalSubject } from "../terminal/terminalSubject";
 import { nextAfter } from "../ui/nextAfter";
-import { activeHost, preferences, setActiveHost } from "../wire";
+import {
+  activeHost,
+  preferences,
+  preferencesArrived,
+  setActiveHost,
+} from "../wire";
 import { createAttentionCore } from "./attentionCore";
 import { createConductorBell } from "./conductorAsks";
 import {
@@ -86,6 +91,7 @@ import {
 } from "./attentionMarks";
 import { registerAttentionJump } from "./attentionNav";
 import { isTerminalWatched } from "./attentionWatched";
+import { attentionRecordOf } from "./savedAttention";
 import { useAttentionFacts } from "./useAttentionFacts";
 
 /** What the active host can tell us about its terminals — the rich notification
@@ -101,13 +107,6 @@ export interface AttentionDeps {
   /** Focus a terminal on the (post-switch) active host — the notification-click
    *  target, identical to the seam the old cross-host click used. */
   activate: (id: TerminalId) => void;
-  /** Mark an active-host background tile unread (the dock corner badge). */
-  markUnread: (id: TerminalId) => void;
-  /** Drop a terminal's unread mark on ANY host — its episode ended (`ended`, whose
-   *  definition in `attentionTransitions` names every way that happens).
-   *  Host-addressed, unlike `markUnread`: a mark raised on host A must come off
-   *  while the user is viewing host B. */
-  clearUnread: (host: HostKey, id: TerminalId) => void;
   /** Rich subject (repo/branch label + description) for an active-host terminal. */
   activeSubject: (id: TerminalId) => TerminalSubject;
   /** The active host's terminal ids (for the e2e simulate hook only). */
@@ -162,10 +161,10 @@ export function useAttention(deps: AttentionDeps): {
    *
    *  The FUNNEL GUARD: both emission paths (the engine's `hooks.deliver`, fired
    *  from a per-host `createEffect`, and `simulateAlert`) run through here, and the
-   *  body calls caller-supplied deps (`activeSubject`, `markUnread`). A throw from
-   *  one of those must NOT escape — from the engine path it would kill that host's
-   *  attention effect for the rest of its life; from simulate it would throw out of
-   *  a command action. Surface it and move on. */
+   *  body calls a caller-supplied dep (`activeSubject`). A throw from it must
+   *  NOT escape — from the engine path it would kill that host's attention
+   *  effect for the rest of its life; from simulate it would throw out of a
+   *  command action. Surface it and move on. */
   function deliver(
     host: HostKey,
     id: TerminalId,
@@ -194,8 +193,12 @@ export function useAttention(deps: AttentionDeps): {
       }
       // `rich` is non-undefined iff this is the active host, so reuse it rather than
       // a second `sameHost` compare — the dock unread is an active-host terminal
-      // other than the pane currently receiving input.
-      if (rich && id !== deps.focusedId()) deps.markUnread(id);
+      // other than the pane currently receiving input. Raised on the host's
+      // record, not its view state: right after a page loads, padi's first
+      // frame can arrive before the host's view state exists, and that is the
+      // frame that carries a finish that happened while kolu was down.
+      if (rich && id !== deps.focusedId())
+        attentionRecordOf(encHost).markUnread(id);
     } catch (err) {
       console.error("useAttention: attention delivery failed", err);
     }
@@ -283,7 +286,9 @@ export function useAttention(deps: AttentionDeps): {
   // The detect→fire ENGINE (`attentionCore`) — unit-tested off the wire. It owns
   // the per-host prev-frame, the fire-once latch, and the unseen-finished sets;
   // we hand it the wire-facing side-effects. Hooks take the ENCODED host string
-  // (the engine's key) and decode where they need the `HostKey`.
+  // (the engine's key) and decode where they need the `HostKey`. Its memory and
+  // the dock marks are one saved record per host (`savedAttention`), so a page
+  // loaded after a reload or a kolu restart carries on from the last one.
   const core = createAttentionCore({
     alertsEnabled,
     isActiveHost: (encHost) => isActiveHost(decodeHostKey(encHost)),
@@ -296,8 +301,12 @@ export function useAttention(deps: AttentionDeps): {
       deliver(decodeHostKey(encHost), id, asking, loud),
     writeMark: (encHost, unseenFinished) =>
       writeHostMarks(encHost, { unseenFinished }),
-    clearUnread: (encHost, id) => deps.clearUnread(decodeHostKey(encHost), id),
-    // The engine stores only unseenFinished; host facts remain source accessors.
+    // Host-addressed, through the host's record rather than its view state: a
+    // mark raised on host A must come off while the user is viewing host B, and
+    // after a reload host A's view state may not have been built at all.
+    clearUnread: (encHost, id) => attentionRecordOf(encHost).clearUnread(id),
+    resume: (encHost) => attentionRecordOf(encHost).memory(),
+    remember: (encHost, memory) => attentionRecordOf(encHost).remember(memory),
   });
 
   // The per-host MIRROR (one subscription root per host, over the full member
@@ -324,6 +333,12 @@ export function useAttention(deps: AttentionDeps): {
       const frame = hostFrame(encHost);
       // Silence is not an empty frame — see `HostMarks.reported`.
       if (!frame.reported) return;
+      // Nor is a default an answer. A page resuming from what it saved can
+      // raise marks on its first frame, and whether it may is the user's
+      // **Attention alerts** setting — which reads the defaults (on) until
+      // the server's first preferences frame lands. Fed before then, a page
+      // would mark a user who had switched alerts off.
+      if (!preferencesArrived()) return;
       // The frame's own class map, handed straight over — the engine's type is
       // a `Pick` of it, so there is no adapter object to mint per host per
       // frame and no second name for the same two lists.

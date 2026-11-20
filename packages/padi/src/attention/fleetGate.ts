@@ -52,17 +52,46 @@
  * after its link came up, and recorded a work's member `gone` while the
  * terminal was alive under the same id, adopted half a second earlier (#2376,
  * the redeploy e2e). One member cannot be made to arrive apart from itself.
+ *
+ * ## A census is not an attention reading — the survivors are READ first
+ *
+ * A redeploy adopts kaval's surviving terminals with no agent on them: padi
+ * re-reads each agent a moment later rather than trusting the saved one. The
+ * first frame after adoption therefore lists every terminal and no agent, and
+ * an attention consumer handed it takes it as fact — `finishQuiet` spent its
+ * "already idle on the first real frame is not news" rule on that agentless
+ * frame, then saw each idle agent arrive as a brand-new finish, and every
+ * browser rang and marked every agent terminal unread.
+ *
+ * So the two readers of this gate open at different moments. The CENSUS
+ * ("who is here") opens exactly as above — the Conductor's watch needs it as
+ * soon as a terminal is listed. The ATTENTION FEED waits, after adoption,
+ * until every adopted terminal has been read once
+ * ({@link FleetGate.awaitFirstRead} / {@link FleetGate.firstRead}). A terminal
+ * that goes away while awaited stops being awaited. While the feed waits the
+ * `urgency` cell says `settled: false`.
+ *
+ * The last read changes no terminal record when the survivor's agent is gone
+ * (a shell has nothing to publish), so nothing would re-run the fold that is
+ * waiting on it. The gate therefore carries a generation the fold reads in
+ * {@link FleetGate.admit} — `finishQuiet`'s dual-edge pattern — and bumps it
+ * whenever its own answer moves: the last read, `establish`, `settling`.
  */
 
 import type { PadiRoster, PadiTerminal } from "@kolu/padi-client/surface";
+import { source } from "@kolu/surface/reactor";
 import type { TerminalId } from "@kolu/terminal-vocab/schema";
 
 export interface FleetGate {
-  /** Should this frame reach the attention consumers? `false` only while the
-   *  roster is settling — an empty registry before anything was adopted, or the
-   *  drain window of a recycle. A non-empty frame ESTABLISHES the roster (and
-   *  publishes that) — except inside a drain window, which only
-   *  {@link establish} may close. */
+  /** Should this frame reach the attention consumers? `false` while the roster
+   *  is settling — an empty registry before anything was adopted, or the drain
+   *  window of a recycle — and while an adopted survivor has not been read
+   *  ({@link awaitFirstRead}). A non-empty frame ESTABLISHES the roster (and
+   *  publishes that) whether or not the survivors have been read — except
+   *  inside a drain window, which only {@link establish} may close.
+   *
+   *  Reads the gate's generation, so a reactive fold calling this re-runs when
+   *  the gate's answer moves without the frame moving. */
   admit(terminals: ReadonlyMap<TerminalId, PadiTerminal>): boolean;
   /** padi has finished adopting: the roster is evidence even if it is EMPTY.
    *  Idempotent — a second call re-publishes nothing. The one thing that
@@ -79,8 +108,24 @@ export interface FleetGate {
    *  Called from the one pair of places that write the `terminals` collection,
    *  so the cell cannot drift from the registry it describes. */
   censusMoved(): void;
+  /** A terminal ADOPTED with no agent on it, whose agent padi has not read yet.
+   *  The attention feed stays closed until it has been ({@link firstRead}), or
+   *  until it leaves the registry. Must be said BEFORE the terminal is
+   *  registered, or a fold run by the registration admits it unread.
+   *
+   *  A no-op once the attention feed has opened: a terminal adopted mid-session
+   *  (a restart that kept its PTY, a PTY created outside kolu) joins a fleet
+   *  the feed already describes, and holding every other terminal's attention
+   *  for it would be the defect, not the guard. */
+  awaitFirstRead(id: TerminalId): void;
+  /** Every agent detector of this terminal has made its first pass over a real
+   *  foreground sample — whatever it found: an agent, a plain shell, or that
+   *  it cannot tell. A no-op for a terminal nobody is waiting on. */
+  firstRead(id: TerminalId): void;
   /** The standing as it would be read off the wire — what the cell carries. */
   roster(): PadiRoster;
+  /** Release the generation the fold tracks. */
+  dispose(): void;
 }
 
 export function createFleetGate(
@@ -139,32 +184,73 @@ export function createFleetGate(
     if (frame) return [...frame.keys()];
     return roster.kind === "established" ? roster.ids : [];
   };
+  /** HAS THE ATTENTION FEED OPENED? Once it has, an adoption is mid-session
+   *  and is not waited on ({@link FleetGate.awaitFirstRead}). Never closes
+   *  again: a recycle's drain closes the feed through `closed`, and re-parks
+   *  rather than adopting. */
+  let attentionOpen = false;
+  /** Adopted survivors whose agent has not been read yet. */
+  const unread = new Set<TerminalId>();
+  // The generation the fold reads in `admit`, bumped when the gate's own
+  // answer moves with no frame moving (`finishQuiet`'s dual-edge source).
+  let generation = 0;
+  let emitGeneration: ((n: number) => void) | undefined;
+  const generationSource = source<number>((emit) => {
+    emitGeneration = emit;
+    return () => {
+      emitGeneration = undefined;
+    };
+  }, 0);
+  const keepAlive = generationSource.subscribe(() => {});
+  const moved = (): void => {
+    generation += 1;
+    emitGeneration?.(generation);
+  };
   return {
     admit(terminals) {
+      // Dual-edge: depend on the gate's generation before reading the frame.
+      generationSource.value.value;
       if (roster.kind === "established") {
         // A frame IS a census: fold it in, so the cell tracks the registry even
         // where the collection's own writers are not the mover (a drain, a
         // bulk kill).
         move({ kind: "established", at: roster.at, ids: ids(terminals) });
-        return true;
+      } else if (closed || terminals.size === 0) {
+        return false;
+      } else {
+        move({ kind: "established", at: now(), ids: ids(terminals) });
       }
-      if (closed || terminals.size === 0) return false;
-      move({ kind: "established", at: now(), ids: ids(terminals) });
+      // The census is evidence; the attention feed waits for the survivors.
+      for (const id of unread) if (!terminals.has(id)) unread.delete(id);
+      if (unread.size > 0) return false;
+      attentionOpen = true;
       return true;
     },
     establish() {
       closed = false;
       move({ kind: "established", at: now(), ids: ids() });
+      moved();
     },
     settling() {
       closed = true;
       move({ kind: "settling" });
+      moved();
     },
     censusMoved() {
       if (roster.kind !== "established") return;
       move({ kind: "established", at: roster.at, ids: ids() });
     },
+    awaitFirstRead(id) {
+      if (!attentionOpen) unread.add(id);
+    },
+    firstRead(id) {
+      if (unread.delete(id) && unread.size === 0) moved();
+    },
     roster: () => roster,
+    dispose() {
+      keepAlive();
+      generationSource.dispose();
+    },
   };
 }
 
@@ -201,4 +287,17 @@ export function markRosterSettling(): void {
  *  about who is here. */
 export function markCensusMoved(): void {
   serving?.censusMoved();
+}
+
+/** An adopted survivor padi has not read yet — see
+ *  {@link FleetGate.awaitFirstRead}. Said by the adopt path, before it
+ *  registers the terminal. */
+export function markAwaitingFirstRead(id: TerminalId): void {
+  serving?.awaitFirstRead(id);
+}
+
+/** A terminal's agent detectors have each made their first pass — see
+ *  {@link FleetGate.firstRead}. Said by the terminal's sensor set. */
+export function markFirstRead(id: TerminalId): void {
+  serving?.firstRead(id);
 }

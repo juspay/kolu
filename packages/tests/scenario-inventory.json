@@ -11914,6 +11914,90 @@
       "exampleRows": [],
       "executions": 1,
       "firstSeenSha": "dff187ba0d95892d8cfb3244462abe77d4e3a186"
+    },
+    {
+      "revisionId": "revision-4e72f1702ec4a6415fce",
+      "scenarioKey": "scenario-6a813421d274e1941550",
+      "feature": "features/attention-alerts.feature",
+      "scenario": "A finished agent you had opened reads as read after kolu restarts",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "a2a5cf66705247ae6951cd6ed40e83a8a057ae0ba54dcbe893d6068b44494afd",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "003291dad1c706c0aca7567ed66fbb661a052e2b"
+    },
+    {
+      "revisionId": "revision-7c3558656480893594ed",
+      "scenarioKey": "scenario-3fb2290dd44bc09063b0",
+      "feature": "features/attention-alerts.feature",
+      "scenario": "A finished agent you had not opened is still unread after kolu restarts",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "56023219ebe9fee05c0127085b8122b635a7d2e84f44e979576c42a5cebde8f4",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "d258b561a50b866694c3453f336922af2c8099e0"
+    },
+    {
+      "revisionId": "revision-2124376d73667ac944b9",
+      "scenarioKey": "scenario-b1ef9535c82096612cac",
+      "feature": "features/attention-alerts.feature",
+      "scenario": "An agent that finishes while kolu is down is unread when it comes back, without a chime",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "7164778dbe41e24ec0a266f072a87a53cd8c5eb8a0524b68f453b54eeee750f8",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "d258b561a50b866694c3453f336922af2c8099e0"
+    },
+    {
+      "revisionId": "revision-f8c52c9c2f4b45fd5496",
+      "scenarioKey": "scenario-f0527f1d75610f7aead7",
+      "feature": "features/attention-alerts.feature",
+      "scenario": "An agent asking you before kolu restarts is still asking after it comes back, and rings nothing",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "206db2188fd1b2ccdbc1caab4e959c323f2f3d771afefeea67a17b8ca46ea29a",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "ce1916053ecd91d2f90acf004907bed4256ccd5f"
+    },
+    {
+      "revisionId": "revision-84ec95dc2878a9be8e7f",
+      "scenarioKey": "scenario-3fb2290dd44bc09063b0",
+      "feature": "features/attention-alerts.feature",
+      "scenario": "A finished agent you had not opened is still unread after kolu restarts",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "7c8f3dee557d4790f1e3c2cdf2ec1dbc022f8c617db5d27546cfb23a3d847c30",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "75cb51bb37476ee3f92852f67e24f5ceebcca13d"
+    },
+    {
+      "revisionId": "revision-63aa332eab2093ed6641",
+      "scenarioKey": "scenario-6a813421d274e1941550",
+      "feature": "features/attention-alerts.feature",
+      "scenario": "A finished agent you had opened reads as read after kolu restarts",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "f900effa2009a8d7f0258d8d074926512478ceb93d2cf7abda8c72bcd8f8af2a",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "75cb51bb37476ee3f92852f67e24f5ceebcca13d"
+    },
+    {
+      "revisionId": "revision-9dd3df350dbf17cc5367",
+      "scenarioKey": "scenario-b1ef9535c82096612cac",
+      "feature": "features/attention-alerts.feature",
+      "scenario": "An agent that finishes while kolu is down is unread when it comes back, without a chime",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "2a6c81e640158a9791f3bc17b376cc7246668a8ac8bcd0ae81d369dffcf1e371",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "75cb51bb37476ee3f92852f67e24f5ceebcca13d"
     }
   ]
 }

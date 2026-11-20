@@ -50,6 +50,7 @@ vi.mock("./wire", async () => {
   };
 });
 
+import { attentionRecordOf } from "./attention/savedAttention";
 import { activeScope, hostScopeOf } from "./hostScope/hostScopes";
 import { addHost, resetHosts } from "./hostScope/mockHostMap.testlib";
 import {
@@ -198,7 +199,7 @@ describe("per-host view posture + dock filters (W7 TIER A)", () => {
         // Mutate EVERY reset-on-close-all fact this factory owns.
         useSubPanel().focusMainPane("term-1" as TerminalId);
         vs.reconcileLiveIds(["term-1", "term-2"] as TerminalId[]);
-        vs.markUnread("term-1" as TerminalId);
+        attentionRecordOf("local").markUnread("term-1" as TerminalId);
         vs.setCanvasMaximized(true);
         // Sanity: all four facts are non-default.
         expect(vs.activeId()).not.toBeNull();
@@ -219,16 +220,17 @@ describe("per-host view posture + dock filters (W7 TIER A)", () => {
     });
   });
 
-  it("clearUnread drops the mark without focusing — on a host you are NOT viewing", async () => {
+  it("the engine's episode end clears the mark without focusing — on a host you are NOT viewing", async () => {
     // The attention engine's episode-end edge: an agent that goes back to work
-    // clears the dock unread mark it raised, addressed to the host that holds it.
+    // clears the dock unread mark it raised, addressed to the host that holds it
+    // (through the host's record, which the view state reads).
     await createRoot(async (dispose) => {
       try {
         switchTo(HOST_A);
         await flush();
         const a = activeScope()?.view;
         if (!a) throw new Error("no active view for HOST_A");
-        a.markUnread("term-1" as TerminalId);
+        attentionRecordOf("local").markUnread("term-1" as TerminalId);
         expect(a.isUnread("term-1" as TerminalId)).toBe(true);
 
         // Switch away — A's owner is retained, so its mark is still up.
@@ -238,7 +240,7 @@ describe("per-host view posture + dock filters (W7 TIER A)", () => {
         if (!retained) throw new Error("HOST_A's owner was not retained");
         expect(retained.isUnread("term-1" as TerminalId)).toBe(true);
 
-        retained.clearUnread("term-1" as TerminalId);
+        attentionRecordOf("local").clearUnread("term-1" as TerminalId);
         expect(retained.isUnread("term-1" as TerminalId)).toBe(false);
         // Clearing a mark is not an activation — focus is untouched.
         expect(retained.focusedTerminalId()).toBeNull();

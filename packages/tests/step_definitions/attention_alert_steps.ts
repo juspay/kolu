@@ -1,7 +1,73 @@
 import * as assert from "node:assert";
 import { Then, When } from "@cucumber/cucumber";
 import { pollFor, pollUntil } from "../support/poll.ts";
+import { redeployUnderThisPage } from "../support/redeploy.ts";
 import { type KoluWorld, POLL_TIMEOUT } from "../support/world.ts";
+
+/** kolu is redeployed under the open page: the server and padi are replaced,
+ *  the terminals keep running, and the page reloads with its storage — see
+ *  `redeployUnderThisPage`. The harness cannot keep a tab open across it (the
+ *  new server listens on a new port), so a scenario here is always the
+ *  RELOAD half of a restart; the tab that stays open is the unit tests'. */
+When(
+  "the kolu server is redeployed under this page",
+  { timeout: 180_000 },
+  async function (this: KoluWorld) {
+    await redeployUnderThisPage(this);
+  },
+);
+
+/** The agent's row shows padi's verdict that its turn is over — still, in
+ *  the post-turn paint. padi publishes that verdict only once it has looked,
+ *  so a check after this one is a check of what the page did with padi's
+ *  first real word, not of a page that has not heard it yet. */
+Then(
+  "the agent's dock row should show its finished turn",
+  async function (this: KoluWorld) {
+    await pollFor({
+      observe: () =>
+        this.page.evaluate(() =>
+          [
+            ...document.querySelectorAll(
+              '[data-testid="dock-row"][data-agent-state="waiting"] [data-testid="state-pip"]',
+            ),
+          ].map(
+            (pip) =>
+              `${pip.getAttribute("data-pip")}/${pip.getAttribute("data-motion")}`,
+          ),
+        ),
+      isDone: (pips) => pips.includes("linger/none"),
+      timeoutMs: POLL_TIMEOUT,
+      onTimeout: (pips, ms) =>
+        new Error(
+          `after ${ms}ms no waiting agent's row showed a finished turn (pips: ${JSON.stringify(pips)})`,
+        ),
+    });
+  },
+);
+
+/** The finished agent's own row carries the unread mark — not merely some
+ *  row, so a mark that moved to the wrong terminal does not pass. */
+Then("the agent's dock row should be unread", async function (this: KoluWorld) {
+  await this.page
+    .locator(
+      '[data-testid="dock-row"][data-agent-state="waiting"][data-unread]',
+    )
+    .first()
+    .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+});
+
+/** The asking agent's row says so — padi lists it as asking, which is what a
+ *  check after this one is about. */
+Then(
+  "the agent's dock row should show it asking",
+  async function (this: KoluWorld) {
+    await this.page
+      .locator('[data-testid="dock-row"][data-asking]')
+      .first()
+      .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+  },
+);
 
 When("I click the attention alerts toggle", async function (this: KoluWorld) {
   await this.page.click('[data-testid="attention-alerts-toggle"]');
@@ -112,18 +178,25 @@ When(
   },
 );
 
+/** Records every badge write instead of making one. Installed on THIS page and
+ *  on every page a navigation loads after it, like the sound stub, so a
+ *  reload's badge is recorded too. Assigned as properties, so no name is
+ *  inferred for esbuild's keep-names to wrap. */
+const stubBadge = (): void => {
+  window.__badgeCalls = [];
+  navigator.setAppBadge = (count?: number) => {
+    window.__badgeCalls?.push({ method: "set", count });
+    return Promise.resolve();
+  };
+  navigator.clearAppBadge = () => {
+    window.__badgeCalls?.push({ method: "clear" });
+    return Promise.resolve();
+  };
+};
+
 When("I stub the Badging API", async function (this: KoluWorld) {
-  await this.page.evaluate(() => {
-    window.__badgeCalls = [];
-    navigator.setAppBadge = (count?: number) => {
-      window.__badgeCalls?.push({ method: "set", count });
-      return Promise.resolve();
-    };
-    navigator.clearAppBadge = () => {
-      window.__badgeCalls?.push({ method: "clear" });
-      return Promise.resolve();
-    };
-  });
+  await this.page.addInitScript(stubBadge);
+  await this.page.evaluate(stubBadge);
 });
 
 /** The sound is the one channel a page cannot show, so the step records it

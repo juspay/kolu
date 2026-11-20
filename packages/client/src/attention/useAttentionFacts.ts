@@ -44,6 +44,8 @@ import { createEffect, createMemo, mapArray, onCleanup } from "solid-js";
 import { createSharedRoot } from "../createSharedRoot";
 import { hostKeys, interpretClientError, padiMap } from "../wire";
 import {
+  emptyByClass,
+  type FrameClass,
   frameByClass,
   type TerminalAttention,
 } from "@kolu/padi-client/attention";
@@ -55,6 +57,7 @@ import {
   terminalClass,
   writeHostMarks,
 } from "./attentionMarks";
+import { forgetAttentionRecord } from "./savedAttention";
 
 export const useAttentionFacts = createSharedRoot(() => {
   // One eager root per host, holding BOTH of that host's attention members.
@@ -101,24 +104,29 @@ export const useAttentionFacts = createSharedRoot(() => {
       // same surface translate the wire identically (it also owns the copies that
       // fence the `reconcile` proxy `.use()` hands back, which mutates in place
       // across ticks).
-      const byClass = createMemo(() => {
-        const value = urgency();
-        return value === undefined
-          ? frameByClass({
-              awaitingIds: [],
-              finishedIds: [],
-              workingIds: [],
-              lingerIds: [],
-            })
-          : frameByClass(value);
-      });
+      //
+      // Only a SETTLED frame moves it. An unsettled one is padi saying it has
+      // not looked yet (a redeploy's fresh padi, a kaval recycle), so its empty
+      // lists are no news: the reading stays at what padi last said it saw, and
+      // the marks and counts it drives do not blink to idle and back.
+      const byClass = createMemo(
+        (previous: Record<FrameClass, TerminalId[]>) => {
+          const value = urgency();
+          return value?.settled === true ? frameByClass(value) : previous;
+        },
+        emptyByClass(),
+      );
       const liveIds = createMemo<readonly TerminalId[]>(
         (previous) => (activity.pending() ? previous : [...(activity() ?? [])]),
         [],
       );
+      // Has padi said what it SAW? Once it has, the held reading above is
+      // its word, so this stays true across a later unsettled frame.
       const reported = createMemo(
         (previous: boolean) =>
-          activity.pending() ? previous : urgency() !== undefined,
+          activity.pending()
+            ? previous
+            : previous || urgency()?.settled === true,
         false,
       );
       registerHostFacts(encHost, () => ({
@@ -138,11 +146,13 @@ export const useAttentionFacts = createSharedRoot(() => {
       // Publish membership, independent of the live facts above.
       writeHostMarks(encHost, {});
       registerHostIndex(encHost, createAttentionIndex(byClass, liveIds));
-      // Host left the pool — drop its whole record, and the index whose memos
-      // are disposed with this owner. The ONE deleter.
+      // Host left the pool — drop its whole record, the index whose memos
+      // are disposed with this owner, and what this browser saved about its
+      // attention (a page reload does not run this). The ONE deleter.
       onCleanup(() => {
         forgetHostIndex(encHost);
         writeHostMarks(encHost, undefined);
+        forgetAttentionRecord(encHost);
       });
       return null;
     },

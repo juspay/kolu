@@ -106,6 +106,7 @@ describe("finishQuiet + recomputeUrgency (EF2 sticky-per-episode)", () => {
       finishedIds: [],
       workingIds: [],
       lingerIds: [A],
+      settled: true,
     });
 
     vi.advanceTimersByTime(QUIET);
@@ -114,6 +115,7 @@ describe("finishQuiet + recomputeUrgency (EF2 sticky-per-episode)", () => {
       finishedIds: [A],
       workingIds: [],
       lingerIds: [],
+      settled: true,
     });
     expect(finish.stickySnapshot()).toEqual([A]);
     expect(finish.episodeSnapshot()).toEqual([[A, "finished"]]);
@@ -156,6 +158,7 @@ describe("finishQuiet + recomputeUrgency (EF2 sticky-per-episode)", () => {
       finishedIds: [A],
       workingIds: [B],
       lingerIds: [],
+      settled: true,
     });
     expect(finish.stickySnapshot()).toEqual([A]);
     expect(finish.waitingSnapshot()).toEqual([A]);
@@ -223,6 +226,7 @@ describe("finishQuiet + recomputeUrgency (EF2 sticky-per-episode)", () => {
       finishedIds: [],
       workingIds: [A],
       lingerIds: [],
+      settled: true,
     });
     expect(finish.episodeSnapshot()).toEqual([]);
     finish.dispose();
@@ -292,6 +296,7 @@ describe("finishQuiet + recomputeUrgency (EF2 sticky-per-episode)", () => {
       finishedIds: [],
       workingIds: [],
       lingerIds: [A],
+      settled: true,
     });
     vi.advanceTimersByTime(QUIET);
     expect(fold(finish, terminalsMap([[A, "waiting"]])).finishedIds).toEqual([
@@ -312,6 +317,7 @@ describe("finishQuiet + recomputeUrgency (EF2 sticky-per-episode)", () => {
       finishedIds: [],
       workingIds: [],
       lingerIds: [],
+      settled: true,
     });
 
     expect(fold(finish, terminalsMap([[A, "waiting"]]))).toEqual({
@@ -319,6 +325,7 @@ describe("finishQuiet + recomputeUrgency (EF2 sticky-per-episode)", () => {
       finishedIds: [],
       workingIds: [],
       lingerIds: [A],
+      settled: true,
     });
     vi.advanceTimersByTime(QUIET);
     expect(fold(finish, terminalsMap([[A, "waiting"]])).finishedIds).toEqual([
@@ -333,11 +340,13 @@ const presentTerminal = (
   state: "starting" | "fresh" | "prompted",
 ): PadiTerminal => activeTerminal(agentPresence("omp", state, null));
 
-const EMPTY_URGENCY = {
+/** A fold of a fleet with nobody in any list — looked at, and quiet. */
+const QUIET_URGENCY = {
   awaitingIds: [],
   finishedIds: [],
   workingIds: [],
   lingerIds: [],
+  settled: true,
 };
 
 describe("finishQuiet settles a screen padi is waiting on (starting/prompted → fresh)", () => {
@@ -354,13 +363,13 @@ describe("finishQuiet settles a screen padi is waiting on (starting/prompted →
     });
     afterBootEmpty(finish);
     const terms = new Map([[A, presentTerminal("starting")]]);
-    expect(fold(finish, terms)).toEqual(EMPTY_URGENCY);
+    expect(fold(finish, terms)).toEqual(QUIET_URGENCY);
     vi.advanceTimersByTime(QUIET - 10);
     expect(settled).toEqual([]);
     vi.advanceTimersByTime(10);
     expect(settled).toEqual([A]);
     // Settled is not finished: nothing about a launch lands in an attention list.
-    expect(fold(finish, terms)).toEqual(EMPTY_URGENCY);
+    expect(fold(finish, terms)).toEqual(QUIET_URGENCY);
     vi.advanceTimersByTime(QUIET * 3);
     expect(settled).toEqual([A]);
     // The detector publishes `fresh`; the episode is over.

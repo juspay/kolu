@@ -121,6 +121,7 @@ describe("dual-edge urgency (finish quiet generation)", () => {
       finishedIds: [],
       workingIds: [],
       lingerIds: [],
+      settled: true,
     });
 
     // Arm bootstrap with non-waiting inventory (first non-empty must not be
@@ -133,6 +134,7 @@ describe("dual-edge urgency (finish quiet generation)", () => {
       finishedIds: [],
       workingIds: [A],
       lingerIds: [],
+      settled: true,
     });
 
     const terminal = activeTerminal(makeAgent("waiting"));
@@ -143,6 +145,7 @@ describe("dual-edge urgency (finish quiet generation)", () => {
       finishedIds: [],
       workingIds: [],
       lingerIds: [A],
+      settled: true,
     });
 
     vi.advanceTimersByTime(QUIET);
@@ -151,6 +154,7 @@ describe("dual-edge urgency (finish quiet generation)", () => {
       finishedIds: [A],
       workingIds: [],
       lingerIds: [],
+      settled: true,
     });
     finish.dispose();
   });
@@ -205,6 +209,7 @@ describe("dual-edge urgency (finish quiet generation)", () => {
       finishedIds: [A],
       workingIds: [],
       lingerIds: [],
+      settled: true,
     });
     finish.dispose();
   });

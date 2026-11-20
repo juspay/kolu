@@ -18,9 +18,15 @@
  *      generic `onEvent`-never-called proof) would not catch.
  */
 
+import type { PadiTerminal } from "@kolu/padi-client/surface";
+import type { TerminalId } from "@kolu/terminal-vocab/schema";
 import { Stream } from "effect";
 import { describe, expect, it } from "vitest";
 import type { ForegroundSample } from "kaval";
+import {
+  createFleetGate,
+  setServingFleetGate,
+} from "../attention/fleetGate.ts";
 import {
   bridgeStream,
   onForegroundTapError,
@@ -116,12 +122,31 @@ describe("onForegroundTapError — the production handler never publishes (STAYS
     };
 
     onForegroundTapError(
-      "t1",
+      "t1" as TerminalId,
       foreground,
       new Error("kaval socket dropped mid-foreground-tap"),
     );
 
     expect(published).toEqual([]);
+  });
+
+  it("a tap that fails before its first sample releases the redeploy's attention gate for that terminal", () => {
+    // The detectors will never get a sample from a dead tap, so their first
+    // pass is "cannot tell". Unsaid, one blind survivor would hold every
+    // attention report on the host closed for good.
+    const gate = createFleetGate();
+    setServingFleetGate(gate);
+    try {
+      const survivor = "t1" as TerminalId;
+      const fleet = new Map([[survivor, {} as PadiTerminal]]);
+      gate.awaitFirstRead(survivor);
+      expect(gate.admit(fleet)).toBe(false);
+      onForegroundTapError(survivor, { publish: () => {} }, new Error("gone"));
+      expect(gate.admit(fleet)).toBe(true);
+    } finally {
+      setServingFleetGate(null);
+      gate.dispose();
+    }
   });
 });
 

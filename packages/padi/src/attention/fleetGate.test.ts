@@ -15,6 +15,7 @@
  */
 
 import type { PadiRoster, PadiTerminal } from "@kolu/padi-client/surface";
+import { computed } from "@kolu/surface/reactor";
 import type { TerminalId } from "@kolu/terminal-vocab/schema";
 import { describe, expect, it } from "vitest";
 import { createFleetGate } from "./fleetGate.ts";
@@ -174,5 +175,91 @@ describe("createFleetGate", () => {
     // The epoch is when the roster was ESTABLISHED, not when it last moved —
     // what a reader debugging a false absence is after.
     expect(gate.roster()).toEqual({ kind: "established", at: 7, ids: ["a"] });
+  });
+});
+
+/** A redeploy's adoption, in the order the adopt path says it: each survivor is
+ *  named to the gate BEFORE it is registered, then the registry's frame
+ *  arrives with every survivor listed and no agent read. */
+function adopted(n: number) {
+  const gate = createFleetGate();
+  expect(gate.admit(frame(0))).toBe(false);
+  for (let i = 0; i < n; i++) gate.awaitFirstRead(`t${i}` as TerminalId);
+  return gate;
+}
+
+describe("createFleetGate — the survivors are read before attention", () => {
+  it("refuses the adopted frame until every survivor has been read once, and opens on the last", () => {
+    const gate = adopted(2);
+    expect(gate.admit(frame(2))).toBe(false);
+    gate.firstRead("t0" as TerminalId);
+    expect(gate.admit(frame(2))).toBe(false);
+    gate.firstRead("t1" as TerminalId);
+    expect(gate.admit(frame(2))).toBe(true);
+  });
+
+  it("opens the CENSUS as soon as a survivor is listed — only the attention feed waits", () => {
+    // The Conductor's watch reads "not listed" as "gone"; holding the census
+    // back while agents are read would reopen #2376.
+    const gate = adopted(2);
+    gate.admit(frame(2));
+    expect(gate.roster().kind).toBe("established");
+  });
+
+  it("stops waiting for a survivor that goes away before it is read", () => {
+    const gate = adopted(2);
+    expect(gate.admit(frame(2))).toBe(false);
+    gate.firstRead("t0" as TerminalId);
+    // t1 exited (or its wiring failed and it was reaped): the frame no longer
+    // lists it, and nothing is left to wait for.
+    expect(gate.admit(frame(1))).toBe(true);
+  });
+
+  it("does not wait on a terminal adopted after the feed opened — a mid-session adoption", () => {
+    const gate = adopted(1);
+    gate.firstRead("t0" as TerminalId);
+    expect(gate.admit(frame(1))).toBe(true);
+    gate.awaitFirstRead("t1" as TerminalId);
+    expect(gate.admit(frame(2))).toBe(true);
+  });
+
+  it("still closes for a recycle's drain and re-opens at the re-park", () => {
+    const gate = adopted(1);
+    gate.firstRead("t0" as TerminalId);
+    expect(gate.admit(frame(1))).toBe(true);
+    gate.settling();
+    expect(gate.admit(frame(0))).toBe(false);
+    gate.establish();
+    expect(gate.admit(frame(0))).toBe(true);
+  });
+
+  it("re-runs a fold that reads it when the last survivor is read, with no frame moving", () => {
+    // A survivor whose agent quit while kolu was down is read as a shell, and
+    // a shell publishes nothing — so the read changes no record, and only the
+    // gate's own generation can wake the fold that is waiting on it.
+    const gate = adopted(1);
+    const unchanged = frame(1);
+    let runs = 0;
+    const fold = computed(() => {
+      runs += 1;
+      return gate.admit(unchanged);
+    });
+    expect(fold.value.value).toBe(false);
+    const settledRuns = runs;
+    expect(fold.value.value).toBe(false);
+    expect(runs).toBe(settledRuns);
+    gate.firstRead("t0" as TerminalId);
+    expect(fold.value.value).toBe(true);
+    gate.dispose();
+  });
+
+  it("re-runs that fold when the boot establishes an empty roster — a quiet host still reports", () => {
+    const gate = createFleetGate();
+    const empty = frame(0);
+    const fold = computed(() => gate.admit(empty));
+    expect(fold.value.value).toBe(false);
+    gate.establish();
+    expect(fold.value.value).toBe(true);
+    gate.dispose();
   });
 });

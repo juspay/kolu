@@ -9,7 +9,9 @@
 import type { PadiTerminal, PadiUrgency } from "@kolu/padi-client/surface";
 import type { TerminalId } from "@kolu/terminal-vocab/schema";
 import { describe, expect, it } from "vitest";
+import { createFinishQuiet } from "../activity/finishQuiet.ts";
 import {
+  frame,
   makeAgent,
   settled,
   silentLogger,
@@ -17,6 +19,7 @@ import {
 } from "./attentionFixture.testlib.ts";
 import { createEdgeMemory } from "./edgeMemory.ts";
 import { createEventSeq } from "./eventSeq.ts";
+import { createFleetGate } from "./fleetGate.ts";
 import { createSettleEvents, type SettleEvent } from "./settleEvents.ts";
 
 const EMPTY: PadiUrgency = {
@@ -24,6 +27,7 @@ const EMPTY: PadiUrgency = {
   finishedIds: [],
   workingIds: [],
   lingerIds: [],
+  settled: true,
 };
 
 const urgency = (u: Partial<PadiUrgency>): PadiUrgency => ({ ...EMPTY, ...u });
@@ -302,5 +306,38 @@ describe("createSettleEvents", () => {
     );
     await settled();
     expect(seen).toEqual(["w"]);
+  });
+});
+
+describe("createSettleEvents — a redeploy", () => {
+  it("tells no supervisor about a survivor that was already idle", async () => {
+    // The producer as `servePadi` runs it: the fleet gate, then the quiet
+    // tracker, then this source. A fresh padi adopts the worker with no
+    // agent, reads it a moment later, and only then reports attention.
+    const { events, source } = collector();
+    const gate = createFleetGate();
+    const finish = createFinishQuiet({
+      log: silentLogger,
+      idleAfterMs: 100,
+      standingSub: false,
+    });
+    const fold = (fleet: ReadonlyMap<TerminalId, PadiTerminal>): void => {
+      if (gate.admit(fleet)) source.observe(finish.project(fleet), fleet);
+    };
+    try {
+      fold(frame());
+      gate.awaitFirstRead("w" as TerminalId);
+      fold(frame({ w: { agent: null } }));
+      const read = frame({ w: { agent: makeAgent("waiting") } });
+      fold(read);
+      gate.firstRead("w" as TerminalId);
+      fold(read);
+      fold(read);
+      await settled();
+      expect(events).toEqual([]);
+    } finally {
+      finish.dispose();
+      gate.dispose();
+    }
   });
 });

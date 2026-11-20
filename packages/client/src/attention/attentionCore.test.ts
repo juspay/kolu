@@ -6,7 +6,11 @@ import type { TerminalId } from "kolu-common/surface";
 import type { Membership } from "kolu-work";
 import { describe, expect, it, vi } from "vitest";
 import { drivenByConductor } from "../conductor/workReadings";
-import { type AttentionHooks, createAttentionCore } from "./attentionCore";
+import {
+  type AttentionHooks,
+  type AttentionMemory,
+  createAttentionCore,
+} from "./attentionCore";
 import type { AttentionFrame } from "kolu-common/surface";
 
 const u = (asking: string[] = [], finished: string[] = []): AttentionFrame => ({
@@ -19,6 +23,8 @@ function harness(over: Partial<AttentionHooks> = {}) {
   /** The deliveries that made NO sound and no OS popup — only the marks. */
   const quiet: string[] = [];
   const cleared: Array<{ host: string; id: string }> = [];
+  /** What the engine handed back to be saved, per host, latest last. */
+  const remembered: Array<{ host: string; memory: AttentionMemory }> = [];
   const hooks: AttentionHooks = {
     alertsEnabled: () => true,
     isActiveHost: () => true,
@@ -30,9 +36,17 @@ function harness(over: Partial<AttentionHooks> = {}) {
     },
     writeMark: () => {},
     clearUnread: (host, id) => cleared.push({ host, id }),
+    resume: () => null, // a browser that has saved nothing
+    remember: (host, memory) => remembered.push({ host, memory }),
     ...over,
   };
-  return { core: createAttentionCore(hooks), delivered, quiet, cleared };
+  return {
+    core: createAttentionCore(hooks),
+    delivered,
+    quiet,
+    cleared,
+    remembered,
+  };
 }
 
 describe("attentionCore — a terminal the Conductor drives", () => {
@@ -248,5 +262,141 @@ describe("attentionCore — detect→fire (the path e2e/simulate skips)", () => 
     core.observe("other", u([], ["B"]));
     core.observe("other", u([], []));
     expect(cleared).toEqual([{ host: "other", id: "B" }]);
+  });
+});
+
+describe("attentionCore — a tab that stays open through a redeploy", () => {
+  // While padi is replaced, the mirror feeds the engine nothing (an unsettled
+  // frame is not a report, `useAttentionFacts`), so the engine sees a settled
+  // frame, then silence, then the fresh padi's first settled frame.
+
+  it("the same frame after the silence rings nothing and drops no mark", () => {
+    const { core, delivered, cleared } = harness();
+    core.observe("h", u([], []));
+    core.observe("h", u(["Q"], ["A"]));
+    expect(delivered).toHaveLength(2);
+    // …padi goes away and comes back, having found both as they were.
+    core.observe("h", u(["Q"], ["A"]));
+    expect(delivered).toHaveLength(2);
+    expect(cleared).toEqual([]);
+  });
+
+  it("a terminal that finished while padi was away rings once, loud", () => {
+    const { core, delivered, quiet } = harness();
+    core.observe("h", u([], []));
+    core.observe("h", u([], ["B"]));
+    expect(delivered).toEqual([{ id: "B", asking: false }]);
+    expect(quiet).toEqual([]);
+  });
+});
+
+describe("attentionCore — a page loaded after kolu restarted, resumed from what it saved", () => {
+  /** What this browser saved before the restart: the last frame, and the
+   *  terminals already announced (latched) — by default, every one in it. */
+  const saved = (
+    asking: string[],
+    finished: string[],
+    latched: string[] = [...asking, ...finished],
+  ): AttentionMemory => ({
+    frame: u(asking, finished),
+    latched: latched as TerminalId[],
+    unseenFinished: [],
+  });
+
+  it("the same lists as saved: nothing rings, and no mark drops", () => {
+    const { core, delivered, cleared } = harness({
+      resume: () => saved(["Q"], ["A"]),
+    });
+    core.observe("h", u(["Q"], ["A"]));
+    expect(delivered).toEqual([]);
+    expect(cleared).toEqual([]);
+  });
+
+  it("a terminal that finished while kolu was down is marked, without a sound", () => {
+    const { core, delivered, quiet } = harness({
+      resume: () => saved([], ["A"]),
+    });
+    core.observe("h", u([], ["A", "B"]));
+    expect(delivered).toEqual([{ id: "B", asking: false }]);
+    expect(quiet).toEqual(["B"]);
+  });
+
+  it("a terminal that went back to work, quit or closed while kolu was down loses its mark", () => {
+    const { core, cleared, delivered } = harness({
+      resume: () => saved([], ["A", "B"]),
+    });
+    core.observe("h", u([], ["A"]));
+    expect(cleared).toEqual([{ host: "h", id: "B" }]);
+    expect(delivered).toEqual([]);
+  });
+
+  it("an announced terminal that is still finished does not ring again on the next change", () => {
+    // The latch came back with the frame: a later frame that moves something
+    // else must not re-announce A.
+    const { core, delivered } = harness({ resume: () => saved([], ["A"]) });
+    core.observe("h", u([], ["A"]));
+    core.observe("h", u(["Q"], ["A"]));
+    expect(delivered).toEqual([{ id: "Q", asking: true }]);
+  });
+
+  it("only the first frame is resumed — a finish after it rings as always", () => {
+    const { core, delivered, quiet } = harness({
+      resume: () => saved([], []),
+    });
+    core.observe("h", u([], []));
+    core.observe("h", u([], ["A"]));
+    expect(delivered).toEqual([{ id: "A", asking: false }]);
+    expect(quiet).toEqual([]);
+  });
+
+  it("with nothing saved, the first frame is a baseline, as it always was", () => {
+    const { core, delivered, cleared } = harness();
+    core.observe("h", u(["Q"], ["A"]));
+    expect(delivered).toEqual([]);
+    expect(cleared).toEqual([]);
+  });
+
+  it("hands its memory back after each frame that changes it, so the next page can resume from it", () => {
+    const { core, remembered } = harness();
+    core.observe("h", u([], []));
+    core.observe("h", u(["Q"], ["A"]));
+    expect(remembered.at(-1)).toEqual({
+      host: "h",
+      memory: {
+        frame: u(["Q"], ["A"]),
+        latched: ["Q", "A"],
+        unseenFinished: [],
+      },
+    });
+  });
+
+  it("hands nothing back for a frame that changes nothing it remembers — a working or linger move", () => {
+    // The engine is fed whenever the host's class lists move, and most moves
+    // (an agent starting or finishing a tool call) leave asking and finished
+    // as they were. Each hand-back is a `localStorage` write.
+    const { core, remembered } = harness();
+    core.observe("h", u([], []));
+    core.observe("h", u([], ["A"]));
+    const saved = remembered.length;
+    core.observe("h", u([], ["A"]));
+    expect(remembered).toHaveLength(saved);
+  });
+
+  it("a finish on a host you are not looking at stays unseen across the reload", () => {
+    const before = harness({ isActiveHost: () => false });
+    before.core.observe("h", u([], []));
+    before.core.observe("h", u([], ["A"]));
+    const memory = before.remembered.at(-1)?.memory ?? null;
+    expect(memory?.unseenFinished).toEqual(["A"]);
+    // The page reloads; the host tab's quiet dot comes back with it.
+    const marks: number[] = [];
+    const after = harness({
+      isActiveHost: () => false,
+      resume: () => memory,
+      writeMark: (_h, n) => marks.push(n),
+    });
+    after.core.observe("h", u([], ["A"]));
+    expect(marks).toEqual([1]);
+    expect(after.delivered).toEqual([]);
   });
 });

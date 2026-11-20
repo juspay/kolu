@@ -839,8 +839,19 @@ export * from "./transcriptSchema.ts";
  *  without `isDraft` reaches a consumer. The session side is still a minor: an
  *  older client that SENDS a session whose resolved PR lacks `isDraft` is
  *  refused at the decode, loudly, and nothing is overwritten; padi's own saved
- *  file is brought up by its state rung 1.6.0 (`backfillPrDraft`). */
-export const PADI_SURFACE_VERSION = "7.11";
+ *  file is brought up by its state rung 1.6.0 (`backfillPrDraft`).
+ *
+ *  7.12 (additive · minor) — THE URGENCY FOLD SAYS WHEN IT IS NOT YET
+ *  EVIDENCE. `PadiUrgency` gains `settled`: false while padi has not finished
+ *  looking — before it adopts kaval's terminals, while it re-reads each
+ *  adopted survivor's agent for the first time, and through a kaval recycle's
+ *  drain — and true otherwise. An empty list in an unsettled frame means
+ *  nobody has looked, not that nothing is happening; a reader that took it as
+ *  fact dropped every unread mark and then rang for every idle agent after a
+ *  redeploy. It rides the value, not the `roster` cell beside it, because two
+ *  members arrive apart. A decoding default of `true`: a frame from a 7.11
+ *  padi, which omits the key, reads as it always did. */
+export const PADI_SURFACE_VERSION = "7.12";
 
 /** The `version` cell payload — padi's self-declared surface contract version. */
 export const PadiVersionSchema = Schema.Struct({
@@ -1274,24 +1285,40 @@ export const PadiUrgencySchema = Schema.Struct({
   lingerIds: Schema.Array(TerminalIdSchema).pipe(
     Schema.withDecodingDefaultKey(Effect.sync(() => [])),
   ),
+  /** Whether this frame is EVIDENCE. `false` while padi has not finished
+   *  looking: before it adopts kaval's terminals, while it reads each adopted
+   *  survivor's agent for the first time, and through a kaval recycle's drain.
+   *  The lists of an unsettled frame are empty because nobody has looked, not
+   *  because nothing is happening, so a reader keeps what it last knew rather
+   *  than taking them as fact. `true` for every frame padi folded from a fleet
+   *  it has seen.
+   *
+   *  Decodes to `true` when ABSENT: a 7.11 padi never says, and every frame it
+   *  served reads as it always did. */
+  settled: Schema.Boolean.pipe(
+    Schema.withDecodingDefaultKey(Effect.succeed(true)),
+  ),
 });
 export type PadiUrgency = typeof PadiUrgencySchema.Type;
 
 /** Two urgency readings are equal when they carry the same ids in ALL FOUR
- *  lists, each in the same order — the urgency cell's `equals`, so the ~150 ms
- *  agent firehose (the `terminals` collection's write-triggers, which the derived
- *  `urgency` cell recomputes off) can't re-publish an unchanged projection.
- *  Comparing every list is load-bearing: a frame where only the finished set
- *  changed must survive this ONE wire dedup point so the finish transition
- *  reaches `useAttention` and fires, and a working→linger move (the same
- *  terminal, a different list) must reach the host tab or its activity count
- *  freezes. Every count is derived (`.length`), so comparing ids alone is
- *  already complete. Lives here beside the value schema (it
- *  is a property of the `PadiUrgency` VALUE) so the spec can declare it directly —
- *  the bridge's "equals lives at the member, once" law — without `surface.ts`
- *  reaching into the fold module. */
+ *  lists, each in the same order, AND the same `settled` — the urgency cell's
+ *  `equals`, so the ~150 ms agent firehose (the `terminals` collection's
+ *  write-triggers, which the derived `urgency` cell recomputes off) can't
+ *  re-publish an unchanged projection. Comparing every list is load-bearing: a
+ *  frame where only the finished set changed must survive this ONE wire dedup
+ *  point so the finish transition reaches `useAttention` and fires, and a
+ *  working→linger move (the same terminal, a different list) must reach the
+ *  host tab or its activity count freezes. `settled` is load-bearing the same
+ *  way: an unsettled empty frame and a settled empty one carry the same lists,
+ *  and a quiet host that finished looking must still say so. Every count is
+ *  derived (`.length`), so comparing these five is already complete. Lives
+ *  here beside the value schema (it is a property of the `PadiUrgency` VALUE)
+ *  so the spec can declare it directly — the bridge's "equals lives at the
+ *  member, once" law — without `surface.ts` reaching into the fold module. */
 export function urgencyEqual(a: PadiUrgency, b: PadiUrgency): boolean {
   return (
+    a.settled === b.settled &&
     sameIds(a.awaitingIds, b.awaitingIds) &&
     sameIds(a.finishedIds, b.finishedIds) &&
     sameIds(a.workingIds, b.workingIds) &&
@@ -2398,6 +2425,8 @@ export const padiSurface = defineSurfaceWithPolicy<ClientErrorPolicy>()({
         finishedIds: [],
         workingIds: [],
         lingerIds: [],
+        // Nothing has been looked at before padi's first frame.
+        settled: false,
       } satisfies PadiUrgency,
       equals: urgencyEqual,
       verbs: ["get"],

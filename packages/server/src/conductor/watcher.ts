@@ -210,21 +210,24 @@ const hostViews = (
       const { urgency, roster } = at;
       if (urgency === null || roster === null) return [at, []] as const;
       // The ARM, and the only place one is chosen: padi's own word for whether
-      // its roster is a census, read through the one fold both sides share. A
-      // settling host is emitted — it is a real thing this leg has learned —
-      // and says nothing about any terminal, because the fold it would be read
-      // by has nothing on that arm to read.
-      const view: HostView = rosterIsEstablished(roster)
-        ? {
-            kind: "ready",
-            host,
-            hostName,
-            watched,
-            roster: new Set(roster.ids),
-            urgency,
-            records: at.records,
-          }
-        : { kind: "settling", host, hostName, watched };
+      // its roster is a census, read through the one fold both sides share,
+      // and whether its attention fold is evidence yet (`settled: false`
+      // while a redeploy reads its survivors, whose empty lists mean nobody
+      // has looked). A settling host is emitted — it is a real thing this leg
+      // has learned — and says nothing about any terminal, because the fold
+      // it would be read by has nothing on that arm to read.
+      const view: HostView =
+        rosterIsEstablished(roster) && urgency.settled
+          ? {
+              kind: "ready",
+              host,
+              hostName,
+              watched,
+              roster: new Set(roster.ids),
+              urgency,
+              records: at.records,
+            }
+          : { kind: "settling", host, hostName, watched };
       return [at, [view]] as const;
     },
   );

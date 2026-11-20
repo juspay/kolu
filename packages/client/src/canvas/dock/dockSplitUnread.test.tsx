@@ -30,6 +30,7 @@ vi.mock("../../wire", async () => {
   };
 });
 
+import { attentionRecordOf } from "../../attention/savedAttention";
 import { activeScope } from "../../hostScope/hostScopes";
 import { addHost, resetHosts } from "../../hostScope/mockHostMap.testlib";
 import { useSubPanel } from "../../terminal/useSubPanel";
@@ -58,7 +59,7 @@ it("clears a split's unread dock dot when its sub-entry lands", async () => {
       const view = activeScope()?.view;
       if (!view) throw new Error("no active view for local host");
 
-      view.markUnread(SPLIT);
+      attentionRecordOf("local").markUnread(SPLIT);
       disposeRow = render(
         () => (
           <button
