@@ -38,10 +38,12 @@
 import {
   allowingOurs,
   type Background,
+  type CompactionPoint,
   type Leg,
   type ListedFacts,
   type Meta,
   mcpCallBy,
+  type RawMessages,
   type Reported,
   type Spawn,
   type TaskNotice,
@@ -869,6 +871,15 @@ export const accountRefusalIn = (data: unknown): boolean => {
   );
 };
 
+/** The four readings that ride the CLI's own messages, one value so a leg
+ *  that asks for more at the open keeps the other three as they are. */
+const RAW_MESSAGES: RawMessages = {
+  openMeta: OPEN_SESSION_META,
+  method: SDK_MESSAGE,
+  modelIn: liveModelIn,
+  serversIn: liveServersIn,
+};
+
 // ── the leg ────────────────────────────────────────────────────────────
 
 /**
@@ -935,12 +946,7 @@ export const CLAUDE: Leg = {
   // reads, and no exit code anywhere. kolu draws a terminal from its own PTY
   // and never reads this; olai's panel draws the call and does.
   terminalOutput: true,
-  rawMessages: {
-    openMeta: OPEN_SESSION_META,
-    method: SDK_MESSAGE,
-    modelIn: liveModelIn,
-    serversIn: liveServersIn,
-  },
+  rawMessages: RAW_MESSAGES,
   // ... and the title the announcement carries is not the call's name yet
   // ({@link provisionalTitleIn}).
   provisionalTitle: provisionalTitleIn,
@@ -948,3 +954,63 @@ export const CLAUDE: Leg = {
   // models ({@link ./models.ts}).
   models: MODELS,
 };
+
+/**
+ * How far below the window it is given Claude Code compacts. Measured on the
+ * pinned pair (adapter 0.81.2, claude-code 2.1.325) against a fake Messages
+ * API: a window of 100k fired between 66k and 68k, 200k between 166k and
+ * 168k, 233k between 198k and 201k. On a model whose own window is smaller
+ * than the one given, that smaller window is the one it fires under.
+ */
+const COMPACT_RESERVE = 33_000;
+
+/**
+ * {@link CLAUDE}, asking for the protocol's compaction reports and opening
+ * every session with auto-compaction forced on to fire at `tokens` — and the
+ * point it fires at, read off the same number, so the two cannot be built
+ * apart: `due` is whether a session so opened compacts before it reads the
+ * next message, at `tokens` or sooner on a model whose own window puts the
+ * line lower.
+ *
+ * The settings ride the open's `_meta` beside the raw-message subscription
+ * (`claudeCode.options.settings`, which the adapter hands the CLI as the
+ * session's own settings), so they reach a LOADED session as well as a new
+ * one. `autoCompactEnabled` is said because a person's own settings can turn
+ * compaction off, and the session's win over theirs.
+ *
+ * MEASURED: session settings REPLACE a `--settings` the CLI was launched
+ * with, they do not merge. So whatever the launcher in front of this adapter
+ * set is lost unless it is said again, and `launched` is that: the caller's,
+ * because which launcher this adapter runs behind is a build fact of the
+ * product, not of this package.
+ */
+export const compactingAt = (
+  tokens: number,
+  launched: { readonly [setting: string]: unknown },
+): { readonly leg: Leg; readonly compacts: CompactionPoint } => ({
+  leg: {
+    ...CLAUDE,
+    compaction: true,
+    rawMessages: {
+      ...RAW_MESSAGES,
+      openMeta: {
+        ...OPEN_SESSION_META,
+        claudeCode: {
+          ...OPEN_SESSION_META.claudeCode,
+          options: {
+            settings: {
+              ...launched,
+              autoCompactEnabled: true,
+              autoCompactWindow: tokens + COMPACT_RESERVE,
+            },
+          },
+        },
+      },
+    },
+  },
+  compacts: {
+    at: tokens,
+    due: (usage) =>
+      usage.used >= Math.min(tokens, usage.size - COMPACT_RESERVE),
+  },
+});

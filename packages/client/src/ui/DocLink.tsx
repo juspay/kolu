@@ -20,6 +20,7 @@ export const DOC_SLUGS = [
   "clipboard",
   "code-tab",
   "conductor-setup",
+  "conductor-memory",
   "concepts",
   "deployment",
   "dock",

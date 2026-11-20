@@ -130,7 +130,7 @@ Each piece of work has a card: where it stands, its stages, and the part of its 
 
 ## Read the conversation
 
-The header shows who the agent is signed in as, the **model**, the context used (as `148k/1M`), and the **⋯** menu. Click the model to change it, its reasoning effort or its permission mode. The model you choose survives a restart.
+The header shows who the agent is signed in as, the **model**, the [context used](/conductor-memory) (as `148k/1M`), and the **⋯** menu. Click the model to change it, its reasoning effort or its permission mode. The model you choose survives a restart.
 
 | ⋯ menu item | What it does |
 | --- | --- |
@@ -215,7 +215,7 @@ A **waterfall** takes a change from request to merged PR. Ask for one, or ask th
 
 kolu, not the Conductor, offers the harness and the model, and starts each agent on exactly what you chose: see [the setup form](/conductor-setup).
 
-The Conductor never implements anything itself, never starts an agent or opens a PR without your approval, and never closes an implementor before its PR is merged or closed. Its standing instructions are at the top of every new session's transcript, and are not repeated into a resumed one.
+The Conductor never implements anything itself, never starts an agent or opens a PR without your approval, and never closes an implementor before its PR is merged or closed. Its standing instructions open every new session's transcript, and come again after a restart and around each [compaction](/conductor-memory).
 
 ## After a restart
 

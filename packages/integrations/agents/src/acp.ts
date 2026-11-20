@@ -34,7 +34,8 @@ import {
   type NotHere,
 } from "@kolu/acp/engine";
 import {
-  CLAUDE,
+  COMPACTION_OVERRIDES,
+  compactingAt,
   configDirIn as claudeConfigDir,
   NAME,
   REMOTE_SIGNALS,
@@ -65,6 +66,18 @@ const INSTALL: NotHere = {
   why: "not found — this host's padi was started without the wrapper that carries the pinned adapter",
 };
 
+const COMPACTS_AT = 200_000;
+
+/**
+ * WHAT THE LAUNCHER IN FRONT OF THIS ADAPTER SETS, said again. The adapter
+ * drives agent-distro's `claude`, which launches the CLI with `--settings`
+ * turning Claude Code's own attribution off; the session settings the leg
+ * opens with replace those rather than merge with them (measured), so they
+ * carry this too. A person who turned attribution on in their own settings is
+ * overridden by it, for the Conductor's session only.
+ */
+const LAUNCHER_SETTINGS = { attribution: { commit: "", pr: "" } };
+
 /**
  * THE CLAUDE CODE ENGINE, as a VALUE — everything kolu's side of the wall adds
  * to the facts its own package owns.
@@ -75,7 +88,7 @@ const INSTALL: NotHere = {
  */
 export const ENGINE: Registering = {
   name: NAME,
-  leg: CLAUDE,
+  ...compactingAt(COMPACTS_AT, LAUNCHER_SETTINGS),
   // SHIPPED, NOT FOUND, which is why the probe is a variable read and never a
   // search-path lookup: the adapter is a wrapper inside the nix store and is on
   // nobody's PATH — `where.found` is not consulted here and padi hands one that
@@ -103,13 +116,18 @@ export const ENGINE: Registering = {
       // SSH session that started padi, a development container that exports
       // `CLAUDE_CODE_REMOTE`, a `NO_BROWSER` in a shell profile. None of them
       // changes who is looking at the screen.
-      unset: REMOTE_SIGNALS,
+      //
+      // ... AND FOUR MORE THAT WOULD OVERRIDE THE COMPACTION the open's
+      // settings ask for ({@link COMPACTS_AT}): a host that exports
+      // one would otherwise turn it off or move it, for this conversation and
+      // without a word.
+      unset: [...REMOTE_SIGNALS, ...COMPACTION_OVERRIDES],
     };
   },
-  // ACP has no system prompt on any wire, this one included, so the standing
-  // instruction rides the first turn — where a person can read what their agent
-  // was told. `@kolu/acp/engine`'s `PromptChannel` argues it, and the harness
-  // switches on it exhaustively.
+  // This adapter takes ACP's standard system prompt nowhere and its own only
+  // through a private field, so the standing instruction rides messages —
+  // where a person can read what their agent was told. `@kolu/acp/engine`'s
+  // `PromptChannel` argues it, and the harness switches on it exhaustively.
   prompt: { kind: "first-turn" },
 };
 

@@ -392,6 +392,11 @@ export interface Leg {
   ) => ReadonlyArray<Reported> | null;
   /** Advertise/read the terminal-output metadata extension. */
   readonly terminalOutput?: boolean;
+  /** Advertise and read the protocol's compaction reports
+   *  (`clientCapabilities.session.compaction`). An agent that is not told
+   *  the client takes them reports a compaction some other way, or not at
+   *  all. */
+  readonly compaction?: boolean;
   /**
    * WHETHER THIS AGENT'S `terminal` SIGN-IN CAN BE RUN BY THE PANEL AT ALL —
    * and, when it cannot, THE COMMAND A PERSON IS SHOWN INSTEAD.

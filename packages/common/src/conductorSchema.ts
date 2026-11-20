@@ -468,6 +468,25 @@ export const ConductorDividerRowSchema = Schema.Struct({
   text: Schema.String,
 });
 
+export const COMPACTION_SUMMARY_CAP = 20_000;
+
+/** The agent replacing the older part of the conversation with a summary.
+ *  Minted by kolu from the harness's report and updated in place, so one
+ *  compaction is one row from the moment it begins. `at` is the context kolu
+ *  last knew of when it began, `null` when it knew none; `rules` says whether
+ *  the standing prompt rode the message that set it off (`sent`) or goes out
+ *  with the next one (`next`). */
+export const ConductorCompactionRowSchema = Schema.Struct({
+  ...rowHead,
+  kind: Schema.Literal("compaction"),
+  state: Schema.Literals(["running", "done", "failed"]),
+  at: Schema.NullOr(Schema.Int),
+  summary: Schema.NullOr(Schema.String),
+  error: Schema.NullOr(Schema.String),
+  rules: Schema.NullOr(Schema.Literals(["sent", "next"])),
+});
+export type ConductorCompactionRow = typeof ConductorCompactionRowSchema.Type;
+
 /** THE FOUR LEVELS A READING AND A WAKE BOTH SPELL — the ones that come off a
  *  host AND are worth waking the Conductor about. Declared once and spread
  *  into both unions below, because the two lists are not one list: a reading
@@ -623,6 +642,7 @@ export const ConductorRowSchema = Schema.Union([
   ConductorWorkAskRowSchema,
   ConductorNoticeRowSchema,
   ConductorDividerRowSchema,
+  ConductorCompactionRowSchema,
   ConductorWakeRowSchema,
 ]);
 export type ConductorRow = typeof ConductorRowSchema.Type;
@@ -758,6 +778,9 @@ export const ConductorStateSchema = Schema.Struct({
    *  nothing, which is different from a conversation that has spent nothing
    *  (`{used: 0, size: 200000}`). */
   usage: Schema.NullOr(Usage),
+  /** Where the agent compacts the conversation, in tokens of context — kolu's
+   *  number, said by this server. `null` for an agent kolu sets none for. */
+  compactsAt: Schema.NullOr(Schema.Int),
   options: Schema.Array(Setting),
   commands: Schema.Array(Command),
   servers: Schema.Array(Server),
@@ -835,6 +858,7 @@ export const DEFAULT_CONDUCTOR_STATE: ConductorState = {
   cwd: "",
   model: null,
   usage: null,
+  compactsAt: null,
   options: [],
   commands: [],
   servers: [],

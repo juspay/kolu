@@ -25,6 +25,7 @@
  */
 
 import type { Leg } from "./leg.ts";
+import type { Usage } from "./wire.ts";
 
 export * from "./leg.ts";
 
@@ -168,14 +169,14 @@ export interface Where {
  * one law. WHICH CHANNEL it rides is not: it is a fact about the engine, so the
  * engine's own integration package says it.
  *
- * ONE ARM TODAY, and the arm is the ruling rather than a placeholder. ACP has no
- * system prompt — `session/new` carries a cwd and a list of MCP servers and
- * nothing else a client may put words in — so every engine kolu ships rides the
- * first turn: the text goes under the first message a person sends, which puts
- * it IN THE TRANSCRIPT where the person can read what their agent was told,
- * costs a turn only where somebody says something, and survives a `/clear` by
- * construction because "has this session been taught" is written down per
- * session.
+ * ONE ARM TODAY, and the arm is the ruling rather than a placeholder. ACP's
+ * standard system prompt is not taken by the adapter kolu pins, which has only
+ * a private field of its own, so every engine kolu ships rides messages: the
+ * text goes under the first message of a session (and again around a
+ * compaction, `Registering.compacts`), which puts it IN THE TRANSCRIPT where
+ * the person can read what their agent was told, costs a turn only where
+ * somebody says something, and survives a `/clear` by construction because
+ * "has this session been taught" is written down per session.
  *
  * A SECOND ARM IS A `tsc` ERROR UNTIL CORE HANDLES IT, which is the whole point
  * of the field being data rather than an assumption: `@kolu/acp-harness` switches on
@@ -217,6 +218,17 @@ export interface Registering {
   /** Which channel this engine's standing prompt rides —
    *  {@link PromptChannel}. */
   readonly prompt: PromptChannel;
+  /** Where this engine compacts its conversation, in tokens of context, and
+   *  whether it will before it reads the next message, given the last usage
+   *  it reported. Absent for an engine whose compaction is not set. */
+  readonly compacts?: CompactionPoint;
+}
+
+/** {@link Registering.compacts}: the number a person is told, and the reading
+ *  the harness acts on — one value, so the two cannot disagree. */
+export interface CompactionPoint {
+  readonly at: number;
+  readonly due: (usage: Usage) => boolean;
 }
 
 /**

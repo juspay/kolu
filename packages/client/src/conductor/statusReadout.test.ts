@@ -95,6 +95,33 @@ describe("what it is doing", () => {
     expect(conductorDoing([])).toBeNull();
   });
 
+  it("says the turn is compacting while its compaction runs, and not once it is done", () => {
+    const compaction = (state: "running" | "done"): ConductorRow => ({
+      id: "kolu:compaction:c1",
+      seq: 2,
+      since: AT,
+      kind: "compaction",
+      state,
+      at: 201_000,
+      summary: null,
+      error: null,
+      rules: state === "done" ? "sent" : null,
+    });
+    expect(
+      conductorDoing([
+        userRow("u", 1, "how are the works?"),
+        compaction("running"),
+      ]),
+    ).toBe("compacting the conversation");
+    expect(
+      conductorDoing([
+        userRow("u", 1, "how are the works?"),
+        compaction("done"),
+        agentRow("a", 3, "Both are moving."),
+      ]),
+    ).toBe("Both are moving.");
+  });
+
   it("cuts a long sentence rather than pushing the line off the edge", () => {
     const long = "x".repeat(200);
     const doing = conductorDoing([agentRow("a", 1, long)]);

@@ -84,6 +84,7 @@ interface Message {
     readonly prompt?: ReadonlyArray<Record<string, unknown>>;
     readonly mcpServers?: ReadonlyArray<{ readonly name?: string }>;
     readonly _meta?: unknown;
+    readonly clientCapabilities?: unknown;
   };
   readonly result?: unknown;
 }
@@ -163,6 +164,7 @@ const blocks: Array<unknown> = [];
 /** ... and the words STEERED into a running turn, in order — the only record
  *  that a steer really landed, since nothing else about it reaches a reader. */
 const steered: Array<string> = [];
+let capabilities: unknown = null;
 /**
  * `--ask-about-the-left-session`: every `session/new` after the first sends a
  * PERMISSION REQUEST naming the session being left, and holds its own answer
@@ -218,6 +220,9 @@ const noQueue = process.argv.includes("--no-queue");
 /** A cancel that ends EVERY prompt the agent holds, each with `cancelled`,
  *  rather than only the one it is running — one press, several turns over. */
 const cancelEndsAll = process.argv.includes("--cancel-ends-all");
+/** `--quiet-load`: a load reports no usage, as the pinned adapter's does —
+ *  nothing about how full the context is arrives until the first turn. */
+const quietLoad = process.argv.includes("--quiet-load");
 
 function enqueue(message: Message): void {
   if (busy && noQueue) {
@@ -536,6 +541,7 @@ function handle(message: Message): void {
         setTimeout(() => handle(message), 500);
         return;
       }
+      capabilities = message.params?.clientCapabilities ?? null;
       respond(message.id, {
         protocolVersion: 1,
         agentCapabilities: {
@@ -700,11 +706,12 @@ function handle(message: Message): void {
           { name: "cost", description: "what this has cost" },
         ],
       });
-      update(session, {
-        sessionUpdate: "usage_update",
-        used: 22102,
-        size: 200000,
-      });
+      if (!quietLoad)
+        update(session, {
+          sessionUpdate: "usage_update",
+          used: 22102,
+          size: 200000,
+        });
       respond(message.id, { configOptions: configOptions() });
       return;
     }
@@ -866,6 +873,78 @@ function turn(message: Message): void {
     // ... and the same opens as WHOLE ENTRIES, so a test can read the one key
     // the adapter's arm selection turns on.
     says(JSON.stringify(handedRaw));
+    finish(message.id, "end_turn");
+    return;
+  }
+  if (text === "capabilities") {
+    says(JSON.stringify(capabilities));
+    finish(message.id, "end_turn");
+    return;
+  }
+  const used = /^used (\d+)$/.exec(text)?.[1];
+  if (used !== undefined) {
+    update(session, {
+      sessionUpdate: "usage_update",
+      used: Number(used),
+      size: 1000000,
+    });
+    says("noted");
+    finish(message.id, "end_turn");
+    return;
+  }
+  if (text === "compactLate") {
+    says("working");
+    update(session, {
+      sessionUpdate: "compaction_update",
+      compactionId: `compaction-${prompts.length}`,
+      status: "in_progress",
+    });
+    update(session, {
+      sessionUpdate: "compaction_update",
+      compactionId: `compaction-${prompts.length}`,
+      status: "completed",
+      summary: [{ type: "text", text: "The turn was half done." }],
+    });
+    says("done");
+    finish(message.id, "end_turn");
+    return;
+  }
+  if (text === "compact" || text === "compactFails") {
+    // A COMPACTION AT THE START OF A TURN: the opening frame, the summary in
+    // chunks, the terminal frame, then the status-only duplicate of it the
+    // pinned adapter sends with the token counts.
+    const compactionId = `compaction-${prompts.length}`;
+    const report = (body: Record<string, unknown>): void =>
+      update(session, {
+        sessionUpdate: "compaction_update",
+        compactionId,
+        ...body,
+      });
+    report({ status: "in_progress" });
+    if (text === "compactFails") {
+      report({
+        status: "failed",
+        error: "the summary request was refused (overloaded)",
+      });
+    } else {
+      for (const chunk of ["Two works are open. ", "Nothing waits on you."])
+        update(session, {
+          sessionUpdate: "compaction_summary_chunk",
+          compactionId,
+          content: { type: "text", text: chunk },
+        });
+      report({ status: "completed" });
+      report({
+        status: "completed",
+        _meta: { contextCompaction: { trigger: "automatic" } },
+      });
+      update(session, {
+        sessionUpdate: "usage_update",
+        used: 14000,
+        size: 1000000,
+      });
+    }
+    says("carried on");
     finish(message.id, "end_turn");
     return;
   }

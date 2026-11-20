@@ -18,6 +18,7 @@
  */
 
 export {
+  type Compaction,
   type Harness,
   type HarnessChange,
   type HarnessOptions,

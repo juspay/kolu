@@ -256,6 +256,14 @@ export interface ToolReading<Row extends AnyRow> {
   readonly untilNamed?: RowPatch<Row, "tool">;
 }
 
+/** One compaction as the agent last reported it ({@link
+ *  HarnessOptions.onCompaction}). `summary` is `null` until one arrives;
+ *  `teaching` is `null` until it has completed. */
+export interface Compaction
+  extends Omit<Extract<AgentEvent, { _tag: "compaction" }>, "_tag"> {
+  readonly teaching: "sent" | "next" | null;
+}
+
 export interface HarnessOptions<Row extends AnyRow> {
   /** WHICH AGENT THIS IS, in the product's own name for it: the key the
    *  client files the conversation's memory and model notes under (beside the
@@ -325,6 +333,21 @@ export interface HarnessOptions<Row extends AnyRow> {
    * session is `false`, and a caller that resumes nothing says `false`.
    */
   readonly taught: boolean;
+  /**
+   * Whether the agent will compact this conversation before it reads the
+   * next message, given the usage it last reported. When it will, or when the
+   * usage of a loaded session is not known yet, the message is taught: it is
+   * the first thing after the summary. Once, until a compaction completes,
+   * the first of a run of failed or cancelled ones ends (so the agent's next
+   * attempt runs under it), the session changes, or a reading arrives for
+   * which this says no. Absent:
+   * the standing prompt rides the first message only.
+   */
+  readonly compacts?: (usage: Usage) => boolean;
+  /** Every live report of a compaction, with — on a completed one — whether
+   *  the standing prompt is already in the context that replaced the old one
+   *  (`sent`) or rides the next message (`next`). */
+  readonly onCompaction?: (compaction: Compaction) => void;
   readonly log: {
     info(o: unknown, m?: string): void;
     warn(o: unknown, m?: string): void;
@@ -1081,6 +1104,11 @@ export const startHarness = async <Row extends AnyRow>(
    *  this conversation is in — seeded with what the caller remembered for the
    *  session it asked to resume. */
   let taught = options.taught;
+  let loaded = false;
+  let primed = false;
+  let rearmedAfterFailure = false;
+  let taughtAt: number | null = null;
+  let compacting: { readonly id: string; readonly rode: boolean } | null = null;
   /** The conversation this harness is in now, as the client last said. */
   let sessionId: string | null = null;
   /** ... and the agent's OWN NAME for it, once it has given one. */
@@ -1305,6 +1333,7 @@ export const startHarness = async <Row extends AnyRow>(
         return;
       case "usage":
         usage = event.usage;
+        if (primed && options.compacts?.(event.usage) === false) primed = false;
         publish();
         return;
       case "servers":
@@ -1377,6 +1406,7 @@ export const startHarness = async <Row extends AnyRow>(
       case "replayStarted":
         replaying = true;
         replayed = 0;
+        loaded = true;
         return;
       case "replayEnded":
         replaying = false;
@@ -1409,6 +1439,32 @@ export const startHarness = async <Row extends AnyRow>(
         // sentence a person reads, and a notice is where it is said.
         notice(event.message);
         return;
+      case "compaction": {
+        if (replaying) return;
+        if (compacting?.id !== event.id)
+          compacting = {
+            id: event.id,
+            rode: taughtAt !== null && heard === taughtAt,
+          };
+        const completed = event.status === "completed";
+        if (completed) {
+          primed = false;
+          rearmedAfterFailure = false;
+          if (!compacting.rode) taught = false;
+        } else if (event.status !== "in_progress" && !rearmedAfterFailure) {
+          primed = false;
+          rearmedAfterFailure = true;
+        }
+        options.onCompaction?.({
+          id: event.id,
+          status: event.status,
+          summary: event.summary,
+          error: event.error,
+          teaching: completed ? (compacting.rode ? "sent" : "next") : null,
+        });
+        if (completed) publish();
+        return;
+      }
     }
     // A MEMBER ADDED WITHOUT A CASE FAILS HERE, which is what keeps this door
     // and the union one fact rather than two.
@@ -1636,6 +1692,11 @@ export const startHarness = async <Row extends AnyRow>(
     // what an agent with no memory of this one needs first, and a new session
     // is exactly an agent with no memory of it.
     taught = false;
+    loaded = false;
+    primed = false;
+    rearmedAfterFailure = false;
+    taughtAt = null;
+    compacting = null;
     // ... AND THE INTERRUPTION COMES BACK. The latch is about a SESSION the
     // adapter poisoned, not about the agent: a conversation that is over
     // cannot be hung by a steer into it, and the next one starts clean.
@@ -1877,7 +1938,9 @@ export const startHarness = async <Row extends AnyRow>(
 
   /**
    * WHAT ACTUALLY GOES ON THE WIRE under a message: the standing prompt the
-   * first time this session is spoken to, and then the body.
+   * first time this session is spoken to, and again under the message the
+   * agent will compact before it reads ({@link HarnessOptions.compacts}),
+   * then the body.
    *
    * The body is the CALLER'S, whole — what a person typed with whatever the
    * product puts above it. The teaching is this end's because WHEN it rides is
@@ -1885,7 +1948,14 @@ export const startHarness = async <Row extends AnyRow>(
    * the caller's too ({@link HarnessOptions.teaching}).
    */
   const bodyOf = (body: string): string => {
-    if (taught) return body;
+    const compacts = options.compacts;
+    const due =
+      compacts !== undefined &&
+      !primed &&
+      (usage === null ? loaded : compacts(usage));
+    if (taught && !due) return body;
+    if (due) primed = true;
+    taughtAt = heard;
     taught = true;
     // A PRODUCT WITH NOTHING TO TEACH hands over no words, and its first
     // message then goes out exactly as it composed it: a blank line above it
