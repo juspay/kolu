@@ -3,7 +3,6 @@ import os from "node:os";
 import path from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
 
-// Point pi home at a temp dir BEFORE importing modules that capture paths.
 const tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), "kolu-pi-test-"));
 process.env.KOLU_PI_DIR = tmpHome;
 
@@ -304,14 +303,14 @@ describe("derivePiState", () => {
     expect(r?.model).toBe("m");
   });
 
-  it("cleared session name: a session_info WITHOUT a name is an explicit clear (fold sentinel \"\"), not 'unknown'", () => {
+  it("cleared session name: a session_info WITHOUT a name is an explicit clear, not 'unknown'", () => {
     const r = derivePiState([
       header,
       user(),
       '{"type":"session_info","id":"si","parentId":"u","timestamp":"t"}',
       assistant("stop"),
     ]);
-    expect(r?.summary).toBe("");
+    expect(r?.summary).toEqual({ kind: "cleared" });
   });
 
   it("a rename AFTER the newest completed turn is captured (post-resolution lines still parse session_info candidates)", () => {
@@ -321,7 +320,7 @@ describe("derivePiState", () => {
       sessionInfo("renamed"),
       assistant("stop"),
     ]);
-    expect(r?.summary).toBe("renamed");
+    expect(r?.summary).toEqual({ kind: "named", name: "renamed" });
     expect(r?.state).toBe("waiting");
   });
 
@@ -415,7 +414,7 @@ describe("derivePiState", () => {
       sessionInfo("the name"),
       assistant("stop"),
     ]);
-    expect(r?.summary).toBe("the name");
+    expect(r?.summary).toEqual({ kind: "named", name: "the name" });
     expect(r?.state).toBe("waiting");
   });
 

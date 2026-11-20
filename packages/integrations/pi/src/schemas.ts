@@ -1,12 +1,3 @@
-/** Effect Schema definitions for Pi session info — browser-safe.
- *
- *  Lives in its own module so `@kolu/terminal-vocab` (and any client code)
- *  can import the schema without pulling the package root, which imports
- *  `node:fs`. Mirrors the `kolu-grok/schemas` precedent.
- *
- *  Anything exported here MUST stay free of `node:*` imports and filesystem
- *  access — Effect Schema and `anyagent`'s schema re-exports only. */
-
 import {
   type AgentVocab,
   type FlagArity,

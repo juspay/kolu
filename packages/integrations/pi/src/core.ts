@@ -48,6 +48,16 @@ export function sessionDirFor(
 }
 
 const SESSION_FILE_RE = /^(\d{4}-\d\d-\d\dT\d\d-\d\d-\d\d-\d+Z)_(.+)\.jsonl$/i;
+const FILE_STAMP_RE = /^(\d{4}-\d\d-\d\d)T(\d\d)-(\d\d)-(\d\d)-(\d+)Z$/;
+
+function isoFromFileStamp(stamp: string): number | null {
+  const m = FILE_STAMP_RE.exec(stamp);
+  if (!m) return null;
+  const [, date, hh, mm, ss, frac] = m;
+  if (!date || !hh || !mm || !ss || !frac) return null;
+  const ms = Date.parse(`${date}T${hh}:${mm}:${ss}.${frac}Z`);
+  return Number.isFinite(ms) ? ms : null;
+}
 
 /** Parse a session filename into its timestamp (epoch-ms) and session id,
  *  or null when the name doesn't carry both. Exported for tests. */
@@ -56,10 +66,8 @@ export function parseSessionFileName(
 ): { id: string; startedAt: number } | null {
   const m = SESSION_FILE_RE.exec(name);
   if (!m?.[1] || !m[2]) return null;
-  const ms = Date.parse(
-    m[1].replace(/T(\d\d)-(\d\d)-(\d\d)-(\d+)Z$/, "T$1:$2:$3.$4Z"),
-  );
-  return Number.isFinite(ms) ? { id: m[2], startedAt: ms } : null;
+  const startedAt = isoFromFileStamp(m[1]);
+  return startedAt === null ? null : { id: m[2], startedAt };
 }
 
 export interface PiSession {
@@ -201,107 +209,37 @@ interface PiEntry {
 
 const TURN_ENDED = new Set(["stop", "length", "error", "aborted"]);
 
-/** Derive pi state + telemetry from a transcript's tail lines (oldest
- *  first). Mirrors claude-code's `deriveState` shape: one backward walk
- *  tracking two independent signals with different stopping conditions —
- *
- *   - state + model: first `message` entry that participates in a model
- *     turn. `assistant stopReason toolUse` → `tool_use`; any other terminal
- *     reason → `waiting`; a `user` or `toolResult` tail → `thinking` (the
- *     model is running or about to be re-invoked). `bashExecution` /
- *     `custom` / `branchSummary` / `compactionSummary` roles are
- *     interactive artifacts and are walked past — a trailing `/compact`
- *     summary while pi sits idle must read the prior turn (`waiting`), not
- *     fabricate work (the same trap claude's non-prompt walk-past solves).
- *   - contextTokens: newest assistant entry carrying `usage`
- *     (`input + cacheRead + cacheWrite`). Tracked separately because the
- *     newest turn entry (a fresh `user` prompt) carries no usage, while the
- *     meaningful running total lives one hop back.
- *   - lastPromptId / lastPromptText: the newest `user` message entry's `id`
- *     and its text. pi writes a steer as a user entry only when the running
- *     turn TAKES it (measured, 1.5.2: one held behind a `bash` call was
- *     written when the call ended), so a new id whose text is the words said
- *     is the proof a steer landed — `agent_say` reads both.
- *
- *  Pure — unit-testable without touching the filesystem. */
-export function derivePiState(lines: string[]): {
+export type SessionName =
+  | { kind: "unknown" }
+  | { kind: "cleared" }
+  | { kind: "named"; name: string };
+
+export interface PiFold {
   state: PiInfo["state"];
   model: string | null;
   contextTokens: number | null;
-  summary: string | null;
+  summary: SessionName;
   lastPromptId: string | null;
   lastPromptText: string | null;
-} | null {
+}
+
+interface SignalFold {
+  readonly witness: string | null;
+  settled(): boolean;
+  step(entry: PiEntry): void;
+}
+
+interface ValueFold<T> extends SignalFold {
+  value(): T;
+}
+
+function foldState(): ValueFold<PiInfo["state"] | null> {
   let state: PiInfo["state"] | null = null;
-  let model: string | null = null;
-  let contextTokens: number | null = null;
-  let summary: string | null = null;
-  let lastPromptId: string | null = null;
-  let lastPromptText: string | null = null;
-
-  for (let i = lines.length - 1; i >= 0; i--) {
-    const raw = lines[i];
-    if (raw === undefined) continue;
-    if (state !== null && contextTokens !== null) {
-      const wantName = summary === null;
-      const wantModel = model === null;
-      const wantPrompt = lastPromptId === null;
-      if (!wantName && !wantModel && !wantPrompt) break;
-      const isCandidate =
-        (wantName && raw.includes('"session_info"')) ||
-        (wantModel && raw.includes('"model_change"')) ||
-        (wantPrompt && raw.includes('"role":"user"'));
-      if (!isCandidate) continue;
-    }
-    let entry: PiEntry;
-    try {
-      entry = JSON.parse(raw) as PiEntry;
-    } catch {
-      continue;
-    }
-
-    if (summary === null && entry.type === "session_info") {
-      summary =
-        typeof entry.name === "string" && entry.name.length > 0
-          ? entry.name
-          : "";
-    }
-
-    if (model === null) {
-      if (entry.type === "model_change" && typeof entry.modelId === "string") {
-        model = entry.modelId;
-      } else if (
-        entry.type === "message" &&
-        entry.message?.role === "assistant" &&
-        typeof entry.message.model === "string"
-      ) {
-        model = entry.message.model;
-      }
-    }
-
-    if (
-      contextTokens === null &&
-      entry.type === "message" &&
-      entry.message?.role === "assistant"
-    ) {
-      const usage = entry.message.usage;
-      if (usage) {
-        contextTokens =
-          (usage.input ?? 0) + (usage.cacheRead ?? 0) + (usage.cacheWrite ?? 0);
-      }
-    }
-
-    if (
-      lastPromptId === null &&
-      entry.type === "message" &&
-      entry.message?.role === "user" &&
-      typeof entry.id === "string"
-    ) {
-      lastPromptId = entry.id;
-      lastPromptText = promptTextOfParts(entry.message.content);
-    }
-
-    if (state === null && entry.type === "message") {
+  return {
+    witness: null,
+    settled: () => state !== null,
+    step(entry) {
+      if (entry.type !== "message") return;
       const role = entry.message?.role;
       if (role === "assistant") {
         const stopReason = entry.message?.stopReason;
@@ -314,17 +252,135 @@ export function derivePiState(lines: string[]): {
       } else if (role === "user" || role === "toolResult") {
         state = "thinking";
       }
+    },
+    value: () => state,
+  };
+}
+
+function foldUsage(): ValueFold<number | null> {
+  let contextTokens: number | null = null;
+  return {
+    witness: null,
+    settled: () => contextTokens !== null,
+    step(entry) {
+      if (entry.type !== "message" || entry.message?.role !== "assistant") {
+        return;
+      }
+      const usage = entry.message.usage;
+      if (!usage) return;
+      contextTokens =
+        (usage.input ?? 0) + (usage.cacheRead ?? 0) + (usage.cacheWrite ?? 0);
+    },
+    value: () => contextTokens,
+  };
+}
+
+function foldModel(): ValueFold<string | null> {
+  let model: string | null = null;
+  return {
+    witness: '"model_change"',
+    settled: () => model !== null,
+    step(entry) {
+      if (entry.type === "model_change" && typeof entry.modelId === "string") {
+        model = entry.modelId;
+      } else if (
+        entry.type === "message" &&
+        entry.message?.role === "assistant" &&
+        typeof entry.message.model === "string"
+      ) {
+        model = entry.message.model;
+      }
+    },
+    value: () => model,
+  };
+}
+
+function foldName(): ValueFold<SessionName> {
+  let name: SessionName = { kind: "unknown" };
+  return {
+    witness: '"session_info"',
+    settled: () => name.kind !== "unknown",
+    step(entry) {
+      if (entry.type !== "session_info") return;
+      name =
+        typeof entry.name === "string" && entry.name.length > 0
+          ? { kind: "named", name: entry.name }
+          : { kind: "cleared" };
+    },
+    value: () => name,
+  };
+}
+
+function foldPrompt(): ValueFold<{ id: string | null; text: string | null }> {
+  let id: string | null = null;
+  let text: string | null = null;
+  return {
+    witness: '"role":"user"',
+    settled: () => id !== null,
+    step(entry) {
+      if (
+        entry.type !== "message" ||
+        entry.message?.role !== "user" ||
+        typeof entry.id !== "string"
+      ) {
+        return;
+      }
+      id = entry.id;
+      text = promptTextOfParts(entry.message.content);
+    },
+    value: () => ({ id, text }),
+  };
+}
+
+/** Derive pi state + telemetry from a transcript's tail lines (oldest
+ *  first): one backward walk feeding five independent signals, each with its
+ *  own stopping condition — state, model, context usage, session name and the
+ *  newest prompt (id + text). Null when no entry in the window carries a turn
+ *  signal. Pure — unit-testable without touching the filesystem. */
+export function derivePiState(lines: string[]): PiFold | null {
+  const state = foldState();
+  const usage = foldUsage();
+  const model = foldModel();
+  const name = foldName();
+  const prompt = foldPrompt();
+  const folds: readonly SignalFold[] = [state, usage, model, name, prompt];
+
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const raw = lines[i];
+    if (raw === undefined) continue;
+    let pending = false;
+    let worthParsing = false;
+    for (const fold of folds) {
+      if (fold.settled()) continue;
+      pending = true;
+      if (fold.witness === null || raw.includes(fold.witness)) {
+        worthParsing = true;
+        break;
+      }
+    }
+    if (!pending) break;
+    if (!worthParsing) continue;
+    let entry: PiEntry;
+    try {
+      entry = JSON.parse(raw) as PiEntry;
+    } catch {
+      continue;
+    }
+    for (const fold of folds) {
+      if (!fold.settled()) fold.step(entry);
     }
   }
 
-  if (state === null) return null;
+  const derivedState = state.value();
+  if (derivedState === null) return null;
+  const { id, text } = prompt.value();
   return {
-    state,
-    model,
-    contextTokens,
-    summary,
-    lastPromptId,
-    lastPromptText,
+    state: derivedState,
+    model: model.value(),
+    contextTokens: usage.value(),
+    summary: name.value(),
+    lastPromptId: id,
+    lastPromptText: text,
   };
 }
 
@@ -340,18 +396,7 @@ export const TAIL_BYTES = 256 * 1024;
  *  Hard read failures are logged and also yield null — the caller treats
  *  every null uniformly as "no publish this tick" (never a state lie: the
  *  previously published info stands). */
-export function derivePiInfo(
-  session: PiSession,
-  log?: Logger,
-): Pick<
-  PiInfo,
-  | "state"
-  | "model"
-  | "contextTokens"
-  | "summary"
-  | "lastPromptId"
-  | "lastPromptText"
-> | null {
+export function derivePiInfo(session: PiSession, log?: Logger): PiFold | null {
   let size: number;
   try {
     size = fs.statSync(session.transcriptPath).size;
@@ -378,70 +423,88 @@ export function derivePiInfo(
   return derivePiState(lines);
 }
 
-/** Watch a session STORE and fire on any session-file event. `tree`
- *  layout: two levels — the root (per-cwd directories appearing or going
- *  away), plus one watch per existing per-cwd directory (files created
- *  inside them); a new per-cwd directory gets its child watch armed from
- *  the root event. `flat` layout: the root alone — the session files land
- *  directly in it, so root renames ARE the signal (fs.watch is not
- *  recursive on Linux, hence the two levels for a tree).
- *
- *  Why a store watch and not the transcript: a pi session file exists
- *  before any title event can name it (the shell's preexec hint fires
- *  BEFORE pi writes the file), so the filesystem is the only signal that a
- *  session appeared — the same race claude's SESSIONS_DIR watcher covers
- *  for claude's pid-keyed files. `watchDirWhenReady` (kolu-io) carries the
- *  ancestor-wait so a store that doesn't exist yet re-arms all the way up
- *  instead of dying at install time — `externalChanges.install` runs at
- *  most once per process, so a failed install would blind detection for the
- *  daemon's lifetime.
- *
- *  Process-wide: the orchestrator's `externalChanges.install` contract is
- *  at-most-once; the returned unsubscribe tears the whole watch set down. */
+/** Watch a session STORE and fire on any session-file event. Process-wide:
+ *  the orchestrator's `externalChanges.install` contract is at-most-once, and
+ *  the returned unsubscribe tears the whole watch set down. */
 export function subscribeSessionsTree(
   store: SessionStore,
   onChange: () => void,
   onError: (err: unknown) => void,
   log?: Logger,
 ): () => void {
-  const childWatchers = new Map<string, fs.FSWatcher>();
-  const sessionsDir = store.root;
-  const flat = store.layout === "flat";
-  let closed = false;
+  return store.layout === "flat"
+    ? watchFlatStore(store.root, onChange, onError, log)
+    : watchTreeStore(store.root, onChange, onError, log);
+}
 
-  const fanOut = (): void => {
-    if (closed) return;
+function guardedFanOut(
+  onChange: () => void,
+  onError: (err: unknown) => void,
+  isClosed: () => boolean,
+): () => void {
+  return () => {
+    if (isClosed()) return;
     try {
       onChange();
     } catch (err) {
       onError(err);
     }
   };
+}
+
+function watchFlatStore(
+  root: string,
+  onChange: () => void,
+  onError: (err: unknown) => void,
+  log?: Logger,
+): () => void {
+  let closed = false;
+  const stopRoot = watchDirWhenReady(
+    root,
+    guardedFanOut(onChange, onError, () => closed),
+    log,
+  );
+
+  log?.info({ dir: root }, "pi: sessions tree watcher installed");
+
+  return () => {
+    if (closed) return;
+    closed = true;
+    stopRoot();
+    log?.info({ dir: root }, "pi: sessions tree watcher retired");
+  };
+}
+
+function watchTreeStore(
+  root: string,
+  onChange: () => void,
+  onError: (err: unknown) => void,
+  log?: Logger,
+): () => void {
+  const childWatchers = new Map<string, fs.FSWatcher>();
+  let closed = false;
+  const fanOut = guardedFanOut(onChange, onError, () => closed);
 
   /** Reconcile child watches with the on-disk per-cwd dirs: arm a watch for
    *  every present dir, retire watches whose dir went away (fs.watch stops
    *  delivering for a deleted dir but keeps the handle, so without pruning a
    *  recreated dir would stay watched by a dead handle and never re-arm). */
   function syncChildDirs(): void {
-    if (closed || flat) return;
+    if (closed) return;
     let names: string[];
     try {
-      names = fs.readdirSync(sessionsDir);
+      names = fs.readdirSync(root);
     } catch (err) {
       if ((err as NodeJS.ErrnoException).code !== "ENOENT") {
-        log?.error({ err, dir: sessionsDir }, "pi: sessions readdir failed");
+        log?.error({ err, dir: root }, "pi: sessions readdir failed");
         return;
       }
       names = [];
     }
-    const live = new Set(names.map((n) => path.join(sessionsDir, n)));
+    const live = new Set(names.map((n) => path.join(root, n)));
     for (const [dir, watcher] of childWatchers) {
       if (!live.has(dir)) {
-        try {
-          watcher.close();
-        } catch {
-          /* already-closing race */
-        }
+        watcher.close();
         childWatchers.delete(dir);
       }
     }
@@ -466,7 +529,7 @@ export function subscribeSessionsTree(
   }
 
   const stopRoot = watchDirWhenReady(
-    sessionsDir,
+    root,
     () => {
       syncChildDirs();
       fanOut();
@@ -474,20 +537,14 @@ export function subscribeSessionsTree(
     log,
   );
 
-  log?.info({ dir: sessionsDir }, "pi: sessions tree watcher installed");
+  log?.info({ dir: root }, "pi: sessions tree watcher installed");
 
   return () => {
     if (closed) return;
     closed = true;
     stopRoot();
-    for (const watcher of childWatchers.values()) {
-      try {
-        watcher.close();
-      } catch {
-        /* ignore teardown races */
-      }
-    }
+    for (const watcher of childWatchers.values()) watcher.close();
     childWatchers.clear();
-    log?.info({ dir: sessionsDir }, "pi: sessions tree watcher retired");
+    log?.info({ dir: root }, "pi: sessions tree watcher retired");
   };
 }

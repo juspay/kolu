@@ -127,6 +127,14 @@ function eventsFromEntry(entry: PiEntry): TranscriptEvent[] {
     .otherwise(() => []);
 }
 
+function parseEntryLine(line: string): PiEntry | null {
+  try {
+    return JSON.parse(line) as PiEntry;
+  } catch {
+    return null;
+  }
+}
+
 /** Parse a pi session JSONL file's contents into transcript events,
  *  following pi's tree semantics: entries carry `id`/`parentId` and form a
  *  branching tree (see pi's docs/session-format.md — `/tree` navigation
@@ -138,11 +146,8 @@ export function parsePiTranscript(content: string): TranscriptEvent[] {
   const ordered: PiEntry[] = [];
   for (const line of content.split("\n")) {
     if (line.length === 0) continue;
-    try {
-      ordered.push(JSON.parse(line) as PiEntry);
-    } catch {
-      // skip
-    }
+    const entry = parseEntryLine(line);
+    if (entry !== null) ordered.push(entry);
   }
   const byId = new Map<string, PiEntry>();
   for (const entry of ordered) {
@@ -173,26 +178,30 @@ export function parsePiTranscript(content: string): TranscriptEvent[] {
   return events;
 }
 
-function findTranscriptPath(
+type StoreScan =
+  | { kind: "found"; path: string }
+  | { kind: "not-found" }
+  | { kind: "unreadable"; store: string };
+
+function scanStoresForSession(
   sessionId: string,
   cwd: string,
   log?: Logger,
-): string | null {
+): StoreScan {
   const stores = new Map(
     [defaultSessionStore(), ...knownSessionStores()].map((s) => [s.root, s]),
   );
-  let firstFault: Error | null = null;
+  let unreadable: StoreScan | null = null;
   for (const store of stores.values()) {
     const sessions = findSessionsByDirectory(cwd, store, log);
     if (sessions === null) {
-      firstFault ??= new Error(`pi: session store unreadable: ${store.root}`);
+      unreadable ??= { kind: "unreadable", store: store.root };
       continue;
     }
     const hit = sessions.find((s) => s.id === sessionId);
-    if (hit) return hit.transcriptPath;
+    if (hit) return { kind: "found", path: hit.transcriptPath };
   }
-  if (firstFault) throw firstFault;
-  return null;
+  return unreadable ?? { kind: "not-found" };
 }
 
 /** Read the session JSONL and normalize to the unified IR. Returns null when
@@ -201,9 +210,12 @@ function findTranscriptPath(
  *  "session does not exist"). */
 export const loadPiTranscript: Fetcher = (input, log) => {
   if (input.cwd === null) return null;
-  const path = findTranscriptPath(input.sessionId, input.cwd, log);
-  if (!path) return null;
-  const raw = fs.readFileSync(path, "utf8");
+  const scan = scanStoresForSession(input.sessionId, input.cwd, log);
+  if (scan.kind === "unreadable") {
+    throw new Error(`pi: session store unreadable: ${scan.store}`);
+  }
+  if (scan.kind === "not-found") return null;
+  const raw = fs.readFileSync(scan.path, "utf8");
   const transcript: Transcript = {
     agentName: piVocab.displayName,
     sessionId: input.sessionId,

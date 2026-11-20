@@ -7,10 +7,24 @@ import {
   subscribeFileAppends,
 } from "kolu-io";
 import type { Logger } from "kolu-shared";
-import { derivePiInfo, type PiSession } from "./core.ts";
+import { derivePiInfo, type PiSession, type SessionName } from "./core.ts";
 import { type PiInfo, PiInfoSchema } from "./schemas.ts";
 
 const samePiInfo = Schema.toEquivalence(PiInfoSchema);
+
+function resolveSummary(
+  name: SessionName,
+  lastKnown: string | null,
+): string | null {
+  switch (name.kind) {
+    case "named":
+      return name.name;
+    case "cleared":
+      return null;
+    case "unknown":
+      return lastKnown;
+  }
+}
 
 export interface PiWatcher {
   readonly session: PiSession;
@@ -30,16 +44,8 @@ export function createPiWatcher(
     if (destroyed) return;
     const derived = derivePiInfo(session, log);
     if (derived === null) return;
-    let summary: string | null;
-    if (derived.summary === "") {
-      lastKnownSummary = null;
-      summary = null;
-    } else if (derived.summary === null) {
-      summary = lastKnownSummary;
-    } else {
-      lastKnownSummary = derived.summary;
-      summary = derived.summary;
-    }
+    const summary = resolveSummary(derived.summary, lastKnownSummary);
+    lastKnownSummary = summary;
     const info: PiInfo = {
       kind: "pi",
       state: derived.state,

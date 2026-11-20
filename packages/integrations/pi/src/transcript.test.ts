@@ -10,7 +10,6 @@ import { afterAll, describe, expect, it } from "vitest";
 
 const log = silentLogger;
 
-// Point pi home at a temp dir BEFORE importing modules that capture paths.
 const tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), "kolu-pi-tr-test-"));
 process.env.KOLU_PI_DIR = tmpHome;
 
