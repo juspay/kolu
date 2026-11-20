@@ -1,9 +1,3 @@
-/** Runtime resolver — spawns `gh pr view` and classifies failures.
- *  Node-only (uses `node:child_process`); browser-bound callers import the
- *  wire schemas from `anyforge/schemas` instead. The generic branch-change
- *  + polling loop lives in anyforge's `subscribePr`; this module is just
- *  the gh adapter it dispatches to. */
-
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import type { PrGitContext, ForgeAdapter, PrResult } from "anyforge";
@@ -21,11 +15,6 @@ const execFileAsync = promisify(execFile);
 
 const GH_TIMEOUT_MS = 5_000;
 
-/** Lazy lookup for the pinned `gh` binary path. Reads `KOLU_GH_BIN` set by
- *  the Nix wrapper / dev shell (see `nix/env.nix`). Throws on first call —
- *  not at module load — so importing this file into a browser bundle
- *  doesn't blow up on `process.env` access; the runtime error surfaces at
- *  the first resolve attempt, where it belongs. */
 let ghBinCached: string | null = null;
 function getGhBin(): string {
   if (ghBinCached !== null) return ghBinCached;
@@ -85,7 +74,7 @@ export async function resolveGitHubPr(
 /** The gh adapter — the `ForgeAdapter` the host injects into `subscribePr`.
  *  Typed at its concrete `GhUnavailableSource` so `subscribePr` infers
  *  `S = GhUnavailableSource` and its `PrResult<GhUnavailableSource>` lands
- *  in the app's closed `PrResult` without a cast (gh is the union's member).
+ *  in the app's closed `PrResult` without a cast.
  *
  *  Annotated with `satisfies` (not `:`) so `kind` keeps its `"github"`
  *  literal type rather than widening to `ForgeAdapter.kind: string`: the
@@ -96,6 +85,5 @@ export async function resolveGitHubPr(
  *  and is intentionally distinct from this in-process `kind`. */
 export const githubForgeAdapter = {
   kind: "github" as const,
-  // The cause (why the watcher asked) changes nothing about how gh is asked.
   resolve: (git, _cause, log) => resolveGitHubPr(git, log),
 } satisfies ForgeAdapter<GhUnavailableSource>;

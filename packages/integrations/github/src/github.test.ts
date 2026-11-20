@@ -130,9 +130,6 @@ describe("classifyGhError", () => {
   });
 
   it("keeps gh's GH_HOST-mismatch refusal as unavailable, not absent", () => {
-    // Same "none of the git remotes" prefix, but a real config failure: a
-    // GH_HOST is set that matches none of the remotes. The user should see
-    // this, not have it silently swallowed as "no PR on this branch".
     expect(
       classifyGhError({
         code: 1,
@@ -178,9 +175,7 @@ describe("prInfoFromGhView", () => {
     expect(GH_PR_VIEW_JSON_FIELD_LIST).toContain("reviewDecision");
     expect(GH_PR_VIEW_JSON_FIELD_LIST).toContain("mergeStateStatus");
     expect(GH_PR_VIEW_JSON_FIELD_LIST).toContain("statusCheckRollup");
-    // The commit the rollup is about — ONE request, not a second poll.
     expect(GH_PR_VIEW_JSON_FIELD_LIST).toContain("headRefOid");
-    // Whether it is a draft: GitHub's merge state no longer says.
     expect(GH_PR_VIEW_JSON_FIELD_LIST).toContain("isDraft");
   });
 

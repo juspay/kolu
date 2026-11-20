@@ -1,14 +1,5 @@
 /** Effect Schema for the gh-specific PR-unavailable source — browser-safe.
  *
- *  Lives in its own module so `kolu-common` (and any client code) can import
- *  the gh arm without pulling the package root, which transitively evaluates
- *  `node:child_process` (the `gh pr view` spawn in `resolve.ts`). Mirrors the
- *  `claude-code/schemas` precedent. The forge-neutral, generic
- *  `PrUnavailableSourceBase` / `PrResult<S>` live in `anyforge/schemas`; this
- *  file owns the concrete gh arm that the app (kolu-common) composes into the
- *  CLOSED `PrUnavailableSource` union — exactly as `ClaudeCodeInfoSchema` is
- *  the per-agent arm composed into `AgentInfoSchema`.
- *
  *  Anything exported here MUST stay free of `node:*` imports and filesystem
  *  access — Effect Schema and ts-pattern only, no `anyforge` import either
  *  (the gh arm is self-contained; the generic kernel doesn't name it). */
@@ -19,8 +10,7 @@ import { Schema } from "effect";
  *
  *  A discriminator separate from any human-readable display text so UI
  *  callers that want to dispatch per-failure can `match(code).exhaustive()`
- *  and get a compile error when a new code is added without a handler —
- *  rather than string-comparing display text and silently breaking on typo. */
+ *  and get a compile error when a new code is added without a handler. */
 export const GhUnavailableCodeSchema = Schema.Literals([
   "not-installed",
   "not-authenticated",
@@ -29,11 +19,9 @@ export const GhUnavailableCodeSchema = Schema.Literals([
 ]);
 export type GhUnavailableCode = typeof GhUnavailableCodeSchema.Type;
 
-/** Display text for a gh unavailable code — single source of truth. Defined
- *  as a fresh `Record<GhUnavailableCode, string>` literal (not wrapped in
- *  `match`) so TypeScript's required/excess-property checks enforce both
- *  sides of exhaustiveness — adding a code without updating this table
- *  fails compilation, and removing one leaves a dead key that also fails. */
+/** Display text for a gh unavailable code — single source of truth. Must
+ *  stay a `Record<GhUnavailableCode, string>` literal so adding a code
+ *  without updating this table fails compilation. */
 const GH_REASONS: Record<GhUnavailableCode, string> = {
   "not-installed": "gh: not installed",
   "not-authenticated": "gh: not authenticated",
@@ -46,10 +34,7 @@ export function reasonForGhCode(code: GhUnavailableCode): string {
 }
 
 /** The wire/persisted provider tag for the gh arm of the closed
- *  `PrUnavailableSource` union. The single source of this spelling: both the
- *  schema literal below and the `classifyGhError` failure construction in
- *  `github.ts` reference it, so the tag a reader must recognize as "the same
- *  forge" lives in exactly one place rather than two hand-aligned literals.
+ *  `PrUnavailableSource` union — the single source of this spelling.
  *
  *  Distinct from the adapter's in-process `ForgeAdapter.kind` ("github", see
  *  `resolve.ts`): that key drives dispatch/registry lookup, this tag is a
@@ -58,9 +43,7 @@ export function reasonForGhCode(code: GhUnavailableCode): string {
 export const GH_PROVIDER = "gh";
 
 /** The gh arm of the app's closed `PrUnavailableSource` union: provider tag
- *  `"gh"` plus this adapter's typed code. The discriminated union over all
- *  forge arms composes in the app (kolu-common), the same place
- *  `AgentInfoSchema` composes the per-agent schemas. */
+ *  `"gh"` plus this adapter's typed code. */
 export const GhUnavailableSchema = Schema.Struct({
   provider: Schema.Literal(GH_PROVIDER),
   code: GhUnavailableCodeSchema,

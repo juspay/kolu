@@ -1,7 +1,3 @@
-/** Pure gh-CLI helpers — no I/O, no node-only APIs. `resolve.ts` wraps
- *  these with the `gh pr view` spawn; the wire shapes they produce live in
- *  `anyforge/schemas`. */
-
 import { foldCheckOutcomes } from "anyforge";
 import {
   type CheckRun,
@@ -19,26 +15,6 @@ import {
   type GhUnavailableCode,
   type GhUnavailableSource,
 } from "./schemas.ts";
-
-/**
- * Derive combined check status from GitHub's statusCheckRollup entries.
- *
- * The rollup contains two GraphQL types, discriminated by `__typename`:
- *
- * CheckRun — GitHub Actions / Apps
- *   status:     QUEUED | IN_PROGRESS | COMPLETED | WAITING | PENDING | REQUESTED
- *   conclusion: SUCCESS | FAILURE | CANCELLED | NEUTRAL | SKIPPED | STALE
- *               | STARTUP_FAILURE | TIMED_OUT | ACTION_REQUIRED | null (not yet completed)
- *
- * StatusContext — commit statuses (set via REST status API)
- *   state: SUCCESS | PENDING | FAILURE | ERROR | EXPECTED
- *
- * See: https://docs.github.com/en/graphql/reference/unions#statuscheckrollupcontext
- *
- * This is the gh-specific half — mapping GitHub's raw check vocabulary to the
- * neutral `CheckStatus`. The combine rule (fail-terminal, pending-sticky) is
- * forge-shared and lives in anyforge's `foldCheckOutcomes`.
- */
 
 /** Single rollup entry as `gh pr view --json statusCheckRollup` returns
  *  it. CheckRuns carry `name`; StatusContexts carry `context`. */
@@ -58,7 +34,6 @@ function classifyCheck(check: RollupEntry): CheckStatus {
       .with(P.union("PENDING", "EXPECTED"), () => "pending" as const)
       .otherwise(() => "pass" as const);
   }
-  // CheckRun: anything not COMPLETED is still pending.
   if (check.status?.toUpperCase() !== "COMPLETED") return "pending";
   return match(check.conclusion?.toUpperCase())
     .with(
@@ -78,15 +53,11 @@ function classifyCheck(check: RollupEntry): CheckStatus {
 export function deriveCheckStatus(
   rollup: RollupEntry[] | undefined,
 ): PrInfo["checks"] {
-  // Pure mapping: the absent-or-empty → null decision lives entirely in
-  // `foldCheckOutcomes` (an absent rollup classifies to `[]`, which it folds
-  // to null), so the 'no checks configured → null' rule stays in one place.
   return foldCheckOutcomes(rollup?.map(classifyCheck) ?? []);
 }
 
 /** Per-check breakdown of the rollup — the same entries `deriveCheckStatus`
- *  collapses, kept individual so the dock's PR pip tooltip can list which
- *  specific gate is red. Returns `[]` when no checks are configured.
+ *  collapses, kept individual. Returns `[]` when no checks are configured.
  *
  *  Name preference: `CheckRun.name` for Actions/Apps; `StatusContext.context`
  *  for REST commit statuses; `?` as a last-resort fallback so the array
@@ -102,10 +73,6 @@ export function extractChecks(rollup: RollupEntry[] | undefined): CheckRun[] {
   }));
 }
 
-/** `--json` fields for the ONE `gh pr view` the sensor already makes. Adding
- *  a name here is adding it to that same request, not a second poll. The
- *  CLI string and the JSON type are the same list — a new field that
- *  lands in only one of them is a type error (`_ghPrViewJsonKeysMatch`). */
 export const GH_PR_VIEW_JSON_FIELD_LIST = [
   "number",
   "title",
@@ -114,10 +81,6 @@ export const GH_PR_VIEW_JSON_FIELD_LIST = [
   "statusCheckRollup",
   "reviewDecision",
   "mergeStateStatus",
-  // WHICH COMMIT the rollup above is about. Free: the same request already
-  // being made. What it is FOR is a consumer that keeps a history of check
-  // states — without it, the new push's `pending` and a re-read of the old
-  // commit's `pending` are the same value (juspay/kolu#2376).
   "headRefOid",
   // WHETHER THE PR IS A DRAFT. GitHub retired `mergeStateStatus: DRAFT` in
   // 2021 for this field: a draft with green checks now answers `CLEAN`.
@@ -126,7 +89,6 @@ export const GH_PR_VIEW_JSON_FIELD_LIST = [
 
 export const GH_PR_VIEW_JSON_FIELDS = GH_PR_VIEW_JSON_FIELD_LIST.join(",");
 
-/** Shape returned by `gh pr view --json ${GH_PR_VIEW_JSON_FIELDS}`. */
 export type GhPrViewJson = {
   number: number;
   title: string;
@@ -137,9 +99,7 @@ export type GhPrViewJson = {
    *  as `""`, never as JSON `null`. */
   reviewDecision: string;
   mergeStateStatus: string;
-  /** The head commit's oid — 40 hex characters, gh's own spelling. */
   headRefOid: string;
-  /** gh's own boolean. Required: a `gh` answer without it is refused. */
   isDraft: boolean;
 };
 
@@ -164,9 +124,6 @@ const decodeReviewDecision = Schema.decodeUnknownSync(
 const decodeMergeStateStatus = Schema.decodeUnknownSync(MergeStateStatusSchema);
 const decodeIsDraft = Schema.decodeUnknownSync(Schema.Boolean);
 
-/** Map gh's JSON onto `PrInfo`. Review/merge values pass through verbatim —
- *  an unknown member throws (fail-fast), which `resolveGitHubPr`'s catch
- *  turns into a classified failure rather than a silently wrong gate. */
 export function prInfoFromGhView(data: GhPrViewJson): PrInfo {
   return {
     number: data.number,
@@ -175,10 +132,6 @@ export function prInfoFromGhView(data: GhPrViewJson): PrInfo {
     state: decodePrState(data.state.toLowerCase()),
     checks: deriveCheckStatus(data.statusCheckRollup),
     checkRuns: extractChecks(data.statusCheckRollup),
-    // `""` is gh's CLI serialization of GraphQL null (no decision), not a
-    // member of the enum — mapping it to `null` is carrying gh's own value
-    // verbatim, not inventing a friendlier vocabulary. A non-empty unknown
-    // member still throws.
     reviewDecision: decodeReviewDecision(
       data.reviewDecision === "" ? null : data.reviewDecision,
     ),
@@ -187,21 +140,13 @@ export function prInfoFromGhView(data: GhPrViewJson): PrInfo {
     // one too old to know the field — reads as `null`, the shape's own word
     // for "this reading carries no head", never a guessed one.
     headSha: data.headRefOid ?? null,
-    // Strict, like the merge state: a `gh` answer that does not say whether
-    // the PR is a draft throws rather than reading as "ready".
     isDraft: decodeIsDraft(data.isDraft),
   };
 }
 
-/** Classify a `gh pr view` failure.
- *
- *  `gh pr view` exits non-zero for a genuine "no PR on this branch" (common,
- *  expected) AND for environmental failures (binary missing, not
- *  authenticated, hit timeout). The original code collapsed all of these into
- *  a single `null` — distinguish them here so the UI can surface the
- *  actionable ones. Only a positive match on gh's "no pull requests found"
- *  stderr counts as absent; anything else unrecognized is treated as
- *  unavailable rather than silently shown as "no PR."
+/** Classify a `gh pr view` failure. Only a positive match on gh's "no pull
+ *  requests found" stderr counts as absent; anything else unrecognized is
+ *  treated as unavailable rather than silently shown as "no PR".
  *
  *  FRAGILE: gh's stderr messages are not versioned. If gh rewords
  *  "not logged in" / "authentication" / "no pull requests found", matches

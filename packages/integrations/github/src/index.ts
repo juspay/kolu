@@ -1,10 +1,9 @@
 /** kolu-github — the gh adapter for anyforge's `ForgeAdapter` contract.
  *
- *  Spawns `gh pr view` (via `KOLU_GH_BIN`), classifies its failures, and
- *  derives the check rollup. The forge-neutral wire schemas, poll loop, and
- *  remote-host grammar live in `anyforge`; host-to-forge detection lives in
- *  the sensor layer (`@kolu/terminal-vocab`). This package never sees its
- *  sibling adapters. */
+ *  This package never sees its sibling adapters: the forge-neutral wire
+ *  schemas, poll loop, and remote-host grammar live in `anyforge`, and
+ *  host-to-forge detection lives in the sensor layer
+ *  (`@kolu/terminal-vocab`). */
 
 export { classifyGhError, deriveCheckStatus, extractChecks } from "./github.ts";
 export { githubForgeAdapter, resolveGitHubPr } from "./resolve.ts";

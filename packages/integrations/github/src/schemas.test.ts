@@ -17,7 +17,6 @@ import {
 const encode = Schema.encodeSync(GhUnavailableSchema);
 const decode = Schema.decodeUnknownSync(GhUnavailableSchema);
 
-/** Every code the union admits, with the byte-exact JSON it must produce. */
 const WIRE_FIXTURES: ReadonlyArray<{
   code: GhUnavailableCode;
   json: string;
@@ -47,8 +46,6 @@ describe("GhUnavailableSchema wire bytes", () => {
   });
 
   it("tolerates unknown extra keys from a newer peer", () => {
-    // Rolling-deploy policy: a newer server may add fields to this arm; an
-    // older client must still decode it, dropping what it doesn't know.
     expect(
       decode({ provider: "gh", code: "unknown", detail: "from the future" }),
     ).toEqual({ provider: "gh", code: "unknown" });
