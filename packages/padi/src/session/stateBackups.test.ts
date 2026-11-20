@@ -1,11 +1,3 @@
-/**
- * padi's face of the ring: the list's session summary (the terminal count a
- * user ranks snapshots by, with `empty`/`unreadable` as distinct facts) and the
- * restore side's refusals. The happy restore path itself rides `importSession`
- * — covered by `sessionRestore.test.ts` and the serve tests — so it is not
- * re-driven here.
- */
-
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -28,7 +20,6 @@ afterEach(() => {
   rmSync(stateRoot, { recursive: true, force: true });
 });
 
-/** Write a state file with `content` and snapshot it into the ring. */
 function seedSnapshot(content: string): string {
   writeFileSync(padiConfigPath(stateRoot), content);
   const outcome = openStateBackupRing(

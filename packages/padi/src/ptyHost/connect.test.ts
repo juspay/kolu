@@ -1,30 +1,3 @@
-/**
- * `connectKaval` + `probeKavalForConvergence` over the REAL wire.
- *
- * Two things are pinned here, and only the second one moved with PLAN D6:
- *
- *   1. **The handshake middle-hop (F6).** `connectKaval` reads `system.version`
- *      off a live kaval and copies its OPTIONAL `lifetime` onto the connection
- *      `metadata`. Because `KavalConnectionMetadata.lifetime` is optional (a
- *      survivor predating the field reports none), deleting that copy still
- *      type-checks — so the passthrough needs a behavioural pin. This dials a
- *      REAL kaval over a REAL unix socket, the exact `dialSocket` + `stdioLink`
- *      path production uses.
- *
- *   2. **Partial peers.** The old file's "pre-fragment daemon" fixtures were an
- *      oRPC router carrying a hand-copied contract entry, and the tolerance
- *      branches they exercised are GONE: a kaval that predates the frozen
- *      control core also predates this protocol epoch, so its first frame is
- *      undecodable and a dial never reaches route resolution at all (that peer
- *      is the supervisor's `unspeakable-protocol` observation, not this
- *      module's business). What remains real, and is pinned instead, is the
- *      IN-EPOCH partial peer: a daemon that speaks this exact protocol and
- *      serves a NARROWER member set, or reports a `contractVersion` we refuse.
- *      Its fake takes the LIVE `Rpc` out of `kavalDaemonGroup` — kaval's
- *      `contractSkew.test.ts` model — so a fake can never drift from the
- *      surface it imitates.
- */
-
 import { mkdtempSync, rmSync } from "node:fs";
 import { createServer, Socket } from "node:net";
 import { setTimeout as breathe } from "node:timers/promises";
@@ -70,9 +43,6 @@ const VERSION_TAG = "surface/system/version";
 const LIST_TAG = "surface/terminal/list";
 const HELLO_TAG = "surface/control/core/hello";
 
-/** Serve a daemon assembled from LIVE `Rpc`s taken out of `kavalDaemonGroup`,
- *  answering only the tags named here. Every other tag is simply not served —
- *  which is exactly how a peer with a narrower member set presents to us. */
 async function serveFake(
   socketPath: string,
   byTag: Record<string, SurfaceHandler>,
@@ -100,8 +70,6 @@ function sockPath(prefix: string): string {
   return join(mkdtempSync(join(tmpdir(), prefix)), "pty-host.sock");
 }
 
-/** Serve a kaval whose resolved lifetime is `boundToPid` (the CI/smoke policy),
- *  so a copy of the value can be distinguished from the production `forever`. */
 function makePtyHost() {
   return createInProcessPtyHost({
     log: silentLog,
@@ -160,8 +128,6 @@ async function serveCurrent(
   };
 }
 
-/** Serve ONLY the frozen fragment. A probe that regresses to system.version
- * cannot pass this fixture because that route does not exist. */
 async function serveFrozenIdentity(socketPath: string) {
   const runtime = implementSurfaces(
     { control: controlCoreSurface },
@@ -208,9 +174,6 @@ describe("connectKaval — mirrors the handshake lifetime onto the metadata", ()
   it("carries the served lifetime through to metadata.lifetime", async () => {
     const conn = await Effect.runPromise(connectKaval(socketPath));
     try {
-      // The whole point of F6: this fails (undefined) if the `lifetime:
-      // version.lifetime` copy in connect.ts is dropped, even though the type
-      // stays green because the field is optional.
       expect(conn.metadata.lifetime).toEqual({ kind: "boundToPid", pid: 4242 });
       expect(conn.metadata.contractVersion).toBeTypeOf("string");
       expect(conn.metadata.pid).toBe(process.pid);
@@ -231,11 +194,6 @@ describe("connectKaval — mirrors the handshake lifetime onto the metadata", ()
 
 describe("connectKaval — identity comes only from frozen hello", () => {
   it("REFUSES a peer that speaks this protocol but serves no frozen control core", async () => {
-    // The in-epoch successor of the retired pre-fragment tolerance. Such a peer
-    // is REACHABLE (its framing decodes, its `system.version` answers), so the
-    // refusal has to come from the handshake rather than from the transport —
-    // and it must be LOUD, because within this epoch a kaval without the frozen
-    // core is broken, not merely old.
     const socketPath = sockPath("kolu-connect-no-core-");
     const listener = await serveFake(socketPath, {
       [VERSION_TAG]: () =>
@@ -294,11 +252,6 @@ describe("connectKaval — identity comes only from frozen hello", () => {
 
 describe("connectKaval — the handshake read is bounded (F2)", () => {
   it("rejects a completely silent peer at the frozen-hello deadline, then refuses the foreign socket holder", async () => {
-    // A peer that says NOTHING — not even a Pong. The link's keep-alive is a
-    // 60s backstop now (`@kolu/surface`'s `keepAlive.ts`), so the bound that
-    // ends each pass is the 30s frozen-hello deadline, which sits below it.
-    // Thirty seconds per pass, three passes: walked on a virtual clock (only
-    // `setTimeout`/`Date` faked, so sockets and Effect's scheduler stay real).
     vi.useFakeTimers({
       toFake: [
         "setTimeout",
@@ -314,7 +267,6 @@ describe("connectKaval — the handshake read is bounded (F2)", () => {
       sockets.add(socket);
       socket.on("close", () => sockets.delete(socket));
       socket.on("error", () => {});
-      // Consume requests and pings, but write NOTHING back (including no Pong).
       socket.resume();
     });
     await new Promise<void>((resolve, reject) => {
@@ -342,8 +294,6 @@ describe("connectKaval — the handshake read is bounded (F2)", () => {
         onContractSkew: { kind: "recycle" },
         onBuildMismatch: { kind: "nudge-human" },
       },
-      // Enter the gate-less recovery path. Its OS holder lookup and every
-      // connect attempt below are real; no fabricated transport error.
       probe: () => Effect.succeed(null),
       driver: { spawn: Effect.sync(spawn) },
       connect: (path) =>
@@ -362,9 +312,6 @@ describe("connectKaval — the handshake read is bounded (F2)", () => {
           return result;
         },
       );
-      // A REAL breath before each virtual step: the endpoint's socket probe and
-      // every connect are real I/O, and they must settle before the probe's own
-      // (virtual) timeout can fire.
       for (let walked = 0; !settled; walked += 500) {
         if (walked > 4 * 35_000) throw new Error("converge never settled");
         await breathe(5);
@@ -379,8 +326,6 @@ describe("connectKaval — the handshake read is bounded (F2)", () => {
       expect(
         result.failure.holders.some((holder) => holder.pid === process.pid),
       ).toBe(true);
-      // Three bounded recovery passes, each ending at the frozen-hello
-      // deadline — the keep-alive backstop (60s) never gets that far.
       expect(failures).toHaveLength(3);
       for (const error of failures) {
         expect(error.message).toMatch(
@@ -401,16 +346,10 @@ describe("connectKaval — the handshake read is bounded (F2)", () => {
   }, 60_000);
 
   it("rejects on the baked deadline when a peer accepts the socket but never answers frozen hello", async () => {
-    // Keep the transport healthy while the hello handler wedges, so this pins
-    // the bound on the RPC read itself with a peer that DOES answer pings.
-    // (A completely silent peer reaches the same deadline — the case above.)
-    // Both the real transport and the baked deadline remain enabled.
     const socketPath = sockPath("kolu-hello-silent-");
     const listener = await serveFake(socketPath, {
       [HELLO_TAG]: () => Effect.never,
     });
-    // Use real time: advancing fake timers by 30s starves socket IO and races
-    // the heartbeat even though the real server is ready to answer pings.
     try {
       await expect(Effect.runPromise(connectKaval(socketPath))).rejects.toThrow(
         /control-core hello timed out after 30000ms/,
@@ -421,9 +360,6 @@ describe("connectKaval — the handshake read is bounded (F2)", () => {
   }, 40_000);
 
   it("rejects on the 10s version deadline when the frozen hello answers but system.version never does", async () => {
-    // The SECOND deadline, distinct from the supervisor-owned 30s frozen-hello
-    // one: this daemon is reachable and identifies itself, then wedges on the
-    // versioned read. Both deadlines are baked constants, never knobs.
     const socketPath = sockPath("kolu-version-silent-");
     const listener = await serveFake(socketPath, {
       [HELLO_TAG]: () =>
@@ -455,10 +391,6 @@ describe("connectKaval — the handshake read is bounded (F2)", () => {
 
 describe("connectKaval — in-epoch contract skew is DATA, not a transport failure", () => {
   it("refuses a speakable peer whose contract version this build cannot accept", async () => {
-    // The distinction D6 rests on: the link is fine, the frames decode, the
-    // handshake reads — and the verdict is then computed from two strings. A
-    // supervisor that could not tell this from a broken link could not tell a
-    // wrong-version daemon (recycle it) from a foreign squatter (leave it).
     const socketPath = sockPath("kolu-connect-skew-");
     const listener = await serveFake(socketPath, {
       [HELLO_TAG]: () =>
@@ -488,11 +420,6 @@ describe("connectKaval — in-epoch contract skew is DATA, not a transport failu
   });
 });
 
-/**
- * Production-path pins for `probeKavalForConvergence`.
- * Catch-to-null, a system.version regression, ECONNREFUSED arm deletion, and
- * no-op dispose must all stay mutation-red.
- */
 describe("probeKavalForConvergence — frozen production path", () => {
   it("ENOENT (missing path) ⇒ null (honest absence)", async () => {
     const missing = join(
@@ -505,24 +432,17 @@ describe("probeKavalForConvergence — frozen production path", () => {
   });
 
   it("W8.2: isNoListenerError accepts both ECONNREFUSED and ENOENT (classifier pin)", () => {
-    // Focused classifier pin: deleting either arm from isNoListenerError goes
-    // red. The ENOENT production path is covered by the missing-path test
-    // above; this pin holds the ECONNREFUSED arm that path never exercises.
     expect(isNoListenerError({ code: "ECONNREFUSED" })).toBe(true);
     expect(isNoListenerError({ code: "ENOENT" })).toBe(true);
     expect(isNoListenerError({ cause: { code: "ECONNREFUSED" } })).toBe(true);
-    // Non-absence codes stay failures (must not collapse into null).
     expect(isNoListenerError({ code: "EPERM" })).toBe(false);
     expect(isNoListenerError(new Error("boom"))).toBe(false);
   });
 
   it("socket accepts but nothing ever answers ⇒ REJECTS (not null)", async () => {
-    // Distinguishes catch-to-null (wave-6 regression) from honest absence:
-    // resolving null here would mute the failure and adopt nothing as free.
     const socketPath = sockPath("kolu-probe-silent-");
     const server = createServer((sock) => {
       sock.on("error", () => {});
-      // Read our frames, answer none of them — never `control.core.hello`.
       sock.resume();
     });
     await new Promise<void>((resolve) => server.listen(socketPath, resolve));
@@ -535,13 +455,8 @@ describe("probeKavalForConvergence — frozen production path", () => {
         (e: unknown) => e,
       );
       for (let i = 0; i < 10; i++) await new Promise((r) => setImmediate(r));
-      // Deliberately LESS than the frozen hello's 30 s deadline: a peer that
-      // accepts and stays mute is classified at the dial's own silence bound
-      // (D6/#9), so this probe must already have settled here. Before that
-      // bound existed this same clock had to run all the way to 30 s.
       await vi.advanceTimersByTimeAsync(10_000);
       const result = await outcome;
-      // Must reject — never resolve null, never yield an identity.
       expect(result).not.toBe("null");
       expect(result).not.toBe("probe");
       expect(isUnspeakableProtocolError(result)).toBe(true);
@@ -556,8 +471,6 @@ describe("probeKavalForConvergence — frozen production path", () => {
   it("fragment-only server ⇒ frozen identity + startedAt key + observed dispose", async () => {
     const socketPath = sockPath("kolu-probe-live-");
     const listener = await serveFrozenIdentity(socketPath);
-    // Spy the production Socket.destroy boundary — a no-op dispose leaves this
-    // call count unchanged and turns the test red (W8.2).
     const destroySpy = vi.spyOn(Socket.prototype, "destroy");
     try {
       const probe = await Effect.runPromise(
@@ -576,7 +489,6 @@ describe("probeKavalForConvergence — frozen production path", () => {
       expect(probe.instanceKey.kind).toBe("instance");
       const destroysBefore = destroySpy.mock.calls.length;
       probe.dispose();
-      // Observable transport close — not a vacuous "callable exists" check.
       expect(destroySpy.mock.calls.length).toBeGreaterThan(destroysBefore);
     } finally {
       destroySpy.mockRestore();

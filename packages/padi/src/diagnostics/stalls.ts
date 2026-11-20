@@ -1,15 +1,6 @@
-/**
- * Event-loop stalls — how late padi's loop ran a timer that was due.
- *
- * One `monitorEventLoopDelay` histogram, reset every minute. Node's histogram
- * cannot be read as a sliding window, and percentiles of sub-windows cannot be
- * merged honestly, so the answer carries the last COMPLETED minute and the one
- * in progress with its length — never a blend of the two.
- *
- * The histogram records the sampling INTERVAL, not the delay: an idle loop at
- * `resolution: 20` reads about 20 ms. So each figure is the reading minus the
- * resolution, floored at zero.
- */
+/* Node's `monitorEventLoopDelay` histogram records the sampling INTERVAL, not
+ * the delay: an idle loop at `resolution: 20` reads about 20 ms, so each figure
+ * is the reading minus the resolution, floored at zero. */
 
 import { monitorEventLoopDelay } from "node:perf_hooks";
 import type { PadiDiagnostics, TimingSummary } from "@kolu/padi-client/surface";
@@ -50,7 +41,6 @@ export function startStallMonitor(): StallMonitor {
     histogram.reset();
     windowStartedAt = now;
   }, WINDOW_MS);
-  // A diagnostic never holds the daemon open.
   roll.unref();
 
   return {

@@ -1,14 +1,3 @@
-/**
- * Pins the agent-state watch — the four supervision capabilities, at the one
- * place they are implemented.
- *
- * Every assertion drives an INJECTED clock and an INJECTED timer, so nothing
- * here waits on wall time and a nag interval is exercised at its exact
- * boundary rather than approximately. The two are separate injections on
- * purpose: a bug where the engine arms a timer at the wrong deadline is
- * invisible to a test that fires every pending timer regardless.
- */
-
 import type { PadiStateEvent } from "@kolu/padi-client/surface";
 import { WATCH_SCOPE_ALL } from "@kolu/padi-client/watchScope";
 import type { TerminalId } from "@kolu/terminal-vocab/schema";
@@ -21,8 +10,6 @@ import {
 } from "./attentionFixture.testlib.ts";
 import type { StateWatchSpec } from "./stateWatch.ts";
 
-/** Subscribe and collect every batch. `seed` — the episode budget a previous
- *  attachment handed over — keeps a re-attach from re-arming a spent cap. */
 function collect(
   hub: ReturnType<typeof harness>["hub"],
   spec: Partial<StateWatchSpec> = {},
@@ -54,7 +41,6 @@ describe("createStateWatchHub", () => {
     await settled();
 
     const { batches } = collect(h.hub);
-    // The very first batch, and it describes the world as it already was.
     expect(batches[0]?.map((e) => [e.kind, e.id, e.state])).toEqual([
       ["snapshot", "a", "waiting"],
     ]);
@@ -64,8 +50,6 @@ describe("createStateWatchHub", () => {
     const h = harness();
     h.observe(terminals({ a: { agent: makeAgent("thinking") } }));
     const { batches } = collect(h.hub);
-    // A stream consumer needs a snapshot boundary whether or not anything is
-    // standing; "nothing is neglected" is a fact, not the absence of one.
     expect(batches).toEqual([[]]);
   });
 
@@ -82,11 +66,6 @@ describe("createStateWatchHub", () => {
   });
 
   it("an idle agent REPAINTING once a second neither cancels nor restarts a pending hold — the #2177 killer", async () => {
-    // THE case this whole feature exists for. An idle grok redraws its prompt
-    // about once a second; padi's fold stamps that as recency on the composed
-    // record, so the `urgency` cell hands this hub a CHANGED frame every second
-    // while the agent's own adapter state has not moved at all. A byte-quiet
-    // gate starved forever on exactly this. The hold must be blind to it.
     const h = harness();
     h.observe(terminals({ a: { agent: makeAgent("tool_use") } }));
     await settled();
@@ -99,7 +78,6 @@ describe("createStateWatchHub", () => {
     expect(batches).toEqual([]);
     expect(h.armedAt()).toBe(enteredAt + 60_000);
 
-    // 59 repaints, one a second, each advancing the recency stamp.
     for (let i = 1; i < 60; i += 1) {
       h.advance(1_000);
       h.observe(
@@ -109,25 +87,17 @@ describe("createStateWatchHub", () => {
       );
       await settled();
     }
-    // Not one of them reported anything, and not one of them moved the deadline
-    // — neither forward (a restarted hold, so the report never comes) nor
-    // backward (a cancelled hold).
     expect(batches).toEqual([]);
     expect(h.armedAt()).toBe(enteredAt + 60_000);
 
-    // …and the hold fires ON SCHEDULE despite all of it.
     h.advance(1_000);
     const [event] = batches.flat();
     expect(event?.kind).toBe("transition");
-    // Dated from the moment the ADAPTER said waiting, not from the last repaint.
     expect(event?.since).toBe(enteredAt);
     expect((event?.at ?? 0) - (event?.since ?? 0)).toBe(60_000);
   });
 
   it("byte churn under a WORKING agent never STARTS a hold", async () => {
-    // The other direction of the same lesson: output is not evidence of
-    // idleness. A busy agent that is producing a lot of it stays out of the
-    // matching set entirely, so nothing is ever armed for it.
     const h = harness();
     h.observe(terminals({ a: { agent: makeAgent("tool_use") } }));
     await settled();
@@ -177,10 +147,7 @@ describe("createStateWatchHub", () => {
 
     h.observe(terminals({ a: { agent: makeAgent("waiting") } }));
     await settled();
-    // Entered the state — but not for long enough to be worth anyone's
-    // attention yet.
     expect(batches).toEqual([]);
-    // …and the hub is WAITING for exactly that moment, not polling.
     expect(h.armedAt()).toBe(h.now() + 60_000);
 
     h.advance(59_999);
@@ -201,8 +168,6 @@ describe("createStateWatchHub", () => {
     h.observe(terminals({ a: { agent: makeAgent("waiting") } }));
     await settled();
     h.advance(30_000);
-    // Handed more work inside the window: the agent's turn resumed, so nobody
-    // was ever told it had ended.
     h.observe(terminals({ a: { agent: makeAgent("tool_use") } }));
     await settled();
     h.advance(60_000);
@@ -214,7 +179,6 @@ describe("createStateWatchHub", () => {
     h.observe(terminals({ a: { agent: makeAgent("waiting") } }));
     await settled();
     const { batches } = collect(h.hub, { nagMs: 300_000 });
-    // The snapshot is the first report; the nag clock starts from it.
     expect(batches.flat().map((e) => e.kind)).toEqual(["snapshot"]);
 
     h.advance(299_999);
@@ -228,7 +192,6 @@ describe("createStateWatchHub", () => {
       "nag",
       "nag",
     ]);
-    // Every repeat still says how long it has been standing there.
     expect(batches.flat().at(-1)?.since).toBe(10_000);
   });
 
@@ -237,7 +200,6 @@ describe("createStateWatchHub", () => {
     h.observe(terminals({ a: { agent: makeAgent("waiting") } }));
     await settled();
     const { batches } = collect(h.hub, { nagMs: 60_000, nagCount: 2 });
-    // The first report — the cap counts only what follows it.
     expect(batches.flat().map((e) => e.kind)).toEqual(["snapshot"]);
 
     h.advance(60_000);
@@ -248,8 +210,6 @@ describe("createStateWatchHub", () => {
       "nag",
     ]);
 
-    // …and then silence, however much longer the terminal is left standing —
-    // including NO armed wake: a spent cap is not a deadline.
     expect(h.armedAt()).toBeUndefined();
     h.advance(3_600_000);
     expect(batches.flat()).toHaveLength(3);
@@ -261,13 +221,9 @@ describe("createStateWatchHub", () => {
     await settled();
     const { batches } = collect(h.hub, { nagMs: 60_000, nagCount: 1 });
     h.advance(60_000);
-    // snapshot + its ONE reminder, then quiet forever.
     h.advance(600_000);
     expect(batches.flat().map((e) => e.kind)).toEqual(["snapshot", "nag"]);
 
-    // Given work, then parked again: a NEW episode, so a fresh first report
-    // AND a fresh reminder of its own — the cap is per episode, not per
-    // terminal.
     h.observe(terminals({ a: { agent: makeAgent("thinking") } }));
     await settled();
     h.observe(terminals({ a: { agent: makeAgent("waiting") } }));
@@ -290,7 +246,6 @@ describe("createStateWatchHub", () => {
     h.advance(60_000);
     h.advance(60_000);
     const [first, second, third] = batches.flat();
-    // The first report is not a reminder and carries no reminder accounting.
     expect(Object.hasOwn(first ?? {}, "nag")).toBe(false);
     expect(second?.nag).toEqual({ index: 1, left: 1 });
     expect(third?.nag).toEqual({ index: 2, left: 0 });
@@ -304,8 +259,6 @@ describe("createStateWatchHub", () => {
     h.advance(60_000);
     h.advance(60_000);
     const [, first, second] = batches.flat();
-    // There is no last one to name when the nagging repeats forever: the
-    // counter runs, but `left` is ABSENT — never a lie about an end.
     expect(first?.nag).toEqual({ index: 1 });
     expect(Object.hasOwn(first?.nag ?? {}, "left")).toBe(false);
     expect(second?.nag).toEqual({ index: 2 });
@@ -326,9 +279,6 @@ describe("createStateWatchHub", () => {
     ]);
     first.stop();
 
-    // The supervisor comes BACK with the same question (its ordinary restart):
-    // the re-attach answers with the standing truth — ONE snapshot — and KEEPS
-    // the spent budget rather than re-arming it. Only a state change re-arms.
     const second = collect(h.hub, spec, first.counts);
     expect(second.flat().map((e) => [e.kind, e.nag])).toEqual([
       ["snapshot", undefined],
@@ -343,13 +293,10 @@ describe("createStateWatchHub", () => {
     await settled();
     const spec = { nagMs: 60_000, nagCount: 3 };
     const first = collect(h.hub, spec);
-    h.advance(60_000); // snapshot + nag {index:1, left:2}
+    h.advance(60_000);
     first.stop();
 
     const second = collect(h.hub, spec, first.counts);
-    // The re-attach's first report is a snapshot — no nag stamp — and the
-    // reminder numbering picks up where the previous attachment left it, so a
-    // script can still tell the last one.
     expect(second.flat().map((e) => [e.kind, e.nag])).toEqual([
       ["snapshot", undefined],
     ]);
@@ -374,14 +321,10 @@ describe("createStateWatchHub", () => {
     expect(first.flat().map((e) => [e.kind, e.nag])).toEqual([
       ["snapshot", undefined],
       ["nag", { index: 1, left: 1 }],
-      // …and the cap is now SPENT.
       ["nag", { index: 2, left: 0 }],
     ]);
     first.stop();
 
-    // The same episode's budget, re-attached under a spec whose LARGER hold
-    // defers the seeded entry past the arriving sweep — the re-open's snapshot
-    // boundary lands EMPTY because the owed first report is not due yet.
     const second = collect(
       h.hub,
       { nagMs: 60_000, nagCount: 2, heldForMs: 600_000 },
@@ -389,10 +332,6 @@ describe("createStateWatchHub", () => {
     );
     expect(second.flat()).toEqual([]);
 
-    // When the hold finally releases, this is STILL this subscription's own
-    // first report of a standing episode — never a nag it never preceded with
-    // a first report, and the spent cap never counts a reminder past itself
-    // (a `left` of -1 would fail the wire's NonNegativeInt on `nag.left`).
     h.advance(600_000);
     expect(second.flat().map((e) => [e.kind, e.nag])).toEqual([
       ["transition", undefined],
@@ -408,11 +347,9 @@ describe("createStateWatchHub", () => {
     await settled();
     const spec = { nagMs: 60_000, nagCount: 1 };
     const first = collect(h.hub, spec);
-    h.advance(60_000); // snapshot + nag {index:1, left:0} — spent
+    h.advance(60_000);
     first.stop();
 
-    // Given work, then parked again WHILE nobody was attached: a new episode
-    // with its own budget — the old seed does not transfer.
     h.observe(terminals({ a: { agent: makeAgent("thinking") } }));
     await settled();
     h.observe(terminals({ a: { agent: makeAgent("waiting") } }));
@@ -433,7 +370,6 @@ describe("createStateWatchHub", () => {
     const { batches } = collect(h.hub);
     h.advance(3_600_000);
     expect(batches.flat()).toHaveLength(1);
-    // Nothing to wake up for.
     expect(h.armedAt()).toBeUndefined();
   });
 
@@ -445,14 +381,11 @@ describe("createStateWatchHub", () => {
     h.advance(60_000);
     expect(batches.flat().map((e) => e.kind)).toEqual(["snapshot", "nag"]);
 
-    // Someone gave it work.
     h.observe(terminals({ a: { agent: makeAgent("thinking") } }));
     await settled();
     h.advance(600_000);
     expect(batches.flat()).toHaveLength(2);
 
-    // It finished again — a NEW episode, so a transition rather than a nag
-    // against the old one.
     h.observe(terminals({ a: { agent: makeAgent("waiting") } }));
     await settled();
     expect(batches.flat().map((e) => e.kind)).toEqual([
@@ -545,7 +478,6 @@ describe("createStateWatchHub", () => {
     h.observe(terminals());
     await settled();
     h.advance(600_000);
-    // Nothing to nag about, and nothing to wake for.
     expect(batches.flat()).toHaveLength(1);
     expect(h.armedAt()).toBeUndefined();
   });
@@ -557,27 +489,18 @@ describe("createStateWatchHub", () => {
     const { batches } = collect(h.hub, { nagMs: 60_000 });
     batches.length = 0;
 
-    // The `urgency` cell fires on every terminals poke — byte activity, recency,
-    // snapshot churn — while a bucket moves perhaps once a minute. An identical
-    // frame can make nothing due (a hold or a nag arriving through time alone is
-    // the armed timer's job), so it must not walk every level for every
-    // subscription to prove it.
     const armed = h.armedAt();
     for (let i = 0; i < 5; i += 1) {
       h.observe(terminals({ a: { agent: makeAgent("waiting") } }));
     }
     await settled();
     expect(batches).toEqual([]);
-    // …and the wake it was already holding is untouched, not cancelled and
-    // re-scheduled to the same instant five times.
     expect(h.armedAt()).toBe(armed);
   });
 
   it("still answers a subscription opened before the first LOOK, even when that frame moves nothing", async () => {
     const h = harness();
     const { batches } = collect(h.hub);
-    // A first frame with no agent in it moves no level — and is still the
-    // answer that subscription has been waiting for.
     h.observe(terminals());
     await settled();
     expect(batches).toEqual([[]]);
@@ -596,16 +519,11 @@ describe("createStateWatchHub", () => {
 
   it("WAITS for the first observation before answering 'nothing is neglected'", async () => {
     const h = harness();
-    // Opened in padi's boot window: the graph is built, the endpoint has not
-    // adopted kaval's terminals yet. An empty snapshot here would be a hub that
-    // has seen no fleet telling its owner the fleet is calm.
     const { batches } = collect(h.hub);
     expect(batches).toEqual([]);
 
     h.observe(terminals({ a: { agent: makeAgent("waiting") } }));
     await settled();
-    // …and when it has looked, the first frame is still a SNAPSHOT — that
-    // subscription was never there for the edge.
     expect(batches.flat().map((e) => [e.kind, e.id])).toEqual([
       ["snapshot", "a"],
     ]);
@@ -616,16 +534,11 @@ describe("createStateWatchHub", () => {
     const { batches } = collect(h.hub);
     h.observe(terminals({ a: { agent: makeAgent("thinking") } }));
     await settled();
-    // Still the snapshot boundary a stream consumer needs — just an honest one.
     expect(batches).toEqual([[]]);
   });
 
   it("dates a hold from the frame that first saw the state, not from boot", async () => {
     const h = harness();
-    // The serve-time pre-adopt frame — padi's `urgency` derivation running
-    // before the endpoint has adopted kaval's terminals — never reaches the hub
-    // at all; its producer gates it (`servePadi`'s urgency cell). What reaches
-    // the hub is a real frame, and `since` is that frame's stamp.
     h.set(50_000);
     h.observe(terminals({ a: { agent: makeAgent("waiting") } }));
     await settled();

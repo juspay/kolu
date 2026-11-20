@@ -1,11 +1,3 @@
-/**
- * The terminal's first READ — `startSensors` telling its host that every agent
- * detector has made its first pass (`SensorInputs.onAgentsRead`). There is one
- * detector per registered agent, each on its own subscription to the
- * foreground, so the terminal has been read only when the LAST of them has
- * reported. padi's redeploy gate waits on this (`attention/fleetGate.ts`).
- */
-
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -20,10 +12,8 @@ import type { ForegroundSample } from "kaval";
 import pino from "pino";
 import { afterEach, expect, it, vi } from "vitest";
 
-/** What happened, in order: each detector's reconcile and the host's report. */
 const seen: string[] = [];
 
-/** A detector that finds nothing and says when it looked. */
 const quietAdapter = (
   kind: "claude-code" | "codex",
 ): AgentAdapter<number, AgentInfoShape> => ({
@@ -37,7 +27,6 @@ const quietAdapter = (
   createWatcher: () => ({ destroy() {} }),
 });
 
-// Two registered agents stand in for the registry, so the count is ours.
 vi.mock("kolu-agents", async (importOriginal) => {
   const real = await importOriginal<Record<string, unknown>>();
   return {
@@ -93,7 +82,6 @@ it("says the terminal has been read once, after the last detector's first pass, 
   );
   try {
     await flush();
-    // Installing reconciles against "nothing observed yet": not a look.
     expect(seen).toEqual([]);
 
     foreground.publish({ process: "bash", foregroundPid: SHELL_PID });
@@ -104,7 +92,6 @@ it("says the terminal has been read once, after the last detector's first pass, 
     ]);
     expect(seen.slice(2)).toEqual(["read"]);
 
-    // Later samples are not a first pass.
     foreground.publish({ process: "vim", foregroundPid: SHELL_PID + 1 });
     await flush();
     expect(seen.filter((one) => one === "read")).toHaveLength(1);

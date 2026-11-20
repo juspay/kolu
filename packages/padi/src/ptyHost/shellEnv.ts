@@ -1,50 +1,3 @@
-/**
- * THE ENVIRONMENT A TERMINAL'S SHELL ENDS UP WITH — read by running that
- * terminal's own spawn once more, as `<shell> … -i -c <print the env>`.
- *
- * A launch in a kolu terminal runs AFTER the person's shell has read their
- * dotfiles (kolu-pty's wrapper rcfile replays them), so a variable only an rc
- * file exports — an API key, a gateway URL — is there for the launch. A
- * question about that launch ("which models would this harness offer if
- * started here?") asked from padi's own process environment misses it, and on
- * a host whose key lives in `~/.bashrc` it can never be answered. So it is
- * asked in this environment instead.
- *
- * ONE RULE FOR WHAT A TERMINAL GETS. The spawn input is the caller's —
- * `composeSpawnInput`, the function that composes every terminal's — and its
- * wrapper files are written by kaval's own materialiser. Nothing here decides
- * what a shell reads; it only runs the spawn non-interactively and reads what
- * the shell's environment is when it gets to the command.
- *
- * The environment travels on FILE DESCRIPTOR 3, printed by this process's own
- * node, so whatever an rc file prints on stdout (a banner, a fortune) cannot
- * be mistaken for it. A shell that cannot be asked — it exits non-zero, hangs,
- * or never reaches the command — is a failure in its own words, never a quiet
- * return to the bare environment.
- *
- * ASKING IS NOT SPAWNING, in three ways this module owns:
- *
- *  - only a shell kolu WRAPS can be asked (`kolu-pty`'s `isShellKoluWraps`):
- *    `-i -c` is this module's own appendix, and a shell that takes neither
- *    flag would answer a flag-parsing error for every harness. Refused by
- *    name, before anything is spawned;
- *  - the shell runs in its OWN SESSION (`detached`, i.e. `setsid`), so what an
- *    rc file started dies with it and no `/dev/tty` prompt can hang it or eat
- *    the keystrokes of whoever started padi from a terminal. A capture that
- *    does not answer in time, or whose caller withdrew the question, is ended
- *    by the SIGTERM→SIGKILL ladder on the whole group — the same ladder
- *    `@kolu/acp-harness`'s `child.ts` runs for a child it holds a handle to;
- *  - what is ANSWERED is what the person's shell contributed. kolu's own
- *    per-spawn plumbing ({@link withoutSpawnPlumbing}) is dropped: this
- *    capture is not a terminal, and nothing started from its environment may
- *    be told it lives in one.
- *
- * WHAT THE PERSON'S SHELL PRINTED IS THE PERSON'S. It is carried only in the
- * failure's own words (shown in the form that asked), capped on the way in
- * and on the way out, and no captured byte is ever embedded in the message by
- * any other path — a dotfile with `set -x` prints secrets there.
- */
-
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { shellJoin } from "@kolu/shell-quote";
@@ -60,33 +13,20 @@ export const SHELL_ENV_TIMEOUT_MS = 60_000;
  *  started with `-i` ignores SIGTERM, so this leg usually expires. */
 const GRACE_MS = 2_000;
 
-/** ... and how long SIGKILL itself gets before the call answers anyway: a
- *  process the kernel was asked to destroy and has not is a hang, and the
- *  caller is owed an answer either way. */
 const KILL_MS = 1_000;
 
-/** The most of the shell's stderr kept, as a rolling tail — only the last
- *  lines are ever used, and an rc file with `set -x` prints megabytes. */
 const STDERR_CAP = 8 * 1024;
 
-/** ... and the most of it that reaches the failure's words. */
 const SAID_CAP = 1_000;
 
-/** The most fd 3 may print. A terminal's environment is kilobytes; more than
- *  this is a shell printing something else, and reading it is a refusal in
- *  its own right rather than a buffer that grows until padi dies. */
 const PRINTED_CAP = 512 * 1024;
 
-/** What `-c` runs: this process's node, writing its environment to fd 3. */
 const PRINT_ENV = `require("node:fs").writeSync(3, JSON.stringify(process.env))`;
 
 /** The id an asking spawn's wrapper files are named by — never a terminal's
  *  (`<prefix>-<uuid>` cannot collide with a terminal id kolu mints). */
 export const shellEnvSpawnId = (): string => `shell-env-${randomUUID()}`;
 
-/** The last lines of what the shell said on stderr: the words a failure is
- *  told in, capped. An interactive shell with no terminal always says it has
- *  no job control, so that is not news. */
 function lastWords(stderr: string): string {
   return stderr
     .split("\n")
@@ -102,10 +42,6 @@ function lastWords(stderr: string): string {
     .slice(-SAID_CAP);
 }
 
-/** THE CAPTURED ENVIRONMENT, as a shape somebody checked: fd 3 carries what
- *  this module's own node printed, but an rc file's `>&3` writes there too.
- *  Its failure is never shown — a decoder's message quotes the value it
- *  refused, and that value is the person's environment. */
 const decodeShellEnv = Schema.decodeUnknownSync(
   Schema.Record(Schema.String, Schema.String),
 );
@@ -117,17 +53,14 @@ export class ShellEnvUnreadable extends Error {
   override readonly name = "ShellEnvUnreadable";
 }
 
-/** WHAT THE PERSON'S SHELL CONTRIBUTED — `captured` minus what
- *  `composeSpawnInput` stamped for THIS spawn alone: every variable whose
- *  value names this spawn's id (`ZDOTDIR`, pointing at a wrapper directory
- *  already removed; `KAVAL_TERMINAL_ID`, naming a terminal that never
- *  existed), where the shell left it as it was handed. A dotfile that set one
- *  of them itself wrote a different value, and that one is the person's and
- *  stays. NOTHING IS RESTORED in its place: a spawn starts from `cleanEnv()`,
- *  whose allowlist carries neither `ZDOTDIR` nor a `KAVAL_` name, so there is
- *  no earlier value kolu overrode — the variable is simply not the person's.
- *  The rule is read off the spawn rather than a list of names, so a per-spawn
- *  variable added later is dropped without anyone remembering to add it. */
+function isThisSpawnsPlumbing(
+  stamped: string,
+  captured: string | undefined,
+  spawnId: string,
+): boolean {
+  return stamped.includes(spawnId) && captured === stamped;
+}
+
 function withoutSpawnPlumbing(
   asked: {
     readonly id: string;
@@ -137,7 +70,7 @@ function withoutSpawnPlumbing(
 ): Record<string, string> {
   const person = { ...captured };
   for (const [key, stamped] of Object.entries(asked.env))
-    if (stamped.includes(asked.id) && person[key] === stamped)
+    if (isThisSpawnsPlumbing(stamped, person[key], asked.id))
       delete person[key];
   return person;
 }
@@ -163,9 +96,6 @@ export function readShellEnv(
     new ShellEnvUnreadable(
       `kolu could not read the environment a terminal here gets from ${shell}: ${how}`,
     );
-  // NOTHING IS SPAWNED for a shell kolu cannot ask: `-i -c` below is this
-  // module's appendix to the terminal's own argv, and a shell that takes
-  // neither would answer a flag-parsing error for every harness instead.
   if (!isShellKoluWraps(shell))
     return Promise.reject(failed("it is not a shell kolu can ask for one"));
   const written = writeInitFiles(rcDir, input.initFiles);
@@ -183,8 +113,6 @@ export function readShellEnv(
       cwd: input.cwd,
       env: input.env,
       stdio: ["ignore", "ignore", "pipe", "pipe"],
-      // Its own session: the group is what the ladder below signals, and the
-      // shell has no controlling terminal to read a prompt from.
       detached: true,
     },
   );
@@ -203,8 +131,6 @@ export function readShellEnv(
     timers.push(setTimeout(act, ms));
   };
   let settled = false;
-  /** ANSWER ONCE, and leave nothing behind: every timer cleared, the wrapper
-   *  files removed, the group gone (a descendant can outlive the leader). */
   const finish = (act: () => void): void => {
     if (settled) return;
     settled = true;
@@ -214,15 +140,11 @@ export function readShellEnv(
     removeInitFiles(rcDir, written);
     act();
   };
-  /** SIGTERM the group, SIGKILL it if that did not take. */
   const stopGroup = (): void => {
     signalGroup("SIGTERM");
     later(GRACE_MS, () => signalGroup("SIGKILL"));
   };
   function withdrawn(): void {
-    // NOBODY IS WAITING for this answer any more — the harness changed in the
-    // form, the tab closed — so the group is not asked politely first:
-    // `finish` kills it outright and the call answers at once.
     finish(() =>
       reject(failed("the question was withdrawn before it was answered")),
     );
@@ -233,7 +155,6 @@ export function readShellEnv(
   child.stderr?.on("data", (chunk: Buffer) => {
     stderr.push(chunk);
     stderrBytes += chunk.length;
-    // A rolling tail: the oldest chunk goes, so the LAST words survive.
     while (stderrBytes > STDERR_CAP && stderr.length > 1) {
       const oldest = stderr.shift();
       stderrBytes -= oldest === undefined ? 0 : oldest.length;
@@ -266,9 +187,6 @@ export function readShellEnv(
   later(bounds.timeoutMs, () => {
     timedOut = true;
     stopGroup();
-    // The call answers even if the group never closes: SIGKILL has been
-    // asked for by then, and a caller waiting on a kernel is owed the words
-    // all the same.
     later(GRACE_MS + KILL_MS, () => finish(() => reject(failed(tookTooLong))));
   });
   if (bounds.signal.aborted) withdrawn();
@@ -307,9 +225,6 @@ export function readShellEnv(
         reject(failed(`it never ran the command${tail}`));
         return;
       }
-      // NOTHING OF WHAT WAS PRINTED REACHES THE MESSAGE: an rc file's `>&3`
-      // lands here, and so does a secret it echoed. The decoder's own words
-      // quote what they refused, so they are dropped with it.
       let captured: Record<string, string>;
       try {
         captured = { ...decodeShellEnv(JSON.parse(text)) };

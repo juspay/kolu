@@ -1,18 +1,3 @@
-/**
- * `@kolu/padi/sessionRestore` — host-side session restore / import behind
- * `padiSurface.procedures.session.restore` / `.import`. This is the ONE writer of
- * the restore path: it replaces the deleted client respawn loop
- * (`useSessionRestore.ts`), so the browser fires a single `session.restore` and
- * padi re-spawns every terminal server-side.
- *
- * Lives in its OWN module — not `session.ts` — deliberately: restore reaches
- * DOWN into the lifecycle façade (`createTerminal`/`snapshotSession`), while
- * `terminals.ts` already reaches UP into `session.ts` (`saveSession`). Putting
- * restore in `session.ts` would close that into an import CYCLE
- * (`session ↔ terminals`); a separate module that imports BOTH (and is imported
- * by neither) keeps the graph acyclic.
- */
-
 import type {
   SavedActiveTerminal,
   SavedSession,
@@ -56,58 +41,21 @@ import {
 } from "./session.ts";
 import { padiStateBackupRing } from "./stateStore.ts";
 
-/** zod's `.parse`, in Effect terms — bound once at module scope (`decodeUnknownSync`
- *  compiles the schema on each application). Fail-fast by design: an IMPORTED blob
- *  that does not decode after the backfill ladder is a refusal, not a silent drop. */
 const decodeSavedSession = Schema.decodeUnknownSync(SavedSessionSchema);
 
-/** Re-spawn one saved ACTIVE record as a fresh live PTY UNDER ITS OWN ID, forwarding
- *  its restore-relevant chrome + the saved recency, and (opt-in) resuming its agent.
- *  Answers `true` when it re-spawned, `false` when this record is a REPEAT restore
- *  that must be skipped (its parked token was already consumed, or a live PTY already
- *  stands for it — the parked→active flip's idempotency: a double `session.restore`
- *  never duplicates a terminal).
- *
- *  The id is the SAVED one, not a fresh mint: a kaval recycle is a new shell for the
- *  same terminal, and renaming it here is what used to lose every id-keyed relation
- *  across a recycle (work membership, an agent's cached id, per-terminal client
- *  chrome). Both branches below leave the id free for the spawn — the parked entry is
- *  consumed, and an id that still names a live terminal returns instead of spawning —
- *  so the re-spawn can never collide with a terminal that is already there.
- *
- *  That makes the saved id a REGISTRY KEY and a kaval PTY id, so it must be a
- *  `TerminalId` — and it is, BY TYPE: `SavedTerminalIdSchema.id` is
- *  `TerminalIdSchema`, checked at the one door a saved blob comes through
- *  (`session.test__set`, `session.import`, the client's import hatch). Nothing is
- *  re-checked or repaired here, because an id that reached this function already
- *  decoded as one. (While the field was a bare string, a fixture that named a
- *  terminal "0" reached kaval as an unrepresentable PTY id AND rode the `roster`
- *  census, whose encode failure kills the whole mirror kolu-server holds — #2376.)
- *
- *  The parked entry padi's boot reconcile produced under this id IS the
- *  idempotency token: consume it (`discardLocalParked`) as the terminal flips to
- *  a fresh active PTY. Two cases have no parked token yet still restore exactly
- *  once: (a) a session set AFTER boot (the e2e `test__set`, no parking ran) —
- *  restore directly; (b) a repeat restore whose terminal is already live —
- *  skip. */
+type RespawnOutcome = "spawned" | "already-live";
+
 function respawnActive(
   t: SavedTerminal,
   parentId: string | undefined,
   resume: boolean,
-): boolean {
+): RespawnOutcome {
   const existing = getTerminal(t.id);
   if (existing?.meta.state === "parked") {
-    // The parked→active flip — consume the token so a concurrent/repeat restore
-    // finds it gone and skips this record (no duplicate terminal).
     discardLocalParked(t.id);
   } else if (getActiveTerminal(t.id)) {
-    // Already restored to a live PTY (a repeat restore after the flip) — skip.
-    return false;
+    return "already-live";
   }
-  // `restoreSpawn` — the ONE constructor that may seed the server-derived authored
-  // facts, through its distinct `restoreOnly` arm (an ordinary `createTerminal` can't
-  // spell them). Base chrome rides `initial`; the three restore-only facts ride
-  // `restoreOnly`.
   // Every field of both seed shapes is a `Schema.optionalKey`, which accepts an
   // ABSENT key and REJECTS a present `undefined` one (#17) — so an absent saved
   // value is OMITTED here, never spelled as `undefined`; the absence stays
@@ -124,77 +72,22 @@ function respawnActive(
       ...(t.intent === undefined ? {} : { intent: t.intent }),
     },
     {
-      // Carry the saved agent-resume target ONLY when actually resuming, so the closing
-      // `saveSession(snapshotSession())` re-persists the EXACT target, not `none` (the
-      // fold's `updateMemory` re-derives it live once the resumed agent is re-observed;
-      // until then the saved value stands — a resume that never lands, or a second unclean
-      // death right after restore, still finds the target on disk). An OPTED-OUT terminal
-      // (`resume` false) spawns a genuine bare shell: it has no agent to re-observe, so the
-      // fold would NEVER clear a seeded `exact` (its stored target is already `none`, so
-      // `updateMemory` never fires to overwrite the seed) — the exact target would persist
-      // and a later WAKE would resume the very agent the user declined. So drop both,
-      // leaving the bare shell's target at `none`.
       ...(resume && t.restoreTarget !== undefined
         ? { restoreTarget: t.restoreTarget }
         : {}),
-      // Preserve the saved recency across the restart (RISK Q6) — without this the fold
-      // reseeds the restored terminal to a fresh (never-active) recency and the dock's
-      // recency ranking permanently collapses after a `session.restore`. The parked record
-      // already copied this off the saved active record at park time; here it rides the
-      // fresh spawn. (Distinct from the client-facing `lifecycle.create`, which drops it so
-      // a genuinely fresh terminal gets padi's clock.) `AgentMemory`'s honest `null`
-      // (never-active) bridges onto this input's ABSENCE — omitting the key falls through
-      // to the SAME `seedMemory()` default, so the bridge can't lose the never-active fact,
-      // only its spelling.
       ...(t.lastActivityAt === null
         ? {}
         : { lastActivityAt: t.lastActivityAt }),
-      // The resumed agent's first live turn rides with it, so it does not read as
-      // an agent still at its first prompt. Only when resuming, for the reason
-      // `restoreTarget` above is: a bare shell has no agent to have been prompted.
       ...(resume && t.promptedAt !== null ? { promptedAt: t.promptedAt } : {}),
     },
   );
-  // Auto-launch the resume form of the previously detected agent, if the user
-  // didn't opt out. `resumeFormFor` renders the line from the fold-derived
-  // `restoreTarget` (the SAME composition the wake path feeds a fresh spawn, so
-  // restore and wake can't drift): `exact` re-targets the exact conversation from
-  // its OS-derived identity plus the live process's allowlisted flags;
-  // `none`/absent is a bare shell. The proxy handle queues the write until the PTY
-  // spawn resolves.
   if (resume) {
     const resumeForm = resumeFormFor(t.restoreTarget);
     if (resumeForm) getActiveTerminal(t.id)?.handle.write(`${resumeForm}\r`);
   }
-  return true;
+  return "spawned";
 }
 
-/** Restore the persisted session HOST-SIDE — the ONE restore writer (the client
- *  respawn loop is deleted). Reads the saved session, re-creates each terminal
- *  (active → spawn a FRESH PTY + optional agent-resume; sleeping → seed dormant),
- *  re-parents sub-terminals onto their freshly-spawned parents, then re-persists
- *  the live snapshot. Mirrors the client loop's essential structure MINUS the
- *  client-only canvas/active-tile protocol (a server has no viewport to center).
- *
- *  IDEMPOTENT: an ACTIVE record restores by CONSUMING the parked registry entry
- *  padi's boot reconcile produced (`respawnActive`), so a concurrent/repeat
- *  `session.restore` finds the token gone and no-ops rather than duplicating.
- *
- *  Resume intent is host-owned: the host computes the resumable set from each
- *  record's `restoreTarget` ({@link resumableTerminalIds}); the client may only
- *  subtract via `optOutIds`. `resumeAgents: false` resumes none; `true` (default)
- *  resumes every host-resumable id not listed in `optOutIds`.
- *
- *  ANSWERS with the active-terminal marker as of the end of the restore, read back
- *  from its ONE writer rather than re-derived. The client seeds its active tile from
- *  THIS answer. It used to read the `session` cell instead, and that is a race the
- *  client cannot win: the terminals are published as they spawn, while the cell's
- *  snapshot only publishes after `saveSession` has been through padi's Conf (a
- *  synchronous DISK write). On a loaded box the disk write outlasts the client's
- *  per-terminal metadata round-trips, so the client saw the full restored set while
- *  still holding the blob it CONSUMED — whose terminals were not live yet — and
- *  silently seeded the FIRST tile instead. Riding the call means the answer cannot
- *  arrive after the terminals it describes. */
 export async function restoreSession(
   input: { resumeAgents?: boolean; optOutIds?: readonly string[] } = {},
 ): Promise<{ activeTerminalId: string | null }> {
@@ -205,95 +98,38 @@ export async function restoreSession(
   const hostResumable = new Set(resumableTerminalIds(saved.terminals));
   const optedIn = (id: string) =>
     resumeAgents && hostResumable.has(id) && !optOut.has(id);
-  // The ids this restore has put back in the registry — live or dormant. Every
-  // restored terminal keeps the id it was saved under (actives re-spawn under it,
-  // sleepers are seeded under it), so this is a membership question, not a
-  // translation: a sub-terminal re-parents onto its saved `parentId`, and a sub
-  // whose parent is NOT in here had no parent in the session at all.
   const restored = new Set<string>();
-  // The actives this restore re-spawned, paired with the saved record each stands
-  // for AND that spawn's own `ready` settle. `respawnActive` consumes the parked
-  // idempotency token BEFORE the async spawn confirms, so a spawn that FAILS mid-restore
-  // (a kaval death 100 ms after the user clicks Restore) unwinds to `finalizeRemoval` —
-  // and the next autosave would then DELETE that terminal from the saved session
-  // outright (CONF-6). We pair each respawn with its saved record + its `ready` promise
-  // so a GENUINE spawn failure (ready REJECTED) can be RE-PARKED the instant it settles
-  // (`settleRestoreRespawns`), which re-suppresses the autosave before any removal is
-  // journaled — no process-wide freeze is held across the spawn window.
   const activeRespawns: {
     record: SavedActiveTerminal;
     ready: Promise<void> | undefined;
   }[] = [];
-  /** Saved records that could not be restored (e.g. parent missing from the
-   *  session). Must stay on disk with their resume tokens and surface as a
-   *  loud error — never silently dropped (fail-fast). */
   const unrestored: SavedTerminal[] = [];
   const topLevel = saved.terminals.filter((t) => !t.parentId);
   const subTerminals = saved.terminals.filter(
     (t): t is SavedTerminal & { parentId: string } => t.parentId !== undefined,
   );
 
-  // Restore ONE saved record into the live registry, recording its id in
-  // `restored`. A SLEEPING record restores DORMANT — seed it (no PTY spawn, no
-  // resume; Wake does that later), keeping its saved id (idempotent seed) so its
-  // canvas layout and the active marker map 1:1. When `parentId` is given the
-  // sleeper is a SLEPT SUB-TERMINAL (#1651): honor the saved state and re-parent
-  // under it (NOT a fresh active split), respecting F3 (a sub hangs off a LIVE
-  // parent — the restored parent). A slept family arrives whole: sleep freezes a
-  // parent and its splits together, so a saved sub under a saved sleeping parent is
-  // the ordinary case and is seeded dormant under it, ready to wake as one family.
-  // An ACTIVE record re-spawns a PTY under its own id (opt-in agent-resume).
   const restoreRecord = (t: SavedTerminal, parentId?: string): void => {
     if (t.state === "sleeping") {
       seedSleepingTerminal(parentId !== undefined ? { ...t, parentId } : t);
       restored.add(t.id);
       return;
     }
-    const spawned = respawnActive(t, parentId, optedIn(t.id));
-    // Either way this id now names a terminal in the registry, so it counts as
-    // restored — a `false` is the already-live skip (a repeat/concurrent restore,
-    // OR a PRIOR restore that spawned THIS record live while a sibling failed — the
-    // mixed-outcome retry), whose children must still re-parent onto the LIVE
-    // terminal instead of being dropped. Drop it from `restored` and a sub whose
-    // parent is already live is counted unrestored — its parked token would then
-    // linger FOREVER, pinning `hasParkedTerminals()` and suppressing every later
-    // autosave (F2, the retry half of mixed parent/child settlement).
+    const outcome = respawnActive(t, parentId, optedIn(t.id));
     restored.add(t.id);
-    // Nothing was spawned on the skip, so that record does NOT join
-    // `activeRespawns` (no `ready` to await, no re-park on failure).
-    if (!spawned) return;
-    // `t` is the active arm here (the sleeping branch returned above). Capture the
-    // fresh proxy's `ready` promise NOW, while the entry is still the live shadow —
-    // its SETTLE (fulfilled vs rejected) is the authoritative "did the spawn succeed",
-    // read below without depending on later registry presence.
+    if (outcome === "already-live") return;
     activeRespawns.push({
       record: t,
       ready: getActiveTerminal(t.id)?.handle.ready,
     });
   };
 
-  // Freeze the autosave for the SYNCHRONOUS spawn setup + optimistic persist ONLY —
-  // NOT across the spawn `await` below. The fresh `createTerminal`s fire `terminals:dirty`
-  // that would otherwise arm a save mid-setup; the freeze absorbs those so the ONE durable
-  // write is the optimistic snapshot. It is lifted the instant that snapshot is on disk.
-  //
-  // Deliberately NOT held until every `ready` settles: a single wedged kaval RPC (socket
-  // open, `spawn` never answered → `ready` never settles) would then pin the freeze
-  // FOREVER and suppress a live sibling's padi-local metadata persistence for the whole
-  // process lifetime (F5). Instead each respawn is compensated INDEPENDENTLY as it settles
-  // (`settleRestoreRespawns`), so a never-settling spawn blocks no persistence. Released
-  // by THIS restore's own lease so a concurrent restart's freeze section is never thawed
-  // early.
   const freeze: AutosaveFreeze = freezeAutosave(
     "session restore (spawn setup)",
   );
   try {
     for (const t of topLevel) restoreRecord(t);
     for (const t of subTerminals) {
-      // A sub whose parent is absent from the session (corrupt blob / missing
-      // parent id) cannot hang off a live parent (F3). Do NOT silently drop it:
-      // keep the record (and its resume token) and fail loudly after the rest
-      // of the restore lands.
       if (!restored.has(t.parentId)) {
         unrestored.push(t);
         continue;
@@ -301,22 +137,11 @@ export async function restoreSession(
       restoreRecord(t, t.parentId);
     }
 
-    // Preserve the active marker across the restart (RISK Q1 host-side): the saved
-    // id IS the restored terminal's id — actives re-spawn under it and sleepers are
-    // seeded under it — so the marker rides through untranslated.
     restoreActiveTerminalId(saved.activeTerminalId ?? null);
-    // Persist the now-live snapshot IMMEDIATELY — the optimistic restored actives, the
-    // synchronous write the common-case (kaval alive) restore and the tests both rely
-    // on. This snapshot NAMES every restored terminal, so even if a spawn later fails
-    // and unwinds, the saved session still holds it (CONF-6: nothing is deleted).
-    // Unrestored records are MERGED back in so their resume tokens never leave disk
-    // (the silent-drop bug class).
     const live = snapshotSession();
     if (unrestored.length > 0) {
       for (const t of unrestored) {
         if (t.state === "active") {
-          // Re-park so the restore card can offer them again; seed is idempotent
-          // when the parked token was never consumed.
           seedParkedTerminal(t);
         }
       }
@@ -332,21 +157,11 @@ export async function restoreSession(
     cancelPendingAutosave();
   }
 
-  // Settle every fresh spawn INDEPENDENTLY, with NO process-wide freeze held: each genuine
-  // failure re-parks the instant ITS OWN `ready` settles, and the re-park's
-  // `suppressed-parked` gate (a microtask that always beats the 500 ms autosave the
-  // failure's `finalizeRemoval` arms) plus an eager re-persist keep the removal from ever
-  // journaling a shrunken session (CONF-6) — replacing the blanket freeze with per-spawn
-  // compensation. A spawn whose `ready` never settles leaves THIS await pending but pins no
-  // persistence state, so a live sibling's metadata still reaches disk (the F5 fix).
   await settleRestoreRespawns(
     activeRespawns.map((a) => ({
       ready: a.ready,
       record: a.record,
     })),
-    // Missing-parent records must ride every settle write — otherwise a
-    // sibling spawn's `persistSettledRestoreSnapshot(live+reparked)` drops
-    // them from disk and erases the resume tokens the optimistic merge kept.
     unrestored,
   );
 
@@ -356,52 +171,14 @@ export async function restoreSession(
       `Session restore incomplete: ${unrestored.length} terminal(s) could not be restored (missing parent): ${ids}. Their resume tokens were preserved — retry restore or start fresh.`,
     );
   }
-  // Read the marker back from its ONE writer rather than re-deriving the mapping:
-  // a spawn that failed and re-parked above cannot leave this answer disagreeing
-  // with what the host actually holds. The id can still name a terminal that did
-  // not come back (its respawn was re-parked), which is exactly why the client
-  // re-validates membership before seeding.
   return { activeTerminalId: getActiveTerminalId() };
 }
 
-/** Settle the fresh restore respawns INDEPENDENTLY — the ONE place the mixed
- *  parent/child settlement (F2), the kill-vs-infra discriminant (F3), and the F5
- *  unbounded-freeze fix live. Runs with NO process-wide autosave freeze held: each
- *  genuine spawn failure is re-parked the INSTANT its OWN `ready` settles — never after
- *  the whole batch — so a sibling spawn that NEVER settles neither delays that
- *  compensation nor pins persistence.
- *
- *  A REJECTED settle re-parks the record AS SAVED (its own id, its own parent) so the
- *  restore card re-offers it — the durable optimistic snapshot named it by that id, so
- *  the parked token stays consumable on a retry (a mismatched id would orphan the park
- *  forever and pin `hasParkedTerminals()`, suppressing every later autosave — CONF-6 /
- *  F1). We EXCLUDE
- *  the typed {@link TerminalSpawnRacedError}: a pre-ready KILL/SLEEP by a second client is
- *  an explicit newer intent, NOT infrastructure failure — re-offering it would manufacture
- *  restore-pending state for a terminal the user just killed (F3). A spawn that SUCCEEDED
- *  but was killed/slept AFTER `ready` resolved leaves the settle FULFILLED, already honored.
- *
- *  The re-park is what keeps `finalizeRemoval` from journaling a shrunken session WITHOUT a
- *  held freeze: seeding the parked entry flips `isRestorePending()` true, and that seed runs
- *  on the rejection microtask — always draining before the 500 ms macrotask autosave the
- *  removal armed — so the fire decides `suppressed-parked` and never persists the shrink.
- *  The eager {@link persistSettledRestoreSnapshot} RETAINS the re-parked record (which
- *  `snapshotSession` skips) alongside every live sibling's freshest metadata.
- *
- *  {@link promoteOrphanedRestoreChildren} lifts children orphaned by a failed/parked parent
- *  (F2) and a merge is persisted after EACH spawn settles — NOT once after the whole batch.
- *  That incrementality matters: a parent A can reject and re-park while an UNRELATED spawn C
- *  never settles; if promotion waited on the batch `Promise.all`, C's wedge would keep A's
- *  successful child B hidden under A's parked entry forever. Running the reconcile inside
- *  each settle handler repairs B the instant A settles, independent of C. */
 export async function settleRestoreRespawns(
   respawns: {
     ready: Promise<void> | undefined;
     record: SavedActiveTerminal;
   }[],
-  /** Records that must survive every settle write (e.g. missing-parent
-   *  unrestored actives re-parked in the optimistic pass). Merged with
-   *  reparked on each persist so a sibling spawn cannot erase them. */
   retained: readonly SavedTerminal[] = [],
 ): Promise<void> {
   const reparked: SavedActiveTerminal[] = [];
@@ -411,92 +188,44 @@ export async function settleRestoreRespawns(
       try {
         await r.ready;
       } catch (err) {
-        if (err instanceof TerminalSpawnRacedError) {
-          // F3: honor a second client's pre-ready kill/slept — never re-park. But its
-          // removal may have orphaned a live child, so fall through to reconcile below
-          // rather than returning early.
-        } else {
-          // The record rides back to the restore card exactly as it was saved —
-          // the re-spawn kept its id and replayed its saved parent edge, so there
-          // is nothing to re-address. (Its `parentId` is a `Schema.optionalKey`
-          // field, ABSENT on a top-level record rather than `undefined`, which is
-          // what `seedParkedTerminal`'s tolerant decode requires — #17.)
-          seedParkedTerminal(r.record); // idempotent — a repeat settle no-ops
+        if (!(err instanceof TerminalSpawnRacedError)) {
+          seedParkedTerminal(r.record);
           reparked.push(r.record);
         }
       }
-      // Reconcile orphans across ALL respawns the INSTANT this one settles — NOT gated
-      // behind the whole batch's `Promise.all` (F2). A parent that just parked/removed
-      // itself here has orphaned any live child of its own; promoting incrementally means
-      // an UNRELATED never-settling sibling spawn can no longer strand that child under a
-      // hidden parent for the process lifetime. Then persist the merged live+re-parked
-      // (+ retained unrestored) snapshot so the promotion (and any re-park) reaches disk
-      // without awaiting the batch.
       promoteOrphanedRestoreChildren(respawns);
-      persistSettledRestoreSnapshot(reparked, retained);
+      persistSettledRestoreSnapshot({ reparked, retained });
     }),
   );
 }
 
-/** Promote children orphaned by a failed/parked parent to TOP-LEVEL (F2). A restored
- *  ACTIVE child whose parent is NO LONGER a live terminal — its parent respawn failed for a
- *  PER-RECORD reason (a removed cwd, a pre-ready lifecycle race) and was re-parked, or a
- *  second client killed the parent mid-restore — must not dangle under a parked/absent
- *  parent (which the canvas would hide). Spawn failures are NOT monotonic (a parent can
- *  reject while its later-queued child succeeds), so reparent the live child to TOP-LEVEL,
- *  keeping its live PTY + agent visible. A SLEEPING (dormant) parent is a valid parent and
- *  is left alone. */
+function parentWasLostToThisRestore(record: SavedActiveTerminal): boolean {
+  const parentId = record.parentId;
+  if (parentId === undefined) return false;
+  const parent = getTerminal(parentId as TerminalId);
+  return parent === undefined || parent.meta.state === "parked";
+}
+
 export function promoteOrphanedRestoreChildren(
   respawns: {
     record: SavedActiveTerminal;
   }[],
 ): void {
-  for (const r of respawns) {
-    const id = r.record.id as TerminalId;
-    if (!getActiveTerminal(id)) continue; // failed / re-parked
-    const parentId = r.record.parentId;
-    if (parentId === undefined) continue; // already top-level
-    const parent = getTerminal(parentId as TerminalId);
-    if (!parent || parent.meta.state === "parked") {
-      setTerminalParent(id, null);
-    }
+  for (const { record } of respawns) {
+    const id = record.id as TerminalId;
+    if (!getActiveTerminal(id)) continue;
+    if (parentWasLostToThisRestore(record)) setTerminalParent(id, null);
   }
 }
 
-/** Persist the merged live+re-parked snapshot after a respawn settles — part of the F5
- *  fix. During the spawn window a terminal that already spawned stays fully interactive, and
- *  a padi-LOCAL setter ({@link setTerminalTheme} / {@link setCanvasLayout} /
- *  {@link setSubPanelState} / {@link setRightPanelState} / {@link setTerminalIntent} /
- *  {@link setTerminalParent}) mutates committed in-memory state and fires
- *  `terminals:dirty` WITHOUT waiting on kaval. (`setActiveTerminalId` is NOT in that
- *  list since #2286: focus pulses nothing and rides the gate's own ≥5 s active-id
- *  debounce, which this re-persist picks up for free — it snapshots the live marker.)
- *  Re-persisting the live snapshot as
- *  each spawn settles captures those — and, crucially, because no process-wide freeze is held
- *  across the spawn `await`, a live sibling's change ALSO persists through the normal
- *  autosave gate while spawns are still in flight, so a wedged kaval (a `ready` that never
- *  settles) can no longer suppress it for the process lifetime.
- *
- *  MERGES the live snapshot with `reparked` — the genuine-failure records
- *  {@link settleRestoreRespawns} re-parked. `snapshotSession` SKIPS parked records, so
- *  persisting it ALONE would DELETE a re-parked terminal from disk (the CONF-6 shrink the
- *  optimistic snapshot exists to prevent). Threading the re-parked set back in RETAINS
- *  exactly those records while still capturing every live sibling's freshest metadata — so a
- *  MIXED outcome (a live sibling changed AND a sibling failed + re-parked) persists BOTH,
- *  rather than choosing between saving only-live (drops the re-park) and saving-nothing
- *  (drops the live change — F5). The re-parked ids can't collide with the live snapshot (a
- *  parked entry is excluded from it), and a raced-kill (honored, never re-parked, never live)
- *  is in NEITHER set → correctly removed from disk. */
-export function persistSettledRestoreSnapshot(
-  reparked: SavedActiveTerminal[],
-  retained: readonly SavedTerminal[] = [],
-): void {
+export function persistSettledRestoreSnapshot(mergeIn: {
+  reparked: readonly SavedActiveTerminal[];
+  retained?: readonly SavedTerminal[];
+}): void {
   const live = snapshotSession();
-  // Live wins id collisions; then reparked (spawn failures); then retained
-  // unrestored records (e.g. missing-parent) that snapshotSession never sees.
   const seen = new Set(live.terminals.map((t) => t.id));
   const extras: SavedTerminal[] = [];
-  for (const t of [...reparked, ...retained]) {
+  for (const t of [...mergeIn.reparked, ...(mergeIn.retained ?? [])]) {
     if (seen.has(t.id)) continue;
     seen.add(t.id);
     extras.push(t);
@@ -507,29 +236,6 @@ export function persistSettledRestoreSnapshot(
   });
 }
 
-/** FORFEIT the pending restore — the EXPLICIT "start fresh / discard my previous
- *  session" act behind `padiSurface.procedures.session.forfeit`. Discards every
- *  parked restore-card entry AND clears the saved session on disk, TOGETHER, as one
- *  user-intended step: the parked entries and the blob they stand for are the same
- *  restore offer, so forfeiting means dropping both atomically. Distinct from
- *  `lifecycle.create` (which no longer forfeits — creating a terminal leaves the
- *  restore offered) and from `restoreSession` (which CONSUMES the parked entries via
- *  the parked→active flip and re-persists the live session). A no-op-safe idempotent
- *  call: with no parked entries and no saved session it clears nothing.
- *
- *  SNAPSHOTS FIRST, and refuses to proceed if that snapshot fails. Forfeit is the
- *  only verb in padi whose whole job is to destroy user data, so it is exactly the
- *  class the state-backup ring (#1658) exists for — `backups.restore` already
- *  pushes the current state file into the ring "so the restore is itself undoable",
- *  and the same must hold for the one act that discards N terminals on a single
- *  click. The ring's `snapshot()` is fail-SOFT by design (a typed outcome, never a
- *  throw) because on the BOOT path a backup is a safety net and not a gate; HERE the
- *  safety net IS the gate, so a `failed` outcome throws rather than degrading to an
- *  unrecoverable discard, and the session survives to be forfeited again once
- *  whatever broke the ring (a full disk, a read-only state root) is fixed.
- *  `no-state-file` is not a failure — there is no saved blob to lose, so the forfeit
- *  destroys nothing on disk — and `unchanged` means the ring already holds a
- *  byte-identical copy, which is precisely the recoverability this gate asks for. */
 export function forfeitSession(stateRoot: string): void {
   const snapshot = padiStateBackupRing(stateRoot).snapshot();
   if (snapshot.kind === "failed") {
@@ -541,38 +247,13 @@ export function forfeitSession(stateRoot: string): void {
   clearSavedSession();
 }
 
-/** Import a session blob and restore it host-side — the diagnostic "Import
- *  session" flow moved off the client. Backfills the imported blob to the
- *  current schema (idempotent on an already-current record), strips resume
- *  FLAGS (a foreign file's argv was never observed by this host; the identity
- *  and conversation are kept), persists it as the saved session, then runs the
- *  restore path with the same resume intent.
- *  Answers nothing: neither of its two callers (`session.import`,
- *  `backups.restore`) seeds a view from the call — both restore a blob the user
- *  just chose — so an active-marker here would be shape for its own sake, which
- *  is exactly the argument the 5.1 ledger note makes about `session.import`.
- *  `session.restore`, whose client DOES seed its active tile from the call,
- *  keeps its answer. */
 export async function importSession(input: {
   session: SavedSession;
   resumeAgents?: boolean;
   optOutIds?: readonly string[];
 }): Promise<void> {
   const backfilled = decodeSavedSession(backfillSavedSession(input.session));
-  // The import is a WHOLESALE REPLACEMENT, so every parked row left by an EARLIER
-  // park is an orphan — its id is either absent from the imported blob (nothing
-  // will ever consume it) or present but SLEEPING (the sleeper seeds on that same
-  // id, leaving the parked row standing over it). Either pins
-  // `hasParkedTerminals()`, and with it the autosave at `suppressed-parked`.
-  // Discard first, then install — the order `forfeitSession` uses.
-  //
-  // The restore that follows is unaffected: `respawnActive`'s no-parked-token arm
-  // (a session set after boot, e2e `test__set`) is the ordinary path, so each
-  // imported record still restores exactly once.
   discardAllLocalParked();
-  // A foreign blob's flags are not facts this host observed. Keep the identity
-  // (the conversation still resumes), discard the argv — identity-only, exactly
-  // what the 1.3.0 ladder does to an old target.
   setSavedSession(stripImportedTargetArgv(backfilled));
   await restoreSession({
     resumeAgents: input.resumeAgents,

@@ -1,23 +1,3 @@
-/**
- * padi's runtime rendezvous, the half that touches the MACHINE: discovery of the
- * padis actually running on this box, the kaval placement beside each, and the
- * daemon's own log paths.
- *
- * The pure path algebra it is built on — state-root resolution, the digest, the
- * socket/gate paths a client dials — is `@kolu/padi-client/rendezvous`, and is
- * re-exported nowhere: a caller that only needs to NAME a socket imports that
- * module and never installs the daemon tier this one rests on.
- *
- * A new helper lands on this side when it costs a consumer kaval — this module's
- * closure includes kaval's privacy and inode checks and its `state-root`
- * manifest reader; the rule and its enforcer are stated once in
- * `packages/padi-client/src/hydrate.closure.test.ts`.
- *
- * A tiny **manifest** (`state-root` file) in each runtime dir maps the opaque
- * digest back to its state-root, so a flag-less `kaval-tui` can still label what
- * it discovers.
- */
-
 import { readdirSync, realpathSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
 import { messageOf } from "@kolu/surface/errors";
@@ -44,43 +24,29 @@ import {
 } from "kaval";
 import { match } from "ts-pattern";
 
-// The `state-root` manifest (digest → state-root) is OWNED by kaval, beside the
-// discovery that reads it (the dependency arrow points padi → kaval, never the
-// reverse). Re-exported here so padi callers reach it through the same module as
-// the rest of padi's rendezvous paths. `readStateRootManifest` is imported above
-// (not re-exported — kolu-common already re-exports it) for padi discovery below.
 export { writeStateRootManifest } from "kaval";
 
 export const PADI_LOG_FILE = "padi.log";
 
-/** padi's deterministic diagnostic log — `<state-root>/padi.log`. Every padi spawn path
- *  appends the daemon's stderr here (P0), so a padi that OUTLIVES the parent that spawned it
- *  (an ssh front, a kolu-server) still leaves a readable log instead of /dev/null. Homed on
- *  the PERSISTENT state root (not the ephemeral runtime socket dir) so it survives reboots
- *  and is trivial to find: same dir the daemon already owns, keyed by state-root identity.
- *
- *  `stateRoot` is the already-resolved bind path — pure join, no ambient
- *  {@link resolvePadiStateRoot} (callers resolve once at entry). */
+/** padi's deterministic diagnostic log — `<state-root>/padi.log`. Every padi spawn
+ *  path appends the daemon's stderr here, so a padi that outlives the parent that
+ *  spawned it still leaves a readable log. `stateRoot` is the already-resolved bind
+ *  path: a pure join, never an ambient state-root resolve. */
 export function padiLogPath(stateRoot: string): string {
   return join(resolve(stateRoot), PADI_LOG_FILE);
 }
 
 export const PADI_STDERR_LOG_FILE = "padi.stderr.log";
 
-/** padi's raw-STDERR crash-catcher — `<state-root>/padi.stderr.log`. SEPARATE from
- *  {@link padiLogPath} (pino's structured, size-capped stream): this file captures what pino
- *  can't see — native `stderr` writes, an uncaught-exception / unhandled-rejection stack —
- *  the spawn spine hands it as the detached daemon's stderr fd (P0). Bounded by
- *  TRUNCATE-ON-BOOT (the spine rotates the previous to `.old` and starts fresh — one
- *  generation, never unbounded), so it needs no size rotation.
- *
- *  `stateRoot` is the already-resolved bind path — pure join, no ambient bind resolve. */
+/** padi's raw-STDERR crash-catcher — `<state-root>/padi.stderr.log`, separate from
+ *  {@link padiLogPath}: it holds what pino cannot see (native `stderr` writes, an
+ *  uncaught-exception stack). Truncated on boot — one generation, never unbounded. */
 export function padiStderrLogPath(stateRoot: string): string {
   return join(resolve(stateRoot), PADI_STDERR_LOG_FILE);
 }
 
-/** Pure kaval home for this padi — `kaval-<digest>/` under runtime, same digest
- *  as padi. Construction and the supervisor both take this home object. */
+/** The kaval home for this padi — `kaval-<digest>/` under the runtime root, keyed by
+ *  the SAME digest as padi. Construction and the supervisor both take this home. */
 export function padiKavalHome(stateRoot: string, socketOverride?: string) {
   return resolveDaemonHome({
     app: KAVAL_NS_PREFIX,
@@ -91,9 +57,8 @@ export function padiKavalHome(stateRoot: string, socketOverride?: string) {
   });
 }
 
-/** The socket padi's kaval serves on: `$XDG_RUNTIME_DIR/kaval-<digest>/
- *  pty-host.sock`, keyed by the SAME digest as padi (retires the legacy
- *  `kaval-<port>`). Via {@link padiKavalHome}. */
+/** The socket padi's kaval serves on — `<kaval home>/pty-host.sock`, via
+ *  {@link padiKavalHome}. */
 export function padiKavalSocketPath(
   stateRoot: string,
   override?: string,
@@ -106,18 +71,14 @@ export function padiKavalSocketPath(
 export const PADI_SSH_AUTH_SOCK_FILE = "ssh-auth.sock";
 
 /** The stable ssh-agent link beside padi's serving socket —
- *  `<dirname(socketPath)>/ssh-auth.sock`.
- *
- *  Both ends already hold that ONE socket path — the `--stdio` producer
- *  (`home.socketPath`) and the spawn-path consumer (`PADI_SOCKET`) — so neither
- *  hand-builds a home. The rationale lives in `daemonBoot/stdioBridge.ts` (#2313). */
+ *  `<dirname(socketPath)>/ssh-auth.sock`. */
 export function padiSshAuthSockPath(socketPath: string): string {
   return join(dirname(socketPath), PADI_SSH_AUTH_SOCK_FILE);
 }
 
 /** A discovered padi daemon — its socket, the state-root its `state-root` manifest
- *  records (or `null` if unreadable), and the gate-holder pid read from `padi.pid`
- *  beside the socket (or `null`). Strictly read-only diagnostic data; produced by
+ *  records (`null` when unreadable), and the gate-holder pid read from `padi.pid`
+ *  beside the socket (`null` when absent). Read-only diagnostic data produced by
  *  {@link discoverPadiDaemons}. */
 export interface PadiDaemon {
   socket: string;
@@ -125,27 +86,11 @@ export interface PadiDaemon {
   gatePid: number | null;
 }
 
-/** The systemd-standard `$XDG_RUNTIME_DIR` value on Linux (`/run/user/$UID`) —
- *  what logind sets for any session it manages. Used ONLY as a SECOND drawer
- *  {@link discoverPadiDaemons} probes when THIS process's own `$XDG_RUNTIME_DIR`
- *  is unset (e.g. a bare `nix run` outside a login session) — a resident padi
- *  spawned in a DIFFERENT session that DID have it set is otherwise invisible
- *  to a caller that only ever computes its own drawer (the #1713 adopt-path
- *  sibling: the exact env-divergence that made a 30s "daemon socket never came
- *  up" boot hang look like padi failed to start, when a compatible resident was
- *  live the whole time at `/run/user/$UID`). Never used for CONSTRUCTION — a
- *  live padi always binds wherever ITS OWN env points, this is a discovery-only
- *  guess of the common case. `undefined` on a platform with no uid semantics
- *  (Windows), where there is no such standard drawer to guess. */
-function standardXdgRuntimeDir(): string | undefined {
+function xdgRuntimeDirGuessForDiscovery(): string | undefined {
   const uid = process.getuid?.();
   return uid === undefined ? undefined : `/run/user/${uid}`;
 }
 
-/** Compute the decorated sentinel-digest dir `discoverPadiDaemons` pattern-matches
- *  against under a chosen runtime regime. Pure: passes `runtimeRoot` into
- *  {@link resolveDaemonHome} — never mutates `process.env`. `undefined` maps to
- *  `runtimeRoot: null` (force `/tmp`); a string is that drawer as XDG. */
 function sentinelDecoratedDirUnderRegime(
   xdgRuntimeDir: string | undefined,
 ): string {
@@ -157,19 +102,9 @@ function sentinelDecoratedDirUnderRegime(
   }).dir;
 }
 
-/** Every padi candidate under ONE runtime-root regime (this process's own env,
- *  the forced `/tmp` fallback, or the systemd-standard `/run/user/$UID` guess) —
- *  the single-regime scan {@link discoverPadiDaemons} unions across every regime
- *  it checks. Reads the runtime root and the `padi-<digest>` decoration back from
- *  the SAME {@link resolveDaemonHome} builder a live padi constructs its socket
- *  with (a sentinel digest whose literal `0` becomes a `([0-9a-f]+)` capture), so
- *  discovery can never spell the path shape differently than construction. */
 function padiCandidatesUnderRegime(
   xdgRuntimeDir: string | undefined,
 ): PadiDaemon[] {
-  // The decorated dir for a sentinel digest: `<root>/padi-0[-$UID]/`.
-  // Whatever shape surface gives it (XDG `padi-0/`, or `/tmp` `padi-0-$UID/`) the
-  // decoration is baked in, never re-decided here.
   const decoratedDir = sentinelDecoratedDirUnderRegime(xdgRuntimeDir);
   const root = dirname(decoratedDir);
   const decoratedName = basename(decoratedDir);
@@ -187,11 +122,8 @@ function padiCandidatesUnderRegime(
   for (const name of entries) {
     if (decoratedRe.exec(name) === null) continue;
     const dir = join(root, name);
-    // The same owner-only boundary the serving side enforces — a name match alone
-    // is never ownership under the shared `/tmp` root.
     if (!isPrivateOwnedDir(dir)) continue;
     const socket = join(dir, PADI_SOCK_FILE);
-    // The inode must itself be an actual socket, not any file a name-squatter dropped.
     if (!isSocketInode(socket)) continue;
     found.push({
       socket,
@@ -202,10 +134,6 @@ function padiCandidatesUnderRegime(
   return found;
 }
 
-/** The canonical (symlink-resolved) form of `path`, or `path` verbatim if it
- *  can't be resolved (already unlinked, or a broken link) — the de-dup key that
- *  collapses two spellings of the same daemon into one (mirrors kaval's
- *  `discoverKavalCandidates`). */
 function canonicalPath(path: string): string {
   try {
     return realpathSync(path);
@@ -214,46 +142,28 @@ function canonicalPath(path: string): string {
   }
 }
 
-/** Discover every running padi daemon on this host — the read-only enumeration the
- *  Padi info dialog lists so a LEAKED padi (a second padi at a different state-root)
- *  is visible at a glance, and the drawer `residentPadiSocket` adopts through.
- *
- *  Scans the regime IN FORCE plus `extraRegimes`, de-duped by canonical path. The
- *  regime in force is this process's `$XDG_RUNTIME_DIR` when it has one, else the
- *  `/tmp` fallback — and that distinction is the whole of juspay/kolu#2286's second
- *  contributor: this used to scan the forced `/tmp` drawer UNCONDITIONALLY, on top
- *  of the env drawer, every 10 s (plus kaval's own unconditional `/tmp` scan, so
- *  TWICE). `/tmp` on the reporting host held 209 K entries and the pair of
- *  `readdirSync`s was 22% of padi's busy time. An XDG-set host's padis bind under
- *  XDG, so the `/tmp` pass found nothing on every single tick.
- *
- *  `extraRegimes` SURVIVES that narrowing, because it is small and load-bearing:
- *  its default is the systemd-standard `/run/user/$UID` guess, which is what lets
- *  an XDG-UNSET caller (a bare `nix run` outside a login session) see a resident a
- *  DIFFERENT session registered under XDG. Without it the adopt path hangs 30 s on
- *  "daemon socket never came up" against a padi that was live the whole time
- *  (#1713). A test substitutes a fabricated drawer, since a unit test cannot write
- *  under the real `/run/user/$UID`.
- *
- *  Each regime's scan reuses kaval's owner-only privacy check + socket-inode check
- *  (the same boundary the serving side enforces) so a sibling another local user
- *  planted under a shared `/tmp` root is never read. It stats dirs, reads the gate
- *  file, and reads the manifest, but NEVER dials, kills, or reaps a daemon — strictly
- *  read-only. Never throws (an unreadable root → it contributes nothing). */
+type RuntimeRegimes = readonly (string | undefined)[];
+
+const POLL_REGIMES = (): RuntimeRegimes => [xdgRuntimeDirGuessForDiscovery()];
+
+const DIAL_REGIMES = (): RuntimeRegimes => [
+  xdgRuntimeDirGuessForDiscovery(),
+  undefined,
+];
+
+/** Every running padi daemon discoverable on this host — the regime in force plus
+ *  `extraRegimes`, de-duped by canonical socket path. Strictly read-only: it stats
+ *  dirs and reads the gate file and the `state-root` manifest, but never dials,
+ *  kills or reaps a daemon, and never throws (an unreadable root contributes
+ *  nothing). */
 export function discoverPadiDaemons(
-  extraRegimes: readonly (string | undefined)[] = [standardXdgRuntimeDir()],
+  extraRegimes: RuntimeRegimes = POLL_REGIMES(),
 ): PadiDaemon[] {
-  const regimes: readonly (string | undefined)[] = [
-    // `undefined` IS the forced-/tmp regime for `padiCandidatesUnderRegime`, and
-    // it is exactly what this process's env resolves to when XDG is unset — so
-    // the one entry covers both arms of "the regime in force".
+  const regimes: RuntimeRegimes = [
     runtimeRegimeInForce() === "xdg" ? process.env.XDG_RUNTIME_DIR : undefined,
     ...extraRegimes,
   ];
   const byPath = new Map<string, PadiDaemon>();
-  // A regime whose drawer we already scanned contributes nothing new — and with
-  // XDG set, `extraRegimes`' `/run/user/$UID` default is usually the SAME drawer
-  // as `$XDG_RUNTIME_DIR`, so this drops a whole duplicate `readdirSync` per tick.
   const scanned = new Set<string>();
   for (const xdgRuntimeDir of regimes) {
     if (scanned.has(xdgRuntimeDir ?? "")) continue;
@@ -266,55 +176,13 @@ export function discoverPadiDaemons(
   return [...byPath.values()];
 }
 
-/** Every drawer a DIAL probes on top of the regime in force: the systemd-standard
- *  `/run/user/$UID` guess, and the forced `/tmp` fallback.
- *
- *  The two places that answer "which padi do I talk to" — the binder's adopt
- *  read-back ({@link residentPadiSocket}) and the CLI/MCP resolution
- *  ({@link resolveRunningPadiSocket}) — keep the full cross-regime union that
- *  juspay/kolu#2286 narrowed everywhere else, and the asymmetry IS the
- *  measurement. What cost 22% of padi's busy time was the `hostInventory` POLL
- *  walking `/tmp` — 209 K entries on the reporting host — twice every ten
- *  seconds, forever. A dial happens ONCE per binding or per command invocation,
- *  and what it buys is the difference between reaching a live daemon and either
- *  a 30 s "daemon socket never came up" hang plus a second padi on a state root
- *  someone already serves (#1713, and the #1313 isolation property with it), or
- *  a flag-less `kolu` / `kolu mcp` / `padi-tui` refusing with "no padi is
- *  running" while the daemon it wants is up in the other drawer. A directory
- *  walk per dial is not a cost; a directory walk per tick was. */
-const DIAL_REGIMES = (): readonly (string | undefined)[] => [
-  standardXdgRuntimeDir(),
-  undefined,
-];
-
-/**
- * Find a resident padi ALREADY registered for `stateRoot` — the read-back
- * {@link ensurePadiBinding}'s wait/adopt side dials INSTEAD OF its own-env-computed
- * socket. Built on {@link discoverPadiDaemons} (which now unions every drawer this
- * host could plausibly have registered one under), filtered to daemons whose
- * `state-root` manifest names THIS exact state-root — the manifest is what the
- * resident actually wrote about itself, so it wins over any caller's own-env guess
- * (never a bare digest-path recompute, which is exactly what reproduced the bug).
- *
- * A manifest match alone is NOT enough: a crashed padi's `/tmp` registration (the
- * inode + its manifest both survive a crash — nothing wipes `/tmp` on exit the way
- * a boot-wiped `$XDG_RUNTIME_DIR` is wiped) can otherwise SHADOW a genuinely live
- * resident registered in a later regime, so we additionally gate on the manifest's
- * `padi.pid` gate holder being ALIVE ({@link isHolderLive}) — the same liveness test
- * the gate mechanism itself uses to tell a real holder from a stale one. Without
- * this, adopting the dead match would hand the caller a socket nothing answers on
- * (a hang), or — worse — cause it to spawn a SECOND padi onto a state root a live
- * resident already serves (the #1313 isolation property broken). A dead match is
- * simply ignored (never returned as a fallback): a stale socket must never shadow
- * a fresh spawn.
- *
- * Returns the live resident's socket path, or `undefined` when no discovered padi's
- * manifest names this state-root with a LIVE gate holder (a fresh boot, or only a
- * dead registration — the caller spawns at its own drawer, unchanged).
- */
+/** The socket of a padi ALREADY serving `stateRoot`: matched on the resident's own
+ *  `state-root` manifest (never a digest-path recompute) and gated on its `padi.pid`
+ *  holder being alive, so a dead registration is ignored rather than returned.
+ *  `undefined` when no live resident serves this root. */
 export function residentPadiSocket(
   stateRoot: string,
-  extraRegimes: readonly (string | undefined)[] = DIAL_REGIMES(),
+  extraRegimes: RuntimeRegimes = DIAL_REGIMES(),
 ): string | undefined {
   const resolved = resolve(stateRoot);
   const discovered = discoverPadiDaemons(extraRegimes);
@@ -323,16 +191,6 @@ export function residentPadiSocket(
   )?.socket;
 }
 
-/** Does this discovered daemon serve `resolvedStateRoot`? The manifest it wrote
- *  about ITSELF is the only evidence accepted — never a digest-path recompute,
- *  which is exactly what reproduced #1713 — and it is compared RESOLVED, so two
- *  spellings of one root (a trailing `.`, a `..` hop) are one daemon rather than
- *  two.
- *
- *  Shared by the two questions that ask it: {@link residentPadiSocket}'s
- *  adopt-path read-back, and {@link primaryPadiAmong}'s "is this the padi the
- *  environment names". One spelling, so the adopt path and the dial path can
- *  never disagree about which daemon serves a root. */
 function daemonServesStateRoot(
   d: PadiDaemon,
   resolvedStateRoot: string,
@@ -340,36 +198,6 @@ function daemonServesStateRoot(
   return d.stateRoot !== null && resolve(d.stateRoot) === resolvedStateRoot;
 }
 
-/**
- * The PRIMARY padi among several live ones: the daemon serving `primaryStateRoot`
- * — the root THIS environment names ({@link namePadiStateRootForDiscovery}:
- * `$KOLU_PADI_STATE_DIR`, else the production formula) — or `undefined` when none
- * of them does.
- *
- * This exists because "several padis are running" was read as "several ANSWERS",
- * and it never was (juspay/kolu#2154). Multiple daemons on one host is the NORMAL
- * shape — the production padi plus a dev shell's, plus whatever an e2e run left
- * up — and every one of those extras is keyed to an EXPLICIT `--state-root` /
- * `KOLU_PADI_STATE_DIR`. So at most one live daemon can be the one this
- * environment names, and picking it is not a guess between equals: it is reading
- * back the same identity the production wrapper exports (`default.nix`'s
- * `exportPadiStateDirRun`) and the daemon recorded in its own manifest. A
- * flag-less client that refused to choose was refusing to read an answer it
- * already had — fatal for a HEADLESS one (a systemd-run MCP client has nobody to
- * type the `export`), which is the failure this restores.
- *
- * Deliberately makes NO liveness or contract judgement of its own. Liveness is
- * the caller's filter ({@link daemonIsLive}) so one predicate classifies daemons
- * everywhere; and a primary whose build speaks a contract this client can't dial
- * is still THE primary — it is selected, and the dial then fails with the honest
- * upgrade line. Skipping it for a reachable dev daemon would silently drive the
- * wrong workspace's terminals, which is the graceful degradation this repo
- * treats as a defect: a stale build is a reason to upgrade, never to guess.
- *
- * Pure over `live`. Not exported: {@link classifyLivePadis} is the whole
- * policy's front door and the one thing tests drive, so the primary rule is
- * covered through the arm it decides rather than as a second published symbol.
- */
 function primaryPadiAmong(
   live: readonly PadiDaemon[],
   primaryStateRoot: string,
@@ -378,72 +206,29 @@ function primaryPadiAmong(
   return live.find((d) => daemonServesStateRoot(d, resolved));
 }
 
-/** A discovered daemon whose gate holder is PROVEN alive — the one liveness
- *  rule both live-consumers (`residentPadiSocket`, `resolveRunningPadiSocket`)
- *  narrow the raw `discoverPadiDaemons()` list with. It stays a shared predicate
- *  (not folded into discovery, which is deliberately raw so the info dialogs can
- *  list leaked/dead registrations at a glance) so a future refinement — a
- *  socket-inode check, a grace window on an unreadable gate pid — lands in ONE
- *  place and the two paths can't drift into classifying the same daemon
- *  differently (the corpse-dial / double-spawn class both guards prevent). */
 function daemonIsLive(d: PadiDaemon): boolean {
   return d.gatePid !== null && isHolderLive(d.gatePid);
 }
 
-/** The outcome of resolving which running padi to dial, as STRUCTURE — never as
- *  a sentence. The whole selection policy lives here (beside the namespace
- *  construction it inverts); {@link localPadiSocket} is the ONE place that turns
- *  the two unaddressable arms into words, and a face only wraps that string in
- *  its own error type. No consumer formats a candidate list of its own: padi-tui
- *  used to, and the copy had already drifted into omitting `$PADI_SOCKET` from
- *  the way out.
- *
- *  Each arm carries the socket to dial; `many` carries the labeled candidates
- *  instead, PLUS the state root it looked for and found no daemon at — without
- *  that root the refusal cannot say what would have answered, and a headless
- *  operator can't tell "your padi is down" from "you have no primary".
- *
- *  Kaval's `KavalSocketResolution` is the near-twin, and the `primary` arm is
- *  where the two now DIVERGE — deliberately, so neither docstring should be read
- *  as promising a mirror. padi's flag-less face is dialed by HEADLESS callers
- *  (`kolu mcp` out of a systemd unit, juspay/kolu#2154) that cannot answer a
- *  pick-one prompt, which is what made the several-daemons tie worth breaking.
- *  A kaval is spawned BY a padi and every kolu PTY carries `$KAVAL_SOCKET`, so
- *  no headless caller reaches a flag-less `kaval-tui` and its own several
- *  case has produced no failure to fix. Extend kaval the same way if one ever
- *  does — do not extend it on symmetry alone. */
+/** The outcome of resolving which running padi to dial, as STRUCTURE — never as a
+ *  sentence. Every arm but `many` carries the socket to dial; `many` carries the
+ *  running padis to choose between PLUS the state root this environment names and
+ *  no daemon serves, because a refusal that cannot print that root cannot say what
+ *  would have answered. {@link localPadiSocket} is the one place that turns the
+ *  unaddressable arms into words. */
 export type PadiSocketResolution =
   | {
       kind: "explicit" | "stateRoot" | "env" | "one" | "primary" | "none";
       socket: string;
     }
-  // `candidates` is READONLY: the only consumer maps it into a sentence, and
-  // declaring it mutable meant the producer had to copy the list purely to
-  // launder the `readonly` away. A resolution is a finding about the host, not a
-  // buffer anyone writes into.
   | {
       kind: "many";
-      candidates: readonly PadiDaemon[];
-      primaryStateRoot: string;
+      runningPadis: readonly PadiDaemon[];
+      unmatchedStateRoot: string;
     };
 
-/**
- * Resolve which running padi a client should dial — the client-side companion to
- * {@link discoverPadiDaemons}, in precedence order:
- *   1. an explicit `--socket` path wins verbatim (a user-supplied override);
- *   2. an explicit `--state-root` resolves through the SAME digest→socket path a
- *      padi computes for itself, so a dev/e2e client and its private padi agree;
- *   3. `$PADI_SOCKET` — stamped into every PTY a padi spawns (the `$TMUX` /
- *      `$KAVAL_SOCKET` convention) — points at the daemon that OWNS this terminal,
- *      so a flag-less `padi-tui` inside a kolu terminal "just works" and an agent
- *      driving its siblings never scans or guesses a digest-keyed path;
- *   4. else discover the running padi: exactly one → `one`; several → the
- *      PRIMARY one if this environment names a state root a live daemon serves
- *      (`primary`, see {@link primaryPadiAmong}), else `many` (the CLI renders a
- *      labeled pick-one); none → `none` with a *named* socket for the error
- *      path: explicit/`KOLU_PADI_STATE_DIR` when set, else the production
- *      formula ({@link productionPadiStateRoot}) — never a throwing bind resolve.
- */
+/** Resolve which running padi to dial: an explicit socket, an explicit state root,
+ *  `$PADI_SOCKET`, else {@link classifyLivePadis} over every LIVE discovered daemon. */
 export function resolveRunningPadiSocket(opts?: {
   socket?: string;
   stateRoot?: string;
@@ -459,93 +244,46 @@ export function resolveRunningPadiSocket(opts?: {
   }
   const env = process.env.PADI_SOCKET;
   if (env) return { kind: "env", socket: env };
-  // Gate discovery on a LIVE gate holder — the shared {@link daemonIsLive}
-  // predicate `residentPadiSocket` applies too. A discovered daemon is only a
-  // directory + gate-pid registration; a dead one (its holder gone, the socket
-  // stale) must not be classified `one`/`many`, or a client dials a corpse and
-  // gets an opaque ECONNREFUSED instead of the honest `none` → named-path
-  // error. A registration whose gate-pid is unreadable (`null`) is likewise not
-  // a proven-live daemon, so it drops out too.
-  //
-  // {@link DIAL_REGIMES} for the same reason the adopt path takes it: this is a
-  // once-per-INVOCATION resolution, not the 10 s poll #2286 narrowed, and the
-  // drawer it would otherwise miss is the common one — a flag-less `kolu`,
-  // `kolu mcp` or `padi-tui` run from a logind shell (XDG set) against a padi
-  // some nix-shell / e2e / test harness bound with XDG unset under
-  // `/tmp/padi-<digest>-$UID`. Narrowed, those refuse with "no padi is running"
-  // while the daemon they want is up.
   return classifyLivePadis(
     discoverPadiDaemons(DIAL_REGIMES()).filter(daemonIsLive),
   );
 }
 
-/**
- * WHICH of the live daemons to dial — the discovery half of
- * {@link resolveRunningPadiSocket}'s policy, over a list rather than the disk.
- *
- * Split out so every arm is pinned by a test that CANNOT go vacuous. Driven
- * through the real registry, the `one` arm is unassertable on any machine that
- * has a padi of its own: the developer's daemons join the scan, the count is
- * never one, and a test written that way silently asserts nothing on exactly the
- * multi-daemon hosts this policy exists for (juspay/kolu#2154 review, F2 — the
- * first draft of that test did precisely this). Over a list, `one` is one
- * element, and a future change that made the sole-daemon case require a primary
- * root fails the suite instead of a user's headless client.
- *
- * Takes daemons already narrowed to the LIVE ones ({@link daemonIsLive}) — the
- * name says `live` because passing the raw scan would classify a corpse as an
- * answer. It reads the environment (only) to name the primary root, which is the
- * one thing about "which padi" that is not in the list.
- */
+/** Classify the LIVE padi daemons as data: none → the socket this environment names;
+ *  exactly one → that one; several → the daemon serving this environment's state root
+ *  (`primary`), or `many` when none of them does. Pure over `live` — it makes no
+ *  liveness judgement of its own. */
 export function classifyLivePadis(
   live: readonly PadiDaemon[],
 ): PadiSocketResolution {
-  // `[first, second]` rather than `[first, ...rest]`: the question is only
-  // "none, one, or several", and destructuring a rest array copies the whole
-  // list to ask it. Written this way each arm is an explicit return in the order
-  // a reader thinks about them, instead of `none` being whatever falls off the
-  // end. (`live.length === 1` cannot narrow `live[0]` under
-  // `noUncheckedIndexedAccess`, which is why the shape is a destructure at all.)
-  const [first, second] = live;
-  if (first === undefined) {
+  if (live.length === 0) {
     return {
       kind: "none",
       socket: padiSocketPath(namePadiStateRootForDiscovery()),
     };
   }
-  if (second === undefined) {
-    return { kind: "one", socket: first.socket };
-  }
-  // Several live daemons is not several ANSWERS — see {@link primaryPadiAmong}
-  // for why the tie was never real. Only THIS arm names the root: the `one` arm
-  // above must keep dialing a sole daemon whatever its root (a dev box running
-  // only its dev padi has always worked flag-lessly, and an environment that
-  // cannot name a root — no `$HOME`, no override — must not start failing
-  // there). Naming it here can throw for exactly that unnameable environment,
-  // and that throw is the honest answer: with several daemons up and nothing
-  // able to say which is yours, there IS no resolution. `localPadiSocket`
-  // catches it into the same `unaddressable` refusal the other edges produce,
-  // carrying its own sentence.
-  const primaryStateRoot = namePadiStateRootForDiscovery();
-  const primary = primaryPadiAmong(live, primaryStateRoot);
+  const sole = live.length === 1 ? live[0] : undefined;
+  if (sole !== undefined) return { kind: "one", socket: sole.socket };
+  const environmentStateRoot = namePadiStateRootForDiscovery();
+  const primary = primaryPadiAmong(live, environmentStateRoot);
   return primary !== undefined
     ? { kind: "primary", socket: primary.socket }
-    : { kind: "many", candidates: live, primaryStateRoot };
+    : {
+        kind: "many",
+        runningPadis: live,
+        unmatchedStateRoot: environmentStateRoot,
+      };
 }
 
-/** WHICH local padi a client means, as data — the client-side half of the
- *  selection policy {@link resolveRunningPadiSocket} enacts. `auto` is "whatever
- *  this host is running" (`$PADI_SOCKET`, else discovery); the other two name
- *  one exactly. */
+/** WHICH local padi a client means, as data: discover one (`auto`), a literal
+ *  socket path, or a state root to derive one from. */
 export type LocalPadiTarget =
   | { readonly kind: "auto" }
   | { readonly kind: "socket"; readonly path: string }
   | { readonly kind: "stateRoot"; readonly dir: string };
 
-/** The socket a {@link LocalPadiTarget} names, or the sentence saying why no
- *  single padi could be named. Not an error type: the two callers wrap it in
- *  their own (a `CliFailure` for the verbs, a `PadiNotAddressable` for the MCP
- *  face's tagged alphabet), and only the SENTENCE is common to them. */
+/** The socket a {@link LocalPadiTarget} names, or the sentence saying why no local
+ *  padi can be addressed. */
 export type LocalPadiSocket =
   | { readonly kind: "ok"; readonly socket: string }
   | { readonly kind: "unaddressable"; readonly message: string };
@@ -556,34 +294,8 @@ export interface LocalPadiFlags {
   readonly stateRoot: string | undefined;
 }
 
-/**
- * argv → {@link LocalPadiTarget}, or the sentence saying why those flags name no
- * padi — the refusals that belong to the FLAGS rather than to the host.
- *
- * Two rules, and their ORDER is the point:
- *
- *  1. **A flag that is present but blank is refused first.** `--socket "$SOCK"`
- *     with `$SOCK` unset is an ordinary shell accident, and `""` reads as "no
- *     socket given" downstream — so it would fall through to discovery and dial
- *     whatever is running. Since the primary rule that is no longer even a
- *     refusal: it SUCCEEDS, and the user who named one padi silently drives
- *     another workspace's terminals. Whitespace counts as blank (`--socket " "`
- *     is the same accident with a quoted space).
- *  2. **Then mutual exclusion.** Two spellings of "which padi" is a
- *     contradiction to refuse, not a preference to resolve.
- *
- * Blank-before-exclusive is not cosmetic. A blank string is still *present*, so
- * checking exclusivity first answers `--socket "" --state-root /srv/padi` with
- * "pass just one" — advice that is simply wrong, since the user meaningfully
- * named exactly one. padi-tui shipped that inversion for one commit
- * (juspay/kolu#2154 police pass) precisely because the rule lived in two
- * hand-rolled copies; it lives here now so a face cannot get the order wrong.
- *
- * kolu-cli's `endpointOf` states the same rule over a THREE-flag alphabet (it
- * adds the remote `--host` arm, and its sentences name `kolu`); it is the one
- * remaining copy, and it should collapse onto this the day `--host` becomes part
- * of a local/remote target this module can spell.
- */
+/** Parse the local endpoint flags into a {@link LocalPadiTarget}: a blank value or
+ *  both flags at once is unaddressable (never a quiet fallback to discovery). */
 export function localPadiTargetOf(flags: LocalPadiFlags):
   | { readonly kind: "ok"; readonly target: LocalPadiTarget }
   | {
@@ -619,40 +331,16 @@ export function localPadiTargetOf(flags: LocalPadiFlags):
   return { kind: "ok", target: { kind: "auto" } };
 }
 
-/**
- * Name the ONE local padi socket a client should dial, or say why it cannot be
- * named — the whole "which padi, locally" policy INCLUDING the two sentences a
- * user reads when the answer is zero or several.
- *
- * It lives here, beside {@link resolveRunningPadiSocket}, because both halves
- * are one fact about one host: which daemons are live, and what to tell a human
- * when that set is not exactly one. kolu-cli owned two near-copies of the
- * sentences — one for the eight verbs, one for the MCP face's own dial — which
- * differed only in the clause naming the flag that picks a padi, and could
- * therefore drift apart without anything noticing. Now the sentences are one and
- * the two callers differ only in the error type they wrap the string in.
- *
- * A `--state-root` that cannot be resolved (a missing `$HOME`, an unnameable
- * root) THROWS one layer down; it is caught here and joins the other refusals,
- * because "you named a padi I cannot find" is the same kind of usage fact as
- * "there are none" — never a defect dump.
- */
+/** Resolve a {@link LocalPadiTarget} to a socket, or to the one sentence a face
+ *  prints when none can be addressed — the ONE place the unaddressable arms of
+ *  {@link PadiSocketResolution} become words. */
 export function localPadiSocket(target: LocalPadiTarget): LocalPadiSocket {
-  // Both dispatches are `match(...).exhaustive()` (the same shape
-  // `terminalEndpoint/resolve.ts` uses for `HostLocation`) rather than a ternary
-  // chain and an if-cascade. The gain is not brevity, it is the compiler:
-  // written as a cascade, the `ok` return was the FALLTHROUGH, so a sixth
-  // `PadiSocketResolution` arm — say a future "the daemon is draining" — would
-  // have been silently reported as a dialable socket. Exhaustive, adding one
-  // fails the build until this function says what it means.
   const lookup = match<
     LocalPadiTarget,
     Parameters<typeof resolveRunningPadiSocket>[0]
   >(target)
     .with({ kind: "socket" }, ({ path }) => ({ socket: path }))
     .with({ kind: "stateRoot" }, ({ dir }) => ({ stateRoot: dir }))
-    // `auto` is "whatever this host is running": no override, so resolution
-    // falls through to `$PADI_SOCKET` and then discovery.
     .with({ kind: "auto" }, () => ({}))
     .exhaustive();
 
@@ -663,63 +351,34 @@ export function localPadiSocket(target: LocalPadiTarget): LocalPadiSocket {
     return { kind: "unaddressable", message: messageOf(err) };
   }
 
-  return (
-    match<PadiSocketResolution, LocalPadiSocket>(resolved)
-      // Reached only when NONE of the live daemons is this environment's
-      // primary — several padis alone is no longer a refusal. So the sentence
-      // leads with the root that was looked for: the reader's real question is
-      // "why can't you pick?", and "none of these is yours" plus the root is the
-      // whole answer. Each candidate carries the state root it serves, because a
-      // digest-keyed socket path is opaque — a human picking one needs to see
-      // WHICH workspace it belongs to, not sixteen hex characters.
-      .with({ kind: "many" }, ({ candidates, primaryStateRoot }) => ({
-        kind: "unaddressable",
-        message: `several padi daemons are running on this host and none is keyed to this environment's state root (${primaryStateRoot}) — set $PADI_SOCKET, or pass --socket / --state-root, to pick one:\n${candidates
-          .map(
-            (c) =>
-              `  PADI_SOCKET=${c.socket}    (${c.stateRoot ?? "unknown state-root"})`,
-          )
-          .join("\n")}`,
-      }))
-      .with({ kind: "none" }, () => ({
-        kind: "unaddressable",
-        message:
-          "no running padi daemon found on this host — start kolu (its padi serves the terminals), or pass --socket / set $PADI_SOCKET.",
-      }))
-      // The five arms that NAMED one padi — however it was named (a flag, a
-      // state-root digest, `$PADI_SOCKET`, the sole discovered daemon, or the
-      // primary among several). They are spelled out, not left as a default arm,
-      // so the exhaustiveness above is real.
-      .with(
-        { kind: "explicit" },
-        { kind: "stateRoot" },
-        { kind: "env" },
-        { kind: "one" },
-        { kind: "primary" },
-        ({ socket }) => ({ kind: "ok", socket }),
-      )
-      .exhaustive()
-  );
+  return match<PadiSocketResolution, LocalPadiSocket>(resolved)
+    .with({ kind: "many" }, ({ runningPadis, unmatchedStateRoot }) => ({
+      kind: "unaddressable",
+      message: `several padi daemons are running on this host and none is keyed to this environment's state root (${unmatchedStateRoot}) — set $PADI_SOCKET, or pass --socket / --state-root, to pick one:\n${runningPadis
+        .map(
+          (c) =>
+            `  PADI_SOCKET=${c.socket}    (${c.stateRoot ?? "unknown state-root"})`,
+        )
+        .join("\n")}`,
+    }))
+    .with({ kind: "none" }, () => ({
+      kind: "unaddressable",
+      message:
+        "no running padi daemon found on this host — start kolu (its padi serves the terminals), or pass --socket / set $PADI_SOCKET.",
+    }))
+    .with(
+      { kind: "explicit" },
+      { kind: "stateRoot" },
+      { kind: "env" },
+      { kind: "one" },
+      { kind: "primary" },
+      ({ socket }) => ({ kind: "ok", socket }),
+    )
+    .exhaustive();
 }
 
-/** The state root THIS environment names — `KOLU_PADI_STATE_DIR` when set, so an
- *  isolated dev/e2e names *its own* root, otherwise the production formula.
- *
- *  Read-only naming, never a bind: unlike {@link resolvePadiStateRoot} it does
- *  not refuse a missing env, because both its callers want an answer rather than
- *  a bind decision. They are two, and the second is newer than this doc used to
- *  admit:
- *   - {@link resolveRunningPadiSocket}'s `none` arm — name a socket for the
- *     error path when NO live daemon was found;
- *   - the same function's several-daemons arm — the root {@link primaryPadiAmong}
- *     matches against to pick the primary, i.e. a SELECTION input, reached
- *     precisely when live daemons WERE found.
- *
- *  It can still throw, for the one environment that names nothing (no `$HOME`,
- *  no override — see {@link productionPadiStateRoot}). That is not a hole in the
- *  contract but its edge: with several daemons up and nothing able to say which
- *  is yours, there is no resolution to return, and `localPadiSocket` turns the
- *  throw into the same `unaddressable` refusal the other edges produce. */
+/** The state root THIS environment names — `$KOLU_PADI_STATE_DIR` when set, else
+ *  the production formula. Read-only naming, never a bind. */
 export function namePadiStateRootForDiscovery(): string {
   const env = process.env.KOLU_PADI_STATE_DIR;
   if (env !== undefined && env !== "") return resolve(env);

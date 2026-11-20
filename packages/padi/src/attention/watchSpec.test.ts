@@ -1,10 +1,3 @@
-/**
- * Pins the ONE decode of the supervision knobs — the pin that matters is the
- * last one: the CLI's stream input and an MCP `watch.open` go through this
- * same function, so a default can only ever be one number — and a refusal can
- * only ever be one sentence.
- */
-
 import {
   WATCH_DEFAULT_STATES,
   WATCH_FILTER_KEYS,
@@ -47,8 +40,6 @@ describe("specOf — the one place a filter becomes a spec", () => {
 describe("namesWatchKnobs", () => {
   it("is derived from the WIRE declaration — every knob counts, and nothing else does", () => {
     expect(namesWatchKnobs({})).toBe(false);
-    // Not a hand-kept list: whatever `PadiWatchFilterFields` declares is what
-    // makes an invocation a supervision watch, at both faces at once.
     expect([...WATCH_FILTER_KEYS].sort()).toEqual([
       "heldForMs",
       "nagCount",
@@ -85,8 +76,6 @@ describe("watchFilterOf", () => {
     expect([...(okFilter({ nagMs: 1 })?.states ?? [])]).toEqual([
       ...WATCH_DEFAULT_STATES,
     ]);
-    // `working` is deliberately not in it: a feed that announced every terminal
-    // the moment it started thinking is the flood this replaces.
     expect(okFilter({ nagMs: 1 })?.states.has("working")).toBe(false);
   });
 
@@ -106,9 +95,6 @@ describe("watchFilterOf", () => {
   });
 
   it("REFUSES a cap without an interval — the decode owns the sentence, not the faces", () => {
-    // A count names how many times a REPETITION fires; with no interval there
-    // is no repetition, so the pairing is refused where every entrance passes
-    // — one sentence, no matter how the caller got here.
     const refused = watchFilterOf({ nagCount: 3 });
     expect(refused.kind).toBe("error");
     expect(refused.kind === "error" ? refused.message : "").toMatch(

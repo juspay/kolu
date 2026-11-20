@@ -1,17 +1,3 @@
-/** The half-state warning: a live agent identity kolu cannot turn into a resume
- *  form warns once per agent episode, driven through the real `fold`.
- *
- *  The launch LINE is no longer the gate — a captured command mark is a sensor
- *  and never a resume input. What can still leave a live agent unresumable is the
- *  agent's own identity: a `kind` this build does not know, or a resume ref that
- *  fails the agent's shape gate. The raw mark survives only as log context.
- *
- *  The watch lives inside `local.ts` (the endpoint's own emit loop, since #2326
- *  round 3 folded the one-caller module away); this test drives the SAME factory
- *  the loop calls, over the SAME fold, so the four behavioural pins (warn once,
- *  re-arm, silence for a resumable agent, silence for a bare shell) stay with the
- *  code that owns them. */
-
 import {
   type AgentInfo,
   seedMemory,
@@ -48,14 +34,11 @@ function harness() {
     memory: seedMemory(),
     restoreTarget: { kind: "none" },
   };
-  // The endpoint's emit loop in miniature: fold, then check on a delta.
   const emit = (o: TerminalEvent) => {
     const before = state;
     state = fold(state, o, ctx);
     if (state !== before) watch.check(state);
   };
-  // The command sensor is a SENSOR: it records the raw mark for log context and
-  // changes nothing the fold sees.
   const noteRaw = (raw: string) => watch.noteRawCommand(raw);
   const agent = (value: AgentInfo | null, argv: readonly string[] = []) =>
     emit({
@@ -75,7 +58,7 @@ describe("the endpoint's unresumable-agent watch", () => {
 
   it("warns exactly once when the agent's ref fails its shape gate", () => {
     const h = harness();
-    h.noteRaw("cat /tmp/forged"); // context only — never parsed as a command
+    h.noteRaw("cat /tmp/forged");
     h.agent(opencode("not-a-session-id"));
     h.agent({ ...opencode("not-a-session-id"), state: "waiting" } as AgentInfo);
     expect(h.warn).toHaveBeenCalledTimes(1);
@@ -93,7 +76,7 @@ describe("the endpoint's unresumable-agent watch", () => {
     const h = harness();
     h.agent(opencode("bad"));
     expect(h.warn).toHaveBeenCalledTimes(1);
-    h.agent(null); // the agent leaves
+    h.agent(null);
     h.agent(opencode("still-bad"));
     expect(h.warn).toHaveBeenCalledTimes(2);
   });

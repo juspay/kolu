@@ -1,28 +1,3 @@
-/**
- * `lifecycle.restart` — a fresh PTY for an ACTIVE terminal, IN PLACE.
- *
- * Restart is sleep's flip (persisted, as a sleep persists it) + a kill, then
- * wake's respawn on the same id. What these pin is the promise to the canvas and
- * to the user:
- *   - the id, the cwd and everything authored (layout, parent edge, theme,
- *     intent) survive; the terminal's scratch survives; the old PTY is killed and
- *     a new one spawned, and the call resolves only once it is;
- *   - the new PTY gets the agents a NEW terminal gets — the record is re-stamped
- *     (its one `agents` struct) from the current setting;
- *   - a live agent's conversation resumes only while agents stay on; with agents
- *     now off it comes back as a bare shell;
- *   - races and failures say what really happened: a refused id touches
- *     nothing; a wake or discard that wins the id during the kill is answered
- *     with what holds it now; a kill that fails with the PTY still alive puts
- *     the record back on that PTY and throws; a failed respawn throws with the
- *     tile asleep; and a restarted terminal sleeps like any other.
- *
- * The pty-host is stubbed (no kaval in the unit env), recording kills, the
- * spawn input, the bytes written, and what `terminal.list` answers — the seam
- * `sleepWakeRace.test.ts` uses. The session save is stubbed too (it writes the
- * real state root); the test records that it ran, and when.
- */
-
 import { randomUUID } from "node:crypto";
 import {
   existsSync,
@@ -77,19 +52,13 @@ import { installSnapshot } from "./metadata.ts";
 import { activeEntry } from "./terminalFixtures.testlib.ts";
 
 const calls = vi.hoisted(() => ({
-  /** Every recorded event, in order: `save`, `kill:<id>`, `spawn:<cwd>`. */
   log: [] as string[],
-  /** Spawned terminal ids, in order — the order assertions the cwd log cannot
-   *  carry when a family shares one cwd. */
   spawns: [] as string[],
   writes: [] as string[],
   killFails: false,
   spawnFails: false,
-  /** Terminals whose respawn must fail — the per-member arm of `spawnFails`. */
   spawnFailsFor: [] as string[],
-  /** What `terminal.list` answers (ids of live PTYs). */
   listed: [] as string[],
-  /** Runs inside the kill, after it is recorded — holds the kill open. */
   killGate: undefined as undefined | (() => Promise<void>),
 }));
 
@@ -115,8 +84,6 @@ vi.mock("../ptyHost/index.ts", async (importOriginal) => {
       Effect.sync(() => {
         calls.log.push(`spawn:${args.cwd}`);
         calls.spawns.push(args.id);
-        // The id rides through: the spawn mock below fails per-terminal, and the
-        // real input always names the terminal it is spawning.
         return { id: args.id } as never;
       }),
     ptyHostClient: {
@@ -160,9 +127,7 @@ setDaemonProcessId(`restart-${randomUUID()}`);
 
 const ID = "44444444-4444-4444-8444-444444444444";
 const PARENT = "55555555-5555-4555-8555-555555555555";
-/** A split of `ID` — the family's second member. */
 const CHILD = "66666666-6666-4666-8666-666666666666";
-/** A grandchild under CHILD — the 3-deep family a restart must not leave half-awake. */
 const GRAND = "77777777-7777-4777-8777-777777777777";
 const LAYOUT = { x: 120, y: 80, w: 640, h: 400 };
 
@@ -171,8 +136,6 @@ let savedStateHome: string | undefined;
 
 const JUSPAY = "github:juspay/skills";
 
-/** The package on the floor (what the terminal was spawned with), and the set
- *  kolu-server landed since for the setting's stack. */
 const floorPackage = () => join(root, "store", "floor-package");
 const deliveredPackage = () => join(root, "store", "delivered-package");
 const juspay = (): DeliveredProfile => ({
@@ -182,8 +145,6 @@ const juspay = (): DeliveredProfile => ({
   path: join(root, "store", "profile-juspay"),
 });
 
-/** A baked padi with its floor (reached through a link, as a store path is),
- *  and the juspay set landed on it. */
 function bake(): AgentDistroBake {
   for (const dir of [floorPackage(), deliveredPackage()])
     mkdirSync(join(dir, "bin"), { recursive: true });
@@ -214,7 +175,6 @@ function bake(): AgentDistroBake {
 beforeEach(() => {
   setPadiSurfaceCtx(noopPadiSurfaceCtxForTest());
   root = realpathSync(mkdtempSync(join(tmpdir(), "restart-test-")));
-  // The host's own `current` would win over the floor; keep it in the sandbox.
   savedStateHome = process.env.XDG_STATE_HOME;
   process.env.XDG_STATE_HOME = join(root, "state");
   __setAgentDistroBakeForTest(bake());
@@ -245,8 +205,6 @@ afterEach(() => {
   __resetPadiSurfaceCtxForTest();
 });
 
-/** An active terminal spawned on the floor's package with no profile, with authored chrome worth
- *  keeping and a live agent (the fixture's `exact` restore target). */
 function seedTerminal(): void {
   const entry = activeEntry(ID);
   registerTerminal(ID, {
@@ -267,9 +225,6 @@ function activeMeta() {
   return entry.meta;
 }
 
-/** `ID` plus an active split under it — the family the four lifecycle verbs
- *  move together. `PARENT` above `ID` is deliberately absent, so the family is
- *  exactly [ID, CHILD]. */
 function seedFamily(): void {
   seedTerminal();
   const child = activeEntry(CHILD);
@@ -280,17 +235,12 @@ function seedFamily(): void {
   installSnapshot(CHILD);
 }
 
-/** The active meta of the split, or a loud failure — the type-narrowing twin of
- *  {@link activeMeta}. */
 function activeChildMeta() {
   const entry = getTerminal(CHILD);
   if (entry?.meta.state !== "active") throw new Error("expected active split");
   return entry.meta;
 }
 
-/** `ID` live with a split that was slept ON ITS OWN and a grandchild under that
- *  split, also dormant — the mixed family a restart has to bring back as one
- *  tree (and must not leave with a live grandchild under a sleeping split). */
 function seedDormantBranch(): void {
   seedTerminal();
   const child = activeEntry(CHILD);
@@ -305,7 +255,6 @@ function seedDormantBranch(): void {
     meta: { ...grand.meta, parentId: CHILD },
   });
   installSnapshot(GRAND);
-  // Leaves-first, as a family sleep is: the grandchild sleeps before the split.
   expect(beginSleepLocal(GRAND)).toBe(true);
   expect(beginSleepLocal(CHILD)).toBe(true);
 }
@@ -423,7 +372,6 @@ describe("restart — a new PTY in place", () => {
 
     const answered = await restart;
     expect(answered?.info.id).toBe(ID);
-    // The wake that won replayed the live agent's conversation; padi says so.
     expect(answered?.resumed).toBe(true);
     expect(calls.log.filter((e) => e.startsWith("spawn:"))).toHaveLength(1);
   });
@@ -464,7 +412,6 @@ describe("restart — a new PTY in place", () => {
 });
 
 describe("an attach during a restart", () => {
-  /** Start a restart and hold it inside the kill, with the record sleeping. */
   async function holdRestartInKill() {
     seedTerminal();
     const killStarted = deferred();
@@ -525,19 +472,13 @@ describe("the family walk — a terminal and its splits move together", () => {
 
     await sleepTerminal(ID);
 
-    // One snapshot names the whole family asleep — N saves would persist a
-    // half-slept tree (the parent frozen, a child still live).
     expect(calls.log.filter((e) => e === "save")).toHaveLength(1);
-    // Leaves first: the split's PTY is released before its parent's, so no
-    // live child can sit under a fragment that already froze.
     expect(calls.log.filter((e) => e.startsWith("kill:"))).toEqual([
       `kill:${CHILD}`,
       `kill:${ID}`,
     ]);
     expect(getTerminal(ID)?.meta.state).toBe("sleeping");
     expect(getTerminal(CHILD)?.meta.state).toBe("sleeping");
-    // The split's parent edge rides the freeze, so restore and wake know whose
-    // sub-panel it belongs to.
     expect(getTerminal(CHILD)?.meta.parentId).toBe(ID);
   });
 
@@ -561,7 +502,6 @@ describe("the family walk — a terminal and its splits move together", () => {
 
     expect((await wakeLocalTerminal(CHILD))?.id).toBe(CHILD);
 
-    // The climb found the sleeping parent, and the subtree woke roots-first.
     expect(calls.spawns).toEqual([ID, CHILD]);
     expect(getTerminal(ID)?.meta.state).toBe("active");
     expect(activeChildMeta().parentId).toBe(ID);
@@ -576,7 +516,6 @@ describe("the family walk — a terminal and its splits move together", () => {
 
     expect(getTerminal(CHILD)?.meta.state).toBe("sleeping");
     expect(getTerminal(ID)?.meta.state).toBe("active");
-    // The sleeping record kept its parent edge, so the retry climbs the same way.
     expect(getTerminal(CHILD)?.meta.parentId).toBe(ID);
   });
 
@@ -586,9 +525,6 @@ describe("the family walk — a terminal and its splits move together", () => {
     calls.spawns = [];
     calls.spawnFailsFor = [ID];
 
-    // The parent's wire fails, so its sleeping record is restored and the child
-    // is never even attempted: a child spawning now would be a live PTY under a
-    // tile with no PTY, which every client gate forbids.
     expect((await wakeLocalTerminal(ID))?.id).toBe(ID);
 
     expect(calls.spawns).toEqual([ID]);
@@ -606,19 +542,11 @@ describe("the family walk — a terminal and its splits move together", () => {
     );
     calls.log = [];
     calls.spawns = [];
-    // The PARENT is the first member the respawn walk reaches, so the child has
-    // been flipped to sleeping by the sleep walk and not yet replanted.
     calls.spawnFailsFor = [ID];
 
     await expect(restartTerminal(ID)).rejects.toThrow(/did not start/);
 
-    // The child's original PTY is still alive at this point (`beginSleep` leaves
-    // it so; the kill is `restartSlept`'s job), so the abort path must release it
-    // — otherwise a later Wake double-spawns on that id.
     expect(calls.log.filter((e) => e === `kill:${CHILD}`)).toHaveLength(1);
-    // The FAILING member is NOT released: `restartSlept` already killed its PTY,
-    // so a second kill would aim at a PTY the host no longer has — and the
-    // release's tail would scrub the scratch a restart promises to keep.
     expect(calls.log.filter((e) => e === `kill:${ID}`)).toHaveLength(1);
     expect(existsSync(pasted)).toBe(true);
     expect(getTerminal(ID)?.meta.state).toBe("sleeping");
@@ -629,16 +557,11 @@ describe("the family walk — a terminal and its splits move together", () => {
     seedDormantBranch();
     calls.log = [];
     calls.spawns = [];
-    // The split (dormant before the restart) fails to wire; its grandchild must
-    // NOT be woken after it — a live PTY under a dormant split is the invariant
-    // every client gate forbids.
     calls.spawnFailsFor = [CHILD];
 
     const restarted = await restartTerminal(ID);
 
     expect(restarted?.info.id).toBe(ID);
-    // The tile restarted, the dormant branch was woken once, and the grandchild
-    // was never attempted.
     expect(calls.spawns).toEqual([ID, CHILD]);
     expect(getTerminal(ID)?.meta.state).toBe("active");
     expect(getTerminal(CHILD)?.meta.state).toBe("sleeping");
@@ -689,10 +612,6 @@ describe("the family walk — a terminal and its splits move together", () => {
 
   it("refuses a MIXED family — a dormant parent with a live descendant", async () => {
     seedFamily();
-    // Parent asleep, split live: discarding the parent would leave a running
-    // terminal whose parentId names a removed record — the orphan class the
-    // session restore refuses on every boot. The close paths route per arm, so
-    // this refusal is the fail-fast guard, and it touches NOTHING.
     expect(beginSleepLocal(ID)).toBe(true);
     expect(getTerminal(CHILD)?.meta.state).toBe("active");
 

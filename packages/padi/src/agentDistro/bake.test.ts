@@ -1,9 +1,3 @@
-/**
- * The agent-distro bake reader — what a nix wrapper hands padi about the agents
- * a terminal can be given, and the one rewrite padi makes to it (the host's own
- * state home in place of the build-time placeholder).
- */
-
 import { readFrom } from "@kolu/agent-distro/testing";
 import { describe, expect, it } from "vitest";
 import {

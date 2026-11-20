@@ -1,25 +1,3 @@
-/**
- * What kolu-server has told this host about delivering it the setting's set —
- * the per-stack record padi's policy (`./agentDistro.ts`) reads, and the one
- * act a delivery asks of this host: recording the set that landed (`land`).
- * Its volatility is the host-side half of a delivery; what the setting means
- * and what is published stay in the policy module.
- *
- * kolu-server decides what lands — it builds the profiles and has this host's
- * Nix pull or receive every path over ssh, rooted — and padi itself never runs
- * Nix for agents. A `landed` set is already valid in this host's store and
- * rooted there, so landing it is a record and a symlink flip plus upstream's
- * two files: the `last-success` stamp and a history line in upstream's format
- * (`@juspay/agent-distro/update/history`), appended through upstream's one
- * writer (`…/update/history-log`), which keeps the log trimmed under the lock
- * its own updater takes — so a host that also runs agent-distro's Home
- * Manager module keeps one bounded log.
- *
- * A failure is recorded with its cause, in kolu-server's words. padi never
- * retries: kolu-server delivers again at its next run (its schedule, a check
- * the user asks for, a reconnect).
- */
-
 import {
   mkdirSync,
   readdirSync,
@@ -48,18 +26,11 @@ import type { AgentDistroBake } from "./bake.ts";
 import { assertSetOnHost, readOrUndefined } from "./onHost.ts";
 import { versionsOf } from "./receipt.ts";
 
-/** A stack, as the delivery record keys it. */
 function key(stack: readonly string[]): string {
   return JSON.stringify(stack);
 }
 
-/** Stacks kolu-server is delivering to this host right now. */
 const delivering = new Set<string>();
-/** Each stack's last delivery that landed nothing — when, why (in
- *  kolu-server's or padi's words), and who said so: the one thing the host's
- *  files do not show (a failure writes no history line). Kept while a newer
- *  attempt runs, so it stays the last run until that one ends; cleared when
- *  a set lands. */
 const failed = new Map<string, AgentUpdateRun>();
 
 /** Where the deliveries of `stack` stand: one in flight, a failed last one, or
@@ -118,21 +89,12 @@ export function deliveryDropped(stack: readonly string[]): void {
   );
 }
 
-/** Write `text` to `path` atomically (a temp file renamed over it). */
 function writeAtomic(path: string, text: string): void {
   const tmp = `${path}.kolu-tmp`;
   writeFileSync(tmp, text);
   renameSync(tmp, path);
 }
 
-/** `set` landed (for its own stack): record it — one atomic rename, so a spawn never
- *  reads a half-written record — point upstream's `current` at its package,
- *  stamp `last-success`, remove every GC root but the package's and those of
- *  the landed stack (the setting's own — a landing of any other is refused
- *  before it gets here), and, when anything changed, append upstream's
- *  `updated:` history line naming what. Throws on a set this host does not
- *  hold: kolu-server rooted it here, so its absence is a broken delivery,
- *  never a state to paper over. */
 export function landDelivery(
   bake: AgentDistroBake,
   set: DeliveredSet,
@@ -172,12 +134,6 @@ export function landDelivery(
   );
 }
 
-/** Remove every root in `dir` but the package's and those of the profiles
- *  `keep` names (`@kolu/agent-distro/gcRoots`'s `staleGcRoots` — a bare
- *  legacy bundle name included), so only what serves stays protected from
- *  Nix's garbage collection. A root that will not go is logged at error, never
- *  thrown: the set has landed, and a leftover root costs disk, not
- *  correctness. */
 export function pruneGcRoots(dir: string, keep: readonly string[]): void {
   let names: string[];
   try {

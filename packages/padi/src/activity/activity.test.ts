@@ -1,16 +1,3 @@
-/**
- * The recent-agents MRU's WRITE rules (juspay/kolu#2326 review, should-fix 3 & 9).
- *
- * Two things the palette depends on:
- *
- *  - a row is KEYED through the live allowlist (`stableFlagTokens`), the same
- *    filter `agentLaunchLine` renders through — otherwise an allowlist narrowing
- *    leaves two rows that render the identical line;
- *  - a FLAGLESS row for a kind is a placeholder (the first sample may land before
- *    the process's argv can be read), and the first successful read SUPERSEDES it
- *    — the palette must never offer both `claude` and `claude --model sonnet`.
- */
-
 import type { ActivityFeed } from "@kolu/padi-client/surface";
 import { beforeEach, describe, expect, it } from "vitest";
 import {
@@ -59,12 +46,10 @@ describe("trackRecentAgent", () => {
   });
 
   it("supersedes a flagless placeholder when the flags arrive", () => {
-    // First sample: identity resolved, argv unread → the live path stores `[]`.
     trackRecentAgent("claude-code", []);
     expect(feed.recentAgents).toEqual([
       expect.objectContaining({ kind: "claude-code", argv: [] }),
     ]);
-    // Second sample: same identity, flags read. The placeholder must go.
     trackRecentAgent("claude-code", ["--model", "sonnet"], {
       replacePlaceholder: true,
     });
@@ -77,8 +62,6 @@ describe("trackRecentAgent", () => {
   });
 
   it("keeps a deliberate bare launch beside a flagged one (no blind supersede)", () => {
-    // The default is NOT to replace: a bare `claude` the user ran on purpose is
-    // still a launch they may want back.
     trackRecentAgent("claude-code", []);
     trackRecentAgent("claude-code", ["--model", "opus"]);
     expect(feed.recentAgents).toHaveLength(2);

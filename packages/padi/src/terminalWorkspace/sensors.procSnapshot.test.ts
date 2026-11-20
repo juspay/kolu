@@ -1,18 +1,3 @@
-/**
- * The per-SAMPLE process snapshot (juspay/kolu#2286).
- *
- * `readProcessSnapshot` reads `/proc/<pid>/cmdline` AND the whole of
- * `/proc/<pid>/environ`, splitting the latter into a fresh object — and before
- * this it ran once per ADAPTER per RECONCILE, with seven adapters per terminal
- * and reconciles on every title / cwd / foreground event plus four settle
- * delays after each command mark. The profile put the reconcile path at 16% of
- * a 16-terminal padi's busy time.
- *
- * The invariant: a foreground SAMPLE is read at most once, however many
- * reconciles and however many adapters that one sample survives — and a NEW
- * sample is a new read, because it names a (possibly) new pid.
- */
-
 import { inMemoryChannel } from "@kolu/surface/server";
 import type {
   TerminalGrid,
@@ -26,8 +11,6 @@ import pino from "pino";
 import { afterEach, expect, it, vi } from "vitest";
 
 const reads: number[] = [];
-/** How many of the next reads answer `null` — the shape of a transient `/proc`
- *  failure, which must never be remembered for the life of a sample. */
 let failNextReads = 0;
 vi.mock("kolu-io", async (importOriginal) => {
   const real = await importOriginal<Record<string, unknown>>();
@@ -37,11 +20,8 @@ vi.mock("kolu-io", async (importOriginal) => {
       reads.push(pid);
       if (failNextReads > 0) {
         failNextReads -= 1;
-        return null; // what EVERY failure folds to: exited, hidepid, EACCES…
+        return null;
       }
-      // An omp invocation with no flags: the adapter folds it to the default
-      // agent dir and then finds no breadcrumb, which is all this test needs —
-      // the assertion is on the READ COUNT, not the resolution.
       return { argv: ["omp"], env: {} };
     },
   };
@@ -58,15 +38,12 @@ const log = pino({ level: "silent" });
 const SHELL_PID = 4_001;
 const AGENT_PID = 4_002;
 
-/** Let the channel fan-out's microtasks land. */
 function flush(): Promise<void> {
   const { promise, resolve } = Promise.withResolvers<void>();
   setImmediate(resolve);
   return promise;
 }
 
-/** One terminal's engine state, shared by both sensors below exactly as
- *  `startSensors` shares it across all seven registered adapters. */
 const sharedState = freshAgentEngineState();
 
 function startOmpSensor() {
@@ -80,10 +57,6 @@ function startOmpSensor() {
     screenSettled: inMemoryChannel<void>(),
     submitted: inMemoryChannel<void>(),
   };
-  // Two sensors over ONE engine state — the production arrangement, where every
-  // registered adapter shares the terminal's `AgentEngineState`. Both are the
-  // omp adapter so that both actually reach the snapshot read; the memo they
-  // share is the thing under test, not which agent matched.
   const stops = [
     startAgentSensor(
       AGENT_PLUGINS.omp.adapter,
@@ -129,7 +102,6 @@ it("reads the process snapshot ONCE per foreground sample, across adapters and r
   const h = startOmpSensor();
   reads.length = 0;
 
-  // One sample, delivered to both sensors.
   h.signals.foreground.publish({
     process: "/usr/bin/omp",
     foregroundPid: AGENT_PID,
@@ -137,9 +109,6 @@ it("reads the process snapshot ONCE per foreground sample, across adapters and r
   await flush();
   expect(reads).toEqual([AGENT_PID]);
 
-  // Three more reconciles off the SAME sample — a title change and two cwd
-  // changes, six adapter passes in total. The sample has not moved, so neither
-  // has the answer.
   h.signals.title.publish("omp — building");
   h.signals.cwd.publish("/repo/sub");
   h.signals.cwd.publish("/repo");
@@ -171,9 +140,6 @@ it("re-reads when a NEW foreground sample arrives", async () => {
 it("does NOT cache a FAILED read — a transient /proc error costs one retry, not the run", async () => {
   const h = startOmpSensor();
   reads.length = 0;
-  // One failure, then success. A sample lasts as long as the foreground process
-  // and pid hold — usually the whole agent run — so holding the `null` would
-  // blind omp's agent-dir chain and pi's store resolution for all of it.
   failNextReads = 1;
 
   h.signals.foreground.publish({
@@ -183,8 +149,6 @@ it("does NOT cache a FAILED read — a transient /proc error costs one retry, no
   await flush();
   expect(reads).toEqual([AGENT_PID, AGENT_PID]);
 
-  // …and once a read succeeds it IS held: the next reconcile off the same
-  // sample asks nothing.
   h.signals.title.publish("omp — building");
   await flush();
   expect(reads).toEqual([AGENT_PID, AGENT_PID]);

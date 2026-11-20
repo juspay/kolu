@@ -1,12 +1,3 @@
-/**
- * padi's identity mechanics — the production state-root formula, bind resolution
- * that refuses a silent default (#1334), the digest that keys the runtime
- * rendezvous, and the manifest that maps the digest back. The load-bearing
- * property under test is #1313 ISOLATION: distinct state-roots yield distinct
- * digests, so two padis never share a kaval; an identical state-root yields an
- * identical digest, so a re-boot dials the same daemon.
- */
-
 import { type ChildProcess, spawn } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { createServer, type Server } from "node:net";
@@ -38,9 +29,6 @@ import {
   resolveRunningPadiSocket,
 } from "./stateRoot.ts";
 
-/** A pid that is definitely dead — spawn a child, kill it, await its exit. Mirrors
- *  `surface-daemon/src/pidGate.test.ts`'s `deadPid` — the same real-OS-pid pattern
- *  for the liveness probe (`isHolderLive` reads a genuinely gone pid as dead). */
 async function deadPid(): Promise<number> {
   assertDaemonSpawnAllowed("a short-lived liveness-probe child");
   const child = spawn(process.execPath, ["-e", ""], { stdio: "ignore" });
@@ -53,7 +41,6 @@ async function deadPid(): Promise<number> {
   return pid;
 }
 
-/** A live child process whose pid stands in for a genuine gate holder. */
 function liveChild(): ChildProcess {
   assertDaemonSpawnAllowed("a short-lived liveness-probe child");
   return spawn(process.execPath, ["-e", "setTimeout(() => {}, 60000)"], {
@@ -61,16 +48,10 @@ function liveChild(): ChildProcess {
   });
 }
 
-/** Write a `padi.pid` gate file naming `pid`, beside a socket at `socketDir`. */
 function writeGate(socketDir: string, pid: number): void {
-  // `0o600`: a gate seeded under the shared `/tmp` root must carry the same
-  // owner-only mode the real writer gives it.
   writeFileSync(join(socketDir, PADI_GATE_FILE), `${pid}\n`, { mode: 0o600 });
 }
 
-/** Bind a real `net.Server` at `path`, leaving a genuine socket inode behind —
- *  discovery requires the rendezvous file to be an actual socket, not just an
- *  existing file. Returns the server so the caller can close it on teardown. */
 function listenSocket(path: string): Promise<Server> {
   return new Promise((res, rej) => {
     const server = createServer();
@@ -79,25 +60,15 @@ function listenSocket(path: string): Promise<Server> {
   });
 }
 
-/** Close a seeded server, removing its socket inode. */
 function closeServer(server: Server): Promise<void> {
   return new Promise((res) => server.close(() => res()));
 }
 
-// Save + restore the env the helpers read, so cases can pin each branch without
-// leaking into siblings.
 const SAVED = {
   XDG_STATE_HOME: process.env.XDG_STATE_HOME,
   XDG_RUNTIME_DIR: process.env.XDG_RUNTIME_DIR,
   HOME: process.env.HOME,
   KOLU_PADI_STATE_DIR: process.env.KOLU_PADI_STATE_DIR,
-  // `PADI_SOCKET` is read by `resolveRunningPadiSocket` and scrubbed by the
-  // primary-rule cases (a flag-less headless client has none). Saved for
-  // symmetry with the other locators, NOT because a real value is expected here:
-  // the worker-level `scrubDaemonLocatorEnv` (`@kolu/daemon-test-gate/setup`,
-  // wired in this package's `vitest.config.ts`) already deletes every locator
-  // before any test runs, so this reads `undefined` even when the suite is run
-  // from a kolu terminal that stamps one.
   PADI_SOCKET: process.env.PADI_SOCKET,
 };
 beforeEach(() => {
@@ -112,9 +83,6 @@ afterEach(() => {
 
 describe("productionPadiStateRoot — the production formula (wrappers + discovery)", () => {
   it("IGNORES $XDG_STATE_HOME — HOME-only, so two launch contexts can't split padi's identity", () => {
-    // Even with $XDG_STATE_HOME set (a login shell), the formula is env-INSENSITIVE:
-    // HOME-only, so a context WITHOUT it (a bare systemd unit, an ssh exec) resolves
-    // the exact SAME root and the digest never diverges.
     process.env.XDG_STATE_HOME = "/somewhere/else/state";
     process.env.HOME = "/home/u";
     expect(productionPadiStateRoot()).toBe("/home/u/.local/state/padi");
@@ -129,10 +97,6 @@ describe("productionPadiStateRoot — the production formula (wrappers + discove
   it("crashes loudly with no anchor — never a silent throwaway path", () => {
     delete process.env.XDG_STATE_HOME;
     delete process.env.HOME;
-    // homedir() may still resolve from the passwd entry, so only assert the throw
-    // when there is genuinely no anchor. On a box where homedir() answers, this
-    // returns a real path — which is the point (never a throwaway). We assert the
-    // shape either way: a resolved absolute path, or a loud throw.
     try {
       expect(productionPadiStateRoot()).toMatch(/^\/.*\/padi$/);
     } catch (e) {
@@ -161,8 +125,6 @@ describe("resolvePadiStateRoot — override wins, always absolute, no silent def
       /KOLU_PADI_STATE_DIR must be set/,
     );
     expect(() => resolvePadiStateRoot()).toThrow(/1334/);
-    // Pin F4 remediation wording — relative paths stay supported; message
-    // must not claim "absolute only".
     try {
       resolvePadiStateRoot();
     } catch (e) {
@@ -189,41 +151,16 @@ describe("namePadiStateRootForDiscovery — dial/error naming (not bind)", () =>
   });
 });
 
-/**
- * The PRIMARY rule (juspay/kolu#2154) — WHICH padi a flag-less client dials when
- * several are live. The tie the resolver used to refuse was never a real tie: a
- * dev/e2e padi is keyed to an EXPLICIT state-root, so exactly one of the live
- * daemons is the one this environment names (`namePadiStateRootForDiscovery` —
- * `$KOLU_PADI_STATE_DIR`, else the production formula), and that one is primary.
- *
- * These cases fabricate the multi-daemon host the refusal fired on: two real
- * socket inodes under a private drawer, each with its own `state-root` manifest
- * and a gate naming a LIVE pid (this process — the same stand-in
- * `residentPadiSocket`'s cases use, so no child is spawned).
- *
- * They are hermetic DESPITE `discoverPadiDaemons` also unioning the real `/tmp`
- * and `/run/user/$UID` drawers — where this developer's own daemons genuinely
- * live — because every assertion is anchored to a `$HOME` inside a fresh temp
- * dir: no real daemon can name that root, so a real daemon can only ever join
- * the candidate list, never win the primary match nor drop the count below two.
- */
 describe("the primary padi — which one a flag-less client dials among several (#2154)", () => {
   const servers: Server[] = [];
   const dirs: string[] = [];
   afterEach(async () => {
     await Promise.all(servers.splice(0).map((s) => closeServer(s)));
     for (const d of dirs.splice(0)) {
-      try {
-        rmSync(d, { recursive: true, force: true });
-      } catch {
-        // best-effort
-      }
+      rmSync(d, { recursive: true, force: true });
     }
   });
 
-  /** Register a LIVE padi for `stateRoot` under the drawer `$XDG_RUNTIME_DIR`
-   *  currently names — socket inode, manifest, live gate — exactly as a running
-   *  padi registers itself. Returns the socket path it now answers at. */
   async function registerLivePadi(stateRoot: string): Promise<string> {
     const socket = padiSocketPath(stateRoot);
     mkdirSync(dirname(socket), { recursive: true, mode: 0o700 });
@@ -233,20 +170,6 @@ describe("the primary padi — which one a flag-less client dials among several 
     return socket;
   }
 
-  /** Pin the environment a flag-less headless client reads, and return the state
-   *  root the production formula then names.
-   *
-   *  The locator scrub is `@kolu/daemon-test-gate`'s `scrubDaemonLocatorEnv` —
-   *  the canonical list of "vars that let a process reach a live daemon"
-   *  (`DAEMON_LOCATOR_ENV`), not a hand-picked pair. Picking two of them by hand
-   *  is how a fifth locator, added to that list later, would silently leak into
-   *  these cases — whose whole premise is that NO locator is set — and resolve
-   *  them against the developer's real production daemon.
-   *
-   *  `$HOME` lands in a fresh temp dir, which is what makes every assertion in
-   *  this block hermetic: discovery also unions the real `/tmp` and
-   *  `/run/user/$UID` drawers, and no daemon there can be keyed to a root under
-   *  a directory that did not exist a moment ago. */
   function pinFreshHost(): string {
     scrubDaemonLocatorEnv();
     const home = mkdtempSync(join(tmpdir(), "padi-primary-home-"));
@@ -260,9 +183,6 @@ describe("the primary padi — which one a flag-less client dials among several 
 
   it("dials the daemon keyed to this environment's state root, though a dev daemon is live too", async () => {
     const primaryRoot = pinFreshHost();
-    // The two daemons olai's host actually had up: the primary, and a dev padi
-    // keyed to an explicit throwaway root. Registered dev-FIRST so a resolver
-    // that merely took the first discovered daemon would pick the wrong one.
     const devSocket = await registerLivePadi(
       join(primaryRoot, "..", "dev-e2e"),
     );
@@ -277,16 +197,8 @@ describe("the primary padi — which one a flag-less client dials among several 
     });
   });
 
-  // NOTE: the `$KOLU_PADI_STATE_DIR` override is pinned by the pure case in the
-  // next block, not by a fourth socket-fabricating case here. Through the disk
-  // it asserted nothing the case above does not already prove — the wiring
-  // discovery → liveness → manifest → classify is the same one call — while
-  // paying a full three-regime scan and two socket binds to reach it.
-
   it("still refuses when several are live and NONE is this environment's — naming the root it looked for", async () => {
     const primaryRoot = pinFreshHost();
-    // Two daemons, both keyed to explicit roots — a genuine tie: nothing here
-    // is the padi this environment names, so there is no answer to pick.
     const a = await registerLivePadi(join(primaryRoot, "..", "worktree-a"));
     const b = await registerLivePadi(join(primaryRoot, "..", "worktree-b"));
 
@@ -296,36 +208,22 @@ describe("the primary padi — which one a flag-less client dials among several 
     const refusal = localPadiSocket({ kind: "auto" });
     expect(refusal.kind).toBe("unaddressable");
     if (refusal.kind !== "unaddressable") throw new Error("unreachable");
-    // The message must name the root that was looked for — without it a headless
-    // operator cannot tell "your padi is down" from "you have no primary".
     expect(refusal.message).toContain(primaryRoot);
     expect(refusal.message).toContain(`PADI_SOCKET=${a}`);
     expect(refusal.message).toContain(`PADI_SOCKET=${b}`);
   });
 
   it("finds the primary even when it bound under /tmp and this shell has XDG set", async () => {
-    // M1's regression, pinned on the function the CLI actually calls. A padi
-    // spawned by a nix-shell / e2e harness with `$XDG_RUNTIME_DIR` unset binds
-    // at `/tmp/padi-<digest>-$UID`; a flag-less `kolu` / `kolu mcp` / `padi-tui`
-    // from a logind shell has XDG set. Narrowed to the regime in force, that
-    // client refuses with "no padi is running" while the daemon it wants is up.
     const uid = process.getuid?.();
     if (uid === undefined) return;
     const primaryRoot = pinFreshHost();
     const drawer = process.env.XDG_RUNTIME_DIR;
 
-    // Register it the way that harness does: with no XDG at all, so the socket
-    // lands in the forced `/tmp` drawer rather than this shell's.
     delete process.env.XDG_RUNTIME_DIR;
     const tmpSocket = await registerLivePadi(primaryRoot);
     dirs.push(dirname(tmpSocket));
     expect(tmpSocket.startsWith("/tmp/")).toBe(true);
 
-    // …and dial from the logind shell. The SOCKET is the assertion; the arm it
-    // arrives on is not. `pinFreshHost` isolates the state root, not the box: a
-    // CI machine with this one daemon answers `one`, a developer's box with its
-    // own padis up answers `primary`, and pinning either would make the case
-    // assert nothing on the other kind of host.
     process.env.XDG_RUNTIME_DIR = drawer;
     const resolved = resolveRunningPadiSocket();
     expect(resolved).toMatchObject({ socket: tmpSocket });
@@ -337,18 +235,6 @@ describe("the primary padi — which one a flag-less client dials among several 
   });
 });
 
-/**
- * The same policy over a LIST instead of the disk — where every arm can be
- * asserted outright.
- *
- * The sole-daemon arm is why this block exists. Driven through the real
- * registry it is unassertable on any machine that runs a padi of its own: the
- * developer's daemons join the scan, the count is never one, and the case
- * degrades to `expect(kind).toBe("many")` — a test that passes without testing
- * anything, on exactly the multi-daemon hosts this policy exists for. That is
- * how the first draft of it was written, and the debate peer was right to call
- * it (juspay/kolu#2154 review, F2). Over a list, one daemon is one element.
- */
 describe("classifyLivePadis — which of the live daemons, as pure data", () => {
   const daemon = (stateRoot: string | null, socket: string): PadiDaemon => ({
     socket,
@@ -363,9 +249,6 @@ describe("classifyLivePadis — which of the live daemons, as pure data", () => 
   });
 
   it("dials a SOLE live daemon whatever its root — the flag-less dev box, unchanged", () => {
-    // The arm this PR deliberately did not touch, pinned so a later change that
-    // made it require a primary root fails here rather than in a headless
-    // client. This daemon serves a dev root, NOT the environment's.
     const resolved = classifyLivePadis([
       daemon("/tmp/dev/padi", "/run/d.sock"),
     ]);
@@ -404,8 +287,8 @@ describe("classifyLivePadis — which of the live daemons, as pure data", () => 
     ];
     expect(classifyLivePadis(live)).toEqual({
       kind: "many",
-      candidates: live,
-      primaryStateRoot: PROD,
+      runningPadis: live,
+      unmatchedStateRoot: PROD,
     });
   });
 
@@ -504,24 +387,13 @@ describe("the state-root manifest (digest → state-root)", () => {
   });
 });
 
-// THE #1713 ADOPT-PATH SIBLING: `ensurePadiBinding`'s wait side must DISCOVER a
-// resident's socket via the state-root manifest read-back, not compute it from its
-// own env — a resident spawned in a session with `$XDG_RUNTIME_DIR` SET is
-// otherwise invisible to a waiter whose own env lacks it (a bare `nix run` outside
-// a login session), which reproduced as a 30s "daemon socket never came up" hang.
-// `extraRegimes` lets these tests substitute a fabricated drawer for the real
-// `/run/user/$UID` guess (a unit test cannot write there outside a real session).
 describe("discoverPadiDaemons — the regime in force, plus the extra drawers", () => {
   const servers: Server[] = [];
   const dirs: string[] = [];
   afterEach(async () => {
     await Promise.all(servers.splice(0).map((s) => closeServer(s)));
     for (const d of dirs.splice(0)) {
-      try {
-        rmSync(d, { recursive: true, force: true });
-      } catch {
-        // best-effort
-      }
+      rmSync(d, { recursive: true, force: true });
     }
   });
 
@@ -535,9 +407,6 @@ describe("discoverPadiDaemons — the regime in force, plus the extra drawers", 
     writeStateRootManifest(dirname(socket), stateRoot);
     servers.push(await listenSocket(socket));
 
-    // The caller's OWN env computes an entirely different (empty) drawer — the
-    // resident is found ONLY via the extra regime, proving the union (not the
-    // caller's own-env regime alone) is what discovers it.
     const ownDrawer = mkdtempSync(join(tmpdir(), "padi-discover-own-"));
     dirs.push(ownDrawer);
     process.env.XDG_RUNTIME_DIR = ownDrawer;
@@ -558,21 +427,13 @@ describe("discoverPadiDaemons — the regime in force, plus the extra drawers", 
     writeStateRootManifest(dirname(socket), stateRoot);
     servers.push(await listenSocket(socket));
 
-    // The "extra" regime is the SAME drawer the caller's own env already computes.
     const found = discoverPadiDaemons([drawer]);
     expect(found.filter((d) => d.socket === socket)).toHaveLength(1);
   });
 
-  // juspay/kolu#2286: the `/tmp` fallback drawer used to be scanned
-  // UNCONDITIONALLY alongside the env drawer, so every 10 s host-inventory tick
-  // walked a `/tmp` holding 209 K entries on the reporting host for a drawer its
-  // padis never bind in. Pinned under a REAL uid, because the off-XDG grammar is
-  // `/tmp/padi-<digest>-$UID` and the whole point is which root gets walked.
   it.runIf(process.getuid)(
     "does NOT walk /tmp while $XDG_RUNTIME_DIR is set, and does once it is not",
     async () => {
-      // A resident in the /tmp fallback drawer, bound with XDG unset — the exact
-      // shape the old unconditional second scan existed to find.
       const stateRoot = "/home/u/.local/state/padi-tmp-regime";
       delete process.env.XDG_RUNTIME_DIR;
       const socket = padiSocketPath(stateRoot);
@@ -581,12 +442,10 @@ describe("discoverPadiDaemons — the regime in force, plus the extra drawers", 
       writeStateRootManifest(dirname(socket), stateRoot);
       servers.push(await listenSocket(socket));
 
-      // Off XDG, `/tmp` IS the regime in force — found.
       expect(discoverPadiDaemons([]).some((d) => d.socket === socket)).toBe(
         true,
       );
 
-      // With XDG set, `/tmp` is not the regime and is not walked at all.
       const drawer = mkdtempSync(join(tmpdir(), "padi-discover-xdg-"));
       dirs.push(drawer);
       process.env.XDG_RUNTIME_DIR = drawer;
@@ -596,12 +455,6 @@ describe("discoverPadiDaemons — the regime in force, plus the extra drawers", 
     },
   );
 
-  // The OTHER half of the same narrowing, and the reason it is a narrowing of
-  // the POLL rather than of discovery as such: the two DIAL resolutions —
-  // `residentPadiSocket` (once per binding; its failure mode is a 30 s hang and
-  // a second padi on a served state root, #1713) and `resolveRunningPadiSocket`
-  // (once per `kolu` / `kolu mcp` / `padi-tui` invocation; its failure mode is
-  // "no padi is running" against a padi that is) — keep probing every drawer.
   it.runIf(process.getuid)(
     "both DIAL paths still find a /tmp resident while $XDG_RUNTIME_DIR is set",
     async () => {
@@ -612,11 +465,6 @@ describe("discoverPadiDaemons — the regime in force, plus the extra drawers", 
       mkdirSync(dir, { recursive: true, mode: 0o700 });
       dirs.push(dir);
       writeStateRootManifest(dir, stateRoot);
-      // THIS process stands in for the gate holder: `daemonIsLive` only asks
-      // whether the gate's pid is alive, and nothing forks to answer that.
-      // `0o600` because this lands under the shared `/tmp` root (the off-XDG
-      // drawer is the whole point of the case) — the same owner-only discipline
-      // `writeStateRootManifest` and the real gate writer apply there.
       writeFileSync(join(dir, PADI_GATE_FILE), String(process.pid), {
         mode: 0o600,
       });
@@ -626,10 +474,6 @@ describe("discoverPadiDaemons — the regime in force, plus the extra drawers", 
       dirs.push(drawer);
       process.env.XDG_RUNTIME_DIR = drawer;
       expect(residentPadiSocket(stateRoot)).toBe(socket);
-
-      // The CLI half is pinned on `resolveRunningPadiSocket` itself, in the
-      // primary-padi block above — a hermetic `pinFreshHost()` makes the
-      // verdict assertable, which it is not here.
     },
   );
 });
@@ -644,11 +488,7 @@ describeDaemon(
       for (const c of children.splice(0)) c.kill("SIGKILL");
       await Promise.all(servers.splice(0).map((s) => closeServer(s)));
       for (const d of dirs.splice(0)) {
-        try {
-          rmSync(d, { recursive: true, force: true });
-        } catch {
-          // best-effort
-        }
+        rmSync(d, { recursive: true, force: true });
       }
     });
 
@@ -660,10 +500,6 @@ describeDaemon(
       const drawerB = mkdtempSync(join(tmpdir(), "padi-resident-drawerB-"));
       dirs.push(drawerB);
 
-      // The resident: construct its socket path EXACTLY as a real padi would, under
-      // drawer A's regime, write its manifest + a gate naming a LIVE pid (this test
-      // process itself — any live pid proves the liveness filter, #1713-delta-review
-      // finding 1), and bind a real socket there.
       process.env.XDG_RUNTIME_DIR = drawerA;
       const residentSocket = padiSocketPath(stateRoot);
       mkdirSync(dirname(residentSocket), { recursive: true, mode: 0o700 });
@@ -671,17 +507,10 @@ describeDaemon(
       writeGate(dirname(residentSocket), process.pid);
       servers.push(await listenSocket(residentSocket));
 
-      // The caller's OWN env computes a DIFFERENT drawer (B) — the exact
-      // env-divergence that reproduces the bug (an XDG-unset kolu against an
-      // XDG-set resident is the real-world instance; two distinct temp dirs prove
-      // the general case without depending on any process's real environment).
       process.env.XDG_RUNTIME_DIR = drawerB;
       const ownComputedSocket = padiSocketPath(stateRoot);
-      expect(ownComputedSocket).not.toBe(residentSocket); // sanity: genuinely different drawers
+      expect(ownComputedSocket).not.toBe(residentSocket);
 
-      // The resolver returns drawer A's socket — the manifest wins over the
-      // caller's own-env guess. `drawerA` stands in for the real `/run/user/$UID`
-      // guess (a unit test can't write there).
       expect(residentPadiSocket(stateRoot, [drawerA])).toBe(residentSocket);
     });
 
@@ -709,7 +538,6 @@ describeDaemon(
       dirs.push(drawer);
 
       process.env.XDG_RUNTIME_DIR = drawer;
-      // A padi IS running at this drawer, but for a DIFFERENT state-root.
       const socket = padiSocketPath(otherStateRoot);
       mkdirSync(dirname(socket), { recursive: true, mode: 0o700 });
       writeStateRootManifest(dirname(socket), otherStateRoot);
@@ -718,13 +546,6 @@ describeDaemon(
       expect(residentPadiSocket(stateRoot, [drawer])).toBeUndefined();
     });
 
-    // Delta-re-review finding 1 (P1): a manifest match ALONE is not proof of a live
-    // resident — a crashed padi's `/tmp` registration (inode + manifest both survive a
-    // crash) can SHADOW a genuinely live resident registered in a later regime.
-    // `residentPadiSocket` must filter matches by GATE-PID LIVENESS, preferring a live
-    // resident and never returning a dead-only match (which would adopt a socket
-    // nothing answers on, or cause a second padi to spawn onto an already-served state
-    // root).
     it("PIN: with a DEAD-gate drawer and a LIVE-gate drawer both naming the same state-root, returns the LIVE one — never the dead one", async () => {
       const stateRoot = mkdtempSync(join(tmpdir(), "padi-resident-live-sr-"));
       dirs.push(stateRoot);
@@ -733,11 +554,6 @@ describeDaemon(
       const liveDrawer = mkdtempSync(join(tmpdir(), "padi-resident-live-"));
       dirs.push(liveDrawer);
 
-      // The DEAD registration: a crashed padi's leftover inode + manifest + a gate
-      // naming a pid that is genuinely gone. Its socket still accepts connections
-      // (nothing unlinked it) — the exact "stale but still discoverable" shape a
-      // crash leaves behind, so discovery finds it and only the gate-pid liveness
-      // check can tell it apart from a live resident.
       process.env.XDG_RUNTIME_DIR = deadDrawer;
       const deadSocket = padiSocketPath(stateRoot);
       mkdirSync(dirname(deadSocket), { recursive: true, mode: 0o700 });
@@ -745,7 +561,6 @@ describeDaemon(
       writeGate(dirname(deadSocket), await deadPid());
       servers.push(await listenSocket(deadSocket));
 
-      // The LIVE registration, in a LATER regime — a genuinely running resident.
       process.env.XDG_RUNTIME_DIR = liveDrawer;
       const liveSocket = padiSocketPath(stateRoot);
       mkdirSync(dirname(liveSocket), { recursive: true, mode: 0o700 });
@@ -757,8 +572,6 @@ describeDaemon(
       writeGate(dirname(liveSocket), child.pid);
       servers.push(await listenSocket(liveSocket));
 
-      // The caller's own env computes neither drawer directly — both are supplied as
-      // extra regimes, exactly like the real /tmp + /run/user/$UID union.
       const caller = mkdtempSync(join(tmpdir(), "padi-resident-live-caller-"));
       dirs.push(caller);
       process.env.XDG_RUNTIME_DIR = caller;

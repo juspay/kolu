@@ -1,8 +1,3 @@
-/**
- * EF2 finish-quiet feed + fold pins. Sticky-per-episode via one episode map
- * (debouncing | finished); no sticky-on-read.
- */
-
 import type { PadiTerminal } from "@kolu/padi-client/surface";
 import {
   composeTerminalMetadata,
@@ -82,10 +77,6 @@ function fold(
 }
 
 function afterBootEmpty(finish: ReturnType<typeof createFinishQuiet>): void {
-  // The first REAL inventory arms bootstrap. (The serve-time empty seed never
-  // reaches `project`: `servePadi`'s urgency cell gates that frame once, for
-  // this fold and both watch sources — so a test that fed one here would be
-  // driving a frame production cannot produce.)
   fold(finish, terminalsMap([[B, "thinking"]]));
 }
 
@@ -148,7 +139,6 @@ describe("finishQuiet + recomputeUrgency (EF2 sticky-per-episode)", () => {
       idleAfterMs: QUIET,
       standingSub: false,
     });
-    // The first inventory with waiting → discovery sticky, not debounce.
     const terms = terminalsMap([
       [A, "waiting"],
       [B, "thinking"],
@@ -194,15 +184,12 @@ describe("finishQuiet + recomputeUrgency (EF2 sticky-per-episode)", () => {
     const terms = terminalsMap([[A, "waiting"]]);
     fold(finish, terms);
 
-    // Nearly expired, then activity feed drops (kaval recycle).
     vi.advanceTimersByTime(QUIET - 10);
     finish.setFeedLive(false);
     vi.advanceTimersByTime(QUIET + 50);
-    // Timer fired while feed-down — must NOT sticky-finish.
     expect(fold(finish, terms).finishedIds).toEqual([]);
     expect(finish.episodeSnapshot()).toEqual([[A, "debouncing"]]);
 
-    // Reconnect restamps debouncing — full quiet window from reconnect.
     finish.setFeedLive(true);
     expect(fold(finish, terms).finishedIds).toEqual([]);
     vi.advanceTimersByTime(QUIET - 10);
@@ -220,7 +207,6 @@ describe("finishQuiet + recomputeUrgency (EF2 sticky-per-episode)", () => {
     });
     afterBootEmpty(finish);
     fold(finish, terminalsMap([[A, "waiting"]]));
-    // Leave while still debouncing — must not flash through finished.
     expect(fold(finish, terminalsMap([[A, "thinking"]]))).toEqual({
       awaitingIds: [],
       finishedIds: [],
@@ -245,7 +231,6 @@ describe("finishQuiet + recomputeUrgency (EF2 sticky-per-episode)", () => {
     fold(finish, terms);
     expect(finish.episodeSnapshot()).toEqual([[A, "finished"]]);
 
-    // Edge after finish must no-op on the tracker (not re-open debouncing).
     finish.noteEdge(A);
     expect(finish.isEpisodeFinished(A)).toBe(true);
     expect(finish.episodeSnapshot()).toEqual([[A, "finished"]]);
@@ -335,12 +320,10 @@ describe("finishQuiet + recomputeUrgency (EF2 sticky-per-episode)", () => {
   });
 });
 
-/** A terminal whose agent is PRESENT — in front, no session yet. */
 const presentTerminal = (
   state: "starting" | "fresh" | "prompted",
 ): PadiTerminal => activeTerminal(agentPresence("omp", state, null));
 
-/** A fold of a fleet with nobody in any list — looked at, and quiet. */
 const QUIET_URGENCY = {
   awaitingIds: [],
   finishedIds: [],
@@ -368,11 +351,9 @@ describe("finishQuiet settles a screen padi is waiting on (starting/prompted →
     expect(settled).toEqual([]);
     vi.advanceTimersByTime(10);
     expect(settled).toEqual([A]);
-    // Settled is not finished: nothing about a launch lands in an attention list.
     expect(fold(finish, terms)).toEqual(QUIET_URGENCY);
     vi.advanceTimersByTime(QUIET * 3);
     expect(settled).toEqual([A]);
-    // The detector publishes `fresh`; the episode is over.
     fold(finish, new Map([[A, presentTerminal("fresh")]]));
     expect(finish.episodeSnapshot()).toEqual([]);
     finish.dispose();
@@ -441,11 +422,8 @@ describe("finishQuiet settles a screen padi is waiting on (starting/prompted →
       onSettled: (id) => settled.push(id),
     });
     afterBootEmpty(finish);
-    // Up and settled: nothing to watch for.
     fold(finish, new Map([[A, presentTerminal("fresh")]]));
     expect(finish.episodeSnapshot()).toEqual([]);
-    // Handed a prompt: it is work, and padi now waits to see whether anything
-    // comes of it.
     const prompted = new Map([[A, presentTerminal("prompted")]]);
     expect(fold(finish, prompted).workingIds).toEqual([A]);
     vi.advanceTimersByTime(QUIET - 10);
@@ -469,7 +447,6 @@ describe("finishQuiet settles a screen padi is waiting on (starting/prompted →
     });
     afterBootEmpty(finish);
     fold(finish, new Map([[A, presentTerminal("prompted")]]));
-    // The transcript lands mid-turn: a thinking agent is waited on by nothing.
     fold(finish, terminalsMap([[A, "thinking"]]));
     expect(finish.episodeSnapshot()).toEqual([]);
     vi.advanceTimersByTime(QUIET * 2);

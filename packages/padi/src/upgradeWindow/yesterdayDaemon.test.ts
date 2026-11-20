@@ -1,5 +1,3 @@
-/** Padi-owned session-shape arm of the graduated yesterday-daemon fixture. */
-
 import { readFileSync } from "node:fs";
 import { afterEach, expect, it } from "vitest";
 import { plantYesterdayDaemon } from "@kolu/surface-daemon/upgrade-window.testlib";

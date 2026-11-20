@@ -1,28 +1,9 @@
-/**
- * Pins the serve-time empty seed — the guard that used to live three times, once
- * per attention consumer, and now lives once at the producer — and the fact it
- * PUBLISHES, since the consumer it cost most was across a wire (#2376).
- *
- * The second pin is the one an inlined boolean loses: this is not "ignore empty
- * frames". Once a real fleet has been seen, an empty map means every terminal
- * exited, and every consumer must be told.
- *
- * The third is the CENSUS: an established standing names the ids the registry
- * holds, in the same value, because a consumer that reads the standing from one
- * wire member and the list from another can be handed an established standing
- * beside a list that has not arrived — which is what a projection of this
- * surface does, and what made a redeploy's live terminals `gone`.
- */
-
 import type { PadiRoster, PadiTerminal } from "@kolu/padi-client/surface";
 import { computed } from "@kolu/surface/reactor";
 import type { TerminalId } from "@kolu/terminal-vocab/schema";
 import { describe, expect, it } from "vitest";
 import { createFleetGate } from "./fleetGate.ts";
 
-/** A frame of N terminals, with the ids a registry would hold — the gate reads
- *  the SIZE to decide the arm and the KEYS to state the census, so the records
- *  need not be real ones. */
 const frame = (n: number): ReadonlyMap<TerminalId, PadiTerminal> =>
   new Map(
     Array.from({ length: n }, (_, i) => [
@@ -35,8 +16,6 @@ describe("createFleetGate", () => {
   it("refuses the pre-adopt frame — padi's registry before kaval was adopted", () => {
     const gate = createFleetGate();
     expect(gate.admit(frame(0))).toBe(false);
-    // The reactor may re-run the fold before anything is adopted; every one of
-    // those frames is the same non-evidence.
     expect(gate.admit(frame(0))).toBe(false);
   });
 
@@ -49,9 +28,6 @@ describe("createFleetGate", () => {
   it("STAYS open — an empty fleet after a real one is every terminal exiting", () => {
     const gate = createFleetGate();
     expect(gate.admit(frame(1))).toBe(true);
-    // The whole reason this is a gate and not an is-empty test: a supervisor
-    // whose last worker just exited must be told, and a `gone` event for it is
-    // exactly what the settle detector produces from this frame.
     expect(gate.admit(frame(0))).toBe(true);
   });
 
@@ -60,9 +36,6 @@ describe("createFleetGate", () => {
   });
 
   it("ESTABLISHES an empty roster when the boot says adoption finished", () => {
-    // The case a frame can never open: a host whose session really is empty.
-    // Until the boot said so, "nothing listed" was not evidence; after it, an
-    // empty roster is a complete census and a member missing from it is gone.
     const gate = createFleetGate();
     expect(gate.admit(frame(0))).toBe(false);
     gate.establish();
@@ -72,8 +45,6 @@ describe("createFleetGate", () => {
   it("CLOSES again for a recycle's drain window, and re-opens at the re-park", () => {
     const gate = createFleetGate();
     expect(gate.admit(frame(2))).toBe(true);
-    // `killAllTerminals` empties the registry on purpose; nothing missing from
-    // it is a terminal that died.
     gate.settling();
     expect(gate.admit(frame(0))).toBe(false);
     gate.establish();
@@ -81,16 +52,6 @@ describe("createFleetGate", () => {
   });
 
   it("STAYS closed through the drain's PARTIAL frames — the two-terminal recycle", () => {
-    // The drain's real shape, which an empty-frame-only pin never reaches:
-    // `drainTerminals` snapshots and CLEARS the registry (so the census port
-    // already answers `[]`), then drops the snapshots ONE AT A TIME. Each
-    // removal is its own unbatched write, so the urgency fold re-runs on a
-    // frame of the terminals not yet dropped — non-empty, and under the old
-    // rule evidence enough to publish `established` with the cleared
-    // registry's empty census. That frame then stood for the whole recycle,
-    // and every reader of an absence read `false` instead of `null`: the
-    // Conductor's watch recorded both of a work's live terminals `gone`
-    // (#2376). `settling()` is a statement, so it LATCHES.
     const seen: PadiRoster[] = [];
     const registry: TerminalId[] = ["t0" as TerminalId, "t1" as TerminalId];
     const gate = createFleetGate({
@@ -100,15 +61,11 @@ describe("createFleetGate", () => {
     });
     expect(gate.admit(frame(2))).toBe(true);
     gate.settling();
-    // `drainTerminals`: snapshot-and-clear, synchronously.
     registry.length = 0;
-    // `dropSnapshot(t0)` — the collection still holds t1.
     expect(gate.admit(frame(1))).toBe(false);
     expect(gate.roster()).toEqual({ kind: "settling" });
-    // `dropSnapshot(t1)`.
     expect(gate.admit(frame(0))).toBe(false);
     expect(gate.roster()).toEqual({ kind: "settling" });
-    // The re-park: the registry is a complete census again.
     registry.push("t0" as TerminalId, "t1" as TerminalId);
     gate.establish();
     expect(gate.roster()).toEqual({
@@ -116,7 +73,6 @@ describe("createFleetGate", () => {
       at: 7,
       ids: ["t0", "t1"],
     });
-    // Nothing established-and-empty was ever published during the window.
     expect(seen).toEqual([
       { kind: "established", at: 7, ids: ["t0", "t1"] },
       { kind: "settling" },
@@ -133,8 +89,6 @@ describe("createFleetGate", () => {
     expect(gate.roster()).toEqual({ kind: "settling" });
     gate.admit(frame(0));
     gate.admit(frame(1));
-    // Idempotent: a second establish (the boot landing after a frame already
-    // opened the gate) republishes nothing — same arm, same census.
     gate.establish();
     gate.settling();
     expect(seen).toEqual([
@@ -145,9 +99,6 @@ describe("createFleetGate", () => {
   });
 
   it("states the REGISTRY's ids, and re-states them when membership moves", () => {
-    // The census is read at publish time through the port, never copied — a
-    // terminal registered or dropped moves what this says without the frame
-    // that would otherwise have to arrive first.
     let live: TerminalId[] = [];
     const seen: unknown[] = [];
     const gate = createFleetGate({
@@ -155,7 +106,6 @@ describe("createFleetGate", () => {
       now: () => 7,
       census: () => live,
     });
-    // Nothing yet, and the boot has not finished: no census to amend.
     gate.censusMoved();
     expect(seen).toEqual([]);
 
@@ -163,7 +113,6 @@ describe("createFleetGate", () => {
     gate.establish();
     live = ["a" as TerminalId, "b" as TerminalId];
     gate.censusMoved();
-    // An unchanged census is not news, however often it is re-stated.
     gate.censusMoved();
     live = ["a" as TerminalId];
     gate.censusMoved();
@@ -172,15 +121,10 @@ describe("createFleetGate", () => {
       { kind: "established", at: 7, ids: ["a", "b"] },
       { kind: "established", at: 7, ids: ["a"] },
     ]);
-    // The epoch is when the roster was ESTABLISHED, not when it last moved —
-    // what a reader debugging a false absence is after.
     expect(gate.roster()).toEqual({ kind: "established", at: 7, ids: ["a"] });
   });
 });
 
-/** A redeploy's adoption, in the order the adopt path says it: each survivor is
- *  named to the gate BEFORE it is registered, then the registry's frame
- *  arrives with every survivor listed and no agent read. */
 function adopted(n: number) {
   const gate = createFleetGate();
   expect(gate.admit(frame(0))).toBe(false);
@@ -199,8 +143,6 @@ describe("createFleetGate — the survivors are read before attention", () => {
   });
 
   it("opens the CENSUS as soon as a survivor is listed — only the attention feed waits", () => {
-    // The Conductor's watch reads "not listed" as "gone"; holding the census
-    // back while agents are read would reopen #2376.
     const gate = adopted(2);
     gate.admit(frame(2));
     expect(gate.roster().kind).toBe("established");
@@ -210,8 +152,6 @@ describe("createFleetGate — the survivors are read before attention", () => {
     const gate = adopted(2);
     expect(gate.admit(frame(2))).toBe(false);
     gate.firstRead("t0" as TerminalId);
-    // t1 exited (or its wiring failed and it was reaped): the frame no longer
-    // lists it, and nothing is left to wait for.
     expect(gate.admit(frame(1))).toBe(true);
   });
 
@@ -234,9 +174,6 @@ describe("createFleetGate — the survivors are read before attention", () => {
   });
 
   it("re-runs a fold that reads it when the last survivor is read, with no frame moving", () => {
-    // A survivor whose agent quit while kolu was down is read as a shell, and
-    // a shell publishes nothing — so the read changes no record, and only the
-    // gate's own generation can wake the fold that is waiting on it.
     const gate = adopted(1);
     const unchanged = frame(1);
     let runs = 0;

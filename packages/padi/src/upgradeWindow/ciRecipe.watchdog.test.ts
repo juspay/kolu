@@ -1,14 +1,3 @@
-/**
- * The upgrade-window CI recipe must stay wired into the default DAG — same
- * class of backstop as `@kolu/daemon-test-gate`'s daemon-node.test.ts. Without
- * this, a recipe refactor could drop the previous-release e2e and CI would
- * still go green.
- *
- * Also pins the anti-collapse rules: git fetch --tags, version-tag-only ref,
- * and previous≠current store-path inequality (the miss that green-washed the
- * first landing when a tag-less checkout fell back to the last kaval commit).
- */
-
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -24,7 +13,6 @@ const REPO_ROOT = join(
 );
 const CI = readFileSync(join(REPO_ROOT, "ci", "mod.just"), "utf8");
 
-/** The one file `ci::upgrade-window` owns — named once, asserted from both ends. */
 const WINDOW_TEST = "src/upgradeWindow/previousRelease.e2e.test.ts";
 
 test("ci/mod.just wires `upgrade-window` into the default DAG", () => {
@@ -56,15 +44,6 @@ test("the `upgrade-window` recipe requires the previous binary + anti-collapse r
 });
 
 test("the ordinary daemon lane leaves the window to that recipe", () => {
-  // The window boots a previous-release kaval and drives a real restart — ~3
-  // minutes, measured, and the single most expensive thing in the `daemon` CI
-  // node. It has its OWN node for exactly that reason (see this file's header
-  // and the suite's), but `padi`'s suite collected it anyway and paid for a
-  // second, WEAKER copy every run: no KOLU_PREVIOUS_* env, so it re-derived the
-  // previous tag and nix-built it again, and no KOLU_UPGRADE_WINDOW_REQUIRE, so
-  // a collapse there would not even have failed. The `test:daemon` script
-  // excludes it; `upgrade-window` names it explicitly and keeps running it,
-  // which the assertion above pins from the other end.
   const manifest = JSON.parse(
     readFileSync(join(REPO_ROOT, "packages", "padi", "package.json"), "utf8"),
   ) as { scripts?: Record<string, string> };

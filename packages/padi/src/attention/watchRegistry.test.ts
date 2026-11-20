@@ -1,10 +1,3 @@
-/**
- * Pins the standing subscriptions — and above all the property they exist for:
- * an event that lands while NOBODY is draining is still there afterwards. That
- * is the difference between this and the edge-triggered `wait_*` tools, and it
- * is the seam a coordinator's dropped merge-ready report fell through.
- */
-
 import type { PadiStateEvent } from "@kolu/padi-client/surface";
 import { WatchSubscriptionNotFound } from "@kolu/padi-client/surface";
 import type { WatchScope } from "@kolu/padi-client/watchScope";
@@ -40,10 +33,6 @@ const event = (
   at: 1_700_000_000_000,
 });
 
-/** A registry whose `daemonSeq` tracks the module counter `event()` mints from —
- *  i.e. the daemon's real high-water mark, which is what the stale-cursor guard
- *  checks an acknowledgement against. A test that wants to model a cursor from a
- *  PREVIOUS daemon generation overrides it. */
 const registry = (
   opts: {
     limit?: number;
@@ -60,20 +49,12 @@ const registry = (
   createWatchRegistry({
     log: silentLogger,
     daemonSeq: () => seq,
-    // Queue-only tests have no state watch. A filtered `open` in one is a test
-    // bug, so the stub SAYS so rather than opening a subscription nothing feeds
-    // — the registry itself no longer admits being built without one.
     subscribeStates: () => {
       throw new Error("this registry was built without a state watch");
     },
     ...opts,
   });
 
-/** A stand-in agent-state watch: it records every spec it was subscribed with,
- *  answers each subscribe with a SNAPSHOT batch (as the real engine does), and
- *  hands the test a `push` to fire a later transition or nag into that same
- *  subscription. The engine's own decisions are pinned in `stateWatch.test.ts`;
- *  what these pins are about is what the QUEUE does with what it is handed. */
 function fakeStateWatch() {
   const specs: StateWatchSpec[] = [];
   const seeds: Array<ReadonlyMap<TerminalId, StateWatchAnnounced> | undefined> =
@@ -84,9 +65,6 @@ function fakeStateWatch() {
     { spec: StateWatchSpec; emit: (batch: StateWatchBatch) => void }
   >();
   let handle = 0;
-  // The SAME module counter `event()` mints from — in the daemon both sources
-  // share one sequence, and a subscription's acknowledgement watermark is only
-  // meaningful because they do.
   const stateEvent = (
     id: string,
     kind: PadiStateEvent["kind"],
@@ -100,13 +78,8 @@ function fakeStateWatch() {
   });
   return {
     specs,
-    /** Every seed each attachment was opened with — the previous attachment's
-     *  budget, or `undefined` on a first open. */
     seeds,
-    /** Every budget an attachment reported — what its successor receives. */
     budgets,
-    /** How many attachments are live right now — a re-open that left the old one
-     *  running would double every nag. */
     liveCount: () => live.size,
     subscribeStates: (
       filter: StateWatchFilter,
@@ -121,7 +94,6 @@ function fakeStateWatch() {
       const counts = new Map<TerminalId, StateWatchAnnounced>(seed);
       budgets.push(counts);
       live.set(key, { spec, emit });
-      // The real engine answers a subscribe with the currently-matching set.
       emit([stateEvent("standing", "snapshot")]);
       return {
         stop: () => {
@@ -130,15 +102,12 @@ function fakeStateWatch() {
         counts,
       };
     },
-    /** Fire one event into every live attachment. */
     push(id: string, kind: PadiStateEvent["kind"]) {
       for (const { emit } of live.values()) emit([stateEvent(id, kind)]);
     },
   };
 }
 
-/** Accept one frame carrying a single event — the shape most of these pins want.
- *  `accept` takes a FRAME because that is what the source emits. */
 const acceptOne = (r: WatchRegistry, ...ids: string[]): void => {
   for (const id of ids) r.acceptSettle([event(id)]);
 };
@@ -147,7 +116,6 @@ describe("watch registry", () => {
   it("buffers events that arrive while nobody is draining — THE point", () => {
     const r = registry();
     r.open("campaign");
-    // Three workers settle while the supervisor is busy elsewhere.
     acceptOne(r, "a", "b", "c");
     const drained = r.drain("campaign");
     expect(drained.events.map((e) => e.id)).toEqual(["a", "b", "c"]);
@@ -160,11 +128,7 @@ describe("watch registry", () => {
     acceptOne(r, "a");
     const first = r.drain("campaign");
     expect(first.events).toHaveLength(1);
-    // The caller never came back with the ack — its reply was lost to a host
-    // timeout, an interruption, a dropped socket. The event MUST still be here;
-    // a destructive read would have discarded a report nobody ever saw.
     expect(r.drain("campaign").events.map((e) => e.id)).toEqual(["a"]);
-    // Once acknowledged, it is gone.
     expect(r.drain("campaign", first.ackAfter).events).toHaveLength(0);
   });
 
@@ -173,7 +137,6 @@ describe("watch registry", () => {
     r.open("campaign");
     acceptOne(r, "a");
     const first = r.drain("campaign");
-    // `b` lands while the caller is still processing the first batch.
     acceptOne(r, "b");
     const second = r.drain("campaign", first.ackAfter);
     expect(second.events.map((e) => e.id)).toEqual(["b"]);
@@ -185,7 +148,6 @@ describe("watch registry", () => {
     acceptOne(r, "a", "b");
     const all = r.drain("campaign");
     expect(r.drain("campaign", all.ackAfter).events).toHaveLength(0);
-    // A retry carrying an OLD ack must not un-acknowledge anything.
     expect(r.drain("campaign", 0).events).toHaveLength(0);
   });
 
@@ -193,7 +155,6 @@ describe("watch registry", () => {
     const r = registry();
     r.open("campaign");
     acceptOne(r, "a");
-    // The MCP process died and came back; the agent re-opens the same name.
     const { sub, reattached } = r.open("campaign");
     expect(reattached).toBe(true);
     expect(sub.feed.buffer).toHaveLength(1);
@@ -201,15 +162,12 @@ describe("watch registry", () => {
   });
 
   it("a FRESH subscription refuses history at or below its watermark, even if it arrives late", () => {
-    // `open` reads the watermark while a settle frame may already be in flight
-    // to the sinks. Letting that frame land would make the subscription's own
-    // promise — "reports what happens NEXT" — false on its very first drain.
     const stale = event("a");
     const r = registry({ daemonSeq: () => stale.seq });
     r.open("late");
-    r.acceptSettle([stale]); // exactly AT the watermark — already declined history
+    r.acceptSettle([stale]);
     expect(r.drain("late").events).toEqual([]);
-    r.acceptSettle([event("b")]); // the first genuinely new one
+    r.acceptSettle([event("b")]);
     expect(r.drain("late").events.map((e) => e.id)).toEqual(["b"]);
   });
 
@@ -219,7 +177,6 @@ describe("watch registry", () => {
     clock = 41;
     const { sub, reattached } = r.open("late");
     expect(reattached).toBe(false);
-    // It reports what happens NEXT, not history the supervisor already handled.
     expect(sub.acknowledged).toBe(41);
   });
 
@@ -252,9 +209,6 @@ describe("watch registry", () => {
       scope: scopeOf({ ids: ["a" as TerminalId, "b" as TerminalId] }),
     });
     acceptOne(r, "a", "b");
-    // Re-scoping is a statement about the QUEUE, not only about future events —
-    // otherwise `ids` and `buffer` describe two different subscriptions and the
-    // next drain hands over an event the caller has said it does not want.
     r.open("both", { scope: scopeOf({ ids: ["a" as TerminalId] }) });
     expect(r.drain("both").events.map((e) => e.id)).toEqual(["a"]);
   });
@@ -264,11 +218,8 @@ describe("watch registry", () => {
     r.open("campaign");
     acceptOne(r, "a", "b", "c", "d", "e");
     const drained = r.drain("campaign");
-    // The newest survive; the count is how the caller learns the tail is partial.
     expect(drained.events.map((e) => e.id)).toEqual(["c", "d", "e"]);
     expect(drained.dropped).toBe(2);
-    // The count rides until ACKNOWLEDGED, like the events it describes — a
-    // caller whose reply was lost must still learn its history has a hole.
     expect(r.drain("campaign").dropped).toBe(2);
     expect(r.drain("campaign", drained.ackAfter).dropped).toBe(0);
   });
@@ -276,31 +227,18 @@ describe("watch registry", () => {
   it("a drop that lands AFTER a reported batch survives that batch's ack", () => {
     const r = registry({ limit: 2 });
     r.open("campaign");
-    acceptOne(r, "a", "b", "c"); // one dropped
+    acceptOne(r, "a", "b", "c");
     const first = r.drain("campaign");
     expect(first.dropped).toBe(1);
-    // Two more overflow while the caller is still processing the first batch.
     acceptOne(r, "d", "e");
-    // `after` acknowledges events at or below a SEQ; a drop count has no seq, so
-    // only the drops the acknowledged batch actually REPORTED are covered by it.
-    // Zeroing the whole counter would erase these two exactly as silently as the
-    // truncation this module refuses to do.
     expect(r.drain("campaign", first.ackAfter).dropped).toBe(2);
   });
 
   it("IGNORES an acknowledgement from a previous daemon generation — the restart-recovery trap", () => {
-    // `seq` restarts at 0 on every padi boot while a supervisor keeps passing
-    // back the `ackAfter` it remembers, and nothing on the wire tells it a
-    // restart happened. Taken as truth, that cursor sets a watermark no future
-    // event can climb past and `accept` discards every settle for the rest of
-    // the daemon's life — silent, permanent blindness, which is the exact
-    // failure this module exists to remove.
     let clock = 0;
     const r = registry({ daemonSeq: () => clock });
     r.open("campaign");
-    // A cursor from before the restart, far beyond anything this daemon emitted.
     r.drain("campaign", 5_000);
-    // The daemon's own sequence advances normally afterwards.
     const fresh = event("a");
     clock = fresh.seq;
     r.acceptSettle([fresh]);
@@ -311,13 +249,8 @@ describe("watch registry", () => {
     const r = registry({ subLimit: 2 });
     r.open("one");
     r.open("two");
-    // Re-opening an EXISTING name is always fine — that is the reuse the cap is
-    // there to encourage.
     expect(() => r.open("one")).not.toThrow();
-    // A third NAME is refused: evicting a queue to make room would blind a
-    // supervisor that did nothing wrong.
     expect(() => r.open("three")).toThrow(/already open/);
-    // And the existing queues are untouched.
     acceptOne(r, "a");
     expect(r.drain("one").events).toHaveLength(1);
   });
@@ -325,8 +258,6 @@ describe("watch registry", () => {
   it("REFUSES a drain against a name nobody opened, naming what IS open", () => {
     const r = registry();
     r.open("campaign");
-    // Answering `{events: []}` here would read to a supervisor exactly like a
-    // quiet workspace — the failure this error class exists to make impossible.
     expect(() => r.drain("campiagn")).toThrow(WatchSubscriptionNotFound);
     try {
       r.drain("campiagn");
@@ -358,8 +289,6 @@ describe("watch registry", () => {
       rings += 1;
     });
     r.open("campaign");
-    // One fold retired three lanes: one fact, one ring. The drain behind it is
-    // the authority on what happened.
     r.acceptSettle([event("a"), event("b"), event("c")]);
     expect(rings).toBe(1);
     expect(r.drain("campaign").events).toHaveLength(3);
@@ -374,7 +303,7 @@ describe("watch registry", () => {
     r.open("campaign");
     acceptOne(r, "a");
     expect(rings).toBe(1);
-    r.close("campaign"); // closing rings too, so a parked consumer re-drains
+    r.close("campaign");
     expect(rings).toBe(2);
     r.open("campaign");
     acceptOne(r, "b");
@@ -388,9 +317,6 @@ describe("watch registry", () => {
       rings += 1;
     });
     r.open("campaign");
-    // Nothing ever landed in this queue. Without the ring, a parked consumer
-    // would wait out its whole timeout against a subscription that no longer
-    // exists — the outcome the close is specifically here to prevent.
     r.close("campaign");
     expect(rings).toBe(1);
     expect(() => r.drain("campaign")).toThrow(WatchSubscriptionNotFound);
@@ -400,8 +326,6 @@ describe("watch registry", () => {
     const r = registry();
     r.open("campaign");
     r.close("campaign");
-    // A boolean `false` reads to an agent as "there was nothing to report",
-    // which is exactly the confusion `WatchSubscriptionNotFound` exists to end.
     expect(() => r.close("campaign")).toThrow(WatchSubscriptionNotFound);
   });
 });
@@ -417,8 +341,6 @@ describe("watch registry — a subscription that named the agent-state knobs", (
     const watch = fakeStateWatch();
     const r = registry({ subscribeStates: watch.subscribeStates });
     r.open("supervise", { filter });
-    // The whole point of the snapshot: a supervisor that just (re)attached is
-    // told what is standing before it is told about anything that changes.
     expect(r.drain("supervise").events.map((e) => e.kind)).toEqual([
       "snapshot",
     ]);
@@ -431,8 +353,6 @@ describe("watch registry — a subscription that named the agent-state knobs", (
     watch.push("a", "transition");
     watch.push("a", "nag");
     watch.push("a", "nag");
-    // This is the property the settle feed could not have: one terminal, one
-    // episode, reported again and again for as long as it keeps holding.
     expect(r.drain("supervise").events.map((e) => e.kind)).toEqual([
       "snapshot",
       "transition",
@@ -450,8 +370,6 @@ describe("watch registry — a subscription that named the agent-state knobs", (
     });
     expect([...(watch.specs[0]?.scope.include ?? [])]).toEqual(["a"]);
     r.open("fleet", { filter });
-    // Omitting ids is the ABSENCE of a claim, so the fleet is watched — the
-    // enumeration-blindness the optional list exists to end.
     expect(watch.specs[1]?.scope.include).toBeUndefined();
   });
 
@@ -473,8 +391,6 @@ describe("watch registry — a subscription that named the agent-state knobs", (
     r.open("supervise", { filter });
     r.open("supervise", { filter });
     expect(watch.liveCount()).toBe(1);
-    // …and the re-open answered with a fresh snapshot of its own, on top of the
-    // queue it preserved.
     expect(r.drain("supervise").events.map((e) => e.kind)).toEqual([
       "snapshot",
       "snapshot",
@@ -488,12 +404,8 @@ describe("watch registry — a subscription that named the agent-state knobs", (
   it("a re-open that CHANGES the question replaces the queue rather than mixing two vocabularies", () => {
     const watch = fakeStateWatch();
     const r = registry({ subscribeStates: watch.subscribeStates });
-    // It was a settle subscription, and it has settle events queued.
     r.open("campaign");
     acceptOne(r, "a");
-    // Now the supervisor adopts the state knobs. Handing it back its old
-    // `finished` events would put two vocabularies in one queue for a caller
-    // that has just named only one of them.
     r.open("campaign", { filter });
     expect(r.drain("campaign").events.map((e) => e.kind)).toEqual(["snapshot"]);
   });
@@ -503,8 +415,6 @@ describe("watch registry — a subscription that named the agent-state knobs", (
     const r = registry({ subscribeStates: watch.subscribeStates });
     r.open("campaign", { filter });
     watch.push("a", "nag");
-    // The ordinary restart path: same name, same knobs. The whole reason this is
-    // keyed by a caller-chosen name is that the queue survives it.
     r.open("campaign", { filter: { ...filter, states: new Set(["waiting"]) } });
     expect(r.drain("campaign").events.map((e) => e.kind)).toEqual([
       "snapshot",
@@ -518,10 +428,6 @@ describe("watch registry — a subscription that named the agent-state knobs", (
     const r = registry({ subscribeStates: watch.subscribeStates });
     r.open("supervise", { filter });
     expect(watch.seeds[0]).toBeUndefined();
-    // The ordinary restart — same name, same question: the new attachment is
-    // seeded with the budget the old one left, so the ENGINE (not the queue)
-    // is what stops a re-open from re-arming the cap. What it does with a
-    // stale or moved-on seed is pinned in stateWatch.test.ts.
     r.open("supervise", {
       filter: { ...filter, states: new Set(["waiting"]) },
     });
@@ -534,10 +440,6 @@ describe("watch registry — a subscription that named the agent-state knobs", (
     r.open("supervise", {
       filter: { ...filter, heldForMs: 0, nagMs: 60_000, nagCount: 3 },
     });
-    // Reopen with the same name but a CHANGED knob: the queue is already
-    // emptied for a changed question; the budget is the accounting OF those
-    // answers, and inheriting a spent one would silence the new question's
-    // reminders without a word.
     r.open("supervise", {
       filter: { ...filter, heldForMs: 60_000, nagMs: 60_000, nagCount: 3 },
     });
@@ -585,11 +487,6 @@ describe("watch registry — a subscription that named the agent-state knobs", (
   });
 
   it("never invents a feed — a filtered open reaches the state watch it was BUILT with", () => {
-    // `subscribeStates` is a required dependency now, so "a subscription with a
-    // filter and nothing to feed it" is unbuildable rather than a runtime
-    // surprise an hour into a daemon's life. What is left to pin is that the
-    // registry does not quietly skip the attachment: a queue-only harness hears
-    // from its own stub.
     const r = registry();
     expect(() => r.open("supervise", { filter })).toThrow(
       /built without a state watch/,
@@ -598,16 +495,10 @@ describe("watch registry — a subscription that named the agent-state knobs", (
 });
 
 describe("watch registry — the MCP face under a repainting idle terminal", () => {
-  /** The REAL engine behind a real queue, joined the way `servePadi` joins them
-   *  — this is the seam the MCP face actually has, and the doorbell is the part
-   *  of it the engine's own tests cannot see. */
   function wired() {
     const h = stateWatchHarness();
     const r = createWatchRegistry({
       log: silentLogger,
-      // The hub's OWN counter — one sequence behind one queue, as `servePadi`
-      // wires it. Two would leave the watermark reading numbers the buffer
-      // never carries, and every event would be silently discarded.
       daemonSeq: () => h.seq.last(),
       subscribeStates: (filter, scope, emit) =>
         h.hub.subscribe(specOf(filter, scope), emit),
@@ -616,9 +507,6 @@ describe("watch registry — the MCP face under a repainting idle terminal", () 
   }
 
   it("does not ring the doorbell for a repaint — a supervisor is not woken once a second", async () => {
-    // `watch_next` parks on the pulse and drains when it rings. A ring per
-    // repaint would wake a supervising agent about once a second to be handed
-    // an empty batch — the flood, arriving at the MCP face instead of the CLI's.
     const { h, r } = wired();
     h.observe(frame({ a: { agent: makeAgent("tool_use") } }));
     await settled();
@@ -641,11 +529,9 @@ describe("watch registry — the MCP face under a repainting idle terminal", () 
       );
       await settled();
     }
-    // Sixty seconds of repainting, nothing owed, nothing rung, nothing queued.
     expect(rings).toBe(0);
     expect(r.drain("campaign").events).toEqual([]);
 
-    // …and the hold that WAS owed rings exactly once, on schedule.
     h.advance(1_000);
     expect(rings).toBe(1);
     expect(r.drain("campaign").events.map((e) => e.kind)).toEqual([

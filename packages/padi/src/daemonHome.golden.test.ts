@@ -1,13 +1,3 @@
-/**
- * Golden path pins — every padi-derived path must stay byte-identical to the
- * master-shipped derivation. A surviving old daemon is found only if the new
- * build spells the same strings.
- *
- * Expected runtime sockets are frozen via `@kolu/surface/unix-socket`'s
- * builder + the same digest formula padi ships (sha256 slice), never through
- * production helpers that now route through daemonHome.
- */
-
 import { createHash } from "node:crypto";
 import { dirname, join, resolve } from "node:path";
 import {
@@ -51,7 +41,6 @@ afterEach(() => {
   }
 });
 
-/** Frozen master digest — same sha256 slice as `padiDigest`. */
 function masterDigest(stateRoot: string): string {
   return createHash("sha256")
     .update(resolve(stateRoot))
@@ -98,7 +87,6 @@ describe("daemonHome golden — padi paths byte-identical to master", () => {
     expect(home.socketPath).toBe(expectedSock);
     expect(home.gatePath).toBe(join(expectedDir, PADI_GATE_FILE));
     expect(home.gatePath).toBe(join(expectedDir, "padi.pid"));
-    // never padi-<digest>.pid
     expect(home.gatePath.includes(`padi-${digest}.pid`)).toBe(false);
   });
 
@@ -125,8 +113,6 @@ describe("daemonHome golden — padi paths byte-identical to master", () => {
   });
 
   it("padi logs stay on the persistent state-root (not the runtime home)", () => {
-    // These are NOT daemonHome paths — pin them so a mistaken migration
-    // into the runtime dir is caught.
     expect(padiLogPath(stateRoot)).toBe(
       join(resolve(stateRoot), PADI_LOG_FILE),
     );

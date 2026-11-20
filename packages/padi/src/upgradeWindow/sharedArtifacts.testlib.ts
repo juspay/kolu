@@ -1,22 +1,6 @@
-/**
- * Kolu's data-only registry of every on-disk artifact both daemon generations
- * touch. Generic matching, sweeping, messaging, and watchdog logic lives in
- * `@kolu/surface-daemon/upgrade-window.testlib`.
- *
- * Keep this list the single source of truth. When you invent a new path both
- * builds read or write under the state-root / runtime rendezvous, ADD IT HERE
- * (with `diskBasenames` if it is a real file) and register a covering test.
- * Versioned entries additionally declare the reader outcome that test proves.
- */
-
 export type { SharedArtifact } from "@kolu/surface-daemon";
 import type { SharedArtifact } from "@kolu/surface-daemon";
 
-/**
- * The inventory. Coverage is filled by the tests that land with this PR; a
- * later shared file without an entry here is the watchdog's job to refuse —
- * both when listed without coverage AND when found on disk unlisted.
- */
 export const SHARED_ARTIFACTS: readonly SharedArtifact[] = [
   {
     id: "kaval-gate",
@@ -108,11 +92,8 @@ export const SHARED_ARTIFACTS: readonly SharedArtifact[] = [
     coveredByTest: "padi/agentToolsBakeRecord.test.ts",
     versionField: null,
     diskBasenames: [],
-    // The link itself AND everything under it: the sweep's recursive readdir
-    // follows `tools/<i>` (a symlink to a store dir), so the matched path can be
-    // the link or a tool inside it. Both are the bake's store content, not a padi
-    // protocol surface — the pattern is what keeps the store's bin names out of
-    // the unknown-artifact report.
+    // The sweep's recursive readdir follows `tools/<i>` (a symlink to a store
+    // dir), so a matched path can be the link or a tool inside it.
     diskBasenamePatterns: [/(^|\/)tools\/[0-9]+(?:\/|$)/],
     why: "The daemon-owned LATE-BINDING tool links a terminal is actually stamped with (#2305): each tools/<i> is a symlink to the bake's store dir, flipped at every padi boot, so a terminal spawned under ANY build resolves the `kolu` of the daemon CURRENTLY serving it instead of the build it was born under. A pre-link daemon wrote none, so an old terminal keeps its frozen store path and must be reopened once; a live one always has one link per bake entry, pruned to the current count.",
   },
@@ -136,8 +117,6 @@ export const SHARED_ARTIFACTS: readonly SharedArtifact[] = [
       "__internal__.migrations.version (each member is a byte-copy of config.json)",
     versionDisposition: "inert-to-boot-restore-refuses",
     diskBasenames: [],
-    // The ring's member-name grammar (kolu-shared/state-backup): base derived
-    // from the state file, fs-safe UTC stamp, optional same-millisecond bump.
     diskBasenamePatterns: [
       /(^|\/)backups\/config\.\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{3}Z(?:-\d+)?\.json$/,
     ],
@@ -149,7 +128,6 @@ export const SHARED_ARTIFACTS: readonly SharedArtifact[] = [
     role: "session",
     coveredByTest: "padi/oldSessionFile.test.ts",
     versionField: null,
-    // Logical key inside config.json — not a separate file on disk.
     diskBasenames: [],
     diskBasenamePatterns: [],
     why: "The saved-session payload inside the conf store — previous-shape terminals must backfill or refuse, never vanish.",
@@ -159,13 +137,9 @@ export const SHARED_ARTIFACTS: readonly SharedArtifact[] = [
     pathShape:
       "$XDG_RUNTIME_DIR/kaval-<digest>/bashrc-<terminalId> | zdotdir-<terminalId>/.zshrc",
     role: "config",
-    // Created when a terminal is spawned (previousRelease.e2e creates one).
     coveredByTest: "padi/previousRelease.e2e.test.ts",
     versionField: null,
     diskBasenames: [],
-    // kolu-pty prepareShellInit: bashrc-<uuid> file, or zdotdir-<uuid>/.zshrc
-    // under kaval's rcDir (often `<rendezvous>/rc/…` — match anywhere in the
-    // relative path, not only at the root of the runtime dir).
     diskBasenamePatterns: [
       /(^|\/)bashrc-[0-9a-f-]{36}$/i,
       /(^|\/)zdotdir-[0-9a-f-]{36}$/i,
@@ -190,7 +164,6 @@ export const SHARED_ARTIFACTS: readonly SharedArtifact[] = [
     coveredByTest: null,
     versionField: null,
     diskBasenames: ["padi.log"],
-    // pino-roll keeps 3 generations: padi.log, padi.log.1, padi.log.2, …
     diskBasenamePatterns: [/^padi\.log(?:\.\d+)?(?:\.old)?$/],
     why: "Diagnostic pino stream under the state-root — not a protocol surface.",
   },

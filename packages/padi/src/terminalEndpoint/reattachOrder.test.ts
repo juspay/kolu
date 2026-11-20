@@ -1,28 +1,3 @@
-/**
- * A survivor reattach must rebuild the registry in SAVED ORDER.
- *
- * The registry is a `Map`, and `listTerminals` contracts that its insertion
- * order IS the client's row order ("new terminals append to the tail; clients
- * render this order directly"). Since juspay/kolu#2141 the dock consumes that
- * order verbatim — repo → branch → creation — instead of re-sorting every level
- * by recency, and `Cmd+1..9` is bound to the result. So an insertion order that
- * quietly disagrees with the saved session is no longer a cosmetic detail: it
- * moves rows a user has learned the position of.
- *
- * The seam these pin: `adoptSurvivingSession` used to rebuild in two passes —
- * every adopted ACTIVE first, then every SLEEPING record — so a session saved as
- * [active, sleeping, active] came back as [active, active, sleeping]. Every ☾
- * tile jumped to the bottom of its repo section on a padi restart, and since
- * dock SECTION order is decided by each repo's first row, a repo whose earliest
- * terminal was the sleeper lost its section position too. It is one walk now.
- *
- * The cold-boot restore path (`restoreSession`) walks its saved list as
- * top-levels first, then sub-terminals — so its TOP-LEVEL insertion order is
- * saved order, which is the order the dock's rows and `Cmd+1..9` read (splits
- * claim no shortcut number). This is the survivor path agreeing with it on that
- * leg; the cold leg is pinned by `session/sessionRestore.test.ts`.
- */
-
 import { Effect } from "effect";
 import type { PtyHostListEntry } from "kaval";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -33,10 +8,6 @@ const killed = vi.hoisted(() => ({ ids: [] as string[] }));
 vi.mock("../ptyHost/index.ts", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../ptyHost/index.ts")>();
   const { emptySensorTaps } = await import("./sensorTaps.testlib.ts");
-  // Same surviving-daemon double as `adoptTolerance.test.ts`: the shared empty
-  // per-terminal taps (adoption must not depend on a sensor emitting, and an
-  // ABSENT tap would make adoption reap the PTY under test), and a recording
-  // `kill`.
   return {
     ...actual,
     ptyHostClient: {
@@ -168,8 +139,6 @@ beforeEach(() => {
   listEntries.value = [];
   killed.ids = [];
   setPadiSurfaceCtx(sessionBackedPadiCtx());
-  // A GENUINE survivor (same kaval process across the redeploy), so the boot
-  // takes the converge path rather than the replaced-daemon park.
   setPadiLastPairedDaemonStore(
     inMemoryStore<PairedDaemon | null>({ startedAt: 1000 }),
   );
@@ -194,9 +163,6 @@ describe("adoptSurvivingSession — registry order after a survivor reattach", (
       activeTerminalId: FIRST,
       savedAt: 1,
     });
-    // Both actives survived; the sleeper released its PTY at sleep, so it is
-    // seeded rather than adopted — which is exactly why it used to be seeded in
-    // a separate pass, at the tail.
     listEntries.value = [liveEntry(FIRST, "/first"), liveEntry(LAST, "/last")];
 
     await Effect.runPromise(adoptSurvivingSession);
@@ -207,7 +173,6 @@ describe("adoptSurvivingSession — registry order after a survivor reattach", (
       SLEEPER,
       LAST,
     ]);
-    // Nothing was reaped on the way — the ordering fix must not cost a survivor.
     expect(killed.ids).toEqual([]);
   });
 
@@ -217,9 +182,6 @@ describe("adoptSurvivingSession — registry order after a survivor reattach", (
       activeTerminalId: FIRST,
       savedAt: 1,
     });
-    // A create the debounced autosave never saw. The daemon happens to list it
-    // FIRST, so this also pins that the daemon's list order does not decide the
-    // position of terminals that do have a saved one.
     listEntries.value = [
       liveEntry(ORPHAN, "/orphan"),
       liveEntry(FIRST, "/first"),

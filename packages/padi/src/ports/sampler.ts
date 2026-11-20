@@ -1,63 +1,3 @@
-/**
- * The port scan's CADENCE — one 5-second baseline, and nothing else.
- *
- * **Per-pass cost is measured at the osfacts binary**, not restated here. What
- * the cadence has to bound is how often that binary is FORKED, because the fork
- * is the cost: a 90 s CPU profile of a real padi (16 terminals, juspay/kolu#2286)
- * put `spawn` ← `execFile` ← osfacts-client at **19.9 % of padi's busy time under
- * load and 30.7 % under light load** — the single largest JS frame in the daemon.
- *
- * It got there through an output NUDGE. Terminal output used to pull a scan
- * forward, floored at 1 s, so a host with any live TUI on it forked one osfacts
- * child per second forever — a steady ~2.4 % of a core that no one was reading,
- * since the floor's duty-cycle derivation bounded the cost of a PASS and said
- * nothing about the cost of the fork that preceded it. The nudge bought at most
- * 5 s of promptness on a chip; it is gone, and with it every notion of an edge,
- * a floor, and a per-pass duty cycle.
- *
- * Output remains, as it always was, only a HINT ABOUT WHEN TO LOOK — and the
- * baseline now answers that hint within 5 s for free. The socket table stays the
- * sole source of facts: a printed URL never creates a chip. That line is exactly
- * where VS Code's output mode went wrong — its terminal-URL regex CREATES
- * forwards with no liveness check, and most of its knob matrix exists to
- * compensate for forwarding on that uncertain evidence.
- *
- * ## The cadence is DECLARED, not implemented
- *
- * This module used to hand-roll the loop: a `setTimeout` chain, a `running`
- * non-overlap flag, a mid-flight nudge latch, an error arm that held the last
- * sample, an `unref`, and a `disposed` teardown latch. Every one of those belongs
- * to the reactor's poll source (`@kolu/surface`'s `reactor.ts`), which is where
- * padi's `memorySampler` and host-inventory samplers already read them from:
- *
- *  - `source({ read, install })` owns the T+0 seed, the non-overlap (`inFlight`)
- *    guard, the mid-flight coalesce, later-read LOG-SKIP-CONTINUE, and teardown
- *    through the connector's signal.
- *  - `everyMs` owns the `unref`'d interval.
- *
- * Nothing padi-specific is left in the cadence, which is the point: there is one
- * interval and no policy around it.
- *
- * ## The two remaining properties, and why
- *
- *  - **The baseline is the whole readout.** It catches a QUIET bind (a server
- *    that printed nothing), a loud one (within 5 s), and port DEATH — which
- *    PRT2's auto-cancel policy rides on.
- *  - **A pass is ALL OR NOTHING.** The read joins the whole scan to the whole
- *    target list and returns one map; a scan that could not answer for any one
- *    target re-serves the last map instead. There is no way to spell "published
- *    the first two targets, then failed", which is what a per-target publish loop
- *    with a throw in it did. The HOST's listeners ride the same sample, so a
- *    blind pass re-serves them too. One terminal whose ROOT is unreadable is not
- *    a blind pass: that terminal keeps its last sample (or stays `unknown`) while
- *    every other terminal and the host publish.
- *  - **The host is watched while padi has run a terminal, even at zero.** A
- *    detached server outlives the terminal that started it, and a door onto it
- *    must still be reaped when it dies — which needs a live host reading after
- *    the last terminal closes. The sampler only arms on padi's first terminal,
- *    so a padi that never ran one still does no OS work.
- */
-
 import { everyMs, source } from "@kolu/surface/reactor";
 import type {
   HostListeners,
@@ -77,86 +17,38 @@ import {
   scanPorts,
 } from "./scan.ts";
 
-/** Baseline cadence of the port scan. The same 5 s `memorySampler` uses, for the
- *  same reason: coarse enough to be free, live enough to be worth reading. */
 export const PORT_SCAN_INTERVAL_MS = 5_000;
 
-/** One terminal to attribute ports to — its id and the ROOT pid of its PTY (the
- *  shell for a shell-rooted terminal, the command for a command-rooted one). The
- *  pid → terminal join lives HERE rather than in the scan, which knows only about
- *  pids: this is where the app's identity vocabulary belongs. The targets are
- *  re-read every pass; nothing holds them. */
 export interface PortScanTarget {
   id: TerminalId;
   rootPid: number;
 }
 
 export interface PortSampler {
-  /** Stop the cadence. Idempotent; a pass already in flight completes and its
-   *  result is discarded. */
   dispose(): void;
 }
 
-/** One pass's result, per SAMPLED LIFECYCLE plus the host — what the poll node
- *  holds and the fan-out publishes. */
 interface PortSample {
   terminals: ReadonlyMap<TerminalId, { rootPid: number; ports: TerminalPorts }>;
   host: HostListeners;
 }
 
-/** The sample before any pass has landed. */
 const NO_SAMPLE: PortSample = {
   terminals: new Map(),
   host: UNKNOWN_HOST_LISTENERS,
 };
 
-/** Start the port sampler. `targets()` is re-read at the top of EVERY pass — that
- *  is what makes "repartition from the current root pids every tick" true of the
- *  running system rather than only of the scan function: a terminal that closed
- *  between two passes is simply not in the list.
- *
- *  `scan` is injectable so the cadence can be tested without an OS; production
- *  passes the real `scanPorts`. */
 export function createPortSampler(opts: {
   targets: () => readonly PortScanTarget[];
-  /** Deliver one terminal's re-sampled port set. Called for EVERY target of the
-   *  pass, including those serving nothing — a terminal whose last port died must
-   *  hear about the empty set. The consumer owns the structural dedup. */
   publish: (id: TerminalId, ports: TerminalPorts) => void;
-  /** The root pid this terminal has RIGHT NOW, or `undefined` if it is gone — the
-   *  freshness question, asked per terminal at the publish boundary. Separate from
-   *  `targets()` because it is a point lookup the caller can answer from the map it
-   *  already keys by id, where `targets()` would rebuild the whole list. */
   rootPidOf: (id: TerminalId) => number | undefined;
-  /** Deliver the host's listeners — every pass, including a re-served one; the
-   *  consumer (a cell with `hostListenersEqual` as its dedup) drops an unchanged
-   *  reading. `unknown` whenever the sampler is not looking. */
   publishHost: (listeners: HostListeners) => void;
   log: Logger;
-  scan?: (rootPids: readonly number[]) => Promise<PortScan>;
+  scan?: (
+    rootPids: readonly number[],
+  ) => Effect.Effect<PortScan, PortScanError>;
 }): PortSampler {
-  // THE reactor-poll Promise edge for this sampler, and its only run. The
-  // reactor's `read` dep is `() => Promise<T>` BY DESIGN — a poll source owns
-  // its own cadence and seed and is deliberately not Effect code (H1) — so the
-  // injectable `scan` seam is Promise-shaped to match the read it feeds, and
-  // `scanPorts` (Effect-native since the client went Effect-native) is
-  // run HERE, once, rather than at each of the three places the read uses it.
-  // `runPromise` rejects with the failure value itself, so the
-  // permanent-vs-transient `instanceof PortScanError` fold in the read below
-  // reads exactly what the old rejection handed it.
-  const scan =
-    opts.scan ?? ((rootPids) => Effect.runPromise(scanPorts(rootPids)));
-  // The permanent refusal, asked BEFORE the cadence exists. Checking it inside the
-  // read could not deliver the "say it once, then stop" contract: the first read on
-  // a host with no terminals yet answers an empty map without reaching the platform
-  // switch, so the refusal would land on a later tick — where the poll source logs
-  // and holds, and "stop" quietly becomes an error every 5 s forever.
-  //
-  // UNCONDITIONAL, including when a `scan` is injected. It used to exempt an
-  // injected scan as "a test's own business", and that exemption was the reason the
-  // refusal could not be tested at all: a test could not attach a counting scan
-  // without also disabling the thing it wanted to observe, so a mutant that logged
-  // once and then armed anyway satisfied every assertion.
+  const scan = opts.scan ?? scanPorts;
   if (!portScanSupported()) {
     opts.log.error(
       { platform: process.platform },
@@ -164,58 +56,28 @@ export function createPortSampler(opts: {
     );
     return { dispose: () => {} };
   }
-  /** The last map a pass actually produced, per SAMPLED LIFECYCLE (`id` + the
-   *  `rootPid` it was read from). Keyed by id alone it outlived the terminal it
-   *  described: sleep/wake deliberately reuses the same terminal UUID with a NEW
-   *  root pid, so a blind pass after a wake re-served the PRE-SLEEP process tree's
-   *  ports into the fresh sensor — whose dedup baseline had just been reset, so it
-   *  published them. The Inspector would then show, and offer to open, a service
-   *  that was never attributed to the current PTY.
-   *
-   *  A blind pass still RE-SERVES rather than publishing an empty set — `[]` reads
-   *  byte-identically to "this terminal serves nothing"
-   *  (`caught-error-must-not-collapse-to-empty`) — but only to the lifecycle that
-   *  actually produced it. */
-  let last: PortSample = NO_SAMPLE;
+  let lastGoodSample: PortSample = NO_SAMPLE;
 
-  /** Pids the last pass already logged as dropped — a pid held by a process
-   *  this scanner can never read (another user's `sudo` child, say) would
-   *  otherwise warn on every single pass for as long as it lives. Diffed
-   *  against each new pass rather than accumulated, so it stays bounded by
-   *  how many pids are CURRENTLY dropped, and a pid that stops being dropped
-   *  (it exited) is warned about again if a different process ever reuses
-   *  its number. */
+  const reserveLastSample = (
+    target: PortScanTarget,
+  ): { rootPid: number; ports: TerminalPorts } | undefined => {
+    const held = lastGoodSample.terminals.get(target.id);
+    return held?.rootPid === target.rootPid ? held : undefined;
+  };
+
   let loggedDroppedPids = new Set<number>();
 
-  /** The sampler's teardown latch — the poll connector's abort signal, and the one
-   *  thing `dispose()` does. Declared HERE, above the read, because the read's
-   *  permanent-failure arm is a caller of it: the stop decision belongs to the pass
-   *  that learned the platform can't be read. */
   const abort = new AbortController();
 
   const node = source<PortSample>({
     label: "terminalPorts",
-    // TOTAL by the poll source's contract: a transient failure logs and re-serves
-    // the last map. A genuinely PERMANENT failure stops the sampler explicitly (it
-    // aborts the connector below) — the framework will not stop it for us, at any
-    // tick, and that symmetry is deliberate (#2101 G1).
     read: async () => {
-      // Re-read every pass. An EMPTY list still scans: the host's listeners are
-      // this sampler's other output, and the forward reaper needs them after the
-      // last terminal closes (see the module header).
       const targets = opts.targets();
       try {
-        const { byRoot, host, dropped, exited } = await scan(
-          targets.map((t) => t.rootPid),
-        );
-        // A dropped listener is a real socket this pass could see but could
-        // not attribute to anyone — it is simply absent from both `byRoot`
-        // and `host.claimed` otherwise, with nothing on the wire saying why.
-        // Logged only on the pids NEWLY dropped this pass (see
-        // `loggedDroppedPids`), so a long-lived unreadable process warns once
-        // rather than every 1-5 s for as long as it lives.
-        const nowDropped = new Set(dropped.map((d) => d.pid));
-        for (const d of dropped) {
+        const { byRoot, host, unattributable, ownerExited } =
+          await Effect.runPromise(scan(targets.map((t) => t.rootPid)));
+        const nowDropped = new Set(unattributable.map((d) => d.pid));
+        for (const d of unattributable) {
           if (loggedDroppedPids.has(d.pid)) continue;
           opts.log.warn(
             { pid: d.pid, port: d.port },
@@ -223,72 +85,42 @@ export function createPortSampler(opts: {
           );
         }
         loggedDroppedPids = nowDropped;
-        // The ordinary exit race (a pid's socket outlived it by a tick) —
-        // expected, not a fault, so `debug` rather than `warn`.
-        for (const e of exited) {
+        for (const e of ownerExited) {
           opts.log.debug(
             { pid: e.pid, port: e.port },
             "port scan: a listener's pid exited before its name could be read — shown as (exited)",
           );
         }
-        // The scan's contract is that EVERY requested pid comes back — with an
-        // empty array when its subtree serves nothing. A missing key is a scan
-        // that failed to answer, not a terminal with no ports, so the whole pass
-        // is void: publishing the targets that DID answer would leave a mixed
-        // old/new sample whose halves depend on iteration order.
         const missing = targets.filter((t) => !byRoot.has(t.rootPid));
         if (missing.length > 0) {
           opts.log.error(
             { missing: missing.map((t) => t.id) },
             "port scan did not answer for every requested terminal — ports left at their last sample",
           );
-          return last;
+          return lastGoodSample;
         }
-        // Build each terminal's `TerminalPorts` ONCE and keep it. An unchanged host
-        // then republishes the SAME OBJECT, which lets the per-terminal sensor drop
-        // it on a pointer compare instead of walking every port — and allocates
-        // nothing in the steady state, which is where a 1 Hz sampler spends its life.
-        // A port that really moved gets a fresh object, so the gate still sees it.
         const next = new Map<
           TerminalId,
           { rootPid: number; ports: TerminalPorts }
         >();
         for (const t of targets) {
           const list = byRoot.get(t.rootPid)!;
-          const held = last.terminals.get(t.id);
+          const held = reserveLastSample(t);
           if (list === "blind") {
-            // This terminal's root could not be read. Re-serve its own last sample
-            // if it has one from THIS lifecycle; otherwise leave it out, so it
-            // stays `unknown` on the wire — never `[]`.
-            if (held?.rootPid === t.rootPid) next.set(t.id, held);
+            if (held) next.set(t.id, held);
             continue;
           }
           const ports: TerminalPorts =
-            held?.rootPid === t.rootPid &&
+            held &&
             held.ports.status === "known" &&
             samePortList(held.ports.list, list)
               ? held.ports
               : { status: "known", list };
           next.set(t.id, { rootPid: t.rootPid, ports });
         }
-        // The host takes no identity rule of its own: it has ONE sink, the
-        // `hostListeners` cell, whose `equals` is the one dedup point.
-        last = { terminals: next, host };
-        return last;
+        lastGoodSample = { terminals: next, host };
+        return lastGoodSample;
       } catch (err) {
-        // The PERMANENT arm STOPS THE SAMPLER, here, at the pass that learned the
-        // truth: a platform this scan cannot read will not become readable in five
-        // seconds, so retrying it is a caught error degrading into an error loop
-        // instead of surfacing. Say it once, at fatal, abort the cadence, and let
-        // the throw unwind — post-abort the poll treats it as an OWNED close, so
-        // nothing further is logged and no tick re-arms.
-        //
-        // The stop is DECIDED HERE rather than by a seed rejection reaching the
-        // `.catch` below, and that is the point (juspay/kolu#2101 G1): a poll read's
-        // failure is cell-local at every tick, so "propagate and let the connector
-        // die" would have worked only on the T+0 pass and looped forever on any
-        // later one. A permanent verdict is this module's to act on, at whichever
-        // pass produces it.
         if (
           err instanceof PortScanError &&
           err.kind === "unsupported-platform"
@@ -300,61 +132,28 @@ export function createPortSampler(opts: {
           abort.abort();
           throw err;
         }
-        // Everything else is THIS pass failing to see (an EACCES on a requested
-        // subtree, an lsof that timed out) and must not publish an empty set. A
-        // terminal we hold no sample for stays `unknown` on the wire — a real state
-        // a consumer reads, not a `[]` that would read as "serves nothing" — so the
-        // window needs no second, weaker naming in a log line.
         opts.log.error(
           { err },
           "port scan failed — ports left at their last sample",
         );
-        return last;
+        return lastGoodSample;
       }
     },
     install: everyMs(PORT_SCAN_INTERVAL_MS),
   });
 
-  // Driven OUTSIDE a `derived.cell`: these samples are not a wire member of padi's
-  // surface — each terminal's set re-enters its own producer through the sensor
-  // channel, so the fan-out below IS the publisher. `connectPoll` is public on
-  // `PollSource` for exactly this, and its abort signal is the sampler's teardown.
   const sampler: PortSampler = {
     dispose: () => abort.abort(),
   };
   void node
     .connectPoll((sample) => {
-      // FRESHNESS CHECK at the publish boundary, not the read one. Between a scan
-      // starting and its result landing, a terminal can sleep and wake — which
-      // deliberately keeps its id and gets a NEW root pid — so an id-keyed publish
-      // would deliver the pre-sleep process tree's ports into the woken terminal's
-      // fresh sensor, whose dedup baseline has just been reset and would therefore
-      // emit them. The Inspector would show, and offer to open, a service that was
-      // never attributed to the current PTY.
-      //
-      // Re-reading `targets()` HERE is what makes that unspellable: a sample is
-      // published only to the exact lifecycle that produced it. A terminal that
-      // changed identity simply hears nothing this pass and is sampled afresh on
-      // the next one.
       for (const [id, held] of sample.terminals) {
-        // A POINT lookup against the caller's own map, rather than rebuilding the
-        // whole target list and indexing it again: the question here is "is this one
-        // terminal still who it was?", asked at most N times, and the caller already
-        // holds a Map keyed by exactly that id.
         if (opts.rootPidOf(id) !== held.rootPid) continue;
         opts.publish(id, held.ports);
       }
-      // The host needs no freshness check: it is not keyed by a lifecycle, and a
-      // reading from before a terminal slept is still a reading of this machine.
       opts.publishHost(sample.host);
     }, abort.signal)
     .catch((err: unknown) => {
-      // A poll read's failure never lands here any more (#2101 G1: cell-local at
-      // every tick, including T+0) — the permanent arm above already logged and
-      // stopped, and its post-abort throw is swallowed as an owned close. What CAN
-      // land here is the connector's own WIRING failing: an `install` that threw.
-      // That is structural, so say it once at fatal and leave the sampler stopped
-      // rather than pretending it is armed.
       opts.log.fatal(
         { err },
         "port sampler could not arm its cadence — this host's listening ports will not be read",

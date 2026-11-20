@@ -1,17 +1,21 @@
-/** Kolu-owned hook bodies for the framework yesterday-daemon fixture. */
-
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { assertDaemonSpawnAllowed } from "@kolu/daemon-test-gate";
 import type { YesterdayDaemonOpts } from "@kolu/surface-daemon/upgrade-window.testlib";
 import { KAVAL_GATE_FILE, PTY_HOST_SOCK_FILE } from "kaval";
 import { match } from "ts-pattern";
 import { requirePadiStateStores as openPadiStateStores } from "../session/stateStore.ts";
 
+export function harnessLogRoot(): string {
+  return mkdtempSync(join(tmpdir(), "upgrade-window-harness-logs-"));
+}
+
 type WithoutFrameworkHooks<T> = T extends unknown
   ? Omit<T, "gateFile" | "socketFile" | "assertSpawnAllowed" | "plantState">
   : never;
 type AppFixtureOptions = WithoutFrameworkHooks<YesterdayDaemonOpts>;
 
-/** Add padi/kaval filenames, spawn policy, and the real conf writer. */
 export function padiYesterdayDaemonOptions(
   opts: AppFixtureOptions = {},
 ): YesterdayDaemonOpts {

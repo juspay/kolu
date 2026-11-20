@@ -1,10 +1,3 @@
-/**
- * Asking agent-distro which profile is in effect in a terminal — one run of
- * the package's `agent-distro --list --json` in the terminal's cwd and spawn
- * env, against the stand-in the e2e fixture uses too
- * (`@kolu/agent-distro/testing`).
- */
-
 import { mkdirSync, mkdtempSync, realpathSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -18,7 +11,6 @@ const HARNESSES = [
 
 let bundle: string;
 
-/** A package whose picker runs `script` (POSIX sh). */
 function picker(script: string): void {
   writeFileSync(join(bundle, "bin", "agent-distro"), `#!/bin/sh\n${script}\n`, {
     mode: 0o755,

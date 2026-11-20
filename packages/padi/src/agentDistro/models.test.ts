@@ -1,13 +1,3 @@
-/**
- * Asking agent-distro about a harness's models on this host — the package's
- * `agent-distro --models <harness>` in the work's repository and
- * `agent-distro --launch <harness>`, against the stand-in the e2e fixture
- * uses too (`@kolu/agent-distro/testing`). Three answers kept apart: a list,
- * a harness that cannot list, and a failure in its own words — never an
- * empty list. And the environment the list runs in: what a new terminal's
- * shell ends up with after the person's dotfiles, not padi's own.
- */
-
 import { execFileSync } from "node:child_process";
 import {
   existsSync,
@@ -37,9 +27,6 @@ import { listAgentModels, runAgentLaunch, runAgentModels } from "./models.ts";
 
 setSpawnServerVersion("9.9.9-test");
 
-/** The daemon's log, as a record of what was handed to it: what a run printed
- *  is capped BEFORE it reaches a file that outlives the question, and that is
- *  only observable where the log is. */
 const logged = vi.hoisted(() => ({ warn: vi.fn(), error: vi.fn() }));
 vi.mock("../log.ts", () => {
   const one = {
@@ -52,8 +39,6 @@ vi.mock("../log.ts", () => {
   return { log: one };
 });
 
-/** The longest string in the newest call of `said` — what a run printed, as
- *  the log got it. */
 const saidInLog = (said: typeof logged.warn): number => {
   const call = said.mock.calls.at(-1);
   if (call === undefined) throw new Error("nothing was logged");
@@ -67,7 +52,6 @@ const saidInLog = (said: typeof logged.warn): number => {
 
 let bundle: string;
 
-/** A package whose picker runs `script` (POSIX sh). */
 function picker(script: string): void {
   writeFileSync(join(bundle, "bin", "agent-distro"), `#!/bin/sh\n${script}\n`, {
     mode: 0o755,
@@ -152,9 +136,6 @@ describe("runAgentModels", () => {
   });
 
   it("a package older than `--models` is named as such, and never run", async () => {
-    // The delivered package predates the answers file: its picker would take
-    // `--models` for a launch and fail with its no-terminal message. kolu
-    // learns it from the package, so that message is never read.
     rmSync(join(bundle, PACKAGE_ANSWERS_FILE));
     picker("touch ran; exit 1");
     const failed = await run("omp").catch((err: unknown) => err);
@@ -166,8 +147,6 @@ describe("runAgentModels", () => {
   });
 
   it("an answers file that is THERE and names nothing is broken, not old", async () => {
-    // A truncated or half-written package. "Too old" would send somebody to
-    // wait for an update that has already landed, so the two are told apart.
     writeFileSync(join(bundle, PACKAGE_ANSWERS_FILE), "\n");
     picker("touch ran; exit 1");
     const failed = await run("omp").catch((err: unknown) => err);
@@ -179,9 +158,6 @@ describe("runAgentModels", () => {
     expect(existsSync(join(bundle, "ran"))).toBe(false);
   });
 
-  /** A quarter-megabyte of one letter, with shell builtins alone: the run
-   *  gets the environment it is given and nothing else, so `head` and `tr`
-   *  are not there to be called. */
   const flood = (letter: string): string =>
     [
       `s=${letter.repeat(32)}`,
@@ -190,9 +166,6 @@ describe("runAgentModels", () => {
     ].join("\n");
 
   it("caps what a flooding list command puts in a refusal and in the log", async () => {
-    // The run carries the environment the person's dotfiles built — their
-    // keys are in it — so neither the refusal nor the daemon's log file
-    // keeps a megabyte of whatever it printed.
     picker([flood("z"), 'echo "$s" >&2', "exit 1"].join("\n"));
     const failed = await run("omp").catch((err: unknown) => err);
     expect(failed).toBeInstanceOf(AgentModelsUnavailable);
@@ -215,7 +188,6 @@ describe("runAgentModels", () => {
 
 describe("listAgentModels", () => {
   it("a host whose agents are not ready refuses in the words a setup refuses with", async () => {
-    // An unbaked padi: kolu built without agent-distro.
     __setAgentDistroBakeForTest(null);
     agentDistroSettingStore.set({ enabled: true, profiles: [] });
     const failed = await Effect.runPromise(
@@ -229,9 +201,6 @@ describe("listAgentModels", () => {
 });
 
 describe("the environment a list runs in", () => {
-  /** A person's home whose `~/.bashrc` exports a key — behind the guard a
-   *  NixOS or home-manager bashrc starts with, so a shell that is not
-   *  interactive never sees it. */
   function homeWithKey(): string {
     const home = realpathSync(mkdtempSync(join(tmpdir(), "shell-env-home-")));
     writeFileSync(
@@ -245,8 +214,6 @@ describe("the environment a list runs in", () => {
     return home;
   }
 
-  /** The spawn a new terminal in `cwd` gets, as padi composes it — with
-   *  `shell` as the person's login shell and `home` as their home. */
   function terminalSpawn(shell: string, home: string, cwd: string) {
     vi.stubEnv("SHELL", shell);
     vi.stubEnv("HOME", home);
@@ -272,8 +239,6 @@ describe("the environment a list runs in", () => {
     };
   }
 
-  /** A picker whose list command needs the key, as omp's does behind a
-   *  litellm gateway: no key, the harness's own refusal. */
   function needsKey(): void {
     picker(
       [
@@ -291,8 +256,6 @@ describe("the environment a list runs in", () => {
     encoding: "utf8",
   }).trim();
 
-  /** What a capture here is bounded by: a generous deadline (these shells
-   *  answer in milliseconds) and a question nobody withdraws. */
   const CAPTURE = {
     timeoutMs: 20_000,
     signal: new AbortController().signal,
@@ -301,9 +264,6 @@ describe("the environment a list runs in", () => {
   it("a key only the person's rc file exports reaches the list", async () => {
     needsKey();
     const { input, rcDir } = terminalSpawn(bash, homeWithKey(), bundle);
-    // What padi asked in before: the spawn's own environment, before any rc
-    // file ran. The list cannot work there, whatever the person's terminal
-    // can do.
     const bare = await runAgentModels({
       bundle,
       cwd: bundle,
@@ -313,7 +273,6 @@ describe("the environment a list runs in", () => {
     expect((bare as AgentModelsUnavailable).why).toContain(
       "LITELLM_API_KEY is not set",
     );
-    // ... and in the environment the terminal's shell ends up with, it does.
     const env = await readShellEnv(input, rcDir, CAPTURE);
     expect(env.LITELLM_API_KEY).toBe("sk-from-bashrc");
     expect(
@@ -322,8 +281,6 @@ describe("the environment a list runs in", () => {
   });
 
   it("a shell that cannot be asked is a failure naming it, never the bare environment", async () => {
-    // Named `bash`, because a shell kolu cannot ask at all is refused before
-    // it is run (see `shellEnv.test.ts`); this one is asked, and fails.
     const broken = join(bundle, "bash");
     writeFileSync(
       broken,

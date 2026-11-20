@@ -1,49 +1,3 @@
-/**
- * EF2 — the daemon-lifetime effective-finish quiet fact.
- *
- * A **second** {@link createActivityTracker} at {@link EFFECTIVE_FINISH_QUIET_MS}
- * (~5s), fed by:
- *   1. enter-waiting (awaiting→waiting and re-entry after leave-work) — starts
- *      the first-finish quiet window (`debouncing`)
- *   2. every kaval meaningful-output edge while still debouncing (re-arms the
- *      window; **ignored once finished**)
- *   3. restamp of currently-debouncing ids on every successful (re)subscribe
- *      (recycle gap during the debounce → delay, not early finish)
- * and evicted on leave-waiting / leave-pool.
- *
- * **Product: sticky-per-episode.** Once a waiting id crosses quiet (`finished`
- * phase), it STAYS finished until it leaves the waiting bucket. Mid-waiting TUI
- * noise must not un-finish. Field falsified re-chime-per-quiet-crossing.
- *
- * **The same window settles an agent coming up — or one prompted for nothing.**
- * An agent padi has seen in the foreground but whose screen is still being
- * drawn is `starting`; it is `fresh` once that screen goes quiet. One that was
- * handed a prompt and has written no transcript is `prompted`; if its screen
- * goes quiet with still nothing written (a slash command that started no turn)
- * it is `fresh` again. "Has this terminal's output gone quiet for the window?"
- * is the question this module already answers for a finished turn, so both are
- * a second KIND of episode on the same tracker and the same kaval edges — not a
- * timer of their own. The quiet-crossing is reported through `onSettled`, which
- * padi routes back into that terminal's agent detector
- * (`TerminalEndpoint.noteScreenSettled`): the detector owns the agent value,
- * and it is the one that publishes `fresh`. The episode then ends by itself,
- * because the record no longer says `starting` or `prompted`.
- *
- * **Boot seed:** already-waiting ids on the first `syncWaiting` go straight to
- * `finished` (discovery is not a transition) — and ids already waiting on a
- * settle are reported settled at once, for the same reason.
- *
- * **Feed liveness:** quiet promotion is blocked while the standing kaval activity
- * sub is down (recycle / drop). On reconnect, debouncing episodes are restamped
- * before promotion re-enables — a gap cannot age the tracker into sticky finish.
- *
- * Episode phase is one `Map` (`debouncing` | `finished`, per kind). Promotion is
- * an event on tracker quiet-exit (only while feed-live); `isEpisodeFinished` is
- * pure.
- *
- * Standing kaval `resubscribeStream` is **daemon-lifetime**.
- */
-
 import type { PadiTerminal, PadiUrgency } from "@kolu/padi-client/surface";
 import { source } from "@kolu/surface/reactor";
 import {
@@ -64,18 +18,11 @@ import {
 } from "./terminalActivityTracker.ts";
 import { recomputeUrgency } from "./urgency.ts";
 
-/** Quiet window for the effective-finish fold — Padi attention policy, not shared
- *  wire vocabulary. Long enough to ride gaps between background sub-agent bursts;
- *  short enough the finished nudge is not noticeably late. */
 export const EFFECTIVE_FINISH_QUIET_MS = 5_000;
 
 /** Waiting-episode phase for one terminal — one ADT, not waiting∪sticky∪isLive. */
 export type FinishEpisodePhase = "debouncing" | "finished";
 
-/** What a quiet episode is ABOUT: a turn that ended (`finish` — the agent is
- *  `waiting`) or a screen padi is waiting to see settle (`settle` — the agent
- *  is `starting`, or `prompted` with no transcript yet). One terminal is in at
- *  most one, because its agent has one state. */
 export type QuietEpisodeKind = "finish" | "settle";
 
 type QuietEpisode = { kind: QuietEpisodeKind; phase: FinishEpisodePhase };
@@ -95,11 +42,6 @@ export function waitingIdsOf(
     .map(([id]) => id);
 }
 
-/** Every active terminal this module keeps a quiet episode for, and which kind:
- *  a `waiting` agent's turn is a `finish` episode; an agent padi is waiting on
- *  to settle — `starting`, or `prompted` with no transcript yet — a `settle`
- *  one. Both answers are the shared vocabulary's (`agentBucket`,
- *  `awaitsScreenSettle`), not a second list of literals here. */
 function quietEpisodesOf(
   terminals: ReadonlyMap<TerminalId, PadiTerminal>,
 ): Map<TerminalId, QuietEpisodeKind> {
@@ -114,31 +56,21 @@ function quietEpisodesOf(
   return out;
 }
 
-/** Latch `onStart` when the stream actually begins running and `onEnd` when it
- *  drains, fails, or is interrupted. A kaval stream member is LAZY, so "the feed
- *  is up" is the moment the stream STARTS — not the moment the value was built
- *  (which registers nothing). `ensuring` runs after the stream's own finalizers,
- *  which is what latches feed-down before the resubscribe delay. */
-function withFeedHooks<T>(
-  source: Stream.Stream<T, unknown>,
-  onStart: () => void,
-  onEnd: () => void,
+type StreamHooks = {
+  onStreamStarted: () => void;
+  onStreamEnded: () => void;
+};
+
+function withStreamHooks<T>(
+  stream: Stream.Stream<T, unknown>,
+  hooks: StreamHooks,
 ): Stream.Stream<T, unknown> {
   return Stream.ensuring(
-    Stream.onStart(source, Effect.sync(onStart)),
-    Effect.sync(onEnd),
+    Stream.onStart(stream, Effect.sync(hooks.onStreamStarted)),
+    Effect.sync(hooks.onStreamEnded),
   );
 }
 
-/**
- * Build the finish-quiet fact. When `standingSub` is true (production default),
- * opens a daemon-lifetime kaval activity subscription. Tests pass `standingSub:
- * false` and drive feed hooks / edges themselves.
- *
- * `onSettled` hears each `starting` or `prompted` agent whose screen went
- * quiet — once per episode, from the tracker's own quiet-exit (or at once for
- * an agent already waiting on a settle when the first real fleet arrives).
- */
 export function createFinishQuiet(opts: {
   log: Logger;
   idleAfterMs?: number;
@@ -156,11 +88,7 @@ export function createFinishQuiet(opts: {
   const idleAfterMs = opts.idleAfterMs ?? EFFECTIVE_FINISH_QUIET_MS;
   const tracker: ActivityTracker = createActivityTracker(idleAfterMs);
   const episode = new Map<TerminalId, QuietEpisode>();
-  let bootstrapped = false;
-  /**
-   * When false, quiet-exit must not promote debouncing → finished (kaval activity
-   * sub is down — lost edges, not real quiet).
-   */
+  let seeded = false;
   let feedLive = opts.standingSub === false;
 
   let gen = 0;
@@ -178,9 +106,6 @@ export function createFinishQuiet(opts: {
   }, 0);
   const keepAlive = genSrc.subscribe(() => {});
 
-  /** Tell padi a screen it was waiting on has settled. The listener routes into
-   *  the terminal's own detector; a throw there must not stop the promotion loop
-   *  for every other terminal, so it is caught and said here. */
   const reportSettled = (id: TerminalId): void => {
     try {
       opts.onSettled?.(id);
@@ -224,7 +149,6 @@ export function createFinishQuiet(opts: {
   };
 
   const markFeedUp = (): void => {
-    // Full quiet window after reconnect before any promote can fire.
     restampWaiting();
     feedLive = true;
   };
@@ -234,57 +158,60 @@ export function createFinishQuiet(opts: {
     return ep?.kind === "finish" && ep.phase === "finished";
   };
 
-  const syncWaiting = (
-    terminals: ReadonlyMap<TerminalId, PadiTerminal>,
+  const seedFromFirstFleet = (
+    next: ReadonlyMap<TerminalId, QuietEpisodeKind>,
   ): void => {
-    const next = quietEpisodesOf(terminals);
+    for (const [id, kind] of next) episode.set(id, { kind, phase: "finished" });
+    if (next.size > 0) bump();
+    for (const [id, kind] of next) if (kind === "settle") reportSettled(id);
+  };
 
-    if (!bootstrapped) {
-      // The FIRST REAL inventory arms bootstrap, so already-waiting agents get
-      // sticky discovery rather than a 5s debounce — and an agent already
-      // coming up is reported settled rather than debounced, the same rule. It
-      // is a real one because the producer says so: the serve-time empty seed
-      // (surfaces before kaval adopt) never reaches `project` at all —
-      // `servePadi`'s urgency cell gates that frame ONCE, for this fold and both
-      // watch sources.
-      bootstrapped = true;
-      for (const [id, kind] of next) {
-        episode.set(id, { kind, phase: "finished" });
-      }
-      if (next.size > 0) bump();
-      for (const [id, kind] of next) if (kind === "settle") reportSettled(id);
-      return;
-    }
-
+  const retireEpisodes = (
+    next: ReadonlyMap<TerminalId, QuietEpisodeKind>,
+  ): boolean => {
     let changed = false;
-    // LEAVES FIRST. A terminal whose agent moved from one kind of episode to the
-    // other (a `starting` agent whose transcript landed straight at `waiting`)
-    // ends the old episode and begins the new one, and the tracker is keyed by
-    // terminal: forgetting after the new episode stamped it would erase the
-    // stamp the new episode just took.
     for (const [id, ep] of [...episode]) {
       if (next.get(id) !== ep.kind) {
-        // Delete episode BEFORE forget so promoteQuietExits cannot fabricate a
-        // debouncing→finished transition on the leave path.
         episode.delete(id);
         tracker.forget(id);
         changed = true;
       }
     }
+    return changed;
+  };
+
+  const openEpisodes = (
+    next: ReadonlyMap<TerminalId, QuietEpisodeKind>,
+  ): boolean => {
+    let changed = false;
     for (const [id, kind] of next) {
-      if (!episode.has(id)) {
-        episode.set(id, { kind, phase: "debouncing" });
-        tracker.noteOutput(id);
-        changed = true;
-      }
+      if (episode.has(id)) continue;
+      episode.set(id, { kind, phase: "debouncing" });
+      tracker.noteOutput(id);
+      changed = true;
     }
-    if (changed) bump();
+    return changed;
+  };
+
+  const syncWaiting = (
+    terminals: ReadonlyMap<TerminalId, PadiTerminal>,
+  ): void => {
+    const next = quietEpisodesOf(terminals);
+
+    if (!seeded) {
+      seeded = true;
+      seedFromFirstFleet(next);
+      return;
+    }
+
+    const retired = retireEpisodes(next);
+    const opened = openEpisodes(next);
+    if (retired || opened) bump();
   };
 
   const project = (
     terminals: ReadonlyMap<TerminalId, PadiTerminal>,
   ): PadiUrgency => {
-    // Dual-edge: depend on generation, then sync membership, then pure fold.
     genSrc.value.value;
     syncWaiting(terminals);
     return recomputeUrgency(terminals, isEpisodeFinished);
@@ -297,11 +224,10 @@ export function createFinishQuiet(opts: {
       signal: sig,
       delayMs: ACTIVITY_RESUBSCRIBE_DELAY_MS,
       getStream: () =>
-        withFeedHooks(
-          ptyHostClient.surface.activity.get({}),
-          markFeedUp,
-          markFeedDown,
-        ),
+        withStreamHooks(ptyHostClient.surface.activity.get({}), {
+          onStreamStarted: markFeedUp,
+          onStreamEnded: markFeedDown,
+        }),
       onEvent: (edge) => noteEdge(edge.id as TerminalId),
       onDrop: (err) => {
         markFeedDown();

@@ -1,45 +1,25 @@
-/**
- * Command-rooted agent detection (#1872, lock 2) — the shellIdle discrimination.
- *
- * For a command-rooted PTY the agent IS the root process, so its foreground pid
- * equals the spawn `pid`. `snapshotSignals` reads `foregroundPid === pid` as
- * "the shell is idle at its prompt" and force-nulls `lastAgentCommandName` — but
- * the root is not a shell, it's the agent, and foreground==root means BUSY, the
- * exact opposite. An agent whose kernel basename ≠ its name (an npm shim that
- * runs as `node`) can ONLY be matched via that command hint, so nulling it makes
- * the running agent invisible.
- *
- * Driven through the real `startAgentSensor` with a fake adapter that resolves
- * via `matchesAgent` (like the real codex / opencode adapters) — NOT the
- * pid-keyed claude path, which is shellIdle-independent and already works
- * command-rooted (see spawn-detection.feature's claude regression guard).
- */
-
-import pino from "pino";
+import { inMemoryChannel } from "@kolu/surface/server";
+import type {
+  TerminalEvent,
+  TerminalGrid,
+  TerminalId,
+  TerminalPorts,
+} from "@kolu/terminal-vocab/schema";
 import type { AgentAdapter, AgentInfoShape } from "anyagent";
 import { matchesAgent } from "anyagent";
-import { agentCliGrammar } from "kolu-agents/vocab";
-import { inMemoryChannel } from "@kolu/surface/server";
 import type { ForegroundSample } from "kaval";
-import type {
-  TerminalPorts,
-  TerminalEvent,
-  TerminalId,
-  TerminalGrid,
-} from "@kolu/terminal-vocab/schema";
+import { agentCliGrammar } from "kolu-agents/vocab";
+import pino from "pino";
 import { describe, expect, it } from "vitest";
 import {
-  type SensorSignals,
   freshAgentEngineState,
+  type SensorSignals,
   startAgentSensor,
 } from "./sensors.ts";
 
 const log = pino({ level: "silent" });
 const flush = () => new Promise((resolve) => setImmediate(resolve));
 
-// A command-rooted opencode under an npm shim: the agent is the PTY root, so its
-// foreground pid == the spawn pid, and its kernel basename is "node". The ONLY
-// signal that names it "opencode" is the command hint (seeded from the argv).
 const ROOT_PID = 4321;
 const AGENT_INFO: AgentInfoShape = {
   kind: "opencode",
@@ -56,8 +36,6 @@ function startHarness(commandRooted: boolean) {
   const emits: TerminalEvent[] = [];
   const adapter: AgentAdapter<number, AgentInfoShape> = {
     kind: "opencode",
-    // Resolve via matchesAgent (command hint OR kernel basename), like the real
-    // codex/opencode adapters. Here basename is "node", so it hinges on the hint.
     resolveSessions: (state) =>
       matchesAgent(state, agentCliGrammar("opencode")) ? [ROOT_PID] : [],
     sessionKey: (s) => String(s),
@@ -77,9 +55,6 @@ function startHarness(commandRooted: boolean) {
     screenSettled: inMemoryChannel<void>(),
     submitted: inMemoryChannel<void>(),
   };
-  // `currentAgent: "opencode"` models lock 1's argv seed already applied — so
-  // this test isolates lock 2 (the shellIdle gate) alone. The trailing
-  // `commandRooted` flag is the fix: the root IS the agent, not a shell.
   const stop = startAgentSensor(
     adapter,
     { ...freshAgentEngineState(), currentAgent: "opencode" },
@@ -102,9 +77,6 @@ const lastAgent = (emits: TerminalEvent[]) =>
 describe("command-rooted agent detection (#1872 lock 2 — shellIdle discrimination)", () => {
   it("resolves a command-rooted shim agent whose root is in the foreground", async () => {
     const h = startHarness(true);
-    // Foreground == the root pid: the agent is BUSY as the PTY root (basename
-    // "node"). Before lock 2 this was nulled as "shell idle"; with the
-    // commandRooted flag the hint survives, matchesAgent passes, agent resolves.
     h.signals.foreground.publish({ process: "node", foregroundPid: ROOT_PID });
     await flush();
     const agent = lastAgent(h.emits);
@@ -114,9 +86,6 @@ describe("command-rooted agent detection (#1872 lock 2 — shellIdle discriminat
   });
 
   it("a shell-rooted PTY still reads foreground==root as an idle prompt", async () => {
-    // Regression guard: for a real shell terminal (commandRooted=false) the SAME
-    // foreground==pid sample IS an idle prompt, so a stale hint must still be
-    // nulled and no agent resolves. Unchanged by the fix.
     const h = startHarness(false);
     h.signals.foreground.publish({ process: "node", foregroundPid: ROOT_PID });
     await flush();

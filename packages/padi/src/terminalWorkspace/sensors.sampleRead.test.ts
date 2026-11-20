@@ -1,19 +1,3 @@
-/**
- * The producer's SAMPLE-READ discipline (juspay/kolu#2326 review, blocking 2).
- *
- * "Could we read the OS?" is not "the process has no allowlisted flags". They
- * used to be one value: `liveArgv()` folded a failed/blind snapshot to `[]`, and
- * since the observation dedup key is the whole `{ info, argv }`, that transient
- * blip became a NEW observation — overwriting a good target with `argv: []`,
- * tripping the authored-fact fence, and hitting disk on the firehose the fence
- * exists to keep off it. A sleep inside that window froze a flagless target.
- *
- * Here the rule is pinned directly: an UNREAD argv (`null`) carries the mirror's
- * flags forward for the same identity, so the resolved observation is `===`-equal
- * to the mirror and `emitAgentValue` returns early — no event, no fold, no
- * authored write.
- */
-
 import type { AgentObservation } from "@kolu/terminal-vocab/schema";
 import { describe, expect, it } from "vitest";
 import { agentObservationEqual, observationFromSample } from "./sensors.ts";
@@ -36,15 +20,10 @@ describe("observationFromSample — unread argv is not 'no flags'", () => {
   it("carries the mirror's flags across an unread sample for the same identity", () => {
     const resolved = observationFromSample({ info, argv: null }, mirror);
     expect(resolved).toEqual(mirror);
-    // The dedup gate: no event is emitted, so the fold sees nothing and the
-    // authored record is never rewritten by a read failure.
     expect(agentObservationEqual(mirror, resolved)).toBe(true);
   });
 
   it("a NEW identity with an unread argv records an empty list", () => {
-    // The identity is authoritative — withholding it would delay the agent
-    // entirely. The flags arrive on a later sample, and the dedup key (the whole
-    // observation) lets that later sample through.
     const other = {
       ...info,
       sessionId: "33333333-3333-4333-8333-333333333333",
@@ -63,9 +42,6 @@ describe("observationFromSample — unread argv is not 'no flags'", () => {
   });
 
   it("carries forward across a STATE tick with an unread argv (same identity)", () => {
-    // The firehose case: the agent moved thinking→waiting while the argv read
-    // failed. The identity is unchanged, so the flags still carry — gating on
-    // whole-Info equality would have written `argv: []` here.
     const moved = { ...info, state: "waiting" as const, contextTokens: 1234 };
     const resolved = observationFromSample({ info: moved, argv: null }, mirror);
     expect(resolved).toEqual({ info: moved, argv: mirror.argv });

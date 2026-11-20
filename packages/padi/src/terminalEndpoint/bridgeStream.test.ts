@@ -1,28 +1,7 @@
-/**
- * `bridgeStream` error-contract pins — the seam the W12 STAYS-DEFINED-UNDER-BLINDNESS
- * invariant leans on. The invariant is: a foreground-tap FAILURE (an unclean kaval
- * death drops the socket) must NEVER manufacture a foreground sample — the agent
- * sensor's shell-idle discriminant would misread a fabricated `undefined` as a genuine
- * shell-idle and clobber the resume target.
- *
- * `local.ts`'s foreground bridge upholds this by giving `bridgeStream` an `onError`
- * that ONLY logs (it performs no `signals.foreground.publish`). Two pins, one per half
- * of the guarantee:
- *   1. the MECHANISM — on a non-abort source failure `bridgeStream` routes to `onError`
- *      and NEVER calls `onEvent`, so the failure path structurally cannot emit a value
- *      onto the channel;
- *   2. the PRODUCTION handler — `onForegroundTapError` (the actual `onError` the
- *      foreground bridge is wired with) never publishes onto the foreground channel it
- *      is handed, so the only writer stays the real-sample `onEvent`. This pin is what
- *      constrains a future "clear stale foreground on disconnect" regression that #1 (a
- *      generic `onEvent`-never-called proof) would not catch.
- */
-
 import type { PadiTerminal } from "@kolu/padi-client/surface";
 import type { TerminalId } from "@kolu/terminal-vocab/schema";
 import { Stream } from "effect";
 import { describe, expect, it } from "vitest";
-import type { ForegroundSample } from "kaval";
 import {
   createFleetGate,
   setServingFleetGate,
@@ -33,10 +12,6 @@ import {
   resubscribeStream,
 } from "./local.ts";
 
-/** A stream that FAILS on its first pull — the shape a dropped tap socket
- *  surfaces (the run fails rather than ending cleanly). Built from a rejecting
- *  async iterable so the failure crosses the SAME bridge a real kaval member
- *  does, rather than being minted directly on the Effect failure channel. */
 const failingStream = (): Stream.Stream<number, unknown> =>
   Stream.fromAsyncIterable<number, unknown>(
     {
@@ -48,7 +23,6 @@ const failingStream = (): Stream.Stream<number, unknown> =>
     (err) => err,
   );
 
-/** A stream that yields nothing and ends — a clean close. */
 const emptyStream = (): Stream.Stream<number, unknown> => Stream.empty;
 
 describe("bridgeStream — the failure path never fabricates an event", () => {
@@ -66,9 +40,6 @@ describe("bridgeStream — the failure path never fabricates an event", () => {
       },
     );
 
-    // The blindness guarantee: a failed tap emitted NOTHING onto the sink. If the
-    // foreground bridge's onError ever published a sample, it would ride THROUGH here;
-    // pinning onEvent-never-called proves the failure path has no way to fabricate one.
     expect(events).toEqual([]);
     expect(errored).toBeInstanceOf(Error);
   });
@@ -77,7 +48,7 @@ describe("bridgeStream — the failure path never fabricates an event", () => {
     const events: number[] = [];
     let errored = false;
     const ac = new AbortController();
-    ac.abort(); // teardown already requested before the stream throws
+    ac.abort();
 
     await bridgeStream(
       failingStream(),
@@ -89,7 +60,7 @@ describe("bridgeStream — the failure path never fabricates an event", () => {
     );
 
     expect(events).toEqual([]);
-    expect(errored).toBe(false); // an abort is expected teardown, never an error
+    expect(errored).toBe(false);
   });
 
   it("a clean end resolves without touching onError", async () => {
@@ -108,32 +79,7 @@ describe("bridgeStream — the failure path never fabricates an event", () => {
 });
 
 describe("onForegroundTapError — the production handler never publishes (STAYS-DEFINED)", () => {
-  it("a tap failure logs but leaves the foreground channel UNWRITTEN — blindness keeps the last sample", () => {
-    // The production `onError` the foreground bridge is wired with. It RECEIVES the
-    // foreground channel (it CAN publish), so this pins the load-bearing invariant that
-    // it does NOT: a regression that reset/cleared the foreground on a dropped tap would
-    // push a sample here and fail the assert. `bridgeStream` guarantees the failure path
-    // can't fabricate an `onEvent`; THIS guarantees the handler itself doesn't publish.
-    const published: ForegroundSample[] = [];
-    const foreground = {
-      publish: (s: ForegroundSample) => {
-        published.push(s);
-      },
-    };
-
-    onForegroundTapError(
-      "t1" as TerminalId,
-      foreground,
-      new Error("kaval socket dropped mid-foreground-tap"),
-    );
-
-    expect(published).toEqual([]);
-  });
-
   it("a tap that fails before its first sample releases the redeploy's attention gate for that terminal", () => {
-    // The detectors will never get a sample from a dead tap, so their first
-    // pass is "cannot tell". Unsaid, one blind survivor would hold every
-    // attention report on the host closed for good.
     const gate = createFleetGate();
     setServingFleetGate(gate);
     try {
@@ -141,7 +87,7 @@ describe("onForegroundTapError — the production handler never publishes (STAYS
       const fleet = new Map([[survivor, {} as PadiTerminal]]);
       gate.awaitFirstRead(survivor);
       expect(gate.admit(fleet)).toBe(false);
-      onForegroundTapError(survivor, { publish: () => {} }, new Error("gone"));
+      onForegroundTapError(survivor, new Error("gone"));
       expect(gate.admit(fleet)).toBe(true);
     } finally {
       setServingFleetGate(null);
@@ -152,10 +98,6 @@ describe("onForegroundTapError — the production handler never publishes (STAYS
 
 describe("resubscribeStream — the eager synchronous-throw guard", () => {
   it("catches getStream()'s SYNCHRONOUS throw (daemon down) as a drop and re-subscribes, never rejecting", async () => {
-    // The forwarding facade calls `liveClient()` eagerly, so `getStream()` throws
-    // SYNCHRONOUSLY when the daemon is disconnected — before bridgeStream runs, so
-    // its fence can't catch it. Without the guard this rejects and (as a void'd
-    // detached task) crashes the server on `unhandledRejection`.
     const drops: unknown[] = [];
     let calls = 0;
     const ac = new AbortController();
@@ -165,18 +107,15 @@ describe("resubscribeStream — the eager synchronous-throw guard", () => {
       getStream: () => {
         calls += 1;
         if (calls === 1) {
-          throw new Error("pty-host endpoint is not connected"); // daemon down
+          throw new Error("pty-host endpoint is not connected");
         }
-        // Second attempt: the daemon is back — a clean, empty stream that ends.
-        ac.abort(); // stop the loop after one successful re-subscribe
+        ac.abort();
         return emptyStream();
       },
       onEvent: () => {},
       onDrop: (err) => drops.push(err),
     });
 
-    // The synchronous throw was caught as a drop (not propagated), and the loop
-    // re-subscribed rather than dying.
     expect(drops).toHaveLength(1);
     expect(drops[0]).toBeInstanceOf(Error);
     expect(calls).toBe(2);
@@ -196,6 +135,6 @@ describe("resubscribeStream — the eager synchronous-throw guard", () => {
       onEvent: () => {},
       onDrop: () => {},
     });
-    expect(calls).toBe(0); // aborted before the first subscribe
+    expect(calls).toBe(0);
   });
 });

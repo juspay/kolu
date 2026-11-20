@@ -1,16 +1,3 @@
-/**
- * Pins the DERIVED-count invariant on `PadiUrgency`: the wire type carries only
- * `awaitingIds`, never a parallel `awaiting` count that could disagree with it
- * (see `PadiUrgencySchema` in `./surface.ts`). `recomputeUrgency` folds the
- * composed `terminals` collection — the value the derived `urgency` cell reads
- * via `$.terminals()` — into ids only; every reader derives the count as
- * `.length` at its own read site (`HostSelectorStrip.tsx`'s `awaiting()`).
- *
- * EF2: `finishedIds` is gated on `isEpisodeFinished` — sticky-aware quiet for
- * waiting agents. Tests below pass an explicit predicate so the pure fold is
- * pinned without the tracker.
- */
-
 import {
   composeTerminalMetadata,
   LOCAL_LOCATION,
@@ -39,9 +26,6 @@ function makeAgent(state: AgentInfo["state"]): AgentInfo {
   };
 }
 
-/** A composed ACTIVE `PadiTerminal` — the exact collection value the derived
- *  `urgency` cell folds over (what `servePadi`'s `terminals.readAll` serves), so
- *  the test exercises the same discriminant the fold narrows on. */
 function activeTerminal(agent: AgentInfo | null): PadiTerminal {
   const snapshot: TerminalSnapshot = {
     cwd: "/tmp",
@@ -70,11 +54,6 @@ function terminalsMap(
   );
 }
 
-/** A composed SLEEPING `PadiTerminal` — a DIFFERENT arm of the union than active.
- *  Its agent identity survives the release, so `.agent` is present, but the fold
- *  must exclude it because it narrows on `state === "active"`. This is the twin of
- *  the old registry gate on `entry.meta.state`, now expressed as the composed
- *  discriminant. */
 function sleepingTerminal(agent: AgentInfo | null): PadiTerminal {
   const snapshot: TerminalSnapshot = {
     cwd: "/tmp",
@@ -99,9 +78,7 @@ function sleepingTerminal(agent: AgentInfo | null): PadiTerminal {
 const ID_A = "urg-a";
 const ID_B = "urg-b";
 
-/** Episode finished — every id has crossed quiet (or is sticky). */
 const finished = (): boolean => true;
-/** Still in the first-finish quiet window — not episode-finished yet. */
 const stillDebouncing = (): boolean => false;
 
 describe("recomputeUrgency", () => {
@@ -121,7 +98,6 @@ describe("recomputeUrgency", () => {
       lingerIds: [],
       settled: true,
     });
-    // Each count is derived at the read site (`.length`), never carried on the value.
     expect(Object.keys(urgency).sort()).toEqual([
       "awaitingIds",
       "finishedIds",
@@ -140,8 +116,6 @@ describe("recomputeUrgency", () => {
       ]),
       finished,
     );
-    // `awaiting_user` → asking (ungated); episode-finished `waiting` → finished;
-    // `thinking` → working.
     expect(urgency).toEqual({
       awaitingIds: [ID_A],
       finishedIds: [ID_B],
@@ -159,10 +133,6 @@ describe("recomputeUrgency", () => {
       ]),
       stillDebouncing,
     );
-    // Asking still ungated; waiting gated by isEpisodeFinished — and the gated
-    // agent is not dropped on the floor, it is LINGERING (still settling), which
-    // is what keeps the host tab's activity count agreeing with its still-moving
-    // pip.
     expect(urgency).toEqual({
       awaitingIds: [ID_A],
       finishedIds: [],
@@ -185,7 +155,6 @@ describe("recomputeUrgency", () => {
       awaitingIds: [],
       finishedIds: [ID_A],
       workingIds: [],
-      // The un-finished twin partitions into linger, never into both lists.
       lingerIds: [ID_B],
       settled: true,
     });
@@ -222,17 +191,10 @@ describe("recomputeUrgency", () => {
   });
 
   it("EXCLUDES a SLEEPING terminal even when its agent reads as awaiting_user", () => {
-    // The migrated fold gates on the COMPOSED record's `state === "active"`
-    // discriminant (previously the raw registry's `entry.meta.state`). A sleeping
-    // terminal is a different arm of the union — its agent identity survives, so it
-    // could read `awaiting_user`, but it must NOT count toward urgency. This pins
-    // the behavioral-parity claim in `urgency.ts` (a terminal slept mid-await is not
-    // urgent) as an executable invariant, not just prose.
     const map = new Map<TerminalId, PadiTerminal>([
       [ID_A as TerminalId, sleepingTerminal(makeAgent("awaiting_user"))],
       [ID_B as TerminalId, activeTerminal(makeAgent("awaiting_user"))],
     ]);
-    // Only the ACTIVE awaiting terminal counts; the sleeping one is excluded.
     expect(recomputeUrgency(map, finished)).toEqual({
       awaitingIds: [ID_B],
       finishedIds: [],
@@ -308,10 +270,6 @@ describe("urgencyEqual", () => {
   });
 
   it("is false when ONLY the linger set differs — the activity count must move", () => {
-    // working → linger is the same terminal moving lists: the host tab's
-    // activity count stays at 1, but the frame must still publish or a later
-    // linger → finished (which DOES change the count) has no baseline to
-    // diff against.
     expect(
       urgencyEqual(
         {

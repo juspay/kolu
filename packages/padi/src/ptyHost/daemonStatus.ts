@@ -1,28 +1,10 @@
-/**
- * The server-owned store + publisher for per-host pty-host daemon status.
- *
- * The supervisor endpoint (in `./index.ts`) reports every transition through
- * `publishDaemonStatus`, which records it here and publishes it on padi's
- * `daemonStatus` surface collection so the rail's KAVAL column and the
- * DegradedCanvas can subscribe. The store is the source of truth the surface
- * collection's `readAll`/`readOne` read from (mirroring how padi's `terminals`
- * collection reads the terminal registry). padi supervises its kaval, so the
- * daemon-liveness collection is padi's to serve (W1.R7 — it left koluSurface).
- */
-
 import type { DaemonStatus } from "@kolu/padi-client/surface";
 import type { EndpointStatus } from "@kolu/surface-daemon-supervisor";
 import { padiSurfaceCtx } from "../padiSurfaceCtx.ts";
-import type { KavalConnectionMetadata } from "./connect.ts";
+import { type KavalConnectionMetadata, optionalLifetime } from "./connect.ts";
 
 const store = new Map<string, DaemonStatus>();
 
-/** The local kaval's unix socket path (padi resolves it as
- *  `padiKavalSocketPath(stateRoot)` → `kaval-<digest>/pty-host.sock`, keyed by a
- *  digest of padi's state-root), set once at boot and constant for the daemon's
- *  life. Folded onto every published status so the kaval dialog can show where the
- *  daemon listens — a server fact the client can't construct (it doesn't know
- *  padi's `XDG_RUNTIME_DIR`). */
 let localSocketPath: string | undefined;
 
 /** Every host's current daemon status (for the collection's `readAll`). */
@@ -35,55 +17,26 @@ export function readDaemonStatus(hostId: string): DaemonStatus | undefined {
   return store.get(hostId);
 }
 
-/** Record the local kaval's socket path at boot (before the endpoint publishes
- *  its first status), so every publish carries it for the dialog. */
 export function setLocalSocketPath(path: string): void {
   localSocketPath = path;
 }
 
-/** The local kaval's socket path — the same boot-recorded constant the dialog
- *  reads, reused to stamp `KAVAL_SOCKET` into every terminal this daemon spawns
- *  (so an agent running inside can reach the kaval that owns it, the `$TMUX`
- *  convention). `undefined` until boot records it; the spawn path guards that at
- *  its point of use (see `buildTerminalSpawnInput`). */
 export function getLocalSocketPath(): string | undefined {
   return localSocketPath;
 }
 
-/** padi's OWN serving socket path — the digest-keyed `padi-<digest>/padi.sock`
- *  padi's `daemonMain` computes and serves on, recorded at boot. */
 let padiServeSocketPath: string | undefined;
 
-/** Record padi's own serving socket at boot (in `daemonMain`, before it accepts a
- *  `create`), so every terminal spawned after can carry it. */
 export function setPadiServeSocketPath(path: string): void {
   padiServeSocketPath = path;
 }
 
-/** padi's own serving socket — the `$KAVAL_SOCKET` twin, stamped as `PADI_SOCKET`
- *  into every terminal this daemon spawns so a `padi-tui` running INSIDE a kolu
- *  terminal reaches the padi that owns it with no `--socket`/`--state-root` flag.
- *  `undefined` until boot records it (or off a spawn path that never booted a
- *  daemon, e.g. a unit test); an absent `PADI_SOCKET` just makes padi-tui fall
- *  back to autodiscovery, so — unlike the kaval locator — the spawn path stamps it
- *  only when present rather than crashing. */
 export function getPadiServeSocketPath(): string | undefined {
   return padiServeSocketPath;
 }
 
-// Listeners fired when a daemon's status changes (a kaval connect/disconnect).
-// padi's derived poll cells (`processMemory`, `hostInventory`) fuse a re-sample
-// onto their cadence through this, so a fresh daemon re-reads the INSTANT its kaval
-// connects — instead of publishing a stale-but-valid startup frame (kaval absent /
-// inventory without the just-spawned kaval) that would stand authoritative for a
-// full interval, since a poll cell's connect fires at serve time, before the
-// endpoint boots the kaval.
 const statusChangeListeners = new Set<() => void>();
 
-/** Subscribe to daemon-status changes — a kaval connect/disconnect/re-arm. Returns
- *  an unsubscribe. Used to FUSE an immediate re-sample onto a fixed poll cadence
- *  (the padi memory/host-inventory poll cells), so the readout reflects a
- *  just-connected endpoint at once rather than up to one interval later. */
 export function onDaemonStatusChange(listener: () => void): () => void {
   statusChangeListeners.add(listener);
   return () => {
@@ -94,8 +47,6 @@ export function onDaemonStatusChange(listener: () => void): () => void {
 function publishFullDaemonStatus(hostId: string, status: DaemonStatus): void {
   store.set(hostId, status);
   padiSurfaceCtx.collections.daemonStatus.upsert(hostId, status);
-  // Notify AFTER the store + surface update so a fused re-sample reads the fresh
-  // status. Snapshot the set so a listener that (un)subscribes mid-fan-out is safe.
   for (const listener of [...statusChangeListeners]) listener();
 }
 
@@ -114,22 +65,11 @@ export function publishDaemonStatus(
           identity: status.identity,
           startedAt: status.startedAt,
           contractVersion: status.metadata.contractVersion,
-          // SPREAD, exactly like `socket` below (#17): `lifetime` is
-          // `Schema.optionalKey` on `DaemonStatusSchema`, and the metadata field
-          // it mirrors is itself optional (a survivor kaval predating the
-          // `system.version` field reports none). Reading an absent optional key
-          // yields `undefined`, so a plain `lifetime: …` would re-create the key
-          // present-with-`undefined` — the shape the encode rejects, taking the
-          // whole `daemonStatus` push down with it.
-          ...(status.metadata.lifetime !== undefined && {
-            lifetime: status.metadata.lifetime,
-          }),
+          ...optionalLifetime(status.metadata.lifetime),
           ...socket,
         }
       : status.state === "incompatible"
         ? {
-            // The proven-skew verdict keeps its payload on the wire (SK4): both
-            // versions ride to the client's skew card as typed fields.
             state: "incompatible",
             daemonVersion: status.daemonVersion,
             requiredVersion: status.requiredVersion,
@@ -142,46 +82,10 @@ export function publishDaemonStatus(
   publishFullDaemonStatus(hostId, full);
 }
 
-/** Fold the boot's adopted-terminal count (B3.3) onto the host's CURRENT status
- *  and re-publish, so the client's "N reattached" toast reads it off the same
- *  `daemonStatus` collection the rail uses. Separate from `publishDaemonStatus`
- *  because the count is kolu's soul, computed by `reconcile` AFTER the endpoint
- *  has already reported `connected` (the spine's `onStatus` knows nothing of
- *  terminals). A no-op if the host has no recorded status yet (it always does by
- *  the time adoption runs — the connect emitted one).
- *
- *  Stamps `adoptedAt` here — this is the one site an adoption is surfaced, and it
- *  fires at most ONCE per server process (boot adoption's `onAdopted`), so the
- *  timestamp is a true per-adoption identity. The pair is sticky in the store and
- *  replayed to every fresh subscription; the client dedupes the toast on
- *  `adoptedAt` so a reconnect/reload replay doesn't re-fire it (juspay/kolu#1365).
- *
- *  `Date.now()` orders adoptions across server boots. Since each adoption is its
- *  OWN process lifetime separated by a restart, two adoptions can't collide on a
- *  millisecond (no intra-process second stamp to alias). The one residual edge is
- *  a wall-clock step BACKWARD across a redeploy — then a genuine new adoption's
- *  `adoptedAt` can fall at-or-below the client's persisted high-water mark and its
- *  (informational) toast is skipped for that one boot; nothing is lost. The store
- *  is in-memory and empty on the next boot, so there's no prior stamp to enforce
- *  monotonicity against server-side, and a client seen-id SET (the alternative)
- *  would grow unbounded and forfeit the "a stale older replay stays silent"
- *  property the high-water mark gives for free. The skewed-clock toast-skip is the
- *  deliberately-accepted cost. */
 export function setAdoptedCount(hostId: string, adopted: number): void {
   stampOnConnected(hostId, (at) => ({ adopted, adoptedAt: at }));
 }
 
-/** Fold a PROVEN repair onto the host's CURRENT status and re-publish — the one
- *  mechanism all three stamps below share, written once.
- *
- *  The gate every stamp obeys: a fact about a daemon that is no longer
- *  `connected` is not a fact worth replaying, so it is dropped rather than folded
- *  onto a status that contradicts it. Each stamp is sticky in the store and
- *  replayed to every fresh subscription (the client dedupes on it — the #1365
- *  rule), and each is cleared implicitly by the next non-`connected` publish.
- *
- *  Three STAMPS, one implementation: the facts are independent — one shared mark
- *  would let any of them suppress another — but their mechanics never were. */
 function stampOnConnected(
   hostId: string,
   patch: (
@@ -193,34 +97,10 @@ function stampOnConnected(
   publishFullDaemonStatus(hostId, { ...current, ...patch(Date.now()) });
 }
 
-/** Fold "this daemon is here because padi recycled an unresponsive one, and the
- *  recycle worked" onto the host's CURRENT status and re-publish (#2101 N1).
- *
- *  The twin of {@link setAdoptedCount}, and for the same reason: the fact is
- *  kolu's soul, proved AFTER the endpoint already reported `connected` — the
- *  spine's `onStatus` knows nothing about why a daemon was restarted, and a
- *  restart RESOLVING proves only that a fresh kaval connected, which is exactly
- *  what the comatose one did too. Only a subsequent healthy probe proves it, and
- *  that is `kavalSupervision`'s edge, not the endpoint's.
- *
- *  Sticky, replayed, deduped and implicitly cleared exactly as every stamp on
- *  this rail is — see {@link stampOnConnected}, which states the law once. */
 export function setAutoRecovered(hostId: string): void {
   stampOnConnected(hostId, (at) => ({ autoRecoveredAt: at }));
 }
 
-/** Fold "the link to this daemon died mid-session and padi re-made it — the
- *  daemon itself never went away" onto the host's CURRENT status and re-publish
- *  (#2184).
- *
- *  The twin of {@link setAutoRecovered} in every mechanical respect (see
- *  {@link stampOnConnected}) and its OPPOSITE in meaning: the heal's converge
- *  ADOPTED the resident kaval, so no process was recycled and no terminal was
- *  lost. Two stamps rather than one because they are two facts, and the client
- *  owes the user a different sentence for each — the recycle's "your session is
- *  ready to restore" is a lie about an adoption, whose session never stopped
- *  running. Which one the heal stamps is decided by the `ConvergeVerdict` its
- *  re-converge returned, at the one site that knows it. */
 export function setLinkRestored(hostId: string): void {
   stampOnConnected(hostId, (at) => ({ linkRestoredAt: at }));
 }

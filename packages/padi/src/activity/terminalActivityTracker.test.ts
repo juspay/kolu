@@ -1,10 +1,3 @@
-/**
- * The shared live-output tracker — the timer machinery both `liveActivity` (the
- * `activity` stream) and `finishQuiet` (the effective-finish quiet window) stand
- * on. Pins the lifecycle (join on output, leave after the idle window), the
- * sorted `snapshot()` wire frame, and the `sameActivitySet` dedup.
- */
-
 import type { TerminalId } from "@kolu/terminal-vocab/schema";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
@@ -27,13 +20,13 @@ describe("createActivityTracker", () => {
 
     tracker.noteOutput(A);
     expect(tracker.isLive(A)).toBe(true);
-    expect(changes).toHaveBeenCalledTimes(1); // static → live
+    expect(changes).toHaveBeenCalledTimes(1);
 
     vi.advanceTimersByTime(IDLE - 1);
-    expect(tracker.isLive(A)).toBe(true); // still within window
+    expect(tracker.isLive(A)).toBe(true);
     vi.advanceTimersByTime(1);
-    expect(tracker.isLive(A)).toBe(false); // window elapsed
-    expect(changes).toHaveBeenCalledTimes(2); // live → static
+    expect(tracker.isLive(A)).toBe(false);
+    expect(changes).toHaveBeenCalledTimes(2);
     tracker.dispose();
   });
 
@@ -41,7 +34,7 @@ describe("createActivityTracker", () => {
     const tracker = createActivityTracker(IDLE);
     tracker.noteOutput(A);
     vi.advanceTimersByTime(IDLE - 1);
-    tracker.noteOutput(A); // fresh chunk resets the timer
+    tracker.noteOutput(A);
     vi.advanceTimersByTime(IDLE - 1);
     expect(tracker.isLive(A)).toBe(true);
     vi.advanceTimersByTime(1);
@@ -53,7 +46,7 @@ describe("createActivityTracker", () => {
     const tracker = createActivityTracker(IDLE);
     tracker.noteOutput(B);
     tracker.noteOutput(A);
-    expect(tracker.snapshot()).toEqual([A, B]); // sorted, not insertion order
+    expect(tracker.snapshot()).toEqual([A, B]);
 
     tracker.forget(A);
     expect(tracker.isLive(A)).toBe(false);
@@ -66,6 +59,6 @@ describe("sameActivitySet", () => {
   it("compares sorted frames element-wise", () => {
     expect(sameActivitySet([A, B], [A, B])).toBe(true);
     expect(sameActivitySet([A], [A, B])).toBe(false);
-    expect(sameActivitySet([A, B], [B, A])).toBe(false); // order-sensitive by design
+    expect(sameActivitySet([A, B], [B, A])).toBe(false);
   });
 });

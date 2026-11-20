@@ -1,21 +1,3 @@
-/**
- * Kolu-owned production `connectKaval` arm of the framework skew suite.
- *
- * The peer here is IN-EPOCH: it speaks this protocol, its frames decode, its
- * `system.version` answers — and it reports a contract version this build
- * refuses. That is the whole point after PLAN D6. An undecodable peer is a
- * TRANSPORT fact the supervisor names `unspeakable-protocol` (and kaval's policy
- * recycles); a decodable peer with a wrong version is DATA, and the failure has
- * to arrive as the typed {@link DaemonContractSkewError} carrying both versions
- * so the recycleKaval rethrow and the `incompatible` status arm can read them
- * structurally rather than re-parsing prose.
- *
- * The fake is built from the LIVE `Rpc`s in `kavalDaemonGroup` (the model
- * `ptyHost/connect.test.ts` and kaval's `contractSkew.test.ts` share), so it
- * cannot drift from the surface it imitates: naming a tag kaval does not serve
- * is an error here, not a silently-diverging hand-copied contract.
- */
-
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -38,10 +20,6 @@ afterEach(() => {
   for (const listener of listeners.splice(0)) listener.close();
 });
 
-/** Serve a daemon whose BOTH handshake surfaces agree on `daemonVersion` — the
- *  honest shape of a peer from a different contract generation. Disagreeing
- *  surfaces are a different failure (`connect.test.ts` pins that one), so this
- *  fixture keeps them in step and leaves only the version compare under test. */
 async function serveSkewed(socketPath: string, daemonVersion: string) {
   const startedAt = 424_242;
   const byTag: Record<string, SurfaceHandler> = {
@@ -99,9 +77,6 @@ describeDaemon("socket-contract mismatch names itself (upgrade-window)", () => {
     expect(skew.requiredVersion).toBe(PTY_HOST_CONTRACT_VERSION);
     expect(skew.subject).toBe("pty-host");
     expect(skew.isContractSkew).toBe(true);
-    // The skewed daemon's OWN pid rides the error, so the gate-less-squatter
-    // recovery has its third identity attestation even though no connection
-    // was ever established.
     expect(skew.pid).toBe(process.pid);
   });
 });

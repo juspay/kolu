@@ -1,14 +1,3 @@
-/**
- * `isReplacedDaemon` — the pure replacement discriminant the boot reconcile gates
- * the session converge on. Replacement detection is what stops an adopted-but-empty
- * REPLACED kaval from erasing the saved session (the zest incident), while still
- * letting a genuine survivor's converge prune + clear.
- *
- * The primary signal is the terminals' own ids (a live PTY matching a saved ACTIVE
- * proves the daemon is ours); `startedAt` is only the tiebreak for the empty-live
- * case (our survivor whose actives all exited vs a replaced empty daemon).
- */
-
 import {
   LOCAL_LOCATION,
   type SavedActiveTerminal,
@@ -69,9 +58,6 @@ describe("isReplacedDaemon", () => {
   });
 
   it("a live PTY matching a saved active → NOT replaced, EVEN with a mismatched pairing (the robust id signal)", () => {
-    // A survivor still holding our terminal `A`, but the persisted pairing went stale
-    // (a supervised restart / restore re-homed the session). The id match must win, so
-    // the live terminal is adopted, never re-parked out from under its live scrollback.
     expect(
       isReplacedDaemon({
         currentStartedAt: 999,

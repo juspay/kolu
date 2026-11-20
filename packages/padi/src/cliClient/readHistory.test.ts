@@ -1,19 +1,3 @@
-/**
- * The `screen.history` PAGER, pinned apart from a socket.
- *
- * The walk is the part with a silent failure mode — a truncated dump that exits
- * 0 — so what is asserted here is the whole protocol discipline: the first call
- * OMITS `before` (an explicit `undefined` is a decode failure on a
- * `Schema.optionalKey`, not a self-seed request), each reply's `topLine` becomes
- * the next `before`, an all-blank page contributes its exact row span rather
- * than being dropped, `exhausted` is the ONLY terminator, and a `stale` reply
- * FAILS rather than returning the prefix read so far.
- *
- * The branch cases match `kaval-tui/src/historyPage.test.ts`'s — the copy this
- * graduated past — so the two can be compared line for line until that one is
- * retired with its TUI.
- */
-
 import type { PadiSurfaceClient } from "@kolu/padi-client/dial";
 import type { TerminalId } from "@kolu/terminal-vocab/schema";
 import { Cause, Effect, Exit } from "effect";
@@ -31,9 +15,6 @@ type Reply =
   | { kind: "chunk"; chunk: string; topLine: number; exhausted: boolean }
   | { kind: "stale" };
 
-/** A padi client that serves a canned reply sequence and RECORDS the inputs it
- *  was called with — the cursor walk is the thing under test, so what the pager
- *  ASKED for matters as much as what it built. */
 function fakeClient(replies: readonly Reply[]): {
   readonly client: PadiSurfaceClient;
   readonly calls: Array<Record<string, unknown>>;
@@ -78,7 +59,6 @@ describe("readWholeHistory", () => {
   it("walks the cursor back and returns the pages OLDEST-first", async () => {
     const { client, calls } = fakeClient([
       { kind: "chunk", chunk: "c-new\n", topLine: 94, exhausted: false },
-      // Empty chunk spanning 94 - 92 = 2 rows: real blank scrollback.
       { kind: "chunk", chunk: "", topLine: 92, exhausted: false },
       { kind: "chunk", chunk: "c-old\n", topLine: 80, exhausted: true },
     ]);
@@ -86,16 +66,12 @@ describe("readWholeHistory", () => {
     const pages = await Effect.runPromise(readWholeHistory(client, ID));
 
     expect(pages).toEqual(["c-old\n", "\n\n", "c-new\n"]);
-    // The first call must OMIT `before` — the host self-seeds from the screen
-    // top, and an explicit `undefined` would be a decode failure instead.
     expect("before" in (calls[0] as object)).toBe(false);
     expect(calls[1]?.before).toBe(94);
     expect(calls[2]?.before).toBe(92);
   });
 
   it("keeps walking past an all-blank page — only `exhausted` ends the dump", async () => {
-    // The bug this guards: treating an empty chunk as the end would cut off
-    // every line ABOVE a blank run.
     const { client } = fakeClient([
       { kind: "chunk", chunk: "", topLine: 50, exhausted: false },
       {
@@ -118,8 +94,6 @@ describe("readWholeHistory", () => {
     const exit = await Effect.runPromiseExit(readWholeHistory(client, ID));
     expect(Exit.isFailure(exit)).toBe(true);
     if (!Exit.isFailure(exit)) return;
-    // A `break` here would have printed one page and exited 0 — indistinguishable
-    // from a complete dump to whatever is reading it.
     expect(isPadiHistoryStale(Cause.squash(exit.cause))).toBe(true);
   });
 });

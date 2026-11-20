@@ -1,11 +1,3 @@
-/**
- * The one-shot legacy-config import — the cutover's whose-config-wins move.
- * Pins: the backup is taken BEFORE the first read; session/activityFeed/
- * lastPairedDaemon carry across but `preferences` never does; it runs EXACTLY
- * once; a malformed old file CRASHES loudly rather than starting empty; and with
- * no `$KOLU_STATE_DIR` it is a clean no-op (a dev/e2e padi with its own root).
- */
-
 import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -45,7 +37,6 @@ afterEach(() => {
   else process.env.KOLU_STATE_DIR = SAVED_STATE_DIR;
 });
 
-/** Write a legacy `config.json` under `$KOLU_STATE_DIR`. */
 function writeLegacy(blob: unknown): string {
   const p = join(legacyDir, "config.json");
   writeFileSync(p, typeof blob === "string" ? blob : JSON.stringify(blob));
@@ -59,11 +50,9 @@ const legacyBlob = () => ({
   },
   activityFeed: {
     recentRepos: [{ repoRoot: "/repo/a", repoName: "a", lastSeen: 5 }],
-    // An old-shape row: it carried a captured command, not `{ kind, argv }`.
     recentAgents: [{ command: "claude --yolo", lastSeen: 5 }],
   },
   lastPairedDaemon: { startedAt: 1234 },
-  // preferences must NOT cross into padi's store — it stays kolu-server's.
   preferences: { theme: "dark", newTerminalTheme: "x", shuffleBehavior: "y" },
 });
 
@@ -77,11 +66,8 @@ describe("importLegacyConfigOnce", () => {
     expect(stores.activityFeed.get().recentRepos).toEqual([
       { repoRoot: "/repo/a", repoName: "a", lastSeen: 5 },
     ]);
-    // The old-shape agent row is dropped at the door — it cannot be converted
-    // without re-parsing a captured command.
     expect(stores.activityFeed.get().recentAgents).toEqual([]);
     expect(stores.lastPairedDaemon.get()).toEqual({ startedAt: 1234 });
-    // preferences is not a padi key at all — it never entered padi's store.
     expect(stores.conf.get("importedLegacyConfig")).toBe(true);
     expect(
       (stores.conf as unknown as { get(k: string): unknown }).get(
@@ -97,7 +83,6 @@ describe("importLegacyConfigOnce", () => {
 
     const bak = `${oldPath}.pre-padi-import.bak`;
     expect(existsSync(bak)).toBe(true);
-    // Byte-identical copy of the old file (the recovery artifact).
     expect(readFileSync(bak, "utf8")).toBe(readFileSync(oldPath, "utf8"));
   });
 
@@ -108,12 +93,8 @@ describe("importLegacyConfigOnce", () => {
     expect(stores.activityFeed.get().recentRepos).toEqual([
       { repoRoot: "/repo/a", repoName: "a", lastSeen: 5 },
     ]);
-    // The old-shape agent row is dropped at the door — it cannot be converted
-    // without re-parsing a captured command.
     expect(stores.activityFeed.get().recentAgents).toEqual([]);
 
-    // The old file changes, but the marker blocks a re-import (padi owns its
-    // state now — a re-import must never clobber padi's own later writes).
     writeLegacy({
       ...legacyBlob(),
       activityFeed: { recentRepos: ["/repo/b"], recentAgents: [] },
@@ -122,18 +103,10 @@ describe("importLegacyConfigOnce", () => {
     expect(stores.activityFeed.get().recentRepos).toEqual([
       { repoRoot: "/repo/a", repoName: "a", lastSeen: 5 },
     ]);
-    // The old-shape agent row is dropped at the door — it cannot be converted
-    // without re-parsing a captured command.
     expect(stores.activityFeed.get().recentAgents).toEqual([]);
   });
 
   it("an imported legacy MRU row cannot crash the first live track", () => {
-    // The regression: the 1.3.0 ladder ran on padi's EMPTY file before this
-    // import seeded an old-shape `{ command }` row, so the row survived stamped
-    // 1.3.0. The next `trackRecentAgent` → `upsertMru` → `argv.join` threw inside
-    // `emit`; the catch in `reconcile` swallowed it AFTER the mirror advanced, so
-    // every terminal on the host stopped committing. The door now normalizes the
-    // feed, so the first track is an ordinary write.
     writeLegacy(legacyBlob());
     const stores = openPadiStateStores(stateRoot);
     importLegacyConfigOnce(stores, log);
@@ -170,32 +143,25 @@ describe("importLegacyConfigOnce", () => {
     writeLegacy("{ this is not valid json ");
     const stores = openPadiStateStores(stateRoot);
     expect(() => importLegacyConfigOnce(stores, log)).toThrow();
-    // The marker is NOT set — a fixed file re-imports on the next boot.
     expect(stores.conf.get("importedLegacyConfig")).toBe(false);
   });
 
   it("SKIPS the import when padi already holds its OWN session — padi's state wins (never clobbered)", () => {
-    // padi accrued its own session standalone (a workspace built with no legacy env,
-    // which leaves the marker unset), and is only LATER bound WITH $KOLU_STATE_DIR.
     const stores = openPadiStateStores(stateRoot);
     stores.session.set({
       terminals: [{ id: "99999999-9999-9999-9999-999999999999" }],
       activeTerminalId: null,
       // biome-ignore lint/suspicious/noExplicitAny: a minimal SavedSession for the clobber-guard test.
     } as any);
-    // A legacy file with a DIFFERENT session is present at bind time.
     writeLegacy(legacyBlob());
 
     importLegacyConfigOnce(stores, log);
 
-    // padi's own session is UNTOUCHED — the shared config.json did not win.
     expect(stores.session.get()?.terminals).toHaveLength(1);
     expect(stores.session.get()?.terminals[0]?.id).toBe(
       "99999999-9999-9999-9999-999999999999",
     );
-    // Marked done, so no later bind re-scans and clobbers.
     expect(stores.conf.get("importedLegacyConfig")).toBe(true);
-    // The skip happened BEFORE the read — no backup was taken.
     expect(existsSync(join(legacyDir, "config.json.pre-padi-import.bak"))).toBe(
       false,
     );
@@ -206,13 +172,10 @@ describe("importLegacyConfigOnce", () => {
     const stores = openPadiStateStores(stateRoot);
     importLegacyConfigOnce(stores, log);
     expect(stores.session.get()).toBeNull();
-    // No legacy dir known → we do NOT mark imported (a later boot WITH the env can
-    // still carry data across).
     expect(stores.conf.get("importedLegacyConfig")).toBe(false);
   });
 
   it("marks done (no re-scan) when $KOLU_STATE_DIR is set but no old file exists", () => {
-    // legacyDir exists but has no config.json.
     const stores = openPadiStateStores(stateRoot);
     importLegacyConfigOnce(stores, log);
     expect(stores.conf.get("importedLegacyConfig")).toBe(true);
@@ -220,12 +183,6 @@ describe("importLegacyConfigOnce", () => {
   });
 
   it("DIRECT pre-W2.2 → W2.3 upgrade: imports from the strip-backup when the live file is already stripped — session intact, zero loss", () => {
-    // The end-to-end direct-jump: kolu-server's `1.31.0` strip-migration ran FIRST
-    // (on its own boot, before padi's), so the live `config.json` has already lost
-    // session/activityFeed/lastPairedDaemon — only `preferences` survives — and the
-    // byte-exact pre-strip file sits beside it as `config.json.pre-1.31-strip.bak`
-    // (the SAME name kolu-server's strip writes, pinned by `stateMigration.test.ts`).
-    // padi must seed from that backup, not the stripped live file.
     const oldPath = writeLegacy({
       preferences: {
         theme: "dark",
@@ -241,7 +198,6 @@ describe("importLegacyConfigOnce", () => {
     const stores = openPadiStateStores(stateRoot);
     importLegacyConfigOnce(stores, log);
 
-    // The session survived the direct jump — imported FROM the strip-backup.
     expect(stores.session.get()?.terminals).toHaveLength(1);
     expect(stores.session.get()?.terminals[0]?.id).toBe(
       "11111111-1111-1111-1111-111111111111",
@@ -249,19 +205,13 @@ describe("importLegacyConfigOnce", () => {
     expect(stores.activityFeed.get().recentRepos).toEqual([
       { repoRoot: "/repo/a", repoName: "a", lastSeen: 5 },
     ]);
-    // The old-shape agent row is dropped at the door — it cannot be converted
-    // without re-parsing a captured command.
     expect(stores.activityFeed.get().recentAgents).toEqual([]);
     expect(stores.lastPairedDaemon.get()).toEqual({ startedAt: 1234 });
     expect(stores.conf.get("importedLegacyConfig")).toBe(true);
-    // The strip-backup is already durable — no SECOND `pre-padi-import` copy.
     expect(existsSync(`${oldPath}.pre-padi-import.bak`)).toBe(false);
   });
 
   it("prefers the LIVE file when it still carries the keys, even if a strip-backup also exists", () => {
-    // Defensive: the strip-backup is the source ONLY when the live file is stripped.
-    // A live file that still has the session wins (the strip hasn't run yet), and it
-    // takes its own `pre-padi-import` backup as usual.
     const oldPath = writeLegacy(legacyBlob());
     writeFileSync(
       `${oldPath}.pre-1.31-strip.bak`,
@@ -277,7 +227,6 @@ describe("importLegacyConfigOnce", () => {
     const stores = openPadiStateStores(stateRoot);
     importLegacyConfigOnce(stores, log);
 
-    // The LIVE session won — not the backup's.
     expect(stores.session.get()?.terminals[0]?.id).toBe(
       "11111111-1111-1111-1111-111111111111",
     );
@@ -390,9 +339,6 @@ describe("padi's own migration ladder", () => {
       session: { terminals: Record<string, unknown>[] };
       __internal__: { migrations: { version: string } };
     };
-    // The ladder always runs to its LAST rung, so this is the schema version
-    // of the day rather than the era this rung belongs to — hardcoding a
-    // number here just means the next rung breaks a test about an older one.
     expect(onDisk.__internal__.migrations.version).toBe(
       PADI_STATE_SCHEMA_VERSION,
     );
@@ -400,12 +346,6 @@ describe("padi's own migration ladder", () => {
   });
 
   it("1.3.0: a captured command line and the old MRU rows are DROPPED, never re-parsed", () => {
-    // The forgery shape: a saved terminal whose restore target remembered the raw
-    // text a shell printed, plus a recent-agents row that did the same. The step
-    // keeps the STRUCTURED identity (so the conversation still resumes) with an
-    // empty argv, drops `lastAgentCommand`, maps the retired
-    // `legacyMostRecent` arm to `none`, and clears the MRU — no old text is ever
-    // turned into a flag or an executable line.
     const sessionId = "0192f3a1-4c5b-7d8e-9f01-23456789abcd";
     writeFileSync(
       join(stateRoot, "config.json"),
@@ -448,9 +388,6 @@ describe("padi's own migration ladder", () => {
           savedAt: 1,
         },
         activityFeed: {
-          // A 1.2.x-era repo row: the rung must LEAVE it alone (only the agent
-          // rows carried captured text) — and must not rewrite the key when there
-          // is nothing to clear.
           recentRepos: [
             { repoRoot: "/repo/kept", repoName: "kept", lastSeen: 5 },
           ],
@@ -472,15 +409,12 @@ describe("padi's own migration ladder", () => {
     expect(stores.activityFeed.get().recentRepos).toEqual([
       { repoRoot: "/repo/kept", repoName: "kept", lastSeen: 5 },
     ]);
-    // The dropped text is nowhere on disk: the file the next boot reads cannot
-    // resurrect it into a command.
     expect(readFileSync(join(stateRoot, "config.json"), "utf8")).not.toContain(
       "LD_PRELOAD",
     );
   });
 
   it("1.6.0: a 1.5.0 file's resolved PR that never said draft becomes pending", () => {
-    /** A resolved PR as a 1.5.0 padi saved it: every field but `isDraft`. */
     const oldOk = {
       kind: "ok",
       value: {
@@ -503,8 +437,6 @@ describe("padi's own migration ladder", () => {
       kind: "unavailable",
       source: { provider: "gh", code: "not-authenticated" },
     };
-    /** A saved terminal as a 1.5.0 padi wrote it; `sleptAt` makes it the
-     *  sleeping arm. The id is a real `TerminalId` (a UUID). */
     const terminal = (n: number, pr: unknown, sleptAt?: number) => ({
       cwd: "/r",
       git: { kind: "none" },
@@ -551,14 +483,11 @@ describe("padi's own migration ladder", () => {
       };
     const onDisk = readDisk();
     expect(onDisk.__internal__.migrations.version).toBe("1.6.0");
-    // The file the next boot reads is CURRENT, not merely decodable: the
-    // session cell is served off it undecoded.
     expect(
       Schema.decodeUnknownSync(SavedSessionSchema)(
         onDisk.session,
       ).terminals.map((t) => t.pr),
     ).toEqual(expected);
-    // Opening it again runs no rung and moves nothing.
     openPadiStateStores(stateRoot);
     expect(readDisk()).toEqual(onDisk);
   });

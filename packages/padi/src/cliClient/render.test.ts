@@ -14,9 +14,6 @@ import {
   WATCH_FEED_KINDS,
 } from "./render.ts";
 
-/** A minimal `active` composed record — the agent the wait predicate reads plus
- *  the git/pr/foreground the status table renders. Cast because the full
- *  `ActiveTerminalSchema` is large and these are the only fields under test. */
 function activeWithAgent(agent: AgentInfo | null): PadiTerminal {
   return {
     state: "active",
@@ -31,9 +28,6 @@ const claude = (state: AgentInfo["state"]): AgentInfo =>
   ({ kind: "claude-code", state }) as AgentInfo;
 
 describe("isWaitState — the whole padi-side `--until` contract", () => {
-  // The COMMA SPLIT and its message are argv grammar and live in each face now
-  // (kolu-cli's \`planUntil\`, padi-tui's local copy). What padi owns is whether a
-  // single token names a bucket.
   it("accepts each bucket and refuses anything else", () => {
     for (const s of WAIT_STATES) expect(isWaitState(s)).toBe(true);
     expect(isWaitState("idle")).toBe(false);
@@ -57,7 +51,7 @@ describe("formatStatus — the human table", () => {
     expect(table).toContain("11111111");
     expect(table).toContain("active");
     expect(table).toContain("claude");
-    expect(table).toContain("working"); // agentStatusLabel(thinking) → the bucket
+    expect(table).toContain("working");
   });
 
   it("renders git's three cases, sanitizing a repo's names", () => {
@@ -97,13 +91,10 @@ describe("the `kolu watch` line formats", () => {
     });
 
   it("lines the two CLOSED-vocabulary columns up, so a running feed reads as a table", () => {
-    // Both unions are closed literals, so the widths are compile-time facts and
-    // nothing has to be measured — and the docs' sample block is then true.
     const nag = stateEvent();
     const transition = stateEvent({ kind: "transition", state: "awaiting" });
     expect(nag).toContain("nag         waiting   1m");
     expect(transition).toContain("transition  awaiting  1m");
-    // The hold lands in the same column whichever words came before it.
     expect(nag.indexOf("1m")).toBe(transition.indexOf("1m"));
   });
 
@@ -115,9 +106,6 @@ describe("the `kolu watch` line formats", () => {
   });
 
   it("gives EVERY --json line a `kind`, whichever feed produced it", () => {
-    // One `jq` switch reads both feeds: a consumer must not have to inspect its
-    // own argv, or probe for which key happens to be present, to tell a removal
-    // from an activity flip from a supervision event.
     const id = "a1b2c3d4-1111-1111-1111-111111111111" as TerminalId;
     expect(JSON.parse(formatWatchRemovalJson(id))).toEqual({
       kind: "removed",
@@ -153,8 +141,6 @@ describe("formatStateEventJson — the other half of the --json contract", () =>
   });
 
   it("carries `kind`, like every other line this verb prints", () => {
-    // The whole --json contract in one assertion: a consumer branches on one
-    // field whichever feed produced the line.
     for (const kind of ["snapshot", "transition", "nag"] as const) {
       expect(JSON.parse(formatStateEventJson({ ...event, kind })).kind).toBe(
         kind,
@@ -167,9 +153,6 @@ describe("formatHeartbeat — a CLI-only alive line", () => {
   it("is a timestamped line, not a terminal event", () => {
     expect(formatHeartbeat(1_700_000_000_000)).toMatch(/heartbeat$/);
     expect(formatHeartbeat(1_700_000_000_000)).not.toMatch(/snapshot/);
-    // The id column is BLANK, not skipped, so the word lands in the KIND
-    // column — at the same offset a neighbouring line's kind does, which is
-    // the alignment the derived widths exist for.
     const beat = formatHeartbeat(1_700_000_420_000);
     const event = formatStateEvent({
       seq: 7,
@@ -183,7 +166,6 @@ describe("formatHeartbeat — a CLI-only alive line", () => {
   });
 
   it("declares its kind in the array the feed's column width is derived from", () => {
-    // A consumer building a `jq` switch off the declared kinds is exhaustive.
     expect([...WATCH_FEED_KINDS]).toContain("heartbeat");
   });
 

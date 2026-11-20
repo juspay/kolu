@@ -10,8 +10,6 @@ import {
   TERMINAL_RESET,
 } from "./reattachingDeltas.ts";
 
-/** A kaval attach iterator scripted from a list of frames (the snapshot is
- *  consumed separately by `open`, so these are the post-snapshot frames). */
 function framesIter(frames: PtyHostDataMsg[]): AsyncIterator<PtyHostDataMsg> {
   let i = 0;
   return {
@@ -26,15 +24,10 @@ function framesIter(frames: PtyHostDataMsg[]): AsyncIterator<PtyHostDataMsg> {
 
 const delta = (data: string): PtyHostDataMsg => ({ kind: "delta", data });
 const overflow: PtyHostDataMsg = { kind: "overflow" };
-/** kaval saying its mirror changed size HERE, between the frame before and the
- *  frame after (contract 9.0). */
 const resized = (cols: number, rows: number): PtyHostDataMsg => ({
   kind: "resized",
   grid: { cols, rows },
 });
-/** The grid every scripted re-open's snapshot is laid out at. Required on the
- *  wire since contract 9.0 — a snapshot that states no grid is a snapshot a
- *  consumer cannot size itself to. */
 const GRID = { cols: 80, rows: 24 };
 
 async function collect(
@@ -44,37 +37,24 @@ async function collect(
   for await (const f of gen) out.push(f);
   return out;
 }
-/** The `data` field of each frame — the byte-stream projection the tests assert
- *  on for the string outputs. A `resized` carries no bytes and reads as
- *  `undefined`. */
 const data = (out: TerminalAttachFrame[]) =>
   out.map((f) => (f.kind === "resized" ? undefined : f.data));
-/** The whole frame sequence as tags — for the tests whose subject is ORDER,
- *  which is the entire content of a `resized` frame. */
 const tags = (out: TerminalAttachFrame[]) =>
   out.map((f) =>
     f.kind === "resized"
       ? `resized:${f.grid.cols}x${f.grid.rows}`
       : `${f.kind}:${f.data}`,
   );
-/** The re-seed anchor per frame: a `snapshot` frame's `topLine`, `undefined` for
- *  a plain `delta` (the discriminated-union projection of the old optional field). */
 const topLines = (out: TerminalAttachFrame[]) =>
   out.map((f) => (f.kind === "snapshot" ? f.topLine : undefined));
 
-/** The loop's context: which terminal is being streamed (the label on the
- *  oscillation report) plus, where a test needs one, the consumer's teardown. */
 const ctx = { id: "t-1" as TerminalId };
 
-/** The PTY is gone — what kaval answers a re-open for a departed terminal, and
- *  therefore what makes a plain end a REAL exit. */
 const ptyGone = (): Promise<OpenedAttach> =>
   Promise.reject(new PtyNotFound({ id: "gone" }));
 
 describe("reattachingDeltas", () => {
   it("yields the delta frames and ends when the re-open finds the PTY gone", async () => {
-    // A plain end is now a QUESTION: the loop asks kaval, kaval says the PTY is
-    // gone, and THAT is what ends the stream — the exit, confirmed.
     const initial = framesIter([delta("a"), delta("b")]);
     let asked = 0;
     const open = (): Promise<OpenedAttach> => {
@@ -83,15 +63,11 @@ describe("reattachingDeltas", () => {
     };
     const out = await collect(reattachingDeltas(open, initial, ctx));
     expect(data(out)).toEqual(["a", "b"]);
-    // Plain deltas carry no re-seed.
     expect(out.every((f) => f.kind === "delta")).toBe(true);
     expect(asked).toBe(1);
   });
 
   it("ends on a plain end that OUR OWN abort caused — no re-open", async () => {
-    // The consumer's teardown aborts the signal, which is what ends the kaval
-    // iterator (`local.ts` bridges the abort onto `iter.return()`). Re-opening
-    // there would resurrect a subscription the caller already released.
     const controller = new AbortController();
     controller.abort();
     const initial = framesIter([delta("a")]);
@@ -104,21 +80,11 @@ describe("reattachingDeltas", () => {
     expect(data(out)).toEqual(["a"]);
   });
 
-  // ── The manufactured clean end (kolu#2101, deploy #2) ────────────────────
-  //
-  // A plain end (no `overflow` frame) while the PTY is ALIVE used to `return` —
-  // a graceful end the client's failure-only retry layers could not act on, so
-  // the tile sat blank with a live title and no verdict. kaval closes an attach
-  // fan-out in exactly one place (the PTY's own exit teardown), so such an end
-  // never came from a healthy host: it was manufactured by the chain, and the
-  // repair is to ask again.
-
   it("plain end while the PTY is ALIVE → re-opens and keeps the frames flowing", async () => {
-    const initial = framesIter([delta("before")]); // ends plainly, no overflow
+    const initial = framesIter([delta("before")]);
     let opened = 0;
     const open = (): Promise<OpenedAttach> => {
       opened++;
-      // The PTY answers: still here, here is a fresh snapshot.
       return Promise.resolve({
         snapshot: "FRESH",
         topLine: 7,
@@ -126,7 +92,6 @@ describe("reattachingDeltas", () => {
         iter: framesIter([delta("after")]),
       });
     };
-    // The second leg also ends plainly; the PTY has exited by then.
     const out = await collect(
       reattachingDeltas(
         () => (opened === 0 ? open() : ptyGone()),
@@ -139,9 +104,6 @@ describe("reattachingDeltas", () => {
   });
 
   it("throws LOUD once the plain-end re-open budget is exhausted", async () => {
-    // A chain that keeps handing back attachments that end immediately and
-    // deliver nothing. Ending cleanly here is the frozen pane; throwing hands
-    // the tile to the client's failure machinery, which rebuilds the chain.
     const initial = framesIter([]);
     let opened = 0;
     const open = (): Promise<OpenedAttach> => {
@@ -160,9 +122,6 @@ describe("reattachingDeltas", () => {
   });
 
   it("a leg that DELIVERED frames refills the plain-end budget", async () => {
-    // Odd-but-flowing is working: every leg ends plainly, but each one carries a
-    // frame, so the loop never exhausts its budget. It runs well past
-    // PLAIN_END_REOPEN_ATTEMPTS legs and then ends on the real exit.
     const legs = 6;
     let opened = 0;
     const open = (): Promise<OpenedAttach> => {
@@ -181,13 +140,9 @@ describe("reattachingDeltas", () => {
   });
 
   it("re-attaches on an `overflow` frame, prefixing a reset + re-seeding topLine", async () => {
-    // First leg drops after one delta; the re-attach delivers a fresh snapshot
-    // (with its own seed) and one more delta, then ends gracefully.
     const initial = framesIter([delta("before"), overflow]);
     let opened = 0;
     const open = (): Promise<OpenedAttach> => {
-      // The second leg ends plainly too, and the loop asks again — by then the
-      // PTY has exited, which is what ends the stream.
       if (opened++ > 0) return ptyGone();
       return Promise.resolve({
         snapshot: "FRESH",
@@ -197,12 +152,8 @@ describe("reattachingDeltas", () => {
       });
     };
     const out = await collect(reattachingDeltas(open, initial, ctx));
-    // The dropped subscriber's delta is delivered; then the reset-prefixed fresh
-    // snapshot replaces the screen AND re-seeds the backfill cursor; then deltas.
     expect(data(out)).toEqual(["before", `${TERMINAL_RESET}FRESH`, "after"]);
     expect(topLines(out)).toEqual([undefined, 42, undefined]);
-    // Two asks: the overflow re-attach, then the liveness question the second
-    // leg's plain end raises — answered "the PTY is gone", which ends the stream.
     expect(opened).toBe(2);
   });
 
@@ -211,8 +162,6 @@ describe("reattachingDeltas", () => {
     const legs: PtyHostDataMsg[][] = [[delta("one"), overflow], [delta("two")]];
     let leg = 0;
     const open = (): Promise<OpenedAttach> => {
-      // Past the scripted legs the PTY is gone — the plain end of the last leg
-      // is a question, and this is the answer that ends the stream.
       if (leg >= legs.length) return ptyGone();
       return Promise.resolve({
         snapshot: `S${leg}`,
@@ -232,8 +181,6 @@ describe("reattachingDeltas", () => {
   });
 
   it("ends cleanly when the PTY has vanished by the time we re-attach (PtyNotFound)", async () => {
-    // A drop whose re-attach finds the PTY gone is a real end, not an error to
-    // surface — the loop returns instead of throwing.
     const initial = framesIter([delta("x"), overflow]);
     const open = (): Promise<OpenedAttach> =>
       Promise.reject(new PtyNotFound({ id: "gone" }));
@@ -252,12 +199,6 @@ describe("reattachingDeltas", () => {
   });
 
   it("recognises a REHYDRATED PtyNotFound — the tag, not the constructor", async () => {
-    // On the two per-terminal STREAM members `PtyNotFound` is UNDECLARED (a
-    // `StreamSpec` has no error channel), so it can reach this loop as a bare
-    // tagged value rather than a class instance — from another module realm, or
-    // decoded off a wire. Matching the constructor would silently stop
-    // recognising it there, turning "the PTY is gone, end cleanly" into a
-    // failure propagated into a live attach stream.
     const initial = framesIter([delta("x"), overflow]);
     const open = (): Promise<OpenedAttach> =>
       Promise.reject({ _tag: "PtyNotFound", id: "gone" });
@@ -265,14 +206,6 @@ describe("reattachingDeltas", () => {
       "x",
     ]);
   });
-
-  // ── The `resized` frame (kaval contract 9.0, padi 7.5) ──────────────────
-  //
-  // Its POSITION is its content: every byte before it was laid out for the old
-  // grid, every byte after it for the new one. A relay is allowed to forward
-  // it or to end, and nothing else — reordering it, coalescing two of them, or
-  // dropping one re-creates the divergence it exists to close, one hop further
-  // from the pty.
 
   it("relays a resize in its place in the byte stream", async () => {
     const initial = framesIter([
@@ -289,9 +222,6 @@ describe("reattachingDeltas", () => {
   });
 
   it("keeps successive resizes distinct and in order", async () => {
-    // A divider drag walks a pty through several sizes. Collapsing them to the
-    // last would parse the bytes between them at a width they were never
-    // written for.
     const initial = framesIter([
       resized(100, 30),
       delta("a"),
@@ -308,10 +238,6 @@ describe("reattachingDeltas", () => {
   });
 
   it("relays resizes on both sides of an overflow re-attach", async () => {
-    // The re-attach is the one place the relay SYNTHESISES a frame (the reset
-    // plus the fresh snapshot). A resize must not jump that seam in either
-    // direction: the one before it describes the screen being thrown away, and
-    // the one after it describes the screen the snapshot painted.
     const initial = framesIter([resized(100, 30), delta("before"), overflow]);
     let opened = 0;
     const open = (): Promise<OpenedAttach> => {
@@ -332,16 +258,11 @@ describe("reattachingDeltas", () => {
       "resized:70x20",
       "delta:tail",
     ]);
-    // The re-attach snapshot states the grid its bytes are laid out at, so a
-    // consumer sizes to it rather than guessing.
     const snapshot = out.find((f) => f.kind === "snapshot");
     expect(snapshot).toMatchObject({ grid: { cols: 100, rows: 30 } });
   });
 
   it("ends when a re-open describes no screen (the consumer aborted mid-open)", async () => {
-    // `local.ts` answers an attach torn down before kaval replied with
-    // `grid: null` — "there is no screen here". Yielding a snapshot frame for it
-    // would put a grid on the wire that nothing was ever serialized at.
     const initial = framesIter([delta("x"), overflow]);
     const open = (): Promise<OpenedAttach> =>
       Promise.resolve({

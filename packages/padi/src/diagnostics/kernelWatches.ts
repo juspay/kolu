@@ -1,27 +1,11 @@
-/**
- * The file watches the KERNEL says padi holds — beside the watcher rows, which
- * cannot count a recursive `@parcel/watcher` subscription's directories.
- *
- * On Linux every inotify instance is an fd whose `/proc/self/fdinfo/<fd>` has
- * one `inotify wd:…` line per watch. A padi holding 300,000 watches has a file
- * of 300,000 lines, so it is read as a stream and counted as it goes, never
- * made one string. Read only when asked.
- *
- * Agent transcript watchers have no row of their own; their watches are in
- * this count.
- */
-
 import fs from "node:fs";
 import type { PadiDiagnostics } from "@kolu/padi-client/surface";
 import { measured, unmeasured } from "kolu-io";
 
 const MARKER = Buffer.from("\ninotify ");
 
-/** Count `inotify ` lines in one fdinfo file, chunk by chunk. */
 async function countWatches(file: string): Promise<number> {
   let count = 0;
-  // A leading newline lets the first line match the same marker; the carry
-  // keeps a marker split across two chunks.
   let carry = Buffer.from("\n");
   for await (const chunk of fs.createReadStream(file)) {
     const buf = Buffer.concat([carry, chunk as Buffer]);

@@ -1,13 +1,3 @@
-/**
- * Which set a new terminal gets on this host, and how kolu-server's delivery
- * reports (`agentDistro.report`) move it: the served set (`landed.json`, else
- * the floor's package with no profile), the stack-matching readiness that
- * decides whether it serves the setting, and the status / receipt a host
- * publishes as deliveries start, land and fail. Real temp dirs throughout —
- * `current`, `last-success` and the history log are the files upstream reads
- * too.
- */
-
 import {
   existsSync,
   lstatSync,
@@ -68,7 +58,6 @@ const stack = (...profiles: string[]): AgentDistroSetting => ({
   profiles,
 });
 
-/** Write `files` (path → text) to disk. */
 function writeFiles(files: Record<string, string>): void {
   for (const [path, text] of Object.entries(files)) {
     mkdirSync(dirname(path), { recursive: true });
@@ -76,8 +65,6 @@ function writeFiles(files: Record<string, string>): void {
   }
 }
 
-/** agent-distro's package as it builds: `bin/` holds the harness commands AND
- *  the picker, `agent-distro`; `versions` (when given) is its versions file. */
 function storePackage(
   dir: string,
   versions?: readonly { name: string; title: string; version: string }[],
@@ -89,8 +76,6 @@ function storePackage(
   return dir;
 }
 
-/** A built profile in the store, as `mkProfile` writes it, delivered for
- *  `reference`. */
 function storeProfile(
   reference: string,
   name: string,
@@ -106,7 +91,6 @@ function storeProfile(
   };
 }
 
-/** The first `command` a shell finds on `PATH`. */
 function commandOnPath(command: string, PATH: string | undefined) {
   for (const dir of (PATH ?? "").split(":")) {
     const candidate = join(dir, command);
@@ -115,8 +99,6 @@ function commandOnPath(command: string, PATH: string | undefined) {
   return undefined;
 }
 
-/** The env a terminal spawned with `layer` gets — the spawn input padi really
- *  composes. */
 function spawnEnv(layer: AgentLayer): Record<string, string | undefined> {
   return composeSpawnInput(
     { id: "T-agents-path" },
@@ -150,9 +132,6 @@ const historyLines = () =>
     ? readFileSync(historyFile(), "utf8").trim().split("\n")
     : [];
 
-/** A bake as the reader makes it — concrete for this host — with the local
- *  floor (agent-distro's package in kolu's closure, reached through a link as
- *  a store path is) or none (a remote host). */
 function bake(opts: { floor: boolean }): AgentDistroBake {
   const floorLink = join(root, "floor");
   if (opts.floor)
@@ -171,8 +150,6 @@ function bake(opts: { floor: boolean }): AgentDistroBake {
 
 const floorPackage = () => join(root, "store", "floor-package");
 
-/** The framework's order for a setting write: `onWrite` first, then the
- *  store. */
 function write(next: AgentDistroSetting): void {
   onAgentDistroSettingWrite(next);
   agentDistroSettingStore.set(next);
@@ -182,7 +159,6 @@ const status = () => published.at(-1);
 const receipt = () => receipts.at(-1);
 const report = (r: AgentDistroDeliveryReport) => onAgentDistroReport(r);
 
-/** A `landed` report of `bundle` with `delivered` — its stack is theirs. */
 const landed = (
   bundle: string,
   delivered: readonly DeliveredProfile[],
@@ -379,7 +355,6 @@ describe("delivery reports — what a host does with kolu-server's word", () => 
     );
     expect(stamp).toBeGreaterThanOrEqual(before);
     expect(stamp).toBeLessThanOrEqual(Math.floor(Date.now() / 1000));
-    // Upstream's one-package line: `<time> updated: <words>`, no profile.
     expect(historyLines()).toEqual([
       expect.stringMatching(
         /^\S+ updated: Claude Code 2\.1\.291, juspay a1b2c3d$/,
@@ -508,7 +483,6 @@ describe("delivery reports — what a host does with kolu-server's word", () => 
     });
     const before = receipt();
 
-    // A delivery of the longer stack started before the list was cut back.
     const ekala = storeProfile(EKALA, "ekala");
     expect(() => report(landed(bundle, [juspay, ekala]))).toThrow(
       /the Agents setting is now/,
@@ -518,7 +492,6 @@ describe("delivery reports — what a host does with kolu-server's word", () => 
       set: { bundle, profiles: [juspay] },
     });
     expect(newTerminalLayer()?.profiles).toEqual([juspay]);
-    // Its failure report, which kolu-server sends next, marks nothing either.
     report({ kind: "failed", profiles: [JUSPAY, EKALA], message: "refused" });
     expect(status()).toMatchObject({
       kind: "ready",
@@ -619,7 +592,6 @@ describe("delivery reports — what a host does with kolu-server's word", () => 
       kind: "ready",
       set: { bundle: floorPackage(), profiles: [] },
       delivering: false,
-      // The stand-in package names no answers: a package older than `--models`.
       answers: [],
     };
     expect(status()).toEqual(ready);
@@ -695,8 +667,6 @@ describe("delivery reports — what a host does with kolu-server's word", () => 
     write(stack(JUSPAY));
     report({ kind: "failed", profiles: [JUSPAY], message: "juspay broke" });
     expect(receipt()?.lastRun).toMatchObject({ words: "juspay broke" });
-    // The setting's write re-publishes the receipt for the NEW stack — its
-    // onWrite runs before the store holds it, so it must not read the store.
     write(STOCK);
     expect(status()).toMatchObject({ kind: "ready" });
     expect(receipt()?.lastRun).toBeUndefined();

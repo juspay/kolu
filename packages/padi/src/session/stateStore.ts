@@ -1,20 +1,3 @@
-/**
- * padi's OWN persistent store — the `Conf` under padi's state-root that backs the
- * `session`, `activityFeed`, and `lastPairedDaemon` cells. Until W2.2 these three
- * were kolu-server's `Conf` keys, INJECTED into padi (`confStores.ts`); now the
- * padi PROCESS owns them, on the host, keyed by its state-root identity.
- *
- * padi does NOT import `packages/server/src/state.ts` (the dependency arrow points
- * OUT) — it builds its own `Conf`, a small twin of the server's, holding only the
- * three keys padi owns. **`preferences` stays kolu-server's** (a koluSurface cell,
- * user-scoped, not padi's); it never moves here.
- *
- * kolu-server ran the legacy ladder before the one-shot import, so padi's own
- * ladder starts at padi's own schema changes (`PADI_STATE_MIGRATIONS`); it also
- * persists the project-version marker and refuses a marker written by a future
- * padi.
- */
-
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { ActivityFeed, SavedSession } from "@kolu/padi-client/surface";
@@ -29,18 +12,13 @@ import {
 import { log } from "../log.ts";
 import type { PairedDaemon } from "./pairedDaemon.ts";
 
-/** padi's on-disk shape — the keys padi owns under its state-root, plus the
- *  one-shot import marker. */
 interface PadiPersistedState {
   session: SavedSession | null;
   activityFeed: ActivityFeed;
   lastPairedDaemon: PairedDaemon | null;
-  /** Set true once the legacy kolu-config import has run (exactly-once guard). An
-   *  internal flag, never a served cell. */
   importedLegacyConfig: boolean;
 }
 
-/** padi's state schema version — the last step of {@link PADI_STATE_MIGRATIONS}. */
 export const PADI_STATE_SCHEMA_VERSION = "1.6.0";
 
 /** Delete a key that is no longer in {@link PadiPersistedState} off the raw
@@ -50,117 +28,47 @@ export const PADI_STATE_SCHEMA_VERSION = "1.6.0";
 const deleteRetiredKey = (store: Conf<PadiPersistedState>, key: string): void =>
   (store as unknown as { delete: (key: string) => void }).delete(key);
 
-/** The SESSION half of the ladder — ONE function behind every session-shape
- *  rung (1.1.0, 1.2.0, 1.3.0 and 1.6.0). Every schema-era bump since 1.1.0 is
- *  expressed by the idempotent, presence-keyed
- *  `backfillSavedSession`, so the rungs share it instead of pretending each has
- *  its own session arm. Recorded decision (review round 3, R9): only the
- *  ACTIVITY-FEED era is rung-local, because its old rows carried captured text
- *  that must never be re-parsed. */
 const backfillSavedSessionIn = (store: Conf<PadiPersistedState>): void => {
   const session = store.get("session");
   if (session !== null)
     store.set("session", backfillSavedSession(session) as SavedSession);
 };
 
-/** padi's migration ladder, keyed by the version each step brings the file to.
- *
- *  - `1.1.0`: a saved terminal's `git` became the three-case `GitFact`
- *    (`unresolved | none | repo`). The stored session is brought up to the
- *    current shape by the SAME saved-terminal backfill the restore and import
- *    paths run (`backfillSavedSession`), so the file and every reader agree. The
- *    session cell is served straight off this store — undecoded — so the disk
- *    shape must be current, not merely decodable.
- *  - `1.2.0`: a saved terminal's `agents` stamp names agent-distro's one
- *    package and the built profiles it exported (`{ bundle, profiles }`); a
- *    stamp from before (`{ profile, bundle }`) is dropped by the same backfill
- *    (`backfillAgentsStamp`) — the spawn that brings the terminal back stamps
- *    it afresh.
- *  - `1.3.0`: restore is rendered from structured facts, never from captured PTY
- *    text. A saved `restoreTarget` of `{ kind: "exact", command, agent }` becomes
- *    `{ kind: "exact", agent, argv: [] }`, and `legacyMostRecent` becomes `none`
- *    (`backfillRestoreTargetArgv`) — the old `command` is DELETED, never parsed:
- *    re-parsing it is the forgery hole this closes. The remembered
- *    `lastAgentCommand` key is dropped by the same rung, and the recent-agents MRU
- *    is cleared: its old rows carried a captured `command` and cannot be
- *    converted, so it starts empty and refills from live detection. `recentRepos`
- *    is untouched by this rung.
- *  - `1.4.0`: the ORCHESTRATOR arrived — one ACP conversation per state-root.
- *    A no-op rung: `Conf`'s `defaults` already answered the absent key with the
- *    empty record, and the rung existed only so the ladder, not a silent
- *    addition, was what advanced `PADI_STATE_SCHEMA_VERSION`.
- *  - `1.5.0`: the orchestrator LEAVES. The conversation is hosted by
- *    kolu-server now — one conversation over every host, not one per padi — so
- *    padi no longer owns a `orchestrator` key and the rung DELETES it. The key
- *    is dropped rather than left to rot because a padi that kept writing it
- *    would be a second, divergent transcript of a conversation it does not
- *    host, and the next reader could not tell which of the two was the one a
- *    person had been having.
- *
- *    NOTHING IS CARRIED ACROSS. kolu-server seeds its own key empty (its
- *    `1.43.0` rung); the rows under this one are not copied there. 1.4.0 never
- *    shipped in a release, so the only transcripts this deletes are ones a
- *    development build wrote — and a migration that moved a session id into a
- *    DIFFERENT process's store would be claiming kolu-server can resume a
- *    conversation whose `cwd` and MCP server were another daemon's.
- *  - `1.6.0`: a saved terminal's resolved PR says whether it is a DRAFT
- *    (`PrInfo.isDraft`, required, #2410). A saved `ok` PR from before the field
- *    cannot say, so the same backfill (`backfillPrDraft`) turns it into
- *    `{ kind: "pending" }` — not known right now — and the live PR sensor reads
- *    it afresh when the terminal runs. Every other `pr` is left as found.
- *
- *  The SESSION half of the session-shape rungs is one function
- *  (`backfillSavedSessionIn`), by the recorded decision above; only 1.3.0's own
- *  era is spelled here. */
+const dropRecentAgents_1_3_0 = (store: Conf<PadiPersistedState>): void => {
+  backfillSavedSessionIn(store);
+  const feed = store.get("activityFeed");
+  if (feed.recentAgents.length > 0)
+    store.set("activityFeed", { ...feed, recentAgents: [] });
+};
+
+const noSchemaChange_1_4_0 = (): void => {};
+
+const deleteOrchestrator_1_5_0 = (store: Conf<PadiPersistedState>): void => {
+  deleteRetiredKey(store, "orchestrator");
+};
+
 const PADI_STATE_MIGRATIONS: Record<
   string,
   (store: Conf<PadiPersistedState>) => void
 > = {
   "1.1.0": backfillSavedSessionIn,
   "1.2.0": backfillSavedSessionIn,
-  "1.3.0": (store) => {
-    backfillSavedSessionIn(store);
-    // This rung spells ITS OWN era — it must not delegate to
-    // `backfillActivityFeed`, whose clock is the CURRENT row shapes (a later row
-    // change would retroactively change what 1.3.0 does to a 1.2.x file, the
-    // exact drift the rung split exists to prevent). Its era only has to clear
-    // agent rows that carried a captured `command`; `recentRepos` is left
-    // byte-for-byte as found, presence-keyed so an already-clean feed is not
-    // rewritten on every upgrade.
-    const feed = store.get("activityFeed");
-    if (feed.recentAgents.length > 0)
-      store.set("activityFeed", { ...feed, recentAgents: [] });
-  },
-  "1.4.0": () => {},
-  "1.5.0": (store) => {
-    deleteRetiredKey(store, "orchestrator");
-  },
+  "1.3.0": dropRecentAgents_1_3_0,
+  "1.4.0": noSchemaChange_1_4_0,
+  "1.5.0": deleteOrchestrator_1_5_0,
   "1.6.0": backfillSavedSessionIn,
 };
 
-/** The three `CellStore`s padi injects at boot, plus the underlying `Conf` (which
- *  the one-shot import writes into raw). */
 export interface PadiStateStores {
   session: CellStore<SavedSession | null>;
   activityFeed: CellStore<ActivityFeed>;
   lastPairedDaemon: CellStore<PairedDaemon | null>;
-  /** The raw store — the state-root Conf, exposed so the one-shot import can seed
-   *  keys directly (and so a boot can inspect emptiness before importing). */
   conf: PadiConf;
-  /** THIS state root's backup ring — the binding `openPadiStateStores` took its
-   *  boot snapshot through, returned so the daemon boot arms the daily ticker
-   *  on the SAME ring object instead of deriving a second one from
-   *  `conf.path` (the ring's module doc: a consumer holds one binding). */
   ring: StateBackupRing;
 }
 
-/** The padi state-root `Conf` type — narrowed to the read/write surface the
- *  one-shot import needs (import stays decoupled from the full `Conf` API). */
 export type PadiConf = Conf<PadiPersistedState>;
 
-/** A future padi has already written this state-root. An older padi must leave
- * the file byte-for-byte alone instead of asking Conf to run its migration
- * ladder backwards. */
 export type NewerPadiStateProjectVersion = {
   readonly kind: "newer-project-version";
   readonly configPath: string;
@@ -168,12 +76,10 @@ export type NewerPadiStateProjectVersion = {
   readonly supportedVersion: string;
 };
 
-/** The only two outcomes of opening padi's state store. */
 export type PadiStateStoreOpen =
   | { readonly kind: "ready"; readonly stores: PadiStateStores }
   | NewerPadiStateProjectVersion;
 
-/** The daemon boot surfaces a rollback-window refusal by this stable name. */
 export class NewerPadiStateProjectVersionError extends Error {
   constructor(readonly disposition: NewerPadiStateProjectVersion) {
     super(
@@ -243,40 +149,16 @@ function newerProjectVersionOnDisk(
   };
 }
 
-/** padi's state file under a state-root — the ONE derivation of that fact. This
- *  module owns padi's on-disk layout (it constructs the `Conf`), so
- *  `openPadiStateStores` and the backup ring's face both read it HERE rather
- *  than each re-spelling `join(stateRoot, "config.json")`: a second spelling
- *  would silently ring a different directory than the boot snapshot writes, and
- *  nothing would fail loudly. */
 export function padiConfigPath(stateRoot: string): string {
   return join(stateRoot, "config.json");
 }
 
-/** THIS state-root's backup ring, for a consumer that has a `stateRoot` but not
- *  the boot-opened binding on {@link PadiStateStores} — the `backups.*` face and
- *  the session FORFEIT, each of which is handed a bare state-root by
- *  `servePadi`. It lives HERE, beside `padiConfigPath`, for the same reason that
- *  path does: a second `openStateBackupRing(padiConfigPath(root), log)` spelling
- *  elsewhere would silently ring a different directory than the boot snapshot
- *  writes, and nothing would fail loudly. Opening a ring is cheap (a path plus a
- *  logger — no file handle, no `Conf`), so an ad-hoc consumer opens one per act
- *  rather than reaching for the boot stores. */
 export function padiStateBackupRing(stateRoot: string): StateBackupRing {
   return openStateBackupRing(padiConfigPath(stateRoot), log);
 }
 
-/** Open padi's state-root `Conf` (`<stateRoot>/config.json`) and return the three
- *  cell stores it backs. The stores are `confStore` adapters over the one `Conf`,
- *  exactly as kolu-server built them — so the cells behave byte-identically, only
- *  the file moved. */
 export function openPadiStateStores(stateRoot: string): PadiStateStoreOpen {
   const configPath = padiConfigPath(stateRoot);
-  // Snapshot the pre-existing file into the backup ring BEFORE anything —
-  // including the rollback preflight and the Conf construction below — can
-  // write it (juspay/kolu#1658: history is the safety net for a bug that
-  // persists a bad-but-valid value; the migration `.bak`s are one-shot and
-  // cover only the legacy cutover). Fail-soft by design — see `stateBackup.ts`.
   const ring = openStateBackupRing(configPath, log);
   ring.snapshot();
   const newer = newerProjectVersionOnDisk(configPath);
@@ -311,8 +193,6 @@ export function openPadiStateStores(stateRoot: string): PadiStateStoreOpen {
   };
 }
 
-/** Convenience for test/fixture writers that create only current-version state.
- * Production boot handles the typed outcome itself so the refusal stays visible. */
 export function requirePadiStateStores(stateRoot: string): PadiStateStores {
   const opened = openPadiStateStores(stateRoot);
   if (opened.kind === "newer-project-version") {

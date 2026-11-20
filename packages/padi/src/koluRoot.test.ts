@@ -1,19 +1,3 @@
-/**
- * Boot-order fail-fast for the injected per-process daemon id (a W1.M severing).
- *
- * `setDaemonProcessId` throws on an EMPTY value WHEN CALLED, but nothing
- * crashed if boot never called it at all — a downstream READ (koluRoot's dir
- * construction, `ensureKoluRoot`, the per-terminal scratch dir) then silently
- * derived a path from an unset id. These pin the READ as loud instead: a read
- * before the set throws a named error; a read after a set returns the derived
- * path unchanged (the happy path stays byte-identical).
- *
- * Module-level state persists across `it`s within one file, so the
- * read-before-set case MUST run first, before any set. Vitest runs `it`s in
- * definition order, and (default isolation) gives this file a fresh module graph
- * so no sibling test's set leaks in.
- */
-
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -28,10 +12,6 @@ describe("daemonProcessId boot-order fail-fast", () => {
   const NOT_INJECTED =
     "daemonProcessId read before setDaemonProcessId() — the daemon's boot (padi's daemonMain) must inject it before ensureKoluRoot";
 
-  // FIRST: this fresh module graph has never had the id injected. A read here is
-  // a boot-order bug and must crash loudly, not hand back an empty-id dir. (If
-  // the getters were reverted to a plain read of a possibly-undefined holder,
-  // this assertion goes red — the guard against a silent regression.)
   it("throws a named error when a root is read before the setter runs", () => {
     expect(() => koluRoot()).toThrow(NOT_INJECTED);
     expect(() => koluShellDir()).toThrow(NOT_INJECTED);
@@ -49,8 +29,6 @@ describe("daemonProcessId boot-order fail-fast", () => {
   });
 
   it("still rejects an empty id in the setter", () => {
-    // The empty check throws BEFORE assigning, so it does not clobber the id set
-    // above — the existing empty-string rejection is preserved unchanged.
     expect(() => setDaemonProcessId("")).toThrow("setDaemonProcessId: empty");
   });
 });

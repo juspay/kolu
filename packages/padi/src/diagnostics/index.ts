@@ -1,20 +1,3 @@
-/**
- * `@kolu/padi/diagnostics` — the answer to `diagnostics.read`: why this padi is
- * slow. Always on; assembled only when asked.
- *
- * | Section | Instrument | Lives in |
- * | --- | --- | --- |
- * | children | the child meter at Node's spawn seam | `kolu-io` `child-meter.ts` |
- * | stalls | `monitorEventLoopDelay` | `./stalls.ts` |
- * | watchers | the dir+filename and working-tree registries | `kolu-io`, `kolu-git` |
- * | kernelWatches | `/proc/self/fdinfo` inotify lines | `./kernelWatches.ts` |
- * | memory | `process.memoryUsage()` | here |
- * | calls | one wrapper over the procedure table | `./calls.ts` |
- *
- * The child meter is installed once at daemon boot (`runPadiDaemon`); a read
- * from a process without it throws rather than report no children.
- */
-
 import type {
   PadiDiagnostics,
   PadiWatcherRow,
@@ -27,7 +10,6 @@ import { readKernelWatches } from "./kernelWatches.ts";
 import { startStallMonitor } from "./stalls.ts";
 
 export interface PadiDiagnosticsHandle {
-  /** Wrap a built procedure table so every call is timed into `calls`. */
   timeProcedures<T extends object>(procedures: T): T;
   read(): Promise<PadiDiagnostics>;
   dispose(): void;

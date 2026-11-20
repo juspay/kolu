@@ -1,23 +1,3 @@
-/**
- * The padi-process e2e — the W2.2 stage-1 acceptance gate.
- *
- * A REAL spawned `padi` process (under tsx's loader, the shipped launcher shape),
- * anchored to a private state-root, dialed over its digest-keyed unix socket:
- *   - the frozen CONTROL CORE handshakes for real (`control.hello` echoes the
- *     state-root + versions; `control.clockNow` answers);
- *   - a terminal ROUND-TRIPS through `padiSurface` over the socket — padi
- *     spawns-or-adopts its OWN kaval under `kaval-<digest>/`, so `lifecycle.create`
- *     → `terminalAttach` (a snapshot frame) → `sendInput` → `screen.state` shows
- *     the echoed output; and
- *   - two padis at DISTINCT state-roots NEVER touch each other's kaval (the #1313
- *     property, by construction): distinct digests → distinct kaval sockets, and a
- *     terminal live on one is NOT_FOUND on the other.
- *
- * Every padi runs on a shared per-file temp `$XDG_RUNTIME_DIR` (so the digest —
- * not the runtime root — is what isolates them), with its own private state-root,
- * and every test reaps the padi AND the detached kaval it spawned.
- */
-
 import { type ChildProcess, spawn } from "node:child_process";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { createRequire } from "node:module";
@@ -54,18 +34,11 @@ import { probeKavalStatus } from "./hostInventory.ts";
 import { padiKavalSocketPath } from "./stateRoot.ts";
 
 const SRC = dirname(fileURLToPath(import.meta.url));
-// Kept in step with the `padi` bin `package.json` declares — #2000 moved the
-// entrypoint under `daemonBoot/` and this spawn path was the one reference left
-// behind, which only the gated daemon suite exercises (the child died with
-// ERR_MODULE_NOT_FOUND, surfacing here as "padi socket never came up").
 const PADI_BIN = join(SRC, "daemonBoot", "bin.ts");
 const TSX_LOADER = pathToFileURL(
   createRequire(import.meta.url).resolve("tsx"),
 ).href;
 
-// Isolate every padi in this file under ONE temp runtime root, so a distinct
-// state-root (→ distinct digest) is the ONLY thing separating two padis — the
-// exact #1313 property under test. Saved + restored so the change is file-local.
 const RUNTIME_ROOT = mkdtempSync(join(tmpdir(), PADI_DIAL_RT_PREFIX));
 const priorXdg = process.env.XDG_RUNTIME_DIR;
 beforeAll(() => {
@@ -79,7 +52,6 @@ afterAll(() => {
 const sleep = (ms: number): Promise<void> =>
   new Promise((r) => setTimeout(r, ms));
 
-/** Poll `pred` until it holds or `ms` elapses (then throw `msg`). */
 async function waitUntil(
   pred: () => boolean,
   ms: number,
@@ -93,9 +65,6 @@ async function waitUntil(
   throw new Error(msg);
 }
 
-/** A dialed padi: the two typed faces over one link, plus that link's release.
- *  `dispose` is ASYNC now and is the ONLY thing that frees the link's protocol
- *  fibers — destroying the socket alone leaks one per dial. */
 interface Conn {
   client: PadiDaemonClient;
   dispose: () => Promise<void>;
@@ -111,28 +80,17 @@ interface Padi {
 
 const spawned: Padi[] = [];
 
-/** Spawn `padi --state-root <sr>` as a real process under tsx's loader (the
- *  shipped launcher shape). padi spawns its OWN kaval from source, detached, so
- *  the child env forces the detached branch (no `KOLU_PADI_BIN`/systemd here) and
- *  scrubs any inherited `INVOCATION_ID` that would divert it to `systemd-run`. */
 function spawnPadi(stateRoot: string, bindPid: number = process.pid): Padi {
   assertDaemonSpawnAllowed("a real padi daemon (node --import loader bin.ts)");
   const env: NodeJS.ProcessEnv = {
     ...process.env,
     XDG_RUNTIME_DIR: RUNTIME_ROOT,
     KOLU_KAVAL_SPAWN: "detached",
-    // Bind the real spawned padi (and the kaval it spawns) to `bindPid` — THIS test
-    // process by default, so a signal-killed run that skips `afterEach` still can't
-    // leak them (they poll the pid and die when it is gone; `afterEach` remains the
-    // fast path). The cross-process reap test overrides it with a sentinel it can kill
-    // WITHOUT taking vitest down.
     KOLU_DAEMON_BIND_PID: String(bindPid),
   };
   delete env.INVOCATION_ID;
   delete env.KOLU_KAVAL_BIN;
   delete env.KOLU_KAVAL_SOCKET;
-  // Never let the dial test's padi run the one-shot legacy import (which would
-  // touch a real kolu config + write a backup) — its state-root is private.
   delete env.KOLU_STATE_DIR;
   const child = spawn(
     process.execPath,
@@ -142,8 +100,6 @@ function spawnPadi(stateRoot: string, bindPid: number = process.pid): Padi {
       PADI_BIN,
       "--state-root",
       stateRoot,
-      // The test runs inside the nix devshell; padi refuses to spawn PTYs then
-      // unless given the env whitelist (else the devshell env leaks into shells).
       "--allow-nix-shell-with-env-whitelist",
       "default",
     ],
@@ -171,7 +127,6 @@ async function connect(socketPath: string): Promise<Conn> {
   };
 }
 
-/** Poll-connect until padi answers a control-core `hello`, or fail loudly. */
 async function waitForPadi(socketPath: string, ms = 15000): Promise<void> {
   const deadline = Date.now() + ms;
   while (Date.now() < deadline) {
@@ -193,7 +148,6 @@ async function startPadi(stateRoot: string): Promise<Padi> {
   return p;
 }
 
-/** The pid a gate file records (decimal text), or undefined if unreadable. */
 function gatePid(gatePath: string): number | undefined {
   try {
     const pid = Number.parseInt(readFileSync(gatePath, "utf8").trim(), 10);
@@ -203,19 +157,22 @@ function gatePid(gatePath: string): number | undefined {
   }
 }
 
-/** Reap a padi AND the detached kaval it spawned (which outlives padi by design
- *  — the PTYs survive a padi restart). */
+/** Signal `pid`, tolerating only the race this teardown is written for: the
+ *  process already exited (`ESRCH`). Any other failure — a permission error, a
+ *  bad pid — surfaces instead of passing for a successful kill. */
+function signalIfLive(pid: number, signal: NodeJS.Signals): void {
+  try {
+    process.kill(pid, signal);
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== "ESRCH") throw err;
+  }
+}
+
 async function reap(p: Padi): Promise<void> {
   p.child.kill("SIGTERM");
   await p.exited;
   const kavalPid = gatePid(join(dirname(p.kavalSocket), "kaval.pid"));
-  if (kavalPid !== undefined) {
-    try {
-      process.kill(kavalPid, "SIGKILL");
-    } catch {
-      // Already gone — nothing to reap.
-    }
-  }
+  if (kavalPid !== undefined) signalIfLive(kavalPid, "SIGKILL");
 }
 
 afterEach(async () => {
@@ -227,9 +184,6 @@ afterEach(async () => {
 const makeStateRoot = (): string =>
   mkdtempSync(join(tmpdir(), PADI_DIAL_SR_PREFIX));
 
-/** A `padi --stdio` FRONT child: its piped stdio IS the wire (the ssh transport,
- *  minus ssh), fronting a durable padi daemon it spawned at `stateRoot`. Distinct
- *  from a {@link Padi} whose `child` is the daemon itself. */
 interface PadiStdioFront {
   child: ChildProcess;
   exited: Promise<number | null>;
@@ -240,10 +194,6 @@ interface PadiStdioFront {
 
 const stdioFronts: PadiStdioFront[] = [];
 
-/** Spawn `padi --stdio --state-root <sr>`: the FRONT process, whose stdin/stdout
- *  are piped so a `stdioLink` speaks the combined contract straight through the
- *  byte relay to the durable padi the front adopt-or-spawns. Mirrors `spawnPadi`'s
- *  env scrubbing; stderr is inherited so a fatal `padi --stdio:` line is visible. */
 function spawnPadiStdioFront(stateRoot: string): PadiStdioFront {
   assertDaemonSpawnAllowed(
     "a real padi --stdio front (node --import loader bin.ts)",
@@ -252,8 +202,6 @@ function spawnPadiStdioFront(stateRoot: string): PadiStdioFront {
     ...process.env,
     XDG_RUNTIME_DIR: RUNTIME_ROOT,
     KOLU_KAVAL_SPAWN: "detached",
-    // Bind the durable padi this front spawns (and its kaval) to THIS test process,
-    // so a signal-killed run that skips `afterEach` still can't leak them.
     KOLU_DAEMON_BIND_PID: String(process.pid),
   };
   delete env.INVOCATION_ID;
@@ -288,16 +236,9 @@ function spawnPadiStdioFront(stateRoot: string): PadiStdioFront {
   return front;
 }
 
-/** The combined daemon client speaking straight through a front's byte relay.
- *  Opened over the WHOLE daemon group, so both siblings' tags are reachable —
- *  the same one-link-two-faces shape `dialPadiHello` builds. */
 async function stdioClient(front: PadiStdioFront): Promise<Conn> {
   if (!front.child.stdout || !front.child.stdin)
     throw new Error("stdio front child has no piped stdio");
-  // The REAL gate over the REAL front (juspay/kolu#2101): `runPadiStdioBridge`
-  // converges the durable padi FIRST and only then greets, so a proof here is
-  // evidence that convergence succeeded on the far side — not merely that a
-  // process started.
   const readiness = await awaitStdioReadiness({
     read: front.child.stdout,
     deadlineMs: 60_000,
@@ -315,27 +256,13 @@ async function stdioClient(front: PadiStdioFront): Promise<Conn> {
   };
 }
 
-/** Reap a stdio front AND the durable padi it fronted AND that padi's kaval — the
- *  front is a mere proxy, so killing it leaves the detached daemon standing. */
 async function reapStdioFront(front: PadiStdioFront): Promise<void> {
   front.child.kill("SIGTERM");
   await front.exited;
   const padiPid = gatePid(padiGatePath(front.socketPath));
-  if (padiPid !== undefined) {
-    try {
-      process.kill(padiPid, "SIGTERM");
-    } catch {
-      // Already gone.
-    }
-  }
+  if (padiPid !== undefined) signalIfLive(padiPid, "SIGTERM");
   const kavalPid = gatePid(join(dirname(front.kavalSocket), "kaval.pid"));
-  if (kavalPid !== undefined) {
-    try {
-      process.kill(kavalPid, "SIGKILL");
-    } catch {
-      // Already gone.
-    }
-  }
+  if (kavalPid !== undefined) signalIfLive(kavalPid, "SIGKILL");
 }
 
 afterEach(async () => {
@@ -353,11 +280,9 @@ describeDaemon("padi the process — dial acceptance", () => {
     const hello = await Effect.runPromise(
       conn.client.control.surface.core.hello(),
     );
-    // padi echoes its own identity — the resolved state-root it anchored to.
     expect(hello.stateRoot).toBe(resolve(stateRoot));
     expect(hello.surfaceVersion).toBe(PADI_SURFACE_VERSION);
     expect(hello.controlCoreVersion).toBe("1.0");
-    // …and its boot time, stamped once at daemon init (honest uptime source).
     expect(hello.startedAt).toBeGreaterThan(0);
 
     const clock = await Effect.runPromise(
@@ -382,25 +307,16 @@ describeDaemon("padi the process — dial acceptance", () => {
     );
     expect(id).toMatch(/^[0-9a-f-]{36}$/);
 
-    // terminalAttach is the per-subscriber byte stream — its first frame is the
-    // snapshot, straight through the socket (proving the delta/fail-through hop).
     const attach = Stream.toAsyncIterable(
       conn.client.padi.surface.terminalAttach.get({ id }),
     )[Symbol.asyncIterator]();
     const first = await attach.next();
-    // The first frame is a `snapshot` (contract 3.0 union): the snapshot bytes
-    // plus the absolute backfill seed `topLine` the snapshot frame carries.
-    // The stream iterator's value type erases to `{}`, so name the REAL frame
-    // union (not a hand-rolled shape) and narrow on its discriminant: the
-    // `snapshot` arm carries `data` + the absolute `topLine` seed.
     const firstFrame = first.value as TerminalAttachFrame;
     if (firstFrame.kind !== "snapshot")
       throw new Error(`expected a snapshot frame, got ${firstFrame.kind}`);
     expect(typeof firstFrame.data).toBe("string");
     expect(typeof firstFrame.topLine).toBe("number");
 
-    // Drive the PTY through the lifecycle procedure and read it back off the
-    // screen procedure — a full round-trip through padi's OWN kaval.
     await Effect.runPromise(
       conn.client.padi.surface.lifecycle.sendInput({
         id,
@@ -423,8 +339,6 @@ describeDaemon("padi the process — dial acceptance", () => {
   it("two padis at distinct state-roots never touch each other's kaval", async () => {
     const srA = makeStateRoot();
     const srB = makeStateRoot();
-    // Distinct state-roots → distinct digests → distinct kaval sockets, under the
-    // SAME runtime root. This is the #1313 isolation, by construction.
     expect(padiKavalSocketPath(srA)).not.toBe(padiKavalSocketPath(srB));
 
     const a = await startPadi(srA);
@@ -438,13 +352,11 @@ describeDaemon("padi the process — dial acceptance", () => {
         cwd: makeStateRoot(),
       }),
     );
-    // A's terminal is live on A…
     expect(
       typeof (await Effect.runPromise(
         connA.client.padi.surface.screen.state({ id }),
       )),
     ).toBe("string");
-    // …and INVISIBLE to B — its own kaval never saw it (a typed NOT_FOUND).
     await expect(
       Effect.runPromise(connB.client.padi.surface.screen.state({ id })),
     ).rejects.toThrow();
@@ -456,24 +368,10 @@ describeDaemon("padi the process — dial acceptance", () => {
   }, 60000);
 
   it("the frozen control core stays reachable UNDER a padiSurface version skew", async () => {
-    // THE reason the control core exists: when a binder and padi disagree on the
-    // `padiSurface` version, the ONE moment you need "restart the other side" is
-    // the moment the versioned surface can't be trusted. So the frozen core must
-    // be reachable on the SAME socket regardless of the surface-version verdict —
-    // if a versioned handshake gated the whole connection, the upgrade path would
-    // dead-end and the core would be frozen in name only.
     const stateRoot = makeStateRoot();
     const p = await startPadi(stateRoot);
     const conn = await connect(p.socketPath);
 
-    // A binder NEWER than this padi — it requires the major ABOVE whatever this
-    // build serves — reads the running version from the FROZEN control-core
-    // `hello` (the call that must work at a mismatch) and finds it INCOMPATIBLE,
-    // so it REFUSES to bind the versioned surface. The required version is
-    // DERIVED from `PADI_SURFACE_VERSION` rather than spelled as a literal,
-    // because a literal rots the day the constant catches up to it and silently
-    // becomes an assertion that compatibility HOLDS — which is what the old
-    // "5.0" spelling did, and then what "6.0" did the day padi reached 6.0.
     const oneMajorUp = `${Number(PADI_SURFACE_VERSION.split(".")[0]) + 1}.0`;
     const hello = await Effect.runPromise(
       conn.client.control.surface.core.hello(),
@@ -483,34 +381,16 @@ describeDaemon("padi the process — dial acceptance", () => {
       false,
     );
 
-    // …yet the newer binder can DRAIN this padi on that same socket to converge on
-    // the newer closure (persist + exit; the PTYs survive in kaval). This is the
-    // upgrade path the frozen core guarantees. The contract is "the caller observes
-    // the socket CLOSE", so the drain call may resolve OR reject as the socket tears
-    // down mid-response — either way the load-bearing proof is that padi exits
-    // cleanly (0), i.e. drain reached the frozen core and did its job.
     await Effect.runPromise(conn.client.control.surface.core.drain()).catch(
       () => {},
     );
     expect(await p.exited).toBe(0);
 
-    try {
-      await conn.dispose();
-    } catch {
-      // padi has already drained + closed the socket — nothing to dispose.
-    }
-    // padi exited via drain (not our SIGTERM), so afterEach skips it; reap here to
-    // SIGKILL the detached kaval it left behind.
+    await conn.dispose();
     await reap(p);
   }, 40000);
 
   it("reaps padi AND its kaval when the bound run pid dies (boundToPid, cross-process)", async () => {
-    // The class-wide leak fix, proven across the process boundary: a sentinel process
-    // stands in for the run/harness, so we can kill IT and watch padi + kaval self-reap
-    // without taking vitest down. This is the end-to-end proof the manual verification
-    // showed — env → `daemonLifetimeFromEnv` → `boundToPid` reaches a REAL spawned padi,
-    // AND padi forwards the bind into the kaval it spawns, so ONE kill of the run pid
-    // fells BOTH daemons even when no teardown hook runs.
     const sentinel = spawn(
       process.execPath,
       ["-e", "setTimeout(() => {}, 600000)"],
@@ -523,7 +403,6 @@ describeDaemon("padi the process — dial acceptance", () => {
       await waitForPadi(p.socketPath);
       const padiGate = padiGatePath(p.socketPath);
       const kavalGate = join(dirname(p.kavalSocket), "kaval.pid");
-      // Both daemons are up, gated by their OWN pids (not the sentinel's).
       await waitUntil(
         () => gatePid(kavalGate) !== undefined,
         15000,
@@ -531,8 +410,6 @@ describeDaemon("padi the process — dial acceptance", () => {
       );
       expect(gatePid(padiGate)).toBeGreaterThan(0);
 
-      // Kill the bound run: both poll it gone (production ~2s cadence) and exit
-      // cleanly, RELEASING their gate + socket — nothing left behind a skipped hook.
       sentinel.kill("SIGKILL");
       expect(await p.exited).toBe(0);
       await waitUntil(
@@ -542,20 +419,11 @@ describeDaemon("padi the process — dial acceptance", () => {
       );
       expect(gatePid(padiGate)).toBeUndefined();
     } finally {
-      // If an assertion above threw before the kill, don't leak the sentinel.
-      try {
-        sentinel.kill("SIGKILL");
-      } catch {
-        // Already gone.
-      }
+      sentinel.kill("SIGKILL");
     }
   }, 60000);
 
   it("reaps a SIGSTOP'd kaval after the bound run pid dies — TERM is not enough (#2178)", async () => {
-    // The in-process poll + SIGTERM handler live on kaval's event loop. A
-    // comatose kaval (SIGSTOP here; fd exhaustion in the field) can neither
-    // poll the bind pid nor honour SIGTERM — TERM left all five petit
-    // orphans up; KILL reaped them. The sibling watchdog must still fell it.
     const sentinel = spawn(
       process.execPath,
       ["-e", "setTimeout(() => {}, 600000)"],
@@ -578,7 +446,6 @@ describeDaemon("padi the process — dial acceptance", () => {
       expect(isHolderLive(kavalPid)).toBe(true);
 
       process.kill(kavalPid, "SIGSTOP");
-      // Reproduce the field: SIGTERM is a no-op while the process is stopped.
       process.kill(kavalPid, "SIGTERM");
       await sleep(400);
       expect(
@@ -593,43 +460,14 @@ describeDaemon("padi the process — dial acceptance", () => {
         "wedged kaval survived the bound run pid dying — #2178, SIGKILL never landed",
       );
     } finally {
-      try {
-        sentinel.kill("SIGKILL");
-      } catch {
-        // Already gone.
-      }
+      sentinel.kill("SIGKILL");
       if (kavalPid !== undefined) {
-        try {
-          process.kill(kavalPid, "SIGCONT");
-        } catch {
-          // Already reaped — the happy path.
-        }
-        try {
-          process.kill(kavalPid, "SIGKILL");
-        } catch {
-          // Already gone.
-        }
+        signalIfLive(kavalPid, "SIGCONT");
+        signalIfLive(kavalPid, "SIGKILL");
       }
     }
   }, 60000);
 
-  /**
-   * The juspay/kolu#2101 N1 field reproduction, with a REAL padi and a REAL
-   * kaval: **a comatose kaval must not be survivable.**
-   *
-   * `SIGSTOP` is the honest reproduction of the incident's presentation, and the
-   * reason no existing guard caught it. The process stays ALIVE (`Ss`, 0% CPU),
-   * its listening socket stays bound and keeps ACCEPTING connections, and it
-   * answers nothing — no rejection, no close, no in-process error, no exit. G2's
-   * fault arm sees no fault; the client-silence deadlines (H3/K1/J1) are about a
-   * peer that stopped talking to a client, not a daemon that stopped talking at
-   * all. In the field this survived a full night: padi diagnosed it in ten
-   * seconds and handed the user a card and a button.
-   *
-   * Post-N1 the streak exhausts the ledger and padi recycles the daemon itself —
-   * observed here as the gate file coming to hold a DIFFERENT pid, i.e. a
-   * genuinely new kaval process at the same rendezvous.
-   */
   it("REPAIRS a comatose kaval by itself — SIGSTOP, no human (#2101 N1)", async () => {
     const stateRoot = makeStateRoot();
     const p = await startPadi(stateRoot);
@@ -644,20 +482,6 @@ describeDaemon("padi the process — dial acceptance", () => {
 
     process.kill(comatose, "SIGSTOP");
     try {
-      // The DERIVED bound, summed rather than picked:
-      //   ≈45 s  three consecutive probes at the 10 s inventory cadence, each
-      //          spending its full 5 s deadline against a peer that never answers;
-      //   ≤10 s  the bounded drain (`restartLocal`'s killAll deadline);
-      //   ≤5 s   `reapHolder`'s ladder — the graceful leg is SKIPPED here, because
-      //          a SIGSTOP'd process is provably not running a shutdown handler
-      //          (the state is read at the moment of reap; the SIGTERM is queued,
-      //          not delivered), so only REAP_KILL_CEILING_MS is spent. Before
-      //          that check this leg cost the full REAP_TERM_CEILING_MS (120 s)
-      //          for nothing — the #2101 incident's actual price tag;
-      //   ≈10 s  respawn + the fresh daemon's handshake.
-      // ≈70 s, so 120 s is that sum with headroom on a loaded box. The claim
-      // under test is that repair happens AT ALL with no human — the thing that
-      // was false before N1, at any window.
       await waitUntil(
         () => {
           const now = gatePid(kavalGate);
@@ -667,29 +491,10 @@ describeDaemon("padi the process — dial acceptance", () => {
         "padi never repaired the comatose kaval — the #2101 field incident, reproduced",
       );
     } finally {
-      // A stopped process ignores SIGTERM until continued, so CONTINUE first and
-      // only then kill: otherwise the reaper's graceful leg is wasted on a
-      // process that cannot receive it. Both are best-effort — padi's own reap
-      // ladder has usually already taken it by here.
-      try {
-        process.kill(comatose, "SIGCONT");
-      } catch {
-        // Already reaped by padi — which is the happy path.
-      }
-      try {
-        process.kill(comatose, "SIGKILL");
-      } catch {
-        // Already gone.
-      }
+      signalIfLive(comatose, "SIGCONT");
+      signalIfLive(comatose, "SIGKILL");
     }
 
-    // ...and the daemon that replaced it actually SERVES — the repair is not
-    // merely "a new pid exists". A recycled-but-wedged kaval would satisfy the
-    // pid check and fail here, which is exactly the distinction the supervisor's
-    // own `unrepaired` budget is built on.
-    // The SAME probe the supervisor watches through — three read-only verbs over
-    // a fresh link — so "repaired" means the identical thing here and in
-    // production, rather than a second, weaker definition written for the test.
     const probe = await Effect.runPromise(probeKavalStatus(p.kavalSocket));
     expect(probe.contractVersion).not.toBeNull();
   }, 180_000);
@@ -698,17 +503,9 @@ describeDaemon("padi the process — dial acceptance", () => {
 describeDaemon(
   "padi the process — dialed over a stdio front (the ssh transport, minus ssh)",
   () => {
-    // These prove the SAME control-core handshake + terminal round-trip the socket
-    // tests above prove, but through `padi --stdio` + `frontDaemonOverStdio` +
-    // `stdioLink` — the exact byte path kolu-server's remote binding rides over ssh
-    // (`getHostSession({ binary: "padi", extraArgs: ["--stdio"] })`). No ssh here:
-    // the front's own piped stdio is the wire, so the relay is exercised on its own.
-
     it("handshakes the frozen control core through the byte relay", async () => {
       const stateRoot = makeStateRoot();
       const front = spawnPadiStdioFront(stateRoot);
-      // The durable padi comes up behind the front (which adopt-or-spawns it); wait
-      // on its digest socket directly, then drive the front's relayed client.
       await waitForPadi(front.socketPath);
       const { client } = await stdioClient(front);
 
@@ -742,16 +539,10 @@ describeDaemon(
       );
       expect(id).toMatch(/^[0-9a-f-]{36}$/);
 
-      // terminalAttach is the per-subscriber byte stream (delta/fail-through) — its
-      // first frame is the snapshot, relayed straight through the front.
       const attach = Stream.toAsyncIterable(
         client.padi.surface.terminalAttach.get({ id }),
       )[Symbol.asyncIterator]();
       const first = await attach.next();
-      // `snapshot` union frame (contract 3.0) relayed straight through the front.
-      // The stream iterator's value type erases to `{}`, so name the REAL frame
-      // union (not a hand-rolled shape) and narrow on its discriminant: the
-      // `snapshot` arm carries `data` + the absolute `topLine` seed.
       const firstFrame = first.value as TerminalAttachFrame;
       if (firstFrame.kind !== "snapshot")
         throw new Error(`expected a snapshot frame, got ${firstFrame.kind}`);
@@ -777,9 +568,6 @@ describeDaemon(
     }, 40000);
 
     it("the durable daemon SURVIVES the front dropping (detach → reattach)", async () => {
-      // The mosh/dtach property the remote binding leans on: a front is a proxy, so
-      // killing it must leave the padi + its kaval + a live PTY standing, and a
-      // FRESH front must adopt the same daemon and find the terminal still there.
       const stateRoot = makeStateRoot();
       const front1 = spawnPadiStdioFront(stateRoot);
       await waitForPadi(front1.socketPath);
@@ -797,12 +585,9 @@ describeDaemon(
         }),
       );
 
-      // Drop the first front (SIGTERM the proxy only) — the detached daemon lives.
       front1.child.kill("SIGTERM");
       await front1.exited;
 
-      // A second front adopts the SAME durable daemon (its socket is still bound),
-      // and the terminal created through the first front is still there.
       const front2 = spawnPadiStdioFront(stateRoot);
       await waitForPadi(front2.socketPath);
       const { client: client2 } = await stdioClient(front2);
@@ -820,12 +605,6 @@ describeDaemon(
   },
 );
 
-/**
- * The dial kit's ONE compatibility judgement — pure, no process. Both transports
- * run it: `connectPadi` after the local-socket handshake, and `padi-tui --host`'s
- * ssh probe after the remote control-core `hello`. Testing it here pins the shared
- * gate so the two transports can't drift.
- */
 describe("assertPadiSurfaceCompatible", () => {
   const parts = PADI_SURFACE_VERSION.split(".").map(Number);
   const major = parts[0] ?? 0;
@@ -853,11 +632,6 @@ describe("assertPadiSurfaceCompatible", () => {
   });
 
   it("REFUSES an older version (a padi too old for this client)", () => {
-    // "Too old" is an earlier minor within the same major, or an earlier major
-    // entirely. At a `.0` build (this major's floor) only the earlier-major form
-    // is expressible, so pick whichever is genuinely older than this build — this
-    // keeps the older-skew covered even at a fresh major (4.0), where an in-major
-    // older minor doesn't exist.
     const older = minor > 0 ? `${major}.${minor - 1}` : `${major - 1}.0`;
     expect(() => assertPadiSurfaceCompatible(older)).toThrow(
       DaemonContractSkewError,

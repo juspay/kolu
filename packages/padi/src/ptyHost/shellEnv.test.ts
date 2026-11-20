@@ -1,12 +1,3 @@
-/**
- * ASKING A PERSON'S SHELL WHAT A TERMINAL HERE WOULD GET — the capture, held
- * to the four things it must survive: an rc file that writes its own junk on
- * fd 3, one that blocks and ignores SIGTERM, a caller that withdraws the
- * question, and a shell kolu cannot ask at all. Every one of them answers in
- * words, leaves no process of that shell's group alive, and carries nothing
- * of what the person's shell printed beyond its cap.
- */
-
 import { execFileSync } from "node:child_process";
 import {
   existsSync,
@@ -35,8 +26,6 @@ afterEach(() => {
   vi.unstubAllEnvs();
 });
 
-/** A person's home whose `~/.bashrc` runs `lines` — behind the guard a NixOS
- *  or home-manager bashrc starts with, so only an interactive shell sees it. */
 function homeRunning(lines: readonly string[]): string {
   const home = realpathSync(mkdtempSync(join(tmpdir(), "shell-env-home-")));
   writeFileSync(
@@ -46,7 +35,6 @@ function homeRunning(lines: readonly string[]): string {
   return home;
 }
 
-/** The spawn a new terminal in `home` gets, as padi composes it. */
 function terminalSpawn(
   shell: string,
   home: string,
@@ -70,8 +58,6 @@ function terminalSpawn(
   };
 }
 
-/** Whether signalling `target` says there is nobody there — a pid, or (when
- *  negative) a whole process group. */
 function absent(target: number): boolean {
   try {
     process.kill(target, 0);
@@ -81,10 +67,6 @@ function absent(target: number): boolean {
   }
 }
 
-/** NOTHING OF THE SHELL IS LEFT: neither the shell itself nor the session it
- *  leads, which is what the capture promises for a question it has answered.
- *  Real time against real processes — the reap is the kernel's, and no fake
- *  clock performs it. */
 async function gone(pid: number): Promise<boolean> {
   for (let left = 60; left > 0; left--) {
     if (absent(pid) && absent(-pid)) return true;
@@ -93,7 +75,6 @@ async function gone(pid: number): Promise<boolean> {
   return false;
 }
 
-/** The pid the rc file wrote, once it has. */
 async function pidFrom(file: string): Promise<number> {
   for (let left = 100; left > 0; left--) {
     if (existsSync(file)) {
@@ -120,8 +101,6 @@ describe("a shell kolu cannot ask", () => {
     }).catch((err: unknown) => err);
     expect(failed).toBeInstanceOf(ShellEnvUnreadable);
     expect((failed as ShellEnvUnreadable).message).toContain(fish);
-    // Said BEFORE anything ran: a shell that takes neither `-i` nor `-c`
-    // would otherwise answer a flag-parsing error for every harness.
     expect(existsSync(ran)).toBe(false);
   });
 });
@@ -136,8 +115,6 @@ describe("what an rc file writes on fd 3", () => {
       timeoutMs: 20_000,
       signal: never,
     }).catch((err: unknown) => err);
-    // The daemon is still here — the decode happens where a throw would have
-    // been an uncaught exception in a `close` listener.
     expect(failed).toBeInstanceOf(ShellEnvUnreadable);
     const words = (failed as ShellEnvUnreadable).message;
     expect(words).toContain("not an environment");
@@ -147,7 +124,6 @@ describe("what an rc file writes on fd 3", () => {
   it("past the cap is a failure too, never a buffer that grows", async () => {
     const { input, rcDir } = terminalSpawn(
       BASH,
-      // 2 MB on fd 3, which no terminal's environment is.
       homeRunning(["head -c 2000000 /dev/zero | tr '\\0' 'x' >&3"]),
     );
     const failed = await readShellEnv(input, rcDir, {
@@ -180,7 +156,6 @@ describe("an rc file that blocks and ignores SIGTERM", () => {
       "did not answer within",
     );
     expect(await gone(pid)).toBe(true);
-    // ... and the wrapper files it was asked with are gone with it.
     expect(existsSync(join(rcDir, `bashrc-${input.id}`))).toBe(false);
   }, 30_000);
 });
@@ -189,8 +164,6 @@ describe("a question withdrawn mid-flight", () => {
   it("kills the shell's group, through the Effect that was interrupted", async () => {
     const home = homeRunning(['echo $$ > "$HOME/pid"', "sleep 1000"]);
     const { input, rcDir } = terminalSpawn(BASH, home);
-    // Exactly how `terminalShellEnv` runs it: the signal `Effect.tryPromise`
-    // offers is the capture's own.
     const capture = Effect.tryPromise({
       try: (signal) =>
         readShellEnv(input, rcDir, { timeoutMs: 60_000, signal }),
@@ -231,9 +204,6 @@ describe("the environment the answer carries", () => {
       'export ZDOTDIR_OF_THEIR_OWN="$HOME/.zdot"',
     ]);
     const composed = terminalSpawn(BASH, home);
-    // zsh's wrapper directory, as `prepareShellInit` stamps it for THIS
-    // spawn — a directory `removeInitFiles` has deleted by the time anybody
-    // reads the answer.
     const input: PtyHostSpawnInput = {
       ...composed.input,
       env: {
@@ -245,12 +215,9 @@ describe("the environment the answer carries", () => {
       timeoutMs: 20_000,
       signal: never,
     });
-    // What the person's shell contributed is all there ...
     expect(env.LITELLM_API_KEY).toBe("sk-from-bashrc");
     expect(env.ZDOTDIR_OF_THEIR_OWN).toBe(join(home, ".zdot"));
     expect(env.HOME).toBe(home);
-    // ... and this spawn's own plumbing is not: a harness that starts zsh, or
-    // asks kolu about "its terminal", is told nothing that was never true.
     expect(env.ZDOTDIR).toBeUndefined();
     expect(env[CONTAINING_TERMINAL_ENV]).toBeUndefined();
     expect(input.env[CONTAINING_TERMINAL_ENV]).toBe(input.id);

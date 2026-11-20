@@ -1,13 +1,3 @@
-/**
- * The supervision DECISION core (juspay/kolu#2101 N1) — the truth table behind
- * "how many bad probes before padi recycles its own kaval, and how many recycles
- * before it stops trying".
- *
- * The end-to-end field reproduction (a REAL kaval, SIGSTOP'd, repaired by a real
- * padi) is `kavalComa.daemon.test.ts`. This file pins what that test cannot
- * observe cheaply: the interleaving rule, the transient negative, and the
- * stand-down.
- */
 import { describe, expect, it, vi } from "vitest";
 import { Effect } from "effect";
 import {
@@ -52,9 +42,6 @@ describe("classifyKavalProbe — the three verdicts a probe can prove", () => {
   });
 
   it("a DIAL that found no socket is `unreachable`, not `wedged`", () => {
-    // The dial rides `Effect.promise`, so an `ENOENT` arrives as a DEFECT rather
-    // than through the probe's own no-listener fold. Same fact, same class — read
-    // with the probe's own predicate so the two spellings cannot drift.
     const err = Object.assign(new Error("connect ENOENT"), { code: "ENOENT" });
     expect(classifyKavalProbe({ ok: false, err })).toEqual({
       kind: "unreachable",
@@ -108,19 +95,12 @@ describe("makeKavalSupervisor — a streak, not a blip, is what recycles a daemo
   });
 
   it("`unreachable` has its OWN run — a mixed streak does not recycle early", async () => {
-    // The anti-conflation property the ledger exists for: two wedged plus two
-    // unreachable is four failures but neither class's ceiling, so a shared
-    // counter would have fired here and the ledger must not.
     const { repair, feed } = harness();
     await feed(WEDGED, UNREACHABLE, WEDGED, UNREACHABLE);
     expect(repair).not.toHaveBeenCalled();
   });
 
   it("a coma that FLAPS between refuse and hang still exhausts", async () => {
-    // The interleaving rule stated on the spec: neither failing class resets the
-    // other, so a daemon alternating "dial refused" and "accepts then hangs" —
-    // the field's own presentation at wake — cannot talk the supervisor out of
-    // its verdict. It costs 5 ticks instead of 3; it does not cost the repair.
     const { repair, feed } = harness();
     await feed(WEDGED, UNREACHABLE, WEDGED, UNREACHABLE);
     expect(repair).not.toHaveBeenCalled();
@@ -146,9 +126,6 @@ describe("makeKavalSupervisor — a streak, not a blip, is what recycles a daemo
 });
 
 describe("makeKavalSupervisor — the repair budget", () => {
-  /** A kaval that stays comatose: each repair "succeeds" (a fresh daemon
-   *  connects) and every probe after it still fails — the exact shape that would
-   *  make a naive supervisor loop hot forever. */
   const stayComatose = async (
     feed: (...o: KavalObservation[]) => Promise<void>,
   ) => {
@@ -159,8 +136,6 @@ describe("makeKavalSupervisor — the repair budget", () => {
     const { repair, feed } = harness();
     await feed(WEDGED, WEDGED, WEDGED);
     expect(repair).toHaveBeenCalledTimes(1);
-    // The `unrepaired` recording zeroed both failing runs, so the very next
-    // wedged probe is run 1, not run 4.
     await feed(WEDGED, WEDGED);
     expect(repair).toHaveBeenCalledTimes(1);
     await feed(WEDGED);
@@ -205,8 +180,6 @@ describe("makeKavalSupervisor — announcing a recovery", () => {
   it("announces only after a probe PROVES the recycled daemon serves", async () => {
     const { onRecovered, feed } = harness();
     await feed(WEDGED, WEDGED, WEDGED);
-    // The repair resolved — which proves only that a fresh kaval connected, and
-    // connecting is exactly what the comatose one did too.
     expect(onRecovered).not.toHaveBeenCalled();
     await feed(HEALTHY);
     expect(onRecovered).toHaveBeenCalledTimes(1);

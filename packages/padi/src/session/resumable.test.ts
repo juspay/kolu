@@ -11,9 +11,6 @@ const base = {
   promptedAt: null,
 } as const;
 
-/** A claude-code native session id — a UUID, the only shape that passes
- *  `resumeFormFor`'s shell-safe id gate (so the `exact` target actually
- *  resumes rather than waking to a bare shell). */
 const CLAUDE_ID = "12341234-1234-1234-1234-123412341234";
 
 const exactTarget = (
@@ -65,8 +62,6 @@ describe("resumableTerminalIds (host-owned)", () => {
       activeQuitToShell,
       subWithAgent,
     ]);
-    // Live exact targets only; sleeping / quit-to-shell / bare shell excluded.
-    // The parented sub IS included — that is the bug class this fold closes.
     expect(ids).toEqual(["active-agent", "sub-agent"]);
   });
 

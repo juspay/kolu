@@ -1,11 +1,3 @@
-/**
- * `diagnostics.read` end to end inside padi: the child meter, the stall
- * monitor, the per-call wrapper, and the answer encoding with its DECLARED
- * schema — an answer that will not encode takes down the whole mirror
- * kolu-server holds (#2376's failure class), so the encode is the assertion
- * that matters most here.
- */
-
 import { execFile } from "node:child_process";
 import { PadiDiagnosticsSchema } from "@kolu/padi-client/surface";
 import {
@@ -29,17 +21,20 @@ import { startPadiDiagnostics } from "./index.ts";
 import { startStallMonitor } from "./stalls.ts";
 
 function sleepChild(seconds: string): Promise<void> {
-  // Every caller sits inside `describeDaemon`, and the gate is asserted here
-  // too, at the fork itself.
   assertDaemonSpawnAllowed("a real `sleep` child");
   const { promise, resolve } = Promise.withResolvers<void>();
   execFile("sleep", [seconds], () => resolve());
   return promise;
 }
 
-/** A body through the same helper `servePadi`'s `handle()` uses. */
 function handled<A>(body: () => Promise<A>): Effect.Effect<A, unknown> {
   return callScoped(body, (attempt) => attempt);
+}
+
+/** Hold the event loop for `ms` — what the stall monitor is meant to measure. */
+function blockEventLoop(ms: number): void {
+  const until = performance.now() + ms;
+  while (performance.now() < until);
 }
 
 function warnSpy(): { log: Logger; warns: unknown[] } {
@@ -49,8 +44,6 @@ function warnSpy(): { log: Logger; warns: unknown[] } {
 }
 
 describe("stall monitor", () => {
-  // Real time on purpose: the monitor measures the platform's own event loop,
-  // which fake timers do not drive.
   it("reads an idle loop near zero and a blocked one as a stall", async () => {
     const monitor = startStallMonitor();
     try {
@@ -60,17 +53,13 @@ describe("stall monitor", () => {
       if (idle.kind === "measured")
         expect(idle.value.medianMs).toBeLessThan(10);
 
-      const until = performance.now() + 250;
-      while (performance.now() < until) {
-        // Hold the loop for 250 ms.
-      }
+      blockEventLoop(250);
       await new Promise((r) => setTimeout(r, 50));
       const blocked = monitor.read().current.summary;
       expect(blocked.kind).toBe("measured");
       if (blocked.kind === "measured") {
         expect(blocked.value.maxMs).toBeGreaterThanOrEqual(200);
       }
-      // No minute has completed yet, and the answer says so.
       expect(monitor.read().lastMinute.kind).toBe("unmeasured");
     } finally {
       monitor.stop();
@@ -162,8 +151,6 @@ describeDaemon("diagnostics with the child meter installed", () => {
       expect(Array.isArray(decoded.watchers.rows)).toBe(true);
       expect(decoded.memory.rssBytes).toBeGreaterThan(0);
 
-      // The read itself went through the call wrapper and `handle()`, so the
-      // next answer carries it — with its child time measured, not missing.
       const again = Schema.decodeUnknownSync(PadiDiagnosticsSchema)(
         await Effect.runPromise(read()),
       );
@@ -178,10 +165,6 @@ describeDaemon("diagnostics with the child meter installed", () => {
   });
 
   it("attributes a child to the procedure that started it, through servePadi's own handle()", async () => {
-    // `git.getStatus` is an ordinary `handle()` procedure; its endpoint starts
-    // a real 200 ms child. Without the scope capture in `handle()` the child
-    // runs outside the call's scope and the row reads "no children" — a
-    // measured zero that is false.
     const slowEndpoint = {
       ...fakeEndpoint,
       git: {

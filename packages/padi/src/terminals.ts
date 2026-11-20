@@ -1,20 +1,3 @@
-/**
- * Terminal lifecycle façade — `createTerminal` / `killTerminal` /
- * `killAllTerminals` delegate to the local `TerminalEndpoint`. The
- * endpoint owns PTY spawn, per-terminal provider startup, registry
- * insert/remove, autosave-trigger signalling.
- *
- * Client-facing per-terminal metadata setters (`setTerminalParent`,
- * `setCanvasLayout`, `setSubPanelState`, `setRightPanelState`,
- * `setTerminalTheme`, `setTerminalIntent`) live here because they're
- * endpoint-agnostic — they mutate the in-registry entry through the
- * narrowed `updateClientMetadata` helper, which publishes through the
- * same metadata channel regardless of which endpoint owns the terminal.
- *
- * Re-exports the registry surface for callers that used to import
- * state-reads + lifecycle from this file as a single module.
- */
-
 import type { RightPanelPerTerminalState } from "@kolu/padi-client/surface";
 import {
   type CreateTerminalInput,
@@ -24,8 +7,8 @@ import {
   type RestoreOnlyMetadata,
   type SavedTerminal,
   SavedTerminalSchema,
+  type TerminalClientMetadata,
   type TerminalInfo,
-  TerminalNotActive,
   TerminalParentCycle,
   type TerminalPlacement,
 } from "@kolu/padi-client/surface";
@@ -38,7 +21,7 @@ import {
   familyOf,
   getActiveTerminal,
   getTerminal,
-  requireActiveTerminal,
+  type MutableTerminalProcess,
   terminalEntries,
   terminalNotFound,
 } from "./terminal-registry.ts";
@@ -48,34 +31,16 @@ import {
   restartSleptLocal,
   wakeSubtreeLocal,
 } from "./terminalEndpoint/local.ts";
-// Load-order is cycle-sensitive: importing `terminalEndpoint/metadata.ts`
-// before `terminalEndpoint/local.ts` is what makes the surface cycle
-// converge with `localTerminalEndpoint` already initialized by the time
-// the top-level `localEndpoint` reference below reads it. Reversing these
-// two (biome's alphabetical preference) puts the cycle entry-point at the
-// deeper `activity.ts → surface.ts` branch and trips a TDZ on
-// `localTerminalEndpoint`.
 // biome-ignore-start assist/source/organizeImports: cycle-sensitive load order
 import { updateClientMetadata } from "./terminalEndpoint/metadata.ts";
-// `resolve.ts` re-imports the already-evaluated `local.ts`, so it stays AFTER it
-// to preserve the metadata→local order the TDZ note above depends on.
 import { resolveTerminalEndpoint } from "./terminalEndpoint/resolve.ts";
 
 // biome-ignore-end assist/source/organizeImports: cycle-sensitive load order
 
-/** Re-validate a save-time record against the on-disk shape — the fail-fast
- *  `.parse` semantic, unchanged: a record that is not a `SavedTerminal` here is
- *  a padi bug (the join produced something the disk shape refuses), never a
- *  branchable condition. */
 const decodeSavedTerminal = Schema.decodeUnknownSync(SavedTerminalSchema);
 
-// A single local endpoint today, resolved through the one `HostLocation` seam.
-// R9.2 selects the endpoint per call site (a remote-dialed kaval, or a
-// sub-terminal inheriting its parent's endpoint).
 const localEndpoint = resolveTerminalEndpoint(LOCAL_LOCATION);
 
-// Re-export registry accessors + type so external callers (router.ts,
-// diagnostics.ts, index.ts) keep a single import path.
 export {
   activeTerminalCount,
   countActiveClaudeSessions,
@@ -85,80 +50,42 @@ export {
   terminalCount,
 } from "./terminal-registry.ts";
 
-/** Build a session snapshot from current terminal state.
- *
- *  Design-S: each saved record is the AUTHORED `entry.meta` joined with the entry's
- *  AWARENESS value through `composeTerminalMetadata` — the SAME join the client
- *  applies at read time — then keyed with `id` and re-validated against
- *  `SavedTerminalSchema`. This is a SAVE-TIME snapshot, not a served record: disk
- *  persist is one of the join's two sites (the ephemeral client read is the
- *  other), so reusing the one join at both means the sleeping arm's restore-
- *  relevant projection — the live-half strip down to `PersistedSnapshot`
- *  (`cwd · git · pr`, `pr` riding the observation now, not a frozen authored
- *  field) — lives in exactly one place, so disk and the client read can never
- *  diverge. A new *persisted* field flows through untouched;
- *  a live field can never ride to disk. Awareness is a required field on the entry,
- *  so its presence is TOTAL by type — a plain `.map`, no per-entry guard. Order is
- *  `Map` insertion order — terminals appear in the sequence they were created. */
-export function snapshotSession(): SessionSnapshot {
-  const snappedTerminals = [...terminalEntries()]
-    // PARKED records are boot-produced and NEVER persisted — they exist only so
-    // the restore card can re-spawn a reboot-killed active terminal, and their
-    // authored arm (`state: "parked"`) is not a `SavedTerminal` state. Skip them
-    // here so a `terminals:dirty` autosave that fires while parked records linger
-    // (before restore) can't try to persist one (a `SavedTerminalSchema.parse`
-    // throw) or clobber the saved session with a parked-shaped record. The saved
-    // session on disk already holds the pre-reboot ACTIVE record each parked entry
-    // stands in for; restore re-spawns from that.
-    .filter(([, entry]) => entry.meta.state !== "parked")
-    .map(
-      // The JOIN of the two halves — the AUTHORED `entry.meta` (location + client
-      // chrome + discriminant) and the entry's AWARENESS value. Spread order matches
-      // `composeTerminalMetadata`: awareness FIRST, authored LAST — the authored record
-      // names no snapshot field, so it never clobbers the observation. On the sleeping
-      // arm the saved discriminated union keeps only the restore-relevant projection
-      // (`pr` rides it now — no frozen-`pr` special case) and strips the live half
-      // (agent detail + foreground) structurally, so a future live field can never
-      // silently ride to disk.
-      ([id, entry]): SavedTerminal =>
-        decodeSavedTerminal({
-          ...composeTerminalMetadata(
-            // The filter above leaves only active | sleeping arms, which
-            // `composeTerminalMetadata` accepts; narrow away the parked arm the
-            // union carries.
-            entry.meta as Exclude<typeof entry.meta, { state: "parked" }>,
-            entry.snapshot,
-          ),
-          id,
-        }),
-    );
-  return { terminals: snappedTerminals, activeTerminalId };
+function persistableEntries(): [TerminalId, MutableTerminalProcess][] {
+  return [...terminalEntries()].filter(
+    (entry): entry is [TerminalId, MutableTerminalProcess] =>
+      entry[1].meta.state !== "parked",
+  );
 }
 
-/** Create a new terminal — the ORDINARY constructor (the wire `lifecycle.create`
- *  and every in-process caller). The endpoint owns PTY spawn, provider startup, and
- *  registry insert; this wrapper just mints an id and forwards. `initial` seeds
- *  client-owned chrome before providers run — see #642 (avoids racing post-hoc
- *  `setCanvasLayout` / `setTheme` / `setSubPanel` RPCs against the client's
- *  canvas-cascade effect). Its `CreateTerminalInput` type carries NO server-derived
- *  authored facts — a fresh terminal earns `lastActivityAt` / `promptedAt` /
- *  `restoreTarget` from padi's own observation, and the type makes them unspellable
- *  here. The one path with prior truth about them, session restore, uses
- *  {@link restoreSpawn} instead.
- *
- *  `placement` is FIRST and REQUIRED — the in-process mirror of the wire rule. It
- *  used to be a trailing `parentId?: string`, which meant every caller that simply
- *  didn't think about the canvas got `toplevel` for free; now not thinking about it
- *  is a compile error. {@link parentIdOf} is the single narrowing from the stated
- *  intent to the parent edge the registry stores. */
+function savedTerminalOf(
+  id: TerminalId,
+  entry: MutableTerminalProcess,
+): SavedTerminal {
+  return decodeSavedTerminal({
+    ...composeTerminalMetadata(entry.meta, entry.snapshot),
+    id,
+  });
+}
+
+export function snapshotSession(): SessionSnapshot {
+  return {
+    terminals: persistableEntries().map(([id, entry]) =>
+      savedTerminalOf(id, entry),
+    ),
+    activeTerminalId,
+  };
+}
+
+/** Create a new terminal — the ORDINARY constructor: mints an id and forwards to
+ *  the endpoint, which owns PTY spawn, provider startup and registry insert.
+ *  `initial` seeds client-owned chrome before providers run. Session restore uses
+ *  {@link restoreSpawn}, the only constructor that may seed server-derived facts. */
 export function createTerminal(
   placement: TerminalPlacement,
   cwd?: string,
   initial?: CreateTerminalInput,
 ): TerminalInfo {
   const id = crypto.randomUUID();
-  // P3 will select the endpoint per create — e.g. a sub-terminal
-  // inheriting its parent's endpoint; today every terminal is local.
   return localEndpoint.spawnPty(id, {
     cwd,
     parentId: parentIdOf(placement),
@@ -166,31 +93,10 @@ export function createTerminal(
   });
 }
 
-/** Re-spawn a terminal DURING SESSION RESTORE — the one constructor that may seed the
- *  three server-derived authored facts (`restoreOnly`), read from the saved blob. It
- *  is a distinct constructor rather than a mode flag on {@link createTerminal} so the
- *  restore-only shape is structurally unspellable by an ordinary create: the fence is
- *  the type, not a convention. Called ONLY by `sessionRestore.ts`'s `respawnActive`;
- *  `restoreOnly` rides its own named parameter, never merged into `initial`.
- *
- *  It takes the terminal's OWN id rather than minting one, which is what makes a
- *  terminal's identity survive a kaval recycle. A recycle parks the saved record
- *  under its id and restore re-spawns it; minting a fresh id here made the restored
- *  terminal a DIFFERENT terminal to every id-keyed reader — the Conductor's work
- *  membership, an agent's cached id, the client's per-terminal chrome — even though
- *  nothing but the PTY had changed. Re-spawning under the saved id is the same move
- *  `wake` and `lifecycle.restart` already make (both hand `spawnPty` the existing
- *  id), so restore stops being the one path that renames a terminal it is reviving.
- *  `respawnActive` guarantees the id is free: it consumes the parked entry, and an id
- *  that still names a LIVE terminal is skipped rather than re-spawned.
- *
- *  It keeps a bare `parentId` where {@link createTerminal} now takes a
- *  `TerminalPlacement`, and that difference is the point rather than an oversight: a
- *  restore AUTHORS nothing. It replays the parent edge already recorded on disk, so
- *  the field it reads and the field it writes are the same one, and routing that
- *  through the intent sum would only add a round trip. The no-default rule fences
- *  the callers who DECIDE a placement — the wire, the CLI, the MCP face, the canvas
- *  — none of which is this. */
+/** Re-spawn a terminal DURING SESSION RESTORE, under its OWN id — the one
+ *  constructor that may seed the three server-derived authored facts
+ *  (`restoreOnly`). Called only by `sessionRestore.ts`'s `respawnActive`, which
+ *  guarantees the id is free. */
 export function restoreSpawn(
   id: TerminalId,
   cwd: string | undefined,
@@ -206,38 +112,18 @@ export function restoreSpawn(
 }
 
 /** Kill a terminal, routed to the endpoint that owns it. Returns final info, or
- *  `undefined` when `id` is not an active terminal — which includes LOSING the
- *  race to a concurrent kill that claimed it first: overlapping kills are
- *  answered like sequential ones, exactly one winner. Async since #951 R4c: an
- *  endpoint awaits its host's kill round-trip. See
- *  `TerminalEndpoint.killTerminal` (endpoint.ts) for the claim contract. */
+ *  `undefined` when `id` is not an active terminal — which includes losing the
+ *  race to a concurrent kill that claimed it first. */
 export async function killTerminal(
   id: TerminalId,
 ): Promise<TerminalInfo | undefined> {
-  // Route by the terminal's OWN location so a remote tile's kill reaches its
-  // host (R9.2), never the local endpoint by default. Routing needs only a
-  // location, present on both arms; the endpoint owns the kill-requires-active
-  // gate.
   const entry = getTerminal(id);
   if (!entry) return undefined;
   return resolveTerminalEndpoint(entry.meta.location).killTerminal(id);
 }
 
-/** Sleep a terminal AND ITS SPLITS — one family, one dormant record per member.
- *
- *  The walk is {@link familyOf} in REVERSE: leaves before parents, so no live
- *  child is ever left under a fragment that just froze (a child attaches to its
- *  parent's tile, and a live PTY under a dormant parent is the state every
- *  client-side gate exists to avoid). Each member is flipped in place by its own
- *  `beginSleep` claim — the claim is also the "is this member active" test, so an
- *  already-sleeping child is skipped rather than double-flipped.
- *
- *  Persist ONCE, after every flip and before every release (`saveSession` reads
- *  the registry, so one snapshot names the whole family asleep — N saves would
- *  be N snapshots of a half-slept tree). Then release each PTY; that tail is
- *  per-terminal and yields, which is why it is the last thing to happen. A crash
- *  in that window leaves the whole family sleeping on disk (persist-before-kill),
- *  and boot reconcile reaps any surviving PTY. A no-op when no member was active. */
+/** Sleep a terminal AND ITS SPLITS — one family, one dormant record per member,
+ *  persisted once before any PTY is released. A no-op when no member was active. */
 export async function sleepTerminal(id: TerminalId): Promise<void> {
   const slept: TerminalId[] = [];
   for (const member of familyOf(id).reverse())
@@ -248,83 +134,36 @@ export async function sleepTerminal(id: TerminalId): Promise<void> {
 }
 
 /** Restart a terminal AND ITS SPLITS IN PLACE — a fresh PTY per member, each on
- *  its own id, in its own cwd, keeping its layout, parent edge, theme and title,
- *  with the agents a new terminal gets now.
- *
- *  Literally the sleep walk then the wake walk, over the whole family, and the
- *  two walks order oppositely on purpose: the FLIPS are leaves-first (as sleep
- *  is, so no live child sits under a fragment that just froze), while the
- *  KILLS + respawns are roots-first (a parent's new PTY is up before any child
- *  of it spawns). The tree is persisted asleep ONCE between them.
- *
- *  `restartSlept` is the per-member half and keeps every existing restart
- *  invariant: a kill that fails with the PTY still alive puts that member back
- *  on it and throws; a failed respawn leaves it asleep to wake. Those are the
- *  only two outcomes that stay put; every member the walk ALREADY flipped but
- *  has not reached yet is a sleeping record whose old PTY is still running —
- *  `beginSleep` leaves the PTY alive and the kill is `restartSlept`'s job — so a
- *  throw releases those PTYs before it propagates. Without that, an aborted
- *  restart leaves orphaned shells that a later Wake would double-spawn.
- *
- *  A member that was ALREADY asleep before the restart (a split slept on its
- *  own) has no PTY to kill and is not climbed through: its whole dormant branch
- *  comes back through the same non-climbing, wire-awaited subtree walk a family
- *  wake uses — a member that fails to wire keeps its own descendants asleep, so
- *  the family is never left with a live PTY under a dormant parent.
- *
- *  `restartsInFlight` is registered for EVERY member in the same synchronous step
- *  as the flips, so an attach landing in any member's dormant middle waits for
- *  its new PTY instead of being told the terminal is gone. `undefined` when `id`
- *  is not an active terminal — the family of a live id always contains it. */
+ *  its own id, in its own cwd, keeping its layout, parent edge, theme and title.
+ *  `undefined` when `id` is not an active terminal. */
 export async function restartTerminal(
   id: TerminalId,
 ): Promise<{ info: TerminalInfo; resumed: boolean } | undefined> {
-  // Refuse up front: the family walk would otherwise restart the id's active
-  // CHILDREN and answer for a parent that never moved.
   if (!getActiveTerminal(id)) return undefined;
   const family = familyOf(id);
-  const slept = new Set<TerminalId>();
+  const owesPtyRelease = new Set<TerminalId>();
   for (const member of [...family].reverse())
-    if (beginSleepLocal(member)) slept.add(member);
-  // Registered in the SAME synchronous step as the flips, so no attach can see
-  // the dormant middle of a restart without also seeing the restart.
+    if (beginSleepLocal(member)) owesPtyRelease.add(member);
   const done = (async () => {
     saveSession(snapshotSession());
     let asked: { info: TerminalInfo; resumed: boolean } | undefined;
-    /** Members a dormant branch's wake already covered (so the walk does not
-     *  revisit them, which would wake a skipped grandchild). */
     const handled = new Set<TerminalId>();
     try {
-      // Roots-first, and each respawn is awaited (`restartSlept` waits for the
-      // new PTY to wire) — so a parent is live before any child of it spawns.
       for (const member of family) {
         if (handled.has(member)) continue;
-        if (!slept.has(member)) {
-          // Dormant BEFORE the restart: no PTY to kill, and no climb — its
-          // ancestors are being restarted, not woken. Its whole branch comes
-          // back through the same non-climbing walk the family wake uses, so a
-          // member that fails to wire keeps ITS subtree asleep (no live PTY
-          // under a dormant parent).
+        if (!owesPtyRelease.has(member)) {
           for (const covered of familyOf(member))
-            if (!slept.has(covered)) handled.add(covered);
+            if (!owesPtyRelease.has(covered)) handled.add(covered);
           await wakeSubtreeLocal(member);
           continue;
         }
-        // `slept` means "flipped, and this walk still owes its PTY a release".
-        // Handing the member to `restartSlept` takes that debt over, so a throw
-        // from HERE leaves nothing for the catch to release — it already killed
-        // the PTY, and releasing again would aim a kill at one the host no
-        // longer has and scrub the scratch restart promises to keep.
-        slept.delete(member);
+        owesPtyRelease.delete(member);
         const result = await restartSleptLocal(member);
         if (member === id) asked = result;
       }
       return asked;
     } catch (err) {
-      // Release every member this walk flipped but never replanted: its old PTY
-      // is still running under a sleeping record. Members already replanted
-      // (active) are left alone.
-      for (const member of slept)
+      for (const member of owesPtyRelease)
         if (getTerminal(member)?.meta.state === "sleeping")
           await releaseSleptLocalPty(member);
       throw err;
@@ -342,53 +181,23 @@ export async function restartTerminal(
   }
 }
 
-/** Restarts in flight, by terminal id — each settles (never rejects) when its
- *  restart has. See {@link requireAttachableTerminal}. */
 const restartsInFlight = new Map<TerminalId, Promise<undefined>>();
 
-/** The terminal an ATTACH may open. Ordinarily that is `requireActiveTerminal`:
- *  a sleeping or absent id is refused, and the refusal is re-worded HERE to the
- *  one tag a stream consumer can act on — see the `TerminalNotFound` note
- *  below.
- *
- *  A RESTART is the exception, because its sleeping arm is not a fact about the
- *  terminal — it is the few milliseconds between killing the old PTY and
- *  respawning the new one on the same id. A client can miss that flip entirely
- *  (the relay batches a collection's updates per tick, so `sleeping` then
- *  `active` can reach it as one `active`): its live pane stays mounted, its
- *  attach ends with the old PTY and re-opens — and, landing in that window, it
- *  would be told the terminal is gone and stop for good, leaving the tile blank
- *  until a reload. So an attach that lands during a restart WAITS for it, then
- *  attaches to the new PTY (or, if the respawn failed, gets the ordinary
- *  answer for a sleeping terminal).
- *
- *  **Why a dormant id still answers `TerminalNotFound` here** (kolu#2361). The
- *  gate now tells "no such terminal" from "it exists but is asleep"
- *  (`TerminalNotActive`), and every PROCEDURE behind it declares both. A
- *  `StreamSpec` has no error channel to declare either on, so on `terminalAttach`
- *  the value crosses as a bare tagged defect and the client's attach loop
- *  recognises exactly ONE tag as its teardown verdict — `TerminalNotFound` ends
- *  the loop, anything else is retried every 300ms. Handing it the new tag would
- *  turn sleeping a tile into a re-attach storm against a terminal that has no
- *  PTY by definition. The distinction is for callers that can act on it; a
- *  consumer with no error channel gets the verdict it can act on. */
+/** The terminal an ATTACH may open: an attach landing during a restart waits for
+ *  that restart to settle. A sleeping or absent id is refused as
+ *  `TerminalNotFound`, the one tag a stream consumer can act on. */
 export async function requireAttachableTerminal(
   id: TerminalId,
 ): Promise<ActiveTerminalProcess> {
   const pending = restartsInFlight.get(id);
   if (pending !== undefined) await pending;
-  try {
-    return requireActiveTerminal(id);
-  } catch (err) {
-    if (err instanceof TerminalNotActive) throw terminalNotFound(id);
-    throw err;
-  }
+  const attachable = getActiveTerminal(id);
+  if (!attachable) throw terminalNotFound(id);
+  return attachable;
 }
 
 /** Refuse a parent edge that is nonsense in any tree model: self-parent, or an
- *  edge that would close a cycle. Depth is not limited — nested splits are
- *  allowed; the canvas flattens them for paint (#2059). These two guards alone
- *  keep the root-ancestor walk from spinning. */
+ *  edge that would close a cycle. Depth is not limited. */
 export function requireAcyclicParent(
   childId: TerminalId,
   parentId: TerminalId,
@@ -396,9 +205,6 @@ export function requireAcyclicParent(
   if (childId === parentId) {
     throw new TerminalParentCycle({ childId, parentId, reason: "self" });
   }
-  // Walk from the proposed parent toward roots; hitting the child would close
-  // a cycle. An existing cycle already on the parent side is also refused —
-  // attaching anything under it would leave the graph unwalkable.
   let cur: string | undefined = parentId;
   const seen = new Set<string>();
   while (cur !== undefined) {
@@ -421,7 +227,6 @@ export function requireAcyclicParent(
   }
 }
 
-/** Set or clear a terminal's parent relationship. */
 export function setTerminalParent(
   id: TerminalId,
   parentId: string | null,
@@ -430,19 +235,13 @@ export function setTerminalParent(
   if (!entry) return;
   if (parentId !== null) requireAcyclicParent(id, parentId as TerminalId);
   updateClientMetadata(entry, id, (m) => {
-    // CLEARING deletes the key rather than writing `undefined`. `parentId` is a
-    // `Schema.optionalKey` field, which — unlike zod's `.optional()` — accepts an
-    // ABSENT key and REJECTS a present `undefined` one (#17). The authored record
-    // is re-decoded on every sleep/wake/park flip, so an explicit `undefined`
-    // parked here would blow up a later decode rather than at this write.
+    // `Schema.optionalKey` accepts an ABSENT key and REJECTS a present
+    // `undefined` one, and the record is re-decoded on every flip.
     if (parentId === null) delete m.parentId;
     else m.parentId = parentId;
   });
 }
 
-/** Store a terminal's canvas layout position (client-reported).
- *  Publishes via metadata so canvas tiles read their position from the
- *  same source as other metadata — no client-side dual store required. */
 export function setCanvasLayout(
   id: TerminalId,
   layout: { x: number; y: number; w: number; h: number },
@@ -454,53 +253,44 @@ export function setCanvasLayout(
   });
 }
 
-/** Store a terminal's sub-panel state (client-reported).
- *  Publishes via metadata so other clients (and the same client after a
- *  refresh, via the collection's snapshot read) pick up the change from
- *  the same channel as every other client-owned metadata field.
- *
- *  Equality-gated: the client RPCs this on every drag tick of the
- *  resizable handle, so without a guard each mouse-move would fan a
- *  full per-key metadata publish to every connected client. Same shape
- *  as the restore-target gate inside `LocalTerminalEndpoint`'s fold loop. */
+function publishClientMetadataIfChanged<K extends keyof TerminalClientMetadata>(
+  id: TerminalId,
+  key: K,
+  value: NonNullable<TerminalClientMetadata[K]>,
+  equal: (
+    a: NonNullable<TerminalClientMetadata[K]>,
+    b: NonNullable<TerminalClientMetadata[K]>,
+  ) => boolean,
+): void {
+  const entry = getTerminal(id);
+  if (!entry) return;
+  const meta: TerminalClientMetadata = entry.meta;
+  const current = meta[key];
+  if (current !== undefined && equal(current, value)) return;
+  updateClientMetadata(entry, id, (m) => {
+    m[key] = value;
+  });
+}
+
 export function setSubPanelState(
   id: TerminalId,
   state: { collapsed: boolean; panelSize: number },
 ): void {
-  const entry = getTerminal(id);
-  if (!entry) return;
-  const cur = entry.meta.subPanel;
-  if (
-    cur &&
-    cur.collapsed === state.collapsed &&
-    cur.panelSize === state.panelSize
-  )
-    return;
-  updateClientMetadata(entry, id, (m) => {
-    m.subPanel = state;
-  });
+  publishClientMetadataIfChanged(id, "subPanel", state, subPanelStateEqual);
 }
 
-/** Store a terminal's right-panel per-terminal state (client-reported).
- *  Publishes via metadata so other clients (and the same client after a
- *  refresh) pick up the change from the same channel as every other
- *  client-owned metadata field.
- *
- *  Equality-gated like `setSubPanelState` — the client RPCs this on
- *  every file-tree click and tab-toggle, so without a guard each
- *  interaction would fan a full per-key metadata publish. Deep-compares
- *  `selectedFileByMode` since the user clicks files often. */
+function subPanelStateEqual(
+  a: { collapsed: boolean; panelSize: number },
+  b: { collapsed: boolean; panelSize: number },
+): boolean {
+  return a.collapsed === b.collapsed && a.panelSize === b.panelSize;
+}
+
 export function setRightPanelState(
   id: TerminalId,
   state: RightPanelPerTerminalState,
 ): void {
-  const entry = getTerminal(id);
-  if (!entry) return;
-  const cur = entry.meta.rightPanel;
-  if (cur && rightPanelStateEqual(cur, state)) return;
-  updateClientMetadata(entry, id, (m) => {
-    m.rightPanel = state;
-  });
+  publishClientMetadataIfChanged(id, "rightPanel", state, rightPanelStateEqual);
 }
 
 function rightPanelStateEqual(
@@ -519,55 +309,31 @@ function rightPanelStateEqual(
   return true;
 }
 
-// Active terminal ID — client-reported, used only for session snapshots.
 let activeTerminalId: TerminalId | null = null;
 
-/** The sole writer of `activeTerminalId`. Records the marker and nothing else —
- *  the dirty-fire is a separate concern the client setter composes on top. */
 function assignActiveTerminalId(id: TerminalId | null): void {
   activeTerminalId = id;
 }
 
 /** The client-reported active-terminal marker. It can name a terminal that no
- *  longer exists — `killTerminal` does not clear it — so a reader must re-validate
- *  through `getTerminal` rather than trust the id. */
+ *  longer exists — re-validate through `getTerminal` rather than trust it. */
 export function getActiveTerminalId(): TerminalId | null {
   return activeTerminalId;
 }
 
-/** Store which terminal is active (reported by the client).
- *
- *  Does NOT pulse `terminals:dirty` (#2286). Focus is not a session-trace dirty
- *  source — it changes nothing about any terminal, only which ONE of them the
- *  marker names — and routing it through the trace throttle made every tab switch
- *  re-serialise all N terminals: 120 whole-session persists per 5 min at the
- *  measured 2.5 s focus cadence on a 16-terminal padi, `write_bytes` 0 → 253 KB/s,
- *  because conf amplifies an 11 KB `config.json` ~57x (write-temp-then-rename plus
- *  the backup ring) for a change of ONE field. The gate's focus edge persists that
- *  field on its own ≥5 s trailing debounce instead, so `session.restore` still
- *  restores focus.
- *
- *  A null report is NOT a focus change and is dropped: the client sends it on
- *  reconnect (no selection yet), and persisting it would erase the marker a refresh
- *  is about to restore from. */
+/** Store which terminal is active (reported by the client). A null report is
+ *  dropped rather than persisted. */
 export function setActiveTerminalId(id: TerminalId | null): void {
   assignActiveTerminalId(id);
   if (id !== null) reportActiveTerminalId(id);
 }
 
-/** Restore the active-terminal marker from a session being adopted at boot
- *  (B3.3), WITHOUT persisting anything — unlike {@link setActiveTerminalId}, the
- *  client-reported setter, this arms NEITHER edge of the gate: not the session
- *  trace (the boot converges the adopted session explicitly right after, so a
- *  competing autosave must not race it) and not the focus debounce (#2286 — the
- *  id is being READ OUT of the blob, so writing it back is a disk write whose only
- *  possible effect is to restate what is already there). It only seeds the value
- *  `snapshotSession()` will read so the adopted session keeps its active tile. */
+/** Seed the active-terminal marker from a session adopted at boot, WITHOUT
+ *  persisting anything. */
 export function restoreActiveTerminalId(id: TerminalId | null): void {
   assignActiveTerminalId(id);
 }
 
-/** Set the theme name for a terminal (stored in metadata, published to clients). */
 export function setTerminalTheme(id: TerminalId, themeName: string): void {
   const entry = getTerminal(id);
   if (entry) {
@@ -582,16 +348,11 @@ export function setTerminalIntent(id: TerminalId, intent: string): void {
   const entry = getTerminal(id);
   if (!entry) return;
   updateClientMetadata(entry, id, (m) => {
-    // Empty string CLEARS — by deleting the key, not by writing `undefined`; see
-    // `setTerminalParent` for why an `optionalKey` field can hold neither.
     if (intent.length > 0) m.intent = intent;
     else delete m.intent;
   });
 }
 
-/** Kill and remove all terminals. Used by tests to reset server state between
- *  scenarios. Async since #951 R4c (awaits the daemon's killAll over the
- *  socket before draining the registry). */
 export async function killAllTerminals(): Promise<void> {
   await localEndpoint.killAllTerminals();
 }

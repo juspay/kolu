@@ -1,18 +1,3 @@
-/**
- * Differential gate for W1.R1 — the served `terminals` collection MUST be
- * byte-identical to the client reader-join it replaced.
- *
- * Before R1 the client joined two halves at read time — the now-retired
- * `kolu.authored` record (deleted at W1.R7) and `terminalWorkspace.snapshots`,
- * folded by `composeTerminalMetadata`. R1 deleted that client join and moved the
- * compose SERVER-side: padi's `terminals` collection reads the registry and folds
- * the two halves that share the one entry. This test pins that the served backing
- * (`readAll` / `readOne`) produces EXACTLY the record the deleted client join would
- * have — for BOTH arms (an active entry with meta+snapshot, a sleeping entry whose
- * compose runs the restore-relevant zod projection). If they ever diverge, a tile
- * renders different bytes than it did pre-migration.
- */
-
 import { existsSync, readFileSync } from "node:fs";
 import { dirname } from "node:path";
 import {
@@ -64,8 +49,6 @@ import { cleanupTerminalScratch } from "./terminalScratch.ts";
 import { setActiveTerminalId } from "./terminals.ts";
 import { MAX_UPLOAD_BYTES } from "@kolu/padi-client/upload";
 
-// The parked-forfeit path drives `cleanupTerminalScratch`, which reads the
-// per-instance scratch root; boot injects the server id before any of this runs.
 setDaemonProcessId("servepadi-test-server");
 
 const ACTIVE_ID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
@@ -90,9 +73,6 @@ const activeSnapshot: TerminalSnapshot = {
   ports: { status: "unknown" },
 };
 
-// Parse through the authored-sleeping schema so the fixture is a VALID sleeping
-// arm (the compose runs `SleepingTerminalSchema.parse`, which would throw on a
-// malformed meta — pinning validity keeps the differential honest).
 const sleepingMeta: AuthoredSleepingTerminal = Schema.decodeUnknownSync(
   AuthoredSleepingSchema,
 )({
@@ -111,8 +91,6 @@ const sleepingSnapshot: TerminalSnapshot = {
   ports: { status: "unknown" },
 };
 
-// Parse through the authored-parked schema so the fixture is a VALID parked arm —
-// the boot reconcile builds this same authored base off a saved ACTIVE record.
 const parkedMeta: AuthoredParkedTerminal = Schema.decodeUnknownSync(
   AuthoredParkedSchema,
 )({
@@ -151,9 +129,6 @@ function seed(): void {
   } as ParkedTerminalProcess);
 }
 
-/** Build the deps and narrow the `terminals` collection reads out of the
- *  all-optional `ImplementSurfaceDeps` shape — a boot-required member, so a
- *  missing read is a genuine defect worth throwing on. */
 function terminalsBacking(): {
   readOne: (key: string) => unknown;
   readAll: () => Map<string, unknown>;
@@ -167,9 +142,6 @@ function terminalsBacking(): {
     lifetime: { kind: "forever" },
     stateRoot: "/tmp/padi-test-state-root",
   });
-  // `terminals` is an AUTHORED collection (the `readAll`/`readOne` arm), not a
-  // graph-owned `derived.collection`; narrow the dep union by the presence of the
-  // `readOne` read seam (the derived arm omits it) before reading it.
   const t = deps.collections?.terminals;
   if (!t || !("readOne" in t) || !t.readOne || !t.readAll) {
     throw new Error("padi deps must serve the terminals collection reads");
@@ -183,9 +155,6 @@ afterEach(() => {
   unregisterTerminal(PARKED_ID);
 });
 
-/** The served `parked` value — the explicit branch in `composePadiTerminal`
- *  (NOT `composeTerminalMetadata`, which only emits active|sleeping): the
- *  restore-relevant snapshot projection joined with the authored parked arm. */
 const parkedProjection = () =>
   Schema.decodeUnknownSync(PadiParkedTerminalSchema)({
     ...Schema.decodeUnknownSync(PersistedSnapshotSchema)(parkedSnapshot),
@@ -193,7 +162,6 @@ const parkedProjection = () =>
   });
 
 describe("padi's own `identity` cell — the per-host hello twin (W4 host-scoping)", () => {
-  /** The `identity` cell's in-memory backing, narrowed out of the deps shape. */
   function identityBacking(opts: {
     startedAt: number;
     commit: string;
@@ -207,8 +175,6 @@ describe("padi's own `identity` cell — the per-host hello twin (W4 host-scopin
       lifetime: { kind: "forever" },
       stateRoot: "/tmp/padi-test-state-root",
     });
-    // White-box read of the authored cell's backing store. The cell-dep slot is a
-    // union whose poll arm carries no `store`, so narrow to the store-bearing shape.
     const store = (
       deps.cells?.identity as
         | { store?: { get: () => PadiIdentity } }
@@ -240,7 +206,6 @@ describe("padi's own `identity` cell — the per-host hello twin (W4 host-scopin
 });
 
 describe("padi's `status` cell — the expected-kaval axis, OFF-NIX (#17 audit)", () => {
-  /** The `status` cell's in-memory backing, narrowed out of the deps shape. */
   function statusBacking(): PadiStatus {
     const deps = buildPadiSurfaceDeps({
       endpoint: fakeEndpoint,
@@ -258,13 +223,6 @@ describe("padi's `status` cell — the expected-kaval axis, OFF-NIX (#17 audit)"
     return store.get();
   }
 
-  // A vitest run has no `KAVAL_BUILD_ID` — nix bakes it and nothing else does —
-  // so `currentPtyHostIdentity().staleKey` is `""` here, which is the ORDINARY
-  // state of every from-source server, not an edge case. `expectedKaval` is
-  // `Schema.optionalKey`, and this seeded value is what EVERY `status` subscribe
-  // encodes, so the pre-fix `expectedKaval: … : undefined` seed broke the cell
-  // for the whole from-source world. Falsify by restoring that ternary: the
-  // encode below throws `Expected { readonly staleKey: string; … }, got undefined`.
   it("OMITS the key off-nix — the seeded value must ENCODE on the wire", () => {
     const status = statusBacking();
     expect(Object.hasOwn(status, "expectedKaval")).toBe(false);
@@ -292,10 +250,6 @@ describe("padi terminals collection backing == the deleted client reader-join", 
     const { readOne } = terminalsBacking();
 
     const parked = readOne(PARKED_ID) as { state?: string };
-    // The parked value is the restore-relevant snapshot projection + the authored
-    // parked arm — `state: "parked"` with `parkedAt`, its `lastActivityAt`
-    // preserved (RISK Q6), and NO live agent/foreground fields (dropped by the
-    // persisted-snapshot projection).
     expect(parked).toEqual(parkedProjection());
     expect(parked.state).toBe("parked");
   });
@@ -313,7 +267,6 @@ describe("padi terminals collection backing == the deleted client reader-join", 
       composeTerminalMetadata(sleepingMeta, sleepingSnapshot),
     );
     expect(all.get(PARKED_ID)).toEqual(parkedProjection());
-    // Insertion order is the client's display ordering.
     expect([...all.keys()]).toEqual([ACTIVE_ID, SLEEPING_ID, PARKED_ID]);
   });
 
@@ -323,9 +276,6 @@ describe("padi terminals collection backing == the deleted client reader-join", 
   });
 });
 
-/** The `scratch.write` handler, narrowed out of the all-optional deps shape.
- *  A procedure handler returns an `Effect` now (S2), so the gate's refusal is a
- *  typed FAILURE rather than a throw. */
 type ScratchWriteFn = (args: {
   input: {
     terminalId: string;
@@ -350,17 +300,10 @@ function scratchWrite(): ScratchWriteFn {
   return w as unknown as ScratchWriteFn;
 }
 
-/** Run a procedure handler to completion. A handler returns an `Effect` now
- *  (S2's ONE `ProcedureImpl` arm), so a test that merely CALLS one runs nothing —
- *  this is the run edge every handler-driving test in this file goes through. */
 async function runHandler(effect: unknown): Promise<unknown> {
   return await Effect.runPromise(effect as Effect.Effect<unknown, unknown>);
 }
 
-/** Run the gate and pull the DECLARED failure's `_tag` — one assertion pins BOTH
- *  that the gate refused AND which typed error it refused with. The oRPC-era
- *  `err.code` string is gone with the codes: a consumer narrows on `_tag` now
- *  (PLAN D4), so that is what the pin reads. */
 async function failureTag(
   run: () => Effect.Effect<unknown, unknown>,
 ): Promise<string> {
@@ -373,9 +316,6 @@ async function failureTag(
 }
 
 describe("padi scratch.write re-enforces the authoritative upload gate (F1)", () => {
-  // A base64 string whose DECODED length exceeds the 50 MB cap (all-`A`, no
-  // padding → decoded = floor(len*3/4)). It is rejected on size BEFORE any disk
-  // write, so materializing the string is the whole cost.
   const oversize = "A".repeat(Math.ceil(((MAX_UPLOAD_BYTES + 4) * 4) / 3));
 
   it("rejects oversize data with ScratchWriteRejected (never reaches disk)", async () => {
@@ -438,15 +378,6 @@ describe("padi scratch.write re-enforces the authoritative upload gate (F1)", ()
   });
 });
 
-/**
- * The chunked upload's server half (juspay/kolu#2101 G9a/G9c).
- *
- * The gate that mattered before chunking was "is this ONE payload too big".
- * Once a file arrives in pieces, that question is worthless on its own: an
- * unlimited file is an unlimited number of individually-legal chunks. So the
- * cap has to be re-asked against the accumulated total, and these pin that it
- * is — plus that the client-supplied continuation path buys no authority.
- */
 describe("padi scratch.write chunked continuation (G9a)", () => {
   const b64 = (s: string) => Buffer.from(s).toString("base64");
 
@@ -514,9 +445,6 @@ describe("padi scratch.write chunked continuation (G9a)", () => {
   });
 
   it("still needs an ACTIVE terminal for every chunk, not just the first", async () => {
-    // A terminal that dies mid-upload must stop taking bytes. The liveness gate
-    // runs before the append branch, so this holds for continuations too — and
-    // it says WHICH refusal: this id is SLEEPING, not absent (kolu#2361).
     seed();
     const write = scratchWrite();
     const first = (await runHandler(
@@ -537,13 +465,8 @@ describe("padi scratch.write chunked continuation (G9a)", () => {
   });
 
   it("enforces the size cap on the ACCUMULATED total, not the chunk", async () => {
-    // THE property chunking could have quietly destroyed. Each chunk here is
-    // individually legal; together they exceed MAX_UPLOAD_BYTES, and the gate
-    // must refuse on the total. Without the post-append `rejectionFor` on the
-    // real on-disk size, this passes silently and the 50 MB cap means nothing.
     seed();
     const write = scratchWrite();
-    // Two-thirds of the cap each: legal alone, over the cap together.
     const half = "A".repeat(Math.ceil((((MAX_UPLOAD_BYTES * 2) / 3) * 4) / 3));
     const first = (await runHandler(
       write({ input: { terminalId: ACTIVE_ID, name: "big.txt", data: half } }),
@@ -560,18 +483,10 @@ describe("padi scratch.write chunked continuation (G9a)", () => {
         }),
       ),
     ).resolves.toBe("ScratchWriteRejected");
-    // And the over-cap file is REMOVED rather than left truncated on disk,
-    // where an agent could read a partial upload as a whole one.
     expect(existsSync(first.path)).toBe(false);
   });
 });
 
-// ── The `session` cell backing — non-recursive + normalizing (C/D, review #2) ──
-//
-// Review #2's boot-recursion crash: the session cell's `get` must read the injected
-// conf store DIRECTLY and normalize empty→null INLINE — it must NOT delegate to
-// `getSavedSession`, which reads THIS same cell (mutual recursion → stack overflow
-// at boot, when `parkSavedSession` first reads it).
 describe("padi session cell backing is non-recursive + normalizes (review #2)", () => {
   const oneTerminal: SavedSession = {
     terminals: [
@@ -590,7 +505,6 @@ describe("padi session cell backing is non-recursive + normalizes (review #2)", 
     savedAt: 1,
   };
 
-  /** The `session` cell's backing store, narrowed out of the deps shape. */
   function sessionBacking(): { get: () => SavedSession | null } {
     const deps = buildPadiSurfaceDeps({
       endpoint: fakeEndpoint,
@@ -601,7 +515,6 @@ describe("padi session cell backing is non-recursive + normalizes (review #2)", 
       lifetime: { kind: "forever" },
       stateRoot: "/tmp/padi-test-state-root",
     });
-    // White-box read of the authored cell's backing store (see `identityBacking`).
     const s = (
       deps.cells?.session as
         | { store?: { get: () => SavedSession | null } }
@@ -614,17 +527,12 @@ describe("padi session cell backing is non-recursive + normalizes (review #2)", 
   afterEach(() => __resetPadiSurfaceCtxForTest());
 
   it("get() reads the injected store DIRECTLY (returns, no recursion) + normalizes empty→null", () => {
-    // A non-empty session is returned with host-stamped resumableIds. That the
-    // call RETURNS at all is the proof the backing is non-recursive — a
-    // `getSavedSession`-delegating get would recurse into this same cell and
-    // blow the stack.
     setPadiSessionStore(inMemoryStore<SavedSession | null>(oneTerminal));
     expect(sessionBacking().get()).toEqual({
       ...oneTerminal,
       resumableIds: [],
     });
 
-    // An empty-terminals blob normalizes to null (legacy "nothing to restore").
     setPadiSessionStore(
       inMemoryStore<SavedSession | null>({
         terminals: [],
@@ -638,9 +546,6 @@ describe("padi session cell backing is non-recursive + normalizes (review #2)", 
   it("getSavedSession() reads the same backing through padi's ctx (one hop) + normalizes", () => {
     setPadiSessionStore(inMemoryStore<SavedSession | null>(oneTerminal));
     const backing = sessionBacking();
-    // Wire padi's ctx `session` cell to the SAME backing, so getSavedSession →
-    // `padiSurfaceCtx.cells.session.get()` → backing.get() (which reads the store,
-    // never getSavedSession). One hop, no stack overflow.
     setPadiSurfaceCtx({
       cells: new Proxy({} as never, {
         get: (_t, n) =>
@@ -665,19 +570,7 @@ describe("padi session cell backing is non-recursive + normalizes (review #2)", 
   });
 });
 
-// ── create preserves the restore; session.forfeit is the explicit discard (K) ──
-//
-// The prior behaviour (a plain create FORFEITED the restore by discarding every
-// parked entry) was the PATH-B data-loss bug: parked records are invisible to
-// `snapshotSession`, so once a create dropped them, the next autosave shrank the
-// saved blob (the restore source of truth) to whatever was live — and a close then
-// nulled it. The new semantics: creating a terminal leaves the restore OFFERED (the
-// parked entries + the saved session survive), and forfeit is the EXPLICIT
-// `session.forfeit` act that drops the parked entries AND clears the blob together.
 describe("padi restore forfeit — create preserves, session.forfeit discards (K)", () => {
-  /** A padi ctx whose `session` cell is a real in-memory store, so
-   *  `setSavedSession` / `getSavedSession` / `clearSavedSession` round-trip; every
-   *  other member no-op. */
   function sessionBackedCtx(): ReturnType<typeof noopPadiSurfaceCtxForTest> {
     const b = noopPadiSurfaceCtxForTest();
     let session: SavedSession | null = null;
@@ -709,8 +602,6 @@ describe("padi restore forfeit — create preserves, session.forfeit discards (K
     promptedAt: null,
     restoreTarget: { kind: "none" },
   });
-  // The pre-reboot session the restore card offers — two ACTIVE records (one of
-  // which PARKED_ID stands in for), on disk since parkSavedSession seeded parked.
   const savedBlob = (): SavedSession => ({
     terminals: [
       savedActive(PARKED_ID, "/work/parked"),
@@ -753,8 +644,6 @@ describe("padi restore forfeit — create preserves, session.forfeit discards (K
 
   beforeEach(() => setPadiSurfaceCtx(sessionBackedCtx()));
   afterEach(async () => {
-    // The kaval-less fresh spawn's async tail rejects on a later microtask (the
-    // failed-spawn path); let it settle, then drain any entry the create left.
     await new Promise((r) => setTimeout(r, 0));
     for (const [id] of [...terminalEntries()]) unregisterTerminal(id);
     __resetPadiSurfaceCtxForTest();
@@ -768,11 +657,8 @@ describe("padi restore forfeit — create preserves, session.forfeit discards (K
     const { create } = serve();
     await runHandler(create({ input: { placement: TOPLEVEL_PLACEMENT } }));
 
-    // The parked entry SURVIVES — creating a terminal is no longer a forfeit.
     expect(getTerminal(PARKED_ID)?.meta.state).toBe("parked");
-    // The saved session (the restore source of truth) is untouched — all N held.
     expect(getSavedSession()?.terminals.length).toBe(2);
-    // The freshly-created terminal is NOT a parked record.
     const freshParked = [...terminalEntries()].filter(
       ([, e]) => e.meta.state === "parked",
     );
@@ -786,18 +672,11 @@ describe("padi restore forfeit — create preserves, session.forfeit discards (K
     const { forfeit } = serve();
     await runHandler(forfeit({ input: {} }));
 
-    // Both the parked entries and the blob are gone, together — one user act.
     expect(getTerminal(PARKED_ID)).toBeUndefined();
     expect(getSavedSession()).toBeNull();
   });
 });
 
-// ── lifecycle.create resolves the new-terminal theme from the pushed policy ──
-//
-// The #2045 fix: theme policy used to be request decoration the BROWSER applied,
-// so an MCP-created terminal skipped it entirely. It now resolves here, against
-// the `newTerminalPolicy` cell kolu-server pushes, so every face gets the same
-// answer.
 describe("padi new-terminal theme — lifecycle.create resolves the pushed policy", () => {
   const PEER_THEME = "Nordfox";
 
@@ -820,7 +699,6 @@ describe("padi new-terminal theme — lifecycle.create resolves the pushed polic
     return create;
   }
 
-  /** Register an ACTIVE entry carrying `themeName`, and return its id. */
   function seedActive(id: string, themeName: string | undefined): string {
     registerTerminal(id, {
       info: { id, pid: 1 },
@@ -831,12 +709,8 @@ describe("padi new-terminal theme — lifecycle.create resolves the pushed polic
     return id;
   }
 
-  /** Every terminal BIRTH publish this test's ctx saw, newest last. */
   let born: Array<{ id: string; themeName?: string }> = [];
 
-  /** A padi ctx that records the `terminals` collection upserts — the birth
-   *  publish `registerActiveAndSpawn` fires, which is the very frame the client
-   *  renders a new tile from. Every other member no-ops. */
   function recordingCtx(): ReturnType<typeof noopPadiSurfaceCtxForTest> {
     const base = noopPadiSurfaceCtxForTest();
     return {
@@ -857,27 +731,15 @@ describe("padi new-terminal theme — lifecycle.create resolves the pushed polic
     } as ReturnType<typeof noopPadiSurfaceCtxForTest>;
   }
 
-  /** The theme the create just stamped, read off the BIRTH publish.
-   *
-   *  NOT off a post-hoc registry read: a procedure handler is an `Effect` now, so
-   *  awaiting it hands the create's async tail a turn — and with no kaval to spawn
-   *  into, that tail unwinds its own registry entry (`unwindSpawnShadow`) before
-   *  the await resolves. The publish is the honest observation point, and it is
-   *  the one the feature exists to feed. */
   async function createdTheme(
     create: ReturnType<typeof serve>,
     input: { themeName?: string; placement?: TerminalPlacement } = {},
   ): Promise<string | undefined> {
     const seeded = new Set([...terminalEntries()].map(([id]) => id));
     born = [];
-    // Placement is REQUIRED on the wire, so the helper's default is an explicit
-    // top-level — the arm every theme case except the split one is about.
     await runHandler(
       create({ input: { placement: TOPLEVEL_PLACEMENT, ...input } }),
     );
-    // Keyed by id, last write wins: a birth publishes TWICE by design (the
-    // snapshot install, then the lifecycle-state publish), and both carry the
-    // composed record — so the count that matters is distinct terminals.
     const fresh = [
       ...new Map(
         born.filter((b) => !seeded.has(b.id)).map((b) => [b.id, b] as const),
@@ -893,8 +755,6 @@ describe("padi new-terminal theme — lifecycle.create resolves the pushed polic
     setPadiSurfaceCtx(recordingCtx());
   });
   afterEach(async () => {
-    // The kaval-less fresh spawn's async tail rejects on a later microtask; let
-    // it settle before draining the registry the create wrote into.
     await new Promise((r) => setTimeout(r, 0));
     for (const [id] of [...terminalEntries()]) unregisterTerminal(id);
     setActiveTerminalId(null);
@@ -915,7 +775,6 @@ describe("padi new-terminal theme — lifecycle.create resolves the pushed polic
   });
 
   it("inherit with a STALE active marker (the terminal was killed) — theme-less, not a crash", async () => {
-    // `killTerminal` does not clear the marker, so the id can outlive its entry.
     newTerminalPolicyStore.set({ kind: "inherit" });
     setActiveTerminalId(seedActive(ACTIVE_ID, PEER_THEME));
     unregisterTerminal(ACTIVE_ID);
@@ -929,8 +788,6 @@ describe("padi new-terminal theme — lifecycle.create resolves the pushed polic
     const named = availableThemes.find((t) => t.name === picked);
     if (!named) throw new Error(`picked theme not in the catalogue: ${picked}`);
     expect(themeMode(named)).toBe("dark");
-    // The spread picker maximises distance from the peer set, so the peer's own
-    // background (distance zero — the worst possible score) is never the answer.
     expect(picked).not.toBe(PEER_THEME);
   });
 
@@ -947,9 +804,6 @@ describe("padi new-terminal theme — lifecycle.create resolves the pushed polic
   });
 
   it("a SPLIT resolves no policy theme — it renders with its PARENT's, and stays out of the peer set", async () => {
-    // A split pane draws inside its parent tile and is handed the parent's theme
-    // (`TerminalContent.tsx`), so a shuffled tint for it would be invisible — and
-    // would then steer later shuffles away from colours nobody can see.
     newTerminalPolicyStore.set({ kind: "shuffle", mode: "dark" });
     setActiveTerminalId(seedActive(ACTIVE_ID, PEER_THEME));
     await expect(

@@ -1,27 +1,3 @@
-/**
- * The port scan against the REAL OS — the test the fixtures cannot be.
- *
- * Fixtures pin the parsers; they cannot pin the assumption that the parser is
- * being handed the shape it expects. That gap shipped a real bug: an earlier cut
- * of the darwin path looked for a header column called `pid`, and macOS 26.4
- * calls it **`process:pid`** — so every darwin scan threw, while every fixture
- * test stayed green. This suite closes that gap by spawning an actual listener
- * and asking the actual scanner about it, on whatever platform it runs.
- *
- * `describeDaemon`-gated, because it forks real processes and that is exactly
- * what the gate routes into its own CI node (#1334/#1375) — a bare `vitest` on a
- * workstation hosting a live kolu skips it. That costs nothing here: `ci::daemon`
- * is a required check on BOTH platforms, so this still runs where the platform
- * difference actually lives. The children are short-lived HTTP listeners, not
- * daemons, but the gate is about forking, not about lifetime.
- *
- * Verified by hand on both platforms before being written: x86_64-linux and
- * macOS 26.4 (aarch64-darwin, 21 ms per full scan). OSF2 swaps the mechanism
- * (osfacts binary) but not the answers — this suite is the proof.
- *
- * Requires `KOLU_OSFACTS_BIN` (baked by `koluEnv` / `nix develop`).
- */
-
 import { type ChildProcess, spawn } from "node:child_process";
 import { networkInterfaces } from "node:os";
 import {
@@ -38,30 +14,13 @@ afterEach(() => {
   for (const child of children.splice(0)) child.kill("SIGKILL");
 });
 
-/** Spawn a real HTTP listener bound to `host`, and resolve the port the kernel
- *  gave it. Port 0 + the child reporting back beats picking a number ourselves:
- *  there is no window in which another process could take the port we chose. */
 function listener(
   host?: string,
   opts: { viaShell?: boolean } = {},
 ): Promise<{ port: number; child: ChildProcess }> {
-  // The runtime leash. This helper lives OUTSIDE the gated block, so the gate
-  // cannot see it as covered by `describeDaemon` — and that is the point of the
-  // leash: a helper is exactly how a fork gets smuggled past a gate.
   assertDaemonSpawnAllowed("a test HTTP listener");
-  // No `host` means the DUAL-STACK form (`listen(0)` binds `::`), which is its own
-  // test case — so it rides this helper rather than a hand-rolled copy that would
-  // skip the fork leash above and the exit-rejection below.
   const bind = host === undefined ? "0" : `0,"${host}"`;
   const script = `require("http").createServer((_,r)=>r.end("ok")).listen(${bind},function(){console.log(this.address().port)})`;
-  // `viaShell` puts a shell between us and the server — the ordinary shape of
-  // this feature (a shell in a PTY, an agent running a dev server inside it),
-  // and the reason attribution is a subtree walk rather than a direct-children
-  // check. The `exec` replaces the shell's image with node's (keeping the pid),
-  // so the listener lands at the same tree depth as a direct spawn: what this
-  // test actually pins is that the spawn-through-a-shell hop is INVISIBLE to
-  // the scan, which is exactly the guarantee a PTY session relies on.
-  //
   // The node path and the script reach the shell as ENVIRONMENT VALUES, never
   // interpolated into the command text: the `-c` string is a constant and both
   // expansions are quoted, so a path containing a space — `/Users/My Name/…`,
@@ -101,9 +60,6 @@ function listener(
   });
 }
 
-/** One IPv4 address of a real, non-loopback interface on this box — the only way
- *  to exhibit an `interface`-scoped bind, since the address has to be one the
- *  kernel will actually accept a bind on. `undefined` on a box that has none. */
 function routableAddress(): string | undefined {
   for (const addresses of Object.values(networkInterfaces())) {
     for (const a of addresses ?? []) {
@@ -113,8 +69,6 @@ function routableAddress(): string | undefined {
   return undefined;
 }
 
-/** Scan for this process's own subtree — the test process stands in for a
- *  terminal's root shell, which is exactly the relationship padi has to a PTY. */
 async function scanSelf() {
   const result = await Effect.runPromise(scanPorts([process.pid]));
   const ports = result.byRoot.get(process.pid);
@@ -136,9 +90,6 @@ describeDaemon(`the port scan on this host (${process.platform})`, () => {
   });
 
   it("finds a loopback-bound listener and scopes it `loopback`", async () => {
-    // The distinction the whole feature turns on: this one needs a forward, the
-    // one above does not. Getting `scope` backwards would offer a link that
-    // resolves to the viewer's own machine.
     const { port } = await listener("127.0.0.1");
     const ports = await scanSelf();
     expect(ports).toContainEqual(
@@ -147,15 +98,8 @@ describeDaemon(`the port scan on this host (${process.platform})`, () => {
   });
 
   it("scopes a listener bound to ONE routable interface as `interface`", async () => {
-    // The third scope, and the one a boolean could not spell. It matters because
-    // BOTH forward mechanisms dial `127.0.0.1` on the far side: a door opened for
-    // this listener would come up and then refuse every connection through it. So
-    // this must not read as `loopback`, and — since it answers off-box without a
-    // door — it must not read as needing one either.
     const address = routableAddress();
     if (address === undefined) {
-      // A box with no non-loopback interface (a sealed sandbox) cannot exhibit
-      // the case. Skipping is honest; asserting something else is not.
       return;
     }
     const { port } = await listener(address);
@@ -166,14 +110,6 @@ describeDaemon(`the port scan on this host (${process.platform})`, () => {
   });
 
   it("tells a V6 loopback listener from a v4 one — the production defect", async () => {
-    // `[::1]:5173` is what vite and several Node versions bind by default. Both
-    // forward mechanisms dial the family they are told, so a v6 bind reported as
-    // v4 produces a door onto an address with no listener behind it — which is
-    // exactly what shipped, and it looked healthy the whole time.
-    //
-    // LIVE rather than fixture because the two platforms reach these bytes by
-    // completely different routes, and the fixture for one proves nothing about
-    // the other.
     const v6 = await listener("::1");
     const v4 = await listener("127.0.0.1");
     const ports = await scanSelf();
@@ -190,8 +126,6 @@ describeDaemon(`the port scan on this host (${process.platform})`, () => {
   });
 
   it("names the program, not the thread", async () => {
-    // Node renames its main thread, so `/proc/<pid>/stat`'s `comm` reads
-    // `MainThread` — measured. Every Node dev server would be labelled that.
     const { port } = await listener("0.0.0.0");
     const found = (await scanSelf()).find((p) => p.port === port);
     expect(found?.name).toBe("node");
@@ -206,16 +140,9 @@ describeDaemon(`the port scan on this host (${process.platform})`, () => {
   });
 
   it("reports a dual-stack listener ONCE", async () => {
-    // A `::` bind shows up in both socket tables (linux: tcp + tcp6; darwin: a
-    // `tcp46` row), so an un-folded scan would render two chips for one server.
     const { port } = await listener();
 
     const ports = await scanSelf();
-    // The family is asserted with `expect.any` rather than pinned: a dual-stack
-    // `::` bind is reported by linux as a v6 row and collapsed by the darwin
-    // helper's `INI_IPV4` branch to its v4 form, so the two platforms honestly
-    // disagree about the family while agreeing about the scope. Both are
-    // dialable — that is what `any` means — so this case has no stake in which.
     expect(ports.filter((p) => p.port === port)).toEqual([
       {
         port,
@@ -225,24 +152,9 @@ describeDaemon(`the port scan on this host (${process.platform})`, () => {
         family: expect.any(String),
       },
     ]);
-
-    // The dual-stack BYTE fidelity — that `::` is read from the v6 slot and not
-    // narrowed to `0.0.0.0` — deliberately is NOT asserted here, because it
-    // cannot be: `PortInfo` carries `{port, name, scope}` and never the
-    // address, so both spellings arrive identical at this layer. That is the
-    // whole reason the darwin helper's own install check binds a dual-stack
-    // socket and inspects the emitted hex (osfacts dual-stack decode),
-    // where the
-    // `insi_vflag` ordering it guards actually lives.
   });
 
   it("tells the v4-MAPPED loopback from the v4-mapped ANY address", async () => {
-    // `::ffff:127.0.0.1` and `::ffff:0.0.0.0` differ in four bytes and mean
-    // opposite things, and every classification bug in this area has been one of
-    // them read as the other. Live rather than fixture because the two platforms
-    // arrive at these bytes by completely different routes: linux reads the
-    // mapped form literally out of `/proc/net/tcp6`, while darwin's helper has to
-    // pick the right half of a union using `insi_vflag`.
     const mappedLoopback = await listener("::ffff:127.0.0.1");
     const mappedWildcard = await listener("::ffff:0.0.0.0");
 
@@ -264,10 +176,6 @@ describeDaemon(`the port scan on this host (${process.platform})`, () => {
 
     child.kill("SIGKILL");
     await new Promise((done) => child.once("exit", done));
-    // The socket may linger a moment after the process goes, so retry until the OS
-    // agrees. `vi.waitFor` (the repo's mechanism for this) keeps the assertion ON
-    // the success path — the hand-rolled loop it replaced `return`ed early, so a
-    // pass could not be told from "observed the drop".
     await vi.waitFor(
       async () =>
         expect(await scanSelf()).not.toContainEqual(
@@ -278,9 +186,6 @@ describeDaemon(`the port scan on this host (${process.platform})`, () => {
   });
 
   it("attributes a listener to the subtree that holds it, and no other", async () => {
-    // Two sibling "terminals": the listener's own pid as one root, and an
-    // unrelated process of ours as another. The first must see its port; the
-    // second must not — that is what keeps one tile's chips off another's.
     const { port, child } = await listener("0.0.0.0");
     const stranger = spawn(process.execPath, [
       "-e",
@@ -296,15 +201,12 @@ describeDaemon(`the port scan on this host (${process.platform})`, () => {
       expect.objectContaining({ port }),
     );
     expect(result.byRoot.get(stranger.pid!)).toEqual([]);
-    // …and the HOST reading holds it regardless of which subtree does.
     expect(result.host.claimed).toContainEqual(
       expect.objectContaining({ port }),
     );
   });
 
   it("names the listener's command line, not just its program", async () => {
-    // Four `bun …/main.ts web <dir>` servers are all `bun` by name; the command
-    // is what tells them apart once a port is not in the terminal on screen.
     const { port } = await listener("127.0.0.1");
     const found = (await scanSelf()).find((p) => p.port === port);
     expect(found?.command).toContain("createServer");
@@ -312,13 +214,8 @@ describeDaemon(`the port scan on this host (${process.platform})`, () => {
   });
 
   it("sees a DETACHED listener on the host that no requested subtree holds", async () => {
-    // The feature's whole premise, against the real OS: a server whose parent
-    // exits reparents out of the subtree (to init, or the nearest subreaper),
-    // keeps listening — and must still be on the host reading.
     assertDaemonSpawnAllowed("a detached test HTTP listener");
     const script = `require("http").createServer((_,r)=>r.end("ok")).listen(0,"127.0.0.1",function(){console.log(process.pid+" "+this.address().port)})`;
-    // The shell backgrounds node and exits at once, so node's parent is gone
-    // before it binds. Same env-channel discipline as `listener` above.
     const shell = spawn(
       "/bin/sh",
       ["-c", '"$KOLU_SCAN_LIVE_NODE" -e "$KOLU_SCAN_LIVE_SRC" &'],
@@ -356,16 +253,9 @@ describeDaemon(`the port scan on this host (${process.platform})`, () => {
     }
   });
 
-  // Gated NON-ROOT: root can inspect pid 1, so the blind spot does not exist
-  // for it. Both platforms: osfacts returns U for launchd / init when the
-  // caller cannot inspect it.
   it.skipIf(process.getuid?.() === 0)(
     "reports a requested subtree it cannot see as BLIND, not as no ports",
     async () => {
-      // pid 1 is unreadable as a normal user (linux EACCES / darwin EPERM) —
-      // a real, unfakeable blind spot. Reporting `[]` here would render byte
-      // -identically to "this terminal serves nothing"
-      // (`caught-error-must-not-collapse-to-empty`). The host fold still answers.
       const result = await Effect.runPromise(scanPorts([1]));
       expect(result.byRoot.get(1)).toBe("blind");
       expect(result.host.status).toBe("known");
@@ -373,8 +263,6 @@ describeDaemon(`the port scan on this host (${process.platform})`, () => {
   );
 
   it("returns an empty set — not a missing key — for a root pid that is gone", async () => {
-    // The contract the sampler relies on to tell "serves nothing" from "could not
-    // see": every requested pid comes back.
     const dead = 0x7f_ff_ff_ff;
     const result = await Effect.runPromise(scanPorts([dead]));
     expect(result.byRoot.has(dead)).toBe(true);

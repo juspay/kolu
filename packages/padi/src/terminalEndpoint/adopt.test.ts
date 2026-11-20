@@ -8,9 +8,6 @@ import type { PtyHostListEntry } from "kaval";
 import { describe, expect, it } from "vitest";
 import { adoptedAuthored, adoptedSnapshot, orphanSnapshot } from "./local.ts";
 
-/** A live `terminal.list` entry for the sentinel id. The daemon snapshot is the
- *  authority for `cwd`/`foreground` during adoption (F2), so the builder lets a
- *  test set a cwd that DIFFERS from the saved record's. */
 function liveEntry(over: Partial<PtyHostListEntry> = {}): PtyHostListEntry {
   return {
     id: "term-sentinel",
@@ -21,22 +18,10 @@ function liveEntry(over: Partial<PtyHostListEntry> = {}): PtyHostListEntry {
   };
 }
 
-// An EXHAUSTIVE sentinel: every persisted field of `SavedTerminal` set to a
-// distinct, non-default value. The exhaustiveness assertion below fails if a new
-// persisted field is added to the schema without being added here — which forces
-// it into the round-trip rather than letting it slip the adoption path silently
-// (exactly how #1275 dropped `parentId` and `lastAgentCommand`). lastActivityAt
-// is a real, non-zero epoch so a drop-to-default can't pass by coincidence. Post
-// the awareness cutover the persisted set carries `pr` (restore-relevant now) and
-// `restoreTarget` (the fold-derived discriminated resume value the survivor resumes
-// — it replaced the old `agentSession` sticky field + bare `resumeAgent`).
 const sentinel: SavedActiveTerminal = {
   id: "term-sentinel",
   state: "active",
   cwd: "/sentinel/cwd",
-  // Deliberately the REMOTE variant: `adoptedAuthored` parses `location` straight
-  // off the saved record, so a distinct host proves the saved `location` rides
-  // the round-trip rather than coincidentally matching a `{ kind: "local" }` seed.
   location: { kind: "remote", hostId: "sentinel-host" },
   git: {
     kind: "repo",
@@ -51,8 +36,6 @@ const sentinel: SavedActiveTerminal = {
       isBare: false,
     },
   },
-  // A RESOLVED pr — distinct from the `{ kind: "pending" }` seed — so the
-  // restore-relevant carry-through can't pass by coinciding with a default.
   pr: {
     kind: "ok",
     value: {
@@ -79,8 +62,6 @@ const sentinel: SavedActiveTerminal = {
   },
   lastActivityAt: 1_718_000_000_000,
   promptedAt: null,
-  // A surviving PTY keeps the agents it was spawned with, so adoption must keep
-  // the pill's one `agents` struct rather than re-resolve it.
   agents: {
     bundle: "/nix/store/00000000sentinel-agent-distro",
     profiles: [
@@ -107,19 +88,12 @@ const sentinel: SavedActiveTerminal = {
 
 describe("adoption preserves the whole record — the #1275 lossy-adoption class", () => {
   it("the sentinel covers EVERY persisted SavedTerminal key", () => {
-    // A persisted field added to the schema but not to the sentinel fails here,
-    // forcing it into the round-trip below rather than silently slipping the
-    // adoption path — the structural guard that closes the #1275 class.
     expect(Object.keys(sentinel).sort()).toEqual(
       Object.keys(SavedActiveTerminalSchema.fields).sort(),
     );
   });
 
   it("adoptedSnapshot carries every persisted OBSERVATION field verbatim", () => {
-    // The restore-relevant snapshot projection is `PersistedSnapshot` (cwd · git
-    // · pr) now — `adoptedSnapshot` parses it WHOLE off the saved record. Use a
-    // live entry whose cwd MATCHES the saved record so this test isolates the
-    // whole-record carry-through; the live-cwd-wins case is asserted below.
     const aw = adoptedSnapshot(sentinel, liveEntry({ cwd: sentinel.cwd }));
     for (const key of Object.keys(PersistedSnapshotSchema.fields)) {
       expect(aw[key as keyof typeof aw]).toEqual(
@@ -139,24 +113,12 @@ describe("adoption preserves the whole record — the #1275 lossy-adoption class
 
   it("re-seeds the LIVE-only fields (agent + foreground) while the persisted pr carries", () => {
     const aw = adoptedSnapshot(sentinel, liveEntry());
-    // After the awareness cutover the only NON-persisted snapshot fields are the
-    // lie-when-dead `agent` and the churny `foreground`: adoption seeds them at
-    // their defaults and the producer re-derives them against the surviving taps
-    // (the freshness guarantee — never a stale carried-over value). A bare
-    // `liveEntry()` reports no foreground process, so both seed null.
     expect(aw.agent).toBeNull();
     expect(aw.foreground).toBeNull();
-    // `pr` is restore-relevant now (true-when-dead, persisted like `git`), so the
-    // SAVED value rides the adoption verbatim — it does NOT reset to `pending`
-    // (the old frozen-pr-on-the-sleeping-arm special case is gone).
     expect(aw.pr).toEqual(sentinel.pr);
   });
 
   it("the LIVE daemon cwd wins over the stale SAVED cwd (F2)", () => {
-    // The shell cd'd while kolu-server was down (or after the last debounced
-    // autosave). kaval's cwd tap does NOT replay a snapshot, so the saved cwd
-    // would otherwise stick and be re-persisted over the live truth. The live
-    // `list` entry's cwd is the authority.
     const aw = adoptedSnapshot(
       sentinel,
       liveEntry({ cwd: "/moved/since/save" }),
@@ -189,11 +151,6 @@ describe("orphanSnapshot — adopting a live PTY with no saved record (F1)", () 
       title: null,
       shell: false,
     });
-    // An orphan has NO saved record, so the restore-relevant snapshot fields seed
-    // at their `seedSnapshot` defaults and the producers re-derive them: a fresh
-    // PTY's pr is `pending` and its agent is null until a tap resolves them.
-    // (`lastActivityAt` is no longer an awareness field — recency lives on the
-    // authored record's memory now, so the TerminalSnapshot has no such key to seed.)
     expect(aw.pr).toEqual({ kind: "pending" });
     expect(aw.agent).toBeNull();
   });

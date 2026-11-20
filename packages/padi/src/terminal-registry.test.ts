@@ -1,25 +1,3 @@
-/**
- * The registry's GATES — `requireMutableTerminal`'s "PARKED is IMMUTABLE"
- * invariant (split-restore FIX 3), and `requireActiveTerminal`'s two refusals
- * (kolu#2361: an absent id is NOT the same fact as a sleeping one).
- *
- * A PARKED record is a restore-card placeholder standing in for a saved active
- * terminal until `session.restore` consumes it (the parked→active flip). A client
- * chrome mutation — `chrome.setParent` / `setSubPanel` / `setCanvasLayout` /
- * `setTheme` / `setIntent` / `setRightPanel`, all routed through
- * `requireMutableTerminal` in `servePadi.ts` — targeting one is a STALE write from
- * a supervised restart's drain window (the client's list-driven reconcile promoting
- * a split's sub the drain just removed). It MUST reject: silently un-parenting the
- * parked sub would make the split restore as an orphaned top-level. This closes the
- * hole at the RECORD level — timing-independent, not a restart-in-flight gate.
- *
- * The ACTIVE and SLEEPING arms stay MUTABLE (a chrome edit on a dormant tile is
- * valid); the read/query guard `requireTerminal` keeps ACCEPTING parked. The
- * active-only gate is the OTHER half: it accepts neither, but it says WHICH —
- * `TerminalNotFound` for an id nothing serves, `TerminalNotActive { state }`
- * for a record that is merely dormant.
- */
-
 import {
   LOCAL_LOCATION,
   TerminalNotActive,
@@ -90,7 +68,6 @@ function seedParked(): void {
   });
 }
 
-/** Run `fn` and return whatever it threw (or `undefined` if it didn't). */
 function caught(fn: () => unknown): unknown {
   try {
     fn();
@@ -111,7 +88,6 @@ describe("requireMutableTerminal — parked records are immutable", () => {
     expect(err).toBeInstanceOf(TerminalNotFound);
     expect((err as TerminalNotFound)._tag).toBe("TerminalNotFound");
     expect((err as TerminalNotFound).id).toBe(ID);
-    // ...yet the read/query guard STILL accepts it — the restore card reads it.
     expect(requireTerminal(ID).meta.state).toBe("parked");
   });
 
@@ -142,9 +118,6 @@ describe("requireActiveTerminal — absent is not the same as asleep", () => {
   });
 
   it("REJECTS a SLEEPING id with TerminalNotActive, carrying its state", () => {
-    // The regression this file exists for: a terminal the user can see in
-    // their dock used to answer "Terminal <id> not found", and every face
-    // repeated it. It EXISTS — it is asleep, and the caller can wake it.
     seedSleeping();
     const err = caught(() => requireActiveTerminal(ID));
     expect(err).toBeInstanceOf(TerminalNotActive);

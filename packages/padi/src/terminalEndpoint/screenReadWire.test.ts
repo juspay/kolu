@@ -1,38 +1,9 @@
-/**
- * The padi→kaval SCREEN-READ seam — `screen.text` / `screen.history` forwarded
- * onto kaval's wire.
- *
- * Two of padi's screen-read paths are pure FORWARDERS: `screen.text`'s RANGE
- * read hands `input.startLine` / `input.endLine` straight to the terminal
- * handle, and `screen.history` does the same with `input.before` /
- * `input.epoch`. Every one of those is `Schema.optionalKey` on BOTH wires — so
- * an omitted key arrives at the forwarder as a plain `undefined`. (The third
- * path, `screen.text { tail }`, does not forward its input: `readScreenTail`
- * turns it into window reads of its own, always a definite `tailRows`, which
- * the last pin below covers as the `tail` extent.)
- * kaval's client face DECODES its input (`packages/surface/src/client.ts` —
- * `Schema.decodeUnknownSync` at the edge), and `optionalKey` accepts an ABSENT
- * key while REJECTING a present-`undefined` one, where zod's `.optional()` took
- * either. So re-spelling the forwarded `undefined` throws inside padi before the
- * call ever reaches kaval — the same #17 mapping hazard that killed the daemon
- * on `lastAgentCommand` and painted a ParseError into the diff pane on `oldPath`.
- *
- * These pins drive the REAL producer (`PtyHostTerminalProxy`) through the REAL
- * spec-derived face (`ptyHostClientOver`), so the decode gate under test is the
- * production one, not a paraphrase. Falsify by re-spelling either key: the
- * failures read `Expected number, got undefined at ["before"]` /
- * `... at ["startLine"]` verbatim.
- */
-
 import type { TerminalId } from "@kolu/terminal-vocab/schema";
 import { Effect, Stream } from "effect";
 import { ptyHostClientOver } from "kaval";
 import { describe, expect, it } from "vitest";
 import { PtyHostTerminalProxy } from "./local.ts";
 
-/** A dispatch that RECORDS what the face handed it, after the face's own input
- *  decode ran — so a recorded payload is proof the input was wire-legal, and a
- *  throw out of the call is proof it was not. */
 function recordingClient(): {
   client: ReturnType<typeof ptyHostClientOver>;
   calls: { tag: string; payload: unknown }[];
@@ -41,8 +12,6 @@ function recordingClient(): {
   const client = ptyHostClientOver({
     unary: (tag, payload) => {
       calls.push({ tag, payload });
-      // Enough of each reply for the proxy's destructuring; the assertion is on
-      // what went OUT, not what came back.
       return Effect.succeed({ text: "", kind: "chunk", chunk: "", topLine: 0 });
     },
     stream: (tag, payload) => {
@@ -53,7 +22,6 @@ function recordingClient(): {
   return { client, calls };
 }
 
-/** A proxy already past its spawn gate — every verb below awaits `ready`. */
 function readyProxy(): ReturnType<typeof recordingClient> & {
   proxy: PtyHostTerminalProxy;
 } {
@@ -70,9 +38,6 @@ describe("getHistory forwards absent cursors as ABSENT KEYS", () => {
   it("omits `before` and `epoch` when the caller sent neither", async () => {
     const { proxy, calls } = readyProxy();
 
-    // The self-seeding first page — exactly what the `screen_history` MCP tool
-    // sends (`{ id, max }`), forwarded by `servePadi` as `(undefined, max,
-    // undefined)`. Under the pre-fix spelling this REJECTED at the face.
     await proxy.getHistory(undefined, 100, undefined);
 
     const payload = calls.at(-1)?.payload as Record<string, unknown>;
@@ -84,9 +49,6 @@ describe("getHistory forwards absent cursors as ABSENT KEYS", () => {
   it("omits only `epoch` when the caller sent a cursor but no reflow epoch", async () => {
     const { proxy, calls } = readyProxy();
 
-    // The browser's ordinary backfill against a snapshot that carried no
-    // `reflowEpoch` (`Terminal.tsx` spreads `epoch`, so padi's handler reads it
-    // as `undefined`).
     await proxy.getHistory(40, 100, undefined);
 
     const payload = calls.at(-1)?.payload as Record<string, unknown>;

@@ -1,11 +1,3 @@
-/**
- * Pins the settle-event EDGE: that padi emits once per attention episode, that a
- * redundant recompute emits nothing (which is what makes observing from inside
- * the `urgency` derivation safe), that each event carries the lane attribution
- * a subscriber needs — and that no sink ever runs on the derivation's own
- * stack (every assertion below waits a microtask first, which IS the pin).
- */
-
 import type { PadiTerminal, PadiUrgency } from "@kolu/padi-client/surface";
 import type { TerminalId } from "@kolu/terminal-vocab/schema";
 import { describe, expect, it } from "vitest";
@@ -32,8 +24,6 @@ const EMPTY: PadiUrgency = {
 
 const urgency = (u: Partial<PadiUrgency>): PadiUrgency => ({ ...EMPTY, ...u });
 
-/** Drive a source and collect what it emitted, both as flat events and as the
- *  FRAMES it grouped them into. */
 function collector() {
   const events: SettleEvent[] = [];
   const frames: Array<readonly SettleEvent[]> = [];
@@ -52,8 +42,6 @@ function collector() {
   return {
     events,
     frames,
-    // The source, driven the way its PRODUCER drives it: the one edge memory
-    // takes the frame first, then the detector reads the attribution off it.
     source: {
       ...source,
       observe: (
@@ -75,9 +63,6 @@ describe("createSettleEvents", () => {
       urgency({ finishedIds: ["w"] as TerminalId[] }),
       terminals({ w: { agent: makeAgent("waiting") } }),
     );
-    // A sink here writes into another process's PTY. The reactor's DUAL EDGE
-    // latitude covers a cell writing a level it read; it does not extend to
-    // performing I/O on the recompute stack.
     expect(events).toEqual([]);
     await settled();
     expect(events).toHaveLength(1);
@@ -118,16 +103,12 @@ describe("createSettleEvents", () => {
       ["a", "asking"],
       ["b", "finished"],
     ]);
-    // Sequence is monotonic — it is the cursor a standing subscription drains on.
     expect(events.map((e) => e.seq)).toEqual([1, 2]);
   });
 
   it("hands a sink ONE batch per observed frame, stamped with ONE arrival time", async () => {
     const { frames, source } = collector();
     source.observe(urgency({}), terminals({ a: { agent: null } }));
-    // One fold, two edges: a worker starts asking while another leaves. That is
-    // one fact about the workspace, so a sink that must group (one nudge per
-    // supervisor) is not made to reconstitute the grouping.
     source.observe(
       urgency({ awaitingIds: ["b"] as TerminalId[] }),
       terminals({ b: { agent: makeAgent("awaiting_user") } }),
@@ -147,8 +128,6 @@ describe("createSettleEvents", () => {
     const frame = urgency({ awaitingIds: ["a"] as TerminalId[] });
     const map = terminals({ a: { agent: makeAgent("awaiting_user") } });
     source.observe(frame, map);
-    // The reactor may re-run the urgency compute without a real change; three
-    // more identical observations must not produce three more nudges.
     source.observe(frame, map);
     source.observe(frame, map);
     source.observe(frame, map);
@@ -186,8 +165,6 @@ describe("createSettleEvents", () => {
     });
     source.observe(urgency({ finishedIds: ["w"] as TerminalId[] }), map);
     await settled();
-    // The supervisor's own record rides along — the delivery sink narrows it for
-    // the agent guard without a second read path back into the registry.
     expect(seen[0]).toBe(map);
     expect(seen[0]?.get("coordinator" as TerminalId)).toBeDefined();
   });
@@ -219,7 +196,6 @@ describe("createSettleEvents", () => {
     const { events, source } = collector();
     const map = terminals({ w: { agent: makeAgent("thinking") } });
     source.observe(urgency({ workingIds: ["w"] as TerminalId[] }), map);
-    // The worker exits (or a kaval recycle retires its id).
     source.observe(urgency({}), terminals());
     await settled();
     expect(events.map((e) => [e.id, e.kind])).toEqual([["w", "gone"]]);
@@ -233,7 +209,6 @@ describe("createSettleEvents", () => {
     );
     await settled();
     expect(events).toEqual([]);
-    // And only the one that actually leaves is reported.
     source.observe(urgency({}), terminals({ a: { agent: null } }));
     await settled();
     expect(events.map((e) => [e.id, e.kind])).toEqual([["b", "gone"]]);
@@ -251,8 +226,6 @@ describe("createSettleEvents", () => {
         },
       }),
     );
-    // By the time it is gone its record is gone too, so the parent is only
-    // knowable from the frame that still had it.
     source.observe(urgency({}), terminals());
     await settled();
     expect(events).toHaveLength(1);
@@ -262,10 +235,6 @@ describe("createSettleEvents", () => {
   });
 
   it("a departure reports the CURRENT edge, not the one from the terminal's birth", async () => {
-    // The edge memory is MAINTAINED in place rather than rebuilt per frame (it
-    // runs on the ~150 ms terminals cadence), so an edge that changes mid-life
-    // must still refresh — otherwise a lane renamed after it was spawned would
-    // report its original intent on the way out.
     const { events, source } = collector();
     source.observe(
       urgency({}),
@@ -311,9 +280,6 @@ describe("createSettleEvents", () => {
 
 describe("createSettleEvents — a redeploy", () => {
   it("tells no supervisor about a survivor that was already idle", async () => {
-    // The producer as `servePadi` runs it: the fleet gate, then the quiet
-    // tracker, then this source. A fresh padi adopts the worker with no
-    // agent, reads it a moment later, and only then reports attention.
     const { events, source } = collector();
     const gate = createFleetGate();
     const finish = createFinishQuiet({

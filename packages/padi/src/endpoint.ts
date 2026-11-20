@@ -1,47 +1,3 @@
-/**
- * `TerminalEndpoint` — the per-terminal world a terminal lives in.
- *
- * Concretely, the endpoint owns: what process holds the PTY, what
- * filesystem the Code-tab reads, where the git watcher runs, where the
- * per-terminal providers (Claude Code, OpenCode, Codex, GitHub PR,
- * foreground process) observe their state. Every per-terminal stream
- * and every per-host one-shot fs/git op goes through this object.
- *
- * There is **one** endpoint shape, not a family of backends. An endpoint
- * is three surfaces — PTY · fs · git — **bound to a transport**:
- *
- *   - **Local** (today) — this kolu process. PTY spawned in-process via
- *     `node-pty`, providers watch local files via `@parcel/watcher`,
- *     fs/git ops shell out locally.
- *   - **Remote** (P3, kaval-sessions) — the *same* surfaces dialed over
- *     ssh to a kaval on another host; fs/git mirror over the `HostSession`
- *     link rather than shelling out here. Not a separate implementation
- *     class — the same shape, a different transport.
- *
- * The interface lives in `kolu-common` because downstream consumers
- * (router, surface, orchestrators) and P3's remote-endpoint impl share
- * the same shape. Consumers talk to `endpoint.X` and never ask "where
- * does this live?" — the binding to a host is the endpoint's own concern.
- *
- * ── Invariants ─────────────────────────────────────────────────────────
- *
- * 1. **Kill convergence.** `killTerminal(id)` is the sole termination
- *    path. `TerminalHandle` does NOT carry `dispose()` — handle-as-
- *    control-surface and kill-as-lifecycle are two distinct roles.
- *
- * 2. **The endpoint owns its filesystem.** `TerminalEndpointFs` /
- *    `TerminalEndpointGit` cover BOTH one-shot ops AND watcher
- *    subscriptions — same volatility axis ("where the FS lives"), one
- *    place the surfaces bind.
- *
- * 3. **Sync shadow entry, async I/O.** `spawnPty` registers a
- *    `TerminalProcess` entry synchronously (so the tile renders
- *    immediately), then any I/O happens on a later tick. The local
- *    endpoint's I/O is instantaneous so this is a no-op there; a remote
- *    endpoint (P3) will need minutes for cold `nix run` realisation and
- *    the contract is what makes the instant-tile UX work.
- */
-
 import type {
   InitialTerminalMetadata,
   TerminalInfo,
@@ -63,11 +19,6 @@ import type {
  *  `reattachingDeltas` so both sides read the one source of truth. */
 export const TERMINAL_RESET = "\x1bc";
 
-/** A terminal grid — cols × rows. padi's OWN boundary type, deliberately not
- *  imported from the xterm kit or kaval (this module imports zero kaval/kit
- *  symbols by design — same rule that makes `PtySpawnOpts` a hand-declaration
- *  here); it carries a distinct name so padi's grid and the kit's
- *  identically-shaped grid type never read as one type in a grep. */
 export interface EndpointGrid {
   cols: number;
   rows: number;
@@ -249,10 +200,6 @@ export interface TerminalHandle {
     epoch?: number,
   ): Promise<TerminalHistoryChunk>;
 }
-
-// `TerminalEndpointFs` / `TerminalEndpointGit` — the fs/git half of the endpoint
-// — live in `./terminalWorkspace/endpoint.ts` (folded into padi by L7, beside the
-// one impl padi drives). The composite below imports them as types.
 
 /** Per-terminal world — the three surfaces (PTY · fs · git) bound to an
  *  endpoint. Local today; P3 binds the same shape to a remote kaval. */

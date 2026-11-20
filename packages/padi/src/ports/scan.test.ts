@@ -1,8 +1,3 @@
-/**
- * padi's port-scan policy pins — classification, U-row mapping, subtree walk —
- * against fixture TSV. Live OS proofs live in `scan.live.test.ts`.
- */
-
 import { describe, expect, it } from "vitest";
 import { Effect } from "effect";
 import { parseSnapshotOutput } from "osfacts-client";
@@ -41,11 +36,6 @@ describe("decodeNetworkAddress", () => {
   });
 
   it("leaves the address format rule to the client, which owns it", () => {
-    // padi used to re-check "exactly 8 or 32 hex digits" here. The client
-    // already refuses such an `L` row, and the two copies had drifted — the
-    // client narrowed to lowercase while this one still accepted `[A-F]`.
-    // Same argument as the port rule in `classifyListeners`: a second copy is
-    // unreachable and would have to be found twice to relax.
     expect(() =>
       parseSnapshotOutput("V\t2\nL\tclaimed\t1\t-\t8080\t00FF\n"),
     ).toThrow();
@@ -184,9 +174,6 @@ describe("sourceErrorsMessage", () => {
   });
 
   it("survives macOS 27 hiding the host-wide socket table", () => {
-    // The fd walk still named every claimed listener, so the only facet lost
-    // is the one a subtree fold never reads. Treating this as blindness once
-    // blacked out port detection on the whole platform.
     expect(
       sourceErrorsMessage([
         {
@@ -199,10 +186,6 @@ describe("sourceErrorsMessage", () => {
   });
 
   it("ignores blindness in facets this scan never reads", () => {
-    // `net`/`load` used to stand here. Splitting the reading by verb made them
-    // unrepresentable in a snapshot's errors — which is the point: this scan
-    // can no longer match a host facet by accident. These are snapshot facets
-    // the ask genuinely does not name.
     expect(
       sourceErrorsMessage([
         { source: "sysconf_pagesize", facet: "mem", code: "EIO" },
@@ -212,9 +195,6 @@ describe("sourceErrorsMessage", () => {
   });
 
   it("tolerates the darwin listener honesty rows the ask does name", () => {
-    // `ports_uid` is unconditional on darwin: neither listener source carries
-    // a socket's owning uid. It costs this fold no fact, so it must not blind
-    // port detection on the whole platform.
     expect(
       sourceErrorsMessage([
         { source: "darwin_listeners", facet: "ports_uid", code: "ENOTSUP" },
@@ -269,9 +249,6 @@ describe("partitionSubtrees", () => {
 });
 
 describe("foldScan — one host-wide reading, two folds", () => {
-  /** A host: zsh (4200) is a terminal's root, node (53082) serves inside it,
-   *  a detached `odu web-daemon` (9001, parent init) serves outside every
-   *  subtree, and sshd's socket belongs to nobody we can read. */
   const HOST = [
     "V\t2",
     "P\t1\t0\tinit",
@@ -327,7 +304,6 @@ describe("foldScan — one host-wide reading, two folds", () => {
   });
 
   it("reports the unclaimed half UNKNOWN when that source was blind", () => {
-    // macOS 27: the claimed listeners all arrive, the unclaimed ones do not.
     const scan = fold([
       ...HOST.filter((l) => !l.startsWith("L\tunclaimed")),
       "E\tdarwin_tcp_pcblist\tports_unclaimed\tBLIND_OR_EMPTY",
@@ -337,7 +313,6 @@ describe("foldScan — one host-wide reading, two folds", () => {
   });
 
   it("keeps a listener whose argv could not be read, shown by its name", () => {
-    // The command is a label: an unreadable one must not cost the listener.
     const scan = fold([
       ...HOST.filter((l) => !l.startsWith("ARGV\t9001")),
       "U\t9001\targv\tEACCES",
@@ -348,19 +323,12 @@ describe("foldScan — one host-wide reading, two folds", () => {
   });
 
   it("drops a foreign pid's listener from both folds when its sockets are unreadable", () => {
-    // The sudo lesson, host-wide: a pid we could not read contributes to
-    // neither list rather than being smuggled into one.
     const scan = fold([...HOST, "U\t9001\tports\tEACCES"]);
     expect(scan.host.claimed.map((p) => p.port)).toEqual([5173]);
-    // The drop is not silent to a caller with a logger — it is a real
-    // listener the fold could see and could not attribute to anyone.
-    expect(scan.dropped).toEqual([{ pid: 9001, port: 18440 }]);
+    expect(scan.unattributable).toEqual([{ pid: 9001, port: 18440 }]);
   });
 
   it("shows a listener whose pid exited before the process walk as (exited), not its pid number", () => {
-    // The ordinary exit race: a claimed socket with no U row (never hit the
-    // unreadable path) and no P row either (the pid is simply gone from the
-    // process table this pass caught).
     const scan = fold([...HOST, "L\tclaimed\t7777\t501\t9090\t7f000001"]);
     expect(scan.host.claimed).toContainEqual(
       expect.objectContaining({
@@ -369,23 +337,17 @@ describe("foldScan — one host-wide reading, two folds", () => {
         command: "(exited)",
       }),
     );
-    expect(scan.exited).toEqual([{ pid: 7777, port: 9090 }]);
-    // Distinct from a drop: the scan still SHOWS this listener, just honestly
-    // labeled, rather than removing it the way `dropped` does.
-    expect(scan.dropped).toEqual([]);
+    expect(scan.ownerExited).toEqual([{ pid: 7777, port: 9090 }]);
+    expect(scan.unattributable).toEqual([]);
   });
 
   it("counts a listener whose pid EXITED mid-read as exited, never as dropped", () => {
-    // ENOENT is a process that is gone, not one kolu could not see — a warning
-    // about an unreadable owner would be a false alarm.
     const scan = fold([...HOST, "U\t9001\tports\tENOENT"]);
-    expect(scan.dropped).toEqual([]);
-    expect(scan.exited).toContainEqual({ pid: 9001, port: 18440 });
+    expect(scan.unattributable).toEqual([]);
+    expect(scan.ownerExited).toContainEqual({ pid: 9001, port: 18440 });
   });
 
   it("marks a listener held by a terminal even when that terminal's ROOT is unreadable", () => {
-    // Membership comes from the process TABLE, which stays readable where a
-    // root's sockets are not — so "detached" stays exact beside a sudo terminal.
     const scan = fold([...HOST, "U\t4200\tports\tEACCES"]);
     expect(scan.host.claimed).toContainEqual(
       expect.objectContaining({ port: 5173, heldByTerminal: true }),

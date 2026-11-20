@@ -1,27 +1,13 @@
-/**
- * What a terminal gets from agent-distro, and how its record remembers it — the
- * spawn-time facts. A layer is the EXACT package store path whose `bin/` goes
- * on PATH, the exact built profiles exported as `AI_PROFILE` (the terminal pins
- * them: a later update or a change of the list never touches a running
- * terminal), and the plugin dir. The record carries the package and profiles
- * (`agents`, the tile pill); the spawn reads its env back off the record, so
- * the chip and the env are one value.
- */
-
 import type { DeliveredProfile } from "@kolu/agent-distro/landing";
 import type { TerminalAgents } from "@kolu/agent-distro/schema";
 import { agentDistroBake } from "./bake.ts";
 
-/** What a new terminal gets: the package (whose `bin/` goes on PATH), the
- *  built profiles (`AI_PROFILE`, in stack order), and the plugin dir
- *  (`AGENT_DISTRO_PLUGINS`). */
 export interface AgentLayer {
   readonly bundle: string;
   readonly profiles: readonly DeliveredProfile[];
   readonly plugins: string;
 }
 
-/** The one record field a layer stamps (`@kolu/agent-distro/schema`). */
 interface AgentLayerFields {
   agents?: TerminalAgents;
 }

@@ -1,24 +1,3 @@
-/**
- * WHAT A PADI BOOT SAYS ABOUT TERMINALS IT HAS NOT RESTORED YET (#2376).
- *
- * The `roster` cell is the fact every reader of an ABSENCE goes through
- * (`attention/fleetGate.ts`): while it is `settling` nothing may be concluded
- * from the terminals collection, and once it is `established` a missing id is a
- * terminal that is really gone. This file pins that promise on the one boot path
- * where it is easy to break — a padi that comes up with a SAVED SESSION and no
- * surviving PTYs (kolu-server redeployed, its kaval reaped with it).
- *
- * The saved terminals are not gone: they are parked, waiting for the restore
- * card. `parkSavedSession` seeds a parked registry entry per saved record, under
- * the SAME id, and the boot establishes the roster only after that — so a
- * supervisor watching one of those terminals reads `asleep` (padi still lists
- * it), never `gone`. Discarding the session ("start fresh") is what makes them
- * really gone, and that is a user's decision rather than a boot's silence.
- *
- * Real daemons, because the claim is about a BOOT: a fake would be asserting
- * against the sequence this file exists to check.
- */
-
 import { type ChildProcess, spawn } from "node:child_process";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { createRequire } from "node:module";
@@ -58,7 +37,6 @@ afterAll(() => {
   rmSync(RUNTIME_ROOT, { recursive: true, force: true });
 });
 
-/** A real daemon boots on the platform clock; these waits are deliberate. */
 const sleep = (ms: number): Promise<void> => {
   const { promise, resolve } = Promise.withResolvers<void>();
   setTimeout(resolve, ms);
@@ -100,22 +78,23 @@ function spawnPadi(stateRoot: string): Padi {
   return { child, exited: promise };
 }
 
-/** Reap padi AND the detached kaval it spawned — kolu-server's redeploy takes
- *  both, which is what leaves the fresh padi with no survivor to adopt. */
 async function reap(padi: Padi, stateRoot: string): Promise<void> {
   padi.child.kill("SIGTERM");
   await padi.exited;
+  const pidPath = join(dirname(padiKavalSocketPath(stateRoot)), "kaval.pid");
+  let stamped: string;
   try {
-    const pid = Number.parseInt(
-      readFileSync(
-        join(dirname(padiKavalSocketPath(stateRoot)), "kaval.pid"),
-        "utf8",
-      ).trim(),
-      10,
-    );
-    if (Number.isFinite(pid)) process.kill(pid, "SIGKILL");
-  } catch {
-    // Already gone — nothing to reap.
+    stamped = readFileSync(pidPath, "utf8");
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === "ENOENT") return;
+    throw err;
+  }
+  const pid = Number.parseInt(stamped.trim(), 10);
+  if (!Number.isFinite(pid)) return;
+  try {
+    process.kill(pid, "SIGKILL");
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== "ESRCH") throw err;
   }
 }
 
@@ -145,7 +124,6 @@ async function waitForPadi(socketPath: string, ms = 60_000): Promise<void> {
   throw new Error(`padi socket never came up: ${socketPath} (${String(last)})`);
 }
 
-/** One member's current value — every member read here is snapshot-first. */
 const head = <A>(stream: Stream.Stream<A, unknown>): Promise<A> =>
   Effect.runPromise(
     Effect.map(Stream.runHead(stream), (option) => {
@@ -170,11 +148,9 @@ describeDaemon(
         }) as Effect.Effect<{ id: string }, unknown>,
       )) as { id: string };
       const id = created.id;
-      // The autosave is debounced; the saved session is the whole premise here.
       await sleep(2_000);
       await conn.dispose();
 
-      // The redeploy: padi and its kaval both go. Nothing survives to adopt.
       await reap(first, stateRoot);
 
       const second = spawnPadi(stateRoot);
@@ -187,21 +163,13 @@ describeDaemon(
         const keys = (await head(
           conn.padi.surface.terminals.keys(undefined),
         )) as readonly string[];
-        // The boot has finished — and what it finished with is a roster that
-        // STILL HOLDS the saved terminal. An established-but-empty roster here
-        // would tell every supervisor that a work's terminals died in a redeploy.
         expect(standing.kind).toBe("established");
         expect(keys).toContain(id);
         const record = (await head(
           conn.padi.surface.terminals.get({ key: id }),
         )) as PadiTerminal;
-        // Parked: listed, with no PTY behind it — which every reader of a record
-        // already understands (the conductor reads it `asleep`, never `gone`).
         expect(record.state).toBe("parked");
 
-        // RESTORE consumes the park. Whatever it spawns, the thing this file is
-        // about must hold: the saved id never LEAVES the roster, so nothing
-        // watching it can read an absence across the redeploy.
         await Effect.runPromise(
           conn.padi.surface.session.restore({}) as Effect.Effect<
             unknown,
@@ -226,9 +194,6 @@ describeDaemon(
           `[boot-roster] after restore: keys=${afterRestore.join(",")} saved=${id} state=${live?.state ?? "absent"}`,
         );
         expect(afterRestore).toContain(id);
-        // Present throughout — parked, then whatever the restore makes of it.
-        // WHICH state it lands in is `sessionRestore`'s own pin; what matters
-        // here is that no frame of this sequence is an absence.
         expect(live).toBeDefined();
       } finally {
         await conn.dispose();
@@ -256,9 +221,6 @@ describeDaemon(
       await waitForPadi(socketPath);
       conn = await dial(socketPath);
       try {
-        // "Start fresh" — a person's decision, and the ONE thing that turns a
-        // parked terminal into an absence. The roster was a census all along, so
-        // the id leaving it now means exactly what it says.
         await Effect.runPromise(
           conn.padi.surface.session.forfeit({}) as Effect.Effect<
             unknown,
@@ -281,16 +243,6 @@ describeDaemon(
     }, 180_000);
 
     it("RESTORE brings the parked terminal back LIVE on its own id, after an unclean kaval death", async () => {
-      // The other half of the park: a parked row is only honest if restoring it
-      // produces a terminal. A restore re-spawns each saved record under ITS OWN
-      // id now (`restoreSpawn`), and the reap above is a SIGKILL — the daemon
-      // never runs its per-PTY cleanup, so its `rc/bashrc-<id>` wrapper file
-      // outlives it. kaval used to refuse to materialise over that leftover
-      // (`wx`), which a restore never met while it invented a fresh id and which,
-      // once the id is kept, failed every spawn with `EEXIST`: the record was
-      // re-parked, the card never resolved, and the terminal was unrecoverable
-      // for as long as the runtime dir lived. Red when reverted: the state below
-      // stays `parked`.
       const stateRoot = mkdtempSync(join(tmpdir(), PADI_DIAL_SR_PREFIX));
       const socketPath = padiSocketPath(stateRoot);
       const first = spawnPadi(stateRoot);
@@ -328,7 +280,6 @@ describeDaemon(
           if (live.state === "active") break;
           await sleep(500);
         }
-        // The SAME id, now live: identity survived, and so did the shell behind it.
         expect(live?.state).toBe("active");
       } finally {
         await conn.dispose();

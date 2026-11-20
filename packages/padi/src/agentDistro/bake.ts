@@ -1,33 +1,3 @@
-/**
- * The agent-distro BAKE: what a nix wrapper tells this padi about the coding
- * agents a terminal can be given. Three env vars, all written only by
- * `default.nix`, from `@kolu/agent-distro`'s Nix half (`packages/agent-distro/default.nix`):
- *
- *   - `KOLU_AGENT_DISTRO_STATE` (both arms) — where this host keeps what kolu
- *     delivered it (`@kolu/agent-distro/bake`): the package's state directory
- *     (its `current`, which padi points at each package kolu-server delivers,
- *     and `last-success`), upstream's history log, and kolu's record of the set
- *     that landed — the package and its built profiles.
- *   - `KOLU_AGENT_DISTRO_BUNDLE` (local arm only) — the FLOOR: agent-distro's
- *     package, in this kolu's own closure, described by its manifest
- *     (`@kolu/agent-distro/manifest`). A remote host has no floor; kolu-server
- *     delivers its agents.
- *   - `KOLU_AGENT_PLUGIN_DIR` (both arms) — the `kolu-agent-plugin` copy of
- *     kolu's agent plugin, handed to each harness as `AGENT_DISTRO_PLUGINS`.
- *
- * (The fourth, `KOLU_AGENT_DISTRO_DELIVERY`, is kolu-server's alone: padi never
- * fetches or builds anything.)
- *
- * Like `KOLU_AGENT_TOOLS_PATH` (kolu-pty's `readAgentToolsBake`), the bake is a
- * fact the daemon is TOLD, never one it derives: a from-source padi (`just dev`,
- * e2e) has none, and says so by reading `null` — explicit absence, never a
- * guessed path. A HALF bake (the host state without its plugin dir, or a file
- * that does not parse) is a broken build and throws at boot.
- *
- * All three are `KOLU_*`, so kolu-pty's `cleanEnv` strips them from every
- * terminal: a kolu started inside a kolu terminal can never inherit them.
- */
-
 import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -77,36 +47,44 @@ export interface AgentDistroBake {
   readonly landedFile: string;
   /** Where kolu-server roots what it delivered on this host
    *  (`@kolu/agent-distro/gcRoots`, under the login's home) — the directory a
-   *  landing prunes. Read once here, never reached for at call time, so
-   *  whatever builds a bake owns it. */
+   *  landing prunes. */
   readonly gcRootsDir: string;
+}
+
+/** The bake names that must appear together. All absent: this padi was built
+ *  from source and has no agents. Some present: a half-baked wrapper, which
+ *  cannot be read into an {@link AgentDistroBake} at all. */
+function parseBakedEnv(
+  env: Record<string, string | undefined>,
+): { readonly statePath: string; readonly plugins: string } | null {
+  const statePath = env[AGENT_DISTRO_STATE_ENV] ?? "";
+  if (statePath === "") return null;
+  const plugins = env[AGENT_PLUGIN_DIR_ENV] ?? "";
+  if (plugins === "") {
+    throw new Error(
+      `${AGENT_DISTRO_STATE_ENV} is baked but ${AGENT_PLUGIN_DIR_ENV} is not — a half-baked agent-distro wrapper; rebuild kolu`,
+    );
+  }
+  return { statePath, plugins };
 }
 
 /** Read the bake off `env` (injectable for tests). `null` when unbaked. Every
  *  path is made concrete for `stateHome` (and the GC roots for the login's
- *  `home`) HERE, once: it is then a field, not a
- *  re-substitution at every spawn. */
+ *  `home`) HERE, once: it is then a field, not a re-substitution at every
+ *  spawn. */
 export function readAgentDistroBake(
   env: Record<string, string | undefined> = process.env,
   readText: (path: string) => string = (path) => readFileSync(path, "utf8"),
   stateHome: string = hostStateHome(),
   home: string = homedir(),
 ): AgentDistroBake | null {
-  const statePath = env[AGENT_DISTRO_STATE_ENV];
-  if (statePath === undefined || statePath === "") return null;
-  const plugins = env[AGENT_PLUGIN_DIR_ENV];
-  if (plugins === undefined || plugins === "") {
-    throw new Error(
-      `${AGENT_DISTRO_STATE_ENV} is baked but ${AGENT_PLUGIN_DIR_ENV} is not — a half-baked agent-distro wrapper; rebuild kolu`,
-    );
-  }
+  const baked = parseBakedEnv(env);
+  if (baked === null) return null;
+  const { statePath, plugins } = baked;
   const state = parseAgentDistroHostState(readText(statePath));
   const place = (path: string) =>
-    // Throws if the path is not under the placeholder — a file not built by
-    // the Nix half would point every host at the build machine's home.
     concreteStatePath(path, state.stateHomePlaceholder, stateHome);
   const floorDir = env[AGENT_DISTRO_BUNDLE_ENV];
-  // A baked floor without a readable, valid manifest is a broken build: throw.
   const floor =
     floorDir === undefined || floorDir === ""
       ? undefined
@@ -120,8 +98,6 @@ export function readAgentDistroBake(
     gcRootsDir: join(home, GC_ROOTS_DIR),
   };
 }
-
-// ── This process's bake ───────────────────────────────────────────────
 
 let bakeMemo: { value: AgentDistroBake | null } | undefined;
 

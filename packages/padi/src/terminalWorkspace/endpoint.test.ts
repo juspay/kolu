@@ -40,7 +40,6 @@ describe("createTerminalWorkspaceEndpoint", () => {
     const { paths: ignored } = await f.listIgnored(repo);
     expect(paths).toContain("a.txt");
     expect(paths).not.toContain("secret.log");
-    // Collapsed: the fully-ignored directory is one trailing-slash entry.
     expect(ignored).toContain("secret.log");
     expect(ignored).toContain("dist/");
     expect(ignored).not.toContain("dist/out.js");
@@ -58,7 +57,6 @@ describe("createTerminalWorkspaceEndpoint", () => {
     const { fs: f } = createTerminalWorkspaceEndpoint(log);
     const tag = await f.filePreviewTag(repo, "a.txt");
     expect(tag).toMatch(/^[0-9a-f]{40}$/);
-    // Touching the mtime without changing bytes leaves the tag stable.
     fs.utimesSync(
       path.join(repo, "a.txt"),
       new Date("2031-01-01T00:00:00Z"),
@@ -80,19 +78,6 @@ describe("createTerminalWorkspaceEndpoint", () => {
     expect(out.hunks.join("")).toContain("two");
   });
 
-  /** Delete-while-viewing must reach the wire as a TYPED `NOT_FOUND`, because
-   *  that is the one status `BrowseFileDispatcher` swallows (matching the old
-   *  value stream, which simply stopped yielding). Anything else is a visible
-   *  error over a file the user merely deleted.
-   *
-   *  These pin the whole chain — `kolu-git` err → `unwrapGit` → the DECLARED
-   *  `FileGone` — rather than any single link, because the regression they exist
-   *  for lived precisely in the seam: `filePreviewTag` used to return
-   *  `GIT_FAILED` for a gone file and rely on the errno text surviving into the
-   *  thrown error's message. Once `isFileGoneError` was narrowed to treat a
-   *  present `code` as authoritative, the wrapper's own generic failure answered
-   *  first and the preserved message was never read. A unit test of the
-   *  predicate alone cannot see that; only the assembled chain can. */
   describe("a gone file surfaces as the declared FileGone, through every read", () => {
     const tagOf = async (fn: () => Promise<unknown>): Promise<string> => {
       try {
@@ -140,10 +125,6 @@ describe("createTerminalWorkspaceEndpoint", () => {
     const { git } = createTerminalWorkspaceEndpoint(log);
     const notRepo = fs.mkdtempSync(path.join(os.tmpdir(), "kolu-tw-notrepo-"));
     try {
-      // The lifted `unwrapGit` must surface the git error, not swallow it into
-      // an empty `{ files: [] }` — the no-fallbacks contract that moved with it.
-      // It stays DECLARED (rather than becoming a defect) because the message is
-      // what the user reads in the toast.
       await expect(git.getStatus(notRepo, "local")).rejects.toBeInstanceOf(
         GitFailed,
       );
@@ -152,10 +133,6 @@ describe("createTerminalWorkspaceEndpoint", () => {
     }
   });
 
-  /** The handler-versus-declaration check `servePadi`'s `handle` cast skips:
-   *  what these two reads RAISE for a Branch comparison with no fetched base
-   *  must be what their members DECLARE, or the response encode fails and the
-   *  Branch view shows "Failed to encode response" instead of the fix. */
   describe("an unfetched base branch surfaces as the declared WorktreeBaseBranchMissing", () => {
     beforeEach(() => {
       execFileSync(

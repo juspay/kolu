@@ -1,16 +1,3 @@
-import { agentPresence } from "kolu-agents/vocab";
-import { describe, expect, it } from "vitest";
-import {
-  type AgentIdentityRef,
-  agentIdentityChanged,
-  type FoldCtx,
-  fold,
-  foldSnapshot,
-  RECENCY_THROTTLE_MS,
-  restoreTargetFor,
-  seedRecencyBaseline,
-  stepRecencyBaseline,
-} from "./fold.ts";
 import {
   type AgentInfo,
   type AgentObservation,
@@ -20,6 +7,19 @@ import {
   type TerminalEvent,
   type TerminalState,
 } from "@kolu/terminal-vocab/schema";
+import { agentPresence } from "kolu-agents/vocab";
+import { describe, expect, it } from "vitest";
+import {
+  type AgentIdentityRef,
+  agentIdentityChanged,
+  type FoldCtx,
+  fold,
+  foldSnapshot,
+  RECENCY_WRITE_WINDOW_MS,
+  restoreTargetFor,
+  seedRecencyBaseline,
+  stepRecencyBaseline,
+} from "./fold.ts";
 
 const gitInfo = (branch: string) =>
   ({
@@ -56,21 +56,17 @@ const seed = (): TerminalState => ({
   restoreTarget: { kind: "none" },
 });
 
-/** One agent observation — info + its allowlisted argv. */
 const observed = (
   info: AgentInfo,
   argv: readonly string[] = [],
 ): AgentObservation => ({ info, argv });
 
-// `runStartedAt` defaults: a DELTA models steady-state activity long after the run
-// started (0 → the throttle anchors on the prior stamp); a SNAPSHOT models the adopt
-// re-observation at run start (`at` → the settle coalesces against it).
-const delta = (at: number, runStartedAt = 0): FoldCtx => ({
+const steadyState = (at: number, runStartedAt = 0): FoldCtx => ({
   live: true,
   at,
   runStartedAt,
 });
-const snapshot = (at: number, runStartedAt = at): FoldCtx => ({
+const atRunStart = (at: number, runStartedAt = at): FoldCtx => ({
   live: false,
   at,
   runStartedAt,
@@ -101,7 +97,7 @@ describe("foldSnapshot — last-write-wins over the six snapshot fields", () => 
   it("KEEPS the prior agent on `unknown` (same reference — no clobber)", () => {
     const o = { ...seedSnapshot("/a"), agent: claude("A", "thinking") };
     const next = foldSnapshot(o, { kind: "agent", agent: "unknown" });
-    expect(next).toBe(o); // identical reference → kolu detects "nothing changed"
+    expect(next).toBe(o);
   });
 
   it("APPLIES an authoritative `{ value }` agent, including a null (session ended)", () => {
@@ -131,21 +127,23 @@ describe("agentIdentityChanged — identity-only (kind + sessionId)", () => {
 
 describe("fold — recency bumps only on a LIVE agent-identity change", () => {
   it("bumps on a genuinely-new agent in a DELTA frame", () => {
-    const next = fold(seed(), agentObs(claude("A", "thinking")), delta(1000));
+    const next = fold(
+      seed(),
+      agentObs(claude("A", "thinking")),
+      steadyState(1000),
+    );
     expect(next.snapshot.agent?.sessionId).toBe("A");
     expect(next.memory.lastActivityAt).toBe(1000);
   });
 
   it("does NOT bump the same null→detected re-observation in a SNAPSHOT frame", () => {
-    // The adopt / reconnect case: kolu re-observes a survivor; the frame phase —
-    // not a saved-recency heuristic — says this is not new activity.
     const next = fold(
       seed(),
       agentObs(claude("A", "thinking")),
-      snapshot(1000),
+      atRunStart(1000),
     );
     expect(next.snapshot.agent?.sessionId).toBe("A");
-    expect(next.memory.lastActivityAt).toBe(null); // untouched — seed()'s honest never-active
+    expect(next.memory.lastActivityAt).toBe(null);
   });
 
   it("does NOT bump on a same-identity state tick (firehose) — keeps prior recency", () => {
@@ -154,9 +152,9 @@ describe("fold — recency bumps only on a LIVE agent-identity change", () => {
       memory: { lastActivityAt: 500, promptedAt: null },
       restoreTarget: { kind: "none" },
     };
-    const next = fold(cur, agentObs(claude("A", "waiting")), delta(9999));
+    const next = fold(cur, agentObs(claude("A", "waiting")), steadyState(9999));
     expect(next.snapshot.agent?.state).toBe("waiting");
-    expect(next.memory.lastActivityAt).toBe(500); // unchanged
+    expect(next.memory.lastActivityAt).toBe(500);
   });
 
   it("bumps when a finished agent is followed by a genuinely-new one (the old-caveat bug)", () => {
@@ -165,10 +163,10 @@ describe("fold — recency bumps only on a LIVE agent-identity change", () => {
       memory: { lastActivityAt: 500, promptedAt: null },
       restoreTarget: { kind: "none" },
     };
-    cur = fold(cur, agentObs(null), delta(600)); // A finishes
+    cur = fold(cur, agentObs(null), steadyState(600));
     expect(cur.memory.lastActivityAt).toBe(600);
-    cur = fold(cur, agentObs(claude("B", "thinking")), delta(700)); // B starts
-    expect(cur.memory.lastActivityAt).toBe(700); // NOT suppressed
+    cur = fold(cur, agentObs(claude("B", "thinking")), steadyState(700));
+    expect(cur.memory.lastActivityAt).toBe(700);
   });
 
   it("KEEPS kolu's value (and recency) on an `unknown` agent — mid-resolution never clobbers", () => {
@@ -177,8 +175,12 @@ describe("fold — recency bumps only on a LIVE agent-identity change", () => {
       memory: { lastActivityAt: 500, promptedAt: null },
       restoreTarget: { kind: "none" },
     };
-    const next = fold(cur, { kind: "agent", agent: "unknown" }, delta(9999));
-    expect(next).toBe(cur); // no-op
+    const next = fold(
+      cur,
+      { kind: "agent", agent: "unknown" },
+      steadyState(9999),
+    );
+    expect(next).toBe(cur);
   });
 });
 
@@ -190,46 +192,44 @@ describe("fold — a stable session's OUTPUT advances recency, THROTTLED (the fr
   });
 
   it("bumps on a same-identity output tick once the throttle window has elapsed", () => {
-    // The diagnosed freeze: a week-old stable session actively producing output
-    // whose recency never moved because only an IDENTITY change bumped. A live
-    // detail tick past the window now stamps.
     const next = fold(
       busy(500),
       agentObs(claude("A", "tool_use")),
-      delta(500 + RECENCY_THROTTLE_MS),
+      steadyState(500 + RECENCY_WRITE_WINDOW_MS),
     );
     expect(next.snapshot.agent?.state).toBe("tool_use");
-    expect(next.memory.lastActivityAt).toBe(500 + RECENCY_THROTTLE_MS);
+    expect(next.memory.lastActivityAt).toBe(500 + RECENCY_WRITE_WINDOW_MS);
   });
 
   it("COALESCES output ticks inside the window to a single write (throttle pin)", () => {
     let cur = busy(500);
-    // Two ticks well within the window: recency holds — no per-tick write noise.
-    cur = fold(cur, agentObs(claude("A", "tool_use")), delta(500 + 10_000));
-    expect(cur.memory.lastActivityAt).toBe(500);
-    cur = fold(cur, agentObs(claude("A", "thinking")), delta(500 + 20_000));
-    expect(cur.memory.lastActivityAt).toBe(500);
-    // The first tick PAST the window writes once; the clock resets to it.
     cur = fold(
       cur,
       agentObs(claude("A", "tool_use")),
-      delta(500 + RECENCY_THROTTLE_MS),
+      steadyState(500 + 10_000),
     );
-    expect(cur.memory.lastActivityAt).toBe(500 + RECENCY_THROTTLE_MS);
+    expect(cur.memory.lastActivityAt).toBe(500);
+    cur = fold(
+      cur,
+      agentObs(claude("A", "thinking")),
+      steadyState(500 + 20_000),
+    );
+    expect(cur.memory.lastActivityAt).toBe(500);
+    cur = fold(
+      cur,
+      agentObs(claude("A", "tool_use")),
+      steadyState(500 + RECENCY_WRITE_WINDOW_MS),
+    );
+    expect(cur.memory.lastActivityAt).toBe(500 + RECENCY_WRITE_WINDOW_MS);
   });
 
   it("does NOT identity-bump a `!live` re-observation, and its throttle coalesces at run start", () => {
-    // The adopt re-observation at the fold level: `cur.snapshot.agent` was seeded null
-    // and the survivor A is re-observed with `live:false`. The identity arm needs
-    // `ctx.live`, so it doesn't fire; the throttle arm's clock is floored at
-    // `runStartedAt` (= now), so the re-observation coalesces rather than false-bumping
-    // the (here week-past) saved recency.
     const adoptedIdle: TerminalState = {
       snapshot: { ...seedSnapshot("/a"), agent: null },
       memory: { lastActivityAt: 500, promptedAt: null },
       restoreTarget: { kind: "none" },
     };
-    const now = 500 + 10 * RECENCY_THROTTLE_MS;
+    const now = 500 + 10 * RECENCY_WRITE_WINDOW_MS;
     const next = fold(adoptedIdle, agentObs(claude("A", "waiting")), {
       live: false,
       at: now,
@@ -240,9 +240,11 @@ describe("fold — a stable session's OUTPUT advances recency, THROTTLED (the fr
   });
 
   it("an IDENTITY change still bumps INSIDE the window (unthrottled — #1626 composes)", () => {
-    // The throttle governs only same-identity output; a session start/finish is a
-    // discrete event that stamps immediately regardless of the window.
-    const next = fold(busy(500), agentObs(claude("B", "thinking")), delta(600));
+    const next = fold(
+      busy(500),
+      agentObs(claude("B", "thinking")),
+      steadyState(600),
+    );
     expect(next.memory.lastActivityAt).toBe(600);
   });
 });
@@ -253,12 +255,6 @@ const EXACT_TARGET: RestoreTarget = {
   argv: ["--model", "sonnet"],
 };
 
-/** Simulate the producer's recency path (padi's `emit`): seed the identity BASELINE
- *  from the restore target, then per agent observation call the SAME
- *  `stepRecencyBaseline` the producer uses to derive `ctx.live` and advance the
- *  baseline, and fold — with a fixed `runStartedAt` for the run. Drives the real
- *  step (not a mirror of it), so the adopt-vs-fresh recency pins bind at the pure
- *  layer and can't drift from the wire. */
 function driveRecency(
   restoreTarget: RestoreTarget | undefined,
   from: TerminalState,
@@ -277,8 +273,6 @@ function driveRecency(
 }
 
 describe("recency baseline — adopt survives its multi-emit settle, then output flows", () => {
-  // An adopted terminal seeds `agent: null` (a live-only field the producer
-  // re-derives) and carries the SAVED recency on its memory.
   const adopted = (savedAt: number): TerminalState => ({
     snapshot: { ...seedSnapshot("/a"), agent: null },
     memory: { lastActivityAt: savedAt, promptedAt: null },
@@ -293,34 +287,28 @@ describe("recency baseline — adopt survives its multi-emit settle, then output
   });
 
   it("adopt idle, MULTI-emit settle: the whole survivor burst holds saved recency", () => {
-    // The producer re-resolves the survivor across SEVERAL same-identity emits (the
-    // summary/token detail settles asynchronously), not one. Every emit matches the
-    // seeded baseline → not live → and each coalesces against `runStartedAt`, so the
-    // week-old saved recency survives the whole burst. (A one-shot gate that held only
-    // the FIRST emit would let the second false-bump to now — the regression this pins.)
     const out = driveRecency(EXACT_TARGET, adopted(1000), 999_999, [
-      { agent: claude("A", "waiting"), at: 999_999 }, // re-observation (summary null)
-      { agent: claude("A", "waiting"), at: 999_999 + 50 }, // summary settle, same identity
-      { agent: claude("A", "waiting"), at: 999_999 + 120 }, // token settle, same identity
+      { agent: claude("A", "waiting"), at: 999_999 },
+      { agent: claude("A", "waiting"), at: 999_999 + 50 },
+      { agent: claude("A", "waiting"), at: 999_999 + 120 },
     ]);
     expect(out.memory.lastActivityAt).toBe(1000);
   });
 
   it("adopt then output: the settle holds, a later live tick past the window advances", () => {
     const advanced = driveRecency(EXACT_TARGET, adopted(1000), 999_999, [
-      { agent: claude("A", "thinking"), at: 999_999 }, // survivor re-observation
-      { agent: claude("A", "tool_use"), at: 999_999 + RECENCY_THROTTLE_MS + 5 }, // real output
+      { agent: claude("A", "thinking"), at: 999_999 },
+      {
+        agent: claude("A", "tool_use"),
+        at: 999_999 + RECENCY_WRITE_WINDOW_MS + 5,
+      },
     ]);
     expect(advanced.memory.lastActivityAt).toBe(
-      999_999 + RECENCY_THROTTLE_MS + 5,
+      999_999 + RECENCY_WRITE_WINDOW_MS + 5,
     );
   });
 
   it("adopt, survivor gone during downtime, then a NEW agent launches → its start bumps", () => {
-    // The survivor's session ended silently during the restart, so there is no
-    // re-observation of it — the first observation is a genuinely-new agent B. Because
-    // the baseline is the survivor's IDENTITY (not a one-shot count), B differs from it
-    // → live → B's launch stamps recency. (A one-shot gate would swallow it — pinned.)
     const out = driveRecency(EXACT_TARGET, adopted(1000), 999_999, [
       { agent: claude("B", "thinking"), at: 1_000_050 },
     ]);
@@ -343,7 +331,6 @@ describe("promptedAt — the current agent's first live turn", () => {
       { agent: claude("A", "waiting"), at: 1000 },
       { agent: claude("A", "waiting"), at: 2000 },
     ]);
-    // Recency stamps on detection; the first-prompt fact must not.
     expect(out.memory.lastActivityAt).toBe(1000);
     expect(out.memory.promptedAt).toBeNull();
   });
@@ -390,9 +377,6 @@ describe("promptedAt — the current agent's first live turn", () => {
   });
 
   it("survives an adopt: the survivor's re-observation keeps the saved stamp", () => {
-    // The adopted snapshot carries no agent, so the survivor's first observation
-    // IS an identity change against it — but the baseline says not live, so the
-    // saved stamp must stand rather than reset.
     const adoptedPrompted: TerminalState = {
       snapshot: { ...seedSnapshot("/a"), agent: null },
       memory: { lastActivityAt: 1000, promptedAt: 900 },
@@ -424,7 +408,7 @@ describe("fold — the observation's argv reaches the restore target", () => {
     const next = fold(
       seed(),
       agentObs(claude("A", "thinking"), ["--model", "sonnet"]),
-      delta(1),
+      steadyState(1),
     );
     expect(next.restoreTarget).toEqual({
       kind: "exact",
@@ -434,14 +418,15 @@ describe("fold — the observation's argv reaches the restore target", () => {
   });
 
   it("REPLACES an empty argv on a same-identity tick (the flags-return case)", () => {
-    // The producer's first sample may not have read the process yet; a later
-    // same-identity sample that does must reach the target. The observation is
-    // one value, so the dedup cannot swallow it.
-    const first = fold(seed(), agentObs(claude("A", "thinking"), []), delta(1));
+    const first = fold(
+      seed(),
+      agentObs(claude("A", "thinking"), []),
+      steadyState(1),
+    );
     const second = fold(
       first,
       agentObs(claude("A", "waiting"), ["--model", "sonnet"]),
-      delta(2),
+      steadyState(2),
     );
     expect(second.restoreTarget).toMatchObject({
       kind: "exact",
@@ -453,9 +438,9 @@ describe("fold — the observation's argv reaches the restore target", () => {
     const live = fold(
       seed(),
       agentObs(claude("A", "thinking"), ["--model", "sonnet"]),
-      delta(1),
+      steadyState(1),
     );
-    const after = fold(live, agentObs(null), delta(2));
+    const after = fold(live, agentObs(null), steadyState(2));
     expect(after.restoreTarget).toEqual({ kind: "none" });
   });
 
@@ -463,9 +448,13 @@ describe("fold — the observation's argv reaches the restore target", () => {
     const live = fold(
       seed(),
       agentObs(claude("A", "thinking"), ["--model", "sonnet"]),
-      delta(1),
+      steadyState(1),
     );
-    const after = fold(live, { kind: "agent", agent: "unknown" }, delta(2));
+    const after = fold(
+      live,
+      { kind: "agent", agent: "unknown" },
+      steadyState(2),
+    );
     expect(after).toBe(live);
   });
 });
@@ -520,7 +509,6 @@ describe("restoreTargetFor — the fold owns the discriminated resume target", (
 });
 
 describe("W12 — the two absences persist the resume target differently (twin pins)", () => {
-  // A live claude with its sampled flags → an `exact` resume target on disk.
   const exact: RestoreTarget = {
     kind: "exact",
     agent: { kind: "claude-code", sessionId: "A", resumeRef: "A" },
@@ -533,40 +521,24 @@ describe("W12 — the two absences persist the resume target differently (twin p
   };
 
   it("PIN #1 — an UNOBSERVABLE terminal (sensor emits `unknown`) KEEPS the exact target", () => {
-    // The 2026-07-12 incident shape: kaval is SIGKILLed, so the agent's foreground pid is
-    // still DEFINED but its session file is gone — the resolved-null branch's SAMPLE-
-    // CONTENT discriminant (defined non-shell foreground) resolves to `unknown`, not
-    // `{value:null}`. This fold-only pin feeds that `unknown` DIRECTLY (the producer's own
-    // decision is pinned separately in `sensors.observability.test.ts`); the fold keeps
-    // the last agent, so the stored target STILL stands — the resume identity and its
-    // flags survive the unclean death on disk by construction. Before the fix the sensor
-    // emitted `{value:null}` here and this flipped to `none` (bare shells on restore).
     expect(liveExact.restoreTarget).toEqual(exact);
     const after = fold(
       liveExact,
       { kind: "agent", agent: "unknown" },
-      delta(2),
+      steadyState(2),
     );
     expect(after.restoreTarget).toEqual(exact);
   });
 
   it("PIN #2 — a GENUINE end (sensor emits `{value:null}`) CLEARS the target to `none`", () => {
-    // The inverse bug the fix must NOT introduce: an agent that genuinely quits back to
-    // the shell (a SHELL-IDLE foreground → the agent really ended) still emits authoritative
-    // null, so the stored target clears — a later restore wakes a bare shell instead of
-    // resurrecting a dead agent. This pin feeds that `{value:null}` directly.
     expect(liveExact.restoreTarget).toEqual(exact);
-    const after = fold(liveExact, agentObs(null), delta(2));
+    const after = fold(liveExact, agentObs(null), steadyState(2));
     expect(after.restoreTarget).toEqual({ kind: "none" });
   });
 });
 
 describe("foldSnapshot — reference stability the autosave fence rides (#6 pin)", () => {
   it("PRESERVES the git/pr object reference when an UNRELATED field changes", () => {
-    // `restoreRelevantEqual` (the disk fence in server/local.ts) compares git/pr by
-    // reference, relying on a non-git/pr fold spreading the SAME object through. Pin
-    // that so a future fold change (a copy / structuredClone) that breaks ref
-    // stability is caught here, not as a silent spurious-autosave regression.
     const git = gitInfo("main");
     const pr = { kind: "ok" as const, value: { number: 1 } } as never;
     const base = { ...seedSnapshot("/a"), git, pr };
@@ -574,7 +546,7 @@ describe("foldSnapshot — reference stability the autosave fence rides (#6 pin)
       kind: "foreground",
       foreground: { name: "vim", title: null, shell: false },
     });
-    expect(afterForeground.git).toBe(git); // SAME reference — fence stays equal
+    expect(afterForeground.git).toBe(git);
     expect(afterForeground.pr).toBe(pr);
     const afterCwd = foldSnapshot(base, { kind: "cwd", cwd: "/b" });
     expect(afterCwd.git).toBe(git);

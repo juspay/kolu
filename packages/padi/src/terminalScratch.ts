@@ -1,12 +1,3 @@
-/**
- * Per-terminal on-disk scratch storage for content uploaded from the
- * browser — clipboard image pastes and drag-and-drop file drops both
- * land here via `saveTerminalFile`. The `router.ts` handlers call it
- * and then bracketed-paste the returned path into the PTY so agents
- * that accept paste-as-file-path (codex, Claude Code) can read the
- * file. `cleanupTerminalScratch` wipes the dir on terminal exit.
- */
-
 import {
   appendFileSync,
   existsSync,
@@ -20,6 +11,12 @@ import { rm } from "node:fs/promises";
 import { basename, join, parse, sep } from "node:path";
 import { koluScratchDir } from "./koluRoot.ts";
 
+const OWNER_ONLY_DIR_MODE = 0o700;
+const OWNER_ONLY_FILE_MODE = 0o600;
+
+const SAFE_NAME_CHARS = /[^\p{L}\p{N}\p{M}._-]/gu;
+const HIDDEN_PREFIX = /^\.+/;
+
 function dirFor(terminalId: string): string {
   return join(koluScratchDir(), terminalId);
 }
@@ -30,25 +27,13 @@ function dirFor(terminalId: string): string {
  *  receiving agent still sees a meaningful suffix. Always returns a
  *  non-empty string. */
 export function sanitizeUploadName(rawName: string): string {
-  const base = basename(rawName);
-  // Unicode-aware allowlist: keep letters/numbers/combining-marks of any
-  // script (so `berichte_märz.pdf`, `文件.txt`, NFD-decomposed names survive)
-  // plus `._-`, and collapse everything else to `_`. This still strips the
-  // dangerous set — path separators (`/`, `\`), control chars, and shell
-  // metacharacters — that could escape the per-terminal dir or break the
-  // tools consuming the pasted path; only the old ASCII-only mangling of
-  // legitimate unicode letters is lifted. `normalize("NFC")` composes
-  // decomposed input first so a base letter + combining accent isn't split.
-  const sanitized = base
+  const visible = basename(rawName)
     .normalize("NFC")
-    .replace(/[^\p{L}\p{N}\p{M}._-]/gu, "_");
-  // Strip leading dots so the result is never a hidden file or `..`.
-  const trimmed = sanitized.replace(/^\.+/, "");
-  return trimmed.length > 0 ? trimmed : "upload";
+    .replace(SAFE_NAME_CHARS, "_")
+    .replace(HIDDEN_PREFIX, "");
+  return visible.length > 0 ? visible : "upload";
 }
 
-/** Pick a path that doesn't collide with an existing file in the same
- *  terminal directory. Appends `-1`, `-2`, … before the extension. */
 function uniquePath(dir: string, name: string): string {
   const { name: stem, ext } = parse(name);
   let candidate = join(dir, name);
@@ -63,25 +48,20 @@ function uniquePath(dir: string, name: string): string {
 /** THE canonical spelling of a scratch path — every path this module HANDS OUT
  *  goes through here, so one file has exactly one name.
  *
- *  A chunked upload's create call and its append calls must answer with the
- *  same string, or the client's `appendTo` continuation compares unequal to the
- *  path it was given and the "stable path" contract is a lie. They used to
- *  disagree: create returned `join(dir, name)` verbatim while append returned
- *  the realpath-resolved form, which is identical on a machine whose temp root
- *  has no symlinked ancestor and DIFFERENT on one that does. macOS is the
- *  latter — `/tmp` is a symlink to `/private/tmp` — so darwin CI failed with
- *  `expected '/private/tmp/…/n.md' to be '/tmp/…/n.md'` while linux stayed
- *  green. That is a real bug and not a test artifact: on darwin the second
- *  chunk's answer renamed the file mid-upload.
- *
- *  Resolving is the right half of "realpath both or neither": it makes the
- *  answer independent of WHICH alias the caller used to reach the file, so two
- *  spellings of the same file collapse to one. The containment fence in
- *  `appendTerminalFile` keeps comparing realpaths on both sides regardless —
- *  canonicalizing the RETURN value must never be mistaken for the fence, and
- *  cannot weaken it. */
+ *  macOS reaches its temp root through a symlink (`/tmp` → `/private/tmp`), so
+ *  an unresolved and a realpath-resolved spelling of the same file differ
+ *  there; resolving makes the answer independent of which alias was used. */
 function canonicalScratchPath(path: string): string {
   return realpathSync(path);
+}
+
+function assertInsideScratchDir(dirPath: string, candidate: string): string {
+  const dir = canonicalScratchPath(dirPath);
+  const real = canonicalScratchPath(candidate);
+  if (!real.startsWith(dir + sep)) {
+    throw new Error("scratch append target is outside the terminal's dir");
+  }
+  return real;
 }
 
 /** Save base64-encoded data into the terminal's scratch directory,
@@ -89,27 +69,18 @@ function canonicalScratchPath(path: string): string {
  *  caller can bracketed-paste it into the PTY — and hand back as `appendTo`.
  *
  *  `name` is sanitized; a collision suffix (`-1`, `-2`, …) protects
- *  any prior file in the dir from being clobbered. Two pastes in
- *  flight — image then drop, drop then drop, or two pastes before the
- *  agent has consumed the first — each get their own path so the
- *  bracketed-paste references survive a late read. */
+ *  any prior file in the dir from being clobbered. */
 export function saveTerminalFile(
   terminalId: string,
   name: string,
   base64Data: string,
 ): string {
   const dir = dirFor(terminalId);
-  // OWNER-ONLY perms on both the dir (0700) and the file (0600). The scratch
-  // holds content pasted/dropped from the browser (clipboard images, dropped
-  // files) — potentially sensitive — and the receiving agent runs as THIS user,
-  // so owner-only is byte-identical for the legitimate read while closing the
-  // world-readable-temp-file exposure (CodeQL js/insecure-temporary-file):
-  // koluScratchDir normally sits under the per-user XDG_RUNTIME_DIR, but an
-  // explicit mode is correct even if that ever falls back to a shared temp root.
-  mkdirSync(dir, { recursive: true, mode: 0o700 });
+  mkdirSync(dir, { recursive: true, mode: OWNER_ONLY_DIR_MODE });
   const path = uniquePath(dir, sanitizeUploadName(name));
-  writeFileSync(path, Buffer.from(base64Data, "base64"), { mode: 0o600 });
-  // Canonicalize AFTER the write — realpath needs the file to exist.
+  writeFileSync(path, Buffer.from(base64Data, "base64"), {
+    mode: OWNER_ONLY_FILE_MODE,
+  });
   return canonicalScratchPath(path);
 }
 
@@ -120,40 +91,20 @@ export function saveTerminalFile(
  *
  *  `path` arrives from the client (it is the path a previous `write` returned),
  *  so it is validated, not trusted: it must resolve INSIDE this terminal's own
- *  scratch dir and must already exist. That containment check is what stops a
- *  crafted `appendTo` from turning an upload into an arbitrary-file append —
- *  `..`, an absolute path elsewhere, and another terminal's dir are all
- *  refused. `realpathSync` resolves symlinks BEFORE the comparison, so a
- *  symlink planted inside the scratch dir cannot point the append out of it.
- *
- *  The returned path is the SAME canonical spelling `saveTerminalFile` answered
- *  with (see `canonicalScratchPath`), so a chunked upload's path never changes
- *  under it — including on a host whose temp root reaches the scratch dir
- *  through a symlink, which is every macOS.
- *
+ *  scratch dir and must already exist.
  *  Throws on any violation; the caller turns that into a typed refusal. */
 export function appendTerminalFile(
   terminalId: string,
   path: string,
   base64Data: string,
 ): { path: string; totalBytes: number } {
-  // BOTH sides of the fence are realpaths. Canonicalizing the returned value
-  // does not do this job and must not be confused with it: the comparison below
-  // is what makes the fence undodgeable via a symlink.
-  const dir = realpathSync(dirFor(terminalId));
-  // It must already exist — an append is only ever a CONTINUATION, never the
-  // thing that creates the file, so a missing target is a protocol violation
-  // rather than a first chunk. Checked before `realpathSync`, which throws a
-  // bare ENOENT that would read as a crash rather than a refusal.
   if (!existsSync(path)) {
     throw new Error("scratch append target does not exist");
   }
-  const real = canonicalScratchPath(path);
-  // `sep`-terminated prefix: `/scratch/t1` must not match `/scratch/t10`.
-  if (!real.startsWith(dir + sep)) {
-    throw new Error("scratch append target is outside the terminal's dir");
-  }
-  appendFileSync(real, Buffer.from(base64Data, "base64"), { mode: 0o600 });
+  const real = assertInsideScratchDir(dirFor(terminalId), path);
+  appendFileSync(real, Buffer.from(base64Data, "base64"), {
+    mode: OWNER_ONLY_FILE_MODE,
+  });
   return { path: real, totalBytes: statSync(real).size };
 }
 
@@ -164,11 +115,7 @@ export function cleanupTerminalScratch(terminalId: string): void {
 }
 
 /** Remove a terminal's scratch directory WITHOUT blocking the event loop — the
- *  async twin of {@link cleanupTerminalScratch}, for the one caller that reaps
- *  MANY dirs at once (`killAllTerminals` at shutdown, where N sequential
- *  recursive `rmSync`s stall the daemon just as it owes its clients an answer).
- *  The sync spelling stays for the single-terminal callers, where the walk is one
- *  small dir and the surrounding code is synchronous. Safe to call when the dir
+ *  async twin of {@link cleanupTerminalScratch}. Safe to call when the dir
  *  was never created. */
 export async function removeTerminalScratch(terminalId: string): Promise<void> {
   await rm(dirFor(terminalId), { recursive: true, force: true });

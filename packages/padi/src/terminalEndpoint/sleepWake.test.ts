@@ -1,39 +1,10 @@
-/**
- * Sleep / wake state-machine tests — the pty-host-free transitions, under the
- * awareness-derive-store cutover (the OBSERVATION and the AUTHORED record on one
- * registry entry).
- *
- * These pin the invariants the discarded first cut (PR #1466) violated, now
- * across the two halves:
- *   - sleep flips the SAME registry entry to the AUTHORED sleeping arm in place;
- *     the resume input rides `entry.meta` (the authored record) — the fold-derived
- *     `restoreTarget` (BUG-B stripped the agent so wake resumed nothing). The
- *     OBSERVATION (`cwd`/`git`/`pr`) rides `entry.snapshot`, carried
- *     over unchanged so the dormant tile recomposes cwd/branch/pr off it. `pr` is
- *     restore-relevant now and rides the snapshot, so the frozen-`pr`-on-the-
- *     sleeping-arm special case is GONE;
- *   - the slept terminal serializes through the SAVED sleeping arm: agent/foreground
- *     don't leak, but the restore-relevant `pr` + the authored memory + `restoreTarget`
- *     ride to disk;
- *   - wake RESETS the snapshot to `seedSnapshot(cwd)` (pr pending, agent +
- *     foreground null), keeps the authored memory + `restoreTarget`, and flips the
- *     authored record back to active — so the resume form derives off `entry.meta`;
- *   - discard removes both halves of a sleeping record, never an active one.
- *
- * Wake's PTY re-spawn + agent replay is exercised end-to-end by the
- * `sleeping-terminals.feature` journey on CI (needs a live pty-host); here we pin
- * the synchronous registry/store flips. In the unit env no kaval endpoint is
- * booted, so a wake's spawn RPC rejects on a later microtask — that is exactly the
- * failed-wake path, asserted below.
- */
-
 import {
   type AuthoredTerminal,
   LOCAL_LOCATION,
   SavedTerminalSchema,
 } from "@kolu/padi-client/surface";
-import { resumeFormFor } from "kolu-agents/vocab";
 import { Schema } from "effect";
+import { resumeFormFor } from "kolu-agents/vocab";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { setDaemonProcessId } from "../koluRoot.ts";
 import {
@@ -61,17 +32,10 @@ import {
   seedActiveTerminal,
 } from "./terminalFixtures.testlib.ts";
 
-// discardSleeping drives `cleanupTerminalScratch`, which reads the per-instance
-// scratch root. Boot injects the server id before any of this runs; mirror that
-// here so the read hits the happy path, not the boot-order crash.
 setDaemonProcessId("sleepwake-test-server");
 
 const ID = "11111111-1111-4111-8111-111111111111";
 
-/** A padi ctx that RECORDS every `terminals.upsert` into `sink` (id + state), so a
- *  test can assert the composed record was actually PUSHED to the collection on a
- *  lifecycle flip — not merely that a `terminals:dirty` trigger fired. Built off the
- *  no-op ctx, overriding only the collections proxy. */
 function recordingPadiCtx(
   sink: Array<{ id: string; state: AuthoredTerminal["state"] }>,
 ): ReturnType<typeof noopPadiSurfaceCtxForTest> {
@@ -86,9 +50,6 @@ function recordingPadiCtx(
         return name === "terminals"
           ? {
               ...(inner as object),
-              // Production upserts the COMPOSED record on a lifecycle flip; the
-              // composed `active|sleeping` value carries its `state` discriminant,
-              // so record it off the value.
               upsert: (
                 id: string,
                 value: { state: AuthoredTerminal["state"] },
@@ -101,15 +62,10 @@ function recordingPadiCtx(
 }
 
 beforeEach(() => {
-  // padi's ctx backs the composed `terminals` collection + `urgency` cell + the
-  // `terminalExit` event — the whole terminal publish seam. A no-op here (surface.ts
-  // isn't imported); the terminal-list wire rides the collection's keys stream, so
-  // there is no separate kolu ctx to seed.
   setPadiSurfaceCtx(noopPadiSurfaceCtxForTest());
 });
 
 afterEach(() => {
-  // Dropping the entry drops its awareness too (one backing store now).
   unregisterTerminal(ID);
   __resetPadiSurfaceCtxForTest();
 });
@@ -123,18 +79,12 @@ describe("beginSleep — flip active → sleeping in place", () => {
     expect(entry).toBeDefined();
     if (entry?.meta.state !== "sleeping") throw new Error("expected sleeping");
 
-    // The AUTHORED sleeping arm — client chrome + discriminant.
     expect(entry.meta.themeName).toBe("rose");
     expect(entry.meta.intent).toBe("fix the auth race");
     expect(entry.meta.sleptAt).toBeGreaterThan(0);
 
-    // The resume input rides the AUTHORED arm — the `restoreTarget`
-    // (BUG-B/#1495). The fold set it during the active session; the sleep freeze
-    // carries it over with no special capture.
     expect(entry.meta.restoreTarget).toEqual(EXACT_TARGET);
 
-    // Authored names NO snapshot field — cwd/git/pr/agent are absent from entry.meta
-    // (pr is restore-relevant now and rides the OBSERVATION, not a frozen arm field).
     const raw = entry.meta as Record<string, unknown>;
     expect(raw.cwd).toBeUndefined();
     expect(raw.git).toBeUndefined();
@@ -142,8 +92,6 @@ describe("beginSleep — flip active → sleeping in place", () => {
     expect(raw.agent).toBeUndefined();
     expect(raw.foreground).toBeUndefined();
 
-    // The OBSERVATION stays (sleep does not drop it) — cwd/git + the restore-relevant
-    // `pr` ride through so the dormant tile recomposes cwd/branch/pr off it.
     const aw = snapshotFor(ID);
     expect(aw?.cwd).toBe("/work/repo");
     if (aw?.pr?.kind !== "ok") {
@@ -151,7 +99,6 @@ describe("beginSleep — flip active → sleeping in place", () => {
     }
     expect(aw.pr.value.number).toBe(42);
 
-    // No live PTY handle on a sleeping process; the same stable id rides on.
     expect(entry.handle).toBeUndefined();
     expect(entry.info.id).toBe(ID);
   });
@@ -169,15 +116,6 @@ describe("beginSleep — flip active → sleeping in place", () => {
 });
 
 describe("beginSleep after the fold's authored write — the sleeping decode", () => {
-  // `beginSleep` re-DECODES the authored record it spreads
-  // (`decodeAuthoredSleeping({...entry.meta, state:"sleeping", sleptAt})`), so any
-  // producer that leaves a PRESENT `undefined` on an `optionalKey` field takes the
-  // sleep flip down — the tile stays live forever and the user's ☾ silently does
-  // nothing (`sleeping-terminals.feature`'s agent journeys, which sleep a terminal
-  // the fold has already written memory for). The fold's `updateMemory` is that
-  // producer, and this pins the flip THROUGH it rather than through a hand-built
-  // meta, so a re-introduced field-by-field copy fails HERE and not only in the
-  // autosave (`metadata.test.ts`'s disk-persist twin).
   const MEM_ID = "55555555-5555-4555-8555-555555555555";
   let upserts: Array<{ id: string; state: AuthoredTerminal["state"] }>;
 
@@ -193,13 +131,9 @@ describe("beginSleep after the fold's authored write — the sleeping decode", (
 
   it("flips and PUBLISHES sleeping for a terminal whose fold remembers no agent", () => {
     const entry = activeEntry(MEM_ID, { restoreTarget: { kind: "none" } });
-    // A terminal that never ran an agent has no resume target at all — its own
-    // `none` arm, not a remembered launch line.
     registerTerminal(MEM_ID, entry);
     installSnapshot(MEM_ID);
 
-    // The fold's ONE authored writer, exactly as the first agent observation
-    // drives it: recency stamped, nothing remembered, target `none`.
     updateMemory(
       MEM_ID,
       { lastActivityAt: 456, promptedAt: null },
@@ -210,9 +144,7 @@ describe("beginSleep after the fold's authored write — the sleeping decode", (
     upserts.length = 0;
     expect(beginSleepLocal(MEM_ID)).toBe(true);
     expect(getTerminal(MEM_ID)?.meta.state).toBe("sleeping");
-    // The flip must reach the WIRE — a swallowed publish is the same dead tile.
     expect(upserts).toContainEqual({ id: MEM_ID, state: "sleeping" });
-    // And the target stays the bare-shell arm through the flip.
     expect(getTerminal(MEM_ID)?.meta.restoreTarget).toEqual({ kind: "none" });
   });
 });
@@ -226,12 +158,8 @@ describe("snapshotSession — a slept terminal serializes through the sleeping a
     expect(saved).toBeDefined();
     if (saved?.state !== "sleeping") throw new Error("expected sleeping arm");
     expect(saved.sleptAt).toBeGreaterThan(0);
-    // The authored memory + the restore target ride to disk (joined at save).
     expect(saved.restoreTarget).toEqual(EXACT_TARGET);
 
-    // Round-trips through the saved discriminated union — agent/foreground don't
-    // leak, but the `pr` SNAPSHOT persists (a dormant tile keeps its last-known
-    // PR across a daemon restart, like cwd/branch — restore-relevant now).
     expect(() =>
       Schema.decodeUnknownSync(SavedTerminalSchema)(saved),
     ).not.toThrow();
@@ -247,41 +175,28 @@ describe("wake — resets the snapshot, keeps the authored memory", () => {
     seedActiveTerminal(ID);
     expect(beginSleepLocal(ID)).toBe(true);
 
-    // Wake registers the active sync-shadow synchronously (its spawn tail fails
-    // on a later microtask — no kaval); assert the store at that sync point.
     const waking = wakeLocalTerminal(ID);
     expect(getTerminal(ID)?.meta.state).toBe("active");
 
     const aw = snapshotFor(ID);
-    // TerminalSnapshot reset to `seedSnapshot(cwd)` — the frozen pr DISCARDED; the
-    // re-spawned PTY's producer re-derives agent/foreground/pr.
     expect(aw?.pr).toEqual({ kind: "pending" });
     expect(aw?.agent).toBeNull();
     expect(aw?.foreground).toBeNull();
-    // The saved cwd rides through the reset (so the git sensor re-resolves against it).
     expect(aw?.cwd).toBe("/work/repo");
 
-    // The restore target rides `entry.meta` (the AUTHORED record), surviving the
-    // flip back to active — so wake can resume.
     const meta = getTerminal(ID)?.meta;
     expect(meta?.restoreTarget).toEqual(EXACT_TARGET);
 
-    // The resume form switches on the AUTHORED `restoreTarget` and targets the EXACT
-    // conversation by id — NOT the most-recent `--continue` marker (juspay/kolu#1495).
     const resumeCommand = resumeFormFor(meta?.restoreTarget);
     expect(resumeCommand).toBe(
       "opencode --session ses_118316090ffewMmbj6bsfKwj4R --model sonnet",
     );
     expect(resumeCommand).not.toContain("--continue");
 
-    // Let the rejected spawn RPC settle (it restores the sleeping record).
     await waking;
   });
 
   it("wakes to a BARE SHELL on a `none` restore target (quit-to-shell, by construction)", async () => {
-    // A quit-to-shell drops the live agent, so the fold wrote `restoreTarget: none`.
-    // Wake resumes NOTHING — `none` is read as a bare shell, never a most-recent
-    // fallback (model B).
     const entry = activeEntry(ID, { restoreTarget: { kind: "none" } });
     registerTerminal(ID, entry);
     installSnapshot(ID);
@@ -302,8 +217,6 @@ describe("wake — the resume form switches on the AUTHORED restore target", () 
     sleptAt: 222,
     cwd: "/work/repo",
     git: { kind: "none" as const },
-    // `pr` is a PERSISTED, restore-relevant field now (no longer a live-only field),
-    // so a saved sleeping record carries it.
     pr: { kind: "absent" } as const,
     location: LOCAL_LOCATION,
     lastActivityAt: 7,
@@ -317,12 +230,9 @@ describe("wake — the resume form switches on the AUTHORED restore target", () 
   it("restores the sleeping entry when the wake spawn fails", async () => {
     expect(seedSleepingTerminal(sleepingRecord())).toBe(true);
 
-    // Wake registers the active sync-shadow synchronously; its spawn tail fails
-    // on a later microtask. The shadow IS active right after.
     const waking = wakeLocalTerminal(WAKE_ID);
     expect(getTerminal(WAKE_ID)?.meta.state).toBe("active");
 
-    // Let the rejected spawn RPC propagate through `spawnAndWire`'s catch.
     await waking;
 
     const entry = getTerminal(WAKE_ID);
@@ -333,10 +243,7 @@ describe("wake — the resume form switches on the AUTHORED restore target", () 
       );
     expect(entry.meta.sleptAt).toBe(222);
     expect(entry.handle).toBeUndefined();
-    // The authored memory rode through on the restored sleeping arm — never
-    // dropped on a wake-spawn failure.
     expect(entry.meta.lastActivityAt).toBe(7);
-    // The snapshot survives too (one backing store).
     expect(snapshotFor(WAKE_ID)?.cwd).toBe("/work/repo");
   });
 });
@@ -358,9 +265,6 @@ describe("wake/spawn PUSHES the authored active snapshot (issue #1529)", () => {
   let upserts: Array<{ id: string; state: AuthoredTerminal["state"] }>;
 
   beforeEach(() => {
-    // Replace the suite-wide no-op `padi` ctx with a recording one (the
-    // double-call guard forbids swapping ctx without a reset first). The `kolu`
-    // ctx stays the suite-wide no-op (it backs `terminalList`, not `terminals`).
     __resetPadiSurfaceCtxForTest();
     upserts = [];
     setPadiSurfaceCtx(recordingPadiCtx(upserts));
@@ -372,13 +276,11 @@ describe("wake/spawn PUSHES the authored active snapshot (issue #1529)", () => {
 
   it("pushes the active snapshot on wake, not just a dirty signal", () => {
     expect(seedSleepingTerminal(sleepingRecord())).toBe(true);
-    // The seed itself doesn't publish the wire; start from a clean slate.
     upserts.length = 0;
 
     const waking = wakeLocalTerminal(PUB_ID);
     expect(getTerminal(PUB_ID)?.meta.state).toBe("active");
     expect(upserts).toContainEqual({ id: PUB_ID, state: "active" });
-    // Settle the (failing) spawn so its F2 restore can't leak into the next test.
     return waking.then(() => undefined);
   });
 });
@@ -411,9 +313,6 @@ describe("seedSleepingTerminal — boot seed with per-record tolerance", () => {
     location: LOCAL_LOCATION,
     lastActivityAt: 5,
     promptedAt: null,
-    // The restore target the cold-restored terminal will resume — rides the authored
-    // sleeping record (its `exact` arm keeps only the identity + the live process's
-    // allowlisted flags, no full-agent reconstruction across a cold restart).
     restoreTarget: {
       kind: "exact",
       agent: {
@@ -435,7 +334,6 @@ describe("seedSleepingTerminal — boot seed with per-record tolerance", () => {
     if (entry?.meta.state !== "sleeping") throw new Error("expected sleeping");
     expect(entry.meta.sleptAt).toBe(111);
     expect(entry.handle).toBeUndefined();
-    // The authored memory + the restore target rode onto `entry.meta`.
     expect(entry.meta.lastActivityAt).toBe(5);
     expect(entry.meta.restoreTarget).toEqual({
       kind: "exact",
@@ -446,8 +344,6 @@ describe("seedSleepingTerminal — boot seed with per-record tolerance", () => {
       },
       argv: ["--model", "sonnet"],
     });
-    // The restore-relevant snapshot (cwd + the persisted pr) rode into the entry
-    // (the dormant tile reads cwd/pr off it).
     expect(snapshotFor(SEED_ID)?.cwd).toBe("/work/repo");
     expect(snapshotFor(SEED_ID)?.pr).toEqual({ kind: "absent" });
   });
@@ -475,7 +371,6 @@ describe("the family — a split's sleep/wake is its parent's too", () => {
   const FAMILY_PARENT = "77777777-7777-4777-8777-777777777777";
   const FAMILY_CHILD = "88888888-8888-4888-8888-888888888888";
 
-  /** A parent and a split under it, both active. */
   function seedFamily(): void {
     const parent = activeEntry(FAMILY_PARENT);
     registerTerminal(FAMILY_PARENT, parent);
@@ -493,8 +388,6 @@ describe("the family — a split's sleep/wake is its parent's too", () => {
     unregisterTerminal(FAMILY_CHILD);
   });
 
-  // The suite-wide ctx is a no-op; the parent-failure test needs the WIRE, not
-  // just the registry — every lifecycle publish is recorded here.
   let upserts: Array<{ id: string; state: AuthoredTerminal["state"] }>;
 
   beforeEach(() => {
@@ -505,25 +398,14 @@ describe("the family — a split's sleep/wake is its parent's too", () => {
 
   it("waking a split under a dormant parent starts the PARENT first, and skips the split when it fails", async () => {
     seedFamily();
-    // Sleep is family-wide, so both members are dormant — the shape a split's
-    // own Wake CTA sees.
     expect(beginSleepLocal(FAMILY_CHILD)).toBe(true);
     expect(beginSleepLocal(FAMILY_PARENT)).toBe(true);
 
-    // The user presses Wake on the SPLIT's dormant body. The climb finds the
-    // topmost dormant ancestor; the walk is roots-first and AWAITS each wire, so
-    // at this synchronous point the parent is awake and the child has not been
-    // touched yet.
     upserts.length = 0;
     const waking = wakeLocalTerminal(FAMILY_CHILD);
     expect(getTerminal(FAMILY_PARENT)?.meta.state).toBe("active");
     expect(getTerminal(FAMILY_CHILD)?.meta.state).toBe("sleeping");
 
-    // No kaval in the unit env: the parent's spawn fails, its sleeping record is
-    // restored (F2), and the child's subtree is SKIPPED rather than spawned
-    // under a tile with no PTY. The skip is asserted on the WIRE — the record's
-    // own spawn failure lands in the same final state, so the registry alone
-    // cannot tell "never attempted" from "attempted and failed".
     await waking;
     expect(upserts).toContainEqual({ id: FAMILY_PARENT, state: "active" });
     expect(upserts).not.toContainEqual({
@@ -532,7 +414,6 @@ describe("the family — a split's sleep/wake is its parent's too", () => {
     });
     expect(getTerminal(FAMILY_PARENT)?.meta.state).toBe("sleeping");
     expect(getTerminal(FAMILY_CHILD)?.meta.state).toBe("sleeping");
-    // The split is still the parent's — the tree never broke.
     expect(getTerminal(FAMILY_CHILD)?.meta.parentId).toBe(FAMILY_PARENT);
   });
 
@@ -540,14 +421,11 @@ describe("the family — a split's sleep/wake is its parent's too", () => {
     seedFamily();
     expect(beginSleepLocal(FAMILY_CHILD)).toBe(true);
 
-    // The parent never slept, so the climb stops at the split itself.
     const waking = wakeLocalTerminal(FAMILY_CHILD);
     expect(getTerminal(FAMILY_CHILD)?.meta.state).toBe("active");
     expect(getTerminal(FAMILY_PARENT)?.meta.state).toBe("active");
 
     await waking;
-    // The split's own spawn failed; the parent was never in this walk, so it is
-    // still untouched-and-live.
     expect(getTerminal(FAMILY_CHILD)?.meta.state).toBe("sleeping");
     expect(getTerminal(FAMILY_PARENT)?.meta.state).toBe("active");
   });

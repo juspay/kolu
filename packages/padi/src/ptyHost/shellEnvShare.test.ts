@@ -1,16 +1,3 @@
-/**
- * ONE FORM, ONE SHELL — `terminalShellEnv` replays a person's dotfiles, which
- * is seconds of their time, and a setup form asks for every role's harness,
- * again on each change and again when the answer is checked. Calls in flight
- * for the same directory and layer share the one capture; a call that arrives
- * after it answered reads the dotfiles again, because a capture is what the
- * person's shell does NOW and never a remembered answer.
- *
- * Driven over the REAL capture (a real bash, a real rc file) against a fake
- * kaval connection — `__setEndpointForTest` with a dispatch that answers
- * `system.info`, the one thing the capture needs a daemon for.
- */
-
 import { execFileSync } from "node:child_process";
 import {
   appendFileSync,
@@ -53,8 +40,6 @@ let rcDir: string;
 let runs: string;
 let restoreEndpoint = (): void => {};
 
-/** Every run of the person's dotfiles leaves a line here, so "how many shells
- *  did that question cost?" is a fact rather than a timing guess. */
 const ranCount = (): number =>
   readFileSync(runs, "utf8")
     .split("\n")
@@ -100,7 +85,6 @@ afterEach(() => {
   vi.unstubAllEnvs();
 });
 
-/** The question kolu's form asks of a host, twice over for a two-role form. */
 const ask = () =>
   terminalShellEnv({
     cwd: home,
@@ -120,8 +104,6 @@ describe("two questions about the same directory and layer", () => {
   it("asked again after that one answered, read the dotfiles again", async () => {
     await Effect.runPromise(ask());
     await Effect.runPromise(ask());
-    // Nothing is remembered: the answer is what the person's shell does now,
-    // and a key they have just exported must reach the next question.
     expect(ranCount()).toBe(2);
   }, 30_000);
 });

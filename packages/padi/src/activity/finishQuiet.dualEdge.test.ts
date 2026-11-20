@@ -1,8 +1,3 @@
-/**
- * Dual-edge pin: quiet-timer expiry re-folds urgency without a terminals write.
- * Uses finish.project (the production recompute shape).
- */
-
 import {
   composeTerminalMetadata,
   LOCAL_LOCATION,
@@ -124,8 +119,6 @@ describe("dual-edge urgency (finish quiet generation)", () => {
       settled: true,
     });
 
-    // Arm bootstrap with non-waiting inventory (first non-empty must not be
-    // waiting-only or it sticky-discovers).
     const working = activeTerminal(makeAgent("thinking"));
     store.set(A, working);
     ctx.collections.terminals.upsert(A, working);

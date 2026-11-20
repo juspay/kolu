@@ -1,22 +1,11 @@
-/**
- * The port sensor's CHURN GUARD — the one judgment it makes.
- *
- * A 5-second scan re-derives the same port set on almost every pass. Without the
- * structural dedup, every pass would emit, and every emit walks the whole
- * publish chain: fold → registry → the `terminals` collection → the wire → a
- * SolidJS store write, per terminal, forever. So "an unchanged scan emits nothing"
- * is not an optimization, it is the condition under which a seconds-cadence sensor
- * is affordable at all.
- */
-
 import { inMemoryChannel } from "@kolu/surface/server";
 import type {
   PortInfo,
   PortScope,
   TerminalEvent,
+  TerminalGrid,
   TerminalId,
   TerminalPorts,
-  TerminalGrid,
 } from "@kolu/terminal-vocab/schema";
 import type { ForegroundSample } from "kaval";
 import pino from "pino";
@@ -37,11 +26,8 @@ const p = (
   family,
 });
 
-// The consume loop delivers each publish on a microtask, so a macrotask hop drains
-// every queued `onEvent` before we assert.
 const flush = () => new Promise((resolve) => setImmediate(resolve));
 
-/** Drive the port channel and collect what the sensor emitted. */
 function harness() {
   const signals: SensorSignals = {
     cwd: inMemoryChannel<string>(),
@@ -65,7 +51,6 @@ function harness() {
       signals.ports.publish({ status: "known", list: ports });
       await flush();
     },
-    /** A pass that could not see — distinct from one that saw nothing. */
     blind: async () => {
       signals.ports.publish({ status: "unknown" });
       await flush();
@@ -95,10 +80,6 @@ describe("the port sensor", () => {
   });
 
   it("announces a successful EMPTY scan once, then goes quiet", async () => {
-    // This behaviour CHANGED with the honest two-way, and the change is the point:
-    // the baseline is now `unknown`, so the first successful empty scan is real
-    // news — we looked, and there is nothing — rather than a no-op against a
-    // fabricated `[]`. It is said once and then deduped like any other sample.
     const h = harness();
     await h.scan([]);
     await h.scan([]);
@@ -109,8 +90,6 @@ describe("the port sensor", () => {
   });
 
   it("emits NOTHING while the scan stays BLIND, and never claims empty", async () => {
-    // The invariant the two-way exists for: a terminal whose first pass could not
-    // see must not reach the snapshot as one that serves nothing.
     const h = harness();
     await h.blind();
     await h.blind();
@@ -143,8 +122,6 @@ describe("the port sensor", () => {
   });
 
   it("emits when only the BIND changes — same port, now reachable", async () => {
-    // A dev server restarted with `--host` keeps its number but stops needing a
-    // forward. A port-number-only comparison would leave the chip inert forever.
     const h = harness();
     await h.scan([p(5173, "loopback")]);
     await h.scan([p(5173, "any")]);

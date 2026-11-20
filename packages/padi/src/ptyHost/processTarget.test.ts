@@ -23,8 +23,6 @@ describe("currentKavalProcessTarget", () => {
     expect(currentKavalProcessTarget()).toBeUndefined();
 
     const current = vi.fn<KavalEndpoint["current"]>(() => undefined);
-    // The production read uses only `current`; restart behavior is outside this
-    // test, so the remaining Endpoint members are deliberately absent.
     const endpoint = { current } as unknown as KavalEndpoint;
     restoreEndpoint = __setEndpointForTest(endpoint);
 
@@ -45,8 +43,6 @@ describe("currentKavalProcessTarget", () => {
       .fn<KavalEndpoint["current"]>()
       .mockReturnValueOnce(heldConnection)
       .mockReturnValue(replacementConnection);
-    // The production read uses only `current`; restart behavior is outside this
-    // test, so the remaining Endpoint members are deliberately absent.
     const endpoint = { current } as unknown as KavalEndpoint;
     restoreEndpoint = __setEndpointForTest(endpoint);
 

@@ -1,17 +1,3 @@
-/**
- * padi's unhandled-rejection BACKSTOP is loud, not fatal.
- *
- * The pin for half 2 of the #1719 fix: an injected float must (a) log a
- * LOUD, greppable, marker-carrying ERROR, (b) reach the health sink where
- * one is registered, and (c) NEVER exit the process — padi SURVIVES so an
- * unidentified future float is a diagnosable line, not a dead daemon.
- *
- * We invoke the installed listener DIRECTLY (grabbed off
- * `process.listeners`) rather than emitting a real `unhandledRejection` —
- * emitting would also run vitest's own handler and fail the run. That keeps
- * the pin deterministic and isolated to our boundary.
- */
-
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Logger } from "../log.ts";
 import {
@@ -22,7 +8,6 @@ import {
   registerBoundaryHealthSink,
 } from "./unhandledRejectionBoundary.ts";
 
-/** A logger double capturing only what the boundary uses (`error`). */
 function fakeLogger(): {
   log: Logger;
   errors: Array<{ obj: Record<string, unknown>; msg: string }>;
@@ -35,9 +20,6 @@ function fakeLogger(): {
   return { log, errors };
 }
 
-/** The single listener our install added, so we can invoke it in isolation
- *  (and remove it on teardown — a leaked process listener would bleed into
- *  sibling test files). */
 function grabInstalledListener(
   before: ReadonlyArray<unknown>,
 ): (reason: unknown, promise: Promise<unknown>) => void {
@@ -53,8 +35,6 @@ describe("installUnhandledRejectionBoundary — loud, not fatal", () => {
 
   beforeEach(() => {
     __resetUnhandledRejectionBoundaryForTest();
-    // If the boundary EVER calls process.exit, this throws instead of killing
-    // the vitest worker — turning "padi died" into a visible test failure.
     exitSpy = vi.spyOn(process, "exit").mockImplementation(((): never => {
       throw new Error("process.exit must NOT be called by the boundary");
     }) as never);
@@ -78,11 +58,9 @@ describe("installUnhandledRejectionBoundary — loud, not fatal", () => {
 
     expect(errors).toHaveLength(1);
     expect(errors[0]?.obj.marker).toBe(PADI_UNHANDLED_REJECTION_MARKER);
-    // The Error rides under `err` (pino serializes it with its stack).
     expect(errors[0]?.obj.err).toBe(reason);
     expect(errors[0]?.msg).toContain(PADI_UNHANDLED_REJECTION_MARKER);
     expect(errors[0]?.msg).toContain("a background task floated");
-    // The load-bearing survival assertion: never exited.
     expect(exitSpy).not.toHaveBeenCalled();
   });
 
@@ -112,7 +90,6 @@ describe("installUnhandledRejectionBoundary — loud, not fatal", () => {
     added = grabInstalledListener(before);
 
     expect(() => added?.(new Error("x"), Promise.resolve())).not.toThrow();
-    // Two ERROR lines: the float itself, then the sink failure — both marked.
     expect(errors).toHaveLength(2);
     expect(errors[1]?.obj.marker).toBe(PADI_UNHANDLED_REJECTION_MARKER);
     expect(errors[1]?.msg).toContain("health sink threw");
@@ -136,6 +113,6 @@ describe("installUnhandledRejectionBoundary — loud, not fatal", () => {
     const before = process.listeners("unhandledRejection");
     installUnhandledRejectionBoundary(log);
     installUnhandledRejectionBoundary(log);
-    added = grabInstalledListener(before); // grabInstalled asserts exactly ONE added
+    added = grabInstalledListener(before);
   });
 });

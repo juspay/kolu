@@ -1,9 +1,3 @@
-/**
- * Pins the self-identity read: the three arms of the stamp, and that a garbled
- * one is REFUSED rather than guessed at. padi answers what the stamp said; what
- * a refusal reads like is each face's own sentence, pinned at each face.
- */
-
 import type { TerminalId } from "@kolu/terminal-vocab/schema";
 import { describe, expect, it } from "vitest";
 import { confirmInFleet, containingTerminalId } from "./containingTerminal.ts";
@@ -43,10 +37,6 @@ describe("confirmInFleet — the fourth arm, and the one both faces switch on", 
   });
 
   it("is STRAY when this padi has never heard of it", () => {
-    // What `kolu watch --ignore-self` and `watch_open`'s `ignoreSelf` both
-    // refuse, off this ONE arm: muting a terminal nobody here has heard of
-    // would mute nobody and report success. `--host`, a `--socket` aimed at a
-    // sibling padi, and a stamp re-keyed by a daemon restart all land here.
     expect(confirmInFleet({ kind: "ok", id: SELF }, [LANE])).toEqual({
       kind: "stray",
       id: SELF,
