@@ -1,4 +1,8 @@
-const SAFE_BARE_WORD = /^[A-Za-z0-9@%_+=:,./~-]+$/;
+const SHELL_INERT_CHARS = "A-Za-z0-9@%_+=:,./-";
+const TILDE_LEFT_BARE_FOR_EXPANSION = "~";
+const SAFE_BARE_WORD = new RegExp(
+  `^[${TILDE_LEFT_BARE_FOR_EXPANSION}${SHELL_INERT_CHARS}]+$`,
+);
 
 function forceQuoteArg(token: string): string {
   return `'${token.replace(/'/g, "'\\''")}'`;
@@ -48,8 +52,7 @@ export function shellSplit(line: string): string[] {
     token = (token ?? "") + s;
   };
   for (let i = 0; i < line.length; i++) {
-    const c = line[i];
-    if (c === undefined) break;
+    const c = line.charAt(i);
     if (c === " " || c === "\t" || c === "\n") {
       if (token !== null) {
         argv.push(token);
@@ -59,14 +62,18 @@ export function shellSplit(line: string): string[] {
     }
     if (c === "'") {
       const close = line.indexOf("'", i + 1);
-      const end = close === -1 ? line.length : close;
-      push(line.slice(i + 1, end));
-      i = end;
+      if (close === -1) {
+        throw new Error(
+          "shellSplit: unterminated single quote — not shellJoin output",
+        );
+      }
+      push(line.slice(i + 1, close));
+      i = close;
       continue;
     }
     if (c === "\\") {
-      const next = line[i + 1];
-      if (next !== undefined) {
+      const next = line.charAt(i + 1);
+      if (next !== "") {
         push(next);
         i++;
       }

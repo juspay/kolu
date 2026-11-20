@@ -6,23 +6,26 @@ import { delimiter, join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { shellJoin, shellQuoteArg, shellSplit } from "./index.ts";
 
-/** The POSIX shells this package's replay guarantee assumes — the same four the
- *  README's "Target shell" note enumerates. Declared once so `findPosixShell`'s
- *  probe order has a single home in code; keep it in step with the README prose,
- *  which can't import it. */
 const POSIX_SHELLS = ["sh", "bash", "zsh", "dash"] as const;
 
-const ROUND_TRIP_CORPUS: readonly (readonly string[])[] = [
+const BYTE_EXACT_CORPUS: readonly (readonly string[])[] = [
   ["claude", "--model", "sonnet"],
   ["claude", "--settings", `{"ultracode": true}`],
   ["codex", "--config", `model_reasoning_effort="xhigh"`],
   ["claude", "--append-system-prompt", "be terse please"],
   ["claude", "--append-system-prompt", "don't do that"],
   ["claude", "--append-system-prompt", "a $b `c` ; d & e | f * (g) {h}"],
-  ["claude", "--add-dir", "~/.claude"],
   ["a", "", "b"],
   ["weird", "a'b'c", "x  y"],
 ];
+
+const TILDE_EXPANDING_CORPUS: readonly (readonly string[])[] = [
+  ["claude", "--add-dir", "~/.claude"],
+];
+
+const KNOWN_SAFE_COMMAND_HEAD = "printf";
+const NUL_FIELD_FORMAT = "%s\\0";
+const NUL_FIELD_SEPARATOR = "\0";
 
 describe("shellQuoteArg", () => {
   it("leaves a safe bare word (ssh target / plain socket path) unquoted", () => {
@@ -63,9 +66,15 @@ describe("shellQuoteArg", () => {
 
 describe("shellSplit", () => {
   it("is the exact inverse of shellJoin (round-trips every token shape)", () => {
-    for (const argv of ROUND_TRIP_CORPUS) {
+    for (const argv of [...BYTE_EXACT_CORPUS, ...TILDE_EXPANDING_CORPUS]) {
       expect(shellSplit(shellJoin(argv))).toEqual([...argv]);
     }
+  });
+
+  it("rejects a line that cannot be shellJoin output (unterminated quote)", () => {
+    expect(() => shellSplit("claude 'half")).toThrow(
+      /unterminated single quote/,
+    );
   });
 
   it("parses the canonical '\\'' idiom that string-argv cannot", () => {
@@ -83,17 +92,21 @@ describe("shellSplit", () => {
   });
 });
 
+function isExecutable(path: string): boolean {
+  try {
+    accessSync(path, constants.X_OK);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 function findPosixShell(): string | null {
   const dirs = (process.env.PATH ?? "").split(delimiter).filter(Boolean);
   for (const name of POSIX_SHELLS) {
     for (const dir of dirs) {
       const candidate = join(dir, name);
-      try {
-        accessSync(candidate, constants.X_OK);
-        return candidate;
-      } catch {
-        // not executable here — keep scanning PATH
-      }
+      if (isExecutable(candidate)) return candidate;
     }
   }
   return null;
@@ -106,30 +119,31 @@ describe.skipIf(POSIX_SHELL === null)(
   () => {
     const shell = POSIX_SHELL as string;
 
-    function replay(
+    function runUnderRealShell(
       args: readonly string[],
       env: NodeJS.ProcessEnv = {},
     ): string[] {
-      const line = shellJoin(["printf", "%s\\0", ...args]);
+      const line = shellJoin([
+        KNOWN_SAFE_COMMAND_HEAD,
+        NUL_FIELD_FORMAT,
+        ...args,
+      ]);
       const out = execFileSync(shell, ["-c", line], {
         encoding: "buffer",
         env: { ...process.env, ...env },
       });
-      return out.toString("utf8").split("\0").slice(0, -1);
+      return out.toString("utf8").split(NUL_FIELD_SEPARATOR).slice(0, -1);
     }
 
     it("word-splits each joined argv back into exactly its inputs", () => {
-      const strict = ROUND_TRIP_CORPUS.filter(
-        (argv) => !argv.some((token) => token.startsWith("~")),
-      );
-      for (const argv of strict) {
-        expect(replay(argv)).toEqual([...argv]);
+      for (const argv of BYTE_EXACT_CORPUS) {
+        expect(runUnderRealShell(argv)).toEqual([...argv]);
       }
     });
 
     it("re-expands a space-separated leading ~ value to $HOME (documented carve-out)", () => {
       const home = "/home/kolu-tilde-test";
-      expect(replay(["--settings", "~/x"], { HOME: home })).toEqual([
+      expect(runUnderRealShell(["--settings", "~/x"], { HOME: home })).toEqual([
         "--settings",
         `${home}/x`,
       ]);
