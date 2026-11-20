@@ -1,17 +1,3 @@
-/** One-shot transcript loader for the HTML export feature.
- *
- *  Independent of `session-watcher` — that module tails the JSONL for live
- *  state derivation in 256 KB / 1 MB windows. Export is end-of-session, so
- *  it reads the whole file once and normalizes every line to the unified
- *  `TranscriptEvent` IR.
- *
- *  Tool inputs are decoded into the typed `ToolInput` union at parse
- *  time (claude's `Edit` → `{kind:"edit"}`, `Bash` → `{kind:"bash"}`,
- *  etc.). Anything not modelled becomes `{kind:"unknown"}` and the
- *  renderer surfaces it honestly as "Unknown" instead of pretending
- *  it's a recognised tool. Tool outputs stay `unknown` (the type) —
- *  vendors emit too many shapes to model usefully. */
-
 import fs from "node:fs";
 import path from "node:path";
 import {
@@ -21,8 +7,8 @@ import {
   type Transcript,
   type TranscriptEvent,
 } from "kolu-transcript-core";
-import { claudeCodeVocab } from "./schemas.ts";
 import { encodeProjectPath, PROJECTS_DIR } from "./core.ts";
+import { claudeCodeVocab } from "./schemas.ts";
 
 interface AssistantContentBlock {
   type?: string;
@@ -31,7 +17,6 @@ interface AssistantContentBlock {
   name?: string;
   input?: unknown;
   id?: string;
-  /** tool_result blocks on user lines. */
   tool_use_id?: string;
   content?: unknown;
   is_error?: boolean;
@@ -48,10 +33,6 @@ interface JsonlEntry {
   toolUseResult?: unknown;
 }
 
-/** Convert one JSONL line into zero or more transcript events. Assistant
- *  lines fan out into one event per content block (text, thinking,
- *  tool_use); user lines become a single event whose shape depends on
- *  the content block kind. */
 function eventsFromEntry(entry: JsonlEntry): TranscriptEvent[] {
   const ts = parseIsoTimestamp(entry.timestamp);
 
@@ -112,7 +93,6 @@ function eventsFromEntry(entry: JsonlEntry): TranscriptEvent[] {
   return [];
 }
 
-/** Parse a Claude Code JSONL transcript. Exported for unit testing. */
 export function parseClaudeCodeJsonl(content: string): TranscriptEvent[] {
   const events: TranscriptEvent[] = [];
   for (const line of content.split("\n")) {
@@ -121,9 +101,6 @@ export function parseClaudeCodeJsonl(content: string): TranscriptEvent[] {
     try {
       entry = JSON.parse(line) as JsonlEntry;
     } catch {
-      // Malformed line — skip. Claude writes the JSONL itself, so this is
-      // rare in practice; ignoring lets a single corrupt entry not bring
-      // down the entire export.
       continue;
     }
     events.push(...eventsFromEntry(entry));
@@ -131,9 +108,6 @@ export function parseClaudeCodeJsonl(content: string): TranscriptEvent[] {
   return inlineAgentSubtasks(events);
 }
 
-/** Map a Claude Code tool name + raw input object onto the typed
- *  `ToolInput` union. Anything we don't recognise becomes `unknown`,
- *  carrying the raw payload through unchanged. Exported for testing. */
 export function normalizeClaudeToolInput(
   toolName: string,
   raw: unknown,
@@ -202,14 +176,8 @@ export function normalizeClaudeToolInput(
     case "WebSearch":
       return { kind: "web_search", query: str("query") };
     case "PowerShell":
-      // PowerShell shares Bash's shape (`{ command }`). Surfacing it as
-      // `kind: "bash"` lets the renderer show the command line directly
-      // — the dock's hide-tools toggle, the role label, and the
-      // command-summary all just work.
       return { kind: "bash", command: str("command") };
     case "Skill": {
-      // Claude Code's Skill tool carries `{ skill: "name", args: "…" }`.
-      // Some skill invocations have no args (the slash-command form).
       const argsField = typeof o.args === "string" ? (o.args as string) : null;
       return {
         kind: "skill",
@@ -252,8 +220,6 @@ export function normalizeClaudeToolInput(
     case "ExitWorktree":
       return { kind: "worktree", op: "exit", path: null };
     case "CronCreate": {
-      // Cron payload carries `{ when, prompt }`; the prompt is the
-      // most useful summary line.
       const summary = str("prompt") || str("when") || null;
       return { kind: "cron", op: "create", summary };
     }
@@ -302,24 +268,10 @@ interface AgentCallMeta {
   ts: number | null;
 }
 
-/** Claude Code's `Agent` tool dispatches a sub-agent that runs in an
- *  ephemeral process. Unlike OpenCode (where the child session's full
- *  activity is persisted and we recurse into it), Claude only writes
- *  the dispatch (`tool_use` input) and the final reply text
- *  (`tool_result` content) into the JSONL — the subagent's reasoning
- *  and tool calls are not kept. Replacing the tool_call/tool_result
- *  pair with a `subtask_start` / assistant / `subtask_end` triple makes
- *  subagent dispatches visible by default (rather than hidden behind
- *  the Tools toggle as a generic tool call), at the cost of dropping
- *  the full prompt text — only the short description survives, which
- *  is consistent with how OpenCode subtask boundaries label
- *  in-flight/incomplete dispatches. */
 function inlineAgentSubtasks(events: TranscriptEvent[]): TranscriptEvent[] {
   const agentCalls = new Map<string, AgentCallMeta>();
   for (const e of events) {
     if (e.kind === "tool_call" && e.toolName === "Agent" && e.id) {
-      // Agent inputs go through normalizeClaudeToolInput as `unknown`;
-      // pull description / subagent_type back out of the raw payload.
       const raw = e.inputs.kind === "unknown" ? e.inputs.raw : null;
       agentCalls.set(e.id, extractAgentMeta(raw, e.ts));
     }
@@ -328,8 +280,6 @@ function inlineAgentSubtasks(events: TranscriptEvent[]): TranscriptEvent[] {
   const out: TranscriptEvent[] = [];
   for (const e of events) {
     if (e.kind === "tool_call" && e.toolName === "Agent" && e.id) {
-      // Suppress — replaced by the subtask block emitted around the
-      // matching tool_result below.
       continue;
     }
     if (e.kind === "tool_result" && e.id && agentCalls.has(e.id)) {
@@ -373,8 +323,6 @@ function extractAgentMeta(inputs: unknown, ts: number | null): AgentCallMeta {
   return { description, agentName, ts };
 }
 
-/** Pull the reply text out of an Agent tool_result. Claude serializes
- *  it as either a plain string or `[{type: "text", text}, ...]`. */
 function extractAgentReplyText(output: unknown): string {
   if (typeof output === "string") return output;
   if (Array.isArray(output)) {
@@ -394,16 +342,6 @@ function extractAgentReplyText(output: unknown): string {
   return "";
 }
 
-/** Read the JSONL transcript for a Claude Code session and normalize it
- *  to the unified IR. Returns null when:
- *    - cwd is missing (Claude encodes the projects-dir path from cwd, so
- *      we can't locate the JSONL without one)
- *    - the transcript file doesn't exist yet (Claude creates it lazily
- *      on the first user↔assistant exchange, so a brand-new session has
- *      no JSONL)
- *  Mirrors the `Transcript | null` shape returned by the OpenCode and
- *  Codex loaders so the router's "no transcript" branch is uniform
- *  across vendors. */
 export const loadClaudeCodeTranscript: Fetcher = (input) => {
   if (!input.cwd) return null;
   const file = path.join(

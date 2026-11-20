@@ -1,21 +1,3 @@
-/**
- * Claude Code integration — public barrel.
- *
- * Module layout:
- *   - `core.ts`            — leaf helpers (session-file reading, transcript
- *                            tail, state derivation, fs.watch helpers, shared
- *                            SESSIONS_DIR watcher, SDK summary fetch)
- *   - `session-watcher.ts` — per-session lifecycle object built on `core`
- *   - `agent-adapter.ts`  — `AgentAdapter` instance the server consumes
- *   - `schemas.ts`         — Effect schemas + types (browser-safe)
- *
- * `core` is the only thing `session-watcher` and `agent-adapter` import
- * from this package. `index.ts` is a pure barrel — anything imported via
- * `kolu-claude-code` flows through here so the public surface stays in
- * one place, and `session-watcher` / `agent-adapter` never have to reach
- * back through it (which was the #710 noImportCycles hit).
- */
-
 export { claudeCodeAdapter } from "./agent-adapter.ts";
 
 export {
@@ -23,17 +5,13 @@ export {
   completedBackgroundTaskIds,
   deriveState,
   deriveTaskProgress,
-  deriveWorkflowProgress,
   encodeProjectPath,
   extractTasks,
-  fetchSessionSummary,
   FORK_TRANSCRIPT_STALE_MS,
-  liveOutstandingTasks,
-  liveWorkflowRuns,
+  fetchSessionSummary,
+  isWorkflowTask,
   type LiveRun,
   nextStaleDeadline,
-  type ObserveWorkflowRun,
-  observeWorkflowRun,
   outstandingBackgroundTasks,
   outstandingForkRuns,
   PROJECTS_DIR,
@@ -46,10 +24,12 @@ export {
   TAIL_BYTES,
   tailJsonlLines,
   tryWatchDir,
-  watchOrWaitForDir,
-  type WorkflowObservation,
   WORKFLOW_JOURNAL_STALE_MS,
+  type WorkflowTask,
+  type WorkflowView,
+  watchOrWaitForDir,
   workflowsDirFor,
+  workflowView,
 } from "./core.ts";
 export {
   type ClaudeCodeInfo,
@@ -71,7 +51,6 @@ export {
   parseClaudeCodeJsonl,
 } from "./transcript.ts";
 
-// ── The plugin — the ONE contribution the registry (`kolu-agents`) folds. ──
 import type { AgentPlugin } from "anyagent";
 import type { Fetcher } from "kolu-transcript-core";
 import { claudeCodeAdapter } from "./agent-adapter.ts";

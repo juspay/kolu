@@ -3,6 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import {
+  type BackgroundTask,
   deriveState,
   deriveTaskProgress,
   encodeProjectPath,
@@ -11,13 +12,10 @@ import {
   INTERRUPT_TEXT_PREFIX,
   INTERRUPT_TOOL_RESULT_PREFIX,
   outstandingBackgroundTasks,
+  type SessionFile,
   tailJsonlLines,
 } from "./core.ts";
 
-// --- Shared fixtures for dynamic-workflow background-task entries ---
-
-/** A `user` `tool_result` confirming a background launch. Omit `runId` to
- *  model a plain background `Task`/`Agent` (no workflow journal). */
 function bgLaunch(taskId: string, runId?: string): string {
   const runLine = runId ? `\nRun ID: ${runId}` : "";
   return JSON.stringify({
@@ -35,8 +33,6 @@ function bgLaunch(taskId: string, runId?: string): string {
   });
 }
 
-/** A `user` `tool_result` confirming a backgrounded `Bash` command. The id is
- *  followed by punctuation, matching the real "… with ID: <id>. Output …". */
 function bashLaunch(id: string): string {
   return JSON.stringify({
     type: "user",
@@ -53,7 +49,6 @@ function bashLaunch(id: string): string {
   });
 }
 
-/** A `user` `tool_result` confirming a backgrounded `Agent`. */
 function agentLaunch(id: string): string {
   return JSON.stringify({
     type: "user",
@@ -70,7 +65,6 @@ function agentLaunch(id: string): string {
   });
 }
 
-/** A `queue-operation` enqueue carrying a terminal task-notification. */
 function bgComplete(taskId: string, status = "completed"): string {
   return JSON.stringify({
     type: "queue-operation",
@@ -142,8 +136,6 @@ describe("deriveState", () => {
   });
 
   it("stays tool_use when AskUserQuestion is mixed with a real tool call", () => {
-    // Mixed batch: the human-input prompt is real, but so is the Read —
-    // there's compute in flight, so "Running tools" is honest.
     const line = JSON.stringify({
       type: "assistant",
       message: {
@@ -159,8 +151,6 @@ describe("deriveState", () => {
   });
 
   it("falls back to tool_use when content is missing on a tool_use stop", () => {
-    // Synthetic transcripts (e.g. `claude -c` replays) may omit content;
-    // we can't tell what's pending so treat it as the conservative case.
     const line = JSON.stringify({
       type: "assistant",
       message: { stop_reason: "tool_use", model: "claude-opus-4-7" },
@@ -191,16 +181,11 @@ describe("deriveState", () => {
     });
   });
 
-  // Interrupt-marker fixtures composed from the same constants the
-  // implementation matches against — so a change to the marker policy in
-  // core.ts moves these in lockstep instead of silently decoupling.
   const MID_TURN_MARKER = `${INTERRUPT_TEXT_PREFIX}]`;
   const TOOL_CALL_MARKER = `${INTERRUPT_TEXT_PREFIX} for tool use]`;
   const TOOL_RESULT_MARKER = `${INTERRUPT_TOOL_RESULT_PREFIX}. The tool use was rejected.`;
 
   it("returns waiting when the newest user entry is a mid-turn interrupt marker", () => {
-    // Esc mid-turn appends `user [text: "[Request interrupted by user]"]`.
-    // The agent is idle awaiting the next prompt, not thinking.
     const line = JSON.stringify({
       type: "user",
       message: { content: [{ type: "text", text: MID_TURN_MARKER }] },
@@ -222,8 +207,6 @@ describe("deriveState", () => {
   });
 
   it("returns waiting when interrupted during a tool call", () => {
-    // Esc mid-tool-call appends an errored tool_result then the text marker.
-    // The text marker is newest; either alone settles the dock to idle.
     const toolResult = JSON.stringify({
       type: "user",
       message: {
@@ -239,13 +222,10 @@ describe("deriveState", () => {
     expect(deriveState([toolResult, textMarker])).toMatchObject({
       state: "waiting",
     });
-    // The errored tool_result on its own is also an interrupt signal.
     expect(deriveState([toolResult])).toMatchObject({ state: "waiting" });
   });
 
   it("returns thinking when a real prompt follows an interrupt marker", () => {
-    // The `ralph` shape: after the marker the user types again; that newest
-    // user entry is a genuine prompt → thinking, as before.
     const marker = JSON.stringify({
       type: "user",
       message: { content: [{ type: "text", text: MID_TURN_MARKER }] },
@@ -258,12 +238,6 @@ describe("deriveState", () => {
   });
 
   it("walks past the full /compact tail (summary + slash-command bookkeeping)", () => {
-    // The REAL tail a manual `/compact` leaves: the synthetic summary, then the
-    // slash-command bookkeeping Claude Code appends *after* it — the caveat, the
-    // `<command-name>` invocation, and the `<local-command-stdout>` capture, all
-    // typed `user`. The newest is the command stdout (NOT the summary), so the
-    // generic `user` branch read it as a fresh prompt and pinned `thinking`
-    // forever. State must derive from the genuine prior `end_turn`.
     const endTurn = JSON.stringify({
       type: "assistant",
       message: { stop_reason: "end_turn", model: "claude-opus-4-8" },
@@ -308,10 +282,6 @@ describe("deriveState", () => {
   });
 
   it("skips a no-op slash-command tail (e.g. /config) to the prior turn", () => {
-    // Not compact-specific: any local command that drives no agent work leaves
-    // its `<command-name>`/`<local-command-stdout>` entries at the tail while
-    // the agent is idle. Those must read through to the prior turn, not as a
-    // fresh prompt.
     const endTurn = JSON.stringify({
       type: "assistant",
       message: { stop_reason: "end_turn", model: "claude-opus-4-7" },
@@ -329,14 +299,6 @@ describe("deriveState", () => {
   });
 
   it("reads a prompt-style slash command as thinking, not stuck waiting", () => {
-    // A prompt-style/custom slash command (e.g. `/do`, `/whatchanged`) invokes
-    // the model. Its real transcript tail before the first assistant entry is:
-    // the `<command-name>`/`<command-message>` bookkeeping entry, then a SEPARATE
-    // `isMeta` user entry carrying the expanded prompt body that actually goes
-    // to Claude. The bookkeeping is artifact (skipped), but the `isMeta`
-    // expanded prompt is live model input and must read `thinking` — skipping it
-    // would walk back to the prior `end_turn` and report `waiting` while Claude
-    // is working.
     const endTurn = JSON.stringify({
       type: "assistant",
       message: { stop_reason: "end_turn", model: "claude-opus-4-8" },
@@ -360,19 +322,13 @@ describe("deriveState", () => {
     expect(deriveState([endTurn, bookkeeping, expandedPrompt])).toMatchObject({
       state: "thinking",
     });
-    // CODEX's exact shape: bookkeeping entry alone, expanded prompt not yet
-    // flushed. The bookkeeping carries no model input of its own, so reading
-    // through to the prior turn (`waiting`) here is correct — the `thinking`
-    // lands the instant the `isMeta` prompt (above) or the first assistant
-    // entry appears.
+
     expect(deriveState([endTurn, bookkeeping])).toMatchObject({
       state: "waiting",
     });
   });
 
   it("does not skip a real prompt that follows a compact summary (auto-continue)", () => {
-    // Once the agent (or the user) sends a genuine prompt after the summary,
-    // that newer `user` entry must still read as `thinking`.
     const compactSummary = JSON.stringify({
       type: "user",
       isCompactSummary: true,
@@ -435,13 +391,6 @@ describe("deriveState", () => {
   });
 
   it("keeps the last-assistant model and contextTokens sticky when a user entry is newest", () => {
-    // Thinking state: user just submitted a prompt, so `user` is newer than
-    // the previous assistant's reply. State should come from the user entry
-    // (thinking), but the session's model and its contextTokens must be
-    // preserved from the prior turn — otherwise the model badge blanks on
-    // every tool result and the token count blanks mid-conversation. A
-    // `tool_result` is a `user` entry too, so this tail is also the shape a
-    // tool-heavy turn spends most of its time in.
     const assistant = JSON.stringify({
       type: "assistant",
       message: {
@@ -464,10 +413,6 @@ describe("deriveState", () => {
   });
 
   it("keeps the model sticky across a tool-result tail, older assistant entry winning", () => {
-    // The regression this guards: `model` used to be read off the single
-    // entry that decided state, so a `user` tail (a prompt, or the
-    // `tool_result` that follows every tool call) published `model: null`
-    // for the whole time the agent was working.
     const reply = JSON.stringify({
       type: "assistant",
       message: { stop_reason: "end_turn", model: "claude-opus-4-7" },
@@ -490,11 +435,6 @@ describe("deriveState", () => {
   });
 
   it("returns null contextTokens when usage has no input-side fields", () => {
-    // `claude -c` session restore can write synthetic assistant entries
-    // whose `usage` block lacks all three input-side counters (only
-    // `output_tokens`, or fully empty). Treat that as absent telemetry so
-    // the UI hides the badge — rendering 0K would flash during restore
-    // before the first real API reply lands.
     const line = JSON.stringify({
       type: "assistant",
       message: {
@@ -557,21 +497,13 @@ describe("deriveState", () => {
     });
   });
 
-  // --- Dynamic-workflow: running_background promotion ---
-
   it("promotes end_turn to running_background when a launched task is outstanding", () => {
-    // The agent yielded its turn (end_turn) but a background workflow it
-    // launched has no completion yet — it is busy-waiting, not awaiting user.
     expect(deriveState([bgLaunch("t1", "wf_1"), endTurn])).toMatchObject({
       state: "running_background",
     });
   });
 
   it("does not promote a backgrounded Bash command (no observable journal)", () => {
-    // A detached Bash command (runId null) leaves only a permanent launch
-    // marker — its completion notification can be lost forever to a restart, so
-    // promoting on it spins the pill indefinitely. Only an observable
-    // `Workflow` run (with a journal) is enough to read as working.
     expect(deriveState([bashLaunch("b9ezdjva9"), endTurn])).toMatchObject({
       state: "waiting",
     });
@@ -594,8 +526,6 @@ describe("deriveState", () => {
   });
 
   it("does not promote a tool_use turn even with an outstanding task", () => {
-    // tool_use already reads as working; only the bare end_turn was the
-    // misclassified case.
     const toolUse = JSON.stringify({
       type: "assistant",
       message: { stop_reason: "tool_use", model: "claude-opus-4-6" },
@@ -618,8 +548,6 @@ describe("deriveState", () => {
   });
 
   it("ignores unknown/new entry types and reads state from the assistant turn", () => {
-    // Entry types introduced alongside dynamic workflows must not crash the
-    // parser or shift classification.
     const noise = [
       JSON.stringify({ type: "mode", mode: "normal" }),
       JSON.stringify({ type: "permission-mode", permissionMode: "default" }),
@@ -667,8 +595,6 @@ describe("outstandingBackgroundTasks", () => {
   });
 
   it("detects a backgrounded Bash launch (runId null), trailing period excluded", () => {
-    // The id is followed by ". Output …"; the period must not be captured or
-    // it wouldn't match the completion's <task-id>.
     expect(outstandingBackgroundTasks([bashLaunch("b9ezdjva9")])).toEqual([
       { taskId: "b9ezdjva9", runId: null },
     ]);
@@ -691,7 +617,6 @@ describe("outstandingBackgroundTasks", () => {
   });
 
   it("does not match a templated/quoted marker in pasted text", () => {
-    // A tool_result echoing source code shouldn't mint a phantom task.
     const pasted = JSON.stringify({
       type: "user",
       message: {
@@ -740,8 +665,6 @@ describe("outstandingBackgroundTasks", () => {
   });
 
   it("reads launch markers from array-form tool_result content", () => {
-    // tool_result.content can be a string or an array of text blocks; the
-    // marker must be found in both forms.
     const line = JSON.stringify({
       type: "user",
       message: {
@@ -766,10 +689,9 @@ describe("outstandingBackgroundTasks", () => {
   });
 });
 
-describe("liveOutstandingTasks", () => {
+describe("workflowView.liveTasks", () => {
   let tmpDir: string;
-  let live: typeof import("./index.ts").liveOutstandingTasks;
-  let liveWorkflowRuns: typeof import("./index.ts").liveWorkflowRuns;
+  let workflowView: typeof import("./index.ts").workflowView;
   let nextStaleDeadline: typeof import("./index.ts").nextStaleDeadline;
   let staleMs: number;
   const sessionId = "live-test-session";
@@ -781,21 +703,19 @@ describe("liveOutstandingTasks", () => {
     process.env.KOLU_CLAUDE_PROJECTS_DIR = tmpDir;
     vi.resetModules();
     const mod = await import("./index.ts");
-    live = mod.liveOutstandingTasks;
-    liveWorkflowRuns = mod.liveWorkflowRuns;
+    workflowView = mod.workflowView;
     nextStaleDeadline = mod.nextStaleDeadline;
     staleMs = mod.WORKFLOW_JOURNAL_STALE_MS;
   });
 
-  // The workflow stale deadline now folds through the shared `nextStaleDeadline`
-  // receptacle: `liveWorkflowRuns` projects each kept workflow task to a
-  // `LiveRun` carrying `WORKFLOW_JOURNAL_STALE_MS`, and the watcher feeds that
-  // set (plus the fork runs) to one fold.
+  const live = (s: SessionFile, tasks: BackgroundTask[], now?: number) =>
+    workflowView(s, now).liveTasks(tasks);
+
   const nextDeadline = (
-    s: typeof session,
-    tasks: Parameters<typeof liveWorkflowRuns>[1],
+    s: SessionFile,
+    tasks: BackgroundTask[],
     now?: number,
-  ) => nextStaleDeadline(liveWorkflowRuns(s, tasks), now);
+  ) => nextStaleDeadline(workflowView(s, now).runs(tasks), now);
 
   afterAll(() => {
     delete process.env.KOLU_CLAUDE_PROJECTS_DIR;
@@ -805,7 +725,6 @@ describe("liveOutstandingTasks", () => {
   const wfDir = () =>
     path.join(tmpDir, encodeProjectPath(cwd), sessionId, "workflows");
 
-  /** Write a workflow journal; `ageMs > 0` back-dates its mtime. */
   function writeJournal(runId: string, status: string, ageMs = 0): void {
     fs.mkdirSync(wfDir(), { recursive: true });
     const p = path.join(wfDir(), `${runId}.json`);
@@ -819,10 +738,6 @@ describe("liveOutstandingTasks", () => {
     }
   }
 
-  // #1123: live run dir is `<session>/subagents/workflows/<runId>/` — the
-  // runtime writes `journal.jsonl` (one `started` event per sub-agent) plus
-  // streaming `agent-*.jsonl` here during the run; the `workflows/<runId>.json`
-  // snapshot only appears at completion.
   const liveDir = (runId: string) =>
     path.join(
       tmpDir,
@@ -833,9 +748,6 @@ describe("liveOutstandingTasks", () => {
       runId,
     );
 
-  /** Write a live workflow run dir with `agents` `started` events in
-   *  journal.jsonl and one streaming agent file; `ageMs > 0` back-dates both
-   *  file mtimes (the liveness anchor is the newest file mtime in the dir). */
   function writeLiveJournal(runId: string, agents: number, ageMs = 0): void {
     const d = liveDir(runId);
     fs.mkdirSync(d, { recursive: true });
@@ -871,17 +783,11 @@ describe("liveOutstandingTasks", () => {
   });
 
   it("keeps a LIVE workflow read from subagents/workflows/<runId>/ (the #1123 layout)", () => {
-    // No completion snapshot yet — progress lives only in the live run dir. The
-    // gate must observe it there and keep the run promoted.
     writeLiveJournal("wf_live2", 3);
     expect(live(session, [wf("wf_live2")])).toEqual([wf("wf_live2")]);
   });
 
   it("#1123 regression: keeps a live workflow even with NO completion snapshot, anchored on the live run dir", () => {
-    // Pre-fix, with no `<session>/workflows/<runId>.json` the gate fell back to
-    // the (launch-stamped, never-bumped) `workflows/` dir mtime and demoted at
-    // launch+window mid-run. Now the anchor is the live run dir's streaming
-    // files, so a fresh live run stays promoted regardless of the snapshot path.
     writeLiveJournal("wf_nosnap", 2);
     const anchor = fs.statSync(
       path.join(liveDir("wf_nosnap"), "agent-a0.jsonl"),
@@ -898,12 +804,6 @@ describe("liveOutstandingTasks", () => {
   });
 
   it("demotes an unobservable workflow immediately, at any `now` (phantom guard)", () => {
-    // The phantom `running_background` bug: a launch marker carrying a `Run ID`
-    // whose progress kolu can never read must NOT promote forever. With neither
-    // a completion snapshot (`workflows/<runId>.json`) nor a live run dir
-    // (`subagents/workflows/<runId>/`), there is no observable anchor, so the
-    // gate demotes on the spot — independent of the injected clock. The empty
-    // `workflows/` dir (a bare launch marker) carries no anchor of its own.
     fs.mkdirSync(wfDir(), { recursive: true });
     expect(live(session, [wf("wf_phantom")], 0)).toEqual([]);
     expect(live(session, [wf("wf_phantom")], Date.now())).toEqual([]);
@@ -913,9 +813,6 @@ describe("liveOutstandingTasks", () => {
   });
 
   it("drops a journal-less workflow when the workflows dir is absent (no anchor at all)", () => {
-    // A fresh module with no projects dir written yet: neither the journal nor
-    // its directory is stat-able, so there is no observable liveness anchor and
-    // nothing can justify an indefinite spinner — demote.
     const fresh = {
       pid: 9,
       sessionId: "no-dir-session",
@@ -948,7 +845,7 @@ describe("liveOutstandingTasks", () => {
     expect(live(session, [wf("wf_now")], mtimeMs + staleMs + 1)).toEqual([]);
   });
 
-  describe("nextStaleDeadline (workflow runs via liveWorkflowRuns)", () => {
+  describe("nextStaleDeadline (workflow runs via workflowView.runs)", () => {
     it("returns the journal mtime plus the stale window for a live workflow", () => {
       writeJournal("wf_d1", "running");
       const { mtimeMs } = fs.statSync(path.join(wfDir(), "wf_d1.json"));
@@ -962,7 +859,7 @@ describe("liveOutstandingTasks", () => {
     });
 
     it("returns the earliest deadline across multiple workflows", () => {
-      writeJournal("wf_old", "running", 90_000); // ages out sooner
+      writeJournal("wf_old", "running", 90_000);
       writeJournal("wf_new", "running");
       const oldMtime = fs.statSync(path.join(wfDir(), "wf_old.json")).mtimeMs;
       expect(nextDeadline(session, [wf("wf_old"), wf("wf_new")])).toBe(
@@ -979,8 +876,6 @@ describe("liveOutstandingTasks", () => {
     });
 
     it("returns null when nothing observable anchors the run (gate has already demoted it)", () => {
-      // No workflows dir at all → no anchor → no deadline; the gate drops the
-      // task in the same pass, so there is nothing left to age out.
       const fresh = {
         pid: 9,
         sessionId: "no-dir-deadline-session",
@@ -1090,7 +985,7 @@ describe("firstTranscriptTimestampMs", () => {
     fs.writeFileSync(
       filePath,
       `${[
-        JSON.stringify({ type: "summary" }), // no timestamp
+        JSON.stringify({ type: "summary" }),
         JSON.stringify({ type: "user", timestamp: ts }),
       ].join("\n")}\n`,
     );
@@ -1228,9 +1123,9 @@ describe("deriveTaskProgress", () => {
   });
 });
 
-describe("deriveWorkflowProgress", () => {
+describe("workflowView.progress", () => {
   let tmpDir: string;
-  let deriveWorkflowProgressFn: typeof import("./index.ts").deriveWorkflowProgress;
+  let workflowView: typeof import("./index.ts").workflowView;
   const cwd = "/home/user/project";
   const sessionId = "sess-1";
 
@@ -1250,7 +1145,7 @@ describe("deriveWorkflowProgress", () => {
     process.env.KOLU_CLAUDE_PROJECTS_DIR = tmpDir;
     vi.resetModules();
     const mod = await import("./index.ts");
-    deriveWorkflowProgressFn = mod.deriveWorkflowProgress;
+    workflowView = mod.workflowView;
   });
 
   afterAll(() => {
@@ -1260,7 +1155,9 @@ describe("deriveWorkflowProgress", () => {
 
   const session = () => ({ pid: 1, sessionId, cwd });
 
-  /** Path to the live run dir `<session>/subagents/workflows/<runId>/`. */
+  const deriveWorkflowProgressFn = (s: SessionFile, tasks: BackgroundTask[]) =>
+    workflowView(s).progress(tasks);
+
   const liveRunDir = (runId: string) =>
     path.join(
       tmpDir,
@@ -1283,8 +1180,6 @@ describe("deriveWorkflowProgress", () => {
   });
 
   it("reads the agent count from the LIVE run dir when no snapshot exists yet (#1123)", () => {
-    // During a run there is no `workflows/<runId>.json`; progress lives in
-    // `subagents/workflows/<runId>/journal.jsonl` (one `started` per sub-agent).
     const live = liveRunDir("wf_runlive");
     fs.mkdirSync(live, { recursive: true });
     fs.writeFileSync(
@@ -1308,7 +1203,7 @@ describe("deriveWorkflowProgress", () => {
       [
         { type: "started", agentId: "a0" },
         { type: "started", agentId: "a1" },
-        { type: "started", agentId: "a0" }, // replay of a0 — must not double-count
+        { type: "started", agentId: "a0" },
         { type: "result", agentId: "a0" },
       ]
         .map((e) => JSON.stringify(e))
@@ -1322,9 +1217,6 @@ describe("deriveWorkflowProgress", () => {
   });
 
   it("derives the real workflow name from the persisted script during a live run (#1123)", () => {
-    // A live run has no completion snapshot, but the launch-time script
-    // `workflows/scripts/<name>-<runId>.js` carries the user-visible name — the
-    // tile badge/inspector must show it, not a hard-coded "workflow".
     const live = liveRunDir("wf_named");
     fs.mkdirSync(live, { recursive: true });
     fs.writeFileSync(

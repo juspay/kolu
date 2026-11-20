@@ -6,11 +6,6 @@ import {
   ClaudeWorkflowSchema,
 } from "./schemas.ts";
 
-/** `ClaudeCodeInfo` rides the surface wire (agent info on a terminal snapshot,
- *  which is also persisted), so the ENCODED JSON — key set, key order, value
- *  shapes — is a contract with every client build that may be older or newer
- *  than the server emitting it. These fixtures pin the bytes, not just
- *  decode-equality. */
 describe("ClaudeCodeInfoSchema wire bytes", () => {
   const encode = Schema.encodeSync(ClaudeCodeInfoSchema);
   const decode = Schema.decodeUnknownSync(ClaudeCodeInfoSchema);
@@ -79,9 +74,6 @@ describe("ClaudeCodeInfoSchema wire bytes", () => {
   });
 });
 
-/** `ClaudeWorkflow` is the fan-out snapshot embedded in `ClaudeCodeInfo`, and
- *  the target of the workflow-journal decode in `core.ts`. Its own bytes are
- *  pinned here so a field rename cannot slip through the embedding above. */
 describe("ClaudeWorkflowSchema wire bytes", () => {
   it("encodes byte-for-byte", () => {
     expect(

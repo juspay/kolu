@@ -122,12 +122,6 @@ describe("parseClaudeCodeJsonl", () => {
   });
 
   it("rewrites Agent tool_call + tool_result into a subtask block", () => {
-    // Claude's Agent tool dispatches a sub-agent that runs in an
-    // ephemeral process and only writes its final reply text back into
-    // the parent's tool_result. Rendering the dispatch as a regular
-    // tool call buries it under the "Tools hidden" toggle; surfacing
-    // it as subtask_start + assistant + subtask_end makes the dispatch
-    // visible by default.
     const lines = [
       JSON.stringify({
         type: "assistant",
@@ -179,8 +173,7 @@ describe("parseClaudeCodeJsonl", () => {
     const reply = events[1];
     if (reply?.kind !== "assistant") throw new Error("expected assistant");
     expect(reply.text).toBe("Found it: see file.rs:42");
-    // The original tool_call/tool_result for Agent are suppressed —
-    // their content is now carried by the subtask block.
+
     expect(events.some((e) => e.kind === "tool_call")).toBe(false);
     expect(events.some((e) => e.kind === "tool_result")).toBe(false);
   });

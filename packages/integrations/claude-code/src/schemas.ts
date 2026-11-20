@@ -1,14 +1,3 @@
-/** Effect schemas for Claude Code session info — browser-safe.
- *
- *  Lives in its own module so `kolu-common` (and any client code) can import
- *  the schema without pulling the package root, which transitively evaluates
- *  `@anthropic-ai/claude-agent-sdk` and its `node:crypto` / `node:events`
- *  imports. Mirrors the `anyforge/schemas` precedent. See juspay/kolu#682.
- *
- *  Anything exported here MUST stay free of `node:*` imports, SDK imports,
- *  and filesystem access — Effect Schema and `anyagent`'s schema re-exports
- *  only. */
-
 import {
   type AgentVocab,
   type FlagArity,
@@ -39,38 +28,14 @@ export type ClaudeWorkflow = typeof ClaudeWorkflowSchema.Type;
 
 export const ClaudeCodeInfoSchema = Schema.Struct({
   kind: Schema.Literal("claude-code"),
-  /** Current state derived from session JSONL — except `awaiting_user`, which
-   *  can also arrive from a screen scrape (see below).
-   *  - `awaiting_user`: agent stopped to ask the human. Two on-disk shapes hide
-   *    this from the JSONL classifier (`deriveState`'s `toolUseOrAwaitingUser`):
-   *    for `AskUserQuestion` / `ExitPlanMode` the Claude Agent SDK buffers the
-   *    assistant message in memory until the user resolves it, so the `tool_use`
-   *    block isn't on disk and the tail reads the prior entry (often `thinking`,
-   *    sometimes `waiting`); for a tool-permission gate the tool call IS on disk
-   *    (so the tail reads `tool_use`) but the approval decision lives only in the
-   *    on-screen dialog. #905 recovers the missing signal by recognizing the
-   *    prompt on the *rendered screen* (`screen.ts`): the server's screen-scrape
-   *    poll promotes whichever pollable state is active (`thinking` / `tool_use`
-   *    / `waiting`) to `awaiting_user` while the dialog is visible, and the JSONL
-   *    watcher lowers it again once the user answers and the transcript catches
-   *    up. Recognized prompts: `AskUserQuestion` (its `… to navigate` footer) and
-   *    the tool-permission gates (Write/Edit/Bash/WebFetch approval);
-   *    `ExitPlanMode`'s on-screen prompt has no equivalent marker and is a
-   *    deliberate follow-up. So this state fires from the screen source even
-   *    though it stays absent from the transcript tail.
-   *  - `running_background`: the agent ended its turn (`end_turn`) while an
-   *    outstanding background run it launched is still live — either a dynamic
-   *    `Workflow` with an observable run journal
-   *    (`<session>/workflows/<runId>.json`), or a `/fork` sub-agent with a
-   *    streaming transcript (`<session>/subagents/agent-<id>.jsonl`). Without
-   *    this the end-of-turn would read as `waiting` (needs-user); the agent is
-   *    actually busy-waiting on that run. A backgrounded `Bash` command or
-   *    `Task`/`Agent` (no observable anchor) does NOT promote here: its launch
-   *    marker outlives the process, so a lost completion notification would spin
-   *    the pill forever (the phantom-`running_background` bug). The `workflow`
-   *    field below is populated only for the `Workflow` case; a fork promotes
-   *    the state but carries no fan-out journal, so `workflow` stays null.
-   *    Claude-Code-specific — see `deriveState` and the session-watcher. */
+  /** Current state. `thinking`, `tool_use` and `waiting` come from the session
+   *  JSONL; `awaiting_user` (the agent stopped to ask the human) can also come
+   *  from a screen scrape that promotes whichever of those three is active
+   *  while a prompt dialog is on screen, and drops back when the transcript
+   *  catches up. `running_background` means the turn ended while a run it
+   *  launched is still observably live — a `Workflow` with a run journal or a
+   *  `/fork` with a streaming transcript; only the `Workflow` case populates
+   *  `workflow`. */
   state: Schema.Literals([
     "thinking",
     "tool_use",
@@ -110,8 +75,6 @@ export const ClaudeCodeInfoSchema = Schema.Struct({
 
 export type ClaudeCodeInfo = typeof ClaudeCodeInfoSchema.Type;
 
-/** Claude Code / Anthropic spark mark — simple-icons `anthropic`, 24×24.
- *  ONE mark for both the tile-chrome icon and the dock pip. */
 const CLAUDE_MARK = {
   viewBox: "0 0 24 24",
   paint: "fill" as const,
@@ -120,9 +83,6 @@ const CLAUDE_MARK = {
   ],
 };
 
-/** Claude Code's vocabulary — everything kolu knows about the `claude` binary:
- *  its display name, brand mark, CLI grammar (the flag allowlist that defines a
- *  meaningfully different invocation), resume policy, and wire schema. */
 export const claudeCodeVocab: AgentVocab<ClaudeCodeInfo> = {
   kind: "claude-code",
   displayName: "Claude Code",
@@ -150,12 +110,6 @@ export const claudeCodeVocab: AgentVocab<ClaudeCodeInfo> = {
     idPattern: UUID_RE,
     ref: (info) => info.sessionId,
   },
-  // Measured here, not guessed: `claude` 2.1.322 in a kolu terminal on
-  // 2026-11-13. Idle, a pasted line plus one Enter submits it. WHILE WORKING,
-  // the same keys are accepted and the composer clears — but the transcript
-  // then shows the running turn's own footer ("Cooked for 16s · done") BEFORE
-  // the message's row, i.e. Claude Code holds it and starts a FRESH turn with
-  // it when the current one ends. Nothing is lost, and nothing is steered.
   say: {
     idle: ["Enter"],
     working: { keys: ["Enter"], delivery: "queue" },

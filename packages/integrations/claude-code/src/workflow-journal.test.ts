@@ -2,21 +2,6 @@ import { Result, Schema } from "effect";
 import { describe, expect, it } from "vitest";
 import { WorkflowJournalSchema } from "./core.ts";
 
-/** The workflow run journal (`<session>/workflows/<runId>.json`) is a FOREIGN,
- *  read-only format: Claude Code writes it, kolu only reads it. Two properties
- *  are contractual and pinned here.
- *
- *  1. TOLERANCE — a journal missing `status` and/or `agentCount` still decodes,
- *     landing on "running" / 0. That is policy for journals written by Claude
- *     Code builds that predate those fields, not a fallback: without it the
- *     whole journal is skipped and the fan-out badge goes blank. The defaults
- *     fill a MISSING key only; a present-but-wrong-typed value still fails the
- *     parse, so a genuine format change surfaces as a skipped journal rather
- *     than a silently-wrong snapshot.
- *  2. BYTES — the encoded shape uses the journal's own field names
- *     (`workflowName`/`agentCount`), not the domain names, so the mapping can
- *     never invert unnoticed. kolu never writes these files; the encode
- *     direction is pinned purely as the contract's other half. */
 describe("WorkflowJournalSchema (foreign on-disk format)", () => {
   const decode = Schema.decodeUnknownResult(WorkflowJournalSchema);
 

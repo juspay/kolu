@@ -1,25 +1,3 @@
-/**
- * Claude Code core — pure functions and IO helpers for detecting
- * Claude Code sessions and deriving state from JSONL transcripts.
- *
- * No dependency on server internals (no updateServerMetadata, no TerminalProcess).
- * The server's adapter imports these and wires them into the metadata system.
- *
- * Detection: reads ~/.claude/sessions/{pid}.json to find sessions, then
- * tails the JSONL transcript in ~/.claude/projects/{encoded-cwd}/ to
- * derive state (thinking, tool_use, waiting).
- *
- * Event-driven watchers (fs.watch) are also exported for the server to
- * compose into its adapter lifecycle.
- *
- * Structure note: this file holds the leaf module. Peers `session-watcher.ts`
- * and `agent-adapter.ts` import from here; `index.ts` is a pure barrel
- * re-exporting from all three (plus `schemas.ts`). Keeps the package free
- * of the index ↔ session-watcher ↔ agent-adapter cycle that `index.ts`
- * sat at the center of when it acted as both the helper hub and the
- * barrel simultaneously.
- */
-
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
@@ -38,11 +16,6 @@ import {
   type TaskProgress,
 } from "./schemas.ts";
 
-// --- Configuration ---
-
-/** The env keys the e2e harness sets to point detection at fixtures. Named so
- *  the plugin's `envKeys` (forwarded server→padi) and the reads below share one
- *  spelling. */
 export const CLAUDE_SESSIONS_DIR_ENV = "KOLU_CLAUDE_SESSIONS_DIR";
 export const CLAUDE_PROJECTS_DIR_ENV = "KOLU_CLAUDE_PROJECTS_DIR";
 export const CLAUDE_ENV_KEYS = [
@@ -50,7 +23,6 @@ export const CLAUDE_ENV_KEYS = [
   CLAUDE_PROJECTS_DIR_ENV,
 ] as const;
 
-/** Configurable via env for testing. */
 export const SESSIONS_DIR =
   process.env[CLAUDE_SESSIONS_DIR_ENV] ??
   path.join(os.homedir(), ".claude", "sessions");
@@ -58,85 +30,46 @@ export const PROJECTS_DIR =
   process.env[CLAUDE_PROJECTS_DIR_ENV] ??
   path.join(os.homedir(), ".claude", "projects");
 
-/** True when the e2e harness has redirected the projects/sessions dirs at
- *  test fixtures. The Claude Agent SDK has no equivalent override and would
- *  silently scan the user's real ~/.claude/projects, adding fs.watch and
- *  inotify pressure that has been observed to race with the mock harness
- *  on Linux. Skip summary fetching entirely under test. */
 export const SUMMARY_FETCH_ENABLED =
   process.env[CLAUDE_PROJECTS_DIR_ENV] === undefined &&
   process.env[CLAUDE_SESSIONS_DIR_ENV] === undefined;
 
-/** Tail window for `tailJsonlLines` — must exceed the largest single JSONL
- *  entry so that at least one complete line is present after dropping the
- *  (potentially partial) first line.
- *
- *  Sized at 256 KB because real-world claude-code sessions regularly emit
- *  individual assistant entries in the 20–55 KB range (long thinking blocks,
- *  batched tool_use calls, multi-file diffs), with user entries from pasted
- *  content reaching 1 MB+. At 16 KB we silently miss state transitions when
- *  the terminal assistant line overflows the window — `tailJsonlLines`
- *  returns `[]`, `deriveState` returns `null`, and the previous state (often
- *  "thinking") persists forever, leaving the sidebar stuck mid-response.
- *
- *  256 KB gives ~4.6× headroom over the largest assistant line observed
- *  locally and matches the chunk size in mux's `historyService.ts` reverse
- *  tail reader. Allocated transiently per watcher callback — no lasting
- *  memory cost. If single entries ever exceed this, the correct upgrade is
- *  a chunked reverse read that keeps extending until it finds a newline
- *  (mux's pattern), not another bump. */
 export const TAIL_BYTES = 256 * 1024;
-
-// --- Session file reading ---
 
 export interface SessionFile {
   pid: number;
   sessionId: string;
   cwd: string;
-  /** Epoch-ms the claude process started (or resumed via `claude -c`), from the
-   *  session file's `startedAt`. A `claude -c` resume writes a *new* session
-   *  file with a fresh `startedAt`, so a transcript prompt whose timestamp
-   *  predates this value belongs to a previous, killed instance — the current
-   *  claude never processed it. Used to tell a resumed-idle phantom from a live
-   *  turn (see `decayTransientState`). Optional: absent on older session files. */
   startedAt?: number;
 }
 
-/** The session files held across reconciles. Bounded well above any plausible
- *  live fleet (one entry is a four-field record), so the LRU edge is a safety
- *  net rather than a working limit. */
+export function watcherIdentityKey(session: SessionFile): string {
+  const identity: { [K in keyof Required<SessionFile>]: string } = {
+    pid: String(session.pid),
+    sessionId: session.sessionId,
+    cwd: session.cwd,
+    startedAt: session.startedAt === undefined ? "" : String(session.startedAt),
+  };
+  return `${identity.sessionId}:${identity.pid}:${identity.cwd}:${identity.startedAt}`;
+}
+
 const SESSION_FILE_CACHE_MAX = 512;
 
-/** `(mtimeMs, size)` unchanged ⇒ the parse from last time. A claude session
- *  file is rewritten when claude starts, resumes or exits; in between it is a
- *  constant that padi's reconcile loop was re-reading and re-`JSON.parse`ing
- *  several times a second per terminal (juspay/kolu#2286). */
 const sessionFiles = stampedCache<SessionFile | null | "unreadable">(
   SESSION_FILE_CACHE_MAX,
 );
 
-/**
- * Read a Claude session file by pid. Returns null if the file doesn't
- * exist (the common case — most pids are not claude-code sessions) or
- * if the file is unreadable / malformed / missing required fields.
- */
 export function readSessionFile(
   pid: number,
   log?: { debug: (obj: Record<string, unknown>, msg: string) => void },
 ): SessionFile | null | "unreadable" {
   const file = path.join(SESSIONS_DIR, `${pid}.json`);
   return sessionFiles.read(file, (stat) => {
-    // No stat ⇒ no file ⇒ "this pid is not a claude session", answered without
-    // a read at all. This is the commonest outcome by far (most pids are not
-    // claude), so it must stay the cheapest one.
     if (stat === undefined) return null;
     let raw: string;
     try {
       raw = fs.readFileSync(file, "utf8");
     } catch (err) {
-      // The file was there a syscall ago; ENOENT now is the exit race and still
-      // means "no session". Anything else is ignorance, and the ownership
-      // arbiter must not release a session on it.
       if ((err as NodeJS.ErrnoException).code !== "ENOENT") {
         log?.debug({ err, pid }, "claude session file unreadable");
         return "unreadable";
@@ -161,52 +94,21 @@ export function readSessionFile(
           typeof parsed.startedAt === "number" ? parsed.startedAt : undefined,
       };
     } catch (err) {
-      // A file that is there but will not parse is a read we could not
-      // complete, not evidence that the terminal runs no agent.
       log?.debug({ err, pid }, "claude session file parse failed");
       return "unreadable";
     }
   });
 }
 
-// --- Project path encoding ---
-
-/** Encode a CWD path to the Claude projects directory key (replace / and . with -). */
 export function encodeProjectPath(cwd: string): string {
   return cwd.replace(/[/.]/g, "-");
 }
 
-// --- Transcript path discovery ---
-
-/** The deterministic transcript path for a session — computed, not probed.
- *  Claude writes this file lazily (after the first message), so it may not
- *  exist yet; callers that need append-robust watching subscribe on it
- *  unconditionally (see the session watcher, juspay/kolu#1754). */
 export function transcriptPathFor(session: SessionFile): string {
   const projectDir = path.join(PROJECTS_DIR, encodeProjectPath(session.cwd));
   return path.join(projectDir, `${session.sessionId}.jsonl`);
 }
 
-// (The old `findTranscriptPath` existence-probe is retired: the session watcher
-// now subscribes unconditionally on `transcriptPathFor` (juspay/kolu#1754), so
-// the "wait for the file to exist" probe has no caller. Its no-MRU-fallback
-// contract is now structurally impossible to violate — `transcriptPathFor` is a
-// pure `path.join` that never scans a directory.)
-
-// --- JSONL reading ---
-
-/**
- * Read the last N bytes of a JSONL transcript and split into lines
- * (oldest first). Delegates to anyagent's shared `readTailLines` for
- * the actual open/read — that helper closes the FD in a `try/finally`
- * (fixing the pre-extraction leak this function had on `readSync`
- * throw) and can surface hard errors via an `onError` callback.
- *
- * This caller opts into the legacy "silent on any failure" shape by
- * ignoring `onError` and flattening `null` (read failed) or an
- * absent file to `[]` — the transcript tailer treats all three modes
- * the same way (retry on the next `fs.watch` fire).
- */
 export function tailJsonlLines(filePath: string, bytes: number): string[] {
   let size: number;
   try {
@@ -217,38 +119,16 @@ export function tailJsonlLines(filePath: string, bytes: number): string[] {
   return readTailLines({ path: filePath, size, maxBytes: bytes }) ?? [];
 }
 
-/** Head window for `firstTranscriptTimestampMs` — a transcript's leading
- *  records (the session-meta line and first user/assistant entry) are tiny, so
- *  a few KB always covers the first entry that carries a `timestamp`. */
 const HEAD_BYTES = 16_384;
 
-/**
- * Epoch-ms of the transcript's FIRST `timestamp` — when the conversation began,
- * the same "session age" anchor Codex (uuidv7 thread id) and OpenCode (earliest
- * message) expose. This is deliberately NOT the session file's `startedAt`,
- * which is the *process* start and resets on a `claude -c` resume; the inspector
- * wants the age of the conversation, which survives resume, so it reads the
- * transcript head instead.
- *
- * Reads only a bounded prefix (`HEAD_BYTES`) by clamping `readTailLines`'s
- * window to byte 0, then returns the first parseable `timestamp`. Null when the
- * file is absent/empty or no leading entry carries one (a brand-new transcript
- * before the first message lands) — the caller retries on the next watch fire,
- * then caches, since the first entry is immutable once written.
- */
 export function firstTranscriptTimestampMs(filePath: string): number | null {
   let size: number;
   try {
     size = fs.statSync(filePath).size;
   } catch {
-    // Transcript absent/unreadable — expected before the first message lands
-    // (claude creates the JSONL lazily). The watcher retries on the next fire
-    // and caches once it resolves, so a silent null here is correct, not a
-    // swallowed error. Mirrors `tailJsonlLines`' documented silent policy.
     return null;
   }
-  // Clamp `size` to the head window so `readTailLines`' `start` lands at 0 —
-  // it then keeps the first (complete) record instead of dropping a partial.
+
   const head = readTailLines({
     path: filePath,
     size: Math.min(size, HEAD_BYTES),
@@ -260,9 +140,6 @@ export function firstTranscriptTimestampMs(filePath: string): number | null {
     try {
       ts = (JSON.parse(raw) as { timestamp?: string }).timestamp;
     } catch {
-      // A partial trailing line in the head window (or any malformed entry):
-      // skip it and try the next — the same skip-malformed-lines policy
-      // `deriveState` applies to the tail. The first well-formed entry wins.
       continue;
     }
     if (typeof ts !== "string") continue;
@@ -272,15 +149,14 @@ export function firstTranscriptTimestampMs(filePath: string): number | null {
   return null;
 }
 
-// --- Wire-shape helpers (shared) ---
-//
-// Primitives that read the raw JSONL `message.content` block shapes. Shared by
-// both state derivation (interrupt detection) and background-task scanning, so
-// they live above both rather than next to whichever caller happened to land
-// first.
+function parseJsonLine<T>(raw: string): T | null {
+  try {
+    return JSON.parse(raw) as T;
+  } catch {
+    return null;
+  }
+}
 
-/** Flatten a `tool_result` block's `content` (a string, or an array of
- *  `{type:"text", text}` blocks) to a single string for marker matching. */
 function toolResultText(content: unknown): string {
   if (typeof content === "string") return content;
   if (!Array.isArray(content)) return "";
@@ -295,11 +171,6 @@ function toolResultText(content: unknown): string {
     .join("");
 }
 
-/** If `block` is a `tool_result`, return its flattened text and error flag;
- *  otherwise null. Both interrupt detection (errored markers) and
- *  background-task scanning (launch confirmations) classify user-entry
- *  `tool_result` blocks by their text, so the "is it a tool_result, what's its
- *  text" mechanic lives here once. Each caller keeps its own policy on top. */
 function toolResultBlock(
   block: unknown,
 ): { text: string; isError: boolean } | null {
@@ -309,45 +180,20 @@ function toolResultBlock(
   return { text: toolResultText(b.content), isError: b.is_error === true };
 }
 
-// --- State derivation ---
-
-/** Anthropic usage subset from `message.usage` on assistant entries — the
- *  three input-side counters we sum for the running context-token total.
- *  Matches the shape emitted by the Claude Code transcript JSONL. */
 type UsageShape = {
   input_tokens?: number;
   cache_creation_input_tokens?: number;
   cache_read_input_tokens?: number;
 };
 
-/** Minimal assistant `message.content[]` block shape — only the two
- *  fields state derivation reads. The transcript layer carries the full
- *  union (text, thinking, tool_use, etc.); live state derivation just
- *  needs to ask "is this a `tool_use` block and which tool". */
 type ContentBlock = { type?: string; name?: string };
 
-/** Claude tool names whose pending invocation means the agent is
- *  awaiting the human. Policy lives in `classifyByAwaiting`. */
 const AWAITING_USER_TOOLS = new Set(["AskUserQuestion", "ExitPlanMode"]);
 
-/** Markers Claude Code writes as the trailing `user` entry when a turn is
- *  interrupted with Esc. The agent is idle awaiting the next prompt, so this
- *  entry must read as `waiting`, not `thinking` (which the generic `user`
- *  branch would otherwise pick — see #1018). Two confirmed shapes:
- *   - mid-turn:      a text block `"[Request interrupted by user]"`
- *   - mid-tool-call: an errored `tool_result` ("The user doesn't want to
- *     proceed…") followed by `"[Request interrupted by user for tool use]"`
- *  Both interrupt-text variants share the `INTERRUPT_TEXT_PREFIX`; matching the
- *  prefix covers both without enumerating the suffix. A real prompt the user
- *  types after the marker is a distinct newer `user` entry that matches
- *  neither marker, so it still reads as `thinking`. */
 export const INTERRUPT_TEXT_PREFIX = "[Request interrupted by user";
 export const INTERRUPT_TOOL_RESULT_PREFIX =
   "The user doesn't want to proceed with this tool use";
 
-/** True when a `user` entry's `message.content` is an Esc-interrupt marker.
- *  `content` is either a plain string (mid-turn text) or an array of blocks
- *  (text and/or errored `tool_result`); both forms are checked. */
 function isInterruptMarker(content: unknown): boolean {
   if (typeof content === "string")
     return content.startsWith(INTERRUPT_TEXT_PREFIX);
@@ -370,17 +216,6 @@ function isInterruptMarker(content: unknown): boolean {
   return false;
 }
 
-/** Markers Claude Code writes into a `user` entry's `content` for slash-command
- *  bookkeeping — the command invocation, its message/args, the captured stdout,
- *  and the "messages generated while running local commands" caveat. These are
- *  transcript-only artifacts, not a human prompt: a no-op local command
- *  (`/compact`, `/config`, `/status`, …) leaves them as the *trailing* `user`
- *  entries while the agent sits idle, and `/compact` in particular emits the
- *  `<command-name>` + `<local-command-stdout>` pair *after* its summary, so one
- *  of these — not the summary — is the newest entry. The generic `user` branch
- *  would read that as `thinking` and pin the pill working forever (the
- *  stuck-pill-after-`/compact` bug). A real prompt never begins with one of
- *  these tags. */
 const LOCAL_COMMAND_MARKERS = [
   "<command-name>",
   "<command-message>",
@@ -389,32 +224,11 @@ const LOCAL_COMMAND_MARKERS = [
   "<local-command-caveat>",
 ] as const;
 
-/** True when a `user` entry's `message.content` is slash-command bookkeeping
- *  (see `LOCAL_COMMAND_MARKERS`) rather than a human prompt. `content` is a
- *  plain string or an array of blocks; both flatten to text (via
- *  `toolResultText`) and are prefix-matched. */
 function isLocalCommandArtifact(content: unknown): boolean {
   const text = toolResultText(content).trimStart();
   return LOCAL_COMMAND_MARKERS.some((m) => text.startsWith(m));
 }
 
-/** True when a trailing `user` entry is a transcript-only artifact that the
- *  human did not type — the `/compact` summary (`isCompactSummary`) or
- *  slash-command bookkeeping/output (`isLocalCommandArtifact`). `deriveState`
- *  walks past these so state derives from the genuine prior turn (an idle
- *  `end_turn` → `waiting`) instead of reading the artifact as a fresh prompt.
- *  A turn that actually resumes work lands a newer `assistant` entry, which is
- *  seen first.
- *
- *  Deliberately NOT keyed on `isMeta`: that flag marks *injected* model input,
- *  which is overwhelmingly a live prompt the agent is about to act on — a
- *  slash-command/skill expansion ("Base directory for this skill: …"), an
- *  auto-continue ("Continue from where you left off."), hook feedback, a
- *  pasted image. Skipping those would read the prior `end_turn` as `waiting`
- *  while Claude is working (e.g. the brief window after `/do` or
- *  `/whatchanged` invokes the model but before its first assistant entry
- *  lands). The one `isMeta` artifact that genuinely trails — the `/compact`
- *  `<local-command-caveat>` — is already caught by `isLocalCommandArtifact`. */
 function isNonPromptUserEntry(entry: {
   type?: string;
   isCompactSummary?: boolean;
@@ -441,36 +255,49 @@ function toolUseOrAwaitingUser(content: unknown): "tool_use" | "awaiting_user" {
   return classifyByAwaiting(awaiting, total);
 }
 
-/** Derive Claude Code state from the last relevant JSONL message.
- *
- *  Walks backwards once, tracking three independent signals with different
- *  stopping conditions:
- *   - state: first `assistant` OR `user` entry (the newest event)
- *   - model: first `assistant` entry's `message.model` — read on EVERY entry,
- *     independent of the state gate
- *   - contextTokens: first `assistant` entry carrying `message.usage` (the
- *     most recent accounting snapshot)
- *
- *  The two telemetry signals diverge from state during Thinking — the newest
- *  line is a `user` prompt, so state is thinking, but the session's model and
- *  the meaningful token total live one hop back on the previous assistant
- *  reply. Blanking either there (as earlier versions did) masked a valid
- *  running value every time the user typed, or — for the model — every time a
- *  tool result made a `user` entry newest, which is most of a tool-heavy turn
- *  (a `tool_result` IS a `user` entry: `isNonPromptUserEntry` skips only
- *  `/compact` summaries and slash-command artifacts). A model is a SESSION
- *  fact, not a per-event one — `AgentInfoShape.model`.
- *
- *  A newest `assistant` `end_turn` normally means `waiting` (the agent
- *  yielded its turn back to the user). But under dynamic workflows the
- *  agent can yield its turn while a background task it launched is still
- *  running — there it is busy-waiting, not awaiting the human. When the
- *  outstanding set holds a task with an observable run journal (a `Workflow`'s
- *  `runId`), that `waiting` is promoted to `running_background`; a bare
- *  backgrounded `Bash`/`Agent` (runId null) is not enough, since its launch
- *  marker outlives the process. Pass the precomputed set via `outstanding` to
- *  avoid re-scanning (and so the watcher can pre-drop orphaned-journal
- *  workflows); omitted, it is computed from `lines`. */
+interface TranscriptEntry {
+  type?: string;
+  timestamp?: string;
+  isCompactSummary?: boolean;
+  message?: {
+    stop_reason?: string | null;
+    model?: string | null;
+    usage?: UsageShape;
+    content?: unknown;
+  };
+}
+
+function stateFromEntry(
+  entry: TranscriptEntry,
+): ClaudeCodeInfo["state"] | null {
+  return match({
+    type: entry.type,
+    stopReason: entry.message?.stop_reason ?? null,
+  })
+    .with(
+      { type: "assistant", stopReason: "end_turn" },
+      () => "waiting" as const,
+    )
+    .with({ type: "assistant", stopReason: "tool_use" }, () =>
+      toolUseOrAwaitingUser(entry.message?.content),
+    )
+    .with({ type: "assistant" }, () => "thinking" as const)
+    .with({ type: "user" }, () =>
+      isInterruptMarker(entry.message?.content)
+        ? ("waiting" as const)
+        : ("thinking" as const),
+    )
+    .otherwise(() => null);
+}
+
+function promoteBusyWaiting(
+  state: ClaudeCodeInfo["state"],
+  outstanding: () => BackgroundTask[],
+): ClaudeCodeInfo["state"] {
+  if (state !== "waiting") return state;
+  return outstanding().some(isWorkflowTask) ? "running_background" : state;
+}
+
 export function deriveState(
   lines: string[],
   outstanding?: BackgroundTask[],
@@ -478,10 +305,6 @@ export function deriveState(
   state: ClaudeCodeInfo["state"];
   model: string | null;
   contextTokens: number | null;
-  /** Epoch-ms timestamp of the entry the state was derived from (the newest
-   *  `user`/`assistant` entry), or null when it lacks a parseable `timestamp`.
-   *  Used to age a trailing `thinking` prompt against the session's `startedAt`
-   *  (the resumed-vs-live discriminator — see the #1017 module note). */
   timestampMs: number | null;
 } | null {
   let state: ClaudeCodeInfo["state"] | null = null;
@@ -492,171 +315,82 @@ export function deriveState(
   for (let i = lines.length - 1; i >= 0; i--) {
     const raw = lines[i];
     if (raw === undefined) continue;
-    try {
-      const entry: {
-        type?: string;
-        timestamp?: string;
-        isCompactSummary?: boolean;
-        message?: {
-          stop_reason?: string | null;
-          model?: string | null;
-          usage?: UsageShape;
-          // Raw wire data: a string (interrupt text) or a block array. Each
-          // consumer (`toolUseOrAwaitingUser`, `isInterruptMarker`) narrows
-          // to the projection it reads rather than trusting one shared shape.
-          content?: unknown;
-        };
-      } = JSON.parse(raw);
+    const entry = parseJsonLine<TranscriptEntry>(raw);
+    if (entry === null) continue;
 
-      if (contextTokens === null) {
-        const tokens = sumUsageTokens(entry.message?.usage);
-        if (tokens !== null) contextTokens = tokens;
-      }
-
-      // The session's model, read on EVERY entry and independent of the state
-      // gate below — so a tail whose newest entry is a `user` prompt or a
-      // `tool_result` still names the model the session is running. An
-      // assistant entry that carries no `message.model` (a synthetic restore
-      // line) leaves the slot unset for an older entry to fill.
-      if (model === null && entry.type === "assistant") {
-        const m = entry.message?.model;
-        if (typeof m === "string") model = m;
-      }
-
-      // Walk past transcript-only `user` entries the human never typed — the
-      // `/compact` summary and slash-command bookkeeping/output (the
-      // `<command-name>` + `<local-command-stdout>` pair a `/compact` appends
-      // *after* its summary, leaving one of them as the newest entry). A no-op
-      // local command (`/compact`, `/config`, …) leaves these at the tail while
-      // the agent is idle; reading them as a fresh prompt would pin the pill in
-      // `thinking` forever (the stuck-pill bug). Skipping derives state from the
-      // genuine prior turn (`end_turn` → `waiting`); a turn that resumes work
-      // lands a newer assistant entry, seen first. (An `isMeta` injection is
-      // left alone — it is usually a live model prompt; see
-      // `isNonPromptUserEntry`.)
-      if (isNonPromptUserEntry(entry)) continue;
-
-      if (state === null) {
-        state = match({
-          type: entry.type,
-          stopReason: entry.message?.stop_reason ?? null,
-        })
-          .with(
-            { type: "assistant", stopReason: "end_turn" },
-            () => "waiting" as const,
-          )
-          .with({ type: "assistant", stopReason: "tool_use" }, () =>
-            toolUseOrAwaitingUser(entry.message?.content),
-          )
-          .with({ type: "assistant" }, () => "thinking" as const)
-          .with({ type: "user" }, () =>
-            isInterruptMarker(entry.message?.content)
-              ? ("waiting" as const)
-              : ("thinking" as const),
-          )
-          .otherwise(() => null);
-        // Capture the timestamp of the very entry the state derives from — the
-        // newest `user`/`assistant` — so the orphaned-prompt age check reads the
-        // same entry, not a parallel walk (null if absent/unparseable).
-        if (state !== null) {
-          timestampMs = parseIsoTimestamp(entry.timestamp);
-        }
-      }
-
-      if (state !== null && model !== null && contextTokens !== null) break;
-    } catch {
-      // Skip malformed lines
+    if (contextTokens === null) {
+      const tokens = sumUsageTokens(entry.message?.usage);
+      if (tokens !== null) contextTokens = tokens;
     }
+
+    if (model === null && entry.type === "assistant") {
+      const m = entry.message?.model;
+      if (typeof m === "string") model = m;
+    }
+
+    if (isNonPromptUserEntry(entry)) continue;
+
+    if (state === null) {
+      state = stateFromEntry(entry);
+      if (state !== null) timestampMs = parseIsoTimestamp(entry.timestamp);
+    }
+
+    if (state !== null && model !== null && contextTokens !== null) break;
   }
 
   if (state === null) return null;
 
-  // Promote a bare `end_turn` (`waiting`) to `running_background` only when the
-  // agent is busy-waiting on a task kolu can actually observe: a `Workflow` run
-  // (it carries a `runId` and an on-disk journal). A bare backgrounded
-  // `Bash`/`Agent` (runId null) leaves only a launch marker that is permanent
-  // in the transcript — its completion notification can be lost forever to a
-  // restart, so promoting on it spins the pill indefinitely (the phantom
-  // `running_background` bug). The watcher additionally drops a `Workflow`
-  // once kolu can no longer observe it as live — journal read as terminal, or
-  // its liveness anchor aged past the stale window (`liveOutstandingTasks`) —
-  // so an orphaned or unobservable run stops promoting too. Only the `waiting`
-  // case is promoted — an
-  // in-flight `thinking`/`tool_use` already reads as working, and an
-  // `awaiting_user` prompt is a genuine human gate.
-  // The promotion below writes a state the derivation above cannot produce, so
-  // this carries the FIELD's type rather than the match's narrower union.
-  let publishedState: ClaudeCodeInfo["state"] = state;
-  if (publishedState === "waiting") {
-    const bg = outstanding ?? outstandingBackgroundTasks(lines);
-    if (bg.some((t) => t.runId !== null)) publishedState = "running_background";
-  }
-
-  return { state: publishedState, model, contextTokens, timestampMs };
+  return {
+    state: promoteBusyWaiting(
+      state,
+      () => outstanding ?? outstandingBackgroundTasks(lines),
+    ),
+    model,
+    contextTokens,
+    timestampMs,
+  };
 }
 
-// --- Background-task detection (dynamic workflows) ---
-
-/** A background task launched from this session: its task ID (from the
- *  `tool_result` confirmation) and, for `Workflow` launches, the run ID used
- *  to locate the on-disk journal. `runId` is null for backgrounded `Bash`
- *  commands and `Task`/`Agent` runs, which have no workflow journal. */
-export interface BackgroundTask {
+export interface WorkflowTask {
   taskId: string;
-  runId: string | null;
+  runId: string;
 }
 
-/** Tool-result confirmations that a background task was launched, each paired
- *  with the regex capturing its task ID. Three tools background work, each
- *  with its own phrasing, and the captured ID matches the `<task-id>` in the
- *  eventual completion notification:
- *   - `Workflow`:            "… launched in background. Task ID: <id>"
- *   - `Bash` (background):   "Command running in background with ID: <id>"
- *   - `Agent` (background):  "Async agent launched successfully. agentId: <id>"
- *  IDs are matched as `[\w-]+` so a templated/quoted marker in pasted code
- *  (e.g. "Task ID: ${x}") doesn't produce a phantom task, and so the trailing
- *  punctuation after a Bash ID ("…with ID: abc. Output…") isn't captured. */
+export interface DetachedTask {
+  taskId: string;
+  runId: null;
+}
+
+export type BackgroundTask = WorkflowTask | DetachedTask;
+
+export function isWorkflowTask(task: BackgroundTask): task is WorkflowTask {
+  return task.runId !== null;
+}
+
 const BG_LAUNCH_RES = [
   /launched in background\. Task ID: ([\w-]+)/,
   /Command running in background with ID: ([\w-]+)/,
   /Async agent launched successfully\.\s*agentId: ([\w-]+)/,
 ];
-/** Workflow run ID in the same confirmation ("Run ID: <id>") — only the
- *  `Workflow` tool emits one; it locates the on-disk journal. */
+
 const BG_RUN_ID_RE = /Run ID: ([\w-]+)/;
-/** The lifecycle statuses that mean a run has finished — `completed`/`failed`/
- *  `stopped`, or `killed` (cancelled). Single source of truth: the same domain
- *  fact ("which statuses mean done") is read from two distinct on-disk formats,
- *  so each derives its own matcher from this one ordered list — the transcript
- *  notification's `<status>` XML (`TERMINAL_STATUS_RE`) and the workflow
- *  journal's `status` JSON field (`TERMINAL_JOURNAL_STATUSES`). They can't drift. */
+
 const TERMINAL_STATUSES = ["completed", "failed", "stopped", "killed"] as const;
 
-/** Completion notification fields inside a `queue-operation` enqueue. */
 const TASK_ID_TAG_RE = /<task-id>([^<]+)<\/task-id>/;
 const TERMINAL_STATUS_RE = new RegExp(
   `<status>(?:${TERMINAL_STATUSES.join("|")})</status>`,
 );
 
-/** Task-ids whose background run has reported a terminal status — scanned from
- *  the main transcript's `queue-operation` enqueue notifications
- *  (`<task-id>X</task-id>` paired with a terminal `<status>`).
- *
- *  The shared "which runs finished" projection. `outstandingBackgroundTasks`
- *  subtracts it from the launched set; `outstandingForkRuns` uses it as the
- *  fast positive-finish signal — a `/fork` never enters the launched set (its
- *  launch is a local-command, not a `tool_result`), so without this an idle
- *  main would keep spinning for the full stale window after the fork completed.
- *  Here it demotes the instant the completion notification lands. */
 export function completedBackgroundTaskIds(lines: string[]): Set<string> {
   const completed = new Set<string>();
   for (const raw of lines) {
-    let entry: { type?: string; operation?: string; content?: unknown };
-    try {
-      entry = JSON.parse(raw);
-    } catch {
-      continue;
-    }
+    const entry = parseJsonLine<{
+      type?: string;
+      operation?: string;
+      content?: unknown;
+    }>(raw);
+    if (entry === null) continue;
     if (entry.type !== "queue-operation" || entry.operation !== "enqueue")
       continue;
     const content = typeof entry.content === "string" ? entry.content : "";
@@ -666,40 +400,18 @@ export function completedBackgroundTaskIds(lines: string[]): Set<string> {
   return completed;
 }
 
-/** Scan the transcript tail for background tasks launched but not yet
- *  reporting a terminal status.
- *
- *  Launch markers live in `user` `tool_result` blocks — one of the three
- *  `BG_LAUNCH_RES` phrasings (Workflow / backgrounded Bash / backgrounded
- *  Agent). Completion markers (`completedBackgroundTaskIds`) live in
- *  `queue-operation` enqueue entries. The launch ID and the completion's
- *  `<task-id>` are the same token, so outstanding = launched − completed.
- *
- *  Bounded by the same tail window as `deriveState`: a launch whose
- *  confirmation has scrolled out of the tail can't be detected. That only
- *  costs a fallback to the pre-existing `waiting` classification — never a
- *  crash or a wrong-direction promotion.
- *
- *  `completed` (the shared "which runs finished" projection) is scanned
- *  internally by default so standalone callers stay one-argument; the watcher
- *  passes a precomputed set so the projection is read once per check pass,
- *  shared with `outstandingForkRuns`. */
 export function outstandingBackgroundTasks(
   lines: string[],
   completed: Set<string> = completedBackgroundTaskIds(lines),
 ): BackgroundTask[] {
-  const launched = new Map<string, string | null>(); // taskId → runId
+  const launched = new Map<string, string | null>();
 
   for (const raw of lines) {
-    let entry: {
+    const entry = parseJsonLine<{
       type?: string;
       message?: { content?: Array<{ type?: string; content?: unknown }> };
-    };
-    try {
-      entry = JSON.parse(raw);
-    } catch {
-      continue;
-    }
+    }>(raw);
+    if (entry === null) continue;
 
     if (entry.type !== "user") continue;
     const content = entry.message?.content;
@@ -719,16 +431,12 @@ export function outstandingBackgroundTasks(
 
   const out: BackgroundTask[] = [];
   for (const [taskId, runId] of launched) {
-    if (!completed.has(taskId)) out.push({ taskId, runId });
+    if (completed.has(taskId)) continue;
+    out.push(runId === null ? { taskId, runId: null } : { taskId, runId });
   }
   return out;
 }
 
-// --- Workflow journal (dynamic-workflow fan-out progress) ---
-
-/** The on-disk session root: `<projects>/<cwd>/<session>`. The single anchor for
- *  the per-session layout — both the workflow-journal dir and the live workflow
- *  root derive from here, so a session-root layout move changes one place. */
 function sessionRootFor(session: SessionFile): string {
   return path.join(
     PROJECTS_DIR,
@@ -737,37 +445,14 @@ function sessionRootFor(session: SessionFile): string {
   );
 }
 
-/** Per-session workflow-journal directory: `<projects>/<cwd>/<session>/workflows`.
- *  Sibling of the transcript JSONL, which lives at `<projects>/<cwd>/<session>.jsonl`. */
 export function workflowsDirFor(session: SessionFile): string {
   return path.join(sessionRootFor(session), "workflows");
 }
 
-/** Per-session subagents root: `<projects>/<cwd>/<session>/subagents`. Holds one
- *  `agent-<id>.jsonl` (streaming transcript) + `agent-<id>.meta.json` per async
- *  sub-agent, plus the `workflows/` live-run tree. A `/fork` lands a sub-agent
- *  here tagged `{"agentType":"fork"}` in its meta. */
 export function subagentsDirFor(session: SessionFile): string {
   return path.join(sessionRootFor(session), "subagents");
 }
 
-/** On-disk shape of a workflow run journal (`workflows/<runId>.json`) — just
- *  the fields we surface. The wire field names differ from the public
- *  `ClaudeWorkflow` (`workflowName`→`name`, `agentCount`→`agents`), so the
- *  decode-side transformation maps the wire shape to the domain type;
- *  `ClaudeWorkflow` stays the single workflow concept that crosses a module
- *  boundary. Not re-exported from the barrel — the wire format is a private
- *  detail of this reader (the named export exists only so the byte-compat
- *  fixture test can pin the encoding). Encapsulating it as one schema means a
- *  journal-format change fails the parse here (the journal is skipped) rather
- *  than silently defaulting in scattered guards.
- *
- *  This is a FOREIGN, read-only format — Claude Code's own files. The two
- *  decoding defaults (`status` → "running", `agentCount` → 0) are tolerance
- *  policy for journals written before those fields existed: a journal missing
- *  either key still yields a usable snapshot. `withDecodingDefaultKey` fills a
- *  MISSING key only — an explicit `null`/wrong-typed value still fails the
- *  parse, exactly as before. */
 export const WorkflowJournalSchema = Schema.Struct({
   workflowName: Schema.String,
   status: Schema.String.pipe(
@@ -791,26 +476,11 @@ export const WorkflowJournalSchema = Schema.Struct({
   }),
 );
 
-/** The journal-side matcher for `TERMINAL_STATUSES` — a Set for O(1) membership
- *  on the workflow snapshot's `status` field, derived from the same source as
- *  `TERMINAL_STATUS_RE` so the two formats can't drift. "running" (the journal's
- *  default) is the only non-terminal status. */
 const TERMINAL_JOURNAL_STATUSES = new Set<string>(TERMINAL_STATUSES);
 
-/** How long a `Workflow` run may go without any on-disk write before it is
- *  treated as orphaned. A genuinely-running workflow streams its sub-agent
- *  transcripts (`agent-*.jsonl`) continuously, so a multi-minute gap reliably
- *  means the launching agent died (e.g. a Claude restart) and its completion
- *  notification can never arrive (#1109 phantom guard). A false positive
- *  self-heals — the next write re-derives. 2 min is the safe upper end. */
 export const WORKFLOW_JOURNAL_STALE_MS = 2 * 60 * 1000;
 
-/** Newest file mtime (epoch ms) directly inside `dir`, or null when `dir` can't
- *  be read / is empty. Unlike the directory's own mtime (which on Linux only
- *  bumps on create/delete inside it, not on appends to existing files), this
- *  tracks the sub-agent transcripts (`agent-*.jsonl`) as they stream while a
- *  workflow's agents work — so it stays fresh throughout a live run. */
-function newestFileMtimeMs(dir: string): number | null {
+function newestEntryWriteMs(dir: string): number | null {
   let names: string[];
   try {
     names = fs.readdirSync(dir);
@@ -822,39 +492,21 @@ function newestFileMtimeMs(dir: string): number | null {
     try {
       const m = fs.statSync(path.join(dir, name)).mtimeMs;
       if (newest === null || m > newest) newest = m;
-    } catch {
-      // entry vanished between readdir and stat — skip
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
     }
   }
   return newest;
 }
 
-/** The live workflow root under the current runtime layout:
- *  `<session>/subagents/workflows/`. Created lazily on the first `Workflow`
- *  launch; holds one `<runId>/` sub-dir per live run (see `liveWorkflowRunDir`).
- *  The session-watcher watches this tree so live-run writes (`journal.jsonl` /
- *  streaming `agent-*.jsonl` appends) re-derive progress (#1123). */
 function liveWorkflowsRootFor(session: SessionFile): string {
   return path.join(subagentsDirFor(session), "workflows");
 }
 
-/** The live event-log directory for a `Workflow` run under the current runtime
- *  layout: `<session>/subagents/workflows/<runId>/`. Holds `journal.jsonl`
- *  (per-sub-agent `started`/`result` events) plus one streaming `agent-*.jsonl`
- *  per sub-agent. This is where progress lives DURING a run; the
- *  `<session>/workflows/<runId>.json` snapshot is only written at completion
- *  (#1123 — the runtime layout churned and the snapshot path went write-on-end). */
 function liveWorkflowRunDir(session: SessionFile, runId: string): string {
   return path.join(liveWorkflowsRootFor(session), runId);
 }
 
-/** The real workflow name of a live run, resolved from its persisted script
- *  `<session>/workflows/scripts/<name>-<runId>.js` (the verified runtime layout
- *  carries `meta.name` there, and the `<name>-<runId>.js` filename mirrors it).
- *  During a live run only the completion snapshot carries the name as JSON, so
- *  the script filename — written at launch — is the one on-disk source of the
- *  user-visible workflow identity before completion. Returns null when no script
- *  matching this `runId` exists (then callers keep a neutral fallback). */
 function liveWorkflowName(session: SessionFile, runId: string): string | null {
   const scriptsDir = path.join(workflowsDirFor(session), "scripts");
   let names: string[];
@@ -872,11 +524,6 @@ function liveWorkflowName(session: SessionFile, runId: string): string | null {
   return null;
 }
 
-/** Number of sub-agents spawned so far in a live run — distinct `started`
- *  agentIds in `journal.jsonl`. Null when the journal can't be read. Counting
- *  distinct ids (not raw `started` rows) guards against a replayed/re-emitted
- *  `started` for the same sub-agent overstating the fan-out badge; a `started`
- *  row lacking an agentId still counts once. */
 function liveAgentCount(runDir: string): number | null {
   let raw: string;
   try {
@@ -888,150 +535,79 @@ function liveAgentCount(runDir: string): number | null {
   let anonymous = 0;
   for (const line of raw.split("\n")) {
     if (!line.trim()) continue;
-    try {
-      const e = JSON.parse(line) as { type?: string; agentId?: unknown };
-      if (e.type !== "started") continue;
-      if (typeof e.agentId === "string") ids.add(e.agentId);
-      else anonymous++;
-    } catch {
-      // skip a malformed line (transient mid-append)
-    }
+    const e = parseJsonLine<{ type?: string; agentId?: unknown }>(line);
+    if (e === null || e.type !== "started") continue;
+    if (typeof e.agentId === "string") ids.add(e.agentId);
+    else anonymous++;
   }
   return ids.size + anonymous;
 }
 
-/** One observation of a `Workflow` run across BOTH on-disk layouts, so every
- *  consumer projects from a single source of truth (#1123):
- *   - the completed snapshot `<session>/workflows/<runId>.json` — authoritative
- *     end-state (name, terminal status, agentCount), written only at completion;
- *   - the live run dir `<session>/subagents/workflows/<runId>/` — progress during
- *     the run (agentCount from `journal.jsonl`, liveness from the newest
- *     streaming file mtime).
- *
- *  `anchorMs` is the most recent on-disk write attributable to the run — the
- *  staleness clock. For a live run it tracks the sub-agent transcripts as they
- *  stream, so a genuinely-running workflow never ages out; once the orchestrator
- *  dies (no more writes) it goes stale and the gate demotes (the #1109 phantom
- *  guard). `terminal` is true only on a positively-read terminal snapshot. */
-export interface WorkflowObservation {
-  workflow: ClaudeWorkflow | null;
-  anchorMs: number | null;
-  terminal: boolean;
-}
+type WorkflowObservation =
+  | { kind: "terminal"; workflow: ClaudeWorkflow | null }
+  | { kind: "live"; workflow: ClaudeWorkflow | null; anchorMs: number }
+  | { kind: "unobservable"; workflow: ClaudeWorkflow | null };
 
-/** Lookup that yields the observation for a run, shared across the three
- *  projections so one running_background check pass observes each run once.
- *  Defaults to a live `observeWorkflowRun(session, runId)` when callers (e.g.
- *  standalone unit tests) don't pre-compute a Map. */
-export type ObserveWorkflowRun = (runId: string) => WorkflowObservation;
-
-export function observeWorkflowRun(
-  session: SessionFile,
-  runId: string,
-): WorkflowObservation {
-  // 1) Completed snapshot — authoritative end-state when present.
-  const snapPath = path.join(workflowsDirFor(session), `${runId}.json`);
+function readWorkflowSnapshot(snapPath: string): WorkflowObservation | null {
+  let mtimeMs: number;
+  let raw: string;
   try {
-    // This is a bounded completion record in Claude's local runtime directory,
-    // not a transcript/worktree read. Keep the synchronous projection API, but
-    // bind metadata + bytes to one descriptor so a path replacement cannot make
-    // the mtime describe a different file than the parsed snapshot.
     const fd = fs.openSync(snapPath, "r");
-    let mtimeMs: number;
-    let raw: string;
     try {
       mtimeMs = fs.fstatSync(fd).mtimeMs;
       raw = fs.readFileSync(fd, "utf8");
     } finally {
       fs.closeSync(fd);
     }
-    let json: unknown;
-    try {
-      json = JSON.parse(raw);
-    } catch {
-      // Snapshot mid-write: keep it alive on its mtime, no parsed workflow yet.
-      return { workflow: null, anchorMs: mtimeMs, terminal: false };
-    }
-    const status = (json as { status?: unknown }).status;
-    const terminal =
-      typeof status === "string" && TERMINAL_JOURNAL_STATUSES.has(status);
-    const parsed = Schema.decodeUnknownResult(WorkflowJournalSchema)(json);
-    return {
-      workflow: Result.isSuccess(parsed) ? parsed.success : null,
-      anchorMs: mtimeMs,
-      terminal,
-    };
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
-    // No completion snapshot yet — fall through to the live layout.
+    return null;
   }
-
-  // 2) Live run dir — progress while the workflow is running.
-  const runDir = liveWorkflowRunDir(session, runId);
-  const anchorMs = newestFileMtimeMs(runDir);
-  const agents = liveAgentCount(runDir);
-  if (agents !== null) {
-    // The completion snapshot carries the name as JSON only at the end; during
-    // the run the persisted script filename is the on-disk source of the
-    // user-visible workflow identity. Fall back to a neutral label only when no
-    // script for this runId is found.
-    const name = liveWorkflowName(session, runId) ?? "workflow";
-    return {
-      workflow: { name, status: "running", agents },
-      anchorMs,
-      terminal: false,
-    };
+  const json = parseJsonLine<unknown>(raw);
+  if (json === null) return { kind: "live", workflow: null, anchorMs: mtimeMs };
+  const status =
+    typeof json === "object" && json !== null && "status" in json
+      ? json.status
+      : undefined;
+  const parsed = Schema.decodeUnknownResult(WorkflowJournalSchema)(json);
+  const workflow = Result.isSuccess(parsed) ? parsed.success : null;
+  if (typeof status === "string" && TERMINAL_JOURNAL_STATUSES.has(status)) {
+    return { kind: "terminal", workflow };
   }
-
-  // 3) Unobservable — neither layout readable. `anchorMs` (a bare run-dir mtime,
-  // if any) still lets the staleness gate age it out rather than spin forever.
-  return { workflow: null, anchorMs, terminal: false };
+  return { kind: "live", workflow, anchorMs: mtimeMs };
 }
 
-/** Read fan-out progress for outstanding background workflows. Only `Workflow`
- *  launches have a `runId`; plain background `Task`/`Agent` launches are skipped.
- *  Returns the first run still `running` (falling back to the first observable
- *  one), or null when no outstanding task is an observable workflow. */
-export function deriveWorkflowProgress(
+function observeWorkflowRun(
   session: SessionFile,
-  outstanding: BackgroundTask[],
-  observe: ObserveWorkflowRun = (runId) => observeWorkflowRun(session, runId),
-): ClaudeWorkflow | null {
-  let fallback: ClaudeWorkflow | null = null;
-  for (const task of outstanding) {
-    if (!task.runId) continue;
-    const { workflow } = observe(task.runId);
-    if (!workflow) continue;
-    if (workflow.status === "running") return workflow;
-    fallback ??= workflow;
-  }
-  return fallback;
+  runId: string,
+): WorkflowObservation {
+  const snapshot = readWorkflowSnapshot(
+    path.join(workflowsDirFor(session), `${runId}.json`),
+  );
+  if (snapshot !== null) return snapshot;
+
+  const runDir = liveWorkflowRunDir(session, runId);
+  const anchorMs = newestEntryWriteMs(runDir);
+  const agents = liveAgentCount(runDir);
+  const workflow =
+    agents === null
+      ? null
+      : {
+          name: liveWorkflowName(session, runId) ?? "workflow",
+          status: "running",
+          agents,
+        };
+  return anchorMs === null
+    ? { kind: "unobservable", workflow }
+    : { kind: "live", workflow, anchorMs };
 }
 
-/** A background run keeping an otherwise-idle main busy-waiting, projected to the
- *  one shape the watcher's promotion path needs: an `id`, its liveness `anchorMs`
- *  (the most recent on-disk write attributable to the run), and the `staleMs`
- *  window after which a quiet anchor means the run is orphaned. The two run KINDS
- *  — a `Workflow` (journal-anchored, `WORKFLOW_JOURNAL_STALE_MS`) and a `/fork`
- *  (subagent-transcript-anchored, `FORK_TRANSCRIPT_STALE_MS`) — both fold to this
- *  so the watcher plugs into one receptacle instead of hand-composing two parallel
- *  triads. A third kind adds another producer behind it, untouched watcher. Each
- *  producer keeps its own anchor-reading IO private (observe-dir-walk vs
- *  single-file-stat); only the projection is shared. */
 export interface LiveRun {
   id: string;
   anchorMs: number;
   staleMs: number;
 }
 
-/** Earliest wall-clock time at which one of `runs` would cross its stale
- *  threshold, or null when `runs` is empty. The single staleness-deadline fold
- *  for every background-run kind: a quiet run emits no fs event, so the watcher
- *  arms a one-shot recheck timer at this deadline; when it fires the next scan
- *  sees the run's anchor as stale (orphaned → demote) or freshly-written (still
- *  live → re-arm). Each run carries its own `staleMs` so a `Workflow` and a
- *  `/fork` can age out on different windows through the same fold. Clamped to
- *  `now` so an already-stale run fires immediately. */
 export function nextStaleDeadline(
   runs: LiveRun[],
   now: number = Date.now(),
@@ -1044,103 +620,71 @@ export function nextStaleDeadline(
   return earliest;
 }
 
-/** Filter `outstanding` to the tasks that may drive the `running_background`
- *  promotion, dropping a `Workflow` run once kolu can no longer observe it as
- *  live: its snapshot is *positively* read as terminal, or its liveness anchor
- *  has aged past `WORKFLOW_JOURNAL_STALE_MS` (the orphaned-by-restart signature).
- *  Non-`Workflow` tasks (runId null) pass through unchanged — `deriveState`'s own
- *  narrowing already declines to promote on them.
- *
- *  The anchor is the newest write across the run's live dir
- *  (`subagents/workflows/<runId>/`) or its completion snapshot — see
- *  `observeWorkflowRun`. A streaming workflow keeps that anchor fresh and stays
- *  promoted; an orphaned/dead one stops writing and ages out. `now` is injectable
- *  for tests; the IO only runs when the tail carries an outstanding task. */
-export function liveOutstandingTasks(
+export interface WorkflowView {
+  liveTasks: (outstanding: BackgroundTask[]) => BackgroundTask[];
+  runs: (tasks: BackgroundTask[]) => LiveRun[];
+  progress: (tasks: BackgroundTask[]) => ClaudeWorkflow | null;
+}
+
+export function workflowView(
   session: SessionFile,
-  outstanding: BackgroundTask[],
   now: number = Date.now(),
-  observe: ObserveWorkflowRun = (runId) => observeWorkflowRun(session, runId),
-): BackgroundTask[] {
-  return outstanding.filter((task) => {
-    if (!task.runId) return true; // not a workflow — deriveState's narrowing decides
-    const obs = observe(task.runId);
-    if (obs.terminal) return false; // positively finished → drop
-    if (obs.anchorMs === null) return false; // unobservable → demote (phantom guard)
-    return now - obs.anchorMs <= WORKFLOW_JOURNAL_STALE_MS; // live iff recently written
-  });
+): WorkflowView {
+  const seen = new Map<string, WorkflowObservation>();
+  const observe = (runId: string): WorkflowObservation => {
+    let o = seen.get(runId);
+    if (o === undefined) {
+      o = observeWorkflowRun(session, runId);
+      seen.set(runId, o);
+    }
+    return o;
+  };
+
+  return {
+    liveTasks: (outstanding) =>
+      outstanding.filter((task) => {
+        if (!isWorkflowTask(task)) return true;
+        const obs = observe(task.runId);
+        return (
+          obs.kind === "live" && now - obs.anchorMs <= WORKFLOW_JOURNAL_STALE_MS
+        );
+      }),
+
+    runs: (tasks) => {
+      const live: LiveRun[] = [];
+      for (const task of tasks) {
+        if (!isWorkflowTask(task)) continue;
+        const obs = observe(task.runId);
+        if (obs.kind !== "live") continue;
+        live.push({
+          id: task.runId,
+          anchorMs: obs.anchorMs,
+          staleMs: WORKFLOW_JOURNAL_STALE_MS,
+        });
+      }
+      return live;
+    },
+
+    progress: (tasks) => {
+      let fallback: ClaudeWorkflow | null = null;
+      for (const task of tasks) {
+        if (!isWorkflowTask(task)) continue;
+        const { workflow } = observe(task.runId);
+        if (!workflow) continue;
+        if (workflow.status === "running") return workflow;
+        fallback ??= workflow;
+      }
+      return fallback;
+    },
+  };
 }
 
-/** Project the live workflow `tasks` (already filtered by `liveOutstandingTasks`)
- *  to the shared `LiveRun` shape the watcher's promotion path consumes, dropping
- *  non-workflow tasks (runId null) and any whose anchor can't be snapshot. The
- *  workflow producer behind the `nextStaleDeadline` receptacle — the `/fork`
- *  producer (`outstandingForkRuns`) returns `LiveRun` directly. Reuses the same
- *  `observeWorkflowRun` anchor as the gate so the two never disagree. */
-export function liveWorkflowRuns(
-  session: SessionFile,
-  tasks: BackgroundTask[],
-  observe: ObserveWorkflowRun = (runId) => observeWorkflowRun(session, runId),
-): LiveRun[] {
-  const runs: LiveRun[] = [];
-  for (const task of tasks) {
-    if (!task.runId) continue;
-    const { anchorMs } = observe(task.runId);
-    if (anchorMs === null) continue; // no observable anchor → gate already demoted it
-    runs.push({
-      id: task.runId,
-      anchorMs,
-      staleMs: WORKFLOW_JOURNAL_STALE_MS,
-    });
-  }
-  return runs;
-}
-
-// --- Fork sub-agent detection (`/fork`) ---
-//
-// A `/fork` spawns a background sub-agent the way a `Workflow` does, but it is
-// launched from a slash command, so its launch lands in the transcript ONLY as
-// a `system`/`local_command` echo (`⑂ forked <name> (<n>)`) — never the
-// `tool_result` confirmation the three `BG_LAUNCH_RES` phrasings match. It is
-// therefore invisible to `outstandingBackgroundTasks`, so an idle (`waiting`)
-// main never promotes to `running_background` while a fork runs, and the dock
-// reads the row as idle (issue: forks undetected while main idle). Detect it
-// from its on-disk artifacts instead: `subagents/agent-<id>.meta.json` (tagged
-// `agentType:"fork"`) + the streaming `subagents/agent-<id>.jsonl` whose mtime
-// is the liveness anchor — the direct analogue of the Workflow journal path.
-
-/** Meta tag a `/fork` writes to `agent-<id>.meta.json`. Async `Agent`/`Task`
- *  sub-agents carry a different (or absent) `agentType`, so this discriminator
- *  promotes ONLY forks — a backgrounded `Agent` stays unpromoted (its launch
- *  marker outlives the process; the same phantom guard `deriveState` applies to
- *  runId-less tasks). */
 const FORK_AGENT_TYPE = "fork";
 
-/** `agent-<id>.meta.json` → captures `<id>` (identical to the completion
- *  notification's `<task-id>`). The `workflows/` live-run subdir has no
- *  `.meta.json`, so it is naturally excluded. */
 const FORK_META_RE = /^agent-(.+)\.meta\.json$/;
 
-/** A `/fork` sub-agent streams its transcript continuously while it runs, so a
- *  multi-minute gap means it died (its launching claude was killed and the
- *  completion notification can never arrive). Encodes the SAME domain fact as
- *  `WORKFLOW_JOURNAL_STALE_MS` — "how long a streaming background anchor may go
- *  quiet before it's presumed orphaned" — and is currently the same 2 min. This
- *  is a named const, not a separate threshold: both values are carried per-run as
- *  `LiveRun.staleMs` and folded in one place (`nextStaleDeadline`), so the fork
- *  and workflow windows can never silently drift apart in the math. They are kept
- *  as two consts only because they are two pieces of data anchored on two
- *  different artifacts; there is no observed or roadmapped scenario where
- *  fork-orphan timing must diverge from workflow-orphan timing (both watch the
- *  same "sub-agent transcript stopped streaming" mechanism). Should a genuinely
- *  independent fork window ever materialize, change this value; until then,
- *  collapsing both to one `BACKGROUND_RUN_STALE_MS` would be a fine further
- *  simplification. */
 export const FORK_TRANSCRIPT_STALE_MS = 2 * 60 * 1000;
 
-/** True when `agent-<id>.meta.json` tags the sub-agent as a `/fork`. A
- *  malformed/unreadable meta reads as "not a fork" — never promote on a file we
- *  can't positively classify. */
 function isForkMeta(metaPath: string): boolean {
   try {
     const json = JSON.parse(fs.readFileSync(metaPath, "utf8")) as {
@@ -1152,19 +696,6 @@ function isForkMeta(metaPath: string): boolean {
   }
 }
 
-/** Scan `<session>/subagents` for live `/fork` runs: tagged `agentType:"fork"`,
- *  not yet reporting a terminal status (`completed`), and with a transcript
- *  written within `FORK_TRANSCRIPT_STALE_MS` (still streaming → still running).
- *  Returns each as a `LiveRun` — the shared shape the watcher's promotion path
- *  consumes, alongside the workflow producer (`liveWorkflowRuns`) — anchored on
- *  the streaming transcript's mtime and carrying `FORK_TRANSCRIPT_STALE_MS` as its
- *  own stale window.
- *
- *  `completed` (from `completedBackgroundTaskIds`) is the fast positive-finish
- *  signal so an idle main demotes the instant the fork's completion lands; the
- *  mtime gate is the phantom guard for an orphaned fork whose completion never
- *  arrives. The transcript is stat-ed before the meta is read, so a finished or
- *  stale sub-agent costs only a stat. `now` injectable for tests. */
 export function outstandingForkRuns(
   session: SessionFile,
   completed: Set<string>,
@@ -1175,79 +706,34 @@ export function outstandingForkRuns(
   try {
     names = fs.readdirSync(dir);
   } catch {
-    return []; // no subagents dir → no forks
+    return [];
   }
   const forks: LiveRun[] = [];
   for (const name of names) {
     const id = FORK_META_RE.exec(name)?.[1];
     if (id === undefined) continue;
-    if (completed.has(id)) continue; // already finished
+    if (completed.has(id)) continue;
     let anchorMs: number;
     try {
       anchorMs = fs.statSync(path.join(dir, `agent-${id}.jsonl`)).mtimeMs;
     } catch {
-      continue; // no transcript → unobservable, don't promote (phantom guard)
+      continue;
     }
-    if (now - anchorMs > FORK_TRANSCRIPT_STALE_MS) continue; // orphaned
-    if (!isForkMeta(path.join(dir, name))) continue; // not a /fork
+    if (now - anchorMs > FORK_TRANSCRIPT_STALE_MS) continue;
+    if (!isForkMeta(path.join(dir, name))) continue;
     forks.push({ id, anchorMs, staleMs: FORK_TRANSCRIPT_STALE_MS });
   }
   return forks;
 }
 
-// --- Phantom transient de-escalation (#1017) ---
-//
-// A trailing transient state keeps `deriveState` reporting a *working* state
-// indefinitely once the session is abandoned (most reliably: claude killed
-// mid-turn, then resumed idle by session-restore) — the dock then spins a
-// "running" pill forever. Two trailing shapes hit it, each disambiguated by a
-// different out-of-band signal once the transcript has gone quiet past a window:
-//
-//   - dangling `tool_use` (an assistant tool call with no following
-//     `tool_result`): a *live* tool keeps a descendant process (a Bash child, a
-//     sub-agent claude), an abandoned one has none — so "subtree idle (no
-//     descendant)" tells them apart.
-//
-//   - `thinking` (the newest entry is a `user` prompt): childless and quiet
-//     whether the turn is live (awaiting the model's first token) or abandoned,
-//     so the subtree probe alone can't tell them apart. The discriminator is
-//     the prompt's age relative to the claude process: a `claude -c` resume
-//     writes a fresh `startedAt`, so a prompt that *predates* `startedAt`
-//     belongs to a killed instance the current (resumed-idle) claude never
-//     processed. A live turn's prompt always postdates `startedAt`, so it is
-//     never cleared. The subtree is NOT consulted for `thinking`: a
-//     resumed-idle claude often holds a long-lived helper child (a persistent
-//     MCP server such as `chrome-devtools-mcp`), so requiring an idle subtree
-//     would wrongly keep the phantom spinning forever — `orphaned` + stale is
-//     already definitive.
-//
-// Sibling of the `running_background` decay (#1109), which handles the
-// `end_turn`-promotion half on its own workflow-journal signal; the states are
-// disjoint, so the paths never overlap.
-
-/** How long the transcript may sit unwritten before a dangling `tool_use`
- *  becomes eligible to decay to `waiting`. A live tool writes the transcript as
- *  it streams tool calls and replies, so a multi-minute gap with an idle
- *  subtree means the tool was abandoned. Mirrors `WORKFLOW_JOURNAL_STALE_MS`
- *  (2 min) — the same "quiet long enough to be sure" threshold as the sibling
- *  decay. A false positive self-heals: the next transcript write fires the
- *  watcher and re-derives the true state. */
 export const TRANSIENT_STALE_MS = 2 * 60 * 1000;
 
-/** One process-table row: a pid and its parent pid. */
 export interface ProcEntry {
   pid: number;
   ppid: number;
 }
 
-/** Snapshot every live process's pid→ppid in a single `ps` call. The invocation
- *  (`ps -A -o pid=,ppid=`) is portable across Linux procps and macOS/BSD ps.
- *  Returns null when ps is unavailable or errors — callers treat null as "can't
- *  tell" and must NOT de-escalate, so a probe failure never clears a genuinely
- *  working pill. Synchronous: it runs only on the (rare) stale-transient
- *  recheck, never the hot transcript-event path, so the brief event-loop block
- *  is acceptable and keeps the watcher's control flow non-async. */
-export function snapshotProcessTree(): ProcEntry[] | null {
+export function snapshotProcessTreeSync(): ProcEntry[] | null {
   let out: string;
   try {
     const argv = ["ps", "-A", "-o", "pid=,ppid="];
@@ -1269,98 +755,89 @@ export function snapshotProcessTree(): ProcEntry[] | null {
   return procs;
 }
 
-/** True when no process in `procs` is a descendant of `pid`. A descendant set
- *  is non-empty iff `pid` has at least one direct child, so only direct
- *  parentage need be tested. The #1017 discriminator: a genuinely-working
- *  claude keeps at least one descendant (the Bash child it spawned, or a
- *  sub-agent claude); an abandoned / killed-then-resumed-idle claude has none
- *  (and a dead pid trivially has none). Pure — `procs` is injected. */
 export function hasNoDescendants(pid: number, procs: ProcEntry[]): boolean {
   return !procs.some((p) => p.ppid === pid);
 }
 
-/** Whether claude's process subtree shows no live work — detected as the
- *  absence of any descendant process (see `hasNoDescendants`). Returns false
- *  ("assume working") when the process table can't be sampled, so a probe
- *  failure never clears a genuinely-working pill.
- *
- *  CPU is deliberately not consulted: `ps` reports a lifetime/decaying CPU
- *  average, not an instantaneous one, so it is not a reliable "busy right now"
- *  signal portably, while the descendant test is the clean discriminator the
- *  issue verified across live sessions. The only case it misses — claude itself
- *  CPU-bound in-process with no child and a quiet transcript — is vanishingly
- *  rare (claude's tools spawn children or do IO) and self-heals on the next
- *  transcript write. */
 export function isClaudeSubtreeIdle(pid: number): boolean {
-  const procs = snapshotProcessTree();
+  const procs = snapshotProcessTreeSync();
   if (procs === null) return false;
   return hasNoDescendants(pid, procs);
 }
 
-/** Decide the state to publish for a trailing transient (`tool_use` /
- *  `thinking`), and when (if ever) to re-probe. Pure policy: the caller supplies
- *  how long the transcript has been quiet, a subtree-idle probe (invoked only
- *  once the quiet window has elapsed so the real `ps` spawn stays off the common
- *  path), and — for `thinking` — whether the trailing prompt is orphaned (it
- *  predates the current claude's `startedAt`, see the module note).
- *
- *   - not a decayable transient → unchanged, no recheck.
- *   - `thinking` whose prompt is NOT orphaned → unchanged, no recheck: this is a
- *     live turn (the prompt postdates the running claude), never cleared.
- *   - not yet stale → unchanged; arm a recheck at the moment it would go stale
- *     (a quiet transcript fires no fs event, so the watcher needs a timer).
- *   - stale + subtree idle → decay to `waiting` (the phantom is settled).
- *   - stale + subtree busy → genuine work; keep it and re-probe after another
- *     window (the work may yet end silently with no further write).
- */
-export function decayTransientState(
-  state: ClaudeCodeInfo["state"],
-  quietMs: number,
-  probes: { subtreeIdle: () => boolean; promptOrphaned: boolean },
-  staleMs: number = TRANSIENT_STALE_MS,
-  now: number = Date.now(),
-): { state: ClaudeCodeInfo["state"]; recheckAt: number | null } {
-  if (state !== "tool_use" && state !== "thinking") {
-    return { state, recheckAt: null };
-  }
-  // A `thinking` turn is childless and quiet whether live or abandoned; only an
-  // orphaned prompt (predating this resumed claude) proves abandonment.
-  if (state === "thinking" && !probes.promptOrphaned) {
-    return { state, recheckAt: null };
-  }
-  if (quietMs < staleMs) {
-    return { state, recheckAt: now + (staleMs - quietMs) };
-  }
-  // Past the window, confirm abandonment with the signal appropriate to the
-  // state. For `thinking`, `promptOrphaned` is already definitive — the prompt
-  // predates this resumed claude, which `claude -c` never auto-continues — so
-  // it settles directly. The subtree is deliberately NOT consulted here: a
-  // resumed-idle claude often holds a long-lived helper child (e.g. a
-  // persistent MCP server like `chrome-devtools-mcp`), so requiring an idle
-  // subtree would wrongly keep the phantom spinning forever (observed on a live
-  // session). For `tool_use` the subtree IS the discriminator — a live tool
-  // keeps a child — so a busy subtree means real work; re-probe after another
-  // window in case it ends silently.
-  if (state === "thinking") {
-    return { state: "waiting", recheckAt: null };
-  }
-  if (probes.subtreeIdle()) {
-    return { state: "waiting", recheckAt: null };
-  }
-  return { state, recheckAt: now + staleMs };
+export interface TransientDecay {
+  state: ClaudeCodeInfo["state"];
+  recheckAt: number | null;
 }
 
-/** Sum the three input-side token counters that together represent what
- *  the model had to read for the turn. Returns null when the usage object
- *  is absent OR when none of the three input-side fields are present —
- *  the latter covers synthetic replay entries (e.g. from `claude -c`) that
- *  carry an empty or output-only `usage` block. Rendering null hides the
- *  badge; rendering 0 would flash "0K" during session restore before the
- *  first real API reply lands.
- *
- *  Distinct from "all three fields present and zero" — a theoretical case
- *  that doesn't occur in practice (real API calls always have `input_tokens
- *  ≥ 1`), but if it did, the raw 0 would still render correctly. */
+export function decayDanglingToolUse(
+  quietMs: number,
+  subtreeIdle: () => boolean,
+  staleMs: number = TRANSIENT_STALE_MS,
+  now: number = Date.now(),
+): TransientDecay {
+  if (quietMs < staleMs) {
+    return { state: "tool_use", recheckAt: now + (staleMs - quietMs) };
+  }
+  if (subtreeIdle()) return { state: "waiting", recheckAt: null };
+  return { state: "tool_use", recheckAt: now + staleMs };
+}
+
+export function decayOrphanedThinking(
+  quietMs: number,
+  staleMs: number = TRANSIENT_STALE_MS,
+  now: number = Date.now(),
+): TransientDecay {
+  if (quietMs < staleMs) {
+    return { state: "thinking", recheckAt: now + (staleMs - quietMs) };
+  }
+  return { state: "waiting", recheckAt: null };
+}
+
+export type TrailingTransient =
+  | { kind: "dangling_tool_use"; subtreeIdle: () => boolean }
+  | { kind: "orphaned_thinking" }
+  | { kind: "settled"; state: ClaudeCodeInfo["state"] };
+
+export function trailingTransient(
+  state: ClaudeCodeInfo["state"],
+  promptMs: number | null,
+  session: SessionFile,
+): TrailingTransient {
+  if (state === "tool_use") {
+    return {
+      kind: "dangling_tool_use",
+      subtreeIdle: () => isClaudeSubtreeIdle(session.pid),
+    };
+  }
+  const { startedAt } = session;
+  if (
+    state === "thinking" &&
+    startedAt !== undefined &&
+    promptMs !== null &&
+    promptMs < startedAt
+  ) {
+    return { kind: "orphaned_thinking" };
+  }
+  return { kind: "settled", state };
+}
+
+export function decayTrailingTransient(
+  trailing: TrailingTransient,
+  quietMs: number,
+  staleMs: number = TRANSIENT_STALE_MS,
+  now: number = Date.now(),
+): TransientDecay {
+  switch (trailing.kind) {
+    case "dangling_tool_use":
+      return decayDanglingToolUse(quietMs, trailing.subtreeIdle, staleMs, now);
+    case "orphaned_thinking":
+      return decayOrphanedThinking(quietMs, staleMs, now);
+    case "settled":
+      return { state: trailing.state, recheckAt: null };
+  }
+}
+
 function sumUsageTokens(usage: UsageShape | undefined): number | null {
   if (!usage) return null;
   if (
@@ -1377,12 +854,6 @@ function sumUsageTokens(usage: UsageShape | undefined): number | null {
   );
 }
 
-// --- Task extraction ---
-
-/**
- * Scan JSONL lines for TaskCreate/TaskUpdate tool calls and accumulate into
- * the provided task map. Returns true if the map changed.
- */
 export function extractTasks(
   lines: string[],
   tasks: Map<string, "pending" | "in_progress" | "completed">,
@@ -1407,7 +878,6 @@ export function extractTasks(
       continue;
     }
 
-    // TaskCreate results come on "user" type messages with toolUseResult.task
     if (entry.type === "user" && entry.toolUseResult?.task?.id) {
       const id = entry.toolUseResult.task.id;
       if (typeof id === "string" && !tasks.has(id)) {
@@ -1417,7 +887,6 @@ export function extractTasks(
       continue;
     }
 
-    // TaskUpdate calls come on "assistant" type messages as tool_use content blocks
     if (entry.type !== "assistant") continue;
     const content = entry.message?.content;
     if (!Array.isArray(content)) continue;
@@ -1458,7 +927,6 @@ export function extractTasks(
   return changed;
 }
 
-/** Derive TaskProgress summary from a task map. Returns null if empty. */
 export function deriveTaskProgress(
   tasks: Map<string, "pending" | "in_progress" | "completed">,
 ): TaskProgress | null {
@@ -1470,14 +938,6 @@ export function deriveTaskProgress(
   return { total: tasks.size, completed };
 }
 
-// --- fs.watch helpers ---
-
-/**
- * Try to watch a directory. Returns a cleanup function on success, null
- * if watch failed. ENOENT (directory doesn't exist yet) is expected and
- * silent; other errors (EACCES, EMFILE, etc.) surface at debug so they're
- * discoverable without spamming the log.
- */
 export function tryWatchDir(
   dir: string,
   onChange: () => void,
@@ -1498,25 +958,6 @@ export function tryWatchDir(
   }
 }
 
-/**
- * Watch a directory that may not yet exist. If direct watch fails, falls
- * back to watching the nearest existing ancestor and re-attaches toward the
- * target as each missing level appears. Returns a cleanup function.
- *
- * The fallback recurses up the chain — not just one level — so a target whose
- * parent ALSO doesn't exist yet still gets watched. This matters for the
- * per-session `subagents/` dir: its parent (`<session>/`) is itself created
- * lazily on the first sub-agent, so a single-level fallback would attach to
- * nothing and miss a `/fork` whose artifacts land while the main transcript is
- * already quiet. Each level's appearance kicks `onChange` (the target may have
- * been fully populated between our attempt and the event), so the consumer
- * re-derives once the leaf finally exists.
- *
- * Used for SESSIONS_DIR (absent on fresh systems until first claude run), the
- * per-session project dir under PROJECTS_DIR (created when claude writes its
- * first transcript), and the per-session `subagents/` dir (created on the first
- * sub-agent / `/fork`).
- */
 export function watchOrWaitForDir(
   dir: string,
   onChange: () => void,
@@ -1528,26 +969,17 @@ export function watchOrWaitForDir(
   let child: (() => void) | null = null;
   let ancestorWatcher: (() => void) | null = null;
   const parent = path.dirname(dir);
-  // `path.dirname` of a filesystem root is the root itself — stop there so a
-  // bad/relative target can't recurse forever. tryWatchDir already failed on
-  // `dir`, so the only fallback is the parent; if the parent IS the root and
-  // unwatchable, we simply hold no watcher (same as the prior behavior).
   if (parent !== dir) {
     const onParentChange = () => {
       if (child) return;
       const attached = tryWatchDir(dir, onChange, log);
       if (!attached) return;
       child = attached;
-      // The ancestor chain has served its purpose — retire it.
       ancestorWatcher?.();
       ancestorWatcher = null;
       log?.info({ dir, parent }, "claude-code: ancestor-dir watcher retired");
-      // Kick — dir may already be populated (race: created and filled between
-      // our first attempt and the parent event).
       onChange();
     };
-    // Recurse: if `parent` doesn't exist either, this watches ITS nearest
-    // existing ancestor and re-attaches down the chain as each level appears.
     ancestorWatcher = watchOrWaitForDir(parent, onParentChange, log);
   }
   return () => {
@@ -1556,24 +988,6 @@ export function watchOrWaitForDir(
     child?.();
   };
 }
-
-// --- Shared SESSIONS_DIR watcher ---
-//
-// Every consumer of this package that wants to react to session
-// file appearance/disappearance needs a watch on SESSIONS_DIR. Rather
-// than have each caller install its own fs.watch (so N consumers = N
-// duplicate watchers + N duplicate dispatches per event), this module
-// refcounts a single watcher: first subscriber lazily installs it,
-// last unsubscribe tears it down.
-//
-// `sharedSessionsDir` is a single nullable structure (not a
-// {watcher, listeners} pair) so the "active iff non-empty" invariant
-// is mechanical — there's no way for the two halves to disagree.
-//
-// Per-listener `onError` is required (not optional) so fault isolation
-// is a type-system obligation, not a convention. If one listener's
-// callback throws, its own onError runs, and iteration continues to
-// the next listener unaffected.
 
 interface SessionsDirListener {
   cb: () => void;
@@ -1585,17 +999,6 @@ let sharedSessionsDir: {
   listeners: Set<SessionsDirListener>;
 } | null = null;
 
-/**
- * Subscribe to changes in `SESSIONS_DIR`. Returns an unsubscribe
- * function. The underlying `fs.watch` is shared across all
- * subscribers — refcounted, installed on first subscribe, torn down
- * on last unsubscribe.
- *
- * `onError` receives any exception thrown by `onChange` and runs
- * in place of breaking the iteration over peer listeners. Callers
- * must provide one (silent swallowing would hide bugs) — pass a
- * logger call like `(err) => log.warn({ err }, "...")`.
- */
 export function subscribeSessionsDir(
   onChange: () => void,
   onError: (err: unknown) => void,
@@ -1606,8 +1009,6 @@ export function subscribeSessionsDir(
     const cleanup = watchOrWaitForDir(
       SESSIONS_DIR,
       () => {
-        // Snapshot before iteration so a listener that subscribes or
-        // unsubscribes synchronously can't skip a peer for this event.
         for (const l of [...listeners]) {
           try {
             l.cb();
@@ -1632,9 +1033,6 @@ export function subscribeSessionsDir(
   };
 }
 
-// --- Summary fetching ---
-
-/** Fetch the display summary from the Claude Agent SDK. Returns null on failure. */
 export async function fetchSessionSummary(
   sessionId: string,
   cwd: string,

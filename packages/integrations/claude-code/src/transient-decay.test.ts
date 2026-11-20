@@ -2,76 +2,46 @@ import { spawn } from "node:child_process";
 import { describeDaemon } from "@kolu/daemon-test-gate";
 import { afterEach, describe, expect, it } from "vitest";
 import {
-  decayTransientState,
+  decayDanglingToolUse,
+  decayOrphanedThinking,
+  decayTrailingTransient,
   deriveState,
   hasNoDescendants,
-  snapshotProcessTree,
+  snapshotProcessTreeSync,
   TRANSIENT_STALE_MS,
+  trailingTransient,
 } from "./core.ts";
 
-// --- The phantom transient pill (#1017) ---
-//
-// A trailing transient state keeps `deriveState` reporting a *working* state
-// with no decay once the session is abandoned (most reliably: claude killed
-// mid-turn, then resumed idle by session-restore). The dock spins forever. Two
-// trailing shapes hit it, each disambiguated by its own out-of-band signal once
-// the transcript has gone quiet past a window:
-//   - dangling `tool_use`: a live tool keeps a descendant process; an abandoned
-//     one has none — so "subtree idle (no descendant)" tells them apart.
-//   - `thinking` (trailing `user` prompt): childless and quiet whether live or
-//     abandoned, so the discriminator is the prompt's age — an ORPHANED prompt
-//     (predating this resumed claude's `startedAt`) belongs to a killed instance
-//     the current claude never processed. A live turn's prompt postdates
-//     `startedAt`, so it is never cleared.
-// `decayTransientState` is the pure policy that composes these.
-
-describe("decayTransientState (#1017 phantom transient pill)", () => {
+describe("trailing transient decay (#1017 phantom transient pill)", () => {
   const idle = () => true;
   const busy = () => false;
-  // A fixed clock sample so the absolute `recheckAt` deadline is assertable
-  // (the caller passes the same `now` it used to measure the quiet window).
+
   const now = 1_700_000_000_000;
-  /** A probe that fails the test if invoked — asserts the window gate runs
-   *  before the (real, process-spawning) subtree probe so the common path
-   *  never pays for it. */
+
   const neverProbed = () => {
     throw new Error(
       "subtree probe must not run before the quiet window elapses",
     );
   };
-  /** Probe bundle: `tool_use` reads `subtreeIdle`; `thinking` also reads
-   *  `promptOrphaned`. Default `promptOrphaned: false` (the safe live-turn
-   *  case); tests that exercise the orphaned path set it true. */
-  const probes = (
-    subtreeIdle: () => boolean,
-    promptOrphaned = false,
-  ): { subtreeIdle: () => boolean; promptOrphaned: boolean } => ({
-    subtreeIdle,
-    promptOrphaned,
+
+  const session = (startedAt?: number) => ({
+    pid: 4242,
+    sessionId: "decay-session",
+    cwd: "/home/user/decay-project",
+    startedAt,
   });
 
   it("settles a dangling `tool_use` pill to `waiting` once stale and the subtree is idle", () => {
-    // The reproduced case: claude killed mid-Bash, resumed idle — a dangling
-    // tool_use with no tool_result and no live child process.
     expect(
-      decayTransientState(
-        "tool_use",
-        TRANSIENT_STALE_MS + 1_000,
-        probes(idle),
-        undefined,
-        now,
-      ),
+      decayDanglingToolUse(TRANSIENT_STALE_MS + 1_000, idle, undefined, now),
     ).toEqual({ state: "waiting", recheckAt: null });
   });
 
   it("keeps a dangling `tool_use` and schedules a recheck before the window elapses", () => {
-    // Not yet stale: never probe the subtree, but arm a one-shot recheck at the
-    // absolute moment the window *would* elapse — `now + (staleMs - quietMs)`.
     expect(
-      decayTransientState(
-        "tool_use",
+      decayDanglingToolUse(
         TRANSIENT_STALE_MS - 30_000,
-        probes(neverProbed),
+        neverProbed,
         undefined,
         now,
       ),
@@ -79,61 +49,47 @@ describe("decayTransientState (#1017 phantom transient pill)", () => {
   });
 
   it("keeps a genuinely-working tool_use when the subtree is busy", () => {
-    // Stale transcript but claude still has a descendant (a long Bash / a
-    // sub-agent) → real work; never cleared. Re-probe a full window from now.
     expect(
-      decayTransientState(
-        "tool_use",
-        TRANSIENT_STALE_MS,
-        probes(busy),
-        undefined,
-        now,
-      ),
+      decayDanglingToolUse(TRANSIENT_STALE_MS, busy, undefined, now),
     ).toEqual({ state: "tool_use", recheckAt: now + TRANSIENT_STALE_MS });
   });
 
   it("settles an ORPHANED `thinking` pill to `waiting` past the window WITHOUT probing the subtree", () => {
-    // The reproduced case: a trailing `user` prompt from a killed instance, the
-    // current claude resumed idle (prompt predates startedAt → promptOrphaned).
-    // `orphaned + stale` is definitive, so the subtree is never consulted
-    // (`neverProbed`) — that's what makes the decay immune to a long-lived MCP/
-    // helper child. (On zest, the `append` session held a `chrome-devtools-mcp`
-    // child; requiring an idle subtree wrongly kept its phantom spinning.)
     expect(
-      decayTransientState(
-        "thinking",
-        TRANSIENT_STALE_MS + 1_000,
-        probes(neverProbed, true),
-        undefined,
-        now,
-      ),
+      decayOrphanedThinking(TRANSIENT_STALE_MS + 1_000, undefined, now),
     ).toEqual({ state: "waiting", recheckAt: null });
-  });
-
-  it("keeps a LIVE `thinking` turn (prompt not orphaned) — never probes, never decays", () => {
-    // A live turn's prompt postdates startedAt → not orphaned. Even long past
-    // the window, it is left alone and the subtree probe is never spawned.
-    expect(
-      decayTransientState(
-        "thinking",
-        TRANSIENT_STALE_MS * 10,
-        probes(neverProbed, false),
-        undefined,
-        now,
-      ),
-    ).toEqual({ state: "thinking", recheckAt: null });
   });
 
   it("keeps an orphaned `thinking` and schedules a recheck before the window elapses", () => {
     expect(
-      decayTransientState(
-        "thinking",
-        TRANSIENT_STALE_MS - 30_000,
-        probes(neverProbed, true),
-        undefined,
-        now,
-      ),
+      decayOrphanedThinking(TRANSIENT_STALE_MS - 30_000, undefined, now),
     ).toEqual({ state: "thinking", recheckAt: now + 30_000 });
+  });
+
+  it("classifies a trailing `tool_use` as dangling", () => {
+    expect(trailingTransient("tool_use", 2_000, session(1_000)).kind).toBe(
+      "dangling_tool_use",
+    );
+  });
+
+  it("classifies a `thinking` whose prompt predates this claude as orphaned", () => {
+    expect(trailingTransient("thinking", 1_000, session(2_000)).kind).toBe(
+      "orphaned_thinking",
+    );
+  });
+
+  it("keeps a LIVE `thinking` turn (prompt not orphaned) — never probes, never decays", () => {
+    const trailing = trailingTransient("thinking", 3_000, session(2_000));
+    expect(trailing).toEqual({ kind: "settled", state: "thinking" });
+    expect(
+      decayTrailingTransient(trailing, TRANSIENT_STALE_MS * 10, undefined, now),
+    ).toEqual({ state: "thinking", recheckAt: null });
+  });
+
+  it("keeps a `thinking` turn settled when the session file carries no startedAt", () => {
+    expect(trailingTransient("thinking", 1_000, session()).kind).toBe(
+      "settled",
+    );
   });
 
   it.each([
@@ -141,13 +97,10 @@ describe("decayTransientState (#1017 phantom transient pill)", () => {
     "awaiting_user",
     "running_background",
   ] as const)("never decays the non-transient state `%s`", (state) => {
-    // running_background has its own decay path (#1109); waiting/awaiting_user
-    // are settled / a genuine human gate. None should ever probe the subtree.
     expect(
-      decayTransientState(
-        state,
+      decayTrailingTransient(
+        trailingTransient(state, 1_000, session(2_000)),
         TRANSIENT_STALE_MS * 10,
-        probes(neverProbed, true),
         undefined,
         now,
       ),
@@ -163,7 +116,7 @@ describe("deriveState timestampMs (the entry the state derives from)", () => {
     const lines = [
       entry("assistant", "2026-06-02T11:33:48.779Z"),
       entry("user", "2026-06-02T11:35:49.791Z"),
-      entry("permission-mode"), // metadata after the prompt — skipped
+      entry("permission-mode"),
       entry("ai-title"),
     ];
     expect(deriveState(lines)?.timestampMs).toBe(
@@ -179,12 +132,6 @@ describe("deriveState timestampMs (the entry the state derives from)", () => {
     expect(deriveState([entry("user")])?.timestampMs).toBeNull();
   });
 });
-
-// --- Process-subtree discriminator ---
-//
-// The signal that separates a live tool from an abandoned one: a working claude
-// keeps a descendant process (the Bash child it spawned, or a sub-agent
-// claude); an abandoned / killed-then-resumed-idle claude has none.
 
 describe("hasNoDescendants", () => {
   it("is true when no process lists pid as its parent", () => {
@@ -211,16 +158,14 @@ describe("hasNoDescendants", () => {
   });
 });
 
-// Gated (F4): the descendant-detection case forks a real `sleep` child. A bare
-// vitest must fork nothing, so this whole block runs only under KOLU_DAEMON_TESTS=1.
-describeDaemon("snapshotProcessTree", () => {
+describeDaemon("snapshotProcessTreeSync", () => {
   const children: ReturnType<typeof spawn>[] = [];
   afterEach(() => {
     for (const c of children.splice(0)) c.kill("SIGKILL");
   });
 
   it("samples the live process table including this process", () => {
-    const procs = snapshotProcessTree();
+    const procs = snapshotProcessTreeSync();
     expect(procs).not.toBeNull();
     expect(procs?.some((p) => p.pid === process.pid)).toBe(true);
   });
@@ -229,7 +174,7 @@ describeDaemon("snapshotProcessTree", () => {
     const child = spawn("sleep", ["30"]);
     children.push(child);
     await new Promise((r) => setTimeout(r, 150));
-    const procs = snapshotProcessTree();
+    const procs = snapshotProcessTreeSync();
     expect(procs).not.toBeNull();
     expect(
       procs?.some((p) => p.pid === child.pid && p.ppid === process.pid),

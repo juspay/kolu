@@ -1,21 +1,10 @@
-/**
- * claude-code session-watcher wiring for the append-robust floor
- * (juspay/kolu#1754). The exhaustive floor mechanics live in kolu-io's
- * `file-append-watcher.test.ts`; this guards that the floor is reachable
- * THROUGH the real transcript watcher — a dropped `end_turn` edge on a fast
- * turn self-heals to `waiting`, without leaning on the (disarmed) live-thinking
- * decay path.
- */
-
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { DEFAULT_APPEND_POLL_MS } from "kolu-io";
 import { suppressFsWatchEdges } from "kolu-io/suppress-fs-watch.testlib";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-// PROJECTS_DIR is captured at module load; setting it also disables the
-// summary-fetch CLI spawn. Point it at a temp dir before importing the watcher.
 const projectsDir = fs.mkdtempSync(
   path.join(os.tmpdir(), "kolu-claude-floor-"),
 );
@@ -56,7 +45,6 @@ const line = (o: object) => `${JSON.stringify(o)}\n`;
 
 describe("claude watcher — append-robust floor (#1754)", () => {
   it("self-heals to `waiting` after a dropped `end_turn` edge", async () => {
-    // A live (non-orphaned) trailing user prompt → `thinking`.
     fs.writeFileSync(
       transcriptPath,
       line({
@@ -75,7 +63,6 @@ describe("claude watcher — append-robust floor (#1754)", () => {
     await sleep(50);
     expect(states.at(-1)).toBe("thinking");
 
-    // The terminal end_turn appends after attach; its edge is dropped.
     fs.appendFileSync(
       transcriptPath,
       line({
@@ -89,21 +76,13 @@ describe("claude watcher — append-robust floor (#1754)", () => {
         },
       }),
     );
-    await sleep(DEFAULT_APPEND_POLL_MS + 400); // > one poll interval
+    await sleep(DEFAULT_APPEND_POLL_MS + 400);
 
     expect(states.at(-1)).toBe("waiting");
     watcher.destroy();
   });
 
   it("picks up a transcript that appears after the watcher subscribes (Q7 unconditional)", async () => {
-    // No transcript file yet — the old `findTranscriptPath`/none-waiting-watching
-    // machinery would have deferred watching until the projectDir bootstrap
-    // fired. The new wiring subscribes on `transcriptPathFor` unconditionally,
-    // so nothing should be emitted until the file exists. Absence is asserted
-    // functionally below (`states` stays empty — an absent transcript reads as
-    // [] and derives nothing); an `fs.existsSync` pre-check here would be a
-    // redundant check-then-write on the same path, which CodeQL flags as a
-    // file-system race (js/file-system-race).
     const states: string[] = [];
     const watcher = createSessionWatcher(
       { pid: process.pid, sessionId: SESSION_ID, cwd: CWD, startedAt: BASE },
@@ -111,11 +90,8 @@ describe("claude watcher — append-robust floor (#1754)", () => {
       silentLog,
     );
     await sleep(50);
-    expect(states).toEqual([]); // absent file: reads as [], derives nothing
+    expect(states).toEqual([]);
 
-    // The transcript appears (Claude lazily creates it after the first
-    // message) with no fs.watch edge (suppressed in beforeEach) — only the
-    // poll floor's absent→present reconcile can pick this up.
     fs.writeFileSync(
       transcriptPath,
       line({
@@ -124,7 +100,7 @@ describe("claude watcher — append-robust floor (#1754)", () => {
         message: { role: "user", content: "quick thing" },
       }),
     );
-    await sleep(DEFAULT_APPEND_POLL_MS + 400); // > one poll interval
+    await sleep(DEFAULT_APPEND_POLL_MS + 400);
 
     expect(states.at(-1)).toBe("thinking");
     watcher.destroy();
