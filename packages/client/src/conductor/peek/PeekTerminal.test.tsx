@@ -149,7 +149,7 @@ afterEach(() => {
 describe("PeekTerminal", () => {
   it("asks the terminal's own host for its attach stream", async () => {
     const { dispose } = mount();
-    await vi.waitFor(() => expect(seam.entryKeys).toHaveLength(1));
+    await vi.waitFor(() => expect(seam.attached).toHaveLength(1));
     expect(seam.entryKeys[0]).toEqual(decodeHostKey("remote:nix@example"));
     expect(seam.attached[0]?.proc).toBe(seam.PROC);
     dispose();
