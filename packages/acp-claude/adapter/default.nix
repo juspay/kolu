@@ -1,25 +1,5 @@
-# WHAT BOTH PRODUCTS MUST AGREE ABOUT THIS ADAPTER — the facts, in one place.
-#
-# The npm shim, the two patches over it, and the names the derivation needs are
-# all facts about WHICH Claude ACP adapter is pinned. kolu bakes one into
-# padi's wrapper and olai bakes the same version into its own, and a second copy
-# of this file is a second answer to "which adapter" that nothing compares —
-# so it lives here, beside the shim and the patches it describes, and each
-# product reads it:
-#
-#   - kolu: `nix/packages/acp-adapter.nix`, which adds only kolu's own lines
-#     (the `claude` the adapter drives, and its `env`).
-#   - olai: its `packages/plugins/claude/default.nix`, which does the same.
-#
-# Everything here is a plain value or a path into this directory. It returns a
-# set rather than calling the builder because the builder is each product's to
-# reach (`nix/npm-adapter.nix` in kolu), and a shared file that imported one
-# product's builder would be the two products' build systems braided again in
-# the one place that must not braid them.
 let
   shim = ./shim;
-  # The npm package inside the shim — a binding rather than a literal repeated,
-  # because the version below is read out of the shim's own dependency pin.
   packageName = "@agentclientprotocol/claude-agent-acp";
 in
 {

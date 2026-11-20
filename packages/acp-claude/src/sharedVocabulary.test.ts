@@ -44,8 +44,6 @@ import path from "node:path";
 import { describe, expect, test } from "vitest";
 import ledger from "./sharedVocabulary.json" with { type: "json" };
 
-/** Every top-level `export` DECLARATION's name — values and types alike, which
- *  is the half a runtime inventory cannot see. */
 const declaredIn = (text: string): ReadonlyArray<string> =>
   [
     ...text.matchAll(
@@ -53,8 +51,6 @@ const declaredIn = (text: string): ReadonlyArray<string> =>
     ),
   ].map((match) => match[1] ?? "");
 
-/** ... and every name an `export { … }` list hands out, under the name the
- *  list hands it out AS, which is what an importer spells. */
 const listedIn = (text: string): ReadonlyArray<string> =>
   [...text.matchAll(/^export\s+(?:type\s+)?\{([^}]*)\}/gm)].flatMap((match) =>
     (match[1] ?? "")
@@ -70,8 +66,6 @@ const listedIn = (text: string): ReadonlyArray<string> =>
 const exportsOf = (text: string): ReadonlySet<string> =>
   new Set([...declaredIn(text), ...listedIn(text)]);
 
-/** ... and every `readonly` member declared in the file, flat across its
- *  interfaces, for a row that records one. */
 const membersOf = (text: string): ReadonlySet<string> =>
   new Set(
     [...text.matchAll(/^\s+readonly\s+([A-Za-z_$][\w$]*)\??\s*[:(]/gm)].map(
@@ -88,8 +82,6 @@ describe("the Claude Code vocabulary olai also reads", () => {
       test("every recorded export is still exported", () => {
         const live = exportsOf(sourceOf(file));
         const gone = recorded.exports.filter((name) => !live.has(name));
-        // A failure here names exactly what an olai build would fail on, which
-        // is the whole point of reading it in this repository instead.
         expect(gone, `${file} dropped exports olai reads`).toEqual([]);
       });
 
@@ -102,9 +94,6 @@ describe("the Claude Code vocabulary olai also reads", () => {
   }
 
   test("the ledger names files that exist", () => {
-    // A ledger row for a deleted file would otherwise throw a bare ENOENT from
-    // the first assertion, which says "no such file" where the real sentence
-    // is "this package deleted a module a consumer imports".
     for (const file of Object.keys(ledger)) {
       expect(
         () => sourceOf(file),

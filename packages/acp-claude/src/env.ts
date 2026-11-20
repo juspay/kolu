@@ -1,12 +1,3 @@
-/**
- * WHERE THIS AGENT LIVES ON THE HOST it is run on — the two facts a process
- * cannot read off the wire.
- *
- * Both are about the ENVIRONMENT rather than about a frame, which is why they
- * are not in {@link ./leg.ts}: a leg reads what an agent said, and nothing here
- * waits for an agent to say anything.
- */
-
 import { join } from "node:path";
 
 /**

@@ -1,20 +1,3 @@
-/**
- * The inference's edges, in the seats the reviews put them in:
- *
- *  - a conversation READ, counted, and (where it began by clearing) DATED;
- *    never a stamp for a read that failed;
- *  - the pairing: happy pair, tie refuses, second claimant refuses BOTH,
- *    no-candidate refuses, undated opener claims nothing, out-of-window
- *    ancestor is not the predecessor, a filtered-out program session is
- *    not a candidate even though it lists;
- *  - the same-timestamp boundary: `lastModified === clearedAt` IS a
- *    candidate — the review found that excluding it walked past one.
- *
- * The subject is `../adapter/session-list-info/facts.js`, the plain
- * dependency-free JS `regenerate.sh` splices into the vendored adapter's
- * compiled bundle. It is read from where it ships rather than copied here:
- * the file the suite proves has to be the file the patch carries.
- */
 import { describe, expect, test } from "vitest";
 import {
   clearOpenedAtOf,
@@ -23,8 +6,6 @@ import {
   sdkMessageText,
   sessionListFactsOf,
 } from "../adapter/session-list-info/facts.js";
-
-// ── the transcripts up close ─────────────────────────────────────────
 
 describe("the opening of a conversation", () => {
   test("a /clear opener is found and dated", () => {
@@ -78,11 +59,6 @@ describe("the opening of a conversation", () => {
   });
 
   test("a clear past the opening stretch is a REOPEN, not an opening", () => {
-    // The pads must be command markers too: any speaking entry would end
-    // the stretch by the FIRST-line rule, which is not what this test's
-    // name is about. Twelve markers and one /clear in slot twelve: the
-    // walk sees ten and closes without finding the command at the end
-    // of its stretch, WHICH is the refusal being claimed.
     const stretch = Array.from({ length: 12 }, () => ({
       type: "user",
       timestamp: "2026-08-20T13:13:00.000Z",
@@ -100,9 +76,6 @@ describe("the opening of a conversation", () => {
   });
 
   test("an UNDATED clear opener says it was SEEN — the SDK timestamp's way of going quiet", () => {
-    // SessionMessage has no declared `timestamp`; the day that passthrough
-    // stops arriving, this is the state, and the caller logs once rather
-    // than every pairing now silently answering nothing.
     expect(
       clearOpenedAtOf([
         {
@@ -130,9 +103,6 @@ describe("the opening of a conversation", () => {
   });
 });
 
-// ── one listed session's facts ───────────────────────────────────────
-
-/** A deps pack whose behaviour the test sets case by case. */
 const depsOf = (given: {
   cache?: Map<string, unknown>;
   messages?: (id: string, at: { dir?: string }) => Promise<unknown[]>;
@@ -160,10 +130,6 @@ const row = (sessionId: string, extras: Record<string, unknown> = {}) => ({
 
 describe("what one listed session says", () => {
   test("a read problem is NO STAMPS, never a zero", async () => {
-    // getSessionMessages answers [] for both "not readable" and "empty";
-    // getSessionInfo is the arbiter: when IT cannot place the file, the
-    // row must list unstamped, and no cache entry is stored for a
-    // failure that may mend.
     const deps = depsOf({
       messages: async () => [],
       info: async () => undefined,
@@ -224,7 +190,6 @@ describe("what one listed session says", () => {
     expect(await sessionListFactsOf(row("s1"), deps)).not.toBeUndefined();
     expect(await sessionListFactsOf(row("s1"), deps)).not.toBeUndefined();
     expect(reads).toBe(1);
-    // The transcript moved.
     expect(
       await sessionListFactsOf(row("s1", { fileSize: 2000 }), deps),
     ).not.toBeUndefined();
@@ -235,8 +200,6 @@ describe("what one listed session says", () => {
   });
 
   test("an undefined fileSize keys on mtime alone, which the notes carry openly", async () => {
-    // The SDK calls fileSize JSONL-only: under a sessionStore both sides
-    // are undefined and a same-mtime rewrite serves the earlier answer.
     let reads = 0;
     const deps = depsOf({
       messages: async () => {
@@ -268,13 +231,9 @@ describe("what one listed session says", () => {
       messageCount: 1,
       timestampLoss: true,
     });
-    // The stamp still IS one: the count exists, and while the pairing
-    // rule refuses its part, the stamp-having list keeps the fact.
     expect(deps.cache.size).toBe(1);
   });
 });
-
-// ── the pairing, on its refusal edges ────────────────────────────────
 
 const DAY = 24 * 60 * 60 * 1000;
 const T0 = Date.parse("2026-08-20T13:14:00.000Z");
@@ -341,8 +300,6 @@ describe("which conversation a /clear moved", () => {
   });
 
   test("the same-timestamp boundary INCLUDES the predecessor — one candidate is the link", () => {
-    // lastModified === clearedAt is allowable (the >= walk-through was the
-    // review's boundary): with ONE such candidate, that row takes it.
     expect(
       pairSupersessions([
         { id: "new", cwd: "/d", lastModified: T0 + 1000, clearedAt: T0 },
@@ -368,11 +325,6 @@ describe("which conversation a /clear moved", () => {
   });
 
   test("the SECOND CLAIMANT means neither takes the link — no last-writer-wins", () => {
-    // The review's own shape: a clear-opener whose transcript kept being
-    // written PAST a later clear's moment is excluded from that later
-    // clear's candidates — so the later clear falls back onto the same
-    // predecessor the first one claims. Either answer is a lie here:
-    // neither may take the link.
     const { said, say } = saidArr();
     expect(
       pairSupersessions(
@@ -398,9 +350,6 @@ describe("which conversation a /clear moved", () => {
   });
 
   test("a clear-opener claims its own earlier-refused claimant's old respondent fine", () => {
-    // The flip side of refusing the double-claim: one claim, one
-    // candidate. `clear1` above answers to `old` for itself — the map
-    // carries it alone when `clear2` is nowhere near.
     expect(
       pairSupersessions([
         {
@@ -480,8 +429,6 @@ describe("which conversation a /clear moved", () => {
     expect(forward).toEqual(backward);
   });
 });
-
-// ── the once-per-process loudness the notes promise ─────────────────
 
 describe("the build going quiet about timestamps is announced, once", () => {
   test("first case in the process speaks; every call after answers nothing", () => {

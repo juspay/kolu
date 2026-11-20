@@ -1,38 +1,16 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Rebuild ../patches/session-list-info.patch, for the adapter built from ../shim.
+# The bundle the diff is taken from has to be the pin's PRISTINE extract — any
+# build found in the store already carries olai's patches, and a patch against
+# them fails. The pin version comes out of the lockfile, the one input the
+# derivation itself reads, so version and bundle move together
+# (`mechanism, never convention`).
 #
-# The patch is a diff against the pin's compiled `dist/acp-agent.js`, made the
-# only way one can be trusted: by EDITING A COPY by its anchors and letting
-# `diff -u` count the hunks. Hand-computed hunk headers were precisely the
-# recipe three rounds of "corrupt patch" runs sin-ed here; fmt by machine.
-#
-# Sources:
-#   - the helper block spliced before the class = facts.js (the piece that is
-#     TESTED, by `packages/acp-claude/src/facts.test.ts`) shipped with
-#     `export` off,
-#     under a banner that names this regen command;
-#   - the NEW listSessions body is the heredoc below, authored by hand for
-#     the bundle's names (sanitizeTitle, this.logger, the SDK's readers).
 # Anchoring is by the SURROUNDING text, not line numbers, so a pin bump that
 # moves the content fails HERE with a visible name — and at the build, which
 # is the point of `patch -p1 -F0`.
-#
-# The bundle the diff is taken from has to be the pin's PRISTINE extract —
-# any build found in the store already carries olai's patches, and a patch
-# against them is the four-hunk failure this script's first version taught.
-# The pin version comes out of the lockfile, the one input the derivation
-# itself reads, so version and bundle move together
-# (`mechanism, never convention`).
-#
-#     bash packages/acp-claude/adapter/session-list-info/regenerate.sh
 
-# WHERE THIS RIG SITS, since the adapter moved into the package that owns it: this directory is
-# `packages/acp-claude/adapter/session-list-info/`, so the shim is one up
-# (this dir → shim) and the REPOSITORY is four.
-# The shim whose lockfile pins the version is this package.s own
-# `adapter/shim/package-lock.json`, one lockfile per engine since the split.
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 facts="$here/facts.js"
 out="$here/../patches/session-list-info.patch"
@@ -187,16 +165,12 @@ awk -v helpers="$work/helpers.js" -v listbody="$work/listSessions.js" '
   { print }
 ' "$work/original.js" > "$work/rebuilt.js"
 
-# THE SPLICE ACTUALLY HAPPENED, asserted the way the pi adapter's `acp/mcp-bridge/regenerate.sh`
-# asserts its own — and this is the check the `-F0` at the build CANNOT make.
-# Both regions above are spliced by ANCHOR, and an anchor that stops matching
-# (which is exactly what a pin bump can do) makes awk emit the original file
-# unchanged, so `diff -u` writes an EMPTY patch. An empty patch applies at
-# `patch -p1 -F0` with status 0. The build would be green and the behaviour
-# would be gone — the one failure this whole diff-shaped discipline exists to
-# make loud, walking straight past it. Earlier this was three greps into a
-# `counts` file and an `if` whose body was `:`; it counted nothing and said
-# nothing.
+# THE SPLICE ACTUALLY HAPPENED, and this is the check the `-F0` at the build
+# CANNOT make. Both regions above are spliced by ANCHOR, and an anchor that
+# stops matching (which is exactly what a pin bump can do) makes awk emit the
+# original file unchanged, so `diff -u` writes an EMPTY patch. An empty patch
+# applies at `patch -p1 -F0` with status 0: the build would be green and the
+# behaviour would be gone.
 for marker in sessionListFactsOf 'const sessionListFactsCache' pairSupersessions sayTimestampLossOnce getSessionInfo; do
   if [[ "$(grep -c "$marker" "$work/rebuilt.js" || true)" -lt 1 ]]; then
     echo "anchor missed: '$marker' is not in the rebuild — the anchor moved; fix the script's anchors." >&2
@@ -210,8 +184,6 @@ diff -u --label a/dist/acp-agent.js --label b/dist/acp-agent.js \
 mv "$work/raw.patch" "$out"
 # The build applies with `patch -p1 -d <package>`; check exactly that, on a
 # pristine copy, rather than a git repo path the diff was never addressed to.
-# (`git apply --check` from the repo root was asked about a `dist/acp-agent.js`
-# this tree does not have, so the script died on its own last line every run.)
 mkdir -p "$work/check/dist" && cp "$work/original.js" "$work/check/dist/acp-agent.js"
 (cd "$work/check" && patch -p1 -F0 --dry-run -d . < "$out" >/dev/null)
 echo "$out regenerated (anchored splice, diff-computed hunks; $(grep -c '^+' "$out") additions)"
