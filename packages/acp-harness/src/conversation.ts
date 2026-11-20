@@ -338,7 +338,9 @@ export interface HarnessOptions<Row extends AnyRow> {
    * next message, given the usage it last reported. When it will, or when the
    * usage of a loaded session is not known yet, the message is taught: it is
    * the first thing after the summary. Once, until a compaction completes,
-   * the session changes, or a reading arrives for which this says no. Absent:
+   * the first of a run of failed or cancelled ones ends (so the agent's next
+   * attempt runs under it), the session changes, or a reading arrives for
+   * which this says no. Absent:
    * the standing prompt rides the first message only.
    */
   readonly compacts?: (usage: Usage) => boolean;
@@ -1104,6 +1106,7 @@ export const startHarness = async <Row extends AnyRow>(
   let taught = options.taught;
   let loaded = false;
   let primed = false;
+  let rearmedAfterFailure = false;
   let taughtAt: number | null = null;
   let compacting: { readonly id: string; readonly rode: boolean } | null = null;
   /** The conversation this harness is in now, as the client last said. */
@@ -1446,7 +1449,13 @@ export const startHarness = async <Row extends AnyRow>(
         const completed = event.status === "completed";
         if (completed) {
           primed = false;
+          rearmedAfterFailure = false;
           if (!compacting.rode) taught = false;
+        } else if (event.status !== "in_progress" && !rearmedAfterFailure) {
+          // The next attempt is the agent's to make, and the message it runs
+          // before should carry the rules — once, not after every failure.
+          primed = false;
+          rearmedAfterFailure = true;
         }
         options.onCompaction?.({
           id: event.id,
@@ -1687,6 +1696,7 @@ export const startHarness = async <Row extends AnyRow>(
     taught = false;
     loaded = false;
     primed = false;
+    rearmedAfterFailure = false;
     taughtAt = null;
     compacting = null;
     // ... AND THE INTERRUPTION COMES BACK. The latch is about a SESSION the

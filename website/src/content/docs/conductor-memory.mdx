@@ -35,9 +35,16 @@ The rules, **How you work**, go with the first message of every session. kolu se
 
 - with the message that sets off a compaction, so they are the first thing after the summary;
 - with the first message after kolu-server restarts, because kolu does not yet know how full the conversation is;
-- with the next message after a compaction kolu did not see coming.
+- with the next message after a compaction kolu did not see coming;
+- with the next message after a compaction fails, once, so the next attempt has them.
 
-Two cases run on the summary alone until the next message brings the rules: one turn that passes the limit by itself, and a message you send while a turn is running. Wakes wait until the turn is over, so they are not affected.
+Three cases run on the summary alone until the next message brings the rules:
+
+- one turn that passes the limit by itself;
+- a message you send while a turn is running;
+- a compaction that works only after two or more failed tries in a row.
+
+Wakes wait until the turn is over, so the second case does not affect them.
 
 ## What a compaction keeps
 

@@ -2290,12 +2290,38 @@ describe("the standing prompt around a compaction", () => {
     expect(await taughtSoFar(running)).toEqual([true, false, true]);
   });
 
-  test("a compaction that failed after the rules rode its message does not send them again", async () => {
+  test("after a compaction fails, the next message carries the rules once, and later failures do not send them again", async () => {
     const running = await open("agent.ts", { compacts });
     await send(running, "used 250000");
     await send(running, "compactFails");
     await send(running, "hello");
-    expect(await taughtSoFar(running)).toEqual([true, true, false]);
+    await send(running, "compactFails");
+    await send(running, "hello");
+    await send(running, "hello");
+    expect(await taughtSoFar(running)).toEqual([
+      true,
+      true,
+      true,
+      false,
+      false,
+      false,
+    ]);
+  });
+
+  test("a compaction after a failed one, under the message the failure re-armed, keeps the rules", async () => {
+    const seen: Array<Compaction> = [];
+    const running = await open("agent.ts", {
+      compacts,
+      onCompaction: (compaction) => seen.push(compaction),
+    });
+    await send(running, "used 250000");
+    await send(running, "compactFails");
+    await send(running, "compact");
+    expect(seen.at(-1)).toMatchObject({
+      status: "completed",
+      teaching: "sent",
+    });
+    expect(await taughtSoFar(running)).toEqual([true, true, true]);
   });
 
   test("a compaction that failed changes nothing", async () => {

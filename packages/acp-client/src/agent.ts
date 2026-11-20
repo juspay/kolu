@@ -1073,9 +1073,6 @@ export const make = (options: Options): Effect.Effect<Agent, never, never> =>
      *  published — never a shape of prose. */
     let prologue: string | null = null;
 
-    /** The compaction the agent last reported, with its summary folded so
-     *  far. One at a time: an agent compacts one conversation once over, and
-     *  a report under a new id starts the fold again. */
     let compacting: {
       readonly id: string;
       readonly status: CompactionStatus;
