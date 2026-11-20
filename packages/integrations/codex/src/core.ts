@@ -30,29 +30,15 @@ export interface CodexSession {
   startedAt: number | null;
 }
 
-/** Canonical UUIDv7: 8-4-4-4-12 hex, version nibble `7`, RFC-4122 variant
- *  nibble (`8`/`9`/`a`/`b`). Validating the WHOLE shape — not just the version
- *  nibble — is what stops a truncated/garbage id (e.g. `019db60512347`) from
- *  decoding to a bogus timestamp; this parses external DB data that drives UI. */
 const UUID_V7_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
-/** Decode the unix-ms creation time embedded in a uuidv7's leading 48 bits.
- *  Codex stamps thread ids as uuidv7, whose first 12 hex digits ARE the
- *  millisecond timestamp — so the thread's start time is already in hand, no
- *  file read. Returns null unless the value is a real, well-formed uuidv7;
- *  never guess a timestamp from a non-v7 / malformed id. */
 export function uuidV7TimestampMs(id: string): number | null {
   if (!UUID_V7_RE.test(id)) return null;
   const ms = Number.parseInt(id.replace(/-/g, "").slice(0, 12), 16);
   return Number.isFinite(ms) ? ms : null;
 }
 
-/** Columns our SELECTs depend on. If Codex renames or drops any of
- *  these, the queries would silently return zero rows, leaving the user
- *  with no Codex badge and no indication why. Keep this list in sync
- *  with `findSessionsByDirectory` (id, rollout_path, cwd, source,
- *  archived, updated_at_ms) and `getThreadMetadata` (title, model). */
 export const REQUIRED_THREAD_COLUMNS: readonly string[] = [
   "id",
   "rollout_path",
@@ -89,9 +75,6 @@ export function openDb(log?: Logger): DatabaseSync | null {
   try {
     db = new DatabaseSync(CODEX_DB_PATH, { readOnly: true });
   } catch (err) {
-    // ENOENT is the answer "Codex has never run here". Anything else — a lock, a
-    // permission error, EMFILE — is a failure to LOOK, and must not read as
-    // absence: the ownership arbiter releases a terminal session on absence.
     if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
     log?.debug({ err, path: CODEX_DB_PATH }, "codex db unavailable");
     return null;
@@ -153,11 +136,6 @@ export function findSessionsByDirectory(
   directory: string,
   log?: Logger,
 ): CodexSession[] | null {
-  // `readDb`, not `withDb`: the ownership arbiter reads an empty list as
-  // evidence that this terminal runs nothing and RELEASES its thread on it, so
-  // a caught error must not wear the same shape as "this directory has no
-  // threads". No database is that second fact — Codex is not installed or has
-  // never run here.
   return readDbList(
     openDb,
     (conn) =>
@@ -178,7 +156,6 @@ export function findSessionsByDirectory(
   );
 }
 
-/** Fields the watcher re-reads from the DB on every WAL event. */
 export interface ThreadMetadata {
   title: string | null;
   model: string | null;
@@ -188,16 +165,6 @@ export interface ThreadMetadata {
  * Re-read the mutable thread columns (title, model) from the DB.
  * Returns null if the row has been deleted (rare — only on Codex wipe)
  * or the DB is absent.
- *
- * NOTE — `threads.tokens_used` is NOT read here, even though it's a
- * tempting one-line SELECT. That column holds the SESSION-LIFETIME
- * cumulative total (`total_token_usage.total_tokens` summed across
- * every turn, including cache re-reads on each turn). For a
- * long-running session it can reach tens of millions — wildly larger
- * than the model's context window, and misleading as a "how close am
- * I to context exhaustion" signal. Current-turn context usage lives
- * in `info.last_token_usage` inside the rollout JSONL's latest
- * `token_count` event — see `parseRolloutContextTokens`.
  */
 export function getThreadMetadata(
   threadId: string,
@@ -232,24 +199,18 @@ interface RolloutLine {
     call_id?: string;
     name?: string;
     info?: {
-      /** Token usage for the MOST RECENT turn. In OpenAI's schema
-       *  (which Codex follows), `input_tokens` is the TOTAL prompt
-       *  the model saw — new + cached together — and matches what
-       *  Codex's own `/status` command calls "used" context. Do NOT
-       *  add `cached_input_tokens` on top: it's a breakdown showing
-       *  what portion of `input_tokens` was a cache hit, not an
-       *  additional count.
-       *
-       *  Contrast with Anthropic's schema (which claude-code reads):
-       *  there, `input_tokens` / `cache_creation_input_tokens` /
-       *  `cache_read_input_tokens` are DISJOINT buckets and summed.
-       *  Mapping Anthropic's sum-three-fields pattern onto OpenAI's
-       *  schema double-counts the cached portion. */
       last_token_usage?: {
         input_tokens?: number;
       };
     };
   };
+}
+
+function totalPromptTokensIncludingCache(entry: RolloutLine): number | null {
+  if (entry.type !== "event_msg") return null;
+  if (entry.payload?.type !== "token_count") return null;
+  const total = entry.payload.info?.last_token_usage?.input_tokens;
+  return typeof total === "number" ? total : null;
 }
 
 /** Codex function-call names whose pending invocation means the agent
@@ -265,15 +226,20 @@ interface RolloutLine {
  *   - `request_plugin_install` — MCP-elicitation prompt to install a
  *     connector/plugin
  *     (`codex-rs/core/src/tools/handlers/request_plugin_install.rs:157`).
- *  Policy lives in `classifyByAwaiting`. */
+ */
 const AWAITING_USER_TOOLS = new Set([
   "request_user_input",
   "request_permissions",
   "request_plugin_install",
 ]);
 
-export function parseRolloutState(lines: string[]): CodexInfo["state"] | null {
-  let lastLifecycle: "started" | "ended" | null = null;
+interface TurnState {
+  lifecycle: "started" | "ended" | null;
+  openCalls: ReadonlyMap<string, string>;
+}
+
+function foldRolloutEvents(lines: string[]): TurnState {
+  let lifecycle: TurnState["lifecycle"] = null;
   const openCalls = new Map<string, string>();
 
   for (const line of lines) {
@@ -288,13 +254,13 @@ export function parseRolloutState(lines: string[]): CodexInfo["state"] | null {
 
     if (outer === "event_msg") {
       if (inner === "task_started" && entry.payload?.turn_id) {
-        lastLifecycle = "started";
+        lifecycle = "started";
         openCalls.clear();
       } else if (
         (inner === "task_complete" || inner === "turn_aborted") &&
         entry.payload?.turn_id
       ) {
-        lastLifecycle = "ended";
+        lifecycle = "ended";
       }
     } else if (outer === "response_item") {
       if (inner === "function_call" && entry.payload?.call_id) {
@@ -305,8 +271,14 @@ export function parseRolloutState(lines: string[]): CodexInfo["state"] | null {
     }
   }
 
-  if (lastLifecycle === null) return null;
-  if (lastLifecycle === "ended") return "waiting";
+  return { lifecycle, openCalls };
+}
+
+export function parseRolloutState(lines: string[]): CodexInfo["state"] | null {
+  const { lifecycle, openCalls } = foldRolloutEvents(lines);
+
+  if (lifecycle === null) return null;
+  if (lifecycle === "ended") return "waiting";
   if (openCalls.size === 0) return "thinking";
   let awaiting = 0;
   for (const name of openCalls.values()) {
@@ -315,27 +287,6 @@ export function parseRolloutState(lines: string[]): CodexInfo["state"] | null {
   return classifyByAwaiting(awaiting, openCalls.size);
 }
 
-/**
- * Find the CURRENT-TURN context-window token count in the rollout
- * JSONL's tail — `info.last_token_usage.input_tokens` from the latest
- * `token_count` event.
- *
- * Why `input_tokens` alone? In OpenAI's API (which Codex emits),
- * `input_tokens` is the TOTAL prompt the model saw this turn —
- * already inclusive of any cached portion. `cached_input_tokens` is a
- * breakdown of that total, not an additional count. Adding the two
- * would double-count every cache hit; Codex's own `/status` command
- * shows exactly this field as "context used" against the window.
- *
- * Why not `threads.tokens_used` (the SQLite column)? That's the
- * session-lifetime cumulative `total_token_usage.total_tokens` —
- * summed across every turn, climbing into millions on long sessions,
- * dwarfing the 258 K context window and giving nonsense percentages.
- *
- * Walks backward so the first matching event wins; returns null if no
- * `token_count` event is in the tail (fresh thread, or token_count
- * scrolled off a long transcript before the next one landed).
- */
 export function parseRolloutContextTokens(lines: string[]): number | null {
   for (let i = lines.length - 1; i >= 0; i--) {
     const raw = lines[i];
@@ -346,11 +297,9 @@ export function parseRolloutContextTokens(lines: string[]): number | null {
     } catch {
       continue;
     }
-    if (entry.type !== "event_msg") continue;
-    if (entry.payload?.type !== "token_count") continue;
-    const input = entry.payload.info?.last_token_usage?.input_tokens;
-    if (typeof input !== "number") continue;
-    return input > 0 ? input : null;
+    const total = totalPromptTokensIncludingCache(entry);
+    if (total === null) continue;
+    return total > 0 ? total : null;
   }
   return null;
 }

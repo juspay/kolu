@@ -18,6 +18,24 @@ const WAL_DEBOUNCE_MS = 150;
 
 const TAIL_BYTES = 256 * 1024;
 
+interface RolloutDerived {
+  state: CodexInfo["state"];
+  contextTokens: number | null;
+}
+
+function sizeKeyedMemo<T>(): (
+  size: number,
+  compute: () => T | null,
+) => T | null {
+  let cached: { size: number; value: T } | null = null;
+  return (size, compute) => {
+    if (cached !== null && cached.size === size) return cached.value;
+    const value = compute();
+    if (value !== null) cached = { size, value };
+    return value;
+  };
+}
+
 export interface CodexWatcher {
   readonly session: CodexSession;
   destroy(): void;
@@ -36,11 +54,7 @@ export function createCodexWatcher(
   onChange: (info: CodexInfo) => void,
   log?: Logger,
 ): CodexWatcher {
-  let cachedDerive: {
-    size: number;
-    state: CodexInfo["state"];
-    contextTokens: number | null;
-  } | null = null;
+  const deriveForSize = sizeKeyedMemo<RolloutDerived>();
 
   function refresh(db: DatabaseSync): CodexInfo | null {
     const meta = getThreadMetadata(session.id, log, db);
@@ -55,27 +69,19 @@ export function createCodexWatcher(
     const stat = statRollout(session, log);
     if (stat === null) return null;
 
-    let state: CodexInfo["state"];
-    let contextTokens: number | null;
-    if (cachedDerive !== null && cachedDerive.size === stat.size) {
-      state = cachedDerive.state;
-      contextTokens = cachedDerive.contextTokens;
-    } else {
-      const derived = readAndParseTail(session, stat.size, log);
-      if (derived === null) return null;
-      state = derived.state;
-      contextTokens = derived.contextTokens;
-      cachedDerive = { size: stat.size, state, contextTokens };
-    }
+    const derived = deriveForSize(stat.size, () =>
+      readAndParseTail(session, stat.size, log),
+    );
+    if (derived === null) return null;
 
     return {
       kind: "codex",
-      state,
+      state: derived.state,
       sessionId: session.id,
       model: meta.model,
       summary: meta.title,
       taskProgress: null,
-      contextTokens,
+      contextTokens: derived.contextTokens,
       startedAt: session.startedAt,
     };
   }
@@ -93,10 +99,8 @@ export function createCodexWatcher(
     onChange(info);
   }
 
-  // Hoist the DB connection across the watcher's lifetime so we don't
-  // open/close on every WAL event. Safe in WAL mode: an open read-only
-  // connection holds no locks until a transaction starts, and our
-  // single-SELECT queries are autocommit.
+  // Safe in WAL mode: an open read-only connection holds no locks until a
+  // transaction starts, and our single-SELECT queries are autocommit.
   const db = openDb(log);
 
   return createDebounceWatcher({
@@ -134,7 +138,7 @@ function readAndParseTail(
   session: CodexSession,
   size: number,
   log?: Logger,
-): { state: CodexInfo["state"]; contextTokens: number | null } | null {
+): RolloutDerived | null {
   const lines = readTailLines({
     path: session.rolloutPath,
     size,

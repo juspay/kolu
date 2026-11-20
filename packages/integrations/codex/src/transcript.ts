@@ -115,8 +115,6 @@ function eventFromLine(entry: RolloutLine): TranscriptEvent | null {
   return null;
 }
 
-/** Parse a Codex rollout JSONL file's contents into transcript events.
- *  Exported for unit testing. */
 export function parseCodexRollout(content: string): TranscriptEvent[] {
   const events: TranscriptEvent[] = [];
   for (const line of content.split("\n")) {
@@ -133,23 +131,6 @@ export function parseCodexRollout(content: string): TranscriptEvent[] {
   return events;
 }
 
-/** Convert Codex's `*** Begin Patch` envelope to standard unified
- *  diff. Codex emits OpenAI's bespoke wire format with `*** Add File`,
- *  `*** Update File`, `*** Delete File`, optional `*** Move to`, and
- *  bare `@@` markers between hunks (no line numbers). We translate it
- *  to git-style unified diff so the typed-IR contract stays simple
- *  (`kind: "patch"` always carries unified-diff text) and the renderer
- *  needs no Codex-specific knowledge.
- *
- *  Hunk-line numbers in the synthesized output are conservative
- *  placeholders (`@@ -1,N +1,M @@` for every hunk) — Codex's envelope
- *  doesn't carry real line numbers, and the diff parsers Pierre uses
- *  treat them as display-only. Add/Delete files use the standard
- *  `@@ -0,0 +1,N @@` / `@@ -1,N +0,0 @@` shape so renderers detect
- *  the new/deleted state.
- *
- *  Input that doesn't start with `*** Begin Patch` is returned
- *  unchanged — older Codex revisions emit unified diff directly. */
 export function codexEnvelopeToUnifiedDiff(text: string): string {
   if (!/^\s*\*\*\* Begin Patch\b/.test(text)) return text;
   const lines = text.split("\n");
@@ -254,10 +235,6 @@ export function codexEnvelopeToUnifiedDiff(text: string): string {
   return out.join("\n");
 }
 
-/** Map a Codex tool name + parsed arguments onto the typed `ToolInput`
- *  union. `apply_patch` is a `custom_tool_call` whose argument is the
- *  patch text (not JSON); other tools carry JSON-encoded structured
- *  arguments. Exported for testing. */
 export function normalizeCodexToolInput(
   toolName: string,
   parsed: unknown,

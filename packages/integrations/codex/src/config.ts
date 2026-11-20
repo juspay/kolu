@@ -2,9 +2,6 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-/** The env keys the e2e harness sets to point detection at fixtures. Named so
- *  the plugin's `envKeys` (forwarded server→padi) and the reads below share one
- *  spelling. */
 export const CODEX_DIR_ENV = "KOLU_CODEX_DIR";
 export const CODEX_DB_ENV = "KOLU_CODEX_DB";
 export const CODEX_ENV_KEYS = [CODEX_DIR_ENV, CODEX_DB_ENV] as const;
@@ -14,18 +11,6 @@ export const CODEX_ENV_KEYS = [CODEX_DIR_ENV, CODEX_DB_ENV] as const;
 export const CODEX_DIR =
   process.env[CODEX_DIR_ENV] ?? path.join(os.homedir(), ".codex");
 
-/** Find the highest-numbered `state_<N>.sqlite` under `dir`. Codex bumps
- *  this suffix on incompatible schema changes (current is v5;
- *  `logs_2.sqlite` lives alongside at v2). Enumerating instead of
- *  hard-coding the version means a user who upgrades Codex past v5
- *  doesn't silently lose session detection until Kolu ships an update.
- *
- *  Returns null if the directory is missing or contains no matching
- *  files — the caller falls back to the legacy path so the rest of the
- *  stack behaves the same as before (ENOENT → graceful skip). Pure; no
- *  logging here since there's no Logger at module-load time.
- *
- *  Exported for unit tests; production callers use `CODEX_DB_PATH`. */
 export function findCodexStateDbPath(dir: string = CODEX_DIR): string | null {
   let entries: string[];
   try {

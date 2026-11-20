@@ -1,13 +1,3 @@
-/** Effect Schema definitions for Codex session info — browser-safe.
- *
- *  Lives in its own module so `kolu-common` (and any client code) can import
- *  the schema without pulling the package root, which imports `node:sqlite`
- *  via `DatabaseSync`. Mirrors the `anyforge/schemas` precedent. See
- *  juspay/kolu#682.
- *
- *  Anything exported here MUST stay free of `node:*` imports and filesystem
- *  access — Effect Schema and `anyagent`'s schema re-exports only. */
-
 import {
   type AgentVocab,
   type FlagArity,
@@ -40,10 +30,6 @@ export const CodexInfoSchema = Schema.Struct({
    *  `turn_aborted` events are per-turn lifecycle, not user-facing checklists.
    *  Permanently null; the field is kept for union shape uniformity. */
   taskProgress: Schema.NullOr(TaskProgressSchema),
-  /** Running context-window token count from `threads.tokens_used` —
-   *  pre-summed by Codex from the latest `token_count` event's
-   *  `info.total_token_usage.total_tokens`. Null on a brand-new thread
-   *  before the first assistant turn accounts. */
   contextTokens: Schema.NullOr(Schema.Number),
   /** Epoch-ms the thread was created — decoded from the uuidv7 thread id's
    *  leading 48-bit timestamp (no extra read; the id is already in hand).
@@ -62,8 +48,6 @@ const CODEX_MARK = {
   ],
 };
 
-/** Codex's vocabulary — display name, brand mark, CLI grammar, resume policy,
- *  and wire schema, all in one place in Codex's own package. */
 export const codexVocab: AgentVocab<CodexInfo> = {
   kind: "codex",
   displayName: "Codex",
