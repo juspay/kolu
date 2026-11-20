@@ -50,44 +50,26 @@ function classifyCheck(check: RollupEntry): CheckStatus {
     .otherwise(() => "pass" as const);
 }
 
-export function deriveCheckStatus(
+export function classifyRollup(
   rollup: RollupEntry[] | undefined,
 ): PrInfo["checks"] {
   return foldCheckOutcomes(rollup?.map(classifyCheck) ?? []);
 }
 
-/** Per-check breakdown of the rollup — the same entries `deriveCheckStatus`
- *  collapses, kept individual. Returns `[]` when no checks are configured.
- *
- *  Name preference: `CheckRun.name` for Actions/Apps; `StatusContext.context`
- *  for REST commit statuses; `?` as a last-resort fallback so the array
- *  shape stays uniform even if gh returns an entry missing both. */
+function rollupEntryName(entry: RollupEntry): string {
+  return entry.__typename === "StatusContext"
+    ? (entry.context ?? "?")
+    : (entry.name ?? entry.context ?? "?");
+}
+
+/** Per-check breakdown of the rollup; `[]` when gh reports no checks. */
 export function extractChecks(rollup: RollupEntry[] | undefined): CheckRun[] {
   if (!rollup) return [];
   return rollup.map((c) => ({
-    name:
-      c.__typename === "StatusContext"
-        ? (c.context ?? "?")
-        : (c.name ?? c.context ?? "?"),
+    name: rollupEntryName(c),
     outcome: classifyCheck(c),
   }));
 }
-
-export const GH_PR_VIEW_JSON_FIELD_LIST = [
-  "number",
-  "title",
-  "url",
-  "state",
-  "statusCheckRollup",
-  "reviewDecision",
-  "mergeStateStatus",
-  "headRefOid",
-  // WHETHER THE PR IS A DRAFT. GitHub retired `mergeStateStatus: DRAFT` in
-  // 2021 for this field: a draft with green checks now answers `CLEAN`.
-  "isDraft",
-] as const;
-
-export const GH_PR_VIEW_JSON_FIELDS = GH_PR_VIEW_JSON_FIELD_LIST.join(",");
 
 export type GhPrViewJson = {
   number: number;
@@ -99,23 +81,25 @@ export type GhPrViewJson = {
    *  as `""`, never as JSON `null`. */
   reviewDecision: string;
   mergeStateStatus: string;
-  headRefOid: string;
+  headRefOid?: string;
+  /** GitHub retired `mergeStateStatus: DRAFT` in 2021: a draft with green
+   *  checks now answers `CLEAN`, so draft state comes from here. */
   isDraft: boolean;
 };
 
-type GhPrViewJsonKeysMatch =
-  Exclude<
-    keyof GhPrViewJson,
-    (typeof GH_PR_VIEW_JSON_FIELD_LIST)[number]
-  > extends never
-    ? Exclude<
-        (typeof GH_PR_VIEW_JSON_FIELD_LIST)[number],
-        keyof GhPrViewJson
-      > extends never
-      ? true
-      : never
-    : never;
-const _ghPrViewJsonKeysMatch: GhPrViewJsonKeysMatch = true;
+export const GH_PR_VIEW_JSON_FIELD_LIST = Object.keys({
+  number: true,
+  title: true,
+  url: true,
+  state: true,
+  statusCheckRollup: true,
+  reviewDecision: true,
+  mergeStateStatus: true,
+  headRefOid: true,
+  isDraft: true,
+} satisfies Record<keyof GhPrViewJson, true>);
+
+export const GH_PR_VIEW_JSON_FIELDS = GH_PR_VIEW_JSON_FIELD_LIST.join(",");
 
 const decodePrState = Schema.decodeUnknownSync(PrStateSchema);
 const decodeReviewDecision = Schema.decodeUnknownSync(
@@ -130,23 +114,20 @@ export function prInfoFromGhView(data: GhPrViewJson): PrInfo {
     title: data.title,
     url: data.url,
     state: decodePrState(data.state.toLowerCase()),
-    checks: deriveCheckStatus(data.statusCheckRollup),
+    checks: classifyRollup(data.statusCheckRollup),
     checkRuns: extractChecks(data.statusCheckRollup),
     reviewDecision: decodeReviewDecision(
       data.reviewDecision === "" ? null : data.reviewDecision,
     ),
     mergeStateStatus: decodeMergeStateStatus(data.mergeStateStatus),
-    // THE COMMIT the rollup above is about. A gh that answered without it —
-    // one too old to know the field — reads as `null`, the shape's own word
-    // for "this reading carries no head", never a guessed one.
     headSha: data.headRefOid ?? null,
     isDraft: decodeIsDraft(data.isDraft),
   };
 }
 
-/** Classify a `gh pr view` failure. Only a positive match on gh's "no pull
+/** Classify a `gh pr view` failure: only a positive match on gh's "no pull
  *  requests found" stderr counts as absent; anything else unrecognized is
- *  treated as unavailable rather than silently shown as "no PR".
+ *  unavailable rather than silently shown as "no PR".
  *
  *  FRAGILE: gh's stderr messages are not versioned. If gh rewords
  *  "not logged in" / "authentication" / "no pull requests found", matches
@@ -172,28 +153,10 @@ export function classifyGhError(err: unknown): PrResult<GhUnavailableSource> {
     return ghUnavailable("timed-out");
   }
   const stderr = (e.stderr ?? "").toLowerCase();
-  // Situations where a PR simply can't exist — same silent UI outcome as
-  // "no PR on this branch", not a problem to warn about:
-  //  - a non-GitHub remote (another forge, GitLab, …): gh refuses before
-  //    any API call. Match the "known GitHub host" refusal specifically, NOT the
-  //    bare "none of the git remotes" prefix — gh's remoteResolver emits a
-  //    second message with that same prefix ("…correspond to the GH_HOST
-  //    environment variable…") for a misconfigured GH_HOST that matches no
-  //    remote. That is a real config failure the user should see, so it
-  //    must fall through to `unknown` rather than be swallowed as `absent`.
-  //    Known false-negative: the same refusal fires for a GitHub Enterprise
-  //    remote the user hasn't run `gh auth login --hostname <ghe>` for —
-  //    gh's known-host set is its authenticated hosts + the default host +
-  //    github.com — where the old not-authenticated classification was
-  //    correct. Indistinguishable on stderr, and a host can't be told apart
-  //    from any other unknown host without configuration, so the gap stays
-  //    until per-host config lands (see the anyforge Atlas note's open
-  //    questions).
-  //  - gh's literal "no pull requests found" for the current branch;
-  //  - a repo with no remote at all.
-  // This block sits before the auth check because the non-GitHub-remote
-  // refusal itself suggests `gh auth login`, which would otherwise match
-  // the auth branch.
+  // gh emits the same "none of the git remotes" prefix for two situations:
+  // no remote pointing at a known GitHub host (so no PR can exist), and a
+  // GH_HOST matching no remote (a config failure the user must see), so the
+  // specific refusal text is matched rather than the shared prefix.
   const ABSENT_STDERR = [
     "point to a known github host",
     "no pull requests found",

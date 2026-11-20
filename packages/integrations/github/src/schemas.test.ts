@@ -1,9 +1,3 @@
-/** Byte-level wire pins for the gh arm of the closed `PrUnavailableSource`
- *  union. These shapes travel over the surface socket between processes of
- *  different builds and are matched on the client (`surface.ts`), so the
- *  ENCODED JSON — key names, key ORDER, and the exact code spellings — is the
- *  contract, not merely the decoded value. Assert the string, not the object. */
-
 import { Schema } from "effect";
 import { describe, expect, it } from "vitest";
 import {
@@ -40,8 +34,6 @@ describe("GhUnavailableSchema wire bytes", () => {
   });
 
   it("keeps the provider tag spelled 'gh'", () => {
-    // The persisted discriminant, deliberately distinct from the adapter's
-    // in-process `kind: "github"` — changing it is a wire break.
     expect(GH_PROVIDER).toBe("gh");
   });
 

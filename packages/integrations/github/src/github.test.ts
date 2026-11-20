@@ -1,20 +1,20 @@
 import { describe, expect, it } from "vitest";
 import {
   classifyGhError,
-  deriveCheckStatus,
+  classifyRollup,
   GH_PR_VIEW_JSON_FIELD_LIST,
   GH_PR_VIEW_JSON_FIELDS,
   type GhPrViewJson,
   prInfoFromGhView,
 } from "./github.ts";
 
-describe("deriveCheckStatus", () => {
+describe("classifyRollup", () => {
   it("returns null for undefined rollup", () => {
-    expect(deriveCheckStatus(undefined)).toBeNull();
+    expect(classifyRollup(undefined)).toBeNull();
   });
 
   it("returns null for empty rollup", () => {
-    expect(deriveCheckStatus([])).toBeNull();
+    expect(classifyRollup([])).toBeNull();
   });
 
   it.each([
@@ -24,7 +24,7 @@ describe("deriveCheckStatus", () => {
     { state: "PENDING", expected: "pending" },
     { state: "EXPECTED", expected: "pending" },
   ])("StatusContext $state → $expected", ({ state, expected }) => {
-    expect(deriveCheckStatus([{ __typename: "StatusContext", state }])).toBe(
+    expect(classifyRollup([{ __typename: "StatusContext", state }])).toBe(
       expected,
     );
   });
@@ -43,7 +43,7 @@ describe("deriveCheckStatus", () => {
     conclusion,
     expected,
   }) => {
-    expect(deriveCheckStatus([{ status: "COMPLETED", conclusion }])).toBe(
+    expect(classifyRollup([{ status: "COMPLETED", conclusion }])).toBe(
       expected,
     );
   });
@@ -55,12 +55,12 @@ describe("deriveCheckStatus", () => {
     "PENDING",
     "REQUESTED",
   ])("non-terminal CheckRun %s → pending", (status) => {
-    expect(deriveCheckStatus([{ status }])).toBe("pending");
+    expect(classifyRollup([{ status }])).toBe("pending");
   });
 
   it("failure takes priority over pending", () => {
     expect(
-      deriveCheckStatus([
+      classifyRollup([
         { __typename: "StatusContext", state: "PENDING" },
         { __typename: "StatusContext", state: "FAILURE" },
       ]),
@@ -69,7 +69,7 @@ describe("deriveCheckStatus", () => {
 
   it("pending takes priority over pass", () => {
     expect(
-      deriveCheckStatus([
+      classifyRollup([
         { __typename: "StatusContext", state: "SUCCESS" },
         { status: "IN_PROGRESS" },
       ]),
@@ -78,7 +78,7 @@ describe("deriveCheckStatus", () => {
 
   it("handles case-insensitive state values", () => {
     expect(
-      deriveCheckStatus([{ __typename: "StatusContext", state: "failure" }]),
+      classifyRollup([{ __typename: "StatusContext", state: "failure" }]),
     ).toBe("fail");
   });
 });

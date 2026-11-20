@@ -15,45 +15,31 @@ const execFileAsync = promisify(execFile);
 
 const GH_TIMEOUT_MS = 5_000;
 
-let ghBinCached: string | null = null;
-function getGhBin(): string {
-  if (ghBinCached !== null) return ghBinCached;
-  const v = process.env.KOLU_GH_BIN;
-  if (!v) {
+function requireGhBin(): string {
+  const bin = process.env.KOLU_GH_BIN;
+  if (!bin) {
     throw new Error(
       "KOLU_GH_BIN is not set. Run kolu through the Nix wrapper or `nix develop`.",
     );
   }
-  ghBinCached = v;
-  return v;
+  return bin;
 }
 
 /** Look up the GitHub PR for a BRANCH in a repository.
  *
- *  Uses `gh pr view <branch>`, which resolves via git remote tracking — it
- *  finds the PR opened from this repo (or fork) for that branch, unlike
- *  `gh pr list --head <name>` which matches by branch name alone and picks
- *  up unrelated fork PRs.
- *
- *  The branch is NAMED rather than left to gh's "whatever is checked out
- *  here": the context carries it, and the two callers do not agree about what
- *  is checked out in `repoRoot`. A terminal's sensor asks about the worktree
- *  it is sitting in, where that branch IS the current one and the answer is
- *  unchanged; a WORK asks about its own branch in the repository it belongs to
- *  (`(host, repo, branch)`), which is usually a main checkout sitting on
- *  master — and gh asked there without a branch answers about master
- *  (juspay/kolu#2376).
- *
- *  Logs failures at the appropriate level when a logger is passed:
- *  absent→debug (expected), unknown→error (actual bug), other→warn
- *  (degraded-but-recoverable). */
+ *  Uses `gh pr view <branch>`, which resolves via git remote tracking and
+ *  finds the PR opened from this repo (or a fork) for that branch, unlike
+ *  `gh pr list --head <name>`, which matches by branch name alone and picks
+ *  up unrelated fork PRs. The branch is named explicitly because gh asked
+ *  without one answers about whatever is checked out in `repoRoot`
+ *  (juspay/kolu#2376). */
 export async function resolveGitHubPr(
   git: PrGitContext,
   log?: Logger,
 ): Promise<PrResult<GhUnavailableSource>> {
   try {
     const { stdout } = await execFileAsync(
-      getGhBin(),
+      requireGhBin(),
       git.branch === ""
         ? ["pr", "view", "--json", GH_PR_VIEW_JSON_FIELDS]
         : ["pr", "view", git.branch, "--json", GH_PR_VIEW_JSON_FIELDS],
@@ -71,18 +57,9 @@ export async function resolveGitHubPr(
   }
 }
 
-/** The gh adapter — the `ForgeAdapter` the host injects into `subscribePr`.
- *  Typed at its concrete `GhUnavailableSource` so `subscribePr` infers
- *  `S = GhUnavailableSource` and its `PrResult<GhUnavailableSource>` lands
- *  in the app's closed `PrResult` without a cast.
- *
- *  Annotated with `satisfies` (not `:`) so `kind` keeps its `"github"`
- *  literal type rather than widening to `ForgeAdapter.kind: string`: the
- *  dispatcher in kolu-server derives its `ForgeKind` from this very value,
- *  so the registry key it dispatches on is forced to equal the adapter's own
- *  `kind` — they cannot drift. The closed-union failure tag (`provider: "gh"`,
- *  see `GhUnavailableSchema`) is the wire-persisted spelling of the same forge
- *  and is intentionally distinct from this in-process `kind`. */
+/** The gh adapter — the `ForgeAdapter` the host injects into `subscribePr`,
+ *  typed at its concrete `GhUnavailableSource` so `subscribePr` infers
+ *  `S = GhUnavailableSource`. */
 export const githubForgeAdapter = {
   kind: "github" as const,
   resolve: (git, _cause, log) => resolveGitHubPr(git, log),
