@@ -427,6 +427,45 @@ When(
 );
 
 When(
+  "I ask the conductor to join the terminal I am in to the work as its {word}",
+  async function (this: KoluWorld, role: string) {
+    const id = await this.page
+      .locator(`${CANVAS_TILE}[data-active]`)
+      .getAttribute("data-terminal-id", { timeout: POLL_TIMEOUT });
+    assert.ok(
+      id,
+      "no tile is focused, so there is nothing to join to the work",
+    );
+    await enterConductor(this);
+    await sendPrompt(this, `join ${id} as ${role}`);
+    let inventoryAtTimeout = "(not observed)";
+    const said = await pollFor({
+      observe: async () => {
+        const rows = await this.page
+          .locator(`${TRANSCRIPT} ${ROW}[data-row-kind="agent"]`)
+          .evaluateAll((all) => all.map((row) => row.textContent ?? ""));
+        return rows.find((text) => text.includes("joined:")) ?? null;
+      },
+      isDone: (text) => text !== null,
+      timeoutMs: POLL_TIMEOUT,
+      onTick: async () => {
+        inventoryAtTimeout = await transcriptInventory(this);
+      },
+      onTimeout: (_last, ms) =>
+        new Error(
+          `the conductor never answered the join of ${id} after ${ms}ms; the transcript holds ${inventoryAtTimeout}`,
+        ),
+    });
+    assert.ok(
+      said !== null &&
+        !said.includes("refused") &&
+        said.includes(`local/${id}`),
+      `the work did not take ${id} as its ${role}: ${JSON.stringify(said)}`,
+    );
+  },
+);
+
+When(
   "I answer the conductor's question with {string}",
   async function (this: KoluWorld, value: string) {
     const ask = this.page.locator(ASK).last();

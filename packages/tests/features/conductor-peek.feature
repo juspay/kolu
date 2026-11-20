@@ -119,15 +119,15 @@ Feature: Peek at a terminal from the Conductor
     Given a repo for the work
     When I ask the conductor to open the work "two sizes"
     And I answer the work's question with "hand-over" in the chat
-    And I ask the conductor to run the implementor in the work's repo
-    Then the work column should list the terminal as a member
-    When I go to the member terminal
-    And I enter conductor mode
+    And I leave the conductor for the host tab
+    And I create a terminal
+    And I ask the conductor to join the terminal I am in to the work as its planner
     And I ask the conductor to run the implementor in the work's repo
     Then the work column should list the terminal as a member
     When I look at the member terminal
     Then the peek should be open
     And the peek should list 2 tabs
+    And the peek's terminal should have come up
     When I note where the peek's top bar is
     And I switch to the peek's other tab
     Then the peek's terminal should be a different size
