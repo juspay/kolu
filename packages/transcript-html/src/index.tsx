@@ -19,6 +19,11 @@ export interface TranscriptHtmlOptions {
   mode: TranscriptHtmlMode;
 }
 
+const MODE_INCLUDES_DETAILS: Record<TranscriptHtmlMode, boolean> = {
+  chat: false,
+  full: true,
+};
+
 const SRC_DIR = dirname(fileURLToPath(import.meta.url));
 const STYLES = readFileSync(join(SRC_DIR, "styles.css"), "utf8");
 const SCRIPT = readFileSync(join(SRC_DIR, "script.js"), "utf8");
@@ -191,7 +196,7 @@ function metaParts(transcript: Transcript, mode: TranscriptHtmlMode): string[] {
     `${counts.user} prompts`,
     `${counts.assistant} replies`,
   ];
-  if (mode === "full") parts.push(`${counts.detail} details`);
+  if (MODE_INCLUDES_DETAILS[mode]) parts.push(`${counts.detail} details`);
   const tokens = formatTokens(transcript.contextTokens);
   if (tokens) parts.push(`${tokens} tokens`);
   if (transcript.cwd) parts.push(transcript.cwd);
@@ -320,7 +325,7 @@ async function renderEvents(
           ? { index: ++humanIndex, total: humanTotal }
           : null;
       chunks.push(await renderChatEvent(event, humanPosition));
-    } else if (mode === "full") {
+    } else if (MODE_INCLUDES_DETAILS[mode]) {
       chunks.push(renderDetailEvent(event as DetailEvent));
     }
   }
@@ -329,11 +334,15 @@ async function renderEvents(
     : `<p class="empty">No conversation events found.</p>`;
 }
 
-function promptJumpHtml(): string {
-  return `<nav class="prompt-jump" aria-label="Human message navigation" data-prompt-nav>
+function promptJump(humanTotal: number): { nav: string; script: string } {
+  if (humanTotal < 2) return { nav: "", script: "" };
+  return {
+    nav: `<nav class="prompt-jump" aria-label="Human message navigation" data-prompt-nav>
   <button type="button" data-prompt-nav-action="prev" aria-label="Previous human message" title="Previous human message">↑</button>
   <button type="button" data-prompt-nav-action="next" aria-label="Next human message" title="Next human message">↓</button>
-</nav>`;
+</nav>`,
+    script: `<script>${SCRIPT}</script>`,
+  };
 }
 
 function headerHtml(
@@ -362,9 +371,7 @@ export async function transcriptToHtml(
   const title = deriveDisplayTitle(prepared);
   const humanTotal = humanMessageCount(prepared.events);
   const events = await renderEvents(prepared.events, options.mode, humanTotal);
-  const hasPromptJump = humanTotal >= 2;
-  const promptJump = hasPromptJump ? promptJumpHtml() : "";
-  const script = hasPromptJump ? `<script>${SCRIPT}</script>` : "";
+  const jump = promptJump(humanTotal);
   return `<!doctype html>
 <html lang="en">
 <head>
@@ -381,8 +388,8 @@ ${events}
 </main>
 <footer>Exported by <a href="https://kolu.dev/" target="_blank" rel="noopener noreferrer">Kolu</a>.</footer>
 </article>
-${promptJump}
-${script}
+${jump.nav}
+${jump.script}
 </body>
 </html>
 `;
