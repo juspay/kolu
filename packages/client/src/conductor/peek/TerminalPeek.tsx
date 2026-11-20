@@ -1,10 +1,12 @@
 import Dialog from "@corvu/dialog";
 import { decodeHostKey } from "kolu-common/hostKey";
+import { fleetTerminalRef } from "kolu-mcp/fleetRef";
 import {
   type Component,
   createEffect,
   createMemo,
   createSignal,
+  For,
   Show,
 } from "solid-js";
 import { DEFAULT_FONT_SIZE } from "terminal-themes";
@@ -13,10 +15,23 @@ import { hostLabel } from "../../host/hostChipTone";
 import { fleetTerminalStanding } from "../../palette/fleetTerminals";
 import ModalDialog from "../../ui/ModalDialog";
 import { useShown } from "../../ui/shown";
+import { useMemberName } from "../memberNames";
+import { ROLE_WORD } from "../workReadings";
+import { useWorkMembers } from "../useWorks";
 import { liveArm, STATUS_DOT, terminalStatus } from "../terminalStatus";
 import PeekTerminal, { type PeekTerminalHandle } from "./PeekTerminal";
 import { type PeekCell, type PeekPad, peekNatural } from "./peekSize";
-import { closePeek, peekTarget, peekTyping, type PeekTarget } from "./usePeek";
+import {
+  closePeek,
+  openPeek,
+  peekTabs,
+  peekTarget,
+  peekTyping,
+  type PeekTarget,
+} from "./usePeek";
+
+const TAB_CLASS =
+  "flex h-7 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-t-lg px-2.5 text-[0.72rem]";
 
 const TerminalPeek: Component = () => {
   const shown = useShown();
@@ -40,6 +55,16 @@ const TerminalPeek: Component = () => {
 };
 
 const PeekWindow: Component<{ target: PeekTarget }> = (props) => {
+  const name = useMemberName();
+  const ref = fleetTerminalRef(props.target.host, props.target.id);
+  const members = useWorkMembers();
+  const tabs = createMemo(() =>
+    peekTabs(
+      members(),
+      ref,
+      (host, id) => liveArm(fleetTerminalStanding(host, id)) !== undefined,
+    ),
+  );
   const standing = createMemo(() =>
     fleetTerminalStanding(props.target.host, props.target.id),
   );
@@ -80,12 +105,51 @@ const PeekWindow: Component<{ target: PeekTarget }> = (props) => {
         data-testid="peek-head"
         class="flex min-w-0 shrink-0 items-center gap-3 border-b border-edge px-3 py-2"
       >
-        <span
-          data-testid="peek-title"
-          class="min-w-0 flex-1 truncate text-[0.78rem] font-semibold text-fg"
+        <Show
+          when={tabs().length > 0}
+          fallback={
+            <span
+              data-testid="peek-title"
+              class="min-w-0 flex-1 truncate text-[0.78rem] font-semibold text-fg"
+            >
+              {name(ref)}
+            </span>
+          }
         >
-          {props.target.id.slice(0, 8)}
-        </span>
+          <div
+            data-testid="peek-tabs"
+            class="flex min-w-0 flex-1 items-end gap-0.5 overflow-x-auto"
+          >
+            <For each={tabs()}>
+              {(tab) => (
+                <button
+                  type="button"
+                  data-testid="peek-tab"
+                  data-ref={tab.ref}
+                  data-active={tab.ref === ref ? "" : undefined}
+                  data-openable={tab.openable ? "" : undefined}
+                  disabled={!tab.openable}
+                  class={`${TAB_CLASS} ${
+                    tab.ref === ref
+                      ? "border border-edge-bright bg-surface-0 font-semibold text-fg"
+                      : tab.openable
+                        ? "text-fg-2 hover:text-fg cursor-pointer"
+                        : "text-fg-3"
+                  }`}
+                  onClick={() => openPeek({ host: tab.host, id: tab.id })}
+                >
+                  <span class="shrink-0 rounded-sm bg-conductor/15 px-1 font-mono text-[0.52rem] font-semibold uppercase tracking-[0.08em] text-conductor">
+                    {ROLE_WORD[tab.role]}
+                  </span>
+                  {name(tab.ref)}
+                  <Show when={!tab.openable}>
+                    <span class="text-moonlit">☾ asleep</span>
+                  </Show>
+                </button>
+              )}
+            </For>
+          </div>
+        </Show>
         <button
           type="button"
           data-testid="peek-close"

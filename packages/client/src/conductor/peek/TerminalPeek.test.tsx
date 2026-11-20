@@ -10,6 +10,7 @@ const ID = "11111111-1111-4111-8111-111111111111" as TerminalId;
 
 const seam = vi.hoisted(() => ({
   props: undefined as Record<string, unknown> | undefined,
+  members: new Map<string, unknown>(),
 }));
 
 vi.mock("./PeekTerminal", () => ({
@@ -32,6 +33,13 @@ vi.mock("../../palette/fleetTerminals", () => ({
       },
     },
   }),
+}));
+vi.mock("../useWorks", () => ({
+  useWorkMembers: () => () => seam.members,
+  useMembership: () => () => new Map(),
+}));
+vi.mock("../memberNames", () => ({
+  useMemberName: () => (ref: string) => `name:${ref}`,
 }));
 vi.mock("../../ui/ModalDialog", () => ({
   default: (props: {
@@ -57,10 +65,12 @@ import TerminalPeek from "./TerminalPeek";
 
 const [shown, setShown] = createSignal(true);
 
+const disposers: Array<() => void> = [];
+
 const mount = () => {
   const root = document.createElement("div");
   document.body.append(root);
-  return render(
+  const dispose = render(
     () => (
       <Shown.Provider value={shown}>
         <TerminalPeek />
@@ -68,12 +78,18 @@ const mount = () => {
     ),
     root,
   );
+  disposers.push(() => {
+    dispose();
+    root.remove();
+  });
 };
 
 afterEach(() => {
+  for (const dispose of disposers.splice(0)) dispose();
   closePeek();
   setShown(true);
   seam.props = undefined;
+  seam.members = new Map();
 });
 
 describe("TerminalPeek", () => {
@@ -102,6 +118,41 @@ describe("TerminalPeek", () => {
       .querySelector<HTMLButtonElement>('[data-testid="peek-close"]')
       ?.click();
     expect(peekTarget()).toBeNull();
+  });
+
+  it("shows a terminal in no work under its own name and with no tabs", () => {
+    openPeek({ host: "local", id: ID });
+    mount();
+    expect(
+      document.querySelector('[data-testid="peek-title"]')?.textContent,
+    ).toBe(`name:local/${ID}`);
+    expect(document.querySelector('[data-testid="peek-tab"]')).toBeNull();
+  });
+
+  it("draws one tab per member and moves to the one you pick", () => {
+    const OTHER = "22222222-2222-4222-8222-222222222222" as TerminalId;
+    const member = (role: string) => ({
+      work: "w1",
+      role,
+      joinedAt: "2026-01-01T00:00:00.000Z",
+      worktree: { kind: "unread" },
+    });
+    seam.members = new Map<string, unknown>([
+      [`local/${ID}`, member("planner")],
+      [`local/${OTHER}`, member("implementor")],
+    ]);
+    openPeek({ host: "local", id: ID });
+    mount();
+    const tabs = document.querySelectorAll('[data-testid="peek-tab"]');
+    expect(tabs).toHaveLength(2);
+    expect(tabs[0]?.getAttribute("data-active")).toBe("");
+    expect(tabs[1]?.getAttribute("data-ref")).toBe(`local/${OTHER}`);
+    document
+      .querySelector<HTMLButtonElement>(
+        `[data-testid="peek-tab"][data-ref="local/${OTHER}"]`,
+      )
+      ?.click();
+    expect(peekTarget()).toEqual({ host: "local", id: OTHER });
   });
 
   it("closes when the Conductor stops being the view", () => {
