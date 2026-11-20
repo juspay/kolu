@@ -8,17 +8,13 @@
  * Arrows use the NORMAL-cursor (`\x1b[A`) form, not application-cursor
  * (`\x1bOA`): a blind producer can't know the program's DECCKM state, and
  * normal-cursor is the repo's default (see `snapshotReset.ts`).
- *
- * Names arrive from humans (`kolu send --key <name>`, the MCP face's `key`
- * argument), so the lookup is own-property-only — see {@link isNamedKey}. An
- * unrecognized name must always come back `undefined` and become a loud error;
- * an inherited `Object.prototype` member resolving as if it were a key would
- * type its own source code into a live terminal.
  */
 
 /** Named/control keys → the raw bytes a terminal expects. Keys are lowercase:
- *  {@link encodeKey} folds the caller's spelling down before looking one up. */
-const NAMED_KEYS = {
+ *  {@link encodeKey} folds the caller's spelling down before looking one up.
+ *  Consumers reading a FIXED key (`NAMED_KEY_BYTES.esc`, the mobile key bar)
+ *  get a guaranteed `string`. */
+export const NAMED_KEY_BYTES = {
   enter: "\r",
   return: "\r",
   tab: "\t",
@@ -35,23 +31,9 @@ const NAMED_KEYS = {
   "shift-tab": "\x1b[Z",
 };
 
-/** The table, for consumers reading a FIXED key (`NAMED_KEY_BYTES.esc`, the
- *  mobile key bar) — those get a guaranteed `string`. Deliberately NOT widened
- *  with a `Record<string, string | undefined>` index signature: that signature
- *  claimed *any* string indexes this table, which is false, and it is how a
- *  name inherited from `Object.prototype` (`constructor`, `toString`,
- *  `valueOf`, `hasOwnProperty`) used to sail through {@link encodeKey}. An
- *  arbitrary, user-supplied name has exactly one door: {@link encodeKey},
- *  which gates the read behind {@link isNamedKey}. */
-export const NAMED_KEY_BYTES: typeof NAMED_KEYS = NAMED_KEYS;
-
-/** Own-property guard for {@link NAMED_KEYS} — the prototype-safety boundary.
- *  `Object.hasOwn` (not `in`, not a bare lookup) so nothing inherited from
- *  `Object.prototype` can pose as a key; the predicate return type is what lets
- *  the read stay cast-free. */
-function isNamedKey(name: string): name is keyof typeof NAMED_KEYS {
-  return Object.hasOwn(NAMED_KEYS, name);
-}
+const NAMED_KEY_LOOKUP = new Map<string, string>(
+  Object.entries(NAMED_KEY_BYTES),
+);
 
 /** Fold a single char into its control byte — `c` → 0x03, `a` → 0x01, `[` → ESC.
  *  Control bytes exist for `@ A–Z [ \ ] ^ _` (0x40–0x5f) → 0x00–0x1f; `Space`
@@ -66,31 +48,22 @@ export function controlByte(char: string): string | undefined {
 }
 
 /** Fold a char under Meta/Alt — `b` → `\x1bb`. Meta is encoded as an ESC prefix
- *  (the classic 8th-bit-set alternative), the third sibling key-encoding rule
- *  beside the named-key table and {@link controlByte}, so every producer of
- *  key-press bytes shares this one home. */
+ *  (the classic 8th-bit-set alternative). */
 export function metaByte(char: string): string {
   return `\x1b${char}`;
 }
 
 /** The named keys {@link encodeKey} accepts, as one human string for help text
- *  and unknown-key errors. Slashes group the arrow cluster; `keyInput.test.ts`
- *  guards that every token here resolves via {@link encodeKey} and that every
- *  byte in {@link NAMED_KEY_BYTES} is reachable from it, so adding a key to the
- *  table without listing it here fails CI. */
+ *  and unknown-key errors. Slashes group the arrow cluster. */
 export const ACCEPTED_KEY_NAMES =
   "Enter, Escape, Tab, Up/Down/Left/Right, Home, End, Backspace, Space, Shift-Tab";
 
 /** A named key (`Escape`, `Up`, `Enter`, case-insensitive) or a modifier chord
  *  (`C-c`, `M-b`) → its raw bytes; `undefined` when unrecognized. `M-<char>`
- *  (meta/alt) prefixes ESC to the char verbatim (`M-b` → `\x1bb`). This is the
- *  ONLY door for a name that came from a human (`kolu send --key`,
- *  `lifecycle_sendInput`), so the own-property guard is the whole
- *  prototype-safety story; `undefined` here becomes a loud, named error listing
- *  {@link ACCEPTED_KEY_NAMES} at the call site — never a write. */
+ *  (meta/alt) prefixes ESC to the char verbatim (`M-b` → `\x1bb`). */
 export function encodeKey(name: string): string | undefined {
-  const lower = name.toLowerCase();
-  if (isNamedKey(lower)) return NAMED_KEYS[lower];
+  const named = NAMED_KEY_LOOKUP.get(name.toLowerCase());
+  if (named !== undefined) return named;
   const ctrl = /^c-(.)$/i.exec(name)?.[1];
   if (ctrl !== undefined) return controlByte(ctrl);
   const meta = /^m-(.)$/i.exec(name)?.[1];

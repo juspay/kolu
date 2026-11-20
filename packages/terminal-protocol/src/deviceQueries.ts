@@ -1,25 +1,9 @@
 /**
  * The device-query matrix — which terminal queries kolu answers, and which it
- * deliberately leaves silent. This table IS the policy; the implementations
- * that honor it live elsewhere (the headless's native answerers + the
- * pty-host's XTVERSION handler; the client-side duplicate suppression in
- * `responseFilter.ts`), and `kaval`'s device-query contract tests
- * execute this table against a real headless so the policy and the
- * implementation cannot drift apart.
- *
- * Every query class the client filter suppresses sits in exactly one arm:
- *
- *  - ANSWERED — the headless answers it and the reply is forwarded to the
- *    PTY child. Suppressing the mirroring client's duplicate is then safe:
- *    exactly one answerer.
- *  - SILENT — NOBODY answers through kolu (the headless doesn't synthesize
- *    it; the forwarder drops `ESC ]` regardless; the client filter suppresses
- *    the browser's theme/window-derived reply). Programs querying these carry
- *    their own timeout fallbacks; consistent silence beats answers that
- *    differ per attached client.
- *
- * A new suppressed class in `responseFilter.ts` MUST land in one arm here
- * (and thereby in the pty-host contract tests) before it ships.
+ * deliberately leaves silent. The implementations that honor it live elsewhere
+ * (the headless's native answerers + the pty-host's XTVERSION handler; the
+ * client-side duplicate suppression in `responseFilter.ts`), and `kaval`'s
+ * device-query contract tests execute this table against a real headless.
  */
 export interface DeviceQueryProbe {
   /** Human-readable class name, for test output. */

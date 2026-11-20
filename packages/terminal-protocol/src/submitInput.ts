@@ -8,16 +8,13 @@
  *  - inside a bracketed paste it is a line of the pasted text, which every TUI
  *    that asked for `?2004` keeps in its input rather than submitting
  *    ({@link createPasteTracker});
- *  - after ESC it is the Alt chord (`ESC CR` is Alt+Enter), which the agents
- *    kolu drives read as "a newline in the input", never "send".
+ *  - after ESC it is the Alt chord, which the agents kolu drives read as "a
+ *    newline in the input", never "send" — a terminal sends Alt+Enter as ONE
+ *    write (`ESC CR`), so an ESC that ENDS a write is the Escape key on its
+ *    own.
  *
  * What it cannot see is whether the program ACCEPTED the submit — an Enter
  * into an empty input, a slash-command picker.
- *
- * The paste state is carried across writes — a paste split over two writes is
- * still one paste. The Alt prefix is NOT: a terminal sends Alt+Enter as one
- * write (`ESC CR`), and an ESC that ends a write is the Escape key on its own,
- * which must not swallow the Enter pressed after it.
  */
 
 import { createPasteTracker } from "./bracketedPaste.ts";

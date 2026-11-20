@@ -36,8 +36,7 @@ const advanceMarker = (pos: number, marker: string, code: number): number => {
 /**
  * Follow the paste markers through a stream fed one code unit at a time. The
  * state survives chunk boundaries, so a marker split across two reads still
- * flips it — which is the whole reason this is a machine and not a regex over
- * one chunk.
+ * flips it.
  */
 export function createPasteTracker(): PasteTracker {
   let inPaste = false;
