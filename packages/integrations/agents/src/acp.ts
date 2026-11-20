@@ -34,7 +34,9 @@ import {
   type NotHere,
 } from "@kolu/acp/engine";
 import {
-  CLAUDE,
+  COMPACTION_OVERRIDES,
+  compactingAt,
+  compactsPast,
   configDirIn as claudeConfigDir,
   NAME,
   REMOTE_SIGNALS,
@@ -66,6 +68,13 @@ const INSTALL: NotHere = {
 };
 
 /**
+ * WHERE THE CONDUCTOR'S CONVERSATION IS COMPACTED, in tokens of context. kolu's
+ * number rather than the agent's default (about 967k on a 1M model): every
+ * wake re-reads the whole conversation, and a short one is a cheap one.
+ */
+export const CONDUCTOR_COMPACTS_AT = 200_000;
+
+/**
  * THE CLAUDE CODE ENGINE, as a VALUE — everything kolu's side of the wall adds
  * to the facts its own package owns.
  *
@@ -75,7 +84,8 @@ const INSTALL: NotHere = {
  */
 export const ENGINE: Registering = {
   name: NAME,
-  leg: CLAUDE,
+  leg: compactingAt(CONDUCTOR_COMPACTS_AT),
+  compacts: compactsPast(CONDUCTOR_COMPACTS_AT),
   // SHIPPED, NOT FOUND, which is why the probe is a variable read and never a
   // search-path lookup: the adapter is a wrapper inside the nix store and is on
   // nobody's PATH — `where.found` is not consulted here and padi hands one that
@@ -103,7 +113,12 @@ export const ENGINE: Registering = {
       // SSH session that started padi, a development container that exports
       // `CLAUDE_CODE_REMOTE`, a `NO_BROWSER` in a shell profile. None of them
       // changes who is looking at the screen.
-      unset: REMOTE_SIGNALS,
+      //
+      // ... AND FOUR MORE THAT WOULD OVERRIDE THE COMPACTION the open's
+      // settings ask for ({@link CONDUCTOR_COMPACTS_AT}): a host that exports
+      // one would otherwise turn it off or move it, for this conversation and
+      // without a word.
+      unset: [...REMOTE_SIGNALS, ...COMPACTION_OVERRIDES],
     };
   },
   // ACP has no system prompt on any wire, this one included, so the standing

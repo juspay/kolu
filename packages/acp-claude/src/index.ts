@@ -30,7 +30,17 @@
  * repository has no compiler watching it.
  */
 
-export { configDirIn, REMOTE_SIGNALS } from "./env.ts";
-export { CLAUDE, spelling } from "./leg.ts";
+export {
+  COMPACTION_OVERRIDES,
+  configDirIn,
+  REMOTE_SIGNALS,
+} from "./env.ts";
+export {
+  CLAUDE,
+  COMPACT_RESERVE,
+  compactingAt,
+  compactsPast,
+  spelling,
+} from "./leg.ts";
 export { MODELS, modelNameIn } from "./models.ts";
 export { NAME } from "./name.ts";
