@@ -6,7 +6,9 @@
  *  terminal, it draws it in its own colours, and a key reaches the terminal
  *  only while it is the person's — a key typed at a terminal the Conductor
  *  drives raises the lock's card over it (`WorkLock`, without its pill: the
- *  head carries Hand back).
+ *  head carries Hand back). On a touch screen the key bar (`MobileKeyBar`,
+ *  aimed at this terminal) is under it while the terminal is the person's:
+ *  a key bar under a terminal that takes no keys would only raise the card.
  *
  *  It holds a read of the terminal's screen only while `connected`
  *  (`livePanes.ts` decides): a pane that is not on screen draws its head and
@@ -27,7 +29,9 @@ import {
   Show,
 } from "solid-js";
 import { DEFAULT_FONT_SIZE, getThemeByName } from "terminal-themes";
+import MobileKeyBar from "../MobileKeyBar";
 import { fleetTerminalStanding } from "../palette/fleetTerminals";
+import { isTouch } from "../useMobile";
 import { useMemberName } from "./memberNames";
 import { inputAllowedAt } from "./personInput";
 import PeekTerminal, { type PeekTerminalHandle } from "./peek/PeekTerminal";
@@ -223,6 +227,9 @@ const LivePane: Component<{
           <WorkLock terminal={ref()} pill={false} />
         </Show>
       </div>
+      <Show when={isTouch() && lookable() && props.connected && mayType()}>
+        <MobileKeyBar target={{ host: props.host, id: props.id }} />
+      </Show>
     </section>
   );
 };

@@ -1,7 +1,8 @@
 /** THE PICKED WORK'S TERMINALS, LIVE — the Terminals view of a picked work.
  *
  *  One or two terminals stack, a pane each. Three or more, or a window
- *  narrower than 1280px, show one pane with a tab per terminal. Which
+ *  narrower than 1280px — a phone's always is — show one pane with a tab per
+ *  terminal, the key bar under it while that terminal is the person's. Which
  *  panes hold a read of their screen is `livePanes.ts`'s answer: only the
  *  ones a person can see.
  *
