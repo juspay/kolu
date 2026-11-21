@@ -36,7 +36,10 @@ const ran = (turn: ChatTurn): boolean => {
 /** THE NEWEST FINISHED TURN'S REPLY, when a person started that turn.
  *
  *  While a turn is running (`busy`) the newest turn that ran is the one
- *  still running, so the newest FINISHED one is the turn before it.
+ *  still running, so a finished reply is the one before it. That holds only
+ *  when the newest turn is kolu's own: a message a person types into a
+ *  running turn is a row of its own that starts nothing, followed by the
+ *  rest of the reply still being written.
  *
  *  `null` when that turn was not started by a person, when it said nothing,
  *  when its last words are still streaming, and when it put a question: the
@@ -46,7 +49,16 @@ export function finishedReplyOf(
   busy: boolean,
 ): FinishedReply | null {
   const turns = chatTurns(rows).filter(ran);
-  const done = busy ? turns.at(-2) : turns.at(-1);
+  const newest = turns.at(-1);
+  // WHILE A TURN RUNS, a newer row proves the turn before it is over only
+  // when kolu started that newer turn: kolu's own turns are never put into
+  // a running one. A person's message can be, and then it is a row of its
+  // own that starts nothing.
+  const done = !busy
+    ? newest
+    : newest?.head.kind === "wake"
+      ? turns.at(-2)
+      : undefined;
   if (done === undefined || done.head.kind !== "user") return null;
   let said: Extract<ConductorRow, { kind: "agent" }> | undefined;
   for (const row of done.rows) {

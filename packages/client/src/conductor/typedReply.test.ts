@@ -46,6 +46,29 @@ const workAsk = (id: string, minute: number): ConductorRow => ({
 });
 
 describe("the newest finished reply to a message a person typed", () => {
+  it("is nothing while a turn is running, even when a second message was typed into it", () => {
+    expect(
+      finishedReplyOf(
+        [user("u1", 0), agent("a1", 1, "Looking into it."), user("u2", 2)],
+        true,
+      ),
+    ).toBeNull();
+  });
+
+  it("gives the whole answer once that turn ends, under the second message", () => {
+    expect(
+      finishedReplyOf(
+        [
+          user("u1", 0),
+          agent("a1", 1, "Looking into it."),
+          user("u2", 2),
+          agent("a2", 3, "Both are done."),
+        ],
+        false,
+      ),
+    ).toEqual({ turn: "u2", text: "Both are done." });
+  });
+
   it("takes the turn's last words, not its first", () => {
     expect(
       finishedReplyOf(
