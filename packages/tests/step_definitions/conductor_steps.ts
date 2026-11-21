@@ -449,15 +449,22 @@ When(
       "no tile is focused, so there is nothing to join to the work",
     );
     await enterConductor(this);
+    // THIS join's answer: a scenario that joins two terminals holds the first
+    // join's answer too, so the answer read is the first one after those
+    // already in the transcript.
+    const joins = () =>
+      this.page
+        .locator(`${TRANSCRIPT} ${ROW}[data-row-kind="agent"]`)
+        .evaluateAll((all) =>
+          all
+            .map((row) => row.textContent ?? "")
+            .filter((text) => text.includes("joined:")),
+        );
+    const before = (await joins()).length;
     await sendPrompt(this, `join ${id} as ${role}`);
     let inventoryAtTimeout = "(not observed)";
     const said = await pollFor({
-      observe: async () => {
-        const rows = await this.page
-          .locator(`${TRANSCRIPT} ${ROW}[data-row-kind="agent"]`)
-          .evaluateAll((all) => all.map((row) => row.textContent ?? ""));
-        return rows.find((text) => text.includes("joined:")) ?? null;
-      },
+      observe: async () => (await joins())[before] ?? null,
       isDone: (text) => text !== null,
       timeoutMs: POLL_TIMEOUT,
       onTick: async () => {
