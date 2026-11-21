@@ -18,6 +18,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { After, Given, Then, When } from "@cucumber/cucumber";
+import type { Locator } from "playwright";
 import {
   ompMockPayload,
   ompTranscriptPath,
@@ -2343,6 +2344,16 @@ export function workCard(world: KoluWorld) {
 /** The way back to all the works, while one is picked. */
 const ALL_WORK = '[data-testid="works-all"]';
 
+/** A CARD'S HEAD IS AN OVERLAY UNDER ITS CONTENT, and the content lets its
+ *  buttons through — the strip's stage cells among them. Now that a cell
+ *  carries a label and a time, a centre press can land on a cell instead of
+ *  the head, so press where the title is, clear of the strip. */
+const pressCardHead = async (card: Locator): Promise<void> => {
+  await card
+    .locator('[data-testid="work-card-head"]')
+    .click({ position: { x: 12, y: 12 } });
+};
+
 /** Open that card, idempotently — a work already picked is left alone,
  *  because pressing its head would unpick it and every later step would read
  *  an empty card and blame the product.
@@ -2355,7 +2366,7 @@ const ALL_WORK = '[data-testid="works-all"]';
 export async function openWorkCard(world: KoluWorld): Promise<void> {
   const card = await showWorkCard(world);
   if ((await card.getAttribute("data-open")) === null) {
-    await card.locator('[data-testid="work-card-head"]').click();
+    await pressCardHead(card);
   }
   await waitForValue(
     "the work card's open state",
@@ -3792,10 +3803,7 @@ export async function keepWorkCardOpen(world: KoluWorld): Promise<void> {
   if (await card.isVisible().catch(() => false)) {
     await showDetails(world);
     if ((await card.getAttribute("data-open")) === null) {
-      await card
-        .locator('[data-testid="work-card-head"]')
-        .click()
-        .catch(() => {});
+      await pressCardHead(card).catch(() => {});
     }
     const whole = card.locator('[data-testid="work-timeline-whole"]');
     if (
@@ -4059,7 +4067,10 @@ Then(
       onTimeout: (all, ms) =>
         new Error(
           `after ${ms}ms a stage label or time is cut: ${all
-            .map((one) => `${JSON.stringify(one.text)} ${one.scroll}>${one.client}`)
+            .map(
+              (one) =>
+                `${JSON.stringify(one.text)} ${one.scroll}>${one.client}`,
+            )
             .join(" / ")}`,
         ),
     });
@@ -4077,7 +4088,9 @@ Then(
       .locator('[data-testid="work-timeline"] > ul > li')
       .evaluateAll((rows) =>
         rows.map((row) => {
-          const rail = row.querySelector(':scope > [data-testid="timeline-rail"]');
+          const rail = row.querySelector(
+            ':scope > [data-testid="timeline-rail"]',
+          );
           const own = row.getBoundingClientRect();
           const line = rail?.getBoundingClientRect();
           return {
@@ -4092,7 +4105,10 @@ Then(
     for (let i = 0; i < boxes.length - 1; i += 1) {
       const row = boxes[i];
       const next = boxes[i + 1];
-      assert.ok(row !== undefined && next !== undefined, "a row box is missing");
+      assert.ok(
+        row !== undefined && next !== undefined,
+        "a row box is missing",
+      );
       assert.ok(
         row.railBottom === null || row.railBottom >= next.top - 1,
         `the line stops at ${row.railBottom} but the next row starts at ${next.top} — a gap in the timeline`,
@@ -4719,7 +4735,7 @@ When("I shut the work card", async function (this: KoluWorld) {
   const card = workCard(this);
   await card.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
   if ((await card.getAttribute("data-open")) !== null)
-    await card.locator('[data-testid="work-card-head"]').click();
+    await pressCardHead(card);
   await waitForValue(
     "the work card's open state",
     async () =>

@@ -4021,7 +4021,7 @@ retirements:
     defectSurface: [conductor, mobile, user-journey]
     destinationLayer: L5
     replacements: []
-    survivorRevisionIds: [revision-550eacf9a507b756e923, revision-099e7787c6921fc5c0e4]
+    survivorRevisionIds: [revision-91da9a9914b88c036009, revision-099e7787c6921fc5c0e4]
     sameCodePathEvidence:
       file: packages/tests/features/conductor-work.feature
       symbol: "Scenario: The work column and its card fit a phone"
@@ -5018,19 +5018,19 @@ retirements:
       file: packages/tests/features/conductor-needs-you.feature
       symbol: "Scenario: Picking a work points the chat at it, and the box with it"
       test: The work is picked by its card instead of by the removed button; the rest of the journey — the scope bar, the out-of-scope message, the next message's chip and Show all — is the same.
-  - id: revise-91da9a9914b88c036009
-    revisionId: revision-91da9a9914b88c036009
+  - id: revise-550eacf9a507b756e923
+    revisionId: revision-550eacf9a507b756e923
     action: revised
     status: landed
     promise: The work column and its card fit a phone
     defectSurface: [conductor, mobile]
     destinationLayer: L5
     replacements: []
-    survivorRevisionIds: [revision-550eacf9a507b756e923]
+    survivorRevisionIds: [revision-91da9a9914b88c036009]
     sameCodePathEvidence:
       file: packages/tests/features/conductor-work.feature
       symbol: "Scenario: The work column and its card fit a phone"
-      test: The same phone-width journey with one added assertion that every stage label and time is whole; the card and the 390px window are unchanged.
+      test: The same phone-width journey, back to its body before the strip assertion; this work is a watch and has no strip, so the assertion moved to the new full-work scenario beside it.
   - id: revise-ed702f2399cae694b4be
     revisionId: revision-ed702f2399cae694b4be
     action: revised
@@ -5109,3 +5109,16 @@ retirements:
       file: packages/tests/features/conductor.feature
       symbol: "Scenario: A question from the Conductor chimes wherever you are, and a reload does not ring for it"
       test: The same journey and the same steps; a question asked while the Conductor is in front of you now chimes, so the second sound count is two. The ring while the window is away and the silence after a reload are as they were.
+  - id: revise-be65c9c73562152587e2
+    revisionId: revision-be65c9c73562152587e2
+    action: revised
+    status: landed
+    promise: A full work's stage strip fits a phone
+    defectSurface: [conductor, mobile]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-1380c0b24614461d6756]
+    sameCodePathEvidence:
+      file: packages/tests/features/conductor-work.feature
+      symbol: "Scenario: A full work's stage strip fits a phone"
+      test: The same new phone journey with the window-edge assertion removed; that assertion caught an unrelated setup line on the picked card's details, and the strip check is the scenario's point.
