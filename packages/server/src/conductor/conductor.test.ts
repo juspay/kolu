@@ -5559,7 +5559,10 @@ describe("the rows kolu writes itself, while a second message waits (#2420)", ()
       kind: "rows",
       upserts: [
         userRow("user:1", 1, "fix the parser on prod, please"),
-        { ...userRow("user:3", 3, "and update the docs"), queued: true },
+        {
+          ...userRow("user:3", 3, "and update the docs"),
+          queued: true,
+        } as ConductorRow,
       ],
       removes: [],
       appends: [],
@@ -5584,6 +5587,16 @@ describe("the rows kolu writes itself, while a second message waits (#2420)", ()
           key: "mode",
           question: "How much of this?",
           options: ["full", "trivial"],
+          given: toAsk,
+        },
+        { key: "planner.harness", given: toAsk },
+        { key: "planner.model", given: toAsk },
+        { key: "implementor.harness", given: toAsk },
+        { key: "implementor.model", given: toAsk },
+        {
+          key: "on-green",
+          question: "And when CI is green?",
+          options: ["merge", "hand-over"],
           given: toAsk,
         },
       ],
