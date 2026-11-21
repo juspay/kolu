@@ -32,13 +32,21 @@ export const chatScope = (): {
   return record === undefined ? null : { id, record };
 };
 
-/** "About this work": point the chat at it. The reader gives way and a
- *  phone shows the chat, so the chat it filtered is the thing on screen. */
-export function aboutWork(id: WorkId): void {
+/** POINT THE CHAT AT A WORK: the reader gives way, and the chat shows the
+ *  turns about it. What picking a work does (`workListing.ts`). */
+export function pointChatAt(id: WorkId): void {
   batch(() => {
     closeReader();
-    setPhoneView("chat");
     setScope(id);
+  });
+}
+
+/** "About this work": point the chat at it, and on a phone show the chat,
+ *  so the chat it filtered is the thing on screen. */
+export function aboutWork(id: WorkId): void {
+  batch(() => {
+    pointChatAt(id);
+    setPhoneView("chat");
   });
 }
 

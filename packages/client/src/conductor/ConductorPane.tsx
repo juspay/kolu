@@ -256,6 +256,7 @@ const ConductorPane: Component<{
                 <Shown.Provider value={worksShown}>
                   <aside
                     data-testid="conductor-side"
+                    data-works-scroll
                     style={{
                       "content-visibility": reading() ? "hidden" : "visible",
                     }}
@@ -275,6 +276,7 @@ const ConductorPane: Component<{
               <Show when={phone() && worksDrawn(frame())}>
                 <div
                   data-testid="conductor-works"
+                  data-works-scroll
                   class="flex min-h-0 min-w-0 flex-col overflow-y-auto overflow-x-hidden"
                 >
                   <WorkColumn />

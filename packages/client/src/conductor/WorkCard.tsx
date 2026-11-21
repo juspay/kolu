@@ -68,9 +68,10 @@ import WorkDetails from "./WorkDetails";
 import { workFileSource } from "./workFile";
 import {
   cardShown,
-  isCardOpen,
-  openCard,
-  toggleCard,
+  isPicked,
+  pickWork,
+  stageAskedFor,
+  togglePick,
   wantedCard,
 } from "./workListing";
 import { checksTally, livePrOf } from "./prReadings";
@@ -121,15 +122,17 @@ const WorkCard: Component<{
   /** HOW IT IS DRAWN. A `card` is a block of its own — a work that needs
    *  you, with its question, and a finished one. A `row` is one line of a
    *  group's table, for every other work in progress: title, stage line,
-   *  terminals and age side by side. Both open in place on a press. */
-  shape: "card" | "row";
+   *  terminals and age side by side. `picked` is the work the screen is
+   *  about: the card's face with its details under it. A press on a card or
+   *  a row picks it; a press on the picked one unpicks it. */
+  shape: "card" | "row" | "picked";
 }> = (props) => {
   // The column's clock, stopped while nobody is looking at the pane: every
   // duration on this card ticks from it, and a hidden pane ticks for nobody.
   const now = useShownClock();
   const allMembers = useWorkMembers();
 
-  const isOpen = () => isCardOpen(props.id);
+  const isOpen = () => isPicked(props.id);
 
   /** A ROUTE ASKED FOR THIS CARD: once it is on screen, scroll it into view
    *  and flash it once — onto the question the route named, when it named
@@ -221,11 +224,14 @@ const WorkCard: Component<{
   const read = createMemo(() =>
     stagesOf(props.work, new Date(now()).toISOString()),
   );
-  /** WHAT THE OPEN CARD SHOWS OF ITS TIMELINE — the stage a person pressed
+  /** WHAT THE PICKED WORK SHOWS OF ITS TIMELINE — the stage a person pressed
    *  on the strip (none: the stage the work is in) and whether the whole
-   *  timeline is out. The card's own: a shut card forgets both, so the next
-   *  time it opens it follows the work again. */
-  const [pressed, setPressed] = createSignal<StageName | undefined>();
+   *  timeline is out. The face's own, seeded from the press that picked it:
+   *  a work unpicked forgets both, so the next time it is picked it follows
+   *  the work again. */
+  const [pressed, setPressed] = createSignal<StageName | undefined>(
+    isOpen() ? stageAskedFor() : undefined,
+  );
   const [whole, setWhole] = createSignal(false);
   createEffect(() => {
     if (isOpen()) return;
@@ -279,7 +285,11 @@ const WorkCard: Component<{
     </p>
   );
   const title = () => (
-    <span class="min-w-0 flex-1 truncate text-[0.78rem] font-semibold text-fg">
+    <span
+      class={`min-w-0 flex-1 truncate font-semibold text-fg ${
+        props.shape === "picked" ? "text-base" : "text-[0.78rem]"
+      }`}
+    >
       {props.work.title}
     </span>
   );
@@ -303,7 +313,7 @@ const WorkCard: Component<{
         show: (stage) => {
           setPressed(stage);
           setWhole(false);
-          openCard(props.id);
+          if (!isOpen()) pickWork(props.id, stage);
         },
       }}
     />
@@ -327,7 +337,7 @@ const WorkCard: Component<{
       aria-expanded={isOpen()}
       aria-label={props.work.title}
       class={`absolute inset-0 cursor-pointer ${row() ? "" : "rounded-xl"}`}
-      onClick={() => toggleCard(props.id)}
+      onClick={() => togglePick(props.id)}
     />
   );
 
