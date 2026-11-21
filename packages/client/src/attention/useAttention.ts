@@ -33,9 +33,11 @@
  *      (rendered by the chips off the same cell) shows finished work on a host you
  *      aren't looking at.
  *
- *  Delivery (the actual sound + service-worker popup) is NOT owned here — it rides
- *  the shared `notify` seam (`../attentionNotify`) plus a local `playSound`, so
- *  this module only decides WHEN, never re-implements the platform landmines.
+ *  Delivery is `attend.raise` (`./attend.ts`) — the ONE path every source goes
+ *  through: this module describes each thing that needs the human as an
+ *  {@link AttentionItem}, and the path decides the sound, the popups and the
+ *  master switch. Neither this module nor the Conductor's bell touches an
+ *  `Audio` or the `notify` seam for an alert.
  *
  *  Owned-by-caller: constructed once under the app owner (it holds a keyArray of
  *  per-host roots disposed on host removal). See `App.tsx`. */
@@ -53,14 +55,11 @@ import {
 } from "kolu-common/surface";
 import "kolu-common/test-hooks";
 import { Effect, Semaphore } from "effect";
-import type { MemoryNeed } from "kolu-common/conductorMemory";
-import type { NeedsYou } from "kolu-work";
 import { createEffect, mapArray, onCleanup, untrack } from "solid-js";
 import { match } from "ts-pattern";
 import { notify } from "../attentionNotify";
 import { hostLabel } from "../host/hostChipTone";
 import { selectHostTab } from "../host/selectHostTab";
-import { afterViewKnown, isNeedInView } from "../conductor/onScreen";
 import {
   conductorAsks,
   useConductorBadge,
@@ -74,6 +73,7 @@ import { memorySheet, useMemoryNeed } from "../conductor/memory/useMemory";
 import { useMembership, useNeedsYou, useWorkMap } from "../conductor/useWorks";
 import { showWork } from "../conductor/workListing";
 import { drivenByConductor } from "../conductor/workReadings";
+import { typedReply } from "../conductor/typedReply";
 import { runAction } from "../runAction";
 import type { TerminalSubject } from "../terminal/terminalSubject";
 import { nextAfter } from "../ui/nextAfter";
@@ -84,6 +84,15 @@ import {
   setActiveHost,
 } from "../wire";
 import { createAttentionCore } from "./attentionCore";
+import { createAttend } from "./attend";
+import {
+  conversationItem,
+  memoryItem,
+  replyItems,
+  terminalItem,
+  workItem,
+} from "./attentionItems";
+import { attentionChannels } from "./channels";
 import { createConductorBell } from "./conductorAsks";
 import {
   hostAskingIds,
@@ -118,21 +127,11 @@ export interface AttentionDeps {
   activeAgentState: (id: TerminalId) => AgentInfo["state"] | undefined;
 }
 
-function playSound(): void {
-  const audio = new Audio("/sounds/notification.mp3");
-  audio.play().catch((err: unknown) => {
-    // An autoplay-policy block (no user gesture yet) or an unsupported codec is
-    // EXPECTED and benign — but surface it (never a silent collapse) so a broken
-    // sound channel is distinguishable from success. `debug` keeps the expected
-    // autoplay-block out of the warning stream while still being observable.
-    console.debug("useAttention: notification sound did not play", err);
-  });
-}
-
 export function useAttention(deps: AttentionDeps): {
   simulateAlert: (options?: { target?: "active" | "inactive" }) => void;
 } {
   const alertsEnabled = (): boolean => preferences().attentionAlerts;
+  const attend = createAttend(attentionChannels(alertsEnabled));
 
   // Ask for OS-notification permission REACTIVELY off the same pref that gates
   // delivery — so turning attention on later still prompts, and re-runs are cheap
@@ -154,13 +153,14 @@ export function useAttention(deps: AttentionDeps): {
       document.hasFocus(),
     );
 
-  /** Actually reach the user for one terminal: sound + OS popup when `loud`,
-   *  plus the dock unread when it's an active-host background tile. The `WHEN`
-   *  gate lives in the engine; this is the delivery, shared with the simulate
-   *  hook. A terminal the Conductor drives is delivered QUIET — the marks and
-   *  nothing else — because the Conductor answers its agents, and a person
-   *  hearing "finished" for a planner the Conductor is about to brief again
-   *  learns to ignore the bell.
+  /** Actually reach the user for one terminal: hand the item to the one path
+   *  when `loud`, plus the dock unread when it's an active-host background
+   *  tile. The `WHEN` gate lives in the engine; this is the terminal's own
+   *  reading of the one path, shared with the simulate hook. A terminal the
+   *  Conductor drives is delivered QUIET — the marks and nothing else —
+   *  because the Conductor answers its agents, and a person hearing
+   *  "finished" for a planner the Conductor is about to brief again learns
+   *  to ignore the bell.
    *
    *  The FUNNEL GUARD: both emission paths (the engine's `hooks.deliver`, fired
    *  from a per-host `createEffect`, and `simulateAlert`) run through here, and the
@@ -177,23 +177,16 @@ export function useAttention(deps: AttentionDeps): {
     try {
       const encHost = encodeHostKey(host);
       const rich = isActiveHost(host) ? deps.activeSubject(id) : undefined;
-      if (loud) {
-        playSound();
-        const title = rich
-          ? asking
-            ? `${rich.title} needs your input`
-            : `${rich.title} finished`
-          : asking
-            ? `An agent needs your input on ${hostLabel(host)}`
-            : `An agent finished on ${hostLabel(host)}`;
-        void notify.show({
-          tag: `${encHost}/${id}`,
-          title,
-          body: rich?.description,
-          icon: "/favicon.svg",
-          data: { kind: "terminal", host: encHost, terminalId: id },
-        });
-      }
+      if (loud)
+        attend.raise([
+          terminalItem({
+            encHost,
+            hostLabel: hostLabel(host),
+            id,
+            asking,
+            subject: rich,
+          }),
+        ]);
       // `rich` is non-undefined iff this is the active host, so reuse it rather than
       // a second `sameHost` compare — the dock unread is an active-host terminal
       // other than the pane currently receiving input. Raised on the host's
@@ -207,94 +200,55 @@ export function useAttention(deps: AttentionDeps): {
     }
   }
 
-  /** WHAT NEEDS YOU, through the same channel and nothing else.
+  /** IS THE CONVERSATION IN FRONT OF THE HUMAN — its tab showing in a focused
+   *  kolu window. Untracked: it is read at the instant an alert is raised,
+   *  and a focus change must not re-run whatever reading raised it. */
+  const conductorInFront = (): boolean =>
+    untrack(conductorMode) && document.hasFocus();
+
+  const workMap = useWorkMap();
+  const needs = useNeedsYou();
+  /** WHAT NEEDS YOU, handed to the one path.
    *
    *  A work waiting on you — a question, a green PR handed over — and a
    *  question the conversation asks about no work are `asking` in exactly the
-   *  sense the frame already means it. They fire the SAME sound and the SAME
-   *  notification seam (there is one `Audio`, one `Notification` and one
-   *  `setAppBadge` in this client, and this is not a second of any of them),
-   *  and they count into the same badge below. WHEN they fire is
-   *  `conductorAsks`'s rule.
-   *
-   *  ONE NOTIFICATION PER WORK ITEM, titled with the work and saying what is
-   *  wanted (`NeedsYou.wanted`, the card's and the palette's words), tagged
-   *  with the item so two works do not replace each other; a click takes the
-   *  one route to the work, onto its card and its question. The
-   *  conversation's own questions are one notification, as they always were.
-   *  One sound for the lot. */
-  const deliverNeeds = (
-    items: ReadonlyArray<NeedsYou>,
-    ownOpen: number | null,
-    memory: MemoryNeed | null,
-  ): void => {
-    try {
-      playSound();
-      for (const item of items)
-        void notify.show({
-          tag: `work:${item.key}`,
-          title: item.title,
-          body: item.wanted,
-          icon: "/favicon.svg",
-          data: {
-            kind: "work",
-            work: item.work,
-            ask: item.why.why === "question" ? item.why.ask : null,
-          },
-        });
-      if (ownOpen !== null)
-        void notify.show({
-          tag: "conductor",
-          title: "The conductor needs you",
-          body:
-            ownOpen === 1
-              ? "One question is waiting"
-              : `${ownOpen} questions are waiting`,
-          icon: "/favicon.svg",
-          data: { kind: "conductor" },
-        });
-      // ONE NOTIFICATION FOR MEMORY, tagged so a newer one replaces it.
-      if (memory !== null)
-        void notify.show({
-          tag: "memory",
-          title: "The Conductor would like to remember something",
-          body:
-            memory.title !== null
-              ? memory.title
-              : `${memory.count} proposals are waiting`,
-          icon: "/favicon.svg",
-          data: { kind: "memory" },
-        });
-    } catch (err) {
-      console.error("useAttention: conductor delivery failed", err);
-    }
-  };
+   *  sense the frame already means it, and they count into the same badge
+   *  below. WHAT rings is `conductorAsks`'s rule; HOW it reaches the human is
+   *  `attend.raise`'s. In front of the Conductor, its own questions, waiting
+   *  work and memory chime without a desktop popup; anywhere else, each
+   *  raises one. */
   const conductorBell = createConductorBell({
-    alertsEnabled,
-    // THAT ITEM in view in a focused window — looking at the Conductor alone
-    // is not looking at it.
-    isItemWatched: isNeedInView,
-    isConversationWatched: () => conductorMode() && document.hasFocus(),
-    deliver: deliverNeeds,
+    deliver: ({ items, ownOpen, memory, reply }) => {
+      const inFront = conductorInFront();
+      attend.raise([
+        ...items.map((item) => workItem(item, inFront)),
+        ...(ownOpen === null ? [] : [conversationItem(ownOpen, inFront)]),
+        ...(memory === null ? [] : [memoryItem(memory, inFront)]),
+        ...(reply === null
+          ? []
+          : replyItems(
+              reply,
+              reply.work === null
+                ? undefined
+                : untrack(workMap).get(reply.work)?.title,
+              inFront,
+            )),
+      ]);
+    },
   });
-  const workMap = useWorkMap();
-  const needs = useNeedsYou();
-  // DECIDE AFTER THE PAGE HAS DRAWN IT: a question that just arrived says it
-  // is in view only once it has been laid out and observed.
-  const decide = afterViewKnown(() => conductorBell.settle());
   const memoryNeed = useMemoryNeed();
   createEffect(() => {
     const asks = conductorAsks();
     // Silence is not an empty list: before the server's first frame there is
     // nothing to compare against, and the real first frame is the baseline.
     if (asks === undefined) return;
-    const heard = conductorBell.observe({
+    conductorBell.observe({
       ...asks,
       works: new Set(workMap().keys()),
       needs: needs(),
       memory: memoryNeed(),
+      reply: typedReply(),
     });
-    if (heard) decide();
   });
 
   // WHO DRIVES EACH MEMBER TERMINAL — the one membership index the dock

@@ -68,6 +68,11 @@ import WorkReader from "./reader/WorkReader";
 import ReaderChrome from "./reader/ReaderChrome";
 import { openReader, readerFilled, readerTarget } from "./reader/useReader";
 import { joinsOf, turnWorks } from "./turnWorks";
+import {
+  finishedReplyOf,
+  provideTypedReply,
+  type TypedReply,
+} from "./typedReply";
 import { useWorkMap } from "./useWorks";
 
 const ConductorPane: Component<{
@@ -82,6 +87,40 @@ const ConductorPane: Component<{
   const workMap = useWorkMap();
   const joins = createMemo(() => joinsOf(workMap()));
   const turns = createMemo(() => turnWorks(feed.rows(), workMap(), joins()));
+
+  // THE FINISHED REPLY TO A MESSAGE YOU TYPED, handed to attention — which
+  // rings for it once you have left the conversation. A memo and not an
+  // effect: it is a reading of the rows, the turn's works and whether a
+  // turn is running.
+  provideTypedReply(
+    createMemo(
+      (): TypedReply | null | undefined => {
+        if (feed.pending()) return undefined;
+        const reply = finishedReplyOf(
+          feed.rows(),
+          orch.state().busySince !== null,
+        );
+        if (reply === null) return null;
+        const works = turns().get(reply.turn)?.works ?? [];
+        return {
+          ...reply,
+          work: works.length === 1 ? (works[0] ?? null) : null,
+        };
+      },
+      undefined,
+      {
+        equals: (a, b) =>
+          a === b ||
+          (a !== undefined &&
+            a !== null &&
+            b !== undefined &&
+            b !== null &&
+            a.turn === b.turn &&
+            a.text === b.text &&
+            a.work === b.work),
+      },
+    ),
+  );
 
   const dialogStack = useDialogStack();
 

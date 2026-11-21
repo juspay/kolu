@@ -153,14 +153,9 @@ When("I show the whole chat", async function (this: KoluWorld) {
     .waitFor({ state: "hidden", timeout: POLL_TIMEOUT });
 });
 
-/** THE QUESTION ON SCREEN IN ONE PLACE ONLY — drawn in the chat, in view,
- *  while its work's card stays shut, so the chat's copy is the one copy a
- *  person can be looking at.
- *
- *  AND THE BELL HAS DECIDED by the time this returns: the card standing in
- *  the "Needs you" group is the needs-you reading the bell hears, and
- *  {@link letTheBellDecide} waits out its decision — so a sound count read
- *  next is the bell's verdict rather than a read taken before it. */
+/** The step waits for the question to be drawn in the chat and for its card
+ *  to stand in the "Needs you" group, then gives the bell a few frames. It
+ *  checks the card was not opened. */
 Then(
   "the work's question should be in the chat, its card shut",
   async function (this: KoluWorld) {

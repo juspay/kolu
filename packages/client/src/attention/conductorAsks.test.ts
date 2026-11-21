@@ -64,60 +64,31 @@ const reading = (
   works: new Set([OLAI, KOLU]),
   needs,
   memory: null,
+  reply: undefined,
   ...over,
 });
 
 function harness() {
   const rang: Array<{ items: string[]; own: number | null }> = [];
   const memoryRang: string[] = [];
-  const gates = {
-    alerts: true,
-    onScreen: new Set<string>(),
-    conversation: false,
-  };
+  const replies: string[] = [];
   const hooks: ConductorBellHooks = {
-    alertsEnabled: () => gates.alerts,
-    isItemWatched: (item) => gates.onScreen.has(item.key),
-    isConversationWatched: () => gates.conversation,
-    deliver: (items, own, memory) => {
-      if (items.length > 0 || own !== null)
-        rang.push({ items: items.map((one) => one.wanted), own });
-      if (memory !== null) memoryRang.push(memory.identity);
+    deliver: (one) => {
+      if (one.items.length > 0 || one.ownOpen !== null)
+        rang.push({
+          items: one.items.map((item) => item.wanted),
+          own: one.ownOpen,
+        });
+      if (one.memory !== null) memoryRang.push(one.memory.identity);
+      if (one.reply !== null) replies.push(one.reply.turn);
     },
   };
-  const raw = createConductorBell(hooks);
-  /** One reading, and the decision the page makes about it once drawn. */
-  const bell = {
-    observe: (one: BellReading): void => {
-      raw.observe(one);
-      raw.settle();
-    },
-  };
-  return { bell, raw, rang, memoryRang, gates };
+  const bell = createConductorBell(hooks);
+  return { bell, rang, memoryRang, replies };
 }
 
-describe("the Conductor's bell decides after the page has drawn", () => {
-  it("is silent for a question that arrives in view: its box says so only after it is drawn", () => {
-    const { raw, rang, gates } = harness();
-    raw.observe(reading([]));
-    const asked = question(KOLU, "a1");
-    // The reading lands; the question's box is mounted but not yet measured.
-    expect(raw.observe(reading([asked]))).toBe(true);
-    // The page draws it and the observer reports it in view.
-    gates.onScreen.add(asked.key);
-    raw.settle();
-    expect(rang).toEqual([]);
-  });
-
-  it("does not ring for an item that left the list before the page drew", () => {
-    const { raw, rang } = harness();
-    raw.observe(reading([]));
-    raw.observe(reading([merge(OLAI, 2400, "d3f4185")]));
-    raw.observe(reading([]));
-    raw.settle();
-    expect(rang).toEqual([]);
-  });
-});
+/** A finished reply to a message a person typed. */
+const typed = (turn: string) => ({ turn, text: "Done. More.", work: null });
 
 describe("the Conductor's bell", () => {
   it("the first reading never rings, even with waits already open (a reload)", () => {
@@ -159,26 +130,6 @@ describe("the Conductor's bell", () => {
     expect(rang).toHaveLength(2);
   });
 
-  it("is silent while that very item is on screen in a focused window, and stays heard", () => {
-    const { bell, rang, gates } = harness();
-    bell.observe(reading([]));
-    const green = merge(OLAI, 700, "c88");
-    gates.onScreen.add(green.key);
-    bell.observe(reading([green]));
-    gates.onScreen.clear();
-    bell.observe(reading([green]));
-    expect(rang).toEqual([]);
-  });
-
-  it("rings while the Conductor is open on ANOTHER card", () => {
-    const { bell, rang, gates } = harness();
-    bell.observe(reading([]));
-    gates.conversation = true;
-    gates.onScreen.add(merge(OLAI, 700, "c88").key);
-    bell.observe(reading([question(KOLU, "a1")]));
-    expect(rang).toEqual([{ items: ["May I?"], own: null }]);
-  });
-
   it("does not ring for a work's wait it only discovers as its record arrives", () => {
     // The works load one record at a time after the conversation's first
     // frame: a work met for the first time already waiting was waiting
@@ -197,47 +148,59 @@ describe("the Conductor's bell", () => {
   });
 
   it("judges a work's question by its work, though the question arrives before the work's record", () => {
-    // The real page: the server's list of open questions about works lands
-    // first, the work's record a moment later. The question is never the
-    // conversation's, so the Conductor being on screen does not silence it…
-    const { raw, rang, gates } = harness();
-    raw.observe(reading([], { works: new Set() }));
-    gates.conversation = true;
-    raw.observe(reading([], { works: new Set(), workAsks: ["a1"] }));
-    raw.settle();
+    const { bell, rang } = harness();
+    bell.observe(reading([], { works: new Set() }));
+    bell.observe(reading([], { works: new Set(), workAsks: ["a1"] }));
     expect(rang).toEqual([]);
-    const asked = question(KOLU, "a1");
-    raw.observe(reading([asked]));
-    raw.settle();
+    bell.observe(reading([question(KOLU, "a1")]));
     expect(rang).toEqual([{ items: ["May I?"], own: null }]);
-    // … and it in view is what does: the same arrival, drawn and seen.
-    const second = harness();
-    second.raw.observe(reading([], { works: new Set() }));
-    second.raw.observe(reading([], { works: new Set(), workAsks: ["a1"] }));
-    second.raw.settle();
-    second.raw.observe(reading([asked]));
-    second.gates.onScreen.add(asked.key);
-    second.raw.settle();
-    expect(second.rang).toEqual([]);
   });
 
-  it("the conversation's own question rings as today, quiet while the Conductor is in front of you", () => {
-    const { bell, rang, gates } = harness();
+  it("each new question of the conversation's own rings, with how many are open", () => {
+    const { bell, rang } = harness();
     bell.observe(reading([]));
     bell.observe(reading([], { ownAsks: ["c1"] }));
-    gates.conversation = true;
     bell.observe(reading([], { ownAsks: ["c1", "c2"] }));
-    expect(rang).toEqual([{ items: [], own: 1 }]);
+    expect(rang).toEqual([
+      { items: [], own: 1 },
+      { items: [], own: 2 },
+    ]);
+  });
+});
+
+describe("the Conductor's bell, for a reply to a message you typed", () => {
+  it("does not ring for the first reply it has a reading of", () => {
+    const { bell, replies } = harness();
+    bell.observe(reading([]));
+    bell.observe(reading([], { reply: typed("u1") }));
+    expect(replies).toEqual([]);
   });
 
-  it("alerts off: silent, and turning them on afterwards does not ring for that item", () => {
-    const { bell, rang, gates } = harness();
+  it("rings once for a new reply", () => {
+    const { bell, replies } = harness();
     bell.observe(reading([]));
-    gates.alerts = false;
-    bell.observe(reading([question(KOLU, "a1")]));
-    gates.alerts = true;
-    bell.observe(reading([question(KOLU, "a1")]));
-    expect(rang).toEqual([]);
+    bell.observe(reading([], { reply: typed("u1") }));
+    bell.observe(reading([], { reply: typed("u2") }));
+    bell.observe(reading([], { reply: typed("u2") }));
+    expect(replies).toEqual(["u2"]);
+  });
+
+  it("rings again for a later reply", () => {
+    const { bell, replies } = harness();
+    bell.observe(reading([]));
+    bell.observe(reading([], { reply: typed("u1") }));
+    bell.observe(reading([], { reply: typed("u2") }));
+    bell.observe(reading([], { reply: typed("u3") }));
+    expect(replies).toEqual(["u2", "u3"]);
+  });
+
+  it("rings nothing more when no reply is finished", () => {
+    const { bell, replies } = harness();
+    bell.observe(reading([]));
+    bell.observe(reading([], { reply: typed("u1") }));
+    bell.observe(reading([], { reply: typed("u2") }));
+    bell.observe(reading([], { reply: null }));
+    expect(replies).toEqual(["u2"]);
   });
 });
 
@@ -378,16 +341,6 @@ describe("the Conductor's bell, for memory", () => {
     bell.observe(reading([], { memory: waiting("u2", 1) }));
     bell.observe(reading([], { memory: waiting("u3", 2) }));
     expect(memoryRang).toEqual(["u2", "u3"]);
-  });
-
-  it("is quiet while the Conductor is on screen in a focused window, and does not ring later for it", () => {
-    const { bell, memoryRang, gates } = harness();
-    bell.observe(reading([]));
-    gates.conversation = true;
-    bell.observe(reading([], { memory: waiting("u2", 1) }));
-    gates.conversation = false;
-    bell.observe(reading([], { memory: waiting("u2", 1) }));
-    expect(memoryRang).toEqual([]);
   });
 
   it("takes the memory's own first frame as its baseline, even after the conversation's", () => {

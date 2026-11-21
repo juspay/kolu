@@ -3550,14 +3550,8 @@ Then(
   },
 );
 
-/** LET THE CONDUCTOR'S BELL DECIDE, so a sound count read next is its
- *  verdict rather than a read taken before it. Call it only after waiting for
- *  something the same needs-you reading draws — a card in a group, a timeline
- *  row — so the bell has already HEARD the reading. What is left is the
- *  decision: in a window without focus the bell decides the moment it hears
- *  (nothing is in view to wait for), and the frames only let the reading reach
- *  it; in a focused window it decides once the page can say what is in view, a
- *  frame on and then the observers' first reports, which these frames cover. */
+/** Gives a reading a few frames to reach the bell before a sound count is
+ *  read. */
 export async function letTheBellDecide(world: KoluWorld): Promise<void> {
   for (let frame = 0; frame < 6; frame += 1) await world.waitForFrame();
 }

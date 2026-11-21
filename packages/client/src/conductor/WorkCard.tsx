@@ -63,7 +63,6 @@ import { useShown, useShownClock } from "../ui/shown";
 import Tip from "../ui/Tip";
 import WorkCardActions from "./WorkCardActions";
 import WorkQuestion from "./WorkQuestion";
-import { cardOnScreenKey, trackOnScreen } from "./onScreen";
 import { splitMemberRef } from "./memberRef";
 import { useWorkMembers } from "./useWorks";
 import StageStrip from "./StageStrip";
@@ -154,9 +153,6 @@ const WorkCard: Component<{
   /** The open questions' boxes, by ask — what a route onto one scrolls to. */
   const askBoxes = new Map<string, HTMLElement>();
   const onScreen = useShown();
-  // In view in a focused window, this card is what silences the bell for a
-  // merge it is waiting on.
-  const trackCard = trackOnScreen(() => cardOnScreenKey(props.id), onScreen);
   const [flash, setFlash] = createSignal(false);
   let unflash: number | undefined;
   let frame: number | undefined;
@@ -410,10 +406,7 @@ const WorkCard: Component<{
 
   return (
     <article
-      ref={(el) => {
-        card = el;
-        trackCard(el);
-      }}
+      ref={card}
       data-testid="work-card"
       data-shape={props.shape}
       data-work={props.id}
