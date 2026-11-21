@@ -441,7 +441,9 @@ export type Filed = StageName | "setup";
  *  - `done` — the work was in it (for `ms`, which may be none) and is not
  *    in it now; `who` is whose time it mostly was, so the setup's questions
  *    filed under Plan read as yours when they were most of it;
- *  - `now` — the work is in it, for `ms` so far, waiting on `who`;
+ *  - `now` — the work is in it, for `ms` so far; `who` is whose time it has
+ *    mostly been so far, by the same rule as a finished stage. Who the work
+ *    waits on at this moment is the standing line's fact, not this bar's;
  *  - `not-started` — the work has not reached it;
  *  - `skipped` — it did not happen: the work's mode has no such stage (a
  *    trivial work is never planned or reviewed), the work went past it
@@ -586,8 +588,23 @@ export const stages = (work: Work, policy: Policy, now: string): Stages => {
       const time = held.get(name);
       const ms = time === undefined ? 0 : time.agent + time.you + time.ci;
       if (!declared.has(name)) return { name, state: { kind: "skipped" } };
-      if (index === at)
-        return { name, state: { kind: "now", ms, who: nowWho } };
+      if (index === at) {
+        // WHOSE TIME IT HAS BEEN, for the stage in hand too: the same rule as
+        // a finished stage. Who the work waits on right now is the standing
+        // line's and the work's dot's fact, in that waiter's colour.
+        const who = began.get(name);
+        return {
+          name,
+          state: {
+            kind: "now",
+            ms,
+            who:
+              time === undefined || who === undefined
+                ? nowWho
+                : mostly(time, who),
+          },
+        };
+      }
       const who = began.get(name);
       if (time !== undefined && who !== undefined)
         return { name, state: { kind: "done", ms, who: mostly(time, who) } };

@@ -59,6 +59,17 @@ Feature: The Conductor reads as a conversation
     And no count on screen should read zero
     And there should be no page errors
 
+  Scenario: With nothing in progress the column welcomes a newcomer
+    # A blank panel taught a newcomer nothing. The welcome says what the
+    # Conductor is for, and its three example asks are requests put into the
+    # chat's own box — they never send, so the conversation is still empty.
+    When I enter conductor mode
+    Then the work column should welcome a newcomer
+    When I press the welcome's example ask "Plan and build a dark mode toggle for ~/code/myapp"
+    Then the conductor's box should hold "Plan and build a dark mode toggle for ~/code/myapp"
+    And the conductor transcript should be empty
+    And there should be no page errors
+
   @mobile
   Scenario: The phone shows the conversation or the works, one at a time
     # A phone has no side to stand anything beside, so the works and the

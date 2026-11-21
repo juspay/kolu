@@ -247,6 +247,7 @@ Feature: A piece of work is a stored thing
     Then the work's timeline should show one row for the folder ".waterfall/mockup/" with 3 files
     When I unfold the work's timeline row for the folder ".waterfall/mockup/"
     Then the folder row ".waterfall/mockup/" should list 3 file rows
+    And the timeline's line should run unbroken
     When I press the work's timeline row for ".waterfall/mockup/fonts/c.md"
     Then the reader should be open on ".waterfall/mockup/fonts/c.md"
     When I leave the reader
@@ -395,13 +396,24 @@ Feature: A piece of work is a stored thing
     And nothing on screen should reach past the window's right edge
     And there should be no page errors
 
-  Scenario: The stage line names the stage the work is in, and no other
+  @mobile
+  Scenario: A full work's stage strip fits a phone
+    # A watch has no strip; this work does, and every name and time under a
+    # bar is drawn whole in a 390px window.
+    Given a repo for the work
+    When I ask the conductor to open the work "a phone strip"
+    And I answer the work's question with "hand-over" in the chat
+    And I open the work card
+    Then every stage label and time should be whole
+    And there should be no page errors
+
+  Scenario: The stage strip names every stage and emphasises the one it is in
     Given a repo for the work
     When I ask the conductor to open the work "name the stage"
     And I answer the work's question with "hand-over" in the chat
     And I ask the conductor to run the implementor in the work's repo
     Then the work's stage strip should be at "build"
-    And the work's stage line should name "Build" and no other stage
+    And the work's stage strip should name every stage and emphasise "Build"
     And there should be no page errors
 
   Scenario: A work that needs you is answered on its card without opening it
@@ -436,11 +448,15 @@ Feature: A piece of work is a stored thing
     And I ask the conductor to run the implementor in the work's repo
     Then the work column should list the terminal as a member
     And the work's terminal rows should keep every part inside the card
+    And every stage label and time should be whole
     When I resize the viewport to 2000x1100
     Then the work's terminal rows should keep every part inside the card
+    And every stage label and time should be whole
     When I resize the viewport to 1024x768
     Then the work's terminal rows should keep every part inside the card
+    And every stage label and time should be whole
     When I resize the viewport to 900x768
     Then the work's terminal rows should keep every part inside the card
+    And every stage label and time should be whole
     And nothing on screen should reach past the window's right edge
     And there should be no page errors

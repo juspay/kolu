@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { FleetTerminalStanding } from "../../palette/fleetTerminals";
 import { Shown } from "../../ui/shown";
 import { closePeek, openPeek, peekTarget, peekTyping } from "./usePeek";
+import { setFitWidth } from "../fitWidth";
 
 const ID = "11111111-1111-4111-8111-111111111111" as TerminalId;
 
@@ -268,6 +269,7 @@ describe("TerminalPeek", () => {
   });
 
   it("offers Fit width on a wide terminal and shrinks its font", () => {
+    setFitWidth(true);
     openPeek({ host: "remote:nix@example", id: ID });
     mount();
     const onGrid = seam.props?.onGrid as (g: {
@@ -283,10 +285,16 @@ describe("TerminalPeek", () => {
     const fit = document.querySelector<HTMLButtonElement>(
       '[data-testid="peek-fit"]',
     );
+    // The shared choice starts on, so the window opens fitted: the button is
+    // lit and the font is already the fitted one.
     expect(fit).not.toBeNull();
-    fit?.click();
     expect(fit?.getAttribute("aria-pressed")).toBe("true");
-    expect(seam.props?.fontSize).toBe(9.5);
+    expect(seam.props?.fontSize).toBe(9);
+    // Turning it off gives the terminal's own size back, for every pane.
+    fit?.click();
+    expect(fit?.getAttribute("aria-pressed")).toBe("false");
+    expect(seam.props?.fontSize).toBe(14);
+    setFitWidth(true);
   });
 
   it("offers Take over while the Conductor drives, and is read-only", () => {

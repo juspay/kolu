@@ -100,21 +100,6 @@ const ConductorHeader: Component<{
           </span>
         </span>
       </Show>
-      {/* Said once here, beside the name: the surface you are IN has to say it
-          too, or a reader who arrived by ⌘⇧O never passed the chrome-bar tag.
-          Not a phase chip — what it is alpha about does not change while the
-          conversation runs. */}
-      <Tip
-        class="flex items-center"
-        label="Alpha: the shape can still change, and a conversation can be lost across a version"
-      >
-        <span
-          data-testid="conductor-alpha"
-          class="rounded-sm bg-fg-3/15 px-1 py-px font-semibold uppercase tracking-[0.08em] text-fg-3"
-        >
-          alpha
-        </span>
-      </Tip>
       {/* The phase chip stood here — see the note above this component. */}
       {/* ABSENT when the agent said nothing. Silence is not "logged out" — a
           known logged-out state arrives as its own payload and says so here.

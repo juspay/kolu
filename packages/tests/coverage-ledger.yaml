@@ -4725,7 +4725,7 @@ retirements:
     defectSurface: [conductor, user-journey]
     destinationLayer: L5
     replacements: []
-    survivorRevisionIds: [revision-f7ca7147aa08734448d3]
+    survivorRevisionIds: [revision-b55d7af3cd865ac0769a]
     sameCodePathEvidence:
       file: packages/tests/features/conductor-work.feature
       symbol: "Scenario: A folder the work wrote is one chip, one timeline row, and is kept"
@@ -5005,6 +5005,84 @@ retirements:
           test: "a work's terminal row > opens the peek at its host and id from Look"
           note: "Not yet confirmed: a human must confirm this. One line added: this is the scenario whose work has two terminals, so it also checks that the rows keep every part inside the card. The rest is unchanged."
     survivorRevisionIds: [revision-63a7a05f5537ffa87178]
+  - id: revise-cc6db76d11a266a039bf
+    revisionId: revision-cc6db76d11a266a039bf
+    action: revised
+    status: landed
+    promise: '"About this work" points the chat at one work'
+    defectSurface: [conductor, user-journey]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-c95e250e6990a23bb823]
+    sameCodePathEvidence:
+      file: packages/tests/features/conductor-needs-you.feature
+      symbol: "Scenario: Picking a work points the chat at it, and the box with it"
+      test: The work is picked by its card instead of by the removed button; the rest of the journey — the scope bar, the out-of-scope message, the next message's chip and Show all — is the same.
+  - id: revise-550eacf9a507b756e923
+    revisionId: revision-550eacf9a507b756e923
+    action: revised
+    status: landed
+    promise: The work column and its card fit a phone
+    defectSurface: [conductor, mobile]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-91da9a9914b88c036009]
+    sameCodePathEvidence:
+      file: packages/tests/features/conductor-work.feature
+      symbol: "Scenario: The work column and its card fit a phone"
+      test: The same phone-width journey, back to its body before the strip assertion; this work is a watch and has no strip, so the assertion moved to the new full-work scenario beside it.
+  - id: revise-ed702f2399cae694b4be
+    revisionId: revision-ed702f2399cae694b4be
+    action: revised
+    status: landed
+    promise: A work's row keeps every part inside it at four widths
+    defectSurface: [conductor]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-b999a65e55b882b432f2]
+    sameCodePathEvidence:
+      file: packages/tests/features/conductor-work.feature
+      symbol: "Scenario: A work's row keeps every part inside it at four widths"
+      test: The same four widths with one added assertion at each that every stage label and time is whole; the row and its parts are unchanged.
+  - id: revise-f7ca7147aa08734448d3
+    revisionId: revision-f7ca7147aa08734448d3
+    action: revised
+    status: landed
+    promise: A folder the work wrote is one chip, one timeline row, and is kept
+    defectSurface: [conductor]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-b55d7af3cd865ac0769a]
+    sameCodePathEvidence:
+      file: packages/tests/features/conductor-work.feature
+      symbol: "Scenario: A folder the work wrote is one chip, one timeline row, and is kept"
+      test: The same folder journey with one added assertion, after the folder row is unfolded, that the timeline's line runs unbroken.
+  - id: revise-5f8e077fa6b674d2a229
+    revisionId: revision-5f8e077fa6b674d2a229
+    action: revised
+    status: landed
+    promise: The stage line names the stage the work is in, and no other
+    defectSurface: [conductor]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-25ddbb16216b445b4fe8]
+    sameCodePathEvidence:
+      file: packages/tests/features/conductor-work.feature
+      symbol: "Scenario: The stage strip names every stage and emphasises the one it is in"
+      test: The same journey, renamed; it now asserts that every stage is named and exactly one is emphasised, which is what the labelled strip draws.
+  - id: revise-697caa2c5f0403cad309
+    revisionId: revision-697caa2c5f0403cad309
+    action: revised
+    status: landed
+    promise: The mouse wheel scrolls the chat, and it stays where it left it
+    defectSurface: [conductor]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-2e0a3f4f0a46f3abff93]
+    sameCodePathEvidence:
+      file: packages/tests/features/conductor.feature
+      symbol: "Scenario: The mouse wheel scrolls the chat after a work is picked and left"
+      test: The same real wheel over the transcript, now after a work is picked and left; the pre-pick steps that repeated the follow scenario are gone.
   - id: revise-f61366c5cc105a2fe515
     revisionId: revision-f61366c5cc105a2fe515
     action: revised
@@ -5031,3 +5109,16 @@ retirements:
       file: packages/tests/features/conductor.feature
       symbol: "Scenario: A question from the Conductor chimes wherever you are, and a reload does not ring for it"
       test: The same journey and the same steps; a question asked while the Conductor is in front of you now chimes, so the second sound count is two. The ring while the window is away and the silence after a reload are as they were.
+  - id: revise-be65c9c73562152587e2
+    revisionId: revision-be65c9c73562152587e2
+    action: revised
+    status: landed
+    promise: A full work's stage strip fits a phone
+    defectSurface: [conductor, mobile]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-1380c0b24614461d6756]
+    sameCodePathEvidence:
+      file: packages/tests/features/conductor-work.feature
+      symbol: "Scenario: A full work's stage strip fits a phone"
+      test: The same new phone journey with the window-edge assertion removed; that assertion caught an unrelated setup line on the picked card's details, and the strip check is the scenario's point.

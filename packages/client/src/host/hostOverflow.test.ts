@@ -83,9 +83,9 @@ describe("computeVisibleHosts — overflow", () => {
 /** FIVE HOSTS IN A REAL CHROME BAR, with the widths the browser actually
  *  reports — re-measured off the live bar on a host tab at 1920, 1280 and
  *  1024px windows: a host tab is 124px, the identity rail 28px, the
- *  `◆ Conductor alpha` tab at the head of the row 144.5px (tag included — it
- *  is one measured box), the control cluster 397px, and the bar's own padding
- *  (24) plus its three flex gaps (36) 60px.
+ *  `◆ Conductor` tab at the head of the row 99.5px (measured 99.53125 at all
+ *  three widths, after its `alpha` tag was removed), the control cluster
+ *  397px, and the bar's own padding (24) plus its three flex gaps (36) 60px.
  *
  *  This is where the five-host fold is proved, because the e2e worker holds
  *  one padi and its strip never folds; that lane pins the INPUT (the strip's
@@ -95,12 +95,12 @@ describe("computeVisibleHosts — five hosts in the real chrome bar", () => {
   const CHIP = 124;
   const ADD_BUTTON_RESERVE = 38;
   const OVERFLOW_TRIGGER_RESERVE = 44;
-  /** The measured `◆ Conductor alpha` tab, whole. */
-  const CONDUCTOR = 144.5;
+  /** The measured `◆ Conductor` tab, whole. */
+  const CONDUCTOR = 99.5;
   /** The strip's measured width at a given window, from the row's geometry:
-   *  identity (28) + the Conductor's tab (144.5) + control cluster (397) + the
+   *  identity (28) + the Conductor's tab (99.5) + control cluster (397) + the
    *  bar's padding and gaps (60) are taken before the strip sees anything.
-   *  Measured 1290.5 / 650.5 / 394.5 at 1920 / 1280 / 1024. */
+   *  Measured 1335.5 / 695.5 / 439.5 at 1920 / 1280 / 1024. */
   const stripAt = (window: number): number =>
     window - 28 - CONDUCTOR - 397 - 60;
   const five = chips({ local: CHIP, a: CHIP, b: CHIP, c: CHIP, d: CHIP });
@@ -136,9 +136,9 @@ describe("computeVisibleHosts — five hosts in the real chrome bar", () => {
   });
 
   it("seats one tab fewer at a window just short of all five", () => {
-    // 1270 ⇒ strip 640.5 ⇒ budget 602.5 against 620px of tabs, trigger
-    // reserved ⇒ 558.5 ⇒ four seated.
-    expect(seating(1270).visible).toEqual(["local", "a", "b", "c"]);
-    expect(seating(1270).overflowed).toEqual(["d"]);
+    // 1240 ⇒ strip 655.5 ⇒ budget 617.5 against 620px of tabs, trigger
+    // reserved ⇒ 573.5 ⇒ four seated.
+    expect(seating(1240).visible).toEqual(["local", "a", "b", "c"]);
+    expect(seating(1240).overflowed).toEqual(["d"]);
   });
 });

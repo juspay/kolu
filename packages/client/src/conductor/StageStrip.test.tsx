@@ -92,11 +92,60 @@ describe("the stage strip's segments", () => {
       ["checks", "not-started", undefined],
       ["merge", "not-started", undefined],
     ]);
-    expect(segment(el, "plan").title).toBe("Plan 4m");
-    expect(segment(el, "review").getAttribute("title")).toBeNull();
+    expect(segment(el, "plan").title).toBe("Plan 4m, the agents' time, done");
+    expect(segment(el, "review").title).toBe("Review, did not happen");
   });
 
-  it("speak every stage, though the line names only one", () => {
+  it("name every stage under its bar, and emphasise the one it is in", () => {
+    const { el } = mount(STAGED, true);
+    const labels = [
+      ...el.querySelectorAll<HTMLElement>('[data-testid="stage-label"]'),
+    ].map((label) => [
+      label.dataset.stage,
+      label.textContent,
+      label.dataset.emphasis,
+    ]);
+    expect(labels).toEqual([
+      ["plan", "Plan", undefined],
+      ["approve", "Approve", undefined],
+      ["build", "Build", ""],
+      ["review", "Review", undefined],
+      ["checks", "Checks", undefined],
+      ["merge", "Merge", undefined],
+    ]);
+  });
+
+  it("emphasise the last stage that happened when none is current", () => {
+    const done: Stages = {
+      kind: "staged",
+      stages: [
+        { name: "plan", state: { kind: "done", ms: MIN, who: "agent" } },
+        { name: "approve", state: { kind: "done", ms: MIN, who: "you" } },
+        { name: "build", state: { kind: "done", ms: MIN, who: "agent" } },
+        { name: "review", state: { kind: "done", ms: MIN, who: "you" } },
+        { name: "checks", state: { kind: "done", ms: MIN, who: "ci" } },
+        { name: "merge", state: { kind: "done", ms: MIN, who: "ci" } },
+      ],
+      events: [],
+      current: "merge",
+    };
+    const { el } = mount(done, true);
+    const emphasised = [
+      ...el.querySelectorAll<HTMLElement>('[data-testid="stage-label"]'),
+    ].filter((label) => label.dataset.emphasis === "");
+    expect(emphasised.map((label) => label.dataset.stage)).toEqual(["merge"]);
+  });
+
+  it("give the colour a word: whose time it was, in every title", () => {
+    const { el } = mount(STAGED, true);
+    expect(segment(el, "plan").title).toContain("the agents' time");
+    expect(segment(el, "approve").title).toContain("your time");
+    expect(segment(el, "build").title).toContain("CI's time");
+    // A stage with no colour of its own says what it is instead.
+    expect(segment(el, "checks").title).toBe("Checks, not started");
+  });
+
+  it("speak every stage, with its time and where it stands", () => {
     const { el } = mount(STAGED, true);
     const spoken = (stage: string) =>
       segment(el, stage).querySelector(".sr-only")?.textContent;
@@ -142,18 +191,71 @@ describe("the stage strip's segments", () => {
   });
 });
 
-describe("the stage named beside the line", () => {
-  it("is the stage the work is in, with its time", () => {
+describe("each stage's own time", () => {
+  const time = (el: HTMLElement, stage: string) =>
+    el.querySelector<HTMLElement>(
+      `[data-testid="stage-time"][data-stage="${stage}"]`,
+    )?.textContent;
+
+  it("prints a finished stage's duration under its label", () => {
     const { el } = mount(STAGED, true);
-    expect(el.querySelector('[data-testid="stage-now"]')?.textContent).toBe(
-      "Build · 3m",
+    expect(time(el, "plan")).toBe("4m");
+    expect(time(el, "approve")).toBe("2m");
+  });
+
+  it("prints the current stage's duration, which is the one that ticks", () => {
+    const { el } = mount(STAGED, true);
+    expect(time(el, "build")).toBe("3m");
+    // The card re-reads the stages on its clock; the strip draws the number it
+    // is given, so a later reading is a longer one.
+    const longer: Stages = {
+      ...STAGED,
+      stages: STAGED.stages.map((one) =>
+        one.name === "build"
+          ? { name: "build", state: { kind: "now", ms: 4 * MIN, who: "ci" } }
+          : one,
+      ),
+    };
+    dispose?.();
+    root?.remove();
+    expect(time(mount(longer, true).el, "build")).toBe("4m");
+  });
+
+  it("prints no time for a skipped or unreached stage", () => {
+    const { el } = mount(STAGED, true);
+    expect(time(el, "review")).toBeUndefined();
+    expect(time(el, "checks")).toBeUndefined();
+    expect(time(el, "merge")).toBeUndefined();
+    expect(el.querySelectorAll('[data-testid="stage-time"]')).toHaveLength(3);
+  });
+
+  it("prints the time in one unit where the label's column is narrow", () => {
+    const long: Stages = {
+      kind: "staged",
+      stages: STAGED.stages.map((one) =>
+        one.name === "plan"
+          ? {
+              name: "plan",
+              state: { kind: "done", ms: (14 * 60 + 20) * MIN, who: "agent" },
+            }
+          : one,
+      ),
+      events: [],
+      current: "build",
+    };
+    const { el } = mount(long, true);
+    // "14h 20m" would be cut in a sixth of the row; "14h" is the one-unit
+    // form, and the two-unit time stays whole in the title.
+    expect(time(el, "plan")).toBe("14h");
+    expect(segment(el, "plan").title).toBe(
+      "Plan 14h 20m, the agents' time, done",
     );
   });
 
-  it("is absent while no stage is current", () => {
-    const { el } = mount({ kind: "unset" }, true);
-    expect(el.querySelectorAll('[data-testid="stage"]')).toHaveLength(6);
-    expect(el.querySelector('[data-testid="stage-now"]')).toBeNull();
+  it("keeps the time in the tooltip, and speaks it", () => {
+    const { el } = mount(STAGED, true);
+    expect(segment(el, "plan").title).toBe("Plan 4m, the agents' time, done");
+    expect(segment(el, "build").title).toBe("Build 3m, CI's time, now");
   });
 
   it("goes with the strip when the mode has no stages", () => {
