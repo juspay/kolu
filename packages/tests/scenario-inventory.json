@@ -12514,6 +12514,30 @@
       "exampleRows": [],
       "executions": 1,
       "firstSeenSha": "4bfe5eef619c74e53c9c9c2fc9235374ae67798e"
+    },
+    {
+      "revisionId": "revision-5ba287f3f83e446a5c3a",
+      "scenarioKey": "scenario-e3a2bc2ef329d1aacaa8",
+      "feature": "features/conductor-needs-you.feature",
+      "scenario": "A reload stays on the picked work",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "6ec64eb2467e426b3e889e51c0fc142ebb7bde1ec02e94e76da6a2d240492dfc",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "3f68b25ca6839fca5d874dfdf2f6d2ef6b53972c"
+    },
+    {
+      "revisionId": "revision-7e3e5d0a0abff40db288",
+      "scenarioKey": "scenario-5e4368773ad6415e7382",
+      "feature": "features/conductor-needs-you.feature",
+      "scenario": "Finished works are one line each, and one can be picked and reopened",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "c062abc92cf6e94bb48e84587f55b5b14d4c0c0d0ac4e6db50ded9c27a876e8e",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "3f68b25ca6839fca5d874dfdf2f6d2ef6b53972c"
     }
   ]
 }

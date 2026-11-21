@@ -4053,6 +4053,31 @@ Then("the work should be in progress", async function (this: KoluWorld) {
   );
 });
 
+/** ONE LINE IN THE FINISHED LIST — on the board, so all the works are put
+ *  back first when one is picked: the work is drawn as a line (`data-shape`)
+ *  and is no taller than one line of its text and its padding. */
+Then("the finished work should be one line", async function (this: KoluWorld) {
+  const back = this.page.locator(`${WORK_COLUMN} ${ALL_WORK}`);
+  if ((await back.count()) > 0) await back.click();
+  const card = await showWorkCard(this);
+  await waitForValue(
+    "the finished work's shape",
+    async () => (await card.getAttribute("data-shape")) ?? "no shape",
+    "line",
+  );
+  const lines = await card.evaluate((el) => {
+    const style = getComputedStyle(el);
+    const line =
+      Number.parseFloat(style.lineHeight) ||
+      Number.parseFloat(style.fontSize) * 1.5;
+    return el.getBoundingClientRect().height / line;
+  });
+  assert.ok(
+    lines < 2.5,
+    `the finished work is ${lines.toFixed(1)} lines tall, not one`,
+  );
+});
+
 /** STOP, WITH THE CONFIRM IN FRONT OF IT — the repo's one inline-confirm
  *  shell, so the first press opens the step and the second acts. */
 When("I stop the work from the card", async function (this: KoluWorld) {

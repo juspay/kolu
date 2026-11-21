@@ -114,3 +114,28 @@ Feature: The works that need you come first, and the chat goes quiet
     When I show the whole chat
     Then the watched work's card should be open
     And there should be no page errors
+
+  Scenario: Finished works are one line each, and one can be picked and reopened
+    Given a repo for the work
+    When I ask the conductor to open the work "done and dusted"
+    And I answer the work's question with "merge" in the chat
+    And I ask the conductor to run the implementor in the work's repo
+    And I stop the work from the card
+    Then the work should be finished as "stopped"
+    And the finished work should be one line
+    When I open the work card
+    Then the watched work's card should be open
+    And the work card should say it was stopped by you
+    When I reopen the work from the card
+    Then the work should be in progress
+    And there should be no page errors
+
+  Scenario: A reload stays on the picked work
+    Given a repo for the work
+    When I ask the conductor to open the work "still here"
+    And I open the work card
+    Then the watched work's card should be open
+    When I reload the page and wait for ready
+    And I enter conductor mode
+    Then the watched work's card should be open
+    And there should be no page errors
