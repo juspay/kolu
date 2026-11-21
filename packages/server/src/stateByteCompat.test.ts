@@ -167,6 +167,8 @@ describe("the persisted state file — aggregate bytes", () => {
         decisions: [],
         events: [],
         state: { kind: "open" },
+        // Where it works, on its own record since 1.64.0.
+        worktree: { kind: "read", host: "local", path: "/srv/repo" },
       },
     });
     store.set("members", {
