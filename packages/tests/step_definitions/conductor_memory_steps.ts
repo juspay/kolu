@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { Given, Then, When } from "@cucumber/cucumber";
+import { After, Given, Then, When } from "@cucumber/cucumber";
 import type { Locator } from "playwright";
 import { pollFor } from "../support/poll.ts";
 import { surfaceCall, surfaceFirstFrame } from "../support/rpcWire.ts";
@@ -67,12 +67,12 @@ interface MemoryCell {
   readonly proposals: ReadonlyArray<{ readonly id: string }>;
 }
 
-/** THE MEMORY A PREVIOUS SCENARIO LEFT, emptied over the real wire. Memory
- *  outlives every conversation, so a fresh conversation still holds it. A
- *  waiting proposal is approved and then deleted rather than declined, so it
- *  leaves nothing behind; each pass re-reads until the record is empty. */
-Given("the Conductor's memory is empty", async () => {
-  await pollFor({
+/** THE MEMORY A SCENARIO LEFT, emptied over the real wire. Memory outlives
+ *  every conversation, so a fresh conversation still holds it. A waiting
+ *  proposal is approved and then deleted rather than declined, so it leaves
+ *  nothing behind; each pass re-reads until the record is empty. */
+const emptyMemory = (): Promise<number> =>
+  pollFor({
     observe: async () => {
       const memory = (await surfaceFirstFrame(
         "surface/kolu/conductorMemory/get",
@@ -99,6 +99,16 @@ Given("the Conductor's memory is empty", async () => {
         `${left ?? "?"} memories and proposals were left after ${ms}ms`,
       ),
   });
+
+Given("the Conductor's memory is empty", async () => {
+  await emptyMemory();
+});
+
+/** A memory scenario leaves no memory behind: a proposal still waiting would
+ *  be a needs-you item in the next feature's badge. */
+After(async ({ pickle }) => {
+  if (pickle.uri.endsWith("features/conductor-memory.feature"))
+    await emptyMemory();
 });
 
 When(

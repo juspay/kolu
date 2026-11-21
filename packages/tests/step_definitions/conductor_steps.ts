@@ -2555,6 +2555,7 @@ const HELP_SECTIONS = [
   "mid-work",
   "wakes",
   "asks",
+  "memory",
 ];
 
 /** What one copy of the help is showing, as `id,id,…` — or why it is not
