@@ -1,5 +1,5 @@
 /**
- * THE HELP'S SHAPE: six sections in the order they are read, sixteen
+ * THE HELP'S SHAPE: seven sections in the order they are read, eighteen
  * bullets in all — short enough to read whole on a laptop — and keys labelled
  * for the reader's platform. The words themselves are a browser's to show and
  * a person's to judge.
@@ -17,7 +17,7 @@ const keysOn = (isMac: boolean): string[] =>
   );
 
 describe("the Conductor's help", () => {
-  it("has six sections in order and sixteen bullets", () => {
+  it("has its sections in order, short enough to read whole", () => {
     const sections = helpSections();
     expect(sections.map((section) => section.id)).toEqual([
       "ask",
@@ -26,10 +26,11 @@ describe("the Conductor's help", () => {
       "terminals",
       "the-lock",
       "asks",
+      "memory",
     ]);
     expect(
       sections.reduce((sum, section) => sum + section.items.length, 0),
-    ).toBe(16);
+    ).toBe(18);
   });
 
   it("draws two keys, the composer's two completions, on both platforms", () => {

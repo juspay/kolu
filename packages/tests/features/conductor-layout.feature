@@ -77,7 +77,7 @@ Feature: The Conductor reads as a conversation
     And there should be no page errors
 
   Scenario: The help opens from the question mark, at every width
-    # The words are short enough to read whole on a laptop: six sections and
+    # The words are short enough to read whole on a laptop: seven sections and
     # nothing to scroll. The `?` is in the header at every desktop width, so a
     # narrow window reaches the help the way a wide one does.
     When I resize the viewport to 1440x900

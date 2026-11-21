@@ -19,7 +19,15 @@ Three things make the conversation work and they are all here:
   The words are in [`src/teaching.md`](src/teaching.md), a Markdown file of
   sections, lists and tables, read when kolu-server starts (a missing or
   malformed file stops the boot) and sent as the Markdown it is. Each rule is
-  said once; a rule about one kolu tool lives in that tool's description.
+  said once; a rule about one kolu tool lives in that tool's description. The
+  memory follows the rules (`memoryBlock.ts`), so a change to what is
+  remembered calls the harness's `teachAgain` and the next message carries it;
+- **the memory** (`memoryStore.ts`) — what the human approved, the proposals
+  waiting on them, and the declined ones a proposal is checked against. The
+  agent only proposes (`proposeMemory`, one transcript row
+  `kolu:memory:<id>` each); the human's `approve` / `decline` / `save` /
+  `remove` / `importEntries` are the only writes to the entries, and a
+  proposal is never in the memory block until one of them says so.
 - **compactions** — each one the agent reports is one `compaction` row, minted
   here (`kolu:compaction:<id>`) and updated in place from running to done or
   failed, with the usage it began at and its summary; a row still running
@@ -47,7 +55,8 @@ thing that does it.
 | `attachments.ts` | a prompt's files on their way up, and the rule that reaps them |
 | `recordWrites.ts` | how often any of it hits disk — one leading-edge timer, one flag per record |
 | `workFiles.ts` | the port kolu-server implements over padi |
-| `persisted.ts` | the four records a restart reads, decoded through `kolu-work`'s `parseStore` so a store that breaks an invariant fails with the sentence naming it, and the re-validation that refuses a file with holes in it. The conversation's own record carries `taught` — whether the standing prompt has already gone out in the session it names — because the agent's memory of it outlives the subprocess holding it, and a restart that assumed nothing taught a chat in progress again |
+| `persisted.ts` | the five records a restart reads (works, members, memory, the conversation's own record, the transcript), decoded through `kolu-work`'s `parseStore` so a store that breaks an invariant fails with the sentence naming it, and the re-validation that refuses a file with holes in it. The conversation's own record carries `taught` — whether the standing prompt has already gone out in the session it names — because the agent's memory of it outlives the subprocess holding it, and a restart that assumed nothing taught a chat in progress again |
+| `memoryStore.ts` · `memoryBlock.ts` | the memory's single writer (propose, approve, decline, save, remove, import, restore) and the `# [kolu] What you remember` block the standing prompt ends with |
 | `kolu.ts` | WHAT A TOOL CALL MEANS TO KOLU: the reading a card is drawn from (one per tool the fleet face serves, each gated on `isTerminalId`), the fold of a call's two frames, and the `Fleet` — the terminals this conversation has created or typed into, in first-touch order. `conductor.ts` hands the reader to `@kolu/acp-harness` as its `readCall` and computes the fleet out of what it reads |
 | `aboutBlock.ts` | the `[kolu] about …` lines a message carries above the words, composed here and handed to the harness as the body a person's message is sent under |
 | `wakeText.ts` · `teaching.ts` · `surface.ts` · `transcriptStream.ts` | what the agent reads, what it is taught, and what a browser subscribes to |

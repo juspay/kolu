@@ -2,7 +2,7 @@
  * THE CONDUCTOR'S MEMBERS OF `koluSurface`, as a fragment kolu-server splices
  * into its own implementation.
  *
- * The cell, the transcript stream and the eleven procedures are what a browser
+ * The cell, the transcript stream and the thirteen procedures are what a browser
  * subscribes to, and what they DO is this package's — "`conductor.prompt`
  * sends a message to the conversation" is a sentence about the conversation,
  * not about the web server that happens to carry it. kolu-server spreads what
@@ -134,6 +134,13 @@ export function conductorSurfaceMembers(deps: {
         ask(() => host().setOption(input.id, input.value)),
       newSession: () => ask(() => host().newSession()),
       clearSession: () => ask(() => host().clearSession()),
+      /** Bring over what the engine remembered on its own: a message sent
+       *  in the person's name, so it asks the agent and refuses as `prompt`
+       *  does. */
+      importOwnMemory: () =>
+        ask(async () => {
+          await host().importOwnMemory();
+        }),
     },
   };
 }

@@ -155,6 +155,9 @@ export const KOLU_FLEET_EXPOSE = {
    *  moving a work is five tools, reading them is this, and a face that only
    *  had the tools left a restarted conductor guessing. */
   works: "resource",
+  /** WHAT THE CONDUCTOR REMEMBERS — the entries the human approved and the
+   *  proposals waiting on them. Changing it is `memory_propose`. */
+  memory: "resource",
 
   ...KOLU_MCP_TOOL_EXPOSE,
 } as const satisfies ExposeMap<FleetSurfaceSpec>;

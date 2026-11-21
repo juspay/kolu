@@ -105,6 +105,15 @@
  *   compact until steered — the opening report, then nothing until a steer
  *                      arrives, then the terminal report: a compaction that
  *                      is still running for as long as a scenario needs
+ *   remember <title> — a REAL `memory_propose` adding `<title>` about
+ *                      demo-app, answered `proposed: <the tool's answer>`,
+ *                      refusal sentence and all
+ *   remember three   — three proposals in one turn, one batch
+ *   change <id> to <title> — a REAL `memory_propose` replacing the memory
+ *                      `<id>` with `<title>`, answered like `remember`
+ *   Bring over what you remembered… — kolu's bring-over message: three
+ *                      made-up proposals naming made-up files in `why`. It
+ *                      reads no file, real or not
  *   which kolu blocks — `carried: <the [kolu] headings this message carried>`,
  *                      or `carried: nothing`: what kolu sent under the words
  *
@@ -923,6 +932,55 @@ const turn = async (
     setTimeout(slept.resolve, 12_000);
     await slept.promise;
     say("worked");
+    endTurn(id);
+    return;
+  }
+  const remember = /^remember (.+)$/.exec(text)?.[1];
+  if (remember !== undefined && remember !== "three") {
+    const answer = await callTool("memory_propose", {
+      kind: "add",
+      title: remember,
+      about: "demo-app",
+      body: `${remember}, always.`,
+      why: "you said so",
+    });
+    say(`proposed: ${answer}`);
+    endTurn(id);
+    return;
+  }
+  const change = /^change (\S+) to (.+)$/.exec(text);
+  if (change !== null) {
+    const [, entry, title] = change;
+    const answer = await callTool("memory_propose", {
+      kind: "replace",
+      entry,
+      title,
+      about: "demo-app",
+      body: `${title}, always.`,
+      why: "you said so",
+    });
+    say(`proposed: ${answer}`);
+    endTurn(id);
+    return;
+  }
+  const BATCH: ReadonlyArray<readonly [string, string]> = [
+    ["Squash-merge on demo-app", "feedback_merging.md"],
+    ["Never merge on a Friday", "feedback_merging.md"],
+    ["demo-app lives on demo@example", "reference_hosts.md"],
+  ];
+  const bringOver = text.startsWith(
+    "Bring over what you remembered in Claude Code's own memory.",
+  );
+  if (text === "remember three" || bringOver) {
+    for (const [title, file] of BATCH)
+      await callTool("memory_propose", {
+        kind: "add",
+        title,
+        about: "demo-app",
+        body: `${title}, always.`,
+        why: bringOver ? `from ${file}` : "you said so",
+      });
+    say(bringOver ? "I proposed three and left none." : "proposed three");
     endTurn(id);
     return;
   }

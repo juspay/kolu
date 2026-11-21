@@ -28,6 +28,7 @@ import { assertFleetFaceComplete, fleetClientFace } from "./face.ts";
 import { fleetSurface } from "./fleetSurface.ts";
 import type { FleetHosts } from "./hosts.ts";
 import { koluFleetTools } from "./lift.ts";
+import type { FleetMemory } from "./memory.ts";
 import type { FleetWorks } from "./works.ts";
 
 export interface ServeKoluFleetMcpOptions {
@@ -48,12 +49,16 @@ export interface ServeKoluFleetMcpOptions {
    *  own door to them, and the `works` resource is how it reads them back
    *  without moving anything. */
   works: FleetWorks;
+  /** THE CONDUCTOR'S MEMORY — a PORT for the same reason: kolu-server
+   *  stores it, and only the human changes it. `memory_propose` asks, and
+   *  the `memory` resource reads it back. */
+  memory: FleetMemory;
 }
 
 export async function serveKoluFleetMcp(
   opts: ServeKoluFleetMcpOptions,
 ): Promise<{ server: Server; close: () => Promise<void> }> {
-  const client = fleetClientFace(opts.hosts, opts.works);
+  const client = fleetClientFace(opts.hosts, opts.works, opts.memory);
   assertFleetFaceComplete(client);
   return serveSurfaceAsMcp({
     // The degenerate rooted bundle, exactly as the stdio face serves: one core
@@ -61,7 +66,7 @@ export async function serveKoluFleetMcp(
     // plain member name an agent already knows from `kolu mcp`.
     core: { surface: fleetSurface, expose: KOLU_FLEET_EXPOSE },
     client: () => ({ core: client }),
-    tools: koluFleetTools(opts.hosts, opts.works),
+    tools: koluFleetTools(opts.hosts, opts.works, opts.memory),
     serverInfo: opts.serverInfo,
     transport: opts.transport,
   });

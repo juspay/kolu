@@ -66,6 +66,7 @@ import {
   OutcomeSchema,
   WorkRoleSchema,
 } from "kolu-work";
+import { EMPTY_FLEET_MEMORY, FleetMemorySchema } from "./memory.ts";
 import { FleetHostKeySchema, FleetTerminalRefSchema } from "./refSchema.ts";
 import { FLEET_WATCH_JOINS } from "./watchJoin.ts";
 
@@ -388,6 +389,15 @@ export const fleetSurface = defineSurface({
     works: {
       schema: FleetWorksSchema,
       default: EMPTY_FLEET_WORKS,
+      verbs: ["get"],
+    },
+    /** WHAT THE CONDUCTOR REMEMBERS across sessions — the entries the human
+     *  approved, and the titles of its proposals still waiting on them. kolu's
+     *  RECORD, as `works` is, reached through the `FleetMemory` port; it moves
+     *  when the human chooses, so it is subscribable. */
+    memory: {
+      schema: FleetMemorySchema,
+      default: EMPTY_FLEET_MEMORY,
       verbs: ["get"],
     },
   },

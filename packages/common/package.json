@@ -8,6 +8,7 @@
   "exports": {
     "./surface": "./src/surface.ts",
     "./conductor": "./src/conductorSchema.ts",
+    "./conductorMemory": "./src/conductorMemory.ts",
     "./conductorErrors": "./src/conductorErrors.ts",
     "./works": "./src/worksSchema.ts",
     "./surfacesWithPadi": "./src/surfacesWithPadi.ts",

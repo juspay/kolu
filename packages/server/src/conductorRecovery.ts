@@ -43,6 +43,7 @@ import { ConductorRefused } from "kolu-common/conductorErrors";
 import {
   EMPTY_PERSISTED_CONDUCTOR,
   EMPTY_PERSISTED_MEMBERS,
+  EMPTY_PERSISTED_MEMORY,
   EMPTY_PERSISTED_WORKS,
 } from "kolu-conductor";
 import { transcriptFilePath } from "./conductor/transcriptFile.ts";
@@ -70,6 +71,7 @@ const NOUN: Record<ConductorStoreKey, string> = {
   conductor: "the Conductor's saved conversation",
   works: "the Conductor's saved works",
   members: "what kolu remembered about each work's terminals",
+  memory: "the Conductor's memory",
   transcript: "the Conductor's saved transcript",
 };
 
@@ -150,6 +152,7 @@ function keepAsideAndEmpty(key: ConductorStoreKey): string {
   if (key === "works") store.set("works", EMPTY_PERSISTED_WORKS);
   if (key === "members") store.set("members", EMPTY_PERSISTED_MEMBERS);
   if (key === "conductor") store.set("conductor", EMPTY_PERSISTED_CONDUCTOR);
+  if (key === "memory") store.set("memory", EMPTY_PERSISTED_MEMORY);
   return path;
 }
 
@@ -167,6 +170,11 @@ function writeFromBackup(
   if (key === "conductor") {
     store.set("conductor", decoded.conductor);
     return "the conversation it remembered came back";
+  }
+  if (key === "memory") {
+    store.set("memory", decoded.memory);
+    const entries = decoded.memory.entries.length;
+    return `${entries} memor${entries === 1 ? "y" : "ies"} came back`;
   }
   store.set("works", decoded.works);
   store.set("members", decoded.members);

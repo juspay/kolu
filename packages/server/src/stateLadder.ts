@@ -2096,6 +2096,40 @@ export function compactionRows_1_62_0(stateRoot: string): void {
   writeTranscriptFile(path, TRANSCRIPT_VERSION_1_62_0, record.rows);
 }
 
+const TRANSCRIPT_VERSION_1_63_0 = "1.63.0";
+
+/** The 1.63.0 rung — THE CONDUCTOR'S MEMORY. `config.json` gains a `memory`
+ *  key, seeded empty (a value frozen here, not the live empty one); a store
+ *  that already holds one keeps it. The transcript file is re-stamped by
+ *  {@link memoryProposalRows_1_63_0}. */
+export function memory_1_63_0(store: Conf<PersistedState>): void {
+  if (!store.has("memory"))
+    store.set("memory", {
+      entries: [],
+      proposals: [],
+      declined: [],
+      next: 1,
+    });
+  memoryProposalRows_1_63_0(dirname(store.path));
+}
+
+/** A row may now be a `memory-proposal`. No older row is one, so no row is
+ *  rewritten: only the file's stamp moves. */
+export function memoryProposalRows_1_63_0(stateRoot: string): void {
+  const path = transcriptFilePath(stateRoot);
+  if (!existsSync(path)) return;
+  let held: unknown;
+  try {
+    held = JSON.parse(readFileSync(path, "utf8"));
+  } catch {
+    return;
+  }
+  const record = recordOf(held);
+  if (record === null || !Array.isArray(record.rows)) return;
+  if (record.version === TRANSCRIPT_VERSION_1_63_0) return;
+  writeTranscriptFile(path, TRANSCRIPT_VERSION_1_63_0, record.rows);
+}
+
 export function mentionsSayTheirKind_1_58_0(stateRoot: string): void {
   const path = transcriptFilePath(stateRoot);
   if (!existsSync(path)) return;
@@ -2928,4 +2962,5 @@ export const CONF_MIGRATIONS = {
   "1.61.0": prOpenedSaysDraft_1_61_0,
   "1.62.0": (store: Conf<PersistedState>) =>
     compactionRows_1_62_0(dirname(store.path)),
+  "1.63.0": memory_1_63_0,
 };

@@ -33,6 +33,8 @@
 export {
   COMPACTION_OVERRIDES,
   configDirIn,
+  OWN_MEMORY_OFF,
+  ownMemoryHint,
   REMOTE_SIGNALS,
 } from "./env.ts";
 export { CLAUDE, compactingAt, spelling } from "./leg.ts";

@@ -70,7 +70,8 @@ Read the full [Philosophy](https://kolu.dev/philosophy).
   or asks, never sitting in a wait, so it brings you only the decisions that
   are yours and a new conversation picks up the work already in flight. A
   terminal it is driving is read-only to you until you **Take over**, so you
-  never type into an agent it is briefing by accident.
+  never type into an agent it is briefing by accident. It keeps a
+  [memory](https://kolu.dev/conductor-memory) you approve, note by note.
 - **[Durable sessions](https://kolu.dev/sessions)** — keep shells and agents
   alive across tab closes, server restarts, and redeploys.
 - **[From another device](https://kolu.dev/remote-access) and

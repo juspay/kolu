@@ -13,6 +13,7 @@ client and the server build from one source.
 | `kolu-common/contract` | The flat Effect `RpcGroup` of root procedures: `server/info`, `daemon/restart` and the `hosts/*` membership verbs, with their I/O schemas. |
 | `kolu-common/conductor` | The shapes of the one Conductor conversation: phase, model, transcript rows. Protocol words come from `@kolu/acp/wire` rather than being redeclared. |
 | `kolu-common/conductorErrors` | The tagged errors a Conductor caller can branch on. |
+| `kolu-common/conductorMemory` | The Conductor's memory: entries, proposals and their limits, the `MemoryRefused` error with its sentences, and the Markdown file the sheet exports and imports. |
 | `kolu-common/works` | The `works` and `memberReadings` collection schemas. The record itself is `kolu-work`'s. |
 | `kolu-common/surfacesWithPadi` | `surfaces` composed with `@kolu/padi`'s surface: the one map the server serves and the client dials. |
 | `kolu-common/hostKey` | `HostKey`, a discriminated sum over local and remote hosts, with `encodeHostKey` / `decodeHostKey` (the wire codec) and `parseHostInput` (the human codec). |

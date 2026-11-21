@@ -12,7 +12,11 @@ import { join } from "node:path";
 import { encodeHostKey } from "kolu-common/hostKey";
 import { DEFAULT_PREFERENCES } from "kolu-common/surface";
 import { afterEach, describe, expect, it } from "vitest";
-import type { PersistedMembers, PersistedWorks } from "kolu-conductor";
+import type {
+  PersistedMembers,
+  PersistedMemory,
+  PersistedWorks,
+} from "kolu-conductor";
 import { workIdOf } from "kolu-work";
 import { decodeStateBackup, stateBackupRing, store } from "./state.ts";
 import {
@@ -69,6 +73,7 @@ function recordingDeps(
     removed: [] as string[],
     works: [] as PersistedWorks[],
     members: [] as PersistedMembers[],
+    memory: [] as PersistedMemory[],
   };
   const deps: RestoreServerStateBackupDeps = {
     setPreferences: (v) => calls.preferences.push(v),
@@ -84,6 +89,9 @@ function recordingDeps(
     restoreWorks: (works, members) => {
       calls.works.push(works);
       calls.members.push(members);
+    },
+    restoreMemory: (memory) => {
+      calls.memory.push(memory);
     },
   };
   return { calls, deps };
@@ -252,6 +260,32 @@ describe("restoreServerStateBackup", () => {
     expect(calls.members[0]).toEqual(
       storedMembers("work-from-backup", "last week's work"),
     );
+  });
+
+  it("hands the snapshot's MEMORY to the live conductor, which is its one writer", async () => {
+    const remembered: PersistedMemory = {
+      entries: [
+        {
+          id: "m1",
+          title: "Squash-merge on demo-app",
+          about: "demo-app",
+          body: "Always squash.",
+          by: "you",
+          edited: false,
+          at: AT,
+        },
+      ],
+      proposals: [],
+      declined: [],
+      next: 2,
+    };
+    store.set("memory", remembered);
+    const file = takeSnapshot();
+    store.set("memory", { ...remembered, entries: [], next: 3 });
+
+    const { calls, deps } = recordingDeps([]);
+    await restoreServerStateBackup({ file }, deps);
+    expect(calls.memory).toEqual([remembered]);
   });
 
   it("skips a host that is LIVE but unpersisted — an env seed is not a failed add", async () => {

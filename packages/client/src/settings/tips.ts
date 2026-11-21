@@ -87,6 +87,12 @@ export const CONTEXTUAL_TIPS = {
     text: "While the Conductor is working, Alt+Enter (⌥⏎) puts your words INTO the running turn instead of queueing them behind it — it hears you now. Enter still queues, and Alt+Enter where steering is not offered simply sends, so a message is never lost",
     doc: "conductor",
   },
+  /** The first time the Conductor proposes something to remember. */
+  conductorMemory: {
+    id: "conductor-memory",
+    text: "The Conductor only proposes what to remember: nothing is kept until you press Remember. Everything it remembers is in the ⋯ menu's Memory, where you can edit, delete, export and import it",
+    doc: "conductor-memory",
+  },
 } as const satisfies Record<string, Tip>;
 
 export const AMBIENT_TIPS: readonly Tip[] = [

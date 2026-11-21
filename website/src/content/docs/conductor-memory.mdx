@@ -1,11 +1,64 @@
 ---
 title: What the Conductor remembers
-description: "How the Conductor's conversation stays a workable size: Claude Code compacts it at about 200k tokens, and kolu sends the rules again."
+description: "The Conductor's memory: what it proposes, what you approve, export and import, and how its long conversation is compacted."
 order: 52.52
 section: "Agents & Attention"
 ---
 
-The Conductor works from three things: its conversation, the rules kolu gives it, and the pieces of work. This page says what happens to each when the conversation grows long, and where longer-term memory lives.
+The Conductor keeps a memory that kolu stores and sends with its rules. The Conductor can only propose what to remember, and you decide on each proposal. This page covers that memory, and what happens when the conversation grows long.
+
+## Its memory
+
+The Conductor's memory is a list of short notes: a rule you gave it, a preference, where something lives. Each note has a title, an optional **about** label (a repository, a host) and a few lines of text.
+
+Nothing is remembered until you approve it. kolu sends the whole memory with the rules, so the Conductor has it in every session and after every compaction. Claude Code's own memory is off for the Conductor.
+
+## When the Conductor proposes something
+
+The Conductor proposes a note when it learns something worth keeping. The proposal appears in the chat as a card that needs you:
+
+| Button | What it does |
+| --- | --- |
+| **Remember** | Keeps the note as written. |
+| **Edit…** | Opens the editor. Saving keeps what you wrote. |
+| **Don't** | Declines it. The Conductor is not told, and the same proposal is refused if it comes again. |
+
+The card then folds to one line: **remembered**, **remembered, edited** or **declined**. A proposal to forget a note offers **Forget it** instead of **Remember**. A proposal to change a note names the note it replaces, and **show it** opens that note's current text. If you deleted that note meanwhile, the card says the change will be added as a new note.
+
+While any proposal waits, the chat's header shows **✱ 3** with the real count. The Conductor tab, the phone's handle, the phone's **Chat** tab and the app icon each count memory as one thing that needs you, however many proposals wait. Several proposals from one turn are drawn as one-line rows, each with its three buttons. There is no "remember all".
+
+kolu shows one notification for memory and rings once per turn that proposed something, as described in [Notifications](/notifications/). A proposal kolu refuses (declined before, already remembered, memory full) is a failed tool call in the chat, with the reason.
+
+## The Memory sheet
+
+Open it from the `⋯` menu's **Memory** row, or by clicking the header's memory count.
+
+- Proposals still waiting are at the top.
+- Below them is every note, with who wrote it and **Edit** and **Delete**. **Delete** asks once, in place.
+- **Add** opens the editor for a note of your own.
+- The foot shows how much room is used. It turns to the warning colour past 90%.
+
+Every limit is refused with its numbers. Nothing is cut short to fit.
+
+| Limit | Size |
+| --- | --- |
+| Title | 80 characters |
+| About | 80 characters |
+| Text | 1,200 characters, Markdown, no headings |
+| The whole memory | 16,000 characters of titles and text |
+| Proposals waiting | 20 |
+
+## Export and import
+
+The sheet's **Export** copies the memory as Markdown, or downloads it as `kolu-conductor-memory.md`. Each note is a `##` heading with its title, an optional `About:` line, then its text.
+
+Its **Import** reads such a file, chosen or pasted. kolu shows what it found and marks what you already have, then adds the rest when you confirm. Import never changes or deletes a note. A file that would pass the limit is refused whole, and a file with no `##` note is refused rather than read as empty. Importing is your own act, so nothing needs approving and nothing rings.
+
+## Bring over from Claude Code
+
+The button at the foot of the sheet sends the Conductor a message in your name. It says where Claude Code kept its own memory and asks for proposals: what is still true, merged where notes overlap, twenty at most, each naming its file. They arrive as one batch, and nothing is remembered until you choose.
+
+kolu itself never opens those files, and never changes or deletes them. Pressing the button again is safe: the same proposal is refused as remembered, waiting or declined.
 
 ## The conversation and its limit
 
@@ -22,7 +75,7 @@ Each compaction is one line in the chat, drawn like the `— new session —` li
 | Line | What it means |
 | --- | --- |
 | **compacting at 201k** | Claude Code is compacting now. The status line says **compacting the conversation**. |
-| **compacted at 201k** | It is done. Click the line to read the summary, under a sentence saying whether the rules were sent again or go with the next message. |
+| **compacted at 201k** | It is done. Click the line to read the summary, under a sentence saying whether the rules and memory were sent again or go with the next message. |
 | **could not compact** | It failed, with Claude Code's reason under the line. The conversation carries on as it was. |
 
 The number is how full the context was when the compaction began. Right after a restart kolu does not know it yet, and the line has no number.
@@ -31,14 +84,15 @@ The line stays in view when replies to a wake are folded, and **Copy transcript*
 
 ## What kolu sends again
 
-The rules, **How you work**, go with the first message of every session. kolu sends them again:
+The rules, **How you work**, and the memory go with the first message of every session. kolu sends them again:
 
 - with the message that sets off a compaction, so they are the first thing after the summary;
 - with the first message after kolu-server restarts, because kolu does not yet know how full the conversation is;
 - with the next message after a compaction kolu did not see coming;
-- with the next message after a compaction fails, once, so the next attempt has them.
+- with the next message after a compaction fails, once, so the next attempt has them;
+- with the next message after a note is approved, edited, deleted or imported.
 
-Three cases run on the summary alone until the next message brings the rules:
+Three cases run on the summary alone until the next message brings the rules and memory:
 
 - one turn that passes the limit by itself;
 - a message you send while a turn is running;
@@ -51,10 +105,6 @@ Wakes wait until the turn is over, so the second case does not affect them.
 | Thing | After a compaction |
 | --- | --- |
 | The pieces of work | Unchanged. They are kolu's own record, and the rules tell the Conductor to read them again. |
-| The rules | Sent again, as above. |
-| Claude Code's own memory | Loaded again from its files by Claude Code. |
+| The rules and memory | Sent again, as above. |
+| Proposals waiting on you | Unchanged. A proposal is kolu's, not the conversation's. |
 | The rest of the conversation | Only what the summary kept. |
-
-## Longer-term memory
-
-What the Conductor remembers beyond one conversation is Claude Code's own memory. It lives in Claude Code's memory folder for your home directory, under `~/.claude` unless you set `CLAUDE_CONFIG_DIR`, and any `claude` you start in your home directory uses it too. kolu does not read or change those files.

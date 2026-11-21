@@ -207,7 +207,7 @@ reference). Nothing in the tree splits a fleet reference by hand.
 
 **Resources.** `terminals` (every host's roster, host-qualified) · `urgency`
 (who needs someone, fleet-wide) · `works` (the pieces of work kolu is storing,
-below) · `hosts` — the live roster, and it *changes
+below) · `memory` (what the human approved, below) · `hosts` — the live roster, and it *changes
 under you*: name, reachability (`warming` · `connected` · `failed`), padi's
 commit, its surface version and boot time. Those last three are why there is no
 fleet `identity`/`status`/`daemonStatus`: they are per-host facts, so they are
@@ -248,6 +248,17 @@ that merges reaches a conductor that is not calling anything. Without it a
 restarted Conductor could only guess at work already in flight — the observed
 result being an agent that says it is "not certain" what it is watching and
 then re-watches terminals that no longer exist.
+
+`memory` (`surface://cells/memory`) is what the Conductor remembers, and the
+only way it gets there is the human. `memory_propose { kind, entry?, title?,
+about?, body?, why? }` (a fleet-only tool, `src/fleet/memory.ts`) proposes one
+`add`, `replace` or `forget` and answers at once with the proposal's id. The
+human remembers, edits or declines it later. The resource carries the entries,
+the proposals still waiting and the room left, so a proposal reads as waiting
+rather than as remembered; the agent is also sent the entries with its standing
+prompt. kolu-server implements the `FleetMemory` port, and a refusal (declined
+before, already remembered, memory full, too many waiting) is the tool's answer
+in plain words.
 
 **Tools — a SUBSET, deliberately.** Per-terminal tools take a reference;
 `lifecycle_create` takes a `host` (create on the machine the repo lives on) and

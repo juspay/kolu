@@ -318,8 +318,9 @@ export interface HarnessOptions<Row extends AnyRow> {
   /** The standing prompt, which rides under the first message of a session
    *  that has not been taught. The WORDS are the caller's — they name the
    *  product's own MCP verbs, and this package knows no tool but the
-   *  protocol's. */
-  readonly teaching: string;
+   *  protocol's. A function is read at the moment of sending, for a caller
+   *  whose words move between messages. */
+  readonly teaching: string | (() => string);
   /**
    * Whether the session being resumed HAS ALREADY BEEN TAUGHT — the standing
    * prompt went out under a message of it, and this conversation owes it
@@ -736,6 +737,9 @@ export interface Harness<Row extends AnyRow> {
    *  deleted, `held` naming the ones the caller holds that the harness never
    *  minted. */
   clearSession(held: ReadonlyArray<string>): Promise<void>;
+  /** THE NEXT MESSAGE IS TAUGHT — the caller's words changed, and the
+   *  session should hear them again. Starts no turn. */
+  teachAgain(): void;
   /** End the conversation and the process, saying WHY: the client writes the
    *  reason on the line that records the agent's exit, which is how a person
    *  reading a log tells a reaped conversation from a crash. */
@@ -1960,7 +1964,11 @@ export const startHarness = async <Row extends AnyRow>(
     // A PRODUCT WITH NOTHING TO TEACH hands over no words, and its first
     // message then goes out exactly as it composed it: a blank line above it
     // is a first line an agent reads.
-    return options.teaching === "" ? body : `${options.teaching}\n\n${body}`;
+    const words =
+      typeof options.teaching === "string"
+        ? options.teaching
+        : options.teaching();
+    return words === "" ? body : `${words}\n\n${body}`;
   };
 
   const runTurn = async (
@@ -2541,6 +2549,11 @@ export const startHarness = async <Row extends AnyRow>(
     newSession,
     loadSession,
     clearSession,
+    teachAgain: () => {
+      if (!taught) return;
+      taught = false;
+      publish();
+    },
     stop,
   };
 };

@@ -20,6 +20,7 @@ import Tip from "../ui/Tip";
 import { isDesktop } from "../useMobile";
 import ConductorMenu from "./ConductorMenu";
 import ConductorSettings from "./ConductorSettings";
+import MemoryChip from "./memory/MemoryChip";
 import { helpSheet } from "./helpContent";
 import { useShown } from "../ui/shown";
 import { tokens } from "./tokens";
@@ -116,11 +117,15 @@ const ConductorHeader: Component<{
       </Tip>
       {/* The phase chip stood here — see the note above this component. */}
       {/* ABSENT when the agent said nothing. Silence is not "logged out" — a
-          known logged-out state arrives as its own payload and says so here. */}
+          known logged-out state arrives as its own payload and says so here.
+          It is the one chip that GIVES WAY (`min-w-0`, its words truncated):
+          the row heads a chat panel of fixed measure, and with the memory's
+          chip on it too a narrow desktop would otherwise push the `?` and
+          the `⋯` menu past the panel's edge. */}
       <Show when={identity()}>
         {(who) => (
           <Tip
-            class="flex items-center"
+            class="flex min-w-0 items-center"
             label={who().account?.email ?? who().detail ?? who().label}
           >
             <span
@@ -151,6 +156,7 @@ const ConductorHeader: Component<{
         {props.state.model?.name ?? props.state.agentName}
       </button>
       <div class="flex-1" />
+      <MemoryChip />
       <Show when={usage()}>
         {(u) => (
           <Tip

@@ -22,6 +22,38 @@ const CONFIRM_ACCENT: Record<"neutral" | "danger" | "warning", string> = {
   warning: "border-warning/50 bg-warning/20 text-fg hover:bg-warning/30",
 };
 
+/** The confirm step alone — copy, then Cancel and the act — for a caller
+ *  whose trigger is its own (a `Delete` link on a card) and sits elsewhere. */
+export const InlineConfirm: Component<{
+  label: string;
+  confirmCopy: string;
+  tone: "neutral" | "danger" | "warning";
+  testid: string;
+  onCancel: () => void;
+  onConfirm: () => void;
+}> = (props) => (
+  <div class="space-y-2">
+    <p class="text-[11px] leading-relaxed text-fg-3">{props.confirmCopy}</p>
+    <div class="flex gap-2">
+      <button
+        type="button"
+        data-testid={`${props.testid}-cancel`}
+        onClick={() => props.onCancel()}
+        class="flex-1 cursor-pointer rounded-lg border border-edge px-3 py-1.5 text-xs font-medium text-fg-2 transition-colors hover:bg-surface-3/60"
+      >
+        Cancel
+      </button>
+      <button
+        type="button"
+        data-testid={`${props.testid}-confirm`}
+        onClick={() => props.onConfirm()}
+        class={`flex-1 cursor-pointer rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors ${CONFIRM_ACCENT[props.tone]}`}
+      >
+        {props.label}
+      </button>
+    </div>
+  </div>
+);
 const InlineConfirmButton: Component<{
   /** The action's label — trigger AND confirm button (e.g. "Restart kaval"). */
   label: string;
@@ -57,30 +89,17 @@ const InlineConfirmButton: Component<{
         </button>
       }
     >
-      <div class="space-y-2">
-        <p class="text-[11px] leading-relaxed text-fg-3">{props.confirmCopy}</p>
-        <div class="flex gap-2">
-          <button
-            type="button"
-            data-testid={`${props.testid}-cancel`}
-            onClick={() => setConfirming(false)}
-            class="flex-1 cursor-pointer rounded-lg border border-edge px-3 py-1.5 text-xs font-medium text-fg-2 transition-colors hover:bg-surface-3/60"
-          >
-            Cancel
-          </button>
-          <button
-            type="button"
-            data-testid={`${props.testid}-confirm`}
-            onClick={() => {
-              setConfirming(false);
-              props.onConfirm();
-            }}
-            class={`flex-1 cursor-pointer rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors ${CONFIRM_ACCENT[props.tone]}`}
-          >
-            {props.label}
-          </button>
-        </div>
-      </div>
+      <InlineConfirm
+        label={props.label}
+        confirmCopy={props.confirmCopy}
+        tone={props.tone}
+        testid={props.testid}
+        onCancel={() => setConfirming(false)}
+        onConfirm={() => {
+          setConfirming(false);
+          props.onConfirm();
+        }}
+      />
     </Show>
   );
 };

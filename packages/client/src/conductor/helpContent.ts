@@ -51,7 +51,8 @@ export type HelpSectionId =
   | "the-card"
   | "terminals"
   | "the-lock"
-  | "asks";
+  | "asks"
+  | "memory";
 
 /** One piece of a bullet, by what it IS rather than how it looks:
  *
@@ -141,6 +142,23 @@ export function helpSections(
           text("The "),
           screen("Conductor"),
           text(" tab’s badge is violet until you do"),
+        ],
+      ],
+    },
+    {
+      id: "memory",
+      heading: "What it remembers",
+      items: [
+        [
+          text("It proposes; nothing is kept until you press "),
+          screen("Remember"),
+        ],
+        [
+          text("All of it in "),
+          screen("⋯"),
+          text(" → "),
+          screen("Memory"),
+          text(": edit, export, import"),
         ],
       ],
     },

@@ -37,6 +37,7 @@ import { surface } from "../ui/Surface";
 import { useAnchoredPopover } from "../ui/useAnchoredPopover";
 import { transcriptText } from "./transcript";
 import { helpSheet } from "./helpContent";
+import { memorySheet, useMemory } from "./memory/useMemory";
 import { useConductor } from "./useConductor";
 
 /** The sentence the confirm asks under. It names every thing that goes,
@@ -83,6 +84,7 @@ const ConductorMenu: Component<{
   servers: ConductorState["servers"];
 }> = (props) => {
   const orch = useConductor();
+  const memory = useMemory();
   const chrome = surface({ radius: "lg", shadow: "soft", portalled: true });
   const { panelRef, panelStyle } = useAnchoredPopover({
     triggerRef: () => props.triggerRef,
@@ -133,6 +135,23 @@ const ConductorMenu: Component<{
             testid="conductor-menu-new-session"
             onConfirm={() => pick(() => orch.clearSession())}
           />
+          <button
+            type="button"
+            role="menuitem"
+            data-testid="conductor-menu-memory"
+            class="mt-1 flex w-full items-baseline justify-between gap-2 px-2 py-1 rounded-md text-xs text-fg hover:bg-surface-2 cursor-pointer"
+            onClick={() => pick(() => memorySheet.openDialog())}
+          >
+            <span>Memory</span>
+            <span class="font-mono text-[0.6rem] text-fg-3">
+              {memory.view().entries.length}{" "}
+              {memory.view().entries.length === 1 ? "entry" : "entries"}
+              <Show when={memory.view().proposals.length > 0}>
+                {" "}
+                · {memory.view().proposals.length} waiting
+              </Show>
+            </span>
+          </button>
           <Show when={props.working}>
             <button
               type="button"

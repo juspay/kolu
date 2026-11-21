@@ -38,6 +38,8 @@ import {
   compactingAt,
   configDirIn as claudeConfigDir,
   NAME,
+  OWN_MEMORY_OFF,
+  ownMemoryHint,
   REMOTE_SIGNALS,
 } from "@kolu/acp-claude";
 
@@ -102,6 +104,10 @@ export const ENGINE: Registering = {
     if (adapter === null) return INSTALL;
     return {
       ...adapter,
+      // CLAUDE CODE'S OWN MEMORY IS OFF for the Conductor: kolu keeps its
+      // memory, shows it and sends it, and one the person never sees beside
+      // it would be a second memory to disagree with.
+      env: { ...adapter.env, ...OWN_MEMORY_OFF },
       // FIVE VARIABLES THE ADAPTER MUST NOT HEAR, and every one of them is a
       // question kolu can answer better. The pinned adapter reads them to
       // decide the person is somewhere else and, on a session it calls remote,
@@ -174,3 +180,17 @@ export const conductorConfigDir = (
   env: { readonly [name: string]: string | undefined },
   home: string,
 ): string => claudeConfigDir(env, home);
+
+/**
+ * WHERE THAT ENGINE KEPT ITS OWN MEMORY for a conversation opened in `cwd`,
+ * as the sentence the Conductor is asked to act on when the person brings
+ * that memory over — or `null` for an engine with no memory of its own,
+ * where there is nothing to bring over and no button is drawn. Handed over
+ * by the registry for {@link conductorConfigDir}'s reason: the engine's own
+ * package owns the answer.
+ */
+export const conductorOwnMemoryHint = (
+  env: { readonly [name: string]: string | undefined },
+  home: string,
+  cwd: string,
+): string | null => ownMemoryHint(claudeConfigDir(env, home), cwd);

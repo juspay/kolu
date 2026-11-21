@@ -1,7 +1,7 @@
 import { AGENT_ENV, type Where } from "@kolu/acp/engine";
 import { describe, expect, test } from "vitest";
 
-import { ENGINE } from "./acp.ts";
+import { conductorOwnMemoryHint, ENGINE } from "./acp.ts";
 
 const where = (env: Where["env"]): Where => ({
   env,
@@ -10,12 +10,13 @@ const where = (env: Where["env"]): Where => ({
 });
 
 describe("the Conductor's engine", () => {
-  test("is spawned without the variables that would move or stop its compaction", () => {
+  test("is spawned with its own memory off, and without the variables that would move or stop its compaction", () => {
     expect(
       ENGINE.at(where({ [AGENT_ENV]: "node /opt/adapter/index.js" })),
     ).toEqual({
       command: "node",
       args: ["/opt/adapter/index.js"],
+      env: { CLAUDE_CODE_DISABLE_AUTO_MEMORY: "1" },
       unset: [
         "NO_BROWSER",
         "SSH_CONNECTION",
@@ -49,5 +50,15 @@ describe("the Conductor's engine", () => {
       false,
     );
     expect(ENGINE.compacts?.due({ used: 201_000, size: 1_000_000 })).toBe(true);
+  });
+
+  test("hands over where Claude Code kept its own memory, for the bring-over", () => {
+    expect(
+      conductorOwnMemoryHint(
+        { CLAUDE_CONFIG_DIR: "/tmp/scratch/.claude" },
+        "/tmp/scratch",
+        "/tmp/scratch",
+      ),
+    ).toContain("/tmp/scratch/.claude/projects");
   });
 });

@@ -37,6 +37,7 @@ import Tip from "../ui/Tip";
 import { layoutMode } from "../useMobile";
 import { setPhoneView } from "./phoneView";
 import { useNeedsYou, useWorks } from "./useWorks";
+import { useMemoryNeed } from "./memory/useMemory";
 import { waitingCount, worksStatusWords } from "./workReadings";
 import { useShownClock } from "../ui/shown";
 import { STEER_KEYBIND, steerOnOffer } from "./steer";
@@ -93,10 +94,13 @@ const ConductorStatus: Component<{
    *  conversation's own. A part that would read `0` is simply not there. */
   const works = useWorks();
   const needs = useNeedsYou();
+  const memory = useMemoryNeed();
   const pieces = createMemo(
     () => works().filter(([, one]) => isOpen(one)).length,
   );
-  const waiting = createMemo(() => waitingCount(needs(), props.state.openAsks));
+  const waiting = createMemo(() =>
+    waitingCount(needs(), props.state.openAsks, memory()),
+  );
   const words = createMemo(() => worksStatusWords(pieces(), waiting()));
   const held = () => props.state.held.length;
   /** On a desktop the works are already on screen beside the conversation;

@@ -52,6 +52,9 @@ import ConductorStrip from "./ConductorStrip";
 import ConductorTranscript from "./ConductorTranscript";
 import WorkColumn from "./WorkColumn";
 import { ConductorHelpSheet } from "./ConductorHelp";
+import MemoryEditor from "./memory/MemoryEditor";
+import MemoryImport from "./memory/MemoryImport";
+import { MemorySheet } from "./memory/MemorySheet";
 import TerminalPeek from "./peek/TerminalPeek";
 import { chatPutAside, frameTracks, worksDrawn } from "./conductorFrame";
 import ConductorPhoneTabs from "./ConductorPhoneTabs";
@@ -372,6 +375,9 @@ const ConductorPane: Component<{
             {/* THE HELP, as a sheet mounted once and opened from the header's
                 `?` or the `⋯` menu's How to use. */}
             <ConductorHelpSheet />
+            <MemorySheet />
+            <MemoryEditor />
+            <MemoryImport />
             <TerminalPeek />
           </>
         }

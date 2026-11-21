@@ -113,6 +113,7 @@ import type { PrResult } from "@kolu/terminal-vocab/schema";
 import { Option, Schema } from "effect";
 import {
   conductorConfigDir,
+  conductorOwnMemoryHint,
   CONDUCTOR_ENGINE as ENGINE,
 } from "kolu-agents/acp";
 import {
@@ -131,6 +132,16 @@ import {
   type ConductorWorkAskStanding,
   DEFAULT_CONDUCTOR_STATE,
 } from "kolu-common/conductor";
+import {
+  type ConductorMemoryView,
+  type Memory,
+  type MemoryChange,
+  type MemoryEntry,
+  type MemoryProposal,
+  type MemoryText,
+  memoryView,
+  proposalTitle,
+} from "kolu-common/conductorMemory";
 import {
   ConductorRefused,
   ConductorUnavailable,
@@ -203,17 +214,25 @@ import { observing } from "./observing.ts";
 import {
   type PersistedConductor,
   type PersistedMembers,
+  type PersistedMemory,
   type PersistedTranscript,
   type PersistedWorks,
   persistedFrom,
   readPersistedConductor,
   readPersistedMembers,
+  readPersistedMemory,
   readPersistedTranscript,
   readPersistedWorks,
   parsePersistedStore,
   transcriptFrom,
   UnreadablePersisted,
 } from "./persisted.ts";
+import {
+  type MemoryApproved,
+  type MemoryImported,
+  memoryStore,
+} from "./memoryStore.ts";
+import { bringOverMessage, memoryBlock } from "./memoryBlock.ts";
 import { recordWrites } from "./recordWrites.ts";
 import { teaching } from "./teaching.ts";
 import { wakes } from "./wakes.ts";
@@ -594,6 +613,34 @@ export interface ConductorHost {
     works: PersistedWorks,
     members: PersistedMembers,
   ) => void;
+  /** THE MEMORY, REPLACED by a restored backup's. */
+  readonly restoreMemory: (memory: PersistedMemory) => void;
+  /** THE HUMAN'S CHOICES ON THE MEMORY. Each writes the record and asks the
+   *  agent nothing, so each works while the conversation is down; each
+   *  throws `MemoryRefused` with the sentence for a choice it cannot make. A
+   *  proposal's row in the chat settles in place. */
+  readonly approveMemory: (
+    proposal: string,
+    edited: MemoryText | null,
+  ) => MemoryApproved;
+  readonly declineMemory: (proposal: string) => void;
+  readonly saveMemory: (text: MemoryText, entry: string | null) => MemoryEntry;
+  readonly deleteMemory: (entry: string) => void;
+  readonly importMemory: (texts: ReadonlyArray<MemoryText>) => MemoryImported;
+  /** The memory as it stands — what the `memory` resource is read from. */
+  readonly memory: () => Memory;
+  /** THE CONDUCTOR PROPOSES. Recorded, waiting on the human, and stamped
+   *  with the turn it came from; throws `MemoryRefused` with the sentence the
+   *  tool answers. */
+  readonly proposeMemory: (
+    change: MemoryChange,
+    why: string | null,
+  ) => MemoryProposal;
+  /** BRING OVER WHAT THE ENGINE REMEMBERED ON ITS OWN — a message in the
+   *  person's name, written by kolu, asking the Conductor to read that
+   *  memory and propose what is still true. Its proposals wait on the human
+   *  like any other. Refused for an engine that kept no memory of its own. */
+  readonly importOwnMemory: () => Promise<{ rowId: string }>;
   /** READ THE RECORDS AGAIN — the one caller is a recovery that has just put
    *  readable bytes under a record this build refused
    *  ({@link UnreadablePersisted}), and the whole point of it is that nobody
@@ -826,6 +873,8 @@ export interface ConductorDeps {
     terminal: string,
     reading: MemberReading | null,
   ) => void;
+  /** THE MEMORY MOVED — the `conductorMemory` cell's writer. */
+  readonly publishMemory: (memory: ConductorMemoryView) => void;
   /** SOMETHING A `works` READER WOULD SEE MOVED — a work, a member row or a
    *  reading. The in-process event for readers that follow the works
    *  themselves rather than the browser's frame.
@@ -855,6 +904,8 @@ export interface ConductorDeps {
    *  own memory of a terminal rather than part of what a work IS, and it moves
    *  on its own clock. */
   readonly members: CellStore<PersistedMembers>;
+  /** THE CONDUCTOR'S MEMORY — `config.json`'s `memory` key. */
+  readonly memory: CellStore<PersistedMemory>;
   /** A WORK'S FILES, where they live: listed on the host the work is on, and
    *  copied into kolu when it ends ({@link WorkFiles}). */
   readonly workFiles: WorkFiles;
@@ -963,10 +1014,23 @@ const hadATurn = (rows: ReadonlyArray<ConductorRow>): boolean => {
       case "tool":
       case "ask":
       case "compaction":
+      case "memory-proposal":
         return true;
     }
   }
   return false;
+};
+
+/** THE TURN A PROPOSAL CAME FROM — the message that started it, the newest
+ *  line of the person's or wake. Proposals of one turn share it, so they
+ *  ring the bell once; `null` when no such line is left (a cleared
+ *  transcript), and the proposal is then a batch of its own. */
+const turnOf = (rows: ReadonlyArray<ConductorRow>): string | null => {
+  for (let at = rows.length - 1; at >= 0; at -= 1) {
+    const row = rows[at];
+    if (row?.kind === "user" || row?.kind === "wake") return row.id;
+  }
+  return null;
 };
 
 export function startConductorHost(deps: ConductorDeps): ConductorHost {
@@ -986,6 +1050,7 @@ export function startConductorHost(deps: ConductorDeps): ConductorHost {
     transcript: transcriptStore,
     works: worksStore,
     members: membersStore,
+    memory: memoryCell,
     workFiles,
     storePath,
     transcriptPath,
@@ -1003,6 +1068,7 @@ export function startConductorHost(deps: ConductorDeps): ConductorHost {
     found: () => null,
   });
   const absent: NotHere | null = "why" in seating ? seating : null;
+  const ownMemoryHint = conductorOwnMemoryHint(process.env, home, home);
 
   const serverAuthored = {
     install:
@@ -1017,9 +1083,10 @@ export function startConductorHost(deps: ConductorDeps): ConductorHost {
     agentName: ENGINE.name,
     cwd: home,
     compactsAt: ENGINE.compacts?.at ?? null,
+    ownMemory: ownMemoryHint !== null,
   } satisfies Pick<
     ConductorState,
-    "install" | "agentName" | "cwd" | "compactsAt"
+    "install" | "agentName" | "cwd" | "compactsAt" | "ownMemory"
   >;
 
   let state: ConductorState = {
@@ -1163,9 +1230,24 @@ export function startConductorHost(deps: ConductorDeps): ConductorHost {
       transcript: () => transcriptStore.set(transcriptFrom(rows())),
       works: () => worksStore.set(works.persisted()),
       members: () => membersStore.set(members.saved()),
+      memory: () => memoryCell.set(memories.read()),
     },
     PERSIST_THROTTLE_MS,
   );
+
+  const memories = memoryStore({
+    records,
+    publish: (memory) => deps.publishMemory(memoryView(memory)),
+    entriesChanged: () => {
+      if (harness !== null) {
+        harness.teachAgain();
+        return;
+      }
+      taught = false;
+      records.schedule("record");
+    },
+    now: () => new Date(),
+  });
 
   // ── the hands ──────────────────────────────────────────────────────────
 
@@ -1370,10 +1452,12 @@ export function startConductorHost(deps: ConductorDeps): ConductorHost {
     let kept: PersistedWorks;
     let watched: PersistedMembers;
     let transcript: PersistedTranscript;
+    let memory: PersistedMemory;
     try {
       record = readPersistedConductor(store, storePath(), stateRoot);
       kept = readPersistedWorks(worksStore, storePath(), stateRoot);
       watched = readPersistedMembers(membersStore, storePath(), stateRoot);
+      memory = readPersistedMemory(memoryCell, storePath(), stateRoot);
       transcript = readPersistedTranscript(
         transcriptStore,
         transcriptPath(),
@@ -1404,6 +1488,8 @@ export function startConductorHost(deps: ConductorDeps): ConductorHost {
     // and a store that breaks one is refused by name.
     parsePersistedStore(kept, watched, storePath(), stateRoot);
     works.load(kept, watched);
+    memories.load(memory);
+    deps.publishMemory(memoryView(memory));
     if (works.all().length > 0) {
       works.publishWorks();
       // A RESTORE IS THE MEMBERSHIP MOVING: it went from nothing to whatever
@@ -1637,6 +1723,15 @@ export function startConductorHost(deps: ConductorDeps): ConductorHost {
     });
   };
 
+  const settleProposalRow = (
+    proposal: string,
+    ended: MemoryApproved | "declined",
+  ): void => {
+    const held = byId.get(`kolu:memory:${proposal}`);
+    if (held?.kind !== "memory-proposal") return;
+    applyRows({ upserts: [{ ...held, ended }], removes: [], appends: [] });
+  };
+
   const settleStrandedCompactions = (): void => {
     const stranded = rows().flatMap((row) =>
       row.kind === "compaction" && row.state === "running"
@@ -1774,7 +1869,8 @@ export function startConductorHost(deps: ConductorDeps): ConductorHost {
         // own, not the one a person's terminal happens to have.
         configDir: conductorConfigDir(process.env, home),
         mcpServers: [kolu],
-        teaching: teaching(hostName),
+        teaching: () =>
+          `${teaching(hostName)}\n\n${memoryBlock(memories.read())}`,
         // ... AND WHETHER IT HAS ALREADY GONE OUT in the conversation being
         // resumed. A harness is replaced for reasons that have nothing to do
         // with the chat, and one told nothing put the standing prompt back
@@ -2110,6 +2206,19 @@ export function startConductorHost(deps: ConductorDeps): ConductorHost {
         spool.sweep();
         throw err;
       }
+    },
+    importOwnMemory: async () => {
+      if (ownMemoryHint === null)
+        throw new ConductorRefused({
+          why: `${ENGINE.name} keeps no memory of its own to bring over.`,
+        });
+      const text = bringOverMessage(ownMemoryHint);
+      return ask((agent) =>
+        agent.prompt(
+          { text, body: text, extra: { attachments: [] }, files: [] },
+          false,
+        ),
+      );
     },
     works: () => {
       // The works are on disk before they are in memory, and reading them
@@ -2529,6 +2638,59 @@ export function startConductorHost(deps: ConductorDeps): ConductorHost {
       // read — and nothing left to say.
       for (const ref of works.restore(restored, watched)) wake.withdraw(ref);
       publishState();
+    },
+    restoreMemory: (restored) => {
+      remembered();
+      memories.restore(restored);
+    },
+    approveMemory: (proposal, edited) => {
+      remembered();
+      const ended = memories.approve(proposal, edited ?? undefined);
+      settleProposalRow(proposal, ended);
+      return ended;
+    },
+    declineMemory: (proposal) => {
+      remembered();
+      memories.decline(proposal);
+      settleProposalRow(proposal, "declined");
+    },
+    saveMemory: (text, entry) => {
+      remembered();
+      return memories.save(text, entry ?? undefined);
+    },
+    deleteMemory: (entry) => {
+      remembered();
+      memories.remove(entry);
+    },
+    importMemory: (texts) => {
+      remembered();
+      return memories.importEntries(texts);
+    },
+    memory: () => {
+      remembered();
+      return memories.read();
+    },
+    proposeMemory: (change, why) => {
+      remembered();
+      const proposal = memories.propose(change, why, turnOf(rows()));
+      applyRows({
+        upserts: [
+          {
+            kind: "memory-proposal",
+            id: `kolu:memory:${proposal.id}`,
+            seq: (rows().at(-1)?.seq ?? 0) + 1,
+            since: proposal.at,
+            proposal: proposal.id,
+            title: proposalTitle(memories.read(), proposal),
+            change: proposal.change,
+            why: proposal.why,
+            ended: null,
+          },
+        ],
+        removes: [],
+        appends: [],
+      });
+      return proposal;
     },
     reloadRecords: () => {
       if (read) {

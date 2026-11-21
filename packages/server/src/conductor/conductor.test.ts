@@ -73,14 +73,22 @@ import {
   PROMPT_ATTACHMENT_BYTE_CAP,
 } from "kolu-common/conductor";
 import {
+  type ConductorMemoryView,
+  type MemoryProposal,
+  MemoryRefused,
+} from "kolu-common/conductorMemory";
+import { fleetMemoryView } from "./fleetMemory.ts";
+import {
   type ConductorHost,
   EMPTY_PERSISTED_CONDUCTOR,
+  EMPTY_PERSISTED_MEMORY,
   type FleetMcpEndpoint,
   type KoluOffer,
   type MemberDetail,
   type MemberWatch,
   type PersistedConductor,
   type PersistedMembers,
+  type PersistedMemory,
   type PersistedTranscript,
   type PersistedWorks,
   PersistedWorksSchema,
@@ -221,6 +229,11 @@ interface Spawned {
    *  caller holds that this harness never minted, which is how kolu's own
    *  rows (a question about a work, a notice) leave with the chat. */
   readonly wiped: () => ReadonlyArray<string>;
+  /** How many times this conversation was told its next message is taught
+   *  again — what a change to the memory's entries asks of it. */
+  readonly taughtAgain: () => number;
+  /** Every message this conversation was sent, as the agent got it. */
+  readonly said: () => ReadonlyArray<string>;
 }
 
 /** WHICH CONVERSATION a spawn was asked for — the id its opening names, or
@@ -252,6 +265,8 @@ function fakeSpawner(): {
     }> = [];
     let wakeFails: string | null = null;
     const wiped: string[] = [];
+    let taughtAgain = 0;
+    const said: string[] = [];
     let state: HarnessState = {
       ...DEFAULT_CONDUCTOR_STATE,
       phase: "idle",
@@ -267,8 +282,9 @@ function fakeSpawner(): {
       state: () => state,
       rows: () => [],
       alive: () => alive,
-      prompt: async (said) => {
-        handed.push(said.files);
+      prompt: async (message) => {
+        handed.push(message.files);
+        said.push(message.body);
         return { rowId: "sent" };
       },
       // KOLU'S OWN LINE arrives as the ROW it is drawn as, and the words to
@@ -330,6 +346,9 @@ function fakeSpawner(): {
           appends: [],
         });
       },
+      teachAgain: () => {
+        taughtAgain += 1;
+      },
       stop: async () => {
         stops += 1;
         alive = false;
@@ -366,6 +385,8 @@ function fakeSpawner(): {
         wakeFails = why;
       },
       wiped: () => wiped,
+      taughtAgain: () => taughtAgain,
+      said: () => said,
     });
     return harness;
   };
@@ -484,6 +505,8 @@ interface Remembered {
    *  their member terminals, by fleet ref. Its own key, so a fixture says
    *  what was READ about a terminal apart from what the work claims. */
   readonly members?: PersistedMembers;
+  /** `config.json`'s `memory` key. */
+  readonly memory?: PersistedMemory;
   readonly endpoint?: FleetMcpEndpoint | null;
   readonly root?: string;
 }
@@ -589,6 +612,7 @@ interface Rig {
   transcript: Counted<PersistedTranscript>;
   works: Counted<PersistedWorks>;
   members: Counted<PersistedMembers>;
+  memory: Counted<PersistedMemory>;
   files: FakeFiles;
   /** Every frame a reader was actually given, in order. The host publishes
    *  only when the frame says something different from the last one, so this
@@ -598,6 +622,8 @@ interface Rig {
    *  value, or `null` for one it removed. Per work, because the host tells a
    *  reader only what MOVED. */
   worksPublished: () => Array<{ id: string; work: Work | null }>;
+  /** Every value the `conductorMemory` cell was given, in order. */
+  memoryPublished: () => ReadonlyArray<ConductorMemoryView>;
   /** ... and the same for how each member terminal stands. */
   readingsPublished: () => Array<{
     terminal: string;
@@ -634,11 +660,15 @@ function rig(over: Remembered = {}): Rig {
   });
   const works = countingStore<PersistedWorks>(over.works ?? {});
   const members = countingStore<PersistedMembers>(over.members ?? {});
+  const memory = countingStore<PersistedMemory>(
+    over.memory ?? EMPTY_PERSISTED_MEMORY,
+  );
   const files = fakeFiles();
   const published: ConductorState[] = [];
   let worksMoved = 0;
   let watchScopeMoved = 0;
   const worksPublished: Array<{ id: string; work: Work | null }> = [];
+  const memoryPublished: Array<ConductorMemoryView> = [];
   const readingsPublished: Array<{
     terminal: string;
     reading: { level: ConductorReadingLevel; since: string } | null;
@@ -672,6 +702,9 @@ function rig(over: Remembered = {}): Rig {
     publishReading: (terminal, reading) => {
       readingsPublished.push({ terminal, reading });
     },
+    publishMemory: (view) => {
+      memoryPublished.push(view);
+    },
     worksMoved: () => {
       worksMoved += 1;
     },
@@ -682,6 +715,7 @@ function rig(over: Remembered = {}): Rig {
     transcript: transcript.store,
     works: works.store,
     members: members.store,
+    memory: memory.store,
     workFiles: files.port,
     storePath: () => join(root, "config.json"),
     transcriptPath: () => join(root, "conductor", "transcript.json"),
@@ -695,10 +729,12 @@ function rig(over: Remembered = {}): Rig {
     transcript,
     works,
     members,
+    memory,
     files,
     published: () => published,
     worksPublished: () => worksPublished,
     readingsPublished: () => readingsPublished,
+    memoryPublished: () => memoryPublished,
     worksMoved: () => worksMoved,
     watchScopeMoved: () => watchScopeMoved,
     modelAsks: offered.modelAsks,
@@ -1530,6 +1566,11 @@ describe("a dead adapter (M3)", () => {
   });
 });
 
+/** The standing prompt as it would go out now — the host hands a function,
+ *  read at the moment of sending. */
+const wordsOf = (teaching: string | (() => string)): string =>
+  typeof teaching === "string" ? teaching : teaching();
+
 describe("the standing prompt (M5)", () => {
   it("names the HOST, and leaves `$HOME` to be the cwd", async () => {
     const r = rig();
@@ -1537,12 +1578,13 @@ describe("the standing prompt (M5)", () => {
     const agent = r.spawns[0];
     if (agent === undefined) throw new Error("the host spawned nothing");
     expect(agent.options.cwd).toBe(HOME);
-    expect(agent.options.teaching).toContain(`You run on ${HOST}`);
+    const taught = wordsOf(agent.options.teaching);
+    expect(taught).toContain(`You run on ${HOST}`);
     // The old defect, stated as a negative: a directory is not a machine.
-    expect(agent.options.teaching).not.toContain(HOME);
+    expect(taught).not.toContain(HOME);
     // …and the fleet grammar is TAUGHT, not assumed: one conversation over
     // every host is only usable if `host/id` is the identity on the wire.
-    expect(agent.options.teaching).toContain("`host/id`");
+    expect(taught).toContain("`host/id`");
   });
 
   it("names only verbs the session actually has", async () => {
@@ -1566,7 +1608,7 @@ describe("the standing prompt (M5)", () => {
     const agent = r.spawns[0];
     if (agent === undefined) throw new Error("the host spawned nothing");
     const named = new Set(
-      [...agent.options.teaching.matchAll(/`([a-z]+_[a-zA-Z]+)`/g)]
+      [...wordsOf(agent.options.teaching).matchAll(/`([a-z]+_[a-zA-Z]+)`/g)]
         .map((hit) => hit[1])
         .filter((name): name is string => name !== undefined),
     );
@@ -1687,12 +1729,14 @@ describe("teardown (B2)", () => {
       publishWork: () => {},
       publishMember: () => {},
       publishReading: () => {},
+      publishMemory: () => {},
       worksMoved: () => {},
       watchScopeMoved: () => {},
       store: countingStore(EMPTY_PERSISTED_CONDUCTOR).store,
       transcript: countingStore<PersistedTranscript>({ rows: [] }).store,
       works: countingStore<PersistedWorks>({}).store,
       members: countingStore<PersistedMembers>({}).store,
+      memory: countingStore(EMPTY_PERSISTED_MEMORY).store,
       workFiles: fakeFiles().port,
       storePath: () => "/state/config.json",
       transcriptPath: () => "/state/conductor/transcript.json",
@@ -1761,12 +1805,14 @@ describe("teardown (B2)", () => {
       publishWork: () => {},
       publishMember: () => {},
       publishReading: () => {},
+      publishMemory: () => {},
       worksMoved: () => {},
       watchScopeMoved: () => {},
       store: countingStore(EMPTY_PERSISTED_CONDUCTOR).store,
       transcript: countingStore<PersistedTranscript>({ rows: [] }).store,
       works: countingStore<PersistedWorks>({}).store,
       members: countingStore<PersistedMembers>({}).store,
+      memory: countingStore(EMPTY_PERSISTED_MEMORY).store,
       workFiles: fakeFiles().port,
       storePath: () => "/state/config.json",
       transcriptPath: () => "/state/conductor/transcript.json",
@@ -5230,5 +5276,271 @@ describe("what the works' readers are told", () => {
         .slice(before)
         .map((one) => one.id),
     ).toEqual([workIdOf(workKey("one"))]);
+  });
+});
+
+describe("the human's choices on the memory", () => {
+  const AT = "2026-12-02T09:15:00.000Z";
+  const waiting = (id: string, title: string): MemoryProposal => ({
+    id,
+    change: { kind: "add", title, about: null, body: `${title}, always.` },
+    why: "you said so",
+    at: AT,
+    batch: "turn-1",
+  });
+
+  it("work while there is no conversation, and reach the cell and the record", async () => {
+    const r = rig({
+      memory: {
+        entries: [],
+        proposals: [waiting("p1", "Squash-merge"), waiting("p2", "Rebase")],
+        declined: [],
+        next: 3,
+      },
+    });
+    expect(r.host.approveMemory("p1", null)).toBe("remembered");
+    r.host.declineMemory("p2");
+    const added = r.host.saveMemory(
+      { title: "Never merge on a Friday", about: null, body: "Not even one." },
+      null,
+    );
+    expect(added.by).toBe("you");
+    expect(
+      r.host.importMemory([
+        { title: "Imported", about: "demo-app", body: "From a file." },
+      ]),
+    ).toEqual({ added: 1, already: 0 });
+    r.host.deleteMemory(added.id);
+
+    expect(r.spawns).toHaveLength(0);
+    const last = r.memoryPublished().at(-1);
+    expect(last?.proposals).toEqual([]);
+    expect(last?.entries.map((entry) => entry.title)).toEqual([
+      "Squash-merge",
+      "Imported",
+    ]);
+    await r.host.dispose();
+    expect(r.memory.value().declined.map((one) => one.change)).toEqual([
+      waiting("p2", "Rebase").change,
+    ]);
+    expect(r.memory.value().entries).toEqual(last?.entries);
+  });
+
+  it("refuse with the store's sentence, and change nothing", () => {
+    const r = rig();
+    let refusal: unknown;
+    try {
+      r.host.approveMemory("p9", null);
+    } catch (err) {
+      refusal = err;
+    }
+    expect(refusal).toBeInstanceOf(MemoryRefused);
+    expect((refusal as MemoryRefused).kind).toBe("no-such-proposal");
+    expect(r.memory.writes()).toBe(0);
+  });
+
+  it("settle the proposal's row in the chat where it was proposed", async () => {
+    const row: ConductorRow = {
+      id: "kolu:memory:p1",
+      seq: 1,
+      since: AT,
+      kind: "memory-proposal",
+      proposal: "p1",
+      title: "Squash-merge",
+      change: waiting("p1", "Squash-merge").change,
+      why: "you said so",
+      ended: null,
+    };
+    const r = rig({
+      record: { ...EMPTY_PERSISTED_CONDUCTOR, sessionId: "sess-1", cwd: HOME },
+      rows: [row],
+      memory: {
+        entries: [],
+        proposals: [waiting("p1", "Squash-merge")],
+        declined: [],
+        next: 2,
+      },
+    });
+    r.host.approveMemory("p1", {
+      title: "Squash-merge on demo-app",
+      about: null,
+      body: "Squash-merge, always.",
+    });
+    await r.host.dispose();
+    expect(
+      r.transcript.value().rows.find((one) => one.id === row.id),
+    ).toMatchObject({ ended: "edited" });
+  });
+});
+
+describe("the human's own hand on the memory", () => {
+  it("teaches the next message again on an edit, a delete and an import", async () => {
+    const r = rig();
+    await r.host.prompt("hello", [], [], false);
+    const agent = r.spawns[0];
+    if (agent === undefined) throw new Error("the host spawned nothing");
+    const entry = r.host.saveMemory(
+      { title: "Never merge on a Friday", about: null, body: "Not even one." },
+      null,
+    );
+    r.host.saveMemory(
+      { title: "Never merge on a Friday", about: null, body: "Not one." },
+      entry.id,
+    );
+    r.host.deleteMemory(entry.id);
+    r.host.importMemory([
+      { title: "Imported", about: null, body: "From a file." },
+    ]);
+    expect(agent.taughtAgain()).toBe(4);
+  });
+
+  it("with no conversation up, marks the saved one as owing its rules again", async () => {
+    const r = rig({
+      record: { ...EMPTY_PERSISTED_CONDUCTOR, cwd: HOME, taught: true },
+    });
+    r.host.saveMemory(
+      { title: "Never merge on a Friday", about: null, body: "Not even one." },
+      null,
+    );
+    await r.host.dispose();
+    expect(r.record.value().taught).toBe(false);
+  });
+});
+
+describe("the Conductor's proposals", () => {
+  const ADD = {
+    kind: "add",
+    title: "Run the linter before opening a pull request",
+    about: "demo-app",
+    body: "`just lint` must pass first.",
+  } as const;
+
+  it("are not in the memory resource's entries until the human approves one", () => {
+    const r = rig();
+    const proposal = r.host.proposeMemory(ADD, "you said so");
+    const waiting = fleetMemoryView(r.host.memory());
+    expect(waiting.entries).toEqual([]);
+    expect(waiting.waiting).toEqual([{ id: proposal.id, title: ADD.title }]);
+
+    r.host.approveMemory(proposal.id, null);
+    const approved = fleetMemoryView(r.host.memory());
+    expect(approved.entries.map((entry) => entry.title)).toEqual([ADD.title]);
+    expect(approved.waiting).toEqual([]);
+  });
+
+  it("carry the turn they came from, so one turn's proposals are one batch", () => {
+    const r = rig({
+      record: { ...EMPTY_PERSISTED_CONDUCTOR, sessionId: "sess-1", cwd: HOME },
+      rows: [
+        {
+          id: "u1",
+          seq: 1,
+          since: T0,
+          kind: "user",
+          text: "always lint",
+          attachments: [],
+        },
+      ],
+    });
+    const one = r.host.proposeMemory(ADD, null);
+    const two = r.host.proposeMemory(
+      { ...ADD, title: "Never merge on a Friday" },
+      null,
+    );
+    expect([one.batch, two.batch]).toEqual(["u1", "u1"]);
+  });
+
+  it("are refused with the store's sentence", () => {
+    const r = rig();
+    const { id } = r.host.proposeMemory(ADD, null);
+    r.host.declineMemory(id);
+    expect(() => r.host.proposeMemory(ADD, null)).toThrow(
+      /declined this on .* Do not propose it again\./u,
+    );
+  });
+});
+
+describe("a proposal is not memory", () => {
+  const ADD = {
+    kind: "add",
+    title: "Run the linter before opening a pull request",
+    about: "demo-app",
+    body: "`just lint` must pass first.",
+  } as const;
+
+  const spoken = async (r: Rig): Promise<Spawned> => {
+    await r.host.prompt("hello", [], [], false);
+    const agent = r.spawns.at(-1);
+    if (agent === undefined) throw new Error("the host spawned nothing");
+    return agent;
+  };
+
+  it("is in the memory block as a title waiting on the human, never as a fact", async () => {
+    const r = rig();
+    const agent = await spoken(r);
+    r.host.proposeMemory(ADD, null);
+    const words = wordsOf(agent.options.teaching);
+    expect(words).toContain(
+      "## Waiting on the human, not remembered\n- Run the linter before opening a pull request",
+    );
+    expect(words).not.toContain("just lint");
+    expect(agent.taughtAgain()).toBe(0);
+  });
+
+  it("becomes an entry only when the human approves it, and that rides the next message", async () => {
+    const r = rig();
+    const agent = await spoken(r);
+    const { id } = r.host.proposeMemory(ADD, null);
+    r.host.approveMemory(id, null);
+    expect(agent.taughtAgain()).toBe(1);
+    expect(wordsOf(agent.options.teaching)).toContain(
+      "# [kolu] What you remember\n\n## Run the linter before opening a pull request\nAbout: demo-app\n\n`just lint` must pass first.",
+    );
+  });
+
+  it("declined, sends nothing again", async () => {
+    const r = rig();
+    const agent = await spoken(r);
+    const { id } = r.host.proposeMemory(ADD, null);
+    r.host.declineMemory(id);
+    expect(agent.taughtAgain()).toBe(0);
+  });
+
+  it("survives a restart, a new session and a compaction still waiting, never an entry", async () => {
+    const first = rig();
+    const agent = await spoken(first);
+    const { id } = first.host.proposeMemory(ADD, null);
+    agent.options.onCompaction?.({
+      id: "c1",
+      status: "completed",
+      summary: "Two works are open.",
+      error: null,
+      teaching: "sent",
+    });
+    await first.host.newSession();
+    expect(first.host.memory().entries).toEqual([]);
+    await first.host.dispose();
+
+    const second = rig({ memory: first.memory.value() });
+    expect(second.host.memory().entries).toEqual([]);
+    expect(second.host.memory().proposals.map((one) => one.id)).toEqual([id]);
+  });
+});
+
+describe("bringing over Claude Code's own memory", () => {
+  it("is offered, and sends one message in the person's name saying where to read and what to propose", async () => {
+    const r = rig();
+    expect(r.host.state().ownMemory).toBe(true);
+    await r.host.importOwnMemory();
+    const agent = r.spawns[0];
+    if (agent === undefined) throw new Error("the host spawned nothing");
+    const sent = agent.said().at(-1) ?? "";
+    expect(sent).toMatch(
+      /^Bring over what you remembered in Claude Code's own memory\. Claude Code keeps its own memory under .+\/projects, in the folder named after the directory .+, inside that folder's memory\/ folder; MEMORY\.md there is the index\./u,
+    );
+    expect(sent).toContain("call `memory_propose`");
+    expect(sent).toContain("propose twenty at most");
+    expect(sent).toContain("name the file it came from in `why`");
+    expect(r.host.memory().entries).toEqual([]);
   });
 });

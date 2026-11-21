@@ -25,8 +25,8 @@ export function compactionSentence(
     case "done":
       return `${agent} replaced the conversation above with this summary. ${
         row.rules === "sent"
-          ? "The rules were sent again."
-          : "The rules go out again with the next message."
+          ? "The rules and your memory were sent again."
+          : "The rules and your memory go out again with the next message."
       }`;
     case "failed":
       return row.error === null

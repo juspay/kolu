@@ -58,6 +58,8 @@ import {
   mentionsSayTheirKind_1_58_0,
   toolOutings_1_59_0,
   compactionRows_1_62_0,
+  memory_1_63_0,
+  memoryProposalRows_1_63_0,
   moveKeptFiles_1_53_0,
   prFactsOnTheTimeline_1_57_0,
   prOpenedSaysDraft_1_61_0,
@@ -927,6 +929,7 @@ describe("what an EARLIER COMMIT of this branch wrote, read by head", () => {
     mentionsSayTheirKind_1_58_0(root);
     toolOutings_1_59_0(root);
     compactionRows_1_62_0(root);
+    memoryProposalRows_1_63_0(root);
     expect(
       JSON.parse(readFileSync(path, "utf8")) as { version: string },
     ).toMatchObject({ version: TRANSCRIPT_FILE_VERSION });
@@ -2610,6 +2613,7 @@ describe("the 1.58.0 rung — a mention says what it is", () => {
     // after it carries the file to head.
     toolOutings_1_59_0(dir);
     compactionRows_1_62_0(dir);
+    memoryProposalRows_1_63_0(dir);
     expect(readJson(transcriptFilePath(dir)).version).toBe(
       TRANSCRIPT_FILE_VERSION,
     );
@@ -2656,6 +2660,7 @@ describe("the 1.59.0 rung — a tool row may say when this outing began", () => 
     expect(file.version).toBe("1.59.0");
     expect(file.rows).toEqual(ROWS);
     compactionRows_1_62_0(dir);
+    memoryProposalRows_1_63_0(dir);
     const read = readPersistedTranscript(
       transcriptFileStore(dir, TRANSCRIPT_FILE_VERSION),
       transcriptFilePath(dir),
@@ -2927,7 +2932,7 @@ describe("the 1.62.0 rung — a row may be a compaction", () => {
     compactionRows_1_62_0(dir);
 
     const file = readJson(transcriptFilePath(dir));
-    expect(file.version).toBe(TRANSCRIPT_FILE_VERSION);
+    expect(file.version).toBe("1.62.0");
     expect(file.rows).toEqual(ROWS);
     const compaction = {
       id: "kolu:compaction:c1",
@@ -2977,6 +2982,130 @@ describe("the 1.62.0 rung — a row may be a compaction", () => {
 
     compactionRows_1_62_0(dir);
 
+    expect(readFileSync(path, "utf8")).toBe("{ this is not json");
+  });
+});
+
+describe("the 1.63.0 rung — the Conductor's memory", () => {
+  const AT = "2026-12-02T09:15:00.000Z";
+  const ROWS = [
+    { id: "u1", seq: 1, since: AT, kind: "user", text: "always squash" },
+    { id: "a1", seq: 2, since: AT, kind: "agent", text: "Noted." },
+  ];
+  const REMEMBERED = {
+    entries: [
+      {
+        id: "m1",
+        title: "Squash-merge on demo-app",
+        about: "demo-app",
+        body: "Always squash.",
+        by: "you",
+        edited: false,
+        at: AT,
+      },
+    ],
+    proposals: [],
+    declined: [],
+    next: 2,
+  };
+
+  it("seeds an empty memory onto a store that has none", () => {
+    const conf = makeStore({ works: {}, members: {} });
+    memory_1_63_0(conf as never);
+    expect(conf.get("memory")).toEqual({
+      entries: [],
+      proposals: [],
+      declined: [],
+      next: 1,
+    });
+  });
+
+  it("keeps a memory a store already holds", () => {
+    const conf = makeStore({ memory: REMEMBERED });
+    memory_1_63_0(conf as never);
+    expect(conf.get("memory")).toEqual(REMEMBERED);
+  });
+
+  it("brings a 1.62.0 snapshot to head with an empty memory", () => {
+    const decoded = decodeStateBackup(
+      {
+        preferences: DEFAULT_PREFERENCES,
+        hosts: [],
+        viewerMode: "dark",
+        conductor: {
+          sessionId: null,
+          cwd: "/home/demo",
+          model: null,
+          fleet: [],
+          taught: false,
+        },
+        works: {},
+        members: {},
+        __internal__: { migrations: { version: "1.62.0" } },
+      },
+      "a 1.62.0 snapshot",
+    );
+    expect(decoded.memory).toEqual({
+      entries: [],
+      proposals: [],
+      declined: [],
+      next: 1,
+    });
+  });
+
+  it("re-stamps a 1.62.0 transcript without touching a row, and the reader takes a proposal after it", () => {
+    const dir = mkdtempSync(join(tmpdir(), "kolu-memory-rows-"));
+    dirs.push(dir);
+    writeTranscriptFile(transcriptFilePath(dir), "1.62.0", ROWS as never);
+
+    memoryProposalRows_1_63_0(dir);
+
+    const file = readJson(transcriptFilePath(dir));
+    expect(file.version).toBe(TRANSCRIPT_FILE_VERSION);
+    expect(file.rows).toEqual(ROWS);
+    const proposal = {
+      id: "kolu:memory:p1",
+      seq: 3,
+      since: AT,
+      kind: "memory-proposal",
+      proposal: "p1",
+      title: "Squash-merge on demo-app",
+      change: {
+        kind: "add",
+        title: "Squash-merge on demo-app",
+        about: "demo-app",
+        body: "Always squash.",
+      },
+      why: "you said so",
+      ended: null,
+    };
+    writeTranscriptFile(transcriptFilePath(dir), TRANSCRIPT_FILE_VERSION, [
+      ...ROWS,
+      proposal,
+    ] as never);
+    const read = readPersistedTranscript(
+      transcriptFileStore(dir, TRANSCRIPT_FILE_VERSION),
+      transcriptFilePath(dir),
+      dir,
+    );
+    expect(read.rows[2]).toEqual(proposal);
+  });
+
+  it("is safe to run twice, and leaves a file it cannot read as it is", () => {
+    const dir = mkdtempSync(join(tmpdir(), "kolu-memory-rows-twice-"));
+    dirs.push(dir);
+    writeTranscriptFile(transcriptFilePath(dir), "1.62.0", ROWS as never);
+    memoryProposalRows_1_63_0(dir);
+    const once = readFileSync(transcriptFilePath(dir), "utf8");
+    memoryProposalRows_1_63_0(dir);
+    expect(readFileSync(transcriptFilePath(dir), "utf8")).toBe(once);
+
+    const torn = mkdtempSync(join(tmpdir(), "kolu-memory-rows-torn-"));
+    dirs.push(torn);
+    const path = transcriptFilePath(torn);
+    mkdirSync(dirname(path), { recursive: true });
+    writeFileSync(path, "{ this is not json", "utf8");
+    memoryProposalRows_1_63_0(torn);
     expect(readFileSync(path, "utf8")).toBe("{ this is not json");
   });
 });

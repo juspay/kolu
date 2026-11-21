@@ -220,6 +220,9 @@ const WEB_SHELL_FILES = [
   // over its padi client — plus the readiness gate in front of them. Shell
   // code: it holds no PTY and reads every host over the wire.
   "conductor/koluOffer",
+  // THE MEMORY as the fleet face's resource serves it — a pure projection of
+  // the record. Shell code: no terminal domain.
+  "conductor/fleetMemory",
   // kolu's ONE supervising conversation lives in `kolu-conductor` now — the
   // host, the record, the standing prompt and the surface members are that
   // package's, and the dependency arrow points out of this one. What stays

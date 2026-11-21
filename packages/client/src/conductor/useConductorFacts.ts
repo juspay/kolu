@@ -21,6 +21,7 @@ import {
 import { type Accessor, createMemo } from "solid-js";
 import { createSharedRoot } from "../createSharedRoot";
 import { app } from "../wire";
+import { useMemoryNeed } from "./memory/useMemory";
 import { useNeedsYou } from "./useWorks";
 import { waitingCount } from "./workReadings";
 
@@ -89,8 +90,11 @@ export function conductorAsks():
 export const useConductorBadge = createSharedRoot(() => {
   const facts = useConductorFacts();
   const needs = useNeedsYou();
+  const memory = useMemoryNeed();
   return {
     /** How many things are waiting on the human. */
-    waiting: createMemo(() => waitingCount(needs(), facts().openAsks)),
+    waiting: createMemo(() =>
+      waitingCount(needs(), facts().openAsks, memory()),
+    ),
   };
 });

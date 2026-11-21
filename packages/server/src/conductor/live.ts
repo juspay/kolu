@@ -23,6 +23,7 @@ import { dirname } from "node:path";
 import { startHarness } from "@kolu/acp-harness";
 import { confStore } from "@kolu/surface/server";
 import type { ConductorState } from "kolu-common/conductor";
+import type { ConductorMemoryView } from "kolu-common/conductorMemory";
 import type { MemberReading } from "kolu-common/works";
 import type { Work, WorkMember } from "kolu-work";
 import {
@@ -31,6 +32,7 @@ import {
   type KoluOffer,
   type PersistedConductor,
   type PersistedMembers,
+  type PersistedMemory,
   type PersistedWorks,
   startConductorHost,
 } from "kolu-conductor";
@@ -62,6 +64,10 @@ let writeMember:
 let writeReading:
   | ((terminal: string, reading: MemberReading | null) => void)
   | null = null;
+/** ...and the `conductorMemory` cell's writer. */
+let writeMemory: ((memory: ConductorMemoryView) => void) | null = null;
+/** Who is owed a re-read of the fleet face's `memory` resource. */
+let onMemory: (() => void) | null = null;
 /** Who is owed a redraw of the `works` resource, or `null` until the boot
  *  wires it — the resource's subscribers, which want every change to a row.
  *  Registered rather than imported for the same reason the cell writers are:
@@ -130,6 +136,13 @@ export function setWorksCollectionWriters(writers: {
   writeReading = writers.reading;
 }
 
+/** ... and the `conductorMemory` cell's, registered in the same breath. */
+export function setConductorMemoryWriter(
+  write: (memory: ConductorMemoryView) => void,
+): void {
+  writeMemory = write;
+}
+
 /** ... and register who is owed a redraw of the WORKS ({@link onWorks}), and
  *  who re-chooses the WATCH'S SCOPE ({@link onWatchScope}). Two sinks, because
  *  they are two different jobs: a terminal being renamed moves every row an
@@ -142,6 +155,10 @@ export function setWorksListener(listen: () => void): void {
 
 export function setWatchScopeListener(listen: () => void): void {
   onWatchScope = listen;
+}
+
+export function setMemoryListener(listen: () => void): void {
+  onMemory = listen;
 }
 
 /** ... and hand over the fleet, which `index.ts` builds before anything can
@@ -246,14 +263,23 @@ export function liveServerConductor(): ConductorHost {
       }
       writeReading(terminal, reading);
     },
+    publishMemory: (memory) => {
+      if (writeMemory === null) {
+        throw new Error(
+          "the conductor published its memory before surface.ts registered the conductorMemory cell writer — implementKoluSurface must run before the first reader",
+        );
+      }
+      writeMemory(memory);
+      onMemory?.();
+    },
     // What moved, said by the one thing that knows. Unguarded: this is not
     // riding a browser's frame any more, so a listener that throws is a
     // boot-wiring fault to see rather than a frame to protect.
     worksMoved: () => onWorks?.(),
     watchScopeMoved: () => onWatchScope?.(),
-    // THE FOUR RECORDS, each where its volatility says it belongs. The
-    // conversation, the works and what kolu knows about their member
-    // terminals are keys of the one conf store (one schema, one ladder —
+    // THE FIVE RECORDS, each where its volatility says it belongs. The
+    // conversation, the works, what kolu knows about their member terminals
+    // and the memory are keys of the one conf store (one schema, one ladder —
     // `dev/skills/state/SKILL.md`); the transcript is a file of its own
     // because it is most of the bytes and it moves on every keystroke, and it
     // rides the SAME ladder from there (`transcriptFile.ts`).
@@ -265,6 +291,7 @@ export function liveServerConductor(): ConductorHost {
     store: confStore<PersistedConductor>(store, "conductor"),
     works: confStore<PersistedWorks>(store, "works"),
     members: confStore<PersistedMembers>(store, "members"),
+    memory: confStore<PersistedMemory>(store, "memory"),
     transcript: transcriptFileStore(
       dirname(store.path),
       TRANSCRIPT_FILE_VERSION,

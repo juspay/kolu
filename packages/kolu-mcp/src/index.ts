@@ -40,6 +40,12 @@ export {
   fleetSurface,
 } from "./fleet/fleetSurface.ts";
 export type { FleetHosts } from "./fleet/hosts.ts";
+export type {
+  FleetMemory,
+  FleetMemoryChange,
+  FleetMemoryProposed,
+  FleetMemoryView,
+} from "./fleet/memory.ts";
 export {
   FLEET_SETTLE_CAP_MS,
   KOLU_FLEET_TOOL_NAMES,

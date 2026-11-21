@@ -2790,6 +2790,7 @@ const HELP_SECTIONS = [
   "terminals",
   "the-lock",
   "asks",
+  "memory",
 ];
 
 /** What the help is showing, as `id,id,…` — or why it is not readable, so a

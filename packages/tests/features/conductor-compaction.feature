@@ -14,7 +14,7 @@ Feature: The Conductor compacts its own conversation
     And the compaction line should read "compacted"
     And the compaction line should be folded
     When I open the compaction line
-    Then the compaction line should say "Claude Code replaced the conversation above with this summary. The rules were sent again."
+    Then the compaction line should say "Claude Code replaced the conversation above with this summary. The rules and your memory were sent again."
     And the compaction line should show the summary "Two works are open. Nothing waits on you."
     And there should be no page errors
 
@@ -45,7 +45,7 @@ Feature: The Conductor compacts its own conversation
     When I send the conductor the prompt "be 250000 tokens long"
     Then the conductor transcript should show a row of kind "agent" saying "now 250000"
     When I send the conductor the prompt "which kolu blocks"
-    Then the conductor transcript should show a row of kind "agent" saying "carried: [kolu] How you work"
+    Then the conductor transcript should show a row of kind "agent" saying "carried: [kolu] How you work · [kolu] What you remember"
     When I send the conductor the prompt "which kolu blocks"
     Then the conductor transcript should show a row of kind "agent" saying "carried: nothing"
     And there should be no page errors

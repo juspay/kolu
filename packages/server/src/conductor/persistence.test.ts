@@ -64,6 +64,7 @@ import {
   PersistedConductorSchema,
   type MemberWatch,
   type PersistedMembers,
+  type PersistedMemory,
   type PersistedTranscript,
   PersistedTranscriptSchema,
   type PersistedWorks,
@@ -150,9 +151,10 @@ const OTHER_KEY = {
  * the CURRENT outing of a call began; 1.60.0 gives the remembered
  * conversation `taught` — whether the standing prompt has already gone out in
  * the session it names, which only the record can carry across a restart;
- * 1.61.0 says whether each pull request opened as a draft; and 1.62.0 lets a
- * transcript row be a compaction. */
-const STATE_SCHEMA_VERSION = "1.62.0";
+ * 1.61.0 says whether each pull request opened as a draft; 1.62.0 lets a
+ * transcript row be a compaction; and 1.63.0 gives the Conductor its memory,
+ * and lets a row be a memory proposal. */
+const STATE_SCHEMA_VERSION = "1.63.0";
 
 const log = {
   debug() {},
@@ -192,6 +194,7 @@ const worksStore = confStore<PersistedWorks>(store, "works");
 /** ... and the `members` key beside it: what kolu knows about each member
  *  TERMINAL, which is the half of a restart that decides whether it rings. */
 const membersStore = confStore<PersistedMembers>(store, "members");
+const memoryStore = confStore<PersistedMemory>(store, "memory");
 /** The transcript, through the SAME store `live.ts` hands the conversation —
  *  so what this file proves is the file the server writes, not a second
  *  reader of it. */
@@ -207,11 +210,13 @@ const recordDeps = () => ({
   store: conductorStore,
   works: worksStore,
   members: membersStore,
+  memory: memoryStore,
   transcript: transcriptStore,
   transcriptPath: () => transcriptFilePath(stateRoot),
   publishWork: () => {},
   publishMember: () => {},
   publishReading: () => {},
+  publishMemory: () => {},
   worksMoved: () => {},
   watchScopeMoved: () => {},
   workFiles: {
@@ -404,6 +409,7 @@ function hostOver(): {
         // The wipe reports the removes itself now (the harness owns the rows);
         // nothing in this file asks it to.
         clearSession: async () => {},
+        teachAgain: () => {},
         stop: async () => {
           // A real `stop()` lets the session go and publishes one final state
           // saying so. Modelled because this file is where it bites: the flush

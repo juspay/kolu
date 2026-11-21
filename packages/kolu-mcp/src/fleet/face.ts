@@ -76,6 +76,7 @@ import {
   fleetSurface,
 } from "./fleetSurface.ts";
 import { type FleetHosts, requireHost, requireTerminal } from "./hosts.ts";
+import type { FleetMemory, FleetMemoryView } from "./memory.ts";
 import { hostRoster, overConnectedHosts } from "./overHosts.ts";
 import { fleetTerminalRef, splitFleetTerminalRef } from "./ref.ts";
 import {
@@ -318,6 +319,21 @@ function worksRows(hosts: FleetHosts, works: FleetWorks): FleetWorksView {
   };
 }
 
+/** The memory now, and again on every move — pushed before the subscription,
+ *  for the reason {@link fleetWorks} gives. */
+function fleetMemory(memory: FleetMemory): Stream.Stream<FleetMemoryView> {
+  return Stream.callback<FleetMemoryView>((queue) =>
+    Effect.gen(function* () {
+      const push = (): void => {
+        Queue.offerUnsafe(queue, memory.view());
+      };
+      push();
+      const off = memory.subscribe(push);
+      yield* Effect.addFinalizer(() => Effect.sync(off));
+    }),
+  );
+}
+
 /** ... now, and on every move of EITHER half. The record moves without the
  *  Conductor touching it (an agent stops, a member terminal goes away, CI
  *  turns red, a human answers a question) and so does the roster under it, so
@@ -395,13 +411,14 @@ function fleetTerminalRow(
   } as FleetTerminal;
 }
 
-/** The whole face. The works arrive beside the hosts because one member —
- *  `works` — is about KOLU'S RECORD rather than about the fleet, and it is a
- *  port for the same reason the host map is: kolu-server owns the works, this
- *  package only projects them. */
+/** The whole face. The works and the memory arrive beside the hosts because
+ *  two members — `works` and `memory` — are about KOLU'S RECORD rather than
+ *  about the fleet, and each is a port for the same reason the host map is:
+ *  kolu-server owns them, this package only projects them. */
 export function fleetClientFace(
   hosts: FleetHosts,
   works: FleetWorks,
+  memory: FleetMemory,
 ): SurfaceClientCallable {
   return {
     surface: {
@@ -430,6 +447,7 @@ export function fleetClientFace(
         // rather than to the fleet.
         get: () => fleetWorks(hosts, works),
       },
+      memory: { get: () => fleetMemory(memory) },
       urgency: { get: () => fleetUrgency(hosts) },
       screen: {
         history: (input: { id: string; before?: number; max: number }) =>

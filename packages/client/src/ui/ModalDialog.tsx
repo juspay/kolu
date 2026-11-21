@@ -91,6 +91,10 @@ const ModalDialog: Component<{
   size?: "sm" | "md" | "palette" | "lg" | "fit";
   escapeCloses?: boolean;
   placesOwnFocus?: boolean;
+  /** Whether Escape and a click outside close it. `false` while another
+   *  dialog is open over this one: each is its own Corvu root, so a click or
+   *  an Escape in the dialog on top would otherwise close this one too. */
+  dismissible?: boolean;
   children: JSX.Element;
 }> = (props) => {
   // Every modal goes through this boundary, so reflecting `open` into the
@@ -131,9 +135,12 @@ const ModalDialog: Component<{
       // terminal.focus() calls (visibility effects, click handlers) emit focusin
       // events that solid-dismissible interprets as the user leaving the dialog.
       closeOnOutsideFocus={false}
+      closeOnOutsidePointer={props.dismissible ?? true}
       initialFocusEl={props.initialFocusEl}
       trapFocus={props.trapFocus}
-      closeOnEscapeKeyDown={props.escapeCloses ?? true}
+      closeOnEscapeKeyDown={
+        (props.escapeCloses ?? true) && (props.dismissible ?? true)
+      }
       onEscapeKeyDown={(event) => {
         event.preventDefault();
         change(false);

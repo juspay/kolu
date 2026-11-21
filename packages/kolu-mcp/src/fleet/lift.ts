@@ -65,6 +65,7 @@ import { SendInputArgsSchema } from "../sendInput.ts";
 import { KOLU_MCP_TOOLS } from "../tools.ts";
 import { MillisecondsSchema, WaitOutputSettledArgsSchema } from "../wait.ts";
 import { type FleetHosts, requireHost, requireTerminal } from "./hosts.ts";
+import { type FleetMemory, memoryProposeTool } from "./memory.ts";
 import { fleetTerminalRef, splitFleetTerminalRef } from "./ref.ts";
 import { FleetHostKeySchema, FleetTerminalRefSchema } from "./refSchema.ts";
 import { waterfallRun } from "./start.ts";
@@ -541,9 +542,9 @@ function lifted(
   };
 }
 
-/** The six fleet-ONLY tool names — the ones that are not a lift of anything
- *  the stdio face serves, because the pieces of work they move are kolu's
- *  record and exist nowhere else. Named beside the lift table so
+/** The seven fleet-ONLY tool names — the ones that are not a lift of anything
+ *  the stdio face serves, because the pieces of work and the memory they move
+ *  are kolu's record and exist nowhere else. Named beside the lift table so
  *  {@link KOLU_FLEET_TOOL_NAMES} can be read without building a face. */
 const FLEET_ONLY_TOOLS = [
   "work_open",
@@ -552,6 +553,7 @@ const FLEET_ONLY_TOOLS = [
   "work_leave",
   "work_note",
   "work_stop",
+  "memory_propose",
 ] as const;
 
 /** EVERY bespoke tool name the fleet face serves, as a static value.
@@ -569,14 +571,15 @@ export const KOLU_FLEET_TOOL_NAMES: readonly string[] = [
 ];
 
 /** The fleet face's bespoke table. A FACTORY, not a const: every tool here is
- *  closed over the one fleet it serves — the host port, and kolu's works —
- *  where the per-host table could be a module-level value because the adapter
- *  hands each call its client. Two faces in one process are two fleets, and a
- *  module-level record would let one conversation's work decide another
- *  conversation's wakes. */
+ *  closed over the one fleet it serves — the host port, kolu's works and its
+ *  memory — where the per-host table could be a module-level value because
+ *  the adapter hands each call its client. Two faces in one process are two
+ *  fleets, and a module-level record would let one conversation's work decide
+ *  another conversation's wakes. */
 export function koluFleetTools(
   hosts: FleetHosts,
   works: FleetWorks,
+  memory: FleetMemory,
 ): Record<string, BespokeTool> {
   const table: Record<string, BespokeTool> = {};
   for (const [name, lift] of Object.entries(FLEET_LIFTS)) {
@@ -594,5 +597,6 @@ export function koluFleetTools(
   table.work_leave = workLeaveTool(works);
   table.work_note = workNoteTool(works);
   table.work_stop = workStopTool(works);
+  table.memory_propose = memoryProposeTool(memory);
   return table;
 }
