@@ -461,6 +461,12 @@ const WHY_LEAD: Record<
   working: "Agents at work",
 };
 
+/** WHO A WORK WAITS ON, off its own record alone — the standing line's dot,
+ *  for a face that draws the dot and nothing else (a work's chip). The live
+ *  checks change only the standing line's words, never who it waits on. */
+export const waiterOf = (work: Work): Waiter | "done" =>
+  WAITER_OF[standing(work, policyOf(work)).why];
+
 export function standingLine(
   work: Work,
   checks: Option.Option<ChecksTally>,

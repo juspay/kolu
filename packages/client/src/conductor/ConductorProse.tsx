@@ -213,7 +213,7 @@ const ConductorProse: Component<{
         options={choices().options}
         renderOption={(option) => (
           <Show when={choices().byId.get(option.value)}>
-            {(work) => <WorkChipFace id={option.value} work={work()} />}
+            {(work) => <WorkChipFace work={work()} />}
           </Show>
         )}
         onSelect={(work) => {

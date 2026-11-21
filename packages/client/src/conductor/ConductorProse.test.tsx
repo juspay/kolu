@@ -389,7 +389,7 @@ describe("a file the Conductor names", () => {
     expect(readerTarget()).toBeNull();
     const offered = Array.from(
       document.querySelectorAll(
-        '[data-testid="named-file-menu"] [data-testid^="named-file-option-"] [data-testid="work-chip-face"]',
+        '[data-testid="named-file-menu"] [data-testid^="named-file-option-"] [data-testid="work-chip-title"]',
       ),
     ).map((one) => one.textContent?.trim());
     expect(offered).toEqual(["rewrite the parser", "fix the login"]);

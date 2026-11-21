@@ -433,10 +433,7 @@ const ConductorComposer: Component<{
                   {/* THE CHIP'S OWN FACE, drawn by the one component every
                       chip of a work is drawn by — a face only: this row is
                       the control. */}
-                  <WorkChipFace
-                    id={candidate().work}
-                    work={candidate().record}
-                  />
+                  <WorkChipFace work={candidate().record} />
                   <span
                     data-testid="conductor-mention-detail"
                     data-kind="work"

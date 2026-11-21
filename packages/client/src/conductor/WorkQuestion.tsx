@@ -341,7 +341,7 @@ const WorkQuestion: Component<{
           <span data-testid="work-question-work" class="min-w-0">
             <Show
               when={props.from === "chat"}
-              fallback={<WorkChipFace id={props.id} work={props.work} />}
+              fallback={<WorkChipFace work={props.work} />}
             >
               <WorkChip id={props.id} work={props.work} />
             </Show>

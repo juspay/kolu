@@ -227,7 +227,7 @@ const FoldLine: Component<{
               <Show when={map().get(id)}>
                 {(work) => (
                   <span class="inline-flex min-w-0 max-w-[15ch] shrink">
-                    <WorkChipFace id={id} work={work()} />
+                    <WorkChipFace work={work()} />
                   </span>
                 )}
               </Show>

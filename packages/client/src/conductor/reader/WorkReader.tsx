@@ -174,7 +174,7 @@ const WorkReader: Component<{
             <span data-testid="reader-of" class="min-w-0 flex-1">
               <Show
                 when={props.listing}
-                fallback={<WorkChipFace id={props.target.work} work={one()} />}
+                fallback={<WorkChipFace work={one()} />}
               >
                 <WorkChip id={props.target.work} work={one()} />
               </Show>

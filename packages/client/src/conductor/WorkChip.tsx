@@ -150,7 +150,7 @@ const WorkChip: Component<{
       class="inline-flex max-w-full min-w-0 cursor-pointer rounded-full focus-visible:outline-2 focus-visible:outline-accent hover:[&>span]:border-accent"
       onClick={() => showWork(props.id)}
     >
-      <WorkChipFace id={props.id} work={props.work} />
+      <WorkChipFace work={props.work} />
     </Tooltip.Trigger>
     <Tooltip.Portal>
       <Tooltip.Content
