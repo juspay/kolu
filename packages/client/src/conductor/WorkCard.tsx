@@ -1,21 +1,22 @@
-/** ONE PIECE OF WORK, as a card.
+/** ONE PIECE OF WORK — a card or a row on the board, or the picked work.
  *
- *  SHUT, it is a few lines and answers the only question a person has while
- *  something is running: what is this, who is it waiting on, and for how long.
- *  The stage strip under those lines is where the time has gone, stage by
- *  stage, and which stage the work is in now. A question waiting on you is on
- *  the shut card too, as the SAME form as in the chat (answering either
- *  settles the one question), so a work that needs you is answered without
- *  opening it. It is drawn once, on this face, whether the card is open or
- *  not.
+ *  ON THE BOARD it is a few lines and answers the only question a person has
+ *  while something is running: what is this, who is it waiting on, and for
+ *  how long. A work that needs you, and a finished one, is a CARD; every
+ *  other work in progress is a ROW of its group's table. The stage strip is
+ *  where the time has gone, stage by stage, and which stage the work is in
+ *  now. A question waiting on you is on the face, as the SAME form as in the
+ *  chat (answering either settles the one question), so a work that needs
+ *  you is answered without picking it. It is drawn once, on the face.
  *
- *  OPEN, IT STAYS SHORT however long the work runs: it answers "where is it",
- *  and the whole history is one press further. One row per terminal; the
- *  files; the pull request; the setup as one line and the latest three
- *  decisions; and the timeline of ONE stage — the strip is its index:
- *  pressing a segment shows that stage's events, and "whole timeline" unfolds
- *  all of it in place. Then **Stop**, one of the two ways a piece of work is
- *  ended on purpose.
+ *  PICKED, it is the work the screen is about, with a switch between two
+ *  views. **Terminals** is a live pane per terminal (`WorkLive.tsx`), in
+ *  front while one is up. **Details** is the record behind the face, short
+ *  however long the work runs: one row per terminal; the files; the pull
+ *  request; the setup as one line and the latest three decisions; and the
+ *  timeline of ONE stage — the strip is its index: pressing a segment shows
+ *  that stage's events, and "whole timeline" unfolds all of it in place.
+ *  Then **Stop**, one of the two ways a piece of work is ended on purpose.
  *
  *  A CARD IS DRAWN FROM THE STATE SUM, and the two faces are built from
  *  different values ({@link CardFace}). An ENDED work says how it ended, what
@@ -30,8 +31,8 @@
  *  has anyway — how a member terminal stands, which agent is in it, and a PR's
  *  check runs. A number that moves every second is never written down.
  *
- *  A WORK CHIP ELSEWHERE CAN ASK FOR THIS CARD (`./workListing.ts`'s
- *  `showWork`): it opens, and once it is on screen it scrolls itself into
+ *  A WORK CHIP ELSEWHERE CAN ASK FOR THIS WORK (`./workListing.ts`'s
+ *  `showWork`): it is picked, and once it is on screen it scrolls itself into
  *  view and flashes once. */
 
 import { dualPhrase } from "@kolu/terminal-vocab/duration";
@@ -65,6 +66,9 @@ import { splitMemberRef } from "./memberRef";
 import { useWorkMembers } from "./useWorks";
 import StageStrip from "./StageStrip";
 import WorkDetails from "./WorkDetails";
+import WorkLive from "./WorkLive";
+import { type PickedView, pickedView } from "./livePanes";
+import { liveArm } from "./terminalStatus";
 import { workFileSource } from "./workFile";
 import {
   cardShown,
@@ -233,10 +237,17 @@ const WorkCard: Component<{
     isOpen() ? stageAskedFor() : undefined,
   );
   const [whole, setWhole] = createSignal(false);
+  /** WHICH VIEW A PERSON CHOSE for this pick, Terminals or Details — none
+   *  until they press one (`pickedView` then decides). A work picked by a
+   *  press on a stage of its strip was picked to read that stage: Details. */
+  const [chosenView, setChosenView] = createSignal<PickedView | undefined>(
+    isOpen() && stageAskedFor() !== undefined ? "details" : undefined,
+  );
   createEffect(() => {
     if (isOpen()) return;
     setPressed(undefined);
     setWhole(false);
+    setChosenView(undefined);
   });
   /** ... read ONCE per redraw, for the strip and the timeline both. */
   const view = createMemo(() =>
@@ -252,6 +263,44 @@ const WorkCard: Component<{
   };
 
   const row = () => props.shape === "row";
+
+  /** A terminal of the work is up: there is a screen to watch. */
+  const anyUp = () =>
+    members().some(
+      (one) =>
+        one.standing !== undefined && liveArm(one.standing) !== undefined,
+    );
+  /** THE PICKED WORK'S VIEW IN FRONT. A work that is over has no terminals,
+   *  so its details are all it has. */
+  const shownView = (): PickedView =>
+    live() === undefined ? "details" : pickedView(chosenView(), anyUp());
+
+  /** THE SWITCH between the picked work's two views, in its head. */
+  const views = () => (
+    <div
+      data-testid="work-views"
+      class="mt-2 inline-flex rounded-md border border-edge bg-surface-1 p-0.5"
+    >
+      <For each={["terminals", "details"] as const}>
+        {(one) => (
+          <button
+            type="button"
+            data-testid="work-view"
+            data-view={one}
+            aria-pressed={shownView() === one}
+            class={`cursor-pointer rounded px-2.5 py-0.5 text-[0.72rem] ${
+              shownView() === one
+                ? "bg-surface-0 font-semibold text-fg shadow-sm"
+                : "text-fg-2 hover:text-fg"
+            }`}
+            onClick={() => setChosenView(one)}
+          >
+            {one === "terminals" ? "Terminals" : "Details"}
+          </button>
+        )}
+      </For>
+    </div>
+  );
 
   /** The parts both shapes draw, each in one place per shape. */
   const age = () => (
@@ -313,7 +362,8 @@ const WorkCard: Component<{
         show: (stage) => {
           setPressed(stage);
           setWhole(false);
-          if (!isOpen()) pickWork(props.id, stage);
+          if (isOpen()) setChosenView("details");
+          else pickWork(props.id, stage);
         },
       }}
     />
@@ -352,6 +402,7 @@ const WorkCard: Component<{
       data-work={props.id}
       data-who={at().who}
       data-open={isOpen() ? "" : undefined}
+      data-view={isOpen() ? shownView() : undefined}
       data-flash={flash() ? "" : undefined}
       data-state={props.work.state.kind}
       data-outcome={
@@ -392,6 +443,7 @@ const WorkCard: Component<{
             <div class="px-2.5 pb-2">
               {strip()}
               <WorkCardActions id={props.id} work={props.work} />
+              <Show when={isOpen() && live() !== undefined}>{views()}</Show>
             </div>
           </>
         }
@@ -448,32 +500,37 @@ const WorkCard: Component<{
         )}
       </Show>
 
-      <Show when={!row()}>
-        <Show when={live() !== undefined}>
-          <div class="px-2.5 pb-2">{terminals()}</div>
-        </Show>
+      <Show when={props.shape === "card" && live() !== undefined}>
+        <div class="px-2.5 pb-2">{terminals()}</div>
       </Show>
 
       <Show when={isOpen()}>
-        {/* THE DETAILS, a press away: the record behind the face, in rows of
-            one line each so the whole of an ordinary work fits a laptop
-            screen without scrolling. A row carries its ways on here. */}
-        <div class="border-t border-edge px-2.5 py-2">
-          <Show when={row()}>
-            <div class="mb-2">
-              <WorkCardActions id={props.id} work={props.work} />
+        <Show
+          when={shownView() === "terminals"}
+          fallback={
+            // THE DETAILS: its terminals, one row each, and the record behind
+            // the face, in rows of one line each so the whole of an ordinary
+            // work fits a laptop screen without scrolling.
+            <div class="border-t border-edge px-2.5 py-2">
+              <Show when={live() !== undefined}>
+                <div class="mb-2">{terminals()}</div>
+              </Show>
+              <WorkDetails
+                id={props.id}
+                work={props.work}
+                source={source()}
+                checks={checks()}
+                shown={view()}
+                onWhole={() => setWhole((was) => !was)}
+                now={now()}
+              />
             </div>
-          </Show>
-          <WorkDetails
-            id={props.id}
-            work={props.work}
-            source={source()}
-            checks={checks()}
-            shown={view()}
-            onWhole={() => setWhole((was) => !was)}
-            now={now()}
-          />
-        </div>
+          }
+        >
+          <div class="border-t border-edge px-2.5 py-2">
+            <WorkLive members={members()} />
+          </div>
+        </Show>
       </Show>
     </article>
   );

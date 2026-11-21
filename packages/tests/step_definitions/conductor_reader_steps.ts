@@ -22,6 +22,7 @@ import {
   enterConductor,
   keepWorkCardOpen,
   openWorkCard,
+  openWorkDetails,
   sendPrompt,
   showWorkCard,
   showWorkColumn,
@@ -205,7 +206,7 @@ When(
   "I press the work's timeline row for {string}",
   async function (this: KoluWorld, file: string) {
     await showWorkColumn(this);
-    await openWorkCard(this);
+    await openWorkDetails(this);
     await keepWorkCardOpen(this);
     const row = this.page
       .locator(

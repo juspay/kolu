@@ -338,6 +338,7 @@ const PeekWindow: Component<{ target: PeekTarget }> = (props) => {
                 onHeld={setHeld}
                 onFocus={setFocused}
                 onHandle={setHandle}
+                testId="peek-screen"
               />
             </div>
           </div>

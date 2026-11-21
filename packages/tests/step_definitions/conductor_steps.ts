@@ -2250,20 +2250,58 @@ export async function showWorkCard(world: KoluWorld) {
   return card;
 }
 
+/** THE PICKED WORK'S SWITCH, pressed to `view` — or nothing, when the work
+ *  is not picked or is over (an ended work has only its details). */
+async function showPickedView(
+  world: KoluWorld,
+  view: "terminals" | "details",
+): Promise<void> {
+  const press = world.page.locator(
+    `${WORK_COLUMN} [data-testid="work-view"][data-view="${view}"]`,
+  );
+  if ((await press.count()) === 0) return;
+  if ((await press.getAttribute("aria-pressed")) !== "true")
+    await press.click();
+}
+
+/** THE DETAILS IN FRONT, when the work is picked: its terminals' rows, its
+ *  files, pull request, decisions and timeline are in its Details view, and
+ *  a work with a terminal up opens on its Terminals. */
+export async function showDetails(world: KoluWorld): Promise<void> {
+  await showPickedView(world, "details");
+}
+
+/** Pick the work and put its details in front — what a step that acts on a
+ *  file, the timeline, Stop or Reopen needs. */
+export async function openWorkDetails(world: KoluWorld): Promise<void> {
+  await openWorkCard(world);
+  await showDetails(world);
+}
+
 /** READ WHAT ONLY A PICKED WORK SHOWS, AND PUT THE SCREEN BACK. Its files,
- *  pull request, decisions and timeline are drawn once it is picked, and
+ *  pull request, decisions and timeline are in a picked work's details, and
  *  picking narrows the chat to it — so a step that only LOOKS picks the work
- *  to read them and, when nothing was picked before, goes back to all the
- *  works once it has read, leaving the screen and the chat as it found them.
- *  The answer is that way back. */
+ *  and puts its details in front to read them, then puts back what it moved:
+ *  all the works when nothing was picked before, the Terminals view when
+ *  that was in front. The answer is that way back. */
 export async function pickToRead(
   world: KoluWorld,
 ): Promise<() => Promise<void>> {
   const pickedBefore =
     (await world.page.locator(`${WORK_COLUMN} ${ALL_WORK}`).count()) > 0;
-  await openWorkCard(world);
+  const viewBefore = pickedBefore
+    ? await world.page
+        .locator(`${WORK_COLUMN} [data-testid="work-card"][data-view]`)
+        .first()
+        .getAttribute("data-view", { timeout: 1_000 })
+        .catch(() => null)
+    : null;
+  await openWorkDetails(world);
   return async () => {
-    if (pickedBefore) return;
+    if (pickedBefore) {
+      if (viewBefore === "terminals") await showPickedView(world, "terminals");
+      return;
+    }
     const back = world.page.locator(`${WORK_COLUMN} ${ALL_WORK}`);
     if ((await back.count()) > 0) await back.click();
   };
@@ -2288,8 +2326,9 @@ Then("the work column should show the work", async function (this: KoluWorld) {
 Then(
   "the work column should list the terminal as a member",
   async function (this: KoluWorld) {
-    // The terminals are on the work's face: no need to pick it.
+    // The terminals' rows are on the face, or in the details once picked.
     await showWorkCard(this);
+    await showDetails(this);
     const id = watchedId(this);
     // WHAT THE CARD ACTUALLY HOLDS when it does not hold this terminal: the
     // refs it does list and its last events. A member leaves by being
@@ -2324,6 +2363,7 @@ Then(
 );
 
 When("I look at the member terminal", async function (this: KoluWorld) {
+  await showDetails(this);
   await memberRow(this).locator('[data-testid="work-member-look"]').click();
 });
 
@@ -2331,6 +2371,7 @@ When("I press the member terminal's name", async function (this: KoluWorld) {
   // THE MEMBER'S NAME IS THE WAY TO THE TERMINAL — the same journey the create
   // card's *open tile* makes, which is why the assertion below is the one that
   // step's scenario makes about the tile it lands on.
+  await showDetails(this);
   await memberRow(this).locator('[data-testid="work-member-name"]').click();
 });
 
@@ -3551,6 +3592,7 @@ function timelineEvents(
 export async function keepWorkCardOpen(world: KoluWorld): Promise<void> {
   const card = workCard(world);
   if (await card.isVisible().catch(() => false)) {
+    await showDetails(world);
     if ((await card.getAttribute("data-open")) === null) {
       await card
         .locator('[data-testid="work-card-head"]')
@@ -3994,7 +4036,7 @@ Then("the work should be in progress", async function (this: KoluWorld) {
 /** STOP, WITH THE CONFIRM IN FRONT OF IT — the repo's one inline-confirm
  *  shell, so the first press opens the step and the second acts. */
 When("I stop the work from the card", async function (this: KoluWorld) {
-  await openWorkCard(this);
+  await openWorkDetails(this);
   const card = workCard(this);
   await card.locator('[data-testid="work-stop"]').click();
   const confirm = card.locator('[data-testid="work-stop-confirm"]');
@@ -4052,7 +4094,7 @@ Then(
 );
 
 When("I reopen the work from the card", async function (this: KoluWorld) {
-  await openWorkCard(this);
+  await openWorkDetails(this);
   await workCard(this).locator('[data-testid="work-reopen"]').click();
 });
 
@@ -4268,6 +4310,7 @@ Then(
   "the work's terminal rows should keep every part inside the card",
   async function (this: KoluWorld) {
     await showWorkColumn(this);
+    await showDetails(this);
     const card = workCard(this);
     await card
       .locator(WORK_MEMBER)
@@ -4425,7 +4468,7 @@ Then(
 When(
   "I open the work's file {string}",
   async function (this: KoluWorld, file: string) {
-    await openWorkCard(this);
+    await openWorkDetails(this);
     const row = this.page.locator(
       `${WORK_COLUMN} [data-testid="work-file"][data-path="${file}"]`,
     );
@@ -4481,7 +4524,7 @@ Then(
 When(
   "I unfold the work's folder {string}",
   async function (this: KoluWorld, folder: string) {
-    await openWorkCard(this);
+    await openWorkDetails(this);
     const chip = this.page.locator(
       `${WORK_COLUMN} [data-testid="work-folder"][data-path="${folder}"]`,
     );
@@ -4524,7 +4567,7 @@ When(
   "I unfold the work's timeline row for the folder {string}",
   async function (this: KoluWorld, folder: string) {
     await showWorkColumn(this);
-    await openWorkCard(this);
+    await openWorkDetails(this);
     await keepWorkCardOpen(this);
     // The row's OWN control — a file row unfolded under it carries a "more"
     // of its own, one level deeper.
