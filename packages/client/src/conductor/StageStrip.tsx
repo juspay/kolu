@@ -2,12 +2,15 @@
  *  Plan, Approve, Build, Review, Checks, Merge — drawn as ONE THIN LINE.
  *
  *  Each segment is coloured by whose time its stage mostly was
- *  (`WAITER_INK`): the agents', yours, or CI's. The stage the work is in now
- *  is the segment that is marked, and it is the one stage NAMED, beside the
- *  line, with its time (`Review · 3m`) — the other five say nothing on screen,
- *  so the line reads at a glance and the name says where the work is. A stage
- *  that did not happen is a dashed segment: one the work's mode does not have
- *  (a trivial work is never planned or reviewed), or one it went past. One not
+ *  (`WAITER_INK`): the agents', yours, or CI's. Under every bar is its
+ *  stage's name, in the strip's small mono — so two bars of one colour are
+ *  read as two stages that had the same person's time, never as the same
+ *  stage twice. The stage the work is in now is the segment that is marked,
+ *  its label is the emphasised one, and it is the one stage whose TIME is
+ *  printed beside the line (`3m`); on a finished work the last stage that
+ *  happened carries that emphasis instead. A stage that did not happen is a
+ *  dashed segment, its label dimmed: one the work's mode does not have (a
+ *  trivial work is never planned or reviewed), or one it went past. One not
  *  reached yet is a quiet segment. The stages are `kolu-work`'s own fold
  *  (`stages`, over its mode's row of `MODE_RUNS`), over the same walk as the
  *  standing line, so the strip and the sentence over it cannot disagree.
@@ -17,10 +20,10 @@
  *
  *  ONE COMPONENT, TWO SIZES: `full` on a card, `mini` inside a work chip's
  *  hover card. Read aloud it is a list named "Stages", each segment its stage,
- *  its time, whose time it is and where it stands — every stage is spoken,
- *  though only one is named on screen. On a card it is also the INDEX INTO THE
- *  TIMELINE: a segment that has happened is a button showing that stage's
- *  events, and the stage shown is pressed.
+ *  its time, whose time it is and where it stands — the same sentence its
+ *  title prints on hover, so the colour's meaning is never sight-only. On a
+ *  card it is also the INDEX INTO THE TIMELINE: a segment that has happened is
+ *  a button showing that stage's events, and the stage shown is pressed.
  *
  *  A segment's box is `relative`: its spoken label is an `sr-only` span, which
  *  is positioned against the nearest positioned ancestor, and a segment that
@@ -42,9 +45,17 @@ import {
 import { type Component, createMemo, Index, Show } from "solid-js";
 import { STAGE_LABEL, WAITER_INK } from "./workReadings";
 
-/** The segment's colour, by where its stage stands — a stage that has had
- *  time in the colour of whose time it was, the current one at full strength
- *  and ringed. */
+/** THE COLOUR RULE, in one place — THE INK SAYS WHOSE TIME THE STAGE WAS.
+ *  Teal (accent) was the agents', violet (alert) was yours, amber
+ *  (attention) was CI's (`WAITER_INK`, `workReadings.ts`). Nothing else is
+ *  carried by colour: the bar's ring says this is the stage the work is in,
+ *  dimming says the stage is past, a DASHED outline says the stage did not
+ *  happen, and a faint grey says it has not been reached. Every one of those
+ *  is also in the segment's title and spoken label, and every segment names
+ *  its stage under the bar — so colour is never the only carrier, and no two
+ *  meanings share an ink. The last stage of a merged or closed work keeps
+ *  that same waiter's ink: it is one more stage that had somebody's time, not
+ *  a fourth colour. */
 const segmentInk = (state: StageState): string => {
   switch (state.kind) {
     case "now":
@@ -83,22 +94,37 @@ const exactOf = (state: StageState): string | undefined =>
     ? dualPhrase(state.ms)
     : undefined;
 
+/** ONE SENTENCE PER STAGE — its name and time, whose time it was, and where
+ *  it stands. It is both what a screen reader hears and what the bar's title
+ *  says on hover, so the colour's meaning is available in words everywhere
+ *  the colour is drawn, and the two cannot drift apart. */
+const spokenOf = (name: StageName, state: StageState): string => {
+  const exact = exactOf(state);
+  const whose =
+    state.kind === "done" || state.kind === "now" ? state.who : null;
+  return [
+    exact === undefined ? STAGE_LABEL[name] : `${STAGE_LABEL[name]} ${exact}`,
+    ...(whose === null ? [] : [WHOSE[whose]]),
+    STATE_WORD[state.kind],
+  ].join(", ");
+};
+
 /** Six quiet segments, for a work whose mode is not known yet. */
 const QUIET: ReadonlyArray<Stage> = STAGES.map((name) => ({
   name,
   state: { kind: "not-started" },
 }));
 
-/** THE STAGE THE WORK IS IN, as the words beside the line: its name and how
- *  long it has had, in one unit (`Review · 3m`). None while no stage is
- *  current. */
+/** HOW LONG THE WORK HAS BEEN IN THE STAGE IT IS IN, beside the line — the
+ *  time alone (`3m`), because the label under that stage's bar already names
+ *  the stage. None while no stage is current. */
 const nowOf = (
   all: ReadonlyArray<Stage>,
 ): { readonly words: string; readonly who: Waiter } | undefined => {
   for (const stage of all) {
     if (stage.state.kind === "now")
       return {
-        words: `${STAGE_LABEL[stage.name]} · ${compactPhrase(stage.state.ms)}`,
+        words: compactPhrase(stage.state.ms),
         who: stage.state.who,
       };
   }
@@ -134,6 +160,17 @@ const StageStrip: Component<{
     }
   });
   const full = () => props.size === "full";
+  /** THE STAGE THE EYE SHOULD LAND ON: the one the work is in, or — for a
+   *  work with no current stage, which is a finished one — the last stage
+   *  that happened. Its label is the emphasised one. */
+  const emphasis = createMemo((): StageName | undefined => {
+    const all = cells();
+    if (all === undefined) return undefined;
+    for (const stage of all) if (stage.state.kind === "now") return stage.name;
+    let last: StageName | undefined;
+    for (const stage of all) if (stage.state.kind === "done") last = stage.name;
+    return last;
+  });
   return (
     <Show when={cells()}>
       {(all) => (
@@ -169,18 +206,32 @@ const StageStrip: Component<{
                         full() ? "h-1.5" : "h-1"
                       } ${segmentInk(state())}`}
                     />
+                    {/* THE STAGE'S NAME, under its bar, in the strip's own
+                        small mono. It is the one thing the colors cannot say:
+                        two bars of the same ink are two stages that had the
+                        same person's time, and this is how the eye tells them
+                        apart. `truncate` keeps it on one line at phone width;
+                        the full name is in the segment's title either way. */}
+                    <span
+                      data-testid="stage-label"
+                      data-stage={stage().name}
+                      data-emphasis={
+                        emphasis() === stage().name ? "" : undefined
+                      }
+                      class={`block w-full truncate whitespace-nowrap pt-0.5 text-center font-mono leading-tight ${
+                        full() ? "text-[0.55rem]" : "text-[0.5rem]"
+                      } ${
+                        emphasis() === stage().name
+                          ? "font-semibold text-fg"
+                          : state().kind === "skipped"
+                            ? "text-fg-3/60"
+                            : "text-fg-3"
+                      }`}
+                    >
+                      {STAGE_LABEL[stage().name]}
+                    </span>
                     <span class="sr-only">
-                      {(() => {
-                        const exact = exactOf(state());
-                        const whose = who();
-                        return [
-                          exact === undefined
-                            ? STAGE_LABEL[stage().name]
-                            : `${STAGE_LABEL[stage().name]} ${exact}`,
-                          ...(whose === undefined ? [] : [WHOSE[whose]]),
-                          STATE_WORD[state().kind],
-                        ].join(", ");
-                      })()}
+                      {spokenOf(stage().name, state())}
                     </span>
                   </>
                 );
@@ -190,12 +241,7 @@ const StageStrip: Component<{
                     data-stage={stage().name}
                     data-state={state().kind}
                     data-who={who()}
-                    title={(() => {
-                      const exact = exactOf(state());
-                      return exact === undefined
-                        ? undefined
-                        : `${STAGE_LABEL[stage().name]} ${exact}`;
-                    })()}
+                    title={spokenOf(stage().name, state())}
                     data-shown={
                       props.index?.shown() === stage().name ? "" : undefined
                     }

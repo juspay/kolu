@@ -92,8 +92,68 @@ describe("the stage strip's segments", () => {
       ["checks", "not-started", undefined],
       ["merge", "not-started", undefined],
     ]);
-    expect(segment(el, "plan").title).toBe("Plan 4m");
-    expect(segment(el, "review").getAttribute("title")).toBeNull();
+    expect(segment(el, "plan").title).toBe("Plan 4m, the agents' time, done");
+    expect(segment(el, "review").title).toBe("Review, did not happen");
+  });
+
+  it("name every stage under its bar, and emphasise the one it is in", () => {
+    const { el } = mount(STAGED, true);
+    const labels = [
+      ...el.querySelectorAll<HTMLElement>('[data-testid="stage-label"]'),
+    ].map((label) => [
+      label.dataset.stage,
+      label.textContent,
+      label.dataset.emphasis,
+    ]);
+    expect(labels).toEqual([
+      ["plan", "Plan", undefined],
+      ["approve", "Approve", undefined],
+      ["build", "Build", ""],
+      ["review", "Review", undefined],
+      ["checks", "Checks", undefined],
+      ["merge", "Merge", undefined],
+    ]);
+    // NEVER A SECOND LINE AT PHONE WIDTH: a label that does not fit is cut
+    // with the stage's full name in its title, not wrapped under the bar.
+    for (const label of el.querySelectorAll('[data-testid="stage-label"]')) {
+      expect(label.classList.contains("truncate")).toBe(true);
+      expect(label.classList.contains("whitespace-nowrap")).toBe(true);
+    }
+    // The dashed, skipped stage is named too, and dimmed rather than hidden.
+    const skipped = el.querySelector<HTMLElement>(
+      '[data-testid="stage-label"][data-stage="review"]',
+    );
+    expect(skipped?.classList.contains("text-fg-3/60")).toBe(true);
+  });
+
+  it("emphasise the last stage that happened when none is current", () => {
+    const done: Stages = {
+      kind: "staged",
+      stages: [
+        { name: "plan", state: { kind: "done", ms: MIN, who: "agent" } },
+        { name: "approve", state: { kind: "done", ms: MIN, who: "you" } },
+        { name: "build", state: { kind: "done", ms: MIN, who: "agent" } },
+        { name: "review", state: { kind: "done", ms: MIN, who: "you" } },
+        { name: "checks", state: { kind: "done", ms: MIN, who: "ci" } },
+        { name: "merge", state: { kind: "done", ms: MIN, who: "ci" } },
+      ],
+      events: [],
+      current: "merge",
+    };
+    const { el } = mount(done, true);
+    const emphasised = [
+      ...el.querySelectorAll<HTMLElement>('[data-testid="stage-label"]'),
+    ].filter((label) => label.dataset.emphasis === "");
+    expect(emphasised.map((label) => label.dataset.stage)).toEqual(["merge"]);
+  });
+
+  it("give the colour a word: whose time it was, in every title", () => {
+    const { el } = mount(STAGED, true);
+    expect(segment(el, "plan").title).toContain("the agents' time");
+    expect(segment(el, "approve").title).toContain("your time");
+    expect(segment(el, "build").title).toContain("CI's time");
+    // A stage with no colour of its own says what it is instead.
+    expect(segment(el, "checks").title).toBe("Checks, not started");
   });
 
   it("speak every stage, though the line names only one", () => {
@@ -143,10 +203,10 @@ describe("the stage strip's segments", () => {
 });
 
 describe("the stage named beside the line", () => {
-  it("is the stage the work is in, with its time", () => {
+  it("keeps the time, now that the label names the stage", () => {
     const { el } = mount(STAGED, true);
     expect(el.querySelector('[data-testid="stage-now"]')?.textContent).toBe(
-      "Build · 3m",
+      "3m",
     );
   });
 
