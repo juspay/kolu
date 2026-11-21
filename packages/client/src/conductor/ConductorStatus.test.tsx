@@ -2,13 +2,8 @@
 /**
  * THE ONE STATUS LINE, as a person meets it: the state word the header chip
  * used to carry, what the conversation is doing and for how long, the count
- * of work that opens the column, and the waiting count that is ABSENT at
- * zero rather than rendering its own silence.
- *
- * The work column is stubbed here on purpose: it reads the live fleet (and
- * through `ConductorLook`, the padi wire), which is a different test's
- * subject. What this file pins is that pressing the button is what puts it on
- * screen, and pressing it again takes it away.
+ * of work that, on a phone, opens the Work tab, and the waiting count that is
+ * ABSENT at zero rather than rendering its own silence.
  */
 
 import {
@@ -19,10 +14,6 @@ import {
 import { needsYou, type WorkRow } from "kolu-work";
 import { render } from "solid-js/web";
 import { afterEach, describe, expect, it, vi } from "vitest";
-
-vi.mock("./WorkColumn", () => ({
-  default: () => <div data-testid="work-column" />,
-}));
 
 // The count is a CONTROL on a phone, and a plain readout on a desktop, where
 // the works are already beside the line — this file is about the control.
@@ -39,6 +30,7 @@ vi.mock("./useWorks", () => ({
 }));
 
 import ConductorStatus from "./ConductorStatus";
+import { phoneView, setPhoneView } from "./phoneView";
 import { Shown } from "../ui/shown";
 
 const SINCE = "2026-01-01T00:00:00.000Z";
@@ -129,8 +121,9 @@ describe("the status line", () => {
     expect(at("conductor-status-detail")).toBeUndefined();
   });
 
-  it("says how many pieces of work are in flight, and opens the column on a press", () => {
+  it("says how many pieces of work are in flight, and shows the works on a press", () => {
     works = [work("w1", "fix-parser"), work("w2", "docs-pass")];
+    setPhoneView("chat");
     const at = mount();
     const button = at("conductor-work-count");
     // The words a person reads, and the same number as data for anything that
@@ -139,14 +132,9 @@ describe("the status line", () => {
     expect(button?.textContent?.replace(/\s+/g, " ")).toBe("2 pieces of work");
     expect(button?.dataset.work).toBe("2");
     expect(button?.dataset.waiting).toBeUndefined();
-    expect(at("work-column")).toBeUndefined();
 
     button?.click();
-    expect(at("work-column")).toBeDefined();
-    expect(button?.getAttribute("aria-expanded")).toBe("true");
-
-    button?.click();
-    expect(at("work-column")).toBeUndefined();
+    expect(phoneView()).toBe("work");
   });
 
   it("says one piece of work in the singular", () => {

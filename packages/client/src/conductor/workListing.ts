@@ -1,6 +1,5 @@
 /** THE WORK LISTING'S OWN STATE — which cards are open, whether the finished
- *  list is open, whether the listing is out on a phone, and THE ONE WAY TO GO
- *  TO A WORK ({@link showWork}).
+ *  list is open, and THE ONE WAY TO GO TO A WORK ({@link showWork}).
  *
  *  Module state, because what a person opened must outlive any one drawing
  *  of the list: a work chip — in the chat, in a "which work?" menu, in the
@@ -10,15 +9,12 @@
 
 import type { WorkId } from "kolu-work";
 import { batch, createSignal } from "solid-js";
-import { layoutMode } from "../useMobile";
+import { setPhoneView } from "./phoneView";
 import { closeReader } from "./reader/useReader";
 import { enterConductorMode } from "./useConductorMode";
 
 const [openCards, setOpenCards] = createSignal<ReadonlySet<string>>(new Set());
 const [finishedOpen, setFinishedOpen] = createSignal(false);
-const [listingOut, setListingOut] = createSignal(false);
-/** Put the listing out, or back in, on a phone. */
-export { setListingOut };
 /** A card asked to come into view — keyed by a counter so asking twice for
  *  the same work scrolls twice, and with the question to bring into view
  *  when the asker named one. Cleared by the card that answered it. */
@@ -58,13 +54,6 @@ export const openFinished = (): void => {
   setFinishedOpen(true);
 };
 
-/** Is the listing out on a phone — the band the status line's count opens?
- *  A desktop always shows the works beside the conversation. */
-export const isListingOut = listingOut;
-export const toggleListing = (): void => {
-  setListingOut((was) => !was);
-};
-
 /** The card a route asked to bring into view, if one is waiting. */
 export const wantedCard = wanted;
 
@@ -76,17 +65,17 @@ export function cardShown(seq: number): void {
 /** GO TO A WORK — the one route every face takes: a work chip, a `#/work/…`
  *  link, the bell's notification, a command-palette row, the mark on a dock
  *  row. The Conductor comes on screen, the reader gives way (the works are
- *  behind it), the listing comes out on a phone (a desktop always shows it),
- *  and the card opens and is scrolled to — onto the question `ask` names,
- *  when one is given. The list opens its Finished group when the card is a
- *  finished work's. */
+ *  behind it), a phone shows its works (a desktop always does), and the card
+ *  opens and is scrolled to — onto the question `ask` names, when one is
+ *  given. The list opens its Finished group when the card is a finished
+ *  work's. */
 export function showWork(id: WorkId, ask: string | null = null): void {
   asks += 1;
   const seq = asks;
   batch(() => {
     enterConductorMode();
     closeReader();
-    if (layoutMode() === "phone") setListingOut(true);
+    setPhoneView("work");
     openCard(id);
     setWanted({ id, ask, seq });
   });

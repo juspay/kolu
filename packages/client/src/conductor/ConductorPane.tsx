@@ -13,8 +13,9 @@
  *  THE FRAME IS CONSTANT on a desktop. The grid declares both tracks whatever
  *  is in them, so nothing slides sideways the moment the first work appears;
  *  the works say, in one line, that there is nothing in progress rather than
- *  leaving a hole. On a phone there is no side to put anything beside: the
- *  conversation fills the pane under the header.
+ *  leaving a hole. On a phone there is no side to put anything beside: it
+ *  shows the works or the conversation, one at a time, by a tab bar under
+ *  them (`ConductorPhoneTabs`).
  *
  *  Mounted on the first visit and then RETAINED for the page's life: leaving
  *  for a host tab hides it (`App.tsx`'s out-of-flow host with
@@ -52,7 +53,9 @@ import ConductorTranscript from "./ConductorTranscript";
 import WorkColumn from "./WorkColumn";
 import { ConductorHelpSheet } from "./ConductorHelp";
 import TerminalPeek from "./peek/TerminalPeek";
-import { chatPutAside, frameTracks } from "./conductorFrame";
+import { chatPutAside, frameTracks, worksDrawn } from "./conductorFrame";
+import ConductorPhoneTabs from "./ConductorPhoneTabs";
+import { phoneView } from "./phoneView";
 import { layoutMode } from "../useMobile";
 import { useConductor } from "./useConductor";
 import { exitConductorMode } from "./useConductorMode";
@@ -164,12 +167,13 @@ const ConductorPane: Component<{
   const phone = (): boolean => layoutMode() === "phone";
   const frame = () => ({
     phone: phone(),
+    view: phoneView(),
     reading: reading(),
     filled: readerFilled(),
   });
-  /** IS THE CONVERSATION PUT ASIDE — a reader filling the screen, or a
-   *  phone reading a file. The panel stays mounted either way; this is what
-   *  makes it zero-wide, skipped and inert. */
+  /** IS THE CONVERSATION PUT ASIDE — a reader filling the screen, or on a
+   *  phone the works or a file in its place. The panel stays mounted either
+   *  way; this is what makes it zero-wide, skipped and inert. */
   const chatAside = (): boolean => chatPutAside(frame());
   /** The two retained halves of the frame ask the SAME question every other
    *  retained view in the app asks before doing any work: is anybody looking
@@ -265,6 +269,17 @@ const ConductorPane: Component<{
                   </aside>
                 </Shown.Provider>
               </Show>
+              {/* ON A PHONE the works are a view of their own, drawn while
+                  the Work tab is chosen and taken down when it is not: the
+                  chat's half of the phone holds no hidden list. */}
+              <Show when={phone() && worksDrawn(frame())}>
+                <div
+                  data-testid="conductor-works"
+                  class="flex min-h-0 min-w-0 flex-col overflow-y-auto overflow-x-hidden"
+                >
+                  <WorkColumn />
+                </div>
+              </Show>
               {/* THE READER — the file the person is actually here to read,
                   where the works were. It is the one thing in the frame that
                   is MOUNTED ONLY WHILE IT IS OPEN: it is what was opened, and
@@ -345,6 +360,9 @@ const ConductorPane: Component<{
                 </div>
               </Shown.Provider>
             </div>
+            <Show when={phone()}>
+              <ConductorPhoneTabs />
+            </Show>
             {/* THE HELP, as a sheet mounted once and opened from the header's
                 `?` or the `⋯` menu's How to use. */}
             <ConductorHelpSheet />

@@ -10,7 +10,7 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { chatPutAside, frameTracks } from "./conductorFrame";
+import { chatPutAside, frameTracks, worksDrawn } from "./conductorFrame";
 
 // `fileURLToPath` + `node:path`, not `new URL(…, import.meta.url)`: the test
 // env's global `URL` is the browser one, which rejects a `file:` base.
@@ -27,7 +27,12 @@ function rem(token: string): number {
   return Number(found[1]);
 }
 
-const desk = { phone: false, reading: false, filled: false };
+const desk = {
+  phone: false,
+  view: "chat" as const,
+  reading: false,
+  filled: false,
+};
 
 /** The base (unprefixed) track list of a class list. */
 const base = (classes: string): string =>
@@ -62,13 +67,29 @@ describe("the Conductor's frame", () => {
     expect(chatPutAside(filled)).toBe(true);
   });
 
-  it("gives a phone one thing at a time", () => {
-    const phone = { ...desk, phone: true };
-    expect(frameTracks(phone)).toBe("grid-cols-[minmax(0,1fr)]");
-    expect(chatPutAside(phone)).toBe(false);
-    const reading = { ...phone, reading: true };
-    expect(frameTracks(reading)).toBe("grid-cols-[minmax(0,1fr)_0px]");
-    expect(chatPutAside(reading)).toBe(true);
+  it("gives a phone the chat or the works, one at a time", () => {
+    const chat = { ...desk, phone: true };
+    expect(frameTracks(chat)).toBe("grid-cols-[minmax(0,1fr)]");
+    expect(chatPutAside(chat)).toBe(false);
+    expect(worksDrawn(chat)).toBe(false);
+    const work = { ...chat, view: "work" as const };
+    expect(frameTracks(work)).toBe("grid-cols-[minmax(0,1fr)_0px]");
+    expect(chatPutAside(work)).toBe(true);
+    expect(worksDrawn(work)).toBe(true);
+  });
+
+  it("lets a file take a phone's whole screen, over either view", () => {
+    for (const view of ["chat", "work"] as const) {
+      const reading = { ...desk, phone: true, view, reading: true };
+      expect(frameTracks(reading)).toBe("grid-cols-[minmax(0,1fr)_0px]");
+      expect(chatPutAside(reading)).toBe(true);
+      expect(worksDrawn(reading)).toBe(false);
+    }
+  });
+
+  it("always draws a desktop's works, behind a file too", () => {
+    expect(worksDrawn(desk)).toBe(true);
+    expect(worksDrawn({ ...desk, reading: true })).toBe(true);
   });
 
   it("widens the chat as the window widens, and never past a third of it", () => {
