@@ -1105,9 +1105,14 @@ export function startConductorHost(deps: ConductorDeps): ConductorHost {
    *  work being opened is the running turn's, not its. */
   const newestRequest = (): RequestWords => {
     const said = rows();
+    // THE RUNNING TURN'S MESSAGE, or the newest the person typed before it (a
+    // turn kolu's wake-up started). A running turn this host holds no row for
+    // is a defect, not "no turn".
     const turn = runningTurn();
-    const until =
-      turn === undefined ? Infinity : (byId.get(turn)?.seq ?? Infinity);
+    const head = turn === null ? undefined : byId.get(turn);
+    if (turn !== null && head === undefined)
+      throw new Error(`the running turn ${turn} has no row in the transcript`);
+    const until = head?.seq ?? Infinity;
     for (let at = said.length - 1; at >= 0; at -= 1) {
       const row = said[at];
       if (row?.kind !== "user" || row.seq > until) continue;
@@ -1123,15 +1128,28 @@ export function startConductorHost(deps: ConductorDeps): ConductorHost {
   let harness: Harness<ConductorRow> | null = null;
   let starting: Promise<Harness<ConductorRow>> | null = null;
   /** WHICH MESSAGE'S TURN THE AGENT IS ON, as the harness reads it off the
-   *  wire (`Harness.turn`), for the rows this module writes itself — a
-   *  question about a work, a memory proposal, a compaction. Never a walk
-   *  over the rows: a message sent while a reply is still being written is
-   *  the newest row, and the turn running is not its. `undefined` when no
-   *  conversation is up or no turn runs. */
-  const runningTurn = (): string | undefined => harness?.turn() ?? undefined;
-  /** ... spread onto a row: the key when there is a turn, nothing when not. */
-  const answering = (turn: string | undefined): { readonly turn?: string } =>
-    turn === undefined ? {} : { turn };
+   *  wire (`Harness.turn`), or `null` when no conversation is up or no turn
+   *  runs. Never a walk over the rows: a message sent while a reply is still
+   *  being written is the newest row, and the turn running is not its. */
+  const runningTurn = (): string | null => harness?.turn() ?? null;
+  /** THE HEAD OF A ROW THIS MODULE WRITES ITSELF — a notice, a compaction, a
+   *  question about a work, a memory proposal: `seq` after the last row there
+   *  is, `since` when it was minted, and the turn running then. A row written
+   *  again keeps the head it was first written with, like the harness's own.
+   *  One minting for all of them, so no such row can leave a field out. */
+  const headOf = (
+    id: string,
+    was: Pick<ConductorRow, "seq" | "since" | "turn"> | null = null,
+    since = new Date().toISOString(),
+  ) => {
+    const turn = was === null ? runningTurn() : (was.turn ?? null);
+    return {
+      id,
+      seq: was?.seq ?? (rows().at(-1)?.seq ?? 0) + 1,
+      since: was?.since ?? since,
+      ...(turn === null ? {} : { turn }),
+    };
+  };
   let disposed = false;
   /**
    * WHICH SPAWN'S NEWS IS THE CONVERSATION'S — bumped the moment a harness is
@@ -1679,9 +1697,7 @@ export function startConductorHost(deps: ConductorDeps): ConductorHost {
       upserts: [
         {
           kind: "notice",
-          id: `kolu:notice:${notices}`,
-          seq: (rows().at(-1)?.seq ?? 0) + 1,
-          since: new Date().toISOString(),
+          ...headOf(`kolu:notice:${notices}`),
           text,
         },
       ],
@@ -1700,11 +1716,7 @@ export function startConductorHost(deps: ConductorDeps): ConductorHost {
       upserts: [
         {
           kind: "compaction",
-          id,
-          seq: was?.seq ?? (rows().at(-1)?.seq ?? 0) + 1,
-          since: was?.since ?? new Date().toISOString(),
-          // The turn it was first written in, kept like `seq` and `since`.
-          ...answering(was === null ? runningTurn() : was.turn),
+          ...headOf(id, was),
           state:
             report.status === "in_progress"
               ? "running"
@@ -1776,10 +1788,7 @@ export function startConductorHost(deps: ConductorDeps): ConductorHost {
       upserts: [
         {
           kind: "work-ask",
-          id: ask,
-          seq: (rows().at(-1)?.seq ?? 0) + 1,
-          since: new Date().toISOString(),
-          ...answering(runningTurn()),
+          ...headOf(ask),
           text: message,
           ask: { fields: [...fields], standing: { kind: "open" } },
           work,
@@ -2682,16 +2691,12 @@ export function startConductorHost(deps: ConductorDeps): ConductorHost {
       remembered();
       // ONE TURN'S PROPOSALS ARE ONE BATCH, and the turn is the harness's:
       // the newest message may be one still waiting for its own.
-      const turn = runningTurn();
-      const proposal = memories.propose(change, why, turn ?? null);
+      const proposal = memories.propose(change, why, runningTurn());
       applyRows({
         upserts: [
           {
             kind: "memory-proposal",
-            id: `kolu:memory:${proposal.id}`,
-            seq: (rows().at(-1)?.seq ?? 0) + 1,
-            since: proposal.at,
-            ...answering(turn),
+            ...headOf(`kolu:memory:${proposal.id}`, null, proposal.at),
             proposal: proposal.id,
             title: proposalTitle(memories.read(), proposal),
             change: proposal.change,
