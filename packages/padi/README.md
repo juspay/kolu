@@ -573,30 +573,37 @@ attention list.
 
 Every attention consumer (the `urgency` cell, `finishQuiet`, the settle events
 and the state watch below) is fed through one gate, `attention/fleetGate.ts`.
-It refuses two kinds of frame:
+The attention feed opens when **the boot has said adoption is finished and
+every survivor it announced has been read once**. A frame never opens it.
 
-- **Before adoption, and through a kaval recycle's drain** — the registry is
-  empty or half-drained for padi's own reasons, not because terminals exited.
-- **After adoption, until every survivor has been read once.** A redeploy
-  adopts kaval's terminals with no agent on them, and the sensors read each
-  agent a moment later. The adopt path names each survivor to the gate before
-  registering it; the terminal's sensor set reports when every agent detector
-  has made its first pass over a real foreground sample (an agent, a shell, or
-  "cannot tell" — a dead foreground tap counts as that). An agent whose question
-  lives only on its screen (a permission prompt over a `tool_use` transcript)
-  is not read until its first screen read has resolved, so it is asking from
-  padi's first settled frame. A survivor that goes away while awaited stops
-  being awaited.
+- **The boot says adoption is finished.** `markRosterEstablished` runs once
+  the endpoint boot has adopted kaval's survivors and reconciled the saved
+  session (`daemonBoot/daemonMain.ts`), and again at the end of a kaval
+  recycle's re-park (`ptyHost/restartLocal.ts`). Before that, and through a
+  recycle's drain, the registry is empty or half-built for padi's own reasons.
+- **Every announced survivor has been read once.** A redeploy adopts kaval's
+  terminals with no agent on them, and the sensors read each agent a moment
+  later. The adopt path names each survivor to the gate before registering
+  it; the terminal's sensor set reports when every agent detector has made
+  its first pass over a real foreground sample (an agent, a shell, or "cannot
+  tell" — a dead foreground tap counts as that). An agent whose question lives
+  only on its screen (a permission prompt over a `tool_use` transcript) is not
+  read until its first screen read has resolved, so it is asking from padi's
+  first settled frame. A survivor that goes away while awaited stops being
+  awaited.
 
-While the gate refuses, the `urgency` cell carries `settled: false`. The
-roster's census ("who is here") does not wait for the reads: it opens as soon
-as a terminal is listed, because the Conductor's watch reads "not listed" as
-"gone".
+While the feed waits, the `urgency` cell carries `settled: false`. The
+roster's census ("who is here") waits for neither: it opens on the first
+non-empty frame, because the Conductor's watch reads "not listed" as "gone".
 
-Without the second rule, `finishQuiet`'s "already idle when padi first looked is
-not news" was spent on the agentless frame, and every idle agent then arrived as
-a brand-new finish — after each redeploy every browser rang and marked every
-agent terminal unread.
+Why no frame may open the feed: the boot registers the saved session in its
+saved order, and only a survivor is announced before it is registered. When
+the first saved terminal is asleep, its registration is a non-empty frame with
+nothing announced yet. Had that frame opened the feed, every survivor after it
+would count as a mid-session adoption and go unread — and `finishQuiet`'s
+"already idle when padi first looked is not news" would be spent on a frame
+with no agent in it, so every idle agent would arrive as a brand-new finish,
+ringing and marking unread on every page.
 
 ## Settle events — the standing subscriptions
 

@@ -8,8 +8,9 @@
  * "already idle on the first real frame is not news" rule on it, and every idle
  * agent then arrived as a brand-new turn — 5 s of `linger`, then a fresh
  * `finished` that every browser rang for. With the gate holding the attention
- * feed until each survivor has been read once, the first frame `finishQuiet`
- * sees has the agents in it, and its existing rule does the rest.
+ * feed until the boot has said adoption is finished and each survivor has been
+ * read once, the first frame `finishQuiet` sees has the agents in it, and its
+ * existing rule does the rest.
  */
 
 import type { PadiTerminal, PadiUrgency } from "@kolu/padi-client/surface";
@@ -78,6 +79,8 @@ describe("a redeploy at the fold — a survivor already idle is not news", () =>
       // Adoption names the survivor, then registers it with no agent.
       padi.gate.awaitFirstRead(T);
       expect(padi.fold(frame({ [T]: { agent: null } }))).toEqual(EMPTY_URGENCY);
+      // The boot says adoption is finished.
+      padi.gate.establish();
       // The detectors read the agent; the record moves before the last of
       // them reports, so this frame is still unread.
       const read = frame({ [T]: { agent: makeAgent("waiting") } });
@@ -107,6 +110,8 @@ describe("a redeploy at the fold — a survivor already idle is not news", () =>
       padi.gate.awaitFirstRead(T);
       const shell = frame({ [T]: { agent: null } });
       expect(padi.fold(shell).settled).toBe(false);
+      padi.gate.establish();
+      expect(padi.fold(shell).settled).toBe(false);
       // The detectors find a shell and publish nothing; only the report says
       // they looked.
       padi.gate.firstRead(T);
@@ -128,6 +133,7 @@ describe("a redeploy at the fold — a survivor already idle is not news", () =>
       padi.fold(frame());
       padi.gate.awaitFirstRead(T);
       padi.fold(frame({ [T]: { agent: null } }));
+      padi.gate.establish();
       padi.fold(frame({ [T]: { agent: makeAgent("tool_use") } }));
       const asking = frame({ [T]: { agent: makeAgent("awaiting_user") } });
       padi.fold(asking);
