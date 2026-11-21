@@ -82,8 +82,8 @@ const WorkChipCard: Component<{ id: WorkId; work: Work }> = (props) => {
         size="mini"
         testId="chip-stage-strip"
       />
-      {/* THE CHAT ABOUT IT, from where the work was named — the same act as
-          the card's "About this work". */}
+      {/* THE CHAT ABOUT IT, from where the work was named — there is no card
+          to pick here, so this is the chip's own way in. */}
       <button
         type="button"
         data-testid="work-chip-about"

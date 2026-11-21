@@ -64,7 +64,7 @@ Every view in kolu has a URL. Anything that renders a link (a conductor board, a
 | `#/work/<workId>` | the Conductor, with [that work's card](/work-card) open |
 | `#/work/<workId>/ask/<askId>` | the same card, scrolled to that question |
 
-`<host>` is the host's key (`local`, or `remote:<target>`), and `<id>` is the terminal's id. A `<workId>` is one segment, so a card's **Copy link** is the way to get one. A link to a split lands the sub-terminal live, not just its parent tile. The right panel follows the focused pane, so a `/code` or `/inspector` link to a split opens that split's own panel, and `/code` resolves `<p>` against the split's own repository.
+`<host>` is the host's key (`local`, or `remote:<target>`), and `<id>` is the terminal's id. A `<workId>` is one segment. A link to a split lands the sub-terminal live, not just its parent tile. The right panel follows the focused pane, so a `/code` or `/inspector` link to a split opens that split's own panel, and `/code` resolves `<p>` against the split's own repository.
 
 ### What a link can and cannot do
 

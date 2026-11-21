@@ -1,11 +1,11 @@
 Feature: The works that need you come first, and the chat goes quiet
   A piece of work is somewhere you can go and something you can talk about.
   `@` in the Conductor's box offers works before terminals, and a message
-  that names one carries its chip. "About this work" points the chat at one
-  work: the turns about anything else step aside, and what you send is about
-  it. A reply to something kolu woke the Conductor with is one line until you
-  open it. And the command palette lists the works, each row landing on its
-  card through the same route a `#/work/…` link takes.
+  that names one carries its chip. Picking a work points the chat at it: the
+  turns about anything else step aside, and what you send is about it. A reply
+  to something kolu woke the Conductor with is one line until you open it. And
+  the command palette lists the works, each row landing on its card through
+  the same route a `#/work/…` link takes.
 
   Background:
     Given the terminal is ready
@@ -22,12 +22,12 @@ Feature: The works that need you come first, and the chat goes quiet
     Then my last message should carry the work's chip
     And there should be no page errors
 
-  Scenario: "About this work" points the chat at one work, and the box with it
+  Scenario: Picking a work points the chat at it, and the box with it
     Given a repo for the work
     When I ask the conductor to open the work "scope the chat"
     And I send the conductor the prompt "say hello"
     Then the conductor transcript should show a row of kind "agent" saying "hello back"
-    When I press "About this work" on the work's card
+    When I open the work card
     Then the chat should be about the work
     And my message "say hello" should be out of sight
     And the conductor's box should carry the work as the chat's scope

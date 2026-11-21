@@ -403,6 +403,79 @@ When(
   },
 );
 
+/** ONE SHORT LINE IN THE BOX — a typed message, not a sent one. */
+When(
+  "I type {string} into the conductor's box",
+  async function (this: KoluWorld, text: string) {
+    await this.page.locator(INPUT).fill(text);
+  },
+);
+
+/** A MESSAGE LONGER THAN THE BOX'S MAXIMUM — the state that must scroll. */
+When(
+  "I paste a long message into the conductor's box",
+  async function (this: KoluWorld) {
+    const lines = Array.from(
+      { length: 40 },
+      (_, i) => `line ${i + 1} of a message the box cannot show whole`,
+    );
+    await this.page.locator(INPUT).fill(lines.join("\n"));
+  },
+);
+
+/** The box's three numbers, as the browser lays them out. */
+async function composerBox(world: KoluWorld) {
+  return await world.page.locator(INPUT).evaluate((el) => {
+    const box = el as HTMLTextAreaElement;
+    return {
+      scroll: box.scrollHeight,
+      client: box.clientHeight,
+      value: box.value,
+    };
+  });
+}
+
+Then("the conductor's box should not scroll", async function (this: KoluWorld) {
+  await pollFor({
+    observe: () => composerBox(this),
+    isDone: (box) => box.scroll <= box.client + 1,
+    timeoutMs: POLL_TIMEOUT,
+    onTimeout: (box, ms) =>
+      new Error(
+        `the composer's box scrolls (scrollHeight ${box.scroll}, clientHeight ${box.client}) after ${ms}ms of holding one short line — a box taller than its text`,
+      ),
+  });
+});
+
+Then("I note the conductor's box height", async function (this: KoluWorld) {
+  this.notedComposerHeight = (await composerBox(this)).client;
+});
+
+Then(
+  "the conductor's box should be taller than I noted",
+  async function (this: KoluWorld) {
+    const noted = this.notedComposerHeight;
+    assert.ok(noted !== undefined, "no box height was noted first");
+    const now = (await composerBox(this)).client;
+    assert.ok(
+      now > noted,
+      `the composer's box is ${now}px tall after a long message, the same as the ${noted}px of one short line — it did not grow`,
+    );
+  },
+);
+
+Then("the conductor's box should scroll", async function (this: KoluWorld) {
+  await pollFor({
+    observe: () => composerBox(this),
+    isDone: (box) => box.scroll > box.client + 1,
+    timeoutMs: POLL_TIMEOUT,
+    onTimeout: (box, ms) =>
+      new Error(
+        `the composer's box holds ${box.scroll}px of text in ${box.client}px after ${ms}ms and does not scroll — the rest is unreachable`,
+      ),
+  });
+});
+
 When(
   "I ask the conductor to adopt the terminal",
   async function (this: KoluWorld) {
@@ -1387,6 +1460,47 @@ Then(
       after,
       before,
       `the transcript moved from ${before} to ${after} on its own — a reader who scrolled up to read something was dragged back`,
+    );
+  },
+);
+
+/** WHERE THE CHAT WAS, before the works side is touched — the numbers a pick
+ *  and an unpick must leave exactly alone. */
+Then(
+  "I note where the conductor transcript is scrolled",
+  async function (this: KoluWorld) {
+    // Chromium ANIMATES a wheel notch: the two steps above can both return
+    // while the view is still gliding. Note where it actually came to rest,
+    // not where it happened to be when the last event was dispatched.
+    const settled = Promise.withResolvers<void>();
+    setTimeout(settled.resolve, 750);
+    await settled.promise;
+    this.notedTranscriptTop = await this.page
+      .locator(TRANSCRIPT)
+      .evaluate((el) => el.scrollTop);
+    assert.ok(
+      this.notedTranscriptTop > 0,
+      "the transcript is at the top — the scenario asked for a place in the middle of a long conversation, and a note of 0 cannot fail later",
+    );
+  },
+);
+
+Then(
+  "the conductor transcript should be scrolled where I noted",
+  async function (this: KoluWorld) {
+    const noted = this.notedTranscriptTop;
+    assert.ok(noted !== undefined, "no scroll position was noted first");
+    // Give any settled layout a beat to land — a pick on the works side must
+    // not move the chat at any point, including the frame after it.
+    const settled = Promise.withResolvers<void>();
+    setTimeout(settled.resolve, 750);
+    await settled.promise;
+    const now = await this.page
+      .locator(TRANSCRIPT)
+      .evaluate((el) => el.scrollTop);
+    assert.ok(
+      Math.abs(now - noted) <= 2,
+      `the transcript moved from ${noted} to ${now} when a work was picked on the works side — the works and the chat are separate things`,
     );
   },
 );
@@ -2642,6 +2756,51 @@ Then(
     await this.page
       .locator(`${SIDE} [data-testid="work-column-empty"]`)
       .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+  },
+);
+
+/** THE PANEL WITH NOTHING IN IT teaches: its heading, a sentence saying what
+ *  the Conductor is for, and three requests to start from. */
+Then(
+  "the work column should welcome a newcomer",
+  async function (this: KoluWorld) {
+    const welcome = this.page.locator(
+      `${SIDE} [data-testid="work-column-empty"]`,
+    );
+    await welcome.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    await welcome
+      .getByRole("heading", { name: "Nothing in progress" })
+      .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    await welcome
+      .getByText("The Conductor runs coding agents for you.", { exact: false })
+      .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    await this.page
+      .locator(`${SIDE} [data-testid="work-welcome-example"]`)
+      .first()
+      .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    await waitForCount(this, `${SIDE} [data-testid="work-welcome-example"]`, 3);
+  },
+);
+
+When(
+  "I press the welcome's example ask {string}",
+  async function (this: KoluWorld, text: string) {
+    await this.page
+      .locator(
+        `${SIDE} [data-testid="work-welcome-example"]:has-text(${JSON.stringify(text)})`,
+      )
+      .click();
+  },
+);
+
+Then(
+  "the conductor's box should hold {string}",
+  async function (this: KoluWorld, text: string) {
+    await waitForValue(
+      "the composer's text",
+      async () => (await this.page.locator(INPUT).inputValue()).trim(),
+      text,
+    );
   },
 );
 
