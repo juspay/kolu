@@ -430,12 +430,15 @@ const WorkCard: Component<{
             }
           >
             {/* THE ROW: what it is and where; the stage line and where it
-            stands; its terminals; its age — side by side on a wide window,
-            the terminals dropping under the title below 1280px. Its press
-            reaches every part but the controls inside it. */}
-            <div class="relative px-3 py-2.5">
+            stands; its terminals; its age — side by side on a wide row, the
+            terminals dropping under the title on a narrow one. The row's
+            OWN width decides (a container query), not the window's: the
+            works share the window with the chat and the sidebar, and the
+            sidebar's width is the person's. Its press reaches every part
+            but the controls inside it. */}
+            <div class="@container/row relative px-3 py-2.5">
               {head()}
-              <div class="pointer-events-none relative grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] items-start gap-x-5 gap-y-2 conductor-md:grid-cols-[minmax(0,1fr)_minmax(0,0.9fr)_minmax(0,1.7fr)_auto] [&_a]:pointer-events-auto [&_button]:pointer-events-auto">
+              <div class="pointer-events-none relative grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] items-start gap-x-5 gap-y-2 @min-[52rem]/row:grid-cols-[minmax(0,1fr)_minmax(0,0.9fr)_minmax(0,1.7fr)_auto] [&_a]:pointer-events-auto [&_button]:pointer-events-auto">
                 <div class="col-start-1 row-start-1 min-w-0">
                   <div class="flex min-w-0">{title()}</div>
                   {subtitle()}
@@ -444,10 +447,10 @@ const WorkCard: Component<{
                   {strip()}
                   {standing()}
                 </div>
-                <div class="col-span-full row-start-2 min-w-0 conductor-md:col-span-1 conductor-md:col-start-3 conductor-md:row-start-1">
+                <div class="col-span-full row-start-2 min-w-0 @min-[52rem]/row:col-span-1 @min-[52rem]/row:col-start-3 @min-[52rem]/row:row-start-1">
                   {terminals()}
                 </div>
-                <div class="col-start-3 row-start-1 conductor-md:col-start-4">
+                <div class="col-start-3 row-start-1 @min-[52rem]/row:col-start-4">
                   {age()}
                 </div>
               </div>
