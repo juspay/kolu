@@ -17,29 +17,26 @@ const [composerText, setComposerText] = createSignal("");
 
 export { composerText, setComposerText };
 
-/** THE COMPOSER'S BOX, registered while it is mounted. The draft is the one
- *  piece of the box that outlives it; a caller that is not the composer — the
- *  works' welcome — needs the element too, to put the caret where the words
- *  it just set are. One ref, not a store: nothing renders from it. */
-let composerBox: HTMLTextAreaElement | undefined;
-
-export function holdComposerBox(el: HTMLTextAreaElement): void {
-  composerBox = el;
+/** THE WELCOME'S ASK — a REQUEST the composer answers, not a word in its box.
+ *  The welcome lives in the works column and cannot write the composer's
+ *  caret or reach its element; the composer is the one place that owns both.
+ *  `seq` makes a second press of the same example a new request. */
+export interface WelcomeAsk {
+  readonly text: string;
+  readonly seq: number;
 }
 
-export function releaseComposerBox(el: HTMLTextAreaElement): void {
-  if (composerBox === el) composerBox = undefined;
-}
+const [welcomeAsk, setWelcomeAsk] = createSignal<WelcomeAsk | null>(null);
 
-/** PUT AN EXAMPLE REQUEST IN THE BOX, caret at its end, and send nothing.
- *  The welcome's three asks land here so a newcomer starts from words that
- *  already read like a request, rather than from an empty box. */
+export { welcomeAsk };
+
+let welcomeAsks = 0;
+
+/** PUT AN EXAMPLE REQUEST IN THE BOX, caret at its end, and send nothing —
+ *  the composer does the writing (`ConductorComposer`). */
 export function askFromWelcome(text: string): void {
-  setComposerText(text);
-  const box = composerBox;
-  if (box === undefined) return;
-  box.focus();
-  box.setSelectionRange(text.length, text.length);
+  welcomeAsks += 1;
+  setWelcomeAsk({ text, seq: welcomeAsks });
 }
 
 /** One file in the draft: what the wire will take, the bytes this browser is

@@ -33,6 +33,7 @@ import {
   createMemo,
   createSignal,
   For,
+  on,
   onCleanup,
   Show,
 } from "solid-js";
@@ -58,11 +59,10 @@ import {
   composerAttachments,
   composerText,
   dropComposerAttachment,
-  holdComposerBox,
-  releaseComposerBox,
   sendableAttachments,
   setCompletionOpen,
   setComposerText,
+  welcomeAsk,
 } from "./drafts";
 import {
   armedMentions,
@@ -117,9 +117,6 @@ const ConductorComposer: Component<{
   const membership = useMembership();
   const [caret, setCaret] = createSignal(0);
   let box!: HTMLTextAreaElement;
-  // The welcome lives in the works column, not in this component, and setting
-  // the draft is not enough to put the caret in the box that draws it.
-  onCleanup(() => releaseComposerBox(box));
 
   /** EVERY PIECE OF WORK, then every terminal on EVERY host, as the `@` menu
    *  offers them. The conversation's own fleet is not the list: a person
@@ -224,6 +221,16 @@ const ConductorComposer: Component<{
     box.setSelectionRange(position, position);
     box.focus();
   };
+
+  // THE WELCOME'S EXAMPLE — its request is answered HERE, where the box and
+  // its caret live: `write` sets the draft, the caret and the focus together,
+  // so the caret cannot be left stale by a caller that only knew the text.
+  createEffect(
+    on(welcomeAsk, (ask) => {
+      if (ask === null) return;
+      write(ask.text, ask.text.length);
+    }),
+  );
 
   /** Complete the token under the caret from one row of whichever menu is
    *  open. The mouse and the keyboard land here together, so a click and a Tab
@@ -718,10 +725,7 @@ const ConductorComposer: Component<{
       </Show>
       <div class="flex items-end gap-2">
         <textarea
-          ref={(el) => {
-            box = el;
-            holdComposerBox(el);
-          }}
+          ref={box}
           data-testid="conductor-input"
           // ONE LINE AT REST, in every layout. The box used to stand three
           // rows tall on a desktop whatever was in it, which is two rows of
