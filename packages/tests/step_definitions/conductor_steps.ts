@@ -1908,6 +1908,7 @@ When(
   async function (this: KoluWorld) {
     const title = this.workTitle;
     assert.ok(title, "this scenario never named the work it opened");
+    await showChat(this);
     const chip = this.page
       .locator(
         '[data-testid="conductor-chat"] [data-testid="conductor-turn-works"] [data-testid="work-chip"]',
@@ -2392,23 +2393,27 @@ async function frameBoxes(world: KoluWorld): Promise<{
   pane: Box | null;
   window: number;
 }> {
-  return world.page.evaluate(
-    ([works, chat, pane]) => {
-      const box = (selector: string) => {
-        const el = document.querySelector(selector);
-        if (el === null) return null;
-        const r = el.getBoundingClientRect();
-        return { left: r.left, right: r.right, width: r.width };
-      };
-      return {
-        works: box(works),
-        chat: box(chat),
-        pane: box(pane),
-        window: window.innerWidth,
-      };
-    },
-    [SIDE, CHAT_PANEL, '[data-testid="conductor-pane"]'] as const,
+  // No named function inside the page callback: the harness's transform
+  // names them with a helper the page does not have.
+  const [boxes, width] = await world.page.evaluate(
+    (selectors) =>
+      [
+        selectors.map((selector) => {
+          const el = document.querySelector(selector);
+          if (el === null) return null;
+          const r = el.getBoundingClientRect();
+          return { left: r.left, right: r.right, width: r.width };
+        }),
+        window.innerWidth,
+      ] as const,
+    [SIDE, CHAT_PANEL, '[data-testid="conductor-pane"]'],
   );
+  return {
+    works: boxes[0] ?? null,
+    chat: boxes[1] ?? null,
+    pane: boxes[2] ?? null,
+    window: width,
+  };
 }
 
 Then(
@@ -4180,24 +4185,23 @@ Then(
     let problems: string[] = [];
     await pollFor({
       observe: async () => {
+        // No named function inside the page callback: the harness's
+        // transform names them with a helper the page does not have.
         problems = await card.evaluate((el) => {
           const found: string[] = [];
-          const inside = (inner: DOMRect, outer: DOMRect, slack = 1): boolean =>
-            inner.left >= outer.left - slack &&
-            inner.right <= outer.right + slack &&
-            inner.top >= outer.top - slack &&
-            inner.bottom <= outer.bottom + slack;
           const cardBox = el.getBoundingClientRect();
           const rows = Array.from(
             el.querySelectorAll<HTMLElement>('[data-testid="work-member"]'),
           );
-          const name = (one: Element) =>
-            one.getAttribute("data-testid") ??
-            (one.textContent ?? "").replace(/\s+/g, " ").trim().slice(0, 30);
           for (const row of rows) {
             const ref = row.getAttribute("data-ref") ?? "?";
             const box = row.getBoundingClientRect();
-            if (!inside(box, cardBox))
+            if (
+              box.left < cardBox.left - 1 ||
+              box.right > cardBox.right + 1 ||
+              box.top < cardBox.top - 1 ||
+              box.bottom > cardBox.bottom + 1
+            )
               found.push(`${ref}: row leaves the card`);
             if (row.scrollWidth > row.clientWidth + 1)
               found.push(`${ref}: row overflows`);
@@ -4210,17 +4214,28 @@ Then(
             for (const part of parts) {
               const at = part.getBoundingClientRect();
               if (at.width === 0 || at.height === 0) continue;
-              if (!inside(at, box))
-                found.push(`${ref}: ${name(part)} reaches outside the row`);
+              if (
+                at.left < box.left - 1 ||
+                at.right > box.right + 1 ||
+                at.top < box.top - 1 ||
+                at.bottom > box.bottom + 1
+              )
+                found.push(
+                  `${ref}: ${
+                    part.getAttribute("data-testid") ??
+                    (part.textContent ?? "")
+                      .replace(/\s+/g, " ")
+                      .trim()
+                      .slice(0, 30)
+                  } reaches outside the row`,
+                );
             }
           }
-          const lefts = (testid: string) =>
-            rows
+          for (const testid of ["work-member-role", "work-member-look"]) {
+            const edges = rows
               .map((row) => row.querySelector(`[data-testid="${testid}"]`))
               .filter((one): one is Element => one !== null)
               .map((one) => Math.round(one.getBoundingClientRect().left));
-          for (const testid of ["work-member-role", "work-member-look"]) {
-            const edges = lefts(testid);
             if (edges.some((edge) => Math.abs(edge - (edges[0] ?? 0)) > 1))
               found.push(`${testid} edges differ: ${edges.join(", ")}`);
           }

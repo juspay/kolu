@@ -316,7 +316,11 @@ const ConductorPane: Component<{
                   inert={chatAside()}
                   aria-hidden={chatAside() || undefined}
                   class={`flex min-h-0 w-full min-w-0 flex-col overflow-hidden ${
-                    phone() ? "" : "border-s border-edge"
+                    chatAside()
+                      ? "order-first"
+                      : phone()
+                        ? ""
+                        : "border-s border-edge"
                   }`}
                 >
                   <Show when={!phone()}>{header()}</Show>

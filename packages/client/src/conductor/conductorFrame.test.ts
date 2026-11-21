@@ -61,9 +61,10 @@ describe("the Conductor's frame", () => {
     expect(chatPutAside(reading)).toBe(false);
   });
 
-  it("puts the chat aside only while the file fills the screen", () => {
+  it("puts the chat aside only while the file fills the screen, at the left edge", () => {
     const filled = { ...desk, reading: true, filled: true };
-    expect(frameTracks(filled)).toBe("grid-cols-[0px_minmax(0,1fr)_0px]");
+    // The aside chat is moved first, so its zero track is the first one.
+    expect(frameTracks(filled)).toBe("grid-cols-[0px_0px_minmax(0,1fr)]");
     expect(chatPutAside(filled)).toBe(true);
   });
 
@@ -73,7 +74,7 @@ describe("the Conductor's frame", () => {
     expect(chatPutAside(chat)).toBe(false);
     expect(worksDrawn(chat)).toBe(false);
     const work = { ...chat, view: "work" as const };
-    expect(frameTracks(work)).toBe("grid-cols-[minmax(0,1fr)_0px]");
+    expect(frameTracks(work)).toBe("grid-cols-[0px_minmax(0,1fr)]");
     expect(chatPutAside(work)).toBe(true);
     expect(worksDrawn(work)).toBe(true);
   });
@@ -81,7 +82,7 @@ describe("the Conductor's frame", () => {
   it("lets a file take a phone's whole screen, over either view", () => {
     for (const view of ["chat", "work"] as const) {
       const reading = { ...desk, phone: true, view, reading: true };
-      expect(frameTracks(reading)).toBe("grid-cols-[minmax(0,1fr)_0px]");
+      expect(frameTracks(reading)).toBe("grid-cols-[0px_minmax(0,1fr)]");
       expect(chatPutAside(reading)).toBe(true);
       expect(worksDrawn(reading)).toBe(false);
     }

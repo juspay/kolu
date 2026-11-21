@@ -47,14 +47,17 @@ export function chatPutAside(state: FrameState): boolean {
 }
 
 /** THE TRACKS, by state. Children are, in order: the works (while they are
- *  drawn), the reader (only while a file is open), the chat. */
+ *  drawn), the reader (only while a file is open), the chat — except that a
+ *  chat put aside is moved FIRST (`order-first`, {@link chatPutAside}), so
+ *  its zero-wide track is at the left edge and what it holds, laid out but
+ *  skipped, never reaches past the window's right edge. */
 export function frameTracks(state: FrameState): string {
   if (state.phone)
     return chatPutAside(state)
-      ? "grid-cols-[minmax(0,1fr)_0px]"
+      ? "grid-cols-[0px_minmax(0,1fr)]"
       : "grid-cols-[minmax(0,1fr)]";
   if (!state.reading)
     return "grid-cols-[minmax(0,1fr)_var(--container-conductor-chat)] conductor-md:grid-cols-[minmax(0,1fr)_var(--container-conductor-chat-md)] conductor-lg:grid-cols-[minmax(0,1fr)_var(--container-conductor-chat-lg)]";
-  if (state.filled) return "grid-cols-[0px_minmax(0,1fr)_0px]";
+  if (state.filled) return "grid-cols-[0px_0px_minmax(0,1fr)]";
   return "grid-cols-[0px_minmax(0,1fr)_var(--container-conductor-chat)] conductor-md:grid-cols-[0px_minmax(0,1fr)_var(--container-conductor-chat-md)] conductor-lg:grid-cols-[0px_minmax(0,1fr)_var(--container-conductor-chat-lg)]";
 }
