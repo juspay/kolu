@@ -55,14 +55,11 @@ import {
 } from "kolu-common/surface";
 import "kolu-common/test-hooks";
 import { Effect, Semaphore } from "effect";
-import type { MemoryNeed } from "kolu-common/conductorMemory";
-import type { NeedsYou } from "kolu-work";
 import { createEffect, mapArray, onCleanup, untrack } from "solid-js";
 import { match } from "ts-pattern";
 import { notify } from "../attentionNotify";
 import { hostLabel } from "../host/hostChipTone";
 import { selectHostTab } from "../host/selectHostTab";
-import { afterViewKnown, isNeedInView } from "../conductor/onScreen";
 import {
   conductorAsks,
   useConductorBadge,
@@ -200,52 +197,45 @@ export function useAttention(deps: AttentionDeps): {
     }
   }
 
+  /** IS THE CONVERSATION IN FRONT OF THE HUMAN — its tab showing in a focused
+   *  kolu window. Untracked: it is read at the instant an alert is raised,
+   *  and a focus change must not re-run whatever reading raised it. */
+  const conductorInFront = (): boolean =>
+    untrack(conductorMode) && document.hasFocus();
+
+  const workMap = useWorkMap();
+  const needs = useNeedsYou();
   /** WHAT NEEDS YOU, handed to the one path.
    *
    *  A work waiting on you — a question, a green PR handed over — and a
    *  question the conversation asks about no work are `asking` in exactly the
    *  sense the frame already means it, and they count into the same badge
-   *  below. WHEN they ring is `conductorAsks`'s rule; HOW is `attend.raise`'s.
-   *  One sound for the lot, one notification per work item (titled with the
-   *  work and saying what is wanted), the conversation's own questions as one
-   *  notification, and memory's as one, tagged so a newer one replaces it. */
-  const deliverNeeds = (
-    items: ReadonlyArray<NeedsYou>,
-    ownOpen: number | null,
-    memory: MemoryNeed | null,
-  ): void => {
-    attend.raise([
-      ...items.map((item) => workItem(item, false)),
-      ...(ownOpen === null ? [] : [conversationItem(ownOpen, false)]),
-      ...(memory === null ? [] : [memoryItem(memory, false)]),
-    ]);
-  };
+   *  below. WHAT rings is `conductorAsks`'s rule; HOW it reaches the human is
+   *  `attend.raise`'s. In front of the Conductor, its own questions, waiting
+   *  work and memory chime without a desktop popup; anywhere else, each
+   *  raises one. */
   const conductorBell = createConductorBell({
-    alertsEnabled,
-    // THAT ITEM in view in a focused window — looking at the Conductor alone
-    // is not looking at it.
-    isItemWatched: isNeedInView,
-    isConversationWatched: () => conductorMode() && document.hasFocus(),
-    deliver: deliverNeeds,
+    deliver: ({ items, ownOpen, memory }) => {
+      const inFront = conductorInFront();
+      attend.raise([
+        ...items.map((item) => workItem(item, inFront)),
+        ...(ownOpen === null ? [] : [conversationItem(ownOpen, inFront)]),
+        ...(memory === null ? [] : [memoryItem(memory, inFront)]),
+      ]);
+    },
   });
-  const workMap = useWorkMap();
-  const needs = useNeedsYou();
-  // DECIDE AFTER THE PAGE HAS DRAWN IT: a question that just arrived says it
-  // is in view only once it has been laid out and observed.
-  const decide = afterViewKnown(() => conductorBell.settle());
   const memoryNeed = useMemoryNeed();
   createEffect(() => {
     const asks = conductorAsks();
     // Silence is not an empty list: before the server's first frame there is
     // nothing to compare against, and the real first frame is the baseline.
     if (asks === undefined) return;
-    const heard = conductorBell.observe({
+    conductorBell.observe({
       ...asks,
       works: new Set(workMap().keys()),
       needs: needs(),
       memory: memoryNeed(),
     });
-    if (heard) decide();
   });
 
   // WHO DRIVES EACH MEMBER TERMINAL — the one membership index the dock

@@ -32,10 +32,6 @@ vi.mock("../conductor/useWorks", () => ({
   useNeedsYou: () => () => [],
   useWorkMap: () => () => new Map(),
 }));
-vi.mock("../conductor/onScreen", () => ({
-  afterViewKnown: (decide: () => void) => decide,
-  isNeedInView: () => false,
-}));
 vi.mock("../conductor/useConductorMode", () => ({
   conductorMode: () => false,
   enterConductorMode: () => {},
