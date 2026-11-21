@@ -346,7 +346,15 @@ const ConductorComposer: Component<{
       return;
     }
     box.style.height = "auto";
-    box.style.height = `${box.scrollHeight}px`;
+    // `scrollHeight` is the CONTENT's height — padding in, border out — while
+    // the height written here is a border-box height (Tailwind's preflight
+    // sets `box-sizing: border-box`). Written bare, the box came up 2px short
+    // of its own one-line text and the browser drew a scrollbar with up/down
+    // arrows beside "lkjhn". The border the measurement left out is
+    // `offsetHeight - clientHeight`; adding it makes the box exactly its
+    // content's height, and `max-height` still turns a long message into a
+    // scroller once the content passes it.
+    box.style.height = `${box.scrollHeight + (box.offsetHeight - box.clientHeight)}px`;
   });
 
   const stopButton = () => (

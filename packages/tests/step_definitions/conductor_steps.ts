@@ -403,6 +403,79 @@ When(
   },
 );
 
+/** ONE SHORT LINE IN THE BOX — a typed message, not a sent one. */
+When(
+  "I type {string} into the conductor's box",
+  async function (this: KoluWorld, text: string) {
+    await this.page.locator(INPUT).fill(text);
+  },
+);
+
+/** A MESSAGE LONGER THAN THE BOX'S MAXIMUM — the state that must scroll. */
+When(
+  "I paste a long message into the conductor's box",
+  async function (this: KoluWorld) {
+    const lines = Array.from(
+      { length: 40 },
+      (_, i) => `line ${i + 1} of a message the box cannot show whole`,
+    );
+    await this.page.locator(INPUT).fill(lines.join("\n"));
+  },
+);
+
+/** The box's three numbers, as the browser lays them out. */
+async function composerBox(world: KoluWorld) {
+  return await world.page.locator(INPUT).evaluate((el) => {
+    const box = el as HTMLTextAreaElement;
+    return {
+      scroll: box.scrollHeight,
+      client: box.clientHeight,
+      value: box.value,
+    };
+  });
+}
+
+Then("the conductor's box should not scroll", async function (this: KoluWorld) {
+  await pollFor({
+    observe: () => composerBox(this),
+    isDone: (box) => box.scroll <= box.client + 1,
+    timeoutMs: POLL_TIMEOUT,
+    onTimeout: (box, ms) =>
+      new Error(
+        `the composer's box scrolls (scrollHeight ${box.scroll}, clientHeight ${box.client}) after ${ms}ms of holding one short line — a box taller than its text`,
+      ),
+  });
+});
+
+Then("I note the conductor's box height", async function (this: KoluWorld) {
+  this.notedComposerHeight = (await composerBox(this)).client;
+});
+
+Then(
+  "the conductor's box should be taller than I noted",
+  async function (this: KoluWorld) {
+    const noted = this.notedComposerHeight;
+    assert.ok(noted !== undefined, "no box height was noted first");
+    const now = (await composerBox(this)).client;
+    assert.ok(
+      now > noted,
+      `the composer's box is ${now}px tall after a long message, the same as the ${noted}px of one short line — it did not grow`,
+    );
+  },
+);
+
+Then("the conductor's box should scroll", async function (this: KoluWorld) {
+  await pollFor({
+    observe: () => composerBox(this),
+    isDone: (box) => box.scroll > box.client + 1,
+    timeoutMs: POLL_TIMEOUT,
+    onTimeout: (box, ms) =>
+      new Error(
+        `the composer's box holds ${box.scroll}px of text in ${box.client}px after ${ms}ms and does not scroll — the rest is unreachable`,
+      ),
+  });
+});
+
 When(
   "I ask the conductor to adopt the terminal",
   async function (this: KoluWorld) {

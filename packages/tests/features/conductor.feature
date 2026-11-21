@@ -526,6 +526,21 @@ Feature: The Conductor
     And the conductor should not offer the way back to the bottom
     And there should be no page errors
 
+  Scenario: The composer's box fits one line, grows, and only then scrolls
+    # One short line used to bring up a scrollbar: the auto-grow set the
+    # box's height to `scrollHeight`, which leaves out the border, so the box
+    # was two pixels shorter than its own text. A long message must still
+    # grow the box to its maximum and scroll past it.
+    When I create a terminal
+    And I enter conductor mode
+    When I type "lkjhn" into the conductor's box
+    Then the conductor's box should not scroll
+    When I note the conductor's box height
+    And I paste a long message into the conductor's box
+    Then the conductor's box should be taller than I noted
+    And the conductor's box should scroll
+    And there should be no page errors
+
   Scenario: A mermaid block in an answer draws once it is complete
     # The fixture streams a six-item list, then a mermaid block over several
     # pieces (the closing fence on its own), then words for a few seconds more.
