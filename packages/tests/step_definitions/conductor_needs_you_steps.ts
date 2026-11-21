@@ -97,16 +97,6 @@ Then(
   },
 );
 
-When(
-  "I press {string} on the work's card",
-  async function (this: KoluWorld, label: string) {
-    await openWorkCard(this);
-    await workCard(this)
-      .locator('[data-testid="work-card-actions"] button', { hasText: label })
-      .click();
-  },
-);
-
 Then("the chat should be about the work", async function (this: KoluWorld) {
   await this.page
     .locator(`${SCOPE_BAR}[data-work="${workId(this)}"]`)

@@ -54,8 +54,8 @@ export type DeepLink =
   | { kind: "settings" };
 
 /** THE ROUTE TO A WORK — its id, and the question to bring into view when
- *  there is one. What a `#/work/…` link, a notification's click and Copy link
- *  all carry. */
+ *  there is one. What a `#/work/…` link, a notification's click and the mark
+ *  on a dock row all carry. */
 export interface WorkRoute {
   readonly kind: "work";
   readonly work: WorkId;
@@ -77,8 +77,8 @@ export function workRouteOf(
   return Result.succeed({ kind: "work", work, ask });
 }
 
-/** THE ADDRESS OF A WORK, as a `#/…` fragment — what Copy link copies and
- *  what the mark on a dock row points at. */
+/** THE ADDRESS OF A WORK, as a `#/…` fragment — what the mark on a dock row
+ *  and a work chip point at. */
 export const workLink = (work: WorkId, ask: string | null = null): string =>
   `#/work/${encodeURIComponent(work)}${
     ask === null ? "" : `/ask/${encodeURIComponent(ask)}`

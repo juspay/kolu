@@ -54,7 +54,7 @@ describe("parseDeepLink — the valid grammar, one row per family", () => {
     expect(parseDeepLink(hash)).toEqual(expected);
   });
 
-  it("reads back every work link Copy link writes", () => {
+  it("reads back every work link the app writes", () => {
     expect(parseDeepLink(workLink(WORK))).toEqual({
       kind: "work",
       work: WORK,
