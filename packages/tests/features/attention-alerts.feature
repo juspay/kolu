@@ -64,6 +64,29 @@ Feature: Attention Alerts
     And the notification sound should have played 0 times
     And there should be no page errors
 
+  # The saved session's FIRST terminal asleep: padi registers it before any
+  # surviving terminal, and nothing about that may change what you had read.
+  Scenario: A finished agent you had opened reads as read after kolu restarts, behind a sleeping terminal
+    When I stub the notification sound
+    And I sleep the active terminal via the tile sleep button
+    Then the dock should show 1 sleeping row
+    When I create a terminal
+    And a Claude Code session is mocked with state "waiting"
+    And I create a terminal
+    Then a workspace switcher branch should be notified
+    And the notification sound should have played 1 time
+    When I click the notified workspace switcher branch
+    Then no workspace switcher branch should be notified
+    When I select terminal 2 in the workspace switcher
+    And I save the active canvas tile id
+    Then the saved session should record the active terminal
+    When the kolu server is redeployed under this page
+    Then the saved active canvas tile should still be active
+    And the agent's dock row should show its finished turn
+    And no workspace switcher branch should be notified
+    And the notification sound should have played 0 times
+    And there should be no page errors
+
   Scenario: A finished agent you had not opened is still unread after kolu restarts
     When I stub the notification sound
     And a Claude Code session is mocked with state "waiting"
