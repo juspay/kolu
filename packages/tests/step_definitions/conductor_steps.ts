@@ -4023,8 +4023,7 @@ Then(
 );
 
 /** EVERY STAGE IS NAMED UNDER ITS BAR NOW, and exactly one is emphasised:
- *  the stage the work is in. The readout beside the line is the time alone,
- *  so no stage name may appear in it — that was the old design's job. */
+ *  the stage the work is in. */
 Then(
   "the work's stage line should name {string} and no other stage",
   async function (this: KoluWorld, label: string) {
@@ -4040,20 +4039,15 @@ Then(
           emphasised: Array.from(
             el.querySelectorAll('[data-testid="stage-label"][data-emphasis]'),
           ).map((one) => (one.textContent ?? "").trim()),
-          now: (
-            el.querySelector('[data-testid="stage-now"]')?.textContent ?? ""
-          ).trim(),
         })),
       isDone: (seen) =>
-        seen !== null &&
         LABELS.every((one) => seen.labels.includes(one)) &&
         seen.emphasised.length === 1 &&
-        seen.emphasised[0] === label &&
-        !LABELS.some((one) => seen.now.includes(one)),
+        seen.emphasised[0] === label,
       timeoutMs: POLL_TIMEOUT,
-      onTimeout: (last, ms) =>
+      onTimeout: (seen, ms) =>
         new Error(
-          `after ${ms}ms the stage strip reads ${JSON.stringify(last)}, not every stage named with only ${JSON.stringify(label)} emphasised`,
+          `after ${ms}ms the stage strip reads ${JSON.stringify(seen)}, not every stage named with only ${JSON.stringify(label)} emphasised`,
         ),
     });
   },

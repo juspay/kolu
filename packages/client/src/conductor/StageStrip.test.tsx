@@ -202,18 +202,68 @@ describe("the stage strip's segments", () => {
   });
 });
 
-describe("the stage named beside the line", () => {
-  it("keeps the time, now that the label names the stage", () => {
+describe("each stage's own time", () => {
+  const time = (el: HTMLElement, stage: string) =>
+    el.querySelector<HTMLElement>(
+      `[data-testid="stage-time"][data-stage="${stage}"]`,
+    )?.textContent;
+
+  it("prints a finished stage's duration under its label", () => {
     const { el } = mount(STAGED, true);
-    expect(el.querySelector('[data-testid="stage-now"]')?.textContent).toBe(
-      "3m",
-    );
+    expect(time(el, "plan")).toBe("4m");
+    expect(time(el, "approve")).toBe("2m");
   });
 
-  it("is absent while no stage is current", () => {
-    const { el } = mount({ kind: "unset" }, true);
-    expect(el.querySelectorAll('[data-testid="stage"]')).toHaveLength(6);
-    expect(el.querySelector('[data-testid="stage-now"]')).toBeNull();
+  it("prints the current stage's duration, which is the one that ticks", () => {
+    const { el } = mount(STAGED, true);
+    expect(time(el, "build")).toBe("3m");
+    // The card re-reads the stages on its clock; the strip draws the number it
+    // is given, so a later reading is a longer one.
+    const longer: Stages = {
+      ...STAGED,
+      stages: STAGED.stages.map((one) =>
+        one.name === "build"
+          ? { name: "build", state: { kind: "now", ms: 4 * MIN, who: "ci" } }
+          : one,
+      ),
+    };
+    dispose?.();
+    root?.remove();
+    expect(time(mount(longer, true).el, "build")).toBe("4m");
+  });
+
+  it("prints no time for a skipped or unreached stage", () => {
+    const { el } = mount(STAGED, true);
+    expect(time(el, "review")).toBeUndefined();
+    expect(time(el, "checks")).toBeUndefined();
+    expect(time(el, "merge")).toBeUndefined();
+    expect(el.querySelectorAll('[data-testid="stage-time"]')).toHaveLength(3);
+  });
+
+  it("keeps every label and time on one clipped line in a phone-width column", () => {
+    const { el } = mount(STAGED, true);
+    for (const one of el.querySelectorAll(
+      '[data-testid="stage-label"], [data-testid="stage-time"]',
+    )) {
+      // A stacked label and time, each truncated: the column is 1/6 of the
+      // strip and no segment may push the row wider.
+      expect(one.classList.contains("truncate")).toBe(true);
+      expect(one.classList.contains("whitespace-nowrap")).toBe(true);
+    }
+    for (const li of el.querySelectorAll('[data-testid="stage"]')) {
+      expect(li.classList.contains("min-w-0")).toBe(true);
+    }
+    expect(
+      el
+        .querySelector('[aria-label="Stages"]')
+        ?.classList.contains("grid-cols-6"),
+    ).toBe(true);
+  });
+
+  it("keeps the time in the tooltip, and speaks it", () => {
+    const { el } = mount(STAGED, true);
+    expect(segment(el, "plan").title).toBe("Plan 4m, the agents' time, done");
+    expect(segment(el, "build").title).toBe("Build 3m, CI's time, now");
   });
 
   it("goes with the strip when the mode has no stages", () => {

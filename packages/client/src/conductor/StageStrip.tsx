@@ -3,15 +3,18 @@
  *
  *  Each segment is coloured by whose time its stage mostly was
  *  (`WAITER_INK`): the agents', yours, or CI's. Under every bar is its
- *  stage's name, in the strip's small mono — so two bars of one colour are
- *  read as two stages that had the same person's time, never as the same
- *  stage twice. The stage the work is in now is the segment that is marked,
- *  its label is the emphasised one, and it is the one stage whose TIME is
- *  printed beside the line (`3m`); on a finished work the last stage that
+ *  stage's name, and under a stage that has HAD time is that time too
+ *  (`Plan 4m`, `Build 1h 2m`, `Checks 16m`, from `dualPhrase` — the strip's
+ *  own small mono, no hover needed; the title repeats both for the mouse).
+ *  Two bars of one colour are read as two stages that had the same person's
+ *  time, never as the same stage twice. The stage the work is in now is the
+ *  segment that is marked, its label is the emphasised one, and its time is
+ *  the one that keeps growing; on a finished work the last stage that
  *  happened carries that emphasis instead. A stage that did not happen is a
  *  dashed segment, its label dimmed: one the work's mode does not have (a
  *  trivial work is never planned or reviewed), or one it went past. One not
- *  reached yet is a quiet segment. The stages are `kolu-work`'s own fold
+ *  reached yet is a quiet segment with its label alone and no time. The
+ *  stages are `kolu-work`'s own fold
  *  (`stages`, over its mode's row of `MODE_RUNS`), over the same walk as the
  *  standing line, so the strip and the sentence over it cannot disagree.
  *
@@ -33,7 +36,7 @@
  *  `<Index>`, because a segment's POSITION is its identity — the six stages
  *  never move — and the fold mints fresh objects every tick of the clock. */
 
-import { compactPhrase, dualPhrase } from "@kolu/terminal-vocab/duration";
+import { dualPhrase } from "@kolu/terminal-vocab/duration";
 import {
   STAGES,
   type Stage,
@@ -114,22 +117,6 @@ const QUIET: ReadonlyArray<Stage> = STAGES.map((name) => ({
   name,
   state: { kind: "not-started" },
 }));
-
-/** HOW LONG THE WORK HAS BEEN IN THE STAGE IT IS IN, beside the line — the
- *  time alone (`3m`), because the label under that stage's bar already names
- *  the stage. None while no stage is current. */
-const nowOf = (
-  all: ReadonlyArray<Stage>,
-): { readonly words: string; readonly who: Waiter } | undefined => {
-  for (const stage of all) {
-    if (stage.state.kind === "now")
-      return {
-        words: compactPhrase(stage.state.ms),
-        who: stage.state.who,
-      };
-  }
-  return undefined;
-};
 
 const StageStrip: Component<{
   /** The work's stages, read once by the face that draws the strip. */
@@ -230,6 +217,26 @@ const StageStrip: Component<{
                     >
                       {STAGE_LABEL[stage().name]}
                     </span>
+                    {/* HOW LONG THAT STAGE HAD — every stage the work has
+                        been in, not only the current one, and without a
+                        hover. It sits on its own line under the label so a
+                        phone-width column clips the label rather than the
+                        time; an unreached (or skipped) stage has none. The
+                        current stage's number grows with the clock the card
+                        reads it on. */}
+                    <Show when={exactOf(state())}>
+                      {(time) => (
+                        <span
+                          data-testid="stage-time"
+                          data-stage={stage().name}
+                          class={`block w-full truncate whitespace-nowrap text-center font-mono tabular-nums leading-tight text-fg-3 ${
+                            full() ? "text-[0.5rem]" : "text-[0.46rem]"
+                          }`}
+                        >
+                          {time()}
+                        </span>
+                      )}
+                    </Show>
                     <span class="sr-only">
                       {spokenOf(stage().name, state())}
                     </span>
@@ -272,22 +279,6 @@ const StageStrip: Component<{
               }}
             </Index>
           </ol>
-          {/* THE ONE STAGE NAMED — what a person reads without decoding the
-              colours. The list above already speaks every stage, so this is
-              for the eye alone. */}
-          <Show when={nowOf(all())}>
-            {(now) => (
-              <span
-                data-testid="stage-now"
-                aria-hidden="true"
-                class={`shrink-0 whitespace-nowrap font-mono font-semibold tabular-nums ${
-                  full() ? "text-[0.62rem]" : "text-[0.58rem]"
-                } ${WAITER_INK[now().who].text}`}
-              >
-                {now().words}
-              </span>
-            )}
-          </Show>
         </div>
       )}
     </Show>
