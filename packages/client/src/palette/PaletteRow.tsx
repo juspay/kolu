@@ -10,8 +10,6 @@
 
 import { compactDelta } from "@kolu/terminal-vocab/duration";
 import type { TerminalMetadata } from "@kolu/padi-client/surface";
-import { StatePip } from "@kolu/solid-statepip";
-import { TITLE_PIP_BOX } from "@kolu/solid-statepip/pipVariant";
 import {
   encodeHostKey,
   type HostKey,
@@ -34,8 +32,7 @@ import { useHostKavalChain } from "../host/useHostKaval";
 import { formatKeybind, type Keybind } from "../input/keyboard";
 import { IntentMarkdownInline } from "../intent/IntentMarkdown";
 import { annotationLine } from "../intent/text";
-import { useStatePip } from "../terminal/statePipBind";
-import { useTerminalStore } from "../terminal/useTerminalStore";
+import HostTerminalPip from "../terminal/HostTerminalPip";
 import Kbd from "../ui/Kbd";
 import RepoMonogram from "../ui/RepoMonogram";
 import { activeHost, padiMap } from "../wire";
@@ -104,33 +101,20 @@ const KindTag: Component<{ kind: ResultKind }> = (props) => {
 };
 
 /** StatePip lead — the same mark the dock and the title paint, for a terminal
- *  on ANY host.
- *
- *  It used to fabricate `{isLive:false,isFinished:false,unread:false}` for
- *  anything off the active host, on the belief that activity was an
- *  active-host-only fact. It never was: the attention mirror covers every bound
- *  host, so a background host's agents showed as idle here while its own tab
- *  showed them working — the palette contradicting the tab about the terminal
- *  you were about to switch to. UNREAD is the one genuinely active-host fact
- *  (the dock's per-tile ledger), so it alone is gated. */
+ *  on ANY host: the row's own host, since a fleet row can name a terminal on a
+ *  host you are not looking at, and its facts must come off THAT host's frame
+ *  and that host's saved unread record (`HostTerminalPip`). */
 const TerminalLead: Component<{
   id: TerminalId;
   meta: TerminalMetadata;
   hostKey?: HostKey;
-}> = (props) => {
-  const store = useTerminalStore();
-  const onActiveHost = () =>
-    !props.hostKey || sameHost(props.hostKey, activeHost());
-  const pip = useStatePip(
-    // The row's own host — a fleet row can name a terminal on a host you are
-    // not looking at, and its facts must come off THAT host's frame.
-    () => encodeHostKey(props.hostKey ?? activeHost()),
-    () => props.id,
-    () => props.meta,
-    () => onActiveHost() && store.isUnread(props.id),
-  );
-  return <StatePip {...pip()} class={TITLE_PIP_BOX} />;
-};
+}> = (props) => (
+  <HostTerminalPip
+    host={encodeHostKey(props.hostKey ?? activeHost())}
+    id={props.id}
+    meta={props.meta}
+  />
+);
 
 const HostLead: Component<{ host: HostKey }> = (props) => {
   const state = () => padiMap.entry(props.host).state();
