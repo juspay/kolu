@@ -40,6 +40,7 @@ import {
 } from "./rows.testlib.ts";
 import type { RowContent } from "./transcript.ts";
 import { fixtureAgent } from "@kolu/acp-client/testlib";
+import type { NativeActivity } from "@kolu/acp";
 
 /** The store a signed-out sentence NAMES. Any path: what is under test is
  *  that the panel says WHICH directory was judged, never that this harness
@@ -448,6 +449,49 @@ const dead = async (running: Running): Promise<void> => {
 const dividers = (running: Running): ReadonlyArray<FixtureRow> =>
   running.rows().filter((one) => one.kind === "divider");
 
+/** THE FIXTURE AGENT'S OWN DIALECT for tasks and children — `fixture_task`,
+ *  `fixture_task_ended` and `fixture_spawned` in its `session/update`s, words
+ *  no real engine uses (`@kolu/acp-client`'s `activity-protocol.test.ts`
+ *  argues why a fixture names no engine). */
+const FIXTURE_DIALECT: NativeActivity = {
+  clientMeta: {},
+  readIn: (message) => {
+    const envelope = message as {
+      method?: string;
+      params?: { sessionId?: string; update?: Record<string, unknown> };
+    };
+    if (envelope.method !== "session/update") return null;
+    const session = String(envelope.params?.sessionId);
+    const update = envelope.params?.update ?? {};
+    const id = String(update.id);
+    switch (update.sessionUpdate) {
+      case "fixture_task":
+        return {
+          kind: "activity",
+          value: {
+            session,
+            update: { kind: "task", id, name: String(update.name) },
+          },
+        };
+      case "fixture_task_ended":
+        return {
+          kind: "activity",
+          value: { session, update: { kind: "taskEnded", id, state: "completed" } },
+        };
+      case "fixture_spawned":
+        return {
+          kind: "activity",
+          value: {
+            session,
+            update: { kind: "child", id, name: "Explorer", task: "look" },
+          },
+        };
+      default:
+        return null;
+    }
+  },
+};
+
 describe("one conversation with a real agent", () => {
   test("a prompt goes out and the answer comes back as one growing row", async () => {
     const running = await open("agent.ts");
@@ -676,6 +720,36 @@ describe("one conversation with a real agent", () => {
       },
       { id: "agent:4", kind: "agent", text: "A-reply-part-3", turn: "user:1" },
       { id: "agent:5", kind: "agent", text: "hello back", turn: "user:3" },
+    ]);
+  });
+
+  test("a task and a child an agent reports in its own dialect say their turn, and a task's end mid-reply cuts no paragraph", async () => {
+    // A leg that READS the fixture's own dialect, the way an engine whose
+    // agent narrates tasks and children outside core ACP does. Those frames
+    // become `tool` events built by the client's activity reader rather than
+    // by its `session/update` reader, and they are frames of the turn too.
+    const running = await open("agent.ts", {
+      leg: { ...leg, nativeActivity: FIXTURE_DIALECT },
+    });
+    const { rowId } = await running.harness.prompt(
+      typed("taskAcrossProse", []),
+      false,
+    );
+    await settled(running, "the turn never ended");
+
+    // The task's end is only the life of a call already known, so the
+    // paragraph it lands in goes on: ONE row of prose.
+    expect(textOfKind(running, "agent")).toEqual([
+      "the first half, and the second",
+    ]);
+    // ... and the task's row and the child's card are the turn's.
+    const turns = running
+      .rows()
+      .filter((row) => row.kind === "tool")
+      .map((row) => [row.id, "turn" in row ? row.turn : undefined]);
+    expect(turns).toEqual([
+      ['tool:acp-task:["sess-1","t1"]', rowId],
+      ['tool:acp-agent:"kid"', rowId],
     ]);
   });
 

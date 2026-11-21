@@ -37,6 +37,9 @@
  *                  and when the second prompt arrives the rest — prose, a call,
  *                  prose — then its answer, with the second prompt's first
  *                  words written straight after in the same tick
+ *   taskAcrossProse — a task armed, prose, the task's end in the middle of the
+ *                  prose, more prose, a child agent sent out: all of it in the
+ *                  fixture dialect only a `nativeActivity` leg reads
  *   fail         — a JSON-RPC error, after writing to stderr
  *   die          — the process EXITS mid-turn, which is an adapter that
  *                  crashed: no answer, a closed pipe, and a client that has
@@ -1293,6 +1296,27 @@ function turn(message: Message): void {
   if (text === "talkingSlow") {
     says("A-reply-part-1 ");
     talkingTurn = message.id;
+    return;
+  }
+  if (text === "taskAcrossProse") {
+    // A TASK AND A CHILD in the fixture DIALECT's words (`fixture_*`), which
+    // only a leg that reads that dialect (`nativeActivity`) understands: the
+    // task is armed, the prose starts, the task ends in the middle of it, the
+    // prose goes on, and a child agent is sent out.
+    update(session, {
+      sessionUpdate: "fixture_task",
+      id: "t1",
+      name: "watch the build",
+    });
+    says("the first half, ");
+    update(session, {
+      sessionUpdate: "fixture_task_ended",
+      id: "t1",
+      state: "completed",
+    });
+    says("and the second");
+    update(session, { sessionUpdate: "fixture_spawned", id: "kid" });
+    finish(message.id, "end_turn");
     return;
   }
   if (text === "speakThenDie") {
