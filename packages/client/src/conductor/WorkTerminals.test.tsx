@@ -7,8 +7,10 @@
 
 import type { TerminalId } from "kolu-common/surface";
 import type { Work } from "kolu-work";
+import { createSignal } from "solid-js";
 import { render } from "solid-js/web";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { agentName } from "../ui/agentDisplay";
 import type { FleetTerminalStanding } from "../palette/fleetTerminals";
 import type { MemberLine } from "./workFacts";
 
@@ -143,7 +145,10 @@ beforeEach(() => {
   world.drivers = new Map();
   world.seen = new Map();
   world.setups = new Map();
-  localStorage.clear();
+  // The unread marks live in each host's record for the page's life, so a
+  // case that raised one must not leave it on a terminal the next case draws.
+  for (const host of ["local", "remote:nix@example"])
+    attentionRecordOf(host).clearAllUnread();
   world.peeks = [];
   world.tiles = [];
   world.takes = [];
@@ -157,11 +162,17 @@ afterEach(() => {
 
 const NOW = Date.parse("2026-01-01T00:10:00Z");
 
+/** The lines the list is drawn from — a signal, so a case can move one
+ *  terminal's record under a mounted list. */
+let setLines: (lines: MemberLine[]) => void = () => {};
+
 function mount(members: MemberLine[]): HTMLElement {
+  const [lines, set] = createSignal(members);
+  setLines = set;
   root = document.createElement("div");
   document.body.append(root);
   dispose = render(
-    () => <WorkTerminals work={WORK} members={members} now={NOW} />,
+    () => <WorkTerminals work={WORK} members={lines()} now={NOW} />,
     root,
   );
   return root;
@@ -267,9 +278,9 @@ describe("a work's terminal row", () => {
     expect(part(row(el, LOCAL_REF), "work-member-runs")?.textContent).toBe(
       "omp/fable-5",
     );
-    expect(
-      part(row(el, REMOTE_REF), "work-member-runs")?.textContent,
-    ).toBeTruthy();
+    expect(part(row(el, REMOTE_REF), "work-member-runs")?.textContent).toBe(
+      agentName("claude-code"),
+    );
     dispose?.();
     root?.remove();
     const bare = mount([line(REMOTE_REF, "implementor", { kind: "gone" })]);
@@ -285,6 +296,27 @@ describe("a work's terminal row", () => {
     const el = mount([line(LOCAL_REF, "planner", reporting("fable-5.2-max"))]);
     expect(part(row(el, LOCAL_REF), "work-member-runs")?.textContent).toBe(
       "omp/fable-5.2-max",
+    );
+  });
+
+  it("keeps its row and its mark when its terminal's record moves", () => {
+    const el = mount([
+      line(LOCAL_REF, "planner", thinking),
+      line(REMOTE_REF, "implementor", thinking),
+    ]);
+    const before = row(el, LOCAL_REF);
+    const mark = part(before, "state-pip");
+    // A new record for the planner's terminal, as the fleet hands one over
+    // when it moves: a fresh line for it, and for the list.
+    setLines([
+      line(LOCAL_REF, "planner", running),
+      line(REMOTE_REF, "implementor", thinking),
+    ]);
+    const after = row(el, LOCAL_REF);
+    expect(after).toBe(before);
+    expect(part(after, "state-pip")).toBe(mark);
+    expect(part(after, "work-member-status")?.textContent).toContain(
+      "restic backup",
     );
   });
 

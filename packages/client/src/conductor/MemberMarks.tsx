@@ -3,7 +3,8 @@
  *  line in the sidebar and on its chip, which name a work in a few words and
  *  have room for no more than that. */
 
-import { type Component, For, Show } from "solid-js";
+import { Key } from "@solid-primitives/keyed";
+import { type Component, Show } from "solid-js";
 import MemberPip from "./MemberPip";
 import type { MemberLine } from "./workFacts";
 
@@ -14,13 +15,15 @@ const MemberMarks: Component<{ members: ReadonlyArray<MemberLine> }> = (
   props,
 ) => (
   <>
-    <For each={props.members.slice(0, SHOWN)}>
+    {/* Keyed by the terminal's ref: a mark stays the same element while its
+        terminal's record moves. */}
+    <Key each={props.members.slice(0, SHOWN)} by="terminal">
       {(one) => (
-        <Show when={one.split}>
-          {(ref) => <MemberPip at={ref()} standing={one.standing} />}
+        <Show when={one().split}>
+          {(ref) => <MemberPip at={ref()} standing={one().standing} />}
         </Show>
       )}
-    </For>
+    </Key>
     <Show when={props.members.length > SHOWN}>
       <span
         data-testid="member-marks-more"
