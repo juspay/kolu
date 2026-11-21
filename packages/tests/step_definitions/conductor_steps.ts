@@ -3585,7 +3585,28 @@ async function timelineInventory(world: KoluWorld): Promise<string> {
           )}`,
       ),
     );
-  return events.length === 0 ? "(no events)" : events.join(" | ");
+  if (events.length > 0) return events.join(" | ");
+  // NO EVENTS AT ALL is a statement about the card, not the record: say how
+  // the card stood — its shape, whether it is picked, which view is in front
+  // and what its timeline is showing — so the failure names where to look.
+  const card = await workCard(world)
+    .evaluate(
+      (el) => {
+        const timeline = el.querySelector('[data-testid="work-timeline"]');
+        const whole = el.querySelector('[data-testid="work-timeline-whole"]');
+        return [
+          `shape=${el.getAttribute("data-shape")}`,
+          `open=${el.hasAttribute("data-open")}`,
+          `view=${el.getAttribute("data-view")}`,
+          `timeline=${timeline === null ? "none" : `${timeline.getAttribute("data-view")}/${timeline.getAttribute("data-stage")}`}`,
+          `whole=${whole === null ? "none" : `${whole.getAttribute("aria-expanded")} ${JSON.stringify((whole.textContent ?? "").trim())}`}`,
+        ].join(" ");
+      },
+      undefined,
+      { timeout: 1_000 },
+    )
+    .catch(() => "no card on screen");
+  return `(no events; ${card})`;
 }
 
 /** Events of one kind on this scenario's card whose text holds `contains`
