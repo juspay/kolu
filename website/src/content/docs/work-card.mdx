@@ -41,14 +41,13 @@ A PR recorded before kolu kept PR addresses shows its number as plain text. A wo
 
 The strip is one thin line of six segments, always in this order: **Plan**, **Approve**, **Build**, **Review**, **Checks**, **Merge**.
 
-Every segment is named under its bar. A stage the work has been in also prints its own time there, in one unit, such as **Plan 4m** or **Checks 1h**. The stage in hand is the one whose time keeps growing. A stage not reached yet has its label and no time.
+Every segment is named under its bar. A stage the work has been in also prints its own time there, in one unit (**Plan 4m**, **Checks 1h**). The stage in hand's time keeps growing. A stage not reached yet has its label and no time.
 
 What the marks mean:
 
-- The colour is whose time the stage mostly was: violet you, amber CI, teal the agents. The stage in hand follows the same rule, so a Build that has been the agents' for two hours stays teal while it waits on you.
+- The colour is whose time the stage mostly was: violet you, amber CI, teal the agents. A Build that has been the agents' for two hours stays teal while it waits on you.
 - A ring marks the stage the work is in. On a finished work, the last stage's label is emphasised instead.
 - A dashed segment is a stage that did not happen. A faint one has not been reached.
-- Hover a segment for its exact two-unit time and whose time it was.
 
 Which stages a work has comes from its mode:
 
@@ -58,11 +57,8 @@ Which stages a work has comes from its mode:
 | Trivial | **Build**, **Checks** and **Merge**. Nobody plans, approves or reviews, so those segments read as not happening. |
 | Watch | None, and no strip. |
 
-- The stage the work is in is marked with a ring.
-- A dashed segment is a stage that did not happen.
-- A faint segment is a stage not reached yet.
-- In a full work, answering the setup form counts as Plan time, since there is no plan to approve yet. A trivial work has no Plan, so its setup, and the Conductor starting its implementor, are in no stage. That time still counts in **you 12m** when it was yours.
-- The build ends when the implementor's PR is ready for review: at once for a PR opened ready, and when a draft is marked ready. A PR turned back into a draft returns the work to Build. A PR that was already there when the implementor joined, such as one a bot opened, does not end it by being open. If it is a draft, marking it ready does.
+- In a full work, answering the setup form counts as Plan time. A trivial work has no Plan, so its setup is in no stage; that time still counts as **you** in the time line.
+- The build ends when the implementor's PR is ready for review: at once if it opened ready, or when a draft is marked ready. A PR turned back into a draft returns the work to Build. A PR already open when the implementor joined does not end it by being open.
 - CI's time is **Checks**, except on a draft, where it is still **Build**. A green PR handed to you is always **Merge**.
 
 A work whose mode is not chosen yet shows six quiet segments.
@@ -83,16 +79,16 @@ The command palette lists what needs you first: a **Needs you** row says what is
 
 ## The picked work
 
-Click a work, a card or a row, and it is picked: it fills the works' side, and the other works fold to a rail of one line each, a strip of initials below 1280px wide. The chat narrows to the picked work. Click **← All work**, or the work's head again, to go back.
+Click a work, a card or a row, and it is picked: it fills the works' side. The chat narrows to the picked work. Click **← All work**, or the work's head again, to go back.
 
-A work that needs you and a finished work can be picked too. On a phone the picked work is a page of its own, with **← All work** above it. A reload stays on the picked work, and the work's address opens it picked.
+A work that needs you and a finished work can be picked too. On a phone it is a page of its own with **← All work** above it. A reload stays on it.
 
 A switch in the picked work's head has two views:
 
-- **Terminals**: each terminal of the work live, in a pane with **Take over** or **Hand back** and **Open tile**, as [Look](/tiles#look-from-the-conductor) shows it. One or two terminals stack. Three or more, or a window under 1280px wide, show one pane with a tab per terminal. On a phone, the key bar is under the pane once the terminal is yours. **Fit width** is on — one choice for every pane, kept across sessions — so a terminal wider than the pane opens fitted; the button is offered only while it is wider.
+- **Terminals**: each terminal of the work live, in a pane with **Take over** or **Hand back** and **Open tile**. One or two stack; three or more, or a window under 1280px wide, show one pane with a tab each. **Fit width** (one choice for every pane) opens a wider terminal fitted, and is offered only while it is wider.
 - **Details**: the terminals' rows and the parts below. Clicking a stage on the strip shows Details.
 
-Terminals is in front while a terminal of the work is up, Details otherwise. The details hold:
+The details hold:
 
 | Part | What you get |
 | --- | --- |
