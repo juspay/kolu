@@ -42,7 +42,7 @@
 { pkgs, kolu, system, port, lib, ... }:
 let
   nixLib = pkgs.lib;
-  inherit (lib) jq;
+  inherit (lib) jq configFile;
 
   remote = import ./remoteHost.nix { inherit pkgs kolu lib; };
   inherit (remote) mapKey;
@@ -246,7 +246,7 @@ pkgs.testers.nixosTest {
     agenthost.wait_until_succeeds(
         f"${jq} -e --arg s {sleeper} --arg a {agent} "
         "'.session.terminals | (.[0].id == $s and .[0].state == \"sleeping\") "
-        "and (map(.id) | index($a) != null)' /root/.local/state/padi/config.json",
+        "and (map(.id) | index($a) != null)' /root/${configFile}",
         timeout=120,
     )
 

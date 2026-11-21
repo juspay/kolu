@@ -55,7 +55,7 @@ let
   };
 in
 {
-  inherit target mapKey;
+  inherit mapKey;
 
   nodes = {
     # The binder — the deployed generation, identical to the other adoption
