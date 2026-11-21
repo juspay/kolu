@@ -78,7 +78,7 @@ export function workRouteOf(
 }
 
 /** THE ADDRESS OF A WORK, as a `#/…` fragment — what the mark on a dock row
- *  and a work chip point at. */
+ *  points at. */
 export const workLink = (work: WorkId, ask: string | null = null): string =>
   `#/work/${encodeURIComponent(work)}${
     ask === null ? "" : `/ask/${encodeURIComponent(ask)}`
