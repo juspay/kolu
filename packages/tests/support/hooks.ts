@@ -902,8 +902,9 @@ async function startServerChild(
    *  session is what that scenario is about. */
   probe: "killAll" | "read" = "killAll",
   /** Start on THIS port rather than a random one — a deploy keeps the address,
-   *  and so the origin, the open page has. One attempt only: a squatter is a
-   *  failure, not a retry. */
+   *  and so the origin, the open page has. One child only, with no fresh port
+   *  to move to: a child that exits fails the start at once, and a live child
+   *  gets the whole budget every other start gets across its tries. */
   fixedPort?: number,
   build: ServerBuild = "base",
 ): Promise<void> {
@@ -926,7 +927,18 @@ async function startServerChild(
 
   // Spawn on a random port, retrying on a fresh port if our child can't take
   // ownership of it (a stale orphan may be squatting — see waitForOwnedServer).
-  const MAX_SPAWN_ATTEMPTS = fixedPort === undefined ? 5 : 1;
+  // A child that finds its port taken EXITS, so a live child that has not yet
+  // announced is still starting: on a fixed port, with nowhere to retry, it
+  // gets the whole budget in one wait — never less than the random-port tries
+  // give in total — and only an exit fails it early.
+  const RANDOM_PORT_TRIES = 5;
+  const OWN_PORT_WAIT_MS = 15_000;
+  const MAX_SPAWN_ATTEMPTS = fixedPort === undefined ? RANDOM_PORT_TRIES : 1;
+  const attemptWaitMs =
+    fixedPort === undefined
+      ? OWN_PORT_WAIT_MS
+      : RANDOM_PORT_TRIES * OWN_PORT_WAIT_MS;
+  let lastFailure = "";
   let started = false;
   for (let attempt = 1; attempt <= MAX_SPAWN_ATTEMPTS && !started; attempt++) {
     const port = fixedPort ?? (await getPort());
@@ -1060,6 +1072,7 @@ async function startServerChild(
     let outBuf = "";
     let ownsPort = false;
     let exited = false;
+    let exitedAs = "";
     const scan = (data: Buffer) => {
       serverLog.write(data);
       if (!ownsPort) {
@@ -1086,6 +1099,7 @@ async function startServerChild(
     // failure (port squatted) shows up here and flips `exited`.
     child.on("exit", (code, signal) => {
       exited = true;
+      exitedAs = `code=${code} signal=${signal}`;
       const line = `[server:${workerId}] process exited code=${code} signal=${signal}\n`;
       serverLog.write(line);
       process.stderr.write(line);
@@ -1095,7 +1109,7 @@ async function startServerChild(
       url,
       () => ownsPort,
       () => exited,
-      15_000,
+      attemptWaitMs,
     );
     if (owned) {
       serverProcess = child;
@@ -1108,16 +1122,24 @@ async function startServerChild(
       started = true;
       console.log(`[worker:${workerId}] Server is healthy on ${port}.`);
     } else {
+      lastFailure = exited
+        ? `the server exited (${exitedAs}) before it owned port ${port} — the port may be held by another process`
+        : ownsPort
+          ? `the server was alive and announced port ${port} but did not answer /api/health within ${attemptWaitMs}ms`
+          : `the server was alive but had not announced owning port ${port} after ${attemptWaitMs}ms`;
       console.log(
-        `[worker:${workerId}] Server did not take ownership of port ${port} ` +
-          `(ownsPort=${ownsPort} exited=${exited}) — likely a squatter; retrying on a fresh port.`,
+        `[worker:${workerId}] ${lastFailure}${
+          attempt < MAX_SPAWN_ATTEMPTS
+            ? "; killing it and retrying on a fresh port."
+            : "; killing it."
+        }`,
       );
       child.kill("SIGKILL");
     }
   }
   if (!started) {
     throw new Error(
-      `[worker:${workerId}] could not start a kolu server that owns its port after ${MAX_SPAWN_ATTEMPTS} attempts`,
+      `[worker:${workerId}] could not start a kolu server that owns its port after ${MAX_SPAWN_ATTEMPTS} attempt(s): ${lastFailure}`,
     );
   }
   // BOTH arms now warm padi ASYNC (fail-open by design: the local arm's boot no
