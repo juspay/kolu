@@ -64,8 +64,19 @@ export interface ChatTurn {
   /** The message row that starts it — or, for rows before the first message
    *  and rows whose message is no longer in the list, the first of them. */
   readonly head: ConductorRow;
+  /** The head when it is a message (what a person typed, or kolu's wake-up);
+   *  `null` for a group of rows no message heads. */
+  readonly message: Message | null;
   /** Every row of the turn, by `seq`, the head first. */
   readonly rows: readonly ConductorRow[];
+  /** WHEN IT STARTED, epoch milliseconds, or `null` for a turn that never
+   *  ran — its message still waits behind another (`queued`), or the agent
+   *  refused it or left it unanswered (`delivery`). A started turn began at
+   *  its first reply row: a message sent while another turn runs is typed
+   *  long before the agent takes it up. A turn with no reply yet began at its
+   *  head's stamp. A turn that never waited is taken the same way: once
+   *  `queued` comes off, a row cannot say it ever waited. */
+  readonly started: number | null;
   /** Its window, epoch milliseconds: from the head's stamp up to the moment
    *  the next turn STARTED, or with no end when no later turn has. */
   readonly from: number;
@@ -73,40 +84,12 @@ export interface ChatTurn {
 }
 
 /** A row that can open a turn: what a person typed, or kolu's wake-up. */
-const isMessage = (
-  row: ConductorRow,
-): row is Extract<ConductorRow, { kind: "user" | "wake" }> =>
+type Message = Extract<ConductorRow, { kind: "user" | "wake" }>;
+const isMessage = (row: ConductorRow): row is Message =>
   row.kind === "user" || row.kind === "wake";
 
 /** The group of the rows before the first message of all. */
 const BEFORE = Symbol("before the first message");
-
-/** WHETHER A TURN RAN — the one rule every reader of "this turn started"
- *  uses (its window here, the status line, the finished reply). A turn whose
- *  message is still waiting behind another (`queued`) has not run, and nor has
- *  one the agent refused or left unanswered (`delivery`): such a message heads
- *  a turn of its own that never started. Rows with no message at their head
- *  (before the first message, or whose message is gone) ran. */
-export const ran = (turn: { readonly head: ConductorRow }): boolean => {
-  const { head } = turn;
-  return (
-    !isMessage(head) || (head.queued !== true && head.delivery === undefined)
-  );
-};
-
-/** When a turn STARTED, or `null` for one that has not ({@link ran}). A
- *  started turn began at its first reply row — a message sent while another
- *  turn runs is typed long before the agent takes it up — or at its message's
- *  stamp when it has no reply yet. A turn that never waited is taken the same
- *  way: once `queued` comes off, a row cannot say it ever waited. */
-const startOf = (group: {
-  readonly head: ConductorRow;
-  readonly rows: readonly ConductorRow[];
-}): number | null => {
-  if (!ran(group)) return null;
-  const { head } = group;
-  return Date.parse(((isMessage(head) ? group.rows[1] : head) ?? head).since);
-};
 
 /**
  * THE TURNS OF THE CHAT, in the order of the rows that start them.
@@ -140,20 +123,27 @@ export function chatTurns(rows: readonly ConductorRow[]): ChatTurn[] {
     if (group === undefined) groups.set(key, { head: row, rows: [row] });
     else group.rows.push(row);
   }
-  const list = [...groups.values()];
-  const until: number[] = [];
+  const list = [...groups.values()].map((group) => {
+    const message = isMessage(group.head) ? group.head : null;
+    const ran =
+      message === null ||
+      (message.queued !== true && message.delivery === undefined);
+    const first = message === null ? group.head : (group.rows[1] ?? message);
+    return {
+      ...group,
+      message,
+      started: ran ? Date.parse(first.since) : null,
+      from: Date.parse(group.head.since),
+    };
+  });
+  // A turn runs until the next turn that STARTED did — read from the newest.
+  const out: ChatTurn[] = [];
   let next = Infinity;
-  for (let index = list.length - 1; index >= 0; index -= 1) {
-    until[index] = next;
-    const group = list[index];
-    const started = group === undefined ? null : startOf(group);
-    if (started !== null) next = started;
+  for (const turn of list.toReversed()) {
+    out.push({ ...turn, until: next });
+    if (turn.started !== null) next = turn.started;
   }
-  return list.map((group, index) => ({
-    ...group,
-    from: Date.parse(group.head.since),
-    until: until[index] ?? Infinity,
-  }));
+  return out.reverse();
 }
 
 /** The terminals and works one row names, in the order it names them. */

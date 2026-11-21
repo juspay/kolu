@@ -8,7 +8,7 @@
 import type { ConductorRow } from "kolu-common/conductor";
 import type { WorkId } from "kolu-work";
 import { type Accessor, createSignal, onCleanup } from "solid-js";
-import { type ChatTurn, chatTurns, ran } from "./turnWorks";
+import { chatTurns } from "./turnWorks";
 
 /** A finished reply: the row that started its turn, and its words. */
 export interface FinishedReply {
@@ -21,12 +21,6 @@ export interface FinishedReply {
 export interface TypedReply extends FinishedReply {
   readonly work: WorkId | null;
 }
-
-/** A turn the agent actually took up, started by a message — `./turnWorks.ts`'s
- *  {@link ran}, the rule the status line and a turn's window use, over the
- *  turns a message started. */
-const tookUp = (turn: ChatTurn): boolean =>
-  (turn.head.kind === "user" || turn.head.kind === "wake") && ran(turn);
 
 /** THE NEWEST FINISHED TURN'S REPLY, when a person started that turn.
  *
@@ -48,7 +42,11 @@ export function finishedReplyOf(
   rows: readonly ConductorRow[],
   busy: boolean,
 ): FinishedReply | null {
-  const turns = chatTurns(rows).filter(tookUp);
+  // THE TURNS THE AGENT TOOK UP, started by a message: one still waiting, one
+  // refused, one unanswered never started (`ChatTurn.started`).
+  const turns = chatTurns(rows).filter(
+    (turn) => turn.message !== null && turn.started !== null,
+  );
   const newest = turns.at(-1);
   // WHILE A TURN RUNS, the turn before the newest is over for certain only
   // when kolu started the newest: kolu's own turns are never put into a
