@@ -64,6 +64,18 @@ Feature: The Conductor keeps a memory you approve
     And the conductor tab should show a badge of 1
     And there should be no page errors
 
+  Scenario: On a narrow desktop, a batch and the chip fit the chat panel
+    # The chat is a panel of 21rem below 1280px: the rows put their buttons
+    # under the title, and the header's chip leaves its `?` and `⋯` on screen.
+    When I resize the viewport to 1024x800
+    And I send the conductor the prompt "remember three"
+    Then the conductor transcript should show 3 one-line memory proposals
+    And the memory chip should say 3 waiting
+    And nothing on screen should reach past the window's right edge
+    When I open the Memory sheet from the conductor menu
+    Then the Memory sheet should show 3 waiting proposals
+    And there should be no page errors
+
   Scenario: Add, edit and delete by hand
     When I open the Memory sheet from the conductor menu
     And I add a memory titled "Never merge on a Friday" saying "Hand a green pull request over instead."
@@ -101,4 +113,15 @@ Feature: The Conductor keeps a memory you approve
     Then the Memory sheet should show 3 waiting proposals
     And the Memory sheet should list no memory
     And the memory chip should say 3 waiting
+    And there should be no page errors
+
+  @mobile
+  Scenario: On a phone, a waiting proposal marks the Chat tab, where it is
+    When the Conductor proposes to remember "Squash-merge on demo-app"
+    Then the conductor transcript should show a waiting memory proposal "Squash-merge on demo-app"
+    And the memory chip should say 1 waiting
+    And the phone's Chat tab should show a badge of 1
+    And the phone's Work tab should show no badge
+    When I press "Remember" on the memory proposal "Squash-merge on demo-app"
+    Then the phone's Chat tab should show no badge
     And there should be no page errors

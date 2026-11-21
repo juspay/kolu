@@ -290,6 +290,39 @@ Then("the memory chip should be gone", async function (this: KoluWorld) {
   );
 });
 
+/** A phone tab's needs-you badge, by the tab's own name — `none` when it
+ *  carries none. */
+const phoneTabBadge = (world: KoluWorld, tab: string): Promise<string> =>
+  world.page
+    .locator(
+      `[data-testid="conductor-phone-tab"][data-tab="${tab.toLowerCase()}"] [data-testid="conductor-phone-tab-badge"]`,
+    )
+    .textContent({ timeout: 1_000 })
+    .catch(() => "none")
+    .then((seen) => seen?.trim() ?? "none");
+
+Then(
+  "the phone's {word} tab should show a badge of {int}",
+  async function (this: KoluWorld, tab: string, badge: number) {
+    await until(
+      `the phone's ${tab} tab badge`,
+      () => phoneTabBadge(this, tab),
+      (seen) => seen === String(badge),
+    );
+  },
+);
+
+Then(
+  "the phone's {word} tab should show no badge",
+  async function (this: KoluWorld, tab: string) {
+    await until(
+      `the phone's ${tab} tab badge`,
+      () => phoneTabBadge(this, tab),
+      (seen) => seen === "none",
+    );
+  },
+);
+
 When(
   "I open the Memory sheet from the conductor menu",
   async function (this: KoluWorld) {
