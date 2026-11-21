@@ -8,9 +8,9 @@
  *  width (`ConductorHelp.tsx`).
  *
  *  ONE COPY, SHORT. Six sections, two or three bullets each — what a person
- *  needs to start, not everything the Conductor can do; the kolu.dev page is
- *  the link at the foot. Every statement here is read off the build it
- *  describes, not off a wish:
+ *  needs to start, not everything the Conductor can do; the Conductor's docs
+ *  page is the link at the foot (`DocLink`). Every statement here is read
+ *  off the build it describes, not off a wish:
  *
  *    - `@` and `/` are the composer's own two completions, and `@` spans every
  *      host (`ConductorComposer.tsx`).
