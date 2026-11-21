@@ -15,7 +15,7 @@
  * no send exists on this path at all.
  */
 
-import { type Accessor } from "solid-js";
+import type { Accessor } from "solid-js";
 import { render } from "solid-js/web";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {

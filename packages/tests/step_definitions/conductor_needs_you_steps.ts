@@ -8,7 +8,7 @@ import assert from "node:assert";
 import { Then, When } from "@cucumber/cucumber";
 import { pollFor } from "../support/poll.ts";
 import { type KoluWorld, POLL_TIMEOUT } from "../support/world.ts";
-import { letTheBellDecide, openWorkCard, workCard } from "./conductor_steps.ts";
+import { letTheBellDecide, workCard } from "./conductor_steps.ts";
 
 const INPUT = '[data-testid="conductor-input"]';
 const SEND = '[data-testid="conductor-send"]';
