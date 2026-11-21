@@ -84,7 +84,10 @@ export const answering = (stream: Stream): Stream => {
     [];
 
   const outgoing = (message: Message): Message => {
-    if (message.method !== "session/prompt" || message.id === undefined)
+    if (
+      message.method !== methods.agent.session.prompt ||
+      message.id === undefined
+    )
       return message;
     const params = isObject(message.params) ? message.params : {};
     const turn = answeringIn(params._meta) ?? undefined;

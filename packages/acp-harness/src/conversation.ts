@@ -1689,10 +1689,12 @@ export const startHarness = async <Row extends AnyRow>(
    *  may already be on the next turn, and the line is still the first one's. */
   const notice = (text: string, about?: string): void => {
     report(
-      transcript.write(
-        { kind: "notice", text } as unknown as RowContent<Row>,
+      transcript.add(
+        "notice",
+        text,
+        {},
         about === undefined ? {} : { turn: about },
-      ).change,
+      ),
     );
   };
 

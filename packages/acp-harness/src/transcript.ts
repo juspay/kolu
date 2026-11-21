@@ -630,8 +630,7 @@ export class Transcript<Row extends AnyRow> {
     const key = this.#next((content as { kind: string }).kind);
     // A ROW ABOUT ANOTHER TURN than the one the wire is on is not where the
     // open paragraph stops: that paragraph is the running turn's.
-    const elsewhere =
-      typeof options.turn === "string" && options.turn !== this.#turn;
+    const elsewhere = options.turn !== undefined && options.turn !== this.#turn;
     return {
       key,
       change: plus(
