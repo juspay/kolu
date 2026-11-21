@@ -1639,12 +1639,7 @@ Then(
       const covered = layer?.parentElement ?? null;
       return [...document.querySelectorAll<HTMLElement>("body *")]
         .filter((el) => {
-          if (
-            layer !== null &&
-            covered !== null &&
-            covered.contains(el) &&
-            !layer.contains(el)
-          )
+          if (layer !== null && covered?.contains(el) && !layer.contains(el))
             return false;
           const box = el.getBoundingClientRect();
           return (
