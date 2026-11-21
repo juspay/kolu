@@ -1,4 +1,5 @@
-/** WHERE THE READER IS IN THE CONVERSATION — one fact, outside any mount.
+/** WHERE THE READER IS IN THE CONVERSATION — one fact per DOCUMENT, outside
+ *  any mount.
  *
  *  The pane is mounted only while the conductor entry is selected, so every
  *  activation hands the transcript a BRAND NEW scroll container sitting at 0.
@@ -8,6 +9,15 @@
  *  were at the bottom of. The conversation is one thing now; where you are in
  *  it belongs to your session, not to the element that happens to be drawing it
  *  (the same reason the composer's text lives in `drafts.ts`).
+ *
+ *  TWO DOCUMENTS, TWO PLACES. The same scroller shows the whole conversation
+ *  and, when a work is picked, only the turns about that work. They are
+ *  different documents: a place in one is not a place in the other. One shared
+ *  place meant the browser clamping the shorter document to its end overwrote
+ *  the reader's place in the whole conversation — read as "following", so
+ *  coming back sent a reader who had scrolled up to the bottom. The place is
+ *  therefore kept per document ({@link showTranscriptDocument}), and the
+ *  clamp lands on the narrowed document, where "at the end" is true.
  *
  *  The rule itself is the terminal scrollback's, not a second one:
  *  `xterm-kit/src/solid/scrollLock.ts` follows new output only while the
@@ -25,6 +35,7 @@
  *  reads the remembered answer. */
 
 import { createSignal } from "solid-js";
+import { createStore } from "solid-js/store";
 
 /** How close to the bottom still counts as "following", in pixels. A couple of
  *  lines of slack, so a half-scrolled wheel notch does not unpin the view. */
@@ -48,16 +59,38 @@ export function atEnd(el: ScrollMetrics): boolean {
   );
 }
 
-/** `null` means AT THE END, which is not the same as "offset 0 remembered" and
- *  not the same as a pixel value either: the column grows between mounts, so a
- *  reader who was at the end must land at the NEW end, not at the old end's
- *  coordinate. It is also the opening state — a conversation you have never
- *  scrolled opens at its newest line.
- *
- *  A SIGNAL, because the pill reads it: "not pinned" is precisely when the
- *  reader is owed a way back to the end, and a plain `let` would leave that
- *  button stale. */
-const [offset, setOffset] = createSignal<number | null>(null);
+/** THE WHOLE CONVERSATION'S KEY. A chat narrowed to a work is keyed by that
+ *  work's id (`chatScope`), so no work may ever be named this. */
+export const WHOLE_TRANSCRIPT = "whole";
+
+/** WHICH DOCUMENT THE SCROLLER SHOWS. The whole conversation and a chat about
+ *  one work are two documents in the same element: one has every turn, the
+ *  other only the turns about that work. Which one is shown is a fact about
+ *  the pane, not about its layout, so it is set whether or not the pane is on
+ *  screen. */
+const [documentKey, setDocumentKey] = createSignal(WHOLE_TRANSCRIPT);
+
+/** THE READER'S PLACE, PER DOCUMENT. `null` means at the end; no entry means
+ *  the document has never been shown, which also opens at its newest line.
+ *  The store makes `transcriptPinned` stay reactive as the shown document or
+ *  its place changes. */
+const [places, setPlaces] = createStore<Record<string, number | null>>({});
+
+/** The scroller now shows `key`'s document. Called by the transcript from a
+ *  computed on the chat's scope, above its follow effect. */
+export function showTranscriptDocument(key: string): void {
+  setDocumentKey(key);
+}
+
+/** The place in the document now shown, or `null` for its end. */
+const offset = (): number | null => places[documentKey()] ?? null;
+
+/** Write the place of the document now shown. Never another document's: a
+ *  clamp inside a work's chat says where that chat is, not where the whole
+ *  conversation was. */
+const setOffset = (place: number | null): void => {
+  setPlaces(documentKey(), place);
+};
 
 /** Is the view following the conversation? The one question the render path
  *  asks — never the element, which by then is describing the new content. */

@@ -8,7 +8,7 @@ import assert from "node:assert";
 import { Then, When } from "@cucumber/cucumber";
 import { pollFor } from "../support/poll.ts";
 import { type KoluWorld, POLL_TIMEOUT } from "../support/world.ts";
-import { letTheBellDecide, openWorkCard, workCard } from "./conductor_steps.ts";
+import { letTheBellDecide, workCard } from "./conductor_steps.ts";
 
 const INPUT = '[data-testid="conductor-input"]';
 const SEND = '[data-testid="conductor-send"]';
@@ -94,16 +94,6 @@ Then(
           `after ${ms}ms my last message did not carry the work's chip — ${seen}`,
         ),
     });
-  },
-);
-
-When(
-  "I press {string} on the work's card",
-  async function (this: KoluWorld, label: string) {
-    await openWorkCard(this);
-    await workCard(this)
-      .locator('[data-testid="work-card-actions"] button', { hasText: label })
-      .click();
   },
 );
 

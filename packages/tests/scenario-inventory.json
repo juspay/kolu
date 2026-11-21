@@ -12696,6 +12696,162 @@
       "firstSeenSha": "c922304e31f4916675ab07cb87cfdda03fc30ee5"
     },
     {
+      "revisionId": "revision-026efc81a9b72539e00b",
+      "scenarioKey": "scenario-690e17a4c5d8fdbe0f7e",
+      "feature": "features/conductor-layout.feature",
+      "scenario": "With nothing in progress the column welcomes a newcomer",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "d4e1a6a856e47c503a3c9e9226ef83c644d6bdb3b696e83e5bb4a147a1e00ee9",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "c776d98cdf0b79c2cc5f81fb3966d8789dd3e88f"
+    },
+    {
+      "revisionId": "revision-c95e250e6990a23bb823",
+      "scenarioKey": "scenario-28099a2b2c9cf116fcf4",
+      "feature": "features/conductor-needs-you.feature",
+      "scenario": "Picking a work points the chat at it, and the box with it",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "70aa2e9e3d51428988bb62206dccafd32eae25915608f3794a9220939bfddaaa",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "c776d98cdf0b79c2cc5f81fb3966d8789dd3e88f"
+    },
+    {
+      "revisionId": "revision-b5a73252c25fc719cae0",
+      "scenarioKey": "scenario-c1fd5e387ec2df9459a7",
+      "feature": "features/conductor.feature",
+      "scenario": "Picking a work and going back leaves a following chat at the bottom",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "03b1cfd0380e45312c94a257b1146b47c848352ec4d0744814bd54ce47b74fb9",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "c776d98cdf0b79c2cc5f81fb3966d8789dd3e88f"
+    },
+    {
+      "revisionId": "revision-e62c249a2f3fa9f1afed",
+      "scenarioKey": "scenario-b50b6d9acf2aa9ef135f",
+      "feature": "features/conductor.feature",
+      "scenario": "Picking a work and going back leaves a scrolled-up chat exactly where it was",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "03f3de9099cb1330f28f6778897d07884fd0e0651be81a82df3d26791efd8f7e",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "c776d98cdf0b79c2cc5f81fb3966d8789dd3e88f"
+    },
+    {
+      "revisionId": "revision-64be0bd421d79ef168c3",
+      "scenarioKey": "scenario-a70244bcc943612f71b8",
+      "feature": "features/conductor.feature",
+      "scenario": "The composer's box fits one line, grows, and only then scrolls",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "831bd7e74ca979d4327faabe2d3701511622e118c1aaf7592a065763892f5bd9",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "c776d98cdf0b79c2cc5f81fb3966d8789dd3e88f"
+    },
+    {
+      "revisionId": "revision-697caa2c5f0403cad309",
+      "scenarioKey": "scenario-171656b49d140bfb3aa4",
+      "feature": "features/conductor.feature",
+      "scenario": "The mouse wheel scrolls the chat, and it stays where it left it",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "15ac226f4c61018f7a41af46ab8680e006a10b5445f96931e3f22aded523621a",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "2273a714cf73919796a37d6a61afcf3de4dead8d"
+    },
+    {
+      "revisionId": "revision-7f4ecf2cfc6f245db4a9",
+      "scenarioKey": "scenario-1d6faf38aa6de1c73f9d",
+      "feature": "features/conductor-live-terminals.feature",
+      "scenario": "A terminal that already fits is offered no Fit width",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "3381623fa4a7425c9eee2f793a7d4ac56e7213e35e90e33f49a43688c711df92",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "d618968c3d7fbfc83038ace5792051ed4152b53c"
+    },
+    {
+      "revisionId": "revision-1c797b2a482de64364fa",
+      "scenarioKey": "scenario-8fea1e462b65dac8b7c6",
+      "feature": "features/conductor-live-terminals.feature",
+      "scenario": "Fit width fits a wide terminal, and the choice survives a view switch",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "3a5133932bc97103a9647c95fd58ef273c0f5bc650ad9b4d47e3281e9d0eb6d4",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "d618968c3d7fbfc83038ace5792051ed4152b53c"
+    },
+    {
+      "revisionId": "revision-b55d7af3cd865ac0769a",
+      "scenarioKey": "scenario-c0c0328db067c12f2926",
+      "feature": "features/conductor-work.feature",
+      "scenario": "A folder the work wrote is one chip, one timeline row, and is kept",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "774ca3a7d72f1448cb679a3d8ce029c4c0c5919eac12d1866c1b0fa93034fdd5",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "d618968c3d7fbfc83038ace5792051ed4152b53c"
+    },
+    {
+      "revisionId": "revision-b999a65e55b882b432f2",
+      "scenarioKey": "scenario-94a12dc6dfffc44a5d54",
+      "feature": "features/conductor-work.feature",
+      "scenario": "A work's row keeps every part inside it at four widths",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "364e981af35137401248b77b7f093fe66b13a7fedb63e4a81aca2c912757aef4",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "d618968c3d7fbfc83038ace5792051ed4152b53c"
+    },
+    {
+      "revisionId": "revision-25ddbb16216b445b4fe8",
+      "scenarioKey": "scenario-69f795100d3d1584fa4d",
+      "feature": "features/conductor-work.feature",
+      "scenario": "The stage strip names every stage and emphasises the one it is in",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "5373253cc1c8b876fbe490d4c58621ffe5b9d1b0001313fb34cef27ecfee51c6",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "d618968c3d7fbfc83038ace5792051ed4152b53c"
+    },
+    {
+      "revisionId": "revision-550eacf9a507b756e923",
+      "scenarioKey": "scenario-5feda0f3b23adfe0a61a",
+      "feature": "features/conductor-work.feature",
+      "scenario": "The work column and its card fit a phone",
+      "kind": "scenario",
+      "tags": ["@mobile"],
+      "bodyHash": "9bf2d0cc6c1fbc17a3cbeb30107b8ce64db7b66d3aa5ac4b2f523f3a7881f8d1",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "d618968c3d7fbfc83038ace5792051ed4152b53c"
+    },
+    {
+      "revisionId": "revision-2e0a3f4f0a46f3abff93",
+      "scenarioKey": "scenario-b56e7c56ef38ed942044",
+      "feature": "features/conductor.feature",
+      "scenario": "The mouse wheel scrolls the chat after a work is picked and left",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "82f40488188bf1c72085e07d2ee436b2bb1b4b4a83200e8b34172a93b96bb8c8",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "d618968c3d7fbfc83038ace5792051ed4152b53c"
+    },
+    {
       "revisionId": "revision-dadfb02b66f1d37def38",
       "scenarioKey": "scenario-5d0a375450042c03001c",
       "feature": "features/conductor-needs-you.feature",
@@ -12732,6 +12888,30 @@
       "firstSeenSha": "cf9108d2cab486c628f7b5c4884ca93ad570ca4f"
     },
     {
+      "revisionId": "revision-be65c9c73562152587e2",
+      "scenarioKey": "scenario-fadfe7b38fd9193be9d7",
+      "feature": "features/conductor-work.feature",
+      "scenario": "A full work's stage strip fits a phone",
+      "kind": "scenario",
+      "tags": ["@mobile"],
+      "bodyHash": "cc31bed28d0efc290e7ba1ec1c994617aff9313cde4e4b20d91358b82cc7e08d",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "6f1cdc512955c6b33e054a6e3bdb1d11f2dbd1dd"
+    },
+    {
+      "revisionId": "revision-1380c0b24614461d6756",
+      "scenarioKey": "scenario-fadfe7b38fd9193be9d7",
+      "feature": "features/conductor-work.feature",
+      "scenario": "A full work's stage strip fits a phone",
+      "kind": "scenario",
+      "tags": ["@mobile"],
+      "bodyHash": "036110e0400a58baddad13436afd5f0fbe8cc3d2ddc027a1c3b1838921e6f1de",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "6f1cdc512955c6b33e054a6e3bdb1d11f2dbd1dd"
+    },
+    {
       "revisionId": "revision-83df103af350284c746b",
       "scenarioKey": "scenario-185f06a3ac13e03abcf7",
       "feature": "features/attention-alerts.feature",
@@ -12741,7 +12921,7 @@
       "bodyHash": "080b0045f215d13d9bf2bf6059da19f8d34cf5569bf9f35261fe85625b912259",
       "exampleRows": [],
       "executions": 1,
-      "firstSeenSha": "103da5c21b347d1e02a63738c3bf84574c0fd1f9"
+      "firstSeenSha": "8d141b56b1bfe0696a239f38dc524798742c115f"
     },
     {
       "revisionId": "revision-422eb859bfedcb058909",
@@ -12753,7 +12933,7 @@
       "bodyHash": "55e964d60c3f2ca1bef0838d99c3d67dbdbb7ed5c78e2985b47b4c10677fdac6",
       "exampleRows": [],
       "executions": 1,
-      "firstSeenSha": "103da5c21b347d1e02a63738c3bf84574c0fd1f9"
+      "firstSeenSha": "8d141b56b1bfe0696a239f38dc524798742c115f"
     },
     {
       "revisionId": "revision-86bf6cfda3890e1297e7",
@@ -12765,7 +12945,7 @@
       "bodyHash": "c3494b99aa9af8e0f3ce5c062f460dc8cb25f196f8fda951c331e7908b4582c7",
       "exampleRows": [],
       "executions": 1,
-      "firstSeenSha": "103da5c21b347d1e02a63738c3bf84574c0fd1f9"
+      "firstSeenSha": "8d141b56b1bfe0696a239f38dc524798742c115f"
     },
     {
       "revisionId": "revision-303d0f95632d73187334",
@@ -12777,7 +12957,7 @@
       "bodyHash": "9fa9b964aa1f27d75ef5c6cdb83e712b14644cc4f6aeb8c3a5b7378808f80791",
       "exampleRows": [],
       "executions": 1,
-      "firstSeenSha": "103da5c21b347d1e02a63738c3bf84574c0fd1f9"
+      "firstSeenSha": "8d141b56b1bfe0696a239f38dc524798742c115f"
     },
     {
       "revisionId": "revision-2133d164ddfedd91ba03",
@@ -12789,7 +12969,7 @@
       "bodyHash": "a3d72c84e663a6785592bfdb9857aafca796a6cbac76371fffd4e0b04f2d880e",
       "exampleRows": [],
       "executions": 1,
-      "firstSeenSha": "103da5c21b347d1e02a63738c3bf84574c0fd1f9"
+      "firstSeenSha": "8d141b56b1bfe0696a239f38dc524798742c115f"
     },
     {
       "revisionId": "revision-6ddd2d25bc2753d69008",
@@ -12801,7 +12981,7 @@
       "bodyHash": "5a2c2ebd9c7ed4650dd8e4894624c430a86e7d6fb428b5a8888ab7788573caa8",
       "exampleRows": [],
       "executions": 1,
-      "firstSeenSha": "865e6bd8eeb940ba774a7dd64b2681b926b25368"
+      "firstSeenSha": "8d141b56b1bfe0696a239f38dc524798742c115f"
     },
     {
       "revisionId": "revision-6c009b49a484e43d2297",
@@ -12813,7 +12993,7 @@
       "bodyHash": "e6255b13db0f2708e68c223f441b02d98535ba27a5a1419a1cd00e0597a6e660",
       "exampleRows": [],
       "executions": 1,
-      "firstSeenSha": "8f4cda9a9c46bf3ffcbad823631b01fd17ceec86"
+      "firstSeenSha": "8d141b56b1bfe0696a239f38dc524798742c115f"
     }
   ]
 }

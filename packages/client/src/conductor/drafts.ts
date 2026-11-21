@@ -17,6 +17,28 @@ const [composerText, setComposerText] = createSignal("");
 
 export { composerText, setComposerText };
 
+/** THE WELCOME'S ASK — a REQUEST the composer answers, not a word in its box.
+ *  The welcome lives in the works column and cannot write the composer's
+ *  caret or reach its element; the composer is the one place that owns both.
+ *  `seq` makes a second press of the same example a new request. */
+export interface WelcomeAsk {
+  readonly text: string;
+  readonly seq: number;
+}
+
+const [welcomeAsk, setWelcomeAsk] = createSignal<WelcomeAsk | null>(null);
+
+export { welcomeAsk };
+
+let welcomeAsks = 0;
+
+/** PUT AN EXAMPLE REQUEST IN THE BOX, caret at its end, and send nothing —
+ *  the composer does the writing (`ConductorComposer`). */
+export function askFromWelcome(text: string): void {
+  welcomeAsks += 1;
+  setWelcomeAsk({ text, seq: welcomeAsks });
+}
+
 /** One file in the draft: what the wire will take, the bytes this browser is
  *  still holding, and the one fact only this side knows.
  *

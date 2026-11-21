@@ -33,6 +33,7 @@ import {
   createMemo,
   createSignal,
   For,
+  on,
   onCleanup,
   Show,
 } from "solid-js";
@@ -61,6 +62,7 @@ import {
   sendableAttachments,
   setCompletionOpen,
   setComposerText,
+  welcomeAsk,
 } from "./drafts";
 import {
   armedMentions,
@@ -220,6 +222,16 @@ const ConductorComposer: Component<{
     box.focus();
   };
 
+  // THE WELCOME'S EXAMPLE — its request is answered HERE, where the box and
+  // its caret live: `write` sets the draft, the caret and the focus together,
+  // so the caret cannot be left stale by a caller that only knew the text.
+  createEffect(
+    on(welcomeAsk, (ask) => {
+      if (ask === null) return;
+      write(ask.text, ask.text.length);
+    }),
+  );
+
   /** Complete the token under the caret from one row of whichever menu is
    *  open. The mouse and the keyboard land here together, so a click and a Tab
    *  cannot drift apart. */
@@ -341,7 +353,15 @@ const ConductorComposer: Component<{
       return;
     }
     box.style.height = "auto";
-    box.style.height = `${box.scrollHeight}px`;
+    // `scrollHeight` is the CONTENT's height — padding in, border out — while
+    // the height written here is a border-box height (Tailwind's preflight
+    // sets `box-sizing: border-box`). Written bare, the box came up 2px short
+    // of its own one-line text and the browser drew a scrollbar with up/down
+    // arrows beside "lkjhn". The border the measurement left out is
+    // `offsetHeight - clientHeight`; adding it makes the box exactly its
+    // content's height, and `max-height` still turns a long message into a
+    // scroller once the content passes it.
+    box.style.height = `${box.scrollHeight + (box.offsetHeight - box.clientHeight)}px`;
   });
 
   const stopButton = () => (

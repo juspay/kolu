@@ -529,10 +529,24 @@ describe("where a work's stages stand", () => {
   it("is the human's while the build stops on a question", () => {
     let work = join(opened(), "implementor", 5);
     work = ask(work, "which", 20);
+    // 15 minutes of the implementor's time against 5 of yours: the bar keeps
+    // the agents' ink while it waits, because that is whose time it was.
     expect(byName(strip(work, FULL, at(25))).build).toEqual({
       kind: "now",
       ms: 20 * MINUTE,
-      who: "you",
+      who: "agent",
+    });
+  });
+
+  it("colours the stage in hand by whose time it has mostly been", () => {
+    let work = join(opened(), "implementor", 5);
+    work = ask(work, "which", 23);
+    // 18 minutes of the agents' time, then 2 waiting on you. Who it waits on
+    // now is the standing line's fact; this bar says whose time it mostly was.
+    expect(byName(strip(work, FULL, at(25))).build).toEqual({
+      kind: "now",
+      ms: 20 * MINUTE,
+      who: "agent",
     });
   });
 

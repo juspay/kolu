@@ -18,6 +18,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { After, Given, Then, When } from "@cucumber/cucumber";
+import type { Locator } from "playwright";
 import {
   ompMockPayload,
   ompTranscriptPath,
@@ -402,6 +403,79 @@ When(
     await sendPrompt(this, text);
   },
 );
+
+/** ONE SHORT LINE IN THE BOX — a typed message, not a sent one. */
+When(
+  "I type {string} into the conductor's box",
+  async function (this: KoluWorld, text: string) {
+    await this.page.locator(INPUT).fill(text);
+  },
+);
+
+/** A MESSAGE LONGER THAN THE BOX'S MAXIMUM — the state that must scroll. */
+When(
+  "I paste a long message into the conductor's box",
+  async function (this: KoluWorld) {
+    const lines = Array.from(
+      { length: 40 },
+      (_, i) => `line ${i + 1} of a message the box cannot show whole`,
+    );
+    await this.page.locator(INPUT).fill(lines.join("\n"));
+  },
+);
+
+/** The box's three numbers, as the browser lays them out. */
+async function composerBox(world: KoluWorld) {
+  return await world.page.locator(INPUT).evaluate((el) => {
+    const box = el as HTMLTextAreaElement;
+    return {
+      scroll: box.scrollHeight,
+      client: box.clientHeight,
+      value: box.value,
+    };
+  });
+}
+
+Then("the conductor's box should not scroll", async function (this: KoluWorld) {
+  await pollFor({
+    observe: () => composerBox(this),
+    isDone: (box) => box.scroll <= box.client + 1,
+    timeoutMs: POLL_TIMEOUT,
+    onTimeout: (box, ms) =>
+      new Error(
+        `the composer's box scrolls (scrollHeight ${box.scroll}, clientHeight ${box.client}) after ${ms}ms of holding one short line — a box taller than its text`,
+      ),
+  });
+});
+
+Then("I note the conductor's box height", async function (this: KoluWorld) {
+  this.notedComposerHeight = (await composerBox(this)).client;
+});
+
+Then(
+  "the conductor's box should be taller than I noted",
+  async function (this: KoluWorld) {
+    const noted = this.notedComposerHeight;
+    assert.ok(noted !== undefined, "no box height was noted first");
+    const now = (await composerBox(this)).client;
+    assert.ok(
+      now > noted,
+      `the composer's box is ${now}px tall after a long message, the same as the ${noted}px of one short line — it did not grow`,
+    );
+  },
+);
+
+Then("the conductor's box should scroll", async function (this: KoluWorld) {
+  await pollFor({
+    observe: () => composerBox(this),
+    isDone: (box) => box.scroll > box.client + 1,
+    timeoutMs: POLL_TIMEOUT,
+    onTimeout: (box, ms) =>
+      new Error(
+        `the composer's box holds ${box.scroll}px of text in ${box.client}px after ${ms}ms and does not scroll — the rest is unreachable`,
+      ),
+  });
+});
 
 When(
   "I ask the conductor to adopt the terminal",
@@ -1391,6 +1465,47 @@ Then(
   },
 );
 
+/** WHERE THE CHAT WAS, before the works side is touched — the numbers a pick
+ *  and an unpick must leave exactly alone. */
+Then(
+  "I note where the conductor transcript is scrolled",
+  async function (this: KoluWorld) {
+    // Chromium ANIMATES a wheel notch: the two steps above can both return
+    // while the view is still gliding. Note where it actually came to rest,
+    // not where it happened to be when the last event was dispatched.
+    const settled = Promise.withResolvers<void>();
+    setTimeout(settled.resolve, 750);
+    await settled.promise;
+    this.notedTranscriptTop = await this.page
+      .locator(TRANSCRIPT)
+      .evaluate((el) => el.scrollTop);
+    assert.ok(
+      this.notedTranscriptTop > 0,
+      "the transcript is at the top — the scenario asked for a place in the middle of a long conversation, and a note of 0 cannot fail later",
+    );
+  },
+);
+
+Then(
+  "the conductor transcript should be scrolled where I noted",
+  async function (this: KoluWorld) {
+    const noted = this.notedTranscriptTop;
+    assert.ok(noted !== undefined, "no scroll position was noted first");
+    // Give any settled layout a beat to land — a pick on the works side must
+    // not move the chat at any point, including the frame after it.
+    const settled = Promise.withResolvers<void>();
+    setTimeout(settled.resolve, 750);
+    await settled.promise;
+    const now = await this.page
+      .locator(TRANSCRIPT)
+      .evaluate((el) => el.scrollTop);
+    assert.ok(
+      Math.abs(now - noted) <= 2,
+      `the transcript moved from ${noted} to ${now} when a work was picked on the works side — the works and the chat are separate things`,
+    );
+  },
+);
+
 Then(
   "the conductor should offer the way back to the bottom",
   async function (this: KoluWorld) {
@@ -2229,6 +2344,16 @@ export function workCard(world: KoluWorld) {
 /** The way back to all the works, while one is picked. */
 const ALL_WORK = '[data-testid="works-all"]';
 
+/** A CARD'S HEAD IS AN OVERLAY UNDER ITS CONTENT, and the content lets its
+ *  buttons through — the strip's stage cells among them. Now that a cell
+ *  carries a label and a time, a centre press can land on a cell instead of
+ *  the head, so press where the title is, clear of the strip. */
+const pressCardHead = async (card: Locator): Promise<void> => {
+  await card
+    .locator('[data-testid="work-card-head"]')
+    .click({ position: { x: 12, y: 12 } });
+};
+
 /** Open that card, idempotently — a work already picked is left alone,
  *  because pressing its head would unpick it and every later step would read
  *  an empty card and blame the product.
@@ -2241,7 +2366,7 @@ const ALL_WORK = '[data-testid="works-all"]';
 export async function openWorkCard(world: KoluWorld): Promise<void> {
   const card = await showWorkCard(world);
   if ((await card.getAttribute("data-open")) === null) {
-    await card.locator('[data-testid="work-card-head"]').click();
+    await pressCardHead(card);
   }
   await waitForValue(
     "the work card's open state",
@@ -2275,7 +2400,7 @@ export async function showWorkCard(world: KoluWorld) {
 
 /** THE PICKED WORK'S SWITCH, pressed to `view` — or nothing, when the work
  *  is not picked or is over (an ended work has only its details). */
-async function showPickedView(
+export async function showPickedView(
   world: KoluWorld,
   view: "terminals" | "details",
 ): Promise<void> {
@@ -2642,6 +2767,51 @@ Then(
     await this.page
       .locator(`${SIDE} [data-testid="work-column-empty"]`)
       .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+  },
+);
+
+/** THE PANEL WITH NOTHING IN IT teaches: its heading, a sentence saying what
+ *  the Conductor is for, and three requests to start from. */
+Then(
+  "the work column should welcome a newcomer",
+  async function (this: KoluWorld) {
+    const welcome = this.page.locator(
+      `${SIDE} [data-testid="work-column-empty"]`,
+    );
+    await welcome.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    await welcome
+      .getByRole("heading", { name: "Nothing in progress" })
+      .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    await welcome
+      .getByText("The Conductor runs coding agents for you.", { exact: false })
+      .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    await this.page
+      .locator(`${SIDE} [data-testid="work-welcome-example"]`)
+      .first()
+      .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    await waitForCount(this, `${SIDE} [data-testid="work-welcome-example"]`, 3);
+  },
+);
+
+When(
+  "I press the welcome's example ask {string}",
+  async function (this: KoluWorld, text: string) {
+    await this.page
+      .locator(
+        `${SIDE} [data-testid="work-welcome-example"]:has-text(${JSON.stringify(text)})`,
+      )
+      .click();
+  },
+);
+
+Then(
+  "the conductor's box should hold {string}",
+  async function (this: KoluWorld, text: string) {
+    await waitForValue(
+      "the composer's text",
+      async () => (await this.page.locator(INPUT).inputValue()).trim(),
+      text,
+    );
   },
 );
 
@@ -3633,10 +3803,7 @@ export async function keepWorkCardOpen(world: KoluWorld): Promise<void> {
   if (await card.isVisible().catch(() => false)) {
     await showDetails(world);
     if ((await card.getAttribute("data-open")) === null) {
-      await card
-        .locator('[data-testid="work-card-head"]')
-        .click()
-        .catch(() => {});
+      await pressCardHead(card).catch(() => {});
     }
     const whole = card.locator('[data-testid="work-timeline-whole"]');
     if (
@@ -3842,41 +4009,111 @@ Then(
   },
 );
 
-/** THE LINE NAMES ONE STAGE: the words a person sees on the strip — every
- *  piece of text in it that is drawn at a size an eye can read, so the
- *  one-pixel spoken-only labels are left out — name the stage asked about,
- *  and no other of the six. */
+/** EVERY STAGE IS NAMED UNDER ITS BAR, and exactly one is emphasised:
+ *  the stage the work is in. */
 Then(
-  "the work's stage line should name {string} and no other stage",
+  "the work's stage strip should name every stage and emphasise {string}",
   async function (this: KoluWorld, label: string) {
     await showWorkColumn(this);
     const strip = workCard(this).locator('[data-testid="stage-strip"]');
     const LABELS = ["Plan", "Approve", "Build", "Review", "Checks", "Merge"];
     await pollFor({
       observe: () =>
-        strip
-          .evaluate((el) => {
-            const seen: string[] = [];
-            const walk = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
-            for (let node = walk.nextNode(); node; node = walk.nextNode()) {
-              const parent = node.parentElement;
-              if (parent === null || !parent.checkVisibility()) continue;
-              const box = parent.getBoundingClientRect();
-              if (box.width <= 1 || box.height <= 1) continue;
-              const words = (node.textContent ?? "").trim();
-              if (words !== "") seen.push(words);
-            }
-            return seen.join(" ");
-          })
-          .catch(() => ""),
+        strip.evaluate((el) => ({
+          labels: Array.from(
+            el.querySelectorAll('[data-testid="stage-label"]'),
+          ).map((one) => (one.textContent ?? "").trim()),
+          emphasised: Array.from(
+            el.querySelectorAll('[data-testid="stage-label"][data-emphasis]'),
+          ).map((one) => (one.textContent ?? "").trim()),
+        })),
       isDone: (seen) =>
-        LABELS.every((one) => seen.includes(one) === (one === label)),
+        LABELS.every((one) => seen.labels.includes(one)) &&
+        seen.emphasised.length === 1 &&
+        seen.emphasised[0] === label,
       timeoutMs: POLL_TIMEOUT,
-      onTimeout: (last, ms) =>
+      onTimeout: (seen, ms) =>
         new Error(
-          `after ${ms}ms the stage line reads ${JSON.stringify(last)}, not one naming ${JSON.stringify(label)} alone`,
+          `after ${ms}ms the stage strip reads ${JSON.stringify(seen)}, not every stage named with only ${JSON.stringify(label)} emphasised`,
         ),
     });
+  },
+);
+
+/** THE STRIP'S TEXT IS WHOLE, not cut: every stage name and every duration
+ *  drawn under a bar fits in its own column (`scrollWidth` against
+ *  `clientWidth`, which is the browser's layout, not a class name). */
+Then(
+  "every stage label and time should be whole",
+  async function (this: KoluWorld) {
+    await showWorkColumn(this);
+    const strip = workCard(this).locator('[data-testid="stage-strip"]');
+    await pollFor({
+      observe: () =>
+        strip.evaluate((el) =>
+          Array.from(
+            el.querySelectorAll(
+              '[data-testid="stage-label"], [data-testid="stage-time"]',
+            ),
+          ).map((one) => ({
+            text: (one.textContent ?? "").trim(),
+            scroll: one.scrollWidth,
+            client: one.clientWidth,
+          })),
+        ),
+      isDone: (all) =>
+        all.length > 0 && all.every((one) => one.scroll <= one.client + 1),
+      timeoutMs: POLL_TIMEOUT,
+      onTimeout: (all, ms) =>
+        new Error(
+          `after ${ms}ms a stage label or time is cut: ${all
+            .map(
+              (one) =>
+                `${JSON.stringify(one.text)} ${one.scroll}>${one.client}`,
+            )
+            .join(" / ")}`,
+        ),
+    });
+  },
+);
+
+/** THE LINE IS ONE LINE, drawn by each row from its own top to its own
+ *  bottom — so a row whose list is unfolded, and the gap after a long wait,
+ *  are both covered. The browser's boxes decide it, not a class name. */
+Then(
+  "the timeline's line should run unbroken",
+  async function (this: KoluWorld) {
+    await showWorkColumn(this);
+    const boxes = await workCard(this)
+      .locator('[data-testid="work-timeline"] > ul > li')
+      .evaluateAll((rows) =>
+        rows.map((row) => {
+          const rail = row.querySelector(
+            ':scope > [data-testid="timeline-rail"]',
+          );
+          const own = row.getBoundingClientRect();
+          const line = rail?.getBoundingClientRect();
+          return {
+            top: own.top,
+            bottom: own.bottom,
+            railTop: line?.top ?? null,
+            railBottom: line?.bottom ?? null,
+          };
+        }),
+      );
+    assert.ok(boxes.length > 1, "the timeline has no two rows to join");
+    for (let i = 0; i < boxes.length - 1; i += 1) {
+      const row = boxes[i];
+      const next = boxes[i + 1];
+      assert.ok(
+        row !== undefined && next !== undefined,
+        "a row box is missing",
+      );
+      assert.ok(
+        row.railBottom === null || row.railBottom >= next.top - 1,
+        `the line stops at ${row.railBottom} but the next row starts at ${next.top} — a gap in the timeline`,
+      );
+    }
   },
 );
 
@@ -4498,7 +4735,7 @@ When("I shut the work card", async function (this: KoluWorld) {
   const card = workCard(this);
   await card.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
   if ((await card.getAttribute("data-open")) !== null)
-    await card.locator('[data-testid="work-card-head"]').click();
+    await pressCardHead(card);
   await waitForValue(
     "the work card's open state",
     async () =>

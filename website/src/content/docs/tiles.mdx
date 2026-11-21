@@ -58,7 +58,10 @@ terminal live, in its own colours. A terminal kolu has no name for is called
 by its host, such as **Implementor on nix@example**, never by an id.
 
 - It never resizes the terminal. The window keeps one size whichever terminal
-  is in it. A wider terminal scrolls sideways, or press **Fit width**.
+  is in it. **Fit width** is on, so a terminal wider than the window opens
+  shrunk to fit; turn it off to see the terminal at its own size, panned
+  sideways. The button is offered only while the terminal is wider than the
+  window.
 - Each terminal of the same piece of work gets a tab.
 - While the Conductor drives the terminal the window is read-only and offers
   **Take over**. After it you type in the window, and it offers **Hand back**.
@@ -71,7 +74,8 @@ by its host, such as **Implementor on nix@example**, never by an id.
 A [picked work](/work-card#the-picked-work) shows its terminals the same way,
 in panes beside the chat rather than a window over it. A pane has the
 window's head: who is driving, **Take over** or **Hand back**, **Fit width**
-and **Open tile**. It never resizes the terminal either.
+and **Open tile**. It never resizes the terminal either, and **Fit width** is
+one choice shared by the pane and the Look window.
 
 ## Splits and tabs
 
