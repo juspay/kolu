@@ -2645,6 +2645,51 @@ Then(
   },
 );
 
+/** THE PANEL WITH NOTHING IN IT teaches: its heading, a sentence saying what
+ *  the Conductor is for, and three requests to start from. */
+Then(
+  "the work column should welcome a newcomer",
+  async function (this: KoluWorld) {
+    const welcome = this.page.locator(
+      `${SIDE} [data-testid="work-column-empty"]`,
+    );
+    await welcome.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    await welcome
+      .getByRole("heading", { name: "Nothing in progress" })
+      .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    await welcome
+      .getByText("The Conductor runs coding agents for you.", { exact: false })
+      .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    await this.page
+      .locator(`${SIDE} [data-testid="work-welcome-example"]`)
+      .first()
+      .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    await waitForCount(this, `${SIDE} [data-testid="work-welcome-example"]`, 3);
+  },
+);
+
+When(
+  "I press the welcome's example ask {string}",
+  async function (this: KoluWorld, text: string) {
+    await this.page
+      .locator(
+        `${SIDE} [data-testid="work-welcome-example"]:has-text(${JSON.stringify(text)})`,
+      )
+      .click();
+  },
+);
+
+Then(
+  "the conductor's box should hold {string}",
+  async function (this: KoluWorld, text: string) {
+    await waitForValue(
+      "the composer's text",
+      async () => (await this.page.locator(INPUT).inputValue()).trim(),
+      text,
+    );
+  },
+);
+
 Then("no count on screen should read zero", async function (this: KoluWorld) {
   // Every readout the conversation keeps about its own work — the status
   // line and the side column — read whole, and none of them may say `0`.

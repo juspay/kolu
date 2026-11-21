@@ -22,7 +22,8 @@
  *  others folded to a rail beside it (`WorkRail`), or, on a phone, to a page
  *  of its own with the way back above it.
  *
- *  WITH NOTHING IN FLIGHT, it says so in a sentence, never `0`. */
+ *  WITH NOTHING IN FLIGHT, it says WHAT THE PANEL IS FOR — a welcome, not a
+ *  count: never `0`, and never a bare line that teaches nobody anything.
 
 import { Key } from "@solid-primitives/keyed";
 import {
@@ -36,6 +37,7 @@ import {
   type Component,
   createEffect,
   createMemo,
+  For,
   type JSX,
   on,
   onCleanup,
@@ -44,6 +46,9 @@ import {
 } from "solid-js";
 import { MEMBERSHIP_BOUND_MS } from "../useDeepLinks";
 import { layoutMode } from "../useMobile";
+import { askFromWelcome } from "./drafts";
+import { helpSheet } from "./helpContent";
+import { setPhoneView } from "./phoneView";
 import { useNeedsYou, useWorks } from "./useWorks";
 import WorkCard from "./WorkCard";
 import {
@@ -149,6 +154,73 @@ const PickedCard: Component<{ id: WorkId; record: Work | undefined }> = (
 /** A watch keeps an eye on a terminal of yours; it is not building anything. */
 const isWatch = (work: Work): boolean => work.key.kind === "watch";
 
+/** THE THREE ASKS THE WELCOME OFFERS — requests, not commands: each one says
+ *  what to do and where, which is the shape a waterfall needs to start. */
+const EXAMPLES: ReadonlyArray<string> = [
+  "Fix the failing test in ~/code/myrepo on this machine and open a PR",
+  "Plan and build a dark mode toggle for ~/code/myapp",
+  "Watch the terminal I have open and tell me when it finishes",
+];
+
+/** WHAT THE PANEL SAYS WITH NOTHING IN IT — the whole welcome, shown only
+ *  while nothing is in progress. A bare "Nothing in progress." told a
+ *  newcomer nothing about what this side of the screen is for; the three
+ *  example asks are requests, put into the chat's own draft where a person
+ *  can edit them, and pressing one never sends.
+ *
+ *  The measure is the panel's reading width, not the width of the window: the
+ *  works take whatever is left of the frame, which on a wide screen is a lot
+ *  of nothing for a paragraph to run across. */
+const Welcome: Component = () => {
+  const ask = (text: string): void => {
+    // A phone shows one of the two views at a time: putting an example into
+    // the draft of a chat that is not on screen would be a press with no
+    // answer. Show the chat, then put the words in it.
+    if (layoutMode() === "phone") setPhoneView("chat");
+    askFromWelcome(text);
+  };
+  return (
+    <div data-testid="work-column-empty" class="max-w-[36rem]">
+      <h3 class="m-0 text-sm font-semibold text-fg">Nothing in progress</h3>
+      <p class="m-0 mt-2 text-[0.8rem] leading-relaxed text-fg-2">
+        The Conductor runs coding agents for you. Ask it for something in the
+        chat, and each thing it takes on shows up here as a piece of work, with
+        its terminals, its questions for you and its pull request.
+      </p>
+      <p class="m-0 mt-4 mb-1.5 font-mono text-[0.58rem] uppercase tracking-[0.12em] text-fg-3">
+        Try asking
+      </p>
+      <div class="flex flex-col items-start gap-1.5">
+        <For each={EXAMPLES}>
+          {(example) => (
+            <button
+              type="button"
+              data-testid="work-welcome-example"
+              class="cursor-pointer rounded-md border border-edge px-2 py-1 text-start text-[0.72rem] text-fg-2 hover:border-edge-bright hover:text-fg"
+              onClick={() => ask(example)}
+            >
+              “{example}”
+            </button>
+          )}
+        </For>
+      </div>
+      <p class="m-0 mt-4 text-[0.72rem] text-fg-3">
+        Press{" "}
+        <button
+          type="button"
+          data-testid="work-welcome-help"
+          aria-label="How the Conductor works"
+          class="cursor-pointer rounded border border-edge px-1 font-mono text-[0.62rem] text-fg-2 hover:border-edge-bright hover:text-fg"
+          onClick={() => helpSheet.openDialog()}
+        >
+          ?
+        </button>{" "}
+        for how the Conductor works.
+      </p>
+    </div>
+  );
+};
+
 const WorkColumn: Component = () => {
   const works = useWorks();
   const needs = useNeedsYou();
@@ -223,17 +295,7 @@ const WorkColumn: Component = () => {
                   saying so is more use than a list that is merely history.
                   The finished works keep their place BELOW that line rather
                   than standing in for it. */}
-              <Show
-                when={live().length > 0}
-                fallback={
-                  <p
-                    data-testid="work-column-empty"
-                    class="m-0 font-mono text-[0.65rem] text-fg-3"
-                  >
-                    Nothing in progress.
-                  </p>
-                }
-              >
+              <Show when={live().length > 0} fallback={<Welcome />}>
                 <Show when={groups().onYou.length > 0}>
                   <section data-testid="work-waiting" class="mb-4">
                     <Heading words={`Needs you · ${groups().onYou.length}`} />

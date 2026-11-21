@@ -17,6 +17,31 @@ const [composerText, setComposerText] = createSignal("");
 
 export { composerText, setComposerText };
 
+/** THE COMPOSER'S BOX, registered while it is mounted. The draft is the one
+ *  piece of the box that outlives it; a caller that is not the composer — the
+ *  works' welcome — needs the element too, to put the caret where the words
+ *  it just set are. One ref, not a store: nothing renders from it. */
+let composerBox: HTMLTextAreaElement | undefined;
+
+export function holdComposerBox(el: HTMLTextAreaElement): void {
+  composerBox = el;
+}
+
+export function releaseComposerBox(el: HTMLTextAreaElement): void {
+  if (composerBox === el) composerBox = undefined;
+}
+
+/** PUT AN EXAMPLE REQUEST IN THE BOX, caret at its end, and send nothing.
+ *  The welcome's three asks land here so a newcomer starts from words that
+ *  already read like a request, rather than from an empty box. */
+export function askFromWelcome(text: string): void {
+  setComposerText(text);
+  const box = composerBox;
+  if (box === undefined) return;
+  box.focus();
+  box.setSelectionRange(text.length, text.length);
+}
+
 /** One file in the draft: what the wire will take, the bytes this browser is
  *  still holding, and the one fact only this side knows.
  *

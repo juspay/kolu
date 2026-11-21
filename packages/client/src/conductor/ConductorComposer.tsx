@@ -58,6 +58,8 @@ import {
   composerAttachments,
   composerText,
   dropComposerAttachment,
+  holdComposerBox,
+  releaseComposerBox,
   sendableAttachments,
   setCompletionOpen,
   setComposerText,
@@ -115,6 +117,9 @@ const ConductorComposer: Component<{
   const membership = useMembership();
   const [caret, setCaret] = createSignal(0);
   let box!: HTMLTextAreaElement;
+  // The welcome lives in the works column, not in this component, and setting
+  // the draft is not enough to put the caret in the box that draws it.
+  onCleanup(() => releaseComposerBox(box));
 
   /** EVERY PIECE OF WORK, then every terminal on EVERY host, as the `@` menu
    *  offers them. The conversation's own fleet is not the list: a person
@@ -705,7 +710,10 @@ const ConductorComposer: Component<{
       </Show>
       <div class="flex items-end gap-2">
         <textarea
-          ref={box}
+          ref={(el) => {
+            box = el;
+            holdComposerBox(el);
+          }}
           data-testid="conductor-input"
           // ONE LINE AT REST, in every layout. The box used to stand three
           // rows tall on a desktop whatever was in it, which is two rows of
