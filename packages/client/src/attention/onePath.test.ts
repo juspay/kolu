@@ -7,7 +7,8 @@
  *  each (`attention/channels.ts`), and only the one delivery module builds
  *  them. A second copy anywhere under `packages/client/src` is the regression
  *  this guards: a source that rings on its own learns to ignore the switch,
- *  the "already in front of you" rule, and the dedupe. */
+ *  the "already in front of you" rule, and the dedupe. It also pins that
+ *  nothing reaches the browser's notifications around the seam. */
 
 import { readFileSync } from "node:fs";
 import { dirname, relative, resolve } from "node:path";
@@ -50,5 +51,19 @@ describe("one path for every alert", () => {
     expect(filesMatching(/attention\/channels"|\.\/channels"/)).toEqual([
       "attention/useAttention.ts",
     ]);
+  });
+
+  it("builds the notification seam in exactly one file", () => {
+    expect(filesMatching(/\bcreateNotify\s*[<(]/)).toEqual([
+      "attentionNotify.ts",
+    ]);
+  });
+
+  it("never asks the service worker for a notification directly", () => {
+    expect(filesMatching(/\bshowNotification\s*\(/)).toEqual([]);
+  });
+
+  it("never builds a page-level notification", () => {
+    expect(filesMatching(/\bnew Notification\s*\(/)).toEqual([]);
   });
 });
