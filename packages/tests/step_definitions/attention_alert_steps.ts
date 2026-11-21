@@ -9,7 +9,9 @@ import { type KoluWorld, POLL_TIMEOUT } from "../support/world.ts";
  *  having opened its feed (`settled: false`), a turn that finished with no
  *  mark raised, and a turn that had not finished: padi's own `urgency` read
  *  off its socket, every dock row's agent state, pip, unread mark and active
- *  flag, and whether the page has focus. */
+ *  flag, whether the page has focus, and this browser's saved attention
+ *  record per host (`kolu-attention:<host>` in `localStorage`) — the page's
+ *  memory that decides whether a finished, unwatched turn raises a mark. */
 async function attentionDiagnosis(world: KoluWorld): Promise<string> {
   const urgency = await readPadiDirect().then(
     ({ urgency }) => JSON.stringify(urgency),
@@ -17,6 +19,11 @@ async function attentionDiagnosis(world: KoluWorld): Promise<string> {
   );
   const page = await world.page.evaluate(() => ({
     hasFocus: document.hasFocus(),
+    saved: Object.fromEntries(
+      Object.keys(localStorage)
+        .filter((key) => key.startsWith("kolu-attention:"))
+        .map((key) => [key, localStorage.getItem(key)]),
+    ),
     rows: [...document.querySelectorAll('[data-testid="dock-row"]')].map(
       (row) => {
         const pip = row.querySelector('[data-testid="state-pip"]');
@@ -36,6 +43,7 @@ async function attentionDiagnosis(world: KoluWorld): Promise<string> {
     `padi urgency: ${urgency}`,
     `page has focus: ${page.hasFocus}`,
     `dock rows: ${JSON.stringify(page.rows)}`,
+    `saved attention: ${JSON.stringify(page.saved)}`,
   ].join("\n");
 }
 
