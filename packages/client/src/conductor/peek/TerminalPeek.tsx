@@ -1,6 +1,5 @@
 import { createWindowSize } from "@solid-primitives/resize-observer";
 import Dialog from "@corvu/dialog";
-import { decodeHostKey } from "kolu-common/hostKey";
 import { fleetTerminalRef } from "kolu-mcp/fleetRef";
 import {
   type Component,
@@ -15,7 +14,6 @@ import {
 } from "solid-js";
 import { DEFAULT_FONT_SIZE, getThemeByName } from "terminal-themes";
 import type { TerminalGrid } from "@kolu/xterm-kit/solid";
-import { hostLabel } from "../../host/hostChipTone";
 import { fleetTerminalStanding } from "../../palette/fleetTerminals";
 import ModalDialog from "../../ui/ModalDialog";
 import MobileKeyBar from "../../MobileKeyBar";
@@ -24,12 +22,12 @@ import { layoutMode, isTouch } from "../../useMobile";
 import { useMemberName } from "../memberNames";
 import { useOpenTile } from "../useOpenTile";
 import { inputAllowedAt, personInputAt } from "../personInput";
-import { useConductor } from "../useConductor";
 import WorkLock from "../WorkLock";
 import { ROLE_WORD } from "../workReadings";
 import { useMembership, useWorkMembers } from "../useWorks";
-import { liveArm, STATUS_DOT, terminalStatus } from "../terminalStatus";
+import { liveArm, terminalStatus } from "../terminalStatus";
 import PeekTerminal, { type PeekTerminalHandle } from "./PeekTerminal";
+import { TerminalControls, TerminalStatusLine } from "./TerminalHead";
 import {
   type PeekCell,
   type PeekPad,
@@ -109,7 +107,6 @@ const PeekWindow: Component<{ target: PeekTarget }> = (props) => {
     undefined,
   );
   const membership = useMembership();
-  const conductor = useConductor();
   const driver = () => membership().get(ref)?.driver ?? "nobody";
   const mayType = () => inputAllowedAt(ref);
   const typing = () => focused() && mayType();
@@ -252,34 +249,19 @@ const PeekWindow: Component<{ target: PeekTarget }> = (props) => {
             </For>
           </div>
         </Show>
-        <Show when={pans() || peekFit()}>
-          <button
-            type="button"
-            data-testid="peek-fit"
-            aria-pressed={peekFit()}
-            class={
-              peekFit()
-                ? "shrink-0 cursor-pointer rounded-md border border-accent/50 bg-accent/15 px-2 py-0.5 text-[0.7rem] text-accent"
-                : "shrink-0 cursor-pointer rounded-md border border-edge-bright bg-surface-0 px-2 py-0.5 text-[0.7rem] text-fg-2 hover:text-fg"
-            }
-            onClick={() => togglePeekFit()}
-          >
-            Fit width
-          </button>
-        </Show>
-        <button
-          type="button"
-          data-testid="peek-open-tile"
-          disabled={standing().kind !== "here"}
-          class="shrink-0 cursor-pointer rounded-md border border-edge-bright bg-surface-0 px-2 py-0.5 text-[0.7rem] font-semibold text-accent hover:text-fg disabled:cursor-default disabled:opacity-40"
-          onClick={() => {
+        <TerminalControls
+          kind="peek"
+          host={props.target.host}
+          id={props.target.id}
+          pans={pans()}
+          fit={peekFit()}
+          onFit={togglePeekFit}
+          onOpenTile={() => {
             const at = props.target;
             closePeek();
             openTileAt(at);
           }}
-        >
-          Open tile ↗
-        </button>
+        />
         <Show when={!typing()}>
           <span
             data-testid="peek-esc-hint"
@@ -298,98 +280,17 @@ const PeekWindow: Component<{ target: PeekTarget }> = (props) => {
           ×
         </button>
       </div>
-      <div
-        data-testid="peek-statusline"
-        class="flex min-w-0 shrink-0 items-center gap-2 bg-surface-0 px-3 py-1.5 text-[0.7rem] max-sm:flex-wrap"
+      <TerminalStatusLine
+        kind="peek"
+        host={props.target.host}
+        id={props.target.id}
+        terminal={ref}
+        driver={driver()}
+        grid={grid()}
+        phase={phase()}
+        held={held()}
         onPointerDown={blurTerminal}
-      >
-        <span class="shrink-0 font-mono text-[0.6rem] uppercase tracking-[0.1em] text-accent">
-          {hostLabel(decodeHostKey(props.target.host))}
-        </span>
-        <span
-          class={`h-2 w-2 shrink-0 rounded-full ${STATUS_DOT[status().tone]}`}
-        />
-        <span
-          data-testid="peek-status"
-          class="min-w-0 flex-1 truncate text-fg-2"
-        >
-          <span class="font-semibold text-fg">{status().state}</span>
-          <Show when={status().progress}>
-            {(tasks) => (
-              <>
-                {" · "}
-                <span class="tabular-nums" title={tasks().title}>
-                  {tasks().text}
-                </span>
-              </>
-            )}
-          </Show>
-          <Show when={status().doing}>{(doing) => <> · {doing()}</>}</Show>
-        </span>
-        <Show when={lookable() && driver() !== "nobody"}>
-          <span
-            data-testid="peek-lock"
-            data-driver={driver()}
-            class="flex shrink-0 items-center gap-1.5"
-          >
-            <Show
-              when={driver() === "conductor"}
-              fallback={
-                <>
-                  <span class="rounded-sm bg-alert/15 px-1.5 font-mono text-[0.56rem] font-semibold uppercase tracking-[0.06em] text-alert">
-                    You’re driving
-                  </span>
-                  <button
-                    type="button"
-                    data-testid="peek-hand-back"
-                    class="shrink-0 cursor-pointer rounded-sm bg-alert/20 px-2 py-[0.2rem] font-mono text-[0.62rem] font-semibold uppercase tracking-[0.06em] text-alert transition-colors hover:bg-alert/30"
-                    onClick={() => conductor.handBack(ref)}
-                  >
-                    Hand back
-                  </button>
-                </>
-              }
-            >
-              <span class="rounded-sm bg-conductor/15 px-1.5 font-mono text-[0.56rem] font-semibold uppercase tracking-[0.06em] text-conductor">
-                Conductor is driving · read-only
-              </span>
-              <button
-                type="button"
-                data-testid="peek-take-over"
-                class="shrink-0 cursor-pointer rounded-sm bg-conductor/20 px-2 py-[0.2rem] font-mono text-[0.62rem] font-semibold uppercase tracking-[0.06em] text-conductor transition-colors hover:bg-conductor/30"
-                onClick={() => conductor.takeOver(ref)}
-              >
-                Take over
-              </button>
-            </Show>
-          </span>
-        </Show>
-        <Show when={lookable() && grid()}>
-          {(g) => (
-            <span
-              data-testid="peek-grid"
-              class="shrink-0 font-mono text-[0.6rem] tabular-nums text-fg-3"
-            >
-              {g().cols}×{g().rows}
-            </span>
-          )}
-        </Show>
-        <Show when={lookable()}>
-          <span
-            data-testid="peek-live"
-            data-phase={held() ? "held" : phase()}
-            class="shrink-0 font-mono text-[0.6rem] text-fg-3"
-          >
-            {held()
-              ? "new output below"
-              : phase() === "live"
-                ? "live"
-                : phase() === "reading"
-                  ? "reading the screen…"
-                  : "reconnecting…"}
-          </span>
-        </Show>
-      </div>
+      />
       <div
         data-testid="peek-body"
         class="relative min-h-0 min-w-0 flex-1"
