@@ -1391,6 +1391,47 @@ Then(
   },
 );
 
+/** WHERE THE CHAT WAS, before the works side is touched — the numbers a pick
+ *  and an unpick must leave exactly alone. */
+Then(
+  "I note where the conductor transcript is scrolled",
+  async function (this: KoluWorld) {
+    // Chromium ANIMATES a wheel notch: the two steps above can both return
+    // while the view is still gliding. Note where it actually came to rest,
+    // not where it happened to be when the last event was dispatched.
+    const settled = Promise.withResolvers<void>();
+    setTimeout(settled.resolve, 750);
+    await settled.promise;
+    this.notedTranscriptTop = await this.page
+      .locator(TRANSCRIPT)
+      .evaluate((el) => el.scrollTop);
+    assert.ok(
+      this.notedTranscriptTop > 0,
+      "the transcript is at the top — the scenario asked for a place in the middle of a long conversation, and a note of 0 cannot fail later",
+    );
+  },
+);
+
+Then(
+  "the conductor transcript should be scrolled where I noted",
+  async function (this: KoluWorld) {
+    const noted = this.notedTranscriptTop;
+    assert.ok(noted !== undefined, "no scroll position was noted first");
+    // Give any settled layout a beat to land — a pick on the works side must
+    // not move the chat at any point, including the frame after it.
+    const settled = Promise.withResolvers<void>();
+    setTimeout(settled.resolve, 750);
+    await settled.promise;
+    const now = await this.page
+      .locator(TRANSCRIPT)
+      .evaluate((el) => el.scrollTop);
+    assert.ok(
+      Math.abs(now - noted) <= 2,
+      `the transcript moved from ${noted} to ${now} when a work was picked on the works side — the works and the chat are separate things`,
+    );
+  },
+);
+
 Then(
   "the conductor should offer the way back to the bottom",
   async function (this: KoluWorld) {

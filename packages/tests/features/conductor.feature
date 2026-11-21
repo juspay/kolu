@@ -484,6 +484,48 @@ Feature: The Conductor
     And the conductor should not offer the way back to the bottom
     And there should be no page errors
 
+  Scenario: Picking a work and going back leaves a scrolled-up chat exactly where it was
+    # THE WORKS SIDE IS NOT THE CHAT'S BUSINESS. A reader who scrolled up in a
+    # long conversation to read something must be exactly there after a work
+    # is picked and the board comes back — the chat filters to the work while
+    # it is picked, so a view that threw the reading position away on the way
+    # to the board left them at the top.
+    When I create a terminal
+    And I enter conductor mode
+    And I send the conductor the prompt "say a lot"
+    And I send the conductor the prompt "say a lot"
+    And I send the conductor the prompt "say a lot"
+    Then the conductor transcript should show a row of kind "agent" saying "line 30"
+    When I ask the conductor to open the work "one"
+    And I open the work card
+    And the chat should be about the work
+    And my message "say a lot" should be out of sight
+    And I go back to all the works
+    When I scroll the conductor transcript up
+    And I scroll the conductor transcript up
+    And I note where the conductor transcript is scrolled
+    And I open the work card
+    And the chat should be about the work
+    And my message "say a lot" should be out of sight
+    And I go back to all the works
+    Then the conductor transcript should be scrolled where I noted
+    And there should be no page errors
+
+  Scenario: Picking a work and going back leaves a following chat at the bottom
+    # The other half: a reader at the end is following, and nothing on the
+    # works side may unpin them from it.
+    When I create a terminal
+    And I enter conductor mode
+    And I send the conductor the prompt "say a lot"
+    Then the conductor transcript should show a row of kind "agent" saying "line 30"
+    And the conductor transcript should be scrolled to the bottom
+    When I ask the conductor to open the work "two"
+    And I open the work card
+    And I go back to all the works
+    Then the conductor transcript should be scrolled to the bottom
+    And the conductor should not offer the way back to the bottom
+    And there should be no page errors
+
   Scenario: A mermaid block in an answer draws once it is complete
     # The fixture streams a six-item list, then a mermaid block over several
     # pieces (the closing fence on its own), then words for a few seconds more.
