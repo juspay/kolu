@@ -341,10 +341,11 @@ export const readMemoryFile = (
     );
   const entries: Array<MemoryText> = [];
   for (const entry of found) {
-    const first = entry.lines.findIndex((line) => line.trim() !== "");
-    const about =
-      first === -1 ? null : ABOUT_LINE.exec(entry.lines[first] ?? "");
-    const body = about === null ? entry.lines : entry.lines.slice(first + 1);
+    // Only the line directly under the heading can be the about line: the
+    // text always follows a blank line, so a text that itself starts with
+    // "About:" reads back as text.
+    const about = ABOUT_LINE.exec(entry.lines[0] ?? "");
+    const body = about === null ? entry.lines : entry.lines.slice(1);
     const text = tidyMemoryText({
       title: entry.title,
       about: about === null ? null : (about[1] ?? ""),

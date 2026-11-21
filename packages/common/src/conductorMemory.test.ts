@@ -221,6 +221,22 @@ describe("the memory file", () => {
     expect(readMemoryFile(file)).toEqual(entries);
   });
 
+  it("reads back a memory whose text starts with “About:”, unchanged", () => {
+    const entries = [
+      text({
+        title: "Squash on the demo repo",
+        about: null,
+        body: "About: the demo repo\nAlways squash.",
+      }),
+      text({
+        title: "Rebase first",
+        about: "demo-app",
+        body: "About: rebasing\nRebase before review.",
+      }),
+    ];
+    expect(readMemoryFile(memoryFile(entries))).toEqual(entries);
+  });
+
   it("refuses a file with no memory in it, rather than reading it as empty", () => {
     for (const file of ["", "# kolu Conductor memory\n", "just some notes\n"]) {
       const read = readMemoryFile(file);
