@@ -18,6 +18,11 @@ async function loadFresh() {
   return import("./fitWidth");
 }
 
+// Load once at collection, before any test's clock starts: a worker's first
+// import costs one round trip to vitest's main process per module, and while
+// the suite is starting those add up to seconds. Each case then re-evaluates.
+await loadFresh();
+
 describe("the Conductor's Fit width choice", () => {
   it("starts on", async () => {
     localStorage.clear();

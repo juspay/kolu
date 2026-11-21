@@ -38,6 +38,11 @@ async function loadPage(): Promise<{
   };
 }
 
+// Load once at collection, before any test's clock starts: a worker's first
+// import costs one round trip to vitest's main process per module, and while
+// the suite is starting those add up to seconds. Each page then re-evaluates.
+await loadPage();
+
 describe("a host's unread marks across a reload", () => {
   beforeEach(() => localStorage.clear());
 

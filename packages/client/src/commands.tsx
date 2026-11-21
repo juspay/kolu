@@ -53,11 +53,11 @@ import { useNeedsYou, useWorks } from "./conductor/useWorks";
 import { showWork } from "./conductor/workListing";
 import { workHost, workSubtitle } from "./conductor/workReadings";
 import {
-  hostRootActions,
   terminalHostGroups,
   terminalSwitchActions,
 } from "./palette/fleetActions";
 import { useFleetTerminalIndex } from "./palette/fleetTerminals";
+import { hostRootActions } from "./palette/hostActions";
 import { HOSTS_GROUP_NAME } from "./palette/hostsGroup";
 import { NEW_TERMINAL_GROUP } from "./palette/newTerminalGroup";
 import { TERMINALS_GROUP_NAME } from "./palette/terminalsGroup";
