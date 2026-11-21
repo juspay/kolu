@@ -12912,16 +12912,88 @@
       "firstSeenSha": "6f1cdc512955c6b33e054a6e3bdb1d11f2dbd1dd"
     },
     {
-      "revisionId": "revision-3b0f088bba3692169bf9",
-      "scenarioKey": "scenario-db4e47122b91e4a6ad3f",
-      "feature": "features/conductor-turns.feature",
-      "scenario": "A message sent mid-reply waits below the whole reply, then gets its own",
+      "revisionId": "revision-83df103af350284c746b",
+      "scenarioKey": "scenario-185f06a3ac13e03abcf7",
+      "feature": "features/attention-alerts.feature",
+      "scenario": "A finished agent you had opened reads as read after a deploy",
       "kind": "scenario",
       "tags": [],
-      "bodyHash": "528e1170f808953514edb38472172d03a61f7f3d931421185f7a31bfcdae5348",
+      "bodyHash": "080b0045f215d13d9bf2bf6059da19f8d34cf5569bf9f35261fe85625b912259",
       "exampleRows": [],
       "executions": 1,
-      "firstSeenSha": "afc05c7a9a5cd04b6e2e7230aeaa9e14029dd415"
+      "firstSeenSha": "8d141b56b1bfe0696a239f38dc524798742c115f"
+    },
+    {
+      "revisionId": "revision-422eb859bfedcb058909",
+      "scenarioKey": "scenario-b31321cb9491780d8b66",
+      "feature": "features/attention-alerts.feature",
+      "scenario": "A finished agent you had opened reads as read after a deploy, behind a sleeping terminal",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "55e964d60c3f2ca1bef0838d99c3d67dbdbb7ed5c78e2985b47b4c10677fdac6",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "8d141b56b1bfe0696a239f38dc524798742c115f"
+    },
+    {
+      "revisionId": "revision-86bf6cfda3890e1297e7",
+      "scenarioKey": "scenario-e797fc7996c1cd8357e5",
+      "feature": "features/attention-alerts.feature",
+      "scenario": "A finished agent you had opened reads as read after kolu restarts, behind a sleeping terminal",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "c3494b99aa9af8e0f3ce5c062f460dc8cb25f196f8fda951c331e7908b4582c7",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "8d141b56b1bfe0696a239f38dc524798742c115f"
+    },
+    {
+      "revisionId": "revision-303d0f95632d73187334",
+      "scenarioKey": "scenario-73f9f2bb8dc73053d1b1",
+      "feature": "features/attention-alerts.feature",
+      "scenario": "A finished agent you had opened stays read when padi is replaced under the page",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "9fa9b964aa1f27d75ef5c6cdb83e712b14644cc4f6aeb8c3a5b7378808f80791",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "8d141b56b1bfe0696a239f38dc524798742c115f"
+    },
+    {
+      "revisionId": "revision-2133d164ddfedd91ba03",
+      "scenarioKey": "scenario-c51bfcefcc1ad941d254",
+      "feature": "features/attention-alerts.feature",
+      "scenario": "A finished agent you had opened stays read when padi is replaced under the page, behind a sleeping terminal",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "a3d72c84e663a6785592bfdb9857aafca796a6cbac76371fffd4e0b04f2d880e",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "8d141b56b1bfe0696a239f38dc524798742c115f"
+    },
+    {
+      "revisionId": "revision-6ddd2d25bc2753d69008",
+      "scenarioKey": "scenario-b02b85222f0f50ff4cb0",
+      "feature": "features/attention-alerts.feature",
+      "scenario": "A terminal read in one page stays read after another page of the same kolu writes the unread list",
+      "kind": "scenario",
+      "tags": ["@codex-mock"],
+      "bodyHash": "5a2c2ebd9c7ed4650dd8e4894624c430a86e7d6fb428b5a8888ab7788573caa8",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "8d141b56b1bfe0696a239f38dc524798742c115f"
+    },
+    {
+      "revisionId": "revision-6c009b49a484e43d2297",
+      "scenarioKey": "scenario-d42a126d4c936830be5f",
+      "feature": "features/attention-alerts.feature",
+      "scenario": "A terminal read in one page stays read after another page, at a different address, writes the unread list",
+      "kind": "scenario",
+      "tags": ["@codex-mock"],
+      "bodyHash": "e6255b13db0f2708e68c223f441b02d98535ba27a5a1419a1cd00e0597a6e660",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "8d141b56b1bfe0696a239f38dc524798742c115f"
     },
     {
       "revisionId": "revision-c0922b74ef349d07bbaf",
@@ -12933,7 +13005,7 @@
       "bodyHash": "aff80d8080f303a447aec874a5357b4ccaa34d5ecd2c64970033c3e72c5677a6",
       "exampleRows": [],
       "executions": 1,
-      "firstSeenSha": "dc8e91d5770bc0acf95804cf997854bcc39211d1"
+      "firstSeenSha": "9c770675fb1d8de5f2aa987fe3ed41e89742743b"
     },
     {
       "revisionId": "revision-0ca41432f06a1827cdd0",
@@ -12945,7 +13017,7 @@
       "bodyHash": "db9d38a6faeba6cea3216dff5bb3ab99da0945b576f6ff2d562d9381473ab3c8",
       "exampleRows": [],
       "executions": 1,
-      "firstSeenSha": "dc8e91d5770bc0acf95804cf997854bcc39211d1"
+      "firstSeenSha": "9c770675fb1d8de5f2aa987fe3ed41e89742743b"
     },
     {
       "revisionId": "revision-8c9611d90425d10137e2",
@@ -12957,7 +13029,7 @@
       "bodyHash": "ea4b451cde5f73c5a5a4b7dfdf9e1e75f166f4a554b9cda2010c236b4d407502",
       "exampleRows": [],
       "executions": 1,
-      "firstSeenSha": "dc8e91d5770bc0acf95804cf997854bcc39211d1"
+      "firstSeenSha": "9c770675fb1d8de5f2aa987fe3ed41e89742743b"
     },
     {
       "revisionId": "revision-464f69c4edf0e90c4e58",
@@ -12969,7 +13041,7 @@
       "bodyHash": "96a238086dc0aa03f5a82bf73d37b39a92467aaa524494d84e645b03ae7dc7e0",
       "exampleRows": [],
       "executions": 1,
-      "firstSeenSha": "dc8e91d5770bc0acf95804cf997854bcc39211d1"
+      "firstSeenSha": "9c770675fb1d8de5f2aa987fe3ed41e89742743b"
     },
     {
       "revisionId": "revision-3d4416314f0e95d19258",
@@ -12981,7 +13053,7 @@
       "bodyHash": "b36c51b72e632beba7d7747acc6de07aa30986bcd417e210ab55f637b6d4331b",
       "exampleRows": [],
       "executions": 1,
-      "firstSeenSha": "dc8e91d5770bc0acf95804cf997854bcc39211d1"
+      "firstSeenSha": "9c770675fb1d8de5f2aa987fe3ed41e89742743b"
     },
     {
       "revisionId": "revision-8bed35a73debafa8687b",
@@ -12993,7 +13065,7 @@
       "bodyHash": "d0980e868241e5bc35a37e7442949c802f39db8fddfce39c9fa0687a62743bcd",
       "exampleRows": [],
       "executions": 1,
-      "firstSeenSha": "dc8e91d5770bc0acf95804cf997854bcc39211d1"
+      "firstSeenSha": "9c770675fb1d8de5f2aa987fe3ed41e89742743b"
     },
     {
       "revisionId": "revision-be7fe7d1d5cc30f1afe5",
@@ -13005,7 +13077,31 @@
       "bodyHash": "cb14049c295856051c5a290e6b6f66da51e8146c14cc7df22e5ba7d4faadfe7d",
       "exampleRows": [],
       "executions": 1,
-      "firstSeenSha": "dc8e91d5770bc0acf95804cf997854bcc39211d1"
+      "firstSeenSha": "9c770675fb1d8de5f2aa987fe3ed41e89742743b"
+    },
+    {
+      "revisionId": "revision-768ec53b04a37dde49bc",
+      "scenarioKey": "scenario-b02b85222f0f50ff4cb0",
+      "feature": "features/attention-alerts.feature",
+      "scenario": "A terminal read in one page stays read after another page of the same kolu writes the unread list",
+      "kind": "scenario",
+      "tags": ["@codex-mock"],
+      "bodyHash": "e46656f9e41c35ddd7c9d81427972e9881231056253655094e1677c619a6b351",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "9c770675fb1d8de5f2aa987fe3ed41e89742743b"
+    },
+    {
+      "revisionId": "revision-05afb3484049002ce41d",
+      "scenarioKey": "scenario-d42a126d4c936830be5f",
+      "feature": "features/attention-alerts.feature",
+      "scenario": "A terminal read in one page stays read after another page, at a different address, writes the unread list",
+      "kind": "scenario",
+      "tags": ["@codex-mock"],
+      "bodyHash": "1d86daeec3542dfdb92686d5f25d4527679b7356d5188607a67936b04e3c1195",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "9c770675fb1d8de5f2aa987fe3ed41e89742743b"
     },
     {
       "revisionId": "revision-2f83858103d88b68f4b8",
@@ -13017,7 +13113,7 @@
       "bodyHash": "c0768573dec3276fc1eb01309824657d4dc7bdaef618c30f72745a0f1d8cac9c",
       "exampleRows": [],
       "executions": 1,
-      "firstSeenSha": "dc8e91d5770bc0acf95804cf997854bcc39211d1"
+      "firstSeenSha": "d29d06a291b1e1f46b37ccb42a9671561c7f8caf"
     },
     {
       "revisionId": "revision-816ceab19c8d9a2eb604",
@@ -13029,7 +13125,19 @@
       "bodyHash": "81426ceeccaeae94ea778fc6818ea4a8f2b6978613a7c1c1af7140714506bfc0",
       "exampleRows": [],
       "executions": 1,
-      "firstSeenSha": "dc8e91d5770bc0acf95804cf997854bcc39211d1"
+      "firstSeenSha": "d29d06a291b1e1f46b37ccb42a9671561c7f8caf"
+    },
+    {
+      "revisionId": "revision-3b0f088bba3692169bf9",
+      "scenarioKey": "scenario-db4e47122b91e4a6ad3f",
+      "feature": "features/conductor-turns.feature",
+      "scenario": "A message sent mid-reply waits below the whole reply, then gets its own",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "528e1170f808953514edb38472172d03a61f7f3d931421185f7a31bfcdae5348",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "afc05c7a9a5cd04b6e2e7230aeaa9e14029dd415"
     }
   ]
 }
