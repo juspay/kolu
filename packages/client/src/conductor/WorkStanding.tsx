@@ -1,6 +1,6 @@
 /** WHERE A WORK STANDS, in one line — who it waits on, why, and for how long.
  *
- *  The card's shut face and a work chip's hover card draw this one line, so
+ *  A work's face and a work chip's hover card draw this one line, so
  *  the two say the same thing in the same words: the lead in the waiter's
  *  colour, the detail after it (a PR it names is a link), and how long the
  *  wait has run (or, once the work is over, how long ago it ended). */

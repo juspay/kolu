@@ -16,15 +16,27 @@
 
 import { createSignal } from "solid-js";
 import { defaultInvalidWarning, persistedPref } from "../persistedPref";
+import { type LayoutMode, layoutMode } from "../useMobile";
 
 /** The row's two kinds of destination. `"hosts"` means "whichever host tab
  *  `activeHost` names" — the row has many host tabs and exactly one
  *  conductor, so the host half needs no value of its own here. */
-type ChromeTab = "conductor" | "hosts";
+export type ChromeTab = "conductor" | "hosts";
+
+/** WHERE A FRESH OPEN LANDS — a browser tab with nothing stored yet. A phone
+ *  opens on the Conductor: on one small screen the conversation is the place
+ *  to start, and a host is one pull-down away. A tablet and a desktop open on
+ *  a host, where their canvas is. Read once, when this module loads; after
+ *  that the stored choice decides, so a reload stays where the person was. */
+export function freshChromeTab(mode: LayoutMode): ChromeTab {
+  return mode === "phone" ? "conductor" : "hosts";
+}
+
+const FRESH = freshChromeTab(layoutMode());
 
 const [chromeTab, setChromeTab] = persistedPref<ChromeTab>({
   name: "kolu-active-chrome-tab",
-  fallback: "hosts",
+  fallback: FRESH,
   parse: (raw) => {
     if (raw === "conductor" || raw === "hosts") return raw;
     throw new Error(`unknown chrome tab "${raw}"`);
@@ -32,7 +44,7 @@ const [chromeTab, setChromeTab] = persistedPref<ChromeTab>({
   // Strings store verbatim (`persistedPref`'s default serializer), so the
   // stored value reads as the selection it is.
   storage: sessionStorage,
-  onInvalid: defaultInvalidWarning("kolu-active-chrome-tab", "hosts"),
+  onInvalid: defaultInvalidWarning("kolu-active-chrome-tab", FRESH),
 });
 
 /** Is the conductor the selected entry? The one predicate every surface

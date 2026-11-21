@@ -74,7 +74,7 @@ The line above the message box says what the Conductor is doing:
 | Part | What it says |
 | --- | --- |
 | state | **working** (on what, and for how long), **asking you**, or **idle** |
-| **N pieces of work · M need you** | what it has in flight, and how many need you: each work waiting on you, plus any question asked outside a work. Hidden at zero. On a narrow window, click it to open the work column. |
+| **N pieces of work · M need you** | what it has in flight, and how many need you: each work waiting on you, plus any question asked outside a work. Hidden at zero. On a phone, tap it to open the **Work** tab. |
 | waiting | how many wakes are held until the turn ends |
 | **↯ Alt+⏎ steers** | shown while you can steer |
 
@@ -124,28 +124,28 @@ A work holds its timeline, the decisions you made, its member terminals and, onc
 
 While a work is open, each member terminal is read-only to you, bordered in the Conductor's colour. [Tiles](/tiles#a-terminal-the-conductor-is-driving) says how to take one over.
 
-### The work card
+### Where the works are
 
-Each piece of work has a card: where it stands, its stages, and the part of its history you need, with the rest one click away. [The work card](/work-card) says what each line and section shows.
+The works take the wide side of the Conductor, and the conversation is a panel on the right. On a phone they are two tabs, **Work** and **Chat**. [The work card](/work-card) says what each row and card shows.
 
 ## Read the conversation
 
-The header shows who the agent is signed in as, the **model**, the [context used](/conductor-memory) (as `148k/1M`), and the **⋯** menu. Click the model to change it, its reasoning effort or its permission mode. The model you choose survives a restart.
+The header shows who the agent is signed in as, the **model**, the [context used](/conductor-memory) (as `148k/1M`), **?** for the help, and the **⋯** menu. Click the model to change it, its reasoning effort or its permission mode. The model you choose survives a restart.
 
 | ⋯ menu item | What it does |
 | --- | --- |
 | **New session** | Starts an empty conversation: the messages and their attached files are deleted. The pieces of work stay. It asks first, and there is no undo. |
 | **Sign in again…** | Opens the sign-in, even while signed in. **Sign in…** when not. |
 | **Copy transcript** | Copies the whole conversation as plain text. |
-| **How to use** | Opens the help. On a wide window it is a column beside the chat, folded away while a file is open. |
+| **How to use** | Opens the help, the sheet the header's **?** opens. On a phone this is the way to it. |
 | tool servers | `kolu ✓` when kolu's tools are attached, or the agent's reason when they are not. |
 
 In the transcript:
 
 - Tool calls between two messages fold into one **Details** line with a count. Running calls, failed calls, questions and your messages stay outside it.
-- Each turn names its pieces of work as chips, under your message or the wake-up: hover one for where it stands, click it to open its card. A file a reply names opens [that work's copy](/read-a-plan#open-a-file).
+- Each turn names its pieces of work as chips, under your message or the wake-up: hover one for where it stands, click it to pick that work. A file a reply names opens [that work's copy](/read-a-plan#open-a-file).
 - A card for a terminal the Conductor created shows the agent's state, **Look**, and **open tile**, which takes you there.
-- **Look** opens [a live window](/tiles#look-from-the-conductor) on that terminal, over the chat.
+- **Look** opens [a live window](/tiles#look-from-the-conductor) on that terminal, over the chat. A [picked work](/work-card#the-picked-work) shows its terminals live beside it.
 - A ` ```mermaid ` block draws as a [diagram](/code-tab#markdown-and-artifacts) once complete, and shows as code until then.
 - A `— new session —` line means kolu could not resume the conversation after a restart. The agent remembers nothing above it.
 
@@ -159,9 +159,9 @@ A heading, **Since your last message · N updates**, stands before the run of th
 
 ### Point the chat at one work
 
-Clicking **About this work**, on a card or in a work chip's hover card, points the chat at that work. A bar over the chat then reads **Only**, the work's chip and **N of M turns**, with **Show all** beside it.
+Picking a work, or clicking **About this work** on it or in a work chip's hover card, points the chat at that work. A bar over the chat then reads **Only**, the work's chip and **N of M turns**, with **Show all** beside it.
 
-The chat then shows only the turns about that work, and the box carries it as a chip, so your next message is about it. The × on that chip, or **Show all**, ends it, and so does a reload. Leaving the Conductor and coming back does not.
+The chat then shows only the turns about that work, and the box carries it as a chip. **← All work** ends it. A reload, **Show all**, or the × on that chip, ends it and keeps the work picked.
 
 ## When it asks you
 

@@ -126,6 +126,7 @@ const mount = () => {
           onHeld={() => {}}
           onFocus={() => {}}
           onHandle={() => {}}
+          testId="peek-screen"
         />
       </Shown.Provider>
     ),

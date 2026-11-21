@@ -40,3 +40,15 @@ Feature: The Conductor on a phone
     And I press the work's chip in the conversation
     Then the watched work's card should be open
     And there should be no page errors
+
+  @mobile
+  Scenario: On a phone a picked work is a page with a way back
+    When I ask the conductor to watch the first terminal
+    And I open the work column
+    And I open the work card
+    Then the watched work's card should be open
+    And nothing on screen should reach past the window's right edge
+    When I go back to all the works
+    Then the phone should be showing the works
+    And no work should be picked
+    And there should be no page errors

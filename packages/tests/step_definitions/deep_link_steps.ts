@@ -8,6 +8,7 @@
 
 import * as assert from "node:assert";
 import { Then, When } from "@cucumber/cucumber";
+import { pollFor } from "../support/poll.ts";
 import { type KoluWorld, POLL_TIMEOUT } from "../support/world.ts";
 
 /** Expand `{id1}`/`{id2}`/`{sub}` placeholders in a link template to live ids. */
@@ -94,6 +95,61 @@ When(
       { target: targetId, ids: expectedIds },
       { timeout: POLL_TIMEOUT },
     );
+  },
+);
+
+/** A FRESH OPEN at a link — what a new browser tab opened on a shared link
+ *  sees: nothing in this tab's `sessionStorage` (so no remembered chrome tab
+ *  or host), the link in the address bar, and a cold boot. The terminals the
+ *  scenario created are still live on the server, as they would be. */
+When(
+  "I open the deep link {string} as a fresh open",
+  async function (this: KoluWorld, template: string) {
+    const hash = expandDeepLink(this, template);
+    await this.page.evaluate((h) => {
+      sessionStorage.clear();
+      history.replaceState(null, "", h);
+    }, hash);
+    await this.page.reload();
+    await this.waitForSettled();
+  },
+);
+
+/** The terminal a person is looking at: the one terminal screen on screen.
+ *  Read from the panes' own geometry, so a tile mounted but off screen or
+ *  under a covering layer does not count. */
+Then(
+  "the terminal on screen should be {string}",
+  async function (this: KoluWorld, template: string) {
+    const expected = expandDeepLink(this, template);
+    await pollFor({
+      observe: () =>
+        this.page.evaluate(() => {
+          const onScreen: string[] = [];
+          for (const el of document.querySelectorAll<HTMLElement>(
+            "[data-visible][data-terminal-id]:not([data-sub-terminal])",
+          )) {
+            const r = el.getBoundingClientRect();
+            const shown =
+              r.width > 0 &&
+              r.height > 0 &&
+              r.right > 0 &&
+              r.bottom > 0 &&
+              r.left < window.innerWidth &&
+              r.top < window.innerHeight &&
+              el.checkVisibility();
+            const id = el.getAttribute("data-terminal-id");
+            if (shown && id) onScreen.push(id);
+          }
+          return onScreen;
+        }),
+      isDone: (ids) => ids.length === 1 && ids[0] === expected,
+      onTimeout: (last, ms) =>
+        new Error(
+          `after ${ms}ms the terminals on screen are ${JSON.stringify(last)}, not ["${expected}"]`,
+        ),
+      timeoutMs: POLL_TIMEOUT,
+    });
   },
 );
 

@@ -1,39 +1,85 @@
-/** THE RIGHT COLUMN — what the Conductor has in flight, and what it finished.
+/** THE WORKS — what the Conductor has in flight, and what it finished: the
+ *  wide side of the Conductor's screen, with the chat a panel beside it.
  *
- *  Three groups, in the order a person needs them: "Needs you · N" (the
- *  works the one needs-you reading lists — a question for you, or a merge
- *  that is yours), then "In progress" (everything else that is running),
- *  then "Finished", collapsed, the most recently ended first. The group is
- *  cut by the SAME reading the bell, the tab's count and the palette read,
- *  so a work in this group is a work that rang. Within a group the order is
- *  the `works` cell's, which kolu-server publishes oldest first — a card
- *  keeps its place while a new one appears under it; the column does not
- *  re-sort what the record already says.
+ *  Four groups, in the order a person needs them: "Needs you · N" (the works
+ *  the one needs-you reading lists — a question for you, or a merge that is
+ *  yours), "In progress" (every other work it is building), "Watching" (the
+ *  terminals it is keeping an eye on), then "Finished", collapsed, the most
+ *  recently ended first. The first group is cut by the SAME reading the bell,
+ *  the tab's count and the palette read, so a work in it is a work that rang.
+ *  Within a group the order is the `works` cell's, which kolu-server
+ *  publishes oldest first — a work keeps its place while a new one appears
+ *  under it; the list does not re-sort what the record already says.
  *
- *  ONE COMPONENT, TWO PLACEMENTS. On a window wide enough it is the column
- *  beside the conversation; below that width it is the band the status line's
- *  count opens above itself. The rows, the clocks, the open cards and the
- *  Looks are identical, because they are the same component and the same
- *  module state (`./workListing.ts`) — a resize moves the column between the
- *  two with everything a person had open still open.
+ *  A WORK THAT NEEDS YOU IS A CARD, with its question on it; every other
+ *  work in progress is a ROW of its group's table — title, stage line,
+ *  terminals and age side by side — and a finished work is a LINE of the
+ *  Finished list: title, repository, how it ended, how long it ran and when
+ *  (`WorkCard`'s shapes). On a phone, where there is no side to put anything
+ *  beside, every work in progress is a card.
  *
- *  WITH NOTHING IN IT, it says so in a sentence. The column is on screen
- *  whether or not anything is running — that is what keeps the conversation
- *  from sliding sideways when the first work appears — so what it says when
- *  empty has to be words and not a hole. It never reads `0`. */
+ *  A PRESSED WORK IS PICKED: the board gives way to the picked work, with the
+ *  others folded to a rail beside it (`WorkRail`), or, on a phone, to a page
+ *  of its own with the way back above it.
+ *
+ *  WITH NOTHING IN FLIGHT, it says so in a sentence, never `0`. */
 
 import { Key } from "@solid-primitives/keyed";
-import { finished, inProgress, type WorkRow } from "kolu-work";
-import { type Component, createEffect, createMemo, Show } from "solid-js";
+import {
+  finished,
+  inProgress,
+  type Work,
+  type WorkId,
+  type WorkRow,
+} from "kolu-work";
+import {
+  type Component,
+  createEffect,
+  createMemo,
+  type JSX,
+  on,
+  onCleanup,
+  onMount,
+  Show,
+} from "solid-js";
+import { MEMBERSHIP_BOUND_MS } from "../useDeepLinks";
+import { layoutMode } from "../useMobile";
 import { useNeedsYou, useWorks } from "./useWorks";
 import WorkCard from "./WorkCard";
 import {
   isFinishedOpen,
-  openFinished,
+  pickedWork,
   toggleFinished,
-  wantedCard,
+  unpickWork,
 } from "./workListing";
+import WorkRail from "./WorkRail";
 import { WAITER_INK } from "./workReadings";
+
+/** Where the board was scrolled to when a work was picked, so going back to
+ *  all the works lands where the person left them. */
+let boardScroll = 0;
+
+/** THE BOARD KEEPS ITS PLACE across a pick: it is taken down while a work is
+ *  picked (a hidden board would draw every work a second time) and its
+ *  scroll is put back when it returns. The scroller is the works' own
+ *  scrolling box (`data-works-scroll`), which outlives the board. */
+const Board: Component<{ children: JSX.Element }> = (props) => {
+  let root!: HTMLDivElement;
+  const scroller = () =>
+    root.closest<HTMLElement>("[data-works-scroll]") ?? undefined;
+  onMount(() => {
+    const box = scroller();
+    if (box !== undefined) box.scrollTop = boardScroll;
+  });
+  onCleanup(() => {
+    boardScroll = scroller()?.scrollTop ?? 0;
+  });
+  return (
+    <div ref={root} data-testid="works-board">
+      {props.children}
+    </div>
+  );
+};
 
 const Heading: Component<{ words: string }> = (props) => (
   <h3 class="m-0 mb-1.5 font-mono text-[0.58rem] uppercase tracking-[0.12em] text-fg-3">
@@ -41,8 +87,8 @@ const Heading: Component<{ words: string }> = (props) => (
   </h3>
 );
 
-/** WHAT THE STRIP'S COLOURS MEAN — said once, under the works in progress,
- *  rather than on every card. */
+/** WHAT THE STAGE LINE'S COLOURS MEAN — said once, under the works in
+ *  progress, rather than on every row. */
 const Legend: Component = () => (
   <p
     data-testid="work-legend"
@@ -64,107 +110,207 @@ const Legend: Component = () => (
       <i class={`me-1 inline-block h-2 w-2 rounded-sm ${WAITER_INK.ci.fill}`} />
       CI
     </span>
-    <span>outlined = where it is now</span>
+    <span>ringed = where it is now</span>
   </p>
 );
 
-/** A LIST OF CARDS, KEYED BY THE WORK'S ID. The `works` cell mints a fresh
+/** A LIST OF WORKS, KEYED BY THE WORK'S ID. The `works` cell mints a fresh
  *  `[id, work]` row for every change of any work, so a list keyed by the row
- *  would tear every card down — its open rows, and a scroll a chip had just
- *  asked for — whenever anything happened anywhere. */
-const Cards: Component<{ rows: ReadonlyArray<WorkRow> }> = (props) => (
-  <div class="flex flex-col gap-2">
+ *  would tear every work down — its open details, and a scroll a chip had
+ *  just asked for — whenever anything happened anywhere.
+ *
+ *  Cards stand apart; rows and lines are one table, its lines ruled. */
+const Works: Component<{
+  rows: ReadonlyArray<WorkRow>;
+  shape: "card" | "row" | "line";
+}> = (props) => (
+  <div
+    class={
+      props.shape === "card"
+        ? "flex flex-col gap-2"
+        : "flex flex-col divide-y divide-edge overflow-hidden rounded-xl border border-edge"
+    }
+  >
     <Key each={props.rows} by={([id]) => id}>
-      {(row) => <WorkCard id={row()[0]} work={row()[1]} />}
+      {(row) => <WorkCard id={row()[0]} work={row()[1]} shape={props.shape} />}
     </Key>
   </div>
 );
 
-const WorkColumn: Component<{
-  /** WHERE THIS COPY IS DRAWN, and nothing more. `inline` is the band the
-   *  status line's control opens below the two-column breakpoint, separated
-   *  from the line by its own top edge; `side` is the always-on column beside
-   *  the conversation, which already has the frame's own left edge. */
-  placement: "inline" | "side";
-}> = (props) => {
+/** The picked work, drawn while its record is there. */
+const PickedCard: Component<{ id: WorkId; record: Work | undefined }> = (
+  props,
+) => (
+  <Show when={props.record}>
+    {(work) => <WorkCard id={props.id} work={work()} shape="picked" />}
+  </Show>
+);
+
+/** A watch keeps an eye on a terminal of yours; it is not building anything. */
+const isWatch = (work: Work): boolean => work.key.kind === "watch";
+
+const WorkColumn: Component = () => {
   const works = useWorks();
   const needs = useNeedsYou();
   const live = createMemo(() => inProgress(works()));
-  /** The two groups of what is running, cut by the one needs-you reading. */
+  /** On a phone every work is a card: a row needs a side to stand beside. */
+  const rowShape = (): "card" | "row" =>
+    layoutMode() === "phone" ? "card" : "row";
+  /** The groups of what is running, cut by the one needs-you reading. */
   const groups = createMemo(() => {
     const waiting = new Set(needs().map((one) => one.work));
     const onYou: WorkRow[] = [];
     const moving: WorkRow[] = [];
-    for (const row of live()) (waiting.has(row[0]) ? onYou : moving).push(row);
-    return { onYou, moving };
+    const watching: WorkRow[] = [];
+    for (const row of live()) {
+      if (waiting.has(row[0])) onYou.push(row);
+      else if (isWatch(row[1])) watching.push(row);
+      else moving.push(row);
+    }
+    return { onYou, moving, watching };
   });
   const done = createMemo(() => finished(works()));
-  // A ROUTE TO A FINISHED WORK opens the Finished list, so its card is drawn
-  // and can answer the route — `showWork` is the one route and does not ask
-  // which list a work sits in.
-  createEffect(() => {
-    const want = wantedCard();
-    if (want !== null && done().some(([id]) => id === want.id)) openFinished();
+
+  /** Is the picked work in the list right now? */
+  const pickedHere = createMemo(() => {
+    const id = pickedWork();
+    return id !== null && works().some(([one]) => one === id);
   });
+  /** THE PICKED WORK, with its record — the last one read while the work is
+   *  away from the list. If the work is missing from the mirror for a moment,
+   *  a pick that went back to the board each time would draw the work anew
+   *  and lose the view it was on. */
+  const pickedRow = createMemo((last: WorkRow | undefined) => {
+    const id = pickedWork();
+    if (id === null) return undefined;
+    const now = works().find(([one]) => one === id);
+    if (now !== undefined) return now;
+    return last?.[0] === id ? last : undefined;
+  }, undefined);
+  /** A PICKED WORK THAT IS NOT HERE IS LET GO, after the bound a link waits:
+   *  a reload keeps the pick (`workListing.ts`) and the works reach the mirror
+   *  one by one after it, and a work can be away for a moment, so a pick
+   *  that is not here yet, or not here now, is not one that is gone. One
+   *  that stays away — the oldest finished works are let go — is dropped. */
+  createEffect(
+    on([pickedWork, pickedHere], ([id, here]) => {
+      if (id === null || here) return;
+      const timer = setTimeout(unpickWork, MEMBERSHIP_BOUND_MS);
+      onCleanup(() => clearTimeout(timer));
+    }),
+  );
+  const railGroups = createMemo(() => [
+    { key: "waiting", name: "Needs you", rows: groups().onYou },
+    { key: "in-progress", name: "In progress", rows: groups().moving },
+    { key: "watching", name: "Watching", rows: groups().watching },
+    { key: "finished", name: "Finished", rows: done() },
+  ]);
 
   return (
-    <div
-      data-testid="work-column"
-      data-placement={props.placement}
-      // ONE `class` binding, derived from the placement: a `classList` beside
-      // a static `class` loses here (Solid applies the static one last and
-      // erases the state class), which is the defect `HostChipShell` is the
-      // worked example of.
-      class={`min-w-0 px-3 py-2 ${props.placement === "inline" ? "border-t border-edge bg-surface-1" : "bg-surface-0"}`}
-    >
-      {/* THE QUIET LINE IS ABOUT WHAT IS IN FLIGHT, which is what the column
-          is for: a conversation whose waterfalls have all landed is a
-          conversation with nothing in progress, and saying so is more use
-          than a column that is merely a list of history. The finished work
-          keeps its place BELOW that line rather than standing in for it. */}
+    <div data-testid="work-column" class="min-w-0 bg-surface-0">
+      {/* KEYED BY THE WORK'S ID, not its record: the record is minted fresh
+          on every change, and the picked work must not be built again on
+          each one — only when another work is picked. */}
       <Show
-        when={live().length > 0}
+        when={pickedRow() === undefined ? undefined : pickedWork()}
+        keyed
         fallback={
-          <p
-            data-testid="work-column-empty"
-            class="m-0 font-mono text-[0.65rem] text-fg-3"
-          >
-            Nothing in progress.
-          </p>
+          <Board>
+            <div class="px-4 py-3">
+              {/* THE QUIET LINE IS ABOUT WHAT IS IN FLIGHT, which is what
+                  the list is for: a conversation whose waterfalls have all
+                  landed is a conversation with nothing in progress, and
+                  saying so is more use than a list that is merely history.
+                  The finished works keep their place BELOW that line rather
+                  than standing in for it. */}
+              <Show
+                when={live().length > 0}
+                fallback={
+                  <p
+                    data-testid="work-column-empty"
+                    class="m-0 font-mono text-[0.65rem] text-fg-3"
+                  >
+                    Nothing in progress.
+                  </p>
+                }
+              >
+                <Show when={groups().onYou.length > 0}>
+                  <section data-testid="work-waiting" class="mb-4">
+                    <Heading words={`Needs you · ${groups().onYou.length}`} />
+                    <Works rows={groups().onYou} shape="card" />
+                  </section>
+                </Show>
+                <Show when={groups().moving.length > 0}>
+                  <section data-testid="work-in-progress" class="mb-4">
+                    <Heading
+                      words={`In progress · ${groups().moving.length}`}
+                    />
+                    <Works rows={groups().moving} shape={rowShape()} />
+                  </section>
+                </Show>
+                <Show when={groups().watching.length > 0}>
+                  <section data-testid="work-watching" class="mb-4">
+                    <Heading words={`Watching · ${groups().watching.length}`} />
+                    <Works rows={groups().watching} shape={rowShape()} />
+                  </section>
+                </Show>
+                <Legend />
+              </Show>
+              <Show when={done().length > 0}>
+                {/* FINISHED IS SHUT BY DEFAULT. It is history: worth having,
+                    never worth the top of the list. One press opens it; a
+                    work in it is picked as a live one is. */}
+                <section data-testid="work-finished" class="mt-4">
+                  <button
+                    type="button"
+                    data-testid="work-finished-toggle"
+                    aria-expanded={isFinishedOpen()}
+                    class="mb-1.5 w-full cursor-pointer text-start font-mono text-[0.58rem] uppercase tracking-[0.12em] text-fg-3 hover:text-fg-2"
+                    onClick={toggleFinished}
+                  >
+                    {isFinishedOpen() ? "▾" : "▸"} Finished · {done().length}
+                  </button>
+                  <Show when={isFinishedOpen()}>
+                    <Works rows={done()} shape="line" />
+                  </Show>
+                </section>
+              </Show>
+            </div>
+          </Board>
         }
       >
-        <Show when={groups().onYou.length > 0}>
-          <section data-testid="work-waiting" class="mb-4">
-            <Heading words={`Needs you · ${groups().onYou.length}`} />
-            <Cards rows={groups().onYou} />
-          </section>
-        </Show>
-        <Show when={groups().moving.length > 0}>
-          <section data-testid="work-in-progress">
-            <Heading words="In progress" />
-            <Cards rows={groups().moving} />
-          </section>
-        </Show>
-        <Legend />
-      </Show>
-      <Show when={done().length > 0}>
-        {/* FINISHED IS SHUT BY DEFAULT. It is history: worth having, never
-            worth the top of the column. One press opens the list; each card
-            in it opens on its own, as a live one does. */}
-        <section data-testid="work-finished" class="mt-4">
-          <button
-            type="button"
-            data-testid="work-finished-toggle"
-            aria-expanded={isFinishedOpen()}
-            class="mb-1.5 w-full cursor-pointer text-start font-mono text-[0.58rem] uppercase tracking-[0.12em] text-fg-3 hover:text-fg-2"
-            onClick={toggleFinished}
+        {(id) => (
+          <Show
+            when={layoutMode() !== "phone"}
+            fallback={
+              // ON A PHONE A PICKED WORK IS A PAGE of its own, with the way
+              // back above it; the tab bar under it stays.
+              <div data-testid="works-picked" class="px-3 py-3">
+                <button
+                  type="button"
+                  data-testid="works-all"
+                  class="mb-2 cursor-pointer text-[0.78rem] font-semibold text-accent hover:underline"
+                  onClick={() => unpickWork()}
+                >
+                  ← All work
+                </button>
+                <PickedCard id={id} record={pickedRow()?.[1]} />
+              </div>
+            }
           >
-            {isFinishedOpen() ? "▾" : "▸"} Finished · {done().length}
-          </button>
-          <Show when={isFinishedOpen()}>
-            <Cards rows={done()} />
+            {/* THE OTHER WORKS FOLD TO A RAIL, and the picked one has the
+                rest of the room. */}
+            <div
+              data-testid="works-picked"
+              class="grid min-h-full grid-cols-[3.5rem_minmax(0,1fr)] conductor-md:grid-cols-[15rem_minmax(0,1fr)]"
+            >
+              <WorkRail groups={railGroups()} />
+              <div class="min-w-0 px-4 py-3">
+                <PickedCard id={id} record={pickedRow()?.[1]} />
+              </div>
+            </div>
           </Show>
-        </section>
+        )}
       </Show>
     </div>
   );

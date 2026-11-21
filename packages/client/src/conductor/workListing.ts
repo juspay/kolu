@@ -1,30 +1,62 @@
-/** THE WORK LISTING'S OWN STATE — which cards are open, whether the finished
- *  list is open, whether the listing is out on a narrow window, and THE ONE
- *  WAY TO GO TO A WORK ({@link showWork}).
+/** THE WORK LISTING'S OWN STATE — which work is PICKED, whether the finished
+ *  list is open, and THE ONE WAY TO GO TO A WORK ({@link showWork}).
  *
- *  Module state, for the reason each piece of it always was: the listing is
- *  drawn in two placements (the side column on a wide window, the band the
- *  status line opens below it) and a resize moves it between them, so what a
- *  person opened must outlive either copy. It is here rather than in the
- *  components because a work chip — in the chat, in a "which work?" menu, in
- *  the reader's header — opens a card it is not inside, and so do the things
- *  outside the Conductor: a `#/work/…` link, the bell's notification, the
- *  command palette, and the mark on a terminal's dock row. */
+ *  ONE VALUE, the picked work or none. Press a work and the screen is about
+ *  it: its details fill the works' side, the other works fold to a rail, and
+ *  the chat narrows to it (`pointChatAt`, what **About this work** does).
+ *  A second press on it, or **All work**, unpicks it and the chat is whole
+ *  again; showing the whole chat by hand does not unpick.
+ *
+ *  Module state, because the pick must outlive any one drawing of the list: a
+ *  work chip — in the chat, in a "which work?" menu, in the reader's header —
+ *  picks a work it is not inside, and so do the things outside the Conductor:
+ *  a `#/work/…` link, the bell's notification, the command palette, and the
+ *  mark on a terminal's dock row.
+ *
+ *  KEPT PER BROWSER TAB, in `sessionStorage`, like the phone's view and the
+ *  Conductor's own mode (`phoneView.ts`, `useConductorMode.ts`): a reload
+ *  stays on the picked work. The Conductor never writes the page's address —
+ *  a `#/work/…` link is read once and taken off it — so the address is not
+ *  where the pick is kept. What a reload does not keep is the chat's narrowing
+ *  to the work, which a reload has always ended. */
 
-import type { WorkId } from "kolu-work";
+import type { StageName, WorkId } from "kolu-work";
+import type { PickedView } from "./livePanes";
 import { batch, createSignal } from "solid-js";
-import { conductorWide } from "./conductorLayout";
+import { defaultInvalidWarning, persistedPref } from "../persistedPref";
+import { pointChatAt, showAllChat } from "./chatScope";
+import { setPhoneView } from "./phoneView";
 import { closeReader } from "./reader/useReader";
 import { enterConductorMode } from "./useConductorMode";
 
-const [openCards, setOpenCards] = createSignal<ReadonlySet<string>>(new Set());
+/** Read a stored pick: a work id, or `null` for all the works. */
+export function parsePicked(raw: string): WorkId | null {
+  const value: unknown = JSON.parse(raw);
+  if (value === null || (typeof value === "string" && value !== ""))
+    return value;
+  throw new Error(`not a picked work: ${raw}`);
+}
+
+const [picked, setPicked] = persistedPref<WorkId | null>({
+  name: "kolu-conductor-picked-work",
+  fallback: null,
+  parse: parsePicked,
+  serialize: (value) => JSON.stringify(value),
+  storage: sessionStorage,
+  onInvalid: defaultInvalidWarning("kolu-conductor-picked-work", null),
+});
+/** The stage a press on a work's strip asked for, carried into the picked
+ *  work's timeline: the strip that was pressed is not the one that shows. */
+const [pickedStage, setPickedStage] = createSignal<StageName | undefined>();
+/** The view a person chose for the picked work — Terminals or Details — or
+ *  none, which leaves it to `pickedView`. The pick's, not the drawing's: the
+ *  picked work can be drawn again (the works are re-read, the list is drawn
+ *  anew) without the person's choice going back to the default. */
+const [viewChoice, setViewChoice] = createSignal<PickedView | undefined>();
 const [finishedOpen, setFinishedOpen] = createSignal(false);
-const [listingOut, setListingOut] = createSignal(false);
-/** Put the listing out, or back in, on a narrow window. */
-export { setListingOut };
-/** A card asked to come into view — keyed by a counter so asking twice for
+/** A work asked to come into view — keyed by a counter so asking twice for
  *  the same work scrolls twice, and with the question to bring into view
- *  when the asker named one. Cleared by the card that answered it. */
+ *  when the asker named one. Cleared by the work that answered it. */
 export interface WantedCard {
   readonly id: WorkId;
   readonly ask: string | null;
@@ -33,21 +65,48 @@ export interface WantedCard {
 const [wanted, setWanted] = createSignal<WantedCard | null>(null);
 let asks = 0;
 
-/** Is this card open? */
-export const isCardOpen = (id: string): boolean => openCards().has(id);
+/** The picked work, or `null` for all the works. */
+export const pickedWork = picked;
 
-/** Open a shut card, or shut an open one. */
-export function toggleCard(id: string): void {
-  setOpenCards((was) => {
-    const next = new Set(was);
-    if (!next.delete(id)) next.add(id);
-    return next;
+/** Is this work the picked one? */
+export const isPicked = (id: string): boolean => picked() === id;
+
+/** The stage the pick asked its timeline to show, if it asked for one. */
+export const stageAskedFor = pickedStage;
+
+/** The view chosen for the picked work, if one was. */
+export const chosenView = viewChoice;
+
+/** Put one of the picked work's views in front. */
+export function chooseView(view: PickedView): void {
+  setViewChoice(view);
+}
+
+/** PICK A WORK: the screen is about it, and so is the chat — on the stage
+ *  `stage` names, when a press on its strip picked it, which was a press to
+ *  read that stage: its Details are in front. */
+export function pickWork(id: WorkId, stage?: StageName): void {
+  batch(() => {
+    setPicked(id);
+    setPickedStage(stage);
+    setViewChoice(stage === undefined ? undefined : "details");
+    pointChatAt(id);
   });
 }
 
-/** Open a card, if it is shut — what a press on its stage strip does. */
-export function openCard(id: string): void {
-  setOpenCards((was) => (was.has(id) ? was : new Set([...was, id])));
+/** BACK TO ALL THE WORKS: nothing picked, and the whole chat. */
+export function unpickWork(): void {
+  batch(() => {
+    setPicked(null);
+    setViewChoice(undefined);
+    showAllChat();
+  });
+}
+
+/** A press on a work's head: pick it, or unpick it when it is the one. */
+export function togglePick(id: WorkId): void {
+  if (picked() === id) unpickWork();
+  else pickWork(id);
 }
 
 /** Is the Finished list open? Shut by default: it is history. */
@@ -55,43 +114,29 @@ export const isFinishedOpen = finishedOpen;
 export const toggleFinished = (): void => {
   setFinishedOpen((was) => !was);
 };
-/** Open the Finished list — what the column does when the card a route
- *  asked for is a finished work's. */
-export const openFinished = (): void => {
-  setFinishedOpen(true);
-};
 
-/** Is the listing out on a narrow window — the band the status line's count
- *  opens? A wide window always shows it beside the conversation. */
-export const isListingOut = listingOut;
-export const toggleListing = (): void => {
-  setListingOut((was) => !was);
-};
-
-/** The card a route asked to bring into view, if one is waiting. */
+/** The work a route asked to bring into view, if one is waiting. */
 export const wantedCard = wanted;
 
-/** The card answered: it is in view. */
+/** The work answered: it is in view. */
 export function cardShown(seq: number): void {
   if (wanted()?.seq === seq) setWanted(null);
 }
 
 /** GO TO A WORK — the one route every face takes: a work chip, a `#/work/…`
  *  link, the bell's notification, a command-palette row, the mark on a dock
- *  row. The Conductor comes on screen, the reader gives way (the listing is
- *  behind it), the listing comes out on a NARROW window (a wide one already
- *  shows it beside the conversation, and setting it out there would leave the
- *  band out, unasked, the moment the window narrowed), and the card opens and
- *  is scrolled to — onto the question `ask` names, when one is given. The
- *  column opens its Finished list when the card is a finished work's. */
+ *  row. The Conductor comes on screen, the reader gives way (the works are
+ *  behind it), a phone shows its works (a desktop always does), and the work
+ *  is picked and scrolled to — onto the question `ask` names, when one is
+ *  given. */
 export function showWork(id: WorkId, ask: string | null = null): void {
   asks += 1;
   const seq = asks;
   batch(() => {
     enterConductorMode();
     closeReader();
-    if (!conductorWide()) setListingOut(true);
-    openCard(id);
+    setPhoneView("work");
+    pickWork(id);
     setWanted({ id, ask, seq });
   });
 }

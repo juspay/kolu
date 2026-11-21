@@ -5,23 +5,26 @@ order: 52.6
 section: "Agents & Attention"
 ---
 
-Every piece of work the [Conductor](/conductor) runs has a card. A shut card says where the work stands and where its time went. An open card shows what needs you and stays short, with the full history one click away.
+Every piece of work the [Conductor](/conductor) runs has a card or a row. Shut, it says where the work stands, where its time went and what each of its terminals is doing, and carries any question waiting for you. Open, it stays short, with the full history one click away.
 
 ## Where the cards are
 
-On a wide window the cards stand in a column beside the chat, giving way to [the reader](/read-a-plan) while a file is open. On a narrow window and on a phone, the status line's **N pieces of work** opens them above the line, and so does clicking a work chip in the chat.
+The works take the wide side of the Conductor, and the chat is a panel on the right. While a file is open, [the reader](/read-a-plan) takes the works' place, and **← Work** brings them back as they were. The works scroll by themselves.
 
-The column has three groups:
+On a phone the works are the **Work** tab, beside **Chat**. The tab shows how many works need you. The status line's **N pieces of work** opens it, and so does tapping a work chip in the chat.
+
+The works come in four groups:
 
 | Group | What is in it |
 | --- | --- |
-| **Needs you · N** | Works waiting on you: one asked a question, another holds a green PR handed over for you to merge. |
-| **In progress** | Every other work that has not finished. |
-| **Finished** | Works that ended, collapsed until you click it. |
+| **Needs you · N** | Works waiting on you, as cards with their question: one asked a question, another holds a green PR handed over for you to merge. |
+| **In progress · N** | Every other work that is building something, one row each. |
+| **Watching · N** | Terminals you asked the Conductor to watch, one row each. |
+| **Finished** | Works that ended, collapsed until you click it, one line each: title and repository, how it ended, how long it ran, and when. |
 
-With nothing in progress the column says **Nothing in progress.**
+A row puts the title, the stage line, the terminals and the age side by side. Below 1280px wide its terminals drop under its title. On a phone every work in progress is a card. With nothing in progress the list says **Nothing in progress.**
 
-## The shut card
+## A work's face
 
 | Line | What it says |
 | --- | --- |
@@ -29,35 +32,37 @@ With nothing in progress the column says **Nothing in progress.**
 | **repo · host · mode** | Where it is, then the PR as a link: `PR #n`, or `draft PR #n` for a draft. While in progress, **you 12m** is its total wait on you, from the first whole second. |
 | Where it stands | Who it waits on and why, coloured by them, and for how long. Under **Needs you** it leads with what is wanted, as in **Needs you · Merge PR #700 · green for 12m**. |
 | Stage strip | Its six stages, below. |
+| Terminals | One row each: its role, its name (click it to go to the tile), what it runs, how it stands and for how long, **Look** (a [live window](/tiles#look-from-the-conductor) on its screen), and **Take over** or **Hand back**. |
+| The question waiting for you | Its form, to answer without picking the work. The same decision the chat and the reader show: answering it in any of them answers it. |
 
 A PR recorded before kolu kept PR addresses shows its number as plain text. A work still in progress gets the link the next time kolu reads its PR.
 
 ## The stage strip
 
-The strip has six cells, always in this order: **Plan**, **Approve**, **Build**, **Review**, **Checks**, **Merge**. Each cell shows how long that stage took in one unit, such as `14h`, coloured by whose time it mostly was: violet you, amber CI, teal the agents. Hover a cell for the exact time.
+The strip is one thin line of six segments, always in this order: **Plan**, **Approve**, **Build**, **Review**, **Checks**, **Merge**. Each segment is coloured by whose time that stage mostly was: violet you, amber CI, teal the agents. Only the stage the work is in is named, beside the line, with its time in one unit, such as **Build · 3m**. Hover a segment that has had time for its exact time.
 
 Which stages a work has comes from its mode:
 
 | Mode | Its stages |
 | --- | --- |
 | Full | All six. |
-| Trivial | **Build**, **Checks** and **Merge**. Nobody plans, approves or reviews, so those cells read as not happening. |
+| Trivial | **Build**, **Checks** and **Merge**. Nobody plans, approves or reviews, so those segments read as not happening. |
 | Watch | None, and no strip. |
 
-- The stage the work is in is outlined, in the colour of who it waits on now.
-- A dashed cell with a dash is a stage that did not happen.
-- An empty cell is a stage not reached yet.
-- In a full work, answering the setup form counts as Plan time, since there is no plan to approve yet. A trivial work has no Plan, so its setup, and the Conductor starting its implementor, are in no cell. That time still counts in **you 12m** when it was yours.
+- The stage the work is in is marked with a ring.
+- A dashed segment is a stage that did not happen.
+- A faint segment is a stage not reached yet.
+- In a full work, answering the setup form counts as Plan time, since there is no plan to approve yet. A trivial work has no Plan, so its setup, and the Conductor starting its implementor, are in no stage. That time still counts in **you 12m** when it was yours.
 - The build ends when the implementor's PR is ready for review: at once for a PR opened ready, and when a draft is marked ready. A PR turned back into a draft returns the work to Build. A PR that was already there when the implementor joined, such as one a bot opened, does not end it by being open. If it is a draft, marking it ready does.
 - CI's time is **Checks**, except on a draft, where it is still **Build**. A green PR handed to you is always **Merge**.
 
-A work whose mode is not chosen yet shows six quiet cells.
+A work whose mode is not chosen yet shows six quiet segments.
 
-On a card, the strip is the index into the timeline. Clicking a cell that has happened opens the card on that stage's events.
+On a card, the strip is the index into the timeline. Clicking a segment that has happened opens the card on that stage's events.
 
 ## What every card offers
 
-Under the stage strip:
+Under a card's stage strip, and at the top of an open row:
 
 | Control | What it does |
 | --- | --- |
@@ -67,18 +72,25 @@ Under the stage strip:
 
 ## Reach a work from anywhere
 
-Every work has an address, and a card's **Copy link** copies it. Opening it enters the Conductor, opens that work's card, unfolding **Finished** if the work ended, and scrolls to it, or to one question of it. A link to a work kolu no longer holds says so. [Link to any view](/power-features#link-to-any-view) lists the address forms.
+Every work has an address, and a card's **Copy link** copies it. Opening it enters the Conductor, picks that work and scrolls to it, or to one question of it. A link to a work kolu no longer holds says so. [Link to any view](/power-features#link-to-any-view) lists the address forms.
 
 The command palette lists what needs you first: a **Needs you** row says what is wanted and then names its work, and a **Works** row gives the title and where the work stands. Both keep their own headers while you search. The **◆** mark on a [dock row](/dock#a-row-in-a-piece-of-work) is a link to that terminal's work.
 
-## The open card
+## The picked work
 
-Click the card's head and it opens:
+Click a work, a card or a row, and it is picked: it fills the works' side, and the other works fold to a rail of one line each, a strip of initials below 1280px wide. The chat narrows to the picked work, as [About this work](/conductor#point-the-chat-at-one-work) does. Click **← All work**, or the work's head again, to go back.
+
+A work that needs you and a finished work can be picked too. On a phone the picked work is a page of its own, with **← All work** above it. A reload stays on the picked work, and the work's **Copy link** address opens it picked.
+
+A switch in the picked work's head has two views:
+
+- **Terminals**: each terminal of the work live, in a pane with **Take over** or **Hand back** and **Open tile**, as [Look](/tiles#look-from-the-conductor) shows it. One or two terminals stack. Three or more, or a window under 1280px wide, show one pane with a tab per terminal. On a phone, the key bar is under the pane once the terminal is yours.
+- **Details**: the terminals' rows and the parts below. Clicking a stage on the strip shows Details.
+
+Terminals is in front while a terminal of the work is up, Details otherwise. The details hold:
 
 | Part | What you get |
 | --- | --- |
-| The question waiting for you | The same decision the chat and the reader show. Answering it in any of them answers it. |
-| Terminals | One row each: role, name (click it to go to the tile), what it runs, how it stands and since when, **Look** (a [live window](/tiles#look-from-the-conductor) on its screen), and **Take over** or **Hand back**. |
 | Files | The worktree's `.waterfall/` files, at any depth, and the copies kolu kept. A folder is one chip with its file count, such as `mockup/ · 49`. Click it to unfold it. Click a file to open it in [the reader](/read-a-plan). |
 | Pull request | Its number as a link: open, merged or closed, and **draft** while it is one. The checks or the last result, failed ones in one line (`7 failing: ci::nix, ci::unit, +5`) to click. While open, whether GitHub would merge it. |
 | Setup | One line: the mode, each role's harness and model, and what happens on green. |
