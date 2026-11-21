@@ -77,6 +77,7 @@ import {
   type WorkCandidate,
 } from "./mentions";
 import { chatScope, showAllChat } from "./chatScope";
+import WorkChip from "./WorkChip";
 import WorkChipFace from "./WorkChipFace";
 import { useMembership, useNeedsYou, useWorkMap, useWorks } from "./useWorks";
 import { sendsAsSteer, steerOnOffer } from "./steer";
@@ -429,10 +430,13 @@ const ConductorComposer: Component<{
                   onPointerEnter={() => setSelected(index())}
                   onClick={() => accept(index())}
                 >
-                  {/* THE CHIP'S OWN FACE — the dot for who the work waits on
-                      and its title, drawn by the one component the chat's
-                      chips and the hover card are drawn by. */}
-                  <WorkChipFace work={candidate().record} />
+                  {/* THE CHIP'S OWN FACE, drawn by the one component every
+                      chip of a work is drawn by — a face only: this row is
+                      the control. */}
+                  <WorkChipFace
+                    id={candidate().work}
+                    work={candidate().record}
+                  />
                   <span
                     data-testid="conductor-mention-detail"
                     data-kind="work"
@@ -566,23 +570,29 @@ const ConductorComposer: Component<{
         </div>
       </Show>
       {/* WHAT THE CHAT IS POINTED AT, over the box. It is not a word in the
-          text — nobody typed it — so it is a chip of its own, and its × hands
-          the whole conversation back (`showAllChat`). The message still
-          carries the work: pointing the chat at it is what said so. */}
+          text — nobody typed it — so it is a chip of its own: pressing its
+          name goes to the work, and its × alone hands the whole conversation
+          back (`showAllChat`). The message still carries the work: pointing
+          the chat at it is what said so. */}
       <Show when={scope()}>
         {(at) => (
           <div class="mb-1.5 flex flex-wrap items-center gap-1.5">
-            <button
-              type="button"
+            <span
               data-testid="conductor-scope-chip"
               data-work={at().id}
-              aria-label={`Show the whole chat, not only ${at().record.title}`}
-              class="flex items-center gap-1 cursor-pointer"
-              onClick={() => showAllChat()}
+              class="flex min-w-0 items-center gap-1"
             >
-              <WorkChipFace work={at().record} />
-              <span class="font-mono text-[0.68rem] text-fg-3">×</span>
-            </button>
+              <WorkChip id={at().id} work={at().record} />
+              <button
+                type="button"
+                data-testid="conductor-scope-chip-remove"
+                aria-label={`Show the whole chat, not only ${at().record.title}`}
+                class="cursor-pointer rounded-sm px-0.5 font-mono text-[0.68rem] text-fg-3 hover:text-fg"
+                onClick={() => showAllChat()}
+              >
+                ×
+              </button>
+            </span>
           </div>
         )}
       </Show>
@@ -598,20 +608,17 @@ const ConductorComposer: Component<{
               <>
                 <Show when={asWork(armedOne().mention)}>
                   {(work) => (
-                    <button
-                      type="button"
+                    <span
                       data-testid="conductor-mention-chip"
                       data-kind="work"
                       data-work={work().work}
                       title={work().title}
-                      class="flex items-center gap-1 cursor-pointer"
-                      onClick={() =>
-                        write(dropMention(composerText(), armedOne().token), 0)
-                      }
+                      class="flex min-w-0 items-center gap-1"
                     >
-                      {/* The work's own face, as every other chip of it is
-                          drawn. A work the mirror has stopped listing keeps
-                          its title: the words were true when they were typed. */}
+                      {/* The work's own chip, as every other chip of it is
+                          drawn: its name goes to the work. A work the mirror
+                          has stopped listing keeps its title: the words were
+                          true when they were typed. */}
                       <Show
                         when={workMap().get(work().work as WorkId)}
                         fallback={
@@ -620,10 +627,28 @@ const ConductorComposer: Component<{
                           </span>
                         }
                       >
-                        {(record) => <WorkChipFace work={record()} />}
+                        {(record) => (
+                          <WorkChip
+                            id={work().work as WorkId}
+                            work={record()}
+                          />
+                        )}
                       </Show>
-                      <span class="font-mono text-[0.68rem] text-fg-3">×</span>
-                    </button>
+                      <button
+                        type="button"
+                        data-testid="conductor-mention-chip-remove"
+                        aria-label={`Take out the mention of ${work().title}`}
+                        class="cursor-pointer rounded-sm px-0.5 font-mono text-[0.68rem] text-fg-3 hover:text-fg"
+                        onClick={() =>
+                          write(
+                            dropMention(composerText(), armedOne().token),
+                            0,
+                          )
+                        }
+                      >
+                        ×
+                      </button>
+                    </span>
                   )}
                 </Show>
                 <Show when={asTerminal(armedOne().mention)}>

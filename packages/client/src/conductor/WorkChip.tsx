@@ -1,6 +1,7 @@
 /** A PIECE OF WORK YOU CAN GO TO — the work's name (`WorkChipFace`) as a
  *  button: on a chat turn, on a question about a work, in the reader's
- *  header.
+ *  header, in the bar over a chat pointed at one work, and on the chips in
+ *  the box (whose × is a button of its own beside it).
  *
  *  Pressing it picks the work (`showWork`): the reader gives way, a phone
  *  shows its works, and the picked work is scrolled to. On a touch screen
@@ -8,55 +9,83 @@
  *  hover there — so it lands on the work, which says all of it.
  *
  *  Hover or keyboard focus shows where the work stands without leaving the
- *  chat: its subtitle and age, the card's own standing line, and the small
- *  stage strip — drawn by the same components the card draws, so the two
- *  cannot disagree. The hover card is the repo's tooltip (Corvu), mounted
- *  only while open, so a chat full of chips reads nothing it does not show. */
+ *  chat: its subtitle and age, the card's own standing line, one line per
+ *  terminal (its mark, its role, its state and for how long, what it runs),
+ *  and the small stage strip — drawn by the same components and readings the
+ *  card draws, so the two cannot disagree. The hover card is the repo's
+ *  tooltip (Corvu), mounted only while open, so its lines are read only
+ *  while someone looks at them. */
 
 import Tooltip from "@corvu/tooltip";
 import { dualPhrase } from "@kolu/terminal-vocab/duration";
-import { Option } from "effect";
 import { lifetime, type Work, type WorkId } from "kolu-work";
-import { type Component, createMemo } from "solid-js";
-import { fleetTerminalStanding } from "../palette/fleetTerminals";
+import { Key } from "@solid-primitives/keyed";
+import { type Component, Show } from "solid-js";
+import { elapsedSince } from "../time/duration";
 import { useShownClock } from "../ui/shown";
-import { splitMemberRef } from "./memberRef";
+import MemberPip from "./MemberPip";
 import PrText from "./PrText";
 import StageStrip from "./StageStrip";
-import { useWorkMembers } from "./useWorks";
+import { terminalStatus } from "./terminalStatus";
+import { useSeen } from "./useWorks";
 import WorkChipFace from "./WorkChipFace";
 import { aboutWork } from "./chatScope";
 import { showWork } from "./workListing";
-import { checksTally, livePrOf } from "./prReadings";
-import {
-  membersIn,
-  stagesOf,
-  standingLine,
-  workHost,
-  workSubtitle,
-} from "./workReadings";
+import { createWorkFacts, type MemberLine, memberRuns } from "./workFacts";
+import { ROLE_WORD, stagesOf, workHost, workSubtitle } from "./workReadings";
 import WorkStanding from "./WorkStanding";
+
+/** ONE TERMINAL OF THE WORK, in the hover card: the Dock's mark, its role,
+ *  its state and for how long, and what it runs — the readings its row on
+ *  the card makes, in one line. */
+const TerminalLine: Component<{ work: Work; one: MemberLine; now: number }> = (
+  props,
+) => {
+  const seen = useSeen();
+  const since = () => seen().get(props.one.terminal)?.since;
+  const runs = () => memberRuns(props.work, props.one);
+  return (
+    <li
+      data-testid="work-chip-terminal"
+      data-role={props.one.member.role}
+      class="flex min-w-0 items-center gap-1.5 text-[0.68rem]"
+    >
+      <Show when={props.one.split}>
+        {(ref) => <MemberPip at={ref()} standing={props.one.standing} />}
+      </Show>
+      <span class="shrink-0 font-semibold text-fg">
+        {ROLE_WORD[props.one.member.role]}
+      </span>
+      <span class="min-w-0 truncate text-fg-2">
+        {props.one.standing === undefined
+          ? "a terminal kolu cannot read"
+          : terminalStatus(props.one.standing).state}
+        <Show when={since()}>
+          {(at) => (
+            <span class="tabular-nums text-fg-3">
+              {" for "}
+              {elapsedSince(at(), props.now)}
+            </span>
+          )}
+        </Show>
+      </span>
+      <Show when={runs() !== ""}>
+        <span class="ms-auto shrink-0 font-mono text-[0.6rem] text-fg-3">
+          {runs()}
+        </span>
+      </Show>
+    </li>
+  );
+};
 
 /** WHAT THE HOVER CARD SAYS — its own component so that nothing in it is
  *  read until it opens. */
 const WorkChipCard: Component<{ id: WorkId; work: Work }> = (props) => {
   const now = useShownClock();
-  const allMembers = useWorkMembers();
-  const line = createMemo(() => {
-    const members = membersIn(allMembers(), props.id).map((row) => {
-      const split = splitMemberRef(row.terminal);
-      return {
-        standing:
-          split === null
-            ? undefined
-            : fleetTerminalStanding(split.host, split.id),
-      };
-    });
-    return standingLine(
-      props.work,
-      checksTally(Option.fromNullishOr(livePrOf(members))),
-    );
-  });
+  const { members, at: line } = createWorkFacts(
+    () => props.id,
+    () => props.work,
+  );
   return (
     <>
       <span class="block text-[0.78rem] font-semibold text-fg">
@@ -77,6 +106,17 @@ const WorkChipCard: Component<{ id: WorkId; work: Work }> = (props) => {
         now={now()}
         testId="work-chip-standing"
       />
+      {/* ITS TERMINALS, one line each — keyed by the terminal, since the
+          lines are minted afresh whenever any member's record moves. */}
+      <Show when={members().length > 0}>
+        <ul class="m-0 mt-1 flex list-none flex-col gap-0.5 p-0">
+          <Key each={members()} by="terminal">
+            {(one) => (
+              <TerminalLine work={props.work} one={one()} now={now()} />
+            )}
+          </Key>
+        </ul>
+      </Show>
       <StageStrip
         stages={stagesOf(props.work, new Date(now()).toISOString())}
         size="mini"
@@ -110,7 +150,7 @@ const WorkChip: Component<{
       class="inline-flex max-w-full min-w-0 cursor-pointer rounded-full focus-visible:outline-2 focus-visible:outline-accent hover:[&>span]:border-accent"
       onClick={() => showWork(props.id)}
     >
-      <WorkChipFace work={props.work} />
+      <WorkChipFace id={props.id} work={props.work} />
     </Tooltip.Trigger>
     <Tooltip.Portal>
       <Tooltip.Content

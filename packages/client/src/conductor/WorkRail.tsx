@@ -39,7 +39,7 @@ import RepoMonogram from "../ui/RepoMonogram";
 import { resizableWidth } from "../ui/resizableWidth";
 import { useShownClock } from "../ui/shown";
 import { createWidthDrag, WidthResizeHandle } from "../ui/WidthResizeHandle";
-import MemberPip from "./MemberPip";
+import MemberMarks from "./MemberMarks";
 import { createWorkFacts } from "./workFacts";
 import {
   isFinishedOpen,
@@ -61,9 +61,6 @@ const SIDEBAR_WIDTH = resizableWidth("kolu-conductor-sidebar-width", {
   // Room kept for the works beside it.
   reservePx: 560,
 });
-
-/** How many terminals' marks an entry draws before it counts the rest. */
-const MARKS_SHOWN = 3;
 
 /** A work's initials — its first two words' first letters. */
 function initialsOf(title: string): string {
@@ -149,18 +146,7 @@ const Line: Component<{ id: WorkId; work: Work }> = (props) => {
             <RecencyCell recency={recency()} textSize="text-[0.6rem]" />
           </div>
           <div class="flex min-w-0 items-center gap-1">
-            <For each={members().slice(0, MARKS_SHOWN)}>
-              {(one) => (
-                <Show when={one.split}>
-                  {(ref) => <MemberPip at={ref()} standing={one.standing} />}
-                </Show>
-              )}
-            </For>
-            <Show when={members().length > MARKS_SHOWN}>
-              <span class="font-mono text-[0.58rem] text-fg-3">
-                +{members().length - MARKS_SHOWN}
-              </span>
-            </Show>
+            <MemberMarks members={members()} />
             <Show when={livePr()}>
               {(pr) => (
                 <span class="pointer-events-auto relative flex">

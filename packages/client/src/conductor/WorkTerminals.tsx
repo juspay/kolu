@@ -22,12 +22,9 @@
  *  (`memberNames.ts`). A sleeping or gone terminal has no Look — there is no
  *  screen to look at — and a terminal nobody drives has no lock button. */
 
-import { activeArm } from "@kolu/padi-client/surface";
-import { Option } from "effect";
 import type { Work } from "kolu-work";
 import { type Component, createMemo, For, Show } from "solid-js";
 import { elapsedSince } from "../time/duration";
-import { agentName } from "../ui/agentDisplay";
 import { onHostWords, useKnownNames } from "./memberNames";
 import { openPeek } from "./peek/usePeek";
 import MemberPip from "./MemberPip";
@@ -36,8 +33,8 @@ import { useConductor } from "./useConductor";
 import { useOpenTile } from "./useOpenTile";
 import { useMembership, useSeen } from "./useWorks";
 import { LEVEL_WORD } from "./wake";
-import type { MemberLine } from "./workFacts";
-import { type Lock, ROLE_WORD, roleRuns } from "./workReadings";
+import { type MemberLine, memberRuns } from "./workFacts";
+import { type Lock, ROLE_WORD } from "./workReadings";
 
 /** The two controls at a row's end, in the row's smaller type. */
 const CONTROL =
@@ -63,22 +60,7 @@ const MemberRow: Component<{
   const name = () => props.names.get(ref()) ?? onHostWords(ref());
   const here = () =>
     props.one.standing?.kind === "here" ? props.one.split : null;
-  /** WHAT IT RUNS: the harness the setup chose for the role, else the agent
-   *  kolu sees in it; the model its session reports, else the setup's. */
-  const runs = () => {
-    const standing = props.one.standing;
-    const agent =
-      standing?.kind === "here" ? activeArm(standing.meta)?.agent : undefined;
-    return Option.getOrElse(
-      roleRuns(props.work, props.one.member.role, {
-        agent: agent == null ? undefined : agentName(agent.kind),
-        // The session's own word, as the Dock's row reads it: `null` until
-        // the session names one.
-        model: agent?.model ?? undefined,
-      }),
-      () => "",
-    );
-  };
+  const runs = () => memberRuns(props.work, props.one);
   const status = createMemo(() =>
     props.one.standing === undefined
       ? null

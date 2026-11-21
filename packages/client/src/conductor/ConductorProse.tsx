@@ -48,6 +48,7 @@ import { type FileHolders, fileTarget } from "./namedFiles";
 import { applyProseListFold } from "./proseListFold";
 import { openReader, readerTarget } from "./reader/useReader";
 import { useWorkMap } from "./useWorks";
+import WorkChip from "./WorkChip";
 import WorkChipFace from "./WorkChipFace";
 
 /** A work offered or named by a press, with the record it was read from at
@@ -212,7 +213,7 @@ const ConductorProse: Component<{
         options={choices().options}
         renderOption={(option) => (
           <Show when={choices().byId.get(option.value)}>
-            {(work) => <WorkChipFace work={work()} />}
+            {(work) => <WorkChipFace id={option.value} work={work()} />}
           </Show>
         )}
         onSelect={(work) => {
@@ -239,13 +240,13 @@ const ConductorProse: Component<{
                 <>
                   <span>None of</span>
                   <For each={note().works}>
-                    {(one) => <WorkChipFace work={one.work} />}
+                    {(one) => <WorkChip id={one.id} work={one.work} />}
                   </For>
                   <span>has</span>
                 </>
               }
             >
-              <WorkChipFace work={note().works[0].work} />
+              <WorkChip id={note().works[0].id} work={note().works[0].work} />
               <span>has no</span>
             </Show>
             <code class="font-mono">{note().path}</code>

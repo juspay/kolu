@@ -91,9 +91,15 @@ vi.mock("@kolu/solid-markdown", async () => {
 
 /** The works the prose names files of — the live collection, scripted. */
 const [works, setWorks] = createSignal<ReadonlyMap<WorkId, Work>>(new Map());
-vi.mock("./useWorks", () => ({ useWorkMap: () => works }));
+vi.mock("./useWorks", () => ({
+  useWorkMap: () => works,
+  // A work's chip reads its terminals; these works have none.
+  useWorkMembers: () => () => new Map(),
+  useSeen: () => () => new Map(),
+}));
 
 import ConductorProse from "./ConductorProse";
+import { Shown } from "../ui/shown";
 import { fileHolders } from "./namedFiles";
 import { PROSE_LIST_FOLD_OVER, PROSE_LIST_FOLD_SHOWS } from "./proseListFold";
 import { closeReader, readerTarget } from "./reader/useReader";
@@ -120,13 +126,17 @@ function mount(
   disposers.push(
     render(
       () => (
-        <ConductorProse
-          rowId={rowId}
-          text={text()}
-          works={turn}
-          holders={fileHolders(works())}
-          onRedrawn={onRedrawn}
-        />
+        // The chat a reply is drawn in is a retained view: its chips' clocks
+        // ask whether it is on screen.
+        <Shown.Provider value={() => true}>
+          <ConductorProse
+            rowId={rowId}
+            text={text()}
+            works={turn}
+            holders={fileHolders(works())}
+            onRedrawn={onRedrawn}
+          />
+        </Shown.Provider>
       ),
       host,
     ),
