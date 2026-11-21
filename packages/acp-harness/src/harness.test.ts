@@ -612,6 +612,29 @@ describe("one conversation with a real agent", () => {
     expect(taken?.kind === "user" ? taken.queued : undefined).toBeUndefined();
   });
 
+  test("the rest of a reply still being written when a second message is sent stays out of that message's answer", async () => {
+    const running = await open("agent.ts");
+    // `talkingSlow` says its first words and is held until the second prompt
+    // arrives; then it says the rest and answers, and the fixture writes the
+    // second turn's first words in the same tick. A trigger, not a timer.
+    await running.harness.prompt(typed("talkingSlow", []), false);
+    const until = Date.now() + 10_000;
+    while (!textOfKind(running, "agent").includes("A-reply-part-1 ")) {
+      if (Date.now() > until) throw new Error("the first reply never started");
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+    await running.harness.prompt(typed("hello", []), false);
+    await settled(running, "the two turns never ended");
+
+    const said = textOfKind(running, "agent");
+    // The answer to the second message holds nothing of the first reply ...
+    expect(said.find((one) => one.includes("hello back"))).toBe("hello back");
+    // ... and the first reply's last row holds nothing of the second answer.
+    expect(said.filter((one) => one.includes("A-reply-")).at(-1)).toBe(
+      "A-reply-part-3",
+    );
+  });
+
   test("a background task outlives its turn and its death lands as a notice", async () => {
     const running = await open("agent.ts");
     await running.harness.prompt(typed("background", []), false);
