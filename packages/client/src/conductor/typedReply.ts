@@ -8,7 +8,7 @@
 import type { ConductorRow } from "kolu-common/conductor";
 import type { WorkId } from "kolu-work";
 import { type Accessor, createSignal, onCleanup } from "solid-js";
-import { type ChatTurn, chatTurns } from "./turnWorks";
+import { chatTurns } from "./turnWorks";
 
 /** A finished reply: the row that started its turn, and its words. */
 export interface FinishedReply {
@@ -22,24 +22,18 @@ export interface TypedReply extends FinishedReply {
   readonly work: WorkId | null;
 }
 
-/** A turn the agent actually took up: not one still waiting behind another,
- *  and not one that was refused or went unanswered. */
-const ran = (turn: ChatTurn): boolean => {
-  const head = turn.head;
-  return (
-    (head.kind === "user" || head.kind === "wake") &&
-    head.queued !== true &&
-    head.delivery === undefined
-  );
-};
-
 /** THE NEWEST FINISHED TURN'S REPLY, when a person started that turn.
  *
  *  While a turn is running (`busy`) the newest turn that ran is the one
- *  still running, so a finished reply is the one before it. That holds only
- *  when the newest turn is kolu's own: a message a person types into a
- *  running turn is a row of its own that starts nothing, followed by the
- *  rest of the reply still being written.
+ *  still running, so a finished reply is the one before it — and that one is
+ *  read only when the running turn is kolu's own wake-up. When the running
+ *  turn is a person's, nothing rings: whether the reply to their earlier
+ *  message should ring while their next one is being answered is not decided
+ *  here. A message waiting behind a running turn (`queued`) has not run, so
+ *  it is not the newest turn that ran; a message steered INTO a running turn
+ *  is part of that turn and starts none (`./turnWorks.ts`'s `chatTurns`). In
+ *  a chat saved before rows said which message they answer, a steered message
+ *  still reads as a turn of its own with the rest of the reply under it.
  *
  *  `null` when that turn was not started by a person, when it said nothing,
  *  when its last words are still streaming, and when it put a question: the
@@ -48,12 +42,15 @@ export function finishedReplyOf(
   rows: readonly ConductorRow[],
   busy: boolean,
 ): FinishedReply | null {
-  const turns = chatTurns(rows).filter(ran);
+  // THE TURNS THE AGENT TOOK UP, started by a message: one still waiting, one
+  // refused, one unanswered never started (`ChatTurn.started`).
+  const turns = chatTurns(rows).filter(
+    (turn) => turn.message !== null && turn.started !== null,
+  );
   const newest = turns.at(-1);
-  // WHILE A TURN RUNS, a newer row proves the turn before it is over only
-  // when kolu started that newer turn: kolu's own turns are never put into
-  // a running one. A person's message can be, and then it is a row of its
-  // own that starts nothing.
+  // WHILE A TURN RUNS, the turn before the newest is over for certain only
+  // when kolu started the newest: kolu's own turns are never put into a
+  // running one, and a person's turn rings nothing here (see above).
   const done = !busy
     ? newest
     : newest?.head.kind === "wake"

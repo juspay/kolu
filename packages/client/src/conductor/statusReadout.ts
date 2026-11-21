@@ -22,6 +22,7 @@ import type { ConductorRow, ConductorState } from "kolu-common/conductor";
 import { elapsedSince } from "../time/duration";
 import { COMPACTING } from "./compactionWords";
 import { toolLabel } from "./toolCard";
+import { chatTurns } from "./turnWorks";
 
 /** How much of a spoken line the status row carries. Past this the line is
  *  a paragraph, and the status row is one line beside two buttons — on a
@@ -40,27 +41,24 @@ function headline(text: string): string | null {
     : `${first.slice(0, DETAIL_LIMIT - 1).trimEnd()}…`;
 }
 
-/** The rows that OPEN a turn, walking back: the human's message, a wake kolu
- *  sent, or a divider. Everything before one of these belongs to a turn that
- *  is over, and nothing in a finished turn describes what is happening now. */
-const TURN_OPENERS: Partial<Record<ConductorRow["kind"], true>> = {
-  user: true,
-  wake: true,
-  divider: true,
-};
-
 /** WHAT IT IS DOING, from the turn in flight and nothing else: the newest
  *  tool call still out, else the newest thing the agent said IN THAT TURN.
  *  `null` when the turn has neither — a turn that has started and not yet
  *  spoken, which leaves the line reading `working · 34s`.
  *
- *  THE WALK STOPS AT THE TURN BOUNDARY. It used to run to the top of the
- *  transcript, so a turn whose rows were all settled calls and forms reached
- *  back across the human's message and reported an answer given two turns ago
- *  as the thing happening now — a status line that lied while the work it was
- *  describing was elsewhere. A running call still outranks prose, because a
- *  sentence the agent finished saying before it made the call is not what it
- *  is doing.
+ *  THE TURN IN FLIGHT is the newest turn that STARTED (`./turnWorks.ts`'s
+ *  `ChatTurn.started`: its message is not waiting behind another, nor refused
+ *  or unanswered), read through `chatTurns` — the one turn boundary every
+ *  reading of the
+ *  chat shares. A message sent
+ *  while a reply is still being written waits LAST in the chat, so a walk up
+ *  from the last row met it first and stopped there, and the line went blank
+ *  while that reply went on. Nothing of an earlier turn is read: a turn whose
+ *  rows are all settled calls and forms must not report an answer given two
+ *  turns ago as the thing happening now. A DIVIDER inside the turn's rows
+ *  ends the walk too — what is above it is a conversation the agent no longer
+ *  has. A running call still outranks prose, because a sentence the agent
+ *  finished saying before it made the call is not what it is doing.
  *
  *  THE QUESTION CALL IS NOT A CALL IN FLIGHT. The call behind an elicitation
  *  form sits `pending` for exactly as long as that form is on screen waiting
@@ -71,13 +69,15 @@ const TURN_OPENERS: Partial<Record<ConductorRow["kind"], true>> = {
  *  (`asksThroughForm`): the form IS the question, and the line says what the
  *  turn said before it instead. */
 export function conductorDoing(rows: readonly ConductorRow[]): string | null {
+  const running = chatTurns(rows).findLast((turn) => turn.started !== null);
+  if (running === undefined) return null;
   /** The latest prose of this turn, held while the walk keeps looking for a
    *  call still out beneath it. */
   let said: string | null = null;
-  for (let i = rows.length - 1; i >= 0; i--) {
-    const row = rows[i];
+  for (let i = running.rows.length - 1; i >= 0; i--) {
+    const row = running.rows[i];
     if (row === undefined) continue;
-    if (TURN_OPENERS[row.kind] === true) break;
+    if (row.kind === "divider") break;
     if (row.kind === "compaction" && row.state === "running") return COMPACTING;
     if (
       row.kind === "tool" &&

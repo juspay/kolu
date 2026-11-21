@@ -10,6 +10,7 @@
 import type { ConductorRow } from "kolu-common/conductor";
 import { describe, expect, it } from "vitest";
 import { firstSentence, quietChat, type WorkNote } from "./quietChat";
+import { AT_THE_END } from "./replyAcrossTurns.testlib";
 
 describe("firstSentence, over last night's replies", () => {
   it("keeps a handed-over PR's head together with the sentence (07:12)", () => {
@@ -326,5 +327,16 @@ describe("quietChat", () => {
     expect(quietChat([wake("w1", 0), agent("a1", 1, "Done.")], []).since).toBe(
       null,
     );
+  });
+});
+
+describe("quietChat, with a reply still being written when the next message was sent (#2420)", () => {
+  it("headlines each turn from its own reply", () => {
+    expect(
+      quietChat(AT_THE_END, []).turns.map((turn) => [turn.head, turn.says]),
+    ).toEqual([
+      ["user:1", { kind: "prose", headline: "A-reply-part-3" }],
+      ["user:3", { kind: "prose", headline: "hello back" }],
+    ]);
   });
 });

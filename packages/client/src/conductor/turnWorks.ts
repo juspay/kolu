@@ -2,8 +2,8 @@
  *  the transcript and the works' own records, never stored in a row.
  *
  *  A TURN is one prompt row (what you typed, or kolu's wake-up) and every row
- *  up to the next prompt. Rows before the first prompt are a turn of their
- *  own. A turn's works are the ones its rows NAME:
+ *  that answers it ({@link chatTurns}). Rows before the first prompt are a
+ *  turn of their own. A turn's works are the ones its rows NAME:
  *
  *   - a wake-up names the terminals that rang (`events`);
  *   - a tool call names the terminal it acted on (its `kolu` reading);
@@ -53,38 +53,97 @@ export interface Turn {
 }
 
 /** ONE TURN'S ROWS AND ITS WINDOW — the one turn boundary every reading of
- *  the chat shares (the works a turn is about, and the fold), so a line
- *  showing one turn's chips over another turn's sentence cannot happen. */
+ *  the chat shares (the works a turn is about, the fold, the status line and
+ *  the order the chat is drawn in). A row is in a turn because it SAYS it
+ *  answers that turn's message (`turn`, written once where the agent's output
+ *  is read), not because of where it sits in the list — so a message sent
+ *  while a reply is still being written cannot take the rest of that reply,
+ *  and a line showing one turn's chips over another turn's sentence cannot
+ *  happen for a row that says which message it answers. */
 export interface ChatTurn {
-  /** The prompt row that starts it (or the first row of all). */
+  /** The message row that starts it — or, for rows before the first message
+   *  and rows whose message is no longer in the list, the first of them. */
   readonly head: ConductorRow;
-  /** Every row of the turn, the head first. */
+  /** The head when it is a message (what a person typed, or kolu's wake-up);
+   *  `null` for a group of rows no message heads. */
+  readonly message: Message | null;
+  /** Every row of the turn, by `seq`, the head first. */
   readonly rows: readonly ConductorRow[];
-  /** Its window, epoch milliseconds: from the head's stamp up to the next
-   *  turn's, or with no end for the newest. */
+  /** WHEN IT STARTED, epoch milliseconds, or `null` for a turn that never
+   *  ran — its message still waits behind another (`queued`), or the agent
+   *  refused it or left it unanswered (`delivery`). A started turn began at
+   *  its first reply row: a message sent while another turn runs is typed
+   *  long before the agent takes it up. A turn with no reply yet began at its
+   *  head's stamp. A turn that never waited is taken the same way: once
+   *  `queued` comes off, a row cannot say it ever waited. */
+  readonly started: number | null;
+  /** Its window, epoch milliseconds: from the head's stamp up to the moment
+   *  the next turn STARTED, or with no end when no later turn has. */
   readonly from: number;
   readonly until: number;
 }
 
-/** THE TURNS OF THE CHAT, in order: a prompt row (`user` or `wake`) and every
- *  row up to the next one. Rows before the first prompt are a turn of their
- *  own. */
+/** A row that can open a turn: what a person typed, or kolu's wake-up. */
+type Message = Extract<ConductorRow, { kind: "user" | "wake" }>;
+const isMessage = (row: ConductorRow): row is Message =>
+  row.kind === "user" || row.kind === "wake";
+
+/** The group of the rows before the first message of all. */
+const BEFORE = Symbol("before the first message");
+
+/**
+ * THE TURNS OF THE CHAT, in the order of the rows that start them.
+ *
+ * A message (`user` or `wake`) that answers no turn starts one. Every row that
+ * says which message it answers (`turn`) is in that message's turn — a reply
+ * written after the next message was sent, and a message steered into the
+ * running turn alike. A row that says nothing (written while no turn ran, or
+ * saved before rows said so) is in the turn of the nearest message above it
+ * by `seq`, which is how every row was placed before. A row whose message is
+ * not in the list (the saved chat keeps its newest rows) is a turn of its own
+ * where it stands; the message next to it does not adopt it. Rows before the
+ * first message are a turn of their own.
+ *
+ * It reads `seq` and never the order it is handed, so the turns are the same
+ * whichever list a reader holds — the one the server sent, or the one drawn.
+ */
 export function chatTurns(rows: readonly ConductorRow[]): ChatTurn[] {
-  const groups: { head: ConductorRow; rows: ConductorRow[] }[] = [];
-  for (const row of rows) {
-    const last = groups.at(-1);
-    if (last === undefined || row.kind === "user" || row.kind === "wake")
-      groups.push({ head: row, rows: [row] });
-    else last.rows.push(row);
+  const ordered = [...rows].sort((one, other) => one.seq - other.seq);
+  const groups = new Map<
+    string | typeof BEFORE,
+    { head: ConductorRow; rows: ConductorRow[] }
+  >();
+  /** The turn of the nearest message above, for a row that says nothing. */
+  let above: string | typeof BEFORE = BEFORE;
+  for (const row of ordered) {
+    const key: string | typeof BEFORE =
+      row.turn !== undefined ? row.turn : isMessage(row) ? row.id : above;
+    if (isMessage(row)) above = key;
+    const group = groups.get(key);
+    if (group === undefined) groups.set(key, { head: row, rows: [row] });
+    else group.rows.push(row);
   }
-  return groups.map((group, index) => {
-    const next = groups[index + 1]?.head;
+  const list = [...groups.values()].map((group) => {
+    const message = isMessage(group.head) ? group.head : null;
+    const ran =
+      message === null ||
+      (message.queued !== true && message.delivery === undefined);
+    const first = message === null ? group.head : (group.rows[1] ?? message);
     return {
       ...group,
+      message,
+      started: ran ? Date.parse(first.since) : null,
       from: Date.parse(group.head.since),
-      until: next === undefined ? Infinity : Date.parse(next.since),
     };
   });
+  // A turn runs until the next turn that STARTED did — read from the newest.
+  const out: ChatTurn[] = [];
+  let next = Infinity;
+  for (const turn of list.toReversed()) {
+    out.push({ ...turn, until: next });
+    if (turn.started !== null) next = turn.started;
+  }
+  return out.reverse();
 }
 
 /** The terminals and works one row names, in the order it names them. */
