@@ -169,6 +169,7 @@ import type {
   MemoryFailure,
   Models,
 } from "./memory.ts";
+import { answering, answeringIn, KEY as ANSWERING } from "./answering.ts";
 import { streamOver } from "./pipes.ts";
 import {
   addressesIn,
@@ -499,9 +500,17 @@ export interface Agent {
    *  all blocks of the one prompt, and a door that took a string would make
    *  every one of them unsendable. What a block may BE is the agent's own
    *  answer at the handshake ({@link AgentEvent}'s `advertised`), and refusing
-   *  one it cannot take belongs to the caller that let somebody attach it. */
+   *  one it cannot take belongs to the caller that let somebody attach it.
+   *
+   *  `turn` is the CALLER'S NAME for this prompt. Every frame the agent sends
+   *  while this prompt is the oldest one unanswered ON THE WIRE comes back
+   *  carrying it (`said`, `tool`, `plan` and `asked`'s `turn`) — which is how a
+   *  caller knows a frame belongs to the next prompt before the return of this
+   *  one has reached it (`./answering.ts`). Optional because the door is
+   *  vendored; a prompt nobody named stamps nothing. */
   readonly prompt: (
     blocks: ReadonlyArray<ContentBlock>,
+    turn?: string,
   ) => Effect.Effect<string, AgentGone>;
   /**
    * Put a message INTO the turn already running — see {@link Steered} for the
@@ -1192,6 +1201,9 @@ export const make = (options: Options): Effect.Effect<Agent, never, never> =>
     const put = (
       form: Form,
       signal: AbortSignal,
+      /** The prompt this question was asked during, as the wire placed it
+       *  ({@link Agent.prompt}'s `turn`). */
+      turn: string | undefined,
       session?: string,
       /** Told the id this question is known by, beside the row it publishes —
        *  which is what a caller that has to settle it from ANOTHER event (a URL
@@ -1209,6 +1221,7 @@ export const make = (options: Options): Effect.Effect<Agent, never, never> =>
           parent:
             (session === undefined ? undefined : activity?.parent(session)) ??
             calls.about(form.toolCall, session).parent,
+          ...(turn === undefined ? {} : { turn }),
         });
       });
 
@@ -1247,13 +1260,19 @@ export const make = (options: Options): Effect.Effect<Agent, never, never> =>
       const settling = CreateElicitationRequest.isUrl(params)
         ? params.elicitationId
         : null;
-      const settled = await put(form, signal, named, (id) => {
+      const settled = await put(
+        form,
+        signal,
+        answeringIn(params._meta),
+        named,
+        (id) => {
         // Held under the AGENT'S OWN id, which is the only name
         // `elicitation/complete` says. An elicitation with no id cannot be
         // completed by name, so nothing holds it and the row is settled by a
         // person like every other question.
-        if (settling !== null) waitingLinks.set(settling, id);
-      });
+          if (settling !== null) waitingLinks.set(settling, id);
+        },
+      );
       // THE SAME THREE ENDINGS a form has, and the same reading of them: a
       // person who dismissed it declined, a withdrawal cancels, and an
       // answered one — which for a URL is the agent saying the page is done —
@@ -1388,6 +1407,7 @@ export const make = (options: Options): Effect.Effect<Agent, never, never> =>
       const settled = await put(
         form,
         signal,
+        answeringIn(params._meta),
         typeof named === "string" ? named : undefined,
       );
       // A dismissal is a DECLINE and a withdrawal is a CANCEL, and the adapter
@@ -1450,6 +1470,7 @@ export const make = (options: Options): Effect.Effect<Agent, never, never> =>
       const settled = await put(
         permissionFormOf(params),
         signal,
+        answeringIn(params._meta),
         params.sessionId,
       );
       const picked = settled.content[PERMISSION_FIELD];
@@ -1478,6 +1499,10 @@ export const make = (options: Options): Effect.Effect<Agent, never, never> =>
       )
         return;
       const update = notification.update;
+      // WHICH PROMPT this frame belongs to, as the wire placed it
+      // ({@link Agent.prompt}'s `turn`), for every event that becomes a row.
+      const answered = answeringIn(notification._meta);
+      const turn = answered === undefined ? {} : { turn: answered };
       const parent = activity?.parent(notification.sessionId);
       // A child's prose belongs in its own fold; its settings, title, usage,
       // plan and replayed user messages must never replace the root's.
@@ -1504,7 +1529,7 @@ export const make = (options: Options): Effect.Effect<Agent, never, never> =>
             prologue = null;
             return;
           }
-          if (text !== "") emit({ _tag: "said", text });
+          if (text !== "") emit({ _tag: "said", text, ...turn });
           return;
         }
         case "user_message_chunk": {
@@ -1526,6 +1551,7 @@ export const make = (options: Options): Effect.Effect<Agent, never, never> =>
             if (notice.onto !== null) {
               emit({
                 _tag: "tool",
+                ...turn,
                 id: notice.onto.toolUseId,
                 title: undefined,
                 status: undefined,
@@ -1644,6 +1670,7 @@ export const make = (options: Options): Effect.Effect<Agent, never, never> =>
 
           emit({
             _tag: "tool",
+            ...turn,
             id,
             title: ours?.title ?? update.title ?? undefined,
             called: update.title ?? undefined,
@@ -1789,7 +1816,7 @@ export const make = (options: Options): Effect.Effect<Agent, never, never> =>
           return;
         }
         case "plan":
-          emit({ _tag: "plan", entries: update.entries });
+          emit({ _tag: "plan", entries: update.entries, ...turn });
           return;
         case "available_commands_update":
           emit({
@@ -2415,7 +2442,9 @@ export const make = (options: Options): Effect.Effect<Agent, never, never> =>
             terminalSession(params.sessionId);
             return terminals.release(params);
           })
-          .connect(extension.stream);
+          // ... over a stream that says which prompt each frame belongs to,
+          // in the order the wire carried them (`./answering.ts`).
+          .connect(answering(extension.stream));
 
         const initialized = (yield* Effect.raceFirst(
           ask(connection, methods.agent.initialize, {
@@ -3709,7 +3738,7 @@ export const make = (options: Options): Effect.Effect<Agent, never, never> =>
           : use(at, id);
       });
 
-    const prompt = (blocks: ReadonlyArray<ContentBlock>) =>
+    const prompt = (blocks: ReadonlyArray<ContentBlock>, turn?: string) =>
       withSession((at, id) =>
         Effect.gen(function* () {
           // A cancel that arrived during the handshake is sent the moment the
@@ -3772,7 +3801,12 @@ export const make = (options: Options): Effect.Effect<Agent, never, never> =>
             ask(
               at.connection,
               methods.agent.session.prompt,
-              { sessionId: id, prompt: [...blocks] },
+              {
+                sessionId: id,
+                prompt: [...blocks],
+                // The caller's name for it, taken off again before the wire.
+                ...(turn === undefined ? {} : { _meta: { [ANSWERING]: turn } }),
+              },
               // A turn is a person waiting on a model: no deadline.
               null,
             ),

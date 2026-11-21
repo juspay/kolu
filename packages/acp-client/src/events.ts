@@ -54,6 +54,21 @@ export interface Stored {
   readonly supersededBy: string | null;
 }
 
+/**
+ * WHICH PROMPT A FRAME BELONGS TO — the caller's own name for it
+ * (`Agent.prompt`'s `turn`), carried by every event that becomes a row.
+ *
+ * It is the oldest prompt sent and not yet answered at the point in the
+ * stream where the frame was READ (`./answering.ts`), so it is right at the
+ * edge between two turns, where the return of one prompt reaches a caller
+ * after the next prompt's first words. Absent when no named prompt was
+ * unanswered: a replay, a background task's late report, a prompt nobody
+ * named.
+ */
+export interface Answering {
+  readonly turn?: string;
+}
+
 export type AgentEvent =
   | {
       readonly _tag: "toolTerminals";
@@ -64,9 +79,12 @@ export type AgentEvent =
       readonly _tag: "settings";
       readonly settings: ReadonlyArray<Setting>;
     }
-  | { readonly _tag: "plan"; readonly entries: ReadonlyArray<PlanStep> }
+  | ({
+      readonly _tag: "plan";
+      readonly entries: ReadonlyArray<PlanStep>;
+    } & Answering)
   /** The agent's prose, one chunk as it arrived. */
-  | { readonly _tag: "said"; readonly text: string }
+  | ({ readonly _tag: "said"; readonly text: string } & Answering)
   /** What a PERSON said, ONE CHUNK as it arrived — the same unit `said`
    *  carries, because it is the same unit the wire carries. Only a REPLAY
    *  brings these: live, we already know what was sent, because we sent it,
@@ -89,7 +107,7 @@ export type AgentEvent =
    * `undefined` is "unchanged", not "cleared" — the protocol's own rule for
    * an update, and the reason an announcement is expressible here at all.
    */
-  | {
+  | ({
       readonly _tag: "tool";
       readonly id: string;
       readonly title: string | undefined;
@@ -205,7 +223,7 @@ export type AgentEvent =
        * forward would make a name that was refined once refinable forever.
        */
       readonly provisional: boolean | undefined;
-    }
+    } & Answering)
   /**
    * The agent asked a person something, and the turn is stopped until it is
    * answered.
@@ -214,7 +232,7 @@ export type AgentEvent =
    * naming — the protocol's own correlation is a JSON-RPC request id, which is
    * a fact about the wire and not something a browser may hold.
    */
-  | {
+  | ({
       readonly _tag: "asked";
       readonly id: string;
       /** What the agent said it needs. */
@@ -247,7 +265,7 @@ export type AgentEvent =
        * by one agent, and the row is written from this event alone.
        */
       readonly parent: string | undefined;
-    }
+    } & Answering)
   /** ... and it stopped waiting: somebody answered it, somebody dismissed it,
    *  or the agent took it back. */
   | {

@@ -1266,6 +1266,7 @@ export const startHarness = async <Row extends AnyRow>(
     switch (event._tag) {
       case "said": {
         if (dropped()) return;
+        report(transcript.answering(event.turn ?? null));
         if (event.text === "") return;
         heard += 1;
         report(transcript.say(event.text));
@@ -1281,11 +1282,13 @@ export const startHarness = async <Row extends AnyRow>(
         return;
       case "tool":
         if (dropped()) return;
+        report(transcript.answering(event.turn ?? null));
         heard += 1;
         writeTool(event);
         return;
       case "plan":
         if (dropped()) return;
+        report(transcript.answering(event.turn ?? null));
         heard += 1;
         report(plan(event.entries));
         return;
@@ -1366,6 +1369,7 @@ export const startHarness = async <Row extends AnyRow>(
         agentSaid = event.agent;
         return;
       case "asked":
+        report(transcript.answering(event.turn ?? null));
         heard += 1;
         openAsks = [...openAsks, event.id];
         report(
@@ -1984,7 +1988,10 @@ export const startHarness = async <Row extends AnyRow>(
     let outcome: TurnEnded["outcome"] = "ended";
     let why: string | null = null;
     try {
-      const stopReason = await run(agent.prompt(blocks));
+      // NAMED by its row, so every frame of it comes back saying so — in the
+      // order of the wire, which is what decides where its paragraph ends
+      // ({@link Transcript.answering}).
+      const stopReason = await run(agent.prompt(blocks, ticket.key));
       report(transcript.sent(ticket.key));
       if (stopReason === "cancelled") {
         outcome = "cancelled";
@@ -2036,9 +2043,12 @@ export const startHarness = async <Row extends AnyRow>(
       if (last) busyAt = null;
       // A turn that ends while ANOTHER is still running has nothing true left
       // to say about the conversation, and saying it anyway marks a working
-      // panel idle. Its paragraph is still finished, which is what puts every
-      // answer in a paragraph of its own.
-      report(last ? transcript.settle() : transcript.stopSaying());
+      // panel idle. Its paragraph is still finished — unless the next turn's
+      // first words reached this end before this return did, in which case
+      // the wire already finished it and the open paragraph is the next
+      // turn's ({@link Transcript.over}).
+      const over = transcript.over(ticket.key);
+      report(last ? plus(over, transcript.settle()) : over);
       // THE ENDING TURN'S OWN ROW stops waiting too: one marked as queued
       // behind another that ends while a third still runs never becomes the
       // head, and would say it is waiting for ever.

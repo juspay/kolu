@@ -398,6 +398,11 @@ export class Transcript<Row extends AnyRow> {
    *  recorded. Chunks accumulate into it rather than each becoming a row: what a
    *  reader wants is one paragraph growing, not forty. */
   #open: string | null = null;
+  /** The turn the agent is ON, as the wire last said — the caller's name for
+   *  the prompt whose frames are arriving now ({@link answering}), or `null`
+   *  when the last frame belonged to none. Kept beside `#open` because it is
+   *  what decides whether the open paragraph is still the one to grow. */
+  #turn: string | null = null;
   /** The calls a TURN left behind, by key — set beside the rows rather than
    *  written onto them, because half a dozen paths re-publish a row by spreading
    *  it as it stands and a hand-set field would ride straight past the decision
@@ -871,6 +876,34 @@ export class Transcript<Row extends AnyRow> {
    *  landing on the end of the first turn's last sentence. It may NOT strand:
    *  the calls still in flight belong to the turn that is still running. */
   stopSaying(): Change<Row> {
+    return this.#close();
+  }
+
+  /**
+   * THE WIRE SAYS WHICH TURN the agent is on — the prompt the frame about to be
+   * written belongs to, or `null` for a frame that belongs to none.
+   *
+   * A frame of ANOTHER turn than the last one's ends the open paragraph, even
+   * though nobody has said yet that the earlier turn is over: an agent that
+   * answers one prompt and speaks for the next puts both on the wire in that
+   * order, and the answer reaches this end as a return value AFTER the next
+   * turn's first words have arrived as a frame. Without this the two turns
+   * read as one paragraph — the end of one answer and the start of the next.
+   */
+  answering(turn: string | null): Change<Row> {
+    if (turn === this.#turn) return EMPTY as Change<Row>;
+    this.#turn = turn;
+    return this.#close();
+  }
+
+  /**
+   * ... and that turn's prompt has been ANSWERED. Its paragraph is finished —
+   * unless the wire had already moved on to another turn, whose paragraph the
+   * open one then is, and which this ending must not cut.
+   */
+  over(turn: string): Change<Row> {
+    if (this.#turn !== turn) return EMPTY as Change<Row>;
+    this.#turn = null;
     return this.#close();
   }
 
