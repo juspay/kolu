@@ -17,10 +17,10 @@
  *    - A waterfall ASKS ITS OWN setup questions first. Which ones is the
  *      script's (`packages/conductor/src/teaching.md`), so the help says THAT
  *      it asks and not WHICH.
- *    - Each work is a card beside the chat on a wide window and behind the
- *      status line's count otherwise; the works that need you are the first
- *      group; an open card holds the PR, the timeline and the terminals
- *      (`WorkColumn.tsx`, `WorkCard.tsx`).
+ *    - Each work is a row of the works beside the chat (a card when it needs
+ *      you, a tab of its own on a phone); the works that need you are the
+ *      first group; every work in progress lists its terminals, and an open
+ *      one holds the PR and the timeline (`WorkColumn.tsx`, `WorkCard.tsx`).
  *    - `Look` opens the peek, and a member's name goes to its tile
  *      (`ConductorLook.tsx`, `peek/TerminalPeek.tsx`).
  *    - A terminal the Conductor drives takes no typing until `Take over`, and
@@ -109,20 +109,16 @@ export function helpSections(
       id: "the-card",
       heading: "Follow the work",
       items: [
-        [
-          text(
-            "Each work is a card, beside the chat or behind the status line’s count",
-          ),
-        ],
+        [text("Each work is a row beside the chat")],
         [text("Works that need you come first")],
-        [text("Open a card for its PR and timeline")],
+        [text("Press a work for its PR and timeline")],
       ],
     },
     {
       id: "terminals",
       heading: "See a terminal",
       items: [
-        [text("Open a card for its terminals")],
+        [text("Every work lists its terminals")],
         [screen("Look"), text(" opens a peek: that terminal, live")],
         [text("A name goes to the terminal’s tile")],
       ],
