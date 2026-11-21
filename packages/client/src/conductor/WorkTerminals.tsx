@@ -24,10 +24,17 @@
 
 import type { Work } from "kolu-work";
 import { Key } from "@solid-primitives/keyed";
-import { type Component, createMemo, Show } from "solid-js";
+import {
+  type Component,
+  createEffect,
+  createMemo,
+  createSignal,
+  Show,
+} from "solid-js";
 import { elapsedSince } from "../time/duration";
 import { onHostWords, useKnownNames } from "./memberNames";
 import { openPeek } from "./peek/usePeek";
+import MemberInspector from "./MemberInspector";
 import MemberPip from "./MemberPip";
 import { liveArm, terminalStatus } from "./terminalStatus";
 import { useConductor } from "./useConductor";
@@ -51,6 +58,8 @@ const MemberRow: Component<{
   one: MemberLine;
   names: ReadonlyMap<string, string>;
   now: number;
+  /** In a work's Details the row unfolds into what is about this terminal. */
+  unfolds: boolean;
 }> = (props) => {
   const seen = useSeen();
   const membership = useMembership();
@@ -78,6 +87,11 @@ const MemberRow: Component<{
     const at = membership().get(ref());
     return at === undefined || at.driver === "nobody" ? undefined : at.driver;
   };
+  /** UNFOLDED: folded is the start, and a row Inspect asked for opens. */
+  const [open, setOpen] = createSignal(false);
+  createEffect(() => {
+    if (inspectedMember() === ref()) setOpen(true);
+  });
 
   return (
     <li
@@ -91,12 +105,34 @@ const MemberRow: Component<{
           : ""
       }`}
     >
-      <span
-        data-testid="work-member-role"
-        class="col-start-1 whitespace-nowrap font-semibold text-fg"
+      <Show
+        when={props.unfolds}
+        fallback={
+          <span
+            data-testid="work-member-role"
+            class="col-start-1 whitespace-nowrap font-semibold text-fg"
+          >
+            {ROLE_WORD[props.one.member.role]}
+          </span>
+        }
       >
-        {ROLE_WORD[props.one.member.role]}
-      </span>
+        <button
+          type="button"
+          data-testid="work-member-role"
+          aria-expanded={open()}
+          aria-label={`${open() ? "Fold" : "Unfold"} ${ROLE_WORD[props.one.member.role]}`}
+          class="col-start-1 flex cursor-pointer items-center gap-1 whitespace-nowrap text-start font-semibold text-fg hover:text-accent"
+          onClick={() => setOpen((was) => !was)}
+        >
+          <span
+            aria-hidden="true"
+            class="w-2 font-mono text-[0.6rem] text-fg-3"
+          >
+            {open() ? "▾" : "▸"}
+          </span>
+          {ROLE_WORD[props.one.member.role]}
+        </button>
+      </Show>
       <span class="col-span-3 col-start-2 flex min-w-0 items-baseline gap-2 @min-[32rem]:col-span-1">
         <Show
           when={here()}
@@ -228,6 +264,10 @@ const MemberRow: Component<{
           )}
         </Show>
       </span>
+      {/* UNFOLDED: what is about this terminal, under its row. */}
+      <Show when={props.unfolds && open() ? props.one.split : null}>
+        {(at) => <MemberInspector at={at()} standing={props.one.standing} />}
+      </Show>
     </li>
   );
 };
@@ -237,6 +277,9 @@ const WorkTerminals: Component<{
   work: Work;
   members: ReadonlyArray<MemberLine>;
   now: number;
+  /** In a work's Details each row unfolds into what is about its terminal;
+   *  on a work's face it does not. */
+  unfolds?: boolean;
 }> = (props) => {
   const names = useKnownNames();
   return (
@@ -266,6 +309,7 @@ const WorkTerminals: Component<{
                 one={one()}
                 names={names()}
                 now={props.now}
+                unfolds={props.unfolds === true}
               />
             )}
           </Key>

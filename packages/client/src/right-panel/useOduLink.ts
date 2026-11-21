@@ -27,13 +27,12 @@
  * itself.
  */
 
-import { hostKeysEqual as sameHost } from "kolu-common/hostKey";
+import { type HostKey, hostKeysEqual as sameHost } from "kolu-common/hostKey";
 import { serviceBind } from "@odu/service-client/endpoint";
 import { createKeyedRoot } from "@kolu/surface/solid";
 import { Effect } from "effect";
-import { createMemo } from "solid-js";
+import { type Accessor, createMemo } from "solid-js";
 import { toast } from "solid-sonner";
-import { isActiveHostLocal } from "../kaval/useDaemonStatus";
 import { forwardsForHost, viewerHost } from "../forwards/useForwards";
 import { portAction } from "../forwards/portAction";
 import {
@@ -43,7 +42,7 @@ import {
   urlForPort,
 } from "../forwards/openPort";
 import { runAction } from "../runAction";
-import { activeHost, padiMap } from "../wire";
+import { padiMap } from "../wire";
 import { useShown } from "../ui/shown";
 import { portReach } from "kolu-common/surface";
 
@@ -122,9 +121,10 @@ export interface OduLinkOutlet {
   open: (hash: string) => void;
 }
 
-/** The Inspector's outlet — opened once, beside the CI readout it belongs to. */
-export function useOduLink(): OduLinkOutlet {
-  const host = () => activeHost();
+/** The outlet for one host's odu — opened once, beside the CI readout it
+ *  belongs to: the Inspector's for the shown host, a work's for its
+ *  worktree's. */
+export function useOduLink(host: Accessor<HostKey>): OduLinkOutlet {
   const shown = useShown();
 
   /** WHERE odu is listening on the active host — odu's OWN greeting, carried
@@ -181,7 +181,7 @@ export function useOduLink(): OduLinkOutlet {
       return oduLinkAct({
         hash,
         port: p,
-        onKoluHost: isActiveHostLocal(),
+        onKoluHost: host().kind === "local",
         viewerOnHost: viewerOnHost(),
         doorPort: doorPort(p),
         pageHost: window.location.hostname,

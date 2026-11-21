@@ -87,6 +87,7 @@ import {
   timeSpentOnYou,
 } from "./workReadings";
 import WorkTerminals from "./WorkTerminals";
+import WorkWorktree from "./WorkWorktree";
 
 /** ONE OPEN QUESTION'S PLACE ON THE CARD — what a route onto that question
  *  scrolls to. Whether the question is in view is the question's own to say
@@ -535,13 +536,21 @@ const WorkCard: Component<{
         <Show
           when={shownView() === "terminals"}
           fallback={
-            // THE DETAILS: its terminals, one row each, and the record behind
-            // the face, in rows of one line each so the whole of an ordinary
-            // work fits a laptop screen without scrolling.
+            // THE DETAILS: its terminals, one row each — each unfolding into
+            // what is about that terminal — then what is about its worktree,
+            // once, then the record behind the face.
             <div class="border-t border-edge px-2.5 py-2">
               <Show when={live() !== undefined}>
-                <div class="mb-2">{terminals()}</div>
+                <div class="mb-2">
+                  <WorkTerminals
+                    work={props.work}
+                    members={members()}
+                    now={now()}
+                    unfolds
+                  />
+                </div>
               </Show>
+              <WorkWorktree work={props.work} members={members()} />
               <WorkDetails
                 id={props.id}
                 work={props.work}

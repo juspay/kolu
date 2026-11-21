@@ -39,7 +39,10 @@ import {
   buildTerminalDisplayInfos,
 } from "../terminal/terminalDisplay";
 import { Shown } from "../ui/shown";
-import WorkSection from "./WorkSection";
+import WorkSection, { paneSubject } from "./WorkSection";
+
+/** The Right panel's own subject is its focused pane, on the shown host. */
+const LOCAL = { kind: "local" } as const;
 
 /** The section's ONE subscription, as a holder the cases drive: odu's own
  *  `checkout` stream, reached through padi's odu SIBLING. The wire is mocked
@@ -193,7 +196,7 @@ function paint(body: () => JSX.Element) {
 
 function mount(initial: TerminalMetadata) {
   const [meta, setMeta] = createSignal(initial);
-  paint(() => <WorkSection meta={meta()} />);
+  paint(() => <WorkSection subject={paneSubject(meta(), LOCAL)} />);
   return { setMeta };
 }
 
@@ -515,7 +518,9 @@ describe("WorkSection odu CI readout", () => {
     const [current, setFrame] = createSignal<CheckoutFrame | undefined>(frame);
     wire.frame = current;
     wire.error = () => odu.error;
-    paint(() => <WorkSection meta={RESIZE_BUG} odu={odu.link} />);
+    paint(() => (
+      <WorkSection subject={paneSubject(RESIZE_BUG, LOCAL)} odu={odu.link} />
+    ));
     return setFrame;
   }
 
@@ -1036,7 +1041,7 @@ describe("WorkSection odu CI readout", () => {
     // a terminal in another checkout re-keys the readout rather than leaving it
     // describing the checkout that happened to paint first.
     const [meta, setMeta] = createSignal(RESIZE_BUG);
-    paint(() => <WorkSection meta={meta()} />);
+    paint(() => <WorkSection subject={paneSubject(meta(), LOCAL)} />);
     expect(wire.input?.()).toEqual({
       repoRoot: "/home/srid/code/kolu/.worktrees/resize-bug",
     });
@@ -1051,7 +1056,9 @@ describe("WorkSection odu CI readout", () => {
     // No checkout, no question to ask — and `null` is what keeps padi from
     // dialling odu for a shell that has nothing to report.
     paint(() => (
-      <WorkSection meta={{ ...RESIZE_BUG, git: { kind: "none" } }} />
+      <WorkSection
+        subject={paneSubject({ ...RESIZE_BUG, git: { kind: "none" } }, LOCAL)}
+      />
     ));
     expect(wire.input?.()).toBeNull();
   });
@@ -1067,7 +1074,7 @@ describe("WorkSection odu CI readout", () => {
     dispose = render(
       () => (
         <Shown.Provider value={shown}>
-          <WorkSection meta={RESIZE_BUG} />
+          <WorkSection subject={paneSubject(RESIZE_BUG, LOCAL)} />
         </Shown.Provider>
       ),
       host,

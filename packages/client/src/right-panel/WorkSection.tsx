@@ -17,7 +17,8 @@
  *  a prop, so the link decision stays assertable without a forwards wire. */
 
 import { activeArm, type TerminalMetadata } from "@kolu/padi-client/surface";
-import { terminalKey } from "@kolu/terminal-vocab/terminalKey";
+import type { HostKey } from "kolu-common/hostKey";
+import { repoKey } from "@kolu/terminal-vocab/terminalKey";
 import { agoPhrase, compactPhrase } from "@kolu/terminal-vocab/duration";
 import { shortSha } from "@odu/run-client/nodeId";
 import { logHash, runHash } from "@odu/service-client/routes";
@@ -36,7 +37,7 @@ import {
   type RunRow,
 } from "@odu/service-client/surface";
 import { type CheckStatus, type PrInfo, prValue } from "anyforge/schemas";
-import { prUnavailableSource } from "kolu-common/surface";
+import { type PrResult, prUnavailableSource } from "kolu-common/surface";
 import { type Component, createMemo, For, type JSX, Show } from "solid-js";
 import { ChecksIndicator, PrStateIcon } from "@kolu/solid-dockrow";
 import { ProviderUnavailableContent } from "../terminal/PrUnavailablePopover";
@@ -48,7 +49,7 @@ import { WorktreeIcon } from "../ui/Icons";
 import RepoMonogram from "../ui/RepoMonogram";
 import Row from "../ui/Row";
 import Section from "../ui/Section";
-import { activeHost, interpretClientError, padiMap } from "../wire";
+import { interpretClientError, padiMap } from "../wire";
 import { useShown } from "../ui/shown";
 import type { OduLinkAct, OduLinkOutlet } from "./useOduLink";
 
@@ -427,8 +428,49 @@ const BranchIdentityChip: Component<{
   </span>
 );
 
+/** WHAT THE WORK SECTION IS ABOUT — the host, the git facts, the pull request
+ *  and the directory. The Right panel hands over its focused pane's; a piece
+ *  of work in the Conductor hands over its worktree's. The section reads
+ *  nothing else about where it is. */
+export interface WorkSubject {
+  /** The host it is on: odu's readout is asked of this host. */
+  readonly host: HostKey;
+  /** The repository it is in — its name, the branch, whether it is a linked
+   *  worktree, the worktree's top and the main repository's — or `null`
+   *  outside one (or before git said). */
+  readonly git: {
+    readonly repoName: string;
+    readonly branch: string;
+    readonly isWorktree: boolean;
+    readonly repoRoot: string;
+    readonly mainRepoRoot: string;
+  } | null;
+  /** The pull request as a live terminal's record reads it — `null` where
+   *  there is no live reading (a sleeping terminal resolves no PR). */
+  readonly pr: PrResult | null;
+  /** The checkout odu is asked about, or `null` to ask nothing. */
+  readonly checkout: string | null;
+  /** The directory, as the section prints it. */
+  readonly directory: string;
+}
+
+/** The Right panel's subject: its focused pane's record, on the shown host. */
+export function paneSubject(
+  meta: TerminalMetadata,
+  host: HostKey,
+): WorkSubject {
+  const arm = activeArm(meta);
+  return {
+    host,
+    git: meta.git.kind === "repo" ? meta.git.info : null,
+    pr: arm?.pr ?? null,
+    checkout: arm?.git.kind === "repo" ? arm.git.info.repoRoot : null,
+    directory: meta.cwd,
+  };
+}
+
 const WorkSection: Component<{
-  meta: TerminalMetadata;
+  subject: WorkSubject;
   /** How an odu surface here reaches odu web — the Inspector's own composition
    *  of the forwards vocabulary (`useOduLink`), passed in rather than opened
    *  here so a test can assert WHICH address a row offers (and whether it is an
@@ -442,23 +484,21 @@ const WorkSection: Component<{
    *  pair (this terminal's branch wearing the last one's hue) is unspellable
    *  rather than merely avoided.
    *
-   *  The hue keys come from `terminalKey`, NOT from a local
-   *  `[git.repoName, git.branch]` spelling. That function is the canonical
-   *  identity projection, and `buildTerminalDisplayInfos` — the dock's paint —
-   *  keys off it too. The two spellings are equal today, so restating it here
-   *  would be a second source of truth for the very dock/Inspector hue equality
-   *  this file promises: a later change to `terminalKey` would silently drift
-   *  the Inspector while every current test stayed green.
+   *  The hue keys come from `repoKey` — `terminalKey`'s own repo arm — NOT from
+   *  a local `[git.repoName, git.branch]` spelling. That function is the
+   *  canonical identity projection, and `buildTerminalDisplayInfos` — the
+   *  dock's paint — keys off it too. Restating it here would be a second
+   *  source of truth for the very dock/Inspector hue equality this file
+   *  promises: a later change to the projection would silently drift the
+   *  Inspector while every current test stayed green.
    *
    *  `WorkSection.test.tsx` is the executable form of that claim and carries
    *  the #2037 regression narrative. */
   const identity = createMemo(() => {
     // No identity chips outside a repo, nor before git has resolved.
-    if (props.meta.git.kind !== "repo") return null;
-    const git = props.meta.git.info;
-    // Past the git guard, so `terminalKey` takes its git arm: group = repo
-    // name, label = branch. The cwd arm is unreachable here by construction.
-    const { group, label } = terminalKey(props.meta);
+    const git = props.subject.git;
+    if (git === null) return null;
+    const { group, label } = repoKey(git);
     const colors = assignColors([group, label]);
     const repoColor = colors.get(group);
     const annotationColor = colors.get(label);
@@ -475,13 +515,13 @@ const WorkSection: Component<{
    *  different PRs, and each `<Show>` body below has one accessor to reach
    *  through instead of five that must agree.
    *
-   *  PR facts are live only on the ACTIVE arm; a sleeping terminal has no PR
+   *  PR facts are live only on a live record; a sleeping terminal has no PR
    *  resolution (same gate the old Pull Request section used). */
   const work = createMemo(() => {
-    const arm = activeArm(props.meta);
-    if (!arm) return null;
-    const unavailable = prUnavailableSource(arm.pr);
-    const pr = prValue(arm.pr);
+    const reading = props.subject.pr;
+    if (reading === null) return null;
+    const unavailable = prUnavailableSource(reading);
+    const pr = prValue(reading);
     if (!pr) return { unavailable, pr: null };
     const counts = countChecks(pr.checkRuns);
     return {
@@ -528,30 +568,30 @@ const WorkSection: Component<{
    *  keeps this tab MOUNTED while it is hidden — so without the gate a closed
    *  Inspector would hold an odu link open on every host it ever visited.
    *
-   *  `useEntry(activeHost)` rather than a point lens: the Inspector describes the
-   *  focused pane, which lives on the active host, so a host switch must re-key
-   *  the readout with it. */
-  const checkout = padiMap.useEntry(activeHost).odu.streams.checkout.use(
-    () => {
-      const git = activeArm(props.meta)?.git;
-      return !shown() || git === undefined || git.kind !== "repo"
-        ? null
-        : { repoRoot: git.info.repoRoot };
-    },
-    {
-      // A `StreamSpec` declares no error policy on the spec, so the use site
-      // supplies one — through the ONE interpreter, like every other stream
-      // (`scopedSub`: the shown host toasts, a background host logs).
-      onError: (err) =>
-        interpretClientError(
-          { kind: "scopedSub", label: "odu CI status" },
-          err,
-          {
-            key: activeHost(),
-          },
-        ),
-    },
-  );
+   *  `useEntry` over the SUBJECT's host rather than a point lens: a change of
+   *  subject (a host switch in the Right panel, another work in the
+   *  Conductor) must re-key the readout with it. */
+  const checkout = padiMap
+    .useEntry(() => props.subject.host)
+    .odu.streams.checkout.use(
+      () => {
+        const root = props.subject.checkout;
+        return !shown() || root === null ? null : { repoRoot: root };
+      },
+      {
+        // A `StreamSpec` declares no error policy on the spec, so the use site
+        // supplies one — through the ONE interpreter, like every other stream
+        // (`scopedSub`: the shown host toasts, a background host logs).
+        onError: (err) =>
+          interpretClientError(
+            { kind: "scopedSub", label: "odu CI status" },
+            err,
+            {
+              key: props.subject.host,
+            },
+          ),
+      },
+    );
   /** odu's readout for this checkout, folded for painting: the chip's rollup,
    *  the lanes in the run's own schedule sorted into this face's triage, and the
    *  recent runs. `null` when odu has nothing to say, which is the whole of "a
@@ -691,7 +731,7 @@ const WorkSection: Component<{
           class="break-all font-mono text-[10.5px] leading-relaxed text-fg-3"
           data-testid="inspector-directory"
         >
-          {props.meta.cwd}
+          {props.subject.directory}
         </div>
 
         {/* Per-check breakdown — reference tier. Expansion follows exceptions:

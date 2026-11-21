@@ -15,24 +15,26 @@
  *    MetadataInspector), so a fresh instance mounts per terminal and its
  *    persisted signal binds to that terminal's key — no shared-store bookkeeping.
  *
- *  Target: `props.terminalId` is the FOCUSED PANE — the tile's main terminal, or
- *  whichever split has focus — so a draft typed while a split is focused lands in
- *  that split's PTY (the same pane the Inspector's Work chips describe). The
- *  Attach section keeps the explicit picker for any other pane. The parent gates
- *  this on the ACTIVE arm, so the target is always a live PTY — `sendInput` would
- *  otherwise quiet-drop. */
+ *  Target: `props.terminalId` on `props.host` — the Right panel's FOCUSED PANE
+ *  on the shown host (the tile's main terminal, or whichever split has focus),
+ *  or a work's member terminal on its own host in the Conductor. The write goes
+ *  to that host, and the lock is asked by that terminal's fleet ref, as a
+ *  live pane's typing is. The parent gates this on the ACTIVE arm, so the
+ *  target is always a live PTY — `sendInput` would otherwise quiet-drop. */
 
-import { activeArm } from "@kolu/padi-client/surface";
 import { toError } from "@kolu/surface/run-stream";
 import { Effect } from "effect";
+import { encodeHostKey, type HostKey } from "kolu-common/hostKey";
 import type { TerminalId } from "kolu-common/surface";
+import { fleetTerminalRef } from "kolu-mcp/fleetRef";
 import { type Component, createSignal, Show } from "solid-js";
 import { toast } from "solid-sonner";
 import { persistedPref } from "../persistedPref";
-import { personInput } from "../conductor/personInput";
+import { personInputAt } from "../conductor/personInput";
+import { liveArm } from "../conductor/terminalStatus";
+import { fleetTerminalStanding } from "../palette/fleetTerminals";
 import { runAction, type UiAction } from "../runAction";
-import { useTerminalStore } from "../terminal/useTerminalStore";
-import { activePadiRpc } from "../wire";
+import { padiRpcOf } from "../wire";
 import { planComposeSend } from "./composeSend";
 
 /** `localStorage` key prefix for the per-terminal draft — same
@@ -48,18 +50,20 @@ import { planComposeSend } from "./composeSend";
 const DRAFT_STORAGE_PREFIX = "kolu:compose-draft-by-terminal:";
 
 const ComposeSection: Component<{
+  host: HostKey;
   terminalId: TerminalId;
 }> = (props) => {
-  const store = useTerminalStore();
-  // Is the SEND TARGET (`props.terminalId`) still an active, PTY-holding
-  // terminal? Resolved from the store BY THAT id — exactly as `Terminal.tsx`
-  // gates `deliverScratchPaste` (`activeArm(terminalStore.getMetadata(props
-  // .terminalId))`) — so an in-flight send re-checks the terminal it wrote to,
-  // NOT whichever tile the inspector happens to show when the RPC resolves. A
-  // parent closure over the inspector's current `meta()` would read the wrong
-  // terminal the moment the user switches tiles mid-send.
+  const ref = () =>
+    fleetTerminalRef(encodeHostKey(props.host), props.terminalId);
+  // Is the SEND TARGET still an active, PTY-holding terminal? Resolved BY THAT
+  // host and id — so an in-flight send re-checks the terminal it wrote to, NOT
+  // whichever terminal the face happens to show when the RPC resolves. A
+  // parent closure over the face's current record would read the wrong
+  // terminal the moment the person switches mid-send.
   const isActive = () =>
-    activeArm(store.getMetadata(props.terminalId)) !== undefined;
+    liveArm(
+      fleetTerminalStanding(encodeHostKey(props.host), props.terminalId),
+    ) !== undefined;
   // The draft IS a raw string, so `parse`/`serialize` are identity — there is
   // no shape to validate and an empty string is the natural never-drafted
   // fallback. `persistedPref`'s `parse` can never throw here, so the fallback
@@ -90,7 +94,7 @@ const ComposeSection: Component<{
       // THE LOCK — the Compose box is a person writing into an existing
       // terminal, so it is gated like a keystroke. The draft is KEPT: the
       // words are still theirs to send once they have taken the terminal over.
-      if (!personInput(props.terminalId)) return Effect.void;
+      if (!personInputAt(ref())) return Effect.void;
       const data = planComposeSend(draft());
       if (data === null) return Effect.void;
       // Capture the exact text being sent, so the success path clears ONLY this
@@ -98,8 +102,8 @@ const ComposeSection: Component<{
       // text must survive rather than be wiped by a stale send's completion.
       const sent = draft();
       setSending(true);
-      return activePadiRpc.lifecycle
-        .sendInput({ id: props.terminalId, data })
+      return padiRpcOf(props.host)
+        .lifecycle.sendInput({ id: props.terminalId, data })
         .pipe(
           Effect.andThen(() =>
             Effect.suspend(() => {

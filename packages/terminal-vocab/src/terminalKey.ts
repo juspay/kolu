@@ -82,6 +82,16 @@ export type TerminalIdentity = TerminalLocation & {
   id: TerminalId;
 };
 
+/** The repo arm of {@link terminalKey}, for a reader that has a repository's
+ *  name and branch but no terminal — a piece of work, keyed by its branch. The
+ *  same projection, so a work and a terminal on one branch wear one hue. */
+export function repoKey(repo: { repoName: string; branch: string }): {
+  group: string;
+  label: string;
+} {
+  return { group: repo.repoName, label: repo.branch };
+}
+
 /** Canonical projection. The mapping is `git → (repoName, branch)` for
  *  git-aware terminals, `no git → (basename, shortenCwd)` otherwise — and a
  *  terminal whose git context has not resolved yet keys by its cwd too: until
@@ -101,7 +111,7 @@ export function terminalKey(t: TerminalLocation): {
 } {
   switch (t.git.kind) {
     case "repo":
-      return { group: t.git.info.repoName, label: t.git.info.branch };
+      return repoKey(t.git.info);
     case "none":
     case "unresolved":
       return { group: cwdBasename(t.cwd), label: shortenCwd(t.cwd) };
