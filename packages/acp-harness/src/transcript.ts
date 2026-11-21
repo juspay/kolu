@@ -972,6 +972,12 @@ export class Transcript<Row extends AnyRow> {
     return this.#close();
   }
 
+  /** The turn the wire last said the agent is on, or `null` — what a row
+   *  written now would answer ({@link answering}). */
+  running(): string | null {
+    return this.#turn;
+  }
+
   /**
    * Mark every call this turn is leaving behind.
    *

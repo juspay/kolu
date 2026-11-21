@@ -653,6 +653,20 @@ export interface Harness<Row extends AnyRow> {
    *  offering has to run against. */
   readonly alive: () => boolean;
   readonly rows: () => ReadonlyArray<Row>;
+  /**
+   * WHICH MESSAGE'S TURN THE AGENT IS ON — the id of the message row whose
+   * turn is running, or `null` when none is.
+   *
+   * For the rows a PRODUCT writes itself, outside this transcript: a question
+   * its own tool put, a proposal, a compaction. Such a row answers the turn
+   * the agent was on when it was written, and that is a fact this end has and
+   * the product's list of rows does not — a message sent while a reply is
+   * still being written is the newest row, and not the turn being run. It is
+   * the turn the frames read so far say ({@link Transcript.answering}), or,
+   * before any frame of the running turn has been read, the oldest turn in
+   * flight.
+   */
+  readonly turn: () => string | null;
   prompt(
     said: PersonSaid<Row>,
     /** STEER rather than queue: put the words INTO the turn that is running.
@@ -2576,6 +2590,7 @@ export const startHarness = async <Row extends AnyRow>(
     state,
     alive,
     rows: () => transcript.rows(),
+    turn: () => transcript.running() ?? turns.head?.key ?? null,
     prompt,
     hostTurn,
     sendAgain,
