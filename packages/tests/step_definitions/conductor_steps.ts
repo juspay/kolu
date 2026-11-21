@@ -4022,10 +4022,9 @@ Then(
   },
 );
 
-/** THE LINE NAMES ONE STAGE: the words a person sees on the strip — every
- *  piece of text in it that is drawn at a size an eye can read, so the
- *  one-pixel spoken-only labels are left out — name the stage asked about,
- *  and no other of the six. */
+/** EVERY STAGE IS NAMED UNDER ITS BAR NOW, and exactly one is emphasised:
+ *  the stage the work is in. The readout beside the line is the time alone,
+ *  so no stage name may appear in it — that was the old design's job. */
 Then(
   "the work's stage line should name {string} and no other stage",
   async function (this: KoluWorld, label: string) {
@@ -4034,27 +4033,27 @@ Then(
     const LABELS = ["Plan", "Approve", "Build", "Review", "Checks", "Merge"];
     await pollFor({
       observe: () =>
-        strip
-          .evaluate((el) => {
-            const seen: string[] = [];
-            const walk = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
-            for (let node = walk.nextNode(); node; node = walk.nextNode()) {
-              const parent = node.parentElement;
-              if (parent === null || !parent.checkVisibility()) continue;
-              const box = parent.getBoundingClientRect();
-              if (box.width <= 1 || box.height <= 1) continue;
-              const words = (node.textContent ?? "").trim();
-              if (words !== "") seen.push(words);
-            }
-            return seen.join(" ");
-          })
-          .catch(() => ""),
+        strip.evaluate((el) => ({
+          labels: Array.from(
+            el.querySelectorAll('[data-testid="stage-label"]'),
+          ).map((one) => (one.textContent ?? "").trim()),
+          emphasised: Array.from(
+            el.querySelectorAll('[data-testid="stage-label"][data-emphasis]'),
+          ).map((one) => (one.textContent ?? "").trim()),
+          now: (
+            el.querySelector('[data-testid="stage-now"]')?.textContent ?? ""
+          ).trim(),
+        })),
       isDone: (seen) =>
-        LABELS.every((one) => seen.includes(one) === (one === label)),
+        seen !== null &&
+        LABELS.every((one) => seen.labels.includes(one)) &&
+        seen.emphasised.length === 1 &&
+        seen.emphasised[0] === label &&
+        !LABELS.some((one) => seen.now.includes(one)),
       timeoutMs: POLL_TIMEOUT,
       onTimeout: (last, ms) =>
         new Error(
-          `after ${ms}ms the stage line reads ${JSON.stringify(last)}, not one naming ${JSON.stringify(label)} alone`,
+          `after ${ms}ms the stage strip reads ${JSON.stringify(last)}, not every stage named with only ${JSON.stringify(label)} emphasised`,
         ),
     });
   },
