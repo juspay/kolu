@@ -20,7 +20,10 @@
  *  is unchanged from the hand-rolled sites, so values already in
  *  `localStorage` keep loading. */
 
-import { makePersisted } from "@solid-primitives/storage";
+import {
+  makePersisted,
+  type PersistenceSyncAPI,
+} from "@solid-primitives/storage";
 import { encodeHostKey, type HostKey } from "kolu-common/hostKey";
 import {
   type Accessor,
@@ -59,6 +62,12 @@ export interface PersistedPrefOptions<T> {
    *  decided by another tab (the `activeHost` pref and the host-switch trail
    *  that shadows it). Tests also inject a synchronous in-memory fake. */
   storage?: Storage;
+  /** Follow writes other pages of this origin make to the same key —
+   *  `@solid-primitives/storage`'s `storageSync` for `localStorage`. Without
+   *  it the value is read once, at load, and a page's next write puts back
+   *  whatever it read then. For a value several pages change, where a write
+   *  must not undo another page's. */
+  sync?: PersistenceSyncAPI;
 }
 
 /** The validate-on-read core: run `parse`, fall back on throw. Exported so
@@ -102,6 +111,7 @@ export function persistedPref<T>(
     serialize,
     deserialize: (raw: string): T =>
       readWithFallback(raw, opts.parse, opts.fallback, opts.onInvalid),
+    sync: opts.sync,
   });
   return [value, setValue];
 }

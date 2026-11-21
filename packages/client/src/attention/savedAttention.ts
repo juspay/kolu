@@ -9,17 +9,21 @@
  *  had not stays unread, and one that finished meanwhile is marked without a
  *  chime.
  *
- *  ONE WRITER. Every change goes through a record from {@link attentionRecordOf},
- *  which holds the one copy per host for the page; the marks live in a store so
- *  each dock row reads only its own. Per browser, in `localStorage` under
- *  `kolu-attention:<host>`: two tabs share it and the last write wins. A stored
- *  value that does not validate is dropped with a warning and the host starts
- *  blank, which is what a browser that never saved anything does. */
+ *  ONE WRITER PER PAGE. Every change goes through a record from
+ *  {@link attentionRecordOf}, which holds the one copy per host for the page.
+ *  Per browser, in `localStorage` under `kolu-attention:<host>`, shared by
+ *  every page of this kolu: a page's unread list IS the saved list, followed
+ *  through the browser's `storage` event (`storageSync`), so another page's
+ *  write reaches this page before this page writes again, and no page puts
+ *  back a mark another page took off. Each dock row reads only its own mark.
+ *  A stored value that does not validate is dropped with a warning and the
+ *  host starts blank, which is what a browser that never saved anything does. */
 
 import { decodeHostKey } from "kolu-common/hostKey";
 import { type TerminalId, TerminalIdSchema } from "kolu-common/surface";
 import { Schema } from "effect";
-import { untrack } from "solid-js";
+import { storageSync } from "@solid-primitives/storage";
+import { createComputed, createRoot, untrack } from "solid-js";
 import { createStore, produce } from "solid-js/store";
 import {
   defaultInvalidWarning,
@@ -60,9 +64,11 @@ export interface AttentionRecord {
   clearAllUnread(): void;
 }
 
-/** Build a record over `storage` under `name`, reading what is saved there.
- *  The app reaches records through {@link attentionRecordOf}; this is the
- *  storage-explicit constructor beneath it. */
+/** Build a record over `storage` under `name`, reading what is saved there
+ *  and following what other pages write to it. Call it under a reactive
+ *  owner: the per-terminal marks are a projection that lives as long as that
+ *  owner. The app reaches records through {@link attentionRecordOf}; this is
+ *  the storage-explicit constructor beneath it. */
 export function createAttentionRecord(opts: {
   name: string;
   storage: Storage;
@@ -74,16 +80,23 @@ export function createAttentionRecord(opts: {
     serialize: (value) => JSON.stringify(value),
     onInvalid: defaultInvalidWarning(opts.name, BLANK),
     storage: opts.storage,
+    sync: storageSync,
   });
+  // The saved list, one store key per terminal: a write from this page or
+  // another moves only the keys whose mark changed, so only those rows wake.
   const [unread, setUnread] = createStore<Partial<Record<TerminalId, true>>>(
-    Object.fromEntries(untrack(saved).unread.map((id) => [id, true])),
+    {},
   );
-  const saveUnread = (): void => {
-    setSaved((prev) => ({
-      ...prev,
-      unread: Object.keys(unread) as TerminalId[],
-    }));
-  };
+  createComputed(() => {
+    const next = new Set(saved().unread);
+    setUnread(
+      produce((marks) => {
+        for (const id of Object.keys(marks) as TerminalId[])
+          if (!next.has(id)) delete marks[id];
+        for (const id of next) marks[id] = true;
+      }),
+    );
+  });
   return {
     memory: () => untrack(saved).memory,
     remember: (memory) => {
@@ -91,53 +104,53 @@ export function createAttentionRecord(opts: {
     },
     isUnread: (id) => unread[id] === true,
     markUnread: (id) => {
-      if (unread[id] === true) return;
-      setUnread(id, true);
-      saveUnread();
+      if (untrack(saved).unread.includes(id)) return;
+      setSaved((prev) => ({ ...prev, unread: [...prev.unread, id] }));
     },
     clearUnread: (id) => {
-      if (unread[id] !== true) return;
-      setUnread(
-        produce((marks) => {
-          delete marks[id];
-        }),
-      );
-      saveUnread();
+      if (!untrack(saved).unread.includes(id)) return;
+      setSaved((prev) => ({
+        ...prev,
+        unread: prev.unread.filter((marked) => marked !== id),
+      }));
     },
     clearAllUnread: () => {
-      if (Object.keys(unread).length === 0) return;
-      setUnread(
-        produce((marks) => {
-          for (const id of Object.keys(marks) as TerminalId[]) delete marks[id];
-        }),
-      );
-      saveUnread();
+      if (untrack(saved).unread.length === 0) return;
+      setSaved((prev) => ({ ...prev, unread: [] }));
     },
   };
 }
 
 const KEY_BASE = "kolu-attention";
 
-/** The page's records, one per host, keyed by the encoded host. */
-const records = new Map<string, AttentionRecord>();
+/** The page's records, one per host, keyed by the encoded host — each under a
+ *  root of its own, so the record outlives whichever view asked for it first. */
+const records = new Map<
+  string,
+  { readonly record: AttentionRecord; readonly dispose: () => void }
+>();
 
 /** This host's record — created from `localStorage` the first time the page
  *  asks, then the same one for the page's life. */
 export function attentionRecordOf(encHost: string): AttentionRecord {
-  let record = records.get(encHost);
-  if (record === undefined) {
-    record = createAttentionRecord({
-      name: perHostName(KEY_BASE, decodeHostKey(encHost)),
-      storage: localStorage,
-    });
-    records.set(encHost, record);
+  let entry = records.get(encHost);
+  if (entry === undefined) {
+    entry = createRoot((dispose) => ({
+      record: createAttentionRecord({
+        name: perHostName(KEY_BASE, decodeHostKey(encHost)),
+        storage: localStorage,
+      }),
+      dispose,
+    }));
+    records.set(encHost, entry);
   }
-  return record;
+  return entry.record;
 }
 
 /** The host left the pool: drop its record from the page and from storage,
  *  as the per-host preferences drop theirs. A reload does not run this. */
 export function forgetAttentionRecord(encHost: string): void {
+  records.get(encHost)?.dispose();
   records.delete(encHost);
   localStorage.removeItem(perHostName(KEY_BASE, decodeHostKey(encHost)));
 }
