@@ -65,11 +65,15 @@ import type {
   Watching,
 } from "@kolu/acp/wire";
 
-/** The three fields every row of this class carries, whatever a product adds. */
+/** The fields every row of this class carries, whatever a product adds. */
 export interface RowHead {
   readonly id: string;
   readonly seq: number;
   readonly since: string;
+  /** Which message this row answers ({@link Transcript.answering}); absent on
+   *  a message that opens a turn of its own and on a row written while no
+   *  turn was running. */
+  readonly turn?: string;
 }
 
 /** The narrowest row this class can hold: a head and a discriminant. A
@@ -131,7 +135,14 @@ type DistributiveOmit<T, K extends PropertyKey> = T extends unknown
 /** The fields {@link Transcript} DERIVES, named once — the list is spelled in
  *  several casts and a public type below, and several spellings of one list is
  *  one of them being missed the day a sixth is derived. */
-type Derived = "id" | "seq" | "since" | "streaming" | "stranded" | "resumed";
+type Derived =
+  | "id"
+  | "seq"
+  | "since"
+  | "turn"
+  | "streaming"
+  | "stranded"
+  | "resumed";
 
 /**
  * A row's CONTENT: everything about it that a caller decides.
@@ -160,6 +171,7 @@ const contentOf = <Row extends AnyRow>(row: Row): RowContent<Row> => {
     id: _id,
     seq: _seq,
     since: _since,
+    turn: _turn,
     streaming: _streaming,
     stranded: _stranded,
     resumed: _resumed,
@@ -178,6 +190,7 @@ const minted = <Row extends AnyRow>(
     readonly id: string;
     readonly seq: number;
     readonly since: string;
+    readonly turn: string | undefined;
   },
   marks: {
     readonly streaming: boolean;
@@ -197,7 +210,13 @@ const minted = <Row extends AnyRow>(
             ...(marks.resumed === undefined ? {} : { resumed: marks.resumed }),
           }
         : {};
-  return { ...content, ...derived, ...marks_ } as Row;
+  const { turn, ...head } = derived;
+  return {
+    ...content,
+    ...head,
+    ...(turn === undefined ? {} : { turn }),
+    ...marks_,
+  } as Row;
 };
 
 /** A row's text, read off the generic row.
@@ -342,6 +361,21 @@ export interface ToolMove<Row extends AnyRow> {
    *  call's name. Scoped to the frame: absent is "not provisional", never
    *  "unchanged". */
   readonly provisional?: boolean | undefined;
+}
+
+/** What a caller may say about a row it WRITES, beside its content. */
+export interface WriteOptions {
+  /** Whether writing it ends the open paragraph. It does unless said: a row
+   *  normally follows what was being said. A death says no — it arrives in the
+   *  middle of somebody else's answer — and so does a message sent behind a
+   *  running turn, whose paragraph goes on growing above it. */
+  readonly closing?: boolean;
+  /** WHICH TURN it answers, where the caller knows better than the wire: `null`
+   *  for a message that opens a turn of its own, a message row's key for a row
+   *  ABOUT that turn written after the wire may have moved on to the next one
+   *  (how the turn ended). Unsaid: the turn the wire says the agent is on
+   *  ({@link Transcript.answering}). */
+  readonly turn?: string | null;
 }
 
 /** What a caller may say about this transcript's two products. Every value has
@@ -587,14 +621,20 @@ export class Transcript<Row extends AnyRow> {
    */
   write(
     content: RowContent<Row>,
-    options: { readonly closing?: boolean } = {},
+    options: WriteOptions = {},
   ): { readonly key: string; readonly change: Change<Row> } {
     const key = this.#next((content as { kind: string }).kind);
+    // A ROW ABOUT ANOTHER TURN than the one the wire is on is not where the
+    // open paragraph stops: that paragraph is the running turn's.
+    const elsewhere =
+      typeof options.turn === "string" && options.turn !== this.#turn;
     return {
       key,
       change: plus(
-        options.closing === false ? (EMPTY as Change<Row>) : this.#close(),
-        this.#put(key, content),
+        options.closing === false || elsewhere
+          ? (EMPTY as Change<Row>)
+          : this.#close(),
+        this.#put(key, content, options.turn),
       ),
     };
   }
@@ -644,12 +684,37 @@ export class Transcript<Row extends AnyRow> {
    * The one caller that has to keep a key: a user message can turn out to be
    * undeliverable after it has been drawn, and a retry that lands has to find
    * the same row again.
+   *
+   * A MESSAGE OPENS A TURN OF ITS OWN, so its row answers none — unless it is
+   * steered into the turn already running ({@link steered}). `closing` is the
+   * caller's, for {@link write}'s reason: a message sent behind a running turn
+   * does not end that turn's paragraph, which goes on growing above it.
    */
   user(
     text: string,
     extra: RowPatch<Row, "user"> = {},
+    options: { readonly closing?: boolean } = {},
   ): { readonly key: string; readonly change: Change<Row> } {
-    return this.#row("user", text, extra);
+    return this.write(
+      { kind: "user", text, ...extra } as unknown as RowContent<Row>,
+      { ...options, turn: null },
+    );
+  }
+
+  /**
+   * That message was STEERED into the turn that is running, and is part of it:
+   * its row answers that turn's message from here on. The one move of `turn`
+   * after a row's first write, and only from none — a message that opens a
+   * turn of its own is written before anybody knows whether a steer will land.
+   */
+  steered(key: string, turn: string): Change<Row> {
+    const current = this.#rows.get(key);
+    if (current === undefined || current.turn !== undefined) {
+      return EMPTY as Change<Row>;
+    }
+    const row = { ...current, turn } as Row;
+    this.#rows.set(key, row);
+    return { ...(EMPTY as Change<Row>), upserts: [row] };
   }
 
   /** That message is WAITING ITS TURN at the agent — it went out while a turn
@@ -1262,18 +1327,6 @@ export class Transcript<Row extends AnyRow> {
     return `${kind}:${++this.#minted}`;
   }
 
-  /** Mint a row that is FINISHED the moment it is written, and answer with both
-   *  its key and the change. `closing` is the one thing a caller may say about
-   *  the row ABOVE it: writing a row normally ends the open paragraph, and the
-   *  one caller that says no is a death ({@link #dies}). */
-  #row<K extends Row["kind"]>(
-    kind: K,
-    text: string,
-    extra: RowPatch<Row, K>,
-  ): { readonly key: string; readonly change: Change<Row> } {
-    return this.write({ kind, text, ...extra } as unknown as RowContent<Row>);
-  }
-
   /** Whatever was streaming has stopped. The row is re-published because
    *  `streaming` is derived on every write, so the flag comes off by the row
    *  being written again rather than by anybody clearing a field. */
@@ -1287,14 +1340,32 @@ export class Transcript<Row extends AnyRow> {
   }
 
   /** Write a row and report it. */
-  #put(key: string, content: RowContent<Row>): Change<Row> {
-    return { ...(EMPTY as Change<Row>), upserts: [this.#write(key, content)] };
+  #put(
+    key: string,
+    content: RowContent<Row>,
+    turn?: string | null,
+  ): Change<Row> {
+    return {
+      ...(EMPTY as Change<Row>),
+      upserts: [this.#write(key, content, turn)],
+    };
   }
 
   /** ... and write it WITHOUT reporting it, for the one caller that reports a
-   *  piece instead of the whole ({@link #grow}). */
-  #write(key: string, content: RowContent<Row>): Row {
+   *  piece instead of the whole ({@link #grow}).
+   *
+   *  `turn` is decided at a row's FIRST write and kept after, like `seq`: the
+   *  turn the wire says the agent is on ({@link answering}), unless the door
+   *  says otherwise ({@link WriteOptions.turn}). A call that settles while
+   *  another turn runs is still the call its own turn made. */
+  #write(key: string, content: RowContent<Row>, turn?: string | null): Row {
     const current = this.#rows.get(key);
+    const answers =
+      current === undefined
+        ? turn === undefined
+          ? this.#turn
+          : turn
+        : current.turn;
     const row = minted<Row>(
       content,
       {
@@ -1304,6 +1375,7 @@ export class Transcript<Row extends AnyRow> {
         // would reorder the conversation under a reader.
         seq: current?.seq ?? ++this.#seq,
         since: current?.since ?? this.#stamp(),
+        turn: answers ?? undefined,
       },
       {
         streaming: this.#open === key,

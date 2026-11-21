@@ -1654,8 +1654,16 @@ export const startHarness = async <Row extends AnyRow>(
     options.onChange({ kind: "state", state: state() });
   };
 
-  const notice = (text: string): void => {
-    report(transcript.add("notice", text));
+  /** A line of this end's own. `about` is the turn it is about, for a line a
+   *  turn's ENDING writes: by the time the return reaches this end the wire
+   *  may already be on the next turn, and the line is still the first one's. */
+  const notice = (text: string, about?: string): void => {
+    report(
+      transcript.write(
+        { kind: "notice", text } as unknown as RowContent<Row>,
+        about === undefined ? {} : { turn: about },
+      ).change,
+    );
   };
 
   /** Whether there is still a subprocess to talk to. */
@@ -1999,7 +2007,7 @@ export const startHarness = async <Row extends AnyRow>(
         // the turns a press stopped all say the one thing it did.
         if (!ticket.stopped || !cancelSaid) {
           cancelSaid = ticket.stopped;
-          notice("the turn was cancelled");
+          notice("the turn was cancelled", ticket.key);
         }
       }
     } catch (cause) {
@@ -2035,7 +2043,7 @@ export const startHarness = async <Row extends AnyRow>(
         // to prevent.
         if (heard === quietAt) report(transcript.unanswered(ticket.key));
       }
-      notice(`the turn could not be run: ${why}`);
+      notice(`the turn could not be run: ${why}`, ticket.key);
     } finally {
       const last = turns.leave(ticket);
       // ... and the clock stops with the last of them: an idle conversation
@@ -2132,7 +2140,12 @@ export const startHarness = async <Row extends AnyRow>(
     if (leg.steering === null) return "prompt";
     try {
       const went = await run(agent.steer(body));
-      if (went === "taken") return "handled";
+      if (went === "taken") {
+        // ... and the words are part of the turn they landed in: its row
+        // answers that turn's message, and opens no turn of its own.
+        report(transcript.steered(key, aimed.key));
+        return "handled";
+      }
       if (aimed.stopped) {
         report(transcript.refused(key));
         notice(CANCELLED_UNDER_IT);
@@ -2203,15 +2216,12 @@ export const startHarness = async <Row extends AnyRow>(
   ): Promise<{ rowId: string }> => {
     inConversation();
     const attached = await blocksOf(said.files, carries);
-    const { key, change } = transcript.user(said.text, said.extra);
-    report(change);
     // WHICH turn a steer is aimed at, read and KEPT: by the time it answers,
     // that turn may be over. The one the agent is working on, which is the
     // oldest — the ones behind it have not started, and interrupting a turn
     // that has not started is nothing at all.
     const aimed = turns.head;
-    const body = bodyOf(said.body);
-    if (
+    const steering =
       (steer || !queuesWhenBusy) &&
       aimed !== null &&
       advertisedSteering &&
@@ -2223,8 +2233,16 @@ export const startHarness = async <Row extends AnyRow>(
       // chip in it must never have. It goes the ordinary way instead: the
       // blocks below carry every attachment, and a turn in flight means it
       // queues rather than vanishes.
-      attached.length === 0
-    ) {
+      attached.length === 0;
+    // A MESSAGE SENT BEHIND A RUNNING TURN does not end that turn's paragraph:
+    // the reply goes on growing where it was, and the message waits for its
+    // own turn. One about to be STEERED does — its words go INTO that reply.
+    const { key, change } = transcript.user(said.text, said.extra, {
+      closing: aimed === null || steering,
+    });
+    report(change);
+    const body = bodyOf(said.body);
+    if (steering) {
       // The row is on screen before the round trip: a steer takes a deadline,
       // and a person's words must not wait on it to be drawn.
       publish();
@@ -2248,7 +2266,12 @@ export const startHarness = async <Row extends AnyRow>(
     text: string,
   ): Promise<{ rowId: string }> => {
     inConversation();
-    const { key, change } = transcript.write(row);
+    // ... written behind a running turn without ending its paragraph, and
+    // answering no turn: it opens one of its own, as a person's message does.
+    const { key, change } = transcript.write(row, {
+      closing: !turns.busy,
+      turn: null,
+    });
     // ... and the class is told that THIS row takes a turn's delivery marks,
     // which is the one thing it cannot read off a row whose kind is the
     // caller's own word.
