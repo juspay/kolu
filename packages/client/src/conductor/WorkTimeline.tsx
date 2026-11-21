@@ -37,6 +37,7 @@ import {
   type TimelineView,
   WATCH_EVENTS_SHOWN,
 } from "./timelineView";
+import { gapWordsFor, timelineGap } from "./timelineGap";
 import { mergeReason } from "./prReadings";
 import {
   clockOf,
@@ -61,18 +62,67 @@ const viewWord = (view: TimelineView): string => {
   }
 };
 
+/** THE RAIL A ROW SITS ON — what makes the timeline a line rather than a list:
+ *  the gap below the dot (from the wait to the next event) and the words that
+ *  gap prints when it is long. Absent inside a folder's unfolded file rows,
+ *  which are one event's detail, not their own moments. */
+interface Rail {
+  readonly first: boolean;
+  readonly last: boolean;
+  readonly gapPx: number;
+  readonly words: string | undefined;
+}
+
 /** A ROW'S TIME AND WHO IT WAS BY — the clock cell and the coloured dot,
- *  drawn the same at the head of an event row and of a folder row. */
-const RowStamp: Component<{ at: string; by: WorkEvent["by"] }> = (props) => (
+ *  drawn the same at the head of an event row and of a folder row. The rail
+ *  runs through the dot column: above the dot when a row came before, below
+ *  it (through the row's gap) when one comes after. */
+const RowStamp: Component<{
+  at: string;
+  by: WorkEvent["by"];
+  rail?: Rail;
+}> = (props) => (
   <>
     <span class="w-9 shrink-0 whitespace-nowrap font-mono text-[0.6rem] tabular-nums text-fg-3">
       {clockOf(props.at)}
     </span>
-    <span
-      aria-hidden="true"
-      class={`h-1.5 w-1.5 shrink-0 translate-y-[-0.1em] rounded-full ${EVENT_INK[props.by]}`}
-    />
+    <span class="relative flex w-1.5 shrink-0 justify-center self-stretch">
+      <Show when={props.rail}>
+        {(rail) => (
+          <span
+            aria-hidden="true"
+            class="absolute left-1/2 w-px -translate-x-1/2 bg-edge"
+            style={{
+              top: rail().first ? "0.55em" : "0",
+              ...(rail().last
+                ? { height: "0.55em" }
+                : { bottom: `-${rail().gapPx}px` }),
+            }}
+          />
+        )}
+      </Show>
+      <span
+        aria-hidden="true"
+        class={`relative mt-[0.35em] h-1.5 w-1.5 shrink-0 rounded-full ${EVENT_INK[props.by]}`}
+      />
+    </span>
   </>
+);
+
+/** THE TIME A LONG GAP TOOK, printed on the line itself when the gap is near
+ *  its maximum — the one thing a long stretch of line cannot say by its
+ *  length alone. `aria-hidden`: the row's own time and the record carry it. */
+const GapWords: Component<{ rail: Rail }> = (props) => (
+  <Show when={props.rail.words}>
+    {(words) => (
+      <span
+        aria-hidden="true"
+        class="pointer-events-none absolute left-12 bottom-1 font-mono text-[0.55rem] text-fg-3"
+      >
+        {words()}
+      </span>
+    )}
+  </Show>
 );
 
 const WorkTimeline: Component<{
@@ -118,7 +168,7 @@ const WorkTimeline: Component<{
 
   /** ONE EVENT'S ROW — drawn the same at the top level and inside an
    *  unfolded folder row. */
-  const EventRow: Component<{ index: number }> = (row) => {
+  const EventRow: Component<{ index: number; rail?: Rail }> = (row) => {
     const event = () => props.work.events[row.index];
     return (
       <Show when={event()}>
@@ -142,9 +192,17 @@ const WorkTimeline: Component<{
                 const it = one();
                 return it.kind === "draft-state" ? it.draft : undefined;
               })()}
-              class="flex min-w-0 items-baseline gap-1.5 text-[0.7rem]"
+              class="relative flex min-w-0 items-baseline gap-1.5 text-[0.7rem]"
+              style={
+                row.rail === undefined
+                  ? undefined
+                  : { "padding-bottom": `${row.rail.gapPx}px` }
+              }
             >
-              <RowStamp at={one().at} by={one().by} />
+              <RowStamp at={one().at} by={one().by} rail={row.rail} />
+              <Show when={row.rail}>
+                {(rail) => <GapWords rail={rail()} />}
+              </Show>
               <Switch
                 fallback={
                   <>
@@ -233,15 +291,28 @@ const WorkTimeline: Component<{
    *  said once, with its own more/less to unfold the per-file rows. */
   const FolderRow: Component<{
     row: Extract<TimelineRow, { kind: "folder" }>;
+    rail?: Rail;
   }> = (folder) => {
     const event = () => props.work.events[folder.row.indices[0] ?? 0];
     const open = () => opened().has(rowKey(folder.row));
     return (
       <Show when={event()}>
         {(one) => (
-          <li data-testid="work-event-folder" data-path={folder.row.folder}>
+          <li
+            data-testid="work-event-folder"
+            data-path={folder.row.folder}
+            class="relative"
+            style={
+              folder.rail === undefined
+                ? undefined
+                : { "padding-bottom": `${folder.rail.gapPx}px` }
+            }
+          >
             <div class="flex min-w-0 items-baseline gap-1.5 text-[0.7rem]">
-              <RowStamp at={one().at} by={one().by} />
+              <RowStamp at={one().at} by={one().by} rail={folder.rail} />
+              <Show when={folder.rail}>
+                {(rail) => <GapWords rail={rail()} />}
+              </Show>
               <span class="min-w-0 flex-1 truncate text-fg-2">
                 {folderRowWords(folder.row.folder, folder.row.indices.length)}
               </span>
@@ -281,31 +352,52 @@ const WorkTimeline: Component<{
       <h4 class="m-0 font-mono text-[0.58rem] uppercase tracking-[0.1em] text-fg-3">
         Timeline · {viewWord(shown().view)}
       </h4>
-      <ul class="m-0 mt-1 flex list-none flex-col gap-0.5 p-0">
+      <ul class="m-0 mt-1 flex list-none flex-col p-0">
         {/* KEYED, not `<For>`: the view is read again on every tick of the
             clock and mints fresh row objects, so a `<For>` over them would
             rebuild every row each time. */}
         <Key each={shown().rows} by={rowKey}>
-          {(row) => (
-            <Switch>
-              <Match
-                when={(() => {
-                  const it = row();
-                  return it.kind === "event" ? it : undefined;
-                })()}
-              >
-                {(it) => <EventRow index={it().index} />}
-              </Match>
-              <Match
-                when={(() => {
-                  const it = row();
-                  return it.kind === "folder" ? it : undefined;
-                })()}
-              >
-                {(it) => <FolderRow row={it()} />}
-              </Match>
-            </Switch>
-          )}
+          {(row, index) => {
+            /** WHEN THIS ROW'S EVENT HAPPENED, for the wait to the next one. */
+            const at = (one: TimelineRow): number => {
+              const i =
+                one.kind === "event" ? one.index : (one.indices[0] ?? 0);
+              return Date.parse(props.work.events[i]?.at ?? "");
+            };
+            const rail = (): Rail => {
+              const rows = shown().rows;
+              const i = index();
+              const next = rows[i + 1];
+              const gapMs =
+                next === undefined ? 0 : Math.max(0, at(next) - at(row()));
+              return {
+                first: i === 0,
+                last: next === undefined,
+                gapPx: next === undefined ? 0 : timelineGap(gapMs),
+                words: next === undefined ? undefined : gapWordsFor(gapMs),
+              };
+            };
+            return (
+              <Switch>
+                <Match
+                  when={(() => {
+                    const it = row();
+                    return it.kind === "event" ? it : undefined;
+                  })()}
+                >
+                  {(it) => <EventRow index={it().index} rail={rail()} />}
+                </Match>
+                <Match
+                  when={(() => {
+                    const it = row();
+                    return it.kind === "folder" ? it : undefined;
+                  })()}
+                >
+                  {(it) => <FolderRow row={it()} rail={rail()} />}
+                </Match>
+              </Switch>
+            );
+          }}
         </Key>
       </ul>
       <Show
