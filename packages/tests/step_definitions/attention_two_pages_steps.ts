@@ -7,6 +7,7 @@
 import * as assert from "node:assert";
 import { After, Then, When } from "@cucumber/cucumber";
 import type { Page } from "playwright";
+import { withAttentionDiagnosis } from "../support/attentionDiagnosis.ts";
 import { pollFor } from "../support/poll.ts";
 import {
   DOCK_ROW_SELECTOR,
@@ -57,23 +58,27 @@ When(
 /** Waits until terminal N's row in the SECOND page carries (or lacks) the
  *  unread mark. The mark and the page's write of its unread list happen in
  *  one step of the page, so a row that has lost its mark is a page that has
- *  written the list without it. */
+ *  written the list without it. A timeout carries the second page's
+ *  attention diagnosis. */
 Then(
   /^terminal (\d+)'s dock row should (be|not be) unread in the second page$/,
   async function (this: KoluWorld, index: string, how: string) {
-    const row = second(this).locator(
+    const page = second(this);
+    const row = page.locator(
       `${DOCK_ROW_SELECTOR}[data-terminal-id="${createdId(this, Number(index))}"][data-unread]`,
     );
     const want = how === "be" ? 1 : 0;
-    await pollFor({
-      observe: () => row.count(),
-      isDone: (count) => count === want,
-      timeoutMs: POLL_TIMEOUT,
-      onTimeout: (count, ms) =>
-        new Error(
-          `after ${ms}ms terminal ${index}'s row in the second page was ${count === 1 ? "unread" : "not unread"}, wanted it to ${how} unread`,
-        ),
-    });
+    await withAttentionDiagnosis(page, () =>
+      pollFor({
+        observe: () => row.count(),
+        isDone: (count) => count === want,
+        timeoutMs: POLL_TIMEOUT,
+        onTimeout: (count, ms) =>
+          new Error(
+            `after ${ms}ms terminal ${index}'s row in the second page was ${count === 1 ? "unread" : "not unread"}, wanted it to ${how} unread`,
+          ),
+      }),
+    );
   },
 );
 
