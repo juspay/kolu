@@ -1,7 +1,8 @@
 // @vitest-environment happy-dom
 /**
- * A work's terminal rows: role, name, what it runs, how it stands and for how
- * long, Look, and Take over or Hand back — read without opening the card.
+ * A work's terminal rows: role, name, what it runs, the Dock's indicator, how
+ * it stands and for how long, Look, and Take over or Hand back — read without
+ * opening the card.
  */
 
 import type { TerminalId } from "kolu-common/surface";
@@ -20,7 +21,7 @@ const world = vi.hoisted(() => ({
   names: new Map<string, string>(),
   drivers: new Map<string, string>(),
   seen: new Map<string, { level: string; since: string }>(),
-  runs: new Map<string, string>(),
+  setups: new Map<string, unknown>(),
   peeks: [] as unknown[],
   tiles: [] as unknown[],
   takes: [] as string[],
@@ -53,18 +54,20 @@ vi.mock("./useOpenTile", () => ({
 vi.mock("./peek/usePeek", () => ({
   openPeek: (at: unknown) => world.peeks.push(at),
 }));
-vi.mock("./workReadings", async (actual) => {
-  const real = await actual<typeof import("./workReadings")>();
-  const { Option } = await import("effect");
-  return {
-    ...real,
-    roleRuns: (_work: unknown, role: string) => {
-      const runs = world.runs.get(role);
-      return runs === undefined ? Option.none() : Option.some(runs);
-    },
-  };
-});
+vi.mock("kolu-work", async (actual) => ({
+  ...(await actual<typeof import("kolu-work")>()),
+  roleSetupOf: (_work: unknown, role: string) =>
+    world.setups.get(role) ?? { kind: "not-chosen" },
+}));
+// The pip's attention comes off each host's padi frame; nothing here is
+// asking or live, so every pip paints at rest.
+vi.mock("../attention/useAttentionFacts", () => ({
+  useAttentionFacts: () => ({
+    attentionOf: () => ({ klass: "idle" as const, live: false }),
+  }),
+}));
 
+import { attentionRecordOf } from "../attention/savedAttention";
 import WorkTerminals from "./WorkTerminals";
 
 const WORK = {} as Work;
@@ -79,6 +82,34 @@ const thinking: FleetTerminalStanding = {
       state: "thinking",
       summary: "writing the plan",
       taskProgress: null,
+    },
+  } as never,
+};
+/** An agent whose session has named its model. */
+const reporting = (model: string): FleetTerminalStanding => ({
+  kind: "here",
+  meta: {
+    state: "active",
+    foreground: null,
+    agent: {
+      kind: "claude-code",
+      state: "thinking",
+      summary: null,
+      taskProgress: null,
+      model,
+    },
+  } as never,
+});
+/** A plain shell with a command in front of it. */
+const running: FleetTerminalStanding = {
+  kind: "here",
+  meta: {
+    state: "active",
+    agent: null,
+    foreground: {
+      name: "restic",
+      title: "restic backup ~/data --verbose",
+      shell: false,
     },
   } as never,
 };
@@ -111,7 +142,8 @@ beforeEach(() => {
   world.names = new Map();
   world.drivers = new Map();
   world.seen = new Map();
-  world.runs = new Map();
+  world.setups = new Map();
+  localStorage.clear();
   world.peeks = [];
   world.tiles = [];
   world.takes = [];
@@ -223,7 +255,11 @@ describe("a work's terminal row", () => {
   });
 
   it("says what it runs from the setup, else the agent seen, else nothing", () => {
-    world.runs.set("planner", "omp/fable-5");
+    world.setups.set("planner", {
+      kind: "harness-and-model",
+      harness: "omp",
+      model: "fable-5",
+    });
     const el = mount([
       line(LOCAL_REF, "planner", thinking),
       line(REMOTE_REF, "implementor", thinking),
@@ -238,6 +274,50 @@ describe("a work's terminal row", () => {
     root?.remove();
     const bare = mount([line(REMOTE_REF, "implementor", { kind: "gone" })]);
     expect(part(row(bare, REMOTE_REF), "work-member-runs")).toBeNull();
+  });
+
+  it("names the model the session reports over the one the setup chose", () => {
+    world.setups.set("planner", {
+      kind: "harness-and-model",
+      harness: "omp",
+      model: "fable-5",
+    });
+    const el = mount([line(LOCAL_REF, "planner", reporting("fable-5.2-max"))]);
+    expect(part(row(el, LOCAL_REF), "work-member-runs")?.textContent).toBe(
+      "omp/fable-5.2-max",
+    );
+  });
+
+  it("says the command a shell runs by its title, as the Dock does", () => {
+    const el = mount([line(LOCAL_REF, "planner", running)]);
+    const status = part(row(el, LOCAL_REF), "work-member-status")?.textContent;
+    expect(status).toContain("No agent");
+    expect(status).toContain("restic backup ~/data --verbose");
+  });
+
+  it("draws the Dock's indicator, empty for a terminal it cannot read", () => {
+    const el = mount([
+      line(LOCAL_REF, "planner", thinking),
+      line(REMOTE_REF, "implementor", { kind: "gone" }),
+    ]);
+    const live = part(row(el, LOCAL_REF), "state-pip");
+    expect(live?.dataset.glyph).toBe("claude-code");
+    expect(live?.dataset.pip).not.toBe("empty");
+    expect(part(row(el, REMOTE_REF), "state-pip")?.dataset.pip).toBe("empty");
+  });
+
+  it("marks a ping not yet opened from the terminal's own host", () => {
+    // The same id on two hosts: only the host whose record holds the mark
+    // shows it.
+    attentionRecordOf("remote:nix@example").markUnread(REMOTE_ID);
+    const el = mount([
+      line(REMOTE_REF, "implementor", thinking),
+      line(`local/${REMOTE_ID}`, "planner", thinking),
+    ]);
+    expect(part(row(el, REMOTE_REF), "state-pip")?.dataset.alert).toBeDefined();
+    expect(
+      part(row(el, `local/${REMOTE_ID}`), "state-pip")?.dataset.alert,
+    ).toBeUndefined();
   });
 
   it("says plainly when a work has no terminals", () => {
