@@ -83,6 +83,7 @@ cd packages/tests && REUSE_SERVER=1 HEADLESS=false nix develop ../..#default -c 
 | `CUCUMBER_SHARD` | Cucumber's native one-based `<index>/<total>` scenario shard. `ci::e2e` derives it from odu's zero-based `ODU_SHARD_INDEX` and the `ODU_SHARD_TOTAL` it actually obtained, so each borrowed CI box runs one slice. `just test` and `just test-quick` leave it unset and run every scenario. |
 | `HEADLESS` | `false` opens a visible browser. |
 | `KOLU_SERVER` | The server under test: a binary path each worker spawns on a random port, or an `http://` URL of a server you are already running. `just test` points it at the nix-built binary, `just test-quick` at `scripts/kolu-source-wrapper.sh`. |
+| `KOLU_SERVER_NEXT_BUILD` | The build a scenario's deploy starts in place of `KOLU_SERVER` (`kolu is deployed under this page`): the same server with a different padi build id, so the new server's binder replaces padi as a real deploy's does. `just test` builds it from `default.nix` with `padiBuildIdOverride`; `just test-quick` sets the source wrapper, which takes the id from the env the harness passes. A deploy fails when it is unset. |
 
 ## How it works
 

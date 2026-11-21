@@ -872,6 +872,28 @@ const acpFixtureAgent = path.resolve(
 /** ... and the store it remembers prompted sessions in, per worker. */
 const acpFixtureSessions = mkSubDir("acp-sessions");
 
+/** Which of the two server builds a start runs: `base` is `KOLU_SERVER`;
+ *  `next` is `KOLU_SERVER_NEXT_BUILD`, the same server with a different padi
+ *  build id — what {@link deployKoluServer} deploys. A Nix-built server bakes
+ *  its id (`--set PADI_BUILD_ID`), so there `next` is a second build; the
+ *  source wrapper reads it from the env this start passes, so there `next` is
+ *  the same wrapper with another id. */
+type ServerBuild = "base" | "next";
+
+/** The build the running server is — the one a deploy replaces. */
+let runningBuild: ServerBuild = "base";
+
+function serverBinary(koluServer: string, build: ServerBuild): string {
+  if (build === "base") return koluServer;
+  const next = process.env.KOLU_SERVER_NEXT_BUILD;
+  if (!next) {
+    throw new Error(
+      "a scenario deploys a second server build, but KOLU_SERVER_NEXT_BUILD is not set (the `just test` / `just test-quick` recipes set it)",
+    );
+  }
+  return next;
+}
+
 async function startServerChild(
   koluServer: string,
   /** How this start proves padi is live — see {@link waitForPadiLive}. A
@@ -883,6 +905,7 @@ async function startServerChild(
    *  and so the origin, the open page has. One attempt only: a squatter is a
    *  failure, not a retry. */
   fixedPort?: number,
+  build: ServerBuild = "base",
 ): Promise<void> {
   // Refuse a destructive ssh-leg bind BEFORE spawning the child — the spawn itself is
   // destructive, so the ack cannot wait until after (P2/F1).
@@ -912,7 +935,7 @@ async function startServerChild(
       `[worker:${workerId}] Starting server on port ${port} (attempt ${attempt}/${MAX_SPAWN_ATTEMPTS})...`,
     );
     const child = spawn(
-      koluServer,
+      serverBinary(koluServer, build),
       [
         // `web` is spelled explicitly: bare `kolu` lists its subcommands and
         // exits non-zero now — it stopped being an alias for the server when
@@ -1021,6 +1044,12 @@ async function startServerChild(
           // scenario wrote into its own repo rather than whatever the real
           // `gh` can reach.
           KOLU_GH_BIN: fakeGhBin,
+          // THE PADI BUILD, for the source wrapper: it bakes nothing, so its
+          // binder and the padi it spawns (`inheritParentEnv`) read the id
+          // from here, and the two builds differ only by it. A Nix-built
+          // server's own `--set` overrides these.
+          PADI_BUILD_ID: `e2e-${build}`,
+          PADI_COMMIT_HASH: `e2e-${build}`,
         },
       },
     );
@@ -1070,6 +1099,7 @@ async function startServerChild(
     );
     if (owned) {
       serverProcess = child;
+      runningBuild = build;
       baseUrl = url;
       // Re-point the shared RPC wire at THIS server: a restart lands on a fresh
       // random port, and a socket left dialling the old one would retry against a
@@ -1741,19 +1771,17 @@ export async function restartKoluServer(
   return baseUrl;
 }
 
-/** DEPLOY UNDER AN OPEN PAGE: stop ONLY the server (SIGTERM, as a service
- *  manager would), leave padi and kaval running, start a server on the SAME
- *  port, and have it drain padi (`daemon/restart`) — what a new server's
- *  binder does at boot when its padi build differs from the resident one's.
- *  The padi build is baked into the Nix-built server the CI lane runs
- *  (`--set PADI_BUILD_ID`), so a harness cannot make two starts of one build
- *  disagree; the drain is the same one the build check triggers
- *  (`padiBinding`'s drain-on-build-mismatch, proven against two real builds by
- *  `nix/home/example/adoption/padi-upgrade.nix` and `remote-deploy.nix`).
+/** DEPLOY UNDER AN OPEN PAGE, the way a deploy does it: stop ONLY the server
+ *  (SIGTERM, as a service manager would), leave padi and kaval running, and
+ *  start the OTHER build of the server ({@link ServerBuild}: a different padi
+ *  build id) on the SAME port. Nothing here touches padi: what replaces it is
+ *  the new server's binder, draining a padi whose build is not its own.
  *
  *  Resolves once the deploy has taken that path, and throws unless it has:
- *  the old padi outlived the old server, the new server logged the drain, a
- *  NEW padi holds the gate, and kaval is the process it was. */
+ *  the old padi outlived the old server, the new server logged its binder's
+ *  `padi build change on boot`, a NEW padi holds the gate, and kaval is the
+ *  process it was. The server listens before its binder has replaced padi, so
+ *  "the new server is up" is not yet any of that — it is waited for. */
 export async function deployKoluServer(): Promise<void> {
   const koluServer = process.env.KOLU_SERVER;
   if (!koluServer || koluServer.startsWith("http")) {
@@ -1786,15 +1814,19 @@ export async function deployKoluServer(): Promise<void> {
       `padi (pid ${padiBefore}) did not outlive the old server: that is a kill, not a deploy`,
     );
   }
-  await startServerChild(koluServer, "read", port);
-  await surfaceCall("daemon/restart");
+  await startServerChild(
+    koluServer,
+    "read",
+    port,
+    runningBuild === "base" ? "next" : "base",
+  );
   await pollFor({
     observe: async () => ({
       logged: fs
         .readFileSync(logFile)
         .subarray(logOffset)
         .toString("utf8")
-        .includes("draining the bound padi"),
+        .includes("padi build change on boot"),
       pid: readPadiGatePid(),
     }),
     isDone: ({ logged, pid }) =>
@@ -1803,7 +1835,7 @@ export async function deployKoluServer(): Promise<void> {
     intervalMs: 100,
     onTimeout: (last, ms) =>
       new Error(
-        `after ${ms}ms the new server had not replaced padi: drain logged: ${last?.logged}; padi pid ${padiBefore} -> ${last?.pid}`,
+        `after ${ms}ms the new server had not replaced padi: \`padi build change on boot\` logged: ${last?.logged}; padi pid ${padiBefore} -> ${last?.pid}`,
       ),
   });
   const kavalAfter = readKavalGatePid();
