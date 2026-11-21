@@ -275,22 +275,36 @@ const WorkRail: Component<{ groups: RailGroups }> = (props) => {
       style={{ "--rail-width": `${resize.rendered()}px` }}
       class="relative flex min-h-0 w-14 shrink-0 flex-col border-e border-edge conductor-md:w-[var(--rail-width)]"
     >
-      <Show when={pickedWork() !== null}>
-        <button
-          type="button"
-          data-testid="works-all"
-          aria-label="All work"
-          class="mx-1.5 mt-3 cursor-pointer rounded-md px-2 py-1 text-start text-[0.72rem] font-semibold text-accent hover:bg-surface-2"
-          onClick={() => unpickWork()}
+      {/* THE TOP ROW: one box of one fixed height in both views, so nothing
+          under it moves between all the works and one. With a work open it
+          is the way back; on home it names where you are, not pressed. In
+          the strip of initials it keeps its height and says nothing on
+          home. */}
+      <div class="mx-1.5 mt-3 flex h-7 shrink-0 items-center">
+        <Show
+          when={pickedWork() !== null}
+          fallback={
+            <span class="hidden px-2 text-[0.72rem] font-semibold text-fg-3 conductor-md:inline">
+              All work
+            </span>
+          }
         >
-          <span aria-hidden="true" class="hidden conductor-md:inline">
-            ← All work
-          </span>
-          <span aria-hidden="true" class="conductor-md:hidden">
-            ←
-          </span>
-        </button>
-      </Show>
+          <button
+            type="button"
+            data-testid="works-all"
+            aria-label="All work"
+            class="h-full w-full cursor-pointer rounded-md px-2 text-start text-[0.72rem] font-semibold text-accent hover:bg-surface-2"
+            onClick={() => unpickWork()}
+          >
+            <span aria-hidden="true" class="hidden conductor-md:inline">
+              ← All work
+            </span>
+            <span aria-hidden="true" class="conductor-md:hidden">
+              ←
+            </span>
+          </button>
+        </Show>
+      </div>
       {/* PINNED: what needs you never scrolls away. Its own scroll only when
           it alone would fill the sidebar. */}
       <Show when={props.groups.waiting.length > 0}>
