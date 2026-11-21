@@ -6,8 +6,11 @@ const A = "11111111-1111-4111-8111-111111111111" as TerminalId;
 const B = "22222222-2222-4222-8222-222222222222" as TerminalId;
 const NAME = "kolu-attention:local";
 
-/** A browser's storage, held across "page loads" the way localStorage is. */
-function memoryStorage(): Storage {
+/** A browser's storage, held across "page loads" the way localStorage is.
+ *  With `announce`, every write is also announced as a `storage` event — what
+ *  the browser does for every OTHER page of the same origin. Two records in
+ *  this one window both hear it, the writer included, as two pages would. */
+function memoryStorage(opts: { announce?: boolean } = {}): Storage {
   const items = new Map<string, string>();
   return {
     get length() {
@@ -17,7 +20,19 @@ function memoryStorage(): Storage {
     getItem: (key) => items.get(key) ?? null,
     key: (index) => [...items.keys()][index] ?? null,
     removeItem: (key) => void items.delete(key),
-    setItem: (key, value) => void items.set(key, value),
+    setItem: (key, value) => {
+      const oldValue = items.get(key) ?? null;
+      items.set(key, value);
+      if (opts.announce)
+        window.dispatchEvent(
+          new StorageEvent("storage", {
+            key,
+            oldValue,
+            newValue: value,
+            url: location.href,
+          }),
+        );
+    },
   };
 }
 
@@ -79,5 +94,22 @@ describe("a host's saved attention record", () => {
     } finally {
       warn.mockRestore();
     }
+  });
+
+  it("two pages of one browser: a mark read in one is not unread in the other, and the other's next write does not bring it back", () => {
+    const storage = memoryStorage({ announce: true });
+    const first = createAttentionRecord({ name: NAME, storage });
+    first.markUnread(A);
+    // The second page loads with terminal A unread.
+    const second = createAttentionRecord({ name: NAME, storage });
+    expect(second.isUnread(A)).toBe(true);
+
+    first.clearUnread(A);
+    expect(second.isUnread(A)).toBe(false);
+
+    // The second page's next write keeps the first page's read.
+    second.markUnread(B);
+    const saved: unknown = JSON.parse(storage.getItem(NAME) ?? "null");
+    expect(saved).toMatchObject({ unread: [B] });
   });
 });

@@ -226,3 +226,33 @@ Feature: Attention Alerts
     And no workspace switcher branch should be notified
     And the notification sound should have played 1 time
     And there should be no page errors
+
+  # Two pages of the same kolu in one browser share one saved list of unread
+  # marks. A terminal read in one page must stay read when the other page
+  # writes the list and the first page reloads.
+
+  @codex-mock
+  Scenario: A terminal read in one page stays read after another page of the same kolu writes the unread list
+    When I create a terminal
+    And a Claude Code session is mocked with state "waiting"
+    And I create a terminal
+    Then a workspace switcher branch should be notified
+    And this browser's saved unread list should be terminals "1"
+    When I open a second page of the same kolu
+    Then terminal 1's dock row should be unread in the second page
+    # Read terminal 1 in the first page.
+    When I click the notified workspace switcher branch
+    Then no workspace switcher branch should be notified
+    And this browser's saved unread list should be terminals ""
+    # A second agent finishes; reading it in the second page makes that page
+    # write the list.
+    When I select terminal 2 in the workspace switcher
+    And I create a terminal
+    And a Codex session is mocked with state "waiting"
+    And I create a terminal
+    Then terminal 3's dock row should be unread in the second page
+    When I click terminal 3's dock row in the second page
+    Then terminal 3's dock row should not be unread in the second page
+    When I reload the first page
+    Then terminal 1's dock row should show its finished turn
+    And terminal 1's dock row should not be unread
