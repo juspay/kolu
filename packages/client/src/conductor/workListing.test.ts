@@ -31,6 +31,8 @@ vi.mock("./useWorks", () => ({
 import { chatScope, showAllChat } from "./chatScope";
 import { phoneView, setPhoneView } from "./phoneView";
 import {
+  chooseView,
+  chosenView,
   isPicked,
   parsePicked,
   pickedWork,
@@ -89,6 +91,19 @@ describe("the picked work", () => {
     expect(stageAskedFor()).toBe("build");
     pickWork(B);
     expect(stageAskedFor()).toBeUndefined();
+  });
+
+  it("keeps the view chosen for it until another pick", () => {
+    pickWork(A);
+    expect(chosenView()).toBeUndefined();
+    chooseView("details");
+    expect(chosenView()).toBe("details");
+    pickWork(B);
+    expect(chosenView()).toBeUndefined();
+    pickWork(A, "build");
+    expect(chosenView()).toBe("details");
+    unpickWork();
+    expect(chosenView()).toBeUndefined();
   });
 });
 

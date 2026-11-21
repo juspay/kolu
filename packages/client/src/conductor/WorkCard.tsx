@@ -74,6 +74,8 @@ import { liveArm } from "./terminalStatus";
 import { workFileSource } from "./workFile";
 import {
   cardShown,
+  chooseView,
+  chosenView,
   isPicked,
   pickWork,
   stageAskedFor,
@@ -242,17 +244,10 @@ const WorkCard: Component<{
     isOpen() ? stageAskedFor() : undefined,
   );
   const [whole, setWhole] = createSignal(false);
-  /** WHICH VIEW A PERSON CHOSE for this pick, Terminals or Details — none
-   *  until they press one (`pickedView` then decides). A work picked by a
-   *  press on a stage of its strip was picked to read that stage: Details. */
-  const [chosenView, setChosenView] = createSignal<PickedView | undefined>(
-    isOpen() && stageAskedFor() !== undefined ? "details" : undefined,
-  );
   createEffect(() => {
     if (isOpen()) return;
     setPressed(undefined);
     setWhole(false);
-    setChosenView(undefined);
   });
   /** ... read ONCE per redraw, for the strip and the timeline both. */
   const view = createMemo(() =>
@@ -315,7 +310,7 @@ const WorkCard: Component<{
                 ? "bg-surface-0 font-semibold text-fg shadow-sm"
                 : "text-fg-2 hover:text-fg"
             }`}
-            onClick={() => setChosenView(one)}
+            onClick={() => chooseView(one)}
           >
             {one === "terminals" ? "Terminals" : "Details"}
           </button>
@@ -384,7 +379,7 @@ const WorkCard: Component<{
         show: (stage) => {
           setPressed(stage);
           setWhole(false);
-          if (isOpen()) setChosenView("details");
+          if (isOpen()) chooseView("details");
           else pickWork(props.id, stage);
         },
       }}

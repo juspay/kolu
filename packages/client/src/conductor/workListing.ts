@@ -21,6 +21,7 @@
  *  to the work, which a reload has always ended. */
 
 import type { StageName, WorkId } from "kolu-work";
+import type { PickedView } from "./livePanes";
 import { batch, createSignal } from "solid-js";
 import { defaultInvalidWarning, persistedPref } from "../persistedPref";
 import { pointChatAt, showAllChat } from "./chatScope";
@@ -47,6 +48,11 @@ const [picked, setPicked] = persistedPref<WorkId | null>({
 /** The stage a press on a work's strip asked for, carried into the picked
  *  work's timeline: the strip that was pressed is not the one that shows. */
 const [pickedStage, setPickedStage] = createSignal<StageName | undefined>();
+/** The view a person chose for the picked work — Terminals or Details — or
+ *  none, which leaves it to `pickedView`. The pick's, not the drawing's: the
+ *  picked work can be drawn again (the works are re-read, the list is drawn
+ *  anew) without the person's choice going back to the default. */
+const [viewChoice, setViewChoice] = createSignal<PickedView | undefined>();
 const [finishedOpen, setFinishedOpen] = createSignal(false);
 /** A work asked to come into view — keyed by a counter so asking twice for
  *  the same work scrolls twice, and with the question to bring into view
@@ -68,12 +74,22 @@ export const isPicked = (id: string): boolean => picked() === id;
 /** The stage the pick asked its timeline to show, if it asked for one. */
 export const stageAskedFor = pickedStage;
 
+/** The view chosen for the picked work, if one was. */
+export const chosenView = viewChoice;
+
+/** Put one of the picked work's views in front. */
+export function chooseView(view: PickedView): void {
+  setViewChoice(view);
+}
+
 /** PICK A WORK: the screen is about it, and so is the chat — on the stage
- *  `stage` names, when a press on its strip picked it. */
+ *  `stage` names, when a press on its strip picked it, which was a press to
+ *  read that stage: its Details are in front. */
 export function pickWork(id: WorkId, stage?: StageName): void {
   batch(() => {
     setPicked(id);
     setPickedStage(stage);
+    setViewChoice(stage === undefined ? undefined : "details");
     pointChatAt(id);
   });
 }
@@ -82,6 +98,7 @@ export function pickWork(id: WorkId, stage?: StageName): void {
 export function unpickWork(): void {
   batch(() => {
     setPicked(null);
+    setViewChoice(undefined);
     showAllChat();
   });
 }

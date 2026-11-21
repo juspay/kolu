@@ -171,29 +171,30 @@ const WorkColumn: Component = () => {
   });
   const done = createMemo(() => finished(works()));
 
-  /** THE PICKED WORK, with its record — none while it is not in the list. */
-  const pickedRow = createMemo((): WorkRow | undefined => {
+  /** Is the picked work in the list right now? */
+  const pickedHere = createMemo(() => {
     const id = pickedWork();
-    return id === null ? undefined : works().find(([one]) => one === id);
+    return id !== null && works().some(([one]) => one === id);
   });
-  const pickedHere = createMemo(() => pickedRow() !== undefined);
-  /** A PICKED WORK THAT IS NOT HERE IS LET GO — at once when it was here and
-   *  has left the list (the oldest finished works are let go), and after the
-   *  bound a link waits when it has not arrived yet: a reload keeps the pick
-   *  (`workListing.ts`) and the works reach the mirror one by one after it,
-   *  so a pick that arrives late is not one that is gone. */
-  let arrived: WorkId | null = null;
+  /** THE PICKED WORK, with its record — the last one read while the work is
+   *  away from the list. If the work is missing from the mirror for a moment,
+   *  a pick that went back to the board each time would draw the work anew
+   *  and lose the view it was on. */
+  const pickedRow = createMemo((last: WorkRow | undefined) => {
+    const id = pickedWork();
+    if (id === null) return undefined;
+    const now = works().find(([one]) => one === id);
+    if (now !== undefined) return now;
+    return last?.[0] === id ? last : undefined;
+  }, undefined);
+  /** A PICKED WORK THAT IS NOT HERE IS LET GO, after the bound a link waits:
+   *  a reload keeps the pick (`workListing.ts`) and the works reach the mirror
+   *  one by one after it, and a work can be away for a moment, so a pick
+   *  that is not here yet, or not here now, is not one that is gone. One
+   *  that stays away — the oldest finished works are let go — is dropped. */
   createEffect(
     on([pickedWork, pickedHere], ([id, here]) => {
-      if (id === null) return;
-      if (here) {
-        arrived = id;
-        return;
-      }
-      if (arrived === id) {
-        unpickWork();
-        return;
-      }
+      if (id === null || here) return;
       const timer = setTimeout(unpickWork, MEMBERSHIP_BOUND_MS);
       onCleanup(() => clearTimeout(timer));
     }),
