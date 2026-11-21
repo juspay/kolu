@@ -12802,6 +12802,18 @@
       "exampleRows": [],
       "executions": 1,
       "firstSeenSha": "865e6bd8eeb940ba774a7dd64b2681b926b25368"
+    },
+    {
+      "revisionId": "revision-6c009b49a484e43d2297",
+      "scenarioKey": "scenario-d42a126d4c936830be5f",
+      "feature": "features/attention-alerts.feature",
+      "scenario": "A terminal read in one page stays read after another page, at a different address, writes the unread list",
+      "kind": "scenario",
+      "tags": ["@codex-mock"],
+      "bodyHash": "e6255b13db0f2708e68c223f441b02d98535ba27a5a1419a1cd00e0597a6e660",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "8f4cda9a9c46bf3ffcbad823631b01fd17ceec86"
     }
   ]
 }

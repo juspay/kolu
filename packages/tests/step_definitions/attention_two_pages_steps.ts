@@ -32,15 +32,27 @@ After(async function (this: KoluWorld) {
   await secondPages.get(this)?.close();
 });
 
-When("I open a second page of the same kolu", async function (this: KoluWorld) {
-  const page = await this.page.context().newPage();
-  await page.goto(this.page.url());
-  await page
-    .locator(DOCK_ROW_SELECTOR)
-    .first()
-    .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
-  secondPages.set(this, page);
-});
+/** A second page of this kolu in the same browser. `at another address`
+ *  opens it on a kolu link (`#/h/local`, this host's own), the way a page
+ *  opened from a link keeps its link in the address bar: same origin, same
+ *  storage, a different address. */
+When(
+  /^I open a second page of the same kolu( at another address)?$/,
+  async function (this: KoluWorld, elsewhere: string | null | undefined) {
+    const url = new URL(this.page.url());
+    if (elsewhere) {
+      url.hash = "#/h/local";
+      assert.notStrictEqual(url.href, this.page.url());
+    }
+    const page = await this.page.context().newPage();
+    await page.goto(url.href);
+    await page
+      .locator(DOCK_ROW_SELECTOR)
+      .first()
+      .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    secondPages.set(this, page);
+  },
+);
 
 /** Waits until terminal N's row in the SECOND page carries (or lacks) the
  *  unread mark. The mark and the page's write of its unread list happen in

@@ -256,3 +256,29 @@ Feature: Attention Alerts
     When I reload the first page
     Then terminal 1's dock row should show its finished turn
     And terminal 1's dock row should not be unread
+
+  # The same, with the second page opened on a kolu link: a page keeps its
+  # link in the address bar, so two pages of one kolu can sit at different
+  # addresses while sharing one storage.
+  @codex-mock
+  Scenario: A terminal read in one page stays read after another page, at a different address, writes the unread list
+    When I create a terminal
+    And a Claude Code session is mocked with state "waiting"
+    And I create a terminal
+    Then a workspace switcher branch should be notified
+    And this browser's saved unread list should be terminals "1"
+    When I open a second page of the same kolu at another address
+    Then terminal 1's dock row should be unread in the second page
+    When I click the notified workspace switcher branch
+    Then no workspace switcher branch should be notified
+    And this browser's saved unread list should be terminals ""
+    When I select terminal 2 in the workspace switcher
+    And I create a terminal
+    And a Codex session is mocked with state "waiting"
+    And I create a terminal
+    Then terminal 3's dock row should be unread in the second page
+    When I click terminal 3's dock row in the second page
+    Then terminal 3's dock row should not be unread in the second page
+    When I reload the first page
+    Then terminal 1's dock row should show its finished turn
+    And terminal 1's dock row should not be unread

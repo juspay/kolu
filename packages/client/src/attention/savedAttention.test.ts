@@ -7,10 +7,11 @@ const B = "22222222-2222-4222-8222-222222222222" as TerminalId;
 const NAME = "kolu-attention:local";
 
 /** A browser's storage, held across "page loads" the way localStorage is.
- *  With `announce`, every write is also announced as a `storage` event — what
- *  the browser does for every OTHER page of the same origin. Two records in
- *  this one window both hear it, the writer included, as two pages would. */
-function memoryStorage(opts: { announce?: boolean } = {}): Storage {
+ *  With `announceFrom`, every write is also announced as a `storage` event
+ *  from a page at that address — what the browser does for every OTHER page
+ *  of the same origin. Two records in this one window both hear it, the
+ *  writer included, as two pages would. */
+function memoryStorage(opts: { announceFrom?: string } = {}): Storage {
   const items = new Map<string, string>();
   return {
     get length() {
@@ -23,13 +24,13 @@ function memoryStorage(opts: { announce?: boolean } = {}): Storage {
     setItem: (key, value) => {
       const oldValue = items.get(key) ?? null;
       items.set(key, value);
-      if (opts.announce)
+      if (opts.announceFrom !== undefined)
         window.dispatchEvent(
           new StorageEvent("storage", {
             key,
             oldValue,
             newValue: value,
-            url: location.href,
+            url: opts.announceFrom,
           }),
         );
     },
@@ -96,8 +97,14 @@ describe("a host's saved attention record", () => {
     }
   });
 
-  it("two pages of one browser: a mark read in one is not unread in the other, and the other's next write does not bring it back", () => {
-    const storage = memoryStorage({ announce: true });
+  it.each([
+    ["at the same address", () => location.href],
+    [
+      "at a different address — a page opened from a kolu link keeps it",
+      () => new URL("#/h/local", location.href).href,
+    ],
+  ])("two pages of one browser %s: a mark read in one is not unread in the other, and the other's next write does not bring it back", (_, writerAddress) => {
+    const storage = memoryStorage({ announceFrom: writerAddress() });
     const first = createAttentionRecord({ name: NAME, storage });
     first.markUnread(A);
     // The second page loads with terminal A unread.
