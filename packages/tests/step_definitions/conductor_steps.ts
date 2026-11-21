@@ -1628,10 +1628,12 @@ Then(
     // Stricter than "the page is no wider than the window": a span clipped by
     // an `overflow: hidden` ancestor keeps the document narrow while its own
     // box runs off the screen — exactly how a phone's agent line used to cut
-    // its title. Every element with a box is measured — except what the
-    // Conductor's layer covers: while the Conductor is shown it covers the
-    // host's canvas, whose tiles sit wherever the canvas was panned, and a
-    // covered tile is not on screen.
+    // its title. Every element with a box is measured — except what is not
+    // on screen to begin with. While the Conductor is shown its layer covers
+    // the host's canvas, whose tiles sit wherever the canvas was panned, and
+    // a covered tile is not on screen. And what lies past the edge of a box
+    // that scrolls sideways — a terminal wider than its pane, which pans — is
+    // scrolled out of view, not cut: the box itself is what is measured.
     const offenders = await this.page.evaluate(() => {
       const pane = document.querySelector('[data-testid="conductor-pane"]');
       const layer =
@@ -1642,11 +1644,22 @@ Then(
           if (layer !== null && covered?.contains(el) && !layer.contains(el))
             return false;
           const box = el.getBoundingClientRect();
-          return (
-            box.width > 0 &&
-            box.height > 0 &&
-            box.right > window.innerWidth + 0.5
-          );
+          if (
+            box.width <= 0 ||
+            box.height <= 0 ||
+            box.right <= window.innerWidth + 0.5
+          )
+            return false;
+          for (let up = el.parentElement; up !== null; up = up.parentElement) {
+            const pans = getComputedStyle(up).overflowX;
+            if (
+              (pans === "auto" || pans === "scroll") &&
+              up.scrollWidth > up.clientWidth &&
+              up.getBoundingClientRect().right <= window.innerWidth + 0.5
+            )
+              return false;
+          }
+          return true;
         })
         .slice(0, 5)
         .map(
