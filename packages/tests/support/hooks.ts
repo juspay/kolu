@@ -1122,19 +1122,22 @@ async function startServerChild(
       started = true;
       console.log(`[worker:${workerId}] Server is healthy on ${port}.`);
     } else {
-      lastFailure = exited
-        ? `the server exited (${exitedAs}) before it owned port ${port} — the port may be held by another process`
-        : ownsPort
-          ? `the server was alive and announced port ${port} but did not answer /api/health within ${attemptWaitMs}ms`
+      lastFailure = ownsPort
+        ? exited
+          ? `the server announced port ${port} and then exited (${exitedAs}) before it answered /api/health`
+          : `the server was alive and announced port ${port} but did not answer /api/health within ${attemptWaitMs}ms`
+        : exited
+          ? `the server exited (${exitedAs}) before it owned port ${port} — the port may be held by another process`
           : `the server was alive but had not announced owning port ${port} after ${attemptWaitMs}ms`;
-      console.log(
-        `[worker:${workerId}] ${lastFailure}${
-          attempt < MAX_SPAWN_ATTEMPTS
-            ? "; killing it and retrying on a fresh port."
-            : "; killing it."
-        }`,
-      );
-      child.kill("SIGKILL");
+      const action =
+        [
+          exited ? null : "killing it",
+          attempt < MAX_SPAWN_ATTEMPTS ? "retrying on a fresh port" : null,
+        ]
+          .filter((step) => step !== null)
+          .join(" and ") || "giving up";
+      console.log(`[worker:${workerId}] ${lastFailure}; ${action}.`);
+      if (!exited) child.kill("SIGKILL");
     }
   }
   if (!started) {
