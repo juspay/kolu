@@ -352,17 +352,18 @@ const ConductorTranscript: Component<{
    *  only "you are not at the bottom". */
   const [unseen, setUnseen] = createSignal(false);
 
-  /** What a frame may change: how many rows there are and how much text they
-   *  hold. The text matters as much as the count — a streaming paragraph
-   *  grows one row for a whole turn, and following only new rows would leave
-   *  the view a paragraph behind. EVERY row's, not the last one's: a message
-   *  sent while a reply is still being written is drawn last, and that reply
-   *  goes on growing above it. */
+  /** What a frame may change: how many rows there are and how much prose
+   *  they hold. The prose matters as much as the count — a streaming
+   *  paragraph grows one row for a whole turn, and following only new rows
+   *  would leave the view a paragraph behind. EVERY reply's, not the last
+   *  row's: a message sent while a reply is still being written is drawn
+   *  last, and that reply goes on growing above it. PROSE only: a notice or a
+   *  call's title changing far above a reader who scrolled up is not news. */
   const signature = createMemo(() => {
     const rows = props.rows;
-    let text = 0;
-    for (const row of rows) if ("text" in row) text += row.text.length;
-    return `${rows.length}:${text}`;
+    let prose = 0;
+    for (const row of rows) if (row.kind === "agent") prose += row.text.length;
+    return `${rows.length}:${prose}`;
   });
 
   /** How many times a row's prose DOM was rewritten. It matters for the one

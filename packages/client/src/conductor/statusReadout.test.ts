@@ -211,7 +211,10 @@ describe("a message sent while the reply is still being written (#2420)", () => 
       conductorDoing([
         userRow("u1", 1, "go"),
         { ...agentRow("a1", 2, "still working on it"), turn: "u1" },
-        { ...userRow("u2", 3, "and this"), delivery: "refused" } as ConductorRow,
+        {
+          ...userRow("u2", 3, "and this"),
+          delivery: "refused",
+        } as ConductorRow,
       ]),
     ).toBe("still working on it");
   });

@@ -251,7 +251,7 @@ describe("the transcript's follow rule", () => {
     expect(scroller.scrollTop).toBe(endOf(column));
   });
 
-  it("does not ring \"something new\" when a notice far above changes its words", () => {
+  it('does not ring "something new" when a notice far above changes its words', () => {
     // Only prose GROWS: a notice or a call's title changing above a reader who
     // scrolled up is not news down at the end.
     const scroller = mount();

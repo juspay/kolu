@@ -22,7 +22,7 @@ import type { ConductorRow, ConductorState } from "kolu-common/conductor";
 import { elapsedSince } from "../time/duration";
 import { COMPACTING } from "./compactionWords";
 import { toolLabel } from "./toolCard";
-import { chatTurns } from "./turnWorks";
+import { chatTurns, ran } from "./turnWorks";
 
 /** How much of a spoken line the status row carries. Past this the line is
  *  a paragraph, and the status row is one line beside two buttons — on a
@@ -46,9 +46,10 @@ function headline(text: string): string | null {
  *  `null` when the turn has neither — a turn that has started and not yet
  *  spoken, which leaves the line reading `working · 34s`.
  *
- *  THE TURN IN FLIGHT is the newest turn whose message is not still waiting
- *  behind another (`queued`), read through `./turnWorks.ts`'s `chatTurns` —
- *  the one turn boundary every reading of the chat shares. A message sent
+ *  THE TURN IN FLIGHT is the newest turn that RAN (`./turnWorks.ts`'s `ran`:
+ *  its message is not waiting behind another, nor refused or unanswered),
+ *  read through `chatTurns` — the one turn boundary every reading of the
+ *  chat shares. A message sent
  *  while a reply is still being written waits LAST in the chat, so a walk up
  *  from the last row met it first and stopped there, and the line went blank
  *  while that reply went on. Nothing of an earlier turn is read: a turn whose
@@ -67,10 +68,7 @@ function headline(text: string): string | null {
  *  (`asksThroughForm`): the form IS the question, and the line says what the
  *  turn said before it instead. */
 export function conductorDoing(rows: readonly ConductorRow[]): string | null {
-  const running = chatTurns(rows).findLast(
-    ({ head }) =>
-      !((head.kind === "user" || head.kind === "wake") && head.queued === true),
-  );
+  const running = chatTurns(rows).findLast(ran);
   if (running === undefined) return null;
   /** The latest prose of this turn, held while the walk keeps looking for a
    *  call still out beneath it. */

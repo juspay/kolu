@@ -561,6 +561,9 @@ export class Transcript<Row extends AnyRow> {
     this.#refusalMarks.clear();
     this.#outings.clear();
     this.#open = null;
+    // ... and the turn the wire last named, which is kept beside it: a row the
+    // next conversation writes answers none of this one's messages.
+    this.#turn = null;
     this.#endsWithDivider = true;
     if (!this.#countersSurviveClear) {
       // ... back to the origin the caller asked for: the first row of a fresh

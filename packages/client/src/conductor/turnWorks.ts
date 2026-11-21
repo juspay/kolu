@@ -81,16 +81,30 @@ const isMessage = (
 /** The group of the rows before the first message of all. */
 const BEFORE = Symbol("before the first message");
 
-/** When a turn STARTED, or `null` for one still waiting behind another (its
- *  message is `queued`). A started turn began at its first reply row — a
- *  message sent while another turn runs is typed long before the agent takes
- *  it up — or at its message's stamp when it has no reply yet. */
+/** WHETHER A TURN RAN — the one rule every reader of "this turn started"
+ *  uses (its window here, the status line, the finished reply). A turn whose
+ *  message is still waiting behind another (`queued`) has not run, and nor has
+ *  one the agent refused or left unanswered (`delivery`): such a message heads
+ *  a turn of its own that never started. Rows with no message at their head
+ *  (before the first message, or whose message is gone) ran. */
+export const ran = (turn: { readonly head: ConductorRow }): boolean => {
+  const { head } = turn;
+  return (
+    !isMessage(head) || (head.queued !== true && head.delivery === undefined)
+  );
+};
+
+/** When a turn STARTED, or `null` for one that has not ({@link ran}). A
+ *  started turn began at its first reply row — a message sent while another
+ *  turn runs is typed long before the agent takes it up — or at its message's
+ *  stamp when it has no reply yet. A turn that never waited is taken the same
+ *  way: once `queued` comes off, a row cannot say it ever waited. */
 const startOf = (group: {
   readonly head: ConductorRow;
   readonly rows: readonly ConductorRow[];
 }): number | null => {
+  if (!ran(group)) return null;
   const { head } = group;
-  if (isMessage(head) && head.queued === true) return null;
   return Date.parse(((isMessage(head) ? group.rows[1] : head) ?? head).since);
 };
 
