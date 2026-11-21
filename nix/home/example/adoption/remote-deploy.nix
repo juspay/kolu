@@ -89,13 +89,27 @@ let
     ]);
 
   # The pid in a daemon's gate on the remote (`padi` or `kaval`), or nothing.
-  # root's runtime home is `/run/user/0` under linger; `/tmp` is the
-  # no-XDG fallback (packages/surface-daemon/src/daemonHome.ts).
+  # A gate holds more than the pid; the pid is its first word. root's runtime
+  # home is `/run/user/0` under linger; `/tmp` is the no-XDG fallback
+  # (packages/surface-daemon/src/daemonHome.ts).
   gatePid = pkgs.writeShellScript "remote-gate-pid" ''
     export PATH=${nixLib.makeBinPath [ pkgs.coreutils pkgs.findutils ]}
     gate=$(find /run/user/0 /tmp -maxdepth 2 -name "$1.pid" 2>/dev/null | head -n1)
-    [ -n "$gate" ] && cat "$gate"
+    [ -n "$gate" ] && read -r pid _ < "$gate" && echo "$pid"
     exit 0
+  '';
+
+  # The remote kaval's PTYs as JSON (`[{ id, pid, … }]`), read with the
+  # `kaval-tui` the remote is provisioned with. A terminal's `pid` is its
+  # shell's — the foreground pid padi reads while the shell sits idle. The
+  # create answer does not carry it: a remote create answers before the PTY
+  # is up, with pid 0.
+  kavalList = pkgs.writeShellScript "remote-kaval-list" ''
+    export PATH=${nixLib.makeBinPath [ pkgs.coreutils pkgs.findutils ]}
+    export HOME=/root
+    sock=$(find /run/user/0 /tmp -maxdepth 2 -name pty-host.sock 2>/dev/null | head -n1)
+    [ -n "$sock" ] || { echo "no kaval socket on the remote" >&2; exit 1; }
+    ${kolu.packages.${system}.padi-agent}/bin/kaval-tui list --json --socket "$sock"
   '';
 
   # Follow the remote padi's `urgency`, re-dialling whichever padi holds the
@@ -106,11 +120,11 @@ let
     while true; do
       sock=$(find /run/user/0 /tmp -maxdepth 2 -name padi.sock 2>/dev/null | head -n1)
       if [ -n "$sock" ]; then
-        pid=$(cat "$(dirname "$sock")/padi.pid" 2>/dev/null || echo none)
+        pid=$(${gatePid} padi)
         ${remoteKolu} surface get urgency --follow --socket "$sock" \
           2>>/tmp/remote-urgency.err \
           | while IFS= read -r frame; do
-              echo "$(date +%s%3N) $pid $frame"
+              echo "$(date +%s%3N) ''${pid:-none} $frame"
             done >> /tmp/remote-urgency.log
       fi
       sleep 0.2
@@ -188,10 +202,18 @@ pkgs.testers.nixosTest {
                 return
             time.sleep(1)
         _, err = agenthost.execute("tail -n 40 /tmp/remote-urgency.err 2>&1 || true")
-        _, journal = machine.execute(
-            "journalctl _UID=1000 --no-pager --lines=300 2>&1 || true"
+        _, remote = agenthost.execute(
+            "${kavalList} 2>&1; ls -la /root/.claude/sessions 2>&1; "
+            "cat /root/.claude/sessions/*.json 2>&1 || true"
         )
-        machine.log(f"timeline:\n{timeline(since)}\nfollower stderr:\n{err}\nbinder journal:\n{journal}")
+        _, journal = machine.execute(
+            "journalctl _UID=1000 --no-pager 2>&1 "
+            "| grep -v -e 'copying path' -e ' of [0-9.]* [KMG]\\?i\\?B' | tail -n 200 || true"
+        )
+        machine.log(
+            f"timeline:\n{timeline(since)}\nfollower stderr:\n{err}\n"
+            f"remote:\n{remote}\nbinder journal:\n{journal}"
+        )
         raise Exception(f"timed out after {timeout}s waiting for {what}")
 
     # ── 1. On the remote: a sleeping terminal first, an idle agent after it ──
@@ -201,8 +223,14 @@ pkgs.testers.nixosTest {
         "${sleepCmd} "
         + shlex.quote(json.dumps({"mapKey": "${mapKey}", "input": {"id": sleeper}}))
     )
-    created = json.loads(machine.succeed("${createCmd}"))
-    agent, shell_pid = created["id"], created["pid"]
+    agent = json.loads(machine.succeed("${createCmd}"))["id"]
+    shell_pid = int(
+        agenthost.wait_until_succeeds(
+            f"${kavalList} | ${jq} -er --arg id {agent} "
+            "'.[] | select(.id == $id and .pid > 0) | .pid'",
+            timeout=60,
+        ).strip()
+    )
     agenthost.succeed("cp ${transcript} ${projectDir}/${sessionId}.jsonl")
     session = {
         "pid": shell_pid,
