@@ -33,8 +33,10 @@
  *    • SEEN IS SEEN. A thing counts as heard whether or not it rang: one that
  *      arrived while alerts were off must not ring the moment alerts come
  *      back on.
- *    • MEMORY AND THE CONVERSATION'S OWN QUESTIONS each take their first
- *      frame as a baseline of their own, and then ring once per new one. */
+ *    • MEMORY AND REPLIES TO A MESSAGE THE PERSON TYPED each take their own
+ *      first reading as a baseline, and then ring once per new one; the
+ *      conversation's own questions are heard with the conversation's first
+ *      reading. */
 
 import type { MemoryNeed } from "kolu-common/conductorMemory";
 import type { NeedsYou, WorkId } from "kolu-work";

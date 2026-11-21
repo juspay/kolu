@@ -21,7 +21,7 @@ export function attentionChannels(
         // EXPECTED and benign — but surface it (never a silent collapse) so a broken
         // sound channel is distinguishable from success. `debug` keeps the expected
         // autoplay-block out of the warning stream while still being observable.
-        console.debug("useAttention: notification sound did not play", err);
+        console.debug("attention: notification sound did not play", err);
       });
     },
     popup(item: AttentionItem) {

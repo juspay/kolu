@@ -42,8 +42,8 @@ export function terminalItem(args: {
 }
 
 /** A PIECE OF WORK WAITING ON THE HUMAN — a question put about it, or a green
- *  PR handed over. `inFront` is that card, or that question, in view in a
- *  focused window. */
+ *  PR handed over. `inFront` is the Conductor's tab showing in a focused kolu
+ *  window. */
 export function workItem(need: NeedsYou, inFront: boolean): AttentionItem {
   return {
     tag: `work:${need.key}`,
