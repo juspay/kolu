@@ -57,6 +57,10 @@ export type ActivityUpdate =
 export interface ActivityNotification {
   readonly session: string;
   readonly update: ActivityUpdate;
+  /** What a reader of the stream outside this channel's rewriting wrote on
+   *  the frame after it was rewritten — the client's note of which prompt the
+   *  frame belongs to. Nothing a dialect sets. */
+  readonly _meta?: unknown;
 }
 
 /**

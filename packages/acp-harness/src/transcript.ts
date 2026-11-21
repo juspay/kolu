@@ -365,16 +365,17 @@ export interface ToolMove<Row extends AnyRow> {
 
 /** What a caller may say about a row it WRITES, beside its content. */
 export interface WriteOptions {
-  /** Whether writing it ends the open paragraph. It does unless said: a row
-   *  normally follows what was being said. A death says no — it arrives in the
-   *  middle of somebody else's answer — and so does a message sent behind a
-   *  running turn, whose paragraph goes on growing above it. */
+  /** Whether writing it ends the open paragraph. It does unless said, or
+   *  unless the row answers another turn ({@link WriteOptions.turn}). A death
+   *  says no: it arrives in the middle of somebody else's answer. */
   readonly closing?: boolean;
   /** WHICH TURN it answers, where the caller knows better than the wire: `null`
    *  for a message that opens a turn of its own, a message row's key for a row
    *  ABOUT that turn written after the wire may have moved on to the next one
    *  (how the turn ended). Unsaid: the turn the wire says the agent is on
-   *  ({@link Transcript.answering}). */
+   *  ({@link Transcript.answering}). A row of another turn than the wire's
+   *  does not end the open paragraph — that paragraph is the running turn's,
+   *  so a message sent behind it leaves the reply growing above it. */
   readonly turn?: string | null;
 }
 
@@ -647,9 +648,12 @@ export class Transcript<Row extends AnyRow> {
     kind: K,
     text: string,
     extra: RowPatch<Row, K> = {},
+    options: WriteOptions = {},
   ): Change<Row> {
-    return this.write({ kind, text, ...extra } as unknown as RowContent<Row>)
-      .change;
+    return this.write(
+      { kind, text, ...extra } as unknown as RowContent<Row>,
+      options,
+    ).change;
   }
 
   /** Write a row at a key the CALLER chose — a row whose key is load-bearing
@@ -689,26 +693,25 @@ export class Transcript<Row extends AnyRow> {
    * the same row again.
    *
    * A MESSAGE OPENS A TURN OF ITS OWN, so its row answers none — unless it is
-   * steered into the turn already running ({@link steered}). `closing` is the
-   * caller's, for {@link write}'s reason: a message sent behind a running turn
-   * does not end that turn's paragraph, which goes on growing above it.
+   * steered into the turn already running ({@link steered}). Written behind a
+   * running turn, it leaves that turn's paragraph open ({@link WriteOptions}).
    */
   user(
     text: string,
     extra: RowPatch<Row, "user"> = {},
-    options: { readonly closing?: boolean } = {},
   ): { readonly key: string; readonly change: Change<Row> } {
     return this.write(
       { kind: "user", text, ...extra } as unknown as RowContent<Row>,
-      { ...options, turn: null },
+      { turn: null },
     );
   }
 
   /**
    * That message was STEERED into the turn that is running, and is part of it:
-   * its row answers that turn's message from here on. The one move of `turn`
-   * after a row's first write, and only from none — a message that opens a
-   * turn of its own is written before anybody knows whether a steer will land.
+   * its row answers that turn's message from here on, and the reply it landed
+   * in goes on in a new paragraph below it. The one move of `turn` after a
+   * row's first write, and only from none — a message that opens a turn of its
+   * own is written before anybody knows whether a steer will land.
    */
   steered(key: string, turn: string): Change<Row> {
     const current = this.#rows.get(key);
@@ -717,7 +720,7 @@ export class Transcript<Row extends AnyRow> {
     }
     const row = { ...current, turn } as Row;
     this.#rows.set(key, row);
-    return { ...(EMPTY as Change<Row>), upserts: [row] };
+    return plus(this.#close(), { ...(EMPTY as Change<Row>), upserts: [row] });
   }
 
   /** That message is WAITING ITS TURN at the agent — it went out while a turn

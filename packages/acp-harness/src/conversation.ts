@@ -2246,12 +2246,17 @@ export const startHarness = async <Row extends AnyRow>(
   ): Promise<{ rowId: string }> => {
     inConversation();
     const attached = await blocksOf(said.files, carries);
+    // A message written behind a running turn leaves that turn's paragraph
+    // open: the reply goes on growing above it (`Transcript.user`).
+    const { key, change } = transcript.user(said.text, said.extra);
+    report(change);
     // WHICH turn a steer is aimed at, read and KEPT: by the time it answers,
     // that turn may be over. The one the agent is working on, which is the
     // oldest — the ones behind it have not started, and interrupting a turn
     // that has not started is nothing at all.
     const aimed = turns.head;
-    const steering =
+    const body = bodyOf(said.body);
+    if (
       (steer || !queuesWhenBusy) &&
       aimed !== null &&
       advertisedSteering &&
@@ -2263,16 +2268,8 @@ export const startHarness = async <Row extends AnyRow>(
       // chip in it must never have. It goes the ordinary way instead: the
       // blocks below carry every attachment, and a turn in flight means it
       // queues rather than vanishes.
-      attached.length === 0;
-    // A MESSAGE SENT BEHIND A RUNNING TURN does not end that turn's paragraph:
-    // the reply goes on growing where it was, and the message waits for its
-    // own turn. One about to be STEERED does — its words go INTO that reply.
-    const { key, change } = transcript.user(said.text, said.extra, {
-      closing: aimed === null || steering,
-    });
-    report(change);
-    const body = bodyOf(said.body);
-    if (steering) {
+      attached.length === 0
+    ) {
       // The row is on screen before the round trip: a steer takes a deadline,
       // and a person's words must not wait on it to be drawn.
       publish();
@@ -2296,12 +2293,9 @@ export const startHarness = async <Row extends AnyRow>(
     text: string,
   ): Promise<{ rowId: string }> => {
     inConversation();
-    // ... written behind a running turn without ending its paragraph, and
-    // answering no turn: it opens one of its own, as a person's message does.
-    const { key, change } = transcript.write(row, {
-      closing: !turns.busy,
-      turn: null,
-    });
+    // ... answering no turn: it opens one of its own, as a person's message
+    // does, and so leaves a running turn's paragraph open.
+    const { key, change } = transcript.write(row, { turn: null });
     // ... and the class is told that THIS row takes a turn's delivery marks,
     // which is the one thing it cannot read off a row whose kind is the
     // caller's own word.

@@ -2376,9 +2376,7 @@ export const make = (options: Options): Effect.Effect<Agent, never, never> =>
                       update,
                       // The stamp `./answering.ts` put on this channel's
                       // frame, which the dialect's own value never carried.
-                      "_meta" in notification
-                        ? answeringIn(notification._meta)
-                        : undefined,
+                      answeringIn(notification._meta),
                     );
                 },
                 dialect,
@@ -2460,7 +2458,8 @@ export const make = (options: Options): Effect.Effect<Agent, never, never> =>
             return terminals.release(params);
           })
           // ... over a stream that says which prompt each frame belongs to,
-          // in the order the wire carried them (`./answering.ts`).
+          // in the order the wire carried them (`./answering.ts`). OUTSIDE the
+          // activity rewriter, so the channel's frames are stamped too.
           .connect(answering(extension.stream));
 
         const initialized = (yield* Effect.raceFirst(

@@ -28,17 +28,19 @@
  * params it is handed ({@link answeringIn}).
  */
 
-import type { Stream } from "@agentclientprotocol/sdk";
+import { methods, type Stream } from "@agentclientprotocol/sdk";
 import { ACTIVITY_METHOD } from "@kolu/acp";
 
 /** Where the name rides, outgoing and incoming. Never sent to an agent. */
 export const KEY = "acp-client/turn";
 
-/** The methods whose frames become rows: what a caller files under a turn. */
+/** The methods whose frames become rows: what a caller files under a turn.
+ *  Spelled through the SDK's own table, as the rest of this package is, so a
+ *  protocol rename cannot leave frames unstamped without a word. */
 const STAMPED: Record<string, true> = {
-  "session/update": true,
-  "session/request_permission": true,
-  "elicitation/create": true,
+  [methods.client.session.update]: true,
+  [methods.client.session.requestPermission]: true,
+  [methods.client.elicitation.create]: true,
   [ACTIVITY_METHOD]: true,
 };
 
