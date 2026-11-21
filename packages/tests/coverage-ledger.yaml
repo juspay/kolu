@@ -4301,7 +4301,7 @@ retirements:
     defectSurface: [conductor, attention-alerts, user-journey]
     destinationLayer: L5
     replacements: []
-    survivorRevisionIds: [revision-42204b97a703f397594d]
+    survivorRevisionIds: [revision-2865c3964c283ad8bc2e]
     sameCodePathEvidence:
       file: packages/tests/features/conductor.feature
       symbol: "Scenario: A question from the Conductor rings when you are not looking at it"
@@ -5083,3 +5083,29 @@ retirements:
       file: packages/tests/features/conductor.feature
       symbol: "Scenario: The mouse wheel scrolls the chat after a work is picked and left"
       test: The same real wheel over the transcript, now after a work is picked and left; the pre-pick steps that repeated the follow scenario are gone.
+  - id: revise-f61366c5cc105a2fe515
+    revisionId: revision-f61366c5cc105a2fe515
+    action: revised
+    status: landed
+    promise: A question about a work reaches you by sound
+    defectSurface: [conductor, user-journey]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-dadfb02b66f1d37def38]
+    sameCodePathEvidence:
+      file: packages/tests/features/conductor-needs-you.feature
+      symbol: "Scenario: A question about a work chimes wherever you are"
+      test: The same journey and the same steps; the Conductor now chimes while it is in front of you, so each sound count is one higher.
+  - id: revise-42204b97a703f397594d
+    revisionId: revision-42204b97a703f397594d
+    action: revised
+    status: landed
+    promise: A question from the Conductor reaches you by sound, and a reload does not ring for it
+    defectSurface: [conductor, attention-alerts, user-journey]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-2865c3964c283ad8bc2e]
+    sameCodePathEvidence:
+      file: packages/tests/features/conductor.feature
+      symbol: "Scenario: A question from the Conductor chimes wherever you are, and a reload does not ring for it"
+      test: The same journey and the same steps; a question asked while the Conductor is in front of you now chimes, so the second sound count is two. The ring while the window is away and the silence after a reload are as they were.

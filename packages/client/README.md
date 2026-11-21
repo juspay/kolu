@@ -29,7 +29,7 @@ owns the one websocket and the singleton subscriptions.
 | Directory | What it owns |
 | --- | --- |
 | `agents` | The agent chips, the chooser and the per-host agent marks. |
-| `attention` | The detect-then-fire engine behind alerts, its diagnostics and its marks. |
+| `attention` | The one path every alert goes through (`attend`), the channels it reaches you by, the engines that raise items into it, its diagnostics and its marks. |
 | `canvas` | The desktop spatial canvas: tiles, layout, minimap, title-bar actions. |
 | `comments` | Selection capture and the comment composer and tray. |
 | `conductor` | The Conductor conversation: transcript cards, composer, asks, diffs, the reader window, and the memory (its proposal cards and the Memory sheet). |
