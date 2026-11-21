@@ -223,9 +223,7 @@ const StageStrip: Component<{
                         emphasis() === stage().name
                           ? "block"
                           : "hidden conductor-md:block"
-                      } ${
-                        full() ? "text-[0.55rem]" : "text-[0.5rem]"
-                      } ${
+                      } ${full() ? "text-[0.55rem]" : "text-[0.5rem]"} ${
                         emphasis() === stage().name
                           ? "font-semibold text-fg"
                           : state().kind === "skipped"

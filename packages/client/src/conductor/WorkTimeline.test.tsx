@@ -104,9 +104,7 @@ describe("a work's timeline", () => {
   it("prints the time on a long gap only", () => {
     const el = mount(staged());
     const words = [
-      ...el.querySelectorAll<HTMLElement>(
-        '[data-testid="timeline-gap-words"]',
-      ),
+      ...el.querySelectorAll<HTMLElement>('[data-testid="timeline-gap-words"]'),
     ].map((one) => one.textContent);
     expect(words).toHaveLength(1);
     expect(words[0]).toBe("3h");

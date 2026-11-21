@@ -21,11 +21,7 @@ import {
   type WorkId,
   type WorkRow,
 } from "kolu-work";
-import {
-  composerText,
-  setComposerText,
-  welcomeAsk,
-} from "./drafts";
+import { composerText, setComposerText, welcomeAsk } from "./drafts";
 import { helpSheet } from "./helpContent";
 import { Shown } from "../ui/shown";
 import WorkColumn from "./WorkColumn";
@@ -103,7 +99,9 @@ describe("the works column with nothing in progress", () => {
   it("welcome is there, with three asks", () => {
     const el = mount([]);
 
-    expect(el.querySelector('[data-testid="work-column-empty"]')).not.toBeNull();
+    expect(
+      el.querySelector('[data-testid="work-column-empty"]'),
+    ).not.toBeNull();
     expect(examples(el)).toHaveLength(3);
   });
 
@@ -111,7 +109,9 @@ describe("the works column with nothing in progress", () => {
     // Deliberate: the panel says what the Conductor is for whenever nothing
     // is in progress, not only on the first ever visit.
     const el = mount(FINISHED);
-    expect(el.querySelector('[data-testid="work-column-empty"]')).not.toBeNull();
+    expect(
+      el.querySelector('[data-testid="work-column-empty"]'),
+    ).not.toBeNull();
   });
 
   it("puts an example's own words in the request the composer answers", () => {
