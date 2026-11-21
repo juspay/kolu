@@ -296,15 +296,17 @@ const ConductorPane: Component<{
                   could see them. */}
               <Show when={!phone()}>
                 <Shown.Provider value={worksShown}>
+                  {/* The works scroll inside the column (its
+                      `data-works-scroll`), beside a sidebar that stays put;
+                      this side itself never scrolls. */}
                   <aside
                     data-testid="conductor-side"
-                    data-works-scroll
                     style={{
                       "content-visibility": reading() ? "hidden" : "visible",
                     }}
                     inert={reading()}
                     aria-hidden={reading() || undefined}
-                    class={`flex min-h-0 min-w-0 flex-col overflow-y-auto overflow-x-hidden ${
+                    class={`flex min-h-0 min-w-0 flex-col overflow-hidden ${
                       reading() ? "w-0" : ""
                     }`}
                   >

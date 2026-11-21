@@ -37,7 +37,6 @@
 
 import { dualPhrase } from "@kolu/terminal-vocab/duration";
 import { DASH } from "kolu-common/surface";
-import { Option } from "effect";
 import {
   lifetime,
   openAsks,
@@ -56,15 +55,12 @@ import {
   onMount,
   Show,
 } from "solid-js";
-import { fleetTerminalStanding } from "../palette/fleetTerminals";
 import { elapsedSince } from "../time/duration";
 import WorkSubtitle from "./WorkSubtitle";
 import { useShown, useShownClock } from "../ui/shown";
 import Tip from "../ui/Tip";
 import WorkCardActions from "./WorkCardActions";
 import WorkQuestion from "./WorkQuestion";
-import { splitMemberRef } from "./memberRef";
-import { useWorkMembers } from "./useWorks";
 import StageStrip from "./StageStrip";
 import WorkDetails from "./WorkDetails";
 import WorkLive from "./WorkLive";
@@ -81,18 +77,16 @@ import {
   togglePick,
   wantedCard,
 } from "./workListing";
-import { checksTally, livePrOf } from "./prReadings";
+import { createWorkFacts } from "./workFacts";
 import { timelineShown } from "./timelineView";
 import WorkStanding from "./WorkStanding";
 import {
-  membersIn,
   outcomeWords,
   repoName,
   stagesOf,
-  standingLine,
   timeSpentOnYou,
 } from "./workReadings";
-import WorkTerminals, { type MemberLine } from "./WorkTerminals";
+import WorkTerminals from "./WorkTerminals";
 
 /** ONE OPEN QUESTION'S PLACE ON THE CARD — what a route onto that question
  *  scrolls to. Whether the question is in view is the question's own to say
@@ -138,7 +132,12 @@ const WorkCard: Component<{
   // The column's clock, stopped while nobody is looking at the pane: every
   // duration on this card ticks from it, and a hidden pane ticks for nobody.
   const now = useShownClock();
-  const allMembers = useWorkMembers();
+  /** Its members, its live PR and checks, and where it stands — the one
+   *  reading the work's line in the sidebar and its chip read too. */
+  const { members, livePr, checks, at } = createWorkFacts(
+    () => props.id,
+    () => props.work,
+  );
 
   const isOpen = () => isPicked(props.id);
 
@@ -178,37 +177,15 @@ const WorkCard: Component<{
     });
   });
 
-  /** WHAT IS RUNNING AND WHAT IS BEING ASKED, or `undefined` for a work that
-   *  is over. EVERY open ask: a Conductor that asks about a failing check
-   *  while a plan approval is still open has put two things to the human, and
-   *  a face that draws one of them makes the second answerable nowhere. */
+  /** WHAT IS BEING ASKED, or `undefined` for a work that is over. EVERY open
+   *  ask: a Conductor that asks about a failing check while a plan approval
+   *  is still open has put two things to the human, and a face that draws
+   *  one of them makes the second answerable nowhere. */
   const live = createMemo(() =>
     props.work.state.kind === "open"
-      ? {
-          members: membersIn(allMembers(), props.id),
-          asks: openAsks(props.work),
-        }
+      ? { asks: openAsks(props.work) }
       : undefined,
   );
-
-  /** The members, in the order a waterfall runs them, each with its live
-   *  standing read ONCE. Three readers want that standing — the agent's name,
-   *  the clock, whether there is anywhere to go — and reading it per reader is
-   *  how one terminal came to be looked up three times a frame. */
-  const members = createMemo(
-    (): ReadonlyArray<MemberLine> =>
-      (live()?.members ?? []).map((row) => {
-        const split = splitMemberRef(row.terminal);
-        const standing =
-          split === null
-            ? undefined
-            : fleetTerminalStanding(split.host, split.id);
-        return { ...row, split, standing };
-      }),
-  );
-
-  const livePr = createMemo(() => livePrOf(members()));
-  const checks = createMemo(() => checksTally(Option.fromNullishOr(livePr())));
   /** All the time this work has waited on you, while it is still running. */
   const onYou = createMemo(() =>
     props.work.state.kind === "open"
@@ -222,8 +199,6 @@ const WorkCard: Component<{
   const source = createMemo(() =>
     workFileSource(props.id, props.work, members()),
   );
-
-  const at = createMemo(() => standingLine(props.work, checks()));
 
   /** THE STAGES, read once for the strip and the timeline it indexes. */
   const read = createMemo(() =>

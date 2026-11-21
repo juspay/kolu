@@ -10,7 +10,7 @@ import type { Work } from "kolu-work";
 import { render } from "solid-js/web";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { FleetTerminalStanding } from "../palette/fleetTerminals";
-import type { MemberLine } from "./WorkTerminals";
+import type { MemberLine } from "./workFacts";
 
 const REMOTE_ID = "11111111-1111-4111-8111-111111111111" as TerminalId;
 const LOCAL_ID = "22222222-2222-4222-8222-222222222222" as TerminalId;

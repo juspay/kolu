@@ -24,7 +24,7 @@ import {
 } from "./livePanes";
 import { useMemberName } from "./memberNames";
 import { type MemberRef, splitMemberRef } from "./memberRef";
-import type { MemberLine } from "./WorkTerminals";
+import type { MemberLine } from "./workFacts";
 import { ROLE_WORD } from "./workReadings";
 
 /** The width two panes side by side need — `--breakpoint-conductor-md`. */

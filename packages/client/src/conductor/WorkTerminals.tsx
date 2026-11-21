@@ -26,11 +26,9 @@ import { activeArm } from "@kolu/padi-client/surface";
 import { Option } from "effect";
 import type { Work } from "kolu-work";
 import { type Component, createMemo, For, Show } from "solid-js";
-import type { FleetTerminalStanding } from "../palette/fleetTerminals";
 import { elapsedSince } from "../time/duration";
 import { agentName } from "../ui/agentDisplay";
 import { onHostWords, useKnownNames } from "./memberNames";
-import type { MemberRef } from "./memberRef";
 import { openPeek } from "./peek/usePeek";
 import MemberPip from "./MemberPip";
 import { liveArm, terminalStatus } from "./terminalStatus";
@@ -38,20 +36,8 @@ import { useConductor } from "./useConductor";
 import { useOpenTile } from "./useOpenTile";
 import { useMembership, useSeen } from "./useWorks";
 import { LEVEL_WORD } from "./wake";
-import {
-  type Lock,
-  ROLE_WORD,
-  roleRuns,
-  type WorkMemberRow,
-} from "./workReadings";
-
-/** One member as a card holds it: its row in the work, its ref split into the
- *  keys the fleet index is read by (`null` when this browser cannot read
- *  it), and its live standing, read once by the card. */
-export interface MemberLine extends WorkMemberRow {
-  readonly split: MemberRef | null;
-  readonly standing: FleetTerminalStanding | undefined;
-}
+import type { MemberLine } from "./workFacts";
+import { type Lock, ROLE_WORD, roleRuns } from "./workReadings";
 
 /** The two controls at a row's end, in the row's smaller type. */
 const CONTROL =

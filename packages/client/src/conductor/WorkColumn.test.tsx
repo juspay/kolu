@@ -39,6 +39,11 @@ vi.mock("./WorkCard", () => ({
     <div data-testid="work-card-stub" data-work={props.id} />
   ),
 }));
+// The sidebar reads each work's terminals; what these cases hold is the
+// board beside it.
+vi.mock("./WorkRail", () => ({
+  default: () => <nav data-testid="works-rail-stub" />,
+}));
 
 const WORK: WorkId = "branch:local/%2Fr/welcome" as WorkId;
 const opened = (): Work =>
