@@ -1,8 +1,61 @@
 import * as assert from "node:assert";
 import { Then, When } from "@cucumber/cucumber";
+import { readPadiDirect } from "../support/hooks.ts";
 import { pollFor, pollUntil } from "../support/poll.ts";
 import { redeployUnderThisPage } from "../support/redeploy.ts";
 import { type KoluWorld, POLL_TIMEOUT } from "../support/world.ts";
+
+/** What a timed-out unread wait reports, so a red run tells apart padi not
+ *  having opened its feed (`settled: false`), a turn that finished with no
+ *  mark raised, and a turn that had not finished: padi's own `urgency` read
+ *  off its socket, every dock row's agent state, pip, unread mark and active
+ *  flag, and whether the page has focus. */
+async function attentionDiagnosis(world: KoluWorld): Promise<string> {
+  const urgency = await readPadiDirect().then(
+    ({ urgency }) => JSON.stringify(urgency),
+    (err: unknown) => `unreadable: ${(err as Error).message}`,
+  );
+  const page = await world.page.evaluate(() => ({
+    hasFocus: document.hasFocus(),
+    rows: [...document.querySelectorAll('[data-testid="dock-row"]')].map(
+      (row) => {
+        const pip = row.querySelector('[data-testid="state-pip"]');
+        return {
+          id: row.getAttribute("data-terminal-id"),
+          agent: row.getAttribute("data-agent-state"),
+          pip: pip
+            ? `${pip.getAttribute("data-pip")}/${pip.getAttribute("data-motion")}`
+            : null,
+          unread: row.hasAttribute("data-unread"),
+          active: row.hasAttribute("data-active"),
+        };
+      },
+    ),
+  }));
+  return [
+    `padi urgency: ${urgency}`,
+    `page has focus: ${page.hasFocus}`,
+    `dock rows: ${JSON.stringify(page.rows)}`,
+  ].join("\n");
+}
+
+/** Wait for a dock row matching `selector` to be visible; on timeout, throw
+ *  with {@link attentionDiagnosis}. */
+async function waitForUnreadRow(
+  world: KoluWorld,
+  selector: string,
+): Promise<void> {
+  try {
+    await world.page
+      .locator(selector)
+      .first()
+      .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+  } catch (err) {
+    throw new Error(
+      `${(err as Error).message}\n${await attentionDiagnosis(world)}`,
+    );
+  }
+}
 
 /** kolu is redeployed under the open page: the server and padi are replaced,
  *  the terminals keep running, and the page reloads with its storage — see
@@ -49,12 +102,10 @@ Then(
 /** The finished agent's own row carries the unread mark — not merely some
  *  row, so a mark that moved to the wrong terminal does not pass. */
 Then("the agent's dock row should be unread", async function (this: KoluWorld) {
-  await this.page
-    .locator(
-      '[data-testid="dock-row"][data-agent-state="waiting"][data-unread]',
-    )
-    .first()
-    .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+  await waitForUnreadRow(
+    this,
+    '[data-testid="dock-row"][data-agent-state="waiting"][data-unread]',
+  );
 });
 
 /** The asking agent's row says so — padi lists it as asking, which is what a
@@ -146,8 +197,7 @@ When(
 Then(
   "a workspace switcher branch should be notified",
   async function (this: KoluWorld) {
-    const notified = this.page.locator('[data-testid="dock-row"][data-unread]');
-    await notified.first().waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    await waitForUnreadRow(this, '[data-testid="dock-row"][data-unread]');
   },
 );
 
