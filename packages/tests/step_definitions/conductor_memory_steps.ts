@@ -71,7 +71,7 @@ interface MemoryCell {
  *  outlives every conversation, so a fresh conversation still holds it. A
  *  waiting proposal is approved and then deleted rather than declined, so it
  *  leaves nothing behind; each pass re-reads until the record is empty. */
-Given("the Conductor's memory is empty", async function () {
+Given("the Conductor's memory is empty", async () => {
   await pollFor({
     observe: async () => {
       const memory = (await surfaceFirstFrame(
