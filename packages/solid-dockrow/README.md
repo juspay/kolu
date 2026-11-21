@@ -100,10 +100,12 @@ Part of the kolu monorepo — `"@kolu/solid-dockrow": "workspace:*"`.
   contract (the `.dock-cluster` scope the washes and dividers key on) stays in
   `dockrow.css`. `DockDragHandlers` is the narrow `Record<string, (e) => void>`
   shape `handlers` takes — just far enough from any one library's emit.
-- **`<PrPip>` · `<PrPipFace>` · `<PrStateIcon>` · `<ChecksIndicator>` ·
+- **`<PrPip>` · `<PrMarks>` · `<PrStateIcon>` · `<ChecksIndicator>` ·
   `prTooltip`** — the PR badge and its glyphs. The row's, and the repo's only
-  copy of them. `<PrPip>` is a link; `<PrPipFace>` is the same marks and
-  tooltip with no link, for a place that is itself pressed (a work's chip).
+  copy of them. `<PrPip>` is a link wrapping `<PrMarks>` with the tooltip that
+  names every check; `<PrMarks>` is the state icon and checks dot alone, for a
+  place that holds them in a box of its own — one that is itself pressed, or
+  one that sets its own link and tooltip beside them.
 - **`<RecencyCell>` · `<RowLabel>`** — the two leaves both rows share.
 - **`dockRowFacts(meta)`** — the four facts a row reads off ONE terminal record
   (`agentState`, `model`, `subline`, `pr`), fused so a row's words and its PR

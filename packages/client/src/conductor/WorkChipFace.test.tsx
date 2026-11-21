@@ -97,11 +97,14 @@ describe("a work's chip", () => {
     expect(part(el, "member-marks-more")[0]?.textContent).toBe("+1");
   });
 
-  it("draws the PR's marks with no link of their own", () => {
+  it("draws the PR's marks with no link and no tooltip of their own", () => {
     world.pr = PR;
     const el = mount();
-    expect(part(el, "pr-pip-face")).toHaveLength(1);
+    const pr = part(el, "work-chip-pr")[0];
+    expect(pr).toBeDefined();
     expect(el.querySelector("a")).toBeNull();
+    // The chip's hover card is the one thing that opens over it.
+    expect(pr?.closest("[title]")).toBeNull();
   });
 
   it("carries the wait chip only while the work waits on you", () => {

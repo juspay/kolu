@@ -32,7 +32,7 @@ import { WorktreeIcon } from "../ui/Icons";
 import RepoMonogram from "../ui/RepoMonogram";
 import Tip from "../ui/Tip";
 import { encActiveHost } from "../wire";
-import { ChecksIndicator, PrStateIcon } from "@kolu/solid-dockrow";
+import { PrMarks } from "@kolu/solid-dockrow";
 import { PrUnavailableButton } from "./PrUnavailablePopover";
 import { prTooltip } from "@kolu/solid-dockrow/rowValues";
 import { useStatePip } from "./statePipBind";
@@ -182,10 +182,7 @@ const TerminalMeta: Component<{
                           data-testid="terminal-meta-pr"
                           title={prTooltip(pr())}
                         >
-                          <PrStateIcon state={pr().state} class="w-3 h-3" />
-                          <Show when={pr().checks}>
-                            {(checks) => <ChecksIndicator status={checks()} />}
-                          </Show>
+                          <PrMarks pr={pr()} />
                           <a
                             href={pr().url}
                             target="_blank"

@@ -16,6 +16,6 @@ export {
   type DockRowProps,
   type DockRowTestIds,
 } from "./DockRow.tsx";
-export { ChecksIndicator, PrPip, PrPipFace, PrStateIcon } from "./PrPip.tsx";
+export { ChecksIndicator, PrMarks, PrPip, PrStateIcon } from "./PrPip.tsx";
 export { RecencyCell, type RowRecency } from "./RecencyCell.tsx";
 export { RowLabel } from "./RowLabel.tsx";

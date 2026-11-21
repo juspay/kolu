@@ -58,10 +58,17 @@ export const ChecksIndicator: Component<{ status: CheckStatus }> = (props) => (
   />
 );
 
-/** The pip's two marks — the state icon and the checks dot. */
-const PrPipMarks: Component<{ pr: PrInfo }> = (props) => (
+/** A PR'S TWO MARKS — its state icon and its checks dot — with nothing round
+ *  them: no link, no tooltip, no box. The one drawing of the pair, for the
+ *  pip below and for any place that holds the marks in a box of its own: a
+ *  place that is itself pressed (a link cannot sit inside a button), or one
+ *  that sets its own link and tooltip beside them. `iconClass` sizes the icon
+ *  (the pip's `w-3 h-3` by default). */
+export const PrMarks: Component<{ pr: PrInfo; iconClass?: string }> = (
+  props,
+) => (
   <>
-    <PrStateIcon state={props.pr.state} class="w-3 h-3" />
+    <PrStateIcon state={props.pr.state} class={props.iconClass ?? "w-3 h-3"} />
     <Show when={props.pr.checks}>
       {(checks) => <ChecksIndicator status={checks()} />}
     </Show>
@@ -87,25 +94,8 @@ export const PrPip: Component<{ pr: PrInfo | null }> = (props) => (
         title={prTooltip(p())}
         onClick={(event) => event.stopPropagation()}
       >
-        <PrPipMarks pr={p()} />
+        <PrMarks pr={p()} />
       </a>
-    )}
-  </Show>
-);
-
-/** The same pip where a link cannot be: inside a control that is itself
- *  pressed (a work's chip is a button, or an option of a menu). The same
- *  marks and the same tooltip naming every check; no link of its own. */
-export const PrPipFace: Component<{ pr: PrInfo | null }> = (props) => (
-  <Show when={props.pr}>
-    {(p) => (
-      <span
-        data-testid="pr-pip-face"
-        class="flex items-center gap-1 text-fg-3 shrink-0"
-        title={prTooltip(p())}
-      >
-        <PrPipMarks pr={p()} />
-      </span>
     )}
   </Show>
 );

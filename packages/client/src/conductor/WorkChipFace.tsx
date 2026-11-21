@@ -10,13 +10,15 @@
  *  read (`createWorkFacts`), so a chip cannot say something about a work its
  *  card does not.
  *
- *  Not interactive by itself, so nothing in it is a link: the PR pip is the
- *  Dock's marks without the Dock's link (`PrPipFace`). `WorkChip` wraps it in
- *  the button that brings the work into view, with the hover card; a "which
- *  work?" menu draws it inside its own option button; a window with nowhere to
- *  bring a work into (the reader popped out on its own) draws it as it is. */
+ *  Not interactive by itself, so nothing in it is a link: the PR is the
+ *  Dock's marks (`PrMarks`) with no link and no tooltip of their own — the
+ *  chip's hover card is the one thing that opens over it. `WorkChip` wraps it
+ *  in the button that brings the work into view, with the hover card; a
+ *  "which work?" menu draws it inside its own option button; a window with
+ *  nowhere to bring a work into (the reader popped out on its own) draws it
+ *  as it is. */
 
-import { PrPipFace } from "@kolu/solid-dockrow";
+import { PrMarks } from "@kolu/solid-dockrow";
 import { recencyText } from "@kolu/solid-dockrow/rowValues";
 import { NeedsYouCapsule } from "@kolu/solid-statepip";
 import type { Work, WorkId } from "kolu-work";
@@ -47,15 +49,36 @@ const WorkChipFace: Component<{
         class={`h-2 w-2 shrink-0 rounded-full ${WORK_DOT[at().who]}`}
       />
       <span class="min-w-0 max-w-[36ch] truncate">{props.work.title}</span>
-      <MemberMarks members={members()} />
-      <PrPipFace pr={livePr()} />
-      <Show when={at().who === "you"}>
-        <NeedsYouCapsule
-          testid="work-chip-wait"
-          title="How long this work has waited on you"
+      {/* THE NAME GIVES WAY LAST. In a box too small for the whole face,
+          the marks, the PR and the wait are what shrink and are cut, and the
+          title keeps its room until they are gone. */}
+      <Show
+        when={members().length > 0 || livePr() !== null || at().who === "you"}
+      >
+        <span
+          data-testid="work-chip-extras"
+          class="flex min-w-0 shrink-[999] items-center gap-1.5 overflow-hidden"
         >
-          {recencyText("wait-chip", Date.parse(at().since), now())}
-        </NeedsYouCapsule>
+          <MemberMarks members={members()} />
+          <Show when={livePr()}>
+            {(pr) => (
+              <span
+                data-testid="work-chip-pr"
+                class="flex shrink-0 items-center gap-1 text-fg-3"
+              >
+                <PrMarks pr={pr()} />
+              </span>
+            )}
+          </Show>
+          <Show when={at().who === "you"}>
+            <NeedsYouCapsule
+              testid="work-chip-wait"
+              title="How long this work has waited on you"
+            >
+              {recencyText("wait-chip", Date.parse(at().since), now())}
+            </NeedsYouCapsule>
+          </Show>
+        </span>
       </Show>
     </span>
   );
