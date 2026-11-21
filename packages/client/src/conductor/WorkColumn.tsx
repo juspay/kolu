@@ -58,7 +58,7 @@ import {
   toggleFinished,
   unpickWork,
 } from "./workListing";
-import WorkRail from "./WorkRail";
+import WorkRail, { type RailGroups } from "./WorkRail";
 import { WAITER_INK } from "./workReadings";
 
 /** Where the board was scrolled to when a work was picked, so going back to
@@ -272,12 +272,22 @@ const WorkColumn: Component = () => {
       onCleanup(() => clearTimeout(timer));
     }),
   );
-  const railGroups = createMemo(() => [
-    { key: "waiting", name: "Needs you", rows: groups().onYou },
-    { key: "in-progress", name: "In progress", rows: groups().moving },
-    { key: "watching", name: "Watching", rows: groups().watching },
-    { key: "finished", name: "Finished", rows: done() },
-  ]);
+  /** The sidebar's four groups, each read from its own reading here — the
+   *  sidebar draws four fixed places, so nothing here is a list it keys. */
+  const railGroups: RailGroups = {
+    get waiting() {
+      return groups().onYou;
+    },
+    get moving() {
+      return groups().moving;
+    },
+    get watching() {
+      return groups().watching;
+    },
+    get finished() {
+      return done();
+    },
+  };
 
   const phone = () => layoutMode() === "phone";
 
@@ -291,7 +301,7 @@ const WorkColumn: Component = () => {
       class={`min-w-0 bg-surface-0 ${phone() ? "" : "flex min-h-0 flex-1"}`}
     >
       <Show when={!phone()}>
-        <WorkRail groups={railGroups()} />
+        <WorkRail groups={railGroups} />
       </Show>
       <div
         data-works-scroll={phone() ? undefined : ""}

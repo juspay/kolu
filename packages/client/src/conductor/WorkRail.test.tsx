@@ -50,6 +50,8 @@ import {
   toggleFinished,
   unpickWork,
 } from "./workListing";
+import { createSignal } from "solid-js";
+import { standingClock } from "./WorkStanding";
 
 const standing = (who: StandingLine["who"], lead: string): StandingLine => ({
   who,
@@ -85,26 +87,35 @@ afterEach(() => {
   root?.remove();
 });
 
-function mount(groups: {
+type Groups = {
   waiting?: WorkRow[];
   moving?: WorkRow[];
   finished?: WorkRow[];
-}): HTMLElement {
+};
+
+/** Hand the sidebar new groups, as the column does on any work's change. */
+let setGroups: (groups: Groups) => void = () => {};
+
+function mount(initial: Groups): HTMLElement {
+  const [groups, set] = createSignal(initial);
+  setGroups = set;
   root = document.createElement("div");
   document.body.append(root);
   dispose = render(
     () => (
       <WorkRail
-        groups={[
-          { key: "waiting", name: "Needs you", rows: groups.waiting ?? [] },
-          {
-            key: "in-progress",
-            name: "In progress",
-            rows: groups.moving ?? [],
+        groups={{
+          get waiting() {
+            return groups().waiting ?? [];
           },
-          { key: "watching", name: "Watching", rows: [] },
-          { key: "finished", name: "Finished", rows: groups.finished ?? [] },
-        ]}
+          get moving() {
+            return groups().moving ?? [];
+          },
+          watching: [],
+          get finished() {
+            return groups().finished ?? [];
+          },
+        }}
       />
     ),
     root,
@@ -130,17 +141,49 @@ describe("the works sidebar", () => {
       moving: [row("b", "CSV export")],
     });
     expect(
-      entry(el, "a").querySelector('[data-testid="dock-wait-chip"]')
+      entry(el, "a").querySelector('[data-testid="works-rail-wait"]')
         ?.textContent,
     ).toBe("3m");
     expect(
-      entry(el, "b").querySelector('[data-testid="dock-wait-chip"]'),
+      entry(el, "b").querySelector('[data-testid="works-rail-wait"]'),
     ).toBeNull();
-    expect(entry(el, "b").textContent).toContain("3m");
+    // The card's own clock for a work at work (`standingClock`): a plain
+    // duration, not an age.
+    expect(
+      entry(el, "b").querySelector('[data-testid="works-rail-since"]')
+        ?.textContent,
+    ).toBe(standingClock(standing("agent", "Agents at work"), NOW));
     expect(
       entry(el, "b").querySelector('[data-testid="works-rail-standing"]')
         ?.textContent,
     ).toBe("Agents at work");
+  });
+
+  it("keeps an entry and its marks when the works are handed over again", () => {
+    world.facts.set("a", {
+      members: 2,
+      at: standing("agent", "Agents at work"),
+    });
+    world.facts.set("b", {
+      members: 1,
+      at: standing("agent", "Agents at work"),
+    });
+    const el = mount({ moving: [row("a", "CSV export"), row("b", "Docs")] });
+    const before = entry(el, "a");
+    const marks = [
+      ...before.querySelectorAll('[data-testid="member-pip-stub"]'),
+    ];
+    // Another work's record changes: every row is minted afresh.
+    setGroups({ moving: [row("a", "CSV export"), row("b", "Docs, again")] });
+    expect(entry(el, "a")).toBe(before);
+    // Its own record changes.
+    setGroups({ moving: [row("a", "CSV export, renamed"), row("b", "Docs")] });
+    const after = entry(el, "a");
+    expect(after).toBe(before);
+    const now = [...after.querySelectorAll('[data-testid="member-pip-stub"]')];
+    expect(now).toHaveLength(marks.length);
+    expect(now.every((mark, i) => mark === marks[i])).toBe(true);
+    expect(after.textContent).toContain("CSV export, renamed");
   });
 
   it("draws three terminal marks, then counts the rest", () => {

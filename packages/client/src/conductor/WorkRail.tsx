@@ -22,8 +22,9 @@
  *  An entry is a way to a work, not the work: it carries no `work-card` test
  *  id and no `data-work`, which belong to the work's card alone. */
 
-import { PrPip, RecencyCell, type RowRecency } from "@kolu/solid-dockrow";
+import { PrPip } from "@kolu/solid-dockrow";
 import { identityColor, recencyText } from "@kolu/solid-dockrow/rowValues";
+import { NeedsYouCapsule } from "@kolu/solid-statepip";
 import { Key } from "@solid-primitives/keyed";
 import { Option } from "effect";
 import type { Work, WorkId, WorkRow } from "kolu-work";
@@ -31,7 +32,6 @@ import {
   type Component,
   createMemo,
   createSignal,
-  For,
   onMount,
   Show,
 } from "solid-js";
@@ -41,6 +41,7 @@ import { useShownClock } from "../ui/shown";
 import { createWidthDrag, WidthResizeHandle } from "../ui/WidthResizeHandle";
 import MemberMarks from "./MemberMarks";
 import { createWorkFacts } from "./workFacts";
+import { standingClock } from "./WorkStanding";
 import {
   isFinishedOpen,
   isPicked,
@@ -81,15 +82,17 @@ const Line: Component<{ id: WorkId; work: Work }> = (props) => {
     const one = workWhere(props.work);
     return one.kind === "branch" && one.repo !== "" ? one : undefined;
   };
-  /** HOW LONG IT HAS STOOD WHERE IT IS, in the Dock's own words: the violet
-   *  chip's bare duration while it waits on you ("6m"), an age otherwise
-   *  ("4m ago"). A memo: the cell reads it in several tracking contexts. */
-  const recency = createMemo((): Extract<RowRecency, { text: string }> => {
-    const since = Date.parse(at().since);
-    return at().who === "you"
-      ? { mode: "wait-chip", text: recencyText("wait-chip", since, now()) }
-      : { mode: "ago", text: recencyText("ago", since, now()) };
-  });
+  /** HOW LONG IT HAS STOOD WHERE IT IS: while it waits on you, the Dock's
+   *  violet capsule with the bare duration ("6m"); otherwise the card's own
+   *  clock (`standingClock`), so the two say one thing in one way. */
+  const since = createMemo(() =>
+    at().who === "you"
+      ? {
+          wait: true,
+          text: recencyText("wait-chip", Date.parse(at().since), now()),
+        }
+      : { wait: false, text: standingClock(at(), now()) },
+  );
   /** Where it stands, in words: the lead, then what is wanted. */
   const standing = () => [at().lead, ...Option.toArray(at().what)].join(" · ");
   const ink = () => {
@@ -102,7 +105,7 @@ const Line: Component<{ id: WorkId; work: Work }> = (props) => {
       data-rail-work={props.id}
       data-who={at().who}
       aria-current={isPicked(props.id) ? "true" : undefined}
-      title={`${props.work.title} — ${standing()} · ${recency().text}`}
+      title={`${props.work.title} — ${standing()} · ${since().text}`}
       class={`relative min-w-0 rounded-md ${
         isPicked(props.id) ? "bg-surface-2" : "hover:bg-surface-2"
       }`}
@@ -143,7 +146,24 @@ const Line: Component<{ id: WorkId; work: Work }> = (props) => {
             >
               {props.work.title}
             </span>
-            <RecencyCell recency={recency()} textSize="text-[0.6rem]" />
+            <Show
+              when={since().wait}
+              fallback={
+                <span
+                  data-testid="works-rail-since"
+                  class="shrink-0 font-mono text-[0.6rem] tabular-nums text-fg-3"
+                >
+                  {since().text}
+                </span>
+              }
+            >
+              <NeedsYouCapsule
+                testid="works-rail-wait"
+                title="How long this work has waited on you"
+              >
+                {since().text}
+              </NeedsYouCapsule>
+            </Show>
           </div>
           <div class="flex min-w-0 items-center gap-1">
             <MemberMarks members={members()} />
@@ -181,68 +201,72 @@ const Line: Component<{ id: WorkId; work: Work }> = (props) => {
 
 /** One group: its heading with its count, and its works, keyed by the work's
  *  id — the `works` cell mints a fresh row for every change of any work, and
- *  an entry keyed by the row would be built again on each one. */
+ *  an entry keyed by the row would be built again on each one. A group with
+ *  no works draws nothing. */
 const Group: Component<{
-  group: {
-    readonly key: string;
-    readonly name: string;
-    readonly rows: ReadonlyArray<WorkRow>;
-  };
+  /** The overview group it mirrors, as data: `waiting`, `in-progress`,
+   *  `watching` or `finished`. */
+  group: string;
+  name: string;
+  rows: ReadonlyArray<WorkRow>;
   /** Finished folds, on the overview's switch. */
   folds?: boolean;
 }> = (props) => (
-  <section
-    data-testid="works-rail-group"
-    data-group={props.group.key}
-    class="min-w-0"
-  >
-    <Show
-      when={props.folds}
-      fallback={
-        <h3 class="m-0 mb-1 hidden px-2 font-mono text-[0.55rem] uppercase tracking-[0.12em] text-fg-3 conductor-md:block">
-          {props.group.name} · {props.group.rows.length}
-        </h3>
-      }
+  <Show when={props.rows.length > 0}>
+    <section
+      data-testid="works-rail-group"
+      data-group={props.group}
+      class="min-w-0"
     >
-      <button
-        type="button"
-        data-testid="works-rail-finished-toggle"
-        aria-expanded={isFinishedOpen()}
-        class="mb-1 w-full cursor-pointer px-2 text-start font-mono text-[0.55rem] uppercase tracking-[0.12em] text-fg-3 hover:text-fg-2"
-        onClick={toggleFinished}
+      <Show
+        when={props.folds}
+        fallback={
+          <h3 class="m-0 mb-1 hidden px-2 font-mono text-[0.55rem] uppercase tracking-[0.12em] text-fg-3 conductor-md:block">
+            {props.name} · {props.rows.length}
+          </h3>
+        }
       >
-        {isFinishedOpen() ? "▾" : "▸"}
-        <span class="hidden conductor-md:inline">
-          {" "}
-          {props.group.name} · {props.group.rows.length}
-        </span>
-      </button>
-    </Show>
-    <Show when={!props.folds || isFinishedOpen()}>
-      <Key each={props.group.rows} by={([id]) => id}>
-        {(row) => <Line id={row()[0]} work={row()[1]} />}
-      </Key>
-    </Show>
-  </section>
+        <button
+          type="button"
+          data-testid="works-rail-finished-toggle"
+          aria-expanded={isFinishedOpen()}
+          class="mb-1 w-full cursor-pointer px-2 text-start font-mono text-[0.55rem] uppercase tracking-[0.12em] text-fg-3 hover:text-fg-2"
+          onClick={toggleFinished}
+        >
+          {isFinishedOpen() ? "▾" : "▸"}
+          <span class="hidden conductor-md:inline">
+            {" "}
+            {props.name} · {props.rows.length}
+          </span>
+        </button>
+      </Show>
+      <Show when={!props.folds || isFinishedOpen()}>
+        <Key each={props.rows} by={([id]) => id}>
+          {(row) => <Line id={row()[0]} work={row()[1]} />}
+        </Key>
+      </Show>
+    </section>
+  </Show>
 );
 
-const WorkRail: Component<{
-  groups: ReadonlyArray<{
-    /** The overview group it mirrors, as data: `waiting`, `in-progress`,
-     *  `watching` or `finished`. */
-    readonly key: string;
-    readonly name: string;
-    readonly rows: ReadonlyArray<WorkRow>;
-  }>;
-}> = (props) => {
+/** THE SIDEBAR'S FOUR GROUPS, the overview's own: four fixed places, each
+ *  handed its rows. Fixed, not a list of group objects: the groups are minted
+ *  afresh whenever any work changes, and a list keyed by them would take down
+ *  every group — and every entry in it — on each change. */
+export interface RailGroups {
+  readonly waiting: ReadonlyArray<WorkRow>;
+  readonly moving: ReadonlyArray<WorkRow>;
+  readonly watching: ReadonlyArray<WorkRow>;
+  readonly finished: ReadonlyArray<WorkRow>;
+}
+
+const WorkRail: Component<{ groups: RailGroups }> = (props) => {
   // The host the sidebar shares with the works beside it: its own parent,
   // read once it is in the page (a `ref` runs before it is inserted).
   let nav!: HTMLElement;
   const [host, setHost] = createSignal<HTMLElement | null>(null);
   onMount(() => setHost(nav.parentElement));
   const resize = createWidthDrag(SIDEBAR_WIDTH, host);
-  const pinned = () => props.groups.filter((one) => one.key === "waiting");
-  const rest = () => props.groups.filter((one) => one.key !== "waiting");
   return (
     <nav
       ref={nav}
@@ -269,22 +293,27 @@ const WorkRail: Component<{
       </Show>
       {/* PINNED: what needs you never scrolls away. Its own scroll only when
           it alone would fill the sidebar. */}
-      <Show when={pinned().some((one) => one.rows.length > 0)}>
+      <Show when={props.groups.waiting.length > 0}>
         <div
           data-testid="works-rail-pinned"
           class="max-h-[50%] shrink-0 overflow-y-auto border-b border-edge px-1.5 py-3"
         >
-          <For each={pinned()}>{(group) => <Group group={group} />}</For>
+          <Group group="waiting" name="Needs you" rows={props.groups.waiting} />
         </div>
       </Show>
       <div class="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto overflow-x-hidden px-1.5 py-3">
-        <For each={rest()}>
-          {(group) => (
-            <Show when={group.rows.length > 0}>
-              <Group group={group} folds={group.key === "finished"} />
-            </Show>
-          )}
-        </For>
+        <Group
+          group="in-progress"
+          name="In progress"
+          rows={props.groups.moving}
+        />
+        <Group group="watching" name="Watching" rows={props.groups.watching} />
+        <Group
+          group="finished"
+          name="Finished"
+          rows={props.groups.finished}
+          folds
+        />
       </div>
       <div class="hidden conductor-md:contents">
         <WidthResizeHandle drag={resize} testId="works-rail-resize-handle" />
