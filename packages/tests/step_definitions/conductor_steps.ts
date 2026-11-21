@@ -3809,9 +3809,12 @@ function timelineEvents(
  *  locator clicks, so a covered or hidden button is still not pressed. */
 export async function keepWorkCardOpen(world: KoluWorld): Promise<void> {
   const card = workCard(world);
-  /** Press `button` unless its `attribute` already says "true" — and not at
-   *  all when the look itself gave up. */
+  /** Press `button` unless it is not on the page, or its `attribute` already
+   *  says "true" — and not at all when the look itself gave up. `count()`
+   *  first, which does not wait: a button that is not there answers at once
+   *  rather than after the look's whole second. */
   const pressUnlessOn = async (button: Locator, attribute: string) => {
+    if ((await button.count()) === 0) return;
     const state = await button
       .getAttribute(attribute, NUDGE)
       .catch(() => "gone");
