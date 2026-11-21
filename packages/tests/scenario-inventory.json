@@ -12994,6 +12994,114 @@
       "exampleRows": [],
       "executions": 1,
       "firstSeenSha": "8d141b56b1bfe0696a239f38dc524798742c115f"
+    },
+    {
+      "revisionId": "revision-c0922b74ef349d07bbaf",
+      "scenarioKey": "scenario-3fb2290dd44bc09063b0",
+      "feature": "features/attention-alerts.feature",
+      "scenario": "A finished agent you had not opened is still unread after kolu restarts",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "aff80d8080f303a447aec874a5357b4ccaa34d5ecd2c64970033c3e72c5677a6",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "9c770675fb1d8de5f2aa987fe3ed41e89742743b"
+    },
+    {
+      "revisionId": "revision-0ca41432f06a1827cdd0",
+      "scenarioKey": "scenario-185f06a3ac13e03abcf7",
+      "feature": "features/attention-alerts.feature",
+      "scenario": "A finished agent you had opened reads as read after a deploy",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "db9d38a6faeba6cea3216dff5bb3ab99da0945b576f6ff2d562d9381473ab3c8",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "9c770675fb1d8de5f2aa987fe3ed41e89742743b"
+    },
+    {
+      "revisionId": "revision-8c9611d90425d10137e2",
+      "scenarioKey": "scenario-b31321cb9491780d8b66",
+      "feature": "features/attention-alerts.feature",
+      "scenario": "A finished agent you had opened reads as read after a deploy, behind a sleeping terminal",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "ea4b451cde5f73c5a5a4b7dfdf9e1e75f166f4a554b9cda2010c236b4d407502",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "9c770675fb1d8de5f2aa987fe3ed41e89742743b"
+    },
+    {
+      "revisionId": "revision-464f69c4edf0e90c4e58",
+      "scenarioKey": "scenario-6a813421d274e1941550",
+      "feature": "features/attention-alerts.feature",
+      "scenario": "A finished agent you had opened reads as read after kolu restarts",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "96a238086dc0aa03f5a82bf73d37b39a92467aaa524494d84e645b03ae7dc7e0",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "9c770675fb1d8de5f2aa987fe3ed41e89742743b"
+    },
+    {
+      "revisionId": "revision-3d4416314f0e95d19258",
+      "scenarioKey": "scenario-e797fc7996c1cd8357e5",
+      "feature": "features/attention-alerts.feature",
+      "scenario": "A finished agent you had opened reads as read after kolu restarts, behind a sleeping terminal",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "b36c51b72e632beba7d7747acc6de07aa30986bcd417e210ab55f637b6d4331b",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "9c770675fb1d8de5f2aa987fe3ed41e89742743b"
+    },
+    {
+      "revisionId": "revision-8bed35a73debafa8687b",
+      "scenarioKey": "scenario-73f9f2bb8dc73053d1b1",
+      "feature": "features/attention-alerts.feature",
+      "scenario": "A finished agent you had opened stays read when padi is replaced under the page",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "d0980e868241e5bc35a37e7442949c802f39db8fddfce39c9fa0687a62743bcd",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "9c770675fb1d8de5f2aa987fe3ed41e89742743b"
+    },
+    {
+      "revisionId": "revision-be7fe7d1d5cc30f1afe5",
+      "scenarioKey": "scenario-c51bfcefcc1ad941d254",
+      "feature": "features/attention-alerts.feature",
+      "scenario": "A finished agent you had opened stays read when padi is replaced under the page, behind a sleeping terminal",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "cb14049c295856051c5a290e6b6f66da51e8146c14cc7df22e5ba7d4faadfe7d",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "9c770675fb1d8de5f2aa987fe3ed41e89742743b"
+    },
+    {
+      "revisionId": "revision-768ec53b04a37dde49bc",
+      "scenarioKey": "scenario-b02b85222f0f50ff4cb0",
+      "feature": "features/attention-alerts.feature",
+      "scenario": "A terminal read in one page stays read after another page of the same kolu writes the unread list",
+      "kind": "scenario",
+      "tags": ["@codex-mock"],
+      "bodyHash": "e46656f9e41c35ddd7c9d81427972e9881231056253655094e1677c619a6b351",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "9c770675fb1d8de5f2aa987fe3ed41e89742743b"
+    },
+    {
+      "revisionId": "revision-05afb3484049002ce41d",
+      "scenarioKey": "scenario-d42a126d4c936830be5f",
+      "feature": "features/attention-alerts.feature",
+      "scenario": "A terminal read in one page stays read after another page, at a different address, writes the unread list",
+      "kind": "scenario",
+      "tags": ["@codex-mock"],
+      "bodyHash": "1d86daeec3542dfdb92686d5f25d4527679b7356d5188607a67936b04e3c1195",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "9c770675fb1d8de5f2aa987fe3ed41e89742743b"
     }
   ]
 }

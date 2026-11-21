@@ -45,11 +45,16 @@ Feature: Attention Alerts
   # are looking at never carries a mark nor rings — so each scenario waits for
   # padi to save the shell as active before the restart, and checks the shell
   # is the active tile after it, before any "not unread" or "0 plays" check.
+  # A turn's end marks a terminal only if you are not looking at it, so each
+  # scenario moves to another terminal while the agent is still working, and
+  # only then ends its turn.
 
   Scenario: A finished agent you had opened reads as read after kolu restarts
     When I stub the notification sound
-    And a Claude Code session is mocked with state "waiting"
-    And I create a terminal
+    And a Claude Code session is mocked with state "thinking"
+    Then the tile chrome should show an agent indicator with state "thinking"
+    When I create a terminal
+    And the Claude Code session state changes to "waiting"
     Then a workspace switcher branch should be notified
     And the notification sound should have played 1 time
     When I click the notified workspace switcher branch
@@ -71,8 +76,10 @@ Feature: Attention Alerts
     And I sleep the active terminal via the tile sleep button
     Then the dock should show 1 sleeping row
     When I create a terminal
-    And a Claude Code session is mocked with state "waiting"
-    And I create a terminal
+    And a Claude Code session is mocked with state "thinking"
+    Then the tile chrome should show an agent indicator with state "thinking"
+    When I create a terminal
+    And the Claude Code session state changes to "waiting"
     Then a workspace switcher branch should be notified
     And the notification sound should have played 1 time
     When I click the notified workspace switcher branch
@@ -89,11 +96,13 @@ Feature: Attention Alerts
 
   Scenario: A finished agent you had not opened is still unread after kolu restarts
     When I stub the notification sound
-    And a Claude Code session is mocked with state "waiting"
-    And I create a terminal
+    And a Claude Code session is mocked with state "thinking"
+    Then the tile chrome should show an agent indicator with state "thinking"
+    When I create a terminal
     And I save the active canvas tile id
     Then the saved session should record the active terminal
-    And the agent's dock row should be unread
+    When the Claude Code session state changes to "waiting"
+    Then the agent's dock row should be unread
     And the notification sound should have played 1 time
     When the kolu server is redeployed under this page
     Then the saved active canvas tile should still be active
@@ -136,17 +145,19 @@ Feature: Attention Alerts
     And there should be no page errors
 
   # A DEPLOY under a page that stays open: only the server stops; padi and
-  # kaval keep running; the new server, on the same address, drains padi the
-  # way a new build's server does, and starts another. The page offers Reload
-  # and it is clicked at once. Each scenario waits for the NEW padi to list the
-  # agent finished, and for the row to show it, before checking what did not
-  # happen.
+  # kaval keep running; the next build of the server starts on the same
+  # address, finds padi's build is not its own, and replaces padi. The page
+  # offers Reload and it is clicked at once. Each scenario waits for the NEW
+  # padi to list the agent finished, and for the row to show it, before
+  # checking what did not happen.
 
   Scenario: A finished agent you had opened reads as read after a deploy
     When I stub the notification sound
     And I create a terminal
-    And a Claude Code session is mocked with state "waiting"
-    And I create a terminal
+    And a Claude Code session is mocked with state "thinking"
+    Then the tile chrome should show an agent indicator with state "thinking"
+    When I create a terminal
+    And the Claude Code session state changes to "waiting"
     Then a workspace switcher branch should be notified
     And the notification sound should have played 1 time
     When I click the notified workspace switcher branch
@@ -167,8 +178,10 @@ Feature: Attention Alerts
     And I sleep the active terminal via the tile sleep button
     Then the dock should show 1 sleeping row
     When I create a terminal
-    And a Claude Code session is mocked with state "waiting"
-    And I create a terminal
+    And a Claude Code session is mocked with state "thinking"
+    Then the tile chrome should show an agent indicator with state "thinking"
+    When I create a terminal
+    And the Claude Code session state changes to "waiting"
     Then a workspace switcher branch should be notified
     And the notification sound should have played 1 time
     When I click the notified workspace switcher branch
@@ -191,8 +204,10 @@ Feature: Attention Alerts
   Scenario: A finished agent you had opened stays read when padi is replaced under the page
     When I stub the notification sound
     And I create a terminal
-    And a Claude Code session is mocked with state "waiting"
-    And I create a terminal
+    And a Claude Code session is mocked with state "thinking"
+    Then the tile chrome should show an agent indicator with state "thinking"
+    When I create a terminal
+    And the Claude Code session state changes to "waiting"
     Then a workspace switcher branch should be notified
     And the notification sound should have played 1 time
     When I click the notified workspace switcher branch
@@ -212,8 +227,10 @@ Feature: Attention Alerts
     And I sleep the active terminal via the tile sleep button
     Then the dock should show 1 sleeping row
     When I create a terminal
-    And a Claude Code session is mocked with state "waiting"
-    And I create a terminal
+    And a Claude Code session is mocked with state "thinking"
+    Then the tile chrome should show an agent indicator with state "thinking"
+    When I create a terminal
+    And the Claude Code session state changes to "waiting"
     Then a workspace switcher branch should be notified
     And the notification sound should have played 1 time
     When I click the notified workspace switcher branch
@@ -235,8 +252,10 @@ Feature: Attention Alerts
   @codex-mock
   Scenario: A terminal read in one page stays read after another page of the same kolu writes the unread list
     When I create a terminal
-    And a Claude Code session is mocked with state "waiting"
-    And I create a terminal
+    And a Claude Code session is mocked with state "thinking"
+    Then the tile chrome should show an agent indicator with state "thinking"
+    When I create a terminal
+    And the Claude Code session state changes to "waiting"
     Then a workspace switcher branch should be notified
     And this browser's saved unread list should be terminals "1"
     When I open a second page of the same kolu
@@ -249,8 +268,10 @@ Feature: Attention Alerts
     # write the list.
     When I select terminal 2 in the workspace switcher
     And I create a terminal
-    And a Codex session is mocked with state "waiting"
-    And I create a terminal
+    And a Codex session is mocked with state "thinking"
+    Then the tile chrome should show a Codex indicator with state "thinking"
+    When I create a terminal
+    And the Codex session state changes to "waiting"
     Then terminal 3's dock row should be unread in the second page
     When I click terminal 3's dock row in the second page
     Then terminal 3's dock row should not be unread in the second page
@@ -264,8 +285,10 @@ Feature: Attention Alerts
   @codex-mock
   Scenario: A terminal read in one page stays read after another page, at a different address, writes the unread list
     When I create a terminal
-    And a Claude Code session is mocked with state "waiting"
-    And I create a terminal
+    And a Claude Code session is mocked with state "thinking"
+    Then the tile chrome should show an agent indicator with state "thinking"
+    When I create a terminal
+    And the Claude Code session state changes to "waiting"
     Then a workspace switcher branch should be notified
     And this browser's saved unread list should be terminals "1"
     When I open a second page of the same kolu at another address
@@ -275,8 +298,10 @@ Feature: Attention Alerts
     And this browser's saved unread list should be terminals ""
     When I select terminal 2 in the workspace switcher
     And I create a terminal
-    And a Codex session is mocked with state "waiting"
-    And I create a terminal
+    And a Codex session is mocked with state "thinking"
+    Then the tile chrome should show a Codex indicator with state "thinking"
+    When I create a terminal
+    And the Codex session state changes to "waiting"
     Then terminal 3's dock row should be unread in the second page
     When I click terminal 3's dock row in the second page
     Then terminal 3's dock row should not be unread in the second page

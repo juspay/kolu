@@ -4751,7 +4751,7 @@ retirements:
     defectSurface: [attention-alerts, user-journey]
     destinationLayer: L5
     replacements: []
-    survivorRevisionIds: [revision-63aa332eab2093ed6641]
+    survivorRevisionIds: [revision-464f69c4edf0e90c4e58]
     sameCodePathEvidence:
       file: packages/tests/features/attention-alerts.feature
       symbol: "Scenario: A finished agent you had opened reads as read after kolu restarts"
@@ -4764,7 +4764,7 @@ retirements:
     defectSurface: [attention-alerts, user-journey]
     destinationLayer: L5
     replacements: []
-    survivorRevisionIds: [revision-84ec95dc2878a9be8e7f]
+    survivorRevisionIds: [revision-c0922b74ef349d07bbaf]
     sameCodePathEvidence:
       file: packages/tests/features/attention-alerts.feature
       symbol: "Scenario: A finished agent you had not opened is still unread after kolu restarts"
@@ -5122,3 +5122,120 @@ retirements:
       file: packages/tests/features/conductor-work.feature
       symbol: "Scenario: A full work's stage strip fits a phone"
       test: The same new phone journey with the window-edge assertion removed; that assertion caught an unrelated setup line on the picked card's details, and the strip check is the scenario's point.
+  - id: revise-84ec95dc2878a9be8e7f
+    revisionId: revision-84ec95dc2878a9be8e7f
+    action: revised
+    status: landed
+    promise: A finished agent you had not opened is still unread after kolu restarts
+    defectSurface: [attention-alerts, user-journey]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-c0922b74ef349d07bbaf]
+    sameCodePathEvidence:
+      file: packages/tests/features/attention-alerts.feature
+      symbol: "Scenario: A finished agent you had not opened is still unread after kolu restarts"
+      test: Every step of this revision is still asserted on the same journey. The survivor starts the agent working, waits for its indicator to say so, moves to another terminal and waits for it to be saved as active, and only then ends the turn, so the mark no longer depends on the next terminal being created before the turn has settled.
+  - id: revise-83df103af350284c746b
+    revisionId: revision-83df103af350284c746b
+    action: revised
+    status: landed
+    promise: A finished agent you had opened reads as read after a deploy
+    defectSurface: [attention-alerts, user-journey]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-0ca41432f06a1827cdd0]
+    sameCodePathEvidence:
+      file: packages/tests/features/attention-alerts.feature
+      symbol: "Scenario: A finished agent you had opened reads as read after a deploy"
+      test: Every step of this revision is still asserted on the same journey. The survivor starts the agent working, waits for its indicator to say so, moves to another terminal, and only then ends the turn, so the mark no longer depends on the next terminal being created before the turn has settled.
+  - id: revise-422eb859bfedcb058909
+    revisionId: revision-422eb859bfedcb058909
+    action: revised
+    status: landed
+    promise: A finished agent you had opened reads as read after a deploy, behind a sleeping terminal
+    defectSurface: [attention-alerts, user-journey]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-8c9611d90425d10137e2]
+    sameCodePathEvidence:
+      file: packages/tests/features/attention-alerts.feature
+      symbol: "Scenario: A finished agent you had opened reads as read after a deploy, behind a sleeping terminal"
+      test: Every step of this revision is still asserted on the same journey. The survivor starts the agent working, waits for its indicator to say so, moves to another terminal, and only then ends the turn, so the mark no longer depends on the next terminal being created before the turn has settled.
+  - id: revise-63aa332eab2093ed6641
+    revisionId: revision-63aa332eab2093ed6641
+    action: revised
+    status: landed
+    promise: A finished agent you had opened reads as read after kolu restarts
+    defectSurface: [attention-alerts, user-journey]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-464f69c4edf0e90c4e58]
+    sameCodePathEvidence:
+      file: packages/tests/features/attention-alerts.feature
+      symbol: "Scenario: A finished agent you had opened reads as read after kolu restarts"
+      test: Every step of this revision is still asserted on the same journey. The survivor starts the agent working, waits for its indicator to say so, moves to another terminal, and only then ends the turn, so the mark no longer depends on the next terminal being created before the turn has settled.
+  - id: revise-86bf6cfda3890e1297e7
+    revisionId: revision-86bf6cfda3890e1297e7
+    action: revised
+    status: landed
+    promise: A finished agent you had opened reads as read after kolu restarts, behind a sleeping terminal
+    defectSurface: [attention-alerts, user-journey]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-3d4416314f0e95d19258]
+    sameCodePathEvidence:
+      file: packages/tests/features/attention-alerts.feature
+      symbol: "Scenario: A finished agent you had opened reads as read after kolu restarts, behind a sleeping terminal"
+      test: Every step of this revision is still asserted on the same journey. The survivor starts the agent working, waits for its indicator to say so, moves to another terminal, and only then ends the turn, so the mark no longer depends on the next terminal being created before the turn has settled.
+  - id: revise-303d0f95632d73187334
+    revisionId: revision-303d0f95632d73187334
+    action: revised
+    status: landed
+    promise: A finished agent you had opened stays read when padi is replaced under the page
+    defectSurface: [attention-alerts, user-journey]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-8bed35a73debafa8687b]
+    sameCodePathEvidence:
+      file: packages/tests/features/attention-alerts.feature
+      symbol: "Scenario: A finished agent you had opened stays read when padi is replaced under the page"
+      test: Every step of this revision is still asserted on the same journey. The survivor starts the agent working, waits for its indicator to say so, moves to another terminal, and only then ends the turn, so the mark no longer depends on the next terminal being created before the turn has settled.
+  - id: revise-2133d164ddfedd91ba03
+    revisionId: revision-2133d164ddfedd91ba03
+    action: revised
+    status: landed
+    promise: A finished agent you had opened stays read when padi is replaced under the page, behind a sleeping terminal
+    defectSurface: [attention-alerts, user-journey]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-be7fe7d1d5cc30f1afe5]
+    sameCodePathEvidence:
+      file: packages/tests/features/attention-alerts.feature
+      symbol: "Scenario: A finished agent you had opened stays read when padi is replaced under the page, behind a sleeping terminal"
+      test: Every step of this revision is still asserted on the same journey. The survivor starts the agent working, waits for its indicator to say so, moves to another terminal, and only then ends the turn, so the mark no longer depends on the next terminal being created before the turn has settled.
+  - id: revise-6ddd2d25bc2753d69008
+    revisionId: revision-6ddd2d25bc2753d69008
+    action: revised
+    status: landed
+    promise: A terminal read in one page stays read after another page of the same kolu writes the unread list
+    defectSurface: [attention-alerts, user-journey]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-768ec53b04a37dde49bc]
+    sameCodePathEvidence:
+      file: packages/tests/features/attention-alerts.feature
+      symbol: "Scenario: A terminal read in one page stays read after another page of the same kolu writes the unread list"
+      test: Every step of this revision is still asserted on the same journey. The survivor starts each agent (the Claude Code one and the Codex one) working, waits for its indicator to say so, moves to another terminal, and only then ends the turn, so neither mark depends on the next terminal being created before the turn has settled.
+  - id: revise-6c009b49a484e43d2297
+    revisionId: revision-6c009b49a484e43d2297
+    action: revised
+    status: landed
+    promise: A terminal read in one page stays read after another page, at a different address, writes the unread list
+    defectSurface: [attention-alerts, user-journey]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-05afb3484049002ce41d]
+    sameCodePathEvidence:
+      file: packages/tests/features/attention-alerts.feature
+      symbol: "Scenario: A terminal read in one page stays read after another page, at a different address, writes the unread list"
+      test: Every step of this revision is still asserted on the same journey. The survivor starts each agent (the Claude Code one and the Codex one) working, waits for its indicator to say so, moves to another terminal, and only then ends the turn, so neither mark depends on the next terminal being created before the turn has settled.
