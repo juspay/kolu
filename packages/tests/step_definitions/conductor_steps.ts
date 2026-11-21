@@ -168,10 +168,22 @@ export async function enterConductor(world: KoluWorld): Promise<void> {
   await pane.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
 }
 
+/** ON A PHONE, THE CHAT IS ONE OF TWO TABS: a step that talks to the
+ *  Conductor, or reads what it said, does it where a person would — on the
+ *  Chat tab. A desktop has no tabs and shows the chat always. */
+export async function showChat(world: KoluWorld): Promise<void> {
+  const chat = world.page.locator(
+    '[data-testid="conductor-phone-tab"][data-tab="chat"]',
+  );
+  if ((await chat.count()) === 0) return;
+  if ((await chat.getAttribute("aria-selected")) !== "true") await chat.click();
+}
+
 export async function sendPrompt(
   world: KoluWorld,
   text: string,
 ): Promise<void> {
+  await showChat(world);
   const input = world.page.locator(INPUT);
   await input.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
   await input.click();
@@ -437,15 +449,22 @@ When(
       "no tile is focused, so there is nothing to join to the work",
     );
     await enterConductor(this);
+    // THIS join's answer: a scenario that joins two terminals holds the first
+    // join's answer too, so the answer read is the first one after those
+    // already in the transcript.
+    const joins = () =>
+      this.page
+        .locator(`${TRANSCRIPT} ${ROW}[data-row-kind="agent"]`)
+        .evaluateAll((all) =>
+          all
+            .map((row) => row.textContent ?? "")
+            .filter((text) => text.includes("joined:")),
+        );
+    const before = (await joins()).length;
     await sendPrompt(this, `join ${id} as ${role}`);
     let inventoryAtTimeout = "(not observed)";
     const said = await pollFor({
-      observe: async () => {
-        const rows = await this.page
-          .locator(`${TRANSCRIPT} ${ROW}[data-row-kind="agent"]`)
-          .evaluateAll((all) => all.map((row) => row.textContent ?? ""));
-        return rows.find((text) => text.includes("joined:")) ?? null;
-      },
+      observe: async () => (await joins())[before] ?? null,
       isDone: (text) => text !== null,
       timeoutMs: POLL_TIMEOUT,
       onTick: async () => {
@@ -1616,23 +1635,48 @@ Then(
     // Stricter than "the page is no wider than the window": a span clipped by
     // an `overflow: hidden` ancestor keeps the document narrow while its own
     // box runs off the screen — exactly how a phone's agent line used to cut
-    // its title. Every element with a box is measured.
-    const offenders = await this.page.evaluate(() =>
-      [...document.querySelectorAll<HTMLElement>("body *")]
+    // its title. Every element with a box is measured — except what is not
+    // on screen to begin with. While the Conductor is shown its layer covers
+    // the host's canvas, whose tiles sit wherever the canvas was panned, and
+    // a covered tile is not on screen. And a terminal wider than its pane
+    // pans inside its own scroller — the live pane's or the peek's, the two
+    // boxes built to pan — so what lies past that scroller's edge is
+    // scrolled out of view, not cut: the scroller itself is what is measured.
+    // Nothing else is forgiven: a box that only scrolls up and down computes
+    // to `overflow-x: auto` too, and a line too wide for it must still fail.
+    const offenders = await this.page.evaluate(() => {
+      const pane = document.querySelector('[data-testid="conductor-pane"]');
+      const layer =
+        pane?.checkVisibility() === true ? pane.parentElement : null;
+      const covered = layer?.parentElement ?? null;
+      return [...document.querySelectorAll<HTMLElement>("body *")]
         .filter((el) => {
+          if (layer !== null && covered?.contains(el) && !layer.contains(el))
+            return false;
           const box = el.getBoundingClientRect();
-          return (
-            box.width > 0 &&
-            box.height > 0 &&
-            box.right > window.innerWidth + 0.5
+          if (
+            box.width <= 0 ||
+            box.height <= 0 ||
+            box.right <= window.innerWidth + 0.5
+          )
+            return false;
+          const pans = el.closest<HTMLElement>(
+            '[data-testid="live-scroller"], [data-testid="peek-scroller"]',
           );
+          if (
+            pans !== null &&
+            pans !== el &&
+            pans.getBoundingClientRect().right <= window.innerWidth + 0.5
+          )
+            return false;
+          return true;
         })
         .slice(0, 5)
         .map(
           (el) =>
             `${el.tagName.toLowerCase()}${el.dataset.testid ? `[data-testid="${el.dataset.testid}"]` : ""} right=${Math.round(el.getBoundingClientRect().right)} "${(el.textContent ?? "").trim().slice(0, 40)}"`,
-        ),
-    );
+        );
+    });
     assert.deepEqual(
       offenders,
       [],
@@ -1896,6 +1940,7 @@ When(
   async function (this: KoluWorld) {
     const title = this.workTitle;
     assert.ok(title, "this scenario never named the work it opened");
+    await showChat(this);
     const chip = this.page
       .locator(
         '[data-testid="conductor-chat"] [data-testid="conductor-turn-works"] [data-testid="work-chip"]',
@@ -2181,23 +2226,20 @@ export function workCard(world: KoluWorld) {
     : cards.filter({ hasText: title }).first();
 }
 
-/** Open that card, idempotently — a card already open is left alone, because
- *  pressing its head would SHUT it and every later step would read an empty
- *  card and blame the product.
+/** The way back to all the works, while one is picked. */
+const ALL_WORK = '[data-testid="works-all"]';
+
+/** Open that card, idempotently — a work already picked is left alone,
+ *  because pressing its head would unpick it and every later step would read
+ *  an empty card and blame the product.
  *
- *  A work that has ENDED is below the line in the collapsed `Finished`
- *  section: the SAME card, one disclosure further, so the step that opens a
- *  card means the same thing before and after the work finished. */
+ *  Opening a work PICKS it, from the board: while another work is picked,
+ *  All work brings the board back first. A work that has ENDED is below the
+ *  line in the collapsed `Finished` section: the SAME card, one disclosure
+ *  further, so the step that opens a card means the same thing before and
+ *  after the work finished. */
 export async function openWorkCard(world: KoluWorld): Promise<void> {
-  await showWorkColumn(world);
-  const card = workCard(world);
-  if (!(await card.isVisible().catch(() => false))) {
-    const finished = world.page.locator(
-      `${WORK_COLUMN} [data-testid="work-finished"]`,
-    );
-    if ((await finished.count()) > 0) await openFinished(world);
-  }
-  await card.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+  const card = await showWorkCard(world);
   if ((await card.getAttribute("data-open")) === null) {
     await card.locator('[data-testid="work-card-head"]').click();
   }
@@ -2206,6 +2248,86 @@ export async function openWorkCard(world: KoluWorld): Promise<void> {
     async () => (await card.getAttribute("data-open")) ?? "absent",
     "",
   );
+}
+
+/** PUT THE WORK'S CARD ON SCREEN WITHOUT PICKING IT — its face is where its
+ *  question, its stage line and its terminals are. While another work is
+ *  picked this one is a line of the rail, and All work brings the board
+ *  back; a finished work is behind the collapsed Finished section. */
+export async function showWorkCard(world: KoluWorld) {
+  await showWorkColumn(world);
+  const card = workCard(world);
+  if (!(await card.isVisible().catch(() => false))) {
+    const back = world.page.locator(`${WORK_COLUMN} ${ALL_WORK}`);
+    if ((await back.count()) > 0) await back.click();
+    const finished = world.page.locator(
+      `${WORK_COLUMN} [data-testid="work-finished"]`,
+    );
+    if (
+      !(await card.isVisible().catch(() => false)) &&
+      (await finished.count()) > 0
+    )
+      await openFinished(world);
+  }
+  await card.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+  return card;
+}
+
+/** THE PICKED WORK'S SWITCH, pressed to `view` — or nothing, when the work
+ *  is not picked or is over (an ended work has only its details). */
+async function showPickedView(
+  world: KoluWorld,
+  view: "terminals" | "details",
+): Promise<void> {
+  const press = world.page.locator(
+    `${WORK_COLUMN} [data-testid="work-view"][data-view="${view}"]`,
+  );
+  if ((await press.count()) === 0) return;
+  if ((await press.getAttribute("aria-pressed")) !== "true")
+    await press.click();
+}
+
+/** THE DETAILS IN FRONT, when the work is picked: its terminals' rows, its
+ *  files, pull request, decisions and timeline are in its Details view, and
+ *  a work with a terminal up opens on its Terminals. */
+export async function showDetails(world: KoluWorld): Promise<void> {
+  await showPickedView(world, "details");
+}
+
+/** Pick the work and put its details in front — what a step that acts on a
+ *  file, the timeline, Stop or Reopen needs. */
+export async function openWorkDetails(world: KoluWorld): Promise<void> {
+  await openWorkCard(world);
+  await showDetails(world);
+}
+
+/** READ WHAT ONLY A PICKED WORK SHOWS, AND PUT THE SCREEN BACK. Its files,
+ *  pull request, decisions and timeline are in a picked work's details, and
+ *  picking narrows the chat to it — so a step that only LOOKS picks the work
+ *  and puts its details in front to read them, then puts back what it moved:
+ *  all the works when nothing was picked before, the Terminals view when
+ *  that was in front. The answer is that way back. */
+export async function pickToRead(
+  world: KoluWorld,
+): Promise<() => Promise<void>> {
+  const pickedBefore =
+    (await world.page.locator(`${WORK_COLUMN} ${ALL_WORK}`).count()) > 0;
+  const viewBefore = pickedBefore
+    ? await world.page
+        .locator(`${WORK_COLUMN} [data-testid="work-card"][data-view]`)
+        .first()
+        .getAttribute("data-view", { timeout: 1_000 })
+        .catch(() => null)
+    : null;
+  await openWorkDetails(world);
+  return async () => {
+    if (pickedBefore) {
+      if (viewBefore === "terminals") await showPickedView(world, "terminals");
+      return;
+    }
+    const back = world.page.locator(`${WORK_COLUMN} ${ALL_WORK}`);
+    if ((await back.count()) > 0) await back.click();
+  };
 }
 
 When("I open the work column", async function (this: KoluWorld) {
@@ -2227,7 +2349,9 @@ Then("the work column should show the work", async function (this: KoluWorld) {
 Then(
   "the work column should list the terminal as a member",
   async function (this: KoluWorld) {
-    await openWorkCard(this);
+    // The terminals' rows are on the face, or in the details once picked.
+    await showWorkCard(this);
+    await showDetails(this);
     const id = watchedId(this);
     // WHAT THE CARD ACTUALLY HOLDS when it does not hold this terminal: the
     // refs it does list and its last events. A member leaves by being
@@ -2262,6 +2386,7 @@ Then(
 );
 
 When("I look at the member terminal", async function (this: KoluWorld) {
+  await showDetails(this);
   await memberRow(this).locator('[data-testid="work-member-look"]').click();
 });
 
@@ -2269,6 +2394,7 @@ When("I press the member terminal's name", async function (this: KoluWorld) {
   // THE MEMBER'S NAME IS THE WAY TO THE TERMINAL — the same journey the create
   // card's *open tile* makes, which is why the assertion below is the one that
   // step's scenario makes about the tile it lands on.
+  await showDetails(this);
   await memberRow(this).locator('[data-testid="work-member-name"]').click();
 });
 
@@ -2355,28 +2481,141 @@ Then(
   },
 );
 
-// ── One reading column, and the side column beside it ──
+// ── The works and the conversation beside them ──
 //
-// The work column has TWO placements and one implementation: a side column
-// that is always on screen on a window wide enough for both measures, and the
-// band the status line's control opens below that width. These steps say
-// which placement is live, because that is the thing a person sees change.
+// On a desktop the works take the wide side and the conversation is a panel
+// on the right; on a phone they are two tabs, one on screen at a time. These
+// steps read what is on screen by its boxes, because the layout IS the claim.
 
-/** The pane's second column — the always-on placement of the work column. */
+/** The works area on a desktop — the frame's wide track. */
 const SIDE = '[data-testid="conductor-side"]';
+const CHAT_PANEL = '[data-testid="conductor-chat"]';
+const PHONE_TAB = '[data-testid="conductor-phone-tab"]';
+
+interface Box {
+  readonly left: number;
+  readonly right: number;
+  readonly width: number;
+}
+
+/** Where the works, the conversation and the pane are, and how wide the
+ *  window is — one read, so the four agree. */
+async function frameBoxes(world: KoluWorld): Promise<{
+  works: Box | null;
+  chat: Box | null;
+  pane: Box | null;
+  window: number;
+}> {
+  // No named function inside the page callback: the harness's transform
+  // names them with a helper the page does not have.
+  const [boxes, width] = await world.page.evaluate(
+    (selectors) =>
+      [
+        selectors.map((selector) => {
+          const el = document.querySelector(selector);
+          if (el === null) return null;
+          const r = el.getBoundingClientRect();
+          return { left: r.left, right: r.right, width: r.width };
+        }),
+        window.innerWidth,
+      ] as const,
+    [SIDE, CHAT_PANEL, '[data-testid="conductor-pane"]'],
+  );
+  return {
+    works: boxes[0] ?? null,
+    chat: boxes[1] ?? null,
+    pane: boxes[2] ?? null,
+    window: width,
+  };
+}
 
 Then(
-  "the conductor side column should show the work",
+  "the conversation should be a panel on the right of the works",
   async function (this: KoluWorld) {
-    const id = this.workId;
-    await this.page
-      .locator(
-        `${SIDE} ${WORK_CARD}${id === undefined ? "" : `[data-work="${id}"]`}`,
-      )
-      .first()
-      .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    await pollFor({
+      observe: () => frameBoxes(this),
+      isDone: ({ works, chat, window }) =>
+        works !== null &&
+        chat !== null &&
+        chat.width > 0 &&
+        works.width > chat.width &&
+        chat.left >= works.right - 1 &&
+        Math.abs(chat.right - window) <= 1,
+      timeoutMs: POLL_TIMEOUT,
+      onTimeout: (last, ms) =>
+        new Error(
+          `after ${ms}ms the works and the conversation stand ${JSON.stringify(last)}, not the works wide and the conversation a panel at the right edge`,
+        ),
+    });
   },
 );
+
+Then(
+  "the works and the conversation should fill the window's width",
+  async function (this: KoluWorld) {
+    await pollFor({
+      observe: () => frameBoxes(this),
+      isDone: ({ works, chat, pane, window }) =>
+        works !== null &&
+        chat !== null &&
+        pane !== null &&
+        Math.abs(pane.right - window) <= 1 &&
+        Math.abs(works.left - pane.left) <= 1 &&
+        Math.abs(chat.right - pane.right) <= 1 &&
+        Math.abs(works.width + chat.width - pane.width) <= 2,
+      timeoutMs: POLL_TIMEOUT,
+      onTimeout: (last, ms) =>
+        new Error(
+          `after ${ms}ms the works and the conversation stand ${JSON.stringify(last)}, which leaves part of the window unused`,
+        ),
+    });
+  },
+);
+
+/** Which of a phone's two tabs is chosen, and what is on screen. */
+async function phoneShowing(world: KoluWorld): Promise<string> {
+  const chosen = await world.page
+    .locator(`${PHONE_TAB}[aria-selected="true"]`)
+    .getAttribute("data-tab", { timeout: 1_000 })
+    .catch(() => "no tab chosen");
+  const { chat } = await frameBoxes(world);
+  const works = await world.page.locator(WORK_COLUMN).count();
+  return `${chosen}: chat ${chat === null ? "absent" : `${Math.round(chat.width)}px`}, ${works} works lists`;
+}
+
+Then(
+  "the phone should be showing the conversation",
+  async function (this: KoluWorld) {
+    await pollFor({
+      observe: () => phoneShowing(this),
+      isDone: (seen) => /^chat: chat [1-9]\d*px, 0 works lists$/.test(seen),
+      timeoutMs: POLL_TIMEOUT,
+      onTimeout: (last, ms) =>
+        new Error(
+          `after ${ms}ms the phone shows ${JSON.stringify(last)}, not the conversation alone`,
+        ),
+    });
+  },
+);
+
+Then("the phone should be showing the works", async function (this: KoluWorld) {
+  await pollFor({
+    observe: () => phoneShowing(this),
+    isDone: (seen) => seen === "work: chat 0px, 1 works lists",
+    timeoutMs: POLL_TIMEOUT,
+    onTimeout: (last, ms) =>
+      new Error(
+        `after ${ms}ms the phone shows ${JSON.stringify(last)}, not the works alone`,
+      ),
+  });
+  await this.page
+    .locator(WORK_COLUMN)
+    .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+});
+
+When("I tap the phone's Chat tab", async function (this: KoluWorld) {
+  await this.page.locator(`${PHONE_TAB}[data-tab="chat"]`).tap();
+});
 
 Then(
   "the conductor should have no side column",
@@ -2528,41 +2767,37 @@ When(
   },
 );
 
-// ── The help: a column in the gutter, a sheet from the menu ──
+// ── The help: a sheet behind the header's `?` and the menu's How to use ──
 //
-// One set of words in two frames (`helpContent.ts`). These steps never read
+// One set of words in one frame (`helpContent.ts`). These steps never read
 // the sentences themselves — a help text is meant to be reworded — they read
-// the SECTIONS it promises and which frame they arrived in, so a rewrite
-// passes and a section quietly dropped does not.
+// the SECTIONS it promises and the frame they arrived in, so a rewrite passes
+// and a section quietly dropped does not.
 
-const HELP = '[data-testid="conductor-help"]';
-const HELP_TOGGLE = '[data-testid="conductor-help-toggle"]';
+const HELP_OPEN = '[data-testid="conductor-help-open"]';
 const HELP_CONTENT = '[data-testid="conductor-help-content"]';
 const HELP_SECTION = '[data-testid="conductor-help-section"]';
 const HELP_SHEET = '[data-testid="conductor-help-sheet"]';
+const HELP_BODY = '[data-testid="conductor-help-body"]';
 const MENU_HELP = '[data-testid="conductor-menu-help"]';
 
-/** The sections the panel promises, in order — the id each section rides as
+/** The sections the sheet promises, in order — the id each section rides as
  *  data, not its heading, so rewording a heading is not a broken test. */
 const HELP_SECTIONS = [
   "ask",
   "waterfall",
-  "while-it-works",
   "the-card",
   "terminals",
   "the-lock",
-  "files",
-  "mid-work",
-  "wakes",
   "asks",
   "memory",
 ];
 
-/** What one copy of the help is showing, as `id,id,…` — or why it is not
- *  readable, so a failure says which. */
+/** What the help is showing, as `id,id,…` — or why it is not readable, so a
+ *  failure says which. */
 async function helpSectionsIn(
   world: KoluWorld,
-  placement: "column" | "sheet",
+  placement: "sheet",
 ): Promise<string> {
   const copy = `${HELP_CONTENT}[data-placement="${placement}"]`;
   if ((await world.page.locator(copy).count()) === 0) {
@@ -2577,46 +2812,9 @@ async function helpSectionsIn(
   ).join(",");
 }
 
-Then(
-  "the conductor help column should be open",
-  async function (this: KoluWorld) {
-    await waitForValue(
-      "the help column's open state",
-      async () =>
-        (await this.page.locator(HELP).getAttribute("data-open")) ?? "absent",
-      "true",
-    );
-  },
-);
-
-Then(
-  "the conductor help column should be a rail with one way back in",
-  async function (this: KoluWorld) {
-    await waitForValue(
-      "the help column's open state",
-      async () =>
-        (await this.page.locator(HELP).getAttribute("data-open")) ?? "absent",
-      "false",
-    );
-    // Collapsed it carries its words no longer, and exactly one control.
-    await waitForCount(this, `${HELP} ${HELP_CONTENT}`, 0);
-    await waitForCount(this, `${HELP} ${HELP_TOGGLE}`, 1);
-  },
-);
-
-Then(
-  "the conductor should have no help column",
-  async function (this: KoluWorld) {
-    await waitForCount(this, HELP, 0);
-  },
-);
-
-When("I collapse the conductor help", async function (this: KoluWorld) {
-  await this.page.locator(`${HELP} ${HELP_TOGGLE}`).click();
-});
-
-When("I reopen the conductor help", async function (this: KoluWorld) {
-  await this.page.locator(`${HELP} ${HELP_TOGGLE}`).click();
+/** The header's `?` — the help one press away, at every desktop width. */
+When("I open the conductor help", async function (this: KoluWorld) {
+  await this.page.locator(HELP_OPEN).click();
 });
 
 When(
@@ -2629,25 +2827,9 @@ When(
 );
 
 Then(
-  "the conductor menu should not offer How to use",
-  async function (this: KoluWorld) {
-    // Where the help is already a column, the menu entry would be a second
-    // door to the words standing open beside it.
-    await this.page.locator(MENU).click();
-    await waitForAtLeastOne(this, MENU_PANEL);
-    await waitForCount(this, MENU_HELP, 0);
-    await this.page.locator(MENU).click();
-    await waitForCount(this, MENU_PANEL, 0);
-  },
-);
-
-Then(
   "the help {word} should teach the conversation, docs and all",
   async function (this: KoluWorld, placement: string) {
-    assert.ok(
-      placement === "column" || placement === "sheet",
-      `the help has no ${placement} placement`,
-    );
+    assert.ok(placement === "sheet", `the help has no ${placement} placement`);
     await waitForValue(
       `the sections of the help's ${placement}`,
       () => helpSectionsIn(this, placement),
@@ -2661,6 +2843,23 @@ Then(
       (await docs.getAttribute("href")) ?? "",
       /\/conductor\/$/,
       "the help's Full docs link does not point at the Conductor's own page",
+    );
+  },
+);
+
+/** THE WHOLE HELP AT ONCE: the sheet's body holds every word without a
+ *  scrollbar — the point of making it short. */
+Then(
+  "the help sheet should fit without scrolling",
+  async function (this: KoluWorld) {
+    await waitForValue(
+      "the help sheet's overflow",
+      () =>
+        this.page.locator(`${HELP_SHEET} ${HELP_BODY}`).evaluate((body) => {
+          const over = body.scrollHeight - body.clientHeight;
+          return over <= 0 ? "fits" : `${over}px past the bottom`;
+        }),
+      "fits",
     );
   },
 );
@@ -2809,14 +3008,21 @@ async function openWorkSaying(
   await showWorkColumn(world);
   let inventoryAtTimeout = "(not observed)";
   const id = await pollFor({
+    // The new work is a card or row of the board — or, while another work
+    // is picked, a line of the rail, which names it in its title.
     observe: () =>
       world.page
-        .locator(`${WORK_COLUMN} ${WORK_CARD}`)
-        .evaluateAll((cards, want) => {
-          for (const card of cards) {
-            if ((card.textContent ?? "").includes(want)) {
-              return card.getAttribute("data-work");
-            }
+        .locator(
+          `${WORK_COLUMN} ${WORK_CARD}, ${WORK_COLUMN} [data-testid="works-rail-line"]`,
+        )
+        .evaluateAll((found, want) => {
+          for (const one of found) {
+            const words = `${one.textContent ?? ""} ${one.getAttribute("title") ?? ""}`;
+            if (words.includes(want))
+              return (
+                one.getAttribute("data-work") ??
+                one.getAttribute("data-rail-work")
+              );
           }
           return null;
         }, title),
@@ -2834,10 +3040,10 @@ async function openWorkSaying(
   world.workId = id;
 }
 
-/** THE WORK'S MODEL QUESTION, inside the opened card — the form a person
- *  answers it in. */
+/** THE WORK'S MODEL QUESTION, on the work's face — the form a person
+ *  answers it in, without picking the work. */
 async function modelQuestion(world: KoluWorld) {
-  await openWorkCard(world);
+  await showWorkCard(world);
   const ask = workCard(world).locator('[data-testid="work-question"]');
   await ask.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
   return ask;
@@ -2997,10 +3203,9 @@ Then(
 When(
   "I answer the work's question with {string} on the card",
   async function (this: KoluWorld, value: string) {
-    // The question lives INSIDE the opened card — which is the gesture a
-    // person makes: the card is violet because something is waiting on them,
-    // and they open it to answer.
-    await openWorkCard(this);
+    // The question is on the work's face — a person answers it where the
+    // work stands, without picking it.
+    await showWorkCard(this);
     const ask = workCard(this).locator('[data-testid="work-question"]');
     await ask.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
     await ask
@@ -3015,6 +3220,7 @@ When(
   async function (this: KoluWorld, value: string) {
     // The chat's copy is the question drawn where it was asked: a row of the
     // transcript, answering the same decision the card does.
+    await showChat(this);
     const ask = this.page
       .locator(`${TRANSCRIPT} [data-testid="work-question"][data-from="chat"]`)
       .last();
@@ -3029,6 +3235,43 @@ When(
 Then("the work should have no open question", async function (this: KoluWorld) {
   await waitForCount(this, `${WORK_COLUMN} [data-testid="work-question"]`, 0);
 });
+
+/** The card is SHUT — no press on its head has opened it — and the work's
+ *  question is on it, as the form a person answers. */
+async function shutCardQuestion(world: KoluWorld) {
+  await showWorkColumn(world);
+  const card = workCard(world);
+  await card.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+  assert.equal(
+    await card.getAttribute("data-open"),
+    null,
+    "the work's card is open, so this is not the shut card's question",
+  );
+  const ask = card.locator('[data-testid="work-question"][data-from="card"]');
+  await ask.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+  return ask;
+}
+
+Then(
+  "the shut work card should show the work's question",
+  async function (this: KoluWorld) {
+    await shutCardQuestion(this);
+  },
+);
+
+/** ANSWERED WHERE IT STANDS: the shut card's own form, pressed without
+ *  opening the card first — which is the whole of what this step adds over
+ *  "on the card". */
+When(
+  "I answer the work's question with {string} on the shut card",
+  async function (this: KoluWorld, value: string) {
+    const ask = await shutCardQuestion(this);
+    await ask
+      .locator(`[data-testid="conductor-ask-option"][data-value="${value}"]`)
+      .click();
+    await ask.locator('[data-testid="conductor-ask-submit"]').click();
+  },
+);
 
 /** THE WORK GETS AN IMPLEMENTOR — a real `lifecycle_create` on the fleet face
  *  carrying the work and the role, in the work's own repo, running the lazy
@@ -3267,7 +3510,7 @@ When("the work's pull request is merged", async function (this: KoluWorld) {
 Then(
   "the work card should say its pull request is a draft",
   async function (this: KoluWorld) {
-    await openWorkCard(this);
+    const putBack = await pickToRead(this);
     const pr = statedPullRequest();
     const card = workCard(this);
     const read = async () => ({
@@ -3303,6 +3546,7 @@ Then(
           `after ${ms}ms the card did not say #${pr.number} is a draft: ${JSON.stringify(last)}`,
         ),
     });
+    await putBack();
   },
 );
 
@@ -3342,7 +3586,28 @@ async function timelineInventory(world: KoluWorld): Promise<string> {
           )}`,
       ),
     );
-  return events.length === 0 ? "(no events)" : events.join(" | ");
+  if (events.length > 0) return events.join(" | ");
+  // NO EVENTS AT ALL is a statement about the card, not the record: say how
+  // the card stood — its shape, whether it is picked, which view is in front
+  // and what its timeline is showing — so the failure names where to look.
+  const card = await workCard(world)
+    .evaluate(
+      (el) => {
+        const timeline = el.querySelector('[data-testid="work-timeline"]');
+        const whole = el.querySelector('[data-testid="work-timeline-whole"]');
+        return [
+          `shape=${el.getAttribute("data-shape")}`,
+          `open=${el.hasAttribute("data-open")}`,
+          `view=${el.getAttribute("data-view")}`,
+          `timeline=${timeline === null ? "none" : `${timeline.getAttribute("data-view")}/${timeline.getAttribute("data-stage")}`}`,
+          `whole=${whole === null ? "none" : `${whole.getAttribute("aria-expanded")} ${JSON.stringify((whole.textContent ?? "").trim())}`}`,
+        ].join(" ");
+      },
+      undefined,
+      { timeout: 1_000 },
+    )
+    .catch(() => "no card on screen");
+  return `(no events; ${card})`;
 }
 
 /** Events of one kind on this scenario's card whose text holds `contains`
@@ -3372,6 +3637,7 @@ function timelineEvents(
 export async function keepWorkCardOpen(world: KoluWorld): Promise<void> {
   const card = workCard(world);
   if (await card.isVisible().catch(() => false)) {
+    await showDetails(world);
     if ((await card.getAttribute("data-open")) === null) {
       await card
         .locator('[data-testid="work-card-head"]')
@@ -3402,7 +3668,7 @@ async function waitForTimelineEvent(
   kind: string,
   contains: string,
 ): Promise<void> {
-  await openWorkCard(world);
+  const putBack = await pickToRead(world);
   await keepWorkCardOpen(world);
   let inventoryAtTimeout = "(not observed)";
   await pollFor({
@@ -3418,6 +3684,7 @@ async function waitForTimelineEvent(
         `no ${JSON.stringify(kind)} event${contains === "" ? "" : ` about ${JSON.stringify(contains)}`} after ${ms}ms; the timeline holds ${inventoryAtTimeout}`,
       ),
   });
+  await putBack();
 }
 
 Then(
@@ -3439,13 +3706,14 @@ Then(
 Then(
   "the work's timeline should show no {string} event",
   async function (this: KoluWorld, kind: string) {
-    await openWorkCard(this);
+    const putBack = await pickToRead(this);
     await keepWorkCardOpen(this);
     assert.equal(
       await timelineEvents(this, kind, ""),
       0,
       `the timeline already holds a ${JSON.stringify(kind)} event before anything could have observed one: ${await timelineInventory(this)}`,
     );
+    await putBack();
   },
 );
 
@@ -3455,7 +3723,7 @@ Then(
 Then(
   "the work's timeline should show {int} {string} events",
   async function (this: KoluWorld, many: number, kind: string) {
-    await openWorkCard(this);
+    const putBack = await pickToRead(this);
     await keepWorkCardOpen(this);
     let inventoryAtTimeout = "(not observed)";
     await pollFor({
@@ -3476,13 +3744,14 @@ Then(
       many,
       `the timeline holds more ${JSON.stringify(kind)} events than the ${many} things that happened: ${await timelineInventory(this)}`,
     );
+    await putBack();
   },
 );
 
 Then(
   "the work card should name the pull request {string}",
   async function (this: KoluWorld, pr: string) {
-    await openWorkCard(this);
+    const putBack = await pickToRead(this);
     await pollFor({
       observe: async () =>
         (
@@ -3500,6 +3769,7 @@ Then(
           `the card never named ${JSON.stringify(pr)}; after ${ms}ms it said ${JSON.stringify(last)}`,
         ),
     });
+    await putBack();
   },
 );
 
@@ -3509,7 +3779,7 @@ Then(
 Then(
   "the work's pull request section should give GitHub's merge answer as {string}",
   async function (this: KoluWorld, reason: string) {
-    await openWorkCard(this);
+    const putBack = await pickToRead(this);
     await pollFor({
       observe: async () =>
         (await workCard(this)
@@ -3523,6 +3793,7 @@ Then(
           `the pull request section never gave ${JSON.stringify(reason)}; after ${ms}ms it gave ${JSON.stringify(last)}`,
         ),
     });
+    await putBack();
   },
 );
 
@@ -3530,7 +3801,7 @@ Then(
 Then(
   "the work's timeline should show GitHub's merge answer as {string}",
   async function (this: KoluWorld, reason: string) {
-    await openWorkCard(this);
+    const putBack = await pickToRead(this);
     let inventoryAtTimeout = "(not observed)";
     await pollFor({
       observe: async () => {
@@ -3551,6 +3822,7 @@ Then(
           `no merge answer ${JSON.stringify(reason)} after ${ms}ms; the timeline holds ${inventoryAtTimeout}`,
         ),
     });
+    await putBack();
   },
 );
 
@@ -3571,6 +3843,44 @@ Then(
       onTimeout: (last, ms) =>
         new Error(
           `the strip was at ${JSON.stringify(last)} after ${ms}ms, not ${JSON.stringify(stage)}`,
+        ),
+    });
+  },
+);
+
+/** THE LINE NAMES ONE STAGE: the words a person sees on the strip — every
+ *  piece of text in it that is drawn at a size an eye can read, so the
+ *  one-pixel spoken-only labels are left out — name the stage asked about,
+ *  and no other of the six. */
+Then(
+  "the work's stage line should name {string} and no other stage",
+  async function (this: KoluWorld, label: string) {
+    await showWorkColumn(this);
+    const strip = workCard(this).locator('[data-testid="stage-strip"]');
+    const LABELS = ["Plan", "Approve", "Build", "Review", "Checks", "Merge"];
+    await pollFor({
+      observe: () =>
+        strip
+          .evaluate((el) => {
+            const seen: string[] = [];
+            const walk = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+            for (let node = walk.nextNode(); node; node = walk.nextNode()) {
+              const parent = node.parentElement;
+              if (parent === null || !parent.checkVisibility()) continue;
+              const box = parent.getBoundingClientRect();
+              if (box.width <= 1 || box.height <= 1) continue;
+              const words = (node.textContent ?? "").trim();
+              if (words !== "") seen.push(words);
+            }
+            return seen.join(" ");
+          })
+          .catch(() => ""),
+      isDone: (seen) =>
+        LABELS.every((one) => seen.includes(one) === (one === label)),
+      timeoutMs: POLL_TIMEOUT,
+      onTimeout: (last, ms) =>
+        new Error(
+          `after ${ms}ms the stage line reads ${JSON.stringify(last)}, not one naming ${JSON.stringify(label)} alone`,
         ),
     });
   },
@@ -3625,7 +3935,7 @@ Then(
 Then(
   "the work card should link the pull request {string}",
   async function (this: KoluWorld, pr: string) {
-    await openWorkCard(this);
+    const putBack = await pickToRead(this);
     const link = workCard(this)
       .locator('[data-testid="work-pr"] [data-testid="work-pr-link"]')
       .filter({ hasText: pr })
@@ -3636,8 +3946,34 @@ Then(
       href.endsWith(`/pull/${pr.replace("#", "")}`),
       `the link goes to ${JSON.stringify(href)}`,
     );
+    await putBack();
   },
 );
+
+/** WHICH GROUP A WORK SITS IN — `waiting`, `in-progress`, `watching` or
+ *  `finished` — read off the board, or, while a work is picked, off the
+ *  rail, which is grouped as the board is. `none` when it is in neither. */
+async function groupOf(world: KoluWorld, id: string): Promise<string> {
+  for (const key of ["waiting", "in-progress", "watching", "finished"]) {
+    const onBoard = world.page.locator(
+      `${WORK_COLUMN} [data-testid="work-${key}"] ${WORK_CARD}[data-work="${id}"]`,
+    );
+    const onRail = world.page.locator(
+      `${WORK_COLUMN} [data-testid="works-rail-group"][data-group="${key}"] [data-rail-work="${id}"]`,
+    );
+    if ((await onBoard.count()) > 0 || (await onRail.count()) > 0) return key;
+  }
+  return "none";
+}
+
+/** Is a work picked — the board folded to a rail? */
+async function railShown(world: KoluWorld): Promise<boolean> {
+  return (
+    (await world.page
+      .locator(`${WORK_COLUMN} [data-testid="works-rail"]`)
+      .count()) > 0
+  );
+}
 
 /** WHO THE WORK WAITS ON, as the card says it — its edge and its group —
  *  read off this scenario's card alone, never the column-wide count. */
@@ -3647,13 +3983,7 @@ async function waitsOnYouNow(
   const card = workCard(world);
   const who = (await card.getAttribute("data-who").catch(() => null)) ?? "";
   const id = (await card.getAttribute("data-work").catch(() => null)) ?? "";
-  const inWaiting =
-    id !== "" &&
-    (await world.page
-      .locator(
-        `${WORK_COLUMN} [data-testid="work-waiting"] ${WORK_CARD}[data-work="${id}"]`,
-      )
-      .count()) > 0;
+  const inWaiting = id !== "" && (await groupOf(world, id)) === "waiting";
   return { who, inWaiting };
 }
 
@@ -3699,14 +4029,18 @@ Then(
   async function (this: KoluWorld, outcome: string) {
     const id = this.workId;
     assert.ok(id, "this scenario never opened a work");
-    await openFinished(this);
+    // The Finished group is opened on the board; while a work is picked the
+    // rail lists it already.
+    if (!(await railShown(this))) await openFinished(this);
     await waitForValue(
       "the finished work's outcome",
       async () => {
+        if ((await groupOf(this, id)) !== "finished")
+          return "not among the finished";
         const card = this.page.locator(
-          `${WORK_COLUMN} [data-testid="work-finished"] ${WORK_CARD}[data-work="${id}"]`,
+          `${WORK_COLUMN} ${WORK_CARD}[data-work="${id}"]`,
         );
-        if ((await card.count()) === 0) return "not among the finished";
+        if ((await card.count()) === 0) return "no card drawn";
         return (await card.getAttribute("data-outcome")) ?? "no outcome";
       },
       outcome,
@@ -3744,10 +4078,35 @@ Then("the work should be in progress", async function (this: KoluWorld) {
   );
 });
 
+/** ONE LINE IN THE FINISHED LIST — on the board, so all the works are put
+ *  back first when one is picked: the work is drawn as a line (`data-shape`)
+ *  and is no taller than one line of its text and its padding. */
+Then("the finished work should be one line", async function (this: KoluWorld) {
+  const back = this.page.locator(`${WORK_COLUMN} ${ALL_WORK}`);
+  if ((await back.count()) > 0) await back.click();
+  const card = await showWorkCard(this);
+  await waitForValue(
+    "the finished work's shape",
+    async () => (await card.getAttribute("data-shape")) ?? "no shape",
+    "line",
+  );
+  const lines = await card.evaluate((el) => {
+    const style = getComputedStyle(el);
+    const line =
+      Number.parseFloat(style.lineHeight) ||
+      Number.parseFloat(style.fontSize) * 1.5;
+    return el.getBoundingClientRect().height / line;
+  });
+  assert.ok(
+    lines < 2.5,
+    `the finished work is ${lines.toFixed(1)} lines tall, not one`,
+  );
+});
+
 /** STOP, WITH THE CONFIRM IN FRONT OF IT — the repo's one inline-confirm
  *  shell, so the first press opens the step and the second acts. */
 When("I stop the work from the card", async function (this: KoluWorld) {
-  await openWorkCard(this);
+  await openWorkDetails(this);
   const card = workCard(this);
   await card.locator('[data-testid="work-stop"]').click();
   const confirm = card.locator('[data-testid="work-stop-confirm"]');
@@ -3758,7 +4117,7 @@ When("I stop the work from the card", async function (this: KoluWorld) {
 Then(
   "the work card should say it was stopped by you",
   async function (this: KoluWorld) {
-    await openWorkCard(this);
+    const putBack = await pickToRead(this);
     await waitForValue(
       "the stopped card's outcome",
       async () =>
@@ -3774,6 +4133,7 @@ Then(
           : "something else",
       "stopped by you",
     );
+    await putBack();
   },
 );
 
@@ -3784,7 +4144,7 @@ Then(
 Then(
   "the work card should show no terminals",
   async function (this: KoluWorld) {
-    await openWorkCard(this);
+    const putBack = await pickToRead(this);
     const card = workCard(this);
     await waitForValue(
       "the terminals section of a finished card",
@@ -3799,11 +4159,12 @@ Then(
       0,
       "a finished card is drawing an open question",
     );
+    await putBack();
   },
 );
 
 When("I reopen the work from the card", async function (this: KoluWorld) {
-  await openWorkCard(this);
+  await openWorkDetails(this);
   await workCard(this).locator('[data-testid="work-reopen"]').click();
 });
 
@@ -3888,7 +4249,8 @@ Then(
 When(
   "I decline the work's question on the card",
   async function (this: KoluWorld) {
-    await openWorkCard(this);
+    // The question is on the work's face: answered without picking it.
+    await showWorkCard(this);
     const ask = workCard(this).locator('[data-testid="work-question"]');
     await ask.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
     await ask.locator('[data-testid="conductor-ask-dismiss"]').click();
@@ -3940,7 +4302,7 @@ async function waitForDecision(
   narrowed: string,
   said: string,
 ): Promise<void> {
-  await openWorkCard(world);
+  const putBack = await pickToRead(world);
   await pollFor({
     observe: async () => {
       // A card shows its latest three decisions; the one asked about may be
@@ -3974,6 +4336,7 @@ async function waitForDecision(
         `no decision ${said === "" ? "" : `answered ${said} `}reads ${JSON.stringify(text)} after ${ms}ms; the card holds ${JSON.stringify(read)}`,
       ),
   });
+  await putBack();
 }
 
 /** ONE LINE EACH. The setup the human answered at the start is ONE line on
@@ -3983,7 +4346,7 @@ async function waitForDecision(
 Then(
   "the work's decisions should be one line each",
   async function (this: KoluWorld) {
-    await openWorkCard(this);
+    const putBack = await pickToRead(this);
     const setup = workCard(this).locator('[data-testid="work-setup"]');
     await setup.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
     const wrapped = await workCard(this)
@@ -4005,42 +4368,166 @@ Then(
       throw new Error(
         `these decision lines take more than one line: ${JSON.stringify(wrapped)}`,
       );
+    await putBack();
   },
 );
 
-/** ONE ROW PER TERMINAL, as one line however narrow the column: every part
- *  of the row sits on the same line, and nothing is pushed past its edge. */
+/** EVERY PART OF EVERY TERMINAL ROW STAYS INSIDE IT, and the rows line up:
+ *  each of a row's cells and named parts lies within the row's box, the row
+ *  does not overflow, every row lies within the card, and down the card the
+ *  roles share one left edge and so do the Look buttons. */
 Then(
-  "the work's terminal rows should each be one line",
+  "the work's terminal rows should keep every part inside the card",
   async function (this: KoluWorld) {
-    await openWorkCard(this);
-    const rows = workCard(this).locator(
-      '[data-testid="work-member"] [data-testid="conductor-look"] > div',
-    );
-    await rows.first().waitFor({ state: "visible", timeout: POLL_TIMEOUT });
-    const broken = await rows.evaluateAll((all) =>
-      all
-        .map((row) => {
-          const tops = Array.from(row.children)
-            .filter((one) => one.getBoundingClientRect().width > 0)
-            .map((one) => {
-              const box = one.getBoundingClientRect();
-              return box.top + box.height / 2;
-            });
-          const oneLine = tops.every(
-            (mid) => Math.abs(mid - (tops[0] ?? 0)) < 6,
+    await showWorkColumn(this);
+    await showDetails(this);
+    const card = workCard(this);
+    await card
+      .locator(WORK_MEMBER)
+      .first()
+      .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    let problems: string[] = [];
+    await pollFor({
+      observe: async () => {
+        // No named function inside the page callback: the harness's
+        // transform names them with a helper the page does not have.
+        problems = await card.evaluate((el) => {
+          const found: string[] = [];
+          const cardBox = el.getBoundingClientRect();
+          const rows = Array.from(
+            el.querySelectorAll<HTMLElement>('[data-testid="work-member"]'),
           );
-          const fits = row.scrollWidth <= row.clientWidth + 1;
-          return oneLine && fits
-            ? ""
-            : `${oneLine ? "" : "wraps "}${fits ? "" : "overflows "}${(row.textContent ?? "").replace(/\s+/g, " ").trim()}`;
-        })
-        .filter((one) => one !== ""),
+          for (const row of rows) {
+            const ref = row.getAttribute("data-ref") ?? "?";
+            const box = row.getBoundingClientRect();
+            if (
+              box.left < cardBox.left - 1 ||
+              box.right > cardBox.right + 1 ||
+              box.top < cardBox.top - 1 ||
+              box.bottom > cardBox.bottom + 1
+            )
+              found.push(`${ref}: row leaves the card`);
+            if (row.scrollWidth > row.clientWidth + 1)
+              found.push(`${ref}: row overflows`);
+            const parts = [
+              ...Array.from(row.children),
+              ...Array.from(
+                row.querySelectorAll('[data-testid^="work-member-"]'),
+              ),
+            ];
+            for (const part of parts) {
+              const at = part.getBoundingClientRect();
+              if (at.width === 0 || at.height === 0) continue;
+              if (
+                at.left < box.left - 1 ||
+                at.right > box.right + 1 ||
+                at.top < box.top - 1 ||
+                at.bottom > box.bottom + 1
+              )
+                found.push(
+                  `${ref}: ${
+                    part.getAttribute("data-testid") ??
+                    (part.textContent ?? "")
+                      .replace(/\s+/g, " ")
+                      .trim()
+                      .slice(0, 30)
+                  } reaches outside the row`,
+                );
+            }
+          }
+          for (const testid of ["work-member-role", "work-member-look"]) {
+            const edges = rows
+              .map((row) => row.querySelector(`[data-testid="${testid}"]`))
+              .filter((one): one is Element => one !== null)
+              .map((one) => Math.round(one.getBoundingClientRect().left));
+            if (edges.some((edge) => Math.abs(edge - (edges[0] ?? 0)) > 1))
+              found.push(`${testid} edges differ: ${edges.join(", ")}`);
+          }
+          return found;
+        });
+        return problems;
+      },
+      isDone: (seen) => seen.length === 0,
+      timeoutMs: POLL_TIMEOUT,
+      onTimeout: (_last, ms) =>
+        new Error(
+          `after ${ms}ms the terminal rows do not keep inside the card: ${JSON.stringify(problems)}`,
+        ),
+    });
+  },
+);
+
+/** THE OTHER WORKS FOLD TO A RAIL: the named work is a line of it, drawn on
+ *  one line. */
+Then(
+  "the works rail should list {string} in one line",
+  async function (this: KoluWorld, title: string) {
+    const line = this.page
+      .locator(`${WORK_COLUMN} [data-testid="works-rail-line"]`)
+      .filter({ hasText: title })
+      .first();
+    await line.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    const lines = await line.evaluate((el) => {
+      const style = getComputedStyle(el);
+      const height =
+        Number.parseFloat(style.lineHeight) ||
+        Number.parseFloat(style.fontSize) * 1.5;
+      const box = el.getBoundingClientRect();
+      const padding =
+        Number.parseFloat(style.paddingTop) +
+        Number.parseFloat(style.paddingBottom);
+      return (box.height - padding) / height;
+    });
+    assert.ok(
+      lines < 1.5,
+      `the rail's line for ${JSON.stringify(title)} is ${lines.toFixed(1)} lines tall`,
     );
-    if (broken.length > 0)
-      throw new Error(
-        `these terminal rows are not one line: ${JSON.stringify(broken)}`,
-      );
+  },
+);
+
+When("I go back to all the works", async function (this: KoluWorld) {
+  await this.page.locator(`${WORK_COLUMN} [data-testid="works-all"]`).click();
+});
+
+/** NOTHING PICKED: no work is open, there is no rail, and the board is back. */
+Then("no work should be picked", async function (this: KoluWorld) {
+  await waitForCount(this, `${WORK_COLUMN} ${WORK_CARD}[data-open]`, 0);
+  await waitForCount(this, `${WORK_COLUMN} [data-testid="works-rail"]`, 0);
+  await this.page
+    .locator(`${WORK_COLUMN} [data-testid="works-board"]`)
+    .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+});
+
+/** SHUT IT AGAIN — a press on an open card's head, idempotently. */
+When("I shut the work card", async function (this: KoluWorld) {
+  await showWorkColumn(this);
+  const card = workCard(this);
+  await card.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+  if ((await card.getAttribute("data-open")) !== null)
+    await card.locator('[data-testid="work-card-head"]').click();
+  await waitForValue(
+    "the work card's open state",
+    async () =>
+      (await card.getAttribute("data-open")) === null ? "shut" : "open",
+    "shut",
+  );
+});
+
+/** THE TERMINAL IS LISTED ON THE SHUT CARD — its row is on the face, read
+ *  without opening anything. */
+Then(
+  "the shut work card should list the terminal",
+  async function (this: KoluWorld) {
+    await showWorkColumn(this);
+    const card = workCard(this);
+    assert.equal(
+      await card.getAttribute("data-open"),
+      null,
+      "the work's card is open, so this is not the shut card",
+    );
+    await card
+      .locator(`${WORK_MEMBER}[data-ref$="/${watchedId(this)}"]`)
+      .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
   },
 );
 
@@ -4051,7 +4538,7 @@ Then(
 When(
   "I open the work's file {string}",
   async function (this: KoluWorld, file: string) {
-    await openWorkCard(this);
+    await openWorkDetails(this);
     const row = this.page.locator(
       `${WORK_COLUMN} [data-testid="work-file"][data-path="${file}"]`,
     );
@@ -4063,10 +4550,11 @@ When(
 Then(
   "the work card should list the file {string}",
   async function (this: KoluWorld, file: string) {
-    await openWorkCard(this);
+    const putBack = await pickToRead(this);
     await this.page
       .locator(`${WORK_COLUMN} [data-testid="work-file"][data-path="${file}"]`)
       .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    await putBack();
   },
 );
 
@@ -4075,12 +4563,13 @@ Then(
   async function (this: KoluWorld, file: string) {
     // KEPT, not merely listed: a finished work's worktree may be gone, so the
     // row that is still there is a copy kolu took when the work ended.
-    await openWorkCard(this);
+    const putBack = await pickToRead(this);
     await this.page
       .locator(
         `${WORK_COLUMN} [data-testid="work-file"][data-path="${file}"][data-kept]`,
       )
       .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    await putBack();
   },
 );
 
@@ -4089,12 +4578,13 @@ Then(
 Then(
   "the work card should show the folder {string} holding {int} files",
   async function (this: KoluWorld, folder: string, count: number) {
-    await openWorkCard(this);
+    const putBack = await pickToRead(this);
     await this.page
       .locator(
         `${WORK_COLUMN} [data-testid="work-folder"][data-path="${folder}"][data-count="${count}"]`,
       )
       .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    await putBack();
   },
 );
 
@@ -4104,7 +4594,7 @@ Then(
 When(
   "I unfold the work's folder {string}",
   async function (this: KoluWorld, folder: string) {
-    await openWorkCard(this);
+    await openWorkDetails(this);
     const chip = this.page.locator(
       `${WORK_COLUMN} [data-testid="work-folder"][data-path="${folder}"]`,
     );
@@ -4124,8 +4614,7 @@ When(
 Then(
   "the work's timeline should show one row for the folder {string} with {int} files",
   async function (this: KoluWorld, folder: string, count: number) {
-    await showWorkColumn(this);
-    await openWorkCard(this);
+    const putBack = await pickToRead(this);
     await keepWorkCardOpen(this);
     const rows = workCard(this).locator(
       `[data-testid="work-event-folder"][data-path="${folder}"]`,
@@ -4138,6 +4627,7 @@ Then(
           .join("|"),
       "match",
     );
+    await putBack();
   },
 );
 
@@ -4147,7 +4637,7 @@ When(
   "I unfold the work's timeline row for the folder {string}",
   async function (this: KoluWorld, folder: string) {
     await showWorkColumn(this);
-    await openWorkCard(this);
+    await openWorkDetails(this);
     await keepWorkCardOpen(this);
     // The row's OWN control — a file row unfolded under it carries a "more"
     // of its own, one level deeper.

@@ -12,10 +12,9 @@
 
 import type { Work, WorkId } from "kolu-work";
 import { batch, createSignal } from "solid-js";
-import { conductorWide } from "./conductorLayout";
+import { setPhoneView } from "./phoneView";
 import { closeReader } from "./reader/useReader";
 import { useWorkMap } from "./useWorks";
-import { setListingOut } from "./workListing";
 
 const [scope, setScope] = createSignal<WorkId | null>(null);
 
@@ -33,14 +32,21 @@ export const chatScope = (): {
   return record === undefined ? null : { id, record };
 };
 
-/** "About this work": point the chat at it. The reader gives way and, on a
- *  narrow window, the listing goes back in, so the chat it filtered is the
- *  thing on screen. */
-export function aboutWork(id: WorkId): void {
+/** POINT THE CHAT AT A WORK: the reader gives way, and the chat shows the
+ *  turns about it. What picking a work does (`workListing.ts`). */
+export function pointChatAt(id: WorkId): void {
   batch(() => {
     closeReader();
-    if (!conductorWide()) setListingOut(false);
     setScope(id);
+  });
+}
+
+/** "About this work": point the chat at it, and on a phone show the chat,
+ *  so the chat it filtered is the thing on screen. */
+export function aboutWork(id: WorkId): void {
+  batch(() => {
+    pointChatAt(id);
+    setPhoneView("chat");
   });
 }
 

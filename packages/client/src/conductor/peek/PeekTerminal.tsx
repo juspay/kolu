@@ -51,6 +51,9 @@ const PeekTerminal: Component<{
   onHeld: (held: boolean) => void;
   onFocus: (focused: boolean) => void;
   onHandle: (handle: PeekTerminalHandle) => void;
+  /** The screen's test id: `peek-screen` in the peek, `live-screen` in a
+   *  picked work's pane, so the two views of one terminal are told apart. */
+  testId: "peek-screen" | "live-screen";
 }> = (props) => {
   const hostKey = decodeHostKey(props.host);
   const ref = fleetTerminalRef(props.host, props.id);
@@ -205,7 +208,7 @@ const PeekTerminal: Component<{
       onReady={onReady}
       onTap={() => false}
       class="h-full w-full overflow-hidden touch-manipulation"
-      data-testid="peek-screen"
+      data-testid={props.testId}
     />
   );
 };

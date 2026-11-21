@@ -59,6 +59,7 @@ import { createEffect, mapArray, onCleanup, untrack } from "solid-js";
 import { match } from "ts-pattern";
 import { notify } from "../attentionNotify";
 import { hostLabel } from "../host/hostChipTone";
+import { selectHostTab } from "../host/selectHostTab";
 import { afterViewKnown, isNeedInView } from "../conductor/onScreen";
 import {
   conductorAsks,
@@ -433,18 +434,19 @@ export function useAttention(deps: AttentionDeps): {
     }),
   );
 
-  // The SINGLE notification-click router: switch to the originating host first (a
-  // notification outlives the active-host selection), then focus. Both the current
-  // `terminal` shape and any stale `host` shape route the same way.
+  // The SINGLE notification-click router: switch to the originating host's tab
+  // first (a notification outlives the active-host selection, and the person
+  // may be reading the Conductor), then focus. Both the current `terminal`
+  // shape and any stale `host` shape route the same way.
   onCleanup(
     notify.onClick((data) =>
       match(data)
         .with({ kind: "terminal" }, ({ host, terminalId }) => {
-          setActiveHost(decodeHostKey(host));
+          selectHostTab(decodeHostKey(host));
           deps.activate(terminalId);
         })
         .with({ kind: "host" }, ({ host, id }) => {
-          setActiveHost(decodeHostKey(host));
+          selectHostTab(decodeHostKey(host));
           deps.activate(id);
         })
         .with({ kind: "conductor" }, () => {

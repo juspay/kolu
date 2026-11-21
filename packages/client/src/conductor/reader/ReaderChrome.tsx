@@ -9,7 +9,7 @@
  *  draws whatever it is given. */
 
 import { type Component, Show } from "solid-js";
-import { conductorWide } from "../conductorLayout";
+import { layoutMode } from "../../useMobile";
 import {
   closeReader,
   popOutReader,
@@ -31,9 +31,9 @@ const ReaderChrome: Component<{ target: ReaderTarget }> = (props) => (
     >
       ← Work
     </button>
-    {/* NEITHER IS OFFERED ON A NARROW WINDOW, where the reader already has
-        the screen and there is nothing beside it to take. */}
-    <Show when={conductorWide()}>
+    {/* NEITHER IS OFFERED ON A PHONE, where the reader already has the
+        screen and there is nothing beside it to take. */}
+    <Show when={layoutMode() !== "phone"}>
       <button
         type="button"
         data-testid="reader-fill"

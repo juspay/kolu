@@ -21,6 +21,7 @@ import { isDesktop } from "../useMobile";
 import ConductorMenu from "./ConductorMenu";
 import ConductorSettings from "./ConductorSettings";
 import MemoryChip from "./memory/MemoryChip";
+import { helpSheet } from "./helpContent";
 import { useShown } from "../ui/shown";
 import { tokens } from "./tokens";
 
@@ -190,6 +191,23 @@ const ConductorHeader: Component<{
             </span>
           </Tip>
         )}
+      </Show>
+      {/* THE HELP, ONE PRESS AWAY on a desktop: the same sheet the `⋯`
+          menu's How to use opens. A phone has the menu entry alone — its
+          header is one short row under the pull handle. Its own size, like
+          the mark; the row's `leading-4` keeps its box the row's height. */}
+      <Show when={isDesktop()}>
+        <Tip class="flex items-center" label="How to use the Conductor">
+          <button
+            type="button"
+            data-testid="conductor-help-open"
+            aria-label="How to use the Conductor"
+            class="text-fg-3 hover:text-fg cursor-pointer px-1 text-sm/4 font-semibold"
+            onClick={() => helpSheet.openDialog()}
+          >
+            ?
+          </button>
+        </Tip>
       </Show>
       {/* A MENU AFFORDANCE, and nothing else. This button used to start a
           new session on the press — a `⋯` that acted, which is the one thing

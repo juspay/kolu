@@ -88,3 +88,54 @@ Feature: The works that need you come first, and the chat goes quiet
     Then the conductor pane should be visible
     And the watched work's card should be open
     And there should be no page errors
+
+  Scenario: Picking a work shows it alone, with the others in a rail and the chat about it
+    Given a repo for the work
+    When I ask the conductor to open the work "the other one"
+    And I ask the conductor to open the work "pick me"
+    And I send the conductor the prompt "say hello"
+    Then the conductor transcript should show a row of kind "agent" saying "hello back"
+    When I open the work card
+    Then the watched work's card should be open
+    And the works rail should list "the other one" in one line
+    And the chat should be about the work
+    And my message "say hello" should be out of sight
+    When I go back to all the works
+    Then no work should be picked
+    And the work column should show the work
+    And my message "say hello" should be in sight
+    And there should be no page errors
+
+  Scenario: Showing the whole chat keeps the work picked
+    Given a repo for the work
+    When I ask the conductor to open the work "stay picked"
+    And I open the work card
+    Then the chat should be about the work
+    When I show the whole chat
+    Then the watched work's card should be open
+    And there should be no page errors
+
+  Scenario: Finished works are one line each, and one can be picked and reopened
+    Given a repo for the work
+    When I ask the conductor to open the work "done and dusted"
+    And I answer the work's question with "merge" in the chat
+    And I ask the conductor to run the implementor in the work's repo
+    And I stop the work from the card
+    Then the work should be finished as "stopped"
+    And the finished work should be one line
+    When I open the work card
+    Then the watched work's card should be open
+    And the work card should say it was stopped by you
+    When I reopen the work from the card
+    Then the work should be in progress
+    And there should be no page errors
+
+  Scenario: A reload stays on the picked work
+    Given a repo for the work
+    When I ask the conductor to open the work "still here"
+    And I open the work card
+    Then the watched work's card should be open
+    When I reload the page and wait for ready
+    And I enter conductor mode
+    Then the watched work's card should be open
+    And there should be no page errors

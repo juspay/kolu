@@ -1,4 +1,4 @@
-/** AN OPEN CARD'S TIMELINE — one stage of it, until the whole is asked for.
+/** A PICKED WORK'S TIMELINE — one stage of it, until the whole is asked for.
  *
  *  A card stays short however long its work runs: the timeline shows the
  *  events of ONE stage (the stage the work is in, or the one pressed on the

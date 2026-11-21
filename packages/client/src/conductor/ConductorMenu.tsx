@@ -37,7 +37,6 @@ import { surface } from "../ui/Surface";
 import { useAnchoredPopover } from "../ui/useAnchoredPopover";
 import { transcriptText } from "./transcript";
 import { helpSheet } from "./helpContent";
-import { conductorHelpColumn } from "./conductorLayout";
 import { memorySheet, useMemory } from "./memory/useMemory";
 import { useConductor } from "./useConductor";
 
@@ -186,22 +185,18 @@ const ConductorMenu: Component<{
           >
             Copy transcript
           </button>
-          {/* HOW TO USE, exactly where the help is not already a column: on a
-              phone, and on any window too narrow for the column
-              (`conductorLayout.ts`). The same words either way
-              (`helpContent.ts`) — a menu that opened a second, shorter
-              explanation is how two manuals come to disagree. */}
-          <Show when={!conductorHelpColumn()}>
-            <button
-              type="button"
-              role="menuitem"
-              data-testid="conductor-menu-help"
-              class="mt-1 w-full text-left px-2 py-1 rounded-md text-xs text-fg hover:bg-surface-2 cursor-pointer"
-              onClick={() => pick(() => helpSheet.openDialog())}
-            >
-              How to use
-            </button>
-          </Show>
+          {/* HOW TO USE, at every width — the one door to the help on a
+              phone, and a second one beside the header's `?` on a desktop.
+              The same sheet either way (`helpContent.ts`). */}
+          <button
+            type="button"
+            role="menuitem"
+            data-testid="conductor-menu-help"
+            class="mt-1 w-full text-left px-2 py-1 rounded-md text-xs text-fg hover:bg-surface-2 cursor-pointer"
+            onClick={() => pick(() => helpSheet.openDialog())}
+          >
+            How to use
+          </button>
           {/* THE ROSTER — read, never pressed, so it is a section under the
               rows and not a row among them. The tick is the AGENT'S word and
               only its word: `connected` is the agent reporting the server

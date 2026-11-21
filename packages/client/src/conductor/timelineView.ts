@@ -1,4 +1,4 @@
-/** WHICH PART OF A WORK'S TIMELINE AN OPEN CARD SHOWS — one stage of it,
+/** WHICH PART OF A WORK'S TIMELINE THE PICKED WORK SHOWS — one stage of it,
  *  until the whole is asked for. Pure, and read ONCE per redraw by the card,
  *  which hands the one answer to the strip (which cell is pressed) and to the
  *  timeline (which rows it draws).
@@ -21,7 +21,7 @@ import {
  *  to index its timeline by. */
 export const WATCH_EVENTS_SHOWN = 5;
 
-/** WHAT AN OPEN CARD'S TIMELINE SHOWS:
+/** WHAT A PICKED WORK'S TIMELINE SHOWS:
  *
  *  - `stage` — one stage's events: the one pressed on the strip, else the
  *    stage the work is in (for a finished work, the stage it ended in);

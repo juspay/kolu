@@ -33,6 +33,7 @@ import { OMP_HEARD_MARKER, OMP_UP_MARKER } from "../support/agent-mock-omp.ts";
 import { readBufferText } from "../support/buffer.ts";
 import { pollFor } from "../support/poll.ts";
 import { type KoluWorld, MOD_KEY, POLL_TIMEOUT } from "../support/world.ts";
+import { showDetails } from "./conductor_steps.ts";
 
 const LOCK = '[data-testid="work-lock"]';
 const CARD = '[data-testid="work-lock-card"]';
@@ -97,6 +98,7 @@ After(async () => {
  *  the active canvas tile. */
 When("I go to the member terminal", async function (this: KoluWorld) {
   const id = memberId(this);
+  await showDetails(this);
   await this.page
     .locator(
       `[data-testid="work-column"] [data-testid="work-member"][data-ref$="/${id}"] [data-testid="work-member-name"]`,

@@ -1465,6 +1465,23 @@ Before(
       return lines.join("\\n");
     };
   `);
+    // A phone that opens kolu FRESH lands on the Conductor
+    // (`freshChromeTab`). The touch scenarios written before that were written
+    // for a tab already on its host, so a touch page starts on its host —
+    // unless it is tagged `@fresh-open`, the scenarios about that very open.
+    // Only when nothing is stored: a scenario that picks the Conductor and
+    // reloads must land back on it.
+    const freshOpen = scenario.pickle.tags.some(
+      (t) => t.name === "@fresh-open",
+    );
+    if (isMobile && !freshOpen) {
+      await this.page.addInitScript(`
+      try {
+        if (sessionStorage.getItem("kolu-active-chrome-tab") === null)
+          sessionStorage.setItem("kolu-active-chrome-tab", "hosts");
+      } catch (e) {}
+    `);
+    }
     this.errors = [];
     this.page.on("pageerror", (err) => this.errors.push(err.message));
 

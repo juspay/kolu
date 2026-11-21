@@ -22,7 +22,9 @@ import {
   enterConductor,
   keepWorkCardOpen,
   openWorkCard,
+  openWorkDetails,
   sendPrompt,
+  showWorkCard,
   showWorkColumn,
 } from "./conductor_steps.ts";
 
@@ -204,7 +206,7 @@ When(
   "I press the work's timeline row for {string}",
   async function (this: KoluWorld, file: string) {
     await showWorkColumn(this);
-    await openWorkCard(this);
+    await openWorkDetails(this);
     await keepWorkCardOpen(this);
     const row = this.page
       .locator(
@@ -222,7 +224,7 @@ When(
 Then(
   "the work's question should offer to read the plan",
   async function (this: KoluWorld) {
-    await openWorkCard(this);
+    await showWorkCard(this);
     await this.page
       .locator(`${WORK_COLUMN} ${READ_FILE_BUTTON}`)
       .first()

@@ -1,7 +1,8 @@
 /**
- * THE ONE PIECE OF LOGIC IN THE HELP: its keys are labelled for the reader's
- * platform. Everything else in it is words and looks, which a browser shows
- * and a unit test cannot judge.
+ * THE HELP'S SHAPE: seven sections in the order they are read, eighteen
+ * bullets in all — short enough to read whole on a laptop — and keys labelled
+ * for the reader's platform. The words themselves are a browser's to show and
+ * a person's to judge.
  */
 
 import { describe, expect, it } from "vitest";
@@ -16,12 +17,26 @@ const keysOn = (isMac: boolean): string[] =>
   );
 
 describe("the Conductor's help", () => {
-  it("labels its keys the way the reader's own platform does", () => {
-    // `@` and `/` are characters, the same everywhere; the steer chord is
-    // `Alt+Enter` off macOS and `⌥Enter` on it — a Linux reader is never told
-    // to press a Mac glyph, and a Mac reader is never told to find "Alt".
-    expect(keysOn(false)).toEqual(["@", "/", "Enter", "Alt+Enter"]);
-    expect(keysOn(true)).toEqual(["@", "/", "Enter", "⌥Enter"]);
+  it("has seven sections in order and eighteen bullets", () => {
+    const sections = helpSections();
+    expect(sections.map((section) => section.id)).toEqual([
+      "ask",
+      "waterfall",
+      "the-card",
+      "terminals",
+      "the-lock",
+      "asks",
+      "memory",
+    ]);
+    expect(
+      sections.reduce((sum, section) => sum + section.items.length, 0),
+    ).toBe(18);
+  });
+
+  it("draws two keys, the composer's two completions, on both platforms", () => {
+    // `@` and `/` are characters, the same everywhere.
+    expect(keysOn(false)).toEqual(["@", "/"]);
+    expect(keysOn(true)).toEqual(["@", "/"]);
   });
 
   it("carries no number — it is help, not a second readout of state", () => {

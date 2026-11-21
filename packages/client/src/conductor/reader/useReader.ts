@@ -5,10 +5,9 @@
  *  opening a file is not a disclosure inside a card: it takes the large side
  *  of the Conductor's screen (`WorkReader.tsx`, laid out by
  *  `ConductorPane.tsx`). WHAT IS OPEN is therefore a fact about the pane and
- *  not about any card — module state for the same reason the open cards are:
- *  the column that holds the file rows is drawn in two placements and a resize
- *  moves it between them, and a reader that died with the card that opened it
- *  would shut on every resize.
+ *  not about any card — module state for the same reason the picked work is:
+ *  a reader that died with the drawing of the work that opened it would shut
+ *  whenever the works were drawn again.
  *
  *  THE POP-OUT IS THE SAME COMPONENT ON A ROUTE. `#/reader/<work>/<path>` is a
  *  WINDOW MODE, not a deep link: `index.tsx` reads it before anything mounts

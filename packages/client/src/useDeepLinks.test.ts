@@ -36,7 +36,7 @@ describe("deep-link router is view-only (the negative pin)", () => {
     // The router's whole vocabulary — a change that adds a NEW seam here is a
     // deliberate edit that should be re-justified against the view-only law.
     for (const allowed of [
-      "setActiveHost",
+      "selectHostTab",
       "store.focusTerminal",
       "showInspector",
       "openInCodeTab",
