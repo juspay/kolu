@@ -36,13 +36,14 @@ import { padiMap } from "../wire";
 import { splitMemberRef } from "./memberRef";
 import type { WorkMemberRow } from "./workReadings";
 
-/** WHERE a work's files are read from while it is in progress: the member
- *  terminal whose worktree holds them. `repoPath` is that worktree's root as
- *  the member's own git reading gives it. */
+/** WHERE a work's files are read from while it is in progress: the worktree
+ *  the work itself keeps (`Work.worktree`), on its host — and the member
+ *  terminal on that host whose address a picture is fetched from and whose
+ *  comments a file carries, or `null` while none is here. */
 export interface WorkPlace {
   readonly host: string;
-  readonly terminalId: TerminalId;
   readonly repoPath: string;
+  readonly terminalId: TerminalId | null;
 }
 
 /** ONE ROW of a work's file list: the path as the record holds it, and — for
@@ -75,26 +76,30 @@ export interface WorkFileSource {
  *  waterfall writes into is where kolu looks, not a thing a person reads. */
 export const workFileName = waterfallFileName;
 
-/** WHERE A WORK'S LIVE FILES ARE — the first member whose own git reading
- *  names a worktree, in the order a waterfall runs its members.
+/** WHERE A WORK'S LIVE FILES ARE — the ONE reading of a work's worktree in
+ *  the browser: the worktree the work keeps on its own record, which
+ *  outlives its terminals, and none for a work kolu has not read one for yet.
+ *  The files, the Worktree part and the Code view all read this.
  *
- *  A work that has ENDED has no members at all, so this answers `null` for
- *  one by construction, and the kept copy is what every face then reads. */
-function workPlaceOf(members: ReadonlyArray<WorkMemberRow>): WorkPlace | null {
-  for (const { terminal } of members) {
-    const split = splitMemberRef(terminal);
-    if (split === null) continue;
-    const standing = fleetTerminalStanding(split.host, split.id);
-    if (standing.kind !== "here") continue;
-    const git = standing.meta.git;
-    if (git.kind !== "repo") continue;
-    return {
-      host: split.host,
-      terminalId: split.id,
-      repoPath: git.info.repoRoot,
-    };
-  }
-  return null;
+ *  A work that has ENDED reads the copies kolu kept instead, so this answers
+ *  `null` for one. */
+export function workPlaceOf(
+  work: Work,
+  members: ReadonlyArray<WorkMemberRow>,
+): WorkPlace | null {
+  if (work.state.kind !== "open" || work.worktree.kind !== "read") return null;
+  const { host, path } = work.worktree;
+  // A member on the worktree's host that is here: the terminal a picture's
+  // address and a comment hang on.
+  const terminal = members
+    .map(({ terminal }) => splitMemberRef(terminal))
+    .find(
+      (one) =>
+        one !== null &&
+        one.host === host &&
+        fleetTerminalStanding(one.host, one.id).kind === "here",
+    );
+  return { host, repoPath: path, terminalId: terminal?.id ?? null };
 }
 
 /** Where kolu serves the files it kept when a work ended. The shape is the
@@ -104,22 +109,22 @@ export function workFileUrl(work: WorkId, path: string): string {
   return `/api/works/${encodeURIComponent(work)}/files/${encodePreviewPath(path)}`;
 }
 
-/** THE SOURCE FOR ONE WORK, chosen once: the live worktree while a member
- *  reports one, kolu's kept copy otherwise. */
+/** THE SOURCE FOR ONE WORK, chosen once: the worktree it keeps while it is
+ *  in progress, kolu's kept copy once it has ended. */
 export function workFileSource(
   id: WorkId,
   work: Work,
   members: ReadonlyArray<WorkMemberRow>,
 ): WorkFileSource {
-  const place = workPlaceOf(members);
+  const place = workPlaceOf(work, members);
   if (place === null) {
     // THE KEPT COPY, which only a work that has ENDED has. A work still in
-    // progress whose members report no worktree has nowhere to read from at
-    // all — that is the `none` arm, not an empty kept copy. Read HERE, while
-    // the caller's memo is tracking, not inside `list`: the work is a live
-    // record that is updated in place, so the copy landing a moment after
-    // the work ended must re-choose the source, or the card says "Nothing
-    // was written" over files kolu has just kept.
+    // progress whose worktree kolu has not read yet has nowhere to read from
+    // at all — that is the `none` arm, not an empty kept copy. Read HERE,
+    // while the caller's memo is tracking, not inside `list`: the work is a
+    // live record that is updated in place, so the copy landing a moment
+    // after the work ended must re-choose the source, or the card says
+    // "Nothing was written" over files kolu has just kept.
     const rows = Option.match(keptOf(work), {
       onNone: (): ReadonlyArray<WorkFileRow> => [],
       onSome: (kept) =>
@@ -135,7 +140,10 @@ export function workFileSource(
     };
   }
   return {
-    at: { host: place.host, terminalId: place.terminalId },
+    at:
+      place.terminalId === null
+        ? null
+        : { host: place.host, terminalId: place.terminalId },
     list: () => listLiveFiles(place),
     read: (path) => readWorkFile(place, path),
   };
@@ -185,26 +193,36 @@ function listLiveFiles(place: WorkPlace): Promise<WorkFilesRead> {
   );
 }
 
-/** The bytes of one file in a member's worktree, as the viewer takes them.
+/** The bytes of one file in the work's worktree, as the viewer takes them.
  *  A previewable binary never travels the wire: it is a URL the browser loads
  *  through the host's own file route, with the content hash as its cache key
- *  so an identical rewrite does not reload the image. */
+ *  so an identical rewrite does not reload the image. That route is a
+ *  terminal's, so a picture can be shown only while a member terminal on the
+ *  worktree's host is here — and says so, rather than drawing nothing. */
 function readWorkFile(
   place: WorkPlace,
   path: string,
 ): Promise<FileWithSource | FileWithUrl> {
   const rpc = padiMap.entry(decodeHostKey(place.host)).procedures.fs;
-  if (isBinaryPreviewable(path))
+  if (isBinaryPreviewable(path)) {
+    const terminalId = place.terminalId;
+    if (terminalId === null)
+      return Promise.reject(
+        new Error(
+          `${path} is a picture, and no terminal of this work is up on its host to show it through`,
+        ),
+      );
     return runActionPromise(
       rpc.filePreviewTag({ repoPath: place.repoPath, filePath: path }).pipe(
         Effect.map(
           (tag): FileWithUrl => ({
             path,
-            url: `${buildTerminalFileUrl(place.host, place.terminalId, path)}?v=${tag}`,
+            url: `${buildTerminalFileUrl(place.host, terminalId, path)}?v=${tag}`,
           }),
         ),
       ),
     );
+  }
   return runActionPromise(
     rpc.readFile({ repoPath: place.repoPath, filePath: path }).pipe(
       Effect.map(

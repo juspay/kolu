@@ -95,6 +95,7 @@ import {
   prFactsOnTheTimeline_1_57_0,
   prOpenedSaysDraft_1_61_0,
   workArmsNotNulls_1_55_0,
+  workKeepsItsWorktree_1_64_0,
 } from "../stateLadder.ts";
 import { TRANSCRIPT_FILE_VERSION } from "../stateShape.ts";
 import { transcriptFilePath, transcriptFileStore } from "./transcriptFile.ts";
@@ -152,9 +153,10 @@ const OTHER_KEY = {
  * conversation `taught` — whether the standing prompt has already gone out in
  * the session it names, which only the record can carry across a restart;
  * 1.61.0 says whether each pull request opened as a draft; 1.62.0 lets a
- * transcript row be a compaction; and 1.63.0 gives the Conductor its memory,
- * and lets a row be a memory proposal. */
-const STATE_SCHEMA_VERSION = "1.63.0";
+ * transcript row be a compaction; 1.63.0 gives the Conductor its memory,
+ * and lets a row be a memory proposal; and 1.64.0 gives each work the
+ * worktree it keeps when its terminals go. */
+const STATE_SCHEMA_VERSION = "1.64.0";
 
 const log = {
   debug() {},
@@ -266,6 +268,7 @@ function stored(
           })),
         ],
         state: { kind: "open" },
+        worktree: { kind: "unread" },
       },
     },
     members: Object.fromEntries(
@@ -1302,6 +1305,7 @@ describe("the human's real store, one observation later", () => {
     koluChoicesSayHowChosen_1_56_0(store);
     prFactsOnTheTimeline_1_57_0(store);
     prOpenedSaysDraft_1_61_0(store);
+    workKeepsItsWorktree_1_64_0(store);
     const id = Object.keys(folded.works)[0] ?? "";
 
     const over = hostOver();

@@ -228,7 +228,30 @@ export const openWork = (opened: {
     },
   ],
   state: { kind: "open" },
+  // No member has said where it works yet.
+  worktree: { kind: "unread" },
 });
+
+/** WHERE THE WORK IS WORKING, MADE TO STICK. `answer` is the rule's answer
+ *  right now — the first member whose own record named a worktree, host and
+ *  all — or none when no member has one. An answer that differs from what the
+ *  work holds replaces it; no answer keeps what the work had, so a work whose
+ *  terminals have all gone still knows its worktree. The one writer calls
+ *  this at each moment the answer can move: a member's worktree first read, a
+ *  member joining, a member leaving. Unchanged, it hands the same work back. */
+export const settleWorktree = (
+  work: Work,
+  answer: Option.Option<{ readonly host: string; readonly path: string }>,
+): Work =>
+  Option.match(answer, {
+    onNone: () => work,
+    onSome: ({ host, path }) =>
+      work.worktree.kind === "read" &&
+      work.worktree.host === host &&
+      work.worktree.path === path
+        ? work
+        : { ...work, worktree: { kind: "read", host, path } },
+  });
 
 /** WHAT THE REQUEST ALREADY SAID for a setup question — nothing, so the human
  *  is asked, or the value they gave, recorded as answered from the request

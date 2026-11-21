@@ -42,6 +42,7 @@ const work = (
           outcome: { kind: "stopped", by: "you" },
           kept: kept.map((path) => ({ path, bytes: 1 })),
         },
+  worktree: { kind: "unread" },
 });
 
 describe("a file a work can open", () => {

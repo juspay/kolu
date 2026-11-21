@@ -30,14 +30,12 @@ import type { CheckHead, MergeState, WorkId } from "kolu-work";
  *  `./members.ts` ANSWERS with. */
 export type WatchLevel = ConductorReadingLevel;
 
-/** WHERE A MEMBER TERMINAL IS WORKING, off its padi record — the worktree the
- *  work's files are listed from, the branch and the repository. `null` for a
+/** WHERE A MEMBER TERMINAL IS WORKING, off its padi record — the top folder
+ *  of its worktree, which the work's files are listed from. `null` for a
  *  terminal whose record says it is in no repository (or one nobody has read
- *  yet). */
+ *  yet). The branch and the repository are the work's key's, not this. */
 export interface WatchGit {
   readonly worktree: string;
-  readonly branch: string;
-  readonly repo: string;
 }
 
 /** THE PULL REQUEST OF A PIECE OF WORK, as the forge reports it — the one live

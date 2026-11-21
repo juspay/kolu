@@ -42,6 +42,9 @@ interface Over {
    *  its transcript landing. Mutually exclusive with `agent`, which is an
    *  agent that HAS a session. */
   presence?: AgentPresence["state"];
+  /** Where git says the terminal is: the top folder of its worktree, and the
+   *  directory the reading was asked about. */
+  inRepo?: { top: string; at: string };
 }
 
 /** One record, the way padi composes one: the authored half (where it is, what
@@ -59,8 +62,23 @@ const record = (over: Over): PadiTerminal =>
         : ({ state: "active" } as const)),
     },
     {
-      cwd: "/tmp",
-      git: { kind: "none" },
+      cwd: over.inRepo?.at ?? "/tmp",
+      git:
+        over.inRepo === undefined
+          ? { kind: "none" }
+          : {
+              kind: "repo",
+              info: {
+                repoRoot: over.inRepo.top,
+                repoName: "tidepool",
+                worktreePath: over.inRepo.at,
+                branch: "feat/csv-export",
+                isWorktree: true,
+                mainRepoRoot: "/srv/code/tidepool",
+                remoteUrl: null,
+                isBare: false,
+              },
+            },
       pr: { kind: "pending" },
       // The PRESENCE arm is built by the registry's own constructor, so a
       // field added to that shape reaches this fixture rather than letting it
@@ -295,6 +313,25 @@ describe("what a host's frames say about each watched terminal", () => {
         level: "asking",
       },
     ]);
+  });
+
+  it("says where it works as the top folder of its worktree, read from a subfolder", () => {
+    const [seen] = readingsOf(
+      reading({
+        watched: [PLANNER],
+        urgency: { awaitingIds: [PLANNER] },
+        records: {
+          [PLANNER]: {
+            agent: true,
+            inRepo: {
+              top: "/srv/worktrees/csv-export",
+              at: "/srv/worktrees/csv-export/packages/reports",
+            },
+          },
+        },
+      }),
+    );
+    expect(seen?.git).toEqual({ worktree: "/srv/worktrees/csv-export" });
   });
 });
 

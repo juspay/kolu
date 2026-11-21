@@ -82,6 +82,7 @@ const work = (branch: string, title: string): Work => ({
   decisions: [],
   startedAt: T0,
   state: { kind: "open" },
+  worktree: { kind: "unread" },
 });
 
 /** The same, as the one-entry record the store holds. */

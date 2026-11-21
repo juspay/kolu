@@ -709,6 +709,22 @@ export const isAsked = (decision: Decision): decision is Asked =>
 export const isSettled = (decision: Decision): decision is Settled =>
   decision.kind === "settled";
 
+/** WHERE A WORK IS WORKING — the worktree its files are listed from and its
+ *  code is browsed in, on its host. `unread` until a member's worktree has
+ *  been read; `read` from then on, kept on the WORK so it outlives the
+ *  terminals that told it (`record.ts`'s `settleWorktree` is the one rule
+ *  that moves it). */
+export const WorkWorktreeSchema = Schema.Union([
+  Schema.Struct({ kind: Schema.Literal("unread") }),
+  Schema.Struct({
+    kind: Schema.Literal("read"),
+    /** The ENCODED host key the worktree is on. */
+    host: Schema.NonEmptyString,
+    path: Schema.NonEmptyString,
+  }),
+]);
+export type WorkWorktree = typeof WorkWorktreeSchema.Type;
+
 export const WorkSchema = Schema.Struct({
   /** WHAT THIS WORK IS. The map it sits in is keyed by `workIdOf(key)`, and
    *  {@link parseStore} is what holds those two to each other. */
@@ -718,6 +734,7 @@ export const WorkSchema = Schema.Struct({
   decisions: Schema.Array(DecisionSchema),
   events: Schema.Array(WorkEventSchema),
   state: WorkStateSchema,
+  worktree: WorkWorktreeSchema,
 });
 export type Work = typeof WorkSchema.Type;
 

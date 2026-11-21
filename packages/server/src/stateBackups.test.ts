@@ -129,6 +129,7 @@ function storedWork(branch: string, name: string): PersistedWorks {
         },
       ],
       state: { kind: "open" },
+      worktree: { kind: "unread" },
     },
   };
 }

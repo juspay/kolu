@@ -2206,6 +2206,73 @@ export function prOpenedSaysDraft_1_61_0(store: Conf<PersistedState>): void {
   if (changed) store.set("works", next as unknown as PersistedState["works"]);
 }
 
+/** The 1.64.0 rung — A WORK KEEPS ITS WORKTREE. A work gains a required
+ *  `worktree` (`unread`, or `read` with the encoded `host` and the `path`),
+ *  kept on the work so it outlives the terminals that told it. Every saved
+ *  work without one is given it from what the store already holds, and from
+ *  nothing else:
+ *
+ *  - an OPEN work with a member, in the `members` record's own order, whose
+ *    saved `worktree` is `read`: `read`, with the FIRST such member's path as
+ *    it was saved, and the host of that member's ref (everything before the
+ *    ref's LAST `/` — a remote host key carries a `/` of its own; a terminal
+ *    id never does);
+ *  - an open work with no such member: `unread`;
+ *  - an ENDED work: `unread` — its members went with its ending, and its
+ *    files are the copies kolu kept, read without a worktree.
+ *
+ *  A path is copied as the store has it: a member first read in a subfolder
+ *  keeps that subfolder here, because a rung has only the file and cannot
+ *  ask git for the worktree's top. Such a work corrects itself when that
+ *  terminal leaves and another joins. A value it does not know is walked
+ *  past unchanged. The SAME object when nothing moves, and `works` is written
+ *  only when something did. Only `works` moves; the transcript file is
+ *  untouched, so TRANSCRIPT_FILE_VERSION stays at 1.63.0. Exported for
+ *  `stateMigration.test.ts`. */
+export function workKeepsItsWorktree_1_64_0(store: Conf<PersistedState>): void {
+  const works = recordOf(store.get("works"));
+  if (works === null) return;
+  const members = recordOf(store.get("members")) ?? {};
+  /** The first member of `id` whose saved worktree is read, as host and
+   *  path. */
+  const firstRead = (id: string): { host: string; path: string } | null => {
+    for (const [ref, value] of Object.entries(members)) {
+      const member = recordOf(value);
+      if (member?.work !== id) continue;
+      const worktree = recordOf(member.worktree);
+      const cut = ref.lastIndexOf("/");
+      if (
+        worktree?.kind === "read" &&
+        typeof worktree.path === "string" &&
+        worktree.path !== "" &&
+        cut > 0
+      )
+        return { host: ref.slice(0, cut), path: worktree.path };
+    }
+    return null;
+  };
+  let changed = false;
+  const next: Record<string, unknown> = {};
+  for (const [id, value] of Object.entries(works)) {
+    const work = recordOf(value);
+    if (work === null || "worktree" in work) {
+      next[id] = value;
+      continue;
+    }
+    const open = recordOf(work.state)?.kind === "open";
+    const read = open ? firstRead(id) : null;
+    changed = true;
+    next[id] = {
+      ...work,
+      worktree:
+        read === null
+          ? { kind: "unread" }
+          : { kind: "read", host: read.host, path: read.path },
+    };
+  }
+  if (changed) store.set("works", next as unknown as PersistedState["works"]);
+}
+
 /** The migration ladder — hoisted so {@link decodeStateBackup}'s scratch
  *  store walks the REAL ladder on a backup snapshot (which may predate any
  *  rung), never a parallel re-implementation of it. */
@@ -2963,4 +3030,9 @@ export const CONF_MIGRATIONS = {
   "1.62.0": (store: Conf<PersistedState>) =>
     compactionRows_1_62_0(dirname(store.path)),
   "1.63.0": memory_1_63_0,
+  // A WORK KEEPS ITS WORKTREE. A work gains `worktree`, given from its first
+  // member whose saved worktree was read (`workKeepsItsWorktree_1_64_0`
+  // argues each case). The transcript file is untouched, so
+  // TRANSCRIPT_FILE_VERSION stays at 1.63.0.
+  "1.64.0": workKeepsItsWorktree_1_64_0,
 };

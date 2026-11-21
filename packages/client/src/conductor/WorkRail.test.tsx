@@ -71,6 +71,7 @@ const row = (id: string, title: string): WorkRow =>
       decisions: [],
       startedAt: "2026-01-01T00:00:00Z",
       state: { kind: "open" },
+      worktree: { kind: "unread" },
     } as Work,
   ] as WorkRow;
 

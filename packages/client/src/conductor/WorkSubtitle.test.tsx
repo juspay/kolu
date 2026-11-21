@@ -23,6 +23,7 @@ const work = (key: Work["key"]): Work => ({
   decisions: [],
   startedAt: "2026-01-01T09:00:00.000Z",
   state: { kind: "open" },
+  worktree: { kind: "unread" },
 });
 
 const BRANCH_WORK = work({

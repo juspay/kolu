@@ -355,6 +355,7 @@ describe("a file the Conductor names", () => {
       path,
     })),
     state: { kind: "open" },
+    worktree: { kind: "unread" },
   });
 
   const PLAN = ".waterfall/plan.md";
