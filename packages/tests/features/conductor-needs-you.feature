@@ -49,33 +49,49 @@ Feature: The works that need you come first, and the chat goes quiet
     Then the newest wake's turn should be open, its reply saying "answered" on screen
     And there should be no page errors
 
-  Scenario: A question about a work rings unless it is in front of you
+  Scenario: A question about a work chimes wherever you are
     # THE BELL ON THE REAL PAGE. Three streams meet here: the works reading
     # the bell hears, the transcript row that draws the question in the chat,
-    # and the observer that says that row is in view. The card stays SHUT, so
-    # the chat's copy is the only one on screen. Focus is declared, not raced.
+    # and whether the Conductor is in front of you. Focus is declared, not
+    # raced. A question chimes in every case — with the Conductor in front of
+    # you it raises no desktop popup, and unfocused or on a host tab it does;
+    # a page cannot show a test the popup, so only the sound is counted.
     #
     # 1. Focused, the chat in view: the setup question lands in front of you
-    #    and the bell stays quiet.
-    # 2. Unfocused: a second work asks, and it rings.
+    #    and still chimes.
+    # 2. Unfocused: a second work asks, and it chimes.
     # 3. Focused again but on a host tab, the Conductor off screen: a third
-    #    question, asked while the Conductor works through a long turn, rings.
+    #    question, asked while the Conductor works through a long turn, chimes.
     Given a repo for the work
     And I stub the notification sound
     And I simulate the Kolu window regaining focus
     When I ask the conductor to open the work "quiet while in view"
     Then the work's question should be in the chat, its card shut
-    And the notification sound should have played 0 times
+    And the notification sound should have played 1 time
     When I simulate the Kolu window losing focus
     And a repo for the work
     And I ask the conductor to open the work "ring when unfocused"
     Then the work's question should be in the chat, its card shut
-    And the notification sound should have played 1 time
+    And the notification sound should have played 2 times
     When I simulate the Kolu window regaining focus
     And I send the conductor the prompt "work for a while"
     And I send the conductor the prompt "ask about the work"
     And I leave the conductor for the host tab
-    Then the notification sound should have played 2 times
+    Then the notification sound should have played 3 times
+    And there should be no page errors
+
+  Scenario: A reply to a message you typed rings once you have left the Conductor
+    # In front of you a reply is not news: nothing plays. Leave for a host
+    # tab while the Conductor is still working, and its reply chimes.
+    Given I stub the notification sound
+    And I simulate the Kolu window regaining focus
+    When I send the conductor the prompt "say hello"
+    Then the conductor transcript should show a row of kind "agent" saying "hello back"
+    And the Conductor's bell should have had its frames to decide
+    And the notification sound should have played 0 times
+    When I send the conductor the prompt "work for a while"
+    And I leave the conductor for the host tab
+    Then the notification sound should have played 1 time
     And there should be no page errors
 
   Scenario: The palette lists the works, and a row lands on the card

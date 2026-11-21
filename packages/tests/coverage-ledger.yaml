@@ -5005,3 +5005,16 @@ retirements:
           test: "a work's terminal row > opens the peek at its host and id from Look"
           note: "Not yet confirmed: a human must confirm this. One line added: this is the scenario whose work has two terminals, so it also checks that the rows keep every part inside the card. The rest is unchanged."
     survivorRevisionIds: [revision-63a7a05f5537ffa87178]
+  - id: revise-f61366c5cc105a2fe515
+    revisionId: revision-f61366c5cc105a2fe515
+    action: revised
+    status: landed
+    promise: A question about a work reaches you by sound
+    defectSurface: [conductor, user-journey]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-dadfb02b66f1d37def38]
+    sameCodePathEvidence:
+      file: packages/tests/features/conductor-needs-you.feature
+      symbol: "Scenario: A question about a work chimes wherever you are"
+      test: The same journey and the same steps; the Conductor now chimes while it is in front of you, so each sound count is one higher.

@@ -112,18 +112,27 @@ mark on your laptop.
 
 ## What the Conductor rings for
 
-[The Conductor](/conductor) reaches you through the same chime, notification and app badge as a terminal, plus a violet count on its chrome-bar entry. It rings for a [piece of work](/work-card) that needs you, which is either a question it asked about that work, or a green pull request handed over for you to merge. A pull request it merges itself never rings, and neither does a draft: it rings once it is marked ready and green.
+[The Conductor](/conductor) reaches you through the same chime, notification and app badge as a terminal, plus a violet count on its chrome-bar entry. It rings for:
+
+- a question it asked about a [piece of work](/work-card);
+- a green pull request handed over for you to merge;
+- a question it asked about no work;
+- a [memory it proposes](/conductor-memory#when-the-conductor-proposes-something);
+- a reply to a message you typed, once you have left the Conductor.
+
+A pull request it merges itself never rings, and neither does a draft: it rings once it is marked ready and green. A message the Conductor writes without being asked, because an agent finished or needs something, does not ring either.
 
 | Rule | What it means |
 | --- | --- |
 | Once per item | An item is its work, its reason, and the question or the commit that went green. A merge answer that flickers on one commit rings once, and a new commit going green rings again. |
 | What it says | The notification is titled with the work and says what is wanted, in the card's own words, such as **Merge PR #700**. Clicking it opens that card and question. |
-| When it is silent | Only while that very item is on screen in a focused window: its question, on the card, in the chat or in the reader, or for a merge its card. Reading another card still rings. |
+| In front of you | With the Conductor's tab showing in a focused kolu window, questions, waiting work and memory proposals chime and raise no OS notification. A reply makes no sound at all. |
+| Anywhere else | Each chimes and raises an OS notification. |
 | After a reload | Waits that were already there never ring again. |
 
-A question the Conductor asks about no work rings as **The conductor needs you**, and stays quiet while the conversation is on screen in a focused window.
+A question about no work rings as **The conductor needs you**, and clicking it opens the conversation. A memory proposal rings as **The Conductor would like to remember something**, with the proposal's title or how many wait; proposals from one turn ring once, and clicking it opens the Memory sheet.
 
-A [memory the Conductor proposes](/conductor-memory#when-the-conductor-proposes-something) rings as **The Conductor would like to remember something**, with the proposal's title or how many wait. Proposals from one turn ring once, and a later turn rings again. It is quiet while the conversation is on screen in a focused window, and clicking it opens the Memory sheet.
+A reply is titled with the piece of work when your message was about one, and clicking it opens that card. Otherwise it says **The Conductor replied**, and clicking it opens the conversation. A reply rings in the browser where the conversation is open.
 
 ## Turn the alerts off
 
