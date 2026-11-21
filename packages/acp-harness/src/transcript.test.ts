@@ -443,4 +443,16 @@ describe("the turn a row answers", () => {
       "user:1",
     );
   });
+
+  it("is none for a row written after a wipe, whatever turn ran before it", () => {
+    // A wipe empties the open paragraph with everything else; the turn the
+    // wire last named goes with it, or the next conversation's first rows
+    // would answer a message that is no longer there.
+    const transcript = conversation();
+    transcript.answering("user:1");
+    transcript.clear();
+    transcript.add("notice", "a new conversation");
+    const row = rowsOf(transcript).find((one) => one.kind === "notice");
+    expect(row !== undefined && "turn" in row).toBe(false);
+  });
 });

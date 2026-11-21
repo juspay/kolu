@@ -157,6 +157,9 @@ interface Running {
    *  the harness's own copy. */
   readonly rows: () => ReadonlyArray<FixtureRow>;
   readonly states: ReadonlyArray<HarnessState>;
+  /** ... and what a reader held after EVERY change, in `seq` order — for a
+   *  moment a scenario passes through rather than ends on. */
+  readonly history: ReadonlyArray<ReadonlyArray<FixtureRow>>;
 }
 
 /** WHAT A PERSON TYPED, as this fixture product hands it over: the words are
@@ -249,6 +252,7 @@ const open = async (
 ): Promise<Running> => {
   const rows = new Map<string, FixtureRow>();
   const states: Array<HarnessState> = [];
+  const history: Array<ReadonlyArray<FixtureRow>> = [];
   const fold = (change: HarnessChange<FixtureRow>): void => {
     if (change.kind === "state") {
       states.push(change.state);
@@ -272,6 +276,7 @@ const open = async (
         text: `${row.text.slice(0, append.at)}${append.text}`,
       });
     }
+    history.push([...rows.values()].sort((a, b) => a.seq - b.seq));
   };
   const harness = await startHarness<FixtureRow>({
     agent: "fixture-agent",
@@ -316,6 +321,7 @@ const open = async (
     harness,
     rows: () => [...rows.values()].sort((a, b) => a.seq - b.seq),
     states,
+    history,
   };
 };
 
@@ -723,6 +729,89 @@ describe("one conversation with a real agent", () => {
       { id: "agent:4", kind: "agent", text: "A-reply-part-3", turn: "user:1" },
       { id: "agent:5", kind: "agent", text: "hello back", turn: "user:3" },
     ]);
+  });
+
+  test("while the second message waits, the reader holds it queued and the first reply's later rows answer the first", async () => {
+    const running = await open("agent.ts");
+    await running.harness.prompt(typed("talkingSlow", []), false);
+    const until = Date.now() + 10_000;
+    while (!textOfKind(running, "agent").includes("A-reply-part-1 ")) {
+      if (Date.now() > until) throw new Error("the first reply never started");
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+    await running.harness.prompt(typed("hello", []), false);
+    await settled(running, "the two turns never ended");
+
+    const seen = (rows: ReadonlyArray<FixtureRow>) =>
+      rows.map((row) => ({
+        id: row.id,
+        text: "text" in row ? row.text : undefined,
+        turn: "turn" in row ? row.turn : undefined,
+        marks: [
+          ...(row.kind === "user" && row.queued === true ? ["queued"] : []),
+          ...(row.kind === "agent" && row.streaming === true
+            ? ["streaming"]
+            : []),
+        ],
+      }));
+    const queued = (rows: ReadonlyArray<FixtureRow>): boolean =>
+      rows.some(
+        (row) => row.id === "user:3" && row.kind === "user" && row.queued,
+      );
+    // THE TWO MOMENTS the client's tests start from
+    // (`packages/client/src/conductor/replyAcrossTurns.testlib.ts`): the
+    // second message just sent, and the first reply gone on above it.
+    const justSent = running.history.find(queued);
+    const goneOn = running.history.find(
+      (rows) => queued(rows) && rows.some((row) => row.id === "agent:4"),
+    );
+    expect(seen(justSent ?? [])).toEqual([
+      { id: "user:1", text: "talkingSlow", turn: undefined, marks: [] },
+      {
+        id: "agent:2",
+        text: "A-reply-part-1 ",
+        turn: "user:1",
+        marks: ["streaming"],
+      },
+      { id: "user:3", text: "hello", turn: undefined, marks: ["queued"] },
+    ]);
+    expect(seen(goneOn ?? [])).toEqual([
+      { id: "user:1", text: "talkingSlow", turn: undefined, marks: [] },
+      {
+        id: "agent:2",
+        text: "A-reply-part-1 A-reply-part-2",
+        turn: "user:1",
+        marks: [],
+      },
+      { id: "user:3", text: "hello", turn: undefined, marks: ["queued"] },
+      {
+        id: "tool:call-of-A",
+        text: "a call the first turn made",
+        turn: "user:1",
+        marks: [],
+      },
+      {
+        id: "agent:4",
+        text: "A-reply-part-3",
+        turn: "user:1",
+        marks: ["streaming"],
+      },
+    ]);
+  });
+
+  test("a question the agent asks answers the message whose turn asked it", async () => {
+    const running = await open("agent.ts");
+    const { rowId } = await running.harness.prompt(typed("ask", []), false);
+    const until = Date.now() + 10_000;
+    while (running.harness.state().openAsks.length === 0) {
+      if (Date.now() > until) throw new Error("the question never came");
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+    const [askId] = running.harness.state().openAsks;
+    const ask = running.rows().find((row) => row.id === askId);
+    expect(ask !== undefined && "turn" in ask ? ask.turn : undefined).toBe(
+      rowId,
+    );
   });
 
   test("the harness says which message's turn the agent is on, for rows a product writes itself", async () => {

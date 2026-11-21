@@ -240,15 +240,31 @@ describe("the transcript's follow rule", () => {
     // the reply goes on growing above it (#2420). A rule that watched only the
     // last row's text would leave a following reader a paragraph behind.
     const scroller = mount();
+    const replying = (text: string): readonly ConductorRow[] =>
+      makeRows(20).map((one, i) =>
+        i === 18 ? { ...one, kind: "agent", text } : one,
+      );
     column += ROW_HEIGHT;
+    setRows?.(replying("The first half,"));
+    column += ROW_HEIGHT;
+    setRows?.(replying("The first half, and the second half."));
+    expect(scroller.scrollTop).toBe(endOf(column));
+  });
+
+  it("does not ring \"something new\" when a notice far above changes its words", () => {
+    // Only prose GROWS: a notice or a call's title changing above a reader who
+    // scrolled up is not news down at the end.
+    const scroller = mount();
+    scrollTo(scroller, 300);
     setRows?.(
       makeRows(20).map((one, i) =>
-        i === 18 && one.kind === "notice"
-          ? { ...one, text: `${one.text}, and then some more` }
+        i === 2 && one.kind === "notice"
+          ? { ...one, text: `${one.text} (said again)` }
           : one,
       ),
     );
-    expect(scroller.scrollTop).toBe(endOf(column));
+    expect(pill()).not.toBeNull();
+    expect(pill()?.hasAttribute("data-active")).toBe(false);
   });
 
   it("does not move a pane nobody is looking at, and follows again on the way back", () => {

@@ -202,6 +202,19 @@ describe("a message sent while the reply is still being written (#2420)", () => 
     expect(conductorDoing(B_JUST_SENT)).toBe("A-reply-part-1");
     expect(conductorDoing(WHILE_B_WAITS)).toBe("A-reply-part-3");
   });
+
+  it("keeps naming it past a message the agent refused, which started no turn", () => {
+    // A refused message heads a turn of its own and never ran: the turn in
+    // flight is still the one before it. The same rule the finished-reply
+    // reading uses for "this turn ran" (`./turnWorks.ts`'s `ran`).
+    expect(
+      conductorDoing([
+        userRow("u1", 1, "go"),
+        { ...agentRow("a1", 2, "still working on it"), turn: "u1" },
+        { ...userRow("u2", 3, "and this"), delivery: "refused" } as ConductorRow,
+      ]),
+    ).toBe("still working on it");
+  });
 });
 
 describe("the status line's two halves", () => {

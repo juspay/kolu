@@ -319,4 +319,23 @@ describe("a reply still being written when the next message is sent (#2420)", ()
     // terminal joined work B at minute 7, inside the first turn.
     expect(read(rows, moved).get("u1")).toEqual([B]);
   });
+
+  it("starts a turn whose message never waited at its first reply too, so the turn before runs through its thinking time", () => {
+    // ON RECORD, as a choice: once `queued` comes off, a row cannot say it
+    // ever waited, so every turn is taken to start at its first reply. Here
+    // the second message was sent with nothing running (minute 6) and the
+    // terminal moved at minute 7, before that turn's first reply (minute 8):
+    // the move is read for the FIRST turn.
+    const moved = new Map<WorkId, Work>([
+      [A, work("a", [[`local/${STRAY}`, 1]])],
+      [B, work("b", [[`local/${STRAY}`, 7]])],
+    ]);
+    const rows: ConductorRow[] = [
+      user("u1", 2, [STRAY]),
+      { ...agent("a1", 3), turn: "u1" },
+      user("u2", 6),
+      { ...agent("a2", 8), turn: "u2" },
+    ];
+    expect(read(rows, moved).get("u1")).toEqual([B]);
+  });
 });
