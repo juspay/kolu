@@ -45,6 +45,13 @@ export function peekPans(naturalWidth: number, availWidth: number): boolean {
   return naturalWidth > availWidth;
 }
 
+/** A cell's rendered width does not scale exactly with the font size (the
+ *  renderer rounds), so a size computed from the base cell's width can still
+ *  leave a few pixels of screen past the view — measured as 6px at 1440
+ *  wide. The fit leaves both this much room and half a point of headroom
+ *  below the exact fit, which is the smallest step the font has. */
+export const FIT_SLACK_PX = 8;
+
 /** The largest half-point font size at which every column fits, or the font size itself. */
 export function fitFontSize(i: {
   cols: number;
@@ -54,10 +61,8 @@ export function fitFontSize(i: {
   padX: number;
 }): number {
   const need = i.cols * i.cellWidth;
-  const room = i.availWidth - i.padX;
+  const room = i.availWidth - i.padX - FIT_SLACK_PX;
   if (need <= room) return i.fontSize;
-  return Math.max(
-    PEEK_MIN_FONT_SIZE,
-    Math.floor(((i.fontSize * room) / need) * 2) / 2,
-  );
+  const exact = (i.fontSize * room) / need;
+  return Math.max(PEEK_MIN_FONT_SIZE, Math.floor(exact * 2) / 2 - 0.5);
 }

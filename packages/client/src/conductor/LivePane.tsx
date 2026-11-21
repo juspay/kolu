@@ -2,10 +2,11 @@
  *  the same head the peek draws (`peek/TerminalHead.tsx`): who drives it,
  *  **Take over** or **Hand back**, **Fit width** and **Open tile ↗**.
  *
- *  **Fit width** is NOT this pane's signal: it is one choice for every pane,
- *  on from the start and kept per browser tab (`fitWidth.ts`), so a view
- *  switch, another work or a reload does not put the screen back to a
- *  sideways scroller with a button to press again.
+ *  **Fit width** is NOT this pane's signal: it is one choice for every pane
+ *  — this one and Look (`fitWidth.ts`) — on from the start and kept in
+ *  `localStorage`, so a view switch, another work or another session does
+ *  not put the screen back to a sideways scroller with a button to press
+ *  again.
  *
  *  It is the peek's screen (`PeekTerminal`), so it never resizes the
  *  terminal, it draws it in its own colours, and a key reaches the terminal

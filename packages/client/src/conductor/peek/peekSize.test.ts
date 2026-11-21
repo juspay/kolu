@@ -34,6 +34,8 @@ describe("fitFontSize", () => {
   });
 
   it("shrinks a wide terminal to the largest half point that fits", () => {
+    // Half a point below the exact fit: a cell rounds up, so the exact one
+    // still leaves a few pixels of screen past the view.
     expect(
       fitFontSize({
         cols: 212,
@@ -42,7 +44,7 @@ describe("fitFontSize", () => {
         availWidth: 1374,
         padX: 26,
       }),
-    ).toBe(10.5);
+    ).toBe(10);
   });
 
   it("stops at the minimum font size on a phone", () => {

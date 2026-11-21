@@ -40,6 +40,41 @@ Feature: A picked work's terminals, live
     And the work's timeline should show a "handed-back" event
     And there should be no page errors
 
+  Scenario: Fit width fits a wide terminal, and the choice survives a view switch
+    # Fit width is on from the start and shared by every pane, so a wide
+    # terminal opens fitted rather than as a sideways scroller. Pressing it
+    # gives the terminal its own size back; a view switch does not reset it.
+    Given a repo for the work
+    When I leave the conductor for the host tab
+    And I create a terminal
+    And I ask the conductor to open the work "fit a wide terminal"
+    And I answer the work's question with "hand-over" in the chat
+    And I leave the conductor for the host tab
+    And I ask the conductor to join the terminal I am in to the work as its planner
+    And I ask the conductor to run the implementor in the work's repo
+    And I open the work card
+    And I resize the viewport to 1440x900
+    Then the "implementor" live pane should not pan
+    And the "implementor" live pane's Fit width should be lit
+    When I press the "implementor" live pane's Fit width
+    Then the "implementor" live pane should pan
+    When I show the work's details
+    And I show the work's terminals
+    Then the "implementor" live pane should pan
+    And there should be no page errors
+
+  Scenario: A terminal that already fits is offered no Fit width
+    # The button would have nothing to do, and turning the shared choice off
+    # would then hide itself from this pane with no way back here.
+    Given a repo for the work
+    When I ask the conductor to open the work "already fits"
+    And I answer the work's question with "hand-over" in the chat
+    And I ask the conductor to run the implementor in the work's repo
+    And I open the work card
+    And I resize the viewport to 2200x1200
+    Then the "implementor" live pane should show no Fit width
+    And there should be no page errors
+
   Scenario: More than two terminals are tabs, one live at a time
     Given a repo for the work
     When I ask the conductor to open the work "three of them"

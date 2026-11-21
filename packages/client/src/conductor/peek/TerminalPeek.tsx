@@ -40,15 +40,14 @@ import {
   closePeek,
   keyRaisesLockOffer,
   openPeek,
-  peekFit,
   peekTabs,
   peekTarget,
   peekTyping,
   peekFootWords,
   setPeekTyping,
-  togglePeekFit,
   type PeekTarget,
 } from "./usePeek";
+import { fitWidth, setFitWidth } from "../fitWidth";
 
 const TAB_CLASS =
   "flex h-7 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-t-lg px-2.5 text-[0.72rem]";
@@ -164,7 +163,7 @@ const PeekWindow: Component<{ target: PeekTarget }> = (props) => {
     const g = grid();
     const c = baseCell();
     const p = pad();
-    return peekFit() && g && c && p
+    return fitWidth() && g && c && p
       ? fitFontSize({
           cols: g.cols,
           cellWidth: c.width,
@@ -254,8 +253,8 @@ const PeekWindow: Component<{ target: PeekTarget }> = (props) => {
           host={props.target.host}
           id={props.target.id}
           pans={pans()}
-          fit={peekFit()}
-          onFit={togglePeekFit}
+          fit={fitWidth()}
+          onFit={() => setFitWidth((was) => !was)}
           onOpenTile={() => {
             const at = props.target;
             closePeek();
