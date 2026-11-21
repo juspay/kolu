@@ -1251,6 +1251,19 @@ export const startHarness = async <Row extends AnyRow>(
   // ── saying what moved ────────────────────────────────────────────────
 
   /**
+   * WHICH TURN THE WIRE SAYS A FRAME BELONGS TO, told to the transcript before
+   * the frame is written ({@link Transcript.answering}).
+   *
+   * `undefined` is the client saying it CANNOT say — a frame of a prompt that
+   * went out unnamed — and that is not `null`, "no prompt was unanswered": it
+   * leaves the turn where it was rather than ending a paragraph a frame of the
+   * same turn has no business ending.
+   */
+  const onTheWire = (turn: string | null | undefined): void => {
+    if (turn !== undefined) report(transcript.answering(turn));
+  };
+
+  /**
    * THE DOOR THE CLIENT REPORTS THROUGH.
    *
    * Everything that arrives from the agent — a notification, a question it is
@@ -1266,7 +1279,7 @@ export const startHarness = async <Row extends AnyRow>(
     switch (event._tag) {
       case "said": {
         if (dropped()) return;
-        report(transcript.answering(event.turn ?? null));
+        onTheWire(event.turn);
         if (event.text === "") return;
         heard += 1;
         report(transcript.say(event.text));
@@ -1282,13 +1295,13 @@ export const startHarness = async <Row extends AnyRow>(
         return;
       case "tool":
         if (dropped()) return;
-        report(transcript.answering(event.turn ?? null));
+        onTheWire(event.turn);
         heard += 1;
         writeTool(event);
         return;
       case "plan":
         if (dropped()) return;
-        report(transcript.answering(event.turn ?? null));
+        onTheWire(event.turn);
         heard += 1;
         report(plan(event.entries));
         return;
@@ -1369,7 +1382,7 @@ export const startHarness = async <Row extends AnyRow>(
         agentSaid = event.agent;
         return;
       case "asked":
-        report(transcript.answering(event.turn ?? null));
+        onTheWire(event.turn);
         heard += 1;
         openAsks = [...openAsks, event.id];
         report(
@@ -1449,6 +1462,9 @@ export const startHarness = async <Row extends AnyRow>(
         return;
       case "compaction": {
         if (replaying) return;
+        // A frame like any other: the turn it belongs to is the transcript's
+        // to know before the product draws it ({@link Harness.turn}).
+        onTheWire(event.turn);
         if (compacting?.id !== event.id)
           compacting = {
             id: event.id,

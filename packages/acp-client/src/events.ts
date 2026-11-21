@@ -56,18 +56,37 @@ export interface Stored {
 
 /**
  * WHICH PROMPT A FRAME BELONGS TO — the caller's own name for it
- * (`Agent.prompt`'s `turn`), carried by every event that becomes a row.
+ * (`Agent.prompt`'s `turn`), carried by every event that becomes a row, and by
+ * a compaction, which a product may draw as one.
  *
  * It is the oldest prompt sent and not yet answered at the point in the
  * stream where the frame was READ (`./answering.ts`), so it is right at the
  * edge between two turns, where the return of one prompt reaches a caller
- * after the next prompt's first words. Absent when no named prompt was
- * unanswered: a replay, a background task's late report, a prompt nobody
- * named.
+ * after the next prompt's first words. THREE ANSWERS, and the third is not the
+ * second: a name; `null` — no prompt was unanswered (a replay, a background
+ * task's late report); and `undefined` — this end cannot say, because the
+ * oldest prompt went out unnamed. A reader must not take "cannot say" for
+ * "none": a frame whose turn is unknown is not a frame of no turn.
  */
 export interface Answering {
-  readonly turn?: string;
+  readonly turn?: string | null;
 }
+
+/**
+ * THE EVENTS AS THIS PACKAGE MAKES THEM: every event that says which prompt
+ * it belongs to has to SAY it, even when the answer is "cannot say".
+ *
+ * The door ({@link AgentEvent}) keeps `turn` optional, because olai vendors
+ * this directory and a required member is a removal in disguise there. The
+ * producers inside it are typed against this instead, so one that builds an
+ * event and forgets the field does not compile — which is how a builder that
+ * spelled out every field of a tool event once left this one out.
+ */
+export type Said<E> = E extends unknown
+  ? "turn" extends keyof E
+    ? E & { readonly turn: string | null | undefined }
+    : E
+  : never;
 
 export type AgentEvent =
   | {
@@ -420,13 +439,13 @@ export type AgentEvent =
   /** Where the agent's compaction of this conversation is, as it last
    *  reported it. `summary` is every chunk and replacement folded so far,
    *  `null` until one arrives; a duplicate terminal report repeats it. */
-  | {
+  | ({
       readonly _tag: "compaction";
       readonly id: string;
       readonly status: CompactionStatus;
       readonly summary: string | null;
       readonly error: string | null;
-    }
+    } & Answering)
   /** Which stored conversation this now is. `title` is `null` until the agent
    *  has written one. */
   | {

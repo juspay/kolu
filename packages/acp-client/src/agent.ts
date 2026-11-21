@@ -162,14 +162,19 @@ import { Calls } from "./calls.ts";
 import { Activity } from "./activity.ts";
 import { nativeActivity } from "@kolu/acp";
 import { sameDirectory } from "./directory.ts";
-import type { AgentEvent, Stored } from "./events.ts";
+import type { AgentEvent, Said, Stored } from "./events.ts";
 import type {
   MemorySnapshot,
   Memory,
   MemoryFailure,
   Models,
 } from "./memory.ts";
-import { answering, answeringIn, KEY as ANSWERING } from "./answering.ts";
+import {
+  answering,
+  answeringIn,
+  KEY as ANSWERING,
+  type Turn,
+} from "./answering.ts";
 import { streamOver } from "./pipes.ts";
 import {
   addressesIn,
@@ -942,7 +947,7 @@ export const make = (options: Options): Effect.Effect<Agent, never, never> =>
      *  it landed in. */
     let cancelPending = false;
 
-    const emit = (event: AgentEvent) => {
+    const emit = (event: Said<AgentEvent>) => {
       options.onEvent(event);
     };
 
@@ -1203,7 +1208,7 @@ export const make = (options: Options): Effect.Effect<Agent, never, never> =>
       signal: AbortSignal,
       /** The prompt this question was asked during, as the wire placed it
        *  ({@link Agent.prompt}'s `turn`). */
-      turn: string | undefined,
+      turn: Turn,
       session?: string,
       /** Told the id this question is known by, beside the row it publishes —
        *  which is what a caller that has to settle it from ANOTHER event (a URL
@@ -1221,7 +1226,7 @@ export const make = (options: Options): Effect.Effect<Agent, never, never> =>
           parent:
             (session === undefined ? undefined : activity?.parent(session)) ??
             calls.about(form.toolCall, session).parent,
-          ...(turn === undefined ? {} : { turn }),
+          turn,
         });
       });
 
@@ -1501,14 +1506,17 @@ export const make = (options: Options): Effect.Effect<Agent, never, never> =>
       const update = notification.update;
       // WHICH PROMPT this frame belongs to, as the wire placed it
       // ({@link Agent.prompt}'s `turn`), for every event that becomes a row.
-      const answered = answeringIn(notification._meta);
-      const turn = answered === undefined ? {} : { turn: answered };
+      const turn = answeringIn(notification._meta);
       const parent = activity?.parent(notification.sessionId);
       // A child's prose belongs in its own fold; its settings, title, usage,
       // plan and replayed user messages must never replace the root's.
       if (parent !== undefined) {
         if (update.sessionUpdate === "agent_message_chunk") {
-          activity?.report(notification.sessionId, textOf(update.content));
+          activity?.report(
+            notification.sessionId,
+            textOf(update.content),
+            turn,
+          );
           return;
         }
         if (
@@ -1529,7 +1537,7 @@ export const make = (options: Options): Effect.Effect<Agent, never, never> =>
             prologue = null;
             return;
           }
-          if (text !== "") emit({ _tag: "said", text, ...turn });
+          if (text !== "") emit({ _tag: "said", text, turn });
           return;
         }
         case "user_message_chunk": {
@@ -1551,7 +1559,7 @@ export const make = (options: Options): Effect.Effect<Agent, never, never> =>
             if (notice.onto !== null) {
               emit({
                 _tag: "tool",
-                ...turn,
+                turn,
                 id: notice.onto.toolUseId,
                 title: undefined,
                 status: undefined,
@@ -1670,7 +1678,7 @@ export const make = (options: Options): Effect.Effect<Agent, never, never> =>
 
           emit({
             _tag: "tool",
-            ...turn,
+            turn,
             id,
             title: ours?.title ?? update.title ?? undefined,
             called: update.title ?? undefined,
@@ -1816,7 +1824,7 @@ export const make = (options: Options): Effect.Effect<Agent, never, never> =>
           return;
         }
         case "plan":
-          emit({ _tag: "plan", entries: update.entries, ...turn });
+          emit({ _tag: "plan", entries: update.entries, turn });
           return;
         case "available_commands_update":
           emit({
@@ -1871,7 +1879,7 @@ export const make = (options: Options): Effect.Effect<Agent, never, never> =>
                   summary: report.summary ?? held?.summary ?? null,
                   error: report.error ?? held?.error ?? null,
                 };
-          emit({ _tag: "compaction", ...compacting });
+          emit({ _tag: "compaction", ...compacting, turn });
           return;
         }
         default:
@@ -2358,11 +2366,20 @@ export const make = (options: Options): Effect.Effect<Agent, never, never> =>
             : nativeActivity(
                 opened,
                 stream,
-                ({ session, update }) => {
+                (notification) => {
+                  const { session, update } = notification;
                   if (
                     !fromElsewhere(sessionRoot(session), activeSession, closed)
                   )
-                    activity?.read(session, update);
+                    activity?.read(
+                      session,
+                      update,
+                      // The stamp `./answering.ts` put on this channel's
+                      // frame, which the dialect's own value never carried.
+                      "_meta" in notification
+                        ? answeringIn(notification._meta)
+                        : undefined,
+                    );
                 },
                 dialect,
               );

@@ -40,7 +40,6 @@ import {
 } from "./rows.testlib.ts";
 import type { RowContent } from "./transcript.ts";
 import { fixtureAgent } from "@kolu/acp-client/testlib";
-import type { NativeActivity } from "@kolu/acp";
 
 /** The store a signed-out sentence NAMES. Any path: what is under test is
  *  that the panel says WHICH directory was judged, never that this harness
@@ -453,7 +452,7 @@ const dividers = (running: Running): ReadonlyArray<FixtureRow> =>
  *  `fixture_task_ended` and `fixture_spawned` in its `session/update`s, words
  *  no real engine uses (`@kolu/acp-client`'s `activity-protocol.test.ts`
  *  argues why a fixture names no engine). */
-const FIXTURE_DIALECT: NativeActivity = {
+const FIXTURE_DIALECT: NonNullable<Leg["nativeActivity"]> = {
   clientMeta: {},
   readIn: (message) => {
     const envelope = message as {
@@ -476,7 +475,10 @@ const FIXTURE_DIALECT: NativeActivity = {
       case "fixture_task_ended":
         return {
           kind: "activity",
-          value: { session, update: { kind: "taskEnded", id, state: "completed" } },
+          value: {
+            session,
+            update: { kind: "taskEnded", id, state: "completed" },
+          },
         };
       case "fixture_spawned":
         return {

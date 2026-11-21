@@ -1,6 +1,7 @@
 import type { Stream } from "@agentclientprotocol/sdk";
 import { describe, expect, test } from "vitest";
-import { answering, answeringIn, KEY } from "./answering.ts";
+import { ACTIVITY_METHOD } from "@kolu/acp";
+import { answering, answeringIn, KEY, type Turn } from "./answering.ts";
 
 type Message = Record<string, unknown>;
 
@@ -53,7 +54,7 @@ const chunk = (text: string): Message => ({
   },
 });
 
-const turnOf = (message: Message): string | undefined =>
+const turnOf = (message: Message): Turn =>
   answeringIn((message.params as Message)._meta);
 
 describe("which prompt a frame belongs to", () => {
@@ -86,13 +87,31 @@ describe("which prompt a frame belongs to", () => {
       id: 2,
       result: { stopReason: "end_turn" },
     });
-    // Nothing unanswered: a frame that belongs to no prompt carries no name,
-    // even one the agent wrote under the same key itself.
+    // Nothing unanswered: a frame that belongs to no prompt SAYS so, with
+    // `null`, whatever the agent wrote under the same key itself.
     const late = chunk("late");
     (late.params as Message)._meta = { [KEY]: "forged", other: 1 };
     expect((await one.hear(late)).params).toEqual({
       ...(chunk("late").params as Message),
-      _meta: { other: 1 },
+      _meta: { other: 1, [KEY]: null },
     });
+  });
+
+  test("a frame of the agent's own task channel is stamped like any other", async () => {
+    const one = wire();
+    await one.write(prompt(1, "user:1"));
+    const heard = await one.hear({
+      jsonrpc: "2.0",
+      method: ACTIVITY_METHOD,
+      params: { session: "s", update: { kind: "task", id: "t", name: "n" } },
+    });
+    expect(turnOf(heard)).toBe("user:1");
+  });
+
+  test("a prompt sent without a name leaves its frames saying nothing, not none", async () => {
+    const one = wire();
+    const { _meta: _unnamed, ...bare } = prompt(1, "user:1").params as Message;
+    await one.write({ ...prompt(1, "user:1"), params: bare });
+    expect(turnOf(await one.hear(chunk("A")))).toBeUndefined();
   });
 });

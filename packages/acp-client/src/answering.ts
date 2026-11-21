@@ -19,14 +19,17 @@
  * `turn`); the name rides the outgoing request under {@link KEY} in `_meta`
  * and is taken off again here, before the request reaches the wire, so the
  * agent never sees it. Every frame that becomes a row — a `session/update`, a
- * permission request, an elicitation — is stamped under the same key with the
- * name of the oldest prompt unanswered at the moment it was read, or has any
- * stamp of that name taken off when no named prompt is unanswered. The SDK
- * keeps `_meta` through its validation, so the handler reads the stamp off
- * the params it is handed ({@link answeringIn}).
+ * permission request, an elicitation, and a frame of the agent's own task and
+ * child channel ({@link ACTIVITY_METHOD}) — is stamped under the same key: the
+ * name of the oldest prompt unanswered at the moment it was read, `null` when
+ * NO prompt is unanswered, and nothing at all when the oldest one was sent
+ * without a name — the one case where this end cannot say. The SDK keeps
+ * `_meta` through its validation, so the handler reads the stamp off the
+ * params it is handed ({@link answeringIn}).
  */
 
 import type { Stream } from "@agentclientprotocol/sdk";
+import { ACTIVITY_METHOD } from "@kolu/acp";
 
 /** Where the name rides, outgoing and incoming. Never sent to an agent. */
 export const KEY = "acp-client/turn";
@@ -36,6 +39,7 @@ const STAMPED: Record<string, true> = {
   "session/update": true,
   "session/request_permission": true,
   "elicitation/create": true,
+  [ACTIVITY_METHOD]: true,
 };
 
 type Message = Record<string, unknown>;
@@ -43,10 +47,14 @@ type Message = Record<string, unknown>;
 const isObject = (value: unknown): value is Message =>
   typeof value === "object" && value !== null && !Array.isArray(value);
 
+/** What a frame was stamped with: a prompt's name, `null` for "no prompt was
+ *  unanswered", or `undefined` for "this end cannot say". */
+export type Turn = string | null | undefined;
+
 /** `params` with `_meta[KEY]` set to `turn`, or taken off for `undefined`. A
  *  `_meta` left empty is dropped, so an unstamped frame is the frame the agent
  *  sent. */
-const stamped = (params: Message, turn: string | undefined): Message => {
+const stamped = (params: Message, turn: Turn): Message => {
   const meta = isObject(params._meta) ? params._meta : {};
   const { [KEY]: _gone, ...rest } = meta;
   const next = turn === undefined ? rest : { ...rest, [KEY]: turn };
@@ -54,11 +62,11 @@ const stamped = (params: Message, turn: string | undefined): Message => {
   return Object.keys(next).length === 0 ? without : { ...without, _meta: next };
 };
 
-/** The name a frame was stamped with, off the `_meta` its params carry. */
-export const answeringIn = (meta: unknown): string | undefined => {
-  if (!isObject(meta)) return undefined;
+/** What a frame was stamped with, off the `_meta` its params carry. */
+export const answeringIn = (meta: unknown): Turn => {
+  if (!isObject(meta) || !(KEY in meta)) return undefined;
   const turn = meta[KEY];
-  return typeof turn === "string" ? turn : undefined;
+  return typeof turn === "string" ? turn : turn === null ? null : undefined;
 };
 
 /**
@@ -77,7 +85,7 @@ export const answering = (stream: Stream): Stream => {
     if (message.method !== "session/prompt" || message.id === undefined)
       return message;
     const params = isObject(message.params) ? message.params : {};
-    const turn = answeringIn(params._meta);
+    const turn = answeringIn(params._meta) ?? undefined;
     unanswered.push(
       turn === undefined ? { id: message.id } : { id: message.id, turn },
     );
@@ -94,7 +102,11 @@ export const answering = (stream: Stream): Stream => {
     if (typeof message.method !== "string" || STAMPED[message.method] !== true)
       return message;
     const params = isObject(message.params) ? message.params : {};
-    return { ...message, params: stamped(params, unanswered[0]?.turn) };
+    const oldest = unanswered[0];
+    return {
+      ...message,
+      params: stamped(params, oldest === undefined ? null : oldest.turn),
+    };
   };
 
   const each = (
