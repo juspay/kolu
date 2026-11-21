@@ -258,8 +258,8 @@ const WorkCard: Component<{
   const view = createMemo(() =>
     timelineShown(props.work, read(), pressed(), whole()),
   );
-  /** The cell pressed on the strip: the stage whose events the open card
-   *  shows, none while it is shut or the whole timeline is out. */
+  /** The cell pressed on the strip: the stage whose events the picked work
+   *  shows, none while it is not picked or the whole timeline is out. */
   const shownStage = (): StageName | undefined => {
     const shown = view().view;
     return isOpen() && shown.kind === "stage" && shown.stage !== "setup"
@@ -372,8 +372,8 @@ const WorkCard: Component<{
       testId="work-standing"
     />
   );
-  /** THE STRIP — on a card each segment that has happened is a button that
-   *  opens the card on that stage's events: the index into the timeline. */
+  /** THE STRIP — each segment that has happened is a button that picks the
+   *  work on that stage's events: the index into the timeline. */
   const strip = () => (
     <StageStrip
       stages={read()}
@@ -433,7 +433,7 @@ const WorkCard: Component<{
           : undefined
       }
       // A card has its own border, and its needs-you edge is the one piece of
-      // colour a shut card carries: a column of works must say which one is
+      // colour a card on the board carries: a column of works must say which one is
       // on you without being read. A row is one line of its group's table,
       // and its group draws the edges. A work a chip asked for flashes once
       // (`index.css`, `.work-card`).
@@ -546,7 +546,7 @@ const WorkCard: Component<{
           oldest: a Conductor that asks about a failing check while a plan
           approval is still open has put two things to the human, and a face
           that draws one of them makes the second answerable nowhere. Drawn
-          here once, so an open card does not carry a second copy. */}
+          here once, so the picked work does not carry a second copy. */}
       <Show when={live()}>
         {(asking) => (
           <Show when={asking().asks.length > 0}>

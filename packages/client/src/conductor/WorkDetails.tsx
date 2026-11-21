@@ -1,4 +1,4 @@
-/** A WORK'S DETAILS — what an open card shows below its face: how it ended
+/** A WORK'S DETAILS — what a picked work's Details view shows: how it ended
  *  (once it has), the files, the pull request, the decisions, the timeline of
  *  one stage, where the time went, and the one control at the foot, **Stop**
  *  or **Reopen**.

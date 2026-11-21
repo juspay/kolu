@@ -48,11 +48,9 @@ import { useNeedsYou, useWorks } from "./useWorks";
 import WorkCard from "./WorkCard";
 import {
   isFinishedOpen,
-  openFinished,
   pickedWork,
   toggleFinished,
   unpickWork,
-  wantedCard,
 } from "./workListing";
 import WorkRail from "./WorkRail";
 import { WAITER_INK } from "./workReadings";
@@ -172,13 +170,6 @@ const WorkColumn: Component = () => {
     return { onYou, moving, watching };
   });
   const done = createMemo(() => finished(works()));
-  // A ROUTE TO A FINISHED WORK opens the Finished list, so its card is drawn
-  // and can answer the route — `showWork` is the one route and does not ask
-  // which list a work sits in.
-  createEffect(() => {
-    const want = wantedCard();
-    if (want !== null && done().some(([id]) => id === want.id)) openFinished();
-  });
 
   /** THE PICKED WORK, with its record — none while it is not in the list. */
   const pickedRow = createMemo((): WorkRow | undefined => {

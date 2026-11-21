@@ -13,7 +13,7 @@ import { isPicked, pickWork, unpickWork } from "./workListing";
 import { standingLine, WORK_DOT } from "./workReadings";
 
 /** A work's initials — its first two words' first letters. */
-export function initialsOf(title: string): string {
+function initialsOf(title: string): string {
   const words = title.split(/\s+/).filter((one) => one !== "");
   return words
     .slice(0, 2)

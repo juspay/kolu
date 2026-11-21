@@ -97,11 +97,6 @@ export const isFinishedOpen = finishedOpen;
 export const toggleFinished = (): void => {
   setFinishedOpen((was) => !was);
 };
-/** Open the Finished list — what the list does when the work a route asked
- *  for is a finished one. */
-export const openFinished = (): void => {
-  setFinishedOpen(true);
-};
 
 /** The work a route asked to bring into view, if one is waiting. */
 export const wantedCard = wanted;
