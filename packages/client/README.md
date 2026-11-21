@@ -32,7 +32,7 @@ owns the one websocket and the singleton subscriptions.
 | `attention` | The detect-then-fire engine behind alerts, its diagnostics and its marks. |
 | `canvas` | The desktop spatial canvas: tiles, layout, minimap, title-bar actions. |
 | `comments` | Selection capture and the comment composer and tray. |
-| `conductor` | The Conductor conversation: transcript cards, composer, asks, diffs, and the reader window. |
+| `conductor` | The Conductor conversation: transcript cards, composer, asks, diffs, the reader window, and the memory (its proposal cards and the Memory sheet). |
 | `debug`, `dom` | Console hooks; shadow-DOM walking. |
 | `forwards` | Forwarded ports: rows, pills and the printed-URL links. |
 | `host` | Per-host canvases and sections, including the boot-stalled and connect surfaces. |
