@@ -14,9 +14,11 @@
  *  Per browser, in `localStorage` under `kolu-attention:<host>`, shared by
  *  every page of this kolu whatever its address: a page's unread list IS the
  *  saved list, followed through the browser's `storage` event
- *  (`originStorageSync`), so another page's write reaches this page before
- *  this page writes again, and no page puts back a mark another page took
- *  off. Each dock row reads only its own mark.
+ *  (`originStorageSync`). That event reaches a page some time AFTER another
+ *  page's write, so a write never starts from what this page last heard: it
+ *  reads the stored record at that moment and changes only its own part, and
+ *  no page puts back a mark another page took off. Each dock row reads only
+ *  its own mark.
  *  A stored value that does not validate is dropped with a warning and the
  *  host starts blank, which is what a browser that never saved anything does. */
 
@@ -30,6 +32,7 @@ import {
   originStorageSync,
   perHostName,
   persistedPref,
+  readWithFallback,
 } from "../persistedPref";
 import type { AttentionMemory } from "./attentionCore";
 
@@ -74,15 +77,36 @@ export function createAttentionRecord(opts: {
   name: string;
   storage: Storage;
 }): AttentionRecord {
+  const parse = (raw: string) => decodeSavedAttention(JSON.parse(raw));
+  const onInvalid = defaultInvalidWarning(opts.name, BLANK);
   const [saved, setSaved] = persistedPref<SavedAttention>({
     name: opts.name,
     fallback: BLANK,
-    parse: (raw) => decodeSavedAttention(JSON.parse(raw)),
+    parse,
     serialize: (value) => JSON.stringify(value),
-    onInvalid: defaultInvalidWarning(opts.name, BLANK),
+    onInvalid,
     storage: opts.storage,
     sync: originStorageSync,
   });
+  /** The record as stored NOW, which may hold another page's write this page
+   *  has not heard yet — what every write starts from. */
+  const stored = (): SavedAttention => {
+    const raw = opts.storage.getItem(opts.name);
+    return raw === null
+      ? BLANK
+      : readWithFallback(raw, parse, BLANK, onInvalid);
+  };
+  /** Write `change` of the stored record, and take it as this page's value
+   *  too, so the page is current with every page's writes as of this one.
+   *  `change` answers `null` when the stored record already says it; the page
+   *  then still takes the stored record if its own value is behind it. */
+  const update = (change: (now: SavedAttention) => SavedAttention | null) => {
+    const now = stored();
+    const next = change(now);
+    if (next !== null) setSaved(() => next);
+    else if (JSON.stringify(untrack(saved)) !== JSON.stringify(now))
+      setSaved(() => now);
+  };
   // The saved list, one store key per terminal: a write from this page or
   // another moves only the keys whose mark changed, so only those rows wake.
   const [unread, setUnread] = createStore<Partial<Record<TerminalId, true>>>(
@@ -100,25 +124,24 @@ export function createAttentionRecord(opts: {
   });
   return {
     memory: () => untrack(saved).memory,
-    remember: (memory) => {
-      setSaved((prev) => ({ ...prev, memory }));
-    },
+    remember: (memory) => update((now) => ({ ...now, memory })),
     isUnread: (id) => unread[id] === true,
-    markUnread: (id) => {
-      if (untrack(saved).unread.includes(id)) return;
-      setSaved((prev) => ({ ...prev, unread: [...prev.unread, id] }));
-    },
-    clearUnread: (id) => {
-      if (!untrack(saved).unread.includes(id)) return;
-      setSaved((prev) => ({
-        ...prev,
-        unread: prev.unread.filter((marked) => marked !== id),
-      }));
-    },
-    clearAllUnread: () => {
-      if (untrack(saved).unread.length === 0) return;
-      setSaved((prev) => ({ ...prev, unread: [] }));
-    },
+    markUnread: (id) =>
+      update((now) =>
+        now.unread.includes(id)
+          ? null
+          : { ...now, unread: [...now.unread, id] },
+      ),
+    clearUnread: (id) =>
+      update((now) =>
+        now.unread.includes(id)
+          ? { ...now, unread: now.unread.filter((marked) => marked !== id) }
+          : null,
+      ),
+    clearAllUnread: () =>
+      update((now) =>
+        now.unread.length === 0 ? null : { ...now, unread: [] },
+      ),
   };
 }
 
