@@ -182,10 +182,10 @@ const WorkColumn: Component = () => {
     if (pickedWork() !== null && pickedRow() === undefined) unpickWork();
   });
   const railGroups = createMemo(() => [
-    { name: "Needs you", rows: groups().onYou },
-    { name: "In progress", rows: groups().moving },
-    { name: "Watching", rows: groups().watching },
-    { name: "Finished", rows: done() },
+    { key: "waiting", name: "Needs you", rows: groups().onYou },
+    { key: "in-progress", name: "In progress", rows: groups().moving },
+    { key: "watching", name: "Watching", rows: groups().watching },
+    { key: "finished", name: "Finished", rows: done() },
   ]);
 
   return (

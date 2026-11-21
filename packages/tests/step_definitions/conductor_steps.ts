@@ -2932,14 +2932,21 @@ async function openWorkSaying(
   await showWorkColumn(world);
   let inventoryAtTimeout = "(not observed)";
   const id = await pollFor({
+    // The new work is a card or row of the board — or, while another work
+    // is picked, a line of the rail, which names it in its title.
     observe: () =>
       world.page
-        .locator(`${WORK_COLUMN} ${WORK_CARD}`)
-        .evaluateAll((cards, want) => {
-          for (const card of cards) {
-            if ((card.textContent ?? "").includes(want)) {
-              return card.getAttribute("data-work");
-            }
+        .locator(
+          `${WORK_COLUMN} ${WORK_CARD}, ${WORK_COLUMN} [data-testid="works-rail-line"]`,
+        )
+        .evaluateAll((found, want) => {
+          for (const one of found) {
+            const words = `${one.textContent ?? ""} ${one.getAttribute("title") ?? ""}`;
+            if (words.includes(want))
+              return (
+                one.getAttribute("data-work") ??
+                one.getAttribute("data-rail-work")
+              );
           }
           return null;
         }, title),
@@ -3838,6 +3845,31 @@ Then(
   },
 );
 
+/** WHICH GROUP A WORK SITS IN — `waiting`, `in-progress`, `watching` or
+ *  `finished` — read off the board, or, while a work is picked, off the
+ *  rail, which is grouped as the board is. `none` when it is in neither. */
+async function groupOf(world: KoluWorld, id: string): Promise<string> {
+  for (const key of ["waiting", "in-progress", "watching", "finished"]) {
+    const onBoard = world.page.locator(
+      `${WORK_COLUMN} [data-testid="work-${key}"] ${WORK_CARD}[data-work="${id}"]`,
+    );
+    const onRail = world.page.locator(
+      `${WORK_COLUMN} [data-testid="works-rail-group"][data-group="${key}"] [data-rail-work="${id}"]`,
+    );
+    if ((await onBoard.count()) > 0 || (await onRail.count()) > 0) return key;
+  }
+  return "none";
+}
+
+/** Is a work picked — the board folded to a rail? */
+async function railShown(world: KoluWorld): Promise<boolean> {
+  return (
+    (await world.page
+      .locator(`${WORK_COLUMN} [data-testid="works-rail"]`)
+      .count()) > 0
+  );
+}
+
 /** WHO THE WORK WAITS ON, as the card says it — its edge and its group —
  *  read off this scenario's card alone, never the column-wide count. */
 async function waitsOnYouNow(
@@ -3846,13 +3878,7 @@ async function waitsOnYouNow(
   const card = workCard(world);
   const who = (await card.getAttribute("data-who").catch(() => null)) ?? "";
   const id = (await card.getAttribute("data-work").catch(() => null)) ?? "";
-  const inWaiting =
-    id !== "" &&
-    (await world.page
-      .locator(
-        `${WORK_COLUMN} [data-testid="work-waiting"] ${WORK_CARD}[data-work="${id}"]`,
-      )
-      .count()) > 0;
+  const inWaiting = id !== "" && (await groupOf(world, id)) === "waiting";
   return { who, inWaiting };
 }
 
@@ -3898,14 +3924,18 @@ Then(
   async function (this: KoluWorld, outcome: string) {
     const id = this.workId;
     assert.ok(id, "this scenario never opened a work");
-    await openFinished(this);
+    // The Finished group is opened on the board; while a work is picked the
+    // rail lists it already.
+    if (!(await railShown(this))) await openFinished(this);
     await waitForValue(
       "the finished work's outcome",
       async () => {
+        if ((await groupOf(this, id)) !== "finished")
+          return "not among the finished";
         const card = this.page.locator(
-          `${WORK_COLUMN} [data-testid="work-finished"] ${WORK_CARD}[data-work="${id}"]`,
+          `${WORK_COLUMN} ${WORK_CARD}[data-work="${id}"]`,
         );
-        if ((await card.count()) === 0) return "not among the finished";
+        if ((await card.count()) === 0) return "no card drawn";
         return (await card.getAttribute("data-outcome")) ?? "no outcome";
       },
       outcome,

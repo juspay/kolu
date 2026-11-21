@@ -51,6 +51,9 @@ const Line: Component<{ id: WorkId; row: WorkRow }> = (props) => {
 
 const WorkRail: Component<{
   groups: ReadonlyArray<{
+    /** The board group it mirrors, as data: `waiting`, `in-progress`,
+     *  `watching` or `finished`. */
+    readonly key: string;
     readonly name: string;
     readonly rows: ReadonlyArray<WorkRow>;
   }>;
@@ -77,7 +80,11 @@ const WorkRail: Component<{
     <For each={props.groups}>
       {(group) => (
         <Show when={group.rows.length > 0}>
-          <section class="min-w-0">
+          <section
+            data-testid="works-rail-group"
+            data-group={group.key}
+            class="min-w-0"
+          >
             <h3 class="m-0 mb-1 hidden px-2 font-mono text-[0.55rem] uppercase tracking-[0.12em] text-fg-3 conductor-md:block">
               {group.name}
             </h3>
