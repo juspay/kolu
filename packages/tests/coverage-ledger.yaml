@@ -5005,3 +5005,25 @@ retirements:
           test: "a work's terminal row > opens the peek at its host and id from Look"
           note: "Not yet confirmed: a human must confirm this. One line added: this is the scenario whose work has two terminals, so it also checks that the rows keep every part inside the card. The rest is unchanged."
     survivorRevisionIds: [revision-63a7a05f5537ffa87178]
+  - id: replace-cc6db76d11a266a039bf
+    revisionId: revision-cc6db76d11a266a039bf
+    action: replace
+    status: landed
+    promise: '"About this work" points the chat at one work'
+    defectSurface: [conductor]
+    destinationLayer: L1
+    replacements:
+      - file: packages/client/src/conductor/workListing.test.ts
+        test: "the picked work > points the chat at it, and All work makes the chat whole again"
+        lane: unit
+        platforms: [linux, darwin]
+        realism: [solid-reactivity]
+        reviewEvidence:
+          file: packages/client/src/conductor/workListing.test.ts
+          test: "the picked work > points the chat at it, and All work makes the chat whole again"
+          note: "Human review confirmed this collected unit test exercises the declared defect surface: a pick points the chat at the work and All work makes it whole, which is what the removed card button used to do."
+    survivorRevisionIds: [revision-c95e250e6990a23bb823]
+    sameCodePathEvidence:
+      file: packages/tests/features/conductor-needs-you.feature
+      symbol: "Scenario: Picking a work points the chat at it, and the box with it"
+      test: The retained browser journey presses the card's head, then asserts the scope bar, the out-of-scope message and the chip on the next message.
