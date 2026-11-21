@@ -662,13 +662,15 @@ test: install
     cores="$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 4)"
     cap=8; [ "$(uname)" = Darwin ] && cap=6
     KOLU_SERVER="${KOLU_SERVER:-$(nix build .#koluBin --no-link --print-out-paths)/bin/kolu}"
-    # THE DEPLOY'S SECOND BUILD: the same server with a different padi build id
+    # THE DEPLOY'S SECOND BUILD: `.#koluBin` again, evaluated from the same flake
+    # source and commit string, with a different padi build id
     # (`padiBuildIdOverride`), which a Nix-built server bakes and no env can
-    # change. `kolu is deployed under this page` starts it in place of the
-    # running one, so the binder's build check drains padi as a real deploy's
-    # does (packages/tests/support/hooks.ts, `deployKoluServer`). Only the
-    # wrappers differ from the build above.
-    KOLU_SERVER_NEXT_BUILD="${KOLU_SERVER_NEXT_BUILD:-$(nix build -f default.nix koluBin --argstr commitHash "$(git rev-parse HEAD)" --argstr padiBuildIdOverride e2e-deploy-next-build --no-link --print-out-paths)/bin/kolu}"
+    # change — only its `padi.drv` and `kolu-bin.drv` differ from the build
+    # above (flake.nix, `legacyPackages`). `kolu is deployed under this page`
+    # starts it in place of the running one, so the binder's build check drains
+    # padi as a real deploy's does (packages/tests/support/hooks.ts,
+    # `deployKoluServer`).
+    KOLU_SERVER_NEXT_BUILD="${KOLU_SERVER_NEXT_BUILD:-$(nix build .#koluBin-next-padi-build --no-link --print-out-paths)/bin/kolu}"
     cd packages/tests
     # Serialize the cucumber phase across CI runs sharing this host. odu fans
     # each PR's pipeline out independently, so several PRs' e2e lanes land on
