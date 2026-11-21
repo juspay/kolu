@@ -4,13 +4,14 @@
  *  While the memory cell lists it as waiting it is something that needs you:
  *  the violet card with **Remember**, **Edit…** and **Don't**, or, when its
  *  turn proposed several, a one-line row with the same three buttons and its
- *  text one click away. Once it is settled it is one line saying how it
- *  ended. Whether it waits is read from the cell, never from the row, so a
- *  row that outlived its proposal shows how it ended instead of buttons that
- *  would be refused. */
+ *  text one click away. A `replace` names the memory it changes, with that
+ *  memory's current text one click away. Once it is settled it is one line
+ *  saying how it ended. Whether it waits is read from the cell, never from
+ *  the row, so a row that outlived its proposal shows how it ended instead
+ *  of buttons that would be refused. */
 
 import type { ConductorMemoryProposalRow } from "kolu-common/conductor";
-import type { MemoryChange } from "kolu-common/conductorMemory";
+import type { MemoryChange, MemoryEntry } from "kolu-common/conductorMemory";
 import { Markdown } from "@kolu/solid-markdown";
 import { type Component, createEffect, createSignal, Show } from "solid-js";
 import { CONTEXTUAL_TIPS } from "../../settings/tips";
@@ -43,6 +44,49 @@ const AboutTag: Component<{ about: string | null }> = (props) => (
   </Show>
 );
 
+/** WHAT A `replace` CHANGES: the memory it names, by its current title, with
+ *  its current text one click away. When that memory is gone, approving adds
+ *  this as a new one, and the line says so. */
+const Replaces: Component<{ replacing: MemoryEntry | null }> = (props) => {
+  const [open, setOpen] = createSignal(false);
+  return (
+    <div data-testid="memory-proposal-replaces" class="text-fg-3">
+      <Show
+        when={props.replacing}
+        fallback={
+          <p class="m-0 text-[0.7rem]">
+            The memory this changes was deleted, so it will be added as a new
+            memory.
+          </p>
+        }
+      >
+        {(entry) => (
+          <>
+            <p class="m-0 flex items-baseline gap-1.5 text-[0.7rem]">
+              <span>Replaces</span>
+              <b class="text-fg-2">{entry().title}</b>
+              <button
+                type="button"
+                data-testid="memory-proposal-current"
+                aria-expanded={open()}
+                class="font-mono text-[0.62rem] text-accent cursor-pointer"
+                onClick={() => setOpen((was) => !was)}
+              >
+                {open() ? "hide it" : "show it"}
+              </button>
+            </p>
+            <Show when={open()}>
+              <div class="mt-1 rounded-md border border-edge px-2 py-1 text-fg-3">
+                <Markdown markdown={entry().body} variant="compact" />
+              </div>
+            </Show>
+          </>
+        )}
+      </Show>
+    </div>
+  );
+};
+
 const MemoryProposalCard: Component<{ shown: ProposalShown }> = (props) => {
   const memory = useMemory();
   const [refusal, setRefusal] = createSignal<string | null>(null);
@@ -58,6 +102,18 @@ const MemoryProposalCard: Component<{ shown: ProposalShown }> = (props) => {
     const now = change();
     return now.kind === "forget" ? null : now;
   };
+  /** The memory a `replace` names as it stands now: `null` once it is gone,
+   *  `undefined` for a change that replaces nothing. */
+  const replacing = (): MemoryEntry | null | undefined => {
+    const now = change();
+    if (now.kind !== "replace") return undefined;
+    return memory.view().entries.find((one) => one.id === now.entry) ?? null;
+  };
+  const replaces = () => (
+    <Show when={replacing() !== undefined}>
+      <Replaces replacing={replacing() ?? null} />
+    </Show>
+  );
 
   const act = (answered: Promise<string | null>): void => {
     setBusy(true);
@@ -174,6 +230,7 @@ const MemoryProposalCard: Component<{ shown: ProposalShown }> = (props) => {
                       </p>
                     )}
                   </Show>
+                  {replaces()}
                 </div>
                 {buttons()}
               </div>
@@ -194,9 +251,12 @@ const MemoryProposalCard: Component<{ shown: ProposalShown }> = (props) => {
               <b class="text-[0.78rem]">
                 {change().kind === "forget"
                   ? "Conductor would like to forget"
-                  : "Conductor would like to remember"}
+                  : replacing()
+                    ? "Conductor would like to change a memory"
+                    : "Conductor would like to remember"}
               </b>
             </header>
+            {replaces()}
             <p class="m-0 text-[0.82rem] font-semibold text-fg">
               {props.shown.title}
               <AboutTag about={text()?.about ?? null} />

@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import type { MemoryProposal } from "kolu-common/conductorMemory";
+import type { MemoryEntry, MemoryProposal } from "kolu-common/conductorMemory";
 import { createSignal } from "solid-js";
 import { render } from "solid-js/web";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -20,6 +20,7 @@ const edit = vi.hoisted(() => vi.fn());
 
 vi.mock("./useMemory", () => ({
   useMemory: () => ({
+    view: () => ({ entries: entries(), proposals: proposals() }),
     waiting: (id: string) => proposals().find((one) => one.id === id),
     inBatch: (id: string) => {
       const batch = proposals().find((one) => one.id === id)?.batch;
@@ -35,6 +36,7 @@ vi.mock("../../settings/useTips", () => ({
 }));
 
 const [proposals, setProposals] = createSignal<MemoryProposal[]>([]);
+const [entries, setEntries] = createSignal<MemoryEntry[]>([]);
 
 const AT = "2026-12-02T09:15:00.000Z";
 const proposal = (
@@ -57,6 +59,7 @@ afterEach(() => {
   memory.state.refusal = null;
   memory.approve.mockClear();
   edit.mockClear();
+  setEntries([]);
 });
 
 const draw = (
@@ -153,5 +156,79 @@ describe("a proposal to remember", () => {
     const root = draw(one);
     expect(root.textContent).toContain("Conductor would like to forget");
     expect(buttons(root)).toEqual(["Forget it", "Don't"]);
+  });
+});
+
+describe("a proposal to change a memory", () => {
+  const current: MemoryEntry = {
+    id: "m3",
+    title: "Rebase before review",
+    about: "demo-app",
+    body: "Rebase on main before asking for review.",
+    by: "you",
+    edited: false,
+    at: AT,
+  };
+  const replacing = (id: string, batch: string): MemoryProposal => ({
+    ...proposal(id, batch, "Rebase on main before review"),
+    change: {
+      kind: "replace",
+      entry: "m3",
+      title: "Rebase on main before review",
+      about: "demo-app",
+      body: "Rebase on main, then squash, before asking for review.",
+    },
+  });
+  const showCurrent = (root: HTMLElement) =>
+    root
+      .querySelector<HTMLButtonElement>(
+        '[data-testid="memory-proposal-current"]',
+      )
+      ?.click();
+
+  it("alone in its turn, names the memory it changes, with its current text one click away", () => {
+    const one = replacing("p1", "u1");
+    setEntries([current]);
+    setProposals([one]);
+    const root = draw(one);
+    expect(root.textContent).toContain(
+      "Conductor would like to change a memory",
+    );
+    expect(
+      root.querySelector('[data-testid="memory-proposal-replaces"]')
+        ?.textContent,
+    ).toContain("Rebase before review");
+    expect(root.textContent).not.toContain(current.body);
+    showCurrent(root);
+    expect(root.textContent).toContain(current.body);
+  });
+
+  it("one of several from its turn, names the memory it changes on its line", () => {
+    const batch = [replacing("p1", "u1"), proposal("p2", "u1", "Two")];
+    setEntries([current]);
+    setProposals(batch);
+    const root = draw(batch[0] as MemoryProposal);
+    expect(
+      root.querySelector('[data-testid="memory-proposal-replaces"]')
+        ?.textContent,
+    ).toContain("Rebase before review");
+    expect(root.textContent).not.toContain(current.body);
+    showCurrent(root);
+    expect(root.textContent).toContain(current.body);
+  });
+
+  it("whose memory is gone, says Remember adds it as a new one", () => {
+    const one = replacing("p1", "u1");
+    setEntries([]);
+    setProposals([one]);
+    const root = draw(one);
+    expect(root.textContent).toContain("Conductor would like to remember");
+    expect(
+      root.querySelector('[data-testid="memory-proposal-replaces"]')
+        ?.textContent,
+    ).toContain("added as a new memory");
+    expect(
+      root.querySelector('[data-testid="memory-proposal-current"]'),
+    ).toBeNull();
   });
 });
