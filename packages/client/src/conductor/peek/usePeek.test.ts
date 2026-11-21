@@ -5,13 +5,11 @@ import {
   closePeek,
   keyRaisesLockOffer,
   openPeek,
-  peekFit,
   peekFootWords,
   peekTabs,
   peekTarget,
   peekTyping,
   setPeekTyping,
-  togglePeekFit,
 } from "./usePeek";
 
 const ONE = "11111111-1111-4111-8111-111111111111" as TerminalId;
@@ -52,14 +50,7 @@ describe("the peek's target", () => {
   });
 });
 
-describe("fit and typing", () => {
-  it("flips the fit and drops it on close", () => {
-    togglePeekFit();
-    expect(peekFit()).toBe(true);
-    closePeek();
-    expect(peekFit()).toBe(false);
-  });
-
+describe("the peek's typing lock", () => {
   it("drops the typing lock on close", () => {
     setPeekTyping(true);
     closePeek();

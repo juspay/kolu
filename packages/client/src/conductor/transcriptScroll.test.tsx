@@ -27,7 +27,16 @@ vi.mock("./ConductorDiffs", () => ({ default: () => null }));
 import ConductorTranscript from "./ConductorTranscript";
 import type { ConductorRow } from "kolu-common/conductor";
 import { Shown } from "../ui/shown";
-import { atEnd, pinTranscript, revealTranscriptRow } from "./transcriptScroll";
+import {
+  applyTranscriptScroll,
+  atEnd,
+  pinTranscript,
+  rememberTranscriptScroll,
+  revealTranscriptRow,
+  showTranscriptDocument,
+  transcriptPinned,
+  WHOLE_TRANSCRIPT,
+} from "./transcriptScroll";
 import { turnWorks } from "./turnWorks";
 
 /** Is the pane the view being read? The pane is RETAINED across a tab switch,
@@ -135,11 +144,13 @@ const pill = (): HTMLButtonElement | null =>
 beforeEach(() => {
   column = COLUMN;
   setShown(true);
+  showTranscriptDocument(WHOLE_TRANSCRIPT);
   pinTranscript();
 });
 afterEach(() => {
   unmount();
   column = COLUMN;
+  showTranscriptDocument(WHOLE_TRANSCRIPT);
   pinTranscript();
 });
 
@@ -283,6 +294,52 @@ describe("the transcript's follow rule", () => {
     setShown(true);
     expect(scroller.scrollTop).toBe(endOf(column));
     expect(pill()).toBeNull();
+  });
+});
+
+describe("each document's own place", () => {
+  it("keeps a scrolled-up reader's place when a work's chat is shown and left", () => {
+    showTranscriptDocument(WHOLE_TRANSCRIPT);
+    rememberTranscriptScroll({
+      scrollTop: 300,
+      scrollHeight: 1000,
+      clientHeight: VIEWPORT,
+    });
+
+    showTranscriptDocument("branch:local/%2Fr/one");
+    // The browser clamps the SHORTER document to its end and fires `scroll`:
+    // a movement the reader did not make, but one that is true of the work's
+    // chat, not of the whole conversation.
+    rememberTranscriptScroll({
+      scrollTop: 0,
+      scrollHeight: VIEWPORT,
+      clientHeight: VIEWPORT,
+    });
+
+    showTranscriptDocument(WHOLE_TRANSCRIPT);
+    expect(transcriptPinned()).toBe(false);
+    const el = { scrollTop: 0, scrollHeight: 1000, clientHeight: VIEWPORT };
+    applyTranscriptScroll(el);
+    expect(el.scrollTop).toBe(300);
+  });
+
+  it("keeps a follower of the whole conversation following after reading a work", () => {
+    showTranscriptDocument(WHOLE_TRANSCRIPT);
+    expect(transcriptPinned()).toBe(true);
+
+    showTranscriptDocument("branch:local/%2Fr/two");
+    rememberTranscriptScroll({
+      scrollTop: 400,
+      scrollHeight: 1200,
+      clientHeight: VIEWPORT,
+    });
+    expect(transcriptPinned()).toBe(false);
+
+    showTranscriptDocument(WHOLE_TRANSCRIPT);
+    expect(transcriptPinned()).toBe(true);
+    const el = { scrollTop: 0, scrollHeight: 5000, clientHeight: VIEWPORT };
+    applyTranscriptScroll(el);
+    expect(el.scrollTop).toBe(5000);
   });
 });
 

@@ -36,6 +36,7 @@ import { Key } from "@solid-primitives/keyed";
 import type { WorkId } from "kolu-work";
 import {
   type Component,
+  createComputed,
   createContext,
   createEffect,
   createMemo,
@@ -66,8 +67,10 @@ import {
   applyTranscriptScroll,
   pinTranscript,
   rememberTranscriptScroll,
+  showTranscriptDocument,
   transcriptPinned,
   unpinTranscript,
+  WHOLE_TRANSCRIPT,
 } from "./transcriptScroll";
 import { type FileHolders, fileHolders } from "./namedFiles";
 import { chatScope } from "./chatScope";
@@ -378,6 +381,24 @@ const ConductorTranscript: Component<{
   const noteRedrawn = () => setRedraws((n) => n + 1);
 
   const shown = useShown();
+
+  /** WHICH DOCUMENT THE SCROLLER SHOWS — set here, above the follow effect,
+   *  and NOT behind the effect's `visible` guard: the pane showing a work's
+   *  chat is true whether or not anybody is looking at it, and the scroller's
+   *  place belongs to that document from the moment it is the one shown. */
+  createComputed(() =>
+    showTranscriptDocument(chatScope()?.id ?? WHOLE_TRANSCRIPT),
+  );
+
+  /** The document the container was last put at the place of. `undefined`
+   *  until the first run, so the mount's restore is not repeated. */
+  let atDocument: string | undefined;
+  /** Bumped once after a document change, so the follow rule is asked AGAIN
+   *  after the DOM has revealed the other document's rows. The class effect
+   *  that shows them is created after this effect, so the column measured on
+   *  the first pass is still the old height. */
+  const [reapplied, setReapplied] = createSignal(0);
+
   createEffect(
     // `on`, so the body's reads of the ELEMENT are not dependencies and the
     // deps are exactly these four: what was drawn, a row redrawn in place,
@@ -394,12 +415,33 @@ const ConductorTranscript: Component<{
     // remembered offset alone, and coming back re-runs this with the column
     // laid out again.
     on(
-      [signature, redraws, transcriptPinned, shown],
-      ([drawn, , pinned, visible], prev) => {
+      [
+        signature,
+        redraws,
+        transcriptPinned,
+        shown,
+        () => chatScope()?.id,
+        reapplied,
+      ],
+      ([drawn, , pinned, visible, doc], prev) => {
         if (!visible) return;
-        if (!placed) {
+        // A DOCUMENT CHANGE IS PUT AT ITS OWN PLACE, and then the run is over:
+        // `applyTranscriptScroll` opens a follower at the end and a reader who
+        // had scrolled up at their own pixel. The first run does the same for
+        // the document the transcript mounted with. Nothing else moves the
+        // view for a scope change.
+        if (!placed || doc !== atDocument) {
+          const changed = prev !== undefined && prev[4] !== doc;
+          atDocument = doc;
           applyTranscriptScroll(scroller);
           placed = scroller.scrollHeight > scroller.clientHeight;
+          // The rows this document shows are revealed by a class effect
+          // created AFTER this one, so the column measured above can still be
+          // the other document's height — 162px short in one CI run. One more
+          // pass, after the DOM has committed, asks the same rule of the
+          // column that is really there: a follower lands at the end, and a
+          // reader who scrolled up is left where they are.
+          if (changed) setReapplied((n) => n + 1);
           return;
         }
         // NOT `atEnd(scroller)`. The rows are already in the column by now, so

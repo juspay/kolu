@@ -36,7 +36,7 @@ import { render } from "solid-js/web";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { FleetTerminalRow } from "../palette/fleetTerminals";
 import { aboutWork, showAllChat } from "./chatScope";
-import { setComposerText } from "./drafts";
+import { askFromWelcome, composerText, setComposerText } from "./drafts";
 import ConductorComposer from "./ConductorComposer";
 import { standingLine } from "./workReadings";
 import { Shown } from "../ui/shown";
@@ -385,6 +385,19 @@ describe("completing a work", () => {
         cwd: "/home/srid/code/kolu",
       },
     ]);
+  });
+});
+
+describe("the welcome's example ask", () => {
+  it("writes the words into the box, caret after them, and sends nothing", () => {
+    const text = "Plan and build a dark mode toggle";
+    const { box } = mount("");
+    askFromWelcome(text);
+
+    expect(box.value).toBe(text);
+    expect(composerText()).toBe(text);
+    expect(box.selectionStart).toBe(text.length);
+    expect(sent.prompt).not.toHaveBeenCalled();
   });
 });
 

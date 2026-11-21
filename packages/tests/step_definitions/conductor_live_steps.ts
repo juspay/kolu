@@ -14,6 +14,7 @@ import { OMP_HEARD_MARKER } from "../support/agent-mock-omp.ts";
 import { readBufferText } from "../support/buffer.ts";
 import { pollFor } from "../support/poll.ts";
 import { type KoluWorld, POLL_TIMEOUT } from "../support/world.ts";
+import { showPickedView } from "./conductor_steps.ts";
 
 const COLUMN = '[data-testid="work-column"]';
 const PANE = `${COLUMN} [data-testid="live-pane"]`;
@@ -67,6 +68,88 @@ Then(
     await waitForCount(this, `${PANE}[data-connected]`, count);
   },
 );
+
+/** THE PANE'S SCREEN, by its own three numbers: does it pan? */
+const scrollerOf = (role: string): string =>
+  `${paneOf(role)} [data-testid="live-scroller"]`;
+
+async function paneWidth(world: KoluWorld, role: string) {
+  return await world.page.locator(scrollerOf(role)).evaluate((el) => ({
+    scroll: el.scrollWidth,
+    client: el.clientWidth,
+  }));
+}
+
+Then(
+  "the {string} live pane should not pan",
+  async function (this: KoluWorld, role: string) {
+    await pollFor({
+      observe: () => paneWidth(this, role),
+      isDone: (box) => box.scroll <= box.client + 1,
+      timeoutMs: POLL_TIMEOUT,
+      onTimeout: (box, ms) =>
+        new Error(
+          `the ${role} pane pans after ${ms}ms: ${box.scroll}px of screen in ${box.client}px — Fit width did not fit it`,
+        ),
+    });
+  },
+);
+
+Then(
+  "the {string} live pane should pan",
+  async function (this: KoluWorld, role: string) {
+    await pollFor({
+      observe: () => paneWidth(this, role),
+      isDone: (box) => box.scroll > box.client + 1,
+      timeoutMs: POLL_TIMEOUT,
+      onTimeout: (box, ms) =>
+        new Error(
+          `the ${role} pane does not pan after ${ms}ms: ${box.scroll}px of screen in ${box.client}px`,
+        ),
+    });
+  },
+);
+
+Then(
+  "the {string} live pane's Fit width should be lit",
+  async function (this: KoluWorld, role: string) {
+    await pollFor({
+      observe: () =>
+        this.page
+          .locator(`${paneOf(role)} [data-testid="live-fit"]`)
+          .getAttribute("aria-pressed", { timeout: 500 })
+          .catch(() => null),
+      isDone: (pressed) => pressed === "true",
+      timeoutMs: POLL_TIMEOUT,
+      onTimeout: (pressed, ms) =>
+        new Error(
+          `the ${role} pane's Fit width read ${JSON.stringify(pressed)} after ${ms}ms, not "true"`,
+        ),
+    });
+  },
+);
+
+When(
+  "I press the {string} live pane's Fit width",
+  async function (this: KoluWorld, role: string) {
+    await this.page.locator(`${paneOf(role)} [data-testid="live-fit"]`).click();
+  },
+);
+
+Then(
+  "the {string} live pane should show no Fit width",
+  async function (this: KoluWorld, role: string) {
+    await waitForCount(this, `${paneOf(role)} [data-testid="live-fit"]`, 0);
+  },
+);
+
+When("I show the work's details", async function (this: KoluWorld) {
+  await showPickedView(this, "details");
+});
+
+When("I show the work's terminals", async function (this: KoluWorld) {
+  await showPickedView(this, "terminals");
+});
 
 Then(
   "the picked work should offer {int} terminal tabs",

@@ -12,7 +12,7 @@
  *
  *  THE FRAME IS CONSTANT on a desktop. The grid declares both tracks whatever
  *  is in them, so nothing slides sideways the moment the first work appears;
- *  the works say, in one line, that there is nothing in progress rather than
+ *  the works welcome a newcomer while there is nothing in progress rather than
  *  leaving a hole. On a phone there is no side to put anything beside: it
  *  shows the works or the conversation, one at a time, by a tab bar under
  *  them (`ConductorPhoneTabs`).

@@ -11,7 +11,6 @@ export interface PeekTarget {
 }
 
 const [target, setTarget] = createSignal<PeekTarget | null>(null);
-const [fit, setFit] = createSignal(false);
 const [typing, setTyping] = createSignal(false);
 
 export const peekTarget: Accessor<PeekTarget | null> = target;
@@ -21,20 +20,13 @@ export function openPeek(next: PeekTarget): void {
   setTarget(next);
 }
 
-/** Close the peek, dropping the fit and the typing lock with it. */
+/** Close the peek, dropping the typing lock with it. The Fit width choice is
+ *  NOT the window's: it is the one shared by every pane (`../fitWidth`). */
 export function closePeek(): void {
   batch(() => {
     setTarget(null);
-    setFit(false);
     setTyping(false);
   });
-}
-
-export const peekFit: Accessor<boolean> = fit;
-
-/** Shrink the font until every column fits, or go back to the terminal's size. */
-export function togglePeekFit(): void {
-  setFit((was) => !was);
 }
 
 export const peekTyping: Accessor<boolean> = typing;

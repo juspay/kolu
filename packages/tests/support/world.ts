@@ -188,6 +188,12 @@ export class KoluWorld extends World {
    *  Its `.waterfall/` files, its branch and its stated pull request are what
    *  kolu observes the work through. */
   workRepoDir?: string;
+  /** Where the conductor transcript was scrolled when a scenario noted it —
+   *  the pixel a pick on the works side must not move. */
+  notedTranscriptTop?: number;
+  /** The composer box's height with one short line in it, so a long message
+   *  can be shown to have grown it. */
+  notedComposerHeight?: number;
   /** The member terminal the conductor created with a role, and the transcript
    *  path of the stand-in agent running in it: the scenario moves that agent
    *  between states to produce the level changes kolu records as events. */

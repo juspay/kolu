@@ -23,8 +23,9 @@ export type HeadKind = "peek" | "live";
 /** How a view's screen stands: still reading, live, or reconnecting. */
 export type ScreenPhase = "reading" | "live" | "reconnecting";
 
-/** **Fit width** (only when the screen pans or is already fitted) and **Open
- *  tile ↗**. */
+/** **Fit width** — drawn only when the terminal, at its own size, is wider
+ *  than the view — and **Open tile ↗**. A terminal that already fits has
+ *  nothing for the button to do, so it is not offered. */
 export const TerminalControls: Component<{
   kind: HeadKind;
   host: string;
@@ -39,7 +40,7 @@ export const TerminalControls: Component<{
     fleetTerminalStanding(props.host, props.id).kind === "here";
   return (
     <>
-      <Show when={props.pans || props.fit}>
+      <Show when={props.pans}>
         <button
           type="button"
           data-testid={`${props.kind}-fit`}
