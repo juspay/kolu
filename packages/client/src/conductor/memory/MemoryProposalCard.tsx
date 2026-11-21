@@ -210,7 +210,11 @@ const MemoryProposalCard: Component<{ shown: ProposalShown }> = (props) => {
           when={memory.inBatch(props.shown.proposal) <= 1}
           fallback={
             <div class="rounded-lg border border-alert/45 bg-alert/[0.06] px-3 py-2 text-xs">
-              <div class="flex items-center gap-2">
+              {/* The buttons WRAP under the title rather than squeeze it:
+                  the chat is a panel of fixed measure (21rem on a narrow
+                  desktop), too narrow for a title and three buttons on one
+                  line, while the Memory sheet and a wide panel have room. */}
+              <div class="flex flex-wrap items-center gap-x-2 gap-y-1.5">
                 <button
                   type="button"
                   aria-expanded={open()}
@@ -220,7 +224,7 @@ const MemoryProposalCard: Component<{ shown: ProposalShown }> = (props) => {
                 >
                   {open() ? "▾" : "▸"}
                 </button>
-                <div class="min-w-0 flex-1">
+                <div class="min-w-[10rem] flex-1">
                   <b class="text-[0.8rem] text-fg">{props.shown.title}</b>
                   <AboutTag about={text()?.about ?? null} />
                   <Show when={props.shown.why}>
@@ -232,7 +236,7 @@ const MemoryProposalCard: Component<{ shown: ProposalShown }> = (props) => {
                   </Show>
                   {replaces()}
                 </div>
-                {buttons()}
+                <div class="ms-auto">{buttons()}</div>
               </div>
               <Show when={open() && text()}>
                 {(words) => (
