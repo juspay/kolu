@@ -36,6 +36,7 @@ import { Key } from "@solid-primitives/keyed";
 import type { WorkId } from "kolu-work";
 import {
   type Component,
+  createComputed,
   createContext,
   createEffect,
   createMemo,
@@ -66,8 +67,10 @@ import {
   applyTranscriptScroll,
   pinTranscript,
   rememberTranscriptScroll,
+  showTranscriptDocument,
   transcriptPinned,
   unpinTranscript,
+  WHOLE_TRANSCRIPT,
 } from "./transcriptScroll";
 import { type FileHolders, fileHolders } from "./namedFiles";
 import { chatScope } from "./chatScope";
@@ -374,6 +377,19 @@ const ConductorTranscript: Component<{
   const noteRedrawn = () => setRedraws((n) => n + 1);
 
   const shown = useShown();
+
+  /** WHICH DOCUMENT THE SCROLLER SHOWS — set here, above the follow effect,
+   *  and NOT behind the effect's `visible` guard: the pane showing a work's
+   *  chat is true whether or not anybody is looking at it, and the scroller's
+   *  place belongs to that document from the moment it is the one shown. */
+  createComputed(() =>
+    showTranscriptDocument(chatScope()?.id ?? WHOLE_TRANSCRIPT),
+  );
+
+  /** The document the container was last put at the place of. `undefined`
+   *  until the first run, so the mount's restore is not repeated. */
+  let atDocument: string | undefined;
+
   createEffect(
     // `on`, so the body's reads of the ELEMENT are not dependencies and the
     // deps are exactly these four: what was drawn, a row redrawn in place,
@@ -391,9 +407,15 @@ const ConductorTranscript: Component<{
     // laid out again.
     on(
       [signature, redraws, transcriptPinned, shown, () => chatScope()?.id],
-      ([drawn, , pinned, visible], prev) => {
+      ([drawn, , pinned, visible, doc], prev) => {
         if (!visible) return;
-        if (!placed) {
+        // A DOCUMENT CHANGE IS PUT AT ITS OWN PLACE, and then the run is over:
+        // `applyTranscriptScroll` opens a follower at the end and a reader who
+        // had scrolled up at their own pixel. The first run does the same for
+        // the document the transcript mounted with. Nothing else moves the
+        // view for a scope change.
+        if (!placed || doc !== atDocument) {
+          atDocument = doc;
           applyTranscriptScroll(scroller);
           placed = scroller.scrollHeight > scroller.clientHeight;
           return;
@@ -401,14 +423,6 @@ const ConductorTranscript: Component<{
         // NOT `atEnd(scroller)`. The rows are already in the column by now, so
         // that measurement answers about the chunk that just landed, not about
         // the reader — which is precisely how the transcript stopped following.
-        //
-        // A SCOPE CHANGE IS A NEW DOCUMENT, and a follower follows it. Picking
-        // a work hides every turn about something else, so the column shrinks
-        // and the browser clamps its scroll; unpicking puts the turns back,
-        // and without running this the follower was left 1,889px above the
-        // bottom of a conversation that had not moved. `pinned` is the one
-        // fact that decides it: somebody who scrolled up is left exactly where
-        // they are.
         if (pinned) {
           scroller.scrollTop = scroller.scrollHeight;
           setUnseen(false);
