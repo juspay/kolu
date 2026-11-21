@@ -12418,6 +12418,42 @@
       "exampleRows": [],
       "executions": 1,
       "firstSeenSha": "4671712f8d392bd903372d298fe4ef2c2a377f0c"
+    },
+    {
+      "revisionId": "revision-5d0e27caf1056866ff3a",
+      "scenarioKey": "scenario-1fd32c954a7b64f20e12",
+      "feature": "features/conductor-needs-you.feature",
+      "scenario": "Picking a work shows it alone, with the others in a rail and the chat about it",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "708d885dcd5d3eadd76a49538bd283af9d458fc1d23e20eb5dc72250bccc77af",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "1d94d3021b39a46b9e0e7b50a4f0e752e5fb3ede"
+    },
+    {
+      "revisionId": "revision-a926316e885e70d62fed",
+      "scenarioKey": "scenario-b582fbff6cb23a894791",
+      "feature": "features/conductor-needs-you.feature",
+      "scenario": "Showing the whole chat keeps the work picked",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "27a647db99074e558f1acabe81710c3aeb89fcd470af24dfdec6c78eff10cc5c",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "1d94d3021b39a46b9e0e7b50a4f0e752e5fb3ede"
+    },
+    {
+      "revisionId": "revision-b5c6ee6b90f2acc062b6",
+      "scenarioKey": "scenario-94feeffb2c0d3cc3b0c8",
+      "feature": "features/mobile-conductor.feature",
+      "scenario": "On a phone a picked work is a page with a way back",
+      "kind": "scenario",
+      "tags": ["@mobile"],
+      "bodyHash": "05184b0841bf1db71ebc7f07d620b156a64408f9749ae6125eef04024cae2369",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "1d94d3021b39a46b9e0e7b50a4f0e752e5fb3ede"
     }
   ]
 }

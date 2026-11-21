@@ -2203,21 +2203,50 @@ export function workCard(world: KoluWorld) {
     : cards.filter({ hasText: title }).first();
 }
 
-/** Open that card, idempotently — a card already open is left alone, because
- *  pressing its head would SHUT it and every later step would read an empty
- *  card and blame the product.
+/** The way back to all the works, while one is picked. */
+const ALL_WORK = '[data-testid="works-all"]';
+
+/** This scenario's work as a line of the rail, while another is picked — or
+ *  `null` when the scenario never named its work. */
+function railLine(world: KoluWorld) {
+  const line = `${WORK_COLUMN} [data-testid="works-rail-line"]`;
+  const id = world.workId;
+  if (id !== undefined)
+    return world.page.locator(`${line}[data-rail-work="${id}"]`);
+  const title = world.workTitle;
+  return title === undefined
+    ? null
+    : world.page.locator(line).filter({ hasText: title }).first();
+}
+
+/** Open that card, idempotently — a work already picked is left alone,
+ *  because pressing its head would unpick it and every later step would read
+ *  an empty card and blame the product.
  *
- *  A work that has ENDED is below the line in the collapsed `Finished`
- *  section: the SAME card, one disclosure further, so the step that opens a
- *  card means the same thing before and after the work finished. */
+ *  Opening a work PICKS it. While another work is picked, this one is a line
+ *  of the rail (or, on a phone, behind All work), and the press is made
+ *  there. A work that has ENDED is below the line in the collapsed
+ *  `Finished` section: the SAME card, one disclosure further, so the step
+ *  that opens a card means the same thing before and after the work
+ *  finished. */
 export async function openWorkCard(world: KoluWorld): Promise<void> {
   await showWorkColumn(world);
   const card = workCard(world);
   if (!(await card.isVisible().catch(() => false))) {
-    const finished = world.page.locator(
-      `${WORK_COLUMN} [data-testid="work-finished"]`,
-    );
-    if ((await finished.count()) > 0) await openFinished(world);
+    const rail = railLine(world);
+    if (rail !== null && (await rail.count()) > 0) await rail.click();
+    else {
+      const back = world.page.locator(`${WORK_COLUMN} ${ALL_WORK}`);
+      if ((await back.count()) > 0) await back.click();
+      const finished = world.page.locator(
+        `${WORK_COLUMN} [data-testid="work-finished"]`,
+      );
+      if (
+        !(await card.isVisible().catch(() => false)) &&
+        (await finished.count()) > 0
+      )
+        await openFinished(world);
+    }
   }
   await card.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
   if ((await card.getAttribute("data-open")) === null) {
@@ -4261,6 +4290,47 @@ Then(
     });
   },
 );
+
+/** THE OTHER WORKS FOLD TO A RAIL: the named work is a line of it, drawn on
+ *  one line. */
+Then(
+  "the works rail should list {string} in one line",
+  async function (this: KoluWorld, title: string) {
+    const line = this.page
+      .locator(`${WORK_COLUMN} [data-testid="works-rail-line"]`)
+      .filter({ hasText: title })
+      .first();
+    await line.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    const lines = await line.evaluate((el) => {
+      const style = getComputedStyle(el);
+      const height =
+        Number.parseFloat(style.lineHeight) ||
+        Number.parseFloat(style.fontSize) * 1.5;
+      const box = el.getBoundingClientRect();
+      const padding =
+        Number.parseFloat(style.paddingTop) +
+        Number.parseFloat(style.paddingBottom);
+      return (box.height - padding) / height;
+    });
+    assert.ok(
+      lines < 1.5,
+      `the rail's line for ${JSON.stringify(title)} is ${lines.toFixed(1)} lines tall`,
+    );
+  },
+);
+
+When("I go back to all the works", async function (this: KoluWorld) {
+  await this.page.locator(`${WORK_COLUMN} [data-testid="works-all"]`).click();
+});
+
+/** NOTHING PICKED: no work is open, there is no rail, and the board is back. */
+Then("no work should be picked", async function (this: KoluWorld) {
+  await waitForCount(this, `${WORK_COLUMN} ${WORK_CARD}[data-open]`, 0);
+  await waitForCount(this, `${WORK_COLUMN} [data-testid="works-rail"]`, 0);
+  await this.page
+    .locator(`${WORK_COLUMN} [data-testid="works-board"]`)
+    .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+});
 
 /** SHUT IT AGAIN — a press on an open card's head, idempotently. */
 When("I shut the work card", async function (this: KoluWorld) {
