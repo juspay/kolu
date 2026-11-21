@@ -62,11 +62,10 @@ export interface PersistedPrefOptions<T> {
    *  decided by another tab (the `activeHost` pref and the host-switch trail
    *  that shadows it). Tests also inject a synchronous in-memory fake. */
   storage?: Storage;
-  /** Follow writes other pages of this origin make to the same key —
-   *  `@solid-primitives/storage`'s `storageSync` for `localStorage`. Without
-   *  it the value is read once, at load, and a page's next write puts back
-   *  whatever it read then. For a value several pages change, where a write
-   *  must not undo another page's. */
+  /** Follow writes other pages make to the same key — {@link originStorageSync}
+   *  for `localStorage`. Without it the value is read once, at load, and a
+   *  page's next write puts back whatever it read then. For a value several
+   *  pages change, where a write must not undo another page's. */
   sync?: PersistenceSyncAPI;
 }
 
@@ -96,6 +95,29 @@ export function readWithFallback<T>(
 function defaultSerialize<T>(value: T): string {
   return typeof value === "string" ? value : JSON.stringify(value);
 }
+
+/** The {@link PersistedPrefOptions.sync} for a `localStorage` value every page
+ *  of this ORIGIN shares: the browser's `storage` event, handed on without
+ *  the writer's address. `makePersisted` drops a sync event whose `url` is not
+ *  this page's own address (`(data.url || location.href) !== location.href`),
+ *  and `storageSync` hands the event on as it is — so a page opened from a
+ *  kolu link, which keeps the link (`#/…`) in its address bar, never heard
+ *  the other pages, nor they it. `localStorage` is one store per origin, and
+ *  the address a page shows does not change what it reads. */
+export const originStorageSync: PersistenceSyncAPI = [
+  (subscriber) =>
+    window.addEventListener("storage", (event) => {
+      // `key` is null only for `localStorage.clear()`, which names no value.
+      if (event.key === null) return;
+      subscriber({
+        key: event.key,
+        newValue: event.newValue,
+        timeStamp: event.timeStamp,
+      });
+    }),
+  // The browser announces a write to the other pages itself.
+  () => {},
+];
 
 /** Build a persisted signal whose stored value is validated on every read.
  *  Returns the same `[Accessor, Setter]` tuple as `createSignal`. */

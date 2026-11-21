@@ -12,21 +12,22 @@
  *  ONE WRITER PER PAGE. Every change goes through a record from
  *  {@link attentionRecordOf}, which holds the one copy per host for the page.
  *  Per browser, in `localStorage` under `kolu-attention:<host>`, shared by
- *  every page of this kolu: a page's unread list IS the saved list, followed
- *  through the browser's `storage` event (`storageSync`), so another page's
- *  write reaches this page before this page writes again, and no page puts
- *  back a mark another page took off. Each dock row reads only its own mark.
+ *  every page of this kolu whatever its address: a page's unread list IS the
+ *  saved list, followed through the browser's `storage` event
+ *  (`originStorageSync`), so another page's write reaches this page before
+ *  this page writes again, and no page puts back a mark another page took
+ *  off. Each dock row reads only its own mark.
  *  A stored value that does not validate is dropped with a warning and the
  *  host starts blank, which is what a browser that never saved anything does. */
 
 import { decodeHostKey } from "kolu-common/hostKey";
 import { type TerminalId, TerminalIdSchema } from "kolu-common/surface";
 import { Schema } from "effect";
-import { storageSync } from "@solid-primitives/storage";
 import { createComputed, createRoot, untrack } from "solid-js";
 import { createStore, produce } from "solid-js/store";
 import {
   defaultInvalidWarning,
+  originStorageSync,
   perHostName,
   persistedPref,
 } from "../persistedPref";
@@ -80,7 +81,7 @@ export function createAttentionRecord(opts: {
     serialize: (value) => JSON.stringify(value),
     onInvalid: defaultInvalidWarning(opts.name, BLANK),
     storage: opts.storage,
-    sync: storageSync,
+    sync: originStorageSync,
   });
   // The saved list, one store key per terminal: a write from this page or
   // another moves only the keys whose mark changed, so only those rows wake.
