@@ -16,10 +16,9 @@
  *       how much of it is now your turn. ABSENT AT ZERO, each part on its
  *       own: `0 pieces of work` is a readout of nothing, and a press that
  *       opened an empty column was a promise of a list that was not there.
- *       Below the two-column breakpoint it is a button and the column opens
- *       above it; on a window wide enough for the side column the column is
- *       already on screen beside this line, so the same words are a readout
- *       and nothing presses.
+ *       On a desktop the works are always on screen beside this line, so
+ *       the words are a readout and nothing presses; on a phone it is the
+ *       control that brings the works out.
  *    3. N WAITING — events held because a turn is running, which go out
  *       together the moment it ends. Absent at zero, for the same reason.
  *    4. ↯ STEERS, while the offer stands. It had a row of its own under the
@@ -35,11 +34,11 @@ import { isOpen } from "kolu-work";
 import { type Component, createMemo, Show } from "solid-js";
 import { formatKeybind } from "../input/keyboard";
 import Tip from "../ui/Tip";
+import { layoutMode } from "../useMobile";
 import WorkColumn from "./WorkColumn";
 import { useNeedsYou, useWorks } from "./useWorks";
 import { isListingOut, toggleListing } from "./workListing";
 import { waitingCount, worksStatusWords } from "./workReadings";
-import { conductorWide } from "./conductorLayout";
 import { useShownClock } from "../ui/shown";
 import { STEER_KEYBIND, steerOnOffer } from "./steer";
 import { statusDetail, statusSince } from "./statusReadout";
@@ -88,7 +87,7 @@ const ConductorStatus: Component<{
   );
   // The band's open/closed is the LISTING'S (`./workListing.ts`), not this
   // line's: a work chip anywhere in the chat brings its card into view, and
-  // on a narrow window that means bringing the band out first.
+  // on a phone that means bringing the band out first.
   const open = isListingOut;
   /** WHAT KOLU HAS IN FLIGHT, off the `works` collection — the pieces of work, and
    *  how many things are waiting on you.
@@ -105,21 +104,22 @@ const ConductorStatus: Component<{
   const waiting = createMemo(() => waitingCount(needs(), props.state.openAsks));
   const words = createMemo(() => worksStatusWords(pieces(), waiting()));
   const held = () => props.state.held.length;
-  /** The column is OPENED from here only below the breakpoint. On a wide
-   *  window `ConductorPane` is already drawing the same column beside the
-   *  conversation, and a second copy over it would be two lists of one fact —
-   *  with the same cards open in both. It opens whenever there is any work
+  /** On a desktop the works are already on screen beside the conversation;
+   *  only a phone opens them from here. It opens whenever there is any work
    *  to show, a finished one included: a chip on a turn scrolled back to is
    *  often about a work nothing is running for any more, and the count's own
    *  button (which reads only what is in flight) is not there to open it. */
-  const opensHere = () => open() && !conductorWide() && works().length > 0;
+  const phone = (): boolean => layoutMode() === "phone";
+  const opensHere = () => open() && phone() && works().length > 0;
   /** Steering is ON OFFER — the chord's hint, where the turn is reported. */
   const steers = createMemo(() => steerOnOffer(props.state));
 
   return (
     <>
       <Show when={opensHere()}>
-        <WorkColumn placement="inline" />
+        <div class="border-t border-edge bg-surface-1">
+          <WorkColumn />
+        </div>
       </Show>
       <div
         data-testid="conductor-status"
@@ -210,10 +210,10 @@ const ConductorStatus: Component<{
             label="The pieces of work kolu has in flight, and how many things are now waiting on an answer from you"
           >
             <Show
-              when={!conductorWide()}
+              when={phone()}
               fallback={
-                // A READOUT on a wide window: the column it would open is
-                // already beside this line, in the pane's side column.
+                // A READOUT on a desktop: the works it would open are
+                // already beside this panel.
                 <span
                   data-testid="conductor-work-count"
                   data-work={pieces() > 0 ? pieces() : undefined}

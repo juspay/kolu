@@ -24,6 +24,10 @@ vi.mock("./WorkColumn", () => ({
   default: () => <div data-testid="work-column" />,
 }));
 
+// The count is a CONTROL on a phone, and a plain readout on a desktop, where
+// the works are already beside the line — this file is about the control.
+vi.mock("../useMobile", () => ({ layoutMode: () => "phone" }));
+
 /** The works the line counts, swapped per test — the mirror itself is a wire
  *  collection, and what this file is about is the sentence over it. */
 let works: WorkRow[] = [];

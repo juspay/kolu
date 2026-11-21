@@ -12,7 +12,7 @@
 
 import type { Work, WorkId } from "kolu-work";
 import { batch, createSignal } from "solid-js";
-import { conductorWide } from "./conductorLayout";
+import { layoutMode } from "../useMobile";
 import { closeReader } from "./reader/useReader";
 import { useWorkMap } from "./useWorks";
 import { setListingOut } from "./workListing";
@@ -34,12 +34,12 @@ export const chatScope = (): {
 };
 
 /** "About this work": point the chat at it. The reader gives way and, on a
- *  narrow window, the listing goes back in, so the chat it filtered is the
- *  thing on screen. */
+ *  phone, the listing goes back in, so the chat it filtered is the thing on
+ *  screen. */
 export function aboutWork(id: WorkId): void {
   batch(() => {
     closeReader();
-    if (!conductorWide()) setListingOut(false);
+    if (layoutMode() === "phone") setListingOut(false);
     setScope(id);
   });
 }

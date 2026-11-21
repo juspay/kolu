@@ -1,21 +1,20 @@
-/** The conductor, whole: the conversation as a pane.
+/** The conductor, whole: the works and the conversation as one pane.
  *
- *  THE CHAT. A header, then ONE READING COLUMN — the transcript, the status
- *  line and the composer at the same measure and the same centre line
- *  (`--container-conductor`, 45rem: about 85 characters a line at the pane's
- *  15px body size) — and, on a window wide enough to hold both, the watched
- *  panel as a SIDE COLUMN beside it. No Dock, no fleet list, no canvas. The
- *  entry in the chrome bar is a DESTINATION, not a layer over the workspace: a
- *  person who selected it is reading a conversation. An agent the conversation
- *  started is checked from inside it — the create card's status line and its
- *  Look at the terminal's screen, or that same terminal's row in the side
- *  column — and reached on the host tab it lives on (which every tool card
- *  offers, in one press).
+ *  THE WORKS TAKE THE WIDE SIDE. Every work and every terminal is on screen
+ *  at any desktop width (`WorkColumn`), and the conversation is a PANEL of
+ *  fixed measure on the right — its header, the transcript, the status line
+ *  and the composer (`conductorFrame.ts` for the measures). No Dock, no fleet
+ *  list, no canvas. The entry in the chrome bar is a DESTINATION, not a layer
+ *  over the workspace. An agent the conversation started is checked from
+ *  inside it — its terminal's row in the works, the create card's status line
+ *  and their Look at the terminal's screen — and reached on the host tab it
+ *  lives on (which every tool card offers, in one press).
  *
- *  THE FRAME IS CONSTANT on a wide window. The grid declares both tracks
- *  whatever is in them, so the conversation does not slide sideways the moment
- *  the first terminal is watched; the side column says, in one line, that
- *  there is nothing in progress rather than leaving a hole.
+ *  THE FRAME IS CONSTANT on a desktop. The grid declares both tracks whatever
+ *  is in them, so nothing slides sideways the moment the first work appears;
+ *  the works say, in one line, that there is nothing in progress rather than
+ *  leaving a hole. On a phone there is no side to put anything beside: the
+ *  conversation fills the pane under the header.
  *
  *  Mounted on the first visit and then RETAINED for the page's life: leaving
  *  for a host tab hides it (`App.tsx`'s out-of-flow host with
@@ -53,7 +52,8 @@ import ConductorTranscript from "./ConductorTranscript";
 import WorkColumn from "./WorkColumn";
 import { ConductorHelpSheet } from "./ConductorHelp";
 import TerminalPeek from "./peek/TerminalPeek";
-import { conductorWide } from "./conductorLayout";
+import { chatPutAside, frameTracks } from "./conductorFrame";
+import { layoutMode } from "../useMobile";
 import { useConductor } from "./useConductor";
 import { exitConductorMode } from "./useConductorMode";
 import { createConductorTranscript } from "./useConductorTranscript";
@@ -161,28 +161,32 @@ const ConductorPane: Component<{
   /** IS A FILE OPEN. Everything the frame does differently while one is open
    *  follows from this one fact. */
   const reading = (): boolean => readerTarget() !== null;
-  /** IS THE CONVERSATION PUT ASIDE — a reader filling the screen, or a window
-   *  too narrow to hold both. The column stays mounted either way; this is
-   *  what makes it zero-wide, skipped and inert. */
-  const chatAside = (): boolean =>
-    reading() && (readerFilled() || !conductorWide());
+  const phone = (): boolean => layoutMode() === "phone";
+  const frame = () => ({
+    phone: phone(),
+    reading: reading(),
+    filled: readerFilled(),
+  });
+  /** IS THE CONVERSATION PUT ASIDE — a reader filling the screen, or a
+   *  phone reading a file. The panel stays mounted either way; this is what
+   *  makes it zero-wide, skipped and inert. */
+  const chatAside = (): boolean => chatPutAside(frame());
   /** The two retained halves of the frame ask the SAME question every other
    *  retained view in the app asks before doing any work: is anybody looking
-   *  at me? A conversation at zero width and a column of cards behind a
-   *  reader are not, so their clocks stop and their scrolls stand down. */
+   *  at me? A conversation at zero width and works behind a reader are not,
+   *  so their clocks stop and their scrolls stand down. */
   const chatShown = (): boolean => shown() && !chatAside();
-  const cardsShown = (): boolean => shown() && !reading();
-  /** THE FRAME'S TRACKS, spelled out rather than built — Tailwind reads the
-   *  source for its class names, so an arbitrary track list assembled at run
-   *  time is a grid with no CSS behind it. Order is always conversation ·
-   *  reader · work; a track with nothing in it is `0px`. */
-  const tracks = (): string => {
-    if (!reading()) return "grid-cols-[minmax(0,1fr)_auto]";
-    if (!conductorWide()) return "grid-cols-[0px_minmax(0,1fr)]";
-    return chatAside()
-      ? "grid-cols-[0px_minmax(0,1fr)_0px]"
-      : "grid-cols-[minmax(0,1fr)_minmax(0,2fr)_0px]";
-  };
+  const worksShown = (): boolean => shown() && !reading();
+  const header = () => (
+    <ConductorHeader
+      state={state()}
+      rows={feed.rows()}
+      // A REAL CALL: the harness puts the sign-in row up with the methods
+      // its handshake advertised, or the sentence saying it advertised none
+      // — never a row this end pretends to have.
+      onSignIn={() => orch.askSignIn()}
+    />
+  );
 
   return (
     <section
@@ -221,44 +225,73 @@ const ConductorPane: Component<{
         when={absent()}
         fallback={
           <>
-            <ConductorHeader
-              state={state()}
-              rows={feed.rows()}
-              // A REAL CALL: the harness puts the sign-in row up with the
-              // methods its handshake advertised, or the sentence saying it
-              // advertised none — never a row this end pretends to have.
-              onSignIn={() => orch.askSignIn()}
-            />
-            {/* THE FRAME. Tracks declared once and ALWAYS declared: the
-                reading column and, on a window wide enough for both, the side
-                column beside it (`conductorLayout.ts`). The side track is
-                `auto`, so with no side column it is simply zero wide: the
-                conversation does not re-flow into a different grid when the
-                panel appears, and the frame on a wide window is constant
-                whether or not anything is being watched.
-
-                A FILE OPEN CHANGES WHAT THE TRACKS ARE FOR, and nothing else:
-                the reader takes about two thirds, the conversation keeps the
-                third beside it and the work column gives way to zero.
-                Everything stays MOUNTED at zero width — `content-visibility:
-                hidden` and `inert`, the same trick `App.tsx` retains this
-                whole pane with — so "← Work" is a width changing back, not a
-                column of cards and a transcript being built again. */}
+            {/* On a phone the header stands over the whole pane; on a desktop
+                it heads the conversation's panel. */}
+            <Show when={phone()}>{header()}</Show>
+            {/* THE FRAME. Tracks declared once and ALWAYS declared
+                (`conductorFrame.ts`): the works, then the conversation's
+                panel. A FILE OPEN takes the works' track, and the
+                conversation stays where it is; filling the screen with the
+                file puts the conversation aside too. Everything that gives
+                way stays MOUNTED at zero width — `content-visibility: hidden`
+                and `inert`, the same trick `App.tsx` retains this whole pane
+                with — so "← Work" is a width changing back, not a list of
+                works and a transcript being built again. */}
             <div
               data-testid="conductor-frame"
               data-reading={reading() ? "" : undefined}
-              class={`grid min-h-0 flex-1 ${tracks()}`}
+              class={`grid min-h-0 flex-1 ${frameTracks(frame())}`}
             >
-              {/* ONE COLUMN FOR ALL THREE. The transcript, the status line and
-                  the composer are the same measure and the same centre line,
-                  so a reply, what it is doing and what you type to it read as
-                  one thing rather than three bands of a window.
+              {/* THE WORKS, the wide side. They SCROLL BY THEMSELVES, so a
+                  long list never makes the pane scroll, and they give way to
+                  the reader without leaving: the way back from a file is the
+                  works exactly as they were — the same ones open, scrolled
+                  where they were, with their clocks stopped while nobody
+                  could see them. */}
+              <Show when={!phone()}>
+                <Shown.Provider value={worksShown}>
+                  <aside
+                    data-testid="conductor-side"
+                    style={{
+                      "content-visibility": reading() ? "hidden" : "visible",
+                    }}
+                    inert={reading()}
+                    aria-hidden={reading() || undefined}
+                    class={`flex min-h-0 min-w-0 flex-col overflow-y-auto overflow-x-hidden ${
+                      reading() ? "w-0" : ""
+                    }`}
+                  >
+                    <WorkColumn />
+                  </aside>
+                </Shown.Provider>
+              </Show>
+              {/* THE READER — the file the person is actually here to read,
+                  where the works were. It is the one thing in the frame that
+                  is MOUNTED ONLY WHILE IT IS OPEN: it is what was opened, and
+                  there is nothing of a reader to keep when no file is. */}
+              <Show when={readerTarget()}>
+                {(target) => (
+                  <WorkReader
+                    target={target()}
+                    // THE PANE OWNS THE ADDRESS: which file is open is a fact
+                    // about this pane, kept in its module signal — the
+                    // workspace's own hash is not the reader's to write.
+                    from="reader"
+                    listing
+                    onOpen={openReader}
+                    chrome={<ReaderChrome target={target()} />}
+                  />
+                )}
+              </Show>
+              {/* THE CONVERSATION'S PANEL. The transcript, the status line
+                  and the composer are the same measure, so a reply, what it
+                  is doing and what you type to it read as one thing.
 
                   It is never unmounted. A reader filling the screen, or a
-                  window too narrow to hold both, leaves this column at zero
-                  width with its contents skipped and out of reach — the
-                  conversation is one press away, with the half-typed message
-                  and the scroll position still in it. */}
+                  phone reading a file, leaves it at zero width with its
+                  contents skipped and out of reach — the conversation is one
+                  press away, with the half-typed message and the scroll
+                  position still in it. */}
               <Shown.Provider value={chatShown}>
                 <div
                   data-testid="conductor-chat"
@@ -267,8 +300,11 @@ const ConductorPane: Component<{
                   }}
                   inert={chatAside()}
                   aria-hidden={chatAside() || undefined}
-                  class="mx-auto flex min-h-0 w-full min-w-0 max-w-conductor flex-col overflow-hidden"
+                  class={`flex min-h-0 w-full min-w-0 flex-col overflow-hidden ${
+                    phone() ? "" : "border-s border-edge"
+                  }`}
                 >
+                  <Show when={!phone()}>{header()}</Show>
                   <ConductorStrip
                     watching={state().watching}
                     onReveal={reveal}
@@ -276,10 +312,7 @@ const ConductorPane: Component<{
                   <Show when={state().signIn}>
                     {(signIn) => <ConductorSignIn signIn={signIn()} />}
                   </Show>
-                  {/* WHAT THE CHAT IS POINTED AT, over the chat it filters —
-                      inside the reading column, so the bar, the turns it is
-                      keeping and the box that will carry the work are the
-                      same measure. */}
+                  {/* WHAT THE CHAT IS POINTED AT, over the chat it filters. */}
                   <ChatScopeBar rows={feed.rows()} turns={turns()} />
                   <ConductorTranscript
                     rows={feed.rows()}
@@ -311,58 +344,6 @@ const ConductorPane: Component<{
                   </Show>
                 </div>
               </Shown.Provider>
-              {/* THE READER — the file the person is actually here to read,
-                  on the large side of the screen. It is the one thing in the
-                  frame that is MOUNTED ONLY WHILE IT IS OPEN: it is what was
-                  opened, and there is nothing of a reader to keep when no
-                  file is. */}
-              <Show when={readerTarget()}>
-                {(target) => (
-                  <WorkReader
-                    target={target()}
-                    // THE PANE OWNS THE ADDRESS: which file is open is a fact
-                    // about this pane, kept in its module signal — the
-                    // workspace's own hash is not the reader's to write.
-                    from="reader"
-                    listing
-                    onOpen={openReader}
-                    chrome={<ReaderChrome target={target()} />}
-                    class="border-s border-edge"
-                  />
-                )}
-              </Show>
-              {/* THE WORK, beside the conversation rather than over it. The
-                  SAME component the status line's control opens below the
-                  breakpoint — one implementation, one piece of state: a card
-                  opened here is open there, because `WorkCard` keys what is
-                  open by the work's id in a module store, which is what lets
-                  the column move between the two placements across a resize
-                  with what a person had open still open.
-
-                  IT GIVES WAY TO THE READER WITHOUT LEAVING: zero width,
-                  skipped and out of reach, so the way back from a file is the
-                  cards exactly as they were — the same ones open, scrolled
-                  where they were, with their clocks stopped while nobody
-                  could see them. */}
-              <Show when={conductorWide()}>
-                <Shown.Provider value={cardsShown}>
-                  <aside
-                    data-testid="conductor-side"
-                    style={{
-                      "content-visibility": reading() ? "hidden" : "visible",
-                    }}
-                    inert={reading()}
-                    aria-hidden={reading() || undefined}
-                    class={`flex min-h-0 flex-col overflow-y-auto overflow-x-hidden ${
-                      reading()
-                        ? "w-0"
-                        : "w-conductor-side border-l border-edge ps-conductor-gutter"
-                    }`}
-                  >
-                    <WorkColumn placement="side" />
-                  </aside>
-                </Shown.Provider>
-              </Show>
             </div>
             {/* THE HELP, as a sheet mounted once and opened from the header's
                 `?` or the `⋯` menu's How to use. */}

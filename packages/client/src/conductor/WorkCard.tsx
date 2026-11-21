@@ -118,6 +118,11 @@ const WorkCard: Component<{
    *  it, opening a file of it) names this. */
   id: WorkId;
   work: Work;
+  /** HOW IT IS DRAWN. A `card` is a block of its own — a work that needs
+   *  you, with its question, and a finished one. A `row` is one line of a
+   *  group's table, for every other work in progress: title, stage line,
+   *  terminals and age side by side. Both open in place on a press. */
+  shape: "card" | "row";
 }> = (props) => {
   // The column's clock, stopped while nobody is looking at the pane: every
   // duration on this card ticks from it, and a hidden pane ticks for nobody.
@@ -240,6 +245,92 @@ const WorkCard: Component<{
       : undefined;
   };
 
+  const row = () => props.shape === "row";
+
+  /** The parts both shapes draw, each in one place per shape. */
+  const age = () => (
+    <Tip
+      class="pointer-events-auto shrink-0"
+      label="How long this piece of work has run"
+    >
+      <span
+        data-testid="work-age"
+        class="shrink-0 font-mono text-[0.62rem] tabular-nums text-fg-3"
+      >
+        {dualPhrase(lifetime(props.work, new Date(now()).toISOString()))}
+      </span>
+    </Tip>
+  );
+  const subtitle = () => (
+    <p class="m-0 mt-0.5 flex min-w-0 gap-2 font-mono text-[0.62rem] text-fg-3">
+      <span data-testid="work-subtitle" class="min-w-0 flex-1 truncate">
+        <PrText
+          work={props.work}
+          text={workSubtitle(props.work, workHost(props.work)).join(" · ")}
+        />
+      </span>
+      {/* HOW LONG IT HAS WAITED ON YOU, all told — from a whole second, so a
+          setup answered in a blink does not read "you 0s". */}
+      <Show when={onYou() >= 1000}>
+        <span data-testid="work-on-you" class="shrink-0 text-alert">
+          you {dualPhrase(onYou())}
+        </span>
+      </Show>
+    </p>
+  );
+  const title = () => (
+    <span class="min-w-0 flex-1 truncate text-[0.78rem] font-semibold text-fg">
+      {props.work.title}
+    </span>
+  );
+  const standing = () => (
+    <WorkStanding
+      work={props.work}
+      line={at()}
+      now={now()}
+      testId="work-standing"
+    />
+  );
+  /** THE STRIP — on a card each segment that has happened is a button that
+   *  opens the card on that stage's events: the index into the timeline. */
+  const strip = () => (
+    <StageStrip
+      stages={read()}
+      size="full"
+      testId="stage-strip"
+      index={{
+        shown: shownStage,
+        show: (stage) => {
+          setPressed(stage);
+          setWhole(false);
+          openCard(props.id);
+        },
+      }}
+    />
+  );
+  /** ITS TERMINALS, ON THE FACE — every work in progress lists them without
+   *  being opened. An ended work has none (`live` is the open arm of the
+   *  state sum). */
+  const terminals = () => (
+    <Show when={live() !== undefined}>
+      <WorkTerminals work={props.work} members={members()} now={now()} />
+    </Show>
+  );
+  /** The face's press: a button laid UNDER the text rather than wrapped
+   *  round it, so the PR number the text names can be a link of its own and
+   *  the strip's segments and the terminals' controls buttons of their own —
+   *  the text lets presses through to it, and only those take them. */
+  const head = () => (
+    <button
+      type="button"
+      data-testid="work-card-head"
+      aria-expanded={isOpen()}
+      aria-label={props.work.title}
+      class={`absolute inset-0 cursor-pointer ${row() ? "" : "rounded-xl"}`}
+      onClick={() => toggleCard(props.id)}
+    />
+  );
+
   return (
     <article
       ref={(el) => {
@@ -247,6 +338,7 @@ const WorkCard: Component<{
         trackCard(el);
       }}
       data-testid="work-card"
+      data-shape={props.shape}
       data-work={props.id}
       data-who={at().who}
       data-open={isOpen() ? "" : undefined}
@@ -257,89 +349,69 @@ const WorkCard: Component<{
           ? props.work.state.outcome.kind
           : undefined
       }
-      // The needs-you edge is the one piece of colour a shut card carries: a
-      // column of five works must say which one is on you without being read.
-      // A card a chip asked for flashes once (`index.css`, `.work-card`).
-      class={`work-card min-w-0 scroll-m-3 overflow-hidden rounded-xl border bg-surface-0 ${
-        at().who === "you" ? "border-alert/55" : "border-edge"
-      }`}
+      // A card has its own border, and its needs-you edge is the one piece of
+      // colour a shut card carries: a column of works must say which one is
+      // on you without being read. A row is one line of its group's table,
+      // and its group draws the edges. A work a chip asked for flashes once
+      // (`index.css`, `.work-card`).
+      class={
+        row()
+          ? "work-card min-w-0 scroll-m-3 overflow-hidden bg-surface-0"
+          : `work-card min-w-0 scroll-m-3 overflow-hidden rounded-xl border bg-surface-0 ${
+              at().who === "you" ? "border-alert/55" : "border-edge"
+            }`
+      }
     >
-      {/* THE SHUT FACE. Its press is a button laid UNDER the text rather than
-          wrapped round it, so the PR number it names can be a link of its
-          own: the text lets presses through to the button, and only the
-          links (and the age's tooltip) take them. */}
-      <div class="relative px-2.5 py-2">
-        <button
-          type="button"
-          data-testid="work-card-head"
-          aria-expanded={isOpen()}
-          aria-label={props.work.title}
-          class="absolute inset-0 cursor-pointer rounded-xl"
-          onClick={() => toggleCard(props.id)}
-        />
-        <div class="pointer-events-none relative">
-          <div class="flex min-w-0 items-baseline gap-2">
-            <span class="min-w-0 flex-1 truncate text-[0.78rem] font-semibold text-fg">
-              {props.work.title}
-            </span>
-            <Tip
-              class="pointer-events-auto shrink-0"
-              label="How long this piece of work has run"
-            >
-              <span class="shrink-0 font-mono text-[0.62rem] tabular-nums text-fg-3">
-                {dualPhrase(
-                  lifetime(props.work, new Date(now()).toISOString()),
-                )}
-              </span>
-            </Tip>
+      <Show
+        when={row()}
+        fallback={
+          <>
+            {/* THE CARD: head, then the strip and the card's ways on — the
+                chat about it, its link, and its PR while that waits on you. */}
+            <div class="relative px-2.5 py-2">
+              {head()}
+              <div class="pointer-events-none relative">
+                <div class="flex min-w-0 items-baseline gap-2">
+                  {title()}
+                  {age()}
+                </div>
+                {subtitle()}
+                {standing()}
+              </div>
+            </div>
+            <div class="px-2.5 pb-2">
+              {strip()}
+              <WorkCardActions id={props.id} work={props.work} />
+            </div>
+          </>
+        }
+      >
+        {/* THE ROW: what it is and where; the stage line and where it
+            stands; its terminals; its age — side by side on a wide window,
+            the terminals dropping under the title below 1280px. Its press
+            reaches every part but the controls inside it. */}
+        <div class="relative px-3 py-2.5">
+          {head()}
+          <div class="pointer-events-none relative grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] items-start gap-x-5 gap-y-2 conductor-md:grid-cols-[minmax(0,1fr)_minmax(0,0.9fr)_minmax(0,1.7fr)_auto] [&_a]:pointer-events-auto [&_button]:pointer-events-auto">
+            <div class="col-start-1 row-start-1 min-w-0">
+              <div class="flex min-w-0">{title()}</div>
+              {subtitle()}
+            </div>
+            <div class="col-start-2 row-start-1 min-w-0">
+              {strip()}
+              {standing()}
+            </div>
+            <div class="col-span-full row-start-2 min-w-0 conductor-md:col-span-1 conductor-md:col-start-3 conductor-md:row-start-1">
+              {terminals()}
+            </div>
+            <div class="col-start-3 row-start-1 conductor-md:col-start-4">
+              {age()}
+            </div>
           </div>
-          <p class="m-0 mt-0.5 flex min-w-0 gap-2 font-mono text-[0.62rem] text-fg-3">
-            <span data-testid="work-subtitle" class="min-w-0 flex-1 truncate">
-              <PrText
-                work={props.work}
-                text={workSubtitle(props.work, workHost(props.work)).join(
-                  " · ",
-                )}
-              />
-            </span>
-            {/* HOW LONG IT HAS WAITED ON YOU, all told — from a whole second,
-                so a setup answered in a blink does not read "you 0s". */}
-            <Show when={onYou() >= 1000}>
-              <span data-testid="work-on-you" class="shrink-0 text-alert">
-                you {dualPhrase(onYou())}
-              </span>
-            </Show>
-          </p>
-          <WorkStanding
-            work={props.work}
-            line={at()}
-            now={now()}
-            testId="work-standing"
-          />
         </div>
-      </div>
-      {/* THE STRIP, ITS OWN ROW under the head: on a card each cell that has
-          happened is a button that opens the card on that stage's events —
-          the index into the timeline below. Under it, the card's ways on:
-          the chat about it, its link, and its PR while that waits on you. */}
-      <div class="px-2.5 pb-2">
-        <StageStrip
-          stages={read()}
-          size="full"
-          testId="stage-strip"
-          index={{
-            shown: shownStage,
-            show: (stage) => {
-              setPressed(stage);
-              setWhole(false);
-              openCard(props.id);
-            },
-          }}
-        />
-        <WorkCardActions id={props.id} work={props.work} />
-      </div>
+      </Show>
 
-      {/* THE QUESTIONS, ON THE SHUT FACE — a work that needs you is answered
+      {/* THE QUESTIONS, ON THE FACE — a work that needs you is answered
           where it stands, without opening it. EVERY open ask, not the
           oldest: a Conductor that asks about a failing check while a plan
           approval is still open has put two things to the human, and a face
@@ -366,20 +438,22 @@ const WorkCard: Component<{
         )}
       </Show>
 
-      {/* ITS TERMINALS, ON THE FACE — every work in progress lists them
-          without being opened. An ended work has none (`live` is the open
-          arm of the state sum). */}
-      <Show when={live() !== undefined}>
-        <div class="px-2.5 pb-2">
-          <WorkTerminals work={props.work} members={members()} now={now()} />
-        </div>
+      <Show when={!row()}>
+        <Show when={live() !== undefined}>
+          <div class="px-2.5 pb-2">{terminals()}</div>
+        </Show>
       </Show>
 
       <Show when={isOpen()}>
         {/* THE DETAILS, a press away: the record behind the face, in rows of
             one line each so the whole of an ordinary work fits a laptop
-            screen without scrolling. */}
+            screen without scrolling. A row carries its ways on here. */}
         <div class="border-t border-edge px-2.5 py-2">
+          <Show when={row()}>
+            <div class="mb-2">
+              <WorkCardActions id={props.id} work={props.work} />
+            </div>
+          </Show>
           <WorkDetails
             id={props.id}
             work={props.work}
