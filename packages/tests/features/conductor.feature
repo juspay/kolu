@@ -541,6 +541,22 @@ Feature: The Conductor
     And the conductor's box should scroll
     And there should be no page errors
 
+  Scenario: The mouse wheel scrolls the chat, and it stays where it left it
+    # The wheel is the reader's gesture over a long conversation. A real
+    # wheel notch (not a scripted scrollTop) must move the view, and the view
+    # must stay where it landed rather than snapping back to the bottom.
+    When I create a terminal
+    And I enter conductor mode
+    And I send the conductor the prompt "say a lot"
+    Then the conductor transcript should show a row of kind "agent" saying "line 30"
+    And the conductor transcript should be scrolled to the bottom
+    When I note where the conductor transcript is scrolled
+    And I scroll the conductor transcript up
+    Then the conductor transcript should have moved from where I noted
+    And the conductor transcript should stay where the reader left it
+    And the conductor should offer the way back to the bottom
+    And there should be no page errors
+
   Scenario: A mermaid block in an answer draws once it is complete
     # The fixture streams a six-item list, then a mermaid block over several
     # pieces (the closing fence on its own), then words for a few seconds more.

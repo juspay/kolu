@@ -390,7 +390,7 @@ const ConductorTranscript: Component<{
     // remembered offset alone, and coming back re-runs this with the column
     // laid out again.
     on(
-      [signature, redraws, transcriptPinned, shown],
+      [signature, redraws, transcriptPinned, shown, () => chatScope()?.id],
       ([drawn, , pinned, visible], prev) => {
         if (!visible) return;
         if (!placed) {
@@ -401,6 +401,14 @@ const ConductorTranscript: Component<{
         // NOT `atEnd(scroller)`. The rows are already in the column by now, so
         // that measurement answers about the chunk that just landed, not about
         // the reader — which is precisely how the transcript stopped following.
+        //
+        // A SCOPE CHANGE IS A NEW DOCUMENT, and a follower follows it. Picking
+        // a work hides every turn about something else, so the column shrinks
+        // and the browser clamps its scroll; unpicking puts the turns back,
+        // and without running this the follower was left 1,889px above the
+        // bottom of a conversation that had not moved. `pinned` is the one
+        // fact that decides it: somebody who scrolled up is left exactly where
+        // they are.
         if (pinned) {
           scroller.scrollTop = scroller.scrollHeight;
           setUnseen(false);

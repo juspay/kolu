@@ -1506,6 +1506,21 @@ Then(
 );
 
 Then(
+  "the conductor transcript should have moved from where I noted",
+  async function (this: KoluWorld) {
+    const noted = this.notedTranscriptTop;
+    assert.ok(noted !== undefined, "no scroll position was noted first");
+    const now = await this.page
+      .locator(TRANSCRIPT)
+      .evaluate((el) => el.scrollTop);
+    assert.ok(
+      now < noted - 10,
+      `the wheel did not scroll the transcript: it was at ${noted} and is at ${now} — a long conversation must answer the wheel`,
+    );
+  },
+);
+
+Then(
   "the conductor should offer the way back to the bottom",
   async function (this: KoluWorld) {
     await this.page
