@@ -58,7 +58,7 @@ import {
 } from "solid-js";
 import { fleetTerminalStanding } from "../palette/fleetTerminals";
 import { elapsedSince } from "../time/duration";
-import PrText from "./PrText";
+import WorkSubtitle from "./WorkSubtitle";
 import { useShown, useShownClock } from "../ui/shown";
 import Tip from "../ui/Tip";
 import WorkCardActions from "./WorkCardActions";
@@ -91,8 +91,6 @@ import {
   stagesOf,
   standingLine,
   timeSpentOnYou,
-  workHost,
-  workSubtitle,
 } from "./workReadings";
 import WorkTerminals, { type MemberLine } from "./WorkTerminals";
 
@@ -330,13 +328,8 @@ const WorkCard: Component<{
     </Tip>
   );
   const subtitle = () => (
-    <p class="m-0 mt-0.5 flex min-w-0 gap-2 font-mono text-[0.62rem] text-fg-3">
-      <span data-testid="work-subtitle" class="min-w-0 flex-1 truncate">
-        <PrText
-          work={props.work}
-          text={workSubtitle(props.work, workHost(props.work)).join(" · ")}
-        />
-      </span>
+    <p class="m-0 mt-0.5 flex min-w-0 items-center gap-2 font-mono text-[0.62rem] text-fg-3">
+      <WorkSubtitle work={props.work} livePr={livePr()} />
       {/* HOW LONG IT HAS WAITED ON YOU, all told — from a whole second, so a
           setup answered in a blink does not read "you 0s". */}
       <Show when={onYou() >= 1000}>

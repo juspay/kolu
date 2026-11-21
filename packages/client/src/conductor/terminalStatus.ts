@@ -1,3 +1,4 @@
+import { rowSubline } from "@kolu/solid-dockrow/rowValues";
 import { activeArm } from "@kolu/padi-client/surface";
 import type { FleetTerminalStanding } from "../palette/fleetTerminals";
 import {
@@ -103,19 +104,18 @@ export function terminalStatus(
           doing: agent.summary,
         };
       }
+      // AT THE PROMPT there is no command to name. Anything else in front
+      // is said as the Dock's row says it — the program's own title, else
+      // its name (`rowSubline`, the one reading of a shell's words).
       const front = arm.foreground;
-      if (front === null || front.shell)
-        return {
-          tone: "none",
-          state: "no agent",
-          progress: null,
-          doing: "at the shell",
-        };
       return {
         tone: "none",
         state: "no agent",
         progress: null,
-        doing: `running ${front.name}`,
+        doing:
+          front === null || front.shell
+            ? "at the shell"
+            : rowSubline(standing.meta).text,
       };
     }
   }

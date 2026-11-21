@@ -3,10 +3,10 @@
  *
  *  A ROW IS SIX PARTS IN FIXED PLACES: the role as a plain word; the name,
  *  which goes to the terminal's tile while the terminal is here; what it
- *  runs, small, beside the name; a dot with the state in words right beside
- *  it and for how long ("Thinking for 3m"), then how far through its tasks it
- *  is and what it is doing; **Look**; and **Take over** or **Hand back** when
- *  someone drives it.
+ *  runs, small, beside the name; the Dock's status indicator with the state
+ *  in words right beside it and for how long ("Thinking for 3m"), then how
+ *  far through its tasks it is and what it is doing; **Look**; and **Take
+ *  over** or **Hand back** when someone drives it.
  *
  *  THE LIST IS A GRID AND EACH ROW A SUBGRID of it, so the roles, the Look
  *  buttons and the lock buttons each share one left edge down the list, and
@@ -32,7 +32,8 @@ import { agentName } from "../ui/agentDisplay";
 import { onHostWords, useKnownNames } from "./memberNames";
 import type { MemberRef } from "./memberRef";
 import { openPeek } from "./peek/usePeek";
-import { liveArm, STATUS_DOT, terminalStatus } from "./terminalStatus";
+import MemberPip from "./MemberPip";
+import { liveArm, terminalStatus } from "./terminalStatus";
 import { useConductor } from "./useConductor";
 import { useOpenTile } from "./useOpenTile";
 import { useMembership, useSeen } from "./useWorks";
@@ -76,17 +77,22 @@ const MemberRow: Component<{
   const name = () => props.names.get(ref()) ?? onHostWords(ref());
   const here = () =>
     props.one.standing?.kind === "here" ? props.one.split : null;
-  /** WHAT IT RUNS: the setup's harness and model for the role, else the
-   *  agent kolu sees in it, else nothing. */
-  const runs = () =>
-    Option.getOrElse(roleRuns(props.work, props.one.member.role), () => {
-      const standing = props.one.standing;
-      const kind =
-        standing?.kind === "here"
-          ? activeArm(standing.meta)?.agent?.kind
-          : undefined;
-      return kind === undefined ? "" : agentName(kind);
-    });
+  /** WHAT IT RUNS: the harness the setup chose for the role, else the agent
+   *  kolu sees in it; the model its session reports, else the setup's. */
+  const runs = () => {
+    const standing = props.one.standing;
+    const agent =
+      standing?.kind === "here" ? activeArm(standing.meta)?.agent : undefined;
+    return Option.getOrElse(
+      roleRuns(props.work, props.one.member.role, {
+        agent: agent == null ? undefined : agentName(agent.kind),
+        // The session's own word, as the Dock's row reads it: `null` until
+        // the session names one.
+        model: agent?.model ?? undefined,
+      }),
+      () => "",
+    );
+  };
   const status = createMemo(() =>
     props.one.standing === undefined
       ? null
@@ -162,9 +168,9 @@ const MemberRow: Component<{
         >
           {(now) => (
             <>
-              <span
-                class={`h-2 w-2 shrink-0 rounded-full ${STATUS_DOT[now().tone]}`}
-              />
+              <Show when={props.one.split}>
+                {(at) => <MemberPip at={at()} standing={props.one.standing} />}
+              </Show>
               {/* THE STATE AND ITS TIME hold their room; the tail after
                   them is what gives way. */}
               <span class="shrink-0 whitespace-nowrap">
