@@ -1266,10 +1266,10 @@ export const make = (options: Options): Effect.Effect<Agent, never, never> =>
         answeringIn(params._meta),
         named,
         (id) => {
-        // Held under the AGENT'S OWN id, which is the only name
-        // `elicitation/complete` says. An elicitation with no id cannot be
-        // completed by name, so nothing holds it and the row is settled by a
-        // person like every other question.
+          // Held under the AGENT'S OWN id, which is the only name
+          // `elicitation/complete` says. An elicitation with no id cannot be
+          // completed by name, so nothing holds it and the row is settled by a
+          // person like every other question.
           if (settling !== null) waitingLinks.set(settling, id);
         },
       );
