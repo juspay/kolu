@@ -6,6 +6,7 @@
 import type { ConductorRow } from "kolu-common/conductor";
 import { describe, expect, it } from "vitest";
 import { finishedReplyOf } from "./typedReply";
+import { AT_THE_END } from "./replyAcrossTurns.testlib";
 
 const at = (minute: number): string =>
   new Date(Date.UTC(2026, 10, 17, 3, minute)).toISOString();
@@ -169,5 +170,30 @@ describe("the newest finished reply to a message a person typed", () => {
 
   it("is nothing with no rows at all", () => {
     expect(finishedReplyOf([], false)).toBeNull();
+  });
+});
+
+describe("the finished reply, when rows say which message they answer (#2420)", () => {
+  it("is the reply under the turn a message was steered into", () => {
+    // A steered message is part of the turn it landed in and starts none, so
+    // the reply after it is that turn's.
+    expect(
+      finishedReplyOf(
+        [
+          user("u1", 0),
+          { ...agent("a1", 1, "Looking into it."), turn: "u1" },
+          { ...user("u2", 2), turn: "u1" },
+          { ...agent("a2", 3, "Both are done."), turn: "u1" },
+        ],
+        false,
+      ),
+    ).toEqual({ turn: "u1", text: "Both are done." });
+  });
+
+  it("is the second message's reply once both turns are over", () => {
+    expect(finishedReplyOf(AT_THE_END, false)).toEqual({
+      turn: "user:3",
+      text: "hello back",
+    });
   });
 });

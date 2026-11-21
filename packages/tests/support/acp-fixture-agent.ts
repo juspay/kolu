@@ -27,6 +27,12 @@
  *                      answers; the turn ends when they do
  *   work slowly      — a turn that stays open long enough for a second prompt
  *                      to be marked `queued` behind it
+ *   talk across turns — says the first half of an answer, and waits for the
+ *                      NEXT prompt to arrive (which waits its turn behind
+ *                      this one); then says the second half and stays open
+ *                      until a cancel, which ends it `cancelled`. Triggers,
+ *                      not timers: what the next prompt and Stop do is the
+ *                      whole of what moves it
  *   refuse this      — a JSON-RPC error, which is a turn that ENDED rather than
  *                      an agent that has gone
  *   hit the limit    — the account at its usage limit: a JSON-RPC error whose
@@ -510,6 +516,11 @@ const say = (text: string): void => {
 
 /** The steer the `work until steered` turn is waiting for, while it waits. */
 let awaitingSteer: ((text: string) => void) | null = null;
+/** The `talk across turns` turn, waiting for the next prompt to ARRIVE —
+ *  not to run: that prompt waits its turn behind this one. */
+let awaitingPrompt: (() => void) | null = null;
+/** ... and then for the cancel that ends it. */
+let awaitingCancel: (() => void) | null = null;
 
 /** The terminal the `run` verb last STARTED, as the fleet ref the create
  *  answered with — what `tell it <words>` speaks to. `null` until one is
@@ -1081,6 +1092,20 @@ const turn = async (
     endTurn(id);
     return;
   }
+  if (text === "talk across turns") {
+    say("The first half of the answer, ");
+    const next = Promise.withResolvers<void>();
+    awaitingPrompt = next.resolve;
+    await next.promise;
+    awaitingPrompt = null;
+    say("and the second half, written after your next message.");
+    const stop = Promise.withResolvers<void>();
+    awaitingCancel = stop.resolve;
+    await stop.promise;
+    awaitingCancel = null;
+    respond(id, { stopReason: "cancelled" });
+    return;
+  }
   if (text === "work slowly") {
     const slept = Promise.withResolvers<void>();
     setTimeout(slept.resolve, 1500);
@@ -1441,6 +1466,9 @@ process.stdin.on("data", (chunk: string) => {
         respond(message.id, {});
         continue;
       case "session/cancel":
+        // Only the turn that waits for a cancel acts on one; every other turn
+        // here runs to its own end, as it always has.
+        awaitingCancel?.();
         continue;
       case "session/prompt": {
         writeFileSync(join(STORE, session), "");
@@ -1448,6 +1476,10 @@ process.stdin.on("data", (chunk: string) => {
         const whole = (message.params?.prompt ?? [])
           .map((block) => block.text ?? "")
           .join("\n");
+        // The turn that waits for the next prompt to ARRIVE hears it now —
+        // BEFORE this prompt is queued, so a turn never hears its own — and
+        // the prompt itself waits its turn behind it.
+        awaitingPrompt?.();
         enqueue(() => turn(message.id, text, whole));
         continue;
       }

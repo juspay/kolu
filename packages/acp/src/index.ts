@@ -24,6 +24,7 @@
  */
 
 export {
+  ACTIVITY_METHOD,
   type ActivityNotification,
   type ActivityUpdate,
   type Heard,

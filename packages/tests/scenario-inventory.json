@@ -12910,6 +12910,18 @@
       "exampleRows": [],
       "executions": 1,
       "firstSeenSha": "6f1cdc512955c6b33e054a6e3bdb1d11f2dbd1dd"
+    },
+    {
+      "revisionId": "revision-3b0f088bba3692169bf9",
+      "scenarioKey": "scenario-db4e47122b91e4a6ad3f",
+      "feature": "features/conductor-turns.feature",
+      "scenario": "A message sent mid-reply waits below the whole reply, then gets its own",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "528e1170f808953514edb38472172d03a61f7f3d931421185f7a31bfcdae5348",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "afc05c7a9a5cd04b6e2e7230aeaa9e14029dd415"
     }
   ]
 }

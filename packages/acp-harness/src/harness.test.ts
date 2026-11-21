@@ -157,6 +157,9 @@ interface Running {
    *  the harness's own copy. */
   readonly rows: () => ReadonlyArray<FixtureRow>;
   readonly states: ReadonlyArray<HarnessState>;
+  /** ... and what a reader held after EVERY change, in `seq` order — for a
+   *  moment a scenario passes through rather than ends on. */
+  readonly history: ReadonlyArray<ReadonlyArray<FixtureRow>>;
 }
 
 /** WHAT A PERSON TYPED, as this fixture product hands it over: the words are
@@ -249,6 +252,7 @@ const open = async (
 ): Promise<Running> => {
   const rows = new Map<string, FixtureRow>();
   const states: Array<HarnessState> = [];
+  const history: Array<ReadonlyArray<FixtureRow>> = [];
   const fold = (change: HarnessChange<FixtureRow>): void => {
     if (change.kind === "state") {
       states.push(change.state);
@@ -272,6 +276,7 @@ const open = async (
         text: `${row.text.slice(0, append.at)}${append.text}`,
       });
     }
+    history.push([...rows.values()].sort((a, b) => a.seq - b.seq));
   };
   const harness = await startHarness<FixtureRow>({
     agent: "fixture-agent",
@@ -316,6 +321,7 @@ const open = async (
     harness,
     rows: () => [...rows.values()].sort((a, b) => a.seq - b.seq),
     states,
+    history,
   };
 };
 
@@ -447,6 +453,52 @@ const dead = async (running: Running): Promise<void> => {
 
 const dividers = (running: Running): ReadonlyArray<FixtureRow> =>
   running.rows().filter((one) => one.kind === "divider");
+
+/** THE FIXTURE AGENT'S OWN DIALECT for tasks and children — `fixture_task`,
+ *  `fixture_task_ended` and `fixture_spawned` in its `session/update`s, words
+ *  no real engine uses (`@kolu/acp-client`'s `activity-protocol.test.ts`
+ *  argues why a fixture names no engine). */
+const FIXTURE_DIALECT: NonNullable<Leg["nativeActivity"]> = {
+  clientMeta: {},
+  readIn: (message) => {
+    const envelope = message as {
+      method?: string;
+      params?: { sessionId?: string; update?: Record<string, unknown> };
+    };
+    if (envelope.method !== "session/update") return null;
+    const session = String(envelope.params?.sessionId);
+    const update = envelope.params?.update ?? {};
+    const id = String(update.id);
+    switch (update.sessionUpdate) {
+      case "fixture_task":
+        return {
+          kind: "activity",
+          value: {
+            session,
+            update: { kind: "task", id, name: String(update.name) },
+          },
+        };
+      case "fixture_task_ended":
+        return {
+          kind: "activity",
+          value: {
+            session,
+            update: { kind: "taskEnded", id, state: "completed" },
+          },
+        };
+      case "fixture_spawned":
+        return {
+          kind: "activity",
+          value: {
+            session,
+            update: { kind: "child", id, name: "Explorer", task: "look" },
+          },
+        };
+      default:
+        return null;
+    }
+  },
+};
 
 describe("one conversation with a real agent", () => {
   test("a prompt goes out and the answer comes back as one growing row", async () => {
@@ -610,6 +662,198 @@ describe("one conversation with a real agent", () => {
     await settled(running, "the queued turn never ended");
     const taken = running.rows().find((row) => row.id === second.rowId);
     expect(taken?.kind === "user" ? taken.queued : undefined).toBeUndefined();
+  });
+
+  test("the rest of a reply still being written when a second message is sent stays out of that message's answer", async () => {
+    const running = await open("agent.ts");
+    // `talkingSlow` says its first words and is held until the second prompt
+    // arrives; then it says the rest and answers, and the fixture writes the
+    // second turn's first words in the same tick. A trigger, not a timer.
+    await running.harness.prompt(typed("talkingSlow", []), false);
+    const until = Date.now() + 10_000;
+    while (!textOfKind(running, "agent").includes("A-reply-part-1 ")) {
+      if (Date.now() > until) throw new Error("the first reply never started");
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+    await running.harness.prompt(typed("hello", []), false);
+    await settled(running, "the two turns never ended");
+
+    const said = textOfKind(running, "agent");
+    // The answer to the second message holds nothing of the first reply ...
+    expect(said.find((one) => one.includes("hello back"))).toBe("hello back");
+    // ... and the first reply's last row holds nothing of the second answer.
+    expect(said.filter((one) => one.includes("A-reply-")).at(-1)).toBe(
+      "A-reply-part-3",
+    );
+  });
+
+  test("every row says which message it answers, and a message sent behind a running turn does not cut its reply", async () => {
+    const running = await open("agent.ts");
+    const a = await running.harness.prompt(typed("talkingSlow", []), false);
+    const until = Date.now() + 10_000;
+    while (!textOfKind(running, "agent").includes("A-reply-part-1 ")) {
+      if (Date.now() > until) throw new Error("the first reply never started");
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+    const b = await running.harness.prompt(typed("hello", []), false);
+    await settled(running, "the two turns never ended");
+
+    expect([a.rowId, b.rowId]).toEqual(["user:1", "user:3"]);
+    // THE WHOLE ROW LIST, in `seq` order. The client's grouping tests for
+    // #2420 (`packages/client/src/conductor/turnWorks.test.ts`) copy it: the
+    // first reply goes on after the second message was written, and every row
+    // of it says it answers the first message. A message row opens its own
+    // turn and carries none.
+    expect(
+      running.rows().map((row) => ({
+        id: row.id,
+        kind: row.kind,
+        text: "text" in row ? row.text : undefined,
+        turn: "turn" in row ? row.turn : undefined,
+      })),
+    ).toEqual([
+      { id: "user:1", kind: "user", text: "talkingSlow", turn: undefined },
+      {
+        id: "agent:2",
+        kind: "agent",
+        text: "A-reply-part-1 A-reply-part-2",
+        turn: "user:1",
+      },
+      { id: "user:3", kind: "user", text: "hello", turn: undefined },
+      {
+        id: "tool:call-of-A",
+        kind: "tool",
+        text: "a call the first turn made",
+        turn: "user:1",
+      },
+      { id: "agent:4", kind: "agent", text: "A-reply-part-3", turn: "user:1" },
+      { id: "agent:5", kind: "agent", text: "hello back", turn: "user:3" },
+    ]);
+  });
+
+  test("while the second message waits, the reader holds it queued and the first reply's later rows answer the first", async () => {
+    const running = await open("agent.ts");
+    await running.harness.prompt(typed("talkingSlow", []), false);
+    const until = Date.now() + 10_000;
+    while (!textOfKind(running, "agent").includes("A-reply-part-1 ")) {
+      if (Date.now() > until) throw new Error("the first reply never started");
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+    await running.harness.prompt(typed("hello", []), false);
+    await settled(running, "the two turns never ended");
+
+    const seen = (rows: ReadonlyArray<FixtureRow>) =>
+      rows.map((row) => ({
+        id: row.id,
+        text: "text" in row ? row.text : undefined,
+        turn: "turn" in row ? row.turn : undefined,
+        marks: [
+          ...(row.kind === "user" && row.queued === true ? ["queued"] : []),
+          ...(row.kind === "agent" && row.streaming === true
+            ? ["streaming"]
+            : []),
+        ],
+      }));
+    const queued = (rows: ReadonlyArray<FixtureRow>): boolean =>
+      rows.some(
+        (row) => row.id === "user:3" && row.kind === "user" && row.queued,
+      );
+    // THE TWO MOMENTS the client's tests start from
+    // (`packages/client/src/conductor/replyAcrossTurns.testlib.ts`): the
+    // second message just sent, and the first reply gone on above it.
+    const justSent = running.history.find(queued);
+    const goneOn = running.history.find(
+      (rows) => queued(rows) && rows.some((row) => row.id === "agent:4"),
+    );
+    expect(seen(justSent ?? [])).toEqual([
+      { id: "user:1", text: "talkingSlow", turn: undefined, marks: [] },
+      {
+        id: "agent:2",
+        text: "A-reply-part-1 ",
+        turn: "user:1",
+        marks: ["streaming"],
+      },
+      { id: "user:3", text: "hello", turn: undefined, marks: ["queued"] },
+    ]);
+    expect(seen(goneOn ?? [])).toEqual([
+      { id: "user:1", text: "talkingSlow", turn: undefined, marks: [] },
+      {
+        id: "agent:2",
+        text: "A-reply-part-1 A-reply-part-2",
+        turn: "user:1",
+        marks: [],
+      },
+      { id: "user:3", text: "hello", turn: undefined, marks: ["queued"] },
+      {
+        id: "tool:call-of-A",
+        text: "a call the first turn made",
+        turn: "user:1",
+        marks: [],
+      },
+      {
+        id: "agent:4",
+        text: "A-reply-part-3",
+        turn: "user:1",
+        marks: ["streaming"],
+      },
+    ]);
+  });
+
+  test("a question the agent asks answers the message whose turn asked it", async () => {
+    const running = await open("agent.ts");
+    const { rowId } = await running.harness.prompt(typed("ask", []), false);
+    const until = Date.now() + 10_000;
+    while (running.harness.state().openAsks.length === 0) {
+      if (Date.now() > until) throw new Error("the question never came");
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+    const [askId] = running.harness.state().openAsks;
+    const ask = running.rows().find((row) => row.id === askId);
+    expect(ask !== undefined && "turn" in ask ? ask.turn : undefined).toBe(
+      rowId,
+    );
+  });
+
+  test("the harness says which message's turn the agent is on, for rows a product writes itself", async () => {
+    const running = await open("agent.ts");
+    expect(running.harness.turn()).toBeNull();
+    // `slow` says nothing before it is held: the turn is known from the
+    // prompt in flight before any frame of it has been read.
+    const held = await running.harness.prompt(typed("slow", []), false);
+    expect(running.harness.turn()).toBe(held.rowId);
+    await running.harness.prompt(typed("hello", []), false);
+    await settled(running, "the two turns never ended");
+    expect(running.harness.turn()).toBeNull();
+  });
+
+  test("a task and a child an agent reports in its own dialect say their turn, and a task's end mid-reply cuts no paragraph", async () => {
+    // A leg that READS the fixture's own dialect, the way an engine whose
+    // agent narrates tasks and children outside core ACP does. Those frames
+    // become `tool` events built by the client's activity reader rather than
+    // by its `session/update` reader, and they are frames of the turn too.
+    const running = await open("agent.ts", {
+      leg: { ...leg, nativeActivity: FIXTURE_DIALECT },
+    });
+    const { rowId } = await running.harness.prompt(
+      typed("taskAcrossProse", []),
+      false,
+    );
+    await settled(running, "the turn never ended");
+
+    // The task's end is only the life of a call already known, so the
+    // paragraph it lands in goes on: ONE row of prose.
+    expect(textOfKind(running, "agent")).toEqual([
+      "the first half, and the second",
+    ]);
+    // ... and the task's row and the child's card are the turn's.
+    const turns = running
+      .rows()
+      .filter((row) => row.kind === "tool")
+      .map((row) => [row.id, "turn" in row ? row.turn : undefined]);
+    expect(turns).toEqual([
+      ['tool:acp-task:["sess-1","t1"]', rowId],
+      ['tool:acp-agent:"kid"', rowId],
+    ]);
   });
 
   test("a background task outlives its turn and its death lands as a notice", async () => {
@@ -2000,6 +2244,17 @@ describe("putting a message INTO the turn that is running", () => {
 
     // THE PROCESS AT THE OTHER END is the only witness that it landed.
     expect(await steeredInto(running)).toEqual(["actually, the other branch"]);
+  });
+
+  test("a message steered into the running turn says it is part of that turn", async () => {
+    const running = await open("agent.ts", { leg: steersLeg });
+    const held = await running.harness.prompt(typed("slow", []), false);
+    const steer = await running.harness.prompt(
+      typed("actually, the other branch", []),
+      true,
+    );
+    const row = rowOf(running, steer.rowId);
+    expect("turn" in row ? row.turn : undefined).toBe(held.rowId);
   });
 
   test("a steer that carries FILES goes as a plain prompt, files and all", async () => {

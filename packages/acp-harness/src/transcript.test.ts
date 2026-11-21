@@ -428,3 +428,31 @@ describe("whether a background task is still out", () => {
     expect(isTaskOut({ status: "in_progress" })).toBe(false);
   });
 });
+
+describe("the turn a row answers", () => {
+  it("is the turn it was first written in, whichever turn writes it again", () => {
+    // A call the first turn made settles while the second one is running: the
+    // row is the first turn's for good, the way its `seq` is.
+    const transcript = conversation();
+    transcript.answering("user:1");
+    transcript.tool("c1", { title: "Bash", status: "in_progress" });
+    transcript.answering("user:3");
+    transcript.tool("c1", { status: "completed" });
+    const row = rowsOf(transcript).find((one) => one.kind === "tool");
+    expect(row !== undefined && "turn" in row ? row.turn : undefined).toBe(
+      "user:1",
+    );
+  });
+
+  it("is none for a row written after a wipe, whatever turn ran before it", () => {
+    // A wipe empties the open paragraph with everything else; the turn the
+    // wire last named goes with it, or the next conversation's first rows
+    // would answer a message that is no longer there.
+    const transcript = conversation();
+    transcript.answering("user:1");
+    transcript.clear();
+    transcript.add("notice", "a new conversation");
+    const row = rowsOf(transcript).find((one) => one.kind === "notice");
+    expect(row !== undefined && "turn" in row).toBe(false);
+  });
+});

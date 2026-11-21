@@ -658,16 +658,25 @@ export type SigningIn = typeof SigningIn.Type;
 // product's extra can drift into the other's rows.
 //
 // `rowHead` is what makes a row ONE row: a stable key (`id`), the conversation
-// order (`seq`), and when the row was minted (`since`), stamped once by the
-// writer so every reader's clock agrees.
+// order (`seq`), when the row was minted (`since`), and which message it
+// answers (`turn`), stamped once by the writer so every reader agrees.
 
 /** Stable within a session, so a frame refines a row rather than duplicating
- *  it; `seq` is the conversation order the panel draws in; `since` is when the
+ *  it; `seq` is the order the rows were first written in; `since` is when the
  *  row was minted. */
 export const rowHead = {
   id: Schema.String,
   seq: Schema.Int,
   since: Schema.String,
+  /** WHICH MESSAGE THIS ROW ANSWERS — the id of the message row (a person's,
+   *  or one the product sent itself) whose turn the agent was on when the row
+   *  was first written, as the wire placed it. Written once and never moved,
+   *  like `seq`. Absent on a message that opens a turn of its own, on a row
+   *  written while no turn was running, and on every row written before rows
+   *  said so; a reader places those by `seq`. `seq` cannot answer this alone:
+   *  a message sent while a reply is still being written takes its place in
+   *  the order before the rest of that reply. */
+  turn: Schema.optionalKey(Schema.String),
 };
 
 /** What a PERSON typed. Never markdown — it is quoted, not rendered. */
