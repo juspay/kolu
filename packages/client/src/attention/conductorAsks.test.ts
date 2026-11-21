@@ -83,14 +83,8 @@ function harness() {
       if (one.reply !== null) replies.push(one.reply.turn);
     },
   };
-  const raw = createConductorBell(hooks);
-  /** One reading, and the decision the page makes about it once drawn. */
-  const bell = {
-    observe: (one: BellReading): void => {
-      raw.observe(one);
-    },
-  };
-  return { bell, raw, rang, memoryRang, replies };
+  const bell = createConductorBell(hooks);
+  return { bell, rang, memoryRang, replies };
 }
 
 /** A finished reply to a message a person typed. */

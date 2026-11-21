@@ -36,11 +36,8 @@ function harness(alerts = true) {
     attend: createAttend(channels),
     sounds,
     popups,
-    throwNextPopup: () => {
-      throwOnPopup = true;
-    },
-    popupsWork: () => {
-      throwOnPopup = false;
+    setPopupThrows: (throws: boolean) => {
+      throwOnPopup = throws;
     },
   };
 }
@@ -74,12 +71,12 @@ describe("the one path an alert takes", () => {
   });
 
   it("survives a popup that throws, and the next raise still chimes", () => {
-    const { attend, sounds, popups, throwNextPopup, popupsWork } = harness();
-    throwNextPopup();
+    const { attend, sounds, popups, setPopupThrows } = harness();
+    setPopupThrows(true);
     expect(() => attend.raise([one("a")])).not.toThrow();
     expect(sounds).toHaveLength(1);
     expect(popups).toEqual([]);
-    popupsWork();
+    setPopupThrows(false);
     attend.raise([one("b")]);
     expect(sounds).toHaveLength(2);
     expect(popups.map((item) => item.tag)).toEqual(["b"]);

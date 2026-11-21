@@ -153,13 +153,14 @@ export function useAttention(deps: AttentionDeps): {
       document.hasFocus(),
     );
 
-  /** Actually reach the user for one terminal: sound + OS popup when `loud`,
-   *  plus the dock unread when it's an active-host background tile. The `WHEN`
-   *  gate lives in the engine; this is the delivery, shared with the simulate
-   *  hook. A terminal the Conductor drives is delivered QUIET — the marks and
-   *  nothing else — because the Conductor answers its agents, and a person
-   *  hearing "finished" for a planner the Conductor is about to brief again
-   *  learns to ignore the bell.
+  /** Actually reach the user for one terminal: hand the item to the one path
+   *  when `loud`, plus the dock unread when it's an active-host background
+   *  tile. The `WHEN` gate lives in the engine; this is the terminal's own
+   *  reading of the one path, shared with the simulate hook. A terminal the
+   *  Conductor drives is delivered QUIET — the marks and nothing else —
+   *  because the Conductor answers its agents, and a person hearing
+   *  "finished" for a planner the Conductor is about to brief again learns
+   *  to ignore the bell.
    *
    *  The FUNNEL GUARD: both emission paths (the engine's `hooks.deliver`, fired
    *  from a per-host `createEffect`, and `simulateAlert`) run through here, and the

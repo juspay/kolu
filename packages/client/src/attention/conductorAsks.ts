@@ -92,34 +92,39 @@ const tokenOf = (item: NeedsYou): string =>
 
 export function createConductorBell(hooks: ConductorBellHooks): ConductorBell {
   let started = false;
-  let memoryStarted = false;
-  let replyStarted = false;
   const heard = new Set<string>();
   const known = new Set<WorkId>();
+  const memoryBase = { started: false };
+  const replyBase = { started: false };
+  /** ONE SOURCE THAT ARRIVES ON ITS OWN CLOCK — memory, or a reply. Its first
+   *  reading is its baseline, each token is heard once, and only a token
+   *  heard after that baseline is news. Answers the item when it is news,
+   *  else `null`. Called on every reading that HAS the source, base or not. */
+  const freshItem = <T>(
+    baseline: { started: boolean },
+    item: T | null,
+    token: (item: T) => string,
+  ): T | null => {
+    const key = item === null ? null : token(item);
+    const fresh = baseline.started && key !== null && !heard.has(key);
+    if (key !== null) heard.add(key);
+    baseline.started = true;
+    return fresh ? item : null;
+  };
   return {
     observe(reading) {
-      let memory: MemoryNeed | null = null;
-      if (reading.memory !== undefined) {
-        if (reading.memory !== null) {
-          const token = `memory:${reading.memory.identity}`;
-          if (!heard.has(token)) {
-            heard.add(token);
-            if (memoryStarted) memory = reading.memory;
-          }
-        }
-        memoryStarted = true;
-      }
-      let reply: TypedReply | null = null;
-      if (reading.reply !== undefined) {
-        if (reading.reply !== null) {
-          const token = `reply:${reading.reply.turn}`;
-          if (!heard.has(token)) {
-            heard.add(token);
-            if (replyStarted) reply = reading.reply;
-          }
-        }
-        replyStarted = true;
-      }
+      const memory =
+        reading.memory === undefined
+          ? null
+          : freshItem(
+              memoryBase,
+              reading.memory,
+              (m) => `memory:${m.identity}`,
+            );
+      const reply =
+        reading.reply === undefined
+          ? null
+          : freshItem(replyBase, reading.reply, (r) => `reply:${r.turn}`);
       const items: NeedsYou[] = [];
       let own = false;
       if (!started) {

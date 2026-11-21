@@ -25,13 +25,10 @@ export function terminalItem(args: {
   subject: TerminalSubject | undefined;
 }): AttentionItem {
   const { encHost, hostLabel, id, asking, subject } = args;
+  const words = asking ? "needs your input" : "finished";
   const title = subject
-    ? asking
-      ? `${subject.title} needs your input`
-      : `${subject.title} finished`
-    : asking
-      ? `An agent needs your input on ${hostLabel}`
-      : `An agent finished on ${hostLabel}`;
+    ? `${subject.title} ${words}`
+    : `An agent ${words} on ${hostLabel}`;
   return {
     tag: `${encHost}/${id}`,
     title,
