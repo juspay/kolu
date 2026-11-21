@@ -194,7 +194,10 @@ const LivePane: Component<{
             </div>
           }
         >
-          <div class="h-full w-full overflow-x-auto overflow-y-hidden">
+          <div
+            data-testid="live-scroller"
+            class="h-full w-full overflow-x-auto overflow-y-hidden"
+          >
             <div
               style={{
                 width: natural() === null ? "100%" : `${natural()?.width}px`,
