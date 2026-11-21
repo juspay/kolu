@@ -63,42 +63,45 @@ const entry = (world: KoluWorld, title: string): Locator =>
   });
 
 interface MemoryCell {
-  readonly entries: ReadonlyArray<{ readonly id: string }>;
+  readonly entries: ReadonlyArray<{
+    readonly id: string;
+    readonly title: string;
+  }>;
   readonly proposals: ReadonlyArray<{ readonly id: string }>;
 }
 
+const readMemory = async (): Promise<MemoryCell> =>
+  (await surfaceFirstFrame("surface/kolu/conductorMemory/get")) as MemoryCell;
+
 /** THE MEMORY A SCENARIO LEFT, emptied over the real wire. Memory outlives
- *  every conversation, so a fresh conversation still holds it. A waiting
- *  proposal is approved and then deleted rather than declined, so it leaves
- *  nothing behind; each pass re-reads until the record is empty. */
-const emptyMemory = (): Promise<number> =>
-  pollFor({
+ *  every conversation, so a fresh conversation still holds it. Each waiting
+ *  proposal is declined and each entry deleted ONCE, then the cell is read
+ *  until it agrees: a frame read right after a write can still show what the
+ *  write settled, and acting on it twice would be refused. Every title is
+ *  marked per scenario, so a kept decline never refuses another one. */
+const emptyMemory = async (): Promise<void> => {
+  const left = await readMemory();
+  for (const one of left.proposals)
+    await surfaceCall("surface/kolu/conductor/declineMemory", {
+      proposal: one.id,
+    });
+  for (const one of left.entries)
+    await surfaceCall("surface/kolu/conductor/deleteMemory", {
+      entry: one.id,
+    });
+  await pollFor({
     observe: async () => {
-      const memory = (await surfaceFirstFrame(
-        "surface/kolu/conductorMemory/get",
-      )) as MemoryCell;
-      for (const one of memory.proposals)
-        await surfaceCall("surface/kolu/conductor/approveMemory", {
-          proposal: one.id,
-          edited: null,
-        }).catch(() =>
-          surfaceCall("surface/kolu/conductor/declineMemory", {
-            proposal: one.id,
-          }),
-        );
-      for (const one of memory.entries)
-        await surfaceCall("surface/kolu/conductor/deleteMemory", {
-          entry: one.id,
-        });
+      const memory = await readMemory();
       return memory.entries.length + memory.proposals.length;
     },
-    isDone: (left) => left === 0,
+    isDone: (count) => count === 0,
     timeoutMs: POLL_TIMEOUT,
-    onTimeout: (left, ms) =>
+    onTimeout: (count, ms) =>
       new Error(
-        `${left ?? "?"} memories and proposals were left after ${ms}ms`,
+        `${count ?? "?"} memories and proposals were left after ${ms}ms`,
       ),
   });
+};
 
 Given("the Conductor's memory is empty", async () => {
   await emptyMemory();
@@ -181,6 +184,74 @@ Then(
           .textContent({ timeout: 1_000 })
           .catch(() => null),
       (seen) => seen === ended,
+    );
+  },
+);
+
+Given(
+  "I remember {string} saying {string}",
+  async function (this: KoluWorld, title: string, body: string) {
+    await surfaceCall("surface/kolu/conductor/saveMemory", {
+      entry: null,
+      text: { title: marked(this, title), about: null, body },
+    });
+  },
+);
+
+When(
+  "the Conductor proposes to change the memory {string} to {string}",
+  async function (this: KoluWorld, title: string, to: string) {
+    const memory = (await surfaceFirstFrame(
+      "surface/kolu/conductorMemory/get",
+    )) as MemoryCell;
+    const replaced = memory.entries.find(
+      (one) => one.title === marked(this, title),
+    );
+    if (replaced === undefined)
+      throw new Error(`no memory titled "${title}" to change`);
+    await surfaceCall("surface/kolu/conductor/prompt", {
+      text: `change ${replaced.id} to ${marked(this, to)}`,
+      mentions: [],
+      attachments: [],
+      steer: false,
+    });
+  },
+);
+
+Then(
+  "the memory proposal {string} should say it replaces {string}",
+  async function (this: KoluWorld, title: string, replaced: string) {
+    await until(
+      `what the proposal "${title}" replaces`,
+      () =>
+        proposalIn(this, title)
+          .locator('[data-testid="memory-proposal-replaces"]')
+          .textContent({ timeout: 1_000 })
+          .catch(() => null),
+      (seen) => (seen ?? "").includes(marked(this, replaced)),
+    );
+  },
+);
+
+When(
+  "I show the memory the proposal {string} replaces",
+  async function (this: KoluWorld, title: string) {
+    await proposalIn(this, title)
+      .locator('[data-testid="memory-proposal-current"]')
+      .click();
+  },
+);
+
+Then(
+  "the memory proposal {string} should show {string}",
+  async function (this: KoluWorld, title: string, text: string) {
+    await until(
+      `the text of the proposal "${title}"`,
+      () =>
+        proposalIn(this, title)
+          .textContent({ timeout: 1_000 })
+          .catch(() => null),
+      (seen) => (seen ?? "").includes(text),
     );
   },
 );

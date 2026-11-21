@@ -78,6 +78,14 @@ describe("a proposal", () => {
     expect(taughtAgain()).toBe(0);
   });
 
+  it("outside any turn is a batch of its own, so each rings once", () => {
+    const { store } = harness();
+    const first = store.propose(add("One"), null, null);
+    const second = store.propose(add("Two"), null, null);
+    expect(first.batch).toBe(first.id);
+    expect(second.batch).toBe(second.id);
+  });
+
   it("is refused for text that could not be a memory, and for a reason too long", () => {
     const { store } = harness();
     expect(refusalOf(() => store.propose(add(""), null, "t1"))).toBe("invalid");

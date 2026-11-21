@@ -22,6 +22,7 @@ import {
   type MemoryProposal,
   MemoryRefused,
   type MemoryText,
+  memoryDay,
   memoryFullRefusal,
   memorySize,
   memoryTextRefusal,
@@ -46,11 +47,13 @@ export interface MemoryStore {
   readonly load: (memory: Memory) => void;
   /** The whole record, as it stands. */
   readonly read: () => Memory;
-  /** THE CONDUCTOR ASKS. Records the proposal, waiting on the human. */
+  /** THE CONDUCTOR ASKS. Records the proposal, waiting on the human. `batch`
+   *  is the turn it came from, or `null` outside any turn: then it is a batch
+   *  of its own, and rings once. */
   readonly propose: (
     change: MemoryChange,
     why: string | null,
-    batch: string,
+    batch: string | null,
   ) => MemoryProposal;
   /** THE HUMAN SAYS YES, as proposed or with their own words. */
   readonly approve: (id: string, edited?: MemoryText) => MemoryApproved;
@@ -64,8 +67,6 @@ export interface MemoryStore {
   readonly importEntries: (texts: ReadonlyArray<MemoryText>) => MemoryImported;
   /** THE WHOLE RECORD, REPLACED — a restored backup. */
   readonly restore: (memory: Memory) => void;
-  /** What the `memory` key holds. */
-  readonly persisted: () => Memory;
 }
 
 export interface MemoryStoreDeps {
@@ -90,12 +91,6 @@ const sameChange = (a: MemoryChange, b: MemoryChange): boolean => {
       return b.kind === "forget" && a.entry === b.entry;
   }
 };
-
-const dayOf = (iso: string): string =>
-  new Date(iso).toLocaleDateString("en-GB", {
-    day: "numeric",
-    month: "short",
-  });
 
 const tidyChange = (change: MemoryChange): MemoryChange =>
   change.kind === "forget" ? change : { ...change, ...tidyMemoryText(change) };
@@ -190,7 +185,6 @@ export const memoryStore = (deps: MemoryStoreDeps): MemoryStore => {
       memory = kept;
     },
     read: () => memory,
-    persisted: () => memory,
 
     propose: (asked, askedWhy, batch) => {
       const change = tidyChange(asked);
@@ -207,7 +201,7 @@ export const memoryStore = (deps: MemoryStoreDeps): MemoryStore => {
       if (declined !== undefined)
         throw refused(
           "declined-before",
-          `The human declined this on ${dayOf(declined.at)}. It is not remembered. Do not propose it again.`,
+          `The human declined this on ${memoryDay(declined.at)}. It is not remembered. Do not propose it again.`,
         );
       if (change.kind !== "forget") mustBeNew(change);
       if (memory.proposals.some((one) => sameChange(one.change, change)))
@@ -221,12 +215,13 @@ export const memoryStore = (deps: MemoryStoreDeps): MemoryStore => {
           `${MEMORY_WAITING_CAP} proposals are already waiting on the human. Propose again once they have chosen.`,
         );
       if (change.kind !== "forget") mustFit(change, replacing);
+      const id = mint("p");
       const proposal: MemoryProposal = {
-        id: mint("p"),
+        id,
         change,
         why,
         at: nowIso(),
-        batch,
+        batch: batch ?? id,
       };
       memory = { ...memory, proposals: [...memory.proposals, proposal] };
       moved(false);
@@ -333,7 +328,7 @@ export const memoryStore = (deps: MemoryStoreDeps): MemoryStore => {
       if (needs > left)
         throw refused(
           "full",
-          `This import needs ${needs.toLocaleString("en")} characters and ${left.toLocaleString("en")} are left, so nothing was added. Delete or shorten an entry first.`,
+          `Nothing was added. ${memoryFullRefusal(needs, Math.max(left, 0)).why}`,
         );
       if (fresh.length > 0) {
         const added = fresh.map((text) => entryFrom(text, "you", false));
@@ -344,9 +339,8 @@ export const memoryStore = (deps: MemoryStoreDeps): MemoryStore => {
     },
 
     restore: (kept) => {
-      const entriesMoved = kept.entries !== memory.entries;
       memory = kept;
-      moved(entriesMoved);
+      moved(true);
     },
   };
 };

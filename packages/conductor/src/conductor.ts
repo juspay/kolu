@@ -1023,13 +1023,14 @@ const hadATurn = (rows: ReadonlyArray<ConductorRow>): boolean => {
 
 /** THE TURN A PROPOSAL CAME FROM — the message that started it, the newest
  *  line of the person's or wake. Proposals of one turn share it, so they
- *  ring the bell once. */
-const turnOf = (rows: ReadonlyArray<ConductorRow>): string => {
+ *  ring the bell once; `null` when no such line is left (a cleared
+ *  transcript), and the proposal is then a batch of its own. */
+const turnOf = (rows: ReadonlyArray<ConductorRow>): string | null => {
   for (let at = rows.length - 1; at >= 0; at -= 1) {
     const row = rows[at];
     if (row?.kind === "user" || row?.kind === "wake") return row.id;
   }
-  return "no-turn";
+  return null;
 };
 
 export function startConductorHost(deps: ConductorDeps): ConductorHost {
@@ -1229,7 +1230,7 @@ export function startConductorHost(deps: ConductorDeps): ConductorHost {
       transcript: () => transcriptStore.set(transcriptFrom(rows())),
       works: () => worksStore.set(works.persisted()),
       members: () => membersStore.set(members.saved()),
-      memory: () => memoryCell.set(memories.persisted()),
+      memory: () => memoryCell.set(memories.read()),
     },
     PERSIST_THROTTLE_MS,
   );

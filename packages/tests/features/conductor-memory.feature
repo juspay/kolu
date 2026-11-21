@@ -44,6 +44,19 @@ Feature: The Conductor keeps a memory you approve
     And the memory chip should be gone
     And there should be no page errors
 
+  Scenario: A proposal to change a memory names the memory it replaces
+    Given I remember "Rebase before review" saying "Rebase on main first."
+    When the Conductor proposes to change the memory "Rebase before review" to "Rebase on main before review"
+    Then the memory proposal "Rebase on main before review" should say it replaces "Rebase before review"
+    When I show the memory the proposal "Rebase on main before review" replaces
+    Then the memory proposal "Rebase on main before review" should show "Rebase on main first."
+    When I press "Remember" on the memory proposal "Rebase on main before review"
+    Then the memory proposal "Rebase on main before review" should say "remembered"
+    When I open the Memory sheet from the conductor menu
+    Then the Memory sheet should list the memory "Rebase on main before review"
+    And the Memory sheet should not list the memory "Rebase before review"
+    And there should be no page errors
+
   Scenario: A batch of three is one thing that needs you, drawn as one-line rows
     When I send the conductor the prompt "remember three"
     Then the conductor transcript should show 3 one-line memory proposals

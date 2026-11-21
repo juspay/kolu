@@ -109,6 +109,8 @@
  *                      demo-app, answered `proposed: <the tool's answer>`,
  *                      refusal sentence and all
  *   remember three   — three proposals in one turn, one batch
+ *   change <id> to <title> — a REAL `memory_propose` replacing the memory
+ *                      `<id>` with `<title>`, answered like `remember`
  *   Bring over what you remembered… — kolu's bring-over message: three
  *                      made-up proposals naming made-up files in `why`. It
  *                      reads no file, real or not
@@ -940,6 +942,21 @@ const turn = async (
       title: remember,
       about: "demo-app",
       body: `${remember}, always.`,
+      why: "you said so",
+    });
+    say(`proposed: ${answer}`);
+    endTurn(id);
+    return;
+  }
+  const change = /^change (\S+) to (.+)$/.exec(text);
+  if (change !== null) {
+    const [, entry, title] = change;
+    const answer = await callTool("memory_propose", {
+      kind: "replace",
+      entry,
+      title,
+      about: "demo-app",
+      body: `${title}, always.`,
       why: "you said so",
     });
     say(`proposed: ${answer}`);

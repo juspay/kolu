@@ -76,7 +76,6 @@ export const MemoryDeclinedSchema = Schema.Struct({
   change: MemoryChangeSchema,
   at: Schema.String,
 });
-export type MemoryDeclined = typeof MemoryDeclinedSchema.Type;
 
 /** The whole record. `next` numbers both entries (`m1`) and proposals
  *  (`p1`), so no id is ever given out twice. */
@@ -243,6 +242,11 @@ export const memoryFullRefusal = (needs: number, left: number): MemoryRefused =>
     `Memory is full: this needs ${characters(needs)} and ${left.toLocaleString("en")} ${left === 1 ? "is" : "are"} left. Delete or shorten an entry first.`,
   );
 
+/** A memory's date as kolu says it, on the sheet and to the Conductor:
+ *  `20 Nov`. */
+export const memoryDay = (iso: string): string =>
+  new Date(iso).toLocaleDateString("en-GB", { day: "numeric", month: "short" });
+
 /** Two texts are the same memory when their titles match, ignoring case, and
  *  their bodies match, ignoring how the lines are spaced. */
 export const sameMemory = (
@@ -296,7 +300,7 @@ const ENTRY_HEADING = /^## (.*)$/u;
 /** The memory as one Markdown file: a `##` per entry, an optional `About:`
  *  line, then the body. {@link readMemoryFile} reads it back. */
 export const memoryFile = (entries: ReadonlyArray<MemoryText>): string =>
-  [
+  `${[
     FILE_HEADING,
     ...entries.map((entry) =>
       [
@@ -306,7 +310,7 @@ export const memoryFile = (entries: ReadonlyArray<MemoryText>): string =>
         entry.body,
       ].join("\n"),
     ),
-  ].join("\n\n") + "\n";
+  ].join("\n\n")}\n`;
 
 /** The memories a Markdown file holds, in its order, or why it cannot be
  *  read. A file with no entry is refused, not read as empty, and one entry

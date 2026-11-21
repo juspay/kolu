@@ -13,6 +13,7 @@ import {
   MEMORY_CAP,
   MEMORY_FILE_NAME,
   type MemoryEntry,
+  memoryDay,
   memoryFile,
   proposalTitle,
 } from "kolu-common/conductorMemory";
@@ -39,9 +40,6 @@ import { useConductorFacts } from "../useConductorFacts";
 
 const DELETE_COPY =
   "Delete this memory? The Conductor is told with its next message. There is no undo.";
-
-const day = (iso: string): string =>
-  new Date(iso).toLocaleDateString("en-GB", { day: "numeric", month: "short" });
 
 /** Who wrote an entry, as the sheet says it. */
 const byline = (entry: MemoryEntry): string =>
@@ -102,7 +100,7 @@ const EntryCard: Component<{ entry: MemoryEntry }> = (props) => {
         <Markdown markdown={props.entry.body} variant="compact" />
       </div>
       <p class="m-0 mt-1 font-mono text-[0.6rem] text-fg-3">
-        {byline(props.entry)} · {day(props.entry.at)}
+        {byline(props.entry)} · {memoryDay(props.entry.at)}
       </p>
       <Show when={deleting()}>
         <div class="mt-2">

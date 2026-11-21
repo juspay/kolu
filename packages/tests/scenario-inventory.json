@@ -12346,6 +12346,18 @@
       "exampleRows": [],
       "executions": 1,
       "firstSeenSha": "844690e21fb8e952381caf287a10ec8cc70e7fa6"
+    },
+    {
+      "revisionId": "revision-8e6b75430a7bfeeb362f",
+      "scenarioKey": "scenario-f78a8709dc3ddb86d452",
+      "feature": "features/conductor-memory.feature",
+      "scenario": "A proposal to change a memory names the memory it replaces",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "a87820b2d902d214bcdbe75f8ccdc86a2a8f6cfb39b4debbc01a32d4be49d5d9",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "b889f316f42e483d4c2693c628ee0cbbe5ec7edd"
     }
   ]
 }
