@@ -23,7 +23,7 @@
  *  of its own with the way back above it.
  *
  *  WITH NOTHING IN FLIGHT, it says WHAT THE PANEL IS FOR — a welcome, not a
- *  count: never `0`, and never a bare line that teaches nobody anything.
+ *  count: never `0`, and never a bare line that teaches nobody anything. */
 
 import { Key } from "@solid-primitives/keyed";
 import {
