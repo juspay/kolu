@@ -1,17 +1,25 @@
 /** A WORK'S LIVE FACTS — its member terminals, each with its standing read once;
  *  the PR one of their records carries; that PR's checks counted; and where the
- *  work stands. One reading for every face a work has: its card, its line in
- *  the sidebar, and its chip.
+ *  work stands. Read for every face a work has: its card, its line in the
+ *  sidebar, its chip and the chip's hover card.
  *
- *  Each face used to assemble these itself, and two faces of one work built
- *  them two ways; read here, a work's card, line and chip cannot say different
- *  things about the same work. */
+ *  ONE READING PER WORK, NOT PER FACE. The members map is one value for the
+ *  whole fleet, and a chat draws a chip on every turn. So the map is split by
+ *  work once, for the whole app (`useMembersByWork`), and each work's lines,
+ *  its live PR and its checks are read once, in a root of their own that every
+ *  face of that work shares. The root lives while any face holds it: the last
+ *  face to go disposes it, so a work nobody draws is read by nobody.
+ *
+ *  Where the work stands (`at`) is folded per face from the face's own record:
+ *  it is a pure fold over that record, and a face may hold a work's last
+ *  record for a moment while the mirror is without it (the picked work). */
 
 import { activeArm } from "@kolu/padi-client/surface";
 import type { PrInfo } from "anyforge/schemas";
 import { Option } from "effect";
-import type { Work, WorkId, WorkMember } from "kolu-work";
-import { type Accessor, createMemo } from "solid-js";
+import type { Work, WorkId } from "kolu-work";
+import { type Accessor, createMemo, createRoot, onCleanup } from "solid-js";
+import { createSharedRoot } from "../createSharedRoot";
 import {
   type FleetTerminalStanding,
   fleetTerminalStanding,
@@ -21,7 +29,7 @@ import { type MemberRef, splitMemberRef } from "./memberRef";
 import { type ChecksTally, checksTally, livePrOf } from "./prReadings";
 import { useWorkMembers } from "./useWorks";
 import {
-  membersIn,
+  membersByWork,
   roleRuns,
   type StandingLine,
   standingLine,
@@ -66,25 +74,35 @@ export interface WorkFacts {
   readonly at: Accessor<StandingLine>;
 }
 
-/** Call from a component body: the readings live as long as the face. */
-export function createWorkFacts(
-  id: Accessor<WorkId>,
-  work: Accessor<Work>,
-): WorkFacts {
-  const allMembers = useWorkMembers();
-  // Each member's standing is read ONCE here: the agent's name, the clock and
-  // whether there is anywhere to go all want it, and reading it per reader is
-  // how one terminal came to be looked up three times a frame.
-  //
-  // A LINE THAT DID NOT MOVE KEEPS ITS OBJECT, and a list in which none did
-  // is the list it was. The members map is one value for the whole fleet, so
-  // every face re-reads it when any work's membership moves — and a chat holds
-  // a chip per turn. Without this, each of those re-reads minted new lines,
-  // and every chip on screen rebuilt its terminals' marks for a change in
-  // some other work.
+const NONE: ReadonlyArray<WorkMemberRow> = [];
+
+/** THE MEMBERS MAP, SPLIT BY WORK — once for the whole app. */
+const useMembersByWork = createSharedRoot(() => {
+  const all = useWorkMembers();
+  return createMemo(() => membersByWork(all()));
+});
+
+/** What one work's shared root reads: everything but `at`. */
+export type SharedFacts = Omit<WorkFacts, "at">;
+
+/** ONE WORK'S READING, from its members' rows — the reading itself, apart
+ *  from who holds it.
+ *
+ *  Each member's standing is read ONCE here: the agent's name, the clock and
+ *  whether there is anywhere to go all want it.
+ *
+ *  A LINE THAT DID NOT MOVE KEEPS ITS OBJECT, and a list in which none did is
+ *  the list it was — so a change to another work's membership, or to another
+ *  terminal's record, rebuilds nothing drawn from these lines. A member keeps
+ *  its object until its own frame arrives (the members map is one
+ *  subscription per terminal), and a terminal's record until it moves, so
+ *  identity is the test. */
+export function readWorkFacts(
+  rows: Accessor<ReadonlyArray<WorkMemberRow>>,
+): SharedFacts {
   const members = createMemo(
     (prev: ReadonlyArray<MemberLine>): ReadonlyArray<MemberLine> => {
-      const next = membersIn(allMembers(), id()).map((row): MemberLine => {
+      const next = rows().map((row): MemberLine => {
         const split = splitMemberRef(row.terminal);
         const standing =
           split === null
@@ -92,7 +110,7 @@ export function createWorkFacts(
             : fleetTerminalStanding(split.host, split.id);
         const was = prev.find((one) => one.terminal === row.terminal);
         return was !== undefined &&
-          sameMember(was.member, row.member) &&
+          was.member === row.member &&
           sameStanding(was.standing, standing)
           ? was
           : { ...row, split, standing };
@@ -106,22 +124,57 @@ export function createWorkFacts(
   );
   const livePr = createMemo(() => livePrOf(members()));
   const checks = createMemo(() => checksTally(Option.fromNullishOr(livePr())));
-  const at = createMemo(() => standingLine(work(), checks()));
-  return { members, livePr, checks, at };
+  return { members, livePr, checks };
 }
 
-/** The same membership, field by field: the map is decoded afresh off the
- *  wire, so an unchanged member arrives as a new object. */
-function sameMember(a: WorkMember, b: WorkMember): boolean {
-  return (
-    a === b ||
-    (a.work === b.work &&
-      a.role === b.role &&
-      a.joinedAt === b.joinedAt &&
-      a.worktree.kind === b.worktree.kind &&
-      (a.worktree.kind !== "read" ||
-        (b.worktree.kind === "read" && a.worktree.path === b.worktree.path)))
-  );
+/** The shared roots, by work, with how many faces hold each. */
+const held = new Map<
+  WorkId,
+  { count: number; facts: SharedFacts; dispose: () => void }
+>();
+
+function acquire(id: WorkId): SharedFacts {
+  let one = held.get(id);
+  if (one === undefined) {
+    const byWork = useMembersByWork();
+    const made = createRoot((dispose) => ({
+      count: 0,
+      facts: readWorkFacts(() => byWork().get(id) ?? NONE),
+      dispose,
+    }));
+    held.set(id, made);
+    one = made;
+  }
+  one.count += 1;
+  return one.facts;
+}
+
+function release(id: WorkId): void {
+  const one = held.get(id);
+  if (one === undefined) return;
+  one.count -= 1;
+  if (one.count > 0) return;
+  held.delete(id);
+  one.dispose();
+}
+
+/** A face's hold on its work's reading. Call from a component body: the hold
+ *  lasts as long as the face, and moves with the face's id. */
+export function createWorkFacts(
+  id: Accessor<WorkId>,
+  work: Accessor<Work>,
+): WorkFacts {
+  const shared = createMemo(() => {
+    const one = id();
+    const facts = acquire(one);
+    onCleanup(() => release(one));
+    return facts;
+  });
+  const members = () => shared().members();
+  const livePr = () => shared().livePr();
+  const checks = () => shared().checks();
+  const at = createMemo(() => standingLine(work(), checks()));
+  return { members, livePr, checks, at };
 }
 
 /** The same standing: the same answer, and for a terminal that is here, the

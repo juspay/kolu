@@ -260,10 +260,23 @@ export function membersIn(
   members: ReadonlyMap<string, WorkMember>,
   work: WorkId,
 ): ReadonlyArray<WorkMemberRow> {
-  const rows: WorkMemberRow[] = [];
-  for (const [terminal, member] of members)
-    if (member.work === work) rows.push({ terminal, member });
-  return rows.sort((a, b) => roleRank(a.member.role) - roleRank(b.member.role));
+  return membersByWork(members).get(work) ?? [];
+}
+
+/** EVERY WORK'S MEMBERS, in one pass over the map — each work's in the order
+ *  {@link membersIn} gives. For a reader that wants many works at once. */
+export function membersByWork(
+  members: ReadonlyMap<string, WorkMember>,
+): ReadonlyMap<string, ReadonlyArray<WorkMemberRow>> {
+  const by = new Map<string, WorkMemberRow[]>();
+  for (const [terminal, member] of members) {
+    const rows = by.get(member.work);
+    if (rows === undefined) by.set(member.work, [{ terminal, member }]);
+    else rows.push({ terminal, member });
+  }
+  for (const rows of by.values())
+    rows.sort((a, b) => roleRank(a.member.role) - roleRank(b.member.role));
+  return by;
 }
 
 /** THE TWO DRIVERS THAT ARE A LOCK. `nobody` — a watch, a mode nobody has
