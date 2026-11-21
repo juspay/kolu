@@ -36,6 +36,7 @@
  *  view and flashes once. */
 
 import { dualPhrase } from "@kolu/terminal-vocab/duration";
+import { DASH } from "kolu-common/surface";
 import { Option } from "effect";
 import {
   lifetime,
@@ -56,6 +57,7 @@ import {
   Show,
 } from "solid-js";
 import { fleetTerminalStanding } from "../palette/fleetTerminals";
+import { elapsedSince } from "../time/duration";
 import PrText from "./PrText";
 import { useShown, useShownClock } from "../ui/shown";
 import Tip from "../ui/Tip";
@@ -83,6 +85,8 @@ import { timelineShown } from "./timelineView";
 import WorkStanding from "./WorkStanding";
 import {
   membersIn,
+  outcomeWords,
+  repoName,
   stagesOf,
   standingLine,
   timeSpentOnYou,
@@ -124,12 +128,13 @@ const WorkCard: Component<{
   id: WorkId;
   work: Work;
   /** HOW IT IS DRAWN. A `card` is a block of its own — a work that needs
-   *  you, with its question, and a finished one. A `row` is one line of a
-   *  group's table, for every other work in progress: title, stage line,
-   *  terminals and age side by side. `picked` is the work the screen is
-   *  about: the card's face with its details under it. A press on a card or
-   *  a row picks it; a press on the picked one unpicks it. */
-  shape: "card" | "row" | "picked";
+   *  you, with its question. A `row` is one line of a group's table, for
+   *  every other work in progress: title, stage line, terminals and age side
+   *  by side. A `line` is a finished work in the Finished list: title,
+   *  repository, how it ended, how long it ran and when. `picked` is the
+   *  work the screen is about, with its Terminals and Details. A press on a
+   *  card, a row or a line picks it; a press on the picked one unpicks it. */
+  shape: "card" | "row" | "line" | "picked";
 }> = (props) => {
   // The column's clock, stopped while nobody is looking at the pane: every
   // duration on this card ticks from it, and a hidden pane ticks for nobody.
@@ -263,6 +268,23 @@ const WorkCard: Component<{
   };
 
   const row = () => props.shape === "row";
+  /** A row or a line: one line of its group's list, which draws the edges. */
+  const flat = () => props.shape === "row" || props.shape === "line";
+  /** The repository a branch work is in; a watch has none. */
+  const repo = (): string | undefined =>
+    props.work.key.kind === "branch"
+      ? repoName(props.work.key.repo)
+      : undefined;
+  /** How a finished work ended; nothing for one still in progress. */
+  const endedHow = (): string | undefined =>
+    props.work.state.kind === "ended"
+      ? outcomeWords(props.work.state.outcome)
+      : undefined;
+  /** When it ended, as an age: "2d ago". */
+  const endedAgo = (): string => {
+    const elapsed = elapsedSince(at().since, now());
+    return elapsed === DASH ? "just now" : `${elapsed} ago`;
+  };
 
   /** A terminal of the work is up: there is a screen to watch. */
   const anyUp = () =>
@@ -386,7 +408,7 @@ const WorkCard: Component<{
       data-testid="work-card-head"
       aria-expanded={isOpen()}
       aria-label={props.work.title}
-      class={`absolute inset-0 cursor-pointer ${row() ? "" : "rounded-xl"}`}
+      class={`absolute inset-0 cursor-pointer ${flat() ? "" : "rounded-xl"}`}
       onClick={() => togglePick(props.id)}
     />
   );
@@ -416,7 +438,7 @@ const WorkCard: Component<{
       // and its group draws the edges. A work a chip asked for flashes once
       // (`index.css`, `.work-card`).
       class={
-        row()
+        flat()
           ? "work-card min-w-0 scroll-m-3 overflow-hidden bg-surface-0"
           : `work-card min-w-0 scroll-m-3 overflow-hidden rounded-xl border bg-surface-0 ${
               at().who === "you" ? "border-alert/55" : "border-edge"
@@ -424,51 +446,97 @@ const WorkCard: Component<{
       }
     >
       <Show
-        when={row()}
+        when={props.shape === "line"}
         fallback={
-          <>
-            {/* THE CARD: head, then the strip and the card's ways on — the
+          <Show
+            when={row()}
+            fallback={
+              <>
+                {/* THE CARD: head, then the strip and the card's ways on — the
                 chat about it, its link, and its PR while that waits on you. */}
-            <div class="relative px-2.5 py-2">
-              {head()}
-              <div class="pointer-events-none relative">
-                <div class="flex min-w-0 items-baseline gap-2">
-                  {title()}
-                  {age()}
+                <div class="relative px-2.5 py-2">
+                  {head()}
+                  <div class="pointer-events-none relative">
+                    <div class="flex min-w-0 items-baseline gap-2">
+                      {title()}
+                      {age()}
+                    </div>
+                    {subtitle()}
+                    {standing()}
+                  </div>
                 </div>
-                {subtitle()}
-                {standing()}
-              </div>
-            </div>
-            <div class="px-2.5 pb-2">
-              {strip()}
-              <WorkCardActions id={props.id} work={props.work} />
-              <Show when={isOpen() && live() !== undefined}>{views()}</Show>
-            </div>
-          </>
-        }
-      >
-        {/* THE ROW: what it is and where; the stage line and where it
+                <div class="px-2.5 pb-2">
+                  {strip()}
+                  <WorkCardActions id={props.id} work={props.work} />
+                  <Show when={isOpen() && live() !== undefined}>{views()}</Show>
+                </div>
+              </>
+            }
+          >
+            {/* THE ROW: what it is and where; the stage line and where it
             stands; its terminals; its age — side by side on a wide window,
             the terminals dropping under the title below 1280px. Its press
             reaches every part but the controls inside it. */}
-        <div class="relative px-3 py-2.5">
+            <div class="relative px-3 py-2.5">
+              {head()}
+              <div class="pointer-events-none relative grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] items-start gap-x-5 gap-y-2 conductor-md:grid-cols-[minmax(0,1fr)_minmax(0,0.9fr)_minmax(0,1.7fr)_auto] [&_a]:pointer-events-auto [&_button]:pointer-events-auto">
+                <div class="col-start-1 row-start-1 min-w-0">
+                  <div class="flex min-w-0">{title()}</div>
+                  {subtitle()}
+                </div>
+                <div class="col-start-2 row-start-1 min-w-0">
+                  {strip()}
+                  {standing()}
+                </div>
+                <div class="col-span-full row-start-2 min-w-0 conductor-md:col-span-1 conductor-md:col-start-3 conductor-md:row-start-1">
+                  {terminals()}
+                </div>
+                <div class="col-start-3 row-start-1 conductor-md:col-start-4">
+                  {age()}
+                </div>
+              </div>
+            </div>
+          </Show>
+        }
+      >
+        {/* THE LINE: a finished work in its group's list — what it was and
+            where, how it ended, how long it ran, and when it ended, on one
+            line. Pressing it picks it, and its details offer Reopen. */}
+        <div class="relative px-3 py-1.5">
           {head()}
-          <div class="pointer-events-none relative grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] items-start gap-x-5 gap-y-2 conductor-md:grid-cols-[minmax(0,1fr)_minmax(0,0.9fr)_minmax(0,1.7fr)_auto] [&_a]:pointer-events-auto [&_button]:pointer-events-auto">
-            <div class="col-start-1 row-start-1 min-w-0">
-              <div class="flex min-w-0">{title()}</div>
-              {subtitle()}
-            </div>
-            <div class="col-start-2 row-start-1 min-w-0">
-              {strip()}
-              {standing()}
-            </div>
-            <div class="col-span-full row-start-2 min-w-0 conductor-md:col-span-1 conductor-md:col-start-3 conductor-md:row-start-1">
-              {terminals()}
-            </div>
-            <div class="col-start-3 row-start-1 conductor-md:col-start-4">
-              {age()}
-            </div>
+          <div class="pointer-events-none relative flex min-w-0 items-baseline gap-4 text-[0.74rem]">
+            <span class="min-w-0 flex-1 truncate">
+              <span class="text-fg">{props.work.title}</span>
+              <Show when={repo()}>
+                {(name) => (
+                  <span class="font-mono text-[0.62rem] text-fg-3">
+                    {" · "}
+                    {name()}
+                  </span>
+                )}
+              </Show>
+            </span>
+            <Show when={endedHow()}>
+              {(how) => (
+                <span
+                  data-testid="work-line-outcome"
+                  class={`w-32 shrink-0 truncate font-mono text-[0.64rem] max-sm:w-24 ${
+                    props.work.state.kind === "ended" &&
+                    props.work.state.outcome.kind === "merged"
+                      ? "text-accent"
+                      : "text-fg-2"
+                  }`}
+                >
+                  {how()}
+                </span>
+              )}
+            </Show>
+            <span class="w-14 shrink-0 text-end font-mono text-[0.62rem] tabular-nums text-fg-3 max-sm:hidden">
+              {dualPhrase(lifetime(props.work, new Date(now()).toISOString()))}
+            </span>
+            <span class="w-14 shrink-0 text-end font-mono text-[0.62rem] tabular-nums text-fg-3">
+              {endedAgo()}
+            </span>
           </div>
         </div>
       </Show>

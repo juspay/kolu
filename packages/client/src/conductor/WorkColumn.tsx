@@ -13,8 +13,14 @@
  *
  *  A WORK THAT NEEDS YOU IS A CARD, with its question on it; every other
  *  work in progress is a ROW of its group's table — title, stage line,
- *  terminals and age side by side (`WorkCard`'s two shapes). On a phone,
- *  where there is no side to put anything beside, every work is a card.
+ *  terminals and age side by side — and a finished work is a LINE of the
+ *  Finished list: title, repository, how it ended, how long it ran and when
+ *  (`WorkCard`'s shapes). On a phone, where there is no side to put anything
+ *  beside, every work in progress is a card.
+ *
+ *  A PRESSED WORK IS PICKED: the board gives way to the picked work, with the
+ *  others folded to a rail beside it (`WorkRail`), or, on a phone, to a page
+ *  of its own with the way back above it.
  *
  *  WITH NOTHING IN FLIGHT, it says so in a sentence, never `0`. */
 
@@ -113,16 +119,16 @@ const Legend: Component = () => (
  *  would tear every work down — its open details, and a scroll a chip had
  *  just asked for — whenever anything happened anywhere.
  *
- *  Cards stand apart; rows are one table, its lines ruled. */
+ *  Cards stand apart; rows and lines are one table, its lines ruled. */
 const Works: Component<{
   rows: ReadonlyArray<WorkRow>;
-  shape: "card" | "row";
+  shape: "card" | "row" | "line";
 }> = (props) => (
   <div
     class={
-      props.shape === "row"
-        ? "flex flex-col divide-y divide-edge overflow-hidden rounded-xl border border-edge"
-        : "flex flex-col gap-2"
+      props.shape === "card"
+        ? "flex flex-col gap-2"
+        : "flex flex-col divide-y divide-edge overflow-hidden rounded-xl border border-edge"
     }
   >
     <Key each={props.rows} by={([id]) => id}>
@@ -253,7 +259,7 @@ const WorkColumn: Component = () => {
                     {isFinishedOpen() ? "▾" : "▸"} Finished · {done().length}
                   </button>
                   <Show when={isFinishedOpen()}>
-                    <Works rows={done()} shape="card" />
+                    <Works rows={done()} shape="line" />
                   </Show>
                 </section>
               </Show>
