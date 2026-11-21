@@ -1,38 +1,37 @@
 Feature: The Conductor reads as a conversation
-  The chat is read in ONE COLUMN — the transcript, the status line and the
-  composer at the same measure, with your own messages at that column's right
-  edge rather than a screen away from the replies. On a window wide enough to
-  hold that column and the work beside it, the work in progress stands next to
-  the conversation and is always on screen; below that width, and on a phone,
-  it is the column the status line's count opens. It is the SAME column in
-  both places, with the same card open in it. The help is a sheet, one press
-  away behind the `?` in the header and the `⋯` menu's How to use.
+  The works take the wide side of the screen and the conversation is a panel
+  on the right, at every desktop width: every work and every terminal stays on
+  screen, and the chat is read at its own measure beside them. On a phone they
+  are two tabs, Work and Chat, one on screen at a time. The help is a sheet,
+  one press away behind the `?` in the header and the `⋯` menu's How to use.
 
   Nothing in here reads `0`: a conversation with no work in progress says
   nothing about counts, and there is no control that would open an empty
-  column.
+  list.
 
   Background:
     Given the terminal is ready
     And the conductor is on a fresh conversation
 
-  Scenario: The work stands beside the conversation, and folds into the status line on a narrow window
-    # ONE COLUMN, TWO PLACEMENTS. The side column is not a second list — the
-    # same component is drawn in the pane's second track on a wide window and
-    # in a band above the status line on a narrow one, so there is exactly one
-    # answer to "what is it working on" at any width.
+  Scenario: The works take the wide side and the conversation stays beside them, at every desktop width
+    # ONE FRAME AT EVERY DESKTOP WIDTH: the works have the room that is left
+    # and the conversation a panel of fixed measure on the right — nothing
+    # folds away on a narrow window, and nothing is left unused on a wide one.
     When I create a terminal
     And I ask the conductor to watch the terminal
     Then the conductor status should say 1 piece of work
-    And the conductor side column should show the work
+    And the work column should show the work
+    And the conversation should be a panel on the right of the works
     When I resize the viewport to 900x768
-    Then the conductor should have no side column
-    And the work column should be behind the status line's control
-    When I resize the viewport to 1280x768
-    Then the conductor side column should show the work
+    Then the work column should show the work
+    And the conversation should be a panel on the right of the works
+    And nothing on screen should reach past the window's right edge
+    When I resize the viewport to 2000x1100
+    Then the work column should show the work
+    And the works and the conversation should fill the window's width
     And there should be no page errors
 
-  Scenario: The peek stays open across the width where the two columns fold
+  Scenario: The peek stays open across a resize
     When I leave the conductor for the host tab
     And I create a terminal
     And I run "echo kolu-watch-$((6*7))"
@@ -61,17 +60,20 @@ Feature: The Conductor reads as a conversation
     And there should be no page errors
 
   @mobile
-  Scenario: The phone keeps one column, and nothing reaches past its right edge
-    # A phone is below the two-column width by definition, so the work is
-    # behind the count — and every part of the conversation stays inside the
-    # 390px window.
+  Scenario: The phone shows the conversation or the works, one at a time
+    # A phone has no side to stand anything beside, so the works and the
+    # conversation are two tabs. It opens on the conversation; the status
+    # line's count is the way to the works, and the Chat tab the way back.
     When I ask the conductor to watch the first terminal
     Then the conductor status should say 1 piece of work
-    And the conductor should have no side column
+    And the phone should be showing the conversation
     And the work column should be behind the status line's control
     When I open the work column
-    Then the work column should show the work
+    Then the phone should be showing the works
+    And the work column should show the work
     And nothing on screen should reach past the window's right edge
+    When I tap the phone's Chat tab
+    Then the phone should be showing the conversation
     And there should be no page errors
 
   Scenario: The help opens from the question mark, at every width

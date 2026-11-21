@@ -413,3 +413,34 @@ Feature: A piece of work is a stored thing
     Then the work should have no open question
     And the work's decisions should include "merge" answered from the card
     And there should be no page errors
+
+  Scenario: A work lists its terminals without being opened, and Look works from there
+    Given a repo for the work
+    When I ask the conductor to open the work "listed while shut"
+    And I answer the work's question with "hand-over" in the chat
+    And I ask the conductor to run the implementor in the work's repo
+    Then the work column should list the terminal as a member
+    When I shut the work card
+    Then the shut work card should list the terminal
+    When I look at the member terminal
+    Then the peek should be open
+    And there should be no page errors
+
+  Scenario: A work's row keeps every part inside it at four widths
+    Given a repo for the work
+    When I ask the conductor to open the work "fit every width"
+    And I answer the work's question with "hand-over" in the chat
+    And I leave the conductor for the host tab
+    And I create a terminal
+    And I ask the conductor to join the terminal I am in to the work as its planner
+    And I ask the conductor to run the implementor in the work's repo
+    Then the work column should list the terminal as a member
+    And the work's terminal rows should keep every part inside the card
+    When I resize the viewport to 2000x1100
+    Then the work's terminal rows should keep every part inside the card
+    When I resize the viewport to 1024x768
+    Then the work's terminal rows should keep every part inside the card
+    When I resize the viewport to 900x768
+    Then the work's terminal rows should keep every part inside the card
+    And nothing on screen should reach past the window's right edge
+    And there should be no page errors

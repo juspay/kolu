@@ -12334,6 +12334,90 @@
       "exampleRows": [],
       "executions": 1,
       "firstSeenSha": "c2c509b75eb6be1843b46297db801a993cab1a39"
+    },
+    {
+      "revisionId": "revision-2308ea67c685d4f1729c",
+      "scenarioKey": "scenario-8d9f0c6acbc44944e20d",
+      "feature": "features/conductor-layout.feature",
+      "scenario": "The peek stays open across a resize",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "38d4350ed66a4dbb6be595bdc133faf4c547670994bacecd9956d4a27ea3b66c",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "4671712f8d392bd903372d298fe4ef2c2a377f0c"
+    },
+    {
+      "revisionId": "revision-099e7787c6921fc5c0e4",
+      "scenarioKey": "scenario-8701546b23bcfa9ee36d",
+      "feature": "features/conductor-layout.feature",
+      "scenario": "The phone shows the conversation or the works, one at a time",
+      "kind": "scenario",
+      "tags": ["@mobile"],
+      "bodyHash": "8be16b8cf2ad63a995b95ec7e2c78f53eb00108414c566cd8be8670173eda097",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "4671712f8d392bd903372d298fe4ef2c2a377f0c"
+    },
+    {
+      "revisionId": "revision-afa1f8225a0464d5e355",
+      "scenarioKey": "scenario-f4b44fd456610497ab49",
+      "feature": "features/conductor-layout.feature",
+      "scenario": "The works take the wide side and the conversation stays beside them, at every desktop width",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "9ef0a297ce4c9e3d057fb1a6eddcbfbae3858be579e37707bbccb1abc5b6fed9",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "4671712f8d392bd903372d298fe4ef2c2a377f0c"
+    },
+    {
+      "revisionId": "revision-6bac0091cf0525884efc",
+      "scenarioKey": "scenario-4d699f594b8cc2ad680c",
+      "feature": "features/conductor-lock.feature",
+      "scenario": "The phone's key bar raises the same card",
+      "kind": "scenario",
+      "tags": ["@mobile"],
+      "bodyHash": "0b8db6a66b43cbeb736c6743677daec7ebfbe8657bdfec4cd2e3639cce3f7d35",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "4671712f8d392bd903372d298fe4ef2c2a377f0c"
+    },
+    {
+      "revisionId": "revision-63a7a05f5537ffa87178",
+      "scenarioKey": "scenario-6983f92845e8e6b4eda4",
+      "feature": "features/conductor-peek.feature",
+      "scenario": "Switching to a terminal of another size does not move the peek's top bar",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "81df501d41b9930c2c112987982f9d647e702404b9bb9e9aa8d04efd3e30b656",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "4671712f8d392bd903372d298fe4ef2c2a377f0c"
+    },
+    {
+      "revisionId": "revision-6f7298f5445e97e92da4",
+      "scenarioKey": "scenario-0b844a8fcf73cfbecb10",
+      "feature": "features/conductor-work.feature",
+      "scenario": "A work lists its terminals without being opened, and Look works from there",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "dfb01312a3f6aab6a8c6add23ff4e65141df6d0120f600195cb699f56f2bf26d",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "4671712f8d392bd903372d298fe4ef2c2a377f0c"
+    },
+    {
+      "revisionId": "revision-ed702f2399cae694b4be",
+      "scenarioKey": "scenario-94a12dc6dfffc44a5d54",
+      "feature": "features/conductor-work.feature",
+      "scenario": "A work's row keeps every part inside it at four widths",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "3595b1fea27b15dc5c1b2a2fe4fb0ccfac953ee88de3b6b87280f96f170a4283",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "4671712f8d392bd903372d298fe4ef2c2a377f0c"
     }
   ]
 }

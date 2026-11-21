@@ -4021,7 +4021,7 @@ retirements:
     defectSurface: [conductor, mobile, user-journey]
     destinationLayer: L5
     replacements: []
-    survivorRevisionIds: [revision-91da9a9914b88c036009, revision-6d31a0f0995ca43fb059]
+    survivorRevisionIds: [revision-91da9a9914b88c036009, revision-099e7787c6921fc5c0e4]
     sameCodePathEvidence:
       file: packages/tests/features/conductor-work.feature
       symbol: "Scenario: The work column and its card fit a phone"
@@ -4034,7 +4034,7 @@ retirements:
     defectSurface: [conductor, user-journey]
     destinationLayer: L5
     replacements: []
-    survivorRevisionIds: [revision-29efcf88159ee2c5951f]
+    survivorRevisionIds: [revision-afa1f8225a0464d5e355]
     sameCodePathEvidence:
       file: packages/tests/features/conductor-layout.feature
       symbol: "Scenario: The work stands beside the conversation, and folds into the status line on a narrow window"
@@ -4073,7 +4073,7 @@ retirements:
     defectSurface: [conductor, user-journey]
     destinationLayer: L5
     replacements: []
-    survivorRevisionIds: [revision-d71c45a951c81f0b0577]
+    survivorRevisionIds: [revision-2308ea67c685d4f1729c]
     sameCodePathEvidence:
       file: packages/tests/features/conductor-layout.feature
       symbol: "Scenario: A Look stays open across the width where the two columns fold"
@@ -4086,7 +4086,7 @@ retirements:
     defectSurface: [conductor, mobile, user-journey]
     destinationLayer: L5
     replacements: []
-    survivorRevisionIds: [revision-6d31a0f0995ca43fb059]
+    survivorRevisionIds: [revision-099e7787c6921fc5c0e4]
     sameCodePathEvidence:
       file: packages/tests/features/conductor-layout.feature
       symbol: "Scenario: The phone keeps one column, and nothing reaches past its right edge"
@@ -4275,7 +4275,7 @@ retirements:
     defectSurface: [conductor, user-journey]
     destinationLayer: L5
     replacements: []
-    survivorRevisionIds: [revision-d71c45a951c81f0b0577]
+    survivorRevisionIds: [revision-2308ea67c685d4f1729c]
     sameCodePathEvidence:
       file: packages/tests/features/conductor-layout.feature
       symbol: "Scenario: A Look stays open across the width where the two columns fold"
@@ -4288,7 +4288,7 @@ retirements:
     defectSurface: [conductor, user-journey]
     destinationLayer: L5
     replacements: []
-    survivorRevisionIds: [revision-d71c45a951c81f0b0577]
+    survivorRevisionIds: [revision-2308ea67c685d4f1729c]
     sameCodePathEvidence:
       file: packages/tests/features/conductor-layout.feature
       symbol: "Scenario: A Look stays open across the width where the two columns fold"
@@ -4314,7 +4314,7 @@ retirements:
     defectSurface: [conductor, mobile, user-journey]
     destinationLayer: L5
     replacements: []
-    survivorRevisionIds: [revision-ee6cea0dba9e20397579]
+    survivorRevisionIds: [revision-6bac0091cf0525884efc]
     sameCodePathEvidence:
       file: packages/tests/features/conductor-lock.feature
       symbol: "Scenario: The phone's key bar raises the same card"
@@ -4374,7 +4374,7 @@ retirements:
     defectSurface: [conductor, mobile, user-journey]
     destinationLayer: L5
     replacements: []
-    survivorRevisionIds: [revision-ee6cea0dba9e20397579]
+    survivorRevisionIds: [revision-6bac0091cf0525884efc]
     sameCodePathEvidence:
       file: packages/tests/features/conductor-lock.feature
       symbol: "Scenario: The phone's key bar raises the same card"
@@ -4712,7 +4712,7 @@ retirements:
     defectSurface: [conductor, mobile, user-journey]
     destinationLayer: L5
     replacements: []
-    survivorRevisionIds: [revision-ee6cea0dba9e20397579]
+    survivorRevisionIds: [revision-6bac0091cf0525884efc]
     sameCodePathEvidence:
       file: packages/tests/features/conductor-lock.feature
       symbol: "Scenario: The phone's key bar raises the same card"
@@ -4804,7 +4804,7 @@ retirements:
     defectSurface: [conductor, user-journey]
     destinationLayer: L5
     replacements: []
-    survivorRevisionIds: [revision-d71c45a951c81f0b0577]
+    survivorRevisionIds: [revision-2308ea67c685d4f1729c]
     sameCodePathEvidence:
       file: packages/tests/features/conductor-layout.feature
       symbol: "Scenario: A Look stays open across the width where the two columns fold"
@@ -4889,3 +4889,93 @@ retirements:
           test: "the Conductor's help > has six sections in order and sixteen bullets"
           note: "Not yet confirmed: a human must confirm this. The revision only drops its first two lines, the resize below the help column's width and `Then the conductor should have no help column`: the menu offers How to use at every width now. The Esc journey is the survivor, unchanged."
     survivorRevisionIds: [revision-8bcafdbc869e5a36cc28]
+  - id: replace-29efcf88159ee2c5951f
+    revisionId: revision-29efcf88159ee2c5951f
+    action: replace
+    status: landed
+    promise: The work stands beside the conversation, and folds into the status line on a narrow window
+    defectSurface: [conductor, conductor-layout]
+    destinationLayer: L1
+    replacements:
+      - file: packages/client/src/conductor/conductorFrame.test.ts
+        test: "the Conductor's frame > gives a desktop the works, then the chat at its measure, at every width"
+        lane: unit
+        platforms: [linux, darwin]
+        realism: [production-layout-state]
+        reviewEvidence:
+          file: packages/client/src/conductor/conductorFrame.test.ts
+          test: "the Conductor's frame > gives a desktop the works, then the chat at its measure, at every width"
+          note: "Not yet confirmed: a human must confirm this. The works no longer fold into the status line on a narrow window: every desktop width has the works on the wide side and the conversation as a panel. The browser survivor checks that at 1920, 900 and 2000 wide."
+    survivorRevisionIds: [revision-afa1f8225a0464d5e355]
+  - id: replace-d71c45a951c81f0b0577
+    revisionId: revision-d71c45a951c81f0b0577
+    action: replace
+    status: landed
+    promise: The peek stays open across the width where the two columns fold
+    defectSurface: [conductor, conductor-peek]
+    destinationLayer: L1
+    replacements:
+      - file: packages/client/src/conductor/conductorFrame.test.ts
+        test: "the Conductor's frame > gives a desktop the works, then the chat at its measure, at every width"
+        lane: unit
+        platforms: [linux, darwin]
+        realism: [production-layout-state]
+        reviewEvidence:
+          file: packages/client/src/conductor/conductorFrame.test.ts
+          test: "the Conductor's frame > gives a desktop the works, then the chat at its measure, at every width"
+          note: "Not yet confirmed: a human must confirm this. Renamed only: there is no width where the columns fold any more. Its steps are unchanged in the survivor."
+    survivorRevisionIds: [revision-2308ea67c685d4f1729c]
+  - id: replace-6d31a0f0995ca43fb059
+    revisionId: revision-6d31a0f0995ca43fb059
+    action: replace
+    status: landed
+    promise: The phone keeps one column, and nothing reaches past its right edge
+    defectSurface: [conductor, mobile]
+    destinationLayer: L1
+    replacements:
+      - file: packages/client/src/conductor/conductorFrame.test.ts
+        test: "the Conductor's frame > gives a phone the chat or the works, one at a time"
+        lane: unit
+        platforms: [linux, darwin]
+        realism: [production-layout-state]
+        reviewEvidence:
+          file: packages/client/src/conductor/conductorFrame.test.ts
+          test: "the Conductor's frame > gives a phone the chat or the works, one at a time"
+          note: "Not yet confirmed: a human must confirm this. A phone has two tabs, Work and Chat, instead of a band over the chat. The survivor walks from the chat to the works by the status line's count and back by the Chat tab, inside 390px."
+    survivorRevisionIds: [revision-099e7787c6921fc5c0e4]
+  - id: replace-ee6cea0dba9e20397579
+    revisionId: revision-ee6cea0dba9e20397579
+    action: replace
+    status: landed
+    promise: The phone's key bar raises the same card
+    defectSurface: [conductor, conductor-lock, mobile]
+    destinationLayer: L1
+    replacements:
+      - file: packages/client/src/conductor/WorkTerminals.test.tsx
+        test: "a work's terminal row > says its role, name, state and for how long"
+        lane: unit
+        platforms: [linux, darwin]
+        realism: [solid-reactivity]
+        reviewEvidence:
+          file: packages/client/src/conductor/WorkTerminals.test.tsx
+          test: "a work's terminal row > says its role, name, state and for how long"
+          note: "Not yet confirmed: a human must confirm this. One line changes: the terminal rows are two lines in a narrow list now, so the old one-line check becomes a check that every part stays inside the card. The rest of the journey is unchanged."
+    survivorRevisionIds: [revision-6bac0091cf0525884efc]
+  - id: replace-a710111769e22bb4b3b0
+    revisionId: revision-a710111769e22bb4b3b0
+    action: replace
+    status: landed
+    promise: Switching to a terminal of another size does not move the peek's top bar
+    defectSurface: [conductor, conductor-peek]
+    destinationLayer: L1
+    replacements:
+      - file: packages/client/src/conductor/WorkTerminals.test.tsx
+        test: "a work's terminal row > opens the peek at its host and id from Look"
+        lane: unit
+        platforms: [linux, darwin]
+        realism: [solid-reactivity]
+        reviewEvidence:
+          file: packages/client/src/conductor/WorkTerminals.test.tsx
+          test: "a work's terminal row > opens the peek at its host and id from Look"
+          note: "Not yet confirmed: a human must confirm this. One line added: this is the scenario whose work has two terminals, so it also checks that the rows keep every part inside the card. The rest is unchanged."
+    survivorRevisionIds: [revision-63a7a05f5537ffa87178]

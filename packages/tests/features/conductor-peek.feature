@@ -124,6 +124,7 @@ Feature: Peek at a terminal from the Conductor
     And I ask the conductor to join the terminal I am in to the work as its planner
     And I ask the conductor to run the implementor in the work's repo
     Then the work column should list the terminal as a member
+    And the work's terminal rows should keep every part inside the card
     When I look at the member terminal
     Then the peek should be open
     And the peek should list 2 tabs

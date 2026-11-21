@@ -168,10 +168,22 @@ export async function enterConductor(world: KoluWorld): Promise<void> {
   await pane.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
 }
 
+/** ON A PHONE, THE CHAT IS ONE OF TWO TABS: a step that talks to the
+ *  Conductor, or reads what it said, does it where a person would — on the
+ *  Chat tab. A desktop has no tabs and shows the chat always. */
+export async function showChat(world: KoluWorld): Promise<void> {
+  const chat = world.page.locator(
+    '[data-testid="conductor-phone-tab"][data-tab="chat"]',
+  );
+  if ((await chat.count()) === 0) return;
+  if ((await chat.getAttribute("aria-selected")) !== "true") await chat.click();
+}
+
 export async function sendPrompt(
   world: KoluWorld,
   text: string,
 ): Promise<void> {
+  await showChat(world);
   const input = world.page.locator(INPUT);
   await input.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
   await input.click();
@@ -2355,28 +2367,137 @@ Then(
   },
 );
 
-// ── One reading column, and the side column beside it ──
+// ── The works and the conversation beside them ──
 //
-// The work column has TWO placements and one implementation: a side column
-// that is always on screen on a window wide enough for both measures, and the
-// band the status line's control opens below that width. These steps say
-// which placement is live, because that is the thing a person sees change.
+// On a desktop the works take the wide side and the conversation is a panel
+// on the right; on a phone they are two tabs, one on screen at a time. These
+// steps read what is on screen by its boxes, because the layout IS the claim.
 
-/** The pane's second column — the always-on placement of the work column. */
+/** The works area on a desktop — the frame's wide track. */
 const SIDE = '[data-testid="conductor-side"]';
+const CHAT_PANEL = '[data-testid="conductor-chat"]';
+const PHONE_TAB = '[data-testid="conductor-phone-tab"]';
+
+interface Box {
+  readonly left: number;
+  readonly right: number;
+  readonly width: number;
+}
+
+/** Where the works, the conversation and the pane are, and how wide the
+ *  window is — one read, so the four agree. */
+async function frameBoxes(world: KoluWorld): Promise<{
+  works: Box | null;
+  chat: Box | null;
+  pane: Box | null;
+  window: number;
+}> {
+  return world.page.evaluate(
+    ([works, chat, pane]) => {
+      const box = (selector: string) => {
+        const el = document.querySelector(selector);
+        if (el === null) return null;
+        const r = el.getBoundingClientRect();
+        return { left: r.left, right: r.right, width: r.width };
+      };
+      return {
+        works: box(works),
+        chat: box(chat),
+        pane: box(pane),
+        window: window.innerWidth,
+      };
+    },
+    [SIDE, CHAT_PANEL, '[data-testid="conductor-pane"]'] as const,
+  );
+}
 
 Then(
-  "the conductor side column should show the work",
+  "the conversation should be a panel on the right of the works",
   async function (this: KoluWorld) {
-    const id = this.workId;
-    await this.page
-      .locator(
-        `${SIDE} ${WORK_CARD}${id === undefined ? "" : `[data-work="${id}"]`}`,
-      )
-      .first()
-      .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    await pollFor({
+      observe: () => frameBoxes(this),
+      isDone: ({ works, chat, window }) =>
+        works !== null &&
+        chat !== null &&
+        chat.width > 0 &&
+        works.width > chat.width &&
+        chat.left >= works.right - 1 &&
+        Math.abs(chat.right - window) <= 1,
+      timeoutMs: POLL_TIMEOUT,
+      onTimeout: (last, ms) =>
+        new Error(
+          `after ${ms}ms the works and the conversation stand ${JSON.stringify(last)}, not the works wide and the conversation a panel at the right edge`,
+        ),
+    });
   },
 );
+
+Then(
+  "the works and the conversation should fill the window's width",
+  async function (this: KoluWorld) {
+    await pollFor({
+      observe: () => frameBoxes(this),
+      isDone: ({ works, chat, pane, window }) =>
+        works !== null &&
+        chat !== null &&
+        pane !== null &&
+        Math.abs(pane.right - window) <= 1 &&
+        Math.abs(works.left - pane.left) <= 1 &&
+        Math.abs(chat.right - pane.right) <= 1 &&
+        Math.abs(works.width + chat.width - pane.width) <= 2,
+      timeoutMs: POLL_TIMEOUT,
+      onTimeout: (last, ms) =>
+        new Error(
+          `after ${ms}ms the works and the conversation stand ${JSON.stringify(last)}, which leaves part of the window unused`,
+        ),
+    });
+  },
+);
+
+/** Which of a phone's two tabs is chosen, and what is on screen. */
+async function phoneShowing(world: KoluWorld): Promise<string> {
+  const chosen = await world.page
+    .locator(`${PHONE_TAB}[aria-selected="true"]`)
+    .getAttribute("data-tab", { timeout: 1_000 })
+    .catch(() => "no tab chosen");
+  const { chat } = await frameBoxes(world);
+  const works = await world.page.locator(WORK_COLUMN).count();
+  return `${chosen}: chat ${chat === null ? "absent" : `${Math.round(chat.width)}px`}, ${works} works lists`;
+}
+
+Then(
+  "the phone should be showing the conversation",
+  async function (this: KoluWorld) {
+    await pollFor({
+      observe: () => phoneShowing(this),
+      isDone: (seen) => /^chat: chat [1-9]\d*px, 0 works lists$/.test(seen),
+      timeoutMs: POLL_TIMEOUT,
+      onTimeout: (last, ms) =>
+        new Error(
+          `after ${ms}ms the phone shows ${JSON.stringify(last)}, not the conversation alone`,
+        ),
+    });
+  },
+);
+
+Then("the phone should be showing the works", async function (this: KoluWorld) {
+  await pollFor({
+    observe: () => phoneShowing(this),
+    isDone: (seen) => seen === "work: chat 0px, 1 works lists",
+    timeoutMs: POLL_TIMEOUT,
+    onTimeout: (last, ms) =>
+      new Error(
+        `after ${ms}ms the phone shows ${JSON.stringify(last)}, not the works alone`,
+      ),
+  });
+  await this.page
+    .locator(WORK_COLUMN)
+    .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+});
+
+When("I tap the phone's Chat tab", async function (this: KoluWorld) {
+  await this.page.locator(`${PHONE_TAB}[data-tab="chat"]`).tap();
+});
 
 Then(
   "the conductor should have no side column",
@@ -2974,6 +3095,7 @@ When(
   async function (this: KoluWorld, value: string) {
     // The chat's copy is the question drawn where it was asked: a row of the
     // transcript, answering the same decision the card does.
+    await showChat(this);
     const ask = this.page
       .locator(`${TRANSCRIPT} [data-testid="work-question"][data-from="chat"]`)
       .last();
@@ -4042,39 +4164,110 @@ Then(
   },
 );
 
-/** ONE ROW PER TERMINAL, as one line however narrow the column: every part
- *  of the row sits on the same line, and nothing is pushed past its edge. */
+/** EVERY PART OF EVERY TERMINAL ROW STAYS INSIDE IT, and the rows line up:
+ *  each of a row's cells and named parts lies within the row's box, the row
+ *  does not overflow, every row lies within the card, and down the card the
+ *  roles share one left edge and so do the Look buttons. */
 Then(
-  "the work's terminal rows should each be one line",
+  "the work's terminal rows should keep every part inside the card",
   async function (this: KoluWorld) {
-    await openWorkCard(this);
-    const rows = workCard(this).locator(
-      '[data-testid="work-member"] [data-testid="conductor-look"] > div',
-    );
-    await rows.first().waitFor({ state: "visible", timeout: POLL_TIMEOUT });
-    const broken = await rows.evaluateAll((all) =>
-      all
-        .map((row) => {
-          const tops = Array.from(row.children)
-            .filter((one) => one.getBoundingClientRect().width > 0)
-            .map((one) => {
-              const box = one.getBoundingClientRect();
-              return box.top + box.height / 2;
-            });
-          const oneLine = tops.every(
-            (mid) => Math.abs(mid - (tops[0] ?? 0)) < 6,
+    await showWorkColumn(this);
+    const card = workCard(this);
+    await card
+      .locator(WORK_MEMBER)
+      .first()
+      .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    let problems: string[] = [];
+    await pollFor({
+      observe: async () => {
+        problems = await card.evaluate((el) => {
+          const found: string[] = [];
+          const inside = (inner: DOMRect, outer: DOMRect, slack = 1): boolean =>
+            inner.left >= outer.left - slack &&
+            inner.right <= outer.right + slack &&
+            inner.top >= outer.top - slack &&
+            inner.bottom <= outer.bottom + slack;
+          const cardBox = el.getBoundingClientRect();
+          const rows = Array.from(
+            el.querySelectorAll<HTMLElement>('[data-testid="work-member"]'),
           );
-          const fits = row.scrollWidth <= row.clientWidth + 1;
-          return oneLine && fits
-            ? ""
-            : `${oneLine ? "" : "wraps "}${fits ? "" : "overflows "}${(row.textContent ?? "").replace(/\s+/g, " ").trim()}`;
-        })
-        .filter((one) => one !== ""),
+          const name = (one: Element) =>
+            one.getAttribute("data-testid") ??
+            (one.textContent ?? "").replace(/\s+/g, " ").trim().slice(0, 30);
+          for (const row of rows) {
+            const ref = row.getAttribute("data-ref") ?? "?";
+            const box = row.getBoundingClientRect();
+            if (!inside(box, cardBox))
+              found.push(`${ref}: row leaves the card`);
+            if (row.scrollWidth > row.clientWidth + 1)
+              found.push(`${ref}: row overflows`);
+            const parts = [
+              ...Array.from(row.children),
+              ...Array.from(
+                row.querySelectorAll('[data-testid^="work-member-"]'),
+              ),
+            ];
+            for (const part of parts) {
+              const at = part.getBoundingClientRect();
+              if (at.width === 0 || at.height === 0) continue;
+              if (!inside(at, box))
+                found.push(`${ref}: ${name(part)} reaches outside the row`);
+            }
+          }
+          const lefts = (testid: string) =>
+            rows
+              .map((row) => row.querySelector(`[data-testid="${testid}"]`))
+              .filter((one): one is Element => one !== null)
+              .map((one) => Math.round(one.getBoundingClientRect().left));
+          for (const testid of ["work-member-role", "work-member-look"]) {
+            const edges = lefts(testid);
+            if (edges.some((edge) => Math.abs(edge - (edges[0] ?? 0)) > 1))
+              found.push(`${testid} edges differ: ${edges.join(", ")}`);
+          }
+          return found;
+        });
+        return problems;
+      },
+      isDone: (seen) => seen.length === 0,
+      timeoutMs: POLL_TIMEOUT,
+      onTimeout: (_last, ms) =>
+        new Error(
+          `after ${ms}ms the terminal rows do not keep inside the card: ${JSON.stringify(problems)}`,
+        ),
+    });
+  },
+);
+
+/** SHUT IT AGAIN — a press on an open card's head, idempotently. */
+When("I shut the work card", async function (this: KoluWorld) {
+  await showWorkColumn(this);
+  const card = workCard(this);
+  await card.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+  if ((await card.getAttribute("data-open")) !== null)
+    await card.locator('[data-testid="work-card-head"]').click();
+  await waitForValue(
+    "the work card's open state",
+    async () =>
+      (await card.getAttribute("data-open")) === null ? "shut" : "open",
+    "shut",
+  );
+});
+
+/** THE TERMINAL IS LISTED ON THE SHUT CARD — its row is on the face, read
+ *  without opening anything. */
+Then(
+  "the shut work card should list the terminal",
+  async function (this: KoluWorld) {
+    await showWorkColumn(this);
+    const card = workCard(this);
+    assert.equal(
+      await card.getAttribute("data-open"),
+      null,
+      "the work's card is open, so this is not the shut card",
     );
-    if (broken.length > 0)
-      throw new Error(
-        `these terminal rows are not one line: ${JSON.stringify(broken)}`,
-      );
+    await card
+      .locator(`${WORK_MEMBER}[data-ref$="/${watchedId(this)}"]`)
+      .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
   },
 );
 

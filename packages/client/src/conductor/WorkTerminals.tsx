@@ -152,7 +152,7 @@ const MemberRow: Component<{
       </span>
       <span
         data-testid="work-member-status"
-        class="col-span-2 col-start-1 flex min-w-0 items-center gap-1.5 text-fg-2 @min-[32rem]:col-span-1 @min-[32rem]:col-start-3"
+        class="col-span-2 col-start-1 flex min-w-0 items-center gap-1.5 overflow-hidden text-fg-2 @min-[32rem]:col-span-1 @min-[32rem]:col-start-3"
       >
         <Show
           when={status()}
