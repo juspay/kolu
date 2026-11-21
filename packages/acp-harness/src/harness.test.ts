@@ -725,6 +725,18 @@ describe("one conversation with a real agent", () => {
     ]);
   });
 
+  test("the harness says which message's turn the agent is on, for rows a product writes itself", async () => {
+    const running = await open("agent.ts");
+    expect(running.harness.turn()).toBeNull();
+    // `slow` says nothing before it is held: the turn is known from the
+    // prompt in flight before any frame of it has been read.
+    const held = await running.harness.prompt(typed("slow", []), false);
+    expect(running.harness.turn()).toBe(held.rowId);
+    await running.harness.prompt(typed("hello", []), false);
+    await settled(running, "the two turns never ended");
+    expect(running.harness.turn()).toBeNull();
+  });
+
   test("a task and a child an agent reports in its own dialect say their turn, and a task's end mid-reply cuts no paragraph", async () => {
     // A leg that READS the fixture's own dialect, the way an engine whose
     // agent narrates tasks and children outside core ACP does. Those frames
