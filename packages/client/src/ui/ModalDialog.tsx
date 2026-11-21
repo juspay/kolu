@@ -57,14 +57,20 @@ export function refocusIfNoDialogOpen() {
 // so the child's `w-full` resolves against a definite parent width — otherwise
 // `w-full` on a content-auto flex item collapses to min-content on desktop.
 const SIZE_CLASS = {
-  sm: "max-w-sm",
-  md: "max-w-md",
+  sm: "w-full max-w-sm",
+  md: "w-full max-w-md",
   // Unified ⌘K switcher: compact enough that identity + right rail stay
   // adjacent on wide monitors (not a name, a desert, then a lone tag).
   // 44rem ≈ 704px; 90vw keeps phone/narrow windows usable.
-  palette: "max-w-[min(90vw,44rem)]",
+  palette: "w-full max-w-[min(90vw,44rem)]",
   // Broad content dialogs that still need more room than md (rare).
-  lg: "max-w-[min(95vw,80rem)]",
+  lg: "w-full max-w-[min(95vw,80rem)]",
+  fit: "min-w-0 max-w-full max-h-full max-sm:w-full",
+} as const;
+
+const FRAME_CLASS = {
+  top: "fixed inset-0 z-50 flex items-start justify-center px-4 pt-[15vh] pointer-events-none",
+  fit: "fixed inset-0 z-50 flex items-center justify-center p-8 pointer-events-none max-sm:items-stretch max-sm:p-0",
 } as const;
 
 const ModalDialog: Component<{
@@ -82,11 +88,9 @@ const ModalDialog: Component<{
    *  Shortcuts help, Diagnostic info) opt in so the close-refocus policy lives
    *  in one place instead of being hand-duplicated at each call site. */
   refocusOnClose?: boolean;
-  /** Max width cap — "sm" (24rem) for confirms/help, "md" (28rem) for
-   *  medium dialogs, "palette" (min(90vw, 44rem)) for the unified ⌘K
-   *  switcher, "lg" (min(95vw, 80rem)) for rare broad content.
-   *  Defaults to "md". */
-  size?: "sm" | "md" | "palette" | "lg";
+  size?: "sm" | "md" | "palette" | "lg" | "fit";
+  escapeCloses?: boolean;
+  placesOwnFocus?: boolean;
   /** Whether Escape and a click outside close it. `false` while another
    *  dialog is open over this one: each is its own Corvu root, so a click or
    *  an Escape in the dialog on top would otherwise close this one too. */
@@ -112,6 +116,7 @@ const ModalDialog: Component<{
     // `refocusIfNoDialogOpen`, shared with the command palette.
     if (props.refocusOnClose && !open) refocusIfNoDialogOpen();
   };
+  const change = withKeyboardDismiss(handleOpenChange);
 
   return (
     <Dialog
@@ -121,16 +126,25 @@ const ModalDialog: Component<{
       // keyboard down — the same overlay-close policy the mobile drawers carry.
       // restoreFocus={false} + refocusTerminal's touch no-op keep it from coming
       // back. No-op on desktop.
-      onOpenChange={withKeyboardDismiss(handleOpenChange)}
+      onOpenChange={change}
       restoreFocus={false}
       onFinalFocus={(e) => e.preventDefault()}
+      onInitialFocus={(e) => {
+        if (props.placesOwnFocus) e.preventDefault();
+      }}
       // terminal.focus() calls (visibility effects, click handlers) emit focusin
       // events that solid-dismissible interprets as the user leaving the dialog.
       closeOnOutsideFocus={false}
       closeOnOutsidePointer={props.dismissible ?? true}
-      closeOnEscapeKeyDown={props.dismissible ?? true}
       initialFocusEl={props.initialFocusEl}
       trapFocus={props.trapFocus}
+      closeOnEscapeKeyDown={
+        (props.escapeCloses ?? true) && (props.dismissible ?? true)
+      }
+      onEscapeKeyDown={(event) => {
+        event.preventDefault();
+        change(false);
+      }}
     >
       <Dialog.Portal forceMount>
         <Dialog.Overlay
@@ -142,12 +156,10 @@ const ModalDialog: Component<{
           }}
         />
         <div
-          class="fixed inset-0 z-50 flex items-start justify-center px-4 pt-[15vh] pointer-events-none"
+          class={props.size === "fit" ? FRAME_CLASS.fit : FRAME_CLASS.top}
           classList={{ hidden: !props.open }}
         >
-          <div
-            class={`pointer-events-auto w-full ${SIZE_CLASS[props.size ?? "md"]}`}
-          >
+          <div class={`pointer-events-auto ${SIZE_CLASS[props.size ?? "md"]}`}>
             {props.children}
           </div>
         </div>

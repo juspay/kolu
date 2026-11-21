@@ -181,16 +181,6 @@ Feature: The Conductor
     And there should be no page errors
 
   Scenario: Look reads the agent's screen from inside the chat
-    # The create card is the conversation's line about an agent, and Look is
-    # how a person checks on it without leaving the chat: a status line off the
-    # fleet roster, and — opened — the last lines of that terminal's screen,
-    # read from its own host. The marker is COMPUTED by the shell, so the
-    # command line's echo (`$((6*7))`) cannot satisfy it: only output read off
-    # the terminal's screen can.
-    #
-    # The other half is the terminal going away: a terminal no longer in the
-    # roster says so, and offers nothing to look at — no toggle, no tail, so
-    # nothing is read for it.
     When I leave the conductor for the host tab
     And I create a terminal
     And I run "echo kolu-look-$((6*7))"
@@ -200,6 +190,7 @@ Feature: The Conductor
     When I look at that tool card's terminal
     Then the look should show "kolu-look-42"
     When I press Escape
+    And I press Escape
     And I close the active terminal via command palette
     And I enter conductor mode
     Then that tool card should say its terminal is gone

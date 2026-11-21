@@ -12060,6 +12060,174 @@
       "firstSeenSha": "3b3c5a8f85f754c28b06d07c2478a6b5ca1a6c56"
     },
     {
+      "revisionId": "revision-a6e22479ff236938c597",
+      "scenarioKey": "scenario-bfe27a78f0604192a0d2",
+      "feature": "features/conductor-layout.feature",
+      "scenario": "A long column of works scrolls by itself, and the pane never does",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "73c4f9ffb7e434e67b45aaee4cf76578116ba2df5edf99fd9309fceb009ef409",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "2bf25c141b5bc387ccd2d028f345827ae8cfd5c1"
+    },
+    {
+      "revisionId": "revision-14f05a55443452a6331a",
+      "scenarioKey": "scenario-a4b27e2d64c45587c039",
+      "feature": "features/conductor-layout.feature",
+      "scenario": "Esc closes the command palette and stays in the Conductor",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "5a1be37e23cfa870ae025bca81c4d59cad9b17afaceb7be1ace428d9d7602ac8",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "2bf25c141b5bc387ccd2d028f345827ae8cfd5c1"
+    },
+    {
+      "revisionId": "revision-934ffdec7574d094c2e3",
+      "scenarioKey": "scenario-c92c19b1b9c65a3b1747",
+      "feature": "features/conductor-layout.feature",
+      "scenario": "Esc closes the help sheet and stays in the Conductor",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "99bc59ed66ddc60e4a594e926d28538bf96de293ff4129fe7664d6191dd98e85",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "2bf25c141b5bc387ccd2d028f345827ae8cfd5c1"
+    },
+    {
+      "revisionId": "revision-d71c45a951c81f0b0577",
+      "scenarioKey": "scenario-8155748736743601cb58",
+      "feature": "features/conductor-layout.feature",
+      "scenario": "The peek stays open across the width where the two columns fold",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "4344beff4bb28c3670d0014fec78695e935e55ddebe6c98c9d947bb57335db3f",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "2bf25c141b5bc387ccd2d028f345827ae8cfd5c1"
+    },
+    {
+      "revisionId": "revision-d317e0bae5330dce6eaf",
+      "scenarioKey": "scenario-c1f463588cff400365ca",
+      "feature": "features/conductor-peek.feature",
+      "scenario": "Esc belongs to the terminal while you type in it, and to the window otherwise",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "b62d6bc7434ea4fb4b433a533d4cd7a06b171f3b14b8e3fb67749ad9bdf1e629",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "2bf25c141b5bc387ccd2d028f345827ae8cfd5c1"
+    },
+    {
+      "revisionId": "revision-2545d003f79fbac7dfca",
+      "scenarioKey": "scenario-8756b4d22f1387ac7302",
+      "feature": "features/conductor-peek.feature",
+      "scenario": "Look opens a live window that you can type in, and it does not resize the terminal",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "eb2bd0c1d75b115c2b8380acb0d5b4afbf9227eb72ed3acb451ae1026fe5224f",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "2bf25c141b5bc387ccd2d028f345827ae8cfd5c1"
+    },
+    {
+      "revisionId": "revision-6843ded9a079a2f0c3c1",
+      "scenarioKey": "scenario-1231f1e2d62c93e5c949",
+      "feature": "features/conductor-peek.feature",
+      "scenario": "On a phone the peek carries its own key bar once the terminal is yours",
+      "kind": "scenario",
+      "tags": ["@mobile"],
+      "bodyHash": "ebc7f1f5a87d2e9891d4c57ac03809c12bf7850bff380dedde97b46006dc1b6a",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "2bf25c141b5bc387ccd2d028f345827ae8cfd5c1"
+    },
+    {
+      "revisionId": "revision-9308d6dbe8fe1e5eaace",
+      "scenarioKey": "scenario-4c842dd82f7775a99d5b",
+      "feature": "features/conductor-peek.feature",
+      "scenario": "Open tile leaves the Conductor for that terminal",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "a808d453907b0f5b1cfab0ba02e6aab2634e91d5035085c8bc092c77198c9004",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "2bf25c141b5bc387ccd2d028f345827ae8cfd5c1"
+    },
+    {
+      "revisionId": "revision-a710111769e22bb4b3b0",
+      "scenarioKey": "scenario-6983f92845e8e6b4eda4",
+      "feature": "features/conductor-peek.feature",
+      "scenario": "Switching to a terminal of another size does not move the peek's top bar",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "0d678ae8e155614862045f87522cf10539b40d1f695313a406470fefdc42062a",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "2bf25c141b5bc387ccd2d028f345827ae8cfd5c1"
+    },
+    {
+      "revisionId": "revision-8b472e94037acc574be1",
+      "scenarioKey": "scenario-28ab8ae0a4723a2f28ca",
+      "feature": "features/conductor-peek.feature",
+      "scenario": "Take over and hand back from the peek",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "e6bda7db83bd6553541654b8551c4bc818e37c0e428f40c1a39d84da147880fb",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "2bf25c141b5bc387ccd2d028f345827ae8cfd5c1"
+    },
+    {
+      "revisionId": "revision-6957481875c2b33a7076",
+      "scenarioKey": "scenario-612a8c6a8a2dbdd2b7e1",
+      "feature": "features/conductor-peek.feature",
+      "scenario": "Typing at a terminal the Conductor drives offers Take over and sends nothing",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "4156ee2e366a259d114adf121d9854eb403b3152e19f281ed7992d8807b49f34",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "2bf25c141b5bc387ccd2d028f345827ae8cfd5c1"
+    },
+    {
+      "revisionId": "revision-7443df2983586a51efb7",
+      "scenarioKey": "scenario-2c6ed397c295f32ab3c4",
+      "feature": "features/conductor-wakes.feature",
+      "scenario": "A work's terminals are listed, looked at, and pressed to go there",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "b5bc429b0419973dce92ad6b738a763d816eb22187413d69858a3e796ef3dae9",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "2bf25c141b5bc387ccd2d028f345827ae8cfd5c1"
+    },
+    {
+      "revisionId": "revision-bc0d8fa3bc7c440ff1ad",
+      "scenarioKey": "scenario-b44cb20d43828674b5ac",
+      "feature": "features/conductor-wakes.feature",
+      "scenario": "Leaving the conversation and coming back finds it exactly as it was",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "9e2e2ed6be636fe2a23a6f4cefc34771150f4037358876a7021a4997d50a4b10",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "2bf25c141b5bc387ccd2d028f345827ae8cfd5c1"
+    },
+    {
+      "revisionId": "revision-fdddfdbead2ca9eb2d48",
+      "scenarioKey": "scenario-bc167b1613e07ab431b7",
+      "feature": "features/conductor.feature",
+      "scenario": "Look reads the agent's screen from inside the chat",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "275940bc8b373b81804c8da8ea58338997f5603cede884e408627b3c95d7e081",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "2bf25c141b5bc387ccd2d028f345827ae8cfd5c1"
+    },
+    {
       "revisionId": "revision-6c8c71e32d85c1a486a3",
       "scenarioKey": "scenario-53d5d90e76d848c7559f",
       "feature": "features/conductor-compaction.feature",
@@ -12069,7 +12237,7 @@
       "bodyHash": "ada8192574c5ce44476d7af16fa1a1aafbe27acdeaf00f73d86754832ba8a471",
       "exampleRows": [],
       "executions": 1,
-      "firstSeenSha": "80c2d278011fd36379726f11228db1e8e23a9177"
+      "firstSeenSha": "844690e21fb8e952381caf287a10ec8cc70e7fa6"
     },
     {
       "revisionId": "revision-f6065d0745e47ba33814",
@@ -12081,7 +12249,7 @@
       "bodyHash": "df9cd4383146fe07f0a2f87a847844db3e2b87176c3b3e02e5cd23dff0876fb1",
       "exampleRows": [],
       "executions": 1,
-      "firstSeenSha": "80c2d278011fd36379726f11228db1e8e23a9177"
+      "firstSeenSha": "844690e21fb8e952381caf287a10ec8cc70e7fa6"
     },
     {
       "revisionId": "revision-42fda587edc3bb5639a0",
@@ -12093,7 +12261,7 @@
       "bodyHash": "d03c673c857f0266291e89e74db4505b6b2731255c22d08e00f1119b7aa4eabd",
       "exampleRows": [],
       "executions": 1,
-      "firstSeenSha": "80c2d278011fd36379726f11228db1e8e23a9177"
+      "firstSeenSha": "844690e21fb8e952381caf287a10ec8cc70e7fa6"
     },
     {
       "revisionId": "revision-4783bb2f8ff49cf5f489",
@@ -12105,7 +12273,7 @@
       "bodyHash": "a0306847b6a6d10b3e8f6892890b3a83482afd461c65ba0cceca921d1f3824e7",
       "exampleRows": [],
       "executions": 1,
-      "firstSeenSha": "80c2d278011fd36379726f11228db1e8e23a9177"
+      "firstSeenSha": "844690e21fb8e952381caf287a10ec8cc70e7fa6"
     },
     {
       "revisionId": "revision-e2d49c93933ca0a6b834",
@@ -12117,7 +12285,7 @@
       "bodyHash": "3d4a0bfb536867d6cc404fbee2cd3634ca552302b91b4fafab29ccc39118b31a",
       "exampleRows": [],
       "executions": 1,
-      "firstSeenSha": "80c2d278011fd36379726f11228db1e8e23a9177"
+      "firstSeenSha": "844690e21fb8e952381caf287a10ec8cc70e7fa6"
     },
     {
       "revisionId": "revision-d97b2e91b03151851efd",
@@ -12129,7 +12297,7 @@
       "bodyHash": "d2e3ba85eb19d3b684240158441b2287d1ed09f84828a918ac81985d436ec1f3",
       "exampleRows": [],
       "executions": 1,
-      "firstSeenSha": "80c2d278011fd36379726f11228db1e8e23a9177"
+      "firstSeenSha": "844690e21fb8e952381caf287a10ec8cc70e7fa6"
     },
     {
       "revisionId": "revision-58a5dcdc989745df2e0d",
@@ -12141,7 +12309,7 @@
       "bodyHash": "a9195e8482fee1c52e30efc9642b20a1c7c3ec01a5f6ed474fb3f7e68a7d0378",
       "exampleRows": [],
       "executions": 1,
-      "firstSeenSha": "80c2d278011fd36379726f11228db1e8e23a9177"
+      "firstSeenSha": "844690e21fb8e952381caf287a10ec8cc70e7fa6"
     },
     {
       "revisionId": "revision-bf095f55978f8aa1b312",
@@ -12153,7 +12321,7 @@
       "bodyHash": "baf6217c1dca986be09633f8ae0ac89b9753579abae5a4987f51b4bd0fa71ecc",
       "exampleRows": [],
       "executions": 1,
-      "firstSeenSha": "80c2d278011fd36379726f11228db1e8e23a9177"
+      "firstSeenSha": "844690e21fb8e952381caf287a10ec8cc70e7fa6"
     },
     {
       "revisionId": "revision-8dfd00e05ad8a8c98770",
@@ -12165,7 +12333,7 @@
       "bodyHash": "f915d07d64a9c91a868eeb48711d60cdfb09b072d1d293693581bdea9a2acaf8",
       "exampleRows": [],
       "executions": 1,
-      "firstSeenSha": "80c2d278011fd36379726f11228db1e8e23a9177"
+      "firstSeenSha": "844690e21fb8e952381caf287a10ec8cc70e7fa6"
     },
     {
       "revisionId": "revision-9b352fec6329a771bb53",
@@ -12177,7 +12345,7 @@
       "bodyHash": "3d3f3e45fa2a41a74d9e59075eb4fab0d760fad15d2bf0fe1dc17c2e57db4bc2",
       "exampleRows": [],
       "executions": 1,
-      "firstSeenSha": "80c2d278011fd36379726f11228db1e8e23a9177"
+      "firstSeenSha": "844690e21fb8e952381caf287a10ec8cc70e7fa6"
     }
   ]
 }

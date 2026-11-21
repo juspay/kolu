@@ -829,6 +829,25 @@ const turn = async (
     endTurn(id);
     return;
   }
+  const joining = /^join ([0-9a-f-]{36}) as (planner|implementor|other)$/.exec(
+    text,
+  );
+  if (joining !== null) {
+    if (lastWork === null) {
+      say("no work is open");
+      endTurn(id);
+      return;
+    }
+    say(
+      `joined: ${await callTool("work_adopt", {
+        id: `local/${joining[1]}`,
+        work: lastWork,
+        role: joining[2],
+      })}`,
+    );
+    endTurn(id);
+    return;
+  }
   if (text.startsWith("watch ")) {
     // A PLAIN WATCH the human asked for: a piece of work in `watch` mode,
     // then the terminal they pointed at adopted into it as `other`.
