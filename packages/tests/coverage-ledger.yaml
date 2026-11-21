@@ -5221,7 +5221,7 @@ retirements:
     defectSurface: [attention-alerts, user-journey]
     destinationLayer: L5
     replacements: []
-    survivorRevisionIds: [revision-768ec53b04a37dde49bc]
+    survivorRevisionIds: [revision-2f83858103d88b68f4b8]
     sameCodePathEvidence:
       file: packages/tests/features/attention-alerts.feature
       symbol: "Scenario: A terminal read in one page stays read after another page of the same kolu writes the unread list"
@@ -5234,8 +5234,34 @@ retirements:
     defectSurface: [attention-alerts, user-journey]
     destinationLayer: L5
     replacements: []
-    survivorRevisionIds: [revision-05afb3484049002ce41d]
+    survivorRevisionIds: [revision-816ceab19c8d9a2eb604]
     sameCodePathEvidence:
       file: packages/tests/features/attention-alerts.feature
       symbol: "Scenario: A terminal read in one page stays read after another page, at a different address, writes the unread list"
       test: Every step of this revision is still asserted on the same journey. The survivor starts each agent (the Claude Code one and the Codex one) working, waits for its indicator to say so, moves to another terminal, and only then ends the turn, so neither mark depends on the next terminal being created before the turn has settled.
+  - id: revise-768ec53b04a37dde49bc
+    revisionId: revision-768ec53b04a37dde49bc
+    action: revised
+    status: landed
+    promise: A terminal read in one page stays read after another page of the same kolu writes the unread list
+    defectSurface: [attention-alerts, user-journey]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-2f83858103d88b68f4b8]
+    sameCodePathEvidence:
+      file: packages/tests/features/attention-alerts.feature
+      symbol: "Scenario: A terminal read in one page stays read after another page of the same kolu writes the unread list"
+      test: The same journey with one check changed — the two checks of this browser's saved unread list are gone. The first was already covered by the next step (terminal 1 unread in the second page, which loads from that list); the second is now terminal 1's row not unread in the second page, which holds only once the first page's read has reached storage and the second page has heard it. The scenario no longer reads the client's private storage format.
+  - id: revise-05afb3484049002ce41d
+    revisionId: revision-05afb3484049002ce41d
+    action: revised
+    status: landed
+    promise: A terminal read in one page stays read after another page, at a different address, writes the unread list
+    defectSurface: [attention-alerts, user-journey]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-816ceab19c8d9a2eb604]
+    sameCodePathEvidence:
+      file: packages/tests/features/attention-alerts.feature
+      symbol: "Scenario: A terminal read in one page stays read after another page, at a different address, writes the unread list"
+      test: The same journey with one check changed — the two checks of this browser's saved unread list are gone. The first was already covered by the next step (terminal 1 unread in the second page, which loads from that list); the second is now terminal 1's row not unread in the second page, which holds only once the first page's read has reached storage and the second page has heard it. The scenario no longer reads the client's private storage format.

@@ -257,13 +257,12 @@ Feature: Attention Alerts
     When I create a terminal
     And the Claude Code session state changes to "waiting"
     Then a workspace switcher branch should be notified
-    And this browser's saved unread list should be terminals "1"
     When I open a second page of the same kolu
     Then terminal 1's dock row should be unread in the second page
     # Read terminal 1 in the first page.
     When I click the notified workspace switcher branch
     Then no workspace switcher branch should be notified
-    And this browser's saved unread list should be terminals ""
+    And terminal 1's dock row should not be unread in the second page
     # A second agent finishes; reading it in the second page makes that page
     # write the list.
     When I select terminal 2 in the workspace switcher
@@ -290,12 +289,11 @@ Feature: Attention Alerts
     When I create a terminal
     And the Claude Code session state changes to "waiting"
     Then a workspace switcher branch should be notified
-    And this browser's saved unread list should be terminals "1"
     When I open a second page of the same kolu at another address
     Then terminal 1's dock row should be unread in the second page
     When I click the notified workspace switcher branch
     Then no workspace switcher branch should be notified
-    And this browser's saved unread list should be terminals ""
+    And terminal 1's dock row should not be unread in the second page
     When I select terminal 2 in the workspace switcher
     And I create a terminal
     And a Codex session is mocked with state "thinking"

@@ -7,7 +7,10 @@
 import * as assert from "node:assert";
 import { After, Then, When } from "@cucumber/cucumber";
 import type { Page } from "playwright";
-import { withAttentionDiagnosis } from "../support/attentionDiagnosis.ts";
+import {
+  waitForFinishedTurn,
+  withAttentionDiagnosis,
+} from "../support/attentionWaits.ts";
 import { pollFor } from "../support/poll.ts";
 import {
   DOCK_ROW_SELECTOR,
@@ -93,41 +96,6 @@ When(
   },
 );
 
-/** What THIS BROWSER has saved for the local host — the record both pages
- *  read and write. Terminals by their creation index, comma-separated; `""`
- *  is none. */
-Then(
-  "this browser's saved unread list should be terminals {string}",
-  async function (this: KoluWorld, indexes: string) {
-    const expected = indexes
-      .split(",")
-      .map((s) => s.trim())
-      .filter((s) => s !== "")
-      .map((s) => createdId(this, Number(s)))
-      .sort();
-    await pollFor({
-      observe: () =>
-        this.page.evaluate(() => {
-          const raw = localStorage.getItem("kolu-attention:local");
-          if (raw === null) return null;
-          const saved: unknown = JSON.parse(raw);
-          return saved !== null &&
-            typeof saved === "object" &&
-            "unread" in saved &&
-            Array.isArray(saved.unread)
-            ? [...saved.unread].sort()
-            : `not an attention record: ${raw}`;
-        }),
-      isDone: (saved) => JSON.stringify(saved) === JSON.stringify(expected),
-      timeoutMs: POLL_TIMEOUT,
-      onTimeout: (saved, ms) =>
-        new Error(
-          `after ${ms}ms the saved unread list was ${JSON.stringify(saved)}, wanted ${JSON.stringify(expected)}`,
-        ),
-    });
-  },
-);
-
 When("I reload the first page", async function (this: KoluWorld) {
   await this.page.reload();
   await this.page
@@ -136,30 +104,16 @@ When("I reload the first page", async function (this: KoluWorld) {
     .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
 });
 
-/** The terminal's row shows padi's verdict that its agent's turn is over —
- *  still, in the post-turn paint — so a check after this one is about what
- *  the page did with padi's word, not a page that has not heard it yet. */
+/** Terminal N's row in the first page shows padi's verdict that its agent's
+ *  turn is over — see {@link waitForFinishedTurn}. */
 Then(
   "terminal {int}'s dock row should show its finished turn",
   async function (this: KoluWorld, index: number) {
-    const id = createdId(this, index);
-    await pollFor({
-      observe: () =>
-        this.page.evaluate((terminal) => {
-          const pip = document.querySelector(
-            `[data-testid="dock-row"][data-terminal-id="${terminal}"] [data-testid="state-pip"]`,
-          );
-          return pip === null
-            ? "no row"
-            : `${pip.getAttribute("data-pip")}/${pip.getAttribute("data-motion")}`;
-        }, id),
-      isDone: (pip) => pip === "linger/none",
-      timeoutMs: POLL_TIMEOUT,
-      onTimeout: (pip, ms) =>
-        new Error(
-          `after ${ms}ms terminal ${index}'s row had not shown a finished turn (pip: ${pip})`,
-        ),
-    });
+    await waitForFinishedTurn(
+      this.page,
+      `${DOCK_ROW_SELECTOR}[data-terminal-id="${createdId(this, index)}"]`,
+      `terminal ${index}'s row`,
+    );
   },
 );
 

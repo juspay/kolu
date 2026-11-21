@@ -1,3 +1,44 @@
+/** The attention scenarios' waits on a page's dock rows, shared by the
+ *  one-page and the two-page steps. */
+
+import type { Page } from "playwright";
+import { readPadiDirect } from "./hooks.ts";
+import { pollFor } from "./poll.ts";
+import { POLL_TIMEOUT } from "./world.ts";
+
+/** Wait until a row matching `rowSelector` in `page` shows padi's verdict
+ *  that its agent's turn is over — still, in the post-turn paint
+ *  (`linger/none`). padi publishes that verdict only once it has looked, so a
+ *  check after this one is about what the page did with padi's word, not a
+ *  page that has not heard it yet. `what` names the row in the error. */
+export async function waitForFinishedTurn(
+  page: Page,
+  rowSelector: string,
+  what: string,
+): Promise<void> {
+  await pollFor({
+    observe: () =>
+      page.evaluate(
+        (selector) =>
+          [
+            ...document.querySelectorAll(
+              `${selector} [data-testid="state-pip"]`,
+            ),
+          ].map(
+            (pip) =>
+              `${pip.getAttribute("data-pip")}/${pip.getAttribute("data-motion")}`,
+          ),
+        rowSelector,
+      ),
+    isDone: (pips) => pips.includes("linger/none"),
+    timeoutMs: POLL_TIMEOUT,
+    onTimeout: (pips, ms) =>
+      new Error(
+        `after ${ms}ms ${what} had not shown a finished turn (pips: ${JSON.stringify(pips)})`,
+      ),
+  });
+}
+
 /** What a timed-out unread wait reports, so a red run tells apart padi not
  *  having opened its feed (`settled: false`), a turn that finished with no
  *  mark raised, and a turn that had not finished: padi's own `urgency` read
@@ -6,10 +47,6 @@
  *  attention record per host (`kolu-attention:<host>` in `localStorage`) —
  *  the page's memory that decides whether a finished, unwatched turn raises a
  *  mark. */
-
-import type { Page } from "playwright";
-import { readPadiDirect } from "./hooks.ts";
-
 async function attentionDiagnosis(page: Page): Promise<string> {
   const urgency = await readPadiDirect().then(
     ({ urgency }) => JSON.stringify(urgency),

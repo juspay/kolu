@@ -13102,6 +13102,30 @@
       "exampleRows": [],
       "executions": 1,
       "firstSeenSha": "9c770675fb1d8de5f2aa987fe3ed41e89742743b"
+    },
+    {
+      "revisionId": "revision-2f83858103d88b68f4b8",
+      "scenarioKey": "scenario-b02b85222f0f50ff4cb0",
+      "feature": "features/attention-alerts.feature",
+      "scenario": "A terminal read in one page stays read after another page of the same kolu writes the unread list",
+      "kind": "scenario",
+      "tags": ["@codex-mock"],
+      "bodyHash": "c0768573dec3276fc1eb01309824657d4dc7bdaef618c30f72745a0f1d8cac9c",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "d29d06a291b1e1f46b37ccb42a9671561c7f8caf"
+    },
+    {
+      "revisionId": "revision-816ceab19c8d9a2eb604",
+      "scenarioKey": "scenario-d42a126d4c936830be5f",
+      "feature": "features/attention-alerts.feature",
+      "scenario": "A terminal read in one page stays read after another page, at a different address, writes the unread list",
+      "kind": "scenario",
+      "tags": ["@codex-mock"],
+      "bodyHash": "81426ceeccaeae94ea778fc6818ea4a8f2b6978613a7c1c1af7140714506bfc0",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "d29d06a291b1e1f46b37ccb42a9671561c7f8caf"
     }
   ]
 }

@@ -1,6 +1,9 @@
 import * as assert from "node:assert";
 import { Then, When } from "@cucumber/cucumber";
-import { withAttentionDiagnosis } from "../support/attentionDiagnosis.ts";
+import {
+  waitForFinishedTurn,
+  withAttentionDiagnosis,
+} from "../support/attentionWaits.ts";
 import { pollFor, pollUntil } from "../support/poll.ts";
 import { redeployUnderThisPage } from "../support/redeploy.ts";
 import { type KoluWorld, POLL_TIMEOUT } from "../support/world.ts";
@@ -29,32 +32,16 @@ When(
   },
 );
 
-/** The agent's row shows padi's verdict that its turn is over — still, in
- *  the post-turn paint. padi publishes that verdict only once it has looked,
- *  so a check after this one is a check of what the page did with padi's
- *  first real word, not of a page that has not heard it yet. */
+/** The agent's row shows padi's verdict that its turn is over — see
+ *  {@link waitForFinishedTurn}. */
 Then(
   "the agent's dock row should show its finished turn",
   async function (this: KoluWorld) {
-    await pollFor({
-      observe: () =>
-        this.page.evaluate(() =>
-          [
-            ...document.querySelectorAll(
-              '[data-testid="dock-row"][data-agent-state="waiting"] [data-testid="state-pip"]',
-            ),
-          ].map(
-            (pip) =>
-              `${pip.getAttribute("data-pip")}/${pip.getAttribute("data-motion")}`,
-          ),
-        ),
-      isDone: (pips) => pips.includes("linger/none"),
-      timeoutMs: POLL_TIMEOUT,
-      onTimeout: (pips, ms) =>
-        new Error(
-          `after ${ms}ms no waiting agent's row showed a finished turn (pips: ${JSON.stringify(pips)})`,
-        ),
-    });
+    await waitForFinishedTurn(
+      this.page,
+      '[data-testid="dock-row"][data-agent-state="waiting"]',
+      "no waiting agent's row",
+    );
   },
 );
 
