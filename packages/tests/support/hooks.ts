@@ -1058,10 +1058,10 @@ async function startServerChild(
           KOLU_GH_BIN: fakeGhBin,
           // THE PADI BUILD, for the source wrapper: it bakes nothing, so its
           // binder and the padi it spawns (`inheritParentEnv`) read the id
-          // from here, and the two builds differ only by it. A Nix-built
-          // server's own `--set` overrides these.
+          // from here, and the two builds differ only by it — the one axis a
+          // deploy's build check converges on. A Nix-built server's own
+          // `--set` overrides it.
           PADI_BUILD_ID: `e2e-${build}`,
-          PADI_COMMIT_HASH: `e2e-${build}`,
         },
       },
     );
