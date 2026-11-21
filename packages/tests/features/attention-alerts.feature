@@ -134,3 +134,95 @@ Feature: Attention Alerts
     And the notification sound should have played 0 times
     And the app badge should show 1
     And there should be no page errors
+
+  # A DEPLOY under a page that stays open: only the server stops; padi and
+  # kaval keep running; the new server, on the same address with a different
+  # padi build, replaces padi. The page offers Reload and it is clicked at once.
+  # Each scenario waits for the NEW padi to list the agent finished, and for
+  # the row to show it, before checking what did not happen.
+
+  Scenario: A finished agent you had opened reads as read after a deploy
+    When I stub the notification sound
+    And I create a terminal
+    And a Claude Code session is mocked with state "waiting"
+    And I create a terminal
+    Then a workspace switcher branch should be notified
+    And the notification sound should have played 1 time
+    When I click the notified workspace switcher branch
+    Then no workspace switcher branch should be notified
+    When I select terminal 2 in the workspace switcher
+    And I save the active canvas tile id
+    Then the saved session should record the active terminal
+    When kolu is deployed under this page and I click Reload when it is offered
+    Then padi should list the agent's turn as finished
+    And the saved active canvas tile should still be active
+    And the agent's dock row should show its finished turn
+    And no workspace switcher branch should be notified
+    And the notification sound should have played 0 times
+    And there should be no page errors
+
+  Scenario: A finished agent you had opened reads as read after a deploy, behind a sleeping terminal
+    When I stub the notification sound
+    And I sleep the active terminal via the tile sleep button
+    Then the dock should show 1 sleeping row
+    When I create a terminal
+    And a Claude Code session is mocked with state "waiting"
+    And I create a terminal
+    Then a workspace switcher branch should be notified
+    And the notification sound should have played 1 time
+    When I click the notified workspace switcher branch
+    Then no workspace switcher branch should be notified
+    When I select terminal 2 in the workspace switcher
+    And I save the active canvas tile id
+    Then the saved session should record the active terminal
+    When kolu is deployed under this page and I click Reload when it is offered
+    Then padi should list the agent's turn as finished
+    And the saved active canvas tile should still be active
+    And the agent's dock row should show its finished turn
+    And no workspace switcher branch should be notified
+    And the notification sound should have played 0 times
+    And there should be no page errors
+
+  # The host's padi replaced under a page that is never reloaded: the server
+  # and the page stay, padi is killed, and the server starts another that
+  # adopts kaval's terminals. The sound already played once, before.
+
+  Scenario: A finished agent you had opened stays read when padi is replaced under the page
+    When I stub the notification sound
+    And I create a terminal
+    And a Claude Code session is mocked with state "waiting"
+    And I create a terminal
+    Then a workspace switcher branch should be notified
+    And the notification sound should have played 1 time
+    When I click the notified workspace switcher branch
+    Then no workspace switcher branch should be notified
+    When I select terminal 2 in the workspace switcher
+    And I save the active canvas tile id
+    Then the saved session should record the active terminal
+    When this host's padi is replaced under the page
+    Then padi should list the agent's turn as finished
+    And the agent's dock row should show its finished turn
+    And no workspace switcher branch should be notified
+    And the notification sound should have played 1 time
+    And there should be no page errors
+
+  Scenario: A finished agent you had opened stays read when padi is replaced under the page, behind a sleeping terminal
+    When I stub the notification sound
+    And I sleep the active terminal via the tile sleep button
+    Then the dock should show 1 sleeping row
+    When I create a terminal
+    And a Claude Code session is mocked with state "waiting"
+    And I create a terminal
+    Then a workspace switcher branch should be notified
+    And the notification sound should have played 1 time
+    When I click the notified workspace switcher branch
+    Then no workspace switcher branch should be notified
+    When I select terminal 2 in the workspace switcher
+    And I save the active canvas tile id
+    Then the saved session should record the active terminal
+    When this host's padi is replaced under the page
+    Then padi should list the agent's turn as finished
+    And the agent's dock row should show its finished turn
+    And no workspace switcher branch should be notified
+    And the notification sound should have played 1 time
+    And there should be no page errors
