@@ -47,6 +47,29 @@ Feature: The Conductor reads as a conversation
     Then the member terminal's look should show "kolu-watch-42"
     And there should be no page errors
 
+  Scenario: The sidebar's entries stay where they are between all the works and one
+    # Its top row is one box in both views: the way back with a work open, the
+    # words "All work" on home. Nothing under it moves, in the wide form or in
+    # the strip of initials.
+    Given a repo for the work
+    When I ask the conductor to open the work "first in progress"
+    And I answer the work's question with "hand-over" in the chat
+    And I ask the conductor to open the work "second in progress"
+    And I answer the work's question with "hand-over" in the chat
+    And I ask the conductor to open the work "waits on me"
+    And I note where the sidebar's 3 works stand
+    And I open the work card
+    Then the sidebar's works should stand where I noted
+    When I go back to all the works
+    Then the sidebar's works should stand where I noted
+    When I resize the viewport to 1100x768
+    And I note where the sidebar's 3 works stand
+    And I open the work card
+    Then the sidebar's works should stand where I noted
+    When I go back to all the works
+    Then the sidebar's works should stand where I noted
+    And there should be no page errors
+
   Scenario: With nothing in progress the column says so, and no readout says zero
     # `watching 0` and `0 pieces of work` were readouts of nothing. The count
     # is absent, the control that would have opened an empty column is absent,

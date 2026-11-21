@@ -4714,6 +4714,69 @@ When("I go back to all the works", async function (this: KoluWorld) {
   await this.page.locator(`${WORK_COLUMN} [data-testid="works-all"]`).click();
 });
 
+/** WHERE THE SIDEBAR'S ENTRIES STAND: the top edge of every group (its
+ *  heading is its first line) and of every work's entry, by what it is. */
+async function railTops(world: KoluWorld): Promise<Map<string, number>> {
+  const tops = await world.page
+    .locator(`${WORK_COLUMN} [data-testid="works-rail"]`)
+    .evaluate((rail) => {
+      const out: Array<[string, number]> = [];
+      for (const el of rail.querySelectorAll(
+        '[data-testid="works-rail-group"]',
+      ))
+        out.push([
+          `group ${el.getAttribute("data-group")}`,
+          el.getBoundingClientRect().top,
+        ]);
+      for (const el of rail.querySelectorAll('[data-testid="works-rail-line"]'))
+        out.push([
+          `work ${el.getAttribute("data-rail-work")}`,
+          el.getBoundingClientRect().top,
+        ]);
+      return out;
+    });
+  return new Map(tops);
+}
+
+/** The edges noted, per scenario. */
+const notedRailTops = new WeakMap<KoluWorld, Map<string, number>>();
+
+When(
+  "I note where the sidebar's {int} works stand",
+  async function (this: KoluWorld, count: number) {
+    await waitForCount(
+      this,
+      `${WORK_COLUMN} [data-testid="works-rail-line"]`,
+      count,
+    );
+    notedRailTops.set(this, await railTops(this));
+  },
+);
+
+/** NOTHING MOVED: every group and every entry is where it was noted, to
+ *  within half a pixel — the sidebar's top row is one box in both views. */
+Then(
+  "the sidebar's works should stand where I noted",
+  async function (this: KoluWorld) {
+    const noted = notedRailTops.get(this);
+    assert.ok(noted, "nothing was noted about the sidebar");
+    const moved = (now: Map<string, number>): string[] =>
+      [...noted].flatMap(([what, was]) => {
+        const is = now.get(what);
+        return is !== undefined && Math.abs(is - was) <= 0.5
+          ? []
+          : [`${what}: was ${was}, is ${is ?? "gone"}`];
+      });
+    await pollFor({
+      observe: async () => moved(await railTops(this)),
+      isDone: (off) => off.length === 0,
+      onTimeout: (off) =>
+        new Error(`the sidebar moved: ${(off ?? []).join("; ")}`),
+      timeoutMs: 5_000,
+    });
+  },
+);
+
 /** NOTHING PICKED: no work is open, there is no way back to all of them, and
  *  the board is back. The sidebar stays. */
 Then("no work should be picked", async function (this: KoluWorld) {
