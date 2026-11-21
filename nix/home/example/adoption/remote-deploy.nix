@@ -290,8 +290,14 @@ pkgs.testers.nixosTest {
     agenthost.succeed(f"kill -0 {shell_pid}")
 
     # ── 4. THE ASSERTION: no settled frame from a new padi re-finishes it ────
-    after = [(at, pid, f) for at, pid, f in frames() if replaced(pid)]
+    # The follower reads the gate pid BEFORE it dials, so a frame is stamped
+    # with the padi it dialled only if the gate was already current. A frame
+    # from after the deploy still stamped with the old padi is one this check
+    # cannot place, so it fails here rather than dropping out of `after`.
     print(f"remote padi {old_padi} -> {gate('padi')}; urgency since the deploy:\n{timeline(deployed)}")
+    stale = [(at - deployed, f) for at, pid, f in frames() if at >= deployed and pid == old_padi]
+    assert not stale, f"frames after the deploy stamped with the old padi {old_padi}: {stale}"
+    after = [(at, pid, f) for at, pid, f in frames() if replaced(pid)]
     in_no_list = lambda f: not any(
         agent in f[key] for key in ("finishedIds", "lingerIds", "workingIds", "awaitingIds")
     )
