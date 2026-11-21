@@ -51,10 +51,12 @@ import { openSettings } from "./settings/useSettingsOpen";
 import { useTerminalStore } from "./terminal/useTerminalStore";
 import { activeHost } from "./wire";
 
-/** How long a terminal deep link waits for the target host's membership to
- *  settle before giving up loudly (step 4b) — covers a cold boot where the host
- *  is still connecting when the link fires. */
-const MEMBERSHIP_BOUND_MS = 8000;
+/** How long a deep link waits for what it names to arrive before giving up
+ *  loudly (step 4b) — a terminal's host settling its membership, a work
+ *  reaching the works mirror — which covers a cold boot where the host is
+ *  still connecting when the link fires. A picked work kept across a reload
+ *  waits for its work by the same bound (`conductor/WorkColumn.tsx`). */
+export const MEMBERSHIP_BOUND_MS = 8000;
 
 /** The consumed-once stamp — `navigate` marks the CURRENT history entry's
  *  command handled; the traversal gate reads it. Writer and reader are spelled

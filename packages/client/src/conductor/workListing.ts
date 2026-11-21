@@ -11,16 +11,39 @@
  *  work chip — in the chat, in a "which work?" menu, in the reader's header —
  *  picks a work it is not inside, and so do the things outside the Conductor:
  *  a `#/work/…` link, the bell's notification, the command palette, and the
- *  mark on a terminal's dock row. */
+ *  mark on a terminal's dock row.
+ *
+ *  KEPT PER BROWSER TAB, in `sessionStorage`, like the phone's view and the
+ *  Conductor's own mode (`phoneView.ts`, `useConductorMode.ts`): a reload
+ *  stays on the picked work. The Conductor never writes the page's address —
+ *  a `#/work/…` link is read once and taken off it — so the address is not
+ *  where the pick is kept. What a reload does not keep is the chat's narrowing
+ *  to the work, which a reload has always ended. */
 
 import type { StageName, WorkId } from "kolu-work";
 import { batch, createSignal } from "solid-js";
+import { defaultInvalidWarning, persistedPref } from "../persistedPref";
 import { pointChatAt, showAllChat } from "./chatScope";
 import { setPhoneView } from "./phoneView";
 import { closeReader } from "./reader/useReader";
 import { enterConductorMode } from "./useConductorMode";
 
-const [picked, setPicked] = createSignal<WorkId | null>(null);
+/** Read a stored pick: a work id, or `null` for all the works. */
+export function parsePicked(raw: string): WorkId | null {
+  const value: unknown = JSON.parse(raw);
+  if (value === null || (typeof value === "string" && value !== ""))
+    return value;
+  throw new Error(`not a picked work: ${raw}`);
+}
+
+const [picked, setPicked] = persistedPref<WorkId | null>({
+  name: "kolu-conductor-picked-work",
+  fallback: null,
+  parse: parsePicked,
+  serialize: (value) => JSON.stringify(value),
+  storage: sessionStorage,
+  onInvalid: defaultInvalidWarning("kolu-conductor-picked-work", null),
+});
 /** The stage a press on a work's strip asked for, carried into the picked
  *  work's timeline: the strip that was pressed is not the one that shows. */
 const [pickedStage, setPickedStage] = createSignal<StageName | undefined>();

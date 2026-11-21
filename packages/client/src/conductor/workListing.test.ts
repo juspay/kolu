@@ -32,6 +32,7 @@ import { chatScope, showAllChat } from "./chatScope";
 import { phoneView, setPhoneView } from "./phoneView";
 import {
   isPicked,
+  parsePicked,
   pickedWork,
   pickWork,
   showWork,
@@ -103,5 +104,32 @@ describe("a link to a work", () => {
   it("shows a phone its works", () => {
     showWork(B);
     expect(phoneView()).toBe("work");
+  });
+});
+
+describe("the pick across a reload", () => {
+  it("is kept for this tab and read back by a fresh load", async () => {
+    pickWork(A);
+    expect(sessionStorage.getItem("kolu-conductor-picked-work")).toBe(
+      JSON.stringify(A),
+    );
+    vi.resetModules();
+    const reloaded = await import("./workListing");
+    expect(reloaded.pickedWork()).toBe(A);
+  });
+
+  it("is all the works again once nothing is picked", async () => {
+    pickWork(A);
+    unpickWork();
+    vi.resetModules();
+    const reloaded = await import("./workListing");
+    expect(reloaded.pickedWork()).toBeNull();
+  });
+
+  it("refuses a stored value that names no work", () => {
+    expect(parsePicked("null")).toBeNull();
+    expect(parsePicked(JSON.stringify(A))).toBe(A);
+    expect(() => parsePicked('""')).toThrow();
+    expect(() => parsePicked("7")).toThrow();
   });
 });

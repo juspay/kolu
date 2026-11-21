@@ -37,10 +37,12 @@ import {
   createEffect,
   createMemo,
   type JSX,
+  on,
   onCleanup,
   onMount,
   Show,
 } from "solid-js";
+import { MEMBERSHIP_BOUND_MS } from "../useDeepLinks";
 import { layoutMode } from "../useMobile";
 import { useNeedsYou, useWorks } from "./useWorks";
 import WorkCard from "./WorkCard";
@@ -178,15 +180,33 @@ const WorkColumn: Component = () => {
     if (want !== null && done().some(([id]) => id === want.id)) openFinished();
   });
 
-  /** THE PICKED WORK, with its record — none once it has left the list (the
-   *  oldest finished works are let go), which unpicks it. */
+  /** THE PICKED WORK, with its record — none while it is not in the list. */
   const pickedRow = createMemo((): WorkRow | undefined => {
     const id = pickedWork();
     return id === null ? undefined : works().find(([one]) => one === id);
   });
-  createEffect(() => {
-    if (pickedWork() !== null && pickedRow() === undefined) unpickWork();
-  });
+  const pickedHere = createMemo(() => pickedRow() !== undefined);
+  /** A PICKED WORK THAT IS NOT HERE IS LET GO — at once when it was here and
+   *  has left the list (the oldest finished works are let go), and after the
+   *  bound a link waits when it has not arrived yet: a reload keeps the pick
+   *  (`workListing.ts`) and the works reach the mirror one by one after it,
+   *  so a pick that arrives late is not one that is gone. */
+  let arrived: WorkId | null = null;
+  createEffect(
+    on([pickedWork, pickedHere], ([id, here]) => {
+      if (id === null) return;
+      if (here) {
+        arrived = id;
+        return;
+      }
+      if (arrived === id) {
+        unpickWork();
+        return;
+      }
+      const timer = setTimeout(unpickWork, MEMBERSHIP_BOUND_MS);
+      onCleanup(() => clearTimeout(timer));
+    }),
+  );
   const railGroups = createMemo(() => [
     { key: "waiting", name: "Needs you", rows: groups().onYou },
     { key: "in-progress", name: "In progress", rows: groups().moving },
