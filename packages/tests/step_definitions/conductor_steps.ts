@@ -1628,10 +1628,24 @@ Then(
     // Stricter than "the page is no wider than the window": a span clipped by
     // an `overflow: hidden` ancestor keeps the document narrow while its own
     // box runs off the screen — exactly how a phone's agent line used to cut
-    // its title. Every element with a box is measured.
-    const offenders = await this.page.evaluate(() =>
-      [...document.querySelectorAll<HTMLElement>("body *")]
+    // its title. Every element with a box is measured — except what the
+    // Conductor's layer covers: while the Conductor is shown it covers the
+    // host's canvas, whose tiles sit wherever the canvas was panned, and a
+    // covered tile is not on screen.
+    const offenders = await this.page.evaluate(() => {
+      const pane = document.querySelector('[data-testid="conductor-pane"]');
+      const layer =
+        pane?.checkVisibility() === true ? pane.parentElement : null;
+      const covered = layer?.parentElement ?? null;
+      return [...document.querySelectorAll<HTMLElement>("body *")]
         .filter((el) => {
+          if (
+            layer !== null &&
+            covered !== null &&
+            covered.contains(el) &&
+            !layer.contains(el)
+          )
+            return false;
           const box = el.getBoundingClientRect();
           return (
             box.width > 0 &&
@@ -1643,8 +1657,8 @@ Then(
         .map(
           (el) =>
             `${el.tagName.toLowerCase()}${el.dataset.testid ? `[data-testid="${el.dataset.testid}"]` : ""} right=${Math.round(el.getBoundingClientRect().right)} "${(el.textContent ?? "").trim().slice(0, 40)}"`,
-        ),
-    );
+        );
+    });
     assert.deepEqual(
       offenders,
       [],
