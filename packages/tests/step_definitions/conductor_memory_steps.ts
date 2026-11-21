@@ -73,34 +73,45 @@ interface MemoryCell {
 const readMemory = async (): Promise<MemoryCell> =>
   (await surfaceFirstFrame("surface/kolu/conductorMemory/get")) as MemoryCell;
 
+/** Read the cell until `holds` says yes: a frame read right after a write
+ *  can still show what the write settled. */
+const memoryWhen = (
+  what: string,
+  holds: (memory: MemoryCell) => boolean,
+): Promise<MemoryCell> =>
+  pollFor({
+    observe: readMemory,
+    isDone: holds,
+    timeoutMs: POLL_TIMEOUT,
+    onTimeout: (last, ms) =>
+      new Error(`${what}: last saw ${JSON.stringify(last)} after ${ms}ms`),
+  });
+
 /** THE MEMORY A SCENARIO LEFT, emptied over the real wire. Memory outlives
- *  every conversation, so a fresh conversation still holds it. Each waiting
- *  proposal is declined and each entry deleted ONCE, then the cell is read
- *  until it agrees: a frame read right after a write can still show what the
- *  write settled, and acting on it twice would be refused. Every title is
- *  marked per scenario, so a kept decline never refuses another one. */
+ *  every conversation, so a fresh conversation still holds it. A waiting
+ *  proposal is approved and its entry then deleted, never declined: a kept
+ *  decline would refuse the fixture's unmarked batch titles in a later
+ *  scenario. Each id is acted on ONCE, and the cell is read until it agrees
+ *  before the next step, since acting on a stale frame again is refused. */
 const emptyMemory = async (): Promise<void> => {
-  const left = await readMemory();
-  for (const one of left.proposals)
-    await surfaceCall("surface/kolu/conductor/declineMemory", {
+  const waiting = await readMemory();
+  for (const one of waiting.proposals)
+    await surfaceCall("surface/kolu/conductor/approveMemory", {
       proposal: one.id,
+      edited: null,
     });
-  for (const one of left.entries)
+  const settled = await memoryWhen(
+    "the proposals settling",
+    (memory) => memory.proposals.length === 0,
+  );
+  for (const one of settled.entries)
     await surfaceCall("surface/kolu/conductor/deleteMemory", {
       entry: one.id,
     });
-  await pollFor({
-    observe: async () => {
-      const memory = await readMemory();
-      return memory.entries.length + memory.proposals.length;
-    },
-    isDone: (count) => count === 0,
-    timeoutMs: POLL_TIMEOUT,
-    onTimeout: (count, ms) =>
-      new Error(
-        `${count ?? "?"} memories and proposals were left after ${ms}ms`,
-      ),
-  });
+  await memoryWhen(
+    "the memory emptying",
+    (memory) => memory.entries.length === 0,
+  );
 };
 
 Given("the Conductor's memory is empty", async () => {
