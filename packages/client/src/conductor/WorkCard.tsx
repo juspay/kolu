@@ -39,7 +39,6 @@ import { dualPhrase } from "@kolu/terminal-vocab/duration";
 import { Option } from "effect";
 import {
   lifetime,
-  notKeptOf,
   openAsks,
   type StageName,
   type Work,
@@ -57,9 +56,9 @@ import {
   Show,
 } from "solid-js";
 import { fleetTerminalStanding } from "../palette/fleetTerminals";
+import PrText from "./PrText";
 import { elapsedSince } from "../time/duration";
 import { agentName } from "../ui/agentDisplay";
-import InlineConfirmButton from "../ui/InlineConfirmButton";
 import { useShown, useShownClock } from "../ui/shown";
 import Tip from "../ui/Tip";
 import ConductorLook from "./ConductorLook";
@@ -71,11 +70,8 @@ import { splitMemberRef } from "./memberRef";
 import { useConductor } from "./useConductor";
 import { useOpenTile } from "./useOpenTile";
 import { useMembership, useSeen, useWorkMembers } from "./useWorks";
-import PrText from "./PrText";
 import StageStrip from "./StageStrip";
-import WorkDecisions from "./WorkDecisions";
-import WorkFiles from "./WorkFiles";
-import WorkTimeline from "./WorkTimeline";
+import WorkDetails from "./WorkDetails";
 import { LEVEL_WORD } from "./wake";
 import { workFileSource } from "./workFile";
 import {
@@ -85,20 +81,17 @@ import {
   toggleCard,
   wantedCard,
 } from "./workListing";
-import { checksTally, failingLine, livePrOf, prSection } from "./prReadings";
+import { checksTally, livePrOf } from "./prReadings";
 import { timelineShown } from "./timelineView";
 import WorkStanding from "./WorkStanding";
 import {
-  clockOf,
   type Lock,
   membersIn,
-  outcomeWords,
   ROLE_WORD,
   roleRuns,
   stagesOf,
   standingLine,
   timeSpentOnYou,
-  timeSpentWords,
   workHost,
   workSubtitle,
 } from "./workReadings";
@@ -107,12 +100,6 @@ import {
  *  card's smaller type. */
 const MEMBER_CONTROL =
   "shrink-0 cursor-pointer rounded-sm px-1.5 py-[0.1rem] font-mono text-[0.56rem] font-semibold uppercase tracking-[0.06em] transition-colors";
-
-/** What **Stop** warns about before it acts — the whole of what a person
- *  gives up, and what they do not: the record stays, and Reopen is right
- *  there on the card afterwards. */
-const STOP_COPY =
-  "The work is marked stopped and its terminals are released. Nothing is deleted — its decisions and its timeline stay, and you can open it again.";
 
 /** ONE OPEN QUESTION'S PLACE ON THE CARD — what a route onto that question
  *  scrolls to. Whether the question is in view is the question's own to say
@@ -197,13 +184,6 @@ const WorkCard: Component<{
     });
   });
 
-  /** HOW IT ENDED, or `undefined` while it is in flight. The state's own arm,
-   *  narrowed — not a copy of it. */
-  const ended = createMemo(() => {
-    const state = props.work.state;
-    return state.kind === "ended" ? state : undefined;
-  });
-
   /** WHAT IS RUNNING AND WHAT IS BEING ASKED, or `undefined` for a work that
    *  is over. EVERY open ask: a Conductor that asks about a failing check
    *  while a plan approval is still open has put two things to the human, and
@@ -262,13 +242,10 @@ const WorkCard: Component<{
    *  time it opens it follows the work again. */
   const [pressed, setPressed] = createSignal<StageName | undefined>();
   const [whole, setWhole] = createSignal(false);
-  /** Whether the PR's red gates are unfolded from their one line. */
-  const [allFailing, setAllFailing] = createSignal(false);
   createEffect(() => {
     if (isOpen()) return;
     setPressed(undefined);
     setWhole(false);
-    setAllFailing(false);
   });
   /** ... read ONCE per redraw, for the strip and the timeline both. */
   const view = createMemo(() =>
@@ -599,151 +576,15 @@ const WorkCard: Component<{
             </Show>
           </Show>
 
-          {/* HOW IT ENDED, on the card of a work that is over: the outcome in
-              the words there are only three of. */}
-          <Show when={ended()}>
-            {(done) => (
-              <section data-testid="work-outcome" class="mb-2.5">
-                <h4 class="m-0 font-mono text-[0.58rem] uppercase tracking-[0.1em] text-fg-3">
-                  Outcome
-                </h4>
-                <p class="m-0 mt-1 text-[0.7rem] text-fg">
-                  <PrText
-                    work={props.work}
-                    text={outcomeWords(done().outcome)}
-                  />
-                  <span class="font-mono text-[0.62rem] text-fg-3">
-                    {" · "}
-                    {clockOf(done().at)}
-                  </span>
-                </p>
-              </section>
-            )}
-          </Show>
-
-          <WorkFiles
-            id={props.id}
-            source={source()}
-            kept={ended() !== undefined}
-            notKept={Option.getOrUndefined(notKeptOf(props.work))}
-          />
-
-          {/* THE PULL REQUEST: its number (a link, off the record), how it
-              stands, its checks — the live tally while a member's record has
-              one, else the last reading the timeline kept — and, while it is
-              open, whether GitHub would merge it. */}
-          <Show when={Option.getOrUndefined(prSection(props.work, checks()))}>
-            {(pr) => (
-              <section data-testid="work-pr" class="mt-2.5">
-                <h4 class="m-0 font-mono text-[0.58rem] uppercase tracking-[0.1em] text-fg-3">
-                  Pull request
-                </h4>
-                <p
-                  data-testid="work-pr-state"
-                  data-state={pr().state}
-                  data-draft={pr().draft}
-                  class="m-0 mt-1 text-[0.68rem] text-fg"
-                >
-                  <PrText work={props.work} text={`#${pr().number}`} />
-                  <span class="text-fg-2">
-                    {" "}
-                    · {pr().state}
-                    {pr().draft ? " · draft" : ""}
-                  </span>
-                </p>
-                <p
-                  data-testid="work-pr-checks"
-                  class="m-0 text-[0.68rem] text-fg-2"
-                >
-                  {pr().checks}
-                </p>
-                {/* THE RED GATES: one line, cut, with the count — the whole
-                    list in place on a click, and back. */}
-                <Show when={pr().failing.length > 0}>
-                  <button
-                    type="button"
-                    data-testid="work-pr-failing"
-                    aria-expanded={allFailing()}
-                    class={`m-0 block w-full cursor-pointer text-left text-[0.68rem] text-danger hover:underline ${
-                      allFailing() ? "whitespace-normal" : "truncate"
-                    }`}
-                    onClick={() => setAllFailing((was) => !was)}
-                  >
-                    {allFailing()
-                      ? pr().failing.join(", ")
-                      : failingLine(pr().failing)}
-                  </button>
-                </Show>
-                <Show when={Option.getOrUndefined(pr().merge)}>
-                  {(merge) => (
-                    <p
-                      data-testid="work-pr-merge"
-                      data-merge={merge().reason}
-                      class="m-0 text-[0.68rem] text-fg-2"
-                    >
-                      {merge().words}
-                    </p>
-                  )}
-                </Show>
-              </section>
-            )}
-          </Show>
-
-          <WorkDecisions work={props.work} />
-
-          <WorkTimeline
+          <WorkDetails
             id={props.id}
             work={props.work}
+            source={source()}
+            checks={checks()}
             shown={view()}
             onWhole={() => setWhole((was) => !was)}
             now={now()}
           />
-
-          {/* WHERE THE TIME WENT, for a work that is over: the bar above says
-              it in colour, this says it in figures. */}
-          <Show when={ended() !== undefined}>
-            <section class="mt-2.5">
-              <h4 class="m-0 font-mono text-[0.58rem] uppercase tracking-[0.1em] text-fg-3">
-                Where the time went
-              </h4>
-              <p
-                data-testid="work-time-spent"
-                class="m-0 mt-1 text-[0.68rem] text-fg-2"
-              >
-                {timeSpentWords(props.work, new Date(now()).toISOString())}
-              </p>
-            </section>
-          </Show>
-
-          {/* THE ONE CONTROL AT THE FOOT, and which one it is IS the state.
-              Stopping is one of the only two ways a work ends on purpose (the
-              Conductor's `work_stop` is the other); reopening is how an ended
-              one comes back with everything it decided still on it. */}
-          <div class="mt-3 border-t border-edge pt-2">
-            <Show
-              when={live() !== undefined}
-              fallback={
-                <button
-                  type="button"
-                  data-testid="work-reopen"
-                  class="w-full cursor-pointer rounded-md border border-edge-bright px-2 py-1 text-[0.7rem] font-semibold text-fg-2 hover:text-fg"
-                  onClick={() => conductor.reopenWork(props.id)}
-                >
-                  Reopen
-                </button>
-              }
-            >
-              <InlineConfirmButton
-                label="Stop"
-                inFlightLabel="Stop"
-                confirmCopy={STOP_COPY}
-                tone="danger"
-                inFlight={false}
-                testid="work-stop"
-                onConfirm={() => conductor.stopWork(props.id)}
-              />
-            </Show>
-          </div>
         </div>
       </Show>
     </article>
