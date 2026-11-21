@@ -23,6 +23,7 @@ import {
   keepWorkCardOpen,
   openWorkCard,
   sendPrompt,
+  showWorkCard,
   showWorkColumn,
 } from "./conductor_steps.ts";
 
@@ -222,7 +223,7 @@ When(
 Then(
   "the work's question should offer to read the plan",
   async function (this: KoluWorld) {
-    await openWorkCard(this);
+    await showWorkCard(this);
     await this.page
       .locator(`${WORK_COLUMN} ${READ_FILE_BUTTON}`)
       .first()

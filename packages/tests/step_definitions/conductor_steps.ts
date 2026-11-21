@@ -2206,49 +2206,17 @@ export function workCard(world: KoluWorld) {
 /** The way back to all the works, while one is picked. */
 const ALL_WORK = '[data-testid="works-all"]';
 
-/** This scenario's work as a line of the rail, while another is picked — or
- *  `null` when the scenario never named its work. */
-function railLine(world: KoluWorld) {
-  const line = `${WORK_COLUMN} [data-testid="works-rail-line"]`;
-  const id = world.workId;
-  if (id !== undefined)
-    return world.page.locator(`${line}[data-rail-work="${id}"]`);
-  const title = world.workTitle;
-  return title === undefined
-    ? null
-    : world.page.locator(line).filter({ hasText: title }).first();
-}
-
 /** Open that card, idempotently — a work already picked is left alone,
  *  because pressing its head would unpick it and every later step would read
  *  an empty card and blame the product.
  *
- *  Opening a work PICKS it. While another work is picked, this one is a line
- *  of the rail (or, on a phone, behind All work), and the press is made
- *  there. A work that has ENDED is below the line in the collapsed
- *  `Finished` section: the SAME card, one disclosure further, so the step
- *  that opens a card means the same thing before and after the work
- *  finished. */
+ *  Opening a work PICKS it, from the board: while another work is picked,
+ *  All work brings the board back first. A work that has ENDED is below the
+ *  line in the collapsed `Finished` section: the SAME card, one disclosure
+ *  further, so the step that opens a card means the same thing before and
+ *  after the work finished. */
 export async function openWorkCard(world: KoluWorld): Promise<void> {
-  await showWorkColumn(world);
-  const card = workCard(world);
-  if (!(await card.isVisible().catch(() => false))) {
-    const rail = railLine(world);
-    if (rail !== null && (await rail.count()) > 0) await rail.click();
-    else {
-      const back = world.page.locator(`${WORK_COLUMN} ${ALL_WORK}`);
-      if ((await back.count()) > 0) await back.click();
-      const finished = world.page.locator(
-        `${WORK_COLUMN} [data-testid="work-finished"]`,
-      );
-      if (
-        !(await card.isVisible().catch(() => false)) &&
-        (await finished.count()) > 0
-      )
-        await openFinished(world);
-    }
-  }
-  await card.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+  const card = await showWorkCard(world);
   if ((await card.getAttribute("data-open")) === null) {
     await card.locator('[data-testid="work-card-head"]').click();
   }
@@ -2257,6 +2225,48 @@ export async function openWorkCard(world: KoluWorld): Promise<void> {
     async () => (await card.getAttribute("data-open")) ?? "absent",
     "",
   );
+}
+
+/** PUT THE WORK'S CARD ON SCREEN WITHOUT PICKING IT — its face is where its
+ *  question, its stage line and its terminals are. While another work is
+ *  picked this one is a line of the rail, and All work brings the board
+ *  back; a finished work is behind the collapsed Finished section. */
+export async function showWorkCard(world: KoluWorld) {
+  await showWorkColumn(world);
+  const card = workCard(world);
+  if (!(await card.isVisible().catch(() => false))) {
+    const back = world.page.locator(`${WORK_COLUMN} ${ALL_WORK}`);
+    if ((await back.count()) > 0) await back.click();
+    const finished = world.page.locator(
+      `${WORK_COLUMN} [data-testid="work-finished"]`,
+    );
+    if (
+      !(await card.isVisible().catch(() => false)) &&
+      (await finished.count()) > 0
+    )
+      await openFinished(world);
+  }
+  await card.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+  return card;
+}
+
+/** READ WHAT ONLY A PICKED WORK SHOWS, AND PUT THE SCREEN BACK. Its files,
+ *  pull request, decisions and timeline are drawn once it is picked, and
+ *  picking narrows the chat to it — so a step that only LOOKS picks the work
+ *  to read them and, when nothing was picked before, goes back to all the
+ *  works once it has read, leaving the screen and the chat as it found them.
+ *  The answer is that way back. */
+export async function pickToRead(
+  world: KoluWorld,
+): Promise<() => Promise<void>> {
+  const pickedBefore =
+    (await world.page.locator(`${WORK_COLUMN} ${ALL_WORK}`).count()) > 0;
+  await openWorkCard(world);
+  return async () => {
+    if (pickedBefore) return;
+    const back = world.page.locator(`${WORK_COLUMN} ${ALL_WORK}`);
+    if ((await back.count()) > 0) await back.click();
+  };
 }
 
 When("I open the work column", async function (this: KoluWorld) {
@@ -2278,7 +2288,8 @@ Then("the work column should show the work", async function (this: KoluWorld) {
 Then(
   "the work column should list the terminal as a member",
   async function (this: KoluWorld) {
-    await openWorkCard(this);
+    // The terminals are on the work's face: no need to pick it.
+    await showWorkCard(this);
     const id = watchedId(this);
     // WHAT THE CARD ACTUALLY HOLDS when it does not hold this terminal: the
     // refs it does list and its last events. A member leaves by being
@@ -2964,10 +2975,10 @@ async function openWorkSaying(
   world.workId = id;
 }
 
-/** THE WORK'S MODEL QUESTION, inside the opened card — the form a person
- *  answers it in. */
+/** THE WORK'S MODEL QUESTION, on the work's face — the form a person
+ *  answers it in, without picking the work. */
 async function modelQuestion(world: KoluWorld) {
-  await openWorkCard(world);
+  await showWorkCard(world);
   const ask = workCard(world).locator('[data-testid="work-question"]');
   await ask.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
   return ask;
@@ -3127,10 +3138,9 @@ Then(
 When(
   "I answer the work's question with {string} on the card",
   async function (this: KoluWorld, value: string) {
-    // The question lives INSIDE the opened card — which is the gesture a
-    // person makes: the card is violet because something is waiting on them,
-    // and they open it to answer.
-    await openWorkCard(this);
+    // The question is on the work's face — a person answers it where the
+    // work stands, without picking it.
+    await showWorkCard(this);
     const ask = workCard(this).locator('[data-testid="work-question"]');
     await ask.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
     await ask
@@ -3435,7 +3445,7 @@ When("the work's pull request is merged", async function (this: KoluWorld) {
 Then(
   "the work card should say its pull request is a draft",
   async function (this: KoluWorld) {
-    await openWorkCard(this);
+    const putBack = await pickToRead(this);
     const pr = statedPullRequest();
     const card = workCard(this);
     const read = async () => ({
@@ -3471,6 +3481,7 @@ Then(
           `after ${ms}ms the card did not say #${pr.number} is a draft: ${JSON.stringify(last)}`,
         ),
     });
+    await putBack();
   },
 );
 
@@ -3570,7 +3581,7 @@ async function waitForTimelineEvent(
   kind: string,
   contains: string,
 ): Promise<void> {
-  await openWorkCard(world);
+  const putBack = await pickToRead(world);
   await keepWorkCardOpen(world);
   let inventoryAtTimeout = "(not observed)";
   await pollFor({
@@ -3586,6 +3597,7 @@ async function waitForTimelineEvent(
         `no ${JSON.stringify(kind)} event${contains === "" ? "" : ` about ${JSON.stringify(contains)}`} after ${ms}ms; the timeline holds ${inventoryAtTimeout}`,
       ),
   });
+  await putBack();
 }
 
 Then(
@@ -3607,13 +3619,14 @@ Then(
 Then(
   "the work's timeline should show no {string} event",
   async function (this: KoluWorld, kind: string) {
-    await openWorkCard(this);
+    const putBack = await pickToRead(this);
     await keepWorkCardOpen(this);
     assert.equal(
       await timelineEvents(this, kind, ""),
       0,
       `the timeline already holds a ${JSON.stringify(kind)} event before anything could have observed one: ${await timelineInventory(this)}`,
     );
+    await putBack();
   },
 );
 
@@ -3623,7 +3636,7 @@ Then(
 Then(
   "the work's timeline should show {int} {string} events",
   async function (this: KoluWorld, many: number, kind: string) {
-    await openWorkCard(this);
+    const putBack = await pickToRead(this);
     await keepWorkCardOpen(this);
     let inventoryAtTimeout = "(not observed)";
     await pollFor({
@@ -3644,13 +3657,14 @@ Then(
       many,
       `the timeline holds more ${JSON.stringify(kind)} events than the ${many} things that happened: ${await timelineInventory(this)}`,
     );
+    await putBack();
   },
 );
 
 Then(
   "the work card should name the pull request {string}",
   async function (this: KoluWorld, pr: string) {
-    await openWorkCard(this);
+    const putBack = await pickToRead(this);
     await pollFor({
       observe: async () =>
         (
@@ -3668,6 +3682,7 @@ Then(
           `the card never named ${JSON.stringify(pr)}; after ${ms}ms it said ${JSON.stringify(last)}`,
         ),
     });
+    await putBack();
   },
 );
 
@@ -3677,7 +3692,7 @@ Then(
 Then(
   "the work's pull request section should give GitHub's merge answer as {string}",
   async function (this: KoluWorld, reason: string) {
-    await openWorkCard(this);
+    const putBack = await pickToRead(this);
     await pollFor({
       observe: async () =>
         (await workCard(this)
@@ -3691,6 +3706,7 @@ Then(
           `the pull request section never gave ${JSON.stringify(reason)}; after ${ms}ms it gave ${JSON.stringify(last)}`,
         ),
     });
+    await putBack();
   },
 );
 
@@ -3698,7 +3714,7 @@ Then(
 Then(
   "the work's timeline should show GitHub's merge answer as {string}",
   async function (this: KoluWorld, reason: string) {
-    await openWorkCard(this);
+    const putBack = await pickToRead(this);
     let inventoryAtTimeout = "(not observed)";
     await pollFor({
       observe: async () => {
@@ -3719,6 +3735,7 @@ Then(
           `no merge answer ${JSON.stringify(reason)} after ${ms}ms; the timeline holds ${inventoryAtTimeout}`,
         ),
     });
+    await putBack();
   },
 );
 
@@ -3831,7 +3848,7 @@ Then(
 Then(
   "the work card should link the pull request {string}",
   async function (this: KoluWorld, pr: string) {
-    await openWorkCard(this);
+    const putBack = await pickToRead(this);
     const link = workCard(this)
       .locator('[data-testid="work-pr"] [data-testid="work-pr-link"]')
       .filter({ hasText: pr })
@@ -3842,6 +3859,7 @@ Then(
       href.endsWith(`/pull/${pr.replace("#", "")}`),
       `the link goes to ${JSON.stringify(href)}`,
     );
+    await putBack();
   },
 );
 
@@ -3987,7 +4005,7 @@ When("I stop the work from the card", async function (this: KoluWorld) {
 Then(
   "the work card should say it was stopped by you",
   async function (this: KoluWorld) {
-    await openWorkCard(this);
+    const putBack = await pickToRead(this);
     await waitForValue(
       "the stopped card's outcome",
       async () =>
@@ -4003,6 +4021,7 @@ Then(
           : "something else",
       "stopped by you",
     );
+    await putBack();
   },
 );
 
@@ -4013,7 +4032,7 @@ Then(
 Then(
   "the work card should show no terminals",
   async function (this: KoluWorld) {
-    await openWorkCard(this);
+    const putBack = await pickToRead(this);
     const card = workCard(this);
     await waitForValue(
       "the terminals section of a finished card",
@@ -4028,6 +4047,7 @@ Then(
       0,
       "a finished card is drawing an open question",
     );
+    await putBack();
   },
 );
 
@@ -4117,7 +4137,8 @@ Then(
 When(
   "I decline the work's question on the card",
   async function (this: KoluWorld) {
-    await openWorkCard(this);
+    // The question is on the work's face: answered without picking it.
+    await showWorkCard(this);
     const ask = workCard(this).locator('[data-testid="work-question"]');
     await ask.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
     await ask.locator('[data-testid="conductor-ask-dismiss"]').click();
@@ -4169,7 +4190,7 @@ async function waitForDecision(
   narrowed: string,
   said: string,
 ): Promise<void> {
-  await openWorkCard(world);
+  const putBack = await pickToRead(world);
   await pollFor({
     observe: async () => {
       // A card shows its latest three decisions; the one asked about may be
@@ -4203,6 +4224,7 @@ async function waitForDecision(
         `no decision ${said === "" ? "" : `answered ${said} `}reads ${JSON.stringify(text)} after ${ms}ms; the card holds ${JSON.stringify(read)}`,
       ),
   });
+  await putBack();
 }
 
 /** ONE LINE EACH. The setup the human answered at the start is ONE line on
@@ -4212,7 +4234,7 @@ async function waitForDecision(
 Then(
   "the work's decisions should be one line each",
   async function (this: KoluWorld) {
-    await openWorkCard(this);
+    const putBack = await pickToRead(this);
     const setup = workCard(this).locator('[data-testid="work-setup"]');
     await setup.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
     const wrapped = await workCard(this)
@@ -4234,6 +4256,7 @@ Then(
       throw new Error(
         `these decision lines take more than one line: ${JSON.stringify(wrapped)}`,
       );
+    await putBack();
   },
 );
 
@@ -4414,10 +4437,11 @@ When(
 Then(
   "the work card should list the file {string}",
   async function (this: KoluWorld, file: string) {
-    await openWorkCard(this);
+    const putBack = await pickToRead(this);
     await this.page
       .locator(`${WORK_COLUMN} [data-testid="work-file"][data-path="${file}"]`)
       .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    await putBack();
   },
 );
 
@@ -4426,12 +4450,13 @@ Then(
   async function (this: KoluWorld, file: string) {
     // KEPT, not merely listed: a finished work's worktree may be gone, so the
     // row that is still there is a copy kolu took when the work ended.
-    await openWorkCard(this);
+    const putBack = await pickToRead(this);
     await this.page
       .locator(
         `${WORK_COLUMN} [data-testid="work-file"][data-path="${file}"][data-kept]`,
       )
       .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    await putBack();
   },
 );
 
@@ -4440,12 +4465,13 @@ Then(
 Then(
   "the work card should show the folder {string} holding {int} files",
   async function (this: KoluWorld, folder: string, count: number) {
-    await openWorkCard(this);
+    const putBack = await pickToRead(this);
     await this.page
       .locator(
         `${WORK_COLUMN} [data-testid="work-folder"][data-path="${folder}"][data-count="${count}"]`,
       )
       .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    await putBack();
   },
 );
 
@@ -4475,8 +4501,7 @@ When(
 Then(
   "the work's timeline should show one row for the folder {string} with {int} files",
   async function (this: KoluWorld, folder: string, count: number) {
-    await showWorkColumn(this);
-    await openWorkCard(this);
+    const putBack = await pickToRead(this);
     await keepWorkCardOpen(this);
     const rows = workCard(this).locator(
       `[data-testid="work-event-folder"][data-path="${folder}"]`,
@@ -4489,6 +4514,7 @@ Then(
           .join("|"),
       "match",
     );
+    await putBack();
   },
 );
 
