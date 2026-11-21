@@ -4870,14 +4870,14 @@ retirements:
     destinationLayer: L1
     replacements:
       - file: packages/client/src/conductor/helpContent.test.ts
-        test: "the Conductor's help > has six sections in order and sixteen bullets"
+        test: "the Conductor's help > has its sections in order, short enough to read whole"
         lane: unit
         platforms: [linux, darwin]
         realism: [production-help-content]
         reviewEvidence:
           file: packages/client/src/conductor/helpContent.test.ts
-          test: "the Conductor's help > has six sections in order and sixteen bullets"
-          note: "Not yet confirmed: a human must confirm this. The help column, its rail and its remembered open state were removed; the help is one sheet behind the header's ? and the menu's How to use. The browser survivor opens that sheet at two widths and checks it fits unscrolled; the unit test pins its six sections."
+          test: "the Conductor's help > has its sections in order, short enough to read whole"
+          note: "Not yet confirmed: a human must confirm this. The help column, its rail and its remembered open state were removed; the help is one sheet behind the header's ? and the menu's How to use. The browser survivor opens that sheet at two widths and checks it fits unscrolled; the unit test pins its sections and its bullet count."
     survivorRevisionIds: [revision-9ea78cb1a9fd7328deb8]
   - id: replace-9fd4f8b3f61bd28beac6
     revisionId: revision-9fd4f8b3f61bd28beac6
@@ -4888,13 +4888,13 @@ retirements:
     destinationLayer: L1
     replacements:
       - file: packages/client/src/conductor/helpContent.test.ts
-        test: "the Conductor's help > has six sections in order and sixteen bullets"
+        test: "the Conductor's help > has its sections in order, short enough to read whole"
         lane: unit
         platforms: [linux, darwin]
         realism: [production-help-content]
         reviewEvidence:
           file: packages/client/src/conductor/helpContent.test.ts
-          test: "the Conductor's help > has six sections in order and sixteen bullets"
+          test: "the Conductor's help > has its sections in order, short enough to read whole"
           note: "Not yet confirmed: a human must confirm this. The revision only drops its first line, `Then the conductor should have no help column`: there is no help column at any width now. The rest of the journey is the survivor, unchanged."
     survivorRevisionIds: [revision-8321892b2d7458dec031]
   - id: replace-934ffdec7574d094c2e3
@@ -4906,13 +4906,13 @@ retirements:
     destinationLayer: L1
     replacements:
       - file: packages/client/src/conductor/helpContent.test.ts
-        test: "the Conductor's help > has six sections in order and sixteen bullets"
+        test: "the Conductor's help > has its sections in order, short enough to read whole"
         lane: unit
         platforms: [linux, darwin]
         realism: [production-help-content]
         reviewEvidence:
           file: packages/client/src/conductor/helpContent.test.ts
-          test: "the Conductor's help > has six sections in order and sixteen bullets"
+          test: "the Conductor's help > has its sections in order, short enough to read whole"
           note: "Not yet confirmed: a human must confirm this. The revision only drops its first two lines, the resize below the help column's width and `Then the conductor should have no help column`: the menu offers How to use at every width now. The Esc journey is the survivor, unchanged."
     survivorRevisionIds: [revision-8bcafdbc869e5a36cc28]
   - id: replace-29efcf88159ee2c5951f

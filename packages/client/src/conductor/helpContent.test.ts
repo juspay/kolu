@@ -17,7 +17,7 @@ const keysOn = (isMac: boolean): string[] =>
   );
 
 describe("the Conductor's help", () => {
-  it("has seven sections in order and eighteen bullets", () => {
+  it("has its sections in order, short enough to read whole", () => {
     const sections = helpSections();
     expect(sections.map((section) => section.id)).toEqual([
       "ask",

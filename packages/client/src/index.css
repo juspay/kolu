@@ -108,7 +108,7 @@ body {
    * ── THE HELP'S TYPE ───────────────────────────────────────────────
    *   --text-conductor-help …… 0.75rem (12px): the help sheet's body, so a
    *     help bullet (`helpContent.ts`: a phrase, not a sentence) is one
-   *     line, and the six sections fit a laptop's window unscrolled. */
+   *     line, and the whole help fits a laptop's window unscrolled. */
   --text-chat: 0.9375rem;
   --text-chat--line-height: 1.7;
   --text-conductor-help: 0.75rem;
