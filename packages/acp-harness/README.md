@@ -65,7 +65,18 @@ README.
 - **A message sent mid-turn is marked `queued`, and nothing is held here.** The
   queue is the AGENT'S: the client sends the prompt immediately and it waits
   there, and this end only marks the row until the agent picks it up — which is
-  also why `cancel` has nothing to throw away.
+  also why `cancel` has nothing to throw away. Writing that row does not end
+  the running turn's paragraph: the reply goes on growing above it.
+- **Every row says which message it answers.** `turn` (in `@kolu/acp/wire`'s
+  `rowHead`) is the id of the message row whose turn the agent was on when the
+  row was first written, kept for good like `seq`. It comes from where the
+  frames are READ: each prompt goes out named by its row, and the client says
+  of every frame which prompt was the oldest unanswered at that point in the
+  stream. So a turn's end is taken in the order of the wire, not when its
+  awaited return reaches this end, and the next turn's first words never land
+  in the last turn's paragraph. A message that opens a turn carries none; a
+  steered one carries the turn it landed in; a row written while no turn ran
+  carries none.
 - **A resumed conversation's HISTORY is the product's call; its NEWS is kept either way.** `session/load` re-emits the whole transcript before it answers. Under `whenReplayed: "drop"` those frames are counted and thrown away, because the caller's own persisted rows are the richer record (they carry readings no agent's transcript holds); under `"keep"` they are folded in, in chunks, which is how a panel with no record of its own comes back to its conversation. Only the transcript-bearing kinds are affected: an `available_commands_update`, `config_option_update` or `usage_update` on that same stream is the session as it stands NOW, and dropping it left a resumed conversation with no `/` completion and no context meter for the rest of its life. `resumedSeq` is the highest `seq` the caller holds, and every id and `seq` minted here starts after it.
 - **The standing prompt rides the first message of a session — and the CALLER remembers that it has.** `taught` comes in and `state().taught` goes back out, because a harness is replaced for reasons that have nothing to do with the conversation (an upgrade, a crash, a signature) and one that assumed nothing put the standing prompt back into the middle of a chat on every restart. A new session clears it: an agent with no memory of the conversation is owed the words again.
 - **A standing prompt that changes is a function, and the caller says when it changed.** `teaching` is a string or `() => string`, read each time it rides, so the words that go out are the ones current then. `teachAgain()` clears `taught`, and the next message carries the prompt again: the caller's part of the prompt moved (the Conductor's memory) and the agent is owed the new words.
