@@ -235,6 +235,22 @@ describe("the transcript's follow rule", () => {
     expect(second.scrollTop).toBe(300);
   });
 
+  it("follows a row ABOVE the last one growing, while the reader is at the end", () => {
+    // A message sent while a reply is still being written is drawn LAST, and
+    // the reply goes on growing above it (#2420). A rule that watched only the
+    // last row's text would leave a following reader a paragraph behind.
+    const scroller = mount();
+    column += ROW_HEIGHT;
+    setRows?.(
+      makeRows(20).map((one, i) =>
+        i === 18 && one.kind === "notice"
+          ? { ...one, text: `${one.text}, and then some more` }
+          : one,
+      ),
+    );
+    expect(scroller.scrollTop).toBe(endOf(column));
+  });
+
   it("does not move a pane nobody is looking at, and follows again on the way back", () => {
     // THE RETAINED PANE. Leaving for a host tab keeps this container alive
     // with no layout at all, so rows that arrive while away must not write a

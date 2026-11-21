@@ -4,7 +4,13 @@
 import type { ConductorRow } from "kolu-common/conductor";
 import { endWork, joinWork, openWork, type Work, type WorkId } from "kolu-work";
 import { describe, expect, it } from "vitest";
-import { joinsOf, turnWorks } from "./turnWorks";
+import {
+  AT_THE_END,
+  WHILE_B_WAITS,
+  WORK_OF_A,
+  WORK_OF_B,
+} from "./replyAcrossTurns.testlib";
+import { chatTurns, joinsOf, turnWorks } from "./turnWorks";
 
 const PLANNER = "11111111-1111-4111-8111-111111111111";
 const IMPLEMENTOR = "22222222-2222-4222-8222-222222222222";
@@ -216,5 +222,101 @@ describe("the works of a chat turn", () => {
 
   it("names nothing for a terminal no work ever held", () => {
     expect(read([wake("w", 5, STRAY)], works).get("w")).toEqual([]);
+  });
+});
+
+describe("a reply still being written when the next message is sent (#2420)", () => {
+  const works = new Map<WorkId, Work>([
+    [WORK_OF_A, work("a", [])],
+    [WORK_OF_B, work("b", [])],
+  ]);
+  const ids = (rows: readonly ConductorRow[]): string[] =>
+    rows.map((one) => one.id);
+  const groups = (rows: readonly ConductorRow[]): string[][] =>
+    chatTurns(rows).map((turn) => ids(turn.rows));
+
+  it("keeps the rest of the reply in the first turn while the next message waits, with the first turn's work", () => {
+    expect(groups(WHILE_B_WAITS)).toEqual([
+      ["user:1", "agent:2", "tool:call-of-A", "agent:4"],
+      ["user:3"],
+    ]);
+    const turns = turnWorks(WHILE_B_WAITS, works, joinsOf(works));
+    for (const id of ["agent:2", "tool:call-of-A", "agent:4"])
+      expect([id, turns.get(id)]).toEqual([
+        id,
+        { head: "user:1", works: [WORK_OF_A] },
+      ]);
+    expect(turns.get("user:3")).toEqual({
+      head: "user:3",
+      works: [WORK_OF_B],
+    });
+  });
+
+  it("gives each turn its own reply once both are over", () => {
+    expect(groups(AT_THE_END)).toEqual([
+      ["user:1", "agent:2", "tool:call-of-A", "agent:4"],
+      ["user:3", "agent:5"],
+    ]);
+    const turns = turnWorks(AT_THE_END, works, joinsOf(works));
+    expect(turns.get("agent:5")).toEqual({
+      head: "user:3",
+      works: [WORK_OF_B],
+    });
+  });
+
+  it("draws the whole first turn, then the message, then its reply — although `seq` puts the message first", () => {
+    expect(chatTurns(AT_THE_END).flatMap((turn) => ids(turn.rows))).toEqual([
+      "user:1",
+      "agent:2",
+      "tool:call-of-A",
+      "agent:4",
+      "user:3",
+      "agent:5",
+    ]);
+  });
+
+  it("gives the same turns when handed the order it draws them in", () => {
+    const drawn = chatTurns(AT_THE_END).flatMap((turn) => turn.rows);
+    expect(chatTurns(drawn)).toEqual(chatTurns(AT_THE_END));
+  });
+
+  it("keeps a message steered into a turn inside that turn, where it was typed", () => {
+    const rows: ConductorRow[] = [
+      user("u1", 1),
+      { ...agent("a2", 2), turn: "u1" },
+      { ...user("u3", 3), turn: "u1" },
+      { ...agent("a4", 4), turn: "u1" },
+    ];
+    expect(groups(rows)).toEqual([["u1", "a2", "u3", "a4"]]);
+  });
+
+  it("makes a row whose message is not in the list a turn of its own, where it is", () => {
+    // The saved chat keeps its newest rows only, so a reply can outlive the
+    // message it answers. The message next to it does not adopt it.
+    expect(
+      groups([
+        { ...agent("a0", 1), turn: "user:0" },
+        user("u", 2),
+        { ...agent("r", 3), turn: "u" },
+        { ...agent("x", 4), turn: "gone" },
+      ]),
+    ).toEqual([["a0"], ["u", "r"], ["x"]]);
+  });
+
+  it("reads a terminal that moved after the next message was sent, and before the first turn ended, for the first turn", () => {
+    const moved = new Map<WorkId, Work>([
+      [A, work("a", [[`local/${STRAY}`, 1]])],
+      [B, work("b", [[`local/${STRAY}`, 7]])],
+    ]);
+    const rows: ConductorRow[] = [
+      user("u1", 5, [STRAY]),
+      user("u3", 6),
+      { ...agent("a4", 8), turn: "u1" },
+      { ...agent("a5", 9), turn: "u3" },
+    ];
+    // The first turn ran until the second one STARTED (its first reply, at
+    // minute 9), not until the second message was typed (minute 6): the
+    // terminal joined work B at minute 7, inside the first turn.
+    expect(read(rows, moved).get("u1")).toEqual([B]);
   });
 });
