@@ -55,6 +55,7 @@ import {
   TerminalStatusLine,
 } from "./peek/TerminalHead";
 import { peekTarget } from "./peek/usePeek";
+import { inspectMember } from "./workListing";
 import { liveArm, terminalStatus } from "./terminalStatus";
 import { useOpenTile } from "./useOpenTile";
 import { useMembership } from "./useWorks";
@@ -162,6 +163,16 @@ const LivePane: Component<{
         <span class="min-w-0 flex-1 truncate font-mono text-[0.66rem] text-fg-3">
           {name(ref())}
         </span>
+        {/* INSPECT: this terminal's row in the work's Details, held open —
+            what the Right panel says about a terminal, for this one. */}
+        <button
+          type="button"
+          data-testid="live-inspect"
+          class="shrink-0 cursor-pointer rounded-md border border-edge-bright bg-surface-0 px-2 py-0.5 text-[0.7rem] text-fg-2 hover:text-fg"
+          onClick={() => inspectMember(ref())}
+        >
+          Inspect
+        </button>
         <TerminalControls
           kind="live"
           host={props.host}

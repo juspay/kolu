@@ -54,6 +54,7 @@ import {
   type TerminalId,
 } from "kolu-common/surface";
 import "kolu-common/test-hooks";
+import { fleetTerminalRef, splitFleetTerminalRef } from "kolu-mcp/fleetRef";
 import { Effect, Semaphore } from "effect";
 import { createEffect, mapArray, onCleanup, untrack } from "solid-js";
 import { match } from "ts-pattern";
@@ -102,15 +103,19 @@ import {
   writeHostMarks,
 } from "./attentionMarks";
 import { registerAttentionJump } from "./attentionNav";
-import { isTerminalWatched } from "./attentionWatched";
+import { isInFront } from "./attentionWatched";
+import {
+  conductorScreenShowing,
+  conductorScreensShowing,
+} from "./conductorScreens";
 import { attentionRecordOf } from "./savedAttention";
 import { useAttentionFacts } from "./useAttentionFacts";
 
 /** What the active host can tell us about its terminals — the rich notification
- *  copy, the dock unread write, and the e2e simulate targets. Background hosts
- *  have none of this (we only mirror their `urgency` cell), so a background finish
- *  gets host-labeled copy and no dock mark — a CONTENT difference from data
- *  availability, never a RULE difference. */
+ *  copy, the focused pane, and the e2e simulate targets. Background hosts have
+ *  none of this (we only mirror their `urgency` cell), so a background finish
+ *  gets host-labeled copy — a CONTENT difference from data availability, never
+ *  a RULE difference: every host's terminals are marked by the same rule. */
 export interface AttentionDeps {
   /** The active host's selected top-level tile (for tile-level navigation). */
   activeId: () => TerminalId | null;
@@ -142,22 +147,32 @@ export function useAttention(deps: AttentionDeps): {
 
   const isActiveHost = (host: HostKey): boolean => sameHost(host, activeHost());
 
-  // "Seen with your eyes": the active host's focused terminal while kolu has focus. A
-  // background host's terminal is never watched (it's off-screen), so the axis
-  // that split the old modules reduces to this one predicate.
-  const watched = (host: HostKey, id: TerminalId): boolean =>
-    isTerminalWatched(
-      isActiveHost(host),
-      id,
-      deps.focusedId(),
-      document.hasFocus(),
+  // IN FRONT OF THE PERSON: the canvas on screen and the shown host's focused
+  // pane, or a screen of the terminal showing in the Conductor — Look, or a
+  // live pane (`./attentionWatched.ts`). Untracked: asked mid-frame, inside a
+  // host's own effect, which must not re-run because a view changed.
+  const inFront = (host: HostKey, id: TerminalId): boolean =>
+    untrack(() =>
+      isInFront({
+        canvasShown: !conductorMode(),
+        activeHost: isActiveHost(host),
+        id,
+        focusedId: deps.focusedId(),
+        screenShowing: conductorScreenShowing(
+          fleetTerminalRef(encodeHostKey(host), id),
+        ),
+      }),
     );
+  // "Seen with your eyes": in front of you while kolu has focus.
+  const watched = (host: HostKey, id: TerminalId): boolean =>
+    inFront(host, id) && document.hasFocus();
 
   /** Actually reach the user for one terminal: hand the item to the one path
-   *  when `loud`, plus the dock unread when it's an active-host background
-   *  tile. The `WHEN` gate lives in the engine; this is the terminal's own
-   *  reading of the one path, shared with the simulate hook. A terminal the
-   *  Conductor drives is delivered QUIET — the marks and nothing else —
+   *  when `loud`, plus its unread mark on its own host's record when it is not
+   *  in front of you. The `WHEN` gate lives in the engine; this is the
+   *  terminal's own reading of the one path, shared with the simulate hook. A
+   *  terminal the Conductor drives is delivered QUIET — the marks and nothing
+   *  else —
    *  because the Conductor answers its agents, and a person hearing
    *  "finished" for a planner the Conductor is about to brief again learns
    *  to ignore the bell.
@@ -187,14 +202,13 @@ export function useAttention(deps: AttentionDeps): {
             subject: rich,
           }),
         ]);
-      // `rich` is non-undefined iff this is the active host, so reuse it rather than
-      // a second `sameHost` compare — the dock unread is an active-host terminal
-      // other than the pane currently receiving input. Raised on the host's
-      // record, not its view state: right after a page loads, padi's first
-      // frame can arrive before the host's view state exists, and that is the
-      // frame that carries a finish that happened while kolu was down.
-      if (rich && id !== deps.focusedId())
-        attentionRecordOf(encHost).markUnread(id);
+      // THE UNREAD MARK, on any host: a terminal that is not in front of you
+      // — on a host you are not on, behind the Conductor, or simply not the
+      // pane you are in. Raised on the host's record, not its view state:
+      // right after a page loads, padi's first frame can arrive before the
+      // host's view state exists, and that is the frame that carries a
+      // finish that happened while kolu was down.
+      if (!inFront(host, id)) attentionRecordOf(encHost).markUnread(id);
     } catch (err) {
       console.error("useAttention: attention delivery failed", err);
     }
@@ -326,6 +340,20 @@ export function useAttention(deps: AttentionDeps): {
   // The engine also zeroes it on any active-host cell tick, but a switch with no
   // accompanying cell change still needs this to clear the mark.
   createEffect(() => core.markHostSeen(encodeHostKey(activeHost())));
+
+  // A SCREEN THAT COMES TO SHOW IN THE CONDUCTOR LIFTS ITS TERMINAL'S MARK —
+  // Look opened or moved onto it, or its live pane coming on screen — on its
+  // own host's record, which that host's Dock reads too. Once per showing:
+  // the list keeps a terminal's entry while it stays shown.
+  const showing = mapArray(conductorScreensShowing, (ref) => {
+    const split = splitFleetTerminalRef(ref);
+    if (split !== null)
+      untrack(() =>
+        attentionRecordOf(split.host).clearUnread(split.id as TerminalId),
+      );
+    return null;
+  });
+  createEffect(() => void showing());
 
   // App badge = Σ ASKING over LIVE hosts. A dead host's held count never inflates
   // it; the active host is live, so its asking agents are counted too.

@@ -33,6 +33,7 @@ import { liveArm, terminalStatus } from "./terminalStatus";
 import { useConductor } from "./useConductor";
 import { useOpenTile } from "./useOpenTile";
 import { useMembership, useSeen } from "./useWorks";
+import { inspectedMember } from "./workListing";
 import { LEVEL_WORD } from "./wake";
 import { type MemberLine, memberRuns } from "./workFacts";
 import { type Lock, ROLE_WORD } from "./workReadings";
@@ -83,7 +84,12 @@ const MemberRow: Component<{
       data-testid="work-member"
       data-role={props.one.member.role}
       data-ref={ref()}
-      class="col-span-full grid min-w-0 grid-cols-subgrid items-center gap-y-0.5 overflow-hidden text-[0.7rem]"
+      data-inspected={inspectedMember() === ref() ? "" : undefined}
+      class={`col-span-full grid min-w-0 grid-cols-subgrid items-center gap-y-0.5 overflow-hidden rounded-sm text-[0.7rem] ${
+        inspectedMember() === ref()
+          ? "bg-surface-2 outline outline-1 outline-edge-bright"
+          : ""
+      }`}
     >
       <span
         data-testid="work-member-role"

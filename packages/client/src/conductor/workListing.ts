@@ -53,6 +53,10 @@ const [pickedStage, setPickedStage] = createSignal<StageName | undefined>();
  *  picked work can be drawn again (the works are re-read, the list is drawn
  *  anew) without the person's choice going back to the default. */
 const [viewChoice, setViewChoice] = createSignal<PickedView | undefined>();
+/** The terminal whose row the picked work's Details holds open — the one
+ *  **Inspect** on a live pane asked for — or none. The pick's, as the view
+ *  is: another pick, or none, forgets it. */
+const [inspected, setInspected] = createSignal<string | null>(null);
 const [finishedOpen, setFinishedOpen] = createSignal(false);
 /** A work asked to come into view — keyed by a counter so asking twice for
  *  the same work scrolls twice, and with the question to bring into view
@@ -82,6 +86,18 @@ export function chooseView(view: PickedView): void {
   setViewChoice(view);
 }
 
+/** The terminal (a fleet ref) whose row Details holds open, if one is. */
+export const inspectedMember = inspected;
+
+/** INSPECT ONE TERMINAL of the picked work: its Details in front, with that
+ *  terminal's row held open. */
+export function inspectMember(ref: string): void {
+  batch(() => {
+    setInspected(ref);
+    setViewChoice("details");
+  });
+}
+
 /** PICK A WORK: the screen is about it, and so is the chat — on the stage
  *  `stage` names, when a press on its strip picked it, which was a press to
  *  read that stage: its Details are in front. */
@@ -90,6 +106,7 @@ export function pickWork(id: WorkId, stage?: StageName): void {
     setPicked(id);
     setPickedStage(stage);
     setViewChoice(stage === undefined ? undefined : "details");
+    setInspected(null);
     pointChatAt(id);
   });
 }
@@ -99,6 +116,7 @@ export function unpickWork(): void {
   batch(() => {
     setPicked(null);
     setViewChoice(undefined);
+    setInspected(null);
     showAllChat();
   });
 }
