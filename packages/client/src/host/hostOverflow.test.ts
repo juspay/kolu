@@ -83,9 +83,11 @@ describe("computeVisibleHosts — overflow", () => {
 /** FIVE HOSTS IN A REAL CHROME BAR, with the widths the browser actually
  *  reports — re-measured off the live bar on a host tab at 1920, 1280 and
  *  1024px windows: a host tab is 124px, the identity rail 28px, the
- *  `◆ Conductor alpha` tab at the head of the row 144.5px (tag included — it
- *  is one measured box), the control cluster 397px, and the bar's own padding
- *  (24) plus its three flex gaps (36) 60px.
+ *  `◆ Conductor` tab at the head of the row 144.5px as measured while it
+ *  still carried its `alpha` tag (the tag is gone, so the real tab is now
+ *  narrower: this input over-states the Conductor's take, which makes the
+ *  fold expectations below hold a fortiori), the control cluster 397px, and
+ *  the bar's own padding (24) plus its three flex gaps (36) 60px.
  *
  *  This is where the five-host fold is proved, because the e2e worker holds
  *  one padi and its strip never folds; that lane pins the INPUT (the strip's
@@ -95,7 +97,7 @@ describe("computeVisibleHosts — five hosts in the real chrome bar", () => {
   const CHIP = 124;
   const ADD_BUTTON_RESERVE = 38;
   const OVERFLOW_TRIGGER_RESERVE = 44;
-  /** The measured `◆ Conductor alpha` tab, whole. */
+  /** The measured `◆ Conductor alpha` tab, whole — the widest it has been. */
   const CONDUCTOR = 144.5;
   /** The strip's measured width at a given window, from the row's geometry:
    *  identity (28) + the Conductor's tab (144.5) + control cluster (397) + the

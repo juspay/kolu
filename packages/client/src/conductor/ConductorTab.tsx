@@ -10,7 +10,7 @@
  *
  *  What keeps it from reading as a host is everything a host tab carries that
  *  it does not: no connection dot (there is no connection of its own to
- *  report), the ◆ mark, and the `alpha` tag — and its OWN COLOUR, which no
+ *  report), the ◆ mark — and its OWN COLOUR, which no
  *  host has. `--color-conductor` is a theme token (light and dark, in
  *  `@kolu/theme`) and it stands in as this tab's `--host-hue`, so the host
  *  tabs' shared hover and lit belly paint it in the conductor's colour; unlike
@@ -41,14 +41,7 @@
  *  line above the composer, where there is room to say what it counts. Two
  *  numbers on one tab is a sum the reader has to do. The tab itself washes
  *  violet while it is not the current one, the same `data-asking` channel a
- *  host tab uses.
- *
- *  The `alpha` tag is INLINE, and that is the opposite choice for the opposite
- *  reason. The corner is taken, and two things stacked there would overlap on
- *  the one press that matters. More to the point the tag is a constant — it is
- *  true of the feature, not of the moment — so it is part of the tab's width
- *  from the first paint and never moves the row, which is exactly what the
- *  badge could not promise. */
+ *  host tab uses. */
 
 import { type Component, Show } from "solid-js";
 import { ACTIONS } from "../input/actions";
@@ -86,12 +79,6 @@ const ConductorTab: Component = () => {
             to disagree about which state it is in. */}
         <span aria-hidden="true">◆</span>
         Conductor
-        <span
-          data-testid="conductor-alpha"
-          class="rounded-sm bg-fg-3/15 px-1 py-px font-mono text-[0.58rem] font-semibold uppercase tracking-[0.08em] leading-[1.4] text-fg-3"
-        >
-          alpha
-        </span>
         <Show when={badge.waiting() > 0}>
           <span
             data-testid="conductor-badge"

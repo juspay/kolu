@@ -54,7 +54,7 @@ const staged = (): Work => {
 function mount(work: Work): HTMLElement {
   const shown: TimelineShown = {
     view: { kind: "whole" },
-    folded: { kind: "whole" },
+    folded: { kind: "stage", stage: "build" },
     rows: work.events.map((_, index) => ({ kind: "event", index })),
     total: work.events.length,
   };

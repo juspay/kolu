@@ -109,15 +109,6 @@ const MobileChromeSheet: Component<{
             ◆
           </span>
           <span>Conductor</span>
-          {/* Inline, beside the name, for the same reason as the desktop
-              tab's: the end of the row holds the count, and the tag is a
-              constant rather than something that arrives. */}
-          <span
-            data-testid="conductor-alpha"
-            class="rounded-sm bg-fg-3/15 px-1 py-px font-mono text-[0.6rem] font-semibold uppercase tracking-[0.08em] text-fg-3"
-          >
-            alpha
-          </span>
           {/* THE SAME ONE BADGE the desktop tab wears, from the same memo:
               how many things are waiting on YOU. Violet, always; absent at
               zero. */}
