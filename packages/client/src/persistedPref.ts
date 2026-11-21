@@ -99,11 +99,18 @@ function defaultSerialize<T>(value: T): string {
 /** The {@link PersistedPrefOptions.sync} for a `localStorage` value every page
  *  of this ORIGIN shares: the browser's `storage` event, handed on without
  *  the writer's address. `makePersisted` drops a sync event whose `url` is not
- *  this page's own address (`(data.url || location.href) !== location.href`),
- *  and `storageSync` hands the event on as it is — so a page opened from a
+ *  this page's own address — `@solid-primitives/storage` 4.3.4,
+ *  `dist/persisted.js:46`:
+ *  `(!isServer && (data.url || globalThis.location.href) !== globalThis.location.href) ||`
+ *  — and `storageSync` hands the event on as it is, so a page opened from a
  *  kolu link, which keeps the link (`#/…`) in its address bar, never heard
  *  the other pages, nor they it. `localStorage` is one store per origin, and
- *  the address a page shows does not change what it reads. */
+ *  the address a page shows does not change what it reads.
+ *
+ *  WHY THIS STEPS AROUND THE LIBRARY instead of fixing it there: no released
+ *  version removes that check. 4.3.5 and 4.4.0 carry the same line at `:46`;
+ *  5.0.0 (and 5.0.0-next.8) carry it at `:88`, and 5.0.0 needs solid-js 2.
+ *  Kept here by decision until a release drops it. */
 export const originStorageSync: PersistenceSyncAPI = [
   (subscriber) =>
     window.addEventListener("storage", (event) => {
