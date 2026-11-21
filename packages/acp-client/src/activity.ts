@@ -2,16 +2,26 @@
  * owns agent cards, tools and questions; task lifecycles own command status.
  * Wire decoding and negotiation are @kolu/acp's; row policy is chat's. */
 import type { ActivityUpdate } from "@kolu/acp";
-import type { AgentEvent } from "./events.ts";
+import type { Turn } from "./answering.ts";
+import type { AgentEvent, Said } from "./events.ts";
 
-type Tool = Extract<AgentEvent, { _tag: "tool" }>;
+type Tool = Said<Extract<AgentEvent, { _tag: "tool" }>>;
 const agentId = (session: string): string =>
   `acp-agent:${JSON.stringify(session)}`;
 const taskKey = (session: string, task: string): string =>
   JSON.stringify([session, task]);
-const tool = (id: string, move: Partial<Omit<Tool, "_tag" | "id">>): Tool => ({
+/** A tool event, and the prompt the frame it came from belongs to — said by
+ *  every caller, because a frame of this channel is a frame of a turn like any
+ *  other (`./answering.ts` stamps it), and an event that left it out would
+ *  read as one nobody could place. */
+const tool = (
+  id: string,
+  turn: Turn,
+  move: Partial<Omit<Tool, "_tag" | "id" | "turn">>,
+): Tool => ({
   _tag: "tool",
   id,
+  turn,
   title: undefined,
   status: undefined,
   detail: undefined,
@@ -45,7 +55,7 @@ interface Task {
 export class Activity {
   readonly #children = new Map<string, Child>();
   readonly #tasks = new Map<string, Task>();
-  constructor(private readonly emit: (event: AgentEvent) => void) {}
+  constructor(private readonly emit: (event: Said<AgentEvent>) => void) {}
 
   root(session: string): string {
     let at = session;
@@ -69,19 +79,19 @@ export class Activity {
       if (task.row === id) return task.status;
     return reported;
   }
-  report(session: string, text: string): void {
+  report(session: string, text: string, turn: Turn): void {
     const child = this.#children.get(session);
     if (!child || text === "") return;
     child.report += text;
-    this.emit(tool(agentId(session), { progress: child.report }));
+    this.emit(tool(agentId(session), turn, { progress: child.report }));
   }
-  read(session: string, update: ActivityUpdate): void {
+  read(session: string, update: ActivityUpdate, turn: Turn): void {
     const { id } = update;
     if (update.kind === "child") {
       if (id === this.root(session) || this.#children.has(id)) return;
       this.#children.set(id, { parent: session, report: "", ended: false });
       this.emit(
-        tool(agentId(id), {
+        tool(agentId(id), turn, {
           title: update.name,
           status: "in_progress",
           parent: this.parent(session),
@@ -94,7 +104,7 @@ export class Activity {
       if (!child || child.parent !== session || child.ended) return;
       child.ended = true;
       this.emit(
-        tool(agentId(id), {
+        tool(agentId(id), turn, {
           status: update.state === "completed" ? "completed" : "failed",
         }),
       );
@@ -106,7 +116,7 @@ export class Activity {
         : `acp-task:${key}`;
       this.#tasks.set(key, { row, status: "in_progress" });
       this.emit(
-        tool(row, {
+        tool(row, turn, {
           title: update.name,
           status: "in_progress",
           parent: this.parent(session),
@@ -123,7 +133,7 @@ export class Activity {
       if (!task || task.status !== "in_progress") return;
       if (update.kind === "taskProgress") {
         this.emit(
-          tool(task.row, {
+          tool(task.row, turn, {
             progress: update.summary,
             // `null` is "this frame says nothing" — a report REFINES the task
             // and a consumer keeps what an earlier one said.
@@ -138,7 +148,7 @@ export class Activity {
       } else {
         task.status = update.state === "completed" ? "completed" : "failed";
         this.emit(
-          tool(task.row, {
+          tool(task.row, turn, {
             status: task.status,
             armed: {
               task: id,

@@ -653,6 +653,20 @@ export interface Harness<Row extends AnyRow> {
    *  offering has to run against. */
   readonly alive: () => boolean;
   readonly rows: () => ReadonlyArray<Row>;
+  /**
+   * WHICH MESSAGE'S TURN THE AGENT IS ON — the id of the message row whose
+   * turn is running, or `null` when none is.
+   *
+   * For the rows a PRODUCT writes itself, outside this transcript: a question
+   * its own tool put, a proposal, a compaction. Such a row answers the turn
+   * the agent was on when it was written, and that is a fact this end has and
+   * the product's list of rows does not — a message sent while a reply is
+   * still being written is the newest row, and not the turn being run. It is
+   * the turn the frames read so far say ({@link Transcript.answering}), or,
+   * before any frame of the running turn has been read, the oldest turn in
+   * flight.
+   */
+  readonly turn: () => string | null;
   prompt(
     said: PersonSaid<Row>,
     /** STEER rather than queue: put the words INTO the turn that is running.
@@ -1251,6 +1265,19 @@ export const startHarness = async <Row extends AnyRow>(
   // ── saying what moved ────────────────────────────────────────────────
 
   /**
+   * WHICH TURN THE WIRE SAYS A FRAME BELONGS TO, told to the transcript before
+   * the frame is written ({@link Transcript.answering}).
+   *
+   * `undefined` is the client saying it CANNOT say — a frame of a prompt that
+   * went out unnamed — and that is not `null`, "no prompt was unanswered": it
+   * leaves the turn where it was rather than ending a paragraph a frame of the
+   * same turn has no business ending.
+   */
+  const onTheWire = (turn: string | null | undefined): void => {
+    if (turn !== undefined) report(transcript.answering(turn));
+  };
+
+  /**
    * THE DOOR THE CLIENT REPORTS THROUGH.
    *
    * Everything that arrives from the agent — a notification, a question it is
@@ -1266,6 +1293,7 @@ export const startHarness = async <Row extends AnyRow>(
     switch (event._tag) {
       case "said": {
         if (dropped()) return;
+        onTheWire(event.turn);
         if (event.text === "") return;
         heard += 1;
         report(transcript.say(event.text));
@@ -1281,11 +1309,13 @@ export const startHarness = async <Row extends AnyRow>(
         return;
       case "tool":
         if (dropped()) return;
+        onTheWire(event.turn);
         heard += 1;
         writeTool(event);
         return;
       case "plan":
         if (dropped()) return;
+        onTheWire(event.turn);
         heard += 1;
         report(plan(event.entries));
         return;
@@ -1366,6 +1396,7 @@ export const startHarness = async <Row extends AnyRow>(
         agentSaid = event.agent;
         return;
       case "asked":
+        onTheWire(event.turn);
         heard += 1;
         openAsks = [...openAsks, event.id];
         report(
@@ -1445,6 +1476,9 @@ export const startHarness = async <Row extends AnyRow>(
         return;
       case "compaction": {
         if (replaying) return;
+        // A frame like any other: the turn it belongs to is the transcript's
+        // to know before the product draws it ({@link Harness.turn}).
+        onTheWire(event.turn);
         if (compacting?.id !== event.id)
           compacting = {
             id: event.id,
@@ -1650,8 +1684,18 @@ export const startHarness = async <Row extends AnyRow>(
     options.onChange({ kind: "state", state: state() });
   };
 
-  const notice = (text: string): void => {
-    report(transcript.add("notice", text));
+  /** A line of this end's own. `about` is the turn it is about, for a line a
+   *  turn's ENDING writes: by the time the return reaches this end the wire
+   *  may already be on the next turn, and the line is still the first one's. */
+  const notice = (text: string, about?: string): void => {
+    report(
+      transcript.add(
+        "notice",
+        text,
+        {},
+        about === undefined ? {} : { turn: about },
+      ),
+    );
   };
 
   /** Whether there is still a subprocess to talk to. */
@@ -1984,7 +2028,10 @@ export const startHarness = async <Row extends AnyRow>(
     let outcome: TurnEnded["outcome"] = "ended";
     let why: string | null = null;
     try {
-      const stopReason = await run(agent.prompt(blocks));
+      // NAMED by its row, so every frame of it comes back saying so — in the
+      // order of the wire, which is what decides where its paragraph ends
+      // ({@link Transcript.answering}).
+      const stopReason = await run(agent.prompt(blocks, ticket.key));
       report(transcript.sent(ticket.key));
       if (stopReason === "cancelled") {
         outcome = "cancelled";
@@ -1992,7 +2039,7 @@ export const startHarness = async <Row extends AnyRow>(
         // the turns a press stopped all say the one thing it did.
         if (!ticket.stopped || !cancelSaid) {
           cancelSaid = ticket.stopped;
-          notice("the turn was cancelled");
+          notice("the turn was cancelled", ticket.key);
         }
       }
     } catch (cause) {
@@ -2028,7 +2075,7 @@ export const startHarness = async <Row extends AnyRow>(
         // to prevent.
         if (heard === quietAt) report(transcript.unanswered(ticket.key));
       }
-      notice(`the turn could not be run: ${why}`);
+      notice(`the turn could not be run: ${why}`, ticket.key);
     } finally {
       const last = turns.leave(ticket);
       // ... and the clock stops with the last of them: an idle conversation
@@ -2036,9 +2083,12 @@ export const startHarness = async <Row extends AnyRow>(
       if (last) busyAt = null;
       // A turn that ends while ANOTHER is still running has nothing true left
       // to say about the conversation, and saying it anyway marks a working
-      // panel idle. Its paragraph is still finished, which is what puts every
-      // answer in a paragraph of its own.
-      report(last ? transcript.settle() : transcript.stopSaying());
+      // panel idle. Its paragraph is still finished — unless the next turn's
+      // first words reached this end before this return did, in which case
+      // the wire already finished it and the open paragraph is the next
+      // turn's ({@link Transcript.over}).
+      const over = transcript.over(ticket.key);
+      report(last ? plus(over, transcript.settle()) : over);
       // THE ENDING TURN'S OWN ROW stops waiting too: one marked as queued
       // behind another that ends while a third still runs never becomes the
       // head, and would say it is waiting for ever.
@@ -2122,7 +2172,12 @@ export const startHarness = async <Row extends AnyRow>(
     if (leg.steering === null) return "prompt";
     try {
       const went = await run(agent.steer(body));
-      if (went === "taken") return "handled";
+      if (went === "taken") {
+        // ... and the words are part of the turn they landed in: its row
+        // answers that turn's message, and opens no turn of its own.
+        report(transcript.steered(key, aimed.key));
+        return "handled";
+      }
       if (aimed.stopped) {
         report(transcript.refused(key));
         notice(CANCELLED_UNDER_IT);
@@ -2193,6 +2248,8 @@ export const startHarness = async <Row extends AnyRow>(
   ): Promise<{ rowId: string }> => {
     inConversation();
     const attached = await blocksOf(said.files, carries);
+    // A message written behind a running turn leaves that turn's paragraph
+    // open: the reply goes on growing above it (`Transcript.user`).
     const { key, change } = transcript.user(said.text, said.extra);
     report(change);
     // WHICH turn a steer is aimed at, read and KEPT: by the time it answers,
@@ -2238,7 +2295,9 @@ export const startHarness = async <Row extends AnyRow>(
     text: string,
   ): Promise<{ rowId: string }> => {
     inConversation();
-    const { key, change } = transcript.write(row);
+    // ... answering no turn: it opens one of its own, as a person's message
+    // does, and so leaves a running turn's paragraph open.
+    const { key, change } = transcript.write(row, { turn: null });
     // ... and the class is told that THIS row takes a turn's delivery marks,
     // which is the one thing it cannot read off a row whose kind is the
     // caller's own word.
@@ -2527,6 +2586,7 @@ export const startHarness = async <Row extends AnyRow>(
     state,
     alive,
     rows: () => transcript.rows(),
+    turn: () => transcript.running() ?? turns.head?.key ?? null,
     prompt,
     hostTurn,
     sendAgain,

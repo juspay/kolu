@@ -2,23 +2,34 @@ import { describe, expect, test } from "vitest";
 import { Activity } from "./activity.ts";
 import type { AgentEvent } from "./events.ts";
 
+/** The prompt every frame here belongs to, as `./answering.ts` stamps it. */
+const TURN = "user:1";
+
 const setup = () => {
   const events: AgentEvent[] = [];
   const activity = new Activity((event) => events.push(event));
   const spawn = (parent = "root", child = "child") =>
-    activity.read(parent, {
-      kind: "child",
-      id: child,
-      name: "Explorer",
-      task: "inspect files",
-    });
+    activity.read(
+      parent,
+      {
+        kind: "child",
+        id: child,
+        name: "Explorer",
+        task: "inspect files",
+      },
+      TURN,
+    );
   const task = (session = "root", linked: string | undefined = "command") =>
-    activity.read(session, {
-      kind: "task",
-      id: "task",
-      name: "watch files",
-      tool: linked,
-    });
+    activity.read(
+      session,
+      {
+        kind: "task",
+        id: "task",
+        name: "watch files",
+        tool: linked,
+      },
+      TURN,
+    );
   return { activity, events, spawn, task };
 };
 
@@ -40,24 +51,32 @@ describe("native session activity", () => {
   test("reports stay on their own agent and completion is scoped and idempotent", () => {
     const { activity, events, spawn } = setup();
     spawn();
-    activity.report("child", "one ");
-    activity.report("child", "two");
+    activity.report("child", "one ", TURN);
+    activity.report("child", "two", TURN);
     expect(events.at(-1)).toMatchObject({
       id: activity.parent("child"),
       progress: "one two",
     });
-    activity.read("stranger", {
-      kind: "childEnded",
-      id: "child",
-      state: "completed",
-    });
-    expect(events).toHaveLength(3);
-    for (let i = 0; i < 2; i++)
-      activity.read("root", {
+    activity.read(
+      "stranger",
+      {
         kind: "childEnded",
         id: "child",
         state: "completed",
-      });
+      },
+      TURN,
+    );
+    expect(events).toHaveLength(3);
+    for (let i = 0; i < 2; i++)
+      activity.read(
+        "root",
+        {
+          kind: "childEnded",
+          id: "child",
+          state: "completed",
+        },
+        TURN,
+      );
     expect(events).toHaveLength(4);
     expect(events.at(-1)).toMatchObject({ status: "completed" });
   });
@@ -68,7 +87,7 @@ describe("native session activity", () => {
   ] as const)("child %s extinguishes its live card", (state) => {
     const { activity, events, spawn } = setup();
     spawn();
-    activity.read("root", { kind: "childEnded", id: "child", state });
+    activity.read("root", { kind: "childEnded", id: "child", state }, TURN);
     expect(events.at(-1)).toMatchObject({
       id: activity.parent("child"),
       status: "failed",
@@ -83,17 +102,21 @@ describe("native session activity", () => {
     task();
     const row = activity.toolId("root", "command");
     expect(activity.status(row, "completed")).toBe("in_progress");
-    activity.read("root", {
-      kind: "taskProgress",
-      id: "task",
-      summary: "still checking",
-    });
+    activity.read(
+      "root",
+      {
+        kind: "taskProgress",
+        id: "task",
+        summary: "still checking",
+      },
+      TURN,
+    );
     expect(events.at(-1)).toMatchObject({
       id: row,
       progress: "still checking",
       armed: { task: "task" },
     });
-    activity.read("root", { kind: "taskEnded", id: "task", state });
+    activity.read("root", { kind: "taskEnded", id: "task", state }, TURN);
     expect(events.at(-1)).toMatchObject({
       id: row,
       armed: { task: "task", ended: state },
@@ -113,11 +136,15 @@ describe("native session activity", () => {
       parent: activity.parent("child"),
       armed: { task: "task" },
     });
-    activity.read("stranger", {
-      kind: "taskEnded",
-      id: "task",
-      state: "failed",
-    });
+    activity.read(
+      "stranger",
+      {
+        kind: "taskEnded",
+        id: "task",
+        state: "failed",
+      },
+      TURN,
+    );
     expect(events).toHaveLength(3);
   });
   test("leaving forgets ancestry and fences every former child; replay can restore it", () => {
@@ -129,8 +156,12 @@ describe("native session activity", () => {
     activity.clear(closed);
     expect([...closed]).toEqual(["child", "grandchild"]);
     expect(activity.parent("child")).toBeUndefined();
-    activity.report("child", "late");
-    activity.read("root", { kind: "taskEnded", id: "task", state: "failed" });
+    activity.report("child", "late", TURN);
+    activity.read(
+      "root",
+      { kind: "taskEnded", id: "task", state: "failed" },
+      TURN,
+    );
     expect(events).toHaveLength(3);
     spawn();
     task();

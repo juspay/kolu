@@ -3796,33 +3796,63 @@ function timelineEvents(
  *  timeline on screen at all, and the wait would time out saying the event
  *  never arrived when what moved was the card. And an open card shows ONE
  *  stage of its timeline, so a step about the timeline unfolds the whole of
- *  it. Cheap and silent: nothing here waits, it only presses what is already
- *  there. */
+ *  it.
+ *
+ *  NOTHING HERE WAITS LONGER THAN {@link NUDGE}: every look and every press
+ *  gives up after it, and a press that gives up is tried again on the poll's
+ *  next tick. These elements come and go under the poll — a picked work whose
+ *  terminal comes up turns from Details to Terminals and takes the
+ *  whole-timeline button out of the page, and a work that ends takes its
+ *  card below the line — so a look or a press left on the default limit
+ *  waited the step's whole timeout for an element that was not coming back,
+ *  and the poll calling this ran out after one tick. The presses stay
+ *  locator clicks, so a covered or hidden button is still not pressed. */
 export async function keepWorkCardOpen(world: KoluWorld): Promise<void> {
   const card = workCard(world);
+  /** Press `button` unless it is not on the page, or its `attribute` already
+   *  says "true" — and not at all when the look itself gave up. `count()`
+   *  first, which does not wait: a button that is not there answers at once
+   *  rather than after the look's whole second. */
+  const pressUnlessOn = async (button: Locator, attribute: string) => {
+    if ((await button.count()) === 0) return;
+    const state = await button
+      .getAttribute(attribute, NUDGE)
+      .catch(() => "gone");
+    if (state !== "true" && state !== "gone")
+      await button.click(NUDGE).catch(() => {});
+  };
   if (await card.isVisible().catch(() => false)) {
-    await showDetails(world);
-    if ((await card.getAttribute("data-open")) === null) {
-      await pressCardHead(card).catch(() => {});
-    }
-    const whole = card.locator('[data-testid="work-timeline-whole"]');
-    if (
-      (await whole.count()) > 0 &&
-      (await whole.getAttribute("aria-expanded").catch(() => null)) === "false"
-    )
-      await whole.click().catch(() => {});
+    const open = await card
+      .getAttribute("data-open", NUDGE)
+      .catch(() => "gone");
+    if (open === null)
+      await card
+        .locator('[data-testid="work-card-head"]')
+        .click({ ...NUDGE, position: { x: 12, y: 12 } })
+        .catch(() => {});
+    // The view switch is the picked work's, in the column; the whole timeline
+    // is this card's.
+    await pressUnlessOn(
+      world.page.locator(
+        `${WORK_COLUMN} [data-testid="work-view"][data-view="details"]`,
+      ),
+      "aria-pressed",
+    );
+    await pressUnlessOn(
+      card.locator('[data-testid="work-timeline-whole"]'),
+      "aria-expanded",
+    );
     return;
   }
-  const toggle = world.page.locator(
-    `${WORK_COLUMN} [data-testid="work-finished-toggle"]`,
+  await pressUnlessOn(
+    world.page.locator(`${WORK_COLUMN} [data-testid="work-finished-toggle"]`),
+    "aria-expanded",
   );
-  if (
-    (await toggle.count()) > 0 &&
-    (await toggle.getAttribute("aria-expanded")) !== "true"
-  ) {
-    await toggle.click().catch(() => {});
-  }
 }
+
+/** How long one look or one press in {@link keepWorkCardOpen} may wait: one
+ *  second, against a poll that ticks every quarter of one. */
+const NUDGE = { timeout: 1_000 } as const;
 
 async function waitForTimelineEvent(
   world: KoluWorld,

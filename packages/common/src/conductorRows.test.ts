@@ -154,3 +154,22 @@ describe("a row written before the vocabulary moved", () => {
     }
   });
 });
+
+describe("the message a row answers", () => {
+  it("is kept on a row written with one", () => {
+    const answering = `{"id":"agent:4","seq":5,"since":"2026-01-01T00:00:00.000Z","kind":"agent","text":"the rest of the reply","turn":"user:1"}`;
+    expect(decode(answering)).toMatchObject({ turn: "user:1" });
+    expect(roundTrip(answering)).toEqual(decode(answering));
+  });
+
+  it("is absent on every row stored before rows said so", () => {
+    // A saved conversation from before carries no `turn` anywhere, and reads
+    // as it always did: the client places such a row by its `seq`.
+    for (const [name, stored] of STORED) {
+      expect([name, "turn" in (decode(stored) as object)]).toEqual([
+        name,
+        false,
+      ]);
+    }
+  });
+});

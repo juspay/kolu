@@ -33,6 +33,13 @@
  *   kolu         — an MCP call to the `kolu` server, with a structured answer
  *   slow         — a turn held open until a SECOND prompt arrives, so one can
  *                  be queued behind it without anybody timing anything
+ *   talkingSlow  — `slow` with words in it: the first words before it is held,
+ *                  and when the second prompt arrives the rest — prose, a call,
+ *                  prose — then its answer, with the second prompt's first
+ *                  words written straight after in the same tick
+ *   taskAcrossProse — a task armed, prose, the task's end in the middle of the
+ *                  prose, more prose, a child agent sent out: all of it in the
+ *                  fixture dialect only a `nativeActivity` leg reads
  *   fail         — a JSON-RPC error, after writing to stderr
  *   die          — the process EXITS mid-turn, which is an adapter that
  *                  crashed: no answer, a closed pipe, and a client that has
@@ -204,6 +211,12 @@ let openTurn: unknown = null;
  *  message waiting its turn, and a fixture that released on a clock made it a
  *  test about how fast a machine is. */
 let slowTurn: unknown = null;
+/** ... and the `talkingSlow` turn, held the same way, which has already SAID
+ *  something when it is held and says the rest when it is let go. The rest,
+ *  the answer and the next turn's first words leave in one tick, which is
+ *  what an agent that finished one prompt and took up the next one looks like
+ *  on the wire. */
+let talkingTurn: unknown = null;
 /**
  * ONE TURN AT A TIME, with the rest behind it — which is what every agent kolu
  * talks to does with a prompt sent while it is busy, and what the harness's
@@ -237,6 +250,25 @@ function enqueue(message: Message): void {
     if (slowTurn !== null && !cancelEndsAll) {
       const held = slowTurn;
       slowTurn = null;
+      finish(held, "end_turn");
+    }
+    if (talkingTurn !== null) {
+      const held = talkingTurn;
+      talkingTurn = null;
+      update(session, {
+        sessionUpdate: "agent_message_chunk",
+        content: { type: "text", text: "A-reply-part-2" },
+      });
+      update(session, {
+        sessionUpdate: "tool_call",
+        toolCallId: "call-of-A",
+        title: "a call the first turn made",
+        status: "completed",
+      });
+      update(session, {
+        sessionUpdate: "agent_message_chunk",
+        content: { type: "text", text: "A-reply-part-3" },
+      });
       finish(held, "end_turn");
     }
     return;
@@ -1259,6 +1291,32 @@ function turn(message: Message): void {
   }
   if (text === "slow") {
     slowTurn = message.id;
+    return;
+  }
+  if (text === "talkingSlow") {
+    says("A-reply-part-1 ");
+    talkingTurn = message.id;
+    return;
+  }
+  if (text === "taskAcrossProse") {
+    // A TASK AND A CHILD in the fixture DIALECT's words (`fixture_*`), which
+    // only a leg that reads that dialect (`nativeActivity`) understands: the
+    // task is armed, the prose starts, the task ends in the middle of it, the
+    // prose goes on, and a child agent is sent out.
+    update(session, {
+      sessionUpdate: "fixture_task",
+      id: "t1",
+      name: "watch the build",
+    });
+    says("the first half, ");
+    update(session, {
+      sessionUpdate: "fixture_task_ended",
+      id: "t1",
+      state: "completed",
+    });
+    says("and the second");
+    update(session, { sessionUpdate: "fixture_spawned", id: "kid" });
+    finish(message.id, "end_turn");
     return;
   }
   if (text === "speakThenDie") {
