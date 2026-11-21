@@ -3797,20 +3797,39 @@ function timelineEvents(
  *  never arrived when what moved was the card. And an open card shows ONE
  *  stage of its timeline, so a step about the timeline unfolds the whole of
  *  it. Cheap and silent: nothing here waits, it only presses what is already
- *  there. */
+ *  there — IN THE PAGE, in one go, and not through a locator's `click()`. A
+ *  locator's click waits for its element, and these elements come and go: a
+ *  picked work whose terminal comes up turns from Details to Terminals, which
+ *  takes the whole-timeline button out of the page between the look and the
+ *  press. The click then waited the step's whole default timeout for a button
+ *  that was not coming back, swallowed by its `catch`, and the poll calling
+ *  this ran out after one tick without pressing Details again. */
 export async function keepWorkCardOpen(world: KoluWorld): Promise<void> {
   const card = workCard(world);
   if (await card.isVisible().catch(() => false)) {
-    await showDetails(world);
     if ((await card.getAttribute("data-open")) === null) {
       await pressCardHead(card).catch(() => {});
     }
-    const whole = card.locator('[data-testid="work-timeline-whole"]');
-    if (
-      (await whole.count()) > 0 &&
-      (await whole.getAttribute("aria-expanded").catch(() => null)) === "false"
-    )
-      await whole.click().catch(() => {});
+    // The view switch is the picked work's, in the column; the whole timeline
+    // is this card's. Each is pressed only if it is there and not yet on.
+    const press = (scope: Locator, selector: string, state: string) =>
+      scope
+        .evaluate(
+          (root, [query, attribute]) => {
+            const one = root.querySelector(query as string);
+            if (one?.getAttribute(attribute as string) === "false")
+              (one as HTMLElement).click();
+          },
+          [selector, state],
+          { timeout: 1_000 },
+        )
+        .catch(() => {});
+    await press(
+      world.page.locator(WORK_COLUMN),
+      '[data-testid="work-view"][data-view="details"]',
+      "aria-pressed",
+    );
+    await press(card, '[data-testid="work-timeline-whole"]', "aria-expanded");
     return;
   }
   const toggle = world.page.locator(
