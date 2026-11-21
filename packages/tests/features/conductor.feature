@@ -359,18 +359,21 @@ Feature: The Conductor
     And the conductor tab badge should be the needs-you one
     And there should be no page errors
 
-  Scenario: A question from the Conductor rings when you are not looking at it
+  Scenario: A question from the Conductor chimes wherever you are, and a reload does not ring for it
     # The Conductor's question rings the same bell a terminal waiting on you
     # does — same sound, same Attention alerts switch. The sound is recorded
     # rather than heard, and whether the window has focus is DECLARED rather
     # than raced: an Escape pressed against the fixture's question would be a
     # coin toss about which landed first.
     #
-    # The second half is the quiet rule. A question that appears in the
-    # conversation you are reading, in a focused window, is already in front
-    # of you — ringing for it is how people learn to ignore the bell. It is a
-    # DIFFERENT question (the harness never reuses an id), so a bell that only
-    # compared ids would ring here; the count staying at one is the rule.
+    # The second half is the in-front rule. A question that appears in the
+    # conversation you are reading, in a focused window, still chimes — you
+    # may be reading another part of the screen — and raises no desktop
+    # popup, because you are already there. A page cannot show a test the
+    # popup, so that half is pinned by a unit test (`useAttention.test.ts`);
+    # here the count going from one to two is the chime. It is a DIFFERENT
+    # question (the harness never reuses an id), and the first one, answered,
+    # does not ring again: exactly two, not three.
     #
     # The third is the reload. That question is still open; leave the
     # conversation so a host tab is on screen, and reload. The question was
@@ -392,7 +395,7 @@ Feature: The Conductor
     Then the conductor should not be asking
     When I send the conductor the prompt "ask me something"
     Then the conductor should be asking
-    And the notification sound should have played 1 time
+    And the notification sound should have played 2 times
     When I press Escape
     Then the conductor pane should not be visible
     When I reload the page
