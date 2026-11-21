@@ -90,16 +90,6 @@ const gapOf = (one: HTMLElement): number =>
   Number.parseFloat(one.style.paddingBottom || "0");
 
 describe("a work's timeline", () => {
-  it("draws a continuous line through the dots", () => {
-    const el = mount(staged());
-    const rails = [
-      ...el.querySelectorAll<HTMLElement>('[aria-hidden="true"]'),
-    ].filter((one) => one.className.includes("bg-edge"));
-    // One segment per row: the first has no line above its dot, the last no
-    // line below it.
-    expect(rails).toHaveLength(3);
-  });
-
   it("makes a three-hour wait longer than a minute's", () => {
     const el = mount(staged());
     // Rows: requested → joined (one minute) → taken over (three hours). Each
@@ -113,7 +103,12 @@ describe("a work's timeline", () => {
 
   it("prints the time on a long gap only", () => {
     const el = mount(staged());
-    expect(el.textContent).toContain("3 h");
-    expect(el.textContent).not.toContain("1 min");
+    const words = [
+      ...el.querySelectorAll<HTMLElement>(
+        '[data-testid="timeline-gap-words"]',
+      ),
+    ].map((one) => one.textContent);
+    expect(words).toHaveLength(1);
+    expect(words[0]).toBe("3h");
   });
 });

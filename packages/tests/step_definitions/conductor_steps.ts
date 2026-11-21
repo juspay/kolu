@@ -1506,21 +1506,6 @@ Then(
 );
 
 Then(
-  "the conductor transcript should have moved from where I noted",
-  async function (this: KoluWorld) {
-    const noted = this.notedTranscriptTop;
-    assert.ok(noted !== undefined, "no scroll position was noted first");
-    const now = await this.page
-      .locator(TRANSCRIPT)
-      .evaluate((el) => el.scrollTop);
-    assert.ok(
-      now < noted - 10,
-      `the wheel did not scroll the transcript: it was at ${noted} and is at ${now} — a long conversation must answer the wheel`,
-    );
-  },
-);
-
-Then(
   "the conductor should offer the way back to the bottom",
   async function (this: KoluWorld) {
     await this.page
@@ -2404,7 +2389,7 @@ export async function showWorkCard(world: KoluWorld) {
 
 /** THE PICKED WORK'S SWITCH, pressed to `view` — or nothing, when the work
  *  is not picked or is over (an ended work has only its details). */
-async function showPickedView(
+export async function showPickedView(
   world: KoluWorld,
   view: "terminals" | "details",
 ): Promise<void> {
@@ -4022,10 +4007,10 @@ Then(
   },
 );
 
-/** EVERY STAGE IS NAMED UNDER ITS BAR NOW, and exactly one is emphasised:
+/** EVERY STAGE IS NAMED UNDER ITS BAR, and exactly one is emphasised:
  *  the stage the work is in. */
 Then(
-  "the work's stage line should name {string} and no other stage",
+  "the work's stage strip should name every stage and emphasise {string}",
   async function (this: KoluWorld, label: string) {
     await showWorkColumn(this);
     const strip = workCard(this).locator('[data-testid="stage-strip"]');
@@ -4050,6 +4035,75 @@ Then(
           `after ${ms}ms the stage strip reads ${JSON.stringify(seen)}, not every stage named with only ${JSON.stringify(label)} emphasised`,
         ),
     });
+  },
+);
+
+/** THE STRIP'S TEXT IS WHOLE, not cut: every stage name and every duration
+ *  drawn under a bar fits in its own column (`scrollWidth` against
+ *  `clientWidth`, which is the browser's layout, not a class name). */
+Then(
+  "every stage label and time should be whole",
+  async function (this: KoluWorld) {
+    await showWorkColumn(this);
+    const strip = workCard(this).locator('[data-testid="stage-strip"]');
+    await pollFor({
+      observe: () =>
+        strip.evaluate((el) =>
+          Array.from(
+            el.querySelectorAll(
+              '[data-testid="stage-label"], [data-testid="stage-time"]',
+            ),
+          ).map((one) => ({
+            text: (one.textContent ?? "").trim(),
+            scroll: one.scrollWidth,
+            client: one.clientWidth,
+          })),
+        ),
+      isDone: (all) =>
+        all.length > 0 && all.every((one) => one.scroll <= one.client + 1),
+      timeoutMs: POLL_TIMEOUT,
+      onTimeout: (all, ms) =>
+        new Error(
+          `after ${ms}ms a stage label or time is cut: ${all
+            .map((one) => `${JSON.stringify(one.text)} ${one.scroll}>${one.client}`)
+            .join(" / ")}`,
+        ),
+    });
+  },
+);
+
+/** THE LINE IS ONE LINE, drawn by each row from its own top to its own
+ *  bottom — so a row whose list is unfolded, and the gap after a long wait,
+ *  are both covered. The browser's boxes decide it, not a class name. */
+Then(
+  "the timeline's line should run unbroken",
+  async function (this: KoluWorld) {
+    await showWorkColumn(this);
+    const boxes = await workCard(this)
+      .locator('[data-testid="work-timeline"] > ul > li')
+      .evaluateAll((rows) =>
+        rows.map((row) => {
+          const rail = row.querySelector(':scope > [data-testid="timeline-rail"]');
+          const own = row.getBoundingClientRect();
+          const line = rail?.getBoundingClientRect();
+          return {
+            top: own.top,
+            bottom: own.bottom,
+            railTop: line?.top ?? null,
+            railBottom: line?.bottom ?? null,
+          };
+        }),
+      );
+    assert.ok(boxes.length > 1, "the timeline has no two rows to join");
+    for (let i = 0; i < boxes.length - 1; i += 1) {
+      const row = boxes[i];
+      const next = boxes[i + 1];
+      assert.ok(row !== undefined && next !== undefined, "a row box is missing");
+      assert.ok(
+        row.railBottom === null || row.railBottom >= next.top - 1,
+        `the line stops at ${row.railBottom} but the next row starts at ${next.top} — a gap in the timeline`,
+      );
+    }
   },
 );
 

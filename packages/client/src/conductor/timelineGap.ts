@@ -14,10 +14,12 @@
  *  how long it was rather than make the reader measure it
  *  (`gapWordsFor`). */
 
+import { compactPhrase } from "@kolu/terminal-vocab/duration";
+
 /** Same minute — and, being the floor, every shorter wait. */
 export const TIMELINE_GAP_MIN_PX = 4;
 
-/** About four rows of timeline text; a day or more is the same as a day. */
+/** About four rows of timeline text; an hour or more is the same as an hour. */
 export const TIMELINE_GAP_MAX_PX = 72;
 
 /** The wait the scale is calibrated against: an hour. Beyond it the line is
@@ -46,13 +48,10 @@ export function timelineGap(ms: number): number {
   );
 }
 
-/** The words a long gap prints on its line (`42 min`, `3 h`, `2 d`), or none
- *  for a gap short enough that its length is the whole message. */
+/** The words a long gap prints on its line (`42m`, `3h`, `2d`), or none for a
+ *  gap short enough that its length is the whole message. One ladder, the
+ *  same `compactPhrase` the stage strip prints its times with. */
 export function gapWordsFor(ms: number): string | undefined {
   if (timelineGap(ms) < GAP_LABEL_AT_PX) return undefined;
-  const minutes = Math.round(ms / 60_000);
-  if (minutes < 60) return `${minutes} min`;
-  const hours = Math.round(minutes / 60);
-  if (hours < 24) return `${hours} h`;
-  return `${Math.round(hours / 24)} d`;
+  return compactPhrase(ms);
 }

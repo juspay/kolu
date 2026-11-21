@@ -8,6 +8,7 @@
  * into screens of blank paper.
  */
 
+import { compactPhrase } from "@kolu/terminal-vocab/duration";
 import { describe, expect, it } from "vitest";
 import {
   gapWordsFor,
@@ -71,12 +72,10 @@ describe("the time a long gap prints", () => {
     expect(gapWordsFor(10 * MIN)).toBeUndefined();
   });
 
-  it("says how long, in the unit a person would use", () => {
-    expect(gapWordsFor(42 * MIN)).toBe("42 min");
-    expect(gapWordsFor(HOUR)).toBe("1 h");
-    expect(gapWordsFor(3 * HOUR)).toBe("3 h");
-    expect(gapWordsFor(7 * HOUR)).toBe("7 h");
-    expect(gapWordsFor(DAY)).toBe("1 d");
-    expect(gapWordsFor(3 * DAY)).toBe("3 d");
+  it("prints the repo's own short duration for a long gap", () => {
+    // Not a second spelling of hours and minutes: the same one unit the
+    // stage strip prints.
+    expect(gapWordsFor(3 * HOUR)).toBe(compactPhrase(3 * HOUR));
+    expect(gapWordsFor(DAY)).toBe(compactPhrase(DAY));
   });
 });

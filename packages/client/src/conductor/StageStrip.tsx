@@ -36,7 +36,7 @@
  *  `<Index>`, because a segment's POSITION is its identity — the six stages
  *  never move — and the fold mints fresh objects every tick of the clock. */
 
-import { dualPhrase } from "@kolu/terminal-vocab/duration";
+import { compactPhrase, dualPhrase } from "@kolu/terminal-vocab/duration";
 import {
   STAGES,
   type Stage,
@@ -48,17 +48,20 @@ import {
 import { type Component, createMemo, Index, Show } from "solid-js";
 import { STAGE_LABEL, WAITER_INK } from "./workReadings";
 
-/** THE COLOUR RULE, in one place — THE INK SAYS WHOSE TIME THE STAGE WAS.
- *  Teal (accent) was the agents', violet (alert) was yours, amber
- *  (attention) was CI's (`WAITER_INK`, `workReadings.ts`). Nothing else is
- *  carried by colour: the bar's ring says this is the stage the work is in,
- *  dimming says the stage is past, a DASHED outline says the stage did not
- *  happen, and a faint grey says it has not been reached. Every one of those
- *  is also in the segment's title and spoken label, and every segment names
- *  its stage under the bar — so colour is never the only carrier, and no two
- *  meanings share an ink. The last stage of a merged or closed work keeps
- *  that same waiter's ink: it is one more stage that had somebody's time, not
- *  a fourth colour. */
+/** THE COLOUR RULE, in one place — THE INK SAYS WHOSE TIME THE STAGE MOSTLY
+ *  WAS. Teal (accent) was mostly the agents', violet (alert) mostly yours,
+ *  amber (attention) mostly CI's (`WAITER_INK`, `workReadings.ts`) — for a
+ *  finished stage and for the one in hand alike, so a Build that has been the
+ *  agents' for two hours stays teal while it waits on you (who it waits on
+ *  now is the standing line's and the work's dot's). Nothing else is carried
+ *  by colour: the bar's ring says this is the stage the work is in, dimming
+ *  says the stage is past, a DASHED outline says the stage did not happen,
+ *  and a faint grey says it has not been reached. Every one of those is also
+ *  in the segment's title and spoken label, and every segment names its stage
+ *  under the bar — so colour is never the only carrier, and no two meanings
+ *  share an ink. The last stage of a merged or closed work keeps that same
+ *  waiter's ink: one more stage that had somebody's time, not a fourth
+ *  colour. */
 const segmentInk = (state: StageState): string => {
   switch (state.kind) {
     case "now":
@@ -95,6 +98,14 @@ const WHOSE: Record<Waiter, string> = {
 const exactOf = (state: StageState): string | undefined =>
   state.kind === "done" || state.kind === "now"
     ? dualPhrase(state.ms)
+    : undefined;
+
+/** THE TIME UNDER THE BAR — one unit (`14h`), because a two-unit number is
+ *  the first thing a narrow column would cut, and a cut duration is a wrong
+ *  number. The exact two-unit time stays in the title. */
+const shortOf = (state: StageState): string | undefined =>
+  state.kind === "done" || state.kind === "now"
+    ? compactPhrase(state.ms)
     : undefined;
 
 /** ONE SENTENCE PER STAGE — its name and time, whose time it was, and where
@@ -165,11 +176,11 @@ const StageStrip: Component<{
           data-testid={props.testId}
           data-size={props.size}
           data-run={props.stages.kind}
-          class={`flex min-w-0 items-center gap-2 ${full() ? "mt-2" : "mt-1.5"}`}
+          class={`min-w-0 ${full() ? "mt-2" : "mt-1.5"}`}
         >
           <ol
             aria-label="Stages"
-            class="m-0 grid min-w-0 flex-1 list-none grid-cols-6 gap-[3px] p-0"
+            class="m-0 grid min-w-0 list-none grid-cols-6 gap-[3px] p-0"
           >
             <Index each={all()}>
               {(stage) => {
@@ -197,15 +208,22 @@ const StageStrip: Component<{
                         small mono. It is the one thing the colors cannot say:
                         two bars of the same ink are two stages that had the
                         same person's time, and this is how the eye tells them
-                        apart. `truncate` keeps it on one line at phone width;
-                        the full name is in the segment's title either way. */}
+                        apart. On a narrow row there is not room for six names
+                        beside six times — the name of the stage in hand is
+                        the one the eye needs — so the others step aside below
+                        `conductor-md` and the times stay. `truncate` is the
+                        last resort; the full name is in the segment's title. */}
                     <span
                       data-testid="stage-label"
                       data-stage={stage().name}
                       data-emphasis={
                         emphasis() === stage().name ? "" : undefined
                       }
-                      class={`block w-full truncate whitespace-nowrap pt-0.5 text-center font-mono leading-tight ${
+                      class={`w-full truncate whitespace-nowrap pt-0.5 text-center font-mono leading-tight ${
+                        emphasis() === stage().name
+                          ? "block"
+                          : "hidden conductor-md:block"
+                      } ${
                         full() ? "text-[0.55rem]" : "text-[0.5rem]"
                       } ${
                         emphasis() === stage().name
@@ -224,12 +242,12 @@ const StageStrip: Component<{
                         time; an unreached (or skipped) stage has none. The
                         current stage's number grows with the clock the card
                         reads it on. */}
-                    <Show when={exactOf(state())}>
+                    <Show when={shortOf(state())}>
                       {(time) => (
                         <span
                           data-testid="stage-time"
                           data-stage={stage().name}
-                          class={`block w-full truncate whitespace-nowrap text-center font-mono tabular-nums leading-tight text-fg-3 ${
+                          class={`block w-full whitespace-nowrap text-center font-mono tabular-nums leading-tight text-fg-3 ${
                             full() ? "text-[0.5rem]" : "text-[0.46rem]"
                           }`}
                         >

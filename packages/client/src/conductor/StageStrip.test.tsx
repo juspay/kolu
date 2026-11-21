@@ -113,17 +113,6 @@ describe("the stage strip's segments", () => {
       ["checks", "Checks", undefined],
       ["merge", "Merge", undefined],
     ]);
-    // NEVER A SECOND LINE AT PHONE WIDTH: a label that does not fit is cut
-    // with the stage's full name in its title, not wrapped under the bar.
-    for (const label of el.querySelectorAll('[data-testid="stage-label"]')) {
-      expect(label.classList.contains("truncate")).toBe(true);
-      expect(label.classList.contains("whitespace-nowrap")).toBe(true);
-    }
-    // The dashed, skipped stage is named too, and dimmed rather than hidden.
-    const skipped = el.querySelector<HTMLElement>(
-      '[data-testid="stage-label"][data-stage="review"]',
-    );
-    expect(skipped?.classList.contains("text-fg-3/60")).toBe(true);
   });
 
   it("emphasise the last stage that happened when none is current", () => {
@@ -156,7 +145,7 @@ describe("the stage strip's segments", () => {
     expect(segment(el, "checks").title).toBe("Checks, not started");
   });
 
-  it("speak every stage, though the line names only one", () => {
+  it("speak every stage, with its time and where it stands", () => {
     const { el } = mount(STAGED, true);
     const spoken = (stage: string) =>
       segment(el, stage).querySelector(".sr-only")?.textContent;
@@ -240,24 +229,27 @@ describe("each stage's own time", () => {
     expect(el.querySelectorAll('[data-testid="stage-time"]')).toHaveLength(3);
   });
 
-  it("keeps every label and time on one clipped line in a phone-width column", () => {
-    const { el } = mount(STAGED, true);
-    for (const one of el.querySelectorAll(
-      '[data-testid="stage-label"], [data-testid="stage-time"]',
-    )) {
-      // A stacked label and time, each truncated: the column is 1/6 of the
-      // strip and no segment may push the row wider.
-      expect(one.classList.contains("truncate")).toBe(true);
-      expect(one.classList.contains("whitespace-nowrap")).toBe(true);
-    }
-    for (const li of el.querySelectorAll('[data-testid="stage"]')) {
-      expect(li.classList.contains("min-w-0")).toBe(true);
-    }
-    expect(
-      el
-        .querySelector('[aria-label="Stages"]')
-        ?.classList.contains("grid-cols-6"),
-    ).toBe(true);
+  it("prints the time in one unit where the label's column is narrow", () => {
+    const long: Stages = {
+      kind: "staged",
+      stages: STAGED.stages.map((one) =>
+        one.name === "plan"
+          ? {
+              name: "plan",
+              state: { kind: "done", ms: (14 * 60 + 20) * MIN, who: "agent" },
+            }
+          : one,
+      ),
+      events: [],
+      current: "build",
+    };
+    const { el } = mount(long, true);
+    // "14h 20m" would be cut in a sixth of the row; "14h" is the one-unit
+    // form, and the two-unit time stays whole in the title.
+    expect(time(el, "plan")).toBe("14h");
+    expect(segment(el, "plan").title).toBe(
+      "Plan 14h 20m, the agents' time, done",
+    );
   });
 
   it("keeps the time in the tooltip, and speaks it", () => {

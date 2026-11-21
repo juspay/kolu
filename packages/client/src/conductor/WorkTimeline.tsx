@@ -62,6 +62,24 @@ const viewWord = (view: TimelineView): string => {
   }
 };
 
+/** THE RAIL, drawn by the ROW (not by its stamp): from the row's top to its
+ *  bottom, so an unfolded folder's file list and the gap's padding are both
+ *  covered and the line reaches the next dot. The first row starts at its
+ *  dot, the last ends at its dot, and a timeline of one row has no line. */
+const TimelineRail: Component<{ first: boolean; last: boolean }> = (props) => (
+  <Show when={!props.first || !props.last}>
+    <span
+      data-testid="timeline-rail"
+      aria-hidden="true"
+      class="absolute left-[45px] w-px bg-edge"
+      style={{
+        top: props.first ? "0.35em" : "0",
+        ...(props.last ? { height: "0.35em" } : { bottom: "0" }),
+      }}
+    />
+  </Show>
+);
+
 /** THE RAIL A ROW SITS ON — what makes the timeline a line rather than a list:
  *  the gap below the dot (from the wait to the next event) and the words that
  *  gap prints when it is long. Absent inside a folder's unfolded file rows,
@@ -74,33 +92,16 @@ interface Rail {
 }
 
 /** A ROW'S TIME AND WHO IT WAS BY — the clock cell and the coloured dot,
- *  drawn the same at the head of an event row and of a folder row. The rail
- *  runs through the dot column: above the dot when a row came before, below
- *  it (through the row's gap) when one comes after. */
+ *  drawn the same at the head of an event row and of a folder row. */
 const RowStamp: Component<{
   at: string;
   by: WorkEvent["by"];
-  rail?: Rail;
 }> = (props) => (
   <>
     <span class="w-9 shrink-0 whitespace-nowrap font-mono text-[0.6rem] tabular-nums text-fg-3">
       {clockOf(props.at)}
     </span>
     <span class="relative flex w-1.5 shrink-0 justify-center self-stretch">
-      <Show when={props.rail}>
-        {(rail) => (
-          <span
-            aria-hidden="true"
-            class="absolute left-1/2 w-px -translate-x-1/2 bg-edge"
-            style={{
-              top: rail().first ? "0.55em" : "0",
-              ...(rail().last
-                ? { height: "0.55em" }
-                : { bottom: `-${rail().gapPx}px` }),
-            }}
-          />
-        )}
-      </Show>
       <span
         aria-hidden="true"
         class={`relative mt-[0.35em] h-1.5 w-1.5 shrink-0 rounded-full ${EVENT_INK[props.by]}`}
@@ -117,6 +118,7 @@ const GapWords: Component<{ rail: Rail }> = (props) => (
     {(words) => (
       <span
         aria-hidden="true"
+        data-testid="timeline-gap-words"
         class="pointer-events-none absolute left-12 bottom-1 font-mono text-[0.55rem] text-fg-3"
       >
         {words()}
@@ -199,7 +201,12 @@ const WorkTimeline: Component<{
                   : { "padding-bottom": `${row.rail.gapPx}px` }
               }
             >
-              <RowStamp at={one().at} by={one().by} rail={row.rail} />
+              <Show when={row.rail}>
+                {(rail) => (
+                  <TimelineRail first={rail().first} last={rail().last} />
+                )}
+              </Show>
+              <RowStamp at={one().at} by={one().by} />
               <Show when={row.rail}>
                 {(rail) => <GapWords rail={rail()} />}
               </Show>
@@ -308,8 +315,13 @@ const WorkTimeline: Component<{
                 : { "padding-bottom": `${folder.rail.gapPx}px` }
             }
           >
+            <Show when={folder.rail}>
+              {(rail) => (
+                <TimelineRail first={rail().first} last={rail().last} />
+              )}
+            </Show>
             <div class="flex min-w-0 items-baseline gap-1.5 text-[0.7rem]">
-              <RowStamp at={one().at} by={one().by} rail={folder.rail} />
+              <RowStamp at={one().at} by={one().by} />
               <Show when={folder.rail}>
                 {(rail) => <GapWords rail={rail()} />}
               </Show>
@@ -362,7 +374,13 @@ const WorkTimeline: Component<{
             const at = (one: TimelineRow): number => {
               const i =
                 one.kind === "event" ? one.index : (one.indices[0] ?? 0);
-              return Date.parse(props.work.events[i]?.at ?? "");
+              const event = props.work.events[i];
+              // A row always names an event that exists. A missing one is a
+              // broken row, and `NaN` would only become `padding-bottom:
+              // NaNpx` — say so where it happens.
+              if (event === undefined)
+                throw new Error(`timeline row ${rowKey(one)} names no event`);
+              return Date.parse(event.at);
             };
             const rail = (): Rail => {
               const rows = shown().rows;
