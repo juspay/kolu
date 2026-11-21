@@ -635,6 +635,50 @@ describe("one conversation with a real agent", () => {
     );
   });
 
+  test("every row says which message it answers, and a message sent behind a running turn does not cut its reply", async () => {
+    const running = await open("agent.ts");
+    const a = await running.harness.prompt(typed("talkingSlow", []), false);
+    const until = Date.now() + 10_000;
+    while (!textOfKind(running, "agent").includes("A-reply-part-1 ")) {
+      if (Date.now() > until) throw new Error("the first reply never started");
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+    const b = await running.harness.prompt(typed("hello", []), false);
+    await settled(running, "the two turns never ended");
+
+    expect([a.rowId, b.rowId]).toEqual(["user:1", "user:3"]);
+    // THE WHOLE ROW LIST, in `seq` order. The client's grouping tests for
+    // #2420 (`packages/client/src/conductor/turnWorks.test.ts`) copy it: the
+    // first reply goes on after the second message was written, and every row
+    // of it says it answers the first message. A message row opens its own
+    // turn and carries none.
+    expect(
+      running.rows().map((row) => ({
+        id: row.id,
+        kind: row.kind,
+        text: "text" in row ? row.text : undefined,
+        turn: "turn" in row ? row.turn : undefined,
+      })),
+    ).toEqual([
+      { id: "user:1", kind: "user", text: "talkingSlow", turn: undefined },
+      {
+        id: "agent:2",
+        kind: "agent",
+        text: "A-reply-part-1 A-reply-part-2",
+        turn: "user:1",
+      },
+      { id: "user:3", kind: "user", text: "hello", turn: undefined },
+      {
+        id: "tool:call-of-A",
+        kind: "tool",
+        text: "a call the first turn made",
+        turn: "user:1",
+      },
+      { id: "agent:4", kind: "agent", text: "A-reply-part-3", turn: "user:1" },
+      { id: "agent:5", kind: "agent", text: "hello back", turn: "user:3" },
+    ]);
+  });
+
   test("a background task outlives its turn and its death lands as a notice", async () => {
     const running = await open("agent.ts");
     await running.harness.prompt(typed("background", []), false);
@@ -2023,6 +2067,17 @@ describe("putting a message INTO the turn that is running", () => {
 
     // THE PROCESS AT THE OTHER END is the only witness that it landed.
     expect(await steeredInto(running)).toEqual(["actually, the other branch"]);
+  });
+
+  test("a message steered into the running turn says it is part of that turn", async () => {
+    const running = await open("agent.ts", { leg: steersLeg });
+    const held = await running.harness.prompt(typed("slow", []), false);
+    const steer = await running.harness.prompt(
+      typed("actually, the other branch", []),
+      true,
+    );
+    const row = rowOf(running, steer.rowId);
+    expect("turn" in row ? row.turn : undefined).toBe(held.rowId);
   });
 
   test("a steer that carries FILES goes as a plain prompt, files and all", async () => {
