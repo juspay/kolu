@@ -222,6 +222,7 @@ describe("the manifest", () => {
     // because a second door to the same word is a door somebody eventually
     // uses.
     expect(Object.keys(face).sort()).toEqual([
+      "ACTIVITY_METHOD",
       "AUTH_STATUS_METHOD",
       "PERMISSION_FIELD",
       "Refused",

@@ -234,6 +234,10 @@ interface Spawned {
   readonly taughtAgain: () => number;
   /** Every message this conversation was sent, as the agent got it. */
   readonly said: () => ReadonlyArray<string>;
+  /** THE TURN THE AGENT IS ON, as the real harness reads it off the wire
+   *  (`Harness.turn`) — set by a test, because which message the running
+   *  turn answers is exactly what kolu's own rows must take from it. */
+  readonly answering: (turn: string | null) => void;
 }
 
 /** WHICH CONVERSATION a spawn was asked for — the id its opening names, or
@@ -267,6 +271,7 @@ function fakeSpawner(): {
     const wiped: string[] = [];
     let taughtAgain = 0;
     const said: string[] = [];
+    let running: string | null = null;
     let state: HarnessState = {
       ...DEFAULT_CONDUCTOR_STATE,
       phase: "idle",
@@ -282,6 +287,7 @@ function fakeSpawner(): {
       state: () => state,
       rows: () => [],
       alive: () => alive,
+      turn: () => running,
       prompt: async (message) => {
         handed.push(message.files);
         said.push(message.body);
@@ -360,6 +366,9 @@ function fakeSpawner(): {
       },
     };
     spawns.push({
+      answering: (turn) => {
+        running = turn;
+      },
       options,
       push: (change) => {
         if (change.kind === "state") state = change.state;
@@ -5428,20 +5437,12 @@ describe("the Conductor's proposals", () => {
     expect(approved.waiting).toEqual([]);
   });
 
-  it("carry the turn they came from, so one turn's proposals are one batch", () => {
-    const r = rig({
-      record: { ...EMPTY_PERSISTED_CONDUCTOR, sessionId: "sess-1", cwd: HOME },
-      rows: [
-        {
-          id: "u1",
-          seq: 1,
-          since: T0,
-          kind: "user",
-          text: "always lint",
-          attachments: [],
-        },
-      ],
-    });
+  it("carry the turn they came from, so one turn's proposals are one batch", async () => {
+    const r = rig();
+    await r.host.prompt("always lint", [], [], false);
+    const agent = r.spawns.at(-1);
+    if (agent === undefined) throw new Error("the host spawned nothing");
+    agent.answering("u1");
     const one = r.host.proposeMemory(ADD, null);
     const two = r.host.proposeMemory(
       { ...ADD, title: "Never merge on a Friday" },
@@ -5542,5 +5543,131 @@ describe("bringing over Claude Code's own memory", () => {
     expect(sent).toContain("propose twenty at most");
     expect(sent).toContain("name the file it came from in `why`");
     expect(r.host.memory().entries).toEqual([]);
+  });
+});
+
+describe("the rows kolu writes itself, while a second message waits (#2420)", () => {
+  /** A conversation whose FIRST turn is running while a second message waits
+   *  behind it: the second message is the newest row, and the harness says
+   *  the agent is on the first. */
+  const waiting = async (r: Rig): Promise<Spawned> => {
+    r.host.watch(() => {});
+    await r.host.prompt("fix the parser", [], [], false);
+    const agent = r.spawns[0];
+    if (agent === undefined) throw new Error("the host spawned nothing");
+    agent.push({
+      kind: "rows",
+      upserts: [
+        userRow("user:1", 1, "fix the parser on prod, please"),
+        {
+          ...userRow("user:3", 3, "and update the docs"),
+          queued: true,
+        } as ConductorRow,
+      ],
+      removes: [],
+      appends: [],
+    });
+    agent.answering("user:1");
+    return agent;
+  };
+  const rowNamed = (r: Rig, id: string): ConductorRow => {
+    const row = served(r.host).find((one) => one.id === id);
+    if (row === undefined) throw new Error(`no row ${id}`);
+    return row;
+  };
+
+  it("a question about a work the first turn opens answers the first message, and the work quotes it", async () => {
+    const r = rig();
+    await waiting(r);
+    const opened = await r.host.openWork({
+      key: workKey(),
+      title: "fix the parser",
+      setup: [
+        {
+          key: "mode",
+          question: "How much of this?",
+          options: ["full", "trivial"],
+          given: toAsk,
+        },
+        { key: "planner.harness", given: toAsk },
+        { key: "planner.model", given: toAsk },
+        { key: "implementor.harness", given: toAsk },
+        { key: "implementor.model", given: toAsk },
+        {
+          key: "on-green",
+          question: "And when CI is green?",
+          options: ["merge", "hand-over"],
+          given: toAsk,
+        },
+      ],
+    });
+    expect(rowNamed(r, opened.ask)).toMatchObject({
+      kind: "work-ask",
+      turn: "user:1",
+    });
+    expect(theWork(r).events[0]).toMatchObject({
+      kind: "requested",
+      request: { kind: "said", text: "fix the parser on prod, please" },
+    });
+  });
+
+  it("a memory proposal the first turn makes answers the first message, and is batched under it", async () => {
+    const r = rig();
+    await waiting(r);
+    const proposal = r.host.proposeMemory(
+      {
+        kind: "add",
+        title: "Run the linter first",
+        about: null,
+        body: "`just lint`.",
+      },
+      null,
+    );
+    expect(proposal.batch).toBe("user:1");
+    expect(rowNamed(r, `kolu:memory:${proposal.id}`)).toMatchObject({
+      kind: "memory-proposal",
+      turn: "user:1",
+    });
+  });
+
+  it("a compaction reported during the first turn answers the first message, for good", async () => {
+    const r = rig();
+    const agent = await waiting(r);
+    agent.options.onCompaction?.({
+      id: "c1",
+      status: "in_progress",
+      summary: null,
+      error: null,
+      teaching: null,
+    });
+    // ... and its later report, written once the agent is on the second
+    // turn, does not move it.
+    agent.answering("user:3");
+    agent.options.onCompaction?.({
+      id: "c1",
+      status: "completed",
+      summary: "Two works are open.",
+      error: null,
+      teaching: "sent",
+    });
+    expect(rowNamed(r, "kolu:compaction:c1")).toMatchObject({
+      kind: "compaction",
+      state: "done",
+      turn: "user:1",
+    });
+  });
+
+  it("a compaction reported while no turn runs answers none", async () => {
+    const r = rig();
+    const agent = await waiting(r);
+    agent.answering(null);
+    agent.options.onCompaction?.({
+      id: "c2",
+      status: "in_progress",
+      summary: null,
+      error: null,
+      teaching: null,
+    });
+    expect("turn" in rowNamed(r, "kolu:compaction:c2")).toBe(false);
   });
 });

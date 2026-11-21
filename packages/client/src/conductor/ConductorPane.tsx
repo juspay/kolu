@@ -67,7 +67,7 @@ import { revealTranscriptRow } from "./transcriptScroll";
 import WorkReader from "./reader/WorkReader";
 import ReaderChrome from "./reader/ReaderChrome";
 import { openReader, readerFilled, readerTarget } from "./reader/useReader";
-import { joinsOf, turnWorks } from "./turnWorks";
+import { chatTurns, joinsOf, turnWorks } from "./turnWorks";
 import {
   finishedReplyOf,
   provideTypedReply,
@@ -87,6 +87,13 @@ const ConductorPane: Component<{
   const workMap = useWorkMap();
   const joins = createMemo(() => joinsOf(workMap()));
   const turns = createMemo(() => turnWorks(feed.rows(), workMap(), joins()));
+  /** THE ROWS IN THE ORDER THE CHAT IS DRAWN: turn by turn, each turn's rows
+   *  under its message — so a message sent while a reply is still being
+   *  written waits below the whole of that reply. Read by the two that draw
+   *  or copy the chat (the transcript, and the header's menu). */
+  const drawn = createMemo(() =>
+    chatTurns(feed.rows()).flatMap((turn) => turn.rows),
+  );
 
   // THE FINISHED REPLY TO A MESSAGE YOU TYPED, handed to attention — which
   // rings for it once you have left the conversation. A memo and not an
@@ -226,7 +233,7 @@ const ConductorPane: Component<{
   const header = () => (
     <ConductorHeader
       state={state()}
-      rows={feed.rows()}
+      rows={drawn()}
       // A REAL CALL: the harness puts the sign-in row up with the methods
       // its handshake advertised, or the sentence saying it advertised none
       // — never a row this end pretends to have.
@@ -378,7 +385,7 @@ const ConductorPane: Component<{
                   {/* WHAT THE CHAT IS POINTED AT, over the chat it filters. */}
                   <ChatScopeBar rows={feed.rows()} turns={turns()} />
                   <ConductorTranscript
-                    rows={feed.rows()}
+                    rows={drawn()}
                     turns={turns()}
                     pending={feed.pending()}
                     error={feed.error()}

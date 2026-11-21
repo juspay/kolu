@@ -378,6 +378,7 @@ function hostOver(): {
       options = opts;
       onChange = opts.onChange;
       const harness: Harness<ConductorRow> = {
+        turn: () => null,
         state: () => ({
           ...DEFAULT_CONDUCTOR_STATE,
           taught: false,

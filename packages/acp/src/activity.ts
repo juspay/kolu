@@ -57,6 +57,10 @@ export type ActivityUpdate =
 export interface ActivityNotification {
   readonly session: string;
   readonly update: ActivityUpdate;
+  /** What a reader of the stream outside this channel's rewriting wrote on
+   *  the frame after it was rewritten — the client's note of which prompt the
+   *  frame belongs to. Nothing a dialect sets. */
+  readonly _meta?: unknown;
 }
 
 /**
@@ -103,8 +107,10 @@ export interface NativeActivity {
 
 /** The method the rest of the reader listens on. A client-side spelling on
  *  purpose: what reaches it has already been read by a dialect, so no agent's
- *  words travel past this point. */
-const METHOD = "_kolu/session_activity";
+ *  words travel past this point. Exported for the one other reader of the
+ *  stream that has to know a frame of this channel when it sees one: the
+ *  client's account of which prompt each frame belongs to. */
+export const ACTIVITY_METHOD = "_kolu/session_activity";
 
 /**
  * Install the complete extension channel before connecting.
@@ -124,7 +130,7 @@ export const nativeActivity = (
   dialect: NativeActivity,
 ) => {
   app.onNotification(
-    METHOD,
+    ACTIVITY_METHOD,
     // Already validated by the dialect that read it; this is the SDK's door
     // and the value went through it unchanged.
     (params: unknown) => params as ActivityNotification | null,
@@ -151,7 +157,11 @@ export const nativeActivity = (
             const rewritten = (
               heard.kind === "message"
                 ? heard.value
-                : { jsonrpc: "2.0", method: METHOD, params: heard.value }
+                : {
+                    jsonrpc: "2.0",
+                    method: ACTIVITY_METHOD,
+                    params: heard.value,
+                  }
             ) as typeof message;
             controller.enqueue(rewritten);
           },
