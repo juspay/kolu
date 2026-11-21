@@ -4782,3 +4782,29 @@ retirements:
       file: packages/tests/features/attention-alerts.feature
       symbol: "Scenario: An agent that finishes while kolu is down is unread when it comes back, without a chime"
       test: Every step of this revision is still asserted on the same journey. The survivor adds one check after the restart, that the shell is the active tile, before the checks that depend on the agent's terminal being in the background.
+  - id: revise-21fb6aa10ba9639b7a3c
+    revisionId: revision-21fb6aa10ba9639b7a3c
+    action: revised
+    status: landed
+    promise: A compaction is one line, and it opens to the summary
+    defectSurface: [conductor, user-journey]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-6c8c71e32d85c1a486a3]
+    sameCodePathEvidence:
+      file: packages/tests/features/conductor-compaction.feature
+      symbol: "Scenario: A compaction is one line, and it opens to the summary"
+      test: Every step of this revision is still asserted on the same journey. The survivor's unfolded line says the rules and the memory were sent again, because the memory now rides with the rules.
+  - id: revise-f0333f67566f222f1ef0
+    revisionId: revision-f0333f67566f222f1ef0
+    action: revised
+    status: landed
+    promise: The message sent past the limit carries the rules, and only that one
+    defectSurface: [conductor, user-journey]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-f6065d0745e47ba33814]
+    sameCodePathEvidence:
+      file: packages/tests/features/conductor-compaction.feature
+      symbol: "Scenario: The message sent past the limit carries the rules, and only that one"
+      test: Every step of this revision is still asserted on the same journey. The survivor expects the carried blocks to name the memory block after the rules, and still expects the next message to carry nothing.
