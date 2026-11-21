@@ -136,10 +136,11 @@ Feature: Attention Alerts
     And there should be no page errors
 
   # A DEPLOY under a page that stays open: only the server stops; padi and
-  # kaval keep running; the new server, on the same address with a different
-  # padi build, replaces padi. The page offers Reload and it is clicked at once.
-  # Each scenario waits for the NEW padi to list the agent finished, and for
-  # the row to show it, before checking what did not happen.
+  # kaval keep running; the new server, on the same address, drains padi the
+  # way a new build's server does, and starts another. The page offers Reload
+  # and it is clicked at once. Each scenario waits for the NEW padi to list the
+  # agent finished, and for the row to show it, before checking what did not
+  # happen.
 
   Scenario: A finished agent you had opened reads as read after a deploy
     When I stub the notification sound

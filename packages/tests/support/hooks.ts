@@ -872,12 +872,6 @@ const acpFixtureAgent = path.resolve(
 /** ... and the store it remembers prompted sessions in, per worker. */
 const acpFixtureSessions = mkSubDir("acp-sessions");
 
-/** Which padi build the next server start bakes (`PADI_BUILD_ID` /
- *  `PADI_COMMIT_HASH`). {@link deployKoluServer} bumps it: a server whose
- *  build differs from the resident padi's is what makes its binder drain that
- *  padi and start its own. */
-let padiBuild = 0;
-
 async function startServerChild(
   koluServer: string,
   /** How this start proves padi is live — see {@link waitForPadiLive}. A
@@ -1027,12 +1021,6 @@ async function startServerChild(
           // scenario wrote into its own repo rather than whatever the real
           // `gh` can reach.
           KOLU_GH_BIN: fakeGhBin,
-          // THE PADI BUILD this server's binder expects, and — because a
-          // from-source padi inherits the server's env (`localPadiDriver`,
-          // `inheritParentEnv`) — the one the padi it spawns reports. Without
-          // one, both read "unknown" and no binder ever replaces a padi.
-          PADI_BUILD_ID: `e2e-build-${padiBuild}`,
-          PADI_COMMIT_HASH: `e2e-build-${padiBuild}`,
         },
       },
     );
@@ -1753,16 +1741,19 @@ export async function restartKoluServer(
   return baseUrl;
 }
 
-/** DEPLOY UNDER AN OPEN PAGE, the way a deploy does it: stop ONLY the server
- *  (SIGTERM, as a service manager would), leave padi and kaval running, and
- *  start a server carrying a DIFFERENT padi build on the SAME port. Nothing
- *  here touches padi: what replaces it is the new server's own binder.
+/** DEPLOY UNDER AN OPEN PAGE: stop ONLY the server (SIGTERM, as a service
+ *  manager would), leave padi and kaval running, start a server on the SAME
+ *  port, and have it drain padi (`daemon/restart`) — what a new server's
+ *  binder does at boot when its padi build differs from the resident one's.
+ *  The padi build is baked into the Nix-built server the CI lane runs
+ *  (`--set PADI_BUILD_ID`), so a harness cannot make two starts of one build
+ *  disagree; the drain is the same one the build check triggers
+ *  (`padiBinding`'s drain-on-build-mismatch, proven against two real builds by
+ *  `nix/home/example/adoption/padi-upgrade.nix` and `remote-deploy.nix`).
  *
  *  Resolves once the deploy has taken that path, and throws unless it has:
- *  the old padi outlived the old server, the new server logged its binder's
- *  `padi build change on boot`, a NEW padi holds the gate, and kaval is the
- *  process it was. The server listens before its binder has replaced padi, so
- *  "the new server is up" is not yet any of that — it is waited for. */
+ *  the old padi outlived the old server, the new server logged the drain, a
+ *  NEW padi holds the gate, and kaval is the process it was. */
 export async function deployKoluServer(): Promise<void> {
   const koluServer = process.env.KOLU_SERVER;
   if (!koluServer || koluServer.startsWith("http")) {
@@ -1795,15 +1786,15 @@ export async function deployKoluServer(): Promise<void> {
       `padi (pid ${padiBefore}) did not outlive the old server: that is a kill, not a deploy`,
     );
   }
-  padiBuild += 1;
   await startServerChild(koluServer, "read", port);
+  await surfaceCall("daemon/restart");
   await pollFor({
     observe: async () => ({
       logged: fs
         .readFileSync(logFile)
         .subarray(logOffset)
         .toString("utf8")
-        .includes("padi build change on boot"),
+        .includes("draining the bound padi"),
       pid: readPadiGatePid(),
     }),
     isDone: ({ logged, pid }) =>
@@ -1812,7 +1803,7 @@ export async function deployKoluServer(): Promise<void> {
     intervalMs: 100,
     onTimeout: (last, ms) =>
       new Error(
-        `after ${ms}ms the new server had not replaced padi: \`padi build change on boot\` logged: ${last?.logged}; padi pid ${padiBefore} -> ${last?.pid}`,
+        `after ${ms}ms the new server had not replaced padi: drain logged: ${last?.logged}; padi pid ${padiBefore} -> ${last?.pid}`,
       ),
   });
   const kavalAfter = readKavalGatePid();
