@@ -12730,6 +12730,66 @@
       "exampleRows": [],
       "executions": 1,
       "firstSeenSha": "cf9108d2cab486c628f7b5c4884ca93ad570ca4f"
+    },
+    {
+      "revisionId": "revision-83df103af350284c746b",
+      "scenarioKey": "scenario-185f06a3ac13e03abcf7",
+      "feature": "features/attention-alerts.feature",
+      "scenario": "A finished agent you had opened reads as read after a deploy",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "080b0045f215d13d9bf2bf6059da19f8d34cf5569bf9f35261fe85625b912259",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "103da5c21b347d1e02a63738c3bf84574c0fd1f9"
+    },
+    {
+      "revisionId": "revision-422eb859bfedcb058909",
+      "scenarioKey": "scenario-b31321cb9491780d8b66",
+      "feature": "features/attention-alerts.feature",
+      "scenario": "A finished agent you had opened reads as read after a deploy, behind a sleeping terminal",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "55e964d60c3f2ca1bef0838d99c3d67dbdbb7ed5c78e2985b47b4c10677fdac6",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "103da5c21b347d1e02a63738c3bf84574c0fd1f9"
+    },
+    {
+      "revisionId": "revision-86bf6cfda3890e1297e7",
+      "scenarioKey": "scenario-e797fc7996c1cd8357e5",
+      "feature": "features/attention-alerts.feature",
+      "scenario": "A finished agent you had opened reads as read after kolu restarts, behind a sleeping terminal",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "c3494b99aa9af8e0f3ce5c062f460dc8cb25f196f8fda951c331e7908b4582c7",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "103da5c21b347d1e02a63738c3bf84574c0fd1f9"
+    },
+    {
+      "revisionId": "revision-303d0f95632d73187334",
+      "scenarioKey": "scenario-73f9f2bb8dc73053d1b1",
+      "feature": "features/attention-alerts.feature",
+      "scenario": "A finished agent you had opened stays read when padi is replaced under the page",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "9fa9b964aa1f27d75ef5c6cdb83e712b14644cc4f6aeb8c3a5b7378808f80791",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "103da5c21b347d1e02a63738c3bf84574c0fd1f9"
+    },
+    {
+      "revisionId": "revision-2133d164ddfedd91ba03",
+      "scenarioKey": "scenario-c51bfcefcc1ad941d254",
+      "feature": "features/attention-alerts.feature",
+      "scenario": "A finished agent you had opened stays read when padi is replaced under the page, behind a sleeping terminal",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "a3d72c84e663a6785592bfdb9857aafca796a6cbac76371fffd4e0b04f2d880e",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "103da5c21b347d1e02a63738c3bf84574c0fd1f9"
     }
   ]
 }
