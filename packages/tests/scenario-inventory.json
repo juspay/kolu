@@ -12670,6 +12670,30 @@
       "exampleRows": [],
       "executions": 1,
       "firstSeenSha": "64c9e601e88c1de969b7cd5358dce3de55503216"
+    },
+    {
+      "revisionId": "revision-7733da0dafc910011b7a",
+      "scenarioKey": "scenario-c2ecc819459d8180e2bd",
+      "feature": "features/conductor-memory.feature",
+      "scenario": "On a narrow desktop, a batch and the chip fit the chat panel",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "59f62c31bf14b02b54349e24e5ef6c36a4287a31cacbb385d417491216bdfb40",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "c922304e31f4916675ab07cb87cfdda03fc30ee5"
+    },
+    {
+      "revisionId": "revision-c8b79db29aff2b2f39c8",
+      "scenarioKey": "scenario-3b902628389b12927af8",
+      "feature": "features/conductor-memory.feature",
+      "scenario": "On a phone, a waiting proposal marks the Chat tab, where it is",
+      "kind": "scenario",
+      "tags": ["@mobile"],
+      "bodyHash": "832acc0f15383ea18866ac3b5b8e675dea09510335f07500419bdd7754eec1af",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "c922304e31f4916675ab07cb87cfdda03fc30ee5"
     }
   ]
 }
