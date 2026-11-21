@@ -9,6 +9,8 @@
 import type { MemoryNeed } from "kolu-common/conductorMemory";
 import type { TerminalId } from "kolu-common/surface";
 import type { NeedsYou } from "kolu-work";
+import { firstSentence } from "../conductor/quietChat";
+import type { TypedReply } from "../conductor/typedReply";
 import type { TerminalSubject } from "../terminal/terminalSubject";
 import type { AttentionItem } from "./attend";
 
@@ -86,4 +88,32 @@ export function memoryItem(
     click: { kind: "memory" },
     inFront,
   };
+}
+
+/** A FINISHED REPLY TO A MESSAGE THE PERSON TYPED. Not an event at all while
+ *  the conversation is in front of them — the same rule as a terminal they
+ *  are typing in. Titled with the work, and opening its card, when the
+ *  message was about one piece of work this browser knows. */
+export function replyItems(
+  reply: TypedReply,
+  workTitle: string | undefined,
+  inFront: boolean,
+): ReadonlyArray<AttentionItem> {
+  if (inFront) return [];
+  const about =
+    reply.work !== null && workTitle !== undefined
+      ? { title: workTitle, work: reply.work }
+      : null;
+  return [
+    {
+      tag: `reply:${reply.turn}`,
+      title: about === null ? "The Conductor replied" : about.title,
+      body: firstSentence(reply.text),
+      click:
+        about === null
+          ? { kind: "conductor" }
+          : { kind: "work", work: about.work, ask: null },
+      inFront: false,
+    },
+  ];
 }

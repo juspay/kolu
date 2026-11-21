@@ -64,12 +64,14 @@ const reading = (
   works: new Set([OLAI, KOLU]),
   needs,
   memory: null,
+  reply: undefined,
   ...over,
 });
 
 function harness() {
   const rang: Array<{ items: string[]; own: number | null }> = [];
   const memoryRang: string[] = [];
+  const replies: string[] = [];
   const hooks: ConductorBellHooks = {
     deliver: (one) => {
       if (one.items.length > 0 || one.ownOpen !== null)
@@ -78,6 +80,7 @@ function harness() {
           own: one.ownOpen,
         });
       if (one.memory !== null) memoryRang.push(one.memory.identity);
+      if (one.reply !== null) replies.push(one.reply.turn);
     },
   };
   const raw = createConductorBell(hooks);
@@ -87,8 +90,11 @@ function harness() {
       raw.observe(one);
     },
   };
-  return { bell, raw, rang, memoryRang };
+  return { bell, raw, rang, memoryRang, replies };
 }
+
+/** A finished reply to a message a person typed. */
+const typed = (turn: string) => ({ turn, text: "Done. More.", work: null });
 
 describe("the Conductor's bell", () => {
   it("the first reading never rings, even with waits already open (a reload)", () => {
@@ -165,6 +171,42 @@ describe("the Conductor's bell", () => {
       { items: [], own: 1 },
       { items: [], own: 2 },
     ]);
+  });
+});
+
+describe("the Conductor's bell, for a reply to a message you typed", () => {
+  it("does not ring for the first reply it has a reading of", () => {
+    const { bell, replies } = harness();
+    bell.observe(reading([]));
+    bell.observe(reading([], { reply: typed("u1") }));
+    expect(replies).toEqual([]);
+  });
+
+  it("rings once for a new reply", () => {
+    const { bell, replies } = harness();
+    bell.observe(reading([]));
+    bell.observe(reading([], { reply: typed("u1") }));
+    bell.observe(reading([], { reply: typed("u2") }));
+    bell.observe(reading([], { reply: typed("u2") }));
+    expect(replies).toEqual(["u2"]);
+  });
+
+  it("rings again for a later reply", () => {
+    const { bell, replies } = harness();
+    bell.observe(reading([]));
+    bell.observe(reading([], { reply: typed("u1") }));
+    bell.observe(reading([], { reply: typed("u2") }));
+    bell.observe(reading([], { reply: typed("u3") }));
+    expect(replies).toEqual(["u2", "u3"]);
+  });
+
+  it("rings nothing more when no reply is finished", () => {
+    const { bell, replies } = harness();
+    bell.observe(reading([]));
+    bell.observe(reading([], { reply: typed("u1") }));
+    bell.observe(reading([], { reply: typed("u2") }));
+    bell.observe(reading([], { reply: null }));
+    expect(replies).toEqual(["u2"]);
   });
 });
 

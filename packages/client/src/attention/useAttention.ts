@@ -73,6 +73,7 @@ import { memorySheet, useMemoryNeed } from "../conductor/memory/useMemory";
 import { useMembership, useNeedsYou, useWorkMap } from "../conductor/useWorks";
 import { showWork } from "../conductor/workListing";
 import { drivenByConductor } from "../conductor/workReadings";
+import { typedReply } from "../conductor/typedReply";
 import { runAction } from "../runAction";
 import type { TerminalSubject } from "../terminal/terminalSubject";
 import { nextAfter } from "../ui/nextAfter";
@@ -87,6 +88,7 @@ import { createAttend } from "./attend";
 import {
   conversationItem,
   memoryItem,
+  replyItems,
   terminalItem,
   workItem,
 } from "./attentionItems";
@@ -215,12 +217,21 @@ export function useAttention(deps: AttentionDeps): {
    *  work and memory chime without a desktop popup; anywhere else, each
    *  raises one. */
   const conductorBell = createConductorBell({
-    deliver: ({ items, ownOpen, memory }) => {
+    deliver: ({ items, ownOpen, memory, reply }) => {
       const inFront = conductorInFront();
       attend.raise([
         ...items.map((item) => workItem(item, inFront)),
         ...(ownOpen === null ? [] : [conversationItem(ownOpen, inFront)]),
         ...(memory === null ? [] : [memoryItem(memory, inFront)]),
+        ...(reply === null
+          ? []
+          : replyItems(
+              reply,
+              reply.work === null
+                ? undefined
+                : untrack(workMap).get(reply.work)?.title,
+              inFront,
+            )),
       ]);
     },
   });
@@ -235,6 +246,7 @@ export function useAttention(deps: AttentionDeps): {
       works: new Set(workMap().keys()),
       needs: needs(),
       memory: memoryNeed(),
+      reply: typedReply(),
     });
   });
 

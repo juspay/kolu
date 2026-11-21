@@ -8,7 +8,8 @@
  *     question put about a piece of work, or a green PR handed over to you;
  *   - a question the conversation asks that belongs to NO work — the
  *     conversation's own, which has no card;
- *   - proposals the Conductor would like to remember.
+ *   - proposals the Conductor would like to remember;
+ *   - a finished reply to a message the person typed — once per reply.
  *
  *  What is decided here is only WHAT IS NEW — off the wire, so it is
  *  unit-testable — the same split `attentionCore` makes for terminals.
@@ -37,6 +38,7 @@
 
 import type { MemoryNeed } from "kolu-common/conductorMemory";
 import type { NeedsYou, WorkId } from "kolu-work";
+import type { TypedReply } from "../conductor/typedReply";
 
 /** One reading of everything the bell watches. */
 export interface BellReading {
@@ -55,6 +57,10 @@ export interface BellReading {
    *  turn of its newest waiting proposal, so a batch rings once and a later
    *  turn rings again. */
   readonly memory: MemoryNeed | null | undefined;
+  /** The newest finished reply to a message the person typed; `undefined`
+   *  while no conversation is open in this page, and the first reading that
+   *  has one is its own baseline. */
+  readonly reply: TypedReply | null | undefined;
 }
 
 /** What one reading rang for. */
@@ -64,6 +70,7 @@ export interface Rang {
    *  arrived in this reading; otherwise `null`. */
   readonly ownOpen: number | null;
   readonly memory: MemoryNeed | null;
+  readonly reply: TypedReply | null;
 }
 
 export interface ConductorBellHooks {
@@ -84,6 +91,7 @@ const tokenOf = (item: NeedsYou): string =>
 export function createConductorBell(hooks: ConductorBellHooks): ConductorBell {
   let started = false;
   let memoryStarted = false;
+  let replyStarted = false;
   const heard = new Set<string>();
   const known = new Set<WorkId>();
   return {
@@ -98,6 +106,17 @@ export function createConductorBell(hooks: ConductorBellHooks): ConductorBell {
           }
         }
         memoryStarted = true;
+      }
+      let reply: TypedReply | null = null;
+      if (reading.reply !== undefined) {
+        if (reading.reply !== null) {
+          const token = `reply:${reading.reply.turn}`;
+          if (!heard.has(token)) {
+            heard.add(token);
+            if (replyStarted) reply = reading.reply;
+          }
+        }
+        replyStarted = true;
       }
       const items: NeedsYou[] = [];
       let own = false;
@@ -122,11 +141,12 @@ export function createConductorBell(hooks: ConductorBellHooks): ConductorBell {
         }
       }
       for (const work of reading.works) known.add(work);
-      if (items.length > 0 || own || memory !== null)
+      if (items.length > 0 || own || memory !== null || reply !== null)
         hooks.deliver({
           items,
           ownOpen: own ? reading.ownAsks.length : null,
           memory,
+          reply,
         });
     },
   };

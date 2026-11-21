@@ -10,6 +10,7 @@ import { describe, expect, it } from "vitest";
 import {
   conversationItem,
   memoryItem,
+  replyItems,
   terminalItem,
   workItem,
 } from "./attentionItems";
@@ -151,6 +152,47 @@ describe("a memory proposal", () => {
   it("counts the batch when there are several", () => {
     expect(memoryItem(waiting(null, 4), true).body).toBe(
       "4 proposals are waiting",
+    );
+  });
+});
+
+describe("a finished reply to a message you typed", () => {
+  const reply = { turn: "u1", text: "Done. More.", work: null };
+  const WORK = "branch:local%2Fcode%2Fkolu";
+
+  it("is nothing at all while the Conductor is in front of you", () => {
+    expect(replyItems(reply, undefined, true)).toEqual([]);
+  });
+
+  it("says the Conductor replied, in its first sentence, opening the conversation", () => {
+    expect(replyItems(reply, undefined, false)).toEqual([
+      {
+        tag: "reply:u1",
+        title: "The Conductor replied",
+        body: "Done.",
+        click: { kind: "conductor" },
+        inFront: false,
+      },
+    ]);
+  });
+
+  it("is titled with the work and opens its card, when the message was about one", () => {
+    expect(
+      replyItems({ ...reply, work: WORK }, "Page chats open in a pane", false),
+    ).toEqual([
+      {
+        tag: "reply:u1",
+        title: "Page chats open in a pane",
+        body: "Done.",
+        click: { kind: "work", work: WORK, ask: null },
+        inFront: false,
+      },
+    ]);
+  });
+
+  it("says the Conductor replied when the work is one this browser does not know", () => {
+    expect(replyItems({ ...reply, work: WORK }, undefined, false)).toEqual(
+      replyItems(reply, undefined, false),
     );
   });
 });
