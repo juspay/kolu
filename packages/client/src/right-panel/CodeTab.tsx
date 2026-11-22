@@ -115,7 +115,7 @@ import type { BrowserLocation, CodeViewState } from "./codeViewState";
 import FileSearchInput from "./FileSearchInput";
 import { projectFileTreeSearch } from "./fileSearch";
 import type { FileWithSource, FileWithUrl } from "@kolu/solid-fileview";
-import type { CodeDoor } from "./openInCodeTab";
+import type { CodeDoor } from "./codeDoor";
 import { attachPierreTouchScroll } from "./pierreTouchScroll";
 import { setShowIgnoredFiles, showIgnoredFiles } from "./showIgnoredFiles";
 import { useRightPanel } from "./useRightPanel";

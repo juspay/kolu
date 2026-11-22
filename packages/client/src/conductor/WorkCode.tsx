@@ -29,7 +29,7 @@ import CodeTab from "../right-panel/CodeTab";
 import { buildCodeQueries, createCodeLeases } from "../right-panel/codeQueries";
 import type { CodeSubject } from "../right-panel/codeSubject";
 import { codeOwner } from "../right-panel/codeTabOpenController";
-import { createCodeDoor } from "../right-panel/openInCodeTab";
+import { createCodeDoor } from "../right-panel/codeDoor";
 import { paneHeight } from "./livePanes";
 import { syncWorkCodeRoot, workCodeState } from "./workCodeView";
 import type { MemberLine } from "./workFacts";

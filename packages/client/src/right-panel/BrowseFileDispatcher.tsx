@@ -76,7 +76,7 @@ import BrowseFileView from "./BrowseFileView";
 import BrowseIframeRenderer from "./BrowseIframeRenderer";
 import { FootnotePopover, type FootnoteTarget } from "./FootnotePopover";
 import { resolveMarkdownImageSrc } from "./markdownImageSrc";
-import type { CodeOpen } from "./openInCodeTab";
+import type { CodeOpen } from "./codeDoor";
 
 // The "File truncated" banner is rendered as a sibling ABOVE the comment
 // surface in both sourceRenderer and textRenderers: the banner is chrome, not

@@ -1,18 +1,11 @@
-/** "Open this file:line in a Code view" — the DOOR every Code view is handed,
- *  and the Right panel's FRONT door.
+/** The Right panel's FRONT door: "open this file:line in the Right panel's
+ *  Code tab", which a terminal link and a deep link call from outside any
+ *  view, and the door the panel's own Code view is handed. Every other Code
+ *  view has a door of its own (`codeDoor.ts`).
  *
- *  A Code view is handed its own {@link CodeDoor}: its own pending request
- *  (the content consumer — the view re-paints the highlight when the same
- *  `ref` arrives twice) and its own way to make one. Every open made INSIDE a
- *  view — back/forward to a line, a comment jump, "Open path:N" on a diff
- *  line, a link in a rendered document — asks the view it is in, so a request
- *  made in one view is never seen by another.
- *
- *  The Right panel's door is the front door, `openInCodeTab(...)`, which a
- *  terminal link and a deep link call from outside any view. It encapsulates
- *  the coordinated writes (terminal focus + tab/browse-mode + visibility
- *  uncollapse + pending request) so the SolidJS effect-ordering invariant
- *  lives here, not at every call site.
+ *  `openInCodeTab(...)` encapsulates the coordinated writes (terminal focus +
+ *  tab/browse-mode + visibility uncollapse + pending request) so the SolidJS
+ *  effect-ordering invariant lives here, not at every call site.
  *
  *  Visibility (desktop uncollapse / mobile drawer open) is dispatched
  *  imperatively from here rather than via a deferred `createEffect(on(
@@ -23,91 +16,21 @@
  *  `file-ref-link.feature` "re-click after collapse" canary). Driving
  *  visibility from the producer call itself sidesteps that elision
  *  path entirely; the `pendingOpen` signal remains for the *content*
- *  consumer.
- *
- *  Latest request wins; callers don't clear it. Each call mints a fresh
- *  request object — two clicks on the same `path:line` are distinct by
- *  reference, which is what lets the view tell them apart even when
- *  their `ref` content matches and re-paint the highlight. */
+ *  consumer. */
 
-import type { CodeTabView } from "@kolu/padi-client/surface";
 import type { TerminalId } from "kolu-common/surface";
-import { type Accessor, batch, createSignal } from "solid-js";
+import { type Accessor, batch } from "solid-js";
 import { useTerminalStore } from "../terminal/useTerminalStore";
-import type { LineRef } from "../ui/lineRef";
 import { activeHost } from "../wire";
+import { type CodeDoor, type CodeOpenInput, pendingRequest } from "./codeDoor";
 import { paneCodeOwner } from "./codeSubject";
-import type {
-  CodeTabScope,
-  OpenInCodeTabRequest,
-} from "./codeTabOpenController";
+import type { OpenInCodeTabRequest } from "./codeTabOpenController";
 import { useRightPanel } from "./useRightPanel";
-
-export type { OpenInCodeTabRequest } from "./codeTabOpenController";
-
-/** What an open asks for, wherever it is made. */
-export interface CodeOpenInput {
-  /** Parsed `path:line[-end]` to navigate to. The path is interpreted
-   *  relative to the view's own root (or, when present, cwd-relative under
-   *  it) by the view via `resolveRef` — which also recognises a folder path
-   *  and reveals it in the tree instead of opening a file. */
-  ref: LineRef;
-  /** Terminal cwd at the time of the request. Drives the "user typed
-   *  `bar.ts:42` while standing in a subdirectory of the repo" case;
-   *  undefined falls back to repo-relative interpretation only. */
-  cwd?: string;
-  /** Which Code-tab sub-mode the request expects to land in.
-   *  Producers that don't track an authoring mode pass `"browse"`. */
-  targetMode: CodeTabView;
-  /** Whether the view's resolver may fall back to a unique-basename
-   *  match when `ref.path` isn't found exactly. Defaults to true —
-   *  terminal output prints bare basenames (#898). Markdown relative
-   *  links (#1161) pass `false`: a `[guide](docs/guide.md)` href carries
-   *  GitHub-style exact semantics and must open exactly that path or
-   *  fail, never silently open a same-basename file elsewhere. */
-  allowBasenameFallback?: boolean;
-}
-
-/** Make an open request. */
-export type CodeOpen = (req: CodeOpenInput) => void;
-
-/** A Code view's door: the request pending for it, and how to make one. */
-export interface CodeDoor {
-  readonly pending: Accessor<OpenInCodeTabRequest | null>;
-  readonly open: CodeOpen;
-}
 
 interface OpenInCodeTabInput extends CodeOpenInput {
   /** The terminal whose per-terminal selection and history this request owns —
    *  and whose repo the path resolves against. May be a split. */
   terminalId: TerminalId;
-}
-
-/** The one shape of a pending-request cell. `equals: false` forces every
- *  write to notify regardless of value identity — the view re-paints the
- *  highlight on every fire, even when the same `path:line` is clicked twice
- *  in a row. */
-function pendingRequest() {
-  return createSignal<OpenInCodeTabRequest | null>(null, { equals: false });
-}
-
-/** A Code view's OWN door. A request names the scope `scopeFor` gives for
- *  its target mode and is seen by this door's view alone. Touches nothing
- *  else: no focus, no tab, no panel. */
-export function createCodeDoor(
-  scopeFor: (mode: CodeTabView) => CodeTabScope,
-): CodeDoor {
-  const [pending, setPending] = pendingRequest();
-  return {
-    pending,
-    open: (req) =>
-      setPending({
-        ref: req.ref,
-        cwd: req.cwd,
-        allowBasenameFallback: req.allowBasenameFallback,
-        scope: scopeFor(req.targetMode),
-      }),
-  };
 }
 
 // The Right panel's pending request. One panel, one Code view over it: the

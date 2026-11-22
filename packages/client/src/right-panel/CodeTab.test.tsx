@@ -15,7 +15,7 @@ import type { BrowseFileContent, CodeQueries } from "./codeQueries";
 import { type CodeSubject, noTerminalToFetch } from "./codeSubject";
 import { codeOwner } from "./codeTabOpenController";
 import type { CodeViewState } from "./codeViewState";
-import type { CodeDoor } from "./openInCodeTab";
+import type { CodeDoor } from "./codeDoor";
 
 const h = vi.hoisted(() => ({
   /** The tree's right-click menu, as the view handed it to the tree. */

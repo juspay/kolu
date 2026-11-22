@@ -12,7 +12,7 @@ import type { Work, WorkId } from "kolu-work";
 import { createSignal, type JSX, Show } from "solid-js";
 import { render } from "solid-js/web";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { CodeDoor } from "../right-panel/openInCodeTab";
+import type { CodeDoor } from "../right-panel/codeDoor";
 
 const h = vi.hoisted(() => ({
   /** Every procedure call, as `<host>:<verb>`. */
