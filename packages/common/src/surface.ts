@@ -279,10 +279,8 @@ export const ShuffleBehaviorSchema = Schema.Literals([
 
 /** The token counts the Conductor can compact its conversation at — the one
  *  list the `conductorCompactsAt` preference and its Settings row both read.
- *  Past the chosen count Claude Code replaces the older part of the
- *  conversation with a summary. The floor is the CLI's: it refuses a window
- *  under 100,000, and kolu sends the count plus a reserve
- *  (`compactingAt` in `@kolu/acp-claude`). */
+ *  Past the chosen count the agent replaces the older part of the
+ *  conversation with a summary. */
 export const CONDUCTOR_COMPACTS_AT_OPTIONS = [
   100_000, 200_000, 300_000, 500_000,
 ] as const;
