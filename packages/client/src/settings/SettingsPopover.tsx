@@ -102,12 +102,12 @@ const SHUFFLE_BEHAVIOR_HINT: Record<ShuffleBehavior, Hint> = {
   },
 };
 
-/** Where the Conductor compacts — one segment per count kolu offers, labelled
- *  as the Conductor's header writes a count. A segment's value is a string, so
- *  each keeps its count beside it, and a pick is looked up rather than parsed
- *  back into a number. */
+/** Where the Conductor compacts — one segment per count kolu offers, keyed by
+ *  the count itself and labelled as the Conductor's header writes a count. A
+ *  segment's value is a string, so each keeps its count beside it, and a pick
+ *  is looked up rather than parsed back into a number. */
 const COMPACTS_AT_OPTIONS = CONDUCTOR_COMPACTS_AT_OPTIONS.map((count) => ({
-  value: tokens(count),
+  value: String(count),
   label: tokens(count),
   count,
 }));
@@ -237,15 +237,11 @@ const SettingsPopover: Component<{
           >
             <SegmentedControl
               options={COMPACTS_AT_OPTIONS}
-              value={
-                COMPACTS_AT_OPTIONS.find(
-                  (o) => o.count === preferences().conductorCompactsAt,
-                )?.value
-              }
+              value={String(preferences().conductorCompactsAt)}
               onChange={(v) => {
                 const picked = COMPACTS_AT_OPTIONS.find((o) => o.value === v);
                 if (picked === undefined)
-                  throw new Error(`no compaction point is labelled ${v}`);
+                  throw new Error(`no compaction point is keyed ${v}`);
                 updatePreferences({ conductorCompactsAt: picked.count });
               }}
               testIdPrefix="conductor-compacts-at"
