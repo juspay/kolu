@@ -64,7 +64,7 @@ kolu itself never opens those files, and never changes or deletes them. Pressing
 
 The header shows how full the conversation's context is, as `148k/1M`. Every turn reads the whole conversation again, so a long one is slow and costly.
 
-Past a set number of tokens, Claude Code **compacts** the conversation: it replaces the older part with a summary it writes itself, and the count in the header drops. You never type `/compact`. Hover the count to see where the conversation is compacted.
+When the conversation grows long, Claude Code **compacts** it: it replaces the older part with a summary it writes itself, and the count in the header drops. Unless you choose **Model limit**, kolu sets when, so you never type `/compact`. Hover the count to see the choice the Conductor is running with.
 
 Open **Settings** (the gear in the top bar) and choose in the **Conductor compacts at** row:
 
