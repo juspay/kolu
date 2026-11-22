@@ -412,7 +412,7 @@ const RepoIdentityChip: Component<{ name: string; color: string }> = (
  *  `WorkSection.test.tsx` is there to catch. */
 const BranchIdentityChip: Component<{
   branch: string;
-  isWorktree: boolean;
+  isWorktree: boolean | null;
   color: string;
 }> = (props) => (
   <span
@@ -437,11 +437,12 @@ export interface WorkSubject {
   readonly host: HostKey;
   /** The repository it is in — its name, the branch, whether it is a linked
    *  worktree, the worktree's top and the main repository's — or `null`
-   *  outside one (or before git said). */
+   *  outside one (or before git said). `isWorktree` is `null` where no git
+   *  reading says: nothing that depends on it is drawn. */
   readonly git: {
     readonly repoName: string;
     readonly branch: string;
-    readonly isWorktree: boolean;
+    readonly isWorktree: boolean | null;
     readonly repoRoot: string;
     readonly mainRepoRoot: string;
   } | null;

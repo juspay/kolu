@@ -5,13 +5,15 @@
  *  It is the Right panel's section, not a copy: the section takes what it is
  *  about (`WorkSubject`), and this hands over the work's.
  *
- *  - With a member terminal up on the worktree's host, the git facts and the
- *    pull request are LIVE, off that terminal's record — as the work's live PR
- *    already is (`prReadings.ts`'s `livePrOf`).
+ *  - With a member terminal up IN that worktree (on its host, its own git
+ *    reading naming the same top folder), the git facts and the pull request
+ *    are LIVE, off that terminal's record. A member standing in another
+ *    checkout speaks for that checkout, never for this work.
  *  - With none, they are what the record holds: the repository and branch
  *    from the work's key, and no live pull request — the line under the
- *    title and the Pull request part say the one the timeline recorded. The
- *    directory and odu need only a host and a path, so they stay.
+ *    title and the Pull request part say the one the timeline recorded.
+ *    Whether the folder is a linked worktree is not claimed. The directory
+ *    and odu need only a host and a path, so they stay.
  *  - A work kolu has not read a worktree for yet says so, in one line.
  *
  *  Drawn only for a work in progress: a finished one reads the copies kolu
@@ -35,15 +37,18 @@ const Read: Component<{
 }> = (props) => {
   const hostKey = createMemo(() => decodeHostKey(props.host));
   const odu = useOduLink(hostKey);
-  /** A member terminal up on the worktree's host, in a repository: the one
-   *  whose record the live facts are read off. */
+  /** A member terminal up IN THE WORK'S WORKTREE — on its host, and whose own
+   *  git reading names the same top folder: the one whose record the live
+   *  facts are read off. A member standing in another checkout speaks for
+   *  that checkout, not for this work. */
   const live = createMemo(() => {
     for (const one of props.members) {
       if (one.split?.host !== props.host) continue;
       const standing = one.standing;
       if (standing?.kind !== "here") continue;
       const arm = activeArm(standing.meta);
-      if (arm?.git.kind === "repo") return { info: arm.git.info, pr: arm.pr };
+      if (arm?.git.kind === "repo" && arm.git.info.repoRoot === props.path)
+        return { info: arm.git.info, pr: arm.pr };
     }
     return null;
   });
@@ -59,8 +64,9 @@ const Read: Component<{
             ? {
                 repoName: repoName(key.repo),
                 branch: key.branch,
-                // A worktree whose folder is not the repository's own.
-                isWorktree: props.path !== key.repo,
+                // No git reading says whether this folder is a linked
+                // worktree, so nothing that depends on it is drawn.
+                isWorktree: null,
                 repoRoot: props.path,
                 mainRepoRoot: key.repo,
               }
