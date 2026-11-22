@@ -32,7 +32,7 @@ import { dockRowLabel } from "../canvas/dock/dockRowData";
 import { CHROME_ICON_BUTTON_CLASS } from "../ui/chromeSpacing";
 import { ChevronRightIcon } from "../ui/Icons";
 import { ACTIVE_TERMINAL_ACCENT } from "./activeTerminalAccent";
-import CodeTab from "./CodeTab";
+import CodeTab from "../code-view/CodeTab";
 import { rightPanelCodeQueries, rightPanelCodeSubject } from "./hostCodeTab";
 import MetadataInspector from "./MetadataInspector";
 import { rightPanelCodeDoor } from "./openInCodeTab";

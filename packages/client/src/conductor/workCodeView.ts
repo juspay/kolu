@@ -1,5 +1,5 @@
 /** A WORK'S CODE VIEW, AS THIS BROWSER KEEPS IT — the work's home behind the
- *  Code view's one state interface (`right-panel/codeViewState.ts`), as
+ *  Code view's one state interface (`code-view/codeViewState.ts`), as
  *  `useRightPanel().code` is the Right panel's.
  *
  *  Three layers, the Right panel's three for a pane:
@@ -29,13 +29,13 @@ import { type Accessor, createEffect } from "solid-js";
 import { createStore, produce } from "solid-js/store";
 import { toast } from "solid-sonner";
 import { createSharedRoot } from "../createSharedRoot";
-import { type CodeLister, codeModeFor } from "../right-panel/codeLister";
+import { type CodeLister, codeModeFor } from "../code-view/codeLister";
 import {
   type CodeViewState,
   codeHistoryVerbs,
   createCodeHistories,
   selectionWith,
-} from "../right-panel/codeViewState";
+} from "../code-view/codeViewState";
 import { runAction } from "../runAction";
 import { app } from "../wire";
 import { useWorkMap } from "./useWorks";

@@ -1,7 +1,7 @@
 /** A PICKED WORK'S CODE VIEW — the Right panel's Code tab, about the work's
  *  own worktree, on the work's own host.
  *
- *  Not a copy: it is the one Code view (`right-panel/CodeTab.tsx`), handed
+ *  Not a copy: it is the one Code view (`code-view/CodeTab.tsx`), handed
  *  the work's four inputs.
  *
  *  - **What it is about**, from the one reading of a work's worktree
@@ -25,11 +25,11 @@
 import { decodeHostKey } from "kolu-common/hostKey";
 import type { Work, WorkId } from "kolu-work";
 import { type Component, createEffect, createMemo, Show } from "solid-js";
-import CodeTab from "../right-panel/CodeTab";
-import { buildCodeQueries, createCodeLeases } from "../right-panel/codeQueries";
-import type { CodeSubject } from "../right-panel/codeSubject";
-import { codeOwner } from "../right-panel/codeTabOpenController";
-import { createCodeDoor } from "../right-panel/codeDoor";
+import CodeTab from "../code-view/CodeTab";
+import { buildCodeQueries, createCodeLeases } from "../code-view/codeQueries";
+import type { CodeSubject } from "../code-view/codeSubject";
+import { codeOwner } from "../code-view/codeTabOpenController";
+import { createCodeDoor } from "../code-view/codeDoor";
 import { paneHeight } from "./livePanes";
 import { syncWorkCodeRoot, workCodeState } from "./workCodeView";
 import type { MemberLine } from "./workFacts";

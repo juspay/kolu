@@ -22,9 +22,13 @@ import type { TerminalId } from "kolu-common/surface";
 import { type Accessor, batch } from "solid-js";
 import { useTerminalStore } from "../terminal/useTerminalStore";
 import { activeHost } from "../wire";
-import { type CodeDoor, type CodeOpenInput, pendingRequest } from "./codeDoor";
+import {
+  type CodeDoor,
+  type CodeOpenInput,
+  pendingRequest,
+} from "../code-view/codeDoor";
 import { paneCodeOwner } from "./hostCodeTab";
-import type { OpenInCodeTabRequest } from "./codeTabOpenController";
+import type { OpenInCodeTabRequest } from "../code-view/codeTabOpenController";
 import { useRightPanel } from "./useRightPanel";
 
 interface OpenInCodeTabInput extends CodeOpenInput {

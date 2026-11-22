@@ -26,8 +26,8 @@ vi.mock("./useRightPanel", () => ({
 }));
 
 import { paneCodeOwner } from "./hostCodeTab";
-import { codeOwner } from "./codeTabOpenController";
-import { createCodeDoor } from "./codeDoor";
+import { codeOwner } from "../code-view/codeTabOpenController";
+import { createCodeDoor } from "../code-view/codeDoor";
 import { openInCodeTab, pendingOpen } from "./openInCodeTab";
 
 describe("openInCodeTab", () => {

@@ -48,7 +48,7 @@ import { CommentComposer } from "../../comments/CommentComposer";
 import { CommentView, createCommentView } from "../../comments/commentView";
 import { formatMarkdown } from "../../comments/formatMarkdown";
 import { commentsForTerminal } from "../../comments/useComments";
-import BrowseFileDispatcher from "../../right-panel/BrowseFileDispatcher";
+import BrowseFileDispatcher from "../../code-view/BrowseFileDispatcher";
 import { rightPanelCodeDoor } from "../../right-panel/openInCodeTab";
 import { useColorScheme } from "../../settings/useColorScheme";
 import { useWorkMap, useWorkMembers } from "../useWorks";

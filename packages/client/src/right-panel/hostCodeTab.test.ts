@@ -51,7 +51,9 @@ const pulseCtl = vi.hoisted(() => ({
   subs: new Set<PulseSubscription>(),
 }));
 vi.mock("@kolu/surface/client", async () => {
-  const { makeControllableStream } = await import("./streamMock.testlib");
+  const { makeControllableStream } = await import(
+    "../code-view/streamMock.testlib"
+  );
   return {
     // `isDeclared` asks it; no failure in this suite is a transport loss.
     isTransportError: () => false,
@@ -183,7 +185,7 @@ import {
   resetHosts,
 } from "../hostScope/mockHostMap.testlib";
 import { rightPanelCodeQueries } from "./hostCodeTab";
-import { setShowIgnoredFiles } from "./showIgnoredFiles";
+import { setShowIgnoredFiles } from "../code-view/showIgnoredFiles";
 
 const {
   lease: leaseCodeQueries,

@@ -118,7 +118,7 @@ import type { FileWithSource, FileWithUrl } from "@kolu/solid-fileview";
 import type { CodeDoor } from "./codeDoor";
 import { attachPierreTouchScroll } from "./pierreTouchScroll";
 import { setShowIgnoredFiles, showIgnoredFiles } from "./showIgnoredFiles";
-import { useRightPanel } from "./useRightPanel";
+import { useRightPanel } from "../right-panel/useRightPanel";
 
 const EMPTY_STATE: Record<GitDiffMode, string> = {
   local: "No local changes",

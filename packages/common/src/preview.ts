@@ -141,9 +141,9 @@ export function isMarkdown(filePath: string): boolean {
 /** Per-segment codec for the repo-relative path embedded in the iframe-preview
  *  URL (`/api/terminals/{host}/{id}/file/{encoded/path}`). Same kolu-common rationale
  *  as the classifiers above: both sides of the wire must agree. The CLIENT
- *  builds the URL (`buildTerminalFileUrl` in `right-panel/BrowseFileDispatcher.tsx`)
+ *  builds the URL (`buildTerminalFileUrl` in `code-view/BrowseFileDispatcher.tsx`)
  *  and also inverts it (`@kolu/solid-browser`'s `pathFromPreviewPathname`, with
- *  this codec bound in `right-panel/BrowseIframeRenderer.tsx`, to follow
+ *  this codec bound in `code-view/BrowseIframeRenderer.tsx`, to follow
  *  in-iframe link navigation); the HTTP route decodes the same encoding to
  *  stream the bytes (re-backed by padi's `preview.read`, see `iframePreviewRoute.ts`)
  *  — a single source keeps the encode/decode from drifting, so links into

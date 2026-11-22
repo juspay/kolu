@@ -12,7 +12,7 @@ import type { Work, WorkId } from "kolu-work";
 import { createSignal, type JSX, Show } from "solid-js";
 import { render } from "solid-js/web";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { CodeDoor } from "../right-panel/codeDoor";
+import type { CodeDoor } from "../code-view/codeDoor";
 
 const h = vi.hoisted(() => ({
   /** Every procedure call, as `<host>:<verb>`. */
@@ -28,7 +28,7 @@ const h = vi.hoisted(() => ({
 
 vi.mock("@kolu/surface/client", async () => {
   const { makeControllableStream } = await import(
-    "../right-panel/streamMock.testlib"
+    "../code-view/streamMock.testlib"
   );
   return {
     isTransportError: () => false,
@@ -96,7 +96,7 @@ vi.mock("../right-panel/useRightPanel", () => ({ useRightPanel: () => ({}) }));
 // The one Code view, as a recorder: it leases the query set it is handed
 // exactly as the real one does, watches one read as its badge would, and
 // keeps the rest for the test to read.
-vi.mock("../right-panel/CodeTab", async () => {
+vi.mock("../code-view/CodeTab", async () => {
   const { useShown } = await import("../ui/shown");
   return {
     default: (props: {
@@ -117,7 +117,7 @@ vi.mock("../right-panel/CodeTab", async () => {
     },
   };
 });
-import { codeOwner } from "../right-panel/codeTabOpenController";
+import { codeOwner } from "../code-view/codeTabOpenController";
 import { pendingOpen } from "../right-panel/openInCodeTab";
 import { Shown } from "../ui/shown";
 import type { MemberLine } from "./workFacts";

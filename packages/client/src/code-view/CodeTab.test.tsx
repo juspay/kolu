@@ -63,7 +63,7 @@ vi.mock("./BrowseFileView", () => ({
 }));
 // The tree's width is the one shared preference; nothing else of the Right
 // panel is read by the view.
-vi.mock("./useRightPanel", () => ({
+vi.mock("../right-panel/useRightPanel", () => ({
   useRightPanel: () => ({
     codeTabTreeSize: () => 0.35,
     setCodeTabTreeSize: () => {},

@@ -16,7 +16,7 @@ import {
   it,
   vi,
 } from "vitest";
-import BrowseFileDispatcher from "../right-panel/BrowseFileDispatcher";
+import BrowseFileDispatcher from "../code-view/BrowseFileDispatcher";
 import { Shown } from "../ui/shown";
 import { CommentComposer } from "./CommentComposer";
 import {
@@ -26,7 +26,7 @@ import {
 } from "./commentView";
 import { useComments } from "./useComments";
 
-vi.mock("../right-panel/BrowseFileView", () => ({
+vi.mock("../code-view/BrowseFileView", () => ({
   default: (props: { content: string }) => (
     <pre data-testid="source-view">{props.content}</pre>
   ),

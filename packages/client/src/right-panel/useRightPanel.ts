@@ -71,13 +71,13 @@ import {
   preferences,
   updatePreferences,
 } from "../wire";
-import { codeLister, codeModeFor } from "./codeLister";
+import { codeLister, codeModeFor } from "../code-view/codeLister";
 import {
   type CodeViewState,
   codeHistoryVerbs,
   createCodeHistories,
   selectionWith,
-} from "./codeViewState";
+} from "../code-view/codeViewState";
 
 const MIN_PANEL_SIZE = 0.05;
 /** Lower bound for the Code-tab vertical split — keep the tree and content

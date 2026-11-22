@@ -65,14 +65,14 @@ import { createSharedRoot } from "../createSharedRoot";
 import { windowedSub } from "../hostScope/windowedSub.ts";
 import { useTerminalStore } from "../terminal/useTerminalStore";
 import { activeHost, padiMap } from "../wire";
-import { repoLister } from "./codeLister";
+import { repoLister } from "../code-view/codeLister";
 import {
   buildCodeQueries,
   type CodeQueries,
   createCodeLeases,
-} from "./codeQueries";
-import type { CodeGit, CodeSubject } from "./codeSubject";
-import { type CodeOwner, codeOwner } from "./codeTabOpenController";
+} from "../code-view/codeQueries";
+import type { CodeGit, CodeSubject } from "../code-view/codeSubject";
+import { type CodeOwner, codeOwner } from "../code-view/codeTabOpenController";
 import { useRightPanel } from "./useRightPanel";
 
 /** A terminal's git reading as a Code view's {@link CodeGit}. No reading at
