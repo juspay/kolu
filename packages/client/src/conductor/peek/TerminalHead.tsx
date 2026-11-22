@@ -19,14 +19,14 @@ import { type Component, createMemo, Show } from "solid-js";
 import { hostLabel } from "../../host/hostChipTone";
 import { fleetTerminalStanding } from "../../palette/fleetTerminals";
 import { useDuration } from "../../terminal/staleness";
-import { elapsedSince } from "../../time/duration";
 import { agentName, formatContextTokens } from "../../ui/agentDisplay";
 import { useShownClock } from "../../ui/shown";
+import DriveButton from "../DriveButton";
 import MemberPip from "../MemberPip";
+import StateFor from "../StateFor";
 import { liveArm, terminalStatus } from "../terminalStatus";
-import { useConductor } from "../useConductor";
 import { useSeen } from "../useWorks";
-import { LEVEL_WORD } from "../wake";
+import type { Lock } from "../workReadings";
 
 export type HeadKind = "peek" | "live";
 
@@ -92,7 +92,9 @@ export const TerminalStatusLine: Component<{
   held: boolean;
   onPointerDown?: () => void;
 }> = (props) => {
-  const conductor = useConductor();
+  /** Who drives it, when someone does: what the lock part draws for. */
+  const lock = (): Lock | undefined =>
+    props.driver === "nobody" ? undefined : props.driver;
   const seen = useSeen();
   const now = useShownClock();
   const runningFor = useDuration();
@@ -128,19 +130,13 @@ export const TerminalStatusLine: Component<{
           data-testid={`${props.kind}-status`}
           class="min-w-0 flex-1 truncate text-fg-2"
         >
-          <span class="font-semibold text-fg">{status().state}</span>
-          <Show when={reading()}>
-            {(read) => (
-              <span
-                data-testid={`${props.kind}-since`}
-                title={`${LEVEL_WORD[read().level]} for ${elapsedSince(read().since, now())}`}
-                class="tabular-nums text-fg-3"
-              >
-                {" for "}
-                {elapsedSince(read().since, now())}
-              </span>
-            )}
-          </Show>
+          <StateFor
+            word={status().state}
+            standing={standing()}
+            reading={reading()}
+            now={now()}
+            testId={`${props.kind}-since`}
+          />
           <Show when={status().progress}>
             {(tasks) => (
               <>
@@ -153,43 +149,32 @@ export const TerminalStatusLine: Component<{
           </Show>
           <Show when={status().doing}>{(doing) => <> · {doing()}</>}</Show>
         </span>
-        <Show when={lookable() && props.driver !== "nobody"}>
-          <span
-            data-testid={`${props.kind}-lock`}
-            data-driver={props.driver}
-            class="flex shrink-0 items-center gap-1.5"
-          >
-            <Show
-              when={props.driver === "conductor"}
-              fallback={
-                <>
+        <Show when={lookable() ? lock() : undefined}>
+          {(who) => (
+            <span
+              data-testid={`${props.kind}-lock`}
+              data-driver={who()}
+              class="flex shrink-0 items-center gap-1.5"
+            >
+              <Show
+                when={who() === "conductor"}
+                fallback={
                   <span class="rounded-sm bg-alert/15 px-1.5 font-mono text-[0.56rem] font-semibold uppercase tracking-[0.06em] text-alert">
                     You’re driving
                   </span>
-                  <button
-                    type="button"
-                    data-testid={`${props.kind}-hand-back`}
-                    class="shrink-0 cursor-pointer rounded-sm bg-alert/20 px-2 py-[0.2rem] font-mono text-[0.62rem] font-semibold uppercase tracking-[0.06em] text-alert transition-colors hover:bg-alert/30"
-                    onClick={() => conductor.handBack(props.terminal)}
-                  >
-                    Hand back
-                  </button>
-                </>
-              }
-            >
-              <span class="rounded-sm bg-conductor/15 px-1.5 font-mono text-[0.56rem] font-semibold uppercase tracking-[0.06em] text-conductor">
-                Conductor is driving · read-only
-              </span>
-              <button
-                type="button"
-                data-testid={`${props.kind}-take-over`}
-                class="shrink-0 cursor-pointer rounded-sm bg-conductor/20 px-2 py-[0.2rem] font-mono text-[0.62rem] font-semibold uppercase tracking-[0.06em] text-conductor transition-colors hover:bg-conductor/30"
-                onClick={() => conductor.takeOver(props.terminal)}
+                }
               >
-                Take over
-              </button>
-            </Show>
-          </span>
+                <span class="rounded-sm bg-conductor/15 px-1.5 font-mono text-[0.56rem] font-semibold uppercase tracking-[0.06em] text-conductor">
+                  Conductor is driving · read-only
+                </span>
+              </Show>
+              <DriveButton
+                terminal={props.terminal}
+                driver={who()}
+                testId={props.kind}
+              />
+            </span>
+          )}
         </Show>
         <Show when={lookable() && props.grid}>
           {(g) => (

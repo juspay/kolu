@@ -25,13 +25,13 @@
 import type { Work } from "kolu-work";
 import { Key } from "@solid-primitives/keyed";
 import { type Component, createMemo, Show } from "solid-js";
-import { elapsedSince } from "../time/duration";
 import { onHostWords, useKnownNames } from "./memberNames";
 import { openPeek } from "./peek/usePeek";
 import MemberInspector from "./MemberInspector";
+import DriveButton from "./DriveButton";
 import MemberPip from "./MemberPip";
+import StateFor from "./StateFor";
 import { liveArm, terminalStatus } from "./terminalStatus";
-import { useConductor } from "./useConductor";
 import { useOpenTile } from "./useOpenTile";
 import { useMembership, useSeen } from "./useWorks";
 import {
@@ -39,13 +39,8 @@ import {
   isMemberUnfolded,
   toggleMember,
 } from "./workListing";
-import { LEVEL_WORD } from "./wake";
 import { type MemberLine, memberRuns } from "./workFacts";
 import { type Lock, ROLE_WORD } from "./workReadings";
-
-/** The two controls at a row's end, in the row's smaller type. */
-const CONTROL =
-  "cursor-pointer whitespace-nowrap rounded-sm px-1.5 py-[0.1rem] font-mono text-[0.56rem] font-semibold uppercase tracking-[0.06em] transition-colors";
 
 /** "thinking" → "Thinking": the state starts the status, as a sentence. */
 const sentence = (words: string): string =>
@@ -61,7 +56,6 @@ const MemberRow: Component<{
 }> = (props) => {
   const seen = useSeen();
   const membership = useMembership();
-  const conductor = useConductor();
   const openTileAt = useOpenTile();
   const ref = () => props.one.terminal;
   /** Its own name, else its host — beside its role, so the role is not
@@ -70,11 +64,14 @@ const MemberRow: Component<{
   const here = () =>
     props.one.standing?.kind === "here" ? props.one.split : null;
   const runs = () => memberRuns(props.work, props.one);
-  const status = createMemo(() =>
-    props.one.standing === undefined
+  /** Its standing and the words for it, read together, or `null` for a
+   *  terminal this browser cannot read. */
+  const status = createMemo(() => {
+    const standing = props.one.standing;
+    return standing === undefined
       ? null
-      : terminalStatus(props.one.standing),
-  );
+      : { standing, words: terminalStatus(standing) };
+  });
   const lookable = () =>
     props.one.standing !== undefined &&
     liveArm(props.one.standing) !== undefined;
@@ -191,24 +188,16 @@ const MemberRow: Component<{
               {/* THE STATE AND ITS TIME hold their room; the tail after
                   them is what gives way. */}
               <span class="shrink-0 whitespace-nowrap">
-                <span class="font-semibold text-fg">
-                  {sentence(now().state)}
-                </span>
-                <Show when={reading()}>
-                  {(read) => (
-                    <span
-                      data-testid="work-member-since"
-                      title={`${LEVEL_WORD[read().level]} for ${elapsedSince(read().since, props.now)}`}
-                      class="tabular-nums text-fg-3"
-                    >
-                      {" for "}
-                      {elapsedSince(read().since, props.now)}
-                    </span>
-                  )}
-                </Show>
+                <StateFor
+                  word={sentence(now().words.state)}
+                  standing={now().standing}
+                  reading={reading()}
+                  now={props.now}
+                  testId="work-member-since"
+                />
               </span>
               <span class="min-w-0 truncate text-fg-3">
-                <Show when={now().progress}>
+                <Show when={now().words.progress}>
                   {(tasks) => (
                     <>
                       {"· "}
@@ -218,7 +207,9 @@ const MemberRow: Component<{
                     </>
                   )}
                 </Show>
-                <Show when={now().doing}>{(doing) => <>· {doing()}</>}</Show>
+                <Show when={now().words.doing}>
+                  {(doing) => <>· {doing()}</>}
+                </Show>
               </span>
             </>
           )}
@@ -245,28 +236,7 @@ const MemberRow: Component<{
       <span class="col-start-4 flex @min-[32rem]:col-start-5">
         <Show when={driver()}>
           {(who) => (
-            <Show
-              when={who() === "conductor"}
-              fallback={
-                <button
-                  type="button"
-                  data-testid="work-member-hand-back"
-                  class={`${CONTROL} bg-alert/20 text-alert hover:bg-alert/30`}
-                  onClick={() => conductor.handBack(ref())}
-                >
-                  Hand back
-                </button>
-              }
-            >
-              <button
-                type="button"
-                data-testid="work-member-take-over"
-                class={`${CONTROL} bg-conductor/20 text-conductor hover:bg-conductor/30`}
-                onClick={() => conductor.takeOver(ref())}
-              >
-                Take over
-              </button>
-            </Show>
+            <DriveButton terminal={ref()} driver={who()} testId="work-member" />
           )}
         </Show>
       </span>
