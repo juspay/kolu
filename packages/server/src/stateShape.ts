@@ -109,8 +109,8 @@ export type PersistedState = {
  *
  *  There is NO explicit-`undefined` strip in front of it (PLAN #17's obligation for
  *  in-process `.parse` callers), and that is a fact about this schema rather than an
- *  omission: every field of the disk shape — the three top-level keys, all eleven
- *  `Preferences` fields, both `rightPanel` fields — is REQUIRED. No `optionalKey`
+ *  omission: every field of the disk shape — every top-level key, every
+ *  `Preferences` field, both `rightPanel` fields — is REQUIRED. No `optionalKey`
  *  appears anywhere in it, so there is no key an explicit `undefined` could ride in
  *  on, and `Schema.optionalKey`'s stricter-than-zod rejection has nothing to bite.
  *  The one place the repo's optional keys live (`PreferencesPatchSchema`) is a WIRE
@@ -140,7 +140,7 @@ export function readPersistedRecord(
  * Must be valid semver. `conf` runs all migration handlers
  * whose keys are > the last-seen version and ≤ this value.
  */
-export const SCHEMA_VERSION = "1.65.0";
+export const SCHEMA_VERSION = "1.66.0";
 
 /** THE VERSION STAMPED INTO THE TRANSCRIPT FILE
  *  (`<stateDir>/conductor/transcript.json`), and the one a reader accepts.

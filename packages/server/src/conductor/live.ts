@@ -22,7 +22,10 @@ import { homedir, hostname } from "node:os";
 import { dirname } from "node:path";
 import { startHarness } from "@kolu/acp-harness";
 import { confStore } from "@kolu/surface/server";
-import type { ConductorState } from "kolu-common/conductor";
+import type {
+  ConductorCompactsAt,
+  ConductorState,
+} from "kolu-common/conductor";
 import type { ConductorMemoryView } from "kolu-common/conductorMemory";
 import type { MemberReading, WorkCodeView } from "kolu-common/works";
 import type { Work, WorkMember } from "kolu-work";
@@ -98,6 +101,12 @@ let fleetHosts: (() => FleetHosts) | null = null;
  *  listing, before the surface is served — `null` at a read is the same
  *  boot-order fault. */
 let offer: KoluOffer | null = null;
+
+/** ... and WHERE THE CONVERSATION IS COMPACTED: the preference's reader,
+ *  handed over by `index.ts` because `../surface.ts` owns the preferences
+ *  store and already imports this file. `null` at a bring-up is the same
+ *  boot-order fault. */
+let compactsAt: (() => ConductorCompactsAt) | null = null;
 
 let live: ConductorHost | undefined;
 
@@ -194,6 +203,12 @@ export function setConductorOffer(next: KoluOffer): void {
   offer = next;
 }
 
+/** Hand over the reader of where the conversation is compacted — `index.ts`,
+ *  beside the offer. */
+export function setConductorCompactsAt(read: () => ConductorCompactsAt): void {
+  compactsAt = read;
+}
+
 /**
  * This process's one conversation, built on the first call.
  *
@@ -223,6 +238,13 @@ export function liveServerConductor(): ConductorHost {
           "a work was opened, answered or started before index.ts handed the conductor kolu's offer — setConductorOffer must run before the surface is served",
         );
       return offer;
+    },
+    compactsAt: () => {
+      if (compactsAt === null)
+        throw new Error(
+          "the conductor's agent was brought up before index.ts handed it where to compact — setConductorCompactsAt must run before the surface is served",
+        );
+      return compactsAt();
     },
     // The PROOF is the server's, not the conversation's: it is one MCP
     // `initialize` routed by a session header, and those spellings move with

@@ -48,6 +48,56 @@ Then(
 );
 
 When(
+  "I choose {string} for the Conductor's compaction point",
+  async function (this: KoluWorld, choice: string) {
+    await this.page.click(`[data-testid="conductor-compacts-at-${choice}"]`);
+    await this.waitForFrame();
+  },
+);
+
+When(
+  "I enter {string} as the Conductor's custom compaction point",
+  async function (this: KoluWorld, thousands: string) {
+    const field = this.page.locator(
+      '[data-testid="conductor-compacts-at-field"]',
+    );
+    await field.fill(thousands);
+    await field.press("Enter");
+    await this.waitForFrame();
+  },
+);
+
+Then(
+  "{string} should be the Conductor's compaction point",
+  async function (this: KoluWorld, choice: string) {
+    // Polled for the reason the new-terminal-theme step above is: the
+    // segment's aria-pressed flips after the preference patch lands.
+    await this.page.waitForFunction(
+      (c) =>
+        document
+          .querySelector(`[data-testid="conductor-compacts-at-${c}"]`)
+          ?.getAttribute("aria-pressed") === "true",
+      choice,
+      { timeout: POLL_TIMEOUT },
+    );
+  },
+);
+
+Then(
+  "the Conductor's custom compaction point should read {string}",
+  async function (this: KoluWorld, thousands: string) {
+    await this.page.waitForFunction(
+      (t) =>
+        document.querySelector<HTMLInputElement>(
+          '[data-testid="conductor-compacts-at-field"]',
+        )?.value === t,
+      thousands,
+      { timeout: POLL_TIMEOUT },
+    );
+  },
+);
+
+When(
   "I click the {string} shuffle behaviour button",
   async function (this: KoluWorld, mode: string) {
     await this.page.click(`[data-testid="shuffle-behavior-${mode}"]`);

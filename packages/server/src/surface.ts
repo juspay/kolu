@@ -66,6 +66,7 @@ import { Effect } from "effect";
 import type { RpcGroup } from "effect/rpc";
 import type {
   AgentDistroListing,
+  ConductorCompactsAt,
   ForwardCreateInput,
   Forwards,
   KoluBuildInfo,
@@ -238,6 +239,12 @@ const agentProfilesStore: CellStore<AgentProfiles> =
  *  "never chosen" (`null`) into off. padi's wire never sees the `null`. */
 export function currentAgentDistroSetting(): AgentDistroSetting {
   return agentDistroSettingOf(preferencesStore.get().agentDistro);
+}
+
+/** Where the Conductor compacts its conversation — the preference read off the
+ *  SAME store the `preferences` cell serves (`index.ts` hands it over). */
+export function currentConductorCompactsAt(): ConductorCompactsAt {
+  return preferencesStore.get().conductorCompactsAt;
 }
 
 // ── The bound padi's rail state — the projected payload the push cells derive from ──

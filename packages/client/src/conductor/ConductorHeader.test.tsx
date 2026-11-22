@@ -34,6 +34,7 @@ import { createSignal } from "solid-js";
 import { render } from "solid-js/web";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import ConductorHeader from "./ConductorHeader";
+import { compactsTip } from "./compactsTip";
 import { Shown } from "../ui/shown";
 
 const verbs = vi.hoisted(() => ({
@@ -248,5 +249,16 @@ describe("the header's ⋯", () => {
     // whole answer to the question this section gets opened with.
     expect(rows[1]?.textContent).toContain("the token expired");
     expect(panel?.textContent).toContain("plus the agent's own");
+  });
+});
+
+describe("the context meter's line about compaction", () => {
+  it("names the point for a number, and hands it to the person's settings on Model limit", () => {
+    expect(compactsTip("Claude Code", 200_000)).toBe(
+      "Claude Code compacts it at about 200k.",
+    );
+    expect(compactsTip("Claude Code", "model-limit")).toBe(
+      "Your Claude Code settings decide when it is compacted.",
+    );
   });
 });

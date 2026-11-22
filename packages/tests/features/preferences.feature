@@ -36,6 +36,25 @@ Feature: Server-side preferences
     Then the attention alerts toggle should be disabled
     And there should be no page errors
 
+  Scenario: The Conductor's compaction point persists across reload
+    When I click the settings button
+    Then the settings popover should be visible
+    When I choose "custom" for the Conductor's compaction point
+    And I enter "250" as the Conductor's custom compaction point
+    Then "custom" should be the Conductor's compaction point
+    When I reload the page and wait for ready
+    When I click the settings button
+    Then the settings popover should be visible
+    Then "custom" should be the Conductor's compaction point
+    And the Conductor's custom compaction point should read "250"
+    When I choose "model-limit" for the Conductor's compaction point
+    Then "model-limit" should be the Conductor's compaction point
+    When I reload the page and wait for ready
+    When I click the settings button
+    Then the settings popover should be visible
+    Then "model-limit" should be the Conductor's compaction point
+    And there should be no page errors
+
   Scenario: Terminal renderer preference swaps the active tile and persists
     Then the terminal renderer should be "webgl"
     When I click the settings button

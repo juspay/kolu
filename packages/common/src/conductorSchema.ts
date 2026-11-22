@@ -787,6 +787,45 @@ export const ConductorUnreadableSchema = Schema.Struct({
 });
 export type ConductorUnreadable = typeof ConductorUnreadableSchema.Type;
 
+/** Where the Conductor compacts unless the person chooses otherwise. */
+export const CONDUCTOR_COMPACTS_AT_DEFAULT = 200_000;
+
+/** The bounds of a number the person types for where the Conductor compacts.
+ *
+ *  - The floor is the lowest point kolu has offered. It sends the CLI a window
+ *    of 133,000, inside what kolu measured (windows of 100k, 200k and 233k,
+ *    `@kolu/acp-claude`'s `leg.ts`).
+ *  - The ceiling is a second spelling of the largest window in
+ *    `@kolu/acp-claude`'s model table (`models.ts`, the `1m` lane), which this
+ *    package does not depend on. The point in force is the smaller of this
+ *    number and the model's window less a reserve, so a larger number would
+ *    mean nothing.
+ *
+ *  Whole thousands only: the Settings field types thousands and the header
+ *  shows thousands. */
+export const CONDUCTOR_COMPACTS_AT_MIN = 100_000;
+export const CONDUCTOR_COMPACTS_AT_MAX = 1_000_000;
+
+/** The choice that sends no compaction setting at all: the person's own
+ *  Claude Code settings decide when the conversation is compacted, and
+ *  whether it is. */
+export const CONDUCTOR_MODEL_LIMIT = "model-limit";
+
+/** Where the Conductor compacts its conversation: {@link CONDUCTOR_MODEL_LIMIT},
+ *  or a whole-thousand number of tokens from {@link CONDUCTOR_COMPACTS_AT_MIN}
+ *  to {@link CONDUCTOR_COMPACTS_AT_MAX}. */
+export const ConductorCompactsAtSchema = Schema.Union([
+  Schema.Literal(CONDUCTOR_MODEL_LIMIT),
+  Schema.Int.check(
+    Schema.isBetween({
+      minimum: CONDUCTOR_COMPACTS_AT_MIN,
+      maximum: CONDUCTOR_COMPACTS_AT_MAX,
+    }),
+    Schema.isMultipleOf(1000),
+  ),
+]);
+export type ConductorCompactsAt = typeof ConductorCompactsAtSchema.Type;
+
 export const ConductorStateSchema = Schema.Struct({
   install: ConductorInstallSchema,
   phase: Phase,
@@ -801,9 +840,12 @@ export const ConductorStateSchema = Schema.Struct({
    *  nothing, which is different from a conversation that has spent nothing
    *  (`{used: 0, size: 200000}`). */
   usage: Schema.NullOr(Usage),
-  /** Where the agent compacts the conversation, in tokens of context — kolu's
-   *  number, said by this server. `null` for an agent kolu sets none for. */
-  compactsAt: Schema.NullOr(Schema.Int),
+  /** Where the running agent compacts the conversation — the choice as it
+   *  stood when that agent was started ({@link ConductorCompactsAtSchema}): a
+   *  number of tokens, or {@link CONDUCTOR_MODEL_LIMIT} when kolu sent no
+   *  setting and the person's own Claude Code settings decide. Said by this
+   *  server. `null` until this server has started the agent. */
+  compactsAt: Schema.NullOr(ConductorCompactsAtSchema),
   /** Whether this agent kept a memory of its own that the person can bring
    *  over once into kolu's — what draws "Bring over from Claude Code". */
   ownMemory: Schema.Boolean,

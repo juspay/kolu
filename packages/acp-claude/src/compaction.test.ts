@@ -1,6 +1,23 @@
 import { describe, expect, test } from "vitest";
 
-import { CLAUDE, compactingAt, OPEN_SESSION_META } from "./leg.ts";
+import {
+  CLAUDE,
+  compactingAt,
+  OPEN_SESSION_META,
+  REPORTING_COMPACTION,
+} from "./leg.ts";
+
+describe("a leg that only asks for compaction reports", () => {
+  test("asks for the reports and opens with no session settings", () => {
+    expect(REPORTING_COMPACTION.compaction).toBe(true);
+    expect(REPORTING_COMPACTION.rawMessages?.openMeta).toEqual(
+      OPEN_SESSION_META,
+    );
+    expect(REPORTING_COMPACTION.rawMessages?.openMeta).not.toHaveProperty(
+      "claudeCode.options",
+    );
+  });
+});
 
 describe("a leg that compacts at a number of kolu's choosing", () => {
   test("opens every session with the launcher's settings and its own, beside the raw-message subscription", () => {

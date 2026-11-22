@@ -420,3 +420,17 @@ describe("applyPreferencesPatch — the Agents setting", () => {
     expect(DEFAULT_PREFERENCES.agentDistro).toBeNull();
   });
 });
+
+describe("the Conductor's compaction point — Model limit or a whole thousand from 100k to 1M", () => {
+  it("takes Model limit, any whole thousand in range, and every count this branch could have stored", () => {
+    const patchAccepts = accepts(PreferencesPatchSchema);
+    for (const at of [250_000, "model-limit", 100_000, 300_000, 500_000])
+      expect(patchAccepts({ conductorCompactsAt: at })).toBe(true);
+  });
+
+  it("refuses a count out of range, a part thousand, a number spelled as text and another word", () => {
+    const patchAccepts = accepts(PreferencesPatchSchema);
+    for (const at of [99_000, 1_001_000, 250_500, "200000", "unlimited"])
+      expect(patchAccepts({ conductorCompactsAt: at })).toBe(false);
+  });
+});

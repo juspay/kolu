@@ -37,6 +37,11 @@ export {
   ownMemoryHint,
   REMOTE_SIGNALS,
 } from "./env.ts";
-export { CLAUDE, compactingAt, spelling } from "./leg.ts";
+export {
+  CLAUDE,
+  compactingAt,
+  REPORTING_COMPACTION,
+  spelling,
+} from "./leg.ts";
 export { MODELS, modelNameIn } from "./models.ts";
 export { NAME } from "./name.ts";

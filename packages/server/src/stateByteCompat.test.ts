@@ -46,6 +46,7 @@ import {
   migratePreferences_1_40_0,
   migratePreferences_1_41_0,
   migratePreferences_1_43_0,
+  migratePreferences_1_66_0,
 } from "./stateLadder.ts";
 import {
   EMPTY_PERSISTED_CONDUCTOR,
@@ -108,7 +109,8 @@ describe("the persisted state file — aggregate bytes", () => {
 \t\t"agentDistro": null,
 \t\t"agentProfilesRecent": [],
 \t\t"tipBarCollapsed": false,
-\t\t"hostOrder": []
+\t\t"hostOrder": [],
+\t\t"conductorCompactsAt": 200000
 \t},
 \t"hosts": [],
 \t"viewerMode": "dark",
@@ -255,17 +257,21 @@ describe("the migration ladder over legacy on-disk blobs", () => {
         `"terminalRenderer":"auto","rightPanel":{"collapsed":true,"size":0.25,"codeTabTreeSize":0.35}}`,
     ) as Record<string, unknown>;
 
-    // The ladder, in order — the same nine bodies `state.ts`'s `migrations`
+    // The ladder, in order — the same ten bodies `state.ts`'s `migrations`
     // map calls at 1.30.0 / 1.32.0 / 1.34.0 / 1.37.0 / 1.38.0 / 1.39.0 / 1.40.0 /
-    // 1.41.0 / 1.43.0.
-    const migrated = migratePreferences_1_43_0(
-      migratePreferences_1_41_0(
-        migratePreferences_1_40_0(
-          migratePreferences_1_39_0(
-            migratePreferences_1_38_0(
-              migratePreferences_1_37_0(
-                migratePreferences_1_34_0(
-                  migratePreferences_1_32_0(migratePreferences_1_30_0(legacy)),
+    // 1.41.0 / 1.43.0 / 1.66.0.
+    const migrated = migratePreferences_1_66_0(
+      migratePreferences_1_43_0(
+        migratePreferences_1_41_0(
+          migratePreferences_1_40_0(
+            migratePreferences_1_39_0(
+              migratePreferences_1_38_0(
+                migratePreferences_1_37_0(
+                  migratePreferences_1_34_0(
+                    migratePreferences_1_32_0(
+                      migratePreferences_1_30_0(legacy),
+                    ),
+                  ),
                 ),
               ),
             ),
@@ -284,7 +290,7 @@ describe("the migration ladder over legacy on-disk blobs", () => {
         `"attentionAlerts":false,"colorScheme":"dark","terminalRenderer":"auto",` +
         `"rightPanel":{"size":0.25,"codeTabTreeSize":0.35},` +
         `"agentDistro":null,"agentProfilesRecent":[],"tipBarCollapsed":false,` +
-        `"hostOrder":[]}`,
+        `"hostOrder":[],"conductorCompactsAt":200000}`,
     );
     // …and it DECODES. This is the assertion a drifted zod→Schema mapping breaks:
     // under zod a stray/missing key surfaced only at the first client connect
@@ -310,12 +316,14 @@ describe("the migration ladder over legacy on-disk blobs", () => {
         `"activityAlerts":true,"colorScheme":"dark","terminalRenderer":"dom",` +
         `"rightPanel":{"size":0.25,"codeTabTreeSize":0.35}}`,
     ) as Record<string, unknown>;
-    const migrated = migratePreferences_1_43_0(
-      migratePreferences_1_41_0(
-        migratePreferences_1_40_0(
-          migratePreferences_1_39_0(
-            migratePreferences_1_38_0(
-              migratePreferences_1_37_0(migratePreferences_1_34_0(legacy)),
+    const migrated = migratePreferences_1_66_0(
+      migratePreferences_1_43_0(
+        migratePreferences_1_41_0(
+          migratePreferences_1_40_0(
+            migratePreferences_1_39_0(
+              migratePreferences_1_38_0(
+                migratePreferences_1_37_0(migratePreferences_1_34_0(legacy)),
+              ),
             ),
           ),
         ),
@@ -327,7 +335,7 @@ describe("the migration ladder over legacy on-disk blobs", () => {
         `"colorScheme":"dark","terminalRenderer":"dom","rightPanel":{"size":0.25,` +
         `"codeTabTreeSize":0.35},"attentionAlerts":true,` +
         `"agentDistro":null,"tipBarCollapsed":false,"agentProfilesRecent":[],` +
-        `"hostOrder":[]}`,
+        `"hostOrder":[],"conductorCompactsAt":200000}`,
     );
     expect(accepts(PreferencesSchema, migrated)).toBe(true);
   });

@@ -85,6 +85,8 @@ import { HostKeySchema } from "./hostKey.ts";
 // they can never join a cycle with this file), re-exported below so a consumer
 // reaches them through the `kolu-common/surface` door it already uses.
 import {
+  CONDUCTOR_COMPACTS_AT_DEFAULT,
+  ConductorCompactsAtSchema,
   DEFAULT_CONDUCTOR_STATE,
   ConductorAnswerInputSchema,
   ConductorAnswerOutputSchema,
@@ -370,6 +372,9 @@ export const PreferencesSchema = Schema.Struct({
    *  is never stored here, the same rule `PersistedHostsSchema` applies to the
    *  persisted fleet. */
   hostOrder: Schema.Array(Schema.String),
+  /** Where the Conductor compacts its conversation — see
+   *  {@link ConductorCompactsAtSchema}. */
+  conductorCompactsAt: ConductorCompactsAtSchema,
 });
 
 /** Preference patch — top-level fields are optional; `rightPanel` is deep-partial.
@@ -500,6 +505,7 @@ export const DEFAULT_PREFERENCES: typeof PreferencesSchema.Type = {
   tipBarCollapsed: false,
   // Nobody has rearranged yet — pool order, local first.
   hostOrder: [],
+  conductorCompactsAt: CONDUCTOR_COMPACTS_AT_DEFAULT,
 };
 
 // `applyPreferencesPatch` references `Preferences` / `PreferencesPatch`

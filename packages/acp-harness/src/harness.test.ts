@@ -2546,6 +2546,18 @@ describe("the standing prompt around a compaction", () => {
     expect(await taughtSoFar(running)).toEqual([true, false, true]);
   });
 
+  test("with no `compacts`, a compaction it did not ride still sends the rules with the next message", async () => {
+    // What a product that sets no compaction point gets (kolu's Model limit):
+    // the reports are on, kolu cannot say when the agent will compact, and
+    // after any completed compaction the next message is taught.
+    const running = await open("agent.ts", {});
+    await send(running, "used 1000");
+    await send(running, "compactLate");
+    expect(running.harness.state().taught).toBe(false);
+    await send(running, "hello");
+    expect(await taughtSoFar(running)).toEqual([true, false, true]);
+  });
+
   test("after a compaction fails, the next message carries the rules once, and later failures do not send them again", async () => {
     const running = await open("agent.ts", { compacts });
     await send(running, "used 250000");

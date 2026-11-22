@@ -61,7 +61,10 @@ import type { PrResult } from "@kolu/terminal-vocab/schema";
 import { Server as McpServer } from "@modelcontextprotocol/sdk/server/index.js";
 import Conf from "conf";
 import { Option, Result, Schema } from "effect";
-import type { ConductorReadingLevel } from "kolu-common/conductor";
+import type {
+  ConductorCompactsAt,
+  ConductorReadingLevel,
+} from "kolu-common/conductor";
 import {
   ATTACHMENT_BYTE_CAP,
   type ConductorAttachment,
@@ -657,6 +660,9 @@ interface Rig {
    *  only way a respawn fails in this file, and what a restart has to survive
    *  without rewriting the record. */
   loseFleetMcp: () => void;
+  /** MOVE THE PREFERENCE for where the conversation is compacted — read by
+   *  the host at its next bring-up, as the server's preferences store is. */
+  compactAt: (choice: ConductorCompactsAt) => void;
 }
 
 function rig(over: Remembered = {}): Rig {
@@ -685,6 +691,7 @@ function rig(over: Remembered = {}): Rig {
   }> = [];
   const offered = koluOffers();
   let lostFleetMcp = false;
+  let compactsAt: ConductorCompactsAt = 200_000;
   const host = startConductorHost({
     log,
     home: HOME,
@@ -694,6 +701,7 @@ function rig(over: Remembered = {}): Rig {
       return over.endpoint === undefined ? liveEndpoint : over.endpoint;
     },
     offer: () => offered.offer,
+    compactsAt: () => compactsAt,
     // THE REAL PROOF, pushed in the way the boot pushes it: the package that
     // owns the conversation does not own the MCP pin, so what it is handed is
     // the server's own prover — which is why every bring-up below exercises
@@ -754,6 +762,9 @@ function rig(over: Remembered = {}): Rig {
     failModels: offered.failModels,
     loseFleetMcp: () => {
       lostFleetMcp = true;
+    },
+    compactAt: (choice) => {
+      compactsAt = choice;
     },
   };
 }
@@ -1736,6 +1747,7 @@ describe("teardown (B2)", () => {
       hostName: HOST,
       fleetMcp: () => liveEndpoint,
       offer: () => koluOffers().offer,
+      compactsAt: () => 200_000,
       proveFleetMcp: proveFleetMcpEndpoint,
       publish: () => {},
       publishWork: () => {},
@@ -1814,6 +1826,7 @@ describe("teardown (B2)", () => {
       hostName: HOST,
       fleetMcp: () => liveEndpoint,
       offer: () => koluOffers().offer,
+      compactsAt: () => 200_000,
       proveFleetMcp: proveFleetMcpEndpoint,
       publish: () => {},
       publishWork: () => {},
@@ -2410,9 +2423,66 @@ describe("a compaction, as one line in the chat", () => {
     ]);
   });
 
-  it("tells the browser where it compacts", async () => {
+  it("hands the harness, and tells the browser, the point the preference names", async () => {
     const r = rig();
+    r.compactAt(500_000);
+    await r.host.prompt("hello", [], [], false);
+    const agent = r.spawns[0];
+    if (agent === undefined) throw new Error("the host spawned nothing");
+    expect(agent.options.leg.rawMessages?.openMeta).toMatchObject({
+      claudeCode: { options: { settings: { autoCompactWindow: 533_000 } } },
+    });
+    expect(agent.options.compacts?.({ used: 499_000, size: 1_000_000 })).toBe(
+      false,
+    );
+    expect(agent.options.compacts?.({ used: 501_000, size: 1_000_000 })).toBe(
+      true,
+    );
+    agent.opened();
+    expect(r.host.state().compactsAt).toBe(500_000);
+  });
+
+  it("keeps the running agent's point when the preference moves, and takes the new one at the next bring-up", async () => {
+    const r = rig();
+    await r.host.prompt("hello", [], [], false);
+    const first = r.spawns[0];
+    if (first === undefined) throw new Error("the host spawned nothing");
+    first.opened();
+    r.compactAt(100_000);
+    // The running agent opened its session at 200k: the harness's reading
+    // and what the browser is told both stay there.
+    first.opened();
     expect(r.host.state().compactsAt).toBe(200_000);
+    expect(first.options.compacts?.({ used: 150_000, size: 1_000_000 })).toBe(
+      false,
+    );
+    first.die();
+    await r.host.prompt("still there?", [], [], false);
+    const second = r.spawns[1];
+    if (second === undefined) throw new Error("the host did not respawn");
+    expect(second.options.leg.rawMessages?.openMeta).toMatchObject({
+      claudeCode: { options: { settings: { autoCompactWindow: 133_000 } } },
+    });
+    expect(second.options.compacts?.({ used: 101_000, size: 1_000_000 })).toBe(
+      true,
+    );
+    second.opened();
+    expect(r.host.state().compactsAt).toBe(100_000);
+  });
+
+  it("on Model limit, hands the harness the leg with no settings and no point, and serves the choice", async () => {
+    const r = rig();
+    r.compactAt("model-limit");
+    await r.host.prompt("hello", [], [], false);
+    const agent = r.spawns[0];
+    if (agent === undefined) throw new Error("the host spawned nothing");
+    expect(agent.options.leg.compaction).toBe(true);
+    expect(agent.options.leg.rawMessages?.openMeta).not.toHaveProperty(
+      "claudeCode.options",
+    );
+    expect(agent.options.compacts).toBeUndefined();
+    agent.opened();
+    expect(r.host.state().compactsAt).toBe("model-limit");
   });
 });
 

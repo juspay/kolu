@@ -112,9 +112,10 @@ import type { CellStore } from "@kolu/surface/server";
 import type { PrResult } from "@kolu/terminal-vocab/schema";
 import { Option, Schema } from "effect";
 import {
+  CONDUCTOR_SEAT,
+  conductorCompactingAt,
   conductorConfigDir,
   conductorOwnMemoryHint,
-  CONDUCTOR_ENGINE as ENGINE,
 } from "kolu-agents/acp";
 import {
   type AskField,
@@ -122,6 +123,7 @@ import {
   COMPACTION_SUMMARY_CAP,
   type ConductorAnswerWorkOutcome,
   type ConductorAttachment,
+  type ConductorCompactsAt,
   type ConductorFrame,
   type ConductorReadingLevel,
   type ConductorRow,
@@ -834,6 +836,15 @@ export interface ConductorDeps {
    *  inside `session/new` and an endpoint the agent cannot reach is marked
    *  failed for the life of the conversation. */
   readonly fleetMcp: () => FleetMcpEndpoint | null;
+  /** WHERE THE CONVERSATION IS COMPACTED — the person's choice, owned by the
+   *  host's preferences: a number of tokens, or Model limit, where kolu sends
+   *  no setting and the person's own Claude Code settings decide.
+   *
+   *  A THUNK, read at each bring-up of the agent and nowhere else: the agent
+   *  reads the setting only when it opens or loads a session, so a value read
+   *  per bring-up is the one in force, and a change while the agent runs is
+   *  taken at the next one rather than restarting it. */
+  readonly compactsAt: () => ConductorCompactsAt;
   /** WHAT KOLU OFFERS for a role's harness and model — the harnesses it
    *  carries, what each offers on a work's host, and whether that host has a
    *  harness to choose at all. Read per call: the host owns it, built once it
@@ -1063,13 +1074,14 @@ export function startConductorHost(deps: ConductorDeps): ConductorHost {
     transcriptPath,
     stateRoot,
     spawn,
+    compactsAt,
   } = deps;
 
   /** What the integration says about being seated here — the adapter it would
    *  spawn, or the whole sentence a machine without it is owed. Asked ONCE, at
    *  boot: `KOLU_ACP_AGENT` is baked, so it cannot change under a running
    *  server, and re-probing per call would be pretending it could. */
-  const seating = ENGINE.at({
+  const seating = CONDUCTOR_SEAT.at({
     env: process.env,
     cwd: home,
     found: () => null,
@@ -1087,13 +1099,12 @@ export function startConductorHost(deps: ConductorDeps): ConductorHost {
             where: absent.where,
             why: absent.why,
           },
-    agentName: ENGINE.name,
+    agentName: CONDUCTOR_SEAT.name,
     cwd: home,
-    compactsAt: ENGINE.compacts?.at ?? null,
     ownMemory: ownMemoryHint !== null,
   } satisfies Pick<
     ConductorState,
-    "install" | "agentName" | "cwd" | "compactsAt" | "ownMemory"
+    "install" | "agentName" | "cwd" | "ownMemory"
   >;
 
   let state: ConductorState = {
@@ -1895,6 +1906,12 @@ export function startConductorHost(deps: ConductorDeps): ConductorHost {
     // very first publish can be told apart from a retired one's last.
     generation += 1;
     const mine = generation;
+    // WHERE THIS SPAWN COMPACTS ({@link ConductorDeps.compactsAt}), read once
+    // and built by one call, so its three readers cannot disagree: the leg the
+    // agent opens its sessions with, the point the harness sends the rules
+    // again at (none on Model limit), and the choice the header says.
+    const choice = compactsAt();
+    const { leg, compacts } = conductorCompactingAt(choice);
     // THE WHOLE BRING-UP IS ONE PROMISE, assigned to `starting` on the line
     // after it is made and never awaited before then — so two readers arriving
     // in the same tick share it rather than spawning two adapters. It has to
@@ -1908,8 +1925,8 @@ export function startConductorHost(deps: ConductorDeps): ConductorHost {
         // THE ENGINE'S OWN KEY, which is what the client files this
         // conversation's memory and model notes under — read off the registry
         // rather than spelled again here.
-        agent: ENGINE.id,
-        leg: ENGINE.leg,
+        agent: CONDUCTOR_SEAT.id,
+        leg,
         adapter: seating as Exclude<typeof seating, NotHere>,
         cwd: home,
         // WHICH STORE THE AGENT'S SIGNATURE COMES OUT OF, for the sentence a
@@ -1968,9 +1985,7 @@ export function startConductorHost(deps: ConductorDeps): ConductorHost {
         numbering: "continues",
         whenLoadRefused: "fresh",
         whenReplayed: "drop",
-        ...(ENGINE.compacts === undefined
-          ? {}
-          : { compacts: ENGINE.compacts.due }),
+        ...(compacts === undefined ? {} : { compacts: compacts.due }),
         onCompaction: (compaction) => {
           if (disposed || mine !== generation) return;
           sayCompaction(compaction);
@@ -2015,6 +2030,7 @@ export function startConductorHost(deps: ConductorDeps): ConductorHost {
               steers: change.state.steers,
               busySince: change.state.busySince,
               ...serverAuthored,
+              compactsAt: choice,
               fleet: [...fleet.ids()],
             };
             // A DIFFERENT CONVERSATION TAKES THE FLEET WITH IT: the terminals
@@ -2259,7 +2275,7 @@ export function startConductorHost(deps: ConductorDeps): ConductorHost {
     importOwnMemory: async () => {
       if (ownMemoryHint === null)
         throw new ConductorRefused({
-          why: `${ENGINE.name} keeps no memory of its own to bring over.`,
+          why: `${CONDUCTOR_SEAT.name} keeps no memory of its own to bring over.`,
         });
       const text = bringOverMessage(ownMemoryHint);
       return ask((agent) =>

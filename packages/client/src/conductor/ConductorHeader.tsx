@@ -23,6 +23,7 @@ import ConductorSettings from "./ConductorSettings";
 import MemoryChip from "./memory/MemoryChip";
 import { helpSheet } from "./helpContent";
 import { useShown } from "../ui/shown";
+import { compactsTip } from "./compactsTip";
 import { tokens } from "./tokens";
 
 /** NO PHASE CHIP HERE. What the conversation is doing moved to the ONE status
@@ -154,8 +155,7 @@ const ConductorHeader: Component<{
                 <Show when={props.state.compactsAt}>
                   {(at) => (
                     <span class="block" data-testid="conductor-usage-compacts">
-                      {props.state.agentName} compacts it at about{" "}
-                      {tokens(at())}.
+                      {compactsTip(props.state.agentName, at())}
                     </span>
                   )}
                 </Show>

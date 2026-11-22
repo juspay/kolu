@@ -64,9 +64,21 @@ kolu itself never opens those files, and never changes or deletes them. Pressing
 
 The header shows how full the conversation's context is, as `148k/1M`. Every turn reads the whole conversation again, so a long one is slow and costly.
 
-Past about 200k tokens, Claude Code **compacts** the conversation: it replaces the older part with a summary it writes itself, and the count in the header drops. You never type `/compact`. Hover the count to see where the conversation is compacted.
+When the conversation grows long, Claude Code **compacts** it: it replaces the older part with a summary it writes itself, and the count in the header drops. Unless you choose **Model limit**, kolu sets when, so you never type `/compact`. Hover the count to see the choice the Conductor is running with.
 
-kolu sets this point for the Conductor alone, whatever your own Claude Code settings say. The `claude` you run in your terminals is unchanged. On a model with a 200k window, the conversation is compacted sooner, at about 167k.
+Open **Settings** (the gear in the top bar) and choose in the **Conductor compacts at** row:
+
+| Choice | What happens |
+| --- | --- |
+| **200k** | The default. Claude Code compacts the conversation at 200k tokens. |
+| **Model limit** | kolu sends no compaction setting. Your own Claude Code settings decide when the conversation is compacted, and whether it is at all. |
+| **Custom** | Type a whole number of thousands from 100 to 1000, then press <kbd>Enter</kbd> or leave the field. `250` compacts at 250k. Anything else is not saved, and the row says so. |
+
+- A new choice applies the next time kolu starts, to the same conversation. **New session** does not apply it.
+- A number below what the conversation already holds compacts it on your next message.
+- With a number, on a model with a 200k window, the conversation is compacted at about 167k at the latest.
+
+With a number, kolu sets the point for the Conductor alone, whatever your own Claude Code settings say. The `claude` you run in your terminals is unchanged either way.
 
 ## The compaction line
 

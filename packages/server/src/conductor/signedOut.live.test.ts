@@ -44,7 +44,8 @@ import {
   startHarness,
 } from "@kolu/acp-harness";
 import {
-  CONDUCTOR_ENGINE as ENGINE,
+  CONDUCTOR_SEAT,
+  conductorCompactingAt,
   conductorConfigDir,
 } from "kolu-agents/acp";
 import type { ConductorRow } from "kolu-common/conductor";
@@ -114,7 +115,7 @@ describe.skipIf(!LIVE)(
     const started = async (
       resume: string | null,
     ): Promise<{ harness: Harness<ConductorRow>; configDir: string }> => {
-      const seating = ENGINE.at({
+      const seating = CONDUCTOR_SEAT.at({
         env: process.env,
         cwd: home,
         found: () => null,
@@ -122,8 +123,8 @@ describe.skipIf(!LIVE)(
       if ("why" in seating) throw new Error(seating.why);
       const configDir = conductorConfigDir(process.env, home);
       const harness = await startHarness<ConductorRow>({
-        agent: ENGINE.id,
-        leg: ENGINE.leg,
+        agent: CONDUCTOR_SEAT.id,
+        leg: conductorCompactingAt(200_000).leg,
         adapter: {
           ...(seating as Exclude<typeof seating, NotHere>),
           env: {
