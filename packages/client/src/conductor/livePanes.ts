@@ -1,18 +1,27 @@
 /** WHAT A PICKED WORK'S TERMINALS VIEW DRAWS, AND WHAT IT CONNECTS — the
  *  rules, apart from the panes that follow them.
  *
- *  A picked work's middle is one of two views: **Terminals**, a live pane per
- *  terminal, and **Details**, the record behind the face. One or two
- *  terminals stack; three or more, or a window too narrow for two panes to
- *  be read, become one pane with a tab per terminal.
+ *  A picked work's middle is one of three views: **Terminals**, a live pane
+ *  per terminal; **Code**, the Code view of the work's worktree; and
+ *  **Details**, the record behind the face. One or two terminals stack;
+ *  three or more, or a window too narrow for two panes to be read, become
+ *  one pane with a tab per terminal.
  *
  *  A PANE IS CONNECTED ONLY WHILE IT IS ON SCREEN. Each connected pane holds
  *  a read of its terminal's screen open on the host, so a pane that cannot be
- *  seen — the Conductor behind a host tab, the Details view in front, a tab
+ *  seen — the Conductor behind a host tab, Code or Details in front, a tab
  *  behind another — must not hold one. */
 
-/** Which of the picked work's two views is in front. */
-export type PickedView = "terminals" | "details";
+/** Which of the picked work's views is in front. */
+export type PickedView = "terminals" | "code" | "details";
+
+/** The views a picked work IN PROGRESS offers, in the switch's order. A
+ *  finished work offers none: its details are all it has. */
+export const PICKED_VIEWS: readonly PickedView[] = [
+  "terminals",
+  "code",
+  "details",
+];
 
 /** How the Terminals view lays out its panes. */
 export type PaneLayout = "stack" | "tabs";
@@ -34,6 +43,15 @@ export function pickedView(
  *  and for any number on a window too narrow to give each its own pane. */
 export function paneLayout(count: number, narrow: boolean): PaneLayout {
   return narrow || count > MOST_STACKED ? "tabs" : "stack";
+}
+
+/** HOW TALL A PANE IS: the middle's height, less the work's head, shared by
+ *  `count` panes stacked in it (one for tabs). A pane never gets shorter than
+ *  a readable screen; the middle scrolls past that. The one rule for a
+ *  picked work's middle — the Code view is one pane of it. */
+export function paneHeight(layout: PaneLayout, count: number): string {
+  const share = layout === "tabs" ? 1 : Math.max(count, 1);
+  return `max(16rem, calc((var(--app-h, 100dvh) - 17rem) / ${share}))`;
 }
 
 /** THE FRONT TAB: the one a person pressed while it is still one of the

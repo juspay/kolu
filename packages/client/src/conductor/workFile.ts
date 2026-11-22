@@ -32,6 +32,7 @@ import { listWorkFiles } from "kolu-common/workFiles";
 import type { GitInfo } from "kolu-git/schemas";
 import { keptOf, waterfallFileName, type Work, type WorkId } from "kolu-work";
 import { type Accessor, createMemo, createResource } from "solid-js";
+import { type CodeLister, repoLister } from "../right-panel/codeLister";
 import { noTerminalToFetch } from "../right-panel/codeSubject";
 import { runActionPromise } from "../runAction";
 import { padiMap } from "../wire";
@@ -46,7 +47,16 @@ export interface WorkPlace {
   readonly host: string;
   readonly repoPath: string;
   readonly terminalId: TerminalId | null;
+  /** Who lists the worktree's root — the member's own git reading says
+   *  whether it is a folder git cannot list; with no member standing in it,
+   *  git, which says so loudly in the tree's banner if it cannot. */
+  readonly lister: CodeLister;
 }
+
+/** The one line for an open work whose worktree kolu has not read yet — what
+ *  the Worktree part and the Code view both say. */
+export const WORKTREE_UNREAD =
+  "kolu has not read where this work is working yet.";
 
 /** ONE ROW of a work's file list: the path as the record holds it, and — for
  *  a file kolu kept — how many bytes it kept. */
@@ -128,7 +138,12 @@ export function workPlaceOf(
   // The terminal a picture's address and a comment hang on: a member
   // standing in the worktree, by the one rule above.
   const member = memberInWorktree(host, path, members);
-  return { host, repoPath: path, terminalId: member?.terminalId ?? null };
+  return {
+    host,
+    repoPath: path,
+    terminalId: member?.terminalId ?? null,
+    lister: member === null ? "git" : repoLister(member.git),
+  };
 }
 
 /** Where kolu serves the files it kept when a work ended. The shape is the

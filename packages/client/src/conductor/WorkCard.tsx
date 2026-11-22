@@ -9,9 +9,11 @@
  *  chat (answering either settles the one question), so a work that needs
  *  you is answered without picking it. It is drawn once, on the face.
  *
- *  PICKED, it is the work the screen is about, with a switch between two
+ *  PICKED, it is the work the screen is about, with a switch between three
  *  views. **Terminals** is a live pane per terminal (`WorkLive.tsx`), in
- *  front while one is up. **Details** is the record behind the face, short
+ *  front while one is up. **Code** is the Code view of the work's worktree
+ *  (`WorkCode.tsx`), in front only when a person chose it. **Details** is
+ *  the record behind the face, short
  *  however long the work runs: one row per terminal; the files; the pull
  *  request; the setup as one line and the latest three decisions; and the
  *  timeline of ONE stage — the strip is its index: pressing a segment shows
@@ -51,9 +53,11 @@ import {
   createSignal,
   For,
   type JSX,
+  Match,
   onCleanup,
   onMount,
   Show,
+  Switch,
 } from "solid-js";
 import { elapsedSince } from "../time/duration";
 import WorkSubtitle from "./WorkSubtitle";
@@ -64,7 +68,7 @@ import WorkQuestion from "./WorkQuestion";
 import StageStrip from "./StageStrip";
 import WorkDetails from "./WorkDetails";
 import WorkLive from "./WorkLive";
-import { type PickedView, pickedView } from "./livePanes";
+import { PICKED_VIEWS, type PickedView, pickedView } from "./livePanes";
 import { liveArm } from "./terminalStatus";
 import { workFileSource } from "./workFile";
 import {
@@ -88,6 +92,14 @@ import {
 } from "./workReadings";
 import WorkTerminals from "./WorkTerminals";
 import WorkWorktree from "./WorkWorktree";
+import WorkCode from "./WorkCode";
+
+/** What each of the picked work's views is called on its switch. */
+const VIEW_WORD: Record<PickedView, string> = {
+  terminals: "Terminals",
+  code: "Code",
+  details: "Details",
+};
 
 /** ONE OPEN QUESTION'S PLACE ON THE CARD — what a route onto that question
  *  scrolls to. Whether the question is in view is the question's own to say
@@ -262,13 +274,13 @@ const WorkCard: Component<{
   const shownView = (): PickedView =>
     live() === undefined ? "details" : pickedView(chosenView(), anyUp());
 
-  /** THE SWITCH between the picked work's two views, in its head. */
+  /** THE SWITCH between the picked work's three views, in its head. */
   const views = () => (
     <div
       data-testid="work-views"
       class="mt-2 inline-flex rounded-md border border-edge bg-surface-1 p-0.5"
     >
-      <For each={["terminals", "details"] as const}>
+      <For each={PICKED_VIEWS}>
         {(one) => (
           <button
             type="button"
@@ -282,7 +294,7 @@ const WorkCard: Component<{
             }`}
             onClick={() => chooseView(one)}
           >
-            {one === "terminals" ? "Terminals" : "Details"}
+            {VIEW_WORD[one]}
           </button>
         )}
       </For>
@@ -533,13 +545,26 @@ const WorkCard: Component<{
         <div class="px-2.5 pb-2">{terminals()}</div>
       </Show>
 
+      {/* THE PICKED WORK'S BODY: one view mounted at a time, each for its own
+          view only — so with Code or Details in front no live pane is
+          mounted, none holds a screen open, and no terminal counts as in
+          front for its unread marks. */}
       <Show when={isOpen()}>
-        <Show
-          when={shownView() === "terminals"}
-          fallback={
-            // THE DETAILS: its terminals, one row each — each unfolding into
-            // what is about that terminal — then what is about its worktree,
-            // once, then the record behind the face.
+        <Switch>
+          <Match when={shownView() === "terminals"}>
+            <div class="border-t border-edge px-2.5 py-2">
+              <WorkLive members={members()} />
+            </div>
+          </Match>
+          <Match when={shownView() === "code"}>
+            <div class="border-t border-edge px-2.5 py-2">
+              <WorkCode id={props.id} work={props.work} members={members()} />
+            </div>
+          </Match>
+          <Match when={shownView() === "details"}>
+            {/* THE DETAILS: its terminals, one row each — each unfolding into
+                what is about that terminal — then what is about its worktree,
+                once, then the record behind the face. */}
             <div class="border-t border-edge px-2.5 py-2">
               <Show when={live() !== undefined}>
                 <div class="mb-2">
@@ -562,12 +587,8 @@ const WorkCard: Component<{
                 now={now()}
               />
             </div>
-          }
-        >
-          <div class="border-t border-edge px-2.5 py-2">
-            <WorkLive members={members()} />
-          </div>
-        </Show>
+          </Match>
+        </Switch>
       </Show>
     </article>
   );

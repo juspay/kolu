@@ -25,7 +25,7 @@ import { type Component, createMemo, Show } from "solid-js";
 import { useOduLink } from "../right-panel/useOduLink";
 import WorkSection, { type WorkSubject } from "../right-panel/WorkSection";
 import type { MemberLine } from "./workFacts";
-import { memberInWorktree } from "./workFile";
+import { memberInWorktree, WORKTREE_UNREAD } from "./workFile";
 import { repoName } from "./workReadings";
 
 /** The read worktree, as the section's subject. */
@@ -86,7 +86,7 @@ const WorkWorktree: Component<{
             data-testid="work-worktree-unread"
             class="m-0 font-mono text-[0.62rem] text-fg-3"
           >
-            kolu has not read where this work is working yet.
+            {WORKTREE_UNREAD}
           </p>
         }
       >

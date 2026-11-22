@@ -17,12 +17,7 @@ import { type Component, createMemo, createSignal, For, Show } from "solid-js";
 import { useShown } from "../ui/shown";
 import LivePane from "./LivePane";
 import MemberPip from "./MemberPip";
-import {
-  connectedPanes,
-  frontPane,
-  type PaneLayout,
-  paneLayout,
-} from "./livePanes";
+import { connectedPanes, frontPane, paneHeight, paneLayout } from "./livePanes";
 import { useMemberName } from "./memberNames";
 import { type MemberRef, splitMemberRef } from "./memberRef";
 import type { MemberLine } from "./workFacts";
@@ -30,14 +25,6 @@ import { ROLE_WORD } from "./workReadings";
 
 /** The width two panes side by side need — `--breakpoint-conductor-md`. */
 const atWide = createMediaQuery("(min-width: 80rem)");
-
-/** HOW TALL A PANE IS: the middle's height, less the work's head, shared by
- *  the panes stacked in it. A pane never gets shorter than a readable
- *  screen; the middle scrolls past that. */
-function paneHeight(layout: PaneLayout, count: number): string {
-  const share = layout === "tabs" ? 1 : Math.max(count, 1);
-  return `max(16rem, calc((var(--app-h, 100dvh) - 17rem) / ${share}))`;
-}
 
 const WorkLive: Component<{
   members: ReadonlyArray<MemberLine>;

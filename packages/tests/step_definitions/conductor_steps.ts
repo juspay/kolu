@@ -2402,7 +2402,7 @@ export async function showWorkCard(world: KoluWorld) {
  *  is not picked or is over (an ended work has only its details). */
 export async function showPickedView(
   world: KoluWorld,
-  view: "terminals" | "details",
+  view: "terminals" | "code" | "details",
 ): Promise<void> {
   const press = world.page.locator(
     `${WORK_COLUMN} [data-testid="work-view"][data-view="${view}"]`,

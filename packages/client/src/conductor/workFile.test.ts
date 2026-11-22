@@ -31,7 +31,11 @@ const work: Work = {
 };
 
 /** A member terminal here on the work's host, standing in `repoRoot`. */
-const memberIn = (id: string, repoRoot: string): MemberLine => ({
+const memberIn = (
+  id: string,
+  repoRoot: string,
+  isBare = false,
+): MemberLine => ({
   terminal: `local/${id}`,
   member: {
     work: "w",
@@ -54,7 +58,7 @@ const memberIn = (id: string, repoRoot: string): MemberLine => ({
           isWorktree: true,
           mainRepoRoot: "/srv/code/kestrel",
           remoteUrl: null,
-          isBare: false,
+          isBare,
         },
       },
       location: LOCAL_LOCATION,
@@ -79,10 +83,27 @@ describe("the terminal a work's files borrow", () => {
       host: "local",
       repoPath: WORKTREE,
       terminalId: null,
+      lister: "git",
     });
   });
 
   it("is the member standing in the worktree", () => {
     expect(workPlaceOf(work, [elsewhere, inside])?.terminalId).toBe(INSIDE);
+  });
+});
+
+describe("who lists a work's worktree", () => {
+  it("is git, read by the member standing in it", () => {
+    expect(workPlaceOf(work, [inside])?.lister).toBe("git");
+  });
+
+  it("is the disk when that member's git reading says git cannot list it", () => {
+    const bare = memberIn(INSIDE, WORKTREE, true);
+    expect(workPlaceOf(work, [bare])?.lister).toBe("disk");
+  });
+
+  it("is git with no member standing in it — never another repository's reading", () => {
+    const bareElsewhere = memberIn(ELSEWHERE, "/srv/code/other-repo", true);
+    expect(workPlaceOf(work, [bareElsewhere])?.lister).toBe("git");
   });
 });
