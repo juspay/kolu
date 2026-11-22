@@ -1,16 +1,23 @@
 /** WHERE A CODE VIEW'S PLACE IS KEPT — the one interface the view reads and
- *  writes its place through, whoever keeps it.
+ *  writes its place through, whoever keeps it, and the pieces every home is
+ *  built from.
  *
  *  The place is the mode (All / Local / Branch), the file selected in each
  *  mode, and the back/forward history. The view never knows where it lives:
- *  the Right panel keeps it per pane (`useRightPanel`'s `code`), and a home is
- *  free to keep it anywhere else that answers these verbs.
+ *  the Right panel keeps it per pane (`useRightPanel`'s `code`), a work per
+ *  work (`conductor/workCodeView.ts`). Both build their history from
+ *  {@link createCodeHistories} and {@link codeHistoryVerbs}, and their
+ *  per-mode selection from {@link selectionWith}, so the two homes cannot
+ *  come to disagree about what back/forward or a deselect does.
  *
  *  What is NOT here: the tree's width, which is one preference shared by every
  *  Code view (`useRightPanel().codeTabTreeSize`), and the visible file
  *  content, which is read through the view's query set. */
 
-import type { CodeTabView } from "@kolu/padi-client/surface";
+import type {
+  CodeTabView,
+  RightPanelPerTerminalState,
+} from "@kolu/padi-client/surface";
 import {
   type Browser,
   createBrowser,
@@ -46,11 +53,114 @@ const SAME_LOCATION = (a: BrowserLocation, b: BrowserLocation): boolean =>
  *  place* via `browser.reset(...)`, never by building a replacement, so the
  *  instance (and the toolbar's reactive subscriptions to its enablement
  *  signals) survives every reset. */
-export function createCodeHistory(): Browser<BrowserLocation> {
+function createCodeHistory(): Browser<BrowserLocation> {
   return createBrowser<BrowserLocation>({
     isSameEntry: SAME_LOCATION,
     maxEntries: DEFAULT_MAX_ENTRIES,
   });
+}
+
+/** Back/forward for many owners — one stack per key (a pane, a work), each
+ *  bundled with the root it was last recorded under. Both fields share one
+ *  lifecycle (seeded together, dropped together, reset together on a root
+ *  change), so they live in one entry rather than two maps kept in step by
+ *  hand. */
+export interface CodeHistories<K> {
+  /** The key's stack, created on first use and then NEVER replaced — resets
+   *  clear it in place — so a reader subscribed to its `canBack` stays
+   *  subscribed across every reset. */
+  readonly browserFor: (key: K) => Browser<BrowserLocation>;
+  /** Reconcile the key's stack with the root its view shows now. The stack
+   *  records root-relative locations with no root of their own, so it is
+   *  dropped when the KEY'S OWN root has moved since it was last recorded;
+   *  the first call for a key only records the baseline, so a restored stack
+   *  survives the first mount. `undefined` is "no root recorded yet",
+   *  distinct from `null` ("recorded, and it is in no repository"). */
+  readonly syncRepo: (key: K, root: string | null) => void;
+  /** Start the key over at `at` (or empty), with no root recorded — a fresh
+   *  start, the next {@link syncRepo} re-adopts the root without resetting. */
+  readonly seed: (key: K, at: BrowserLocation | undefined) => void;
+  /** The key is gone. */
+  readonly forget: (key: K) => void;
+}
+
+export function createCodeHistories<K>(): CodeHistories<K> {
+  const held = new Map<
+    K,
+    { browser: Browser<BrowserLocation>; lastRepo: string | null | undefined }
+  >();
+  const entryFor = (key: K) => {
+    let entry = held.get(key);
+    if (entry === undefined) {
+      entry = { browser: createCodeHistory(), lastRepo: undefined };
+      held.set(key, entry);
+    }
+    return entry;
+  };
+  return {
+    browserFor: (key) => entryFor(key).browser,
+    syncRepo: (key, root) => {
+      const entry = entryFor(key);
+      const was = entry.lastRepo;
+      entry.lastRepo = root;
+      if (was !== undefined && root !== was) entry.browser.reset();
+    },
+    seed: (key, at) => {
+      const entry = entryFor(key);
+      entry.browser.reset(at);
+      entry.lastRepo = undefined;
+    },
+    forget: (key) => {
+      held.delete(key);
+    },
+  };
+}
+
+/** The five history verbs of {@link CodeViewState}, over whichever stack is
+ *  the place's NOW — `null` while there is no owner to have one (no pane),
+ *  where every verb answers "nowhere to go". */
+export function codeHistoryVerbs(
+  browser: () => Browser<BrowserLocation> | null,
+): Pick<
+  CodeViewState,
+  | "recordNavigation"
+  | "navigateBack"
+  | "navigateForward"
+  | "canNavigateBack"
+  | "canNavigateForward"
+> {
+  return {
+    recordNavigation: (loc) => browser()?.navigate(loc),
+    navigateBack: () => browser()?.back() ?? null,
+    navigateForward: () => browser()?.forward() ?? null,
+    canNavigateBack: () => browser()?.canBack() ?? false,
+    canNavigateForward: () => browser()?.canForward() ?? false,
+  };
+}
+
+/** The file selected in each mode, as every home stores it. */
+export type SelectedFiles = NonNullable<
+  RightPanelPerTerminalState["selectedFileByMode"]
+>;
+
+/** The per-mode selection with `mode` set to `path`, or dropped for `null` —
+ *  `"unchanged"` when that is what it already says. A REBUILT map, never a
+ *  mutation: the deselect arm drops the mode's key rather than writing
+ *  `undefined` into it (an optional key on the wire refuses a present-but-
+ *  undefined value), and an emptied map is `undefined` — absence is the only
+ *  spelling of "no selection". */
+export function selectionWith(
+  files: SelectedFiles | undefined,
+  mode: CodeTabView,
+  path: string | null,
+): SelectedFiles | undefined | "unchanged" {
+  const cur = files ?? {};
+  if (path === null) {
+    if (!(mode in cur)) return "unchanged";
+    const { [mode]: _dropped, ...rest } = cur;
+    return Object.keys(rest).length > 0 ? rest : undefined;
+  }
+  return cur[mode] === path ? "unchanged" : { ...cur, [mode]: path };
 }
 
 /** A Code view's place, behind one interface. Every read is reactive.
