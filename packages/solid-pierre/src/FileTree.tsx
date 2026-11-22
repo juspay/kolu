@@ -477,6 +477,41 @@ export const FileTree: Component<FileTreeProps> = (props) => {
     ...openLazyDirs,
   ];
 
+  /** Make Pierre's selection `path` (null clears it), opening its ancestors
+   *  and scrolling it into view. Idempotent; a no-op for a path the tree does
+   *  not hold yet. Called by the selection effect AND after every paths write:
+   *  Solid runs one update's effects in the order their inputs changed, so
+   *  when the selection and the row it names arrive together the selection
+   *  effect may run first, find no row, and leave the paths write to apply it. */
+  const applySelection = (path: string | null): void => {
+    const t = tree;
+    if (!t) return;
+    const current = t.getSelectedPaths()[0] ?? null;
+    if (current === path) return;
+    // Drop every selected row except `path`. Pierre's `select()` is additive —
+    // it never clears the prior pick — so a switch must deselect the old row
+    // first or the tree holds both, fires `onSelectionChange` with the stale
+    // path at `paths[0]`, and the host reads that back as a selection revert
+    // (the "first click after a file is already open does nothing, second
+    // click works" bug).
+    for (const p of t.getSelectedPaths()) {
+      if (p !== path) t.getItem(p)?.deselect();
+    }
+    if (path === null) return;
+    // Open the picked file's ancestors so the row is visible — an external
+    // caller can drive selection into a collapsed subtree (e.g. a terminal
+    // `path:line` click resolving into a nested file). Expanding each
+    // directory handle in place preserves every other open folder; routing
+    // this through `resetPaths` would rebuild the tree and collapse the
+    // user's hand-expanded siblings.
+    expandDirs(t, ancestorDirectoryPaths(path));
+    t.getItem(path)?.select();
+    // `select()` marks aria-selected but doesn't move the virtualizer; deep
+    // paths in large worktrees would stay off-screen until the user scrolled.
+    // `scrollToPath` reveals the row.
+    t.scrollToPath(path);
+  };
+
   onMount(() => {
     // Arm the provenance gate on real user input. Capture phase so it is set
     // before Pierre's own row `click`/`keydown` handler runs; the events are
@@ -617,10 +652,8 @@ export const FileTree: Component<FileTreeProps> = (props) => {
   // not toast "render failed"); the original throw is logged for visibility.
   //
   // `selectedPath` is deliberately *not* a dependency — routing selection
-  // through here would re-run on every file click. The selection effect
-  // below reveals the picked row imperatively instead; we read `selectedPath`
-  // untracked only so a genuine paths/expandPaths change reveals the current
-  // selection.
+  // through here would re-run on every file click. Each write still ends with
+  // `applySelection` (see there for why).
   createEffect(
     on(
       [propValue.paths, propValue.expandPaths],
@@ -704,6 +737,10 @@ export const FileTree: Component<FileTreeProps> = (props) => {
           }
         } finally {
           rebuilding = false;
+          safeApply(
+            () => applySelection(propValue.selectedPath()),
+            props.onError,
+          );
           safeApply(reportLazyExpansions, props.onError);
         }
       },
@@ -783,49 +820,16 @@ export const FileTree: Component<FileTreeProps> = (props) => {
   // through a reactive accessor (e.g. CodeTab's per-(repoRoot,view)
   // slot map) leaves the tree out of sync whenever selection arrives
   // after FileTree mount — the `Open path:N` flow from a diff is the
-  // canonical case. Paths are also a dependency: the selected file can arrive
-  // after its selection, or disappear and return during a mode transition.
+  // canonical case.
   // `onSelectionChange` re-fires when we call `select()`,
   // but the provenance gate drops that emit (no user gesture is armed), so
   // it never reaches the host — the programmatic echo stops here rather than
   // round-tripping through `onSelect`.
   createEffect(
     on(
-      [propValue.selectedPath, propValue.paths],
-      ([path]) => {
-        safeApply(() => {
-          const current = tree?.getSelectedPaths()[0] ?? null;
-          if (current === path) return;
-          // Drop every selected row except `keep` (pass null to clear
-          // all). Pierre's `select()` is additive — it never clears the
-          // prior pick — so a switch must deselect the old row first or
-          // the tree holds both, fires `onSelectionChange` with the stale
-          // path at `paths[0]`, and the host reads that back as a
-          // selection revert (the "first click after a file is already
-          // open does nothing, second click works" bug).
-          const deselectOthers = (keep: string | null) => {
-            for (const p of tree?.getSelectedPaths() ?? []) {
-              if (p !== keep) tree?.getItem(p)?.deselect();
-            }
-          };
-          deselectOthers(path);
-          if (path !== null) {
-            // Open the picked file's ancestors so the row is visible —
-            // an external caller can drive selection into a collapsed
-            // subtree (e.g. a terminal `path:line` click resolving into a
-            // nested file). Expanding each directory handle in place
-            // preserves every other open folder; routing this through
-            // `resetPaths` would rebuild the tree and collapse the user's
-            // hand-expanded siblings.
-            if (tree) expandDirs(tree, ancestorDirectoryPaths(path));
-            tree?.getItem(path)?.select();
-            // `select()` marks aria-selected but doesn't move the
-            // virtualizer; deep paths in large worktrees would stay
-            // off-screen until the user scrolled. `scrollToPath`
-            // reveals the row.
-            tree?.scrollToPath(path);
-          }
-        }, props.onError);
+      propValue.selectedPath,
+      (path) => {
+        safeApply(() => applySelection(path), props.onError);
       },
       { defer: true },
     ),

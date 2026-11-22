@@ -5,8 +5,9 @@ Pierre classes own their DOM; the adapters update them in place and dispose them
 with their Solid owner.
 
 `FileTree` accepts reactive `paths`, `gitStatus`, and `selectedPath`. Keep it
-mounted while loading: paths and selection may arrive in either order. A
-standing selection is applied when its path becomes available.
+mounted while loading: paths and selection may arrive in either order, or in
+the same update. A standing selection is applied when its path becomes
+available.
 
 `initialExpansion` sets folder expansion when the tree is constructed
 (`"closed"`, `"open"`, or a directory depth). Retain a separate tree for each
