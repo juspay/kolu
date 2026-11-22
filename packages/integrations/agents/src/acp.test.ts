@@ -1,4 +1,5 @@
 import { AGENT_ENV, type Where } from "@kolu/acp/engine";
+import { REPORTING_COMPACTION } from "@kolu/acp-claude";
 import { describe, expect, test } from "vitest";
 
 import {
@@ -63,6 +64,14 @@ describe("the Conductor's engine", () => {
     expect(compacts.at).toBe(500_000);
     expect(compacts.due({ used: 499_000, size: 1_000_000 })).toBe(false);
     expect(compacts.due({ used: 501_000, size: 1_000_000 })).toBe(true);
+  });
+
+  test("on Model limit, asks for compaction reports, sends no setting and names no point", () => {
+    const { leg, compacts } = conductorCompactingAt("model-limit");
+    expect(leg).toBe(REPORTING_COMPACTION);
+    expect(leg.compaction).toBe(true);
+    expect(leg.rawMessages?.openMeta).not.toHaveProperty("claudeCode.options");
+    expect(compacts).toBeUndefined();
   });
 
   test("hands over where Claude Code kept its own memory, for the bring-over", () => {

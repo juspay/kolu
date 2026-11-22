@@ -61,7 +61,10 @@ import type { PrResult } from "@kolu/terminal-vocab/schema";
 import { Server as McpServer } from "@modelcontextprotocol/sdk/server/index.js";
 import Conf from "conf";
 import { Option, Result, Schema } from "effect";
-import type { ConductorReadingLevel } from "kolu-common/conductor";
+import type {
+  ConductorCompactsAt,
+  ConductorReadingLevel,
+} from "kolu-common/conductor";
 import {
   ATTACHMENT_BYTE_CAP,
   type ConductorAttachment,
@@ -659,7 +662,7 @@ interface Rig {
   loseFleetMcp: () => void;
   /** MOVE THE PREFERENCE for where the conversation is compacted — read by
    *  the host at its next bring-up, as the server's preferences store is. */
-  compactAt: (tokens: number) => void;
+  compactAt: (choice: ConductorCompactsAt) => void;
 }
 
 function rig(over: Remembered = {}): Rig {
@@ -688,7 +691,7 @@ function rig(over: Remembered = {}): Rig {
   }> = [];
   const offered = koluOffers();
   let lostFleetMcp = false;
-  let compactsAt = 200_000;
+  let compactsAt: ConductorCompactsAt = 200_000;
   const host = startConductorHost({
     log,
     home: HOME,
@@ -760,8 +763,8 @@ function rig(over: Remembered = {}): Rig {
     loseFleetMcp: () => {
       lostFleetMcp = true;
     },
-    compactAt: (tokens) => {
-      compactsAt = tokens;
+    compactAt: (choice) => {
+      compactsAt = choice;
     },
   };
 }
@@ -2465,6 +2468,21 @@ describe("a compaction, as one line in the chat", () => {
     );
     second.opened();
     expect(r.host.state().compactsAt).toBe(100_000);
+  });
+
+  it("on Model limit, hands the harness the leg with no settings and no point, and serves the choice", async () => {
+    const r = rig();
+    r.compactAt("model-limit");
+    await r.host.prompt("hello", [], [], false);
+    const agent = r.spawns[0];
+    if (agent === undefined) throw new Error("the host spawned nothing");
+    expect(agent.options.leg.compaction).toBe(true);
+    expect(agent.options.leg.rawMessages?.openMeta).not.toHaveProperty(
+      "claudeCode.options",
+    );
+    expect(agent.options.compacts).toBeUndefined();
+    agent.opened();
+    expect(r.host.state().compactsAt).toBe("model-limit");
   });
 });
 

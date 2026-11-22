@@ -66,6 +66,7 @@ import { Effect } from "effect";
 import type { RpcGroup } from "effect/rpc";
 import type {
   AgentDistroListing,
+  ConductorCompactsAt,
   ForwardCreateInput,
   Forwards,
   KoluBuildInfo,
@@ -242,7 +243,7 @@ export function currentAgentDistroSetting(): AgentDistroSetting {
 
 /** Where the Conductor compacts its conversation — the preference read off the
  *  SAME store the `preferences` cell serves (`index.ts` hands it over). */
-export function currentConductorCompactsAt(): number {
+export function currentConductorCompactsAt(): ConductorCompactsAt {
   return preferencesStore.get().conductorCompactsAt;
 }
 

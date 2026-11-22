@@ -41,6 +41,7 @@ import {
   OWN_MEMORY_OFF,
   ownMemoryHint,
   REMOTE_SIGNALS,
+  REPORTING_COMPACTION,
 } from "@kolu/acp-claude";
 
 /**
@@ -139,7 +140,9 @@ export const CONDUCTOR_SEAT: Omit<Engine, "leg" | "compacts"> = {
       // ... AND FOUR MORE THAT WOULD OVERRIDE THE COMPACTION the open's
       // settings ask for ({@link conductorCompactingAt}): a host that exports
       // one would otherwise turn it off or move it, for this conversation and
-      // without a word.
+      // without a word. Stripped on Model limit too, where the open asks for
+      // nothing: what decides then is the person's own Claude Code settings,
+      // and a variable on the host kolu runs on is not one of them.
       unset: [...REMOTE_SIGNALS, ...COMPACTION_OVERRIDES],
     };
   },
@@ -151,15 +154,30 @@ export const CONDUCTOR_SEAT: Omit<Engine, "leg" | "compacts"> = {
 };
 
 /**
- * WHERE THE CONDUCTOR'S ENGINE COMPACTS, at `compactsAt` tokens: the leg that
+ * WHERE THE CONDUCTOR'S ENGINE COMPACTS. At a number of tokens: the leg that
  * opens every session so, and the point the harness reads, both from ONE
- * `compactingAt` call so the two cannot be built apart. The rest of the engine
- * does not vary, and is {@link CONDUCTOR_SEAT}.
+ * `compactingAt` call so the two cannot be built apart. At `"model-limit"`
+ * (the word `kolu-common`'s preference stores): the leg that asks for
+ * compaction reports and sends no setting, so the person's own Claude Code
+ * settings decide, and no point, because kolu cannot know when the CLI will
+ * compact. The rest of the engine does not vary, and is {@link CONDUCTOR_SEAT}.
  */
-export const conductorCompactingAt = (
-  compactsAt: number,
-): { readonly leg: Leg; readonly compacts: CompactionPoint } =>
-  compactingAt(compactsAt, LAUNCHER_SETTINGS);
+export function conductorCompactingAt(compactsAt: number): {
+  readonly leg: Leg;
+  readonly compacts: CompactionPoint;
+};
+export function conductorCompactingAt(compactsAt: number | "model-limit"): {
+  readonly leg: Leg;
+  readonly compacts?: CompactionPoint;
+};
+export function conductorCompactingAt(compactsAt: number | "model-limit"): {
+  readonly leg: Leg;
+  readonly compacts?: CompactionPoint;
+} {
+  return compactsAt === "model-limit"
+    ? { leg: REPORTING_COMPACTION }
+    : compactingAt(compactsAt, LAUNCHER_SETTINGS);
+}
 
 /**
  * WHERE THAT ENGINE READS ITS SIGNATURE on the host this daemon runs on.

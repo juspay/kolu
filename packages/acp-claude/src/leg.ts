@@ -1014,3 +1014,14 @@ export const compactingAt = (
       usage.used >= Math.min(tokens, usage.size - COMPACT_RESERVE),
   },
 });
+
+/**
+ * {@link CLAUDE}, asking for the protocol's compaction reports and setting
+ * nothing else — the open's `_meta` is {@link OPEN_SESSION_META} as it is, with
+ * no session settings. For a product that leaves WHEN the CLI compacts to the
+ * person's own Claude Code settings (including whether it compacts at all) and
+ * still wants each compaction reported. The reports are a client capability,
+ * not a Claude Code setting: they change how a compaction is told, not when one
+ * happens. There is no point to read off it, so it comes with no `compacts`.
+ */
+export const REPORTING_COMPACTION: Leg = { ...CLAUDE, compaction: true };

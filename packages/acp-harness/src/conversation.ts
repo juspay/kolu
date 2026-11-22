@@ -341,8 +341,11 @@ export interface HarnessOptions<Row extends AnyRow> {
    * the first thing after the summary. Once, until a compaction completes,
    * the first of a run of failed or cancelled ones ends (so the agent's next
    * attempt runs under it), the session changes, or a reading arrives for
-   * which this says no. Absent:
-   * the standing prompt rides the first message only.
+   * which this says no. Absent: no message is taught AHEAD of a compaction,
+   * because nothing says when one comes, and the first message of a loaded
+   * session is not taught for an unknown usage. A completed compaction the
+   * standing prompt did not ride still sends it with the next message,
+   * present or absent.
    */
   readonly compacts?: (usage: Usage) => boolean;
   /** Every live report of a compaction, with — on a completed one — whether

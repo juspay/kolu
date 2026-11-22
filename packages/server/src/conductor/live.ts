@@ -22,7 +22,10 @@ import { homedir, hostname } from "node:os";
 import { dirname } from "node:path";
 import { startHarness } from "@kolu/acp-harness";
 import { confStore } from "@kolu/surface/server";
-import type { ConductorState } from "kolu-common/conductor";
+import type {
+  ConductorCompactsAt,
+  ConductorState,
+} from "kolu-common/conductor";
 import type { ConductorMemoryView } from "kolu-common/conductorMemory";
 import type { MemberReading, WorkCodeView } from "kolu-common/works";
 import type { Work, WorkMember } from "kolu-work";
@@ -103,7 +106,7 @@ let offer: KoluOffer | null = null;
  *  handed over by `index.ts` because `../surface.ts` owns the preferences
  *  store and already imports this file. `null` at a bring-up is the same
  *  boot-order fault. */
-let compactsAt: (() => number) | null = null;
+let compactsAt: (() => ConductorCompactsAt) | null = null;
 
 let live: ConductorHost | undefined;
 
@@ -202,7 +205,7 @@ export function setConductorOffer(next: KoluOffer): void {
 
 /** Hand over the reader of where the conversation is compacted — `index.ts`,
  *  beside the offer. */
-export function setConductorCompactsAt(read: () => number): void {
+export function setConductorCompactsAt(read: () => ConductorCompactsAt): void {
   compactsAt = read;
 }
 
