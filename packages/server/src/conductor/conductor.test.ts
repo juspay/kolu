@@ -89,6 +89,7 @@ import {
   type PersistedConductor,
   type PersistedMembers,
   type PersistedMemory,
+  type PersistedWorkCodeViews,
   type PersistedTranscript,
   type PersistedWorks,
   PersistedWorksSchema,
@@ -711,6 +712,7 @@ function rig(over: Remembered = {}): Rig {
     publishReading: (terminal, reading) => {
       readingsPublished.push({ terminal, reading });
     },
+    publishWorkCodeView: () => {},
     publishMemory: (view) => {
       memoryPublished.push(view);
     },
@@ -725,6 +727,7 @@ function rig(over: Remembered = {}): Rig {
     works: works.store,
     members: members.store,
     memory: memory.store,
+    workCodeViews: countingStore<PersistedWorkCodeViews>({}).store,
     workFiles: files.port,
     storePath: () => join(root, "config.json"),
     transcriptPath: () => join(root, "conductor", "transcript.json"),
@@ -1739,6 +1742,7 @@ describe("teardown (B2)", () => {
       publishMember: () => {},
       publishReading: () => {},
       publishMemory: () => {},
+      publishWorkCodeView: () => {},
       worksMoved: () => {},
       watchScopeMoved: () => {},
       store: countingStore(EMPTY_PERSISTED_CONDUCTOR).store,
@@ -1746,6 +1750,7 @@ describe("teardown (B2)", () => {
       works: countingStore<PersistedWorks>({}).store,
       members: countingStore<PersistedMembers>({}).store,
       memory: countingStore(EMPTY_PERSISTED_MEMORY).store,
+      workCodeViews: countingStore<PersistedWorkCodeViews>({}).store,
       workFiles: fakeFiles().port,
       storePath: () => "/state/config.json",
       transcriptPath: () => "/state/conductor/transcript.json",
@@ -1815,6 +1820,7 @@ describe("teardown (B2)", () => {
       publishMember: () => {},
       publishReading: () => {},
       publishMemory: () => {},
+      publishWorkCodeView: () => {},
       worksMoved: () => {},
       watchScopeMoved: () => {},
       store: countingStore(EMPTY_PERSISTED_CONDUCTOR).store,
@@ -1822,6 +1828,7 @@ describe("teardown (B2)", () => {
       works: countingStore<PersistedWorks>({}).store,
       members: countingStore<PersistedMembers>({}).store,
       memory: countingStore(EMPTY_PERSISTED_MEMORY).store,
+      workCodeViews: countingStore<PersistedWorkCodeViews>({}).store,
       workFiles: fakeFiles().port,
       storePath: () => "/state/config.json",
       transcriptPath: () => "/state/conductor/transcript.json",
@@ -5193,6 +5200,19 @@ describe("taking a driven terminal over, and handing it back", () => {
   });
 });
 
+describe("where a work's Code view stands", () => {
+  it("is kept for a work kolu holds, and refused for one it does not", async () => {
+    const r = rig();
+    const held = await drivenWork(r);
+    const view = { codeMode: "local" as const };
+
+    expect(() => r.host.setWorkCodeView(held, view)).not.toThrow();
+    expect(() =>
+      r.host.setWorkCodeView(workIdOf(workKey("never-opened")), view),
+    ).toThrow(WorkRefusal);
+  });
+});
+
 describe("a restored backup of the works", () => {
   it("replaces them, keeps their open questions, re-scopes and writes NOW", async () => {
     const r = rig();
@@ -5224,6 +5244,7 @@ describe("a restored backup of the works", () => {
         }),
       ),
       storedMembers({ [B]: {} }, id),
+      {},
     );
 
     // The snapshot's works, and only those.
@@ -5254,6 +5275,7 @@ describe("a restored backup of the works", () => {
     r.host.restoreWorks(
       storedWorks(storedWork({ key: workKey("carried-over") })),
       {},
+      {},
     );
 
     // ONE rule: keep what the stored works name, delete the rest. A per-work
@@ -5277,6 +5299,7 @@ describe("a restored backup of the works", () => {
     r.host.restoreWorks(
       storedWorks(storedWork({ key: restored })),
       storedMembers({ [B]: {} }, workIdOf(restored)),
+      {},
     );
 
     // Nothing is left to read about it, and its reading leaves the wire.

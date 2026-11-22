@@ -45,9 +45,11 @@ import {
   Show,
 } from "solid-js";
 import { CommentComposer } from "../../comments/CommentComposer";
+import { CommentView, createCommentView } from "../../comments/commentView";
 import { formatMarkdown } from "../../comments/formatMarkdown";
 import { commentsForTerminal } from "../../comments/useComments";
-import BrowseFileDispatcher from "../../right-panel/BrowseFileDispatcher";
+import BrowseFileDispatcher from "../../code-view/BrowseFileDispatcher";
+import { rightPanelCodeDoor } from "../../right-panel/openInCodeTab";
 import { useColorScheme } from "../../settings/useColorScheme";
 import { useWorkMap, useWorkMembers } from "../useWorks";
 import WorkChip from "../WorkChip";
@@ -59,6 +61,7 @@ import {
   type WorkFileSource,
   workFileSource,
 } from "../workFile";
+import { readWorkFacts } from "../workFacts";
 import WorkFileList from "../WorkFileList";
 import { membersIn } from "../workReadings";
 import type { ReaderTarget } from "./useReader";
@@ -87,6 +90,11 @@ const WorkReader: Component<{
   const { themeTypeLiteral: theme } = useColorScheme();
   const works = useWorkMap();
   const allMembers = useWorkMembers();
+  /** The work's members, each with its standing read once — what the one
+   *  "which member stands in the worktree" rule reads. */
+  const { members } = readWorkFacts(() =>
+    membersIn(allMembers(), props.target.work),
+  );
 
   /** THE WORK, from the one mirror every surface reads, by the id it is filed
    *  under. A work that is not in it is one this browser has not been told
@@ -103,17 +111,18 @@ const WorkReader: Component<{
   const source = createMemo(() => {
     const one = work();
     if (one === undefined) return null;
-    return workFileSource(
-      props.target.work,
-      one,
-      membersIn(allMembers(), props.target.work),
-    );
+    return workFileSource(props.target.work, one, members());
   });
 
   /** The terminal a comment is anchored against, and whose host serves the
    *  bytes. A kept file has none: kolu holds the bytes, not the tree they
    *  were written in. */
   const at = createMemo(() => source()?.at ?? null);
+
+  /** Where a link in the document opens: the Right panel's Code tab, through
+   *  its front door, for the terminal the bytes belong to — and nowhere for a
+   *  kept file. */
+  const door = rightPanelCodeDoor(() => at()?.terminalId ?? null);
 
   /** The work's other files, which are the header's tabs — the one list
    *  derivation, shared with the card. */
@@ -149,128 +158,137 @@ const WorkReader: Component<{
     return one === undefined ? [] : openAsks(one);
   });
 
+  /** THIS READER'S OWN DRAFT AND SCROLL REQUEST — a draft opened here is
+   *  drawn and saved here, whatever other comment-capturing view is mounted
+   *  beside it (the Right panel's Code view stays mounted under the
+   *  Conductor). */
+  const commentView = createCommentView();
+
   return (
-    <section
-      data-testid="conductor-reader"
-      data-work={props.target.work}
-      data-path={props.target.path}
-      // WHICH FACE THIS IS — the fact an answer from here is recorded under,
-      // and the one a test asks about.
-      data-from={props.from}
-      class={`flex min-h-0 min-w-0 flex-col bg-surface-0 ${props.class ?? ""}`}
-    >
-      <header
-        data-testid="reader-head"
-        class="flex shrink-0 flex-wrap items-center gap-2 border-b border-edge px-4 py-2"
+    <CommentView.Provider value={commentView}>
+      <section
+        data-testid="conductor-reader"
+        data-work={props.target.work}
+        data-path={props.target.path}
+        // WHICH FACE THIS IS — the fact an answer from here is recorded under,
+        // and the one a test asks about.
+        data-from={props.from}
+        class={`flex min-h-0 min-w-0 flex-col bg-surface-0 ${props.class ?? ""}`}
       >
-        <span class="min-w-0 truncate text-[0.82rem] font-semibold text-fg">
-          {workFileName(props.target.path)}
-        </span>
-        <Show when={work()}>
-          {(one) => (
-            // THE WAY BACK TO THE WORK: the chip that brings its card, where
-            // this window has a listing to bring it into — and the same face,
-            // not pressed, in a pop-out that has none.
-            <span data-testid="reader-of" class="min-w-0 flex-1">
-              <Show
-                when={props.listing}
-                fallback={<WorkChipFace work={one()} />}
-              >
-                <WorkChip id={props.target.work} work={one()} />
-              </Show>
-            </span>
-          )}
-        </Show>
-        {props.chrome}
-        {/* THE WORK'S OTHER FILES, as tabs: the notes beside a plan are read
+        <header
+          data-testid="reader-head"
+          class="flex shrink-0 flex-wrap items-center gap-2 border-b border-edge px-4 py-2"
+        >
+          <span class="min-w-0 truncate text-[0.82rem] font-semibold text-fg">
+            {workFileName(props.target.path)}
+          </span>
+          <Show when={work()}>
+            {(one) => (
+              // THE WAY BACK TO THE WORK: the chip that brings its card, where
+              // this window has a listing to bring it into — and the same face,
+              // not pressed, in a pop-out that has none.
+              <span data-testid="reader-of" class="min-w-0 flex-1">
+                <Show
+                  when={props.listing}
+                  fallback={<WorkChipFace work={one()} />}
+                >
+                  <WorkChip id={props.target.work} work={one()} />
+                </Show>
+              </span>
+            )}
+          </Show>
+          {props.chrome}
+          {/* THE WORK'S OTHER FILES, as tabs: the notes beside a plan are read
             in the same place as the plan, one press away — on a line of their
             own, under the title and the chrome. */}
-        <div data-testid="reader-files" class="min-w-0 basis-full">
-          <WorkFileList
-            rows={files.rows()}
-            more={files.more()}
-            openTo={props.target.path}
-            layout="line"
-            onOpen={(path) => props.onOpen({ work: props.target.work, path })}
-          />
-        </div>
-      </header>
+          <div data-testid="reader-files" class="min-w-0 basis-full">
+            <WorkFileList
+              rows={files.rows()}
+              more={files.more()}
+              openTo={props.target.path}
+              layout="line"
+              onOpen={(path) => props.onOpen({ work: props.target.work, path })}
+            />
+          </div>
+        </header>
 
-      {/* THE QUESTIONS, PINNED ABOVE THE DOCUMENT — their buttons, and the
+        {/* THE QUESTIONS, PINNED ABOVE THE DOCUMENT — their buttons, and the
           count of comments that will go with the answer. The same asks as on
           the card and in the chat: this is where they are answered by whoever
           is reading the thing they are about. */}
-      <Show when={work()}>
-        {(one) => (
-          <For each={asks()}>
-            {(id) => (
-              <div
-                data-testid="reader-question"
-                class="shrink-0 border-b border-alert/40 bg-alert/10 px-4 py-2"
-              >
-                <WorkQuestion
-                  work={one()}
-                  id={props.target.work}
-                  ask={id}
-                  from={props.from}
-                  attach={{
-                    count: comments().length,
-                    text: () => formatMarkdown(comments()),
-                  }}
-                />
-              </div>
-            )}
-          </For>
-        )}
-      </Show>
+        <Show when={work()}>
+          {(one) => (
+            <For each={asks()}>
+              {(id) => (
+                <div
+                  data-testid="reader-question"
+                  class="shrink-0 border-b border-alert/40 bg-alert/10 px-4 py-2"
+                >
+                  <WorkQuestion
+                    work={one()}
+                    id={props.target.work}
+                    ask={id}
+                    from={props.from}
+                    attach={{
+                      count: comments().length,
+                      text: () => formatMarkdown(comments()),
+                    }}
+                  />
+                </div>
+              )}
+            </For>
+          )}
+        </Show>
 
-      <Show
-        when={work() !== undefined}
-        fallback={
-          <p
-            data-testid="reader-unknown"
-            class="m-0 px-4 py-3 font-mono text-[0.7rem] text-fg-3"
-          >
-            kolu has no record of this piece of work.
-          </p>
-        }
-      >
-        {/* `reader-doc` is the reading frame's one hook: the column's measure,
+        <Show
+          when={work() !== undefined}
+          fallback={
+            <p
+              data-testid="reader-unknown"
+              class="m-0 px-4 py-3 font-mono text-[0.7rem] text-fg-3"
+            >
+              kolu has no record of this piece of work.
+            </p>
+          }
+        >
+          {/* `reader-doc` is the reading frame's one hook: the column's measure,
             the 16px body, and the full-width tables and code blocks are stated
             once, in `index.css`, over the viewer's own DOM. */}
-        <div
-          data-testid="reader-doc"
-          class="reader-doc flex min-h-0 flex-1 flex-col"
-        >
-          <BrowseFileDispatcher
-            at={at()}
-            filePath={props.target.path}
-            // A resource RE-THROWS its failure at its reader, and `error`
-            // beside it is how the viewer is told — so the value is only read
-            // when there is one.
-            file={bytes.error === undefined ? (bytes() ?? null) : null}
-            error={bytes.error}
-            // The work's OWN files are the vault a `[[wikilink]]` in a plan
-            // resolves against — the list a plan's links actually point into.
-            repoVault={{
-              paths: files.rows().map((file) => file.path),
-              pending: files.pending(),
-            }}
-            theme={theme()}
-          />
-        </div>
-        {/* SELECTING TEXT TAKES A COMMENT, as on the Code tab — the pill is
+          <div
+            data-testid="reader-doc"
+            class="reader-doc flex min-h-0 flex-1 flex-col"
+          >
+            <BrowseFileDispatcher
+              at={at()}
+              open={at() === null ? null : door.open}
+              filePath={props.target.path}
+              // A resource RE-THROWS its failure at its reader, and `error`
+              // beside it is how the viewer is told — so the value is only read
+              // when there is one.
+              file={bytes.error === undefined ? (bytes() ?? null) : null}
+              error={bytes.error}
+              // The work's OWN files are the vault a `[[wikilink]]` in a plan
+              // resolves against — the list a plan's links actually point into.
+              repoVault={{
+                paths: files.rows().map((file) => file.path),
+                pending: files.pending(),
+              }}
+              theme={theme()}
+            />
+          </div>
+          {/* SELECTING TEXT TAKES A COMMENT, as on the Code tab — the pill is
             the surface's own, and this is the popover it opens. One per
             reader, portalled, exactly as the Code tab mounts one per tab: a
             surface that could capture a selection with nowhere to write it
             would offer to comment and then swallow the comment. A kept file
             has no terminal to anchor one against, so it has no composer
             either. */}
-        <Show when={at()}>
-          {(spot) => <CommentComposer terminalId={spot().terminalId} />}
+          <Show when={at()}>
+            {(spot) => <CommentComposer terminalId={spot().terminalId} />}
+          </Show>
         </Show>
-      </Show>
-    </section>
+      </section>
+    </CommentView.Provider>
   );
 };
 

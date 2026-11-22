@@ -69,6 +69,7 @@ import {
   workAskStanding_1_55_0,
   worksFromWatched_1_50_0,
   workKeepsItsWorktree_1_64_0,
+  workCodeViews_1_65_0,
 } from "./stateLadder.ts";
 import {
   CONF_DEFAULTS,
@@ -3217,5 +3218,61 @@ describe("the 1.64.0 rung — a work keeps its worktree", () => {
     expect(works.length).toBeGreaterThan(0);
     for (const one of works)
       expect(["read", "unread"]).toContain(one.worktree.kind);
+  });
+});
+
+describe("the 1.65.0 rung — where each work's Code view stands", () => {
+  const DEPLOYED = JSON.parse(
+    readFileSync(
+      new URL("./fixtures/deployed-1.52.0-three-works.json", import.meta.url),
+      "utf8",
+    ),
+  ) as Record<string, unknown>;
+
+  it("seeds an empty record onto a stored file that has none, and moves nothing else", () => {
+    const conf = makeStore({
+      works: DEPLOYED.works,
+      members: DEPLOYED.members,
+    });
+    const before = JSON.stringify({
+      works: conf.get("works"),
+      members: conf.get("members"),
+    });
+    workCodeViews_1_65_0(conf as never);
+    expect(conf.get("workCodeViews")).toEqual({});
+    expect(
+      JSON.stringify({
+        works: conf.get("works"),
+        members: conf.get("members"),
+      }),
+    ).toBe(before);
+  });
+
+  it("keeps a record a store already holds", () => {
+    const held = {
+      "branch:local/%2Fsrv%2Frepo/open": {
+        codeMode: "local",
+        selectedFileByMode: { local: "src/ledger.rs" },
+      },
+    };
+    const conf = makeStore({ workCodeViews: held });
+    workCodeViews_1_65_0(conf as never);
+    expect(conf.get("workCodeViews")).toEqual(held);
+  });
+
+  it("brings a backup snapshot written before the rung to head, ready to restore", () => {
+    const decoded = decodeStateBackup(
+      {
+        preferences: DEFAULT_PREFERENCES,
+        hosts: [],
+        viewerMode: "dark",
+        ...DEPLOYED,
+        __internal__: { migrations: { version: "1.52.0" } },
+      },
+      "a 1.52.0 snapshot",
+    );
+    // What a restore hands the live host with the works: none moved yet.
+    expect(decoded.workCodeViews).toEqual({});
+    expect(Object.keys(decoded.works).length).toBeGreaterThan(0);
   });
 });

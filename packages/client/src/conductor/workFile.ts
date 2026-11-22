@@ -18,6 +18,7 @@
  *  Both transports answer `@kolu/solid-fileview`'s two shapes, so the ONE
  *  viewer draws either without knowing which it got. */
 
+import { activeArm } from "@kolu/padi-client/surface";
 import type { FileWithSource, FileWithUrl } from "@kolu/solid-fileview";
 import { Effect, Option } from "effect";
 import { decodeHostKey } from "kolu-common/hostKey";
@@ -26,25 +27,36 @@ import {
   encodePreviewPath,
   isBinaryPreviewable,
 } from "kolu-common/preview";
-import type { TerminalId } from "kolu-common/surface";
+import type { PrResult, TerminalId } from "kolu-common/surface";
 import { listWorkFiles } from "kolu-common/workFiles";
+import type { GitInfo } from "kolu-git/schemas";
 import { keptOf, waterfallFileName, type Work, type WorkId } from "kolu-work";
 import { type Accessor, createMemo, createResource } from "solid-js";
-import { fleetTerminalStanding } from "../palette/fleetTerminals";
+import { type CodeLister, repoLister } from "../code-view/codeLister";
+import { noTerminalToFetch } from "../code-view/codeSubject";
 import { runActionPromise } from "../runAction";
 import { padiMap } from "../wire";
-import { splitMemberRef } from "./memberRef";
-import type { WorkMemberRow } from "./workReadings";
+import type { MemberLine } from "./workFacts";
 
 /** WHERE a work's files are read from while it is in progress: the worktree
  *  the work itself keeps (`Work.worktree`), on its host — and the member
- *  terminal on that host whose address a picture is fetched from and whose
- *  comments a file carries, or `null` while none is here. */
+ *  terminal standing in it ({@link memberInWorktree}) whose address a picture
+ *  is fetched from and whose comments a file carries, or `null` while none
+ *  is. */
 export interface WorkPlace {
   readonly host: string;
   readonly repoPath: string;
   readonly terminalId: TerminalId | null;
+  /** Who lists the worktree's root — the member's own git reading says
+   *  whether it is a folder git cannot list; with no member standing in it,
+   *  git, which says so loudly in the tree's banner if it cannot. */
+  readonly lister: CodeLister;
 }
+
+/** The one line for an open work whose worktree kolu has not read yet — what
+ *  the Worktree part and the Code view both say. */
+export const WORKTREE_UNREAD =
+  "kolu has not read where this work is working yet.";
 
 /** ONE ROW of a work's file list: the path as the record holds it, and — for
  *  a file kolu kept — how many bytes it kept. */
@@ -76,6 +88,40 @@ export interface WorkFileSource {
  *  waterfall writes into is where kolu looks, not a thing a person reads. */
 export const workFileName = waterfallFileName;
 
+/** A MEMBER STANDING IN THE WORKTREE: a member terminal on the worktree's
+ *  host, here, whose own git reading names the worktree's top folder — with
+ *  that reading. */
+export interface WorktreeMember {
+  readonly terminalId: TerminalId;
+  readonly git: GitInfo;
+  readonly pr: PrResult | null;
+}
+
+/** THE ONE ANSWER to "which member terminal speaks for this worktree".
+ *
+ *  Being on the same host is not enough: a terminal's file route serves a
+ *  path under that terminal's CURRENT repo root, and its live git facts are
+ *  about where it stands now. A member that changed directory into another
+ *  checkout speaks for that checkout — borrowed, it would fetch a work's
+ *  picture out of the other repository and paint the other branch's pull
+ *  request on this work. So the member must stand IN the worktree: its own
+ *  git reading names the same top folder. */
+export function memberInWorktree(
+  host: string,
+  path: string,
+  members: ReadonlyArray<MemberLine>,
+): WorktreeMember | null {
+  for (const one of members) {
+    if (one.split?.host !== host) continue;
+    const standing = one.standing;
+    if (standing?.kind !== "here") continue;
+    const arm = activeArm(standing.meta);
+    if (arm?.git.kind === "repo" && arm.git.info.repoRoot === path)
+      return { terminalId: one.split.id, git: arm.git.info, pr: arm.pr };
+  }
+  return null;
+}
+
 /** WHERE A WORK'S LIVE FILES ARE — the ONE reading of a work's worktree in
  *  the browser: the worktree the work keeps on its own record, which
  *  outlives its terminals, and none for a work kolu has not read one for yet.
@@ -85,21 +131,19 @@ export const workFileName = waterfallFileName;
  *  `null` for one. */
 export function workPlaceOf(
   work: Work,
-  members: ReadonlyArray<WorkMemberRow>,
+  members: ReadonlyArray<MemberLine>,
 ): WorkPlace | null {
   if (work.state.kind !== "open" || work.worktree.kind !== "read") return null;
   const { host, path } = work.worktree;
-  // A member on the worktree's host that is here: the terminal a picture's
-  // address and a comment hang on.
-  const terminal = members
-    .map(({ terminal }) => splitMemberRef(terminal))
-    .find(
-      (one) =>
-        one !== null &&
-        one.host === host &&
-        fleetTerminalStanding(one.host, one.id).kind === "here",
-    );
-  return { host, repoPath: path, terminalId: terminal?.id ?? null };
+  // The terminal a picture's address and a comment hang on: a member
+  // standing in the worktree, by the one rule above.
+  const member = memberInWorktree(host, path, members);
+  return {
+    host,
+    repoPath: path,
+    terminalId: member?.terminalId ?? null,
+    lister: member === null ? "git" : repoLister(member.git),
+  };
 }
 
 /** Where kolu serves the files it kept when a work ended. The shape is the
@@ -114,7 +158,7 @@ export function workFileUrl(work: WorkId, path: string): string {
 export function workFileSource(
   id: WorkId,
   work: Work,
-  members: ReadonlyArray<WorkMemberRow>,
+  members: ReadonlyArray<MemberLine>,
 ): WorkFileSource {
   const place = workPlaceOf(work, members);
   if (place === null) {
@@ -197,8 +241,8 @@ function listLiveFiles(place: WorkPlace): Promise<WorkFilesRead> {
  *  A previewable binary never travels the wire: it is a URL the browser loads
  *  through the host's own file route, with the content hash as its cache key
  *  so an identical rewrite does not reload the image. That route is a
- *  terminal's, so a picture can be shown only while a member terminal on the
- *  worktree's host is here — and says so, rather than drawing nothing. */
+ *  terminal's, so a picture can be shown only while a member terminal stands
+ *  in the worktree — and says so, rather than drawing nothing. */
 function readWorkFile(
   place: WorkPlace,
   path: string,
@@ -207,11 +251,7 @@ function readWorkFile(
   if (isBinaryPreviewable(path)) {
     const terminalId = place.terminalId;
     if (terminalId === null)
-      return Promise.reject(
-        new Error(
-          `${path} is a picture, and no terminal of this work is up on its host to show it through`,
-        ),
-      );
+      return Promise.reject(new Error(noTerminalToFetch(path)));
     return runActionPromise(
       rpc.filePreviewTag({ repoPath: place.repoPath, filePath: path }).pipe(
         Effect.map(

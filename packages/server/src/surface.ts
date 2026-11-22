@@ -84,7 +84,7 @@ import {
   surfaces,
 } from "kolu-common/surface";
 import { koluWireGroup } from "kolu-common/surfacesWithPadi";
-import type { MemberReading } from "kolu-common/works";
+import type { MemberReading, WorkCodeView } from "kolu-common/works";
 import { serverCommit, serverStartedAt, serverVersion } from "./hostname.ts";
 import { log } from "./log.ts";
 import {
@@ -566,6 +566,7 @@ export function implementKoluSurface(deps: KoluSurfaceDeps) {
       works: inMemoryCollection<string, Work>(),
       workMembers: inMemoryCollection<string, WorkMember>(),
       memberReadings: inMemoryCollection<string, MemberReading>(),
+      workCodeViews: inMemoryCollection<string, WorkCodeView>(),
     },
     streams: {
       // THE CONDUCTOR'S TRANSCRIPT — explicit snapshot-then-deltas. The
@@ -622,6 +623,17 @@ export function implementKoluSurface(deps: KoluSurfaceDeps) {
           handOver(() => liveServerConductor().stopWork(input.work, "you")),
         reopenWork: ({ input }: { input: { work: string } }) =>
           handOver(() => liveServerConductor().reopenWork(input.work)),
+        // WHERE A PERSON LEFT A WORK'S CODE VIEW, bound beside them for the
+        // same reason: it writes a record and asks the agent nothing. A work
+        // kolu does not hold is the work's own refusal, carried whole.
+        setWorkCodeView: ({
+          input,
+        }: {
+          input: { work: string; view: WorkCodeView };
+        }) =>
+          handOver(() =>
+            liveServerConductor().setWorkCodeView(input.work, input.view),
+          ),
         // PUTTING A RECORD KOLU CANNOT READ BACK IN A STATE IT CAN, bound
         // here for the third variant of the same reason: it is the one verb
         // that runs BECAUSE there is no conversation. It reaches no agent —
@@ -845,6 +857,11 @@ export function implementKoluSurface(deps: KoluSurfaceDeps) {
           terminal,
           reading,
         );
+    },
+    codeView: (id, view) => {
+      if (view === null)
+        koluSurfaces.ctx.kolu.collections.workCodeViews.remove(id);
+      else koluSurfaces.ctx.kolu.collections.workCodeViews.upsert(id, view);
     },
   });
 

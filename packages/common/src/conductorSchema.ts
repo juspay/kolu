@@ -741,17 +741,18 @@ export const ConductorInstallSchema = Schema.Union([
   }),
 ]);
 
-/** THE FIVE RECORDS A RESTART READS, by name — the `conductor`, `works`,
- *  `members` and `memory` keys of kolu-server's `config.json`, and the
- *  transcript file beside it. The one vocabulary a refusal names a record by
- *  and a recovery names one back: spelled here, on the wire, so the panel's
- *  copy, the procedure's input and the server's switch cannot drift into
- *  three lists. */
+/** THE SIX RECORDS A RESTART READS, by name — the `conductor`, `works`,
+ *  `members`, `memory` and `workCodeViews` keys of kolu-server's
+ *  `config.json`, and the transcript file beside it. The one vocabulary a
+ *  refusal names a record by and a recovery names one back: spelled here, on
+ *  the wire, so the panel's copy, the procedure's input and the server's
+ *  switch cannot drift into three lists. */
 export const ConductorStoreKeySchema = Schema.Literals([
   "conductor",
   "works",
   "members",
   "memory",
+  "workCodeViews",
   "transcript",
 ]);
 export type ConductorStoreKey = typeof ConductorStoreKeySchema.Type;

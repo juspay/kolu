@@ -13186,6 +13186,78 @@
       "exampleRows": [],
       "executions": 1,
       "firstSeenSha": "3653c9ec5d55e37716f1ab4f258567486990c57c"
+    },
+    {
+      "revisionId": "revision-ebb60313647df8be0199",
+      "scenarioKey": "scenario-c969e12c933d9982f023",
+      "feature": "features/conductor-code.feature",
+      "scenario": "A work whose terminals have all gone still shows its tree and its local changes",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "1520c5813afd988fbfe9798aaa4562fdc3e4decc92da51273a47ac1a7a38fb94",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "fa692bac55f7c512dd4e7310a88501396e9293a6"
+    },
+    {
+      "revisionId": "revision-5ea441721c732b13e650",
+      "scenarioKey": "scenario-72afb8f48fb8de7eab07",
+      "feature": "features/conductor-code.feature",
+      "scenario": "The Code view lists the worktree, its local changes and a file, and keeps its place across a reload",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "a99616a7333352f53fe03570fe873a3c57ea27efa22f1158ca12bc53973947ed",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "fa692bac55f7c512dd4e7310a88501396e9293a6"
+    },
+    {
+      "revisionId": "revision-f1c1962a51d27dad9dbd",
+      "scenarioKey": "scenario-ed91090a0074187dc01f",
+      "feature": "features/conductor-code.feature",
+      "scenario": "The work's Code view leaves the Right panel's Code tab where it was",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "0a8e34ed85d4a0c86b3927f19150606154212bd617c9d9ff21253198389148e6",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "fa692bac55f7c512dd4e7310a88501396e9293a6"
+    },
+    {
+      "revisionId": "revision-d415fc2f17813c0e0262",
+      "scenarioKey": "scenario-ccdd45d9433c9d562d2c",
+      "feature": "features/mobile-conductor.feature",
+      "scenario": "On a phone a picked work offers its code, its tree scrolls and a file opens",
+      "kind": "scenario",
+      "tags": ["@mobile"],
+      "bodyHash": "5718dd15afcc9ac7b8a83cb5854def06f675873396855d15205ff8ea1de7ffe5",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "fa692bac55f7c512dd4e7310a88501396e9293a6"
+    },
+    {
+      "revisionId": "revision-bf074fc8aac365e50ffc",
+      "scenarioKey": "scenario-72afb8f48fb8de7eab07",
+      "feature": "features/conductor-code.feature",
+      "scenario": "The Code view lists the worktree, its local changes and a file, and keeps its place across a reload",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "b54e34e42dc7220e570c7955daf84d810d1b5092ded1f2c405f97ebd947e8346",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "20fdd3ec6c937c7c88f0b9e88627ed8fa96aa58b"
+    },
+    {
+      "revisionId": "revision-b3019ff5436febb98294",
+      "scenarioKey": "scenario-ed91090a0074187dc01f",
+      "feature": "features/conductor-code.feature",
+      "scenario": "The work's Code view leaves the Right panel's Code tab where it was",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "969ecea7d85764ab37ce95106af7fec7d6842a882532b3905da987559202fc86",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "897e7abaabe54381ac905eb2094a73b45562d192"
     }
   ]
 }

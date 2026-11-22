@@ -1,10 +1,11 @@
-/** Front door for "open this file:line in the Code tab". Every producer
- *  — terminal-link click, right-click "Open path:N" context-menu entry,
- *  future surfaces — calls `openInCodeTab(...)` instead of writing the
- *  preferences patch and pending-request signal separately. The function
- *  encapsulates the coordinated writes (terminal focus + tab/browse-mode +
- *  visibility uncollapse + pending request) so the SolidJS effect-ordering
- *  invariant lives here, not at every call site.
+/** The Right panel's FRONT door: "open this file:line in the Right panel's
+ *  Code tab", which a terminal link and a deep link call from outside any
+ *  view, and the door the panel's own Code view is handed. Every other Code
+ *  view has a door of its own (`codeDoor.ts`).
+ *
+ *  `openInCodeTab(...)` encapsulates the coordinated writes (terminal focus +
+ *  tab/browse-mode + visibility uncollapse + pending request) so the SolidJS
+ *  effect-ordering invariant lives here, not at every call site.
  *
  *  Visibility (desktop uncollapse / mobile drawer open) is dispatched
  *  imperatively from here rather than via a deferred `createEffect(on(
@@ -15,64 +16,30 @@
  *  `file-ref-link.feature` "re-click after collapse" canary). Driving
  *  visibility from the producer call itself sidesteps that elision
  *  path entirely; the `pendingOpen` signal remains for the *content*
- *  consumer (`CodeTab` re-paints the highlight when the same `ref`
- *  arrives twice).
- *
- *  Latest request wins; callers don't clear it. Each call mints a fresh
- *  request object — two clicks on the same `path:line` are distinct by
- *  reference, which is what lets `CodeTab` tell them apart even when
- *  their `ref` content matches and re-paint the highlight. */
+ *  consumer. */
 
-import type { CodeTabView } from "@kolu/padi-client/surface";
 import type { TerminalId } from "kolu-common/surface";
-import { batch, createSignal } from "solid-js";
+import { type Accessor, batch } from "solid-js";
 import { useTerminalStore } from "../terminal/useTerminalStore";
-import type { LineRef } from "../ui/lineRef";
 import { activeHost } from "../wire";
-import type { OpenInCodeTabRequest } from "./codeTabOpenController";
+import {
+  type CodeDoor,
+  type CodeOpenInput,
+  pendingRequest,
+} from "../code-view/codeDoor";
+import { paneCodeOwner } from "./hostCodeTab";
+import type { OpenInCodeTabRequest } from "../code-view/codeTabOpenController";
 import { useRightPanel } from "./useRightPanel";
 
-export type { OpenInCodeTabRequest } from "./codeTabOpenController";
-
-interface OpenInCodeTabInput {
+interface OpenInCodeTabInput extends CodeOpenInput {
   /** The terminal whose per-terminal selection and history this request owns —
    *  and whose repo the path resolves against. May be a split. */
   terminalId: TerminalId;
-  /** Parsed `path:line[-end]` to navigate to. The path is interpreted
-   *  relative to `terminalId`'s OWN repository (or, when present, cwd-relative
-   *  under it) by `CodeTab` via `resolveRef` — which also recognises a folder
-   *  path and reveals it in the tree instead of opening a file. */
-  ref: LineRef;
-  /** Terminal cwd at the time of the request. Drives the "user typed
-   *  `bar.ts:42` while standing in a subdirectory of the repo" case;
-   *  undefined falls back to repo-relative interpretation only. */
-  cwd?: string;
-  /** Which Code-tab sub-mode the request expects to land in.
-   *  Producers that don't track an authoring mode pass `"browse"`. */
-  targetMode: CodeTabView;
-  /** Whether `CodeTab`'s resolver may fall back to a unique-basename
-   *  match when `ref.path` isn't found exactly. Defaults to true —
-   *  terminal output prints bare basenames (#898). Markdown relative
-   *  links (#1161) pass `false`: a `[guide](docs/guide.md)` href carries
-   *  GitHub-style exact semantics and must open exactly that path or
-   *  fail, never silently open a same-basename file elsewhere. */
-  allowBasenameFallback?: boolean;
 }
 
-// Module-level singleton. Right-panel state is a singleton in Kolu —
-// one panel, one CodeTab — and the navigation request is meant for
-// the unique consumer. If kolu ever mounts multiple CodeTab instances
-// (split panels, multi-window), this signal must move into a
-// SolidJS context or scope to a per-panel store, otherwise concurrent
-// consumers will race on each other's pending requests.
-//
-// `equals: false` forces every `setPending(req)` to notify subscribers
-// regardless of value identity — `CodeTab` re-paints the highlight on
-// every fire, even when the user clicks the same `path:line` twice
-// in a row.
-const [pending, setPending] = createSignal<OpenInCodeTabRequest | null>(null, {
-  equals: false,
-});
+// The Right panel's pending request. One panel, one Code view over it: the
+// request is meant for that view alone (another view has its own door).
+const [pending, setPending] = pendingRequest();
 
 export const pendingOpen = pending;
 
@@ -108,7 +75,7 @@ export function openInCodeTab(req: OpenInCodeTabInput): void {
     allowBasenameFallback: req.allowBasenameFallback,
     scope: {
       host: activeHost(),
-      terminalId: req.terminalId,
+      owner: paneCodeOwner(req.terminalId),
       repoRoot,
       mode: req.targetMode,
     },
@@ -119,4 +86,23 @@ export function openInCodeTab(req: OpenInCodeTabInput): void {
     rp.reveal();
     setPending(request);
   });
+}
+
+/** The Right panel's door, as its Code view is handed it — and as a reader
+ *  that opens into the Right panel hands it on: the panel's one pending
+ *  request, and an open that goes through {@link openInCodeTab} for
+ *  `terminal()`, the pane the view shows. Opening with no pane is a defect
+ *  of the caller, and throws. */
+export function rightPanelCodeDoor(
+  terminal: Accessor<TerminalId | null>,
+): CodeDoor {
+  return {
+    pending: pendingOpen,
+    open: (req) => {
+      const terminalId = terminal();
+      if (terminalId === null)
+        throw new Error("openInCodeTab: no pane to open the file in");
+      openInCodeTab({ ...req, terminalId });
+    },
+  };
 }

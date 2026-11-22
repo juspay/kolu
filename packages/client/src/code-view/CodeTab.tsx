@@ -1,10 +1,27 @@
-/** CodeTab — code review and browsing for the terminal's current repo.
+/** CodeTab — THE Code view, the "Code tab" on screen wherever it is mounted:
+ *  code review and browsing for one root.
  *
  * One file tree, three modes:
  *   - All: full repo (git-filtered) — selecting a file shows its content.
  *   - Local: working tree vs HEAD (uncommitted) — selecting a file shows the diff.
  *   - Branch: working tree vs `merge-base(origin/<default>)` — same, with a
  *     branch base. Forge-agnostic "what this branch will ship".
+ *
+ * The view takes everything it is about as INPUTS, and reads nothing about
+ * them from anywhere else:
+ *   - `subject` — whose place it shows, the host, where git stands, and a
+ *     terminal or none, all from one read by the caller
+ *     (`codeSubject.ts`). With no terminal, the tree, the diffs and text still
+ *     draw; commenting is off, and a picture or a download says in one line
+ *     why it cannot be fetched;
+ *   - `state` — where its place (mode, selected file per mode, history) is
+ *     kept (`codeViewState.ts`);
+ *   - `queries` — its reads, all to the subject's host (`codeQueries.ts`);
+ *   - `door` — its own pending "open this file at this line" request and its
+ *     own way to make one (`codeDoor.ts`).
+ * Whoever mounts it hands it those four. The one thing it reads besides them
+ * is the tree's width: one preference for every Code view, stored with the
+ * Right panel's sizes (`useRightPanel().codeTabTreeSize`).
  *
  * The toolbar combines two independent filter axes — the scope
  * switcher (the shared `SegmentedControl`) and filename input
@@ -19,7 +36,6 @@ import Resizable from "@corvu/resizable";
 import {
   CODE_TAB_VIEW_ORDER,
   type CodeTabView,
-  type TerminalMetadata,
   viewLabel,
 } from "@kolu/padi-client/surface";
 import { attachBackForwardMouse } from "@kolu/solid-browser";
@@ -29,7 +45,6 @@ import { makeEventListener } from "@solid-primitives/event-listener";
 import { Effect } from "effect";
 import { encodeHostKey } from "kolu-common/hostKey";
 import { buildTerminalFileUrl } from "kolu-common/preview";
-import type { TerminalId } from "kolu-common/surface";
 import type { GitDiffMode } from "kolu-git/schemas";
 import {
   batch,
@@ -49,8 +64,7 @@ import { toast } from "solid-sonner";
 import { CommentComposer } from "../comments/CommentComposer";
 import { CommentsTray } from "../comments/CommentsTray";
 import { CommentTextSurface } from "../comments/CommentTextSurface";
-import { useComposer } from "../comments/composerState";
-import { useCommentScrollRequest } from "../comments/scrollRequest";
+import { CommentView, createCommentView } from "../comments/commentView";
 import { triggerDownload } from "../download";
 import { runActionPromise } from "../runAction";
 import { useColorScheme } from "../settings/useColorScheme";
@@ -79,7 +93,7 @@ import SegmentedControl, {
 import { Z_HANDLE_INNER } from "../ui/stackLayers";
 import { requestDeepLinkNavigation } from "../useDeepLinks";
 import { isDesktop, isTouch } from "../useMobile";
-import { activeHost, activePadiRpc } from "../wire";
+import { padiRpcOf } from "../wire";
 import BrowseDiffView from "./BrowseDiffView";
 import BrowseFileDispatcher from "./BrowseFileDispatcher";
 import {
@@ -88,7 +102,9 @@ import {
   diskInventory,
   mergeBrowseInventory,
 } from "./browseInventory";
-import { codeLister } from "./codeLister";
+import type { CodeQueries, ScopedCodePaths } from "./codeQueries";
+import { readFreshCodePaths } from "./codeQueries";
+import { type CodeSubject, noTerminalToFetch } from "./codeSubject";
 import {
   type CodeTabOpenResolutionSource,
   type CodeTabScope,
@@ -97,26 +113,14 @@ import {
   createCodeTabOpenController,
   type OpenInCodeTabRequest,
 } from "./codeTabOpenController";
+import type { BrowserLocation, CodeViewState } from "./codeViewState";
 import FileSearchInput from "./FileSearchInput";
 import { projectFileTreeSearch } from "./fileSearch";
 import type { FileWithSource, FileWithUrl } from "@kolu/solid-fileview";
-import {
-  codeActiveStatus,
-  codeAllPaths,
-  codeDiskRootLevel,
-  leaseCodeQueries,
-  codeBranchStatus,
-  codeDiff,
-  codeFileContent,
-  codeIgnoredPaths,
-  codeLocalStatus,
-  readFreshCodePaths,
-  type ScopedCodePaths,
-} from "./hostCodeTab";
-import { openInCodeTab, pendingOpen } from "./openInCodeTab";
+import type { CodeDoor } from "./codeDoor";
 import { attachPierreTouchScroll } from "./pierreTouchScroll";
 import { setShowIgnoredFiles, showIgnoredFiles } from "./showIgnoredFiles";
-import { type BrowserLocation, useRightPanel } from "./useRightPanel";
+import { useRightPanel } from "../right-panel/useRightPanel";
 
 const EMPTY_STATE: Record<GitDiffMode, string> = {
   local: "No local changes",
@@ -206,17 +210,39 @@ const NavButton: Component<{
 };
 
 const CodeTab: Component<{
-  terminalId: TerminalId | null;
-  meta: TerminalMetadata | null;
+  /** What the view is about — see the header. */
+  subject: CodeSubject;
+  /** Where its place is kept. */
+  state: CodeViewState;
+  /** Its reads, all to the subject's host. */
+  queries: CodeQueries;
+  /** Its own open-request door. */
+  door: CodeDoor;
 }> = (props) => {
   const { themeTypeLiteral: diffTheme } = useColorScheme();
   const shown = useShown();
-  leaseCodeQueries(shown);
+  // The query set is the view's for its whole life: it leases its visibility
+  // on it once, here, and reads every query off that same set.
+  const {
+    localStatus,
+    branchStatus,
+    activeStatus,
+    allPaths,
+    ignoredPaths,
+    diskRootLevel,
+    diff,
+    fileContent,
+    lease,
+  } = props.queries;
+  lease(shown);
+  // The tree's width is ONE preference every Code view shares, not part of a
+  // view's place.
   const rightPanel = useRightPanel();
   const treeSizes = controlledSizes(() => [
     rightPanel.codeTabTreeSize(),
     1 - rightPanel.codeTabTreeSize(),
   ]);
+  const terminalId = () => props.subject.terminalId;
 
   // Coarse-pointer modality (`isTouch`, the input axis — not the `layoutMode`
   // size/fork axis): roomier rows are a tap-target affordance, so a
@@ -235,8 +261,8 @@ const CodeTab: Component<{
   // fallback `"local"` while Inspector is active, then back on return —
   // a real value transition that fires the `slotKey` effect and
   // wipes selection on every Inspector round-trip in non-local modes.
-  const view = rightPanel.codeMode;
-  const setView = rightPanel.setCodeMode;
+  const view = () => props.state.codeMode();
+  const setView = (mode: CodeTabView) => props.state.setCodeMode(mode);
 
   // Tree right-click menu: "Copy path" and "Download", plus view-switch
   // entries (All files ⇄ Local / Branch diff). Built once — the hooks are read
@@ -279,136 +305,123 @@ const CodeTab: Component<{
     // object literal itself is built now).
     gitStatus: () => treeGitStatus(),
     // Save the row's bytes under its base name, through the same per-terminal
-    // file route the preview pipeline streams from (so a remote host's file is
-    // read on THAT host, not the local default). The download must be triggered
+    // file route the preview pipeline streams from — on the SUBJECT's host, so
+    // a remote host's file is read on THAT host, not the local default. The
+    // route is a terminal's, so with no terminal in the subject there is no
+    // address, and the menu says so. The download must be triggered
     // synchronously inside the click — an `await` here would spend the user
     // gesture and the browser could refuse the save.
     download: (path) => {
-      const scope = currentScope();
-      if (scope === null) {
+      const id = terminalId();
+      if (id === null) {
         // Surfaced, not swallowed: the menu's click handler closes on return,
         // so a failure here would otherwise leave the user with nothing at all.
-        toast.error(`Failed to download ${path}: no active terminal`);
+        toast.error(noTerminalToFetch(path));
         return;
       }
       triggerDownload(
-        buildTerminalFileUrl(encodeHostKey(scope.host), scope.terminalId, path),
+        buildTerminalFileUrl(encodeHostKey(props.subject.host), id, path),
         path.slice(path.lastIndexOf("/") + 1),
       );
     },
   });
 
-  // Where the shown terminal stands with git: still being sensed, outside any
-  // repo, or in one. With no terminal shown there is no repo either. The
-  // empty-state copy and `syncRepo` below both tell "not checked yet" apart
-  // from "not a repo".
-  const gitKind = () => props.meta?.git.kind ?? "none";
+  // Where the subject stands with git: still being sensed, outside any repo,
+  // or in one. The empty-state copy tells "not checked yet" apart from "not a
+  // repo".
+  const gitKind = () => props.subject.git.kind;
   // The repo root to browse, or `null` when there is nothing to browse yet or
   // at all — every consumer of a root needs a root, whichever case it is.
   const repoPath = () => {
-    const git = props.meta?.git;
-    return git?.kind === "repo" ? git.info.repoRoot : null;
+    const git = props.subject.git;
+    return git.kind === "repo" ? git.root : null;
   };
   // Who lists that root — git, or the disk when git cannot (a bare
-  // repository's folder). Disk mode is browse-only (`useRightPanel.codeMode`
-  // answers "browse" there), has no scope switch or eye toggle, and builds its
-  // tree from one level per opened folder.
-  const lister = () => codeLister(props.meta?.git);
+  // repository's folder). Disk mode is browse-only (the state's `codeMode`
+  // answers "browse" there, through `codeModeFor`), has no scope switch or eye
+  // toggle, and builds its tree from one level per opened folder.
+  const lister = () => {
+    const git = props.subject.git;
+    return git.kind === "repo" ? git.lister : null;
+  };
   const readsFromDisk = () => lister() === "disk";
-
-  // History records repo-relative `{ mode, path }` locations with no repo
-  // identity of their own, so a stack captured in repo A must not be replayed
-  // against repo B after a `cd`. `syncRepo` drops a terminal's history whenever
-  // *that same terminal's* repo changes — back/forward then only ever retraces
-  // locations from the repo currently shown, and the next selection re-seeds the
-  // fresh stack.
-  //
-  // `CodeTab` is a singleton over the FOCUSED PANE, so this effect only ever
-  // feeds `syncRepo` the *shown* pane's `(id, repo)`. The reset decision
-  // can't live here as a compare-against-previous-tick: `repoPath()` shifts on
-  // both a `cd` (genuine transition) and a plain pane switch (NOT a
-  // transition), and — the case a previous-tick compare misses entirely — a
-  // terminal's repo can change while it is UNFOCUSED (its PTY `cd`s while another
-  // pane is shown). `syncRepo` owns the call: it keys the comparison per
-  // terminal (`history.get(id).lastRepo`), so the stale repo is caught the moment that
-  // terminal next becomes focused, while a freshly-switched-to terminal in a
-  // different repo keeps its own history. The first call per terminal just
-  // records the baseline, so a session-restored stack survives initial mount.
-  // While git is still unresolved there is no repo to record: recording "no
-  // repo" then would make the first real answer look like a repo change and
-  // drop the restored stack.
-  createEffect(
-    on(
-      () => [props.terminalId, gitKind(), repoPath()] as const,
-      ([tid, kind, repo]) => {
-        if (tid === null || kind === "unresolved") return;
-        rightPanel.syncRepo(tid, repo);
-      },
-    ),
-  );
-
   const isDiffView = () => view() !== "browse";
   const diffMode = (): GitDiffMode | undefined =>
     view() === "browse" ? undefined : (view() as GitDiffMode);
 
-  // Selection is per-pane, keyed by mode, stored in
-  // `TerminalMetadata.rightPanel.selectedFileByMode` via `useRightPanel`.
-  // Each (pane, mode) slot owns its own pick — switching modes within
-  // a pane restores that mode's last file; switching panes (main ⇄ split)
-  // restores that pane's last (file, mode) pair.
+  // Selection is per owner, keyed by mode, kept by the state (the Right
+  // panel's in `TerminalMetadata.rightPanel.selectedFileByMode`, per pane).
+  // Each (owner, mode) slot owns its own pick — switching modes restores that
+  // mode's last file; switching panes (main ⇄ split) restores that pane's last
+  // (file, mode) pair.
   //
   // The complete Code-tab owner is one value. Navigation requests, async
-  // completion guards, and slot resets all use this same host + pane + repo
+  // completion guards, and slot resets all use this same host + owner + repo
   // + mode identity, so switching between equivalent-looking pane slots
-  // still retires terminal-scoped work.
+  // still retires owner-scoped work. The owner and the root come from the
+  // SAME subject — one read by the caller — never an owner from one source
+  // joined with a root from another.
   const currentScope = (): CodeTabScope | null => {
-    const terminalId = props.terminalId;
+    const owner = props.subject.owner;
     const repoRoot = repoPath();
-    if (terminalId === null || repoRoot === null) return null;
+    if (owner === null || repoRoot === null) return null;
     return {
-      host: activeHost(),
-      terminalId,
+      host: props.subject.host,
+      owner,
       repoRoot,
       mode: view(),
     };
   };
-  const commentContext = createMemo(() => {
-    const terminalId = props.terminalId;
-    const repoRoot = repoPath();
-    return terminalId === null || repoRoot === null
+  /** WHERE A FILE'S BYTES AND ITS COMMENTS BELONG — the subject's host and
+   *  terminal, or `null` with no terminal: then a text file still draws and
+   *  only commenting is off. */
+  const fileAt = createMemo(() => {
+    const id = terminalId();
+    return id === null
       ? null
-      : { terminalId, repoRoot };
+      : { host: encodeHostKey(props.subject.host), terminalId: id };
   });
-  /** THE SELECTED FILE, as the viewer takes it — the retained query's wire
-   *  variant projected onto `@kolu/solid-fileview`'s two shapes.
+  /** THE SELECTED FILE, as the viewer takes it — the query's wire variant
+   *  projected onto `@kolu/solid-fileview`'s two shapes.
    *
    *  The URL for a binary is built HERE, where the terminal is read, and not
    *  in the query: the query is keyed on (repo, file) so a focus move between
    *  two panes showing the same file never blanks the view, and the terminal
-   *  named in the URL therefore has to come from the pane being SHOWN — a URL
-   *  left naming a pane that has since closed would 404 the preview. `?v=` is
-   *  the content hash, so a real change reloads the img/iframe while an
-   *  identical-content rewrite does not. */
+   *  named in the URL therefore has to come from the subject being SHOWN — a
+   *  URL left naming a pane that has since closed would 404 the preview. `?v=`
+   *  is the content hash, so a real change reloads the img/iframe while an
+   *  identical-content rewrite does not. With no terminal there is no URL to
+   *  build; {@link browseError} says why. */
   const browseFile = createMemo((): FileWithSource | FileWithUrl | null => {
-    const content = codeFileContent();
-    const at = commentContext();
-    const path = rightPanel.selectedFile("browse");
-    if (content === undefined || at === null || path === null) return null;
-    return content.kind === "text"
-      ? {
-          path,
-          source: { content: content.content, truncated: content.truncated },
-        }
+    const content = fileContent();
+    const path = props.state.selectedFile("browse");
+    if (content === undefined || path === null) return null;
+    if (content.kind === "text")
+      return {
+        path,
+        source: { content: content.content, truncated: content.truncated },
+      };
+    const at = fileAt();
+    return at === null
+      ? null
       : {
           path,
-          url: `${buildTerminalFileUrl(
-            encodeHostKey(activeHost()),
-            at.terminalId,
-            path,
-          )}?v=${content.previewTag}`,
+          url: `${buildTerminalFileUrl(at.host, at.terminalId, path)}?v=${content.previewTag}`,
         };
   });
-  const selectedPath = (): string | null => rightPanel.selectedFile(view());
+  /** Why the selected file is not drawn: the read failed, or it is bytes only
+   *  a terminal's route can fetch and the subject has none. */
+  const browseError = createMemo((): Error | undefined => {
+    const failed = fileContent.error();
+    if (failed !== undefined) return failed;
+    const path = props.state.selectedFile("browse");
+    return path !== null &&
+      fileContent()?.kind === "binary" &&
+      fileAt() === null
+      ? new Error(noTerminalToFetch(path))
+      : undefined;
+  });
+  const selectedPath = (): string | null => props.state.selectedFile(view());
   // The single selection funnel: set the shown file AND record it in history.
   // Recording can never drift from selection because they are one call —
   // routing every selection-mutation site through here replaces the old
@@ -423,9 +436,9 @@ const CodeTab: Component<{
       record?: boolean;
     },
   ) => {
-    rightPanel.setSelectedFile(mode, path);
+    props.state.setSelectedFile(mode, path);
     if (opts?.record === false || path === null) return;
-    rightPanel.recordNavigation({ mode, path, ref: opts?.ref });
+    props.state.recordNavigation({ mode, path, ref: opts?.ref });
   };
   const repoSlotKey = createMemo(() => codeTabRepoSlotKey(currentScope()));
 
@@ -441,15 +454,20 @@ const CodeTab: Component<{
   // incidental invalidation (a same-repo active-terminal *clock* tick
   // re-evaluates `repoPath()` to the same string). A primitive-string memo (the
   // `repoSlotKey` precedent above) notifies only on a real navigation. `terminalId`
-  // is in the key because a comment saves against the ACTIVE terminal: switching
-  // to another terminal (or host — a terminal is host-bound) at the same file
-  // must drop the draft, per composerState.ts's host-independent contract, even
-  // when repo/file/mode coincide. `\0` separators keep the key collision-safe
-  // without embedding literal NUL bytes in the source.
-  const composer = useComposer();
+  // is in the key because a comment saves against the subject's terminal:
+  // switching to another terminal (or host — a terminal is host-bound) at the
+  // same file must drop the draft even when repo/file/mode coincide. `\0`
+  // separators keep the key collision-safe without embedding literal NUL bytes
+  // in the source.
+  //
+  // The draft is THIS view's own (`createCommentView`), provided to every
+  // surface drawn inside it — so this close drops this view's draft only, and
+  // another Code view or reader mounted at the same time keeps its own.
+  const comments = createCommentView();
+  const composer = comments.composer;
   const composerAnchor = createMemo(
     () =>
-      `${props.terminalId ?? ""}\0${selectedPath() ?? ""}\0${view()}\0${repoPath() ?? ""}`,
+      `${terminalId() ?? ""}\0${selectedPath() ?? ""}\0${view()}\0${repoPath() ?? ""}`,
   );
   createEffect(on(composerAnchor, () => composer.close(), { defer: true }));
 
@@ -478,36 +496,29 @@ const CodeTab: Component<{
   // value is already correct without writing through. slotKey effect now
   // only clears `searchQuery`, which is genuinely shared across slots.)
 
-  // The three git status streams, the browse file list, and the diff are RETAINED
-  // per host in `hostCodeTab` (padi W9): each name below is a STABLE window over the
-  // active host's own retained instance, so a switch-BACK — and a `canvasMode`
-  // round-trip that unmounts this tab — reads the held value with no blank and no
-  // `pending` window. Only the OWNER moved out of this component; the local names are
-  // kept verbatim so every reader below (`treeGitStatus`, `scopeSegments`, the diff
-  // Match, the selection-stability effects, `status`/`statusPending`/`statusError`) is
-  // unchanged. `localStatus`/`branchStatus` stay warm whenever there's a repo (Local /
+  // The three git status streams, the browse file list, and the diff come from
+  // the query set this view was handed — for the Right panel, STABLE windows
+  // over the shown host's RETAINED set (`hostCodeTab`, padi W9), so a
+  // switch-BACK — and a `canvasMode` round-trip that unmounts this tab — reads
+  // the held value with no blank and no `pending` window. The local names are
+  // the readers' (`treeGitStatus`, `scopeSegments`, the diff Match, the
+  // selection-stability effects, `status`/`statusPending`/`statusError`).
+  // `localStatus`/`branchStatus` stay warm whenever there's a repo (Local /
   // Branch badges, base/ref, browse overlay); in Branch, the un-fetched-base
   // `WorktreeBaseBranchMissing` raises no toast from the passive `branchStatus`
   // but shows its sentence in this view's error banner. `activeStatus`
   // is the view-keyed active read — entering Branch performs a fresh read, never a stale
-  // error. The queries' INPUTS live in `hostCodeTab` (read off the active projection);
-  // this component now only READS their values and WRITES selection.
-  const localStatus = codeLocalStatus;
-  const branchStatus = codeBranchStatus;
-  const activeStatus = codeActiveStatus;
-  const allPaths = codeAllPaths;
-  const ignoredPaths = codeIgnoredPaths;
-  const diskRootLevel = codeDiskRootLevel;
-  const diff = codeDiff;
+  // error. The queries' INPUTS are the caller's (subject + state); this
+  // component only READS their values and WRITES selection.
   const status = () => activeStatus();
   const statusPending = () => activeStatus.pending();
   const statusError = () => activeStatus.error();
 
   // Clear the filename filter when the REPO SLOT changes — the search needle
   // was scoped to the previous file set and rarely makes sense post-switch.
-  // Selection itself is per-pane (read/written via
-  // `rightPanel.selectedFile(mode)` → `selectedFileByMode` on the
-  // per-terminal record) so the new view automatically surfaces its own
+  // Selection itself is per owner (read/written via
+  // `props.state.selectedFile(mode)` → the owner's per-mode record) so the
+  // new view automatically surfaces its own
   // pick without a clear here. The key deliberately excludes the terminal: the
   // filter, the reveal, the lazy folder levels and the tree's expansion are all
   // facts about the REPO, so moving focus between two panes of one repo keeps
@@ -551,9 +562,9 @@ const CodeTab: Component<{
     ),
   );
 
-  // Highlight-session record for the latest handled pendingOpen tick. Holds
+  // Highlight-session record for the latest handled door request. Holds
   // the full request object (reference identity discriminates two
-  // structurally-identical clicks — `openInCodeTab` mints a fresh object per
+  // structurally-identical clicks — every door mints a fresh object per
   // call) alongside the resolved path. Storing the request here lets
   // `selectedRange` derive its value without re-running `resolveRef`
   // (single resolution site per request). Reset by a manual tree-click to a
@@ -588,8 +599,8 @@ const CodeTab: Component<{
   // expand read back so the merge can substitute it for the collapsed key. On a
   // folder git cannot list, every folder is such a directory.
   //
-  // Deliberately NOT a `createPolledQuery` beside the two listings in
-  // `hostCodeTab`: those are keyed by REPO and refreshed by the repo-change
+  // Deliberately NOT a `createPolledQuery` beside the two listings in the
+  // query set: those are keyed by REPO and refreshed by the repo-change
   // pulse, whereas this is keyed by DIRECTORY and driven by a click. The
   // watcher's ignore set is built from `listIgnored`, so an ignored path emits
   // no pulse by construction — there is no pulse to ride, and inventing one
@@ -635,44 +646,46 @@ const CodeTab: Component<{
     const ctl = new AbortController();
     inFlight.set(dirPath, ctl);
     return runActionPromise(
-      activePadiRpc.fs.listDirectory({ repoPath: p, dirPath }).pipe(
-        Effect.tap((result) =>
-          Effect.sync(() => {
-            if (ctl.signal.aborted) return;
-            // A fresh Map per write: the merge memo reads this by reference, and
-            // an in-place `set` would leave the tree painting the previous level.
-            setLoadedChildren((prev) =>
-              new Map(prev).set(dirPath, result.paths),
-            );
-          }),
+      padiRpcOf(props.subject.host)
+        .fs.listDirectory({ repoPath: p, dirPath })
+        .pipe(
+          Effect.tap((result) =>
+            Effect.sync(() => {
+              if (ctl.signal.aborted) return;
+              // A fresh Map per write: the merge memo reads this by reference, and
+              // an in-place `set` would leave the tree painting the previous level.
+              setLoadedChildren((prev) =>
+                new Map(prev).set(dirPath, result.paths),
+              );
+            }),
+          ),
+          Effect.tapError((err) =>
+            Effect.sync(() => {
+              // A superseded read owns no outcome — neither the write nor the
+              // toast, since a failure that belongs to a repo the user has already
+              // left is not theirs to see.
+              if (ctl.signal.aborted) return;
+              toast.error(`Failed to list ${dirPath}: ${toError(err).message}`);
+            }),
+          ),
+          // The failure PROPAGATES (this rejects the promise) so `<FileTree>`
+          // forgets the expansion it recorded: without that the folder stays
+          // open-and-empty for the rest of the mount with no way to refetch short
+          // of collapsing it by hand.
+          Effect.asVoid,
+          // `ensuring`, so this also runs when the fiber is INTERRUPTED — the case
+          // a `.finally` on a promise Effect had already stopped awaiting would
+          // have missed. Retire this read's own entry, guarded on identity so a
+          // newer read for the same directory keeps its controller. Without it the
+          // map only ever shrank on a repo switch, so browsing many ignored
+          // folders in one repo accumulated a settled entry per directory for the
+          // life of the session.
+          Effect.ensuring(
+            Effect.sync(() => {
+              if (inFlight.get(dirPath) === ctl) inFlight.delete(dirPath);
+            }),
+          ),
         ),
-        Effect.tapError((err) =>
-          Effect.sync(() => {
-            // A superseded read owns no outcome — neither the write nor the
-            // toast, since a failure that belongs to a repo the user has already
-            // left is not theirs to see.
-            if (ctl.signal.aborted) return;
-            toast.error(`Failed to list ${dirPath}: ${toError(err).message}`);
-          }),
-        ),
-        // The failure PROPAGATES (this rejects the promise) so `<FileTree>`
-        // forgets the expansion it recorded: without that the folder stays
-        // open-and-empty for the rest of the mount with no way to refetch short
-        // of collapsing it by hand.
-        Effect.asVoid,
-        // `ensuring`, so this also runs when the fiber is INTERRUPTED — the case
-        // a `.finally` on a promise Effect had already stopped awaiting would
-        // have missed. Retire this read's own entry, guarded on identity so a
-        // newer read for the same directory keeps its controller. Without it the
-        // map only ever shrank on a repo switch, so browsing many ignored
-        // folders in one repo accumulated a settled entry per directory for the
-        // life of the session.
-        Effect.ensuring(
-          Effect.sync(() => {
-            if (inFlight.get(dirPath) === ctl) inFlight.delete(dirPath);
-          }),
-        ),
-      ),
       ctl.signal,
     );
   };
@@ -730,7 +743,7 @@ const CodeTab: Component<{
   // slots or reconstruct supersession in promise callbacks.
   createCodeTabOpenController({
     snapshot: () => ({
-      request: pendingOpen(),
+      request: props.door.pending(),
       scope: currentScope(),
       inventoryScope: treeInventory().scope,
       paths: treePaths(),
@@ -787,7 +800,7 @@ const CodeTab: Component<{
   //
   // No `equals` override: two clicks on the same `path:line` produce
   // structurally identical `{start, end}` but distinct request
-  // objects (`openInCodeTab` mints a fresh one per call), so the
+  // objects (every open on a door mints a fresh one), so the
   // memo emits a fresh value on every click. Pierre's
   // `InteractionManager.setSelection` re-renders when the selection
   // is "dirty" — and tearing down the gutter (panel collapse,
@@ -799,7 +812,7 @@ const CodeTab: Component<{
     start: number;
     end: number;
   } | null>(() => {
-    const req = pendingOpen();
+    const req = props.door.pending();
     if (!req) return null;
     const h = handled();
     if (!h || h.request !== req || h.resolvedPath === null) return null;
@@ -980,7 +993,9 @@ const CodeTab: Component<{
         const { paths, pending: isPending } = treeInventory();
         const fresh = freshSelection();
         const freshPath =
-          fresh !== null && fresh.request === pendingOpen() ? fresh.path : null;
+          fresh !== null && fresh.request === props.door.pending()
+            ? fresh.path
+            : null;
         return {
           s,
           sk,
@@ -1050,19 +1065,17 @@ const CodeTab: Component<{
   };
 
   // Re-apply a history location on back/forward. A location carrying a line
-  // ref is re-issued through the same front door a terminal `path:N` click
-  // uses, so the existing resolve → `handled` → `selectedRange` pipeline
+  // ref is re-issued through this view's own door — the same pipeline a
+  // terminal `path:N` click takes — so the existing resolve → `handled` →
+  // `selectedRange` pipeline
   // repaints the line (cheap-v1 "restore where you were"); a plain selection
   // just moves the mode + file. Either way the `recordNavigation` these
   // re-applies trigger is idempotent on mode+path, so re-applying never
   // deepens or forks history — the cursor stays where back()/forward() left it.
   const applyLocation = (loc: BrowserLocation) => {
     if (loc.ref && loc.path !== null) {
-      const repo = repoPath();
-      const terminalId = props.terminalId;
-      if (repo === null || terminalId === null) return;
-      openInCodeTab({
-        terminalId,
+      if (repoPath() === null) return;
+      props.door.open({
         ref: {
           path: loc.path,
           startLine: loc.ref.startLine,
@@ -1077,11 +1090,11 @@ const CodeTab: Component<{
     select(loc.mode, loc.path, { record: false });
   };
   const goBack = () => {
-    const loc = rightPanel.navigateBack();
+    const loc = props.state.navigateBack();
     if (loc) applyLocation(loc);
   };
   const goForward = () => {
-    const loc = rightPanel.navigateForward();
+    const loc = props.state.navigateForward();
     if (loc) applyLocation(loc);
   };
   // Browser-style back/forward, scoped to the Code tab via imperative listeners
@@ -1217,525 +1230,524 @@ const CodeTab: Component<{
   });
 
   return (
-    <Show
-      when={repoPath()}
-      fallback={
-        // Unresolved stays blank: saying "Not in a git repository" before git
-        // has answered would be a guess.
-        <Show
-          when={gitKind() === "none"}
-          fallback={<div class="h-full" data-testid="diff-git-unresolved" />}
-        >
-          <div
-            class="flex flex-col items-center justify-center h-full text-fg-3/40 gap-2 text-[11px]"
-            data-testid="diff-no-repo"
+    <CommentView.Provider value={comments}>
+      <Show
+        when={repoPath()}
+        fallback={
+          // Unresolved stays blank: saying "Not in a git repository" before git
+          // has answered would be a guess.
+          <Show
+            when={gitKind() === "none"}
+            fallback={<div class="h-full" data-testid="diff-git-unresolved" />}
           >
-            <GitBranchIcon class="w-8 h-8 opacity-40" />
-            Not in a git repository
-          </div>
-        </Show>
-      }
-    >
-      <div
-        class="flex flex-col h-full min-h-0 text-[11px]"
-        data-testid="diff-tab"
-        ref={attachBackForwardInputs}
+            <div
+              class="flex flex-col items-center justify-center h-full text-fg-3/40 gap-2 text-[11px]"
+              data-testid="diff-no-repo"
+            >
+              <GitBranchIcon class="w-8 h-8 opacity-40" />
+              Not in a git repository
+            </div>
+          </Show>
+        }
       >
-        {/* Toolbar grows roomier on a coarse pointer (back/fwd + each scope
-         *  segment clear the WCAG 2.2 24px tap floor); `overflow-x-auto`
-         *  +`scrollbar-none` is a clip safety net for the narrowest phones,
-         *  where the segments + filter can't all fit the drawer width. */}
         <div
-          data-touch={isTouch() || undefined}
-          class="group/toolbar flex items-center h-7 data-[touch=true]:h-10 px-1.5 bg-surface-1/30 border-b border-edge shrink-0 gap-2 overflow-x-auto scrollbar-none"
+          class="flex flex-col h-full min-h-0 text-[11px]"
+          data-testid="diff-tab"
+          ref={attachBackForwardInputs}
         >
-          <div class="flex items-center gap-0.5 shrink-0">
-            <NavButton
-              direction="back"
-              disabled={!rightPanel.canNavigateBack()}
-              onClick={goBack}
-            />
-            <NavButton
-              direction="forward"
-              disabled={!rightPanel.canNavigateForward()}
-              onClick={goForward}
-            />
-          </div>
-          <Show when={!readsFromDisk()}>
-            <SegmentedControl
-              options={scopeSegments()}
-              value={view()}
-              onChange={setView}
-              testIdPrefix="diff-mode"
-              ariaRole="toolbar"
-              ariaLabel="File scope"
-              dataMode
+          {/* Toolbar grows roomier on a coarse pointer (back/fwd + each scope
+           *  segment clear the WCAG 2.2 24px tap floor); `overflow-x-auto`
+           *  +`scrollbar-none` is a clip safety net for the narrowest phones,
+           *  where the segments + filter can't all fit the width the view is
+           *  given (a phone's drawer, a picked work on a phone). */}
+          <div
+            data-testid="code-tab-toolbar"
+            data-touch={isTouch() || undefined}
+            class="group/toolbar flex items-center h-7 data-[touch=true]:h-10 px-1.5 bg-surface-1/30 border-b border-edge shrink-0 gap-2 overflow-x-auto scrollbar-none"
+          >
+            <div class="flex items-center gap-0.5 shrink-0">
+              <NavButton
+                direction="back"
+                disabled={!props.state.canNavigateBack()}
+                onClick={goBack}
+              />
+              <NavButton
+                direction="forward"
+                disabled={!props.state.canNavigateForward()}
+                onClick={goForward}
+              />
+            </div>
+            <Show when={!readsFromDisk()}>
+              <SegmentedControl
+                options={scopeSegments()}
+                value={view()}
+                onChange={setView}
+                testIdPrefix="diff-mode"
+                ariaRole="toolbar"
+                ariaLabel="File scope"
+                dataMode
+                touch={isTouch()}
+              />
+            </Show>
+            <FileSearchInput
+              value={searchQuery()}
+              onChange={setSearchQuery}
               touch={isTouch()}
             />
-          </Show>
-          <FileSearchInput
-            value={searchQuery()}
-            onChange={setSearchQuery}
-            touch={isTouch()}
-          />
-          {/* Show-ignored toggle — browse only (the diff modes list changed
-           *  files, where gitignored paths can't appear). Device-local pref;
-           *  flipping it arms the SEPARATE fs.listIgnored query in
-           *  `hostCodeTab` — fs.listAll is untouched, so the mounted tree keeps
-           *  its expansion and scroll. */}
-          <Show when={view() === "browse" && !readsFromDisk()}>
-            <ToolbarIconButton
-              testId="code-tab-show-ignored-toggle"
-              label="Show gitignored files"
-              title={
-                showIgnoredFiles()
-                  ? "Hide gitignored files"
-                  : "Show gitignored files"
-              }
-              pressed={showIgnoredFiles()}
-              onClick={() => setShowIgnoredFiles((v) => !v)}
-            >
-              <EyeIcon class="h-3.5 w-3.5" />
-            </ToolbarIconButton>
-          </Show>
-        </div>
-
-        <Show when={readsFromDisk()}>
-          <div
-            class="shrink-0 border-b border-edge bg-surface-1/30 px-2 py-1 text-fg-3"
-            data-testid="code-tab-disk-notice"
-          >
-            <span class="font-semibold text-fg-2">Bare repository.</span> Git
-            has no file list for this folder, so kolu reads it from disk, one
-            folder at a time.{" "}
-            <DocLink slug="code-tab" anchor="a-folder-git-cannot-list">
-              Learn more
-            </DocLink>
+            {/* Show-ignored toggle — browse only (the diff modes list changed
+             *  files, where gitignored paths can't appear). Device-local pref;
+             *  flipping it arms the SEPARATE fs.listIgnored query in
+             *  `hostCodeTab` — fs.listAll is untouched, so the mounted tree keeps
+             *  its expansion and scroll. */}
+            <Show when={view() === "browse" && !readsFromDisk()}>
+              <ToolbarIconButton
+                testId="code-tab-show-ignored-toggle"
+                label="Show gitignored files"
+                title={
+                  showIgnoredFiles()
+                    ? "Hide gitignored files"
+                    : "Show gitignored files"
+                }
+                pressed={showIgnoredFiles()}
+                onClick={() => setShowIgnoredFiles((v) => !v)}
+              >
+                <EyeIcon class="h-3.5 w-3.5" />
+              </ToolbarIconButton>
+            </Show>
           </div>
-        </Show>
 
-        {/* Vertical split between tree and content. Mirrors the horizontal
-         *  split that the desktop host wires up in `App.tsx` — same
-         *  `@corvu/resizable` shell, vertical orientation. Split fraction
-         *  persists via `rightPanel.codeTabTreeSize` so reload restores
-         *  the user's layout. */}
-        <Resizable
-          orientation="vertical"
-          sizes={treeSizes()}
-          onSizesChange={(sizes) => {
-            const s = realSizes(sizes);
-            if (s) rightPanel.setCodeTabTreeSize(s[0]);
-          }}
-          class="flex-1 min-h-0 overflow-hidden"
-        >
-          <Resizable.Panel
-            as="div"
-            data-testid="diff-file-list"
-            // Pierre renders its scroller inside a shadow root. The mobile
-            // right-panel host is a Corvu bottom-sheet drawer that walks up
-            // from the event target looking for a `data-corvu-no-drag` opt-out
-            // before claiming a vertical drag as a sheet-dismiss; without it,
-            // Corvu eats every drag and the tree can't scroll. So this is
-            // necessary — but NOT sufficient on real hardware: with Corvu out
-            // of the way, iOS Safari's own native scroll still can't reach the
-            // shadow-rooted scroller below the portaled drawer. The manual
-            // touch-scroll driver below closes that gap. Inert on desktop (no
-            // Corvu drawer there). The sibling diff panel scrolls fine — its
-            // `overflow-auto` is a light-DOM scroller Corvu can see.
-            data-corvu-no-drag=""
-            class="min-h-0 border-b border-edge"
-            minSize={0.1}
+          <Show when={readsFromDisk()}>
+            <div
+              class="shrink-0 border-b border-edge bg-surface-1/30 px-2 py-1 text-fg-3"
+              data-testid="code-tab-disk-notice"
+            >
+              <span class="font-semibold text-fg-2">Bare repository.</span> Git
+              has no file list for this folder, so kolu reads it from disk, one
+              folder at a time.{" "}
+              <DocLink slug="code-tab" anchor="a-folder-git-cannot-list">
+                Learn more
+              </DocLink>
+            </div>
+          </Show>
+
+          {/* Vertical split between tree and content. Mirrors the horizontal
+           *  split that the desktop host wires up in `App.tsx` — same
+           *  `@corvu/resizable` shell, vertical orientation. Split fraction
+           *  persists via `rightPanel.codeTabTreeSize` so reload restores
+           *  the user's layout. */}
+          <Resizable
+            orientation="vertical"
+            sizes={treeSizes()}
+            onSizesChange={(sizes) => {
+              const s = realSizes(sizes);
+              if (s) rightPanel.setCodeTabTreeSize(s[0]);
+            }}
+            class="flex-1 min-h-0 overflow-hidden"
           >
-            <div class="relative h-full w-full">
-              <Show when={treeError()}>
-                {(err) => (
-                  <div
-                    class="absolute inset-x-0 top-0 z-10 bg-surface-0 px-2 py-1 text-danger"
-                    data-testid="diff-error"
-                  >
-                    Error: {err().message}
+            <Resizable.Panel
+              as="div"
+              data-testid="diff-file-list"
+              // Pierre renders its scroller inside a shadow root. The mobile
+              // right-panel host is a Corvu bottom-sheet drawer that walks up
+              // from the event target looking for a `data-corvu-no-drag` opt-out
+              // before claiming a vertical drag as a sheet-dismiss; without it,
+              // Corvu eats every drag and the tree can't scroll. So this is
+              // necessary — but NOT sufficient on real hardware: with Corvu out
+              // of the way, iOS Safari's own native scroll still can't reach the
+              // shadow-rooted scroller below the portaled drawer. The manual
+              // touch-scroll driver below closes that gap. Inert on desktop (no
+              // Corvu drawer there). The sibling diff panel scrolls fine — its
+              // `overflow-auto` is a light-DOM scroller Corvu can see.
+              data-corvu-no-drag=""
+              class="min-h-0 border-b border-edge"
+              minSize={0.1}
+            >
+              <div class="relative h-full w-full">
+                <Show when={treeError()}>
+                  {(err) => (
+                    <div
+                      class="absolute inset-x-0 top-0 z-10 bg-surface-0 px-2 py-1 text-danger"
+                      data-testid="diff-error"
+                    >
+                      Error: {err().message}
+                    </div>
+                  )}
+                </Show>
+                <Show when={!treeReady() && !treeError()}>
+                  <div class="absolute inset-x-0 top-0 z-10 bg-surface-0 px-2 py-1 text-fg-3/50">
+                    Loading…
                   </div>
+                </Show>
+                <Show
+                  when={treeReady() && treePaths().length === 0 && !treeError()}
+                >
+                  <div
+                    class="absolute inset-x-0 top-0 z-10 bg-surface-0 px-2 py-4 text-fg-3/50 text-center"
+                    data-testid="diff-empty"
+                  >
+                    {diffMode()
+                      ? branchViewHasNoBase()
+                        ? NO_BRANCH_BASE
+                        : EMPTY_STATE[diffMode()!]
+                      : readsFromDisk()
+                        ? "Empty folder"
+                        : "Empty repository"}
+                  </div>
+                </Show>
+                <For each={CODE_TAB_VIEW_ORDER}>
+                  {(mode) => {
+                    // A mode owns its tree, scroll and expansion. Freeze its input
+                    // while hidden or awaiting a new answer; never swap another
+                    // mode's inventory into this instance.
+                    const frame = createMemo(
+                      (
+                        previous:
+                          | {
+                              paths: string[];
+                              expanded: readonly string[];
+                              gitStatus: ReturnType<typeof treeGitStatus>;
+                              selected: string | null;
+                              reveal: ReturnType<typeof revealDir>;
+                              lazy: readonly string[];
+                              epoch: string | null;
+                              css: string;
+                            }
+                          | undefined,
+                      ) =>
+                        view() === mode && treeReady() && !treeError()
+                          ? {
+                              paths: treeSearch().projectedPaths,
+                              expanded: treeSearch().expandedAncestors,
+                              gitStatus: treeGitStatus(),
+                              selected: selectedPath(),
+                              reveal: revealDir(),
+                              lazy: treeInventory().lazyDirs,
+                              epoch: repoSlotKey(),
+                              css: treeShadowCss(),
+                            }
+                          : previous,
+                    );
+                    return (
+                      <Show when={frame()}>
+                        {(current) => (
+                          <div
+                            data-code-tree-mode={mode}
+                            class="absolute inset-0 h-full w-full min-h-0"
+                            style={{
+                              "content-visibility":
+                                view() === mode ? "visible" : "hidden",
+                              opacity: treeError() || !treeReady() ? 0.4 : 1,
+                            }}
+                            inert={
+                              view() !== mode || !!treeError() || !treeReady()
+                            }
+                            ref={(el) => {
+                              if (!isDesktop()) attachPierreTouchScroll(el);
+                            }}
+                          >
+                            <FileTree
+                              paths={current().paths}
+                              gitStatus={current().gitStatus}
+                              selectedPath={current().selected}
+                              onSelect={handleSelect}
+                              revealRequest={current().reveal}
+                              lazyDirectories={current().lazy}
+                              onExpandLazyDirectory={loadLazyDirectory}
+                              lazyEpoch={current().epoch}
+                              initialExpansion={
+                                mode === "browse" ? "closed" : "open"
+                              }
+                              search={false}
+                              expandPaths={current().expanded}
+                              icons={pierreIconConfig}
+                              shadowCss={current().css}
+                              contextMenu={{
+                                enabled: true,
+                                triggerMode: "both",
+                                render: renderTreeMenu,
+                              }}
+                              onError={(err) =>
+                                toast.error(
+                                  `File tree render failed: ${err.message}`,
+                                )
+                              }
+                              density={treeDensity}
+                              class="h-full w-full"
+                              style={pierreTreesStyle}
+                            />
+                          </div>
+                        )}
+                      </Show>
+                    );
+                  }}
+                </For>
+              </div>
+            </Resizable.Panel>
+
+            <Resizable.Handle
+              data-testid="diff-tree-content-handle"
+              aria-label="Resize tree pane"
+              // Disable startIntersection (the handle's left edge): Corvu's
+              // registerHandle keeps a *module-level* handles[] and pairs
+              // handles whose orientations differ and rects touch at the
+              // corner (see @corvu/resizable/dist/index.js:201–222). Without
+              // this opt-out, our left edge equals the outer horizontal
+              // handle's (in `App.tsx`) right edge → the two are coupled,
+              // and clicks on the outer handle near the file-tree row land
+              // on the inner handle instead. The outer handle carries the
+              // symmetric `startIntersection={false}` so both sides are
+              // defended.
+              startIntersection={false}
+              // `Z_HANDLE_INNER` raises the ::before pseudo-element above
+              // Pierre's tree (the previous flex sibling). Without it, the
+              // tree's bottom 4px shadow the upper half of the handle's hit
+              // area — Pierre's row hit-targets paint above the handle's
+              // absolute ::before because both use auto z-index and the tree
+              // comes first in document order with positioned descendants.
+              // Setting the explicit z-index creates a stacking context that
+              // lifts the ::before in front of the tree's interior.
+              // See `ui/stackLayers.ts` for the full layering contract.
+              class="shrink-0 h-0 relative before:absolute before:inset-x-0 before:-top-1 before:h-2 before:cursor-row-resize before:hover:bg-accent/30 before:transition-colors"
+              style={{ "z-index": Z_HANDLE_INNER }}
+            />
+
+            <Resizable.Panel
+              as="div"
+              data-testid="diff-content"
+              // Focusable programmatically (tabindex -1: click-focusable, not in
+              // the Tab order) so a click on the rendered file content moves focus
+              // OUT of the terminal and into the Code tab — Pierre's source/diff
+              // rows and the rendered markdown aren't focusable on their own. With
+              // focus no longer in a terminal, ⌘F defers to the browser's native
+              // find-in-page (input/actions.ts `focusScopeMarker`). Off macOS,
+              // Ctrl+F is never kolu's to begin with.
+              // `outline-none` since no keyboard user ever tabs here.
+              tabindex={-1}
+              class="min-h-0 overflow-auto outline-none"
+              minSize={0.1}
+            >
+              <Show
+                when={selectedPath()}
+                keyed
+                fallback={
+                  <FileSelectHint
+                    label={
+                      isDiffView()
+                        ? "Select a file to view its diff"
+                        : "Select a file to view its content"
+                    }
+                  />
+                }
+              >
+                {(path) => (
+                  // `keyed` remounts this subtree whenever the selected file
+                  // changes — line refs don't survive across files, so the
+                  // `useLineSelection` controller resets cleanly with the
+                  // surrounding subtree. The inner `<CodeView>` would also
+                  // accept an in-place item swap via `updateItemId`, but
+                  // remount is the simpler idiom here and the right semantic
+                  // for the per-file menu state.
+                  <Switch>
+                    <Match when={isDiffView()}>
+                      <Switch
+                        fallback={
+                          <div class="px-2 py-1 text-fg-3/50">
+                            Loading diff…
+                          </div>
+                        }
+                      >
+                        <Match when={diff.error()}>
+                          {(err) => (
+                            <div class="px-2 py-1 text-danger">
+                              Error: {err().message}
+                            </div>
+                          )}
+                        </Match>
+                        <Match when={diff()?.binary && diff()}>
+                          {(d) => (
+                            <BinaryFileHint
+                              fileName={d().newFileName ?? d().oldFileName}
+                            />
+                          )}
+                        </Match>
+                        <Match when={renamedDiff()}>
+                          {(rename) => (
+                            <div class="flex items-center justify-center h-full text-fg-3/50">
+                              File renamed: {rename().oldFileName} →{" "}
+                              {rename().newFileName}
+                            </div>
+                          )}
+                        </Match>
+                        <Match when={diff()}>
+                          {(d) => (
+                            // The comment capture surface is applied here at the
+                            // seam — `BrowseDiffView` is a pure presenter, exactly
+                            // like `BrowseFileView`, so "is this commentable?"
+                            // lives in one place per view family rather than being
+                            // re-open-coded inside the leaf. `contentTick` is the
+                            // raw hunk string so the highlight overlay re-anchors
+                            // when a live edit re-diffs the file.
+                            //
+                            // The terminal is read through `terminalId()` INSIDE
+                            // the JSX — this `Match` callback only runs on a
+                            // falsy→truthy entry, and a terminal switch between
+                            // two terminals showing the same file never re-enters
+                            // it (the diff query key carries no terminal id), so a
+                            // snapshot here would leave the surface wired to the
+                            // previous terminal. With none, the same drawn diff
+                            // stays, with commenting off.
+                            <CommentTextSurface
+                              terminalId={terminalId()}
+                              path={path}
+                              contentTick={d().hunks[0] ?? ""}
+                              class="h-full w-full"
+                              lineAnchored={true}
+                            >
+                              <BrowseDiffView
+                                onOpen={(ref) =>
+                                  props.door.open({ ref, targetMode: "browse" })
+                                }
+                                path={path}
+                                hunk={d().hunks[0] ?? ""}
+                                theme={diffTheme()}
+                              />
+                            </CommentTextSurface>
+                          )}
+                        </Match>
+                      </Switch>
+                    </Match>
+                    <Match when={!isDiffView()}>
+                      {/* Same reactive read as the diff arm above: the subject's
+                        terminal rides in through `fileAt()` so a terminal
+                        switch updates the dispatcher's props in place instead
+                        of leaving it pinned to the terminal that was shown
+                        when this branch was entered. */}
+                      <BrowseFileDispatcher
+                        at={fileAt()}
+                        open={props.door.open}
+                        filePath={path}
+                        file={browseFile()}
+                        error={browseError()}
+                        // The live repo FILE list — the vault a `[[wikilink]]`
+                        // in the previewed doc resolves against, pathless.
+                        // Both halves come off `treeInventory()`, the one
+                        // value that mints the snapshot and its readiness
+                        // together, so the click guard reads the readiness of
+                        // the very list it resolves against, never a drifted
+                        // pair (a stream resubscribe briefly empties it, and
+                        // the overlay lands on its own clock).
+                        repoVault={{
+                          paths: treePaths(),
+                          pending: treeInventory().pending,
+                        }}
+                        theme={diffTheme()}
+                        initialSelectedLines={selectedRange()}
+                        // Following a link inside an HTML preview is the
+                        // same intent as a tree click: move selection to the
+                        // new file and drop any line-range highlight.
+                        onNavigate={handleSelect}
+                        // The mouse back/forward (X1/X2) buttons pressed over
+                        // the sandboxed preview can't reach the Code-tab
+                        // listener (the frame traps them), so the in-iframe
+                        // SDK forwards them here to drive the same history.
+                        onHistory={(direction) =>
+                          direction === "back" ? goBack() : goForward()
+                        }
+                        // An external link in the sandboxed preview can't open
+                        // a tab itself (no `allow-popups`); the in-iframe SDK
+                        // forwards the http(s) URL and we open it in a real
+                        // browser tab with `noopener,noreferrer` (severs the
+                        // opener — the new tab can't script back into kolu).
+                        //
+                        // Trust boundary: `open-external` is an unauthenticated
+                        // postMessage. The previewed HTML runs arbitrary scripts
+                        // under the opaque origin, so any of them — not just the
+                        // SDK's click trap — can post this message. We therefore
+                        // treat it as exactly that: a request from untrusted
+                        // in-frame content to open an http(s) foreground tab.
+                        // `observeIframeOpenExternal` re-checks the URL is http(s)
+                        // AND cross-origin to kolu (`isCrossOriginHttpUrl`), so
+                        // `javascript:`/`data:` and a same-origin preview URL
+                        // (which would load the file unsandboxed at kolu's
+                        // origin) never reach `window.open`. That origin check is
+                        // bypassable via host aliases; the load-bearing control
+                        // is the preview route's `Content-Security-Policy:
+                        // sandbox`, which keeps any top-level load opaque-origin.
+                        onOpenExternal={(url) =>
+                          window.open(url, "_blank", EXTERNAL_OPEN_FLAGS)
+                        }
+                        // A kolu deep link clicked in the preview routes the
+                        // app through the SAME pipeline a typed `#/…` URL
+                        // takes (safe: the router is view-only by law).
+                        onDeepLink={requestDeepLinkNavigation}
+                      />
+                    </Match>
+                  </Switch>
                 )}
               </Show>
-              <Show when={!treeReady() && !treeError()}>
-                <div class="absolute inset-x-0 top-0 z-10 bg-surface-0 px-2 py-1 text-fg-3/50">
-                  Loading…
-                </div>
-              </Show>
-              <Show
-                when={treeReady() && treePaths().length === 0 && !treeError()}
-              >
-                <div
-                  class="absolute inset-x-0 top-0 z-10 bg-surface-0 px-2 py-4 text-fg-3/50 text-center"
-                  data-testid="diff-empty"
-                >
-                  {diffMode()
-                    ? branchViewHasNoBase()
-                      ? NO_BRANCH_BASE
-                      : EMPTY_STATE[diffMode()!]
-                    : readsFromDisk()
-                      ? "Empty folder"
-                      : "Empty repository"}
-                </div>
-              </Show>
-              <For each={CODE_TAB_VIEW_ORDER}>
-                {(mode) => {
-                  // A mode owns its tree, scroll and expansion. Freeze its input
-                  // while hidden or awaiting a new answer; never swap another
-                  // mode's inventory into this instance.
-                  const frame = createMemo(
-                    (
-                      previous:
-                        | {
-                            paths: string[];
-                            expanded: readonly string[];
-                            gitStatus: ReturnType<typeof treeGitStatus>;
-                            selected: string | null;
-                            reveal: ReturnType<typeof revealDir>;
-                            lazy: readonly string[];
-                            epoch: string | null;
-                            css: string;
-                          }
-                        | undefined,
-                    ) =>
-                      view() === mode && treeReady() && !treeError()
-                        ? {
-                            paths: treeSearch().projectedPaths,
-                            expanded: treeSearch().expandedAncestors,
-                            gitStatus: treeGitStatus(),
-                            selected: selectedPath(),
-                            reveal: revealDir(),
-                            lazy: treeInventory().lazyDirs,
-                            epoch: repoSlotKey(),
-                            css: treeShadowCss(),
-                          }
-                        : previous,
-                  );
-                  return (
-                    <Show when={frame()}>
-                      {(current) => (
-                        <div
-                          data-code-tree-mode={mode}
-                          class="absolute inset-0 h-full w-full min-h-0"
-                          style={{
-                            "content-visibility":
-                              view() === mode ? "visible" : "hidden",
-                            opacity: treeError() || !treeReady() ? 0.4 : 1,
-                          }}
-                          inert={
-                            view() !== mode || !!treeError() || !treeReady()
-                          }
-                          ref={(el) => {
-                            if (!isDesktop()) attachPierreTouchScroll(el);
-                          }}
-                        >
-                          <FileTree
-                            paths={current().paths}
-                            gitStatus={current().gitStatus}
-                            selectedPath={current().selected}
-                            onSelect={handleSelect}
-                            revealRequest={current().reveal}
-                            lazyDirectories={current().lazy}
-                            onExpandLazyDirectory={loadLazyDirectory}
-                            lazyEpoch={current().epoch}
-                            initialExpansion={
-                              mode === "browse" ? "closed" : "open"
-                            }
-                            search={false}
-                            expandPaths={current().expanded}
-                            icons={pierreIconConfig}
-                            shadowCss={current().css}
-                            contextMenu={{
-                              enabled: true,
-                              triggerMode: "both",
-                              render: renderTreeMenu,
-                            }}
-                            onError={(err) =>
-                              toast.error(
-                                `File tree render failed: ${err.message}`,
-                              )
-                            }
-                            density={treeDensity}
-                            class="h-full w-full"
-                            style={pierreTreesStyle}
-                          />
-                        </div>
-                      )}
-                    </Show>
-                  );
-                }}
-              </For>
-            </div>
-          </Resizable.Panel>
-
-          <Resizable.Handle
-            data-testid="diff-tree-content-handle"
-            aria-label="Resize tree pane"
-            // Disable startIntersection (the handle's left edge): Corvu's
-            // registerHandle keeps a *module-level* handles[] and pairs
-            // handles whose orientations differ and rects touch at the
-            // corner (see @corvu/resizable/dist/index.js:201–222). Without
-            // this opt-out, our left edge equals the outer horizontal
-            // handle's (in `App.tsx`) right edge → the two are coupled,
-            // and clicks on the outer handle near the file-tree row land
-            // on the inner handle instead. The outer handle carries the
-            // symmetric `startIntersection={false}` so both sides are
-            // defended.
-            startIntersection={false}
-            // `Z_HANDLE_INNER` raises the ::before pseudo-element above
-            // Pierre's tree (the previous flex sibling). Without it, the
-            // tree's bottom 4px shadow the upper half of the handle's hit
-            // area — Pierre's row hit-targets paint above the handle's
-            // absolute ::before because both use auto z-index and the tree
-            // comes first in document order with positioned descendants.
-            // Setting the explicit z-index creates a stacking context that
-            // lifts the ::before in front of the tree's interior.
-            // See `ui/stackLayers.ts` for the full layering contract.
-            class="shrink-0 h-0 relative before:absolute before:inset-x-0 before:-top-1 before:h-2 before:cursor-row-resize before:hover:bg-accent/30 before:transition-colors"
-            style={{ "z-index": Z_HANDLE_INNER }}
-          />
-
-          <Resizable.Panel
-            as="div"
-            data-testid="diff-content"
-            // Focusable programmatically (tabindex -1: click-focusable, not in
-            // the Tab order) so a click on the rendered file content moves focus
-            // OUT of the terminal and into the Code tab — Pierre's source/diff
-            // rows and the rendered markdown aren't focusable on their own. With
-            // focus no longer in a terminal, ⌘F defers to the browser's native
-            // find-in-page (input/actions.ts `focusScopeMarker`). Off macOS,
-            // Ctrl+F is never kolu's to begin with.
-            // `outline-none` since no keyboard user ever tabs here.
-            tabindex={-1}
-            class="min-h-0 overflow-auto outline-none"
-            minSize={0.1}
-          >
-            <Show
-              when={selectedPath()}
-              keyed
-              fallback={
-                <FileSelectHint
-                  label={
-                    isDiffView()
-                      ? "Select a file to view its diff"
-                      : "Select a file to view its content"
-                  }
-                />
-              }
-            >
-              {(path) => (
-                // `keyed` remounts this subtree whenever the selected file
-                // changes — line refs don't survive across files, so the
-                // `useLineSelection` controller resets cleanly with the
-                // surrounding subtree. The inner `<CodeView>` would also
-                // accept an in-place item swap via `updateItemId`, but
-                // remount is the simpler idiom here and the right semantic
-                // for the per-file menu state.
-                <Switch>
-                  <Match when={isDiffView()}>
-                    <Switch
-                      fallback={
-                        <div class="px-2 py-1 text-fg-3/50">Loading diff…</div>
-                      }
-                    >
-                      <Match when={diff.error()}>
-                        {(err) => (
-                          <div class="px-2 py-1 text-danger">
-                            Error: {err().message}
-                          </div>
-                        )}
-                      </Match>
-                      <Match when={diff()?.binary && diff()}>
-                        {(d) => (
-                          <BinaryFileHint
-                            fileName={d().newFileName ?? d().oldFileName}
-                          />
-                        )}
-                      </Match>
-                      <Match when={renamedDiff()}>
-                        {(rename) => (
-                          <div class="flex items-center justify-center h-full text-fg-3/50">
-                            File renamed: {rename().oldFileName} →{" "}
-                            {rename().newFileName}
-                          </div>
-                        )}
-                      </Match>
-                      <Match when={diff()}>
-                        {(d) => (
-                          // The comment capture surface is applied here at the
-                          // seam — `BrowseDiffView` is a pure presenter, exactly
-                          // like `BrowseFileView`, so "is this commentable?"
-                          // lives in one place per view family rather than being
-                          // re-open-coded inside the leaf. `contentTick` is the
-                          // raw hunk string so the highlight overlay re-anchors
-                          // when a live edit re-diffs the file.
-                          //
-                          // The (terminal, repo) pair is read through
-                          // `commentContext()` INSIDE the JSX — this `Match`
-                          // callback only runs on a falsy→truthy entry, and a
-                          // terminal switch between two terminals showing the
-                          // same file never re-enters it (the diff query key
-                          // carries no terminal id), so a snapshot here would
-                          // leave the surface wired to the previous terminal.
-                          <Show when={commentContext()}>
-                            {(present) => (
-                              <CommentTextSurface
-                                terminalId={present().terminalId}
-                                path={path}
-                                contentTick={d().hunks[0] ?? ""}
-                                class="h-full w-full"
-                                lineAnchored={true}
-                              >
-                                <BrowseDiffView
-                                  terminalId={present().terminalId}
-                                  path={path}
-                                  hunk={d().hunks[0] ?? ""}
-                                  theme={diffTheme()}
-                                  repoRoot={present().repoRoot}
-                                />
-                              </CommentTextSurface>
-                            )}
-                          </Show>
-                        )}
-                      </Match>
-                    </Switch>
-                  </Match>
-                  <Match when={!isDiffView()}>
-                    {/* Same reactive read as the diff arm above: the (terminal,
-                        repo) pair rides in through `commentContext()` so a
-                        terminal switch updates the dispatcher's props in place
-                        instead of leaving it pinned to the terminal that was
-                        active when this branch was entered. */}
-                    <Show when={commentContext()}>
-                      {(present) => (
-                        <BrowseFileDispatcher
-                          at={{
-                            host: encodeHostKey(activeHost()),
-                            terminalId: present().terminalId,
-                          }}
-                          filePath={path}
-                          file={browseFile()}
-                          error={codeFileContent.error()}
-                          // The live repo FILE list — the vault a `[[wikilink]]`
-                          // in the previewed doc resolves against, pathless.
-                          // Both halves come off `treeInventory()`, the one
-                          // value that mints the snapshot and its readiness
-                          // together, so the click guard reads the readiness of
-                          // the very list it resolves against, never a drifted
-                          // pair (a stream resubscribe briefly empties it, and
-                          // the overlay lands on its own clock).
-                          repoVault={{
-                            paths: treePaths(),
-                            pending: treeInventory().pending,
-                          }}
-                          theme={diffTheme()}
-                          initialSelectedLines={selectedRange()}
-                          // Following a link inside an HTML preview is the
-                          // same intent as a tree click: move selection to the
-                          // new file and drop any line-range highlight.
-                          onNavigate={handleSelect}
-                          // The mouse back/forward (X1/X2) buttons pressed over
-                          // the sandboxed preview can't reach the Code-tab
-                          // listener (the frame traps them), so the in-iframe
-                          // SDK forwards them here to drive the same history.
-                          onHistory={(direction) =>
-                            direction === "back" ? goBack() : goForward()
-                          }
-                          // An external link in the sandboxed preview can't open
-                          // a tab itself (no `allow-popups`); the in-iframe SDK
-                          // forwards the http(s) URL and we open it in a real
-                          // browser tab with `noopener,noreferrer` (severs the
-                          // opener — the new tab can't script back into kolu).
-                          //
-                          // Trust boundary: `open-external` is an unauthenticated
-                          // postMessage. The previewed HTML runs arbitrary scripts
-                          // under the opaque origin, so any of them — not just the
-                          // SDK's click trap — can post this message. We therefore
-                          // treat it as exactly that: a request from untrusted
-                          // in-frame content to open an http(s) foreground tab.
-                          // `observeIframeOpenExternal` re-checks the URL is http(s)
-                          // AND cross-origin to kolu (`isCrossOriginHttpUrl`), so
-                          // `javascript:`/`data:` and a same-origin preview URL
-                          // (which would load the file unsandboxed at kolu's
-                          // origin) never reach `window.open`. That origin check is
-                          // bypassable via host aliases; the load-bearing control
-                          // is the preview route's `Content-Security-Policy:
-                          // sandbox`, which keeps any top-level load opaque-origin.
-                          onOpenExternal={(url) =>
-                            window.open(url, "_blank", EXTERNAL_OPEN_FLAGS)
-                          }
-                          // A kolu deep link clicked in the preview routes the
-                          // app through the SAME pipeline a typed `#/…` URL
-                          // takes (safe: the router is view-only by law).
-                          onDeepLink={requestDeepLinkNavigation}
-                        />
-                      )}
-                    </Show>
-                  </Match>
-                </Switch>
-              )}
-            </Show>
-          </Resizable.Panel>
-        </Resizable>
-        <Show when={commentContext()}>
-          {(present) => (
-            <>
-              <CommentsTray
-                terminalId={present().terminalId}
-                onJumpTo={(comment) => {
-                  // Two complementary highlights on land:
-                  //   1. Pierre's blue line bar (full-row selection)
-                  //      via `openInCodeTab` when we have a stored
-                  //      `lineRange` — the same machinery terminal
-                  //      `path:line` clicks use.
-                  //   2. The CSS Custom Highlight overlay's yellow
-                  //      underline on the exact quote — applied by
-                  //      `highlightOverlay` after the file mounts.
-                  // Plus a scroll request so the matched range lands
-                  // in view even if Pierre's `scrollToLine` and our
-                  // re-find disagree on the row.
-                  if (comment.lineRange) {
-                    openInCodeTab({
-                      terminalId: present().terminalId,
-                      ref: {
-                        path: comment.path,
-                        startLine: comment.lineRange.start,
-                        endLine: comment.lineRange.end,
-                      },
-                      targetMode: "browse",
+            </Resizable.Panel>
+          </Resizable>
+          {/* Commenting needs a terminal to hang the comments on: with none, the
+            tray and the composer are absent. */}
+          <Show when={terminalId()}>
+            {(present) => (
+              <>
+                <CommentsTray
+                  terminalId={present()}
+                  onJumpTo={(comment) => {
+                    // Two complementary highlights on land:
+                    //   1. Pierre's blue line bar (full-row selection)
+                    //      via this view's door when we have a stored
+                    //      `lineRange` — the same machinery terminal
+                    //      `path:line` clicks use.
+                    //   2. The CSS Custom Highlight overlay's yellow
+                    //      underline on the exact quote — applied by
+                    //      `highlightOverlay` after the file mounts.
+                    // Plus a scroll request so the matched range lands
+                    // in view even if Pierre's `scrollToLine` and our
+                    // re-find disagree on the row.
+                    if (comment.lineRange) {
+                      props.door.open({
+                        ref: {
+                          path: comment.path,
+                          startLine: comment.lineRange.start,
+                          endLine: comment.lineRange.end,
+                        },
+                        targetMode: "browse",
+                      });
+                    } else {
+                      setView("browse");
+                      // A no-line comment jump moves the visible file just like a
+                      // tree click — `select` records it so back/forward retraces
+                      // it too. The lineRange branch above records via the
+                      // door → resolution-effect pipeline. Idempotent
+                      // on mode+path, so jumping to the already-shown file is a
+                      // harmless in-place refresh, not a duplicate entry.
+                      select("browse", comment.path);
+                    }
+                    // Carry the comment's surface so the dispatcher flips the
+                    // Source ⇄ Rendered toggle back to it before the overlay
+                    // re-finds the quote: a prose ("Hello Doc") comment landing
+                    // on the source view ("# Hello Doc") would fail to re-anchor
+                    // (and the source view wouldn't even highlight it). When the
+                    // file is already open in the other mode, `select` is a
+                    // no-op selection (same path → no remount), so the toggle
+                    // flip is the only thing that moves the user back to the
+                    // right view.
+                    comments.scroll.set({
+                      commentId: comment.id,
+                      path: comment.path,
+                      surface: comment.surface,
                     });
-                  } else {
-                    setView("browse");
-                    // A no-line comment jump moves the visible file just like a
-                    // tree click — `select` records it so back/forward retraces
-                    // it too. The lineRange branch above records via the
-                    // `openInCodeTab` → resolution-effect pipeline. Idempotent
-                    // on mode+path, so jumping to the already-shown file is a
-                    // harmless in-place refresh, not a duplicate entry.
-                    select("browse", comment.path);
-                  }
-                  // Carry the comment's surface so the dispatcher flips the
-                  // Source ⇄ Rendered toggle back to it before the overlay
-                  // re-finds the quote: a prose ("Hello Doc") comment landing
-                  // on the source view ("# Hello Doc") would fail to re-anchor
-                  // (and the source view wouldn't even highlight it). When the
-                  // file is already open in the other mode, `select` is a
-                  // no-op selection (same path → no remount), so the toggle
-                  // flip is the only thing that moves the user back to the
-                  // right view.
-                  useCommentScrollRequest().set({
-                    commentId: comment.id,
-                    path: comment.path,
-                    surface: comment.surface,
-                  });
-                }}
-              />
-              <CommentComposer terminalId={present().terminalId} />
-            </>
-          )}
-        </Show>
-      </div>
-    </Show>
+                  }}
+                />
+                <CommentComposer terminalId={present()} />
+              </>
+            )}
+          </Show>
+        </div>
+      </Show>
+    </CommentView.Provider>
   );
 };
 

@@ -122,7 +122,11 @@ import {
 } from "./conductorMemory.ts";
 export * from "./conductorSchema.ts";
 export * from "./conductorErrors.ts";
-import { MemberReadingSchema } from "./worksSchema.ts";
+import {
+  MemberReadingSchema,
+  WorkCodeViewInputSchema,
+  WorkCodeViewSchema,
+} from "./worksSchema.ts";
 export * from "./worksSchema.ts";
 
 // The host-daemon inventory row TYPES are re-exported from @kolu/padi-client/surface (their
@@ -1263,6 +1267,18 @@ export const koluSurface = defineSurfaceWithPolicy<ToastOnlyPolicy>()({
       verbs: ["keys", "get"],
       client: { onError: { kind: "toast", label: "Works" } },
     },
+    /** WHERE EACH WORK'S CODE VIEW STANDS — its mode and the file open in
+     *  each mode, keyed by work id. Its own member rather than a field of the
+     *  work: a person moves it on every file click, and a work republished on
+     *  each would send the whole record to every browser. A work with no
+     *  entry has never had its view moved. An entry lives exactly as long as
+     *  its work. Written only by `conductor.setWorkCodeView`. */
+    workCodeViews: {
+      keySchema: Schema.String,
+      schema: WorkCodeViewSchema,
+      verbs: ["keys", "get"],
+      client: { onError: { kind: "toast", label: "Works" } },
+    },
   },
   streams: {
     /** The conductor's transcript — an EXPLICITLY discriminated
@@ -1457,6 +1473,15 @@ export const koluSurface = defineSurfaceWithPolicy<ToastOnlyPolicy>()({
        *  second card for the same branch. */
       reopenWork: {
         input: ConductorWorkInputSchema,
+        error: Schema.Union([ConductorRefused]),
+      },
+      /** PUT A WORK'S CODE VIEW WHERE A PERSON LEFT IT — the work and its
+       *  whole view, a replace. A write equal to what is held is dropped,
+       *  because the browser reports on every file click. Refused for a work
+       *  kolu does not hold. `ConductorRefused` alone, as the other work verbs:
+       *  it asks the agent nothing. */
+      setWorkCodeView: {
+        input: WorkCodeViewInputSchema,
         error: Schema.Union([ConductorRefused]),
       },
       /** PUT A RECORD KOLU CANNOT READ BACK IN A STATE IT CAN — the two

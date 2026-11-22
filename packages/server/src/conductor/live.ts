@@ -24,7 +24,7 @@ import { startHarness } from "@kolu/acp-harness";
 import { confStore } from "@kolu/surface/server";
 import type { ConductorState } from "kolu-common/conductor";
 import type { ConductorMemoryView } from "kolu-common/conductorMemory";
-import type { MemberReading } from "kolu-common/works";
+import type { MemberReading, WorkCodeView } from "kolu-common/works";
 import type { Work, WorkMember } from "kolu-work";
 import {
   type ConductorHost,
@@ -33,6 +33,7 @@ import {
   type PersistedConductor,
   type PersistedMembers,
   type PersistedMemory,
+  type PersistedWorkCodeViews,
   type PersistedWorks,
   startConductorHost,
 } from "kolu-conductor";
@@ -63,6 +64,10 @@ let writeMember:
   | null = null;
 let writeReading:
   | ((terminal: string, reading: MemberReading | null) => void)
+  | null = null;
+/** ...and the `workCodeViews` collection's. */
+let writeWorkCodeView:
+  | ((id: string, view: WorkCodeView | null) => void)
   | null = null;
 /** ...and the `conductorMemory` cell's writer. */
 let writeMemory: ((memory: ConductorMemoryView) => void) | null = null;
@@ -124,16 +129,18 @@ export function setConductorCellWriter(
   writeCell = write;
 }
 
-/** ... and the two collection writers, registered in the same call
- *  `surface.ts` makes for the conversation's. */
+/** ... and the collection writers, registered in the same call `surface.ts`
+ *  makes for the conversation's. */
 export function setWorksCollectionWriters(writers: {
   work: (id: string, work: Work | null) => void;
   member: (terminal: string, member: WorkMember | null) => void;
   reading: (terminal: string, reading: MemberReading | null) => void;
+  codeView: (id: string, view: WorkCodeView | null) => void;
 }): void {
   writeWork = writers.work;
   writeMember = writers.member;
   writeReading = writers.reading;
+  writeWorkCodeView = writers.codeView;
 }
 
 /** ... and the `conductorMemory` cell's, registered in the same breath. */
@@ -263,6 +270,14 @@ export function liveServerConductor(): ConductorHost {
       }
       writeReading(terminal, reading);
     },
+    publishWorkCodeView: (id, view) => {
+      if (writeWorkCodeView === null) {
+        throw new Error(
+          "the conductor published a work's Code view before surface.ts registered the workCodeViews collection writer — implementKoluSurface must run before the first reader",
+        );
+      }
+      writeWorkCodeView(id, view);
+    },
     publishMemory: (memory) => {
       if (writeMemory === null) {
         throw new Error(
@@ -277,21 +292,25 @@ export function liveServerConductor(): ConductorHost {
     // boot-wiring fault to see rather than a frame to protect.
     worksMoved: () => onWorks?.(),
     watchScopeMoved: () => onWatchScope?.(),
-    // THE FIVE RECORDS, each where its volatility says it belongs. The
-    // conversation, the works, what kolu knows about their member terminals
-    // and the memory are keys of the one conf store (one schema, one ladder —
-    // `dev/skills/state/SKILL.md`); the transcript is a file of its own
-    // because it is most of the bytes and it moves on every keystroke, and it
-    // rides the SAME ladder from there (`transcriptFile.ts`).
+    // THE SIX RECORDS, each where its volatility says it belongs. The
+    // conversation, the works, what kolu knows about their member terminals,
+    // the memory and where each work's Code view stands are keys of the one
+    // conf store (one schema, one ladder — `dev/skills/state/SKILL.md`); the
+    // transcript is a file of its own because it is most of the bytes and it
+    // moves on every keystroke, and it rides the SAME ladder from there
+    // (`transcriptFile.ts`).
     //
     // `members` is its own key beside `works` rather than a field inside one,
     // because it is the watch's memory of a TERMINAL (what it was called,
     // what the conversation was told about it) rather than part of what a
-    // work IS — and it moves every time a host is read.
+    // work IS — and it moves every time a host is read. `workCodeViews` is
+    // beside them for the same kind of reason: a person moves it on every
+    // file click.
     store: confStore<PersistedConductor>(store, "conductor"),
     works: confStore<PersistedWorks>(store, "works"),
     members: confStore<PersistedMembers>(store, "members"),
     memory: confStore<PersistedMemory>(store, "memory"),
+    workCodeViews: confStore<PersistedWorkCodeViews>(store, "workCodeViews"),
     transcript: transcriptFileStore(
       dirname(store.path),
       TRANSCRIPT_FILE_VERSION,

@@ -1,6 +1,6 @@
 /**
  * WHAT SURVIVES A kolu-server RESTART — the conversation, the transcript, the
- * WORKS and the MEMORY.
+ * WORKS, the MEMORY and where each work's CODE VIEW stood.
  *
  * kolu-server is restarted on every upgrade, so a restart is the NORMAL path
  * rather than a crash recovery: a person who was mid-conversation when a new
@@ -8,7 +8,7 @@
  * with a sentence about why. That makes resume the default and these records
  * the things that make it possible.
  *
- * FOUR RECORDS, because they survive differently and are written at different
+ * SIX RECORDS, because they survive differently and are written at different
  * cadences:
  *
  *  - {@link PersistedConductorSchema} — the CONVERSATION, in `config.json`'s
@@ -23,9 +23,19 @@
  *    A piece of work OUTLIVES the conversation that opened it: "New session"
  *    clears the chat and keeps the work, so the work cannot live inside the
  *    conversation's record.
+ *  - {@link PersistedMembersSchema} — what kolu knows about each work's MEMBER
+ *    TERMINALS, in `config.json`'s `members` key, by fleet ref: which work and
+ *    role, and the watch's own memory of that terminal. Beside the works
+ *    because it is a fact about a terminal and moves every time a host is
+ *    read.
  *  - {@link PersistedMemorySchema} — the MEMORY, in `config.json`'s `memory`
  *    key: what the human approved for the Conductor to remember, and the
  *    proposals waiting on them. It outlives every session, as the works do.
+ *  - {@link PersistedWorkCodeViewsSchema} — where each work's CODE VIEW
+ *    stands, in `config.json`'s `workCodeViews` key: a person's place in a
+ *    work's files, moved on every file click. Beside the works rather than in
+ *    them, so a click rewrites a small record and republishes nothing else;
+ *    an entry lives exactly as long as its work.
  *
  * WHAT IS IN THE CONVERSATION'S RECORD, and why each of the four:
  *
@@ -65,6 +75,7 @@ import {
   type ConductorStoreKey,
 } from "kolu-common/conductor";
 import { EMPTY_MEMORY, MemorySchema } from "kolu-common/conductorMemory";
+import { WorkCodeViewSchema } from "kolu-common/works";
 import type { CellStore } from "@kolu/surface/server";
 import { Result, Schema } from "effect";
 import {
@@ -183,6 +194,15 @@ export const PersistedMemorySchema = MemorySchema;
 export type PersistedMemory = typeof PersistedMemorySchema.Type;
 export const EMPTY_PERSISTED_MEMORY: PersistedMemory = EMPTY_MEMORY;
 
+/** WHERE EACH WORK'S CODE VIEW STANDS, by work id — the `workCodeViews` key
+ *  of `config.json`. */
+export const PersistedWorkCodeViewsSchema = Schema.Record(
+  Schema.String,
+  WorkCodeViewSchema,
+);
+export type PersistedWorkCodeViews = typeof PersistedWorkCodeViewsSchema.Type;
+export const EMPTY_PERSISTED_WORK_CODE_VIEWS: PersistedWorkCodeViews = {};
+
 /** The re-validations, compiled once. `decodeUnknownResult` is a BRANCH rather
  *  than a throw, which is what lets each failure arm name the RECORD — the
  *  one thing the screen a person is looking at has to be able to act on. */
@@ -191,6 +211,9 @@ const decodeTranscript = Schema.decodeUnknownResult(PersistedTranscriptSchema);
 const decodeWorks = Schema.decodeUnknownResult(PersistedWorksSchema);
 const decodeMembers = Schema.decodeUnknownResult(PersistedMembersSchema);
 const decodeMemory = Schema.decodeUnknownResult(PersistedMemorySchema);
+const decodeWorkCodeViews = Schema.decodeUnknownResult(
+  PersistedWorkCodeViewsSchema,
+);
 
 /** EVERY REMEMBERED RECORD'S IDENTITY, IN ONE TABLE keyed by its store key:
  *  what it is CALLED in a sentence a person reads (not the JSON key — `works`
@@ -239,6 +262,15 @@ export const RECORD_FACTS: Record<
     them: "it",
     inBackups: true,
     keptFile: "unreadable-memory.json",
+  },
+  workCodeViews: {
+    noun: "where each work's Code view was left",
+    them: "it",
+    inBackups: true,
+    // The stem is the record's key, as recovery writes it
+    // (`unreadable-<key>-<stamp>.json`). The stamp this table leaves out is
+    // an older difference, shared by every row.
+    keptFile: "unreadable-workCodeViews.json",
   },
   transcript: {
     noun: "the Conductor's saved transcript",
@@ -413,6 +445,27 @@ export function readPersistedMemory(
   if (Result.isFailure(result)) {
     throw new UnreadablePersisted({
       key: "memory",
+      path,
+      stateRoot,
+      why: WRONG_SHAPE,
+      detail: String(result.failure),
+    });
+  }
+  return result.success;
+}
+
+/** Read where each work's Code view stood, or REFUSE naming the record. A
+ *  wrong shape is refused rather than dropped: it says what this build wrote
+ *  and what it can read disagree, and a person is owed that sentence. */
+export function readPersistedWorkCodeViews(
+  store: CellStore<PersistedWorkCodeViews>,
+  path: string,
+  stateRoot: string,
+): PersistedWorkCodeViews {
+  const result = decodeWorkCodeViews(store.get());
+  if (Result.isFailure(result)) {
+    throw new UnreadablePersisted({
+      key: "workCodeViews",
       path,
       stateRoot,
       why: WRONG_SHAPE,

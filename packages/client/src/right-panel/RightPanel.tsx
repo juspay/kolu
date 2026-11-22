@@ -26,14 +26,16 @@ import type {
   TerminalMetadata,
 } from "@kolu/padi-client/surface";
 import type { TerminalId } from "kolu-common/surface";
-import { type Component, For, Show } from "solid-js";
+import { type Component, createEffect, For, Show } from "solid-js";
 import { match } from "ts-pattern";
 import { dockRowLabel } from "../canvas/dock/dockRowData";
 import { CHROME_ICON_BUTTON_CLASS } from "../ui/chromeSpacing";
 import { ChevronRightIcon } from "../ui/Icons";
 import { ACTIVE_TERMINAL_ACCENT } from "./activeTerminalAccent";
-import CodeTab from "./CodeTab";
+import CodeTab from "../code-view/CodeTab";
+import { rightPanelCodeQueries, rightPanelCodeSubject } from "./hostCodeTab";
 import MetadataInspector from "./MetadataInspector";
+import { rightPanelCodeDoor } from "./openInCodeTab";
 import { paneDirectory } from "./paneDirectory";
 import { useRightPanel } from "./useRightPanel";
 
@@ -89,6 +91,29 @@ const RightPanel: Component<{
    *  everything below it dims. The split itself lives in `paneDirectory`, with
    *  its own test. */
   const directory = () => paneDirectory(props.meta);
+
+  /** The Code view's door: the panel's front door, opening in the pane the
+   *  view shows. */
+  const codeDoor = rightPanelCodeDoor(() => rightPanelCodeSubject().terminalId);
+
+  // Keep the shown pane's back/forward history in step with its root. History
+  // records repo-relative `{ mode, path }` locations with no repo identity of
+  // their own, so a stack captured in repo A must not be replayed against repo
+  // B after a `cd`; `syncRepo` drops a pane's stack when THAT pane's root moves
+  // (keyed per terminal, so a repo change made while the pane was unfocused is
+  // caught when it is next shown, and a plain pane switch resets nothing).
+  //
+  // The pane and its root come from ONE value — the Code view's subject, read
+  // off the store's (id, record) bundle — so a focus move can never pair the
+  // new pane with the previous pane's root and wipe the new pane's history.
+  // While git is still unresolved there is no root to record: recording "no
+  // repo" then would make the first real answer look like a repo change and
+  // drop a restored stack.
+  createEffect(() => {
+    const { terminalId, git } = rightPanelCodeSubject();
+    if (terminalId === null || git.kind === "unresolved") return;
+    rightPanel.syncRepo(terminalId, git.kind === "repo" ? git.root : null);
+  });
 
   return (
     <div
@@ -219,8 +244,10 @@ const RightPanel: Component<{
                     ))
                     .with("code", () => (
                       <CodeTab
-                        terminalId={props.terminalId}
-                        meta={props.meta}
+                        subject={rightPanelCodeSubject()}
+                        state={rightPanel.code}
+                        queries={rightPanelCodeQueries}
+                        door={codeDoor}
                       />
                     ))
                     .exhaustive()}

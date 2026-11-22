@@ -99,10 +99,18 @@ Click a work, a card or a row, or its entry in the sidebar, and it is picked: it
 
 A work that needs you and a finished work can be picked too. On a phone it is a page of its own with **← All work** above it. A reload stays on it.
 
-A switch in the picked work's head has two views:
+A switch in the head of a picked work in progress has three views. It opens on **Terminals** while a terminal of the work is up, and on **Details** otherwise. **Code** is in front only when you choose it. A finished work shows only its details.
 
 - **Terminals**: each terminal of the work live, in a pane with the [Look](/tiles#look-from-the-conductor) window's head and **Inspect**, which opens Details on that terminal. One or two stack; three or more, or a window under 1280px wide, show one pane with a tab each. **Fit width** (one choice for every pane) opens a wider terminal fitted, and is offered only while it is wider.
+- **Code**: the work's own folder in the [Code tab](/code-tab)'s view, read on the work's machine: the tree, the **Local** and **Branch** changes, and the files. It stays after every terminal of the work has ended. Which of **All files**, **Local** and **Branch** you were on, and the file open in each, are kept for the work, across a reload and in another browser. Choose Code again and it is where you left it.
 - **Details**: the terminals' rows and the parts below. Clicking a stage on the strip shows Details.
+
+Code shows less in two cases:
+
+| Case | What you see |
+| --- | --- |
+| kolu has not read the work's folder yet | One line saying so, the same as the Worktree part. |
+| No terminal of the work stands in its folder | The tree, the changes and the files still show. Comments are off, and a picture or a download says in one line why it cannot be fetched. |
 
 ### What Details hold
 

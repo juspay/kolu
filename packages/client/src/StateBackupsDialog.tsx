@@ -102,7 +102,8 @@ const UNDOABLE = "The current state is snapshotted first, so this is undoable.";
 const koluStore: StoreAdapter = {
   key: "kolu",
   title: "kolu-server",
-  subtitle: "preferences · hosts · the Conductor's works and memory",
+  subtitle:
+    "preferences · hosts · the Conductor's works, their Code views and memory",
   available: true,
   list: () =>
     runActionPromise(
@@ -140,7 +141,7 @@ const koluStore: StoreAdapter = {
   // and kept files are copies on disk while the ring snapshots `config.json`'s
   // bytes.
   confirmCopy: () =>
-    `Restore preferences, the host pool and the Conductor's works and memory from this snapshot? Applies live — no restart. Not in backups: the conversation, kept files. ${UNDOABLE}`,
+    `Restore preferences, the host pool and the Conductor's works — with where each one's Code view was left — and memory from this snapshot? Applies live — no restart. Not in backups: the conversation, kept files. ${UNDOABLE}`,
 };
 
 const padiStore = (host: HostKey): StoreAdapter => {

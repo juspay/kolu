@@ -24,8 +24,10 @@ transcript, records every piece of work it opens, and serves the whole of it
 as `koluSurface` members: the `conductor` cell, the `works` collection (keyed
 by work id) beside the `memberReadings` collection (keyed by terminal ref — how
 each member terminal stands), so what goes on the wire is the one work or the
-one reading that moved, the `conductorMemory` cell (what the human approved,
-and the proposals waiting on them), the `conductorTranscript` stream
+one reading that moved, the `workCodeViews` collection (keyed by work id —
+where each work's Code view was left), the `conductorMemory` cell (what the
+human approved, and the proposals waiting on them), the `conductorTranscript`
+stream
 and the `conductor` procedure namespace. The conversation is
 [`@kolu/acp-harness`](../acp-harness)'s and the protocol under it
 [`@kolu/acp-client`](../acp-client)'s; nothing here spells `session/prompt`.
@@ -149,7 +151,8 @@ THREE places, each where its volatility says it belongs.
   rung (`src/stateLadder.ts`).
 - Every piece of work — what the Conductor stated, what the human decided,
   what kolu observed, and each member's per-terminal wake bookkeeping — is the
-  `works` key of the same store, on the same ladder. A work outlives the
+  `works` key of the same store, on the same ladder, and where each work's
+  Code view was left is the `workCodeViews` key beside it. A work outlives the
   conversation that opened it: "new session" clears the chat and nothing else.
 - The transcript's rows are their own file,
   `<state dir>/conductor/transcript.json`, written atomically at 0600 with the
@@ -168,11 +171,12 @@ on through that daemon's own file read (`src/conductor/workFiles.ts`), served
 back to the browser at `/api/works/<id>/files/<path>` (`src/workFilesRoute.ts`),
 and deleted with the work when it falls off the 20-work history.
 
-The state-backup ring snapshots `config.json`, so `preferences`, `hosts` and
-`works` ride it and every one of them has a restore path
-(`src/stateBackups.ts`); `works` goes through the live host's `restoreWorks`,
-which is the one writer of that key while this process runs — it drops the
-open asks nobody can answer, republishes, writes the key now and re-scopes the
+The state-backup ring snapshots `config.json`, so `preferences`, `hosts`,
+`works` and `workCodeViews` ride it and every one of them has a restore path
+(`src/stateBackups.ts`); `works` and `workCodeViews` go together through the
+live host's `restoreWorks`, which is the one writer of those keys while this
+process runs — it drops the open asks nobody can answer and the views whose
+work is not in the snapshot, republishes, writes the keys now and re-scopes the
 watch, so a restore is a thing a person can see rather than one the next
 throttled save undoes. `conductor` is the one deliberate exclusion: the
 conversation's other half lives in the agent's own session store, which kolu

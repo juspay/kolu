@@ -34,6 +34,7 @@
 import { Option, Schema } from "effect";
 import { notKeptWhy } from "kolu-common/workFiles";
 import { type MemberReading, MemberReadingSchema } from "kolu-common/works";
+import type { WorkCodeView } from "kolu-common/works";
 import {
   capFinished,
   type Driver,
@@ -73,8 +74,13 @@ import {
   type MemberStore,
 } from "./memberStore.ts";
 import type { PrWatch } from "./observation.ts";
-import type { PersistedMembers, PersistedWorks } from "./persisted.ts";
+import type {
+  PersistedMembers,
+  PersistedWorkCodeViews,
+  PersistedWorks,
+} from "./persisted.ts";
 import type { RecordWrites } from "./recordWrites.ts";
+import type { WorkCodeViewStore } from "./workCodeViewStore.ts";
 import { type WorkFiles, workDirOf } from "./workFiles.ts";
 
 /** HOW MANY FINISHED WORKS KOLU KEEPS — with their files.
@@ -114,8 +120,13 @@ export interface Opened {
 }
 
 export interface WorkStore {
-  /** The boot read: the remembered works and the members that go with them. */
-  readonly load: (kept: PersistedWorks, members: PersistedMembers) => void;
+  /** The boot read: the remembered works, the members that go with them, and
+   *  where each work's Code view stood. */
+  readonly load: (
+    kept: PersistedWorks,
+    members: PersistedMembers,
+    views: PersistedWorkCodeViews,
+  ) => void;
   /** Every work with its id, in the order they were opened. */
   readonly all: () => ReadonlyArray<readonly [WorkId, Work]>;
   /** The works a READER is given: in progress oldest first, then the finished
@@ -173,11 +184,13 @@ export interface WorkStore {
   readonly driven: (ref: string) => MemberAt & { readonly driver: Driver };
   /** The keys changed hands: the act, on the work's timeline. */
   readonly handover: (ref: string, what: "taken-over" | "handed-back") => void;
-  /** EVERY WORK, REPLACED — a restored backup. Answers the refs that are no
-   *  longer members of anything. */
+  /** EVERY WORK, REPLACED — a restored backup, with its members and its
+   *  works' Code views. Answers the refs that are no longer members of
+   *  anything. */
   readonly restore: (
     kept: PersistedWorks,
     members: PersistedMembers,
+    views: PersistedWorkCodeViews,
   ) => ReadonlyArray<string>;
   /** THE WATCHER'S SCOPE — every member terminal of a work in progress. */
   readonly memberRefs: () => ReadonlyArray<string>;
@@ -191,8 +204,10 @@ export interface WorkStore {
   readonly publishReadings: () => void;
   /** What the `works` key holds. */
   readonly persisted: () => PersistedWorks;
-  /** THE KEPT FILES, RECONCILED TO THE WORKS. */
-  readonly sweepFiles: () => void;
+  /** PUT A WORK'S CODE VIEW WHERE A PERSON LEFT IT — refused for a work kolu
+   *  does not hold, so no view is made without its work, as none outlives
+   *  one. An equal write is dropped by the view store. */
+  readonly setCodeView: (id: WorkId, view: WorkCodeView) => void;
   /** THE PULL-REQUEST WATCH'S SCOPE — every work IN PROGRESS that is a branch
    *  on a machine. Read off the works' own keys, so there is no second list
    *  that can disagree with the cards. */
@@ -262,6 +277,9 @@ export interface WorkStoreDeps {
   readonly noTerminals: (id: WorkId, work: Work) => void;
   readonly records: RecordWrites<"works" | "members">;
   readonly members: MemberStore;
+  /** Where each work's Code view stands — kept exactly as long as its work,
+   *  by the store's one rule for a work going (`forgetGone`). */
+  readonly views: WorkCodeViewStore;
   readonly log: Logger;
 }
 
@@ -316,7 +334,17 @@ export const workStore = (deps: WorkStoreDeps): WorkStore => {
     deps.records.schedule("works");
   };
 
-  const sweepFiles = (): void => {
+  /** NO VIEW WITHOUT ITS WORK — the half of the rule that lets a view go.
+   *  Every place the works are replaced or lose one asks it. */
+  const viewsKeepTheirWorks = (): void =>
+    deps.views.keepOnly(new Set(works.keys()));
+
+  /** THE RULE FOR EVERY WAY A WORK GOES — the finished cap, a declined card,
+   *  a restored backup that lacks it: what it left behind goes too. Its kept
+   *  files are swept, and its Code view is forgotten, so neither outlives the
+   *  work. Said here once; the three places a work goes each ask it. */
+  const forgetGone = (): void => {
+    viewsKeepTheirWorks();
     void deps.workFiles
       .sweep([...works.keys()].map(workDirOf))
       .catch((err: unknown) => {
@@ -405,7 +433,7 @@ export const workStore = (deps: WorkStoreDeps): WorkStore => {
     }
     for (const [dropped] of capFinished(everyWork(), FINISHED_KEPT).dropped)
       works.delete(dropped);
-    sweepFiles();
+    forgetGone();
     changed();
     deps.records.now("works");
   };
@@ -542,7 +570,15 @@ export const workStore = (deps: WorkStoreDeps): WorkStore => {
     changed,
     publishWorks,
     publishReadings,
-    sweepFiles,
+    setCodeView: (id, view) => {
+      if (!works.has(id)) {
+        throw new WorkRefusal(
+          "unknown-work",
+          `kolu holds no piece of work called ${JSON.stringify(id)}, so there is no Code view of it to keep — it may have ended and dropped off the finished list, or been declined.`,
+        );
+      }
+      deps.views.set(id, view);
+    },
     memberRefs: activeRefs,
     prWatches,
     persisted: () => Object.fromEntries(works),
@@ -616,27 +652,32 @@ export const workStore = (deps: WorkStoreDeps): WorkStore => {
       works.delete(id);
       deps.members.dropWork(id);
       changed();
-      sweepFiles();
+      forgetGone();
       deps.records.now("works");
       // The card never existed, and neither does its watch.
       deps.worksMoved();
       deps.watchScopeMoved();
       return true;
     },
-    load: (kept, members) => {
+    load: (kept, members, views) => {
       for (const [id, work] of Object.entries(kept)) works.set(id, work);
       deps.members.load(members);
+      deps.views.load(views);
+      // A view whose work the file no longer holds has nothing to stand in.
+      viewsKeepTheirWorks();
     },
-    restore: (kept, members) => {
+    restore: (kept, members, views) => {
       const before = [...deps.members.all().keys()];
       works.clear();
       for (const [id, work] of Object.entries(kept)) works.set(id, work);
       deps.members.load(members);
+      deps.views.restore(views);
       publishWorks();
       publishReadings();
       // The kept files of works this snapshot never had are unreachable from
-      // here on, and the one sweep rule is what deletes them.
-      sweepFiles();
+      // here on, and a view whose work the snapshot lacks has nothing to
+      // stand in: the one rule takes both.
+      forgetGone();
       // NOT on the throttle: a restore's whole point is that what was there is
       // gone, and a window where the file still holds it is a window where the
       // next boot undoes the restore.

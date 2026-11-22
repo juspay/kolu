@@ -51,7 +51,9 @@ const pulseCtl = vi.hoisted(() => ({
   subs: new Set<PulseSubscription>(),
 }));
 vi.mock("@kolu/surface/client", async () => {
-  const { makeControllableStream } = await import("./streamMock.testlib");
+  const { makeControllableStream } = await import(
+    "../code-view/streamMock.testlib"
+  );
   return {
     // `isDeclared` asks it; no failure in this suite is a transport loss.
     isTransportError: () => false,
@@ -91,10 +93,11 @@ const bag = vi.hoisted(() => ({
 
 vi.mock("../wire", async () => {
   const { mockPadiMap } = await import("../hostScope/mockHostMap.testlib");
-  // The EFFECT-native procedures face. Each verb answers with a DESCRIPTION, so
-  // the recorded side effects below run when the query is RUN — which is what
-  // the call-count assertions are really about.
-  const activePadiRpc = {
+  // The EFFECT-native procedures face, PER HOST — a read's label names the host
+  // it was sent to. Each verb answers with a DESCRIPTION, so the recorded side
+  // effects below run when the query is RUN — which is what the call-count
+  // assertions are really about.
+  const padiRpcOf = (host: HostKey) => ({
     git: {
       getStatus: (i: { repoPath: string; mode: string }) =>
         Effect.suspend(() => {
@@ -103,7 +106,7 @@ vi.mock("../wire", async () => {
             return Effect.fail(bag.branchFailure);
           return Effect.succeed({
             files: [],
-            label: `${encodeHostKey(bag.activeHost())}:${i.mode}`,
+            label: `${encodeHostKey(host)}:${i.mode}`,
             n: bag.counts[i.mode],
           });
         }),
@@ -132,18 +135,20 @@ vi.mock("../wire", async () => {
           return "same-content-tag";
         }),
     },
-  };
-  // The un-enrolled change pulses ride the entry's STREAM face now
-  // (`activePadiStreams.<pulse>.unenrolled`) — a no-op stream stub.
-  const activePadiStreams = {
+  });
+  // The un-enrolled change pulses ride the entry's STREAM face
+  // (`padiMap.entry(host).streams.<pulse>.unenrolled`) — a no-op stream stub.
+  const streams = {
     subscribeRepoChange: { unenrolled: pulseCtl.repoProc },
     subscribeFileChange: { unenrolled: pulseCtl.fileProc },
   };
   return {
-    padiMap: mockPadiMap,
+    padiMap: {
+      ...mockPadiMap,
+      entry: (host: HostKey) => ({ ...mockPadiMap.entry(host), streams }),
+    },
     activeHost: () => bag.activeHost(),
-    activePadiRpc,
-    activePadiStreams,
+    padiRpcOf,
   };
 });
 
@@ -167,8 +172,10 @@ vi.mock("../terminal/useTerminalStore", () => ({
 
 vi.mock("./useRightPanel", () => ({
   useRightPanel: () => ({
-    codeMode: () => bag.mode(),
-    selectedFile: (_m: string) => bag.selected(),
+    code: {
+      codeMode: () => bag.mode(),
+      selectedFile: (_m: string) => bag.selected(),
+    },
   }),
 }));
 
@@ -177,15 +184,17 @@ import {
   removeHost,
   resetHosts,
 } from "../hostScope/mockHostMap.testlib";
-import {
-  leaseCodeQueries,
-  codeActiveStatus,
-  codeAllPaths,
-  codeDiskRootLevel,
-  codeFileContent,
-  codeLocalStatus,
-} from "./hostCodeTab";
-import { setShowIgnoredFiles } from "./showIgnoredFiles";
+import { rightPanelCodeQueries } from "./hostCodeTab";
+import { setShowIgnoredFiles } from "../code-view/showIgnoredFiles";
+
+const {
+  lease: leaseCodeQueries,
+  activeStatus: codeActiveStatus,
+  allPaths: codeAllPaths,
+  diskRootLevel: codeDiskRootLevel,
+  fileContent: codeFileContent,
+  localStatus: codeLocalStatus,
+} = rightPanelCodeQueries;
 
 const flush = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
 const pulse = () => {
@@ -208,13 +217,17 @@ const HOST_B: HostKey = { kind: "remote", target: "B" };
 const [driveHost, setDriveHost] = createSignal<HostKey>(HOST_A);
 bag.activeHost = driveHost;
 
-// The focused pane's id and its repo, driven REACTIVELY: a pane switch inside one
-// repo must be observable as an invalidation of the query inputs that changes
-// nothing downstream — that is the whole point of keying the listings on the repo.
+// The focused pane's id, its repo and whether that repo is bare, driven
+// REACTIVELY: the Right panel's subject is one memo over the focused pane, so a
+// change must be observable as an invalidation. A pane switch inside one repo
+// changes nothing downstream — that is the whole point of keying the listings
+// on the repo.
 const [driveTermId, setDriveTermId] = createSignal<string | null>("t1");
 const [driveRepo, setDriveRepo] = createSignal<string | null>("/repo");
+const [driveBare, setDriveBare] = createSignal(false);
 bag.termId = driveTermId;
 bag.repoRoot = driveRepo;
+bag.bare = driveBare;
 
 function switchTo(host: HostKey): void {
   batch(() => {
@@ -244,7 +257,7 @@ beforeEach(async () => {
   setDriveRepo("/repo");
   bag.counts = {};
   bag.previewTagInputs = [];
-  bag.bare = () => false;
+  setDriveBare(false);
   bag.listDirectoryInputs = [];
   bag.branchFailure = null;
   bag.toastError.mockClear();
@@ -575,7 +588,7 @@ it("one hidden or disposed consumer cannot pause another shown Code view", async
 
 describe("a folder git cannot list (a bare repository's)", () => {
   it("reads the root level from disk and never asks git for a list or a status", async () => {
-    bag.bare = () => true;
+    setDriveBare(true);
     setShowIgnoredFiles(true);
     switchTo(HOST_A);
     void codeDiskRootLevel.pending();

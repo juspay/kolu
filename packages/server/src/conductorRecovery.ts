@@ -44,6 +44,7 @@ import {
   EMPTY_PERSISTED_CONDUCTOR,
   EMPTY_PERSISTED_MEMBERS,
   EMPTY_PERSISTED_MEMORY,
+  EMPTY_PERSISTED_WORK_CODE_VIEWS,
   EMPTY_PERSISTED_WORKS,
 } from "kolu-conductor";
 import { transcriptFilePath } from "./conductor/transcriptFile.ts";
@@ -72,6 +73,7 @@ const NOUN: Record<ConductorStoreKey, string> = {
   works: "the Conductor's saved works",
   members: "what kolu remembered about each work's terminals",
   memory: "the Conductor's memory",
+  workCodeViews: "where each work's Code view was left",
   transcript: "the Conductor's saved transcript",
 };
 
@@ -153,6 +155,8 @@ function keepAsideAndEmpty(key: ConductorStoreKey): string {
   if (key === "members") store.set("members", EMPTY_PERSISTED_MEMBERS);
   if (key === "conductor") store.set("conductor", EMPTY_PERSISTED_CONDUCTOR);
   if (key === "memory") store.set("memory", EMPTY_PERSISTED_MEMORY);
+  if (key === "workCodeViews")
+    store.set("workCodeViews", EMPTY_PERSISTED_WORK_CODE_VIEWS);
   return path;
 }
 
@@ -175,6 +179,13 @@ function writeFromBackup(
     store.set("memory", decoded.memory);
     const entries = decoded.memory.entries.length;
     return `${entries} memor${entries === 1 ? "y" : "ies"} came back`;
+  }
+  if (key === "workCodeViews") {
+    // A view whose work is not held goes when the host reads its records
+    // again — the one rule in the work store, not a second one here.
+    store.set("workCodeViews", decoded.workCodeViews);
+    const views = Object.keys(decoded.workCodeViews).length;
+    return `where ${views} work${views === 1 ? "'s" : "s'"} Code view${views === 1 ? " was" : "s were"} left came back`;
   }
   store.set("works", decoded.works);
   store.set("members", decoded.members);

@@ -5,12 +5,12 @@
  *
  *  Sibling to `CommentTextSurface` — text browse and branch diff use
  *  selectionchange-based capture there; iframe HTML uses postMessage
- *  capture here. The composer and the comments store are the same
- *  singletons for both. */
+ *  capture here. Both open the composer of the view they are drawn in, and
+ *  read the one comments store. */
 
 import { bindArtifactSdk, pushHighlightsTo } from "@kolu/artifact-sdk/client";
 import { type Component, createEffect, createMemo, onCleanup } from "solid-js";
-import { useComposer } from "./composerState";
+import { useComposer } from "./commentView";
 import { commentsForTerminal } from "./useComments";
 
 export type CommentIframeSurfaceProps = {

@@ -1,12 +1,13 @@
-/** Shared composer popover. Reads `composerState` (singleton), renders
- *  when a target is set, writes the comment to `useComments` on Save.
- *  Mounted ONCE per CodeTab — any capture surface (text browse, branch
- *  diff, HTML iframe) routes through the same composer. */
+/** A view's composer popover. Reads the draft of the view it is drawn in
+ *  (`useComposer`, from `CommentView`), renders when a target is set, writes
+ *  the comment to `useComments` on Save. Mounted ONCE per comment-capturing
+ *  view — any capture surface inside it (text browse, branch diff, HTML
+ *  iframe) routes through that view's composer, and no other view's. */
 
 import type { SelectionRect } from "@kolu/artifact-sdk/client";
 import { type Component, createSignal, Show } from "solid-js";
 import { Portal } from "solid-js/web";
-import { useComposer } from "./composerState";
+import { useComposer } from "./commentView";
 import { useComments } from "./useComments";
 
 const COMPOSER_WIDTH = 320;

@@ -23,7 +23,7 @@ import { type Accessor, createEffect, createSignal, onCleanup } from "solid-js";
 import { codeViewItemIdAt } from "@kolu/solid-pierre";
 import { walkShadowRoots } from "../dom/shadowWalk";
 import { useShown } from "../ui/shown";
-import { useComposer } from "./composerState";
+import { useComposer } from "./commentView";
 
 /** Debounced live-selection snapshot. The pill placement only needs the
  *  rect — the real W3C Locator is built lazily in `activate()` from the
@@ -86,7 +86,7 @@ function nodeInside(host: HTMLElement, node: Node | null): boolean {
  *  Counts newlines in the concatenated text content up to the range's
  *  start (for `start`) and end (for `end`) offsets. Used to populate
  *  `Comment.lineRange` so the tray-click jump can drive Pierre's line
- *  selection via `openInCodeTab`. Returns `undefined` when offsets can't
+ *  selection via the view's door. Returns `undefined` when offsets can't
  *  be resolved (e.g. cross-root range) — the offset walk is shared with
  *  `extractQuote` via `extractOffsets`. */
 function lineRangeForSelection(

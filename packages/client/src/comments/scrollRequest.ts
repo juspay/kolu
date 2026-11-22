@@ -1,15 +1,16 @@
 /** Request slot for "scroll the file viewer to a specific comment's
- *  anchor after navigation lands". The tray sets this when the user
- *  clicks a tray item; the highlight overlay consumes it after applying
- *  CSS Highlights, then scrolls the matching range into view and clears
- *  the slot. One-shot — repeat clicks set fresh values.
+ *  anchor after navigation lands" — ONE per comment-capturing view, held
+ *  through `createCommentView`. The view's tray sets it when the user clicks
+ *  a tray item; that view's highlight overlay consumes it after applying CSS
+ *  Highlights, then scrolls the matching range into view and clears the
+ *  slot, and that view's file viewer flips its Source ⇄ Rendered toggle to
+ *  it. Another view mounted at the same time — even on the same terminal and
+ *  the same file — never sees it. One-shot — repeat clicks set fresh values.
  *
- *  Lives in its own module because it's signal state with a tiny
- *  surface area; the composer state machine in `composerState.ts` is
- *  about the in-flight draft and shares nothing with scroll-target
- *  hand-off. */
+ *  Lives apart from the composer state machine: that is about the in-flight
+ *  draft and shares nothing with scroll-target hand-off. */
 
-import { createSignal } from "solid-js";
+import { type Accessor, createSignal } from "solid-js";
 
 export type ScrollRequest = {
   commentId: string;
@@ -24,19 +25,18 @@ export type ScrollRequest = {
   surface?: "source" | "prose";
 };
 
-// HOST-SCOPING: host-INDEPENDENT by design — one-shot, consumed-and-cleared within
-// the same navigation frame; a request left unconsumed targets an unmounted surface
-// and is simply dropped, never floats across a host switch.
-const [scrollReq, setScrollReq] = createSignal<ScrollRequest | null>(null);
+/** One view's scroll-request slot. */
+export interface ScrollRequests {
+  readonly request: Accessor<ScrollRequest | null>;
+  readonly set: (r: ScrollRequest) => void;
+  readonly clear: () => void;
+}
 
-export function useCommentScrollRequest() {
+export function createScrollRequests(): ScrollRequests {
+  const [request, setRequest] = createSignal<ScrollRequest | null>(null);
   return {
-    request: scrollReq,
-    set: (r: ScrollRequest): void => {
-      setScrollReq(r);
-    },
-    clear: (): void => {
-      setScrollReq(null);
-    },
+    request,
+    set: (r) => setRequest(r),
+    clear: () => setRequest(null),
   };
 }

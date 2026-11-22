@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { connectedPanes, frontPane, paneLayout, pickedView } from "./livePanes";
+import {
+  connectedPanes,
+  frontPane,
+  PICKED_VIEWS,
+  paneLayout,
+  pickedView,
+} from "./livePanes";
 
 const A = "local/11111111-1111-4111-8111-111111111111";
 const B = "local/22222222-2222-4222-8222-222222222222";
@@ -20,6 +26,14 @@ describe("the picked work's view", () => {
   it("keeps the view a person chose", () => {
     expect(pickedView("details", true)).toBe("details");
     expect(pickedView("terminals", false)).toBe("terminals");
+    expect(pickedView("code", true)).toBe("code");
+    expect(pickedView("code", false)).toBe("code");
+  });
+
+  it("offers three views, Code between Terminals and Details, and opens on Code only when chosen", () => {
+    expect(PICKED_VIEWS).toEqual(["terminals", "code", "details"]);
+    expect(pickedView(undefined, true)).not.toBe("code");
+    expect(pickedView(undefined, false)).not.toBe("code");
   });
 });
 
@@ -75,6 +89,8 @@ describe("which panes hold a connection", () => {
     expect(connectedPanes({ ...onScreen, ...panes, view: "details" })).toEqual(
       [],
     );
+    // With Code in front, no terminal's screen is held open.
+    expect(connectedPanes({ ...onScreen, ...panes, view: "code" })).toEqual([]);
   });
 
   it("connects nothing for a work with no terminals", () => {

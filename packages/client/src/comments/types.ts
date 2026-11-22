@@ -14,7 +14,7 @@ export type Comment = {
   path: string;
   locator: Locator;
   /** Line range captured at selection time — display hint for the tray
-   *  and the destination of "jump to anchor" via `openInCodeTab`. The
+   *  and the destination of "jump to anchor" via the view's door. The
    *  quote in `locator` is the durable anchor; this is the optimistic
    *  read of where the selection lived when it was made. Absent for
    *  HTML iframe comments and for older persisted entries. */

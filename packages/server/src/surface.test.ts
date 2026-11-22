@@ -49,12 +49,13 @@ describe("surfaces map — two siblings (the W1 padi seam)", () => {
     // and `conductor` (kolu's ONE supervising conversation — hosted HERE
     // because its hands reach every host at once, where a padi can only see
     // its own terminals; what it drives is terminals, but the member is a
-    // conversation this process owns). TWO COLLECTIONS ride with it — `works`
-    // and `memberReadings`, the pieces of work that conversation is running
-    // and what kolu has read off each member terminal: facts about a WORK
-    // rather than about a terminal, published per key because a reader of one
-    // has no business re-receiving the others. No events; the one STREAM is
-    // that conversation's transcript.
+    // conversation this process owns). Its COLLECTIONS ride with it — `works`,
+    // `workMembers` and `memberReadings`, the pieces of work that conversation
+    // is running and what kolu has read off each member terminal, and
+    // `workCodeViews`, where a person left each work's Code view: facts about
+    // a WORK rather than about a terminal, published per key because a reader
+    // of one has no business re-receiving the others. No events; the one
+    // STREAM is that conversation's transcript.
     expect(Object.keys(spec.cells ?? {}).sort()).toEqual([
       "agentDistroListing",
       "agentProfiles",
@@ -73,6 +74,7 @@ describe("surfaces map — two siblings (the W1 padi seam)", () => {
     expect(spec.cells?.terminalList).toBeUndefined();
     expect(Object.keys(spec.collections ?? {}).sort()).toEqual([
       "memberReadings",
+      "workCodeViews",
       "workMembers",
       "works",
     ]);
@@ -127,6 +129,9 @@ describe("surfaces map — two siblings (the W1 padi seam)", () => {
       // stopped and reopened from its card.
       "stopWork",
       "reopenWork",
+      // ...and where a person left a work's Code view, which asks the agent
+      // nothing either.
+      "setWorkCodeView",
       // ...and the one that runs BECAUSE there is no conversation: putting a
       // remembered record this build cannot read back in a state it can.
       "recoverStore",

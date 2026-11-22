@@ -147,7 +147,7 @@ import {
   ConductorUnavailable,
   isConductorDeclaredError,
 } from "kolu-common/conductorErrors";
-import type { MemberReading } from "kolu-common/works";
+import type { MemberReading, WorkCodeView } from "kolu-common/works";
 import { splitFleetTerminalRef } from "kolu-mcp/fleetRef";
 import {
   ABOUT_WORK,
@@ -215,12 +215,14 @@ import {
   type PersistedConductor,
   type PersistedMembers,
   type PersistedMemory,
+  type PersistedWorkCodeViews,
   type PersistedTranscript,
   type PersistedWorks,
   persistedFrom,
   readPersistedConductor,
   readPersistedMembers,
   readPersistedMemory,
+  readPersistedWorkCodeViews,
   readPersistedTranscript,
   readPersistedWorks,
   parsePersistedStore,
@@ -237,6 +239,7 @@ import { recordWrites } from "./recordWrites.ts";
 import { teaching } from "./teaching.ts";
 import { wakes } from "./wakes.ts";
 import type { WorkFiles } from "./workFiles.ts";
+import { workCodeViewStore } from "./workCodeViewStore.ts";
 import { type MemberDetail, workStore } from "./workStore.ts";
 
 /** What a reader of the transcript stream is handed, in order: one snapshot,
@@ -602,7 +605,9 @@ export interface ConductorHost {
    *  The snapshot has already been decoded through the migration ladder, so
    *  what arrives is today's shape: the works AND the member bookkeeping that
    *  goes with them, which are two keys of one file and have to be restored
-   *  together or a member comes back as a terminal nobody has ever read.
+   *  together or a member comes back as a terminal nobody has ever read — and
+   *  where each work's Code view stood, which lives exactly as long as its
+   *  work (a view whose work the snapshot lacks goes).
    *
    *  The running Conductor reloads them rather than being restarted: the works
    *  are replaced wholesale — with the questions the snapshot recorded, open
@@ -612,9 +617,15 @@ export interface ConductorHost {
   readonly restoreWorks: (
     works: PersistedWorks,
     members: PersistedMembers,
+    views: PersistedWorkCodeViews,
   ) => void;
   /** THE MEMORY, REPLACED by a restored backup's. */
   readonly restoreMemory: (memory: PersistedMemory) => void;
+  /** PUT A WORK'S CODE VIEW WHERE A PERSON LEFT IT — a whole-record replace.
+   *  An equal write is dropped. Throws `WorkRefusal` for a work kolu does not
+   *  hold: no view outlives its work, and none is made for one that is not
+   *  there. Asks the agent nothing. */
+  readonly setWorkCodeView: (id: WorkId, view: WorkCodeView) => void;
   /** THE HUMAN'S CHOICES ON THE MEMORY. Each writes the record and asks the
    *  agent nothing, so each works while the conversation is down; each
    *  throws `MemoryRefused` with the sentence for a choice it cannot make. A
@@ -875,6 +886,9 @@ export interface ConductorDeps {
   ) => void;
   /** THE MEMORY MOVED — the `conductorMemory` cell's writer. */
   readonly publishMemory: (memory: ConductorMemoryView) => void;
+  /** ... and WHERE ONE WORK'S CODE VIEW STANDS — the `workCodeViews`
+   *  collection's writer. `null` REMOVES it (its work went). */
+  readonly publishWorkCodeView: (id: WorkId, view: WorkCodeView | null) => void;
   /** SOMETHING A `works` READER WOULD SEE MOVED — a work, a member row or a
    *  reading. The in-process event for readers that follow the works
    *  themselves rather than the browser's frame.
@@ -906,6 +920,9 @@ export interface ConductorDeps {
   readonly members: CellStore<PersistedMembers>;
   /** THE CONDUCTOR'S MEMORY — `config.json`'s `memory` key. */
   readonly memory: CellStore<PersistedMemory>;
+  /** WHERE EACH WORK'S CODE VIEW STANDS — `config.json`'s `workCodeViews`
+   *  key. */
+  readonly workCodeViews: CellStore<PersistedWorkCodeViews>;
   /** A WORK'S FILES, where they live: listed on the host the work is on, and
    *  copied into kolu when it ends ({@link WorkFiles}). */
   readonly workFiles: WorkFiles;
@@ -1032,6 +1049,7 @@ export function startConductorHost(deps: ConductorDeps): ConductorHost {
     publishWork,
     publishReading,
     publishMember,
+    publishWorkCodeView,
     worksMoved,
     watchScopeMoved,
     store,
@@ -1039,6 +1057,7 @@ export function startConductorHost(deps: ConductorDeps): ConductorHost {
     works: worksStore,
     members: membersStore,
     memory: memoryCell,
+    workCodeViews: workCodeViewsCell,
     workFiles,
     storePath,
     transcriptPath,
@@ -1254,6 +1273,7 @@ export function startConductorHost(deps: ConductorDeps): ConductorHost {
       works: () => worksStore.set(works.persisted()),
       members: () => membersStore.set(members.saved()),
       memory: () => memoryCell.set(memories.read()),
+      workCodeViews: () => workCodeViewsCell.set(codeViews.read()),
     },
     PERSIST_THROTTLE_MS,
   );
@@ -1275,6 +1295,11 @@ export function startConductorHost(deps: ConductorDeps): ConductorHost {
   // ── the hands ──────────────────────────────────────────────────────────
 
   const members = memberStore();
+
+  const codeViews = workCodeViewStore({
+    records,
+    publish: publishWorkCodeView,
+  });
 
   const works = workStore({
     workFiles,
@@ -1304,6 +1329,7 @@ export function startConductorHost(deps: ConductorDeps): ConductorHost {
     },
     records,
     members,
+    views: codeViews,
     log,
   });
 
@@ -1476,11 +1502,17 @@ export function startConductorHost(deps: ConductorDeps): ConductorHost {
     let watched: PersistedMembers;
     let transcript: PersistedTranscript;
     let memory: PersistedMemory;
+    let views: PersistedWorkCodeViews;
     try {
       record = readPersistedConductor(store, storePath(), stateRoot);
       kept = readPersistedWorks(worksStore, storePath(), stateRoot);
       watched = readPersistedMembers(membersStore, storePath(), stateRoot);
       memory = readPersistedMemory(memoryCell, storePath(), stateRoot);
+      views = readPersistedWorkCodeViews(
+        workCodeViewsCell,
+        storePath(),
+        stateRoot,
+      );
       transcript = readPersistedTranscript(
         transcriptStore,
         transcriptPath(),
@@ -1510,7 +1542,7 @@ export function startConductorHost(deps: ConductorDeps): ConductorHost {
     // implementor) are checked here, in `kolu-work`'s one smart constructor,
     // and a store that breaks one is refused by name.
     parsePersistedStore(kept, watched, storePath(), stateRoot);
-    works.load(kept, watched);
+    works.load(kept, watched, views);
     memories.load(memory);
     deps.publishMemory(memoryView(memory));
     if (works.all().length > 0) {
@@ -2646,15 +2678,20 @@ export function startConductorHost(deps: ConductorDeps): ConductorHost {
       }
       handover(ref, "handed-back");
     },
-    restoreWorks: (restored, watched) => {
+    restoreWorks: (restored, watched, views) => {
       // The records are read FIRST, so a restore into a process that has not
       // looked at its own file yet cannot be undone by the boot read that
       // would otherwise follow it.
       remembered();
       // A terminal the snapshot does not have as a member has nothing left to
       // read — and nothing left to say.
-      for (const ref of works.restore(restored, watched)) wake.withdraw(ref);
+      for (const ref of works.restore(restored, watched, views))
+        wake.withdraw(ref);
       publishState();
+    },
+    setWorkCodeView: (id, view) => {
+      remembered();
+      works.setCodeView(id, view);
     },
     restoreMemory: (restored) => {
       remembered();

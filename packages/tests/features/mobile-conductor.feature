@@ -52,3 +52,23 @@ Feature: The Conductor on a phone
     Then the phone should be showing the works
     And no work should be picked
     And there should be no page errors
+
+  @mobile
+  Scenario: On a phone a picked work offers its code, its tree scrolls and a file opens
+    # The switch is the same on a phone: Code is offered, its tree is reached
+    # by scrolling it, and a file opens in the view, all inside the window.
+    Given a repo for the work
+    When I ask the conductor to open the work "the phone's code"
+    And I answer the work's question with "hand-over" in the chat
+    And I ask the conductor to run the implementor in the work's repo
+    And the implementor writes "plan.md" into the work's repo
+    And the implementor writes 40 files into "." in the work's repo
+    And I open the work column
+    And I open the work card
+    And I show the work's code
+    Then the work's Code view should list "page-of-the-mockup-01.md" in its tree
+    And the work's Code view tree should scroll down to "page-of-the-mockup-40.md"
+    When I open "plan.md" in the work's Code view
+    Then the work's Code view should show the markdown "Read the parser"
+    And nothing on screen should reach past the window's right edge
+    And there should be no page errors

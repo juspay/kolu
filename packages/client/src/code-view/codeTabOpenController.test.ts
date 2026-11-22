@@ -2,6 +2,7 @@ import { Deferred, Effect } from "effect";
 import { createRoot, createSignal } from "solid-js";
 import { describe, expect, it, vi } from "vitest";
 import {
+  codeOwner,
   codeTabSelectionInventoryVerdict,
   type CodeTabOpenSnapshot,
   type CodeTabScope,
@@ -11,7 +12,7 @@ import {
 
 const scope = (terminalId: string): CodeTabScope => ({
   host: { kind: "local" },
-  terminalId,
+  owner: codeOwner("pane", terminalId),
   repoRoot: "/repo",
   mode: "browse",
 });

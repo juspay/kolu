@@ -70,13 +70,13 @@ import {
 import { toast } from "solid-sonner";
 import { match, P } from "ts-pattern";
 import { CommentTextSurface } from "../comments/CommentTextSurface";
-import { useCommentScrollRequest } from "../comments/scrollRequest";
+import { useCommentScrollRequest } from "../comments/commentView";
 import { OptionMenu } from "../ui/OptionMenu";
 import BrowseFileView from "./BrowseFileView";
 import BrowseIframeRenderer from "./BrowseIframeRenderer";
 import { FootnotePopover, type FootnoteTarget } from "./FootnotePopover";
 import { resolveMarkdownImageSrc } from "./markdownImageSrc";
-import { openInCodeTab } from "./openInCodeTab";
+import type { CodeOpen } from "./codeDoor";
 
 // The "File truncated" banner is rendered as a sibling ABOVE the comment
 // surface in both sourceRenderer and textRenderers: the banner is chrome, not
@@ -113,6 +113,10 @@ export type BrowseFileDispatcherProps = {
    *  terminal that has nothing to do with the bytes. */
   at: { host: string; terminalId: TerminalId } | null;
   filePath: string;
+  /** Where a link in the document opens: the door of the view this viewer is
+   *  drawn in. `null` when there is nowhere to open one — a copy kolu kept
+   *  has no tree behind it — so a link is not followed. */
+  open: CodeOpen | null;
   /** THE FILE, already read — text with its source, or a URL to bytes.
    *  `null` while the read is still out.
    *
@@ -135,7 +139,8 @@ export type BrowseFileDispatcherProps = {
    *  clicked in that window must read `pending` from the same object it would
    *  resolve `paths` against — gating on the stale flag of a different snapshot
    *  is exactly the mismatch this single value rules out. Mirrors the
-   *  `openInCodeTab` pipeline, which gates resolution on `pending()` likewise. */
+   *  Code view's open-request pipeline, which gates resolution on `pending()`
+   *  likewise. */
   repoVault: { paths: readonly string[]; pending: boolean };
   theme: "light" | "dark";
   initialSelectedLines?: SelectedLineRange | null;
@@ -156,23 +161,20 @@ export type BrowseFileDispatcherProps = {
 const BrowseFileDispatcher: Component<BrowseFileDispatcherProps> = (props) => {
   // ── Wikilink navigation ────────────────────────────────────────────
   // A `[[Note]]` click resolves pathless against the whole repo (`repoVault`),
-  // GitHub/Obsidian-style. A unique hit opens through the same front door every
-  // other "open this file" producer uses; a miss toasts; an ambiguous basename
-  // (two `Note.md` in different folders) surfaces a disambiguation menu anchored
-  // to the clicked link rather than failing closed — the user picks the file
-  // they meant.
+  // GitHub/Obsidian-style. A unique hit opens through the door of the view this
+  // viewer is drawn in, like every other "open this file" made there; a miss
+  // toasts; an ambiguous basename (two `Note.md` in different folders) surfaces
+  // a disambiguation menu anchored to the clicked link rather than failing
+  // closed — the user picks the file they meant.
   // The shared "open" tail: every preview-link path — wikilink or doc-relative —
-  // ends at the same front door. Only the *resolution* differs per callback
+  // ends at the same door. Only the *resolution* differs per callback
   // (pathless vault vs. doc-relative); the *open* lives here, once. No fuzzy
   // basename fallback — the resolvers already produced an exact repo entry, and
   // a fallback would silently open a same-basename file in another folder.
   const openPreviewPath = (path: string) => {
-    const at = props.at;
     // A kept file has no repo to resolve a link INTO — kolu holds the bytes,
     // not the tree they came from. Nothing to open, so nothing is offered.
-    if (at === null) return;
-    openInCodeTab({
-      terminalId: at.terminalId,
+    props.open?.({
       ref: { path, startLine: null, endLine: null },
       targetMode: "browse",
       allowBasenameFallback: false,
@@ -189,7 +191,7 @@ const BrowseFileDispatcher: Component<BrowseFileDispatcherProps> = (props) => {
     // toggles while a persisted preview stays clickable, so resolving against a
     // pending snapshot would falsely report "no file" or stale candidates. Ask
     // the user to retry rather than resolve a one-shot click against `[]`; the
-    // list settles in a tick. (The `openInCodeTab` effect can simply re-run
+    // list settles in a tick. (The view's open-request effect can simply re-run
     // when `pending()` flips — a click can't, hence the explicit guard.)
     if (props.repoVault.pending) {
       toast.error("Repo file list still loading — try the link again");
