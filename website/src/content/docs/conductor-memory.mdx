@@ -64,9 +64,15 @@ kolu itself never opens those files, and never changes or deletes them. Pressing
 
 The header shows how full the conversation's context is, as `148k/1M`. Every turn reads the whole conversation again, so a long one is slow and costly.
 
-Past about 200k tokens, Claude Code **compacts** the conversation: it replaces the older part with a summary it writes itself, and the count in the header drops. You never type `/compact`. Hover the count to see where the conversation is compacted.
+Past a set number of tokens, Claude Code **compacts** the conversation: it replaces the older part with a summary it writes itself, and the count in the header drops. You never type `/compact`. Hover the count to see where the conversation is compacted.
 
-kolu sets this point for the Conductor alone, whatever your own Claude Code settings say. The `claude` you run in your terminals is unchanged. On a model with a 200k window, the conversation is compacted sooner, at about 167k.
+The point is a setting, 200k unless you change it. Open **Settings** (the gear in the top bar) and pick 100k, 200k, 300k or 500k in the **Conductor compacts at** row.
+
+- A new point applies the next time kolu starts, to the same conversation. **New session** does not apply it.
+- A point below what the conversation already holds compacts it on your next message.
+- On a model with a 200k window, the conversation is compacted at about 167k at the latest, whatever you choose.
+
+kolu sets this point for the Conductor alone, whatever your own Claude Code settings say. The `claude` you run in your terminals is unchanged.
 
 ## The compaction line
 

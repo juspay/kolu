@@ -2,15 +2,17 @@
  *  (`preferences()` / `updatePreferences(...)`). Only needs open/close state
  *  and trigger ref from the parent. */
 
-import type {
-  NewTerminalTheme,
-  Preferences,
-  ShuffleBehavior,
+import {
+  CONDUCTOR_COMPACTS_AT_OPTIONS,
+  type NewTerminalTheme,
+  type Preferences,
+  type ShuffleBehavior,
 } from "kolu-common/surface";
 import { type Component, Show } from "solid-js";
 import { AGENTS_PROFILE_MENU_TESTID } from "../agents/AgentsProfileList";
 import AgentsSettingsSection from "../agents/AgentsSettingsSection";
 import { Portal } from "solid-js/web";
+import { tokens } from "../conductor/tokens";
 import SegmentedControl, {
   type SegmentedControlOption,
 } from "../ui/SegmentedControl";
@@ -99,6 +101,16 @@ const SHUFFLE_BEHAVIOR_HINT: Record<ShuffleBehavior, Hint> = {
     text: "Saturated tints only — skip grey / monochrome schemes.",
   },
 };
+
+/** Where the Conductor compacts — one segment per count kolu offers, labelled
+ *  as the Conductor's header writes a count. A segment's value is a string, so
+ *  each keeps its count beside it, and a pick is looked up rather than parsed
+ *  back into a number. */
+const COMPACTS_AT_OPTIONS = CONDUCTOR_COMPACTS_AT_OPTIONS.map((count) => ({
+  value: tokens(count),
+  label: tokens(count),
+  count,
+}));
 
 const SettingsPopover: Component<{
   open: boolean;
@@ -214,6 +226,29 @@ const SettingsPopover: Component<{
               testId="startup-tips-toggle"
               enabled={preferences().startupTips}
               onChange={(on) => updatePreferences({ startupTips: on })}
+            />
+          </SettingRow>
+          <SettingRow
+            label="Conductor compacts at"
+            hint={{
+              text: "Past this many tokens Claude Code replaces the older part of the Conductor's conversation with a summary. Applies the next time kolu starts.",
+            }}
+            doc="conductor-memory"
+          >
+            <SegmentedControl
+              options={COMPACTS_AT_OPTIONS}
+              value={
+                COMPACTS_AT_OPTIONS.find(
+                  (o) => o.count === preferences().conductorCompactsAt,
+                )?.value
+              }
+              onChange={(v) => {
+                const picked = COMPACTS_AT_OPTIONS.find((o) => o.value === v);
+                if (picked === undefined)
+                  throw new Error(`no compaction point is labelled ${v}`);
+                updatePreferences({ conductorCompactsAt: picked.count });
+              }}
+              testIdPrefix="conductor-compacts-at"
             />
           </SettingRow>
           <AgentsSettingsSection />
