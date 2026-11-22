@@ -1,5 +1,17 @@
 import { type Accessor, createComputed, createSignal } from "solid-js";
 
+/** How a Corvu handle looks, by its root's `orientation`: a zero-size line
+ *  whose `::before` is an 8px hit area, lit on hover. `vertical` stacks the
+ *  panels, so its handle is a line across, dragged up and down; `horizontal`
+ *  stands them side by side, so its handle is a line down, dragged left and
+ *  right. A caller adds its own `z-index` for the stacking it sits in. */
+export const RESIZE_HANDLE_CLASS = {
+  vertical:
+    "shrink-0 h-0 relative before:absolute before:inset-x-0 before:-top-1 before:h-2 before:cursor-row-resize before:hover:bg-accent/30 before:transition-colors",
+  horizontal:
+    "shrink-0 w-0 relative before:absolute before:inset-y-0 before:-left-1 before:w-2 before:cursor-col-resize before:hover:bg-accent/30 before:transition-colors",
+} as const;
+
 /** Decode a Corvu Resizable `onSizesChange(sizes: number[])` emission down to
  *  the real, user-intended two-panel split.
  *

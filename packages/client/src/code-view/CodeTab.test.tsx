@@ -66,6 +66,7 @@ vi.mock("./BrowseFileView", () => ({
 // The stacked tree share is the Right panel's preference; nothing else of the
 // Right panel is read by the view.
 vi.mock("../right-panel/useRightPanel", () => ({
+  MIN_CODE_PANE_SHARE: 0.1,
   useRightPanel: () => ({
     codeTabTreeSize: () => 0.35,
     setCodeTabTreeSize: h.setStackedShare,

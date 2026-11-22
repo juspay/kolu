@@ -92,6 +92,8 @@ import SegmentedControl, {
   type SegmentedControlOption,
 } from "../ui/SegmentedControl";
 import { Z_HANDLE_INNER } from "../ui/stackLayers";
+import { RESIZE_HANDLE_CLASS } from "../ui/corvuResizable";
+import { MIN_CODE_PANE_SHARE } from "../right-panel/useRightPanel";
 import { requestDeepLinkNavigation } from "../useDeepLinks";
 import { isDesktop, isTouch } from "../useMobile";
 import { padiRpcOf } from "../wire";
@@ -1355,7 +1357,7 @@ const CodeTab: Component<{
               // `overflow-auto` is a light-DOM scroller Corvu can see.
               data-corvu-no-drag=""
               class={`min-h-0 min-w-0 ${split.layout().treeEdge} border-edge`}
-              minSize={0.1}
+              minSize={MIN_CODE_PANE_SHARE}
             >
               <div class="relative h-full w-full">
                 <Show when={treeError()}>
@@ -1504,7 +1506,7 @@ const CodeTab: Component<{
               // Setting the explicit z-index creates a stacking context that
               // lifts the ::before in front of the tree's interior.
               // See `ui/stackLayers.ts` for the full layering contract.
-              class={split.layout().handle}
+              class={RESIZE_HANDLE_CLASS[split.layout().orientation]}
               style={{ "z-index": Z_HANDLE_INNER }}
             />
 
@@ -1521,7 +1523,7 @@ const CodeTab: Component<{
               // `outline-none` since no keyboard user ever tabs here.
               tabindex={-1}
               class="min-h-0 min-w-0 overflow-auto outline-none"
-              minSize={0.1}
+              minSize={MIN_CODE_PANE_SHARE}
             >
               <Show
                 when={selectedPath()}

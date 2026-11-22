@@ -80,11 +80,12 @@ import {
 } from "../code-view/codeViewState";
 
 const MIN_PANEL_SIZE = 0.05;
-/** Lower bound for the Code-tab vertical split — keep the tree and content
- *  panes from collapsing to invisible via drag. Mirrors `MIN_PANEL_SIZE`'s
- *  role for the horizontal split. */
-const MIN_TREE_SIZE = 0.1;
-const MAX_TREE_SIZE = 0.9;
+/** The smallest share of a Code view's split either pane may be dragged to,
+ *  in either arrangement, so neither the tree nor the file collapses to
+ *  nothing. The tree's share therefore lies in [floor, 1 − floor]: the band
+ *  every writer of a tree share accepts, and each pane's Corvu `minSize`.
+ *  Mirrors `MIN_PANEL_SIZE`'s role for the Right panel's own split. */
+export const MIN_CODE_PANE_SHARE = 0.1;
 /** Drop a size write when it matches the stored value. Corvu's `Resizable`
  *  runs `createEffect(() => onSizesChange(sizes()))`, so it re-emits the
  *  *current* `sizes` prop on every reactive invalidation — and re-registers
@@ -417,8 +418,8 @@ export function useRightPanel() {
     codeTabTreeSize: () => rp().codeTabTreeSize,
     setCodeTabTreeSize: (size: number) => {
       if (
-        size >= MIN_TREE_SIZE &&
-        size <= MAX_TREE_SIZE &&
+        size >= MIN_CODE_PANE_SHARE &&
+        size <= 1 - MIN_CODE_PANE_SHARE &&
         Math.abs(size - rp().codeTabTreeSize) > SIZE_EPSILON
       ) {
         updatePreferences(
