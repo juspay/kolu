@@ -13260,6 +13260,42 @@
       "firstSeenSha": "897e7abaabe54381ac905eb2094a73b45562d192"
     },
     {
+      "revisionId": "revision-262619c03ae2f5258d36",
+      "scenarioKey": "scenario-19e89cf26e4cc131f776",
+      "feature": "features/conductor-code.feature",
+      "scenario": "On a wide window the work's Code view stands its tree left of the file, and above it on a narrow one",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "81615d5dd5bc63ea47cb0c0514a21ddfb88b1b039f3dbbb0d0c2697fc54eec5c",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "11da4977c51081ee39fe6f1e390460faf1401957"
+    },
+    {
+      "revisionId": "revision-3cc2446c4067f7bfd283",
+      "scenarioKey": "scenario-f57b23823a90346c8390",
+      "feature": "features/conductor-code.feature",
+      "scenario": "The line between the work's tree and its file is dragged, and stays after a reload",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "c0671213c64cd01b4dc81a8b1c2d5c7e28a2f6bef62ffb0386dbf2f2972b2552",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "11da4977c51081ee39fe6f1e390460faf1401957"
+    },
+    {
+      "revisionId": "revision-cd80650db0eacefd31af",
+      "scenarioKey": "scenario-ccdd45d9433c9d562d2c",
+      "feature": "features/mobile-conductor.feature",
+      "scenario": "On a phone a picked work offers its code, its tree scrolls and a file opens",
+      "kind": "scenario",
+      "tags": ["@mobile"],
+      "bodyHash": "3a8651b903bad8fb3fbc432b7cb01778d1f2bf6bb6ec706b0d824741bd976076",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "11da4977c51081ee39fe6f1e390460faf1401957"
+    },
+    {
       "revisionId": "revision-78201795a62a2ada45f3",
       "scenarioKey": "scenario-f39d158d977761cec078",
       "feature": "features/preferences.feature",
@@ -13269,7 +13305,7 @@
       "bodyHash": "f57c67a09d565348727035cd0c931e35c4e303a4c36a0a23415fd94bc4a0e5ba",
       "exampleRows": [],
       "executions": 1,
-      "firstSeenSha": "130cf68f8eddf07520900482616568ee2675a313"
+      "firstSeenSha": "6c8fab37351a3dffd3ebfbfc64733d46c06ba29d"
     }
   ]
 }

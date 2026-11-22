@@ -248,6 +248,7 @@ const RightPanel: Component<{
                         state={rightPanel.code}
                         queries={rightPanelCodeQueries}
                         door={codeDoor}
+                        arrangement="stacked"
                       />
                     ))
                     .exhaustive()}

@@ -67,6 +67,7 @@ Feature: The Conductor on a phone
     And I open the work card
     And I show the work's code
     Then the work's Code view should list "page-of-the-mockup-01.md" in its tree
+    And the work's Code view should stand its tree above the file
     And the work's Code view tree should scroll down to "page-of-the-mockup-40.md"
     When I open "plan.md" in the work's Code view
     Then the work's Code view should show the markdown "Read the parser"

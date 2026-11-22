@@ -4,6 +4,7 @@ import type { Locator } from "playwright";
 import { waitForBufferContains } from "../support/buffer.ts";
 import { waitForPaintedDiagram } from "../support/diagram.ts";
 import { nudgeDir, nudgeFiles } from "../support/nudge.ts";
+import { dragResizeHandle } from "../support/pointerDrag.ts";
 import { pollFor } from "../support/poll.ts";
 import {
   HYDRATION_TIMEOUT,
@@ -1279,27 +1280,16 @@ Then(
 );
 
 /** Drag the tree/content split handle upward, growing the preview
- *  (content) pane. The handle element is zero-height (`h-0`) with a
- *  `::before` pseudo drawing the real hit area, so Playwright's
- *  `boundingBox()`/`dragTo()` (which require visibility) can't drive it —
- *  read the rect directly and run a raw mouse drag through the hit zone. */
+ *  (content) pane. */
 When(
   "I drag the Code tab tree\\/content split handle up by {int} pixels",
   async function (this: KoluWorld, pixels: number) {
-    const handle = this.page.locator(
+    await dragResizeHandle(
+      this,
       '[data-testid="diff-tree-content-handle"][data-corvu-resizable-handle]',
+      0,
+      -pixels,
     );
-    await handle.waitFor({ state: "attached", timeout: POLL_TIMEOUT });
-    const rect = await handle.evaluate((el) => {
-      const r = el.getBoundingClientRect();
-      return { x: r.x, y: r.y, width: r.width };
-    });
-    const x = rect.x + rect.width / 2;
-    await this.page.mouse.move(x, rect.y);
-    await this.page.mouse.down();
-    await this.page.mouse.move(x, rect.y - pixels, { steps: 5 });
-    await this.page.mouse.up();
-    await this.waitForFrame();
   },
 );
 
