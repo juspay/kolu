@@ -334,7 +334,7 @@ retirements:
       - outline-matrix
     destinationLayer: L1
     replacements:
-      - file: packages/client/src/right-panel/fileSearch.test.ts
+      - file: packages/client/src/code-view/fileSearch.test.ts
         test: projectFileTreeSearch > matches whitespace-separated path tokens in order
         lane: unit
         platforms:
@@ -343,7 +343,7 @@ retirements:
         realism:
           - production-projection
         reviewEvidence:
-          file: packages/client/src/right-panel/fileSearch.test.ts
+          file: packages/client/src/code-view/fileSearch.test.ts
           test: projectFileTreeSearch > matches whitespace-separated path tokens in order
           note: Human review confirmed this collected test exercises the declared defect surface; CI verifies collection, not behavioral equivalence.
     survivorRevisionIds:
@@ -5265,3 +5265,16 @@ retirements:
       file: packages/tests/features/attention-alerts.feature
       symbol: "Scenario: A terminal read in one page stays read after another page, at a different address, writes the unread list"
       test: The same journey with one check changed — the two checks of this browser's saved unread list are gone. The first was already covered by the next step (terminal 1 unread in the second page, which loads from that list); the second is now terminal 1's row not unread in the second page, which holds only once the first page's read has reached storage and the second page has heard it. The scenario no longer reads the client's private storage format.
+  - id: revise-5ea441721c732b13e650
+    revisionId: revision-5ea441721c732b13e650
+    action: revised
+    status: landed
+    promise: The Code view lists the worktree, its local changes and a file, and keeps its place across a reload
+    defectSurface: [conductor, code-tab, user-journey]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-bf074fc8aac365e50ffc]
+    sameCodePathEvidence:
+      file: packages/tests/features/conductor-code.feature
+      symbol: "Scenario: The Code view lists the worktree, its local changes and a file, and keeps its place across a reload"
+      test: The same journey with two checks added — with Code in front the picked work draws no live pane at all, and back on Terminals it draws its pane and no Code view — so it also shows that one view is mounted at a time. Nothing it checked before was taken out.
