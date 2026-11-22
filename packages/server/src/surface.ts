@@ -241,8 +241,7 @@ export function currentAgentDistroSetting(): AgentDistroSetting {
 }
 
 /** Where the Conductor compacts its conversation — the preference read off the
- *  SAME store the `preferences` cell serves. The conversation reads it at each
- *  bring-up of its agent (`index.ts` hands it over). */
+ *  SAME store the `preferences` cell serves (`index.ts` hands it over). */
 export function currentConductorCompactsAt(): number {
   return preferencesStore.get().conductorCompactsAt;
 }

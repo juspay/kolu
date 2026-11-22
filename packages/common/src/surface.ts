@@ -384,10 +384,7 @@ export const PreferencesSchema = Schema.Struct({
    *  persisted fleet. */
   hostOrder: Schema.Array(Schema.String),
   /** Where the Conductor compacts its conversation, in tokens — one of
-   *  {@link CONDUCTOR_COMPACTS_AT_OPTIONS}. kolu-conductor reads it each time
-   *  it starts its agent, so a change applies at the next start (in practice a
-   *  kolu restart), to the same conversation; the running agent keeps the
-   *  count it was started with. */
+   *  {@link CONDUCTOR_COMPACTS_AT_OPTIONS}. */
   conductorCompactsAt: ConductorCompactsAtSchema,
 });
 

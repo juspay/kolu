@@ -1904,12 +1904,10 @@ export function startConductorHost(deps: ConductorDeps): ConductorHost {
     // very first publish can be told apart from a retired one's last.
     generation += 1;
     const mine = generation;
-    // WHERE THIS SPAWN COMPACTS, read once here and built by one call whose
-    // three readers cannot disagree: the leg the agent opens its sessions
-    // with, the point the harness sends the rules again at, and the number
-    // the header says. Read per spawn because the agent reads it only when it
-    // opens a session; a preference moved while this agent runs is in force
-    // at the next spawn, and the header keeps saying this one's.
+    // WHERE THIS SPAWN COMPACTS ({@link ConductorDeps.compactsAt}), read once
+    // and built by one call, so its three readers cannot disagree: the leg the
+    // agent opens its sessions with, the point the harness sends the rules
+    // again at, and the number the header says.
     const { leg, compacts } = conductorCompactingAt(compactsAt());
     // THE WHOLE BRING-UP IS ONE PROMISE, assigned to `starting` on the line
     // after it is made and never awaited before then — so two readers arriving

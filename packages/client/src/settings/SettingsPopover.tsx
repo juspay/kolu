@@ -231,7 +231,7 @@ const SettingsPopover: Component<{
           <SettingRow
             label="Conductor compacts at"
             hint={{
-              text: "Past this many tokens Claude Code replaces the older part of the Conductor's conversation with a summary. Applies the next time kolu starts.",
+              text: "Past this many tokens the older part of the Conductor's conversation is replaced with a summary. Applies the next time kolu starts.",
             }}
             doc="conductor-memory"
           >
