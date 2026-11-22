@@ -65,6 +65,7 @@ import {
   type MemberWatch,
   type PersistedMembers,
   type PersistedMemory,
+  type PersistedWorkCodeViews,
   type PersistedTranscript,
   PersistedTranscriptSchema,
   type PersistedWorks,
@@ -154,9 +155,10 @@ const OTHER_KEY = {
  * the session it names, which only the record can carry across a restart;
  * 1.61.0 says whether each pull request opened as a draft; 1.62.0 lets a
  * transcript row be a compaction; 1.63.0 gives the Conductor its memory,
- * and lets a row be a memory proposal; and 1.64.0 gives each work the
- * worktree it keeps when its terminals go. */
-const STATE_SCHEMA_VERSION = "1.64.0";
+ * and lets a row be a memory proposal; 1.64.0 gives each work the worktree
+ * it keeps when its terminals go; and 1.65.0 gives `config.json` the record
+ * of where each work's Code view stands. */
+const STATE_SCHEMA_VERSION = "1.65.0";
 
 const log = {
   debug() {},
@@ -197,6 +199,10 @@ const worksStore = confStore<PersistedWorks>(store, "works");
  *  TERMINAL, which is the half of a restart that decides whether it rings. */
 const membersStore = confStore<PersistedMembers>(store, "members");
 const memoryStore = confStore<PersistedMemory>(store, "memory");
+const workCodeViewsStore = confStore<PersistedWorkCodeViews>(
+  store,
+  "workCodeViews",
+);
 /** The transcript, through the SAME store `live.ts` hands the conversation —
  *  so what this file proves is the file the server writes, not a second
  *  reader of it. */
@@ -213,12 +219,14 @@ const recordDeps = () => ({
   works: worksStore,
   members: membersStore,
   memory: memoryStore,
+  workCodeViews: workCodeViewsStore,
   transcript: transcriptStore,
   transcriptPath: () => transcriptFilePath(stateRoot),
   publishWork: () => {},
   publishMember: () => {},
   publishReading: () => {},
   publishMemory: () => {},
+  publishWorkCodeView: () => {},
   worksMoved: () => {},
   watchScopeMoved: () => {},
   workFiles: {
@@ -698,7 +706,7 @@ describe("the conversation survives a restart", () => {
         },
       },
     ]);
-    host.restoreWorks(snapshot.works, snapshot.members);
+    host.restoreWorks(snapshot.works, snapshot.members, {});
 
     // The host's works ARE the snapshot's — not merged with, not beside.
     expect(host.works().map(([id]) => id)).toEqual([workIdOf(OTHER_KEY)]);

@@ -42,6 +42,7 @@ import {
   type PersistedConductor,
   type PersistedMembers,
   type PersistedMemory,
+  type PersistedWorkCodeViews,
   type PersistedWorks,
   startConductorHost,
 } from "kolu-conductor";
@@ -72,6 +73,10 @@ const conductorStore = confStore<PersistedConductor>(store, "conductor");
 const worksStore = confStore<PersistedWorks>(store, "works");
 const membersStore = confStore<PersistedMembers>(store, "members");
 const memoryStore = confStore<PersistedMemory>(store, "memory");
+const workCodeViewsStore = confStore<PersistedWorkCodeViews>(
+  store,
+  "workCodeViews",
+);
 
 /** A piece of work in today's shape — no members, because what these tests
  *  are about is the KEY, not what is inside it. */
@@ -107,12 +112,14 @@ function hostOver(): ConductorHost {
     publishMember: () => {},
     publishReading: () => {},
     publishMemory: () => {},
+    publishWorkCodeView: () => {},
     worksMoved: () => {},
     watchScopeMoved: () => {},
     store: conductorStore,
     works: worksStore,
     members: membersStore,
     memory: memoryStore,
+    workCodeViews: workCodeViewsStore,
     transcript: transcriptFileStore(stateRoot, TRANSCRIPT_FILE_VERSION),
     storePath: () => store.path,
     transcriptPath: () => transcriptFilePath(stateRoot),

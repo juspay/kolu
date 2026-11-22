@@ -1303,8 +1303,8 @@ export async function bootKoluWeb(flags: KoluBootFlags): Promise<void> {
         hasLiveHost: (key) => pool.getHandler(key) !== undefined,
         addHostKey: (key) => pool.add(key),
         removeHostKey: (key) => pool.remove(key),
-        restoreWorks: (works, members) => {
-          liveServerConductor().restoreWorks(works, members);
+        restoreWorks: (works, members, views) => {
+          liveServerConductor().restoreWorks(works, members, views);
         },
         restoreMemory: (memory) => {
           liveServerConductor().restoreMemory(memory);

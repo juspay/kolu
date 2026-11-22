@@ -67,6 +67,10 @@ const OFFERS: Record<
     backupLabel: "Restore the newest backup that reads",
     emptyLabel: "Start with nothing remembered",
   },
+  workCodeViews: {
+    backupLabel: "Restore the newest backup that reads",
+    emptyLabel: "Start with every work's Code view at its start",
+  },
   transcript: {
     backupLabel: "Restore the newest backup that reads",
     emptyLabel: "Start with an empty transcript",

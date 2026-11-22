@@ -2273,6 +2273,16 @@ export function workKeepsItsWorktree_1_64_0(store: Conf<PersistedState>): void {
   if (changed) store.set("works", next as unknown as PersistedState["works"]);
 }
 
+/** The 1.65.0 rung — WHERE EACH WORK'S CODE VIEW STANDS. `config.json` gains
+ *  a `workCodeViews` key, seeded empty (a value frozen here, not the live
+ *  empty one); a store that already holds one keeps it, whatever it holds —
+ *  this rung does not read values it does not know. No other key moves, and
+ *  the transcript file is untouched, so TRANSCRIPT_FILE_VERSION stays at
+ *  1.63.0. Exported for `stateMigration.test.ts`. */
+export function workCodeViews_1_65_0(store: Conf<PersistedState>): void {
+  if (!store.has("workCodeViews")) store.set("workCodeViews", {});
+}
+
 /** The migration ladder — hoisted so {@link decodeStateBackup}'s scratch
  *  store walks the REAL ladder on a backup snapshot (which may predate any
  *  rung), never a parallel re-implementation of it. */
@@ -3035,4 +3045,7 @@ export const CONF_MIGRATIONS = {
   // argues each case). The transcript file is untouched, so
   // TRANSCRIPT_FILE_VERSION stays at 1.63.0.
   "1.64.0": workKeepsItsWorktree_1_64_0,
+  // WHERE EACH WORK'S CODE VIEW STANDS: a `workCodeViews` key, seeded empty
+  // (`workCodeViews_1_65_0`).
+  "1.65.0": workCodeViews_1_65_0,
 };

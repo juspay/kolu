@@ -32,6 +32,7 @@ import type { Preferences, ViewerMode } from "kolu-common/surface";
 import type {
   PersistedMembers,
   PersistedMemory,
+  PersistedWorkCodeViews,
   PersistedWorks,
 } from "kolu-conductor";
 import { log } from "./log.ts";
@@ -108,10 +109,16 @@ export interface RestoreServerStateBackupDeps {
    *  open asks on the works, re-seeds what it knows about each restored
    *  member, republishes, writes both keys now and re-scopes the watch.
    *
-   *  The two travel TOGETHER because they are halves of one restore: works
+   *  The keys travel TOGETHER because they are halves of one restore: works
    *  without their members come back as terminals nobody has ever read, which
-   *  rings the conversation about every state it was already told about. */
-  restoreWorks: (works: PersistedWorks, members: PersistedMembers) => void;
+   *  rings the conversation about every state it was already told about —
+   *  and where each work's Code view stood lives exactly as long as its work,
+   *  so a view whose work the snapshot lacks goes in the same step. */
+  restoreWorks: (
+    works: PersistedWorks,
+    members: PersistedMembers,
+    views: PersistedWorkCodeViews,
+  ) => void;
   /** THE CONDUCTOR'S MEMORY, replaced by the snapshot's — handed to the live
    *  host, its one writer, for the reason `restoreWorks` gives. */
   restoreMemory: (memory: PersistedMemory) => void;
@@ -133,7 +140,8 @@ export interface RestoreServerStateBackupDeps {
  *  half on `session/load`, and kolu's half is on screen in front of the person
  *  pressing restore. The works, which outlive any conversation, ARE restored —
  *  with the `members` key that says what kolu knows about each of their
- *  terminals, in the same call (`restoreWorks` above). So is the memory
+ *  terminals and the `workCodeViews` key that says where each one's Code view
+ *  stood, in the same call (`restoreWorks` above). So is the memory
  *  (`restoreMemory`).
  *
  *  Two things a work refers to are outside the ring and say so in the dialog:
@@ -150,6 +158,7 @@ type UnrestoredPersistedKey = Exclude<
   | "works"
   | "members"
   | "memory"
+  | "workCodeViews"
   | "conductor"
 >;
 const _everyPersistedKeyRestored: [UnrestoredPersistedKey] extends [never]
@@ -178,13 +187,13 @@ export async function restoreServerStateBackup(
     log.info({ file: input.file }, "restoring server state from backup");
     deps.setPreferences(decoded.preferences);
     deps.setViewerMode(decoded.viewerMode);
-    // ... and the Conductor's works WITH their members, handed to the live
-    // host rather than written to the keys under it: it is the one writer of
-    // both while this process runs, and it has to act on the restored set
-    // (drop the asks nobody can answer, re-seed what it knows about each
-    // member, publish, re-scope the watch) for the restore to be anything a
-    // person can see.
-    deps.restoreWorks(decoded.works, decoded.members);
+    // ... and the Conductor's works WITH their members and their Code views,
+    // handed to the live host rather than written to the keys under it: it is
+    // the one writer of all three while this process runs, and it has to act
+    // on the restored set (drop the asks nobody can answer, re-seed what it
+    // knows about each member, publish, re-scope the watch) for the restore
+    // to be anything a person can see.
+    deps.restoreWorks(decoded.works, decoded.members, decoded.workCodeViews);
     deps.restoreMemory(decoded.memory);
 
     // Converge the pool onto the snapshot's fleet. The ADD phase completes

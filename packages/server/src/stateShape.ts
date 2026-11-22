@@ -42,9 +42,11 @@ import {
   EMPTY_PERSISTED_CONDUCTOR,
   EMPTY_PERSISTED_MEMBERS,
   EMPTY_PERSISTED_MEMORY,
+  EMPTY_PERSISTED_WORK_CODE_VIEWS,
   PersistedConductorSchema,
   PersistedMembersSchema,
   PersistedMemorySchema,
+  PersistedWorkCodeViewsSchema,
   PersistedWorksSchema,
 } from "kolu-conductor";
 
@@ -65,11 +67,14 @@ import {
  *  terminal, keyed by fleet ref — what it was last called, the agent seen in
  *  it, the level the conversation was already told about — kept beside the
  *  works rather than inside them because it is a fact about a terminal rather
- *  than part of what a work is, and it moves every time a host is read. None
- *  of the three is a served cell (all are assembled from the LIVE record);
- *  this is only what a restart has to start from, and it lives here because
- *  kolu-server HOSTS the conversation. Adding a new domain key requires a
- *  migration entry in `stateLadder.ts`.
+ *  than part of what a work is, and it moves every time a host is read.
+ *  `workCodeViews` is where a person left each work's Code view — its mode
+ *  and the file open in each mode, keyed by work id — beside the works for
+ *  the same kind of reason: it moves on every file click, and it lives
+ *  exactly as long as its work. None of these is a served cell (all are
+ *  assembled from the LIVE record); this is only what a restart has to start
+ *  from, and it lives here because kolu-server HOSTS the conversation.
+ *  Adding a new domain key requires a migration entry in `stateLadder.ts`.
  *
  *  Exported to THIS MODULE'S TWO SIBLINGS ONLY — `state.ts` (the boot decode
  *  and the restore path's `DecodedStateBackup`) and the ladder's rungs.
@@ -83,6 +88,7 @@ export const PersistedStateSchema = Schema.Struct({
   works: PersistedWorksSchema,
   members: PersistedMembersSchema,
   memory: PersistedMemorySchema,
+  workCodeViews: PersistedWorkCodeViewsSchema,
 });
 
 /** The DECODED disk shape. Effect's `Struct.Type` is deep-`readonly`; `Conf` is
@@ -134,7 +140,7 @@ export function readPersistedRecord(
  * Must be valid semver. `conf` runs all migration handlers
  * whose keys are > the last-seen version and ≤ this value.
  */
-export const SCHEMA_VERSION = "1.64.0";
+export const SCHEMA_VERSION = "1.65.0";
 
 /** THE VERSION STAMPED INTO THE TRANSCRIPT FILE
  *  (`<stateDir>/conductor/transcript.json`), and the one a reader accepts.
@@ -193,4 +199,7 @@ export const CONF_DEFAULTS: PersistedState = {
   // NOTHING REMEMBERED YET. The 1.63.0 migration seeds this onto an existing
   // file for the same on-disk-shape reason the keys above give.
   memory: EMPTY_PERSISTED_MEMORY,
+  // NO WORK'S CODE VIEW MOVED YET. The 1.65.0 migration seeds this onto an
+  // existing file for the same on-disk-shape reason the keys above give.
+  workCodeViews: EMPTY_PERSISTED_WORK_CODE_VIEWS,
 };
