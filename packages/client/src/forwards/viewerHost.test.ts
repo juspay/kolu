@@ -42,11 +42,14 @@ vi.mock("../wire", () => ({
   app: { cells: { forwards: { use: () => ({ value: () => cell.value() }) } } },
 }));
 
-afterEach(() => {
+/** Drop the loaded module and the stubs' answers, so the next import is a
+ *  fresh page. */
+function forget(): void {
   vi.resetModules();
   viewer.mockReset();
   cell.value = () => [];
-});
+}
+afterEach(forget);
 
 /** Import fresh each time — the query is a module-level one-shot, so its
  *  resolution is baked at first import. */
@@ -56,6 +59,13 @@ async function loadViewerHost() {
   await new Promise((r) => setTimeout(r, 0));
   return mod.viewerHost;
 }
+
+// Load once at collection, before any test's clock starts: a worker's first
+// import costs one round trip to vitest's main process per module, and while
+// the suite is starting those add up to seconds. Each case then re-evaluates.
+answers({ host: null });
+await loadViewerHost();
+forget();
 
 describe("viewerHost", () => {
   it("reads the host the server names", async () => {

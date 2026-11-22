@@ -22,8 +22,8 @@ const BUILDER: HostKey = { kind: "remote", target: "builder" };
 // the visit order, so a test that passes by accident of position can't.
 const POOL = [LOCAL, GPU, BUILDER];
 
-type FleetActions = typeof import("./fleetActions");
-let hostRootActions: FleetActions["hostRootActions"];
+type HostActions = typeof import("./hostActions");
+let hostRootActions: HostActions["hostRootActions"];
 
 // A FRESH trail per case, without giving up the real composition: reset the
 // module registry so `hostRecency`'s app-lifetime root is rebuilt, wipe the tab
@@ -32,7 +32,7 @@ let hostRootActions: FleetActions["hostRootActions"];
 // is cached across `resetModules`, so its `activeHost` signal would belong to
 // the PREVIOUS `solid-js` instance and the rebuilt trail's effect would never
 // track it — the trail would record its boot host and nothing after.
-beforeEach(async () => {
+async function freshTrail(): Promise<void> {
   sessionStorage.clear();
   vi.resetModules();
   vi.doMock("../wire", async () => {
@@ -48,8 +48,14 @@ beforeEach(async () => {
       padiMap: { entry: () => ({ state: () => ({ kind: "connected" }) }) },
     };
   });
-  ({ hostRootActions } = await import("./fleetActions"));
-});
+  ({ hostRootActions } = await import("./hostActions"));
+}
+
+// Load once at collection, before any test's clock starts: a worker's first
+// import costs one round trip to vitest's main process per module, and while
+// the suite is starting those add up to seconds. Each case then re-evaluates.
+await freshTrail();
+beforeEach(freshTrail);
 
 /** The row ⌘⇧H would activate on Enter, given who is active now. */
 function landsOn(active: HostKey, pool: HostKey[] = POOL): string | undefined {

@@ -17,7 +17,10 @@
  *  blank, which is what a browser that never saved anything does. */
 
 import { decodeHostKey } from "kolu-common/hostKey";
-import { type TerminalId, TerminalIdSchema } from "kolu-common/surface";
+import {
+  type TerminalId,
+  TerminalIdSchema,
+} from "@kolu/terminal-vocab/terminalId";
 import { Schema } from "effect";
 import { untrack } from "solid-js";
 import { createStore, produce } from "solid-js/store";
