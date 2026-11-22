@@ -478,13 +478,11 @@ export const FileTree: Component<FileTreeProps> = (props) => {
   ];
 
   /** Make Pierre's selection `path` (null clears it), opening its ancestors
-   *  and scrolling it into view. Idempotent, and a no-op for a path the tree
-   *  does not hold yet. TWO callers, because the selection and the inventory
-   *  it names are separate props: the selection effect (the pick moved) and
-   *  the paths effect (the row may only now exist). Solid runs effects in the
-   *  order their inputs changed, so when both change in one update either may
-   *  run first — a selection applied before its row exists is only kept
-   *  because the paths write that follows applies it again. */
+   *  and scrolling it into view. Idempotent; a no-op for a path the tree does
+   *  not hold yet. Called by the selection effect AND after every paths write:
+   *  Solid runs one update's effects in the order their inputs changed, so
+   *  when the selection and the row it names arrive together the selection
+   *  effect may run first, find no row, and leave the paths write to apply it. */
   const applySelection = (path: string | null): void => {
     const t = tree;
     if (!t) return;
@@ -654,10 +652,8 @@ export const FileTree: Component<FileTreeProps> = (props) => {
   // not toast "render failed"); the original throw is logged for visibility.
   //
   // `selectedPath` is deliberately *not* a dependency — routing selection
-  // through here would re-run on every file click. But every inventory this
-  // writes ends by re-applying the current selection (`applySelection`, read
-  // untracked): the selected file can arrive after its selection, or in the
-  // SAME update, and only here is the row it names known to exist.
+  // through here would re-run on every file click. Each write still ends with
+  // `applySelection` (see there for why).
   createEffect(
     on(
       [propValue.paths, propValue.expandPaths],
@@ -824,8 +820,7 @@ export const FileTree: Component<FileTreeProps> = (props) => {
   // through a reactive accessor (e.g. CodeTab's per-(repoRoot,view)
   // slot map) leaves the tree out of sync whenever selection arrives
   // after FileTree mount — the `Open path:N` flow from a diff is the
-  // canonical case. A path not yet in the tree is a no-op here; the paths
-  // effect above applies it once the row exists.
+  // canonical case.
   // `onSelectionChange` re-fires when we call `select()`,
   // but the provenance gate drops that emit (no user gesture is armed), so
   // it never reaches the host — the programmatic echo stops here rather than
