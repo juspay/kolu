@@ -50,7 +50,7 @@ import { DaemonContractSkewError } from "@kolu/surface-daemon-supervisor";
 import { Effect, Stream } from "effect";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import type { TerminalAttachFrame } from "./endpoint.ts";
-import { probeKavalStatus } from "./hostInventory.ts";
+import { type KavalProbe, probeKavalStatus } from "./hostInventory.ts";
 import { padiKavalSocketPath } from "./stateRoot.ts";
 
 const SRC = dirname(fileURLToPath(import.meta.url));
@@ -690,7 +690,22 @@ describeDaemon("padi the process — dial acceptance", () => {
     // The SAME probe the supervisor watches through — three read-only verbs over
     // a fresh link — so "repaired" means the identical thing here and in
     // production, rather than a second, weaker definition written for the test.
-    const probe = await Effect.runPromise(probeKavalStatus(p.kavalSocket));
+    //
+    // ASKED UNTIL IT ANSWERS, within a bound, not once: the daemon skeleton takes
+    // its gate BEFORE its socket listens (`daemonMain`: gate → serve), so the new
+    // pid above can be read a moment before the replacement accepts a dial, and a
+    // single probe at that moment is refused. A wedged kaval never answers, so it
+    // still fails here once the bound runs out.
+    const deadline = Date.now() + 15_000;
+    let probe: KavalProbe | undefined;
+    while (probe === undefined) {
+      try {
+        probe = await Effect.runPromise(probeKavalStatus(p.kavalSocket));
+      } catch (refused) {
+        if (Date.now() >= deadline) throw refused;
+        await sleep(150);
+      }
+    }
     expect(probe.contractVersion).not.toBeNull();
   }, 180_000);
 });
