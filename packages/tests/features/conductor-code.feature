@@ -12,6 +12,8 @@ Feature: A picked work's Code view
     And the conductor is on a fresh conversation
 
   Scenario: The Code view lists the worktree, its local changes and a file, and keeps its place across a reload
+    # One view is mounted at a time: with Code in front the work draws no
+    # live pane at all, and back on Terminals it draws no Code view.
     Given a repo for the work
     When I ask the conductor to open the work "read its code"
     And I answer the work's question with "hand-over" in the chat
@@ -20,13 +22,16 @@ Feature: A picked work's Code view
     And I open the work card
     And I show the work's code
     Then the picked work should be showing its code
+    And the picked work should draw no live pane
     And the work's Code view should list "README.md" in its tree
     When I open "plan.md" in the work's Code view
     Then the work's Code view should show the markdown "Read the parser"
     When I press the work's Code view mode "local"
     Then the work's Code view should list "plan.md" in its tree
     When I open "plan.md" in the work's Code view
-    And I reload the page
+    And I show the work's terminals
+    Then the picked work should draw its live pane and no Code view
+    When I reload the page
     And I enter conductor mode
     And I open the work card
     And I show the work's code

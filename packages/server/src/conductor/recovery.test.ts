@@ -29,7 +29,7 @@ import {
   rmSync,
   writeFileSync,
 } from "node:fs";
-import { dirname, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { confStore } from "@kolu/surface/server";
 import {
   type ConductorUnreadable,
@@ -376,6 +376,10 @@ describe("start with the record empty", () => {
     recover(host, "workCodeViews", "empty");
 
     expect(keptAside()[0]).toMatch(/^unreadable-workCodeViews-.*\.json$/);
+    // The file a person was told of names the same stem recovery wrote. (The
+    // stamp the told name leaves out is an older difference, every record's.)
+    const told = basename(said.unreadable.keepsAt).replace(/\.json$/, "-");
+    expect(keptAside()[0]?.startsWith(told)).toBe(true);
     expect(store.get("workCodeViews")).toEqual({});
     expect(host.state().refusal).toBeNull();
     expect(host.works().map(([, one]) => one.title)).toEqual(["the first"]);

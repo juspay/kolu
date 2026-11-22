@@ -267,7 +267,10 @@ export const RECORD_FACTS: Record<
     noun: "where each work's Code view was left",
     them: "it",
     inBackups: true,
-    keptFile: "unreadable-work-code-views.json",
+    // The stem is the record's key, as recovery writes it
+    // (`unreadable-<key>-<stamp>.json`). The stamp this table leaves out is
+    // an older difference, shared by every row.
+    keptFile: "unreadable-workCodeViews.json",
   },
   transcript: {
     noun: "the Conductor's saved transcript",

@@ -120,8 +120,14 @@ Then(
   },
 );
 
-/** THE TREE SCROLLS — on a phone, a long tree is reached by scrolling it:
- *  wheel over the tree until the row far down it is on screen. */
+/** THE TREE SCROLLS UNDER A FINGER — on a phone, a long tree is reached by
+ *  dragging it. A drag is synthetic touch events on the tree, as the
+ *  terminal's phone scroll does (`mobile_terminal_scroll_steps.ts`): a
+ *  hasTouch context does not turn mouse drags into touches. A synthetic touch
+ *  never scrolls anything natively, so the row comes into view only through
+ *  the Code view's own touch driver (`pierreTouchScroll.ts`) — the thing this
+ *  step is about. Each drag runs a finger from near the tree's bottom to near
+ *  its top, which moves the content down. */
 Then(
   "the work's Code view tree should scroll down to {string}",
   async function (this: KoluWorld, path: string) {
@@ -130,6 +136,14 @@ Then(
     const box = await area.boundingBox();
     if (box === null) throw new Error("the work's Code view tree has no box");
     const row = this.page.locator(fileRow(WORK_CODE, path)).first();
+    const x = box.x + box.width / 2;
+    const startY = box.y + box.height - 20;
+    const endY = box.y + 20;
+    // No functions inside page.evaluate (swc's `__name` helper does not exist
+    // in the page): the finger's path is computed here, and the events are
+    // written out in the page with no helper.
+    const ys: number[] = [];
+    for (let i = 1; i <= 8; i++) ys.push(startY + ((endY - startY) * i) / 8);
     await pollFor({
       observe: async () => {
         if (await row.isVisible().catch(() => false)) {
@@ -137,20 +151,97 @@ Then(
           if (at !== null && at.y + at.height <= box.y + box.height + 1)
             return true;
         }
-        await this.page.mouse.move(
-          box.x + box.width / 2,
-          box.y + box.height / 2,
+        await this.page.evaluate(
+          ({ sel, x, startY, ys }) => {
+            const target = document.querySelector(sel) as HTMLElement | null;
+            if (!target) throw new Error(`No element matches ${sel}`);
+            const first = new Touch({
+              identifier: 0,
+              target,
+              clientX: x,
+              clientY: startY,
+            });
+            target.dispatchEvent(
+              new TouchEvent("touchstart", {
+                touches: [first],
+                targetTouches: [first],
+                changedTouches: [first],
+                bubbles: true,
+                cancelable: true,
+              }),
+            );
+            let last = first;
+            for (const y of ys) {
+              last = new Touch({
+                identifier: 0,
+                target,
+                clientX: x,
+                clientY: y,
+              });
+              target.dispatchEvent(
+                new TouchEvent("touchmove", {
+                  touches: [last],
+                  targetTouches: [last],
+                  changedTouches: [last],
+                  bubbles: true,
+                  cancelable: true,
+                }),
+              );
+            }
+            target.dispatchEvent(
+              new TouchEvent("touchend", {
+                touches: [],
+                targetTouches: [],
+                changedTouches: [last],
+                bubbles: true,
+                cancelable: true,
+              }),
+            );
+          },
+          { sel: tree(WORK_CODE), x, startY, ys },
         );
-        await this.page.mouse.wheel(0, 400);
         return false;
       },
       isDone: (inView) => inView,
       timeoutMs: POLL_TIMEOUT,
       onTimeout: (_last, ms) =>
         new Error(
-          `"${path}" never came into the work's Code view tree after ${ms}ms of scrolling`,
+          `"${path}" never came into the work's Code view tree after ${ms}ms of dragging it`,
         ),
     });
+  },
+);
+
+/** ONE VIEW MOUNTED AT A TIME. Not merely "no pane connected": with Code in
+ *  front the picked work draws no live pane at all, and with Terminals in
+ *  front it draws no Code view. */
+const LIVE_PANE = `${COLUMN} [data-testid="live-pane"]`;
+
+async function waitForNone(world: KoluWorld, selector: string): Promise<void> {
+  await pollFor({
+    observe: () => world.page.locator(selector).count(),
+    isDone: (count) => count === 0,
+    timeoutMs: POLL_TIMEOUT,
+    onTimeout: (last, ms) =>
+      new Error(`${selector} still drew ${last} after ${ms}ms`),
+  });
+}
+
+Then(
+  "the picked work should draw no live pane",
+  async function (this: KoluWorld) {
+    await waitForNone(this, LIVE_PANE);
+  },
+);
+
+Then(
+  "the picked work should draw its live pane and no Code view",
+  async function (this: KoluWorld) {
+    await this.page
+      .locator(LIVE_PANE)
+      .first()
+      .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    await waitForNone(this, WORK_CODE);
   },
 );
 
