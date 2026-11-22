@@ -23,7 +23,7 @@ import { type Accessor, batch } from "solid-js";
 import { useTerminalStore } from "../terminal/useTerminalStore";
 import { activeHost } from "../wire";
 import { type CodeDoor, type CodeOpenInput, pendingRequest } from "./codeDoor";
-import { paneCodeOwner } from "./codeSubject";
+import { paneCodeOwner } from "./hostCodeTab";
 import type { OpenInCodeTabRequest } from "./codeTabOpenController";
 import { useRightPanel } from "./useRightPanel";
 

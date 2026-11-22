@@ -14,16 +14,12 @@
  *    list);
  *  - **a terminal, or none** — what a picture's and a download's address and
  *    the comments hang on. Nothing else in the view needs one: the tree, the
- *    diffs and a text file are read by path.
- *
- *  The Right panel's subject is its focused pane ({@link codeSubjectOf}). */
+ *    diffs and a text file are read by path. */
 
-import type { TerminalMetadata } from "@kolu/padi-client/surface";
-import type { GitFact } from "@kolu/terminal-vocab/schema";
 import type { HostKey } from "kolu-common/hostKey";
 import type { TerminalId } from "kolu-common/surface";
-import { type CodeLister, repoLister } from "./codeLister";
-import { type CodeOwner, codeOwner } from "./codeTabOpenController";
+import type { CodeLister } from "./codeLister";
+import type { CodeOwner } from "./codeTabOpenController";
 
 /** Where git stands for a Code view's subject. `unresolved` is git not having
  *  answered yet, which is drawn blank rather than guessed at; `none` is an
@@ -43,40 +39,6 @@ export interface CodeSubject {
   readonly host: HostKey;
   readonly git: CodeGit;
   readonly terminalId: TerminalId | null;
-}
-
-/** A terminal's git reading as a Code view's {@link CodeGit}. No reading at
- *  all — no terminal shown — is no repository either. */
-export function codeGitOf(git: GitFact | undefined): CodeGit {
-  if (git === undefined) return { kind: "none" };
-  if (git.kind !== "repo") return { kind: git.kind };
-  return {
-    kind: "repo",
-    root: git.info.repoRoot,
-    lister: repoLister(git.info),
-  };
-}
-
-/** The owner of a PANE's place — the Right panel's kind of owner. The front
- *  door scopes its requests by it, and the pane's subject carries it. */
-export function paneCodeOwner(terminalId: TerminalId): CodeOwner {
-  return codeOwner("pane", terminalId);
-}
-
-/** The subject of a Code view about ONE TERMINAL — the Right panel's focused
- *  pane: the pane's place, its host, its own git reading, and the terminal
- *  itself, from the one (id, record) pair the caller read together. */
-export function codeSubjectOf(
-  host: HostKey,
-  terminalId: TerminalId | null,
-  meta: TerminalMetadata | null,
-): CodeSubject {
-  return {
-    owner: terminalId === null ? null : paneCodeOwner(terminalId),
-    host,
-    git: codeGitOf(meta?.git),
-    terminalId,
-  };
 }
 
 /** The one line for bytes that only a terminal's file route can fetch — a

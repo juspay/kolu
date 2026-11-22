@@ -55,19 +55,59 @@
  *  the two `.active()` re-keys are not one atomic transition. No consumer may assume
  *  they flip together within a single reactive tick. */
 
+import type { TerminalMetadata } from "@kolu/padi-client/surface";
 import { scopedByEntry } from "@kolu/surface-map/client";
+import type { GitFact } from "@kolu/terminal-vocab/schema";
+import type { HostKey } from "kolu-common/hostKey";
+import type { TerminalId } from "kolu-common/surface";
 import { type Accessor, createMemo } from "solid-js";
 import { createSharedRoot } from "../createSharedRoot";
 import { windowedSub } from "../hostScope/windowedSub.ts";
 import { useTerminalStore } from "../terminal/useTerminalStore";
 import { activeHost, padiMap } from "../wire";
+import { repoLister } from "./codeLister";
 import {
   buildCodeQueries,
   type CodeQueries,
   createCodeLeases,
 } from "./codeQueries";
-import { type CodeSubject, codeSubjectOf } from "./codeSubject";
+import type { CodeGit, CodeSubject } from "./codeSubject";
+import { type CodeOwner, codeOwner } from "./codeTabOpenController";
 import { useRightPanel } from "./useRightPanel";
+
+/** A terminal's git reading as a Code view's {@link CodeGit}. No reading at
+ *  all — no terminal shown — is no repository either. */
+export function codeGitOf(git: GitFact | undefined): CodeGit {
+  if (git === undefined) return { kind: "none" };
+  if (git.kind !== "repo") return { kind: git.kind };
+  return {
+    kind: "repo",
+    root: git.info.repoRoot,
+    lister: repoLister(git.info),
+  };
+}
+
+/** The owner of a PANE's place — the Right panel's kind of owner. The front
+ *  door scopes its requests by it, and the pane's subject carries it. */
+export function paneCodeOwner(terminalId: TerminalId): CodeOwner {
+  return codeOwner("pane", terminalId);
+}
+
+/** The subject of a Code view about ONE TERMINAL — the Right panel's focused
+ *  pane: the pane's place, its host, its own git reading, and the terminal
+ *  itself, from the one (id, record) pair the caller read together. */
+export function codeSubjectOf(
+  host: HostKey,
+  terminalId: TerminalId | null,
+  meta: TerminalMetadata | null,
+): CodeSubject {
+  return {
+    owner: terminalId === null ? null : paneCodeOwner(terminalId),
+    host,
+    git: codeGitOf(meta?.git),
+    terminalId,
+  };
+}
 
 /** WHAT THE RIGHT PANEL'S CODE VIEW IS ABOUT — the focused pane on the shown
  *  host, from the terminal store's ONE (id, record) bundle (`store.focused()`),
