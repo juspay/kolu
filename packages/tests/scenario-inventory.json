@@ -12934,6 +12934,42 @@
       "exampleRows": [],
       "executions": 1,
       "firstSeenSha": "0f6c7935a6f98835041bede2b23439bf068092a9"
+    },
+    {
+      "revisionId": "revision-17a28d45fd711f055a14",
+      "scenarioKey": "scenario-1d8f691abb1746c25ea4",
+      "feature": "features/conductor-layout.feature",
+      "scenario": "A work's row keeps its title readable beside the sidebar, at its default and at its widest",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "377690f282118bb8ff12e340244ee6a1bee50c7058690a8f363063b2d1f95975",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "3653c9ec5d55e37716f1ab4f258567486990c57c"
+    },
+    {
+      "revisionId": "revision-10cd88d1b464a6e6afac",
+      "scenarioKey": "scenario-42c57bbad104c4ce7aa8",
+      "feature": "features/conductor-live-terminals.feature",
+      "scenario": "Inspect unfolds a terminal in the details, and its Compose writes to that terminal",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "b432c3a5416040dbe432d79d80a5c0bf0e8b787a8e55c6aedf34655c3a505da4",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "3653c9ec5d55e37716f1ab4f258567486990c57c"
+    },
+    {
+      "revisionId": "revision-4c5b598a35963dca9191",
+      "scenarioKey": "scenario-2feae7d495dbaaefe9f3",
+      "feature": "features/conductor-work.feature",
+      "scenario": "A work keeps where it works after its terminal has gone",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "d27b02ee3cd95a7e4feb76c40d3685bc39729de043dedf085b6a6f6e6ec7a63b",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "3653c9ec5d55e37716f1ab4f258567486990c57c"
     }
   ]
 }
