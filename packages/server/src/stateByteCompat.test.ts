@@ -262,13 +262,16 @@ describe("the migration ladder over legacy on-disk blobs", () => {
     // 1.41.0 / 1.43.0 / 1.66.0.
     const migrated = migratePreferences_1_66_0(
       migratePreferences_1_43_0(
-      migratePreferences_1_41_0(
-        migratePreferences_1_40_0(
-          migratePreferences_1_39_0(
-            migratePreferences_1_38_0(
-              migratePreferences_1_37_0(
-                migratePreferences_1_34_0(
-                  migratePreferences_1_32_0(migratePreferences_1_30_0(legacy)),
+        migratePreferences_1_41_0(
+          migratePreferences_1_40_0(
+            migratePreferences_1_39_0(
+              migratePreferences_1_38_0(
+                migratePreferences_1_37_0(
+                  migratePreferences_1_34_0(
+                    migratePreferences_1_32_0(
+                      migratePreferences_1_30_0(legacy),
+                    ),
+                  ),
                 ),
               ),
             ),
@@ -315,11 +318,12 @@ describe("the migration ladder over legacy on-disk blobs", () => {
     ) as Record<string, unknown>;
     const migrated = migratePreferences_1_66_0(
       migratePreferences_1_43_0(
-      migratePreferences_1_41_0(
-        migratePreferences_1_40_0(
-          migratePreferences_1_39_0(
-            migratePreferences_1_38_0(
-              migratePreferences_1_37_0(migratePreferences_1_34_0(legacy)),
+        migratePreferences_1_41_0(
+          migratePreferences_1_40_0(
+            migratePreferences_1_39_0(
+              migratePreferences_1_38_0(
+                migratePreferences_1_37_0(migratePreferences_1_34_0(legacy)),
+              ),
             ),
           ),
         ),

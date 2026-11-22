@@ -333,14 +333,17 @@ describe("the CHAINED preference ladder (a pre-1.30 blob walking every rung)", (
   const walkLadder = (blob: Record<string, unknown>) =>
     migratePreferences_1_66_0(
       migratePreferences_1_43_0(
-      migratePreferences_1_42_0(
-        migratePreferences_1_41_0(
-          migratePreferences_1_40_0(
-            migratePreferences_1_39_0(
-              migratePreferences_1_38_0(
-                migratePreferences_1_37_0(
-                  migratePreferences_1_34_0(
-                    migratePreferences_1_32_0(migratePreferences_1_30_0(blob)),
+        migratePreferences_1_42_0(
+          migratePreferences_1_41_0(
+            migratePreferences_1_40_0(
+              migratePreferences_1_39_0(
+                migratePreferences_1_38_0(
+                  migratePreferences_1_37_0(
+                    migratePreferences_1_34_0(
+                      migratePreferences_1_32_0(
+                        migratePreferences_1_30_0(blob),
+                      ),
+                    ),
                   ),
                 ),
               ),
