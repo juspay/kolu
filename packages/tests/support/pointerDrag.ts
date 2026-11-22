@@ -6,9 +6,9 @@
  *  PointerSensor (250 ms / 10 px activation) needs the drag to live in the DOM
  *  the way a user's does. Both in-canvas gestures (resize, selection,
  *  rearrange) and the dock's gestures feed the same engine. The dock
- *  features (dock_arrange_steps, dock_steps's resize) were migrated off
- *  hand-spelled frames onto this driver; the canvas/code-tab drivers spell
- *  them the old way until they adopt it. */
+ *  features (dock_arrange_steps, dock_steps's resize) and the Code view's
+ *  split handles were migrated off hand-spelled frames onto this driver; the
+ *  canvas drivers spell them the old way until they adopt it. */
 
 import type { KoluWorld } from "./world.ts";
 
@@ -58,4 +58,33 @@ export async function dragCenterTo(
     toBox.y + toBox.height / 2 - (fromBox.y + fromBox.height / 2),
     opts,
   );
+}
+
+/** Drag a Corvu resize handle `pixels` along `axis` (negative is up / left).
+ *  A handle is a zero-size line whose `::before` draws the hit area, so
+ *  Playwright's visibility-gated `boundingBox()`/`dragTo()` cannot drive it:
+ *  read its rect in the page and press its middle. */
+export async function dragResizeHandle(
+  world: KoluWorld,
+  handleSelector: string,
+  axis: "x" | "y",
+  pixels: number,
+): Promise<void> {
+  const handle = world.page.locator(handleSelector);
+  await handle.waitFor({ state: "attached", timeout: 10000 });
+  const rect = await handle.evaluate((el) => {
+    const r = el.getBoundingClientRect();
+    return { x: r.x, y: r.y, width: r.width, height: r.height };
+  });
+  const x = rect.x + rect.width / 2;
+  const y = rect.y + rect.height / 2;
+  await world.page.mouse.move(x, y);
+  await world.page.mouse.down();
+  await world.page.mouse.move(
+    axis === "x" ? x + pixels : x,
+    axis === "y" ? y + pixels : y,
+    { steps: 5 },
+  );
+  await world.page.mouse.up();
+  await world.waitForFrame();
 }

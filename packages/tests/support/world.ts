@@ -154,9 +154,13 @@ export class KoluWorld extends World {
   capturedKavalPid?: number;
   savedWorkspaceSwitcherCount?: number;
   /** Code-tab preview (diff-content) pane height captured by `I note the
-   *  Code tab preview pane height`, compared after terminal switches to
-   *  prove the tree/content split fraction survives. */
+   *  Code tab preview pane height` or `I note the Right panel's Code tab file
+   *  height`, compared later to prove the tree/content split fraction
+   *  survives. */
   savedCodeTabPreviewHeight?: number;
+  /** A picked work's Code view file (diff-content) width, noted to prove
+   *  the side-by-side divider moved and comes back after a reload. */
+  savedWorkCodeFileWidth?: number;
   savedActiveTerminalId?: string;
   /** Which host tab was selected before the conductor was entered, so the
    *  `⌘⇧O` round trip can prove it lands back on exactly that tab — the

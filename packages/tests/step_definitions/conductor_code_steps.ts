@@ -7,6 +7,7 @@
  *  read the Right panel are scoped to it, for the same reason. */
 
 import { Then, When } from "@cucumber/cucumber";
+import { dragResizeHandle } from "../support/pointerDrag.ts";
 import { pollFor } from "../support/poll.ts";
 import {
   HYDRATION_TIMEOUT,
@@ -294,5 +295,151 @@ Then(
       )
       .first()
       .waitFor({ state: "visible", timeout: HYDRATION_TIMEOUT });
+  },
+);
+
+/** THE TREE AND THE FILE, BY WHERE THEY STAND. The work's tree panel and file
+ *  panel read as boxes. Polled: a window resize re-lays the view a frame
+ *  later. */
+const TREE_PANEL = `${WORK_CODE} [data-testid="diff-file-list"]`;
+const FILE_PANEL = `${WORK_CODE} [data-testid="diff-content"]`;
+
+/** A box read inside a poll: absent for now is null, not a long wait. */
+const boxOf = (world: KoluWorld, selector: string) =>
+  world.page
+    .locator(selector)
+    .boundingBox({ timeout: 1_000 })
+    .catch(() => null);
+
+Then(
+  /^the work's Code view should stand its tree (left of|above) the file$/,
+  async function (this: KoluWorld, where: string) {
+    const beside = where === "left of";
+    await pollFor({
+      observe: async () => {
+        const [tree, file] = await Promise.all([
+          boxOf(this, TREE_PANEL),
+          boxOf(this, FILE_PANEL),
+        ]);
+        return tree && file ? { tree, file } : null;
+      },
+      isDone: (b) =>
+        b !== null &&
+        (beside
+          ? b.tree.x + b.tree.width <= b.file.x + 1 &&
+            Math.abs(b.tree.y - b.file.y) <= 1
+          : b.tree.y + b.tree.height <= b.file.y + 1 &&
+            Math.abs(b.tree.x - b.file.x) <= 1),
+      timeoutMs: POLL_TIMEOUT,
+      onTimeout: (last, ms) =>
+        new Error(
+          `the work's Code view did not stand its tree ${where} the file after ${ms}ms; last boxes ${JSON.stringify(last)}`,
+        ),
+    });
+  },
+);
+
+/** THE DIVIDER BETWEEN THEM, dragged and remembered. */
+const fileWidth = async (world: KoluWorld) =>
+  (await boxOf(world, FILE_PANEL))?.width;
+
+const notedFileWidth = (world: KoluWorld): number => {
+  const noted = world.savedWorkCodeFileWidth;
+  if (noted === undefined)
+    throw new Error("No noted work's Code view file width in this scenario");
+  return noted;
+};
+
+/** Wait until the work's file is `expected` pixels wide, within `slack`. */
+async function waitForFileWidth(
+  world: KoluWorld,
+  expected: number,
+  slack: number,
+): Promise<void> {
+  await pollFor({
+    observe: () => fileWidth(world),
+    isDone: (w) => w !== undefined && Math.abs(w - expected) <= slack,
+    timeoutMs: HYDRATION_TIMEOUT,
+    onTimeout: (last, ms) =>
+      new Error(
+        `the work's Code view file was ${last}px wide after ${ms}ms, not ~${expected}px (±${slack}px)`,
+      ),
+  });
+}
+
+When(
+  "I note the work's Code view file width",
+  async function (this: KoluWorld) {
+    await this.page
+      .locator(FILE_PANEL)
+      .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    const width = await fileWidth(this);
+    if (width === undefined)
+      throw new Error("the work's Code view file has no box");
+    this.savedWorkCodeFileWidth = width;
+  },
+);
+
+When(
+  "I drag the work's Code view divider right by {int} pixels",
+  async function (this: KoluWorld, pixels: number) {
+    await dragResizeHandle(
+      this,
+      `${WORK_CODE} [data-testid="diff-tree-content-handle"][data-corvu-resizable-handle]`,
+      "x",
+      pixels,
+    );
+  },
+);
+
+/** Proves the drag moved the divider (within Corvu's rounding) before a
+ *  scenario goes on to test that it is kept. */
+Then(
+  "the work's Code view file should be about {int} pixels narrower than noted",
+  async function (this: KoluWorld, pixels: number) {
+    await waitForFileWidth(this, notedFileWidth(this) - pixels, 10);
+  },
+);
+
+Then(
+  "the work's Code view file should be the noted width",
+  async function (this: KoluWorld) {
+    await waitForFileWidth(this, notedFileWidth(this), 2);
+  },
+);
+
+/** The Right panel's own split, read in the Right panel only: a divider
+ *  dragged in the work's view must not move it. */
+const RIGHT_PANEL_FILE = `${RIGHT_PANEL} [data-testid="diff-content"]`;
+
+When(
+  "I note the Right panel's Code tab file height",
+  async function (this: KoluWorld) {
+    const file = this.page.locator(RIGHT_PANEL_FILE);
+    await file.waitFor({ state: "visible", timeout: HYDRATION_TIMEOUT });
+    const box = await file.boundingBox();
+    if (box === null)
+      throw new Error("the Right panel's Code tab file has no box");
+    this.savedCodeTabPreviewHeight = box.height;
+  },
+);
+
+Then(
+  "the Right panel's Code tab file should be the noted height",
+  async function (this: KoluWorld) {
+    const noted = this.savedCodeTabPreviewHeight;
+    if (noted === undefined)
+      throw new Error(
+        "No noted Right panel Code tab file height in this scenario",
+      );
+    await pollFor({
+      observe: async () => (await boxOf(this, RIGHT_PANEL_FILE))?.height,
+      isDone: (h) => h !== undefined && Math.abs(h - noted) <= 2,
+      timeoutMs: HYDRATION_TIMEOUT,
+      onTimeout: (last, ms) =>
+        new Error(
+          `the Right panel's Code tab file was ${last}px high after ${ms}ms, not the noted ${noted}px (±2px)`,
+        ),
+    });
   },
 );
