@@ -78,3 +78,54 @@ Feature: A picked work's Code view
     When I press the work's Code view mode "local"
     Then the work's Code view should list "plan.md" in its tree
     And there should be no page errors
+
+  Scenario: On a wide window the work's Code view stands its tree left of the file, and above it on a narrow one
+    # Beside or above is the view's own width: the default desktop window
+    # leaves the work room for both side by side; a 900px one does not.
+    Given a repo for the work
+    When I ask the conductor to open the work "tree beside the file"
+    And I answer the work's question with "hand-over" in the chat
+    And I ask the conductor to run the implementor in the work's repo
+    And the implementor writes "plan.md" into the work's repo
+    And I open the work card
+    And I show the work's code
+    And I open "plan.md" in the work's Code view
+    Then the work's Code view should show the markdown "Read the parser"
+    And the work's Code view should stand its tree left of the file
+    When I resize the viewport to 900x768
+    Then the work's Code view should stand its tree above the file
+    And the work's Code view should have "plan.md" open
+    And the work's Code view should show the markdown "Read the parser"
+    When I resize the viewport to 1920x1080
+    Then the work's Code view should stand its tree left of the file
+    And there should be no page errors
+
+  Scenario: The line between the work's tree and its file is dragged, and stays after a reload
+    # The side-by-side divider is kept on this device, apart from the Right
+    # panel's own split, which a drag here must not move.
+    Given a repo for the work
+    When I ask the conductor to open the work "a divider that stays"
+    And I answer the work's question with "hand-over" in the chat
+    And I ask the conductor to run the implementor in the work's repo
+    And the implementor writes "plan.md" into the work's repo
+    And I leave the conductor for the host tab
+    And I go into the work's repo in the terminal
+    And I click the Code tab
+    And I note the Right panel's Code tab file height
+    And I enter conductor mode
+    And I open the work card
+    And I show the work's code
+    And I open "plan.md" in the work's Code view
+    Then the work's Code view should stand its tree left of the file
+    When I note the work's Code view file width
+    And I drag the work's Code view divider right by 80 pixels
+    Then the work's Code view file should be about 80 pixels narrower than noted
+    When I note the work's Code view file width
+    And I reload the page
+    And I enter conductor mode
+    And I open the work card
+    And I show the work's code
+    Then the work's Code view file should be the noted width
+    When I leave the conductor for the host tab
+    Then the Right panel's Code tab file should be the noted height
+    And there should be no page errors

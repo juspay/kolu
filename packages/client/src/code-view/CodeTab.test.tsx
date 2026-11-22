@@ -29,6 +29,8 @@ const h = vi.hoisted(() => ({
         },
       ) => HTMLElement),
   toastError: vi.fn(),
+  /** The stacked share's writer, the Right panel's preference. */
+  setStackedShare: vi.fn(),
 }));
 
 // Pierre's tree and highlighter are not this test's subject, and load a
@@ -61,12 +63,13 @@ vi.mock("./BrowseFileView", () => ({
     <pre data-testid="source-view">{props.content}</pre>
   ),
 }));
-// The tree's width is the one shared preference; nothing else of the Right
-// panel is read by the view.
+// The stacked tree share is the Right panel's preference; nothing else of the
+// Right panel is read by the view.
 vi.mock("../right-panel/useRightPanel", () => ({
+  MIN_CODE_PANE_SHARE: 0.1,
   useRightPanel: () => ({
     codeTabTreeSize: () => 0.35,
-    setCodeTabTreeSize: () => {},
+    setCodeTabTreeSize: h.setStackedShare,
   }),
 }));
 vi.mock("../settings/useColorScheme", () => ({
@@ -78,6 +81,7 @@ vi.mock("solid-sonner", () => ({
   toast: { error: h.toastError, success: () => {} },
 }));
 
+import type { CodeArrangement } from "./codeSplit";
 import CodeTab from "./CodeTab";
 
 const ROOT = "/srv/code/kestrel/.worktrees/export";
@@ -156,11 +160,17 @@ afterEach(() => {
   document.body.innerHTML = "";
   h.menu = null;
   h.toastError.mockClear();
+  h.setStackedShare.mockClear();
+  localStorage.clear();
 });
 
 const show = (
   mode: CodeTabView,
-  opts: { browsing?: string; file?: BrowseFileContent } = {},
+  opts: {
+    browsing?: string;
+    file?: BrowseFileContent;
+    arrangement?: () => CodeArrangement;
+  } = {},
 ): HTMLElement => {
   const host = document.createElement("div");
   document.body.append(host);
@@ -172,6 +182,7 @@ const show = (
           state={state(mode, opts.browsing ?? "notes.txt")}
           queries={queries(opts.file ?? TEXT)}
           door={door}
+          arrangement={opts.arrangement?.() ?? "stacked"}
         />
       </Shown.Provider>
     ),
@@ -239,5 +250,42 @@ describe("a Code view with a root and no terminal", () => {
     expect(() => download.click()).not.toThrow();
     expect(h.toastError).toHaveBeenCalledWith(noTerminalToFetch("notes.txt"));
     expect(close).toHaveBeenCalledOnce();
+  });
+});
+
+describe("the split between tree and file", () => {
+  const BESIDE_KEY = "kolu-code-tab-beside-tree-size";
+  const root = (host: HTMLElement) =>
+    host.querySelector<HTMLElement>("[data-corvu-resizable-root]");
+  const treeShare = (host: HTMLElement) =>
+    Number.parseFloat(
+      host.querySelector<HTMLElement>("[data-testid=diff-file-list]")?.style
+        .flexBasis ?? "",
+    );
+
+  it("stands the tree beside the file at the side-by-side share", () => {
+    const host = show("browse", { arrangement: () => "beside" });
+    expect(root(host)?.dataset.orientation).toBe("horizontal");
+    expect(treeShare(host)).toBeCloseTo(30);
+  });
+
+  it("moves the same tree when the arrangement changes, and stores no share", () => {
+    const [arrangement, setArrangement] =
+      createSignal<CodeArrangement>("stacked");
+    const host = show("browse", { arrangement });
+    const tree = host.querySelector("[data-code-tree-mode=browse]");
+    expect(tree).not.toBeNull();
+    expect(root(host)?.dataset.orientation).toBe("vertical");
+    expect(treeShare(host)).toBeCloseTo(35);
+
+    setArrangement("beside");
+    expect(root(host)?.dataset.orientation).toBe("horizontal");
+    expect(treeShare(host)).toBeCloseTo(30);
+    setArrangement("stacked");
+    expect(root(host)?.dataset.orientation).toBe("vertical");
+
+    expect(host.querySelector("[data-code-tree-mode=browse]")).toBe(tree);
+    expect(h.setStackedShare).not.toHaveBeenCalled();
+    expect(localStorage.getItem(BESIDE_KEY)).toBeNull();
   });
 });

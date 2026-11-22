@@ -6,11 +6,28 @@
  *  PointerSensor (250 ms / 10 px activation) needs the drag to live in the DOM
  *  the way a user's does. Both in-canvas gestures (resize, selection,
  *  rearrange) and the dock's gestures feed the same engine. The dock
- *  features (dock_arrange_steps, dock_steps's resize) were migrated off
- *  hand-spelled frames onto this driver; the canvas/code-tab drivers spell
- *  them the old way until they adopt it. */
+ *  features (dock_arrange_steps, dock_steps's resize) and the Code view's
+ *  split handles were migrated off hand-spelled frames onto this driver; the
+ *  canvas drivers spell them the old way until they adopt it. */
 
-import type { KoluWorld } from "./world.ts";
+import { type KoluWorld, POLL_TIMEOUT } from "./world.ts";
+
+/** Press at (x, y), step the pointer by (dx, dy), release, and let a frame
+ *  land: the one drag every driver below performs. */
+async function pressAndDrag(
+  world: KoluWorld,
+  x: number,
+  y: number,
+  dx: number,
+  dy: number,
+  steps: number,
+): Promise<void> {
+  await world.page.mouse.move(x, y);
+  await world.page.mouse.down();
+  await world.page.mouse.move(x + dx, y + dy, { steps });
+  await world.page.mouse.up();
+  await world.waitForFrame();
+}
 
 /** Press the center of `fromSelector`, step the pointer by (dx, dy), release.
  *  The generic half: a target-point drag like the dock's resize. */
@@ -25,13 +42,14 @@ export async function dragFromCenter(
   await from.waitFor({ state: "visible", timeout: 10000 });
   const fromBox = await from.boundingBox();
   if (!fromBox) throw new Error(`${fromSelector} has no bounding box`);
-  const cx = fromBox.x + fromBox.width / 2;
-  const cy = fromBox.y + fromBox.height / 2;
-  await world.page.mouse.move(cx, cy);
-  await world.page.mouse.down();
-  await world.page.mouse.move(cx + dx, cy + dy, { steps: opts.steps ?? 16 });
-  await world.page.mouse.up();
-  await world.waitForFrame();
+  await pressAndDrag(
+    world,
+    fromBox.x + fromBox.width / 2,
+    fromBox.y + fromBox.height / 2,
+    dx,
+    dy,
+    opts.steps ?? 16,
+  );
 }
 
 /** The center-to-center case: a drop onto `toSelector` — solid-dnd's
@@ -58,4 +76,23 @@ export async function dragCenterTo(
     toBox.y + toBox.height / 2 - (fromBox.y + fromBox.height / 2),
     opts,
   );
+}
+
+/** Drag a Corvu resize handle by (dx, dy). A handle is a zero-size line whose
+ *  `::before` draws the hit area, so Playwright's visibility-gated
+ *  `boundingBox()` cannot find it: its middle is read from its rect in the
+ *  page instead. */
+export async function dragResizeHandle(
+  world: KoluWorld,
+  handleSelector: string,
+  dx: number,
+  dy: number,
+): Promise<void> {
+  const handle = world.page.locator(handleSelector);
+  await handle.waitFor({ state: "attached", timeout: POLL_TIMEOUT });
+  const r = await handle.evaluate((el) => {
+    const { x, y, width, height } = el.getBoundingClientRect();
+    return { x, y, width, height };
+  });
+  await pressAndDrag(world, r.x + r.width / 2, r.y + r.height / 2, dx, dy, 5);
 }

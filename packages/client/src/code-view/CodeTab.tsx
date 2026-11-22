@@ -18,10 +18,12 @@
  *     kept (`codeViewState.ts`);
  *   - `queries` — its reads, all to the subject's host (`codeQueries.ts`);
  *   - `door` — its own pending "open this file at this line" request and its
- *     own way to make one (`codeDoor.ts`).
- * Whoever mounts it hands it those four. The one thing it reads besides them
- * is the tree's width: one preference for every Code view, stored with the
- * Right panel's sizes (`useRightPanel().codeTabTreeSize`).
+ *     own way to make one (`codeDoor.ts`);
+ *   - `arrangement` — the tree above the file or beside it, the mounting
+ *     place's call from the room it gives (`codeSplit.ts`).
+ * Whoever mounts it hands it those five. The one thing it reads besides them
+ * is the tree's share of the split, one number per arrangement
+ * (`codeSplit.ts`).
  *
  * The toolbar combines two independent filter axes — the scope
  * switcher (the shared `SegmentedControl`) and filename input
@@ -68,7 +70,6 @@ import { CommentView, createCommentView } from "../comments/commentView";
 import { triggerDownload } from "../download";
 import { runActionPromise } from "../runAction";
 import { useColorScheme } from "../settings/useColorScheme";
-import { controlledSizes, realSizes } from "../ui/corvuResizable";
 import { filterChipAccent } from "../ui/filterChip";
 import { mergeGitStatusEntries } from "../ui/gitStatusEntries";
 import {
@@ -91,6 +92,8 @@ import SegmentedControl, {
   type SegmentedControlOption,
 } from "../ui/SegmentedControl";
 import { Z_HANDLE_INNER } from "../ui/stackLayers";
+import { RESIZE_HANDLE_CLASS } from "../ui/corvuResizable";
+import { MIN_CODE_PANE_SHARE } from "../right-panel/useRightPanel";
 import { requestDeepLinkNavigation } from "../useDeepLinks";
 import { isDesktop, isTouch } from "../useMobile";
 import { padiRpcOf } from "../wire";
@@ -104,6 +107,7 @@ import {
 } from "./browseInventory";
 import type { CodeQueries, ScopedCodePaths } from "./codeQueries";
 import { readFreshCodePaths } from "./codeQueries";
+import { type CodeArrangement, createCodeSplit } from "./codeSplit";
 import { type CodeSubject, noTerminalToFetch } from "./codeSubject";
 import {
   type CodeTabOpenResolutionSource,
@@ -120,7 +124,6 @@ import type { FileWithSource, FileWithUrl } from "@kolu/solid-fileview";
 import type { CodeDoor } from "./codeDoor";
 import { attachPierreTouchScroll } from "./pierreTouchScroll";
 import { setShowIgnoredFiles, showIgnoredFiles } from "./showIgnoredFiles";
-import { useRightPanel } from "../right-panel/useRightPanel";
 
 const EMPTY_STATE: Record<GitDiffMode, string> = {
   local: "No local changes",
@@ -218,6 +221,8 @@ const CodeTab: Component<{
   queries: CodeQueries;
   /** Its own open-request door. */
   door: CodeDoor;
+  /** The tree above the file, or beside it. */
+  arrangement: CodeArrangement;
 }> = (props) => {
   const { themeTypeLiteral: diffTheme } = useColorScheme();
   const shown = useShown();
@@ -235,13 +240,9 @@ const CodeTab: Component<{
     lease,
   } = props.queries;
   lease(shown);
-  // The tree's width is ONE preference every Code view shares, not part of a
-  // view's place.
-  const rightPanel = useRightPanel();
-  const treeSizes = controlledSizes(() => [
-    rightPanel.codeTabTreeSize(),
-    1 - rightPanel.codeTabTreeSize(),
-  ]);
+  // The tree's share is a preference per arrangement, not part of a view's
+  // place.
+  const split = createCodeSplit(() => props.arrangement);
   const terminalId = () => props.subject.terminalId;
 
   // Coarse-pointer modality (`isTouch`, the input axis — not the `layoutMode`
@@ -1330,18 +1331,14 @@ const CodeTab: Component<{
             </div>
           </Show>
 
-          {/* Vertical split between tree and content. Mirrors the horizontal
-           *  split that the desktop host wires up in `App.tsx` — same
-           *  `@corvu/resizable` shell, vertical orientation. Split fraction
-           *  persists via `rightPanel.codeTabTreeSize` so reload restores
-           *  the user's layout. */}
+          {/* The split between tree and file, stacked or beside as
+           *  `arrangement` says (`codeSplit.ts`). One `Resizable` for both:
+           *  a changed orientation moves the same panels, so the tree keeps
+           *  its open folders and scroll. */}
           <Resizable
-            orientation="vertical"
-            sizes={treeSizes()}
-            onSizesChange={(sizes) => {
-              const s = realSizes(sizes);
-              if (s) rightPanel.setCodeTabTreeSize(s[0]);
-            }}
+            orientation={split.layout().orientation}
+            sizes={split.sizes()}
+            onSizesChange={split.onSizesChange}
             class="flex-1 min-h-0 overflow-hidden"
           >
             <Resizable.Panel
@@ -1359,8 +1356,8 @@ const CodeTab: Component<{
               // Corvu drawer there). The sibling diff panel scrolls fine — its
               // `overflow-auto` is a light-DOM scroller Corvu can see.
               data-corvu-no-drag=""
-              class="min-h-0 border-b border-edge"
-              minSize={0.1}
+              class={`min-h-0 min-w-0 ${split.layout().treeEdge} border-edge`}
+              minSize={MIN_CODE_PANE_SHARE}
             >
               <div class="relative h-full w-full">
                 <Show when={treeError()}>
@@ -1487,17 +1484,19 @@ const CodeTab: Component<{
             <Resizable.Handle
               data-testid="diff-tree-content-handle"
               aria-label="Resize tree pane"
-              // Disable startIntersection (the handle's left edge): Corvu's
+              // Disable startIntersection (the handle's leading end): Corvu's
               // registerHandle keeps a *module-level* handles[] and pairs
               // handles whose orientations differ and rects touch at the
               // corner (see @corvu/resizable/dist/index.js:201–222). Without
-              // this opt-out, our left edge equals the outer horizontal
+              // this opt-out, a stacked view's left edge equals the outer
               // handle's (in `App.tsx`) right edge → the two are coupled,
               // and clicks on the outer handle near the file-tree row land
               // on the inner handle instead. The outer handle carries the
               // symmetric `startIntersection={false}` so both sides are
               // defended.
               startIntersection={false}
+              onHandleDrag={split.onHandleDrag}
+              onHandleDragEnd={split.onHandleDragEnd}
               // `Z_HANDLE_INNER` raises the ::before pseudo-element above
               // Pierre's tree (the previous flex sibling). Without it, the
               // tree's bottom 4px shadow the upper half of the handle's hit
@@ -1507,7 +1506,7 @@ const CodeTab: Component<{
               // Setting the explicit z-index creates a stacking context that
               // lifts the ::before in front of the tree's interior.
               // See `ui/stackLayers.ts` for the full layering contract.
-              class="shrink-0 h-0 relative before:absolute before:inset-x-0 before:-top-1 before:h-2 before:cursor-row-resize before:hover:bg-accent/30 before:transition-colors"
+              class={RESIZE_HANDLE_CLASS[split.layout().orientation]}
               style={{ "z-index": Z_HANDLE_INNER }}
             />
 
@@ -1523,8 +1522,8 @@ const CodeTab: Component<{
               // Ctrl+F is never kolu's to begin with.
               // `outline-none` since no keyboard user ever tabs here.
               tabindex={-1}
-              class="min-h-0 overflow-auto outline-none"
-              minSize={0.1}
+              class="min-h-0 min-w-0 overflow-auto outline-none"
+              minSize={MIN_CODE_PANE_SHARE}
             >
               <Show
                 when={selectedPath()}

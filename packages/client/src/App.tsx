@@ -88,7 +88,11 @@ import TerminalMeta from "./terminal/TerminalMeta";
 import { useTerminals } from "./terminal/useTerminals";
 import { WorkspaceTerminals } from "./terminal/WorkspaceTerminals";
 import { useTileStore } from "./tile/useTileStore";
-import { controlledSizes, realSizes } from "./ui/corvuResizable";
+import {
+  controlledSizes,
+  RESIZE_HANDLE_CLASS,
+  realSizes,
+} from "./ui/corvuResizable";
 import { refocusTerminal } from "./ui/ModalDialog";
 import { Z_HANDLE_OUTER } from "./ui/stackLayers";
 import { useActionContext } from "./useActionContext";
@@ -731,7 +735,7 @@ const App: Component = () => {
                           // both the visual hover indicator and the pointer
                           // target. See `ui/stackLayers.ts` for the full
                           // layering contract.
-                          class="shrink-0 w-0 relative before:absolute before:inset-y-0 before:-left-1 before:w-2 before:cursor-col-resize before:hover:bg-accent/30 before:transition-colors"
+                          class={RESIZE_HANDLE_CLASS.horizontal}
                           style={{ "z-index": Z_HANDLE_OUTER }}
                           aria-label="Resize inspector panel"
                         />

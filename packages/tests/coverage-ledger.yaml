@@ -5291,3 +5291,16 @@ retirements:
       file: packages/tests/features/conductor-code.feature
       symbol: "Scenario: The work's Code view leaves the Right panel's Code tab where it was"
       test: The same journey with one arrangement step added — the host tab's shown terminal goes into the work's repo before its Right panel Code tab is opened — so the Right panel is about the same repository and offers its Local view. The first run of the scenario showed the Right panel about a terminal outside any repository, which never offers one. Nothing it checks was taken out.
+  - id: revise-d415fc2f17813c0e0262
+    revisionId: revision-d415fc2f17813c0e0262
+    action: revised
+    status: landed
+    promise: On a phone a picked work offers its code, its tree scrolls and a file opens
+    defectSurface: [conductor, mobile, code-tab, user-journey]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-cd80650db0eacefd31af]
+    sameCodePathEvidence:
+      file: packages/tests/features/mobile-conductor.feature
+      symbol: "Scenario: On a phone a picked work offers its code, its tree scrolls and a file opens"
+      test: The same journey with one check added — once the tree lists its first file, it stands above the file on a phone, never beside it. Nothing it checked before was taken out.
