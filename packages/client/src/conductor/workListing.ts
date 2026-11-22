@@ -53,9 +53,15 @@ const [pickedStage, setPickedStage] = createSignal<StageName | undefined>();
  *  picked work can be drawn again (the works are re-read, the list is drawn
  *  anew) without the person's choice going back to the default. */
 const [viewChoice, setViewChoice] = createSignal<PickedView | undefined>();
-/** The terminal whose row the picked work's Details holds open — the one
- *  **Inspect** on a live pane asked for — or none. The pick's, as the view
- *  is: another pick, or none, forgets it. */
+/** THE ROWS THE PICKED WORK'S DETAILS HOLD OPEN, by terminal (a fleet ref) —
+ *  the one fact a row reads for "am I open", whether a press on the row or
+ *  **Inspect** on a live pane opened it. The pick's, as the view is: another
+ *  pick, or none, forgets it, and Details being drawn again keeps it. */
+const [unfolded, setUnfolded] = createSignal<ReadonlySet<string>>(
+  new Set<string>(),
+);
+/** The open row **Inspect** asked for, which wears a highlight while it stays
+ *  open — or none. Folding it ends the inspection. */
 const [inspected, setInspected] = createSignal<string | null>(null);
 const [finishedOpen, setFinishedOpen] = createSignal(false);
 /** A work asked to come into view — keyed by a counter so asking twice for
@@ -86,13 +92,30 @@ export function chooseView(view: PickedView): void {
   setViewChoice(view);
 }
 
-/** The terminal (a fleet ref) whose row Details holds open, if one is. */
-export const inspectedMember = inspected;
+/** Is this terminal's row open in the picked work's Details? */
+export const isMemberUnfolded = (ref: string): boolean => unfolded().has(ref);
+
+/** Is this the open row Inspect asked for? */
+export const isMemberInspected = (ref: string): boolean =>
+  inspected() === ref && unfolded().has(ref);
+
+/** A PRESS ON A ROW: open it, or fold it. Folding the inspected row ends the
+ *  inspection with it. */
+export function toggleMember(ref: string): void {
+  batch(() => {
+    const next = new Set(unfolded());
+    if (next.delete(ref)) {
+      if (inspected() === ref) setInspected(null);
+    } else next.add(ref);
+    setUnfolded(next);
+  });
+}
 
 /** INSPECT ONE TERMINAL of the picked work: its Details in front, with that
- *  terminal's row held open. */
+ *  terminal's row open and marked as the one asked for. */
 export function inspectMember(ref: string): void {
   batch(() => {
+    setUnfolded(new Set([...unfolded(), ref]));
     setInspected(ref);
     setViewChoice("details");
   });
@@ -106,6 +129,7 @@ export function pickWork(id: WorkId, stage?: StageName): void {
     setPicked(id);
     setPickedStage(stage);
     setViewChoice(stage === undefined ? undefined : "details");
+    setUnfolded(new Set<string>());
     setInspected(null);
     pointChatAt(id);
   });
@@ -116,6 +140,7 @@ export function unpickWork(): void {
   batch(() => {
     setPicked(null);
     setViewChoice(undefined);
+    setUnfolded(new Set<string>());
     setInspected(null);
     showAllChat();
   });

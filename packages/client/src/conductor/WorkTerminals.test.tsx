@@ -68,9 +68,15 @@ vi.mock("../attention/useAttentionFacts", () => ({
     attentionOf: () => ({ klass: "idle" as const, live: false }),
   }),
 }));
+// What unfolds under a row is the Right panel's own parts, tested where they
+// live; what is pinned here is WHEN a row offers to unfold, and that it opens.
+vi.mock("./MemberInspector", () => ({
+  default: () => <div data-testid="work-member-inspector" />,
+}));
 
 import { attentionRecordOf } from "../attention/savedAttention";
 import WorkTerminals from "./WorkTerminals";
+import { inspectMember, unpickWork } from "./workListing";
 
 const WORK = {} as Work;
 
@@ -358,5 +364,58 @@ describe("a work's terminal row", () => {
     expect(part(el, "work-no-terminals")?.textContent).toBe(
       "No terminals. Nothing is running in this work.",
     );
+  });
+});
+
+describe("a work's terminal row, in its Details", () => {
+  /** The list as a work's Details draw it: each row may unfold. */
+  function mountDetails(members: MemberLine[]): HTMLElement {
+    root = document.createElement("div");
+    document.body.append(root);
+    dispose = render(
+      () => <WorkTerminals work={WORK} members={members} now={NOW} unfolds />,
+      root,
+    );
+    return root;
+  }
+  const LIVE = "local/t-live";
+  const SLEEPING = "local/t-sleeping";
+
+  // The rows a Details holds open are the pick's: start each case with none.
+  beforeEach(() => unpickWork());
+
+  it("offers to unfold only a terminal that has something under it", () => {
+    const el = mountDetails([
+      line(LIVE, "implementor", running),
+      line(SLEEPING, "planner", asleep),
+    ]);
+    const live = part(row(el, LIVE), "work-member-role");
+    expect(live?.tagName).toBe("BUTTON");
+    expect(live?.getAttribute("aria-expanded")).toBe("false");
+    // Asleep, a terminal has nothing to unfold: its role is a plain word.
+    const sleeping = part(row(el, SLEEPING), "work-member-role");
+    expect(sleeping?.tagName).toBe("SPAN");
+    expect(sleeping?.hasAttribute("aria-expanded")).toBe(false);
+  });
+
+  it("keeps a row folded after its inspection, when Details is drawn again", () => {
+    const members = [line(LIVE, "implementor", running)];
+    inspectMember(LIVE);
+    let el = mountDetails(members);
+    expect(part(row(el, LIVE), "work-member-inspector")).not.toBeNull();
+    expect(row(el, LIVE).dataset.inspected).toBeDefined();
+
+    part(row(el, LIVE), "work-member-role")?.click();
+    expect(part(row(el, LIVE), "work-member-inspector")).toBeNull();
+    expect(row(el, LIVE).dataset.inspected).toBeUndefined();
+
+    // Terminals in front, then Details again: the rows are built anew.
+    dispose?.();
+    root?.remove();
+    el = mountDetails(members);
+    expect(part(row(el, LIVE), "work-member-inspector")).toBeNull();
+    expect(
+      part(row(el, LIVE), "work-member-role")?.getAttribute("aria-expanded"),
+    ).toBe("false");
   });
 });

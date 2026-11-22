@@ -24,13 +24,7 @@
 
 import type { Work } from "kolu-work";
 import { Key } from "@solid-primitives/keyed";
-import {
-  type Component,
-  createEffect,
-  createMemo,
-  createSignal,
-  Show,
-} from "solid-js";
+import { type Component, createMemo, Show } from "solid-js";
 import { elapsedSince } from "../time/duration";
 import { onHostWords, useKnownNames } from "./memberNames";
 import { openPeek } from "./peek/usePeek";
@@ -40,7 +34,11 @@ import { liveArm, terminalStatus } from "./terminalStatus";
 import { useConductor } from "./useConductor";
 import { useOpenTile } from "./useOpenTile";
 import { useMembership, useSeen } from "./useWorks";
-import { inspectedMember } from "./workListing";
+import {
+  isMemberInspected,
+  isMemberUnfolded,
+  toggleMember,
+} from "./workListing";
 import { LEVEL_WORD } from "./wake";
 import { type MemberLine, memberRuns } from "./workFacts";
 import { type Lock, ROLE_WORD } from "./workReadings";
@@ -87,26 +85,34 @@ const MemberRow: Component<{
     const at = membership().get(ref());
     return at === undefined || at.driver === "nobody" ? undefined : at.driver;
   };
-  /** UNFOLDED: folded is the start, and a row Inspect asked for opens. */
-  const [open, setOpen] = createSignal(false);
-  createEffect(() => {
-    if (inspectedMember() === ref()) setOpen(true);
+  /** WHAT UNFOLDS UNDER IT, or `null` when nothing would: in a work's
+   *  Details, a terminal kolu can read that is up and holding its PTY. The
+   *  one fact that decides both whether the role is an unfold button and what
+   *  the button opens. */
+  const unfoldable = createMemo(() => {
+    const at = props.one.split;
+    const standing = props.one.standing;
+    if (!props.unfolds || at === null || standing === undefined) return null;
+    const arm = liveArm(standing);
+    return arm === undefined ? null : { at, arm };
   });
+  /** Open, as the picked work's Details hold it — by a press here or by
+   *  Inspect on a live pane. */
+  const open = () => isMemberUnfolded(ref());
+  const inspected = () => isMemberInspected(ref());
 
   return (
     <li
       data-testid="work-member"
       data-role={props.one.member.role}
       data-ref={ref()}
-      data-inspected={inspectedMember() === ref() ? "" : undefined}
+      data-inspected={inspected() ? "" : undefined}
       class={`col-span-full grid min-w-0 grid-cols-subgrid items-center gap-y-0.5 overflow-hidden rounded-sm text-[0.7rem] ${
-        inspectedMember() === ref()
-          ? "bg-surface-2 outline outline-1 outline-edge-bright"
-          : ""
+        inspected() ? "bg-surface-2 outline outline-1 outline-edge-bright" : ""
       }`}
     >
       <Show
-        when={props.unfolds}
+        when={unfoldable()}
         fallback={
           <span
             data-testid="work-member-role"
@@ -122,7 +128,7 @@ const MemberRow: Component<{
           aria-expanded={open()}
           aria-label={`${open() ? "Fold" : "Unfold"} ${ROLE_WORD[props.one.member.role]}`}
           class="col-start-1 flex cursor-pointer items-center gap-1 whitespace-nowrap text-start font-semibold text-fg hover:text-accent"
-          onClick={() => setOpen((was) => !was)}
+          onClick={() => toggleMember(ref())}
         >
           <span
             aria-hidden="true"
@@ -265,8 +271,8 @@ const MemberRow: Component<{
         </Show>
       </span>
       {/* UNFOLDED: what is about this terminal, under its row. */}
-      <Show when={props.unfolds && open() ? props.one.split : null}>
-        {(at) => <MemberInspector at={at()} standing={props.one.standing} />}
+      <Show when={open() ? unfoldable() : null}>
+        {(what) => <MemberInspector at={what().at} arm={what().arm} />}
       </Show>
     </li>
   );
