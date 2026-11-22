@@ -3,9 +3,16 @@
  *  document — or, for content that is not text at all (a NUL in it, git's
  *  own test), the no-preview line rather than a screen of garbage. */
 
+import { createSignal } from "solid-js";
 import { render } from "solid-js/web";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import BrowseFileDispatcher from "./BrowseFileDispatcher";
+import BrowseFileDispatcher, {
+  type BrowseFileDispatcherProps,
+} from "./BrowseFileDispatcher";
+
+import { Shown } from "../ui/shown";
+
+type FileAt = BrowseFileDispatcherProps["at"];
 
 // The source view is pierre's highlighter, which is not this test's subject:
 // what is pinned is WHICH view the dispatcher picks. Pierre itself loads a
@@ -68,5 +75,52 @@ describe("a file read as text", () => {
         .querySelector("[data-testid=fileview-toggle-rendered]")
         ?.getAttribute("aria-pressed"),
     ).toBe("true");
+  });
+});
+
+describe("a drawn document, as the terminal it hangs on comes and goes", () => {
+  // A reader can draw a work's file before it knows a terminal for it (a
+  // fresh pop-out window), and the terminal then arrives — or leaves. The
+  // document is mounted once: commenting turns on and off around it, and the
+  // one drawn document is never moved between two wrappers.
+  it("keeps the drawn document in the page exactly once, and throws nothing", () => {
+    const [at, setAt] = createSignal<FileAt>(null);
+    const host = document.createElement("div");
+    document.body.append(host);
+    dispose = render(
+      () => (
+        // Commenting asks whether its pane is shown, as every pane does.
+        <Shown.Provider value={() => true}>
+          <BrowseFileDispatcher
+            at={at()}
+            filePath="plan.md"
+            file={{
+              path: "plan.md",
+              source: { content: "# The plan", truncated: false },
+            }}
+            error={undefined}
+            repoVault={{ paths: [], pending: false }}
+            theme="dark"
+          />
+        </Shown.Provider>
+      ),
+      host,
+    );
+    // THE DRAWN DOCUMENT, the element the Markdown view is drawn into. Its
+    // heading is drawn by the Markdown library after mount; what is pinned
+    // here is that the one drawn document stays in the page, unmoved.
+    const documents = () =>
+      Array.from(
+        host.querySelectorAll("[data-testid=browse-preview-markdown]"),
+      );
+    const [drawn] = documents();
+    expect(drawn).toBeDefined();
+    expect(documents()).toHaveLength(1);
+
+    expect(() => setAt({ host: "local", terminalId: "t-1" })).not.toThrow();
+    expect(documents()).toEqual([drawn]);
+
+    expect(() => setAt(null)).not.toThrow();
+    expect(documents()).toEqual([drawn]);
   });
 });
