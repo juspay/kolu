@@ -39,15 +39,16 @@ vi.mock("../wire", async () => {
           }),
         },
       },
-    procedures: {
-      conductor: {
-        setWorkCodeView: (input: { work: string; view: WorkCodeView }) =>
-          Effect.suspend(() => {
-            h.reports.push({ input, shownWhenReported: h.shown() });
-            return h.refuse
-              ? Effect.fail(new ConductorRefused({ why: "no such work" }))
-              : Effect.void;
-          }),
+      procedures: {
+        conductor: {
+          setWorkCodeView: (input: { work: string; view: WorkCodeView }) =>
+            Effect.suspend(() => {
+              h.reports.push({ input, shownWhenReported: h.shown() });
+              return h.refuse
+                ? Effect.fail(new ConductorRefused({ why: "no such work" }))
+                : Effect.void;
+            }),
+        },
       },
     },
   };
