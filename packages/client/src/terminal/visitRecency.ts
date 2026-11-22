@@ -18,7 +18,10 @@ import {
   type HostKey,
 } from "kolu-common/hostKey";
 import { Result, Schema } from "effect";
-import { TerminalIdSchema, type TerminalId } from "kolu-common/surface";
+import {
+  TerminalIdSchema,
+  type TerminalId,
+} from "@kolu/terminal-vocab/terminalId";
 import type { Accessor } from "solid-js";
 import { createSharedRoot } from "../createSharedRoot";
 import {
