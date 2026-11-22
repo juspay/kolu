@@ -13234,6 +13234,18 @@
       "exampleRows": [],
       "executions": 1,
       "firstSeenSha": "fa692bac55f7c512dd4e7310a88501396e9293a6"
+    },
+    {
+      "revisionId": "revision-bf074fc8aac365e50ffc",
+      "scenarioKey": "scenario-72afb8f48fb8de7eab07",
+      "feature": "features/conductor-code.feature",
+      "scenario": "The Code view lists the worktree, its local changes and a file, and keeps its place across a reload",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "b54e34e42dc7220e570c7955daf84d810d1b5092ded1f2c405f97ebd947e8346",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "20fdd3ec6c937c7c88f0b9e88627ed8fa96aa58b"
     }
   ]
 }
