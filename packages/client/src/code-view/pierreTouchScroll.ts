@@ -1,5 +1,6 @@
-/** Manual touch-scroll driver for Pierre's file tree inside the mobile
- *  bottom-sheet drawer.
+/** Manual touch-scroll driver for Pierre's file tree, attached by the Code
+ *  view on every touch layout. It was written for the mobile bottom-sheet
+ *  drawer, where the fault below shows.
  *
  *  Two layers conspire to freeze the tree on a real phone, and only one of
  *  them is fixed by `data-corvu-no-drag`:

@@ -1,4 +1,5 @@
-/** CodeTab — THE Code view: code review and browsing for one root.
+/** CodeTab — THE Code view, the "Code tab" on screen wherever it is mounted:
+ *  code review and browsing for one root.
  *
  * One file tree, three modes:
  *   - All: full repo (git-filtered) — selecting a file shows its content.
@@ -17,9 +18,10 @@
  *     kept (`codeViewState.ts`);
  *   - `queries` — its reads, all to the subject's host (`codeQueries.ts`);
  *   - `door` — its own pending "open this file at this line" request and its
- *     own way to make one (`openInCodeTab.ts`).
- * The Right panel hands it the focused pane's four; nothing else here knows
- * it is the Right panel's.
+ *     own way to make one (`codeDoor.ts`).
+ * Whoever mounts it hands it those four. The one thing it reads besides them
+ * is the tree's width: one preference for every Code view, stored with the
+ * Right panel's sizes (`useRightPanel().codeTabTreeSize`).
  *
  * The toolbar combines two independent filter axes — the scope
  * switcher (the shared `SegmentedControl`) and filename input
@@ -798,7 +800,7 @@ const CodeTab: Component<{
   //
   // No `equals` override: two clicks on the same `path:line` produce
   // structurally identical `{start, end}` but distinct request
-  // objects (`openInCodeTab` mints a fresh one per call), so the
+  // objects (every open on a door mints a fresh one), so the
   // memo emits a fresh value on every click. Pierre's
   // `InteractionManager.setSelection` re-renders when the selection
   // is "dirty" — and tearing down the gutter (panel collapse,

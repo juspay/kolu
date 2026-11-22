@@ -28,7 +28,7 @@ export type CodeMenuFrameProps = {
   initialSelectedLines?: SelectedLineRange | null;
   /** When provided, adds an "Open <path>:<line>" entry to the context
    *  menu that dispatches the selected ref to the host (typically a
-   *  call to `openInCodeTab`). Omit for viewers where "open" is a
+   *  call to the view's door, `codeDoor.ts`). Omit for viewers where "open" is a
    *  no-op (the file is already on screen at line precision). */
   onOpen?: (ref: LineRef) => void;
 };
