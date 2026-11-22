@@ -13258,6 +13258,18 @@
       "exampleRows": [],
       "executions": 1,
       "firstSeenSha": "897e7abaabe54381ac905eb2094a73b45562d192"
+    },
+    {
+      "revisionId": "revision-78201795a62a2ada45f3",
+      "scenarioKey": "scenario-f39d158d977761cec078",
+      "feature": "features/preferences.feature",
+      "scenario": "The Conductor's compaction point persists across reload",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "f57c67a09d565348727035cd0c931e35c4e303a4c36a0a23415fd94bc4a0e5ba",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "130cf68f8eddf07520900482616568ee2675a313"
     }
   ]
 }
