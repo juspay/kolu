@@ -175,11 +175,24 @@ let
   # one node that needs the memory most losing it without a word. A module is
   # merged by the module system instead, and `mkDefault` lets a node that knows
   # it needs more (offline-provision's 6 GB) still say so.
+  #
+  # ALICE'S USER MANAGER STARTS AFTER HER HOME IS ACTIVATED. Linger starts
+  # `user@1000` from `linger-users.service` as soon as logind is up, while Home
+  # Manager orders its activation only before `systemd-user-sessions.service`,
+  # which that start does not wait for. On a fresh VM disk the two race: the
+  # manager reads its unit directory before activation links `kolu.service` into
+  # it, activation then finds no running manager to reload, and kolu never
+  # starts — `remote-deploy` timed out on the listener with `kolu.service`
+  # absent from alice's unit list. Ordered here, with the memory, for the same
+  # shallow-merge reason: a node's own `systemd` must not drop it.
   survivalVmNode = nodeExtra: { ... }: {
     imports = [
       home-manager.nixosModules.home-manager
       nixosModule
-      { virtualisation.memorySize = pkgs.lib.mkDefault 4096; }
+      {
+        virtualisation.memorySize = pkgs.lib.mkDefault 4096;
+        systemd.services."user@".after = [ "home-manager-alice.service" ];
+      }
     ];
     services.getty.autologinUser = "alice";
     users.users.alice.linger = true;
