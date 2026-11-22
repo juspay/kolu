@@ -75,24 +75,14 @@ const LAYOUT = {
   beside: { orientation: "horizontal", treeEdge: "border-e" },
 } as const;
 
-export interface CodeSplit {
-  /** Corvu orientation and the tree's edge for the arrangement. */
-  readonly layout: () => (typeof LAYOUT)[CodeArrangement];
-  /** Corvu's controlled `sizes`: the tree's share, then the file's. */
-  readonly sizes: Accessor<number[]>;
-  readonly onSizesChange: (sizes: number[]) => void;
-  readonly onHandleDrag: () => void;
-  readonly onHandleDragEnd: () => void;
-}
-
-/** The split for a view arranged as `arrangement` says. Call from a component
- *  body. */
-export function createCodeSplit(
-  arrangement: Accessor<CodeArrangement>,
-): CodeSplit {
+/** The split for a view arranged as `arrangement` says: Corvu's orientation
+ *  and the tree's edge (`layout`), its controlled `sizes` (the tree's share,
+ *  then the file's) and the callbacks that write the share. Call from a
+ *  component body. */
+export function createCodeSplit(arrangement: Accessor<CodeArrangement>) {
   const rightPanel = useRightPanel();
-  // A pointer drag in flight, beside: the share it has reached, not yet stored.
-  let pointerDrag = false;
+  // A pointer drag in flight, beside: the share it has reached, not yet
+  // stored; null when no pointer is dragging.
   const [dragShare, setDragShare] = createSignal<number | null>(null);
   const share = () =>
     arrangement() === "beside"
@@ -107,7 +97,7 @@ export function createCodeSplit(
     sizes,
     // Corvu calls this from inside its own effect: read untracked, so the
     // effect does not come to depend on the arrangement or the drag.
-    onSizesChange: (next) =>
+    onSizesChange: (next: number[]) =>
       untrack(() => {
         const s = realSizes(next);
         // Compare with what Corvu holds, not with a share derived now: when
@@ -115,15 +105,15 @@ export function createCodeSplit(
         // sizes before it is handed the new ones.
         if (!s || s[0] === sizes()[0]) return;
         if (arrangement() === "stacked") rightPanel.setCodeTabTreeSize(s[0]);
-        else if (pointerDrag) setDragShare(s[0]);
+        else if (dragShare() !== null) setDragShare(s[0]);
         else storeBeside(s[0]);
       }),
-    // Fires on each pointer move of a drag, never for a key.
+    // Fires on each pointer move of a drag, before Corvu resizes, and never
+    // for a key: the first one opens the drag at the share it starts from.
     onHandleDrag: () => {
-      pointerDrag = true;
+      if (arrangement() === "beside") setDragShare((d) => d ?? besideShare());
     },
     onHandleDragEnd: () => {
-      pointerDrag = false;
       const reached = dragShare();
       if (reached === null) return;
       batch(() => {
