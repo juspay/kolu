@@ -5304,3 +5304,16 @@ retirements:
       file: packages/tests/features/mobile-conductor.feature
       symbol: "Scenario: On a phone a picked work offers its code, its tree scrolls and a file opens"
       test: The same journey with one check added — once the tree lists its first file, it stands above the file on a phone, never beside it. Nothing it checked before was taken out.
+  - id: revise-78201795a62a2ada45f3
+    revisionId: revision-78201795a62a2ada45f3
+    action: revised
+    status: landed
+    promise: The Conductor's compaction point persists across reload
+    defectSurface: [conductor, settings, user-journey]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-14f53249c6a5389b0079]
+    sameCodePathEvidence:
+      file: packages/tests/features/preferences.feature
+      symbol: "Scenario: The Conductor's compaction point persists across reload"
+      test: The same check — a choice made in Settings is still the one selected after a reload — over the row's new choices, Custom with 250 typed and then Model limit. The fixed 300k it clicked before is no longer on the row.
