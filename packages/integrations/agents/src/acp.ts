@@ -26,7 +26,7 @@
  * and nothing above here learns its name.
  */
 
-import type { Engine } from "@kolu/acp/engine";
+import type { CompactionPoint, Engine, Leg } from "@kolu/acp/engine";
 import {
   type Adapter,
   AGENT_ENV,
@@ -99,7 +99,7 @@ const CLAUDE_CODE = "claude-code";
  * knob would be a choice a person could make that the binary cannot honour.
  * When a second adapter is pinned, this becomes a reading of whatever the
  * build actually carries — still not a knob. Where it compacts IS a person's
- * choice, so that one number is {@link conductorEngine}'s argument.
+ * choice, so that one number is {@link conductorCompactingAt}'s argument.
  */
 export const CONDUCTOR_SEAT: Omit<Engine, "leg" | "compacts"> = {
   id: CLAUDE_CODE,
@@ -137,7 +137,7 @@ export const CONDUCTOR_SEAT: Omit<Engine, "leg" | "compacts"> = {
       // changes who is looking at the screen.
       //
       // ... AND FOUR MORE THAT WOULD OVERRIDE THE COMPACTION the open's
-      // settings ask for ({@link conductorEngine}): a host that exports
+      // settings ask for ({@link conductorCompactingAt}): a host that exports
       // one would otherwise turn it off or move it, for this conversation and
       // without a word.
       unset: [...REMOTE_SIGNALS, ...COMPACTION_OVERRIDES],
@@ -151,15 +151,15 @@ export const CONDUCTOR_SEAT: Omit<Engine, "leg" | "compacts"> = {
 };
 
 /**
- * THE ENGINE THE CONDUCTOR RUNS, compacting its conversation at `compactsAt`
- * tokens — {@link CONDUCTOR_SEAT} with the leg that opens every session so,
- * and the point the harness reads, both from ONE `compactingAt` call so the
- * two cannot be built apart.
+ * WHERE THE CONDUCTOR'S ENGINE COMPACTS, at `compactsAt` tokens: the leg that
+ * opens every session so, and the point the harness reads, both from ONE
+ * `compactingAt` call so the two cannot be built apart. The rest of the engine
+ * does not vary, and is {@link CONDUCTOR_SEAT}.
  */
-export const conductorEngine = (compactsAt: number): Engine => ({
-  ...CONDUCTOR_SEAT,
-  ...compactingAt(compactsAt, LAUNCHER_SETTINGS),
-});
+export const conductorCompactingAt = (
+  compactsAt: number,
+): { readonly leg: Leg; readonly compacts: CompactionPoint } =>
+  compactingAt(compactsAt, LAUNCHER_SETTINGS);
 
 /**
  * WHERE THAT ENGINE READS ITS SIGNATURE on the host this daemon runs on.

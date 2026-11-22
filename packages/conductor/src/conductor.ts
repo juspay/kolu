@@ -113,8 +113,8 @@ import type { PrResult } from "@kolu/terminal-vocab/schema";
 import { Option, Schema } from "effect";
 import {
   CONDUCTOR_SEAT,
+  conductorCompactingAt,
   conductorConfigDir,
-  conductorEngine,
   conductorOwnMemoryHint,
 } from "kolu-agents/acp";
 import {
@@ -1904,13 +1904,13 @@ export function startConductorHost(deps: ConductorDeps): ConductorHost {
     // very first publish can be told apart from a retired one's last.
     generation += 1;
     const mine = generation;
-    // WHERE THIS SPAWN COMPACTS, read once here and built into one engine
-    // whose three readers cannot disagree: the leg the agent opens its
-    // sessions with, the point the harness sends the rules again at, and the
-    // number the header says. Read per spawn because the agent reads it only
-    // when it opens a session; a preference moved while this agent runs is
-    // in force at the next spawn, and the header keeps saying this one's.
-    const engine = conductorEngine(compactsAt());
+    // WHERE THIS SPAWN COMPACTS, read once here and built by one call whose
+    // three readers cannot disagree: the leg the agent opens its sessions
+    // with, the point the harness sends the rules again at, and the number
+    // the header says. Read per spawn because the agent reads it only when it
+    // opens a session; a preference moved while this agent runs is in force
+    // at the next spawn, and the header keeps saying this one's.
+    const { leg, compacts } = conductorCompactingAt(compactsAt());
     // THE WHOLE BRING-UP IS ONE PROMISE, assigned to `starting` on the line
     // after it is made and never awaited before then — so two readers arriving
     // in the same tick share it rather than spawning two adapters. It has to
@@ -1925,7 +1925,7 @@ export function startConductorHost(deps: ConductorDeps): ConductorHost {
         // conversation's memory and model notes under — read off the registry
         // rather than spelled again here.
         agent: CONDUCTOR_SEAT.id,
-        leg: engine.leg,
+        leg,
         adapter: seating as Exclude<typeof seating, NotHere>,
         cwd: home,
         // WHICH STORE THE AGENT'S SIGNATURE COMES OUT OF, for the sentence a
@@ -1984,9 +1984,7 @@ export function startConductorHost(deps: ConductorDeps): ConductorHost {
         numbering: "continues",
         whenLoadRefused: "fresh",
         whenReplayed: "drop",
-        ...(engine.compacts === undefined
-          ? {}
-          : { compacts: engine.compacts.due }),
+        compacts: compacts.due,
         onCompaction: (compaction) => {
           if (disposed || mine !== generation) return;
           sayCompaction(compaction);
@@ -2031,7 +2029,7 @@ export function startConductorHost(deps: ConductorDeps): ConductorHost {
               steers: change.state.steers,
               busySince: change.state.busySince,
               ...serverAuthored,
-              compactsAt: engine.compacts?.at ?? null,
+              compactsAt: compacts.at,
               fleet: [...fleet.ids()],
             };
             // A DIFFERENT CONVERSATION TAKES THE FLEET WITH IT: the terminals

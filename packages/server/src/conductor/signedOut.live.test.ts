@@ -45,8 +45,8 @@ import {
 } from "@kolu/acp-harness";
 import {
   CONDUCTOR_SEAT,
+  conductorCompactingAt,
   conductorConfigDir,
-  conductorEngine,
 } from "kolu-agents/acp";
 import type { ConductorRow } from "kolu-common/conductor";
 
@@ -124,7 +124,7 @@ describe.skipIf(!LIVE)(
       const configDir = conductorConfigDir(process.env, home);
       const harness = await startHarness<ConductorRow>({
         agent: CONDUCTOR_SEAT.id,
-        leg: conductorEngine(200_000).leg,
+        leg: conductorCompactingAt(200_000).leg,
         adapter: {
           ...(seating as Exclude<typeof seating, NotHere>),
           env: {
