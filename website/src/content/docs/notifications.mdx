@@ -47,7 +47,7 @@ tab and the phone host row:
 | Count | Looks like | Goes away when |
 | --- | --- | --- |
 | **Needs you**, an agent blocked on your input | violet count pill, violet row wash, and a chip counting how long it has waited | you answer it, and nothing else |
-| **Unread**, an agent finished and you have not looked | amber count pill, amber row wash, amber badge on the pip | you open that terminal, that agent starts working again, or the terminal closes |
+| **Unread**, an agent finished and you have not looked | amber count pill, amber row wash, amber badge on the pip | you open that terminal or look at it from the Conductor, that agent starts working again, or the terminal closes |
 | **Active**, something is happening in a terminal | a plain rust count with a spinner | everything goes quiet |
 
 The two you can act on wear a pill, so a number in a pill always means there is
@@ -58,6 +58,17 @@ answering the agent clears it.
 An agent that finishes in the background washes its whole dock row amber. A
 blocked one washes violet and gets a mirrored entry in the dock's pinned
 [Needs-you strip](/dock), while the row itself stays where it is.
+
+A terminal is in the background unless it is in front of you, which means one
+of these:
+
+- it is the focused tile on the machine you are looking at, with the canvas on
+  screen;
+- its screen shows in the Conductor, in a [Look](/tiles#look-from-the-conductor)
+  or in a picked work's **Terminals** view.
+
+So while the Conductor is on screen, the tile you left focused can be marked and
+chime. A Look or a live pane clears the mark and keeps it clear while it shows.
 
 ## What a host tab shows
 
@@ -155,6 +166,9 @@ read what is actually waiting. kolu remembers the setting across upgrades.
 The needs-you signal reaches you the same way on every
 [connected machine](/remote-hosts). An agent that finishes or starts waiting on a
 background host chimes, shows a backgrounded-tab popup, and marks that host.
+The terminal itself is marked too: its dock row is amber when you switch there,
+and its row in the [command palette](/switcher) shows the same mark from any
+machine.
 
 Each host tab carries the full summary for that machine: how many terminals are
 active, how many agents are blocked on you, and how much finished work you have
