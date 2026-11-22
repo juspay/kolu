@@ -94,9 +94,10 @@ describe("kolu-server boot with a delivery bake", () => {
 
       const port = await freePort();
       let out = "";
-      // The `kolu` binary's source entry, as `scripts/kolu-source-wrapper.sh`
-      // runs it (minus its `git` lookup of the root, and the client bundle a
-      // boot does not need), with kolu-server's own `tsx`.
+      // The `kolu` binary's source entry, the one `scripts/kolu-source-wrapper.sh`
+      // runs (minus its `git` lookup of the root, and the client bundle a boot
+      // does not need), under kolu-server's own `tsx` command — whose relay
+      // carries the SIGTERM this suite stops it with to the server it runs.
       child = spawn(
         join(REPO_ROOT, "packages/server/node_modules/.bin/tsx"),
         [

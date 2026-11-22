@@ -10,7 +10,7 @@
  */
 
 import type { ChildProcess } from "node:child_process";
-import { spawn } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import * as fs from "node:fs";
 import * as http from "node:http";
 import * as os from "node:os";
@@ -54,7 +54,8 @@ import {
   retryTransient,
 } from "./scenarioSetupRetry.ts";
 import { retireWorldScrollFifo } from "./scrollFifo.ts";
-import type { KoluWorld } from "./world.ts";
+import { padiBuildEnv, type ServerBuild } from "./serverBuild.ts";
+import { type KoluWorld, STEP_GUARD, STEP_TIMEOUT } from "./world.ts";
 
 const workerId = parseInt(process.env.CUCUMBER_WORKER_ID || "0", 10);
 
@@ -872,13 +873,12 @@ const acpFixtureAgent = path.resolve(
 /** ... and the store it remembers prompted sessions in, per worker. */
 const acpFixtureSessions = mkSubDir("acp-sessions");
 
-/** Which of the two server builds a start runs: `base` is `KOLU_SERVER`;
- *  `next` is `KOLU_SERVER_NEXT_BUILD`, the same server with a different padi
- *  build id — what {@link deployKoluServer} deploys. A Nix-built server bakes
- *  its id (`--set PADI_BUILD_ID`), so there `next` is a second build; the
- *  source wrapper reads it from the env this start passes, so there `next` is
- *  the same wrapper with another id. */
-type ServerBuild = "base" | "next";
+/** The commit the source wrapper runs from — the other half of the padi build
+ *  identity a start gives it ({@link padiBuildEnv}). */
+const sourceCommit = execFileSync("git", ["rev-parse", "--short", "HEAD"], {
+  cwd: import.meta.dirname,
+  encoding: "utf8",
+}).trim();
 
 /** The build the running server is — the one a deploy replaces. */
 let runningBuild: ServerBuild = "base";
@@ -927,17 +927,21 @@ async function startServerChild(
 
   // Spawn on a random port, retrying on a fresh port if our child can't take
   // ownership of it (a stale orphan may be squatting — see waitForOwnedServer).
-  // A child that finds its port taken EXITS, so a live child that has not yet
-  // announced is still starting: on a fixed port, with nowhere to retry, it
-  // gets the whole budget in one wait — never less than the random-port tries
-  // give in total — and only an exit fails it early.
-  const RANDOM_PORT_TRIES = 5;
+  // All tries share ONE budget, which ends a step guard short of the limit of
+  // the hooks that start a server and set none of their own (BeforeAll, the
+  // @kaval-restart After): a try still waiting when that limit fires is cut
+  // off by cucumber's bare timeout instead of failing with this start's own
+  // diagnosis. A child that finds its port taken EXITS, so a live child that
+  // has not yet announced is still starting: on a fixed port, with nowhere to
+  // retry, it gets the whole budget in one wait, and only an exit fails it early.
+  const SPAWN_BUDGET_MS = STEP_TIMEOUT - STEP_GUARD;
   const OWN_PORT_WAIT_MS = 15_000;
-  const MAX_SPAWN_ATTEMPTS = fixedPort === undefined ? RANDOM_PORT_TRIES : 1;
-  const attemptWaitMs =
+  const MAX_SPAWN_ATTEMPTS =
     fixedPort === undefined
-      ? OWN_PORT_WAIT_MS
-      : RANDOM_PORT_TRIES * OWN_PORT_WAIT_MS;
+      ? Math.floor(SPAWN_BUDGET_MS / OWN_PORT_WAIT_MS)
+      : 1;
+  const attemptWaitMs =
+    fixedPort === undefined ? OWN_PORT_WAIT_MS : SPAWN_BUDGET_MS;
   let lastFailure = "";
   let started = false;
   for (let attempt = 1; attempt <= MAX_SPAWN_ATTEMPTS && !started; attempt++) {
@@ -1056,15 +1060,16 @@ async function startServerChild(
           // scenario wrote into its own repo rather than whatever the real
           // `gh` can reach.
           KOLU_GH_BIN: fakeGhBin,
-          // THE PADI BUILD, for the source wrapper: it bakes nothing, so its
-          // binder and the padi it spawns (`inheritParentEnv`) read the id
-          // from here, and the two builds differ only by it — the one axis a
-          // deploy's build check converges on. A Nix-built server's own
-          // `--set` overrides it.
-          PADI_BUILD_ID: `e2e-${build}`,
+          // The padi build this start runs as, and the commit it is built
+          // from — see `padiBuildEnv`.
+          ...padiBuildEnv(build, sourceCommit),
         },
       },
     );
+    // The worker owns this child from the moment it exists, not from the
+    // moment it answers: a hook whose limit fires mid-try ends the worker, and
+    // the exit handler's `killServer` reaches only the child named here.
+    serverProcess = child;
 
     // Detect when OUR child announces it bound the port. The address in the
     // `kolu listening {...,"address":"http://127.0.0.1:<port>"}` log proves
@@ -1112,7 +1117,6 @@ async function startServerChild(
       attemptWaitMs,
     );
     if (owned) {
-      serverProcess = child;
       runningBuild = build;
       baseUrl = url;
       // Re-point the shared RPC wire at THIS server: a restart lands on a fresh
@@ -1138,6 +1142,7 @@ async function startServerChild(
           .join(" and ") || "giving up";
       console.log(`[worker:${workerId}] ${lastFailure}; ${action}.`);
       if (!exited) child.kill("SIGKILL");
+      serverProcess = undefined;
     }
   }
   if (!started) {
@@ -1345,7 +1350,9 @@ BeforeAll(async () => {
   });
 });
 
-AfterAll(async () => {
+AfterAll(tearDownWorker);
+
+async function tearDownWorker(): Promise<void> {
   if (browser) await browser.close();
   // KOLU_X11CAP: tear down the virtual display once the browser is gone.
   if (xvfbProc) {
@@ -1394,7 +1401,7 @@ AfterAll(async () => {
     // don't have permission for some reason) there's nothing productive
     // to do in a test teardown. The OS will clean /tmp eventually.
   }
-});
+}
 
 const SCENARIO_PADI_LIVE_TIMEOUT = 60_000;
 const SCENARIO_SETUP_GUARD = 30_000;
@@ -1749,6 +1756,28 @@ After({ timeout: 600_000 }, async function (this: KoluWorld, scenario) {
   }
 });
 
+/** Take this worker's server down and bring another up IN THE MIDDLE of the
+ *  run. When that fails, the worker is left with no server, and every scenario
+ *  cucumber hands it next would fail against nothing — fast enough to drain the
+ *  queue that healthy workers could have run. So a failure ends the worker,
+ *  the way cucumber ends one whose BeforeAll failed: the cause on stderr, the
+ *  worker's own teardown, exit 1. Cucumber marks the run failed and gives the
+ *  scenarios still queued to the other workers. */
+async function replaceServer(downThenUp: () => Promise<void>): Promise<void> {
+  try {
+    await downThenUp();
+  } catch (err) {
+    console.error(
+      new Error(
+        `[worker:${workerId}] replacing the server mid-run failed, so this worker has none; worker exiting`,
+        { cause: err },
+      ),
+    );
+    await tearDownWorker();
+    process.exit(1);
+  }
+}
+
 /** Restore the worker after a `@kaval-restart` scenario (kaval-daemon.feature) —
  *  one that SIGKILLed its kaval daemon (the degraded-state e2e) OR recycled it via
  *  the Restart button (the live/dead recycle arms). A kill leaves the worker's
@@ -1765,8 +1794,10 @@ After({ tags: "@kaval-restart" }, async function (this: KoluWorld) {
   console.log(
     `[worker:${workerId}] @kaval-restart: rebooting server to respawn its kaval daemon.`,
   );
-  killServer(); // also reaps any surviving kaval
-  await startServerChild(koluServer);
+  await replaceServer(async () => {
+    killServer(); // also reaps any surviving kaval
+    await startServerChild(koluServer);
+  });
 });
 
 /** REDEPLOY THE WORKER'S SERVER MID-SCENARIO — what a person's machine lives
@@ -1807,14 +1838,16 @@ export async function restartKoluServer(
     );
   }
   console.log(`[worker:${workerId}] redeploying the server for a scenario.`);
-  killServer("keep");
-  whileDown?.(path.join(koluStateDir, "config.json"));
-  // READ-ONLY, because this restart happens INSIDE a scenario: the fresh padi
-  // adopts the surviving kaval's terminals (and parks whatever its saved
-  // session holds that is not live), and the destructive probe would kill
-  // exactly those terminals a second later — which is what a work's member
-  // leaving a redeploy really was.
-  await startServerChild(koluServer, "read");
+  await replaceServer(async () => {
+    killServer("keep");
+    whileDown?.(path.join(koluStateDir, "config.json"));
+    // READ-ONLY, because this restart happens INSIDE a scenario: the fresh padi
+    // adopts the surviving kaval's terminals (and parks whatever its saved
+    // session holds that is not live), and the destructive probe would kill
+    // exactly those terminals a second later — which is what a work's member
+    // leaving a redeploy really was.
+    await startServerChild(koluServer, "read");
+  });
   return baseUrl;
 }
 
@@ -1851,22 +1884,24 @@ export async function deployKoluServer(): Promise<void> {
   console.log(
     `[worker:${workerId}] deploying: stopping only the server (padi ${padiBefore} and kaval ${kavalBefore} keep running).`,
   );
-  const { promise: exited, resolve: onExit } = Promise.withResolvers<void>();
-  old.once("exit", () => onExit());
-  old.kill("SIGTERM");
-  serverProcess = undefined;
-  await exited;
-  if (!isPidLive(padiBefore)) {
-    throw new Error(
-      `padi (pid ${padiBefore}) did not outlive the old server: that is a kill, not a deploy`,
+  await replaceServer(async () => {
+    const { promise: exited, resolve: onExit } = Promise.withResolvers<void>();
+    old.once("exit", () => onExit());
+    old.kill("SIGTERM");
+    serverProcess = undefined;
+    await exited;
+    if (!isPidLive(padiBefore)) {
+      throw new Error(
+        `padi (pid ${padiBefore}) did not outlive the old server: that is a kill, not a deploy`,
+      );
+    }
+    await startServerChild(
+      koluServer,
+      "read",
+      port,
+      runningBuild === "base" ? "next" : "base",
     );
-  }
-  await startServerChild(
-    koluServer,
-    "read",
-    port,
-    runningBuild === "base" ? "next" : "base",
-  );
+  });
   await pollFor({
     observe: async () => ({
       logged: fs
