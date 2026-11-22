@@ -37,7 +37,9 @@
   # source-closure hash — baked onto BOTH the padi wrapper AND the koluBin wrapper
   # (the binder's expected == what it would spawn), so a second build reads as a
   # padi-build skew to the drain-on-build-mismatch convergence (#1670). Consumed by
-  # the `adoption-padi-upgrade` VM arm; the real build always takes the source hash.
+  # the `adoption-padi-upgrade` and `remote-deploy` VM tests and by the e2e
+  # deploy's second build (`flake.nix`, `legacyPackages.koluBin-next-padi-build`);
+  # the real build always takes the source hash.
 , padiBuildIdOverride ? null
 }:
 let

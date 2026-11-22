@@ -328,6 +328,8 @@ describe("createSettleEvents — a redeploy", () => {
       fold(frame());
       gate.awaitFirstRead("w" as TerminalId);
       fold(frame({ w: { agent: null } }));
+      // The boot says adoption is finished.
+      gate.establish();
       const read = frame({ w: { agent: makeAgent("waiting") } });
       fold(read);
       gate.firstRead("w" as TerminalId);

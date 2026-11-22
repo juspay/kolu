@@ -65,11 +65,19 @@
  *
  * So the two readers of this gate open at different moments. The CENSUS
  * ("who is here") opens exactly as above — the Conductor's watch needs it as
- * soon as a terminal is listed. The ATTENTION FEED waits, after adoption,
- * until every adopted terminal has been read once
- * ({@link FleetGate.awaitFirstRead} / {@link FleetGate.firstRead}). A terminal
- * that goes away while awaited stops being awaited. While the feed waits the
- * `urgency` cell says `settled: false`.
+ * soon as a terminal is listed. The ATTENTION FEED opens when the boot has
+ * said adoption is finished ({@link FleetGate.establish}) AND every survivor
+ * the boot announced has been read once ({@link FleetGate.awaitFirstRead} /
+ * {@link FleetGate.firstRead}). A frame never opens it. A terminal that goes
+ * away while awaited stops being awaited. While the feed waits the `urgency`
+ * cell says `settled: false`.
+ *
+ * A frame cannot say adoption is finished, because the boot registers a saved
+ * session in its saved order and only a SURVIVOR is announced before it is
+ * registered. A session whose first record is asleep registers that sleeper
+ * first, with nothing announced; when a frame could open the feed, that frame
+ * opened it, every survivor announced after it was taken for a mid-session
+ * adoption, and each idle agent came back as a fresh finish on every page.
  *
  * The last read changes no terminal record when the survivor's agent is gone
  * (a shell has nothing to publish), so nothing would re-run the fold that is
@@ -85,16 +93,19 @@ import type { TerminalId } from "@kolu/terminal-vocab/schema";
 export interface FleetGate {
   /** Should this frame reach the attention consumers? `false` while the roster
    *  is settling — an empty registry before anything was adopted, or the drain
-   *  window of a recycle — and while an adopted survivor has not been read
+   *  window of a recycle — until the boot has said adoption is finished
+   *  ({@link establish}), and while an adopted survivor has not been read
    *  ({@link awaitFirstRead}). A non-empty frame ESTABLISHES the roster (and
-   *  publishes that) whether or not the survivors have been read — except
-   *  inside a drain window, which only {@link establish} may close.
+   *  publishes that) whether or not the boot has finished or the survivors
+   *  have been read — except inside a drain window, which only
+   *  {@link establish} may close.
    *
    *  Reads the gate's generation, so a reactive fold calling this re-runs when
    *  the gate's answer moves without the frame moving. */
   admit(terminals: ReadonlyMap<TerminalId, PadiTerminal>): boolean;
-  /** padi has finished adopting: the roster is evidence even if it is EMPTY.
-   *  Idempotent — a second call re-publishes nothing. The one thing that
+  /** padi has finished adopting: the roster is evidence even if it is EMPTY,
+   *  and the attention feed may open once every announced survivor has been
+   *  read. Idempotent — a second call re-publishes nothing. The one thing that
    *  re-opens a gate {@link settling} closed. */
   establish(): void;
   /** The roster is being rebuilt (a kaval recycle's capture → drain → re-park):
@@ -113,10 +124,11 @@ export interface FleetGate {
    *  until it leaves the registry. Must be said BEFORE the terminal is
    *  registered, or a fold run by the registration admits it unread.
    *
-   *  A no-op once the attention feed has opened: a terminal adopted mid-session
-   *  (a restart that kept its PTY, a PTY created outside kolu) joins a fleet
-   *  the feed already describes, and holding every other terminal's attention
-   *  for it would be the defect, not the guard. */
+   *  A no-op once the attention feed has opened — which is never before the
+   *  boot's {@link establish}: a terminal adopted mid-session (a restart that
+   *  kept its PTY, a PTY created outside kolu) joins a fleet the feed already
+   *  describes, and holding every other terminal's attention for it would be
+   *  the defect, not the guard. */
   awaitFirstRead(id: TerminalId): void;
   /** Every agent detector of this terminal has made its first pass over a real
    *  foreground sample — whatever it found: an agent, a plain shell, or that
@@ -184,6 +196,9 @@ export function createFleetGate(
     if (frame) return [...frame.keys()];
     return roster.kind === "established" ? roster.ids : [];
   };
+  /** HAS THE BOOT SAID ADOPTION IS FINISHED? The attention feed's first
+   *  condition ({@link FleetGate.establish}); a frame never sets it. */
+  let adopted = false;
   /** HAS THE ATTENTION FEED OPENED? Once it has, an adoption is mid-session
    *  and is not waited on ({@link FleetGate.awaitFirstRead}). Never closes
    *  again: a recycle's drain closes the feed through `closed`, and re-parks
@@ -220,14 +235,16 @@ export function createFleetGate(
       } else {
         move({ kind: "established", at: now(), ids: ids(terminals) });
       }
-      // The census is evidence; the attention feed waits for the survivors.
+      // The census is evidence; the attention feed waits for the boot to say
+      // adoption is finished, and for the survivors it announced.
       for (const id of unread) if (!terminals.has(id)) unread.delete(id);
-      if (unread.size > 0) return false;
+      if (!adopted || unread.size > 0) return false;
       attentionOpen = true;
       return true;
     },
     establish() {
       closed = false;
+      adopted = true;
       move({ kind: "established", at: now(), ids: ids() });
       moved();
     },

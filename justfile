@@ -662,6 +662,15 @@ test: install
     cores="$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 4)"
     cap=8; [ "$(uname)" = Darwin ] && cap=6
     KOLU_SERVER="${KOLU_SERVER:-$(nix build .#koluBin --no-link --print-out-paths)/bin/kolu}"
+    # THE DEPLOY'S SECOND BUILD: `.#koluBin` again, evaluated from the same flake
+    # source and commit string, with a different padi build id
+    # (`padiBuildIdOverride`), which a Nix-built server bakes and no env can
+    # change — only its `padi.drv` and `kolu-bin.drv` differ from the build
+    # above (flake.nix, `legacyPackages`). `kolu is deployed under this page`
+    # starts it in place of the running one, so the binder's build check drains
+    # padi as a real deploy's does (packages/tests/support/hooks.ts,
+    # `deployKoluServer`).
+    KOLU_SERVER_NEXT_BUILD="${KOLU_SERVER_NEXT_BUILD:-$(nix build .#koluBin-next-padi-build --no-link --print-out-paths)/bin/kolu}"
     cd packages/tests
     # Serialize the cucumber phase across CI runs sharing this host. odu fans
     # each PR's pipeline out independently, so several PRs' e2e lanes land on
@@ -720,7 +729,8 @@ test: install
     # very "two recipes shelling out to pnpm install race and corrupt each
     # other's node_modules" hazard ci/mod.just documents. CI invokes this recipe
     # with `just --no-deps test` so even the `install` dep can't race the unit lane.
-    KOLU_SERVER="$KOLU_SERVER" CUCUMBER_PARALLEL="$par" {{ nix_shell_e2e }} pnpm test
+    KOLU_SERVER="$KOLU_SERVER" KOLU_SERVER_NEXT_BUILD="$KOLU_SERVER_NEXT_BUILD" \
+        CUCUMBER_PARALLEL="$par" {{ nix_shell_e2e }} pnpm test
 
 # Fast self-contained e2e tests (no nix build, no separate dev server).
 # Builds client via pnpm, spawns server from source on random ports.
@@ -747,7 +757,10 @@ test-quick *args: install
     wrapper="$PWD/scripts/kolu-source-wrapper.sh"
     cd packages/tests
     {{ nix_shell_e2e }} pnpm install
-    KOLU_SERVER="$wrapper" CUCUMBER_PARALLEL={{ cucumber_parallel }} \
+    # The source wrapper reads the padi build id from its env, so the deploy's
+    # second build is the same wrapper started with another id (hooks.ts).
+    KOLU_SERVER="$wrapper" KOLU_SERVER_NEXT_BUILD="$wrapper" \
+        CUCUMBER_PARALLEL={{ cucumber_parallel }} \
         {{ nix_shell_e2e }} pnpm test {{ args }}
 
 # Dev-mode smoke: boot `just dev` on random ports, load Kolu in a real browser,

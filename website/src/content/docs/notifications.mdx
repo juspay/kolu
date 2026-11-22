@@ -97,8 +97,9 @@ If notifications do not appear, see
 
 ## After kolu restarts or the page reloads
 
-When kolu restarts, or you reload the page, while your terminals keep running,
-your unread marks come back as they were:
+When kolu restarts or is updated, or you reload the page, while your terminals
+keep running, your unread marks come back as they were. This holds for every
+host, your own machine and remote ones:
 
 | Before | After |
 | --- | --- |
@@ -107,8 +108,9 @@ your unread marks come back as they were:
 | An agent finished or started asking while kolu was down | Unread. A tab that stayed open chimes once. A page you open afterwards marks it without a chime. |
 | An agent quit while kolu was down | No mark. |
 
-Marks are kept per browser. Opening a terminal on your phone does not clear its
-mark on your laptop.
+Marks are kept per browser, and every kolu tab in that browser shares them:
+opening a terminal in one tab clears its mark in the others. Opening a terminal
+on your phone does not clear its mark on your laptop.
 
 ## What the Conductor rings for
 

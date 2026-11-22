@@ -1,8 +1,23 @@
 import * as assert from "node:assert";
 import { Then, When } from "@cucumber/cucumber";
+import {
+  waitForFinishedTurn,
+  withAttentionDiagnosis,
+} from "../support/attentionWaits.ts";
 import { pollFor, pollUntil } from "../support/poll.ts";
 import { redeployUnderThisPage } from "../support/redeploy.ts";
 import { type KoluWorld, POLL_TIMEOUT } from "../support/world.ts";
+
+/** Wait for a dock row matching `selector` to be visible; on timeout, throw
+ *  with the attention diagnosis of the page. */
+function waitForUnreadRow(world: KoluWorld, selector: string): Promise<void> {
+  return withAttentionDiagnosis(world.page, () =>
+    world.page
+      .locator(selector)
+      .first()
+      .waitFor({ state: "visible", timeout: POLL_TIMEOUT }),
+  );
+}
 
 /** kolu is redeployed under the open page: the server and padi are replaced,
  *  the terminals keep running, and the page reloads with its storage — see
@@ -17,44 +32,26 @@ When(
   },
 );
 
-/** The agent's row shows padi's verdict that its turn is over — still, in
- *  the post-turn paint. padi publishes that verdict only once it has looked,
- *  so a check after this one is a check of what the page did with padi's
- *  first real word, not of a page that has not heard it yet. */
+/** The agent's row shows padi's verdict that its turn is over — see
+ *  {@link waitForFinishedTurn}. */
 Then(
   "the agent's dock row should show its finished turn",
   async function (this: KoluWorld) {
-    await pollFor({
-      observe: () =>
-        this.page.evaluate(() =>
-          [
-            ...document.querySelectorAll(
-              '[data-testid="dock-row"][data-agent-state="waiting"] [data-testid="state-pip"]',
-            ),
-          ].map(
-            (pip) =>
-              `${pip.getAttribute("data-pip")}/${pip.getAttribute("data-motion")}`,
-          ),
-        ),
-      isDone: (pips) => pips.includes("linger/none"),
-      timeoutMs: POLL_TIMEOUT,
-      onTimeout: (pips, ms) =>
-        new Error(
-          `after ${ms}ms no waiting agent's row showed a finished turn (pips: ${JSON.stringify(pips)})`,
-        ),
-    });
+    await waitForFinishedTurn(
+      this.page,
+      '[data-testid="dock-row"][data-agent-state="waiting"]',
+      "no waiting agent's row",
+    );
   },
 );
 
 /** The finished agent's own row carries the unread mark — not merely some
  *  row, so a mark that moved to the wrong terminal does not pass. */
 Then("the agent's dock row should be unread", async function (this: KoluWorld) {
-  await this.page
-    .locator(
-      '[data-testid="dock-row"][data-agent-state="waiting"][data-unread]',
-    )
-    .first()
-    .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+  await waitForUnreadRow(
+    this,
+    '[data-testid="dock-row"][data-agent-state="waiting"][data-unread]',
+  );
 });
 
 /** The asking agent's row says so — padi lists it as asking, which is what a
@@ -146,8 +143,7 @@ When(
 Then(
   "a workspace switcher branch should be notified",
   async function (this: KoluWorld) {
-    const notified = this.page.locator('[data-testid="dock-row"][data-unread]');
-    await notified.first().waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    await waitForUnreadRow(this, '[data-testid="dock-row"][data-unread]');
   },
 );
 

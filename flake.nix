@@ -75,6 +75,20 @@
           agent-flake-source = kolu.agentFlakeSrc;
           agent-flake-env = kolu.agentFlakeEnv;
         });
+      # THE E2E DEPLOY'S SECOND BUILD: `koluBin` from this same source, pkgs and
+      # commit string, with a different padi build id (`padiBuildIdOverride`) —
+      # so `padi.drv` and `kolu-bin.drv` are the only derivations that differ
+      # from `.#koluBin`. `just test` builds it as `.#koluBin-next-padi-build`
+      # for `kolu is deployed under this page` (packages/tests/support/hooks.ts,
+      # `deployKoluServer`). Not a package: `ci/flake-build` builds, and odu
+      # pushes, every package, and this is nothing a kolu user installs.
+      legacyPackages = platform.mapSystems (system: {
+        koluBin-next-padi-build = (import ./default.nix {
+          pkgs = pkgsBySystem.${system};
+          inherit commitHash;
+          padiBuildIdOverride = "e2e-deploy-next-build";
+        }).koluBin;
+      });
       # Type gates on every system. The build environment (nodejs/pnpm and the
       # platform-resolved deps `pnpmConfigHook` installs) differs per platform,
       # so each platform's `tsc`/`astro check` is its own proof — a darwin-only
