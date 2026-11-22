@@ -38,6 +38,7 @@ import type { FleetTerminalRow } from "../palette/fleetTerminals";
 import { aboutWork, showAllChat } from "./chatScope";
 import { askFromWelcome, composerText, setComposerText } from "./drafts";
 import ConductorComposer from "./ConductorComposer";
+import { pickedWork, unpickWork } from "./workListing";
 import { standingLine } from "./workReadings";
 import { Shown } from "../ui/shown";
 
@@ -64,6 +65,9 @@ vi.mock("./useWorks", () => ({
   useNeedsYou: () => mirror.needs,
   useWorkMap: () => () => new Map(mirror.works()),
   useMembership: () => mirror.membership,
+  // A work's chip reads its terminals; these works have none.
+  useWorkMembers: () => () => new Map(),
+  useSeen: () => () => new Map(),
 }));
 // The wire-facing neighbours, inert: a real upload would only add a second
 // thing to fail. The prompt verb is a spy the tests read — what a message
@@ -180,6 +184,7 @@ afterEach(() => {
   mirror.works = () => [];
   mirror.needs = () => [];
   mirror.membership = () => new Map();
+  unpickWork();
 });
 
 /** Mount the composer over a fleet whose rows the caller can move — and over
@@ -429,8 +434,38 @@ describe("a chat pointed at one piece of work", () => {
     aboutWork(PANE);
     const { el } = mount("hello", WORKS, []);
     el.querySelector<HTMLElement>(
-      '[data-testid="conductor-scope-chip"]',
+      '[data-testid="conductor-scope-chip-remove"]',
     )?.click();
     expect(el.querySelector('[data-testid="conductor-scope-chip"]')).toBeNull();
+  });
+
+  it("goes to the work when the chip's name is pressed, and keeps the chip", () => {
+    aboutWork(PANE);
+    const { el } = mount("hello", WORKS, []);
+    el.querySelector<HTMLElement>(
+      '[data-testid="conductor-scope-chip"] [data-testid="work-chip"]',
+    )?.click();
+    expect(pickedWork()).toBe(PANE);
+    expect(
+      el.querySelector('[data-testid="conductor-scope-chip"]'),
+    ).not.toBeNull();
+  });
+});
+
+describe("a work mentioned in the box", () => {
+  it("goes to the work from its name, and only its × takes it out", () => {
+    const { el, box } = mount("@pa", WORKS, NEEDS);
+    press(box, "Enter");
+    const chip = () => rowsIn(el, "conductor-mention-chip")[0];
+    chip()?.querySelector<HTMLElement>('[data-testid="work-chip"]')?.click();
+    expect(pickedWork()).toBe(PANE);
+    expect(chip()).toBeDefined();
+    chip()
+      ?.querySelector<HTMLElement>(
+        '[data-testid="conductor-mention-chip-remove"]',
+      )
+      ?.click();
+    expect(rowsIn(el, "conductor-mention-chip")).toHaveLength(0);
+    expect(box.value).not.toContain("@page-chats-open-in-a-pane");
   });
 });

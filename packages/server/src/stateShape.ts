@@ -134,7 +134,7 @@ export function readPersistedRecord(
  * Must be valid semver. `conf` runs all migration handlers
  * whose keys are > the last-seen version and ≤ this value.
  */
-export const SCHEMA_VERSION = "1.63.0";
+export const SCHEMA_VERSION = "1.64.0";
 
 /** THE VERSION STAMPED INTO THE TRANSCRIPT FILE
  *  (`<stateDir>/conductor/transcript.json`), and the one a reader accepts.

@@ -9,7 +9,7 @@
 import type { Preferences } from "kolu-common/surface";
 import type { TerminalId } from "kolu-common/surface";
 import { createRoot, createSignal } from "solid-js";
-import { beforeEach, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const wire = vi.hoisted(() => ({
   arrived: (): boolean => false,
@@ -59,6 +59,7 @@ vi.mock("../attentionNotify", () => ({
 }));
 
 import { registerHostFacts, writeHostMarks } from "./attentionMarks";
+import { holdConductorScreen } from "./conductorScreens";
 import { attentionRecordOf } from "./savedAttention";
 import { useAttention } from "./useAttention";
 
@@ -66,12 +67,134 @@ const A = "11111111-1111-4111-8111-111111111111" as TerminalId;
 
 const flush = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
 
+/** A host whose attention frame a case drives by hand: `finish` moves a
+ *  terminal into the finished list, `work` puts it back to work. */
+function drivenHost(encHost: string) {
+  const [frame, setFrame] = createSignal<{
+    asking: TerminalId[];
+    working: TerminalId[];
+    linger: TerminalId[];
+    finished: TerminalId[];
+  }>({ asking: [], working: [], linger: [], finished: [] });
+  registerHostFacts(encHost, () => ({
+    reported: true,
+    live: true,
+    liveIds: [],
+    byClass: frame(),
+  }));
+  writeHostMarks(encHost, {});
+  return {
+    finish: (id: TerminalId) =>
+      setFrame({ asking: [], working: [], linger: [], finished: [id] }),
+    work: (id: TerminalId) =>
+      setFrame({ asking: [], working: [id], linger: [], finished: [] }),
+  };
+}
+
+/** Run the engine over the shown host `local`, with `focused` its focused
+ *  pane, for the length of `body`. */
+async function withAttention(
+  focused: TerminalId | null,
+  body: () => Promise<void>,
+): Promise<void> {
+  wire.arrived = () => true;
+  wire.alerts = () => true;
+  await createRoot(async (dispose) => {
+    try {
+      useAttention({
+        activeId: () => focused,
+        focusedId: () => focused,
+        activate: () => {},
+        activeSubject: () => ({ title: "t", description: undefined }),
+        terminalIds: () => [],
+        activeAgentState: () => undefined,
+      });
+      await body();
+    } finally {
+      dispose();
+    }
+  });
+}
+
 beforeEach(() => {
   localStorage.clear();
+  // The marks live in each host's record for the page's life: clear them
+  // through the record, so no case inherits another's.
+  for (const host of ["local", "remote:box-1", "remote:box-2"])
+    attentionRecordOf(host).clearAllUnread();
   conductor.asks = () => undefined;
   conductor.inMode = () => false;
   conductor.popups.length = 0;
   vi.restoreAllMocks();
+});
+
+describe("which terminals are marked unread", () => {
+  it("marks a terminal on a host you are not on, on that host's record", async () => {
+    vi.spyOn(document, "hasFocus").mockReturnValue(true);
+    vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue(undefined);
+    const away = drivenHost("remote:box-1");
+    await withAttention(null, async () => {
+      await flush();
+      away.finish(A);
+      await flush();
+      expect(attentionRecordOf("remote:box-1").isUnread(A)).toBe(true);
+      expect(attentionRecordOf("local").isUnread(A)).toBe(false);
+    });
+  });
+
+  it("on the canvas the focused pane is in front; behind the Conductor it is marked and chimes", async () => {
+    vi.spyOn(document, "hasFocus").mockReturnValue(true);
+    const chimes = vi
+      .spyOn(HTMLMediaElement.prototype, "play")
+      .mockResolvedValue(undefined);
+    const here = drivenHost("local");
+    await withAttention(A, async () => {
+      await flush();
+      // The canvas is on screen and A is the pane you are in: seen.
+      here.finish(A);
+      await flush();
+      expect(attentionRecordOf("local").isUnread(A)).toBe(false);
+      expect(chimes).not.toHaveBeenCalled();
+      // The Conductor covers the canvas: the same pane is no longer in front.
+      conductor.inMode = () => true;
+      here.work(A);
+      await flush();
+      here.finish(A);
+      await flush();
+      expect(attentionRecordOf("local").isUnread(A)).toBe(true);
+      expect(chimes).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  it("a screen of the terminal showing in the Conductor lifts its mark and keeps it off, until it stops showing", async () => {
+    vi.spyOn(document, "hasFocus").mockReturnValue(true);
+    vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue(undefined);
+    conductor.inMode = () => true;
+    const away = drivenHost("remote:box-2");
+    await withAttention(null, async () => {
+      await flush();
+      away.finish(A);
+      await flush();
+      expect(attentionRecordOf("remote:box-2").isUnread(A)).toBe(true);
+      // Look, or the live pane, comes to show it: the mark lifts.
+      const release = holdConductorScreen(`remote:box-2/${A}`);
+      await flush();
+      expect(attentionRecordOf("remote:box-2").isUnread(A)).toBe(false);
+      // A ping while it shows: in front of you, no mark.
+      away.work(A);
+      await flush();
+      away.finish(A);
+      await flush();
+      expect(attentionRecordOf("remote:box-2").isUnread(A)).toBe(false);
+      // It stops showing: the next ping marks it.
+      release();
+      away.work(A);
+      await flush();
+      away.finish(A);
+      await flush();
+      expect(attentionRecordOf("remote:box-2").isUnread(A)).toBe(true);
+    });
+  });
 });
 
 it("a resumed first frame raises no mark before the preferences have arrived, nor after they say alerts are off", async () => {

@@ -1,8 +1,11 @@
 /** A LIVE TERMINAL'S HEAD — what any view of one terminal's screen draws
  *  above it: the controls (**Fit width**, **Open tile ↗**) and the status line
- *  (the host, a dot with the state in words, who is driving and the way to
- *  change it, the grid, and whether the screen is live). The peek's window
- *  draws them; so does a live pane of a picked work.
+ *  (the host, the Dock's status mark with the state in words and for how long,
+ *  who is driving and the way to change it, the grid, and whether the screen
+ *  is live), with a line of the agent's facts under it — its name, its model,
+ *  how long it has run, the context it has used — in the Inspector's own
+ *  formatters. The peek's window draws them; so does a live pane of a picked
+ *  work.
  *
  *  Its test ids are prefixed by `kind` — `peek-take-over` in the peek,
  *  `live-take-over` in a pane — so a step can say which of two views of one
@@ -15,8 +18,15 @@ import type { TerminalGrid } from "@kolu/xterm-kit/solid";
 import { type Component, createMemo, Show } from "solid-js";
 import { hostLabel } from "../../host/hostChipTone";
 import { fleetTerminalStanding } from "../../palette/fleetTerminals";
-import { liveArm, STATUS_DOT, terminalStatus } from "../terminalStatus";
-import { useConductor } from "../useConductor";
+import { useDuration } from "../../terminal/staleness";
+import { agentName, formatContextTokens } from "../../ui/agentDisplay";
+import { useShownClock } from "../../ui/shown";
+import DriveButton from "../DriveButton";
+import MemberPip from "../MemberPip";
+import StateFor from "../StateFor";
+import { liveArm, terminalStatus } from "../terminalStatus";
+import { useSeen } from "../useWorks";
+import type { Lock } from "../workReadings";
 
 export type HeadKind = "peek" | "live";
 
@@ -82,104 +92,146 @@ export const TerminalStatusLine: Component<{
   held: boolean;
   onPointerDown?: () => void;
 }> = (props) => {
-  const conductor = useConductor();
+  /** Who drives it, when someone does: what the lock part draws for. */
+  const lock = (): Lock | undefined =>
+    props.driver === "nobody" ? undefined : props.driver;
+  const seen = useSeen();
+  const now = useShownClock();
+  const runningFor = useDuration();
   const standing = createMemo(() =>
     fleetTerminalStanding(props.host, props.id),
   );
   const status = createMemo(() => terminalStatus(standing()));
+  /** How long it has been in its state, by kolu's watch of it. */
+  const reading = () => seen().get(props.terminal);
+  /** The agent in it, for the facts line — none for a shell. */
+  const agent = () => liveArm(standing())?.agent ?? undefined;
+  /** The context it has used, boxed so a legitimate `0` still renders. */
+  const context = () => {
+    const tokens = agent()?.contextTokens;
+    return tokens == null ? null : { value: tokens };
+  };
   const lookable = () => liveArm(standing()) !== undefined;
   return (
-    <div
-      data-testid={`${props.kind}-statusline`}
-      class="flex min-w-0 shrink-0 items-center gap-2 bg-surface-0 px-3 py-1.5 text-[0.7rem] max-sm:flex-wrap"
-      onPointerDown={() => props.onPointerDown?.()}
-    >
-      <span class="shrink-0 font-mono text-[0.6rem] uppercase tracking-[0.1em] text-accent">
-        {hostLabel(decodeHostKey(props.host))}
-      </span>
-      <span
-        class={`h-2 w-2 shrink-0 rounded-full ${STATUS_DOT[status().tone]}`}
-      />
-      <span
-        data-testid={`${props.kind}-status`}
-        class="min-w-0 flex-1 truncate text-fg-2"
+    <>
+      <div
+        data-testid={`${props.kind}-statusline`}
+        class="flex min-w-0 shrink-0 items-center gap-2 bg-surface-0 px-3 py-1.5 text-[0.7rem] max-sm:flex-wrap"
+        onPointerDown={() => props.onPointerDown?.()}
       >
-        <span class="font-semibold text-fg">{status().state}</span>
-        <Show when={status().progress}>
-          {(tasks) => (
-            <>
-              {" · "}
-              <span class="tabular-nums" title={tasks().title}>
-                {tasks().text}
-              </span>
-            </>
+        <span class="shrink-0 font-mono text-[0.6rem] uppercase tracking-[0.1em] text-accent">
+          {hostLabel(decodeHostKey(props.host))}
+        </span>
+        <MemberPip
+          at={{ host: props.host, id: props.id }}
+          standing={standing()}
+        />
+        <span
+          data-testid={`${props.kind}-status`}
+          class="min-w-0 flex-1 truncate text-fg-2"
+        >
+          <StateFor
+            word={status().state}
+            standing={standing()}
+            reading={reading()}
+            now={now()}
+            testId={`${props.kind}-since`}
+          />
+          <Show when={status().progress}>
+            {(tasks) => (
+              <>
+                {" · "}
+                <span class="tabular-nums" title={tasks().title}>
+                  {tasks().text}
+                </span>
+              </>
+            )}
+          </Show>
+          <Show when={status().doing}>{(doing) => <> · {doing()}</>}</Show>
+        </span>
+        <Show when={lookable() ? lock() : undefined}>
+          {(who) => (
+            <span
+              data-testid={`${props.kind}-lock`}
+              data-driver={who()}
+              class="flex shrink-0 items-center gap-1.5"
+            >
+              <Show
+                when={who() === "conductor"}
+                fallback={
+                  <span class="rounded-sm bg-alert/15 px-1.5 font-mono text-[0.56rem] font-semibold uppercase tracking-[0.06em] text-alert">
+                    You’re driving
+                  </span>
+                }
+              >
+                <span class="rounded-sm bg-conductor/15 px-1.5 font-mono text-[0.56rem] font-semibold uppercase tracking-[0.06em] text-conductor">
+                  Conductor is driving · read-only
+                </span>
+              </Show>
+              <DriveButton
+                terminal={props.terminal}
+                driver={who()}
+                testId={props.kind}
+              />
+            </span>
           )}
         </Show>
-        <Show when={status().doing}>{(doing) => <> · {doing()}</>}</Show>
-      </span>
-      <Show when={lookable() && props.driver !== "nobody"}>
-        <span
-          data-testid={`${props.kind}-lock`}
-          data-driver={props.driver}
-          class="flex shrink-0 items-center gap-1.5"
-        >
-          <Show
-            when={props.driver === "conductor"}
-            fallback={
-              <>
-                <span class="rounded-sm bg-alert/15 px-1.5 font-mono text-[0.56rem] font-semibold uppercase tracking-[0.06em] text-alert">
-                  You’re driving
-                </span>
-                <button
-                  type="button"
-                  data-testid={`${props.kind}-hand-back`}
-                  class="shrink-0 cursor-pointer rounded-sm bg-alert/20 px-2 py-[0.2rem] font-mono text-[0.62rem] font-semibold uppercase tracking-[0.06em] text-alert transition-colors hover:bg-alert/30"
-                  onClick={() => conductor.handBack(props.terminal)}
-                >
-                  Hand back
-                </button>
-              </>
-            }
-          >
-            <span class="rounded-sm bg-conductor/15 px-1.5 font-mono text-[0.56rem] font-semibold uppercase tracking-[0.06em] text-conductor">
-              Conductor is driving · read-only
-            </span>
-            <button
-              type="button"
-              data-testid={`${props.kind}-take-over`}
-              class="shrink-0 cursor-pointer rounded-sm bg-conductor/20 px-2 py-[0.2rem] font-mono text-[0.62rem] font-semibold uppercase tracking-[0.06em] text-conductor transition-colors hover:bg-conductor/30"
-              onClick={() => conductor.takeOver(props.terminal)}
+        <Show when={lookable() && props.grid}>
+          {(g) => (
+            <span
+              data-testid={`${props.kind}-grid`}
+              class="shrink-0 font-mono text-[0.6rem] tabular-nums text-fg-3"
             >
-              Take over
-            </button>
-          </Show>
-        </span>
-      </Show>
-      <Show when={lookable() && props.grid}>
-        {(g) => (
+              {g().cols}×{g().rows}
+            </span>
+          )}
+        </Show>
+        <Show when={lookable()}>
           <span
-            data-testid={`${props.kind}-grid`}
-            class="shrink-0 font-mono text-[0.6rem] tabular-nums text-fg-3"
+            data-testid={`${props.kind}-live`}
+            data-phase={props.held ? "held" : props.phase}
+            class="shrink-0 font-mono text-[0.6rem] text-fg-3"
           >
-            {g().cols}×{g().rows}
+            {props.held
+              ? "new output below"
+              : props.phase === "live"
+                ? "live"
+                : props.phase === "reading"
+                  ? "reading the screen…"
+                  : "reconnecting…"}
           </span>
+        </Show>
+      </div>
+      {/* THE AGENT'S FACTS, under the status line: what it is, the model its
+        session reports, how long it has run, the context it has used —
+        nothing about the worktree, which is the work's. */}
+      <Show when={agent()}>
+        {(one) => (
+          <div
+            data-testid={`${props.kind}-facts`}
+            class="flex min-w-0 shrink-0 flex-wrap gap-x-2.5 gap-y-0.5 bg-surface-0 px-3 pb-1.5 font-mono text-[0.6rem] tabular-nums text-fg-3"
+          >
+            <span class="text-fg-2">{agentName(one().kind)}</span>
+            <Show when={one().model}>{(model) => <span>{model()}</span>}</Show>
+            <Show when={one().startedAt}>
+              {(startedAt) => (
+                <span
+                  title={`Started ${new Date(startedAt()).toLocaleString()}`}
+                >
+                  {runningFor(startedAt())}
+                </span>
+              )}
+            </Show>
+            <Show when={context()}>
+              {(box) => (
+                <span title={`Context: ${box().value.toLocaleString()} tokens`}>
+                  {formatContextTokens(box().value)} ctx
+                </span>
+              )}
+            </Show>
+          </div>
         )}
       </Show>
-      <Show when={lookable()}>
-        <span
-          data-testid={`${props.kind}-live`}
-          data-phase={props.held ? "held" : props.phase}
-          class="shrink-0 font-mono text-[0.6rem] text-fg-3"
-        >
-          {props.held
-            ? "new output below"
-            : props.phase === "live"
-              ? "live"
-              : props.phase === "reading"
-                ? "reading the screen…"
-                : "reconnecting…"}
-        </span>
-      </Show>
-    </div>
+    </>
   );
 };

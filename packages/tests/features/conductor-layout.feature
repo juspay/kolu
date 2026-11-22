@@ -47,6 +47,29 @@ Feature: The Conductor reads as a conversation
     Then the member terminal's look should show "kolu-watch-42"
     And there should be no page errors
 
+  Scenario: The sidebar's entries stay where they are between all the works and one
+    # Its top row is one box in both views: the way back with a work open, the
+    # words "All work" on home. Nothing under it moves, in the wide form or in
+    # the strip of initials.
+    Given a repo for the work
+    When I ask the conductor to open the work "first in progress"
+    And I answer the work's question with "hand-over" in the chat
+    And I ask the conductor to open the work "second in progress"
+    And I answer the work's question with "hand-over" in the chat
+    And I ask the conductor to open the work "waits on me"
+    And I note where the sidebar's 3 works stand
+    And I open the work card
+    Then the sidebar's works should stand where I noted
+    When I go back to all the works
+    Then the sidebar's works should stand where I noted
+    When I resize the viewport to 1100x768
+    And I note where the sidebar's 3 works stand
+    And I open the work card
+    Then the sidebar's works should stand where I noted
+    When I go back to all the works
+    Then the sidebar's works should stand where I noted
+    And there should be no page errors
+
   Scenario: With nothing in progress the column says so, and no readout says zero
     # `watching 0` and `0 pieces of work` were readouts of nothing. The count
     # is absent, the control that would have opened an empty column is absent,
@@ -141,4 +164,16 @@ Feature: The Conductor reads as a conversation
     When I press Escape
     Then the command palette should not be visible
     And the conductor pane should be visible
+    And there should be no page errors
+
+  Scenario: A work's row keeps its title readable beside the sidebar, at its default and at its widest
+    # The works give the sidebar its width, so a row is laid out for what is
+    # left beside it, not for the window.
+    Given a repo for the work
+    When I resize the viewport to 1280x800
+    And I ask the conductor to open the work "a title long enough to need its room beside the sidebar"
+    And I ask the conductor to open the work "and a second one beside it"
+    Then every work's row should fit its column, with room for its title
+    When the works sidebar is at its widest
+    Then every work's row should fit its column, with room for its title
     And there should be no page errors

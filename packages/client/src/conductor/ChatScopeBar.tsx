@@ -15,7 +15,7 @@ import type { ConductorRow } from "kolu-common/conductor";
 import { type Component, createMemo, Show } from "solid-js";
 import { chatScope, showAllChat } from "./chatScope";
 import type { Turn } from "./turnWorks";
-import WorkChipFace from "./WorkChipFace";
+import WorkChip from "./WorkChip";
 
 const ChatScopeBar: Component<{
   rows: readonly ConductorRow[];
@@ -44,10 +44,10 @@ const ChatScopeBar: Component<{
           class="flex min-w-0 items-center gap-2 border-b border-edge px-5 py-2 text-[0.72rem] text-fg-2"
         >
           <span class="shrink-0">Only</span>
-          {/* THE WORK'S OWN FACE, not its title in a different font: the
+          {/* THE WORK'S OWN CHIP, not its title in a different font: the
               chip in the bar, the chips on the turns below it and the chip
-              in the box are one drawing of one thing. */}
-          <WorkChipFace work={only().record} />
+              in the box are one drawing of one thing, with its hover card. */}
+          <WorkChip id={only().id} work={only().record} />
           <span class="min-w-0 truncate text-fg-3 tabular-nums">
             · {only().shown} of {only().total}{" "}
             {only().total === 1 ? "turn" : "turns"}

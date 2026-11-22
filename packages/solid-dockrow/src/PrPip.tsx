@@ -58,6 +58,23 @@ export const ChecksIndicator: Component<{ status: CheckStatus }> = (props) => (
   />
 );
 
+/** A PR'S TWO MARKS — its state icon and its checks dot — with nothing round
+ *  them: no link, no tooltip, no box. The one drawing of the pair, for the
+ *  pip below and for any place that holds the marks in a box of its own: a
+ *  place that is itself pressed (a link cannot sit inside a button), or one
+ *  that sets its own link and tooltip beside them. `iconClass` sizes the icon
+ *  (the pip's `w-3 h-3` by default). */
+export const PrMarks: Component<{ pr: PrInfo; iconClass?: string }> = (
+  props,
+) => (
+  <>
+    <PrStateIcon state={props.pr.state} class={props.iconClass ?? "w-3 h-3"} />
+    <Show when={props.pr.checks}>
+      {(checks) => <ChecksIndicator status={checks()} />}
+    </Show>
+  </>
+);
+
 /** Inline PR pip — a real link so modified click and the context menu retain
  *  browser semantics. The caller owns its position in the row.
  *
@@ -77,10 +94,7 @@ export const PrPip: Component<{ pr: PrInfo | null }> = (props) => (
         title={prTooltip(p())}
         onClick={(event) => event.stopPropagation()}
       >
-        <PrStateIcon state={p().state} class="w-3 h-3" />
-        <Show when={p().checks}>
-          {(checks) => <ChecksIndicator status={checks()} />}
-        </Show>
+        <PrMarks pr={p()} />
       </a>
     )}
   </Show>

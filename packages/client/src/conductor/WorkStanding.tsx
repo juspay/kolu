@@ -13,6 +13,28 @@ import { elapsedSince } from "../time/duration";
 import PrText from "./PrText";
 import { type StandingLine, WAITER_INK } from "./workReadings";
 
+/** HOW LONG A WORK HAS STOOD WHERE IT IS, in its standing line's own words:
+ *  `asked 37m ago` for a question, `green for 12m` for a merge, `… ago` once
+ *  the work has ended ("just now" inside the first second, where the elapsed
+ *  readout has no figure to give), and the plain duration otherwise. The one
+ *  reading of it: the card's line, the chip's hover card and the sidebar all
+ *  say it this way. */
+export function standingClock(line: StandingLine, now: number): string {
+  const elapsed = elapsedSince(line.since, now);
+  switch (line.clock) {
+    case "asked":
+      return elapsed === DASH ? "asked just now" : `asked ${elapsed} ago`;
+    case "green":
+      return `green for ${elapsed}`;
+    case "ended":
+      return elapsed === DASH ? "just now" : `${elapsed} ago`;
+    case "for":
+      return elapsed;
+    default:
+      return line.clock satisfies never;
+  }
+}
+
 const WorkStanding: Component<{
   work: Work;
   line: StandingLine;
@@ -22,25 +44,7 @@ const WorkStanding: Component<{
    *  hover card — so the two are never one test id on one screen. */
   testId: "work-standing" | "work-chip-standing";
 }> = (props) => {
-  /** How long the current wait has run, in the line's own words: `asked 37m
-   *  ago` for a question, `green for 12m` for a merge, `… ago` once the work
-   *  has ended ("just now" inside the first second, where the elapsed readout
-   *  has no figure to give), and the plain duration otherwise. */
-  const clock = (): string => {
-    const elapsed = elapsedSince(props.line.since, props.now);
-    switch (props.line.clock) {
-      case "asked":
-        return elapsed === DASH ? "asked just now" : `asked ${elapsed} ago`;
-      case "green":
-        return `green for ${elapsed}`;
-      case "ended":
-        return elapsed === DASH ? "just now" : `${elapsed} ago`;
-      case "for":
-        return elapsed;
-      default:
-        return props.line.clock satisfies never;
-    }
-  };
+  const clock = () => standingClock(props.line, props.now);
   /** The lead's ink: the waiter's own colour, and the quiet one for a work
    *  that is over — "done" is not a waiter, so it has no colour there. */
   const ink = (): string => {

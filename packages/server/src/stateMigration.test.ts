@@ -68,6 +68,7 @@ import {
   workArmsNotNulls_1_55_0,
   workAskStanding_1_55_0,
   worksFromWatched_1_50_0,
+  workKeepsItsWorktree_1_64_0,
 } from "./stateLadder.ts";
 import {
   CONF_DEFAULTS,
@@ -2860,7 +2861,15 @@ describe("the 1.61.0 rung — a pull request says whether it opened as a draft",
         },
       ]),
     );
-    expect(state.works).toEqual(expected);
+    // The head's later rungs add to a work (1.64.0: its worktree); this rung
+    // is held to what IT moves.
+    expect(
+      Object.fromEntries(
+        Object.entries(
+          state.works as Record<string, Record<string, unknown>>,
+        ).map(([id, { worktree: _later, ...rest }]) => [id, rest]),
+      ),
+    ).toEqual(expected);
     expect(
       Object.values(works).flatMap((one) =>
         one.events.filter((event) => event.kind === "draft-state"),
@@ -3107,5 +3116,106 @@ describe("the 1.63.0 rung — the Conductor's memory", () => {
     writeFileSync(path, "{ this is not json", "utf8");
     memoryProposalRows_1_63_0(torn);
     expect(readFileSync(path, "utf8")).toBe("{ this is not json");
+  });
+});
+
+describe("the 1.64.0 rung — a work keeps its worktree", () => {
+  const AT = "2026-12-03T09:00:00.000Z";
+  const OPEN = "branch:local/%2Fsrv%2Frepo/open";
+  const BARE = "branch:local/%2Fsrv%2Frepo/bare";
+  const DONE = "branch:local/%2Fsrv%2Frepo/done";
+  const work = (branch: string, state: unknown) => ({
+    key: { kind: "branch", host: "local", repo: "/srv/repo", branch },
+    title: branch,
+    startedAt: AT,
+    decisions: [],
+    events: [],
+    state,
+  });
+  const member = (id: string, worktree: unknown) => ({
+    work: id,
+    role: "implementor",
+    joinedAt: AT,
+    worktree,
+    watch: {},
+  });
+  const ENDED = {
+    kind: "ended",
+    at: AT,
+    outcome: { kind: "stopped", by: "you" },
+    kept: [],
+  };
+
+  it("gives an open work its first read member's worktree, host from that member's ref", () => {
+    const conf = makeStore({
+      works: {
+        [OPEN]: work("open", { kind: "open" }),
+        [BARE]: work("bare", { kind: "open" }),
+        [DONE]: work("done", ENDED),
+      },
+      members: {
+        // Unread first: the FIRST READ one wins, in the record's own order.
+        "local/t-planner": member(OPEN, { kind: "unread" }),
+        "remote:box-1/t-implementor": member(OPEN, {
+          kind: "read",
+          path: "/srv/worktrees/open",
+        }),
+        "local/t-reviewer": member(OPEN, {
+          kind: "read",
+          path: "/srv/worktrees/elsewhere",
+        }),
+        "local/t-bare": member(BARE, { kind: "unread" }),
+      },
+    });
+    workKeepsItsWorktree_1_64_0(conf as never);
+    const works = conf.get("works") as Record<string, { worktree: unknown }>;
+    expect(works[OPEN]?.worktree).toEqual({
+      kind: "read",
+      host: "remote:box-1",
+      path: "/srv/worktrees/open",
+    });
+    // Open, with no member whose worktree was read.
+    expect(works[BARE]?.worktree).toEqual({ kind: "unread" });
+    // Ended: its members went with the ending.
+    expect(works[DONE]?.worktree).toEqual({ kind: "unread" });
+  });
+
+  it("leaves a work that already has one as it is, and is safe to run twice", () => {
+    const kept = {
+      ...work("open", { kind: "open" }),
+      worktree: { kind: "read", host: "local", path: "/srv/worktrees/kept" },
+    };
+    const conf = makeStore({
+      works: { [OPEN]: kept, [BARE]: work("bare", { kind: "open" }) },
+      members: {},
+    });
+    workKeepsItsWorktree_1_64_0(conf as never);
+    const once = JSON.stringify(conf.get("works"));
+    workKeepsItsWorktree_1_64_0(conf as never);
+    expect(JSON.stringify(conf.get("works"))).toBe(once);
+    expect((conf.get("works") as Record<string, unknown>)[OPEN]).toEqual(kept);
+  });
+
+  it("brings the human's 1.52.0 store, as a backup snapshot, to head with every work's worktree", () => {
+    const stored = JSON.parse(
+      readFileSync(
+        new URL("./fixtures/deployed-1.52.0-three-works.json", import.meta.url),
+        "utf8",
+      ),
+    ) as Record<string, unknown>;
+    const decoded = decodeStateBackup(
+      {
+        preferences: DEFAULT_PREFERENCES,
+        hosts: [],
+        viewerMode: "dark",
+        ...stored,
+        __internal__: { migrations: { version: "1.52.0" } },
+      },
+      "a 1.52.0 snapshot",
+    );
+    const works = Object.values(decoded.works);
+    expect(works.length).toBeGreaterThan(0);
+    for (const one of works)
+      expect(["read", "unread"]).toContain(one.worktree.kind);
   });
 });

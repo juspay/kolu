@@ -24,6 +24,7 @@ import {
   onCleanup,
 } from "solid-js";
 import { FONT_FAMILY, getThemeByName } from "terminal-themes";
+import { holdConductorScreen } from "../../attention/conductorScreens";
 import { fleetTerminalStanding } from "../../palette/fleetTerminals";
 import { runAction, runOwnedAction } from "../../runAction";
 import { consumeReattachingStream } from "../../terminal/reattachingStream";
@@ -59,6 +60,13 @@ const PeekTerminal: Component<{
   const ref = fleetTerminalRef(props.host, props.id);
   const entry = padiMap.useEntry(() => hostKey);
   const shown = useShown();
+  // A SCREEN OF THIS TERMINAL IS SHOWING IN THE CONDUCTOR, said here once for
+  // Look and for a live pane alike, for as long as this part is mounted in a
+  // view that is shown: what the attention engine reads to know the terminal
+  // is in front of the person (`attention/conductorScreens.ts`).
+  createEffect(() => {
+    if (shown()) onCleanup(holdConductorScreen(ref));
+  });
   const [tabVisible, setTabVisible] = createSignal(
     document.visibilityState === "visible",
   );

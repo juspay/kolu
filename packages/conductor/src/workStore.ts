@@ -52,6 +52,7 @@ import {
   openWork,
   reopenWork,
   type RequestWords,
+  settleWorktree,
   takeOver as takeOverRecord,
   type Work,
   type WorkId,
@@ -143,6 +144,10 @@ export interface WorkStore {
   }) => Opened;
   /** Write a work back. */
   readonly save: (id: WorkId, work: Work) => void;
+  /** A MEMBER'S WORKTREE WAS FIRST READ: the work takes the rule's answer
+   *  (`settleWorktree`). Answers whether the work moved, for the caller's
+   *  publish. */
+  readonly worktreeRead: (id: WorkId) => boolean;
   /** STOP a work — the one ending nobody observed. */
   readonly stop: (id: WorkId, by: "you" | "conductor") => Work;
   /** ... and bring one back. */
@@ -322,19 +327,40 @@ export const workStore = (deps: WorkStoreDeps): WorkStore => {
       });
   };
 
-  /** WHERE A WORK'S FILES ARE — the first member whose record named a
-   *  worktree, host and all. None while no member has had one read off its
-   *  terminal. Read before the members are dropped. */
-  const worktreeOf = (
+  /** THE RULE: where the work's members say it works — the first member, in
+   *  the members record's own order, whose record named a worktree, host and
+   *  all. None while no member has had one read off its terminal. Its answer
+   *  is made to stick on the work by {@link settle}; nothing else reads it. */
+  const membersWorktree = (
     id: WorkId,
-  ): Option.Option<{ host: string; worktree: string }> => {
+  ): Option.Option<{ host: string; path: string }> => {
     for (const [ref, member] of deps.members.ofWork(id)) {
       const host = splitFleetTerminalRef(ref)?.host;
       if (member.worktree.kind === "read" && host !== undefined)
-        return Option.some({ host, worktree: member.worktree.path });
+        return Option.some({ host, path: member.worktree.path });
     }
     return Option.none();
   };
+
+  /** The work takes the rule's answer when it has one that differs. Answers
+   *  whether it moved. */
+  const settle = (id: WorkId): boolean => {
+    const work = works.get(id);
+    if (work === undefined || work.state.kind !== "open") return false;
+    const settled = settleWorktree(work, membersWorktree(id));
+    if (settled === work) return false;
+    works.set(id, settled);
+    return true;
+  };
+
+  /** WHERE A WORK'S FILES ARE — the worktree the work itself holds, which
+   *  outlives its terminals. */
+  const worktreeOf = (
+    work: Work,
+  ): Option.Option<{ host: string; worktree: string }> =>
+    work.worktree.kind === "read"
+      ? Option.some({ host: work.worktree.host, worktree: work.worktree.path })
+      : Option.none();
 
   /** THE WORK IS OVER — keep its files, then cap the history. */
   const closeOut = async (
@@ -392,7 +418,7 @@ export const workStore = (deps: WorkStoreDeps): WorkStore => {
     works.set(id, work);
     if (before === undefined || before.state.kind !== "open") return;
     if (work.state.kind !== "ended") return;
-    const at = worktreeOf(id);
+    const at = worktreeOf(work);
     const dropped = deps.members.dropWork(id);
     // THE QUESTIONS GO WITH IT — the one edge where a question stops being
     // answerable, because the work it is about is over. Recorded HERE rather
@@ -498,6 +524,9 @@ export const workStore = (deps: WorkStoreDeps): WorkStore => {
       return;
     }
     save(found.id, leaveWork(found.work, { terminal: ref, why, at: nowIso() }));
+    // The member that told the work where it works may be the one that left:
+    // the rule is asked again, and with no answer the work keeps its own.
+    settle(found.id);
     changed();
     emptied(found.id);
   };
@@ -509,6 +538,7 @@ export const workStore = (deps: WorkStoreDeps): WorkStore => {
     openAt,
     leave,
     save,
+    worktreeRead: settle,
     changed,
     publishWorks,
     publishReadings,
@@ -657,6 +687,7 @@ export const workStore = (deps: WorkStoreDeps): WorkStore => {
           how,
         ),
       );
+      settle(id);
       changed();
       deps.records.schedule("members");
       deps.worksMoved();

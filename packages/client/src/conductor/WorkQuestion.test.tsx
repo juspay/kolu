@@ -193,6 +193,7 @@ const workOf = (branch: string, decisions: readonly Decision[]): Work => ({
   decisions,
   events: [],
   state: { kind: "open" },
+  worktree: { kind: "unread" },
 });
 
 /** The work this person answered LAST TIME, in the saved works: a mode, a

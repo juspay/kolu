@@ -102,8 +102,9 @@ body {
    *     chat grows with the window, and never takes room the works need:
    *     at 1024 the works keep two thirds, at 2000 three quarters.
    *
-   * --breakpoint-conductor-md is also where a work's row stands its
-   * terminals beside its title rather than under it.
+   * A work's row stands its terminals beside its title by its OWN width
+   * (a container query in `WorkCard.tsx`), not by this breakpoint: the
+   * works share the window with the chat and a sidebar a person sizes.
    *
    * ── THE HELP'S TYPE ───────────────────────────────────────────────
    *   --text-conductor-help …… 0.75rem (12px): the help sheet's body, so a

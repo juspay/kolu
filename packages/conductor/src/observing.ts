@@ -472,6 +472,10 @@ export const observing = (deps: {
           deps.store.save(found.id, work);
           moved = true;
         }
+        // ITS WORKTREE, FIRST READ: the work takes the rule's answer, so it
+        // keeps where it works after its terminals have gone.
+        if (Option.isSome(learnt) && deps.store.worktreeRead(found.id))
+          moved = true;
         // A TERMINAL THAT WENT AWAY LEAVES — and the work does not end for
         // it. `leave` writes the departure, drops the member row and wakes
         // the Conductor ONCE if that was the last one.

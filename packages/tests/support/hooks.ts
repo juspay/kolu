@@ -1585,6 +1585,14 @@ Before(
     }
     this.errors = [];
     this.page.on("pageerror", (err) => this.errors.push(err.message));
+    // A WINDOW THE PAGE OPENS (the reader popped out) is a document of its
+    // own, and what it throws is this scenario's too — named by where it was
+    // thrown, so it reads apart from the main page's.
+    this.context.on("page", (opened) => {
+      opened.on("pageerror", (err) =>
+        this.errors.push(`${opened.url()}: ${err.message}`),
+      );
+    });
 
     // KOLU_X11CAP: start grabbing the Xvfb framebuffer now. x11grab runs off its
     // own 30 fps clock independent of Chrome's paint speed, so the recording is
@@ -1622,6 +1630,20 @@ After({ timeout: 600_000 }, async function (this: KoluWorld, scenario) {
   // never ran — `rm` of the dir alone leaves `cat` blocked on the unlinked
   // inode (juspay/kolu#2178).
   await retireWorldScrollFifo(this);
+  // A FAILED SCENARIO SAYS WHAT THE PAGES THREW — the main page's and any
+  // window it opened — so a throw that left the page half-drawn names itself
+  // in the failure rather than only in a later "no page errors" step that a
+  // failure never reaches.
+  if (
+    scenario.result?.status === Status.FAILED &&
+    // Set with the page; a scenario that failed before it has none.
+    this.errors !== undefined &&
+    this.errors.length > 0
+  ) {
+    console.error(
+      `[worker:${workerId}] page errors in "${scenario.pickle.name}":\n  ${this.errors.join("\n  ")}`,
+    );
+  }
   // Screenshot on failure
   if (scenario.result?.status === Status.FAILED && this.page) {
     const dir = path.resolve(

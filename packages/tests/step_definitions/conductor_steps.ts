@@ -2529,7 +2529,10 @@ Then(
     await pollFor({
       observe: () =>
         this.page.evaluate(() => {
-          const side = document.querySelector('[data-testid="conductor-side"]');
+          // The works' own scrolling box, beside the sidebar.
+          const side = document.querySelector(
+            '[data-testid="conductor-side"] [data-works-scroll]',
+          );
           if (side === null) return null;
           return side.scrollHeight - side.clientHeight;
         }),
@@ -3077,7 +3080,7 @@ After(() => {
   statedPr = null;
 });
 
-function workRepo(world: KoluWorld): string {
+export function workRepo(world: KoluWorld): string {
   const dir = world.workRepoDir;
   assert.ok(dir, "this scenario never made a repo for its work");
   return dir;
@@ -4227,15 +4230,6 @@ async function groupOf(world: KoluWorld, id: string): Promise<string> {
   return "none";
 }
 
-/** Is a work picked — the board folded to a rail? */
-async function railShown(world: KoluWorld): Promise<boolean> {
-  return (
-    (await world.page
-      .locator(`${WORK_COLUMN} [data-testid="works-rail"]`)
-      .count()) > 0
-  );
-}
-
 /** WHO THE WORK WAITS ON, as the card says it — its edge and its group —
  *  read off this scenario's card alone, never the column-wide count. */
 async function waitsOnYouNow(
@@ -4274,12 +4268,15 @@ Then("the work should not be waiting on you", async function (this: KoluWorld) {
 /** FINISHED work is below the line, collapsed: the card is reached by opening
  *  that section, and it carries the outcome kolu read off the PR. */
 async function openFinished(world: KoluWorld): Promise<void> {
+  // On the board, or on the sidebar while a work is picked: the two fold on
+  // one switch, so either toggle opens both.
   await showWorkColumn(world);
-  const section = world.page.locator(
-    `${WORK_COLUMN} [data-testid="work-finished"]`,
-  );
-  await section.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
-  const toggle = section.locator('[data-testid="work-finished-toggle"]');
+  const toggle = world.page
+    .locator(
+      `${WORK_COLUMN} [data-testid="work-finished-toggle"], ${WORK_COLUMN} [data-testid="works-rail-finished-toggle"]`,
+    )
+    .first();
+  await toggle.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
   if ((await toggle.getAttribute("aria-expanded")) !== "true") {
     await toggle.click();
   }
@@ -4290,9 +4287,7 @@ Then(
   async function (this: KoluWorld, outcome: string) {
     const id = this.workId;
     assert.ok(id, "this scenario never opened a work");
-    // The Finished group is opened on the board; while a work is picked the
-    // rail lists it already.
-    if (!(await railShown(this))) await openFinished(this);
+    await openFinished(this);
     await waitForValue(
       "the finished work's outcome",
       async () => {
@@ -4718,13 +4713,12 @@ Then(
   },
 );
 
-/** THE OTHER WORKS FOLD TO A RAIL: the named work is a line of it, drawn on
- *  one line. */
+/** THE SIDEBAR LISTS THE WORK: its entry's title is drawn on one line. */
 Then(
   "the works rail should list {string} in one line",
   async function (this: KoluWorld, title: string) {
     const line = this.page
-      .locator(`${WORK_COLUMN} [data-testid="works-rail-line"]`)
+      .locator(`${WORK_COLUMN} [data-testid="works-rail-title"]`)
       .filter({ hasText: title })
       .first();
     await line.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
@@ -4741,7 +4735,7 @@ Then(
     });
     assert.ok(
       lines < 1.5,
-      `the rail's line for ${JSON.stringify(title)} is ${lines.toFixed(1)} lines tall`,
+      `the sidebar's title for ${JSON.stringify(title)} is ${lines.toFixed(1)} lines tall`,
     );
   },
 );
@@ -4750,10 +4744,74 @@ When("I go back to all the works", async function (this: KoluWorld) {
   await this.page.locator(`${WORK_COLUMN} [data-testid="works-all"]`).click();
 });
 
-/** NOTHING PICKED: no work is open, there is no rail, and the board is back. */
+/** WHERE THE SIDEBAR'S ENTRIES STAND: the top edge of every group (its
+ *  heading is its first line) and of every work's entry, by what it is. */
+async function railTops(world: KoluWorld): Promise<Map<string, number>> {
+  const tops = await world.page
+    .locator(`${WORK_COLUMN} [data-testid="works-rail"]`)
+    .evaluate((rail) => {
+      const out: Array<[string, number]> = [];
+      for (const el of rail.querySelectorAll(
+        '[data-testid="works-rail-group"]',
+      ))
+        out.push([
+          `group ${el.getAttribute("data-group")}`,
+          el.getBoundingClientRect().top,
+        ]);
+      for (const el of rail.querySelectorAll('[data-testid="works-rail-line"]'))
+        out.push([
+          `work ${el.getAttribute("data-rail-work")}`,
+          el.getBoundingClientRect().top,
+        ]);
+      return out;
+    });
+  return new Map(tops);
+}
+
+/** The edges noted, per scenario. */
+const notedRailTops = new WeakMap<KoluWorld, Map<string, number>>();
+
+When(
+  "I note where the sidebar's {int} works stand",
+  async function (this: KoluWorld, count: number) {
+    await waitForCount(
+      this,
+      `${WORK_COLUMN} [data-testid="works-rail-line"]`,
+      count,
+    );
+    notedRailTops.set(this, await railTops(this));
+  },
+);
+
+/** NOTHING MOVED: every group and every entry is where it was noted, to
+ *  within half a pixel — the sidebar's top row is one box in both views. */
+Then(
+  "the sidebar's works should stand where I noted",
+  async function (this: KoluWorld) {
+    const noted = notedRailTops.get(this);
+    assert.ok(noted, "nothing was noted about the sidebar");
+    const moved = (now: Map<string, number>): string[] =>
+      [...noted].flatMap(([what, was]) => {
+        const is = now.get(what);
+        return is !== undefined && Math.abs(is - was) <= 0.5
+          ? []
+          : [`${what}: was ${was}, is ${is ?? "gone"}`];
+      });
+    await pollFor({
+      observe: async () => moved(await railTops(this)),
+      isDone: (off) => off.length === 0,
+      onTimeout: (off) =>
+        new Error(`the sidebar moved: ${(off ?? []).join("; ")}`),
+      timeoutMs: 5_000,
+    });
+  },
+);
+
+/** NOTHING PICKED: no work is open, there is no way back to all of them, and
+ *  the board is back. The sidebar stays. */
 Then("no work should be picked", async function (this: KoluWorld) {
   await waitForCount(this, `${WORK_COLUMN} ${WORK_CARD}[data-open]`, 0);
-  await waitForCount(this, `${WORK_COLUMN} [data-testid="works-rail"]`, 0);
+  await waitForCount(this, `${WORK_COLUMN} [data-testid="works-all"]`, 0);
   await this.page
     .locator(`${WORK_COLUMN} [data-testid="works-board"]`)
     .waitFor({ state: "visible", timeout: POLL_TIMEOUT });

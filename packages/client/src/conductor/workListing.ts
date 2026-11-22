@@ -53,6 +53,16 @@ const [pickedStage, setPickedStage] = createSignal<StageName | undefined>();
  *  picked work can be drawn again (the works are re-read, the list is drawn
  *  anew) without the person's choice going back to the default. */
 const [viewChoice, setViewChoice] = createSignal<PickedView | undefined>();
+/** THE ROWS THE PICKED WORK'S DETAILS HOLD OPEN, by terminal (a fleet ref) —
+ *  the one fact a row reads for "am I open", whether a press on the row or
+ *  **Inspect** on a live pane opened it. The pick's, as the view is: another
+ *  pick, or none, forgets it, and Details being drawn again keeps it. */
+const [unfolded, setUnfolded] = createSignal<ReadonlySet<string>>(
+  new Set<string>(),
+);
+/** The open row **Inspect** asked for, which wears a highlight while it stays
+ *  open — or none. Folding it ends the inspection. */
+const [inspected, setInspected] = createSignal<string | null>(null);
 const [finishedOpen, setFinishedOpen] = createSignal(false);
 /** A work asked to come into view — keyed by a counter so asking twice for
  *  the same work scrolls twice, and with the question to bring into view
@@ -82,6 +92,35 @@ export function chooseView(view: PickedView): void {
   setViewChoice(view);
 }
 
+/** Is this terminal's row open in the picked work's Details? */
+export const isMemberUnfolded = (ref: string): boolean => unfolded().has(ref);
+
+/** Is this the open row Inspect asked for? */
+export const isMemberInspected = (ref: string): boolean =>
+  inspected() === ref && unfolded().has(ref);
+
+/** A PRESS ON A ROW: open it, or fold it. Folding the inspected row ends the
+ *  inspection with it. */
+export function toggleMember(ref: string): void {
+  batch(() => {
+    const next = new Set(unfolded());
+    if (next.delete(ref)) {
+      if (inspected() === ref) setInspected(null);
+    } else next.add(ref);
+    setUnfolded(next);
+  });
+}
+
+/** INSPECT ONE TERMINAL of the picked work: its Details in front, with that
+ *  terminal's row open and marked as the one asked for. */
+export function inspectMember(ref: string): void {
+  batch(() => {
+    setUnfolded(new Set([...unfolded(), ref]));
+    setInspected(ref);
+    setViewChoice("details");
+  });
+}
+
 /** PICK A WORK: the screen is about it, and so is the chat — on the stage
  *  `stage` names, when a press on its strip picked it, which was a press to
  *  read that stage: its Details are in front. */
@@ -90,6 +129,8 @@ export function pickWork(id: WorkId, stage?: StageName): void {
     setPicked(id);
     setPickedStage(stage);
     setViewChoice(stage === undefined ? undefined : "details");
+    setUnfolded(new Set<string>());
+    setInspected(null);
     pointChatAt(id);
   });
 }
@@ -99,6 +140,8 @@ export function unpickWork(): void {
   batch(() => {
     setPicked(null);
     setViewChoice(undefined);
+    setUnfolded(new Set<string>());
+    setInspected(null);
     showAllChat();
   });
 }

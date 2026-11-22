@@ -176,7 +176,7 @@ const StageStrip: Component<{
           data-testid={props.testId}
           data-size={props.size}
           data-run={props.stages.kind}
-          class={`min-w-0 ${full() ? "mt-2" : "mt-1.5"}`}
+          class={`@container/strip min-w-0 ${full() ? "mt-2" : "mt-1.5"}`}
         >
           <ol
             aria-label="Stages"
@@ -208,11 +208,13 @@ const StageStrip: Component<{
                         small mono. It is the one thing the colors cannot say:
                         two bars of the same ink are two stages that had the
                         same person's time, and this is how the eye tells them
-                        apart. On a narrow row there is not room for six names
-                        beside six times — the name of the stage in hand is
-                        the one the eye needs — so the others step aside below
-                        `conductor-md` and the times stay. `truncate` is the
-                        last resort; the full name is in the segment's title. */}
+                        apart. On a narrow strip there is not room for six
+                        names beside six times — the name of the stage in
+                        hand is the one the eye needs — so the others step
+                        aside until the strip itself is 16rem wide (a
+                        container query: the strip's own width, wherever it is
+                        drawn) and the times stay. `truncate` is the last
+                        resort; the full name is in the segment's title. */}
                     <span
                       data-testid="stage-label"
                       data-stage={stage().name}
@@ -222,7 +224,7 @@ const StageStrip: Component<{
                       class={`w-full truncate whitespace-nowrap pt-0.5 text-center font-mono leading-tight ${
                         emphasis() === stage().name
                           ? "block"
-                          : "hidden conductor-md:block"
+                          : "hidden @min-[16rem]/strip:block"
                       } ${full() ? "text-[0.55rem]" : "text-[0.5rem]"} ${
                         emphasis() === stage().name
                           ? "font-semibold text-fg"

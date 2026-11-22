@@ -37,7 +37,6 @@
 
 import { dualPhrase } from "@kolu/terminal-vocab/duration";
 import { DASH } from "kolu-common/surface";
-import { Option } from "effect";
 import {
   lifetime,
   openAsks,
@@ -56,15 +55,12 @@ import {
   onMount,
   Show,
 } from "solid-js";
-import { fleetTerminalStanding } from "../palette/fleetTerminals";
 import { elapsedSince } from "../time/duration";
-import PrText from "./PrText";
+import WorkSubtitle from "./WorkSubtitle";
 import { useShown, useShownClock } from "../ui/shown";
 import Tip from "../ui/Tip";
 import WorkCardActions from "./WorkCardActions";
 import WorkQuestion from "./WorkQuestion";
-import { splitMemberRef } from "./memberRef";
-import { useWorkMembers } from "./useWorks";
 import StageStrip from "./StageStrip";
 import WorkDetails from "./WorkDetails";
 import WorkLive from "./WorkLive";
@@ -81,20 +77,17 @@ import {
   togglePick,
   wantedCard,
 } from "./workListing";
-import { checksTally, livePrOf } from "./prReadings";
+import { createWorkFacts } from "./workFacts";
 import { timelineShown } from "./timelineView";
 import WorkStanding from "./WorkStanding";
 import {
-  membersIn,
   outcomeWords,
   repoName,
   stagesOf,
-  standingLine,
   timeSpentOnYou,
-  workHost,
-  workSubtitle,
 } from "./workReadings";
-import WorkTerminals, { type MemberLine } from "./WorkTerminals";
+import WorkTerminals from "./WorkTerminals";
+import WorkWorktree from "./WorkWorktree";
 
 /** ONE OPEN QUESTION'S PLACE ON THE CARD — what a route onto that question
  *  scrolls to. Whether the question is in view is the question's own to say
@@ -140,7 +133,12 @@ const WorkCard: Component<{
   // The column's clock, stopped while nobody is looking at the pane: every
   // duration on this card ticks from it, and a hidden pane ticks for nobody.
   const now = useShownClock();
-  const allMembers = useWorkMembers();
+  /** Its members, its live PR and checks, and where it stands — the one
+   *  reading the work's line in the sidebar and its chip read too. */
+  const { members, livePr, checks, at } = createWorkFacts(
+    () => props.id,
+    () => props.work,
+  );
 
   const isOpen = () => isPicked(props.id);
 
@@ -180,37 +178,15 @@ const WorkCard: Component<{
     });
   });
 
-  /** WHAT IS RUNNING AND WHAT IS BEING ASKED, or `undefined` for a work that
-   *  is over. EVERY open ask: a Conductor that asks about a failing check
-   *  while a plan approval is still open has put two things to the human, and
-   *  a face that draws one of them makes the second answerable nowhere. */
+  /** WHAT IS BEING ASKED, or `undefined` for a work that is over. EVERY open
+   *  ask: a Conductor that asks about a failing check while a plan approval
+   *  is still open has put two things to the human, and a face that draws
+   *  one of them makes the second answerable nowhere. */
   const live = createMemo(() =>
     props.work.state.kind === "open"
-      ? {
-          members: membersIn(allMembers(), props.id),
-          asks: openAsks(props.work),
-        }
+      ? { asks: openAsks(props.work) }
       : undefined,
   );
-
-  /** The members, in the order a waterfall runs them, each with its live
-   *  standing read ONCE. Three readers want that standing — the agent's name,
-   *  the clock, whether there is anywhere to go — and reading it per reader is
-   *  how one terminal came to be looked up three times a frame. */
-  const members = createMemo(
-    (): ReadonlyArray<MemberLine> =>
-      (live()?.members ?? []).map((row) => {
-        const split = splitMemberRef(row.terminal);
-        const standing =
-          split === null
-            ? undefined
-            : fleetTerminalStanding(split.host, split.id);
-        return { ...row, split, standing };
-      }),
-  );
-
-  const livePr = createMemo(() => livePrOf(members()));
-  const checks = createMemo(() => checksTally(Option.fromNullishOr(livePr())));
   /** All the time this work has waited on you, while it is still running. */
   const onYou = createMemo(() =>
     props.work.state.kind === "open"
@@ -224,8 +200,6 @@ const WorkCard: Component<{
   const source = createMemo(() =>
     workFileSource(props.id, props.work, members()),
   );
-
-  const at = createMemo(() => standingLine(props.work, checks()));
 
   /** THE STAGES, read once for the strip and the timeline it indexes. */
   const read = createMemo(() =>
@@ -330,13 +304,8 @@ const WorkCard: Component<{
     </Tip>
   );
   const subtitle = () => (
-    <p class="m-0 mt-0.5 flex min-w-0 gap-2 font-mono text-[0.62rem] text-fg-3">
-      <span data-testid="work-subtitle" class="min-w-0 flex-1 truncate">
-        <PrText
-          work={props.work}
-          text={workSubtitle(props.work, workHost(props.work)).join(" · ")}
-        />
-      </span>
+    <p class="m-0 mt-0.5 flex min-w-0 items-center gap-2 font-mono text-[0.62rem] text-fg-3">
+      <WorkSubtitle work={props.work} livePr={livePr()} />
       {/* HOW LONG IT HAS WAITED ON YOU, all told — from a whole second, so a
           setup answered in a blink does not read "you 0s". */}
       <Show when={onYou() >= 1000}>
@@ -348,6 +317,7 @@ const WorkCard: Component<{
   );
   const title = () => (
     <span
+      data-testid="work-card-title"
       class={`min-w-0 flex-1 truncate font-semibold text-fg ${
         props.shape === "picked" ? "text-base" : "text-[0.78rem]"
       }`}
@@ -462,12 +432,15 @@ const WorkCard: Component<{
             }
           >
             {/* THE ROW: what it is and where; the stage line and where it
-            stands; its terminals; its age — side by side on a wide window,
-            the terminals dropping under the title below 1280px. Its press
-            reaches every part but the controls inside it. */}
-            <div class="relative px-3 py-2.5">
+            stands; its terminals; its age — side by side on a wide row, the
+            terminals dropping under the title on a narrow one. The row's
+            OWN width decides (a container query), not the window's: the
+            works share the window with the chat and the sidebar, and the
+            sidebar's width is the person's. Its press reaches every part
+            but the controls inside it. */}
+            <div class="@container/row relative px-3 py-2.5">
               {head()}
-              <div class="pointer-events-none relative grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] items-start gap-x-5 gap-y-2 conductor-md:grid-cols-[minmax(0,1fr)_minmax(0,0.9fr)_minmax(0,1.7fr)_auto] [&_a]:pointer-events-auto [&_button]:pointer-events-auto">
+              <div class="pointer-events-none relative grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] items-start gap-x-5 gap-y-2 @min-[52rem]/row:grid-cols-[minmax(0,1fr)_minmax(0,0.9fr)_minmax(0,1.7fr)_auto] [&_a]:pointer-events-auto [&_button]:pointer-events-auto">
                 <div class="col-start-1 row-start-1 min-w-0">
                   <div class="flex min-w-0">{title()}</div>
                   {subtitle()}
@@ -476,10 +449,10 @@ const WorkCard: Component<{
                   {strip()}
                   {standing()}
                 </div>
-                <div class="col-span-full row-start-2 min-w-0 conductor-md:col-span-1 conductor-md:col-start-3 conductor-md:row-start-1">
+                <div class="col-span-full row-start-2 min-w-0 @min-[52rem]/row:col-span-1 @min-[52rem]/row:col-start-3 @min-[52rem]/row:row-start-1">
                   {terminals()}
                 </div>
-                <div class="col-start-3 row-start-1 conductor-md:col-start-4">
+                <div class="col-start-3 row-start-1 @min-[52rem]/row:col-start-4">
                   {age()}
                 </div>
               </div>
@@ -564,13 +537,21 @@ const WorkCard: Component<{
         <Show
           when={shownView() === "terminals"}
           fallback={
-            // THE DETAILS: its terminals, one row each, and the record behind
-            // the face, in rows of one line each so the whole of an ordinary
-            // work fits a laptop screen without scrolling.
+            // THE DETAILS: its terminals, one row each — each unfolding into
+            // what is about that terminal — then what is about its worktree,
+            // once, then the record behind the face.
             <div class="border-t border-edge px-2.5 py-2">
               <Show when={live() !== undefined}>
-                <div class="mb-2">{terminals()}</div>
+                <div class="mb-2">
+                  <WorkTerminals
+                    work={props.work}
+                    members={members()}
+                    now={now()}
+                    unfolds
+                  />
+                </div>
               </Show>
+              <WorkWorktree work={props.work} members={members()} />
               <WorkDetails
                 id={props.id}
                 work={props.work}

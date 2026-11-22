@@ -151,7 +151,7 @@ describe("an agent line", () => {
     const el = mount();
     expect(
       el.querySelector('[data-testid="conductor-look-status"]')?.textContent,
-    ).toBe("no agent · running vim");
+    ).toBe("no agent · vim");
 
     unmount();
     setStanding({

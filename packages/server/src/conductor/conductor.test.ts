@@ -2444,6 +2444,7 @@ const storedWork = (over: Partial<Work> = {}): Work => ({
   decisions: [],
   startedAt: T0,
   state: { kind: "open" },
+  worktree: { kind: "unread" },
   ...over,
 });
 
@@ -2544,8 +2545,6 @@ const HEAD = "4f21a9c0d3e5b7a9c1d3e5f7a9b1c3d5e7f9a1b3";
 /** The worktree a member's record names, as a reading carries it. */
 const inRepo: WatchGit = {
   worktree: "/srv/worktrees/fix-the-parser",
-  branch: "fix-the-parser",
-  repo: "/srv/repo",
 };
 
 /** A conversation that is WORKING, as the harness publishes one — the state
@@ -4483,6 +4482,41 @@ describe("the timeline a reading writes", () => {
       kind: "exited",
       by: "kolu",
       why: { kind: "reason", text: "ended without an agent" },
+    });
+  });
+
+  it("keeps where it works on the WORK: the first reading sticks, and outlives the terminal", async () => {
+    const r = rig();
+    await running(r);
+    expect(theWork(r).worktree).toEqual({ kind: "unread" });
+
+    r.host.observe([seeing(A, "working", { git: inRepo })]);
+    await drained();
+    expect(theWork(r).worktree).toEqual({
+      kind: "read",
+      host: "local",
+      path: inRepo.worktree,
+    });
+
+    // A later reading from elsewhere in the worktree moves nothing.
+    r.host.observe([
+      seeing(A, "stopped", { git: { worktree: `${inRepo.worktree}/sub` } }),
+    ]);
+    await drained();
+    expect(theWork(r).worktree).toEqual({
+      kind: "read",
+      host: "local",
+      path: inRepo.worktree,
+    });
+
+    // The terminal goes; the work still knows where it works.
+    r.host.observe([seeing(A, "gone")]);
+    await drained();
+    expect(r.host.memberRefs()).toEqual([]);
+    expect(theWork(r).worktree).toEqual({
+      kind: "read",
+      host: "local",
+      path: inRepo.worktree,
     });
   });
 

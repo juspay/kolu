@@ -260,10 +260,23 @@ export function membersIn(
   members: ReadonlyMap<string, WorkMember>,
   work: WorkId,
 ): ReadonlyArray<WorkMemberRow> {
-  const rows: WorkMemberRow[] = [];
-  for (const [terminal, member] of members)
-    if (member.work === work) rows.push({ terminal, member });
-  return rows.sort((a, b) => roleRank(a.member.role) - roleRank(b.member.role));
+  return membersByWork(members).get(work) ?? [];
+}
+
+/** EVERY WORK'S MEMBERS, in one pass over the map — each work's in the order
+ *  {@link membersIn} gives. For a reader that wants many works at once. */
+export function membersByWork(
+  members: ReadonlyMap<string, WorkMember>,
+): ReadonlyMap<string, ReadonlyArray<WorkMemberRow>> {
+  const by = new Map<string, WorkMemberRow[]>();
+  for (const [terminal, member] of members) {
+    const rows = by.get(member.work);
+    if (rows === undefined) by.set(member.work, [{ terminal, member }]);
+    else rows.push({ terminal, member });
+  }
+  for (const rows of by.values())
+    rows.sort((a, b) => roleRank(a.member.role) - roleRank(b.member.role));
+  return by;
 }
 
 /** THE TWO DRIVERS THAT ARE A LOCK. `nobody` — a watch, a mode nobody has
@@ -345,31 +358,54 @@ export function workHost(work: Work): Option.Option<string> {
   );
 }
 
-/** The line under a card's title: WHERE the work is — which is now its
- *  identity, `repo · branch` for a branch work and "watching" for a watch —
- *  the host as a person names it, the mode, and the PR once there is one
- *  (`draft PR #7` while it is an open draft). Each part is dropped when it is
- *  not known yet rather than drawn as a blank or a dash. */
+/** WHERE A WORK IS, as its key says it: a branch work's repository (named by
+ *  its last segment) and branch — the two words the card paints in the
+ *  Dock's identity colours — or a watch, which has neither. */
+export type WorkWhere =
+  | { readonly kind: "branch"; readonly repo: string; readonly branch: string }
+  | { readonly kind: "watch" };
+
+export function workWhere(work: Work): WorkWhere {
+  return work.key.kind === "branch"
+    ? { kind: "branch", repo: repoName(work.key.repo), branch: work.key.branch }
+    : { kind: "watch" };
+}
+
+/** The line under a card's title, in its two halves: WHERE the work is
+ *  ({@link workWhere}) and the REST — the host as a person names it, the
+ *  mode, and the PR once there is one (`draft PR #7` while it is an open
+ *  draft). Each word is dropped when it is not known yet rather than drawn
+ *  as a blank or a dash. */
+export function workSubtitleParts(
+  work: Work,
+  hostName: Option.Option<string>,
+): { readonly where: WorkWhere; readonly rest: ReadonlyArray<string> } {
+  const setup = setupOf(work);
+  return {
+    where: workWhere(work),
+    rest: [
+      ...Option.toArray(hostName),
+      ...Option.toArray(setup.mode),
+      ...Option.toArray(
+        Option.map(
+          prOf(work),
+          (pr) => `${isOpenDraft(pr) ? "draft " : ""}PR #${pr.number}`,
+        ),
+      ),
+    ].filter((part) => part !== ""),
+  };
+}
+
+/** The same line as words: `repo · branch` for a branch work and
+ *  "watching" for a watch, then the rest. */
 export function workSubtitle(
   work: Work,
   hostName: Option.Option<string>,
 ): ReadonlyArray<string> {
-  const setup = setupOf(work);
-  const where =
-    work.key.kind === "branch"
-      ? [repoName(work.key.repo), work.key.branch]
-      : ["watching"];
-  return [
-    ...where,
-    ...Option.toArray(hostName),
-    ...Option.toArray(setup.mode),
-    ...Option.toArray(
-      Option.map(
-        prOf(work),
-        (pr) => `${isOpenDraft(pr) ? "draft " : ""}PR #${pr.number}`,
-      ),
-    ),
-  ].filter((part) => part !== "");
+  const { where, rest } = workSubtitleParts(work, hostName);
+  const lead =
+    where.kind === "branch" ? [where.repo, where.branch] : ["watching"];
+  return [...lead.filter((part) => part !== ""), ...rest];
 }
 
 /** HOW A WORK ENDED, in the words the card says it in. There are three ways
@@ -424,6 +460,12 @@ const WHY_LEAD: Record<
   watching: "Watching",
   working: "Agents at work",
 };
+
+/** WHO A WORK WAITS ON, off its own record alone — the standing line's dot,
+ *  for a face that draws the dot and nothing else (a work's chip). The live
+ *  checks change only the standing line's words, never who it waits on. */
+export const waiterOf = (work: Work): Waiter | "done" =>
+  WAITER_OF[standing(work, policyOf(work)).why];
 
 export function standingLine(
   work: Work,
@@ -906,21 +948,28 @@ export const clockOf = (at: string): string =>
     hourCycle: "h23",
   });
 
-/** WHAT A ROLE RUNS, as the setup chose it — `omp/Opus 5.5`, or just the
- *  harness while no model is chosen — for a member's row. None for a role
- *  the setup chose nothing for. */
-export function roleRuns(work: Work, role: WorkRole): Option.Option<string> {
+/** WHAT A MEMBER RUNS, for its row — `omp/Opus 5.5`. The harness is the one
+ *  the setup chose for its role, else the agent kolu sees in the terminal;
+ *  the model is the one the agent's SESSION reports (the Dock's reading),
+ *  else the one the setup chose. Either half is left out while it is not
+ *  known, and the whole is none when neither is. */
+export function roleRuns(
+  work: Work,
+  role: WorkRole,
+  seen: {
+    readonly agent: string | undefined;
+    readonly model: string | undefined;
+  },
+): Option.Option<string> {
   const chosen = roleSetupOf(work, role);
-  switch (chosen.kind) {
-    case "not-chosen":
-      return Option.none();
-    case "harness":
-      return Option.some(chosen.harness);
-    case "harness-and-model":
-      return Option.some(`${chosen.harness}/${chosen.model}`);
-    default:
-      return chosen satisfies never;
-  }
+  const harness = chosen.kind === "not-chosen" ? seen.agent : chosen.harness;
+  const model =
+    seen.model ??
+    (chosen.kind === "harness-and-model" ? chosen.model : undefined);
+  const parts = [harness, model].filter(
+    (part): part is string => part !== undefined && part !== "",
+  );
+  return parts.length === 0 ? Option.none() : Option.some(parts.join("/"));
 }
 
 /** HOW MANY THINGS WAIT ON THE HUMAN — the tab's one number.

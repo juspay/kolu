@@ -16,6 +16,7 @@ import type { WorkRole } from "kolu-work";
 import { type Component, createMemo, createSignal, For, Show } from "solid-js";
 import { useShown } from "../ui/shown";
 import LivePane from "./LivePane";
+import MemberPip from "./MemberPip";
 import {
   connectedPanes,
   frontPane,
@@ -24,7 +25,7 @@ import {
 } from "./livePanes";
 import { useMemberName } from "./memberNames";
 import { type MemberRef, splitMemberRef } from "./memberRef";
-import type { MemberLine } from "./WorkTerminals";
+import type { MemberLine } from "./workFacts";
 import { ROLE_WORD } from "./workReadings";
 
 /** The width two panes side by side need — `--breakpoint-conductor-md`. */
@@ -105,6 +106,13 @@ const WorkLive: Component<{
             }`}
             onClick={() => setChosenTab(ref)}
           >
+            <Show when={props.members.find((one) => one.terminal === ref)}>
+              {(one) => (
+                <Show when={one().split}>
+                  {(at) => <MemberPip at={at()} standing={one().standing} />}
+                </Show>
+              )}
+            </Show>
             <Show when={roleOf(ref)}>
               {(role) => (
                 <span class="shrink-0 rounded-sm bg-conductor/15 px-1 font-mono text-[0.52rem] font-semibold uppercase tracking-[0.08em] text-conductor">

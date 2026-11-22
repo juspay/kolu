@@ -85,8 +85,8 @@ const WorkDetails: Component<{
       />
 
       {/* THE PULL REQUEST: its number (a link, off the record), how it
-          stands, its checks — the live tally while a member's record has
-          one, else the last reading the timeline kept — and, while it is
+          stands, the last check result the timeline kept while no live tally
+          speaks (the Work section above says that one), and, while it is
           open, whether GitHub would merge it. */}
       <Show when={Option.getOrUndefined(prSection(props.work, props.checks))}>
         {(pr) => (
@@ -107,12 +107,16 @@ const WorkDetails: Component<{
                 {pr().draft ? " · draft" : ""}
               </span>
             </p>
-            <p
-              data-testid="work-pr-checks"
-              class="m-0 text-[0.68rem] text-fg-2"
-            >
-              {pr().checks}
-            </p>
+            <Show when={Option.getOrUndefined(pr().checks)}>
+              {(checks) => (
+                <p
+                  data-testid="work-pr-checks"
+                  class="m-0 text-[0.68rem] text-fg-2"
+                >
+                  {checks()}
+                </p>
+              )}
+            </Show>
             {/* THE RED GATES: one line, cut, with the count — the whole
                 list in place on a click, and back. */}
             <Show when={pr().failing.length > 0}>

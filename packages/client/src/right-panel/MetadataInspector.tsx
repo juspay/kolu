@@ -38,7 +38,8 @@ import ComposeSection from "./ComposeSection";
 import KavalAttachSection from "./KavalAttachSection";
 import PortsSection from "./PortsSection";
 import { useOduLink } from "./useOduLink";
-import WorkSection from "./WorkSection";
+import WorkSection, { paneSubject } from "./WorkSection";
+import { activeHost } from "../wire";
 
 const MetadataInspector: Component<{
   /** The focused pane's metadata (its own, glitch-free pairing). */
@@ -86,7 +87,7 @@ const MetadataInspector: Component<{
          *  while the Inspector showed "No terminal selected" — a reader looking
          *  at nothing, with nothing to paint. The `<Show>` owns its lifetime:
          *  no subject, no subscription. */
-        const odu = useOduLink();
+        const odu = useOduLink(activeHost);
         return (
           <div
             class="overflow-y-auto overflow-x-hidden h-full"
@@ -101,7 +102,7 @@ const MetadataInspector: Component<{
             <Show when={activeArm(meta()) && props.terminalId} keyed>
               {(id) => (
                 <Section title="Compose">
-                  <ComposeSection terminalId={id} />
+                  <ComposeSection host={activeHost()} terminalId={id} />
                 </Section>
               )}
             </Show>
@@ -118,7 +119,10 @@ const MetadataInspector: Component<{
               the section already reads), so nothing about it is threaded
               through here; only the lane-link outlet is, so the address a row
               offers stays assertable without a forwards wire. */}
-            <WorkSection meta={meta()} odu={odu} />
+            <WorkSection
+              subject={paneSubject(meta(), activeHost())}
+              odu={odu}
+            />
 
             {/* Ports — what this TILE is serving, its splits included (a dev server
               usually runs in a split, so a main-pane-only reading shows nothing in

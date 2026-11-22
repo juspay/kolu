@@ -18,8 +18,9 @@
  *  (`WorkCard`'s shapes). On a phone, where there is no side to put anything
  *  beside, every work in progress is a card.
  *
- *  A PRESSED WORK IS PICKED: the board gives way to the picked work, with the
- *  others folded to a rail beside it (`WorkRail`), or, on a phone, to a page
+ *  THE SIDEBAR (`WorkRail`) stands beside the works on a desktop, always:
+ *  every work, grouped as the board is. A PRESSED WORK IS PICKED: the board
+ *  gives way to the picked work beside the sidebar, or, on a phone, to a page
  *  of its own with the way back above it.
  *
  *  WITH NOTHING IN FLIGHT, it says WHAT THE PANEL IS FOR — a welcome, not a
@@ -57,7 +58,7 @@ import {
   toggleFinished,
   unpickWork,
 } from "./workListing";
-import WorkRail from "./WorkRail";
+import WorkRail, { type RailGroups } from "./WorkRail";
 import { WAITER_INK } from "./workReadings";
 
 /** Where the board was scrolled to when a work was picked, so going back to
@@ -271,109 +272,134 @@ const WorkColumn: Component = () => {
       onCleanup(() => clearTimeout(timer));
     }),
   );
-  const railGroups = createMemo(() => [
-    { key: "waiting", name: "Needs you", rows: groups().onYou },
-    { key: "in-progress", name: "In progress", rows: groups().moving },
-    { key: "watching", name: "Watching", rows: groups().watching },
-    { key: "finished", name: "Finished", rows: done() },
-  ]);
+  /** The sidebar's four groups, each read from its own reading here — the
+   *  sidebar draws four fixed places, so nothing here is a list it keys. */
+  const railGroups: RailGroups = {
+    get waiting() {
+      return groups().onYou;
+    },
+    get moving() {
+      return groups().moving;
+    },
+    get watching() {
+      return groups().watching;
+    },
+    get finished() {
+      return done();
+    },
+  };
+
+  const phone = () => layoutMode() === "phone";
 
   return (
-    <div data-testid="work-column" class="min-w-0 bg-surface-0">
-      {/* KEYED BY THE WORK'S ID, not its record: the record is minted fresh
+    // ON A DESKTOP the sidebar stands beside the works and stays where it
+    // is; the works beside it are the scrolling box (`data-works-scroll`).
+    // On a phone there is no side to put it on: the works' own view is the
+    // scrolling box, and a picked work is a page of its own.
+    <div
+      data-testid="work-column"
+      class={`min-w-0 bg-surface-0 ${phone() ? "" : "flex min-h-0 flex-1"}`}
+    >
+      <Show when={!phone()}>
+        <WorkRail groups={railGroups} />
+      </Show>
+      <div
+        data-works-scroll={phone() ? undefined : ""}
+        class={
+          phone()
+            ? "min-w-0"
+            : "min-w-0 flex-1 overflow-y-auto overflow-x-hidden"
+        }
+      >
+        {/* KEYED BY THE WORK'S ID, not its record: the record is minted fresh
           on every change, and the picked work must not be built again on
           each one — only when another work is picked. */}
-      <Show
-        when={pickedRow() === undefined ? undefined : pickedWork()}
-        keyed
-        fallback={
-          <Board>
-            <div class="px-4 py-3">
-              {/* THE QUIET LINE IS ABOUT WHAT IS IN FLIGHT, which is what
+        <Show
+          when={pickedRow() === undefined ? undefined : pickedWork()}
+          keyed
+          fallback={
+            <Board>
+              <div class="px-4 py-3">
+                {/* THE QUIET LINE IS ABOUT WHAT IS IN FLIGHT, which is what
                   the list is for: a conversation whose waterfalls have all
                   landed is a conversation with nothing in progress, and
                   saying so is more use than a list that is merely history.
                   The finished works keep their place BELOW that line rather
                   than standing in for it. */}
-              <Show when={live().length > 0} fallback={<Welcome />}>
-                <Show when={groups().onYou.length > 0}>
-                  <section data-testid="work-waiting" class="mb-4">
-                    <Heading words={`Needs you · ${groups().onYou.length}`} />
-                    <Works rows={groups().onYou} shape="card" />
-                  </section>
+                <Show when={live().length > 0} fallback={<Welcome />}>
+                  <Show when={groups().onYou.length > 0}>
+                    <section data-testid="work-waiting" class="mb-4">
+                      <Heading words={`Needs you · ${groups().onYou.length}`} />
+                      <Works rows={groups().onYou} shape="card" />
+                    </section>
+                  </Show>
+                  <Show when={groups().moving.length > 0}>
+                    <section data-testid="work-in-progress" class="mb-4">
+                      <Heading
+                        words={`In progress · ${groups().moving.length}`}
+                      />
+                      <Works rows={groups().moving} shape={rowShape()} />
+                    </section>
+                  </Show>
+                  <Show when={groups().watching.length > 0}>
+                    <section data-testid="work-watching" class="mb-4">
+                      <Heading
+                        words={`Watching · ${groups().watching.length}`}
+                      />
+                      <Works rows={groups().watching} shape={rowShape()} />
+                    </section>
+                  </Show>
+                  <Legend />
                 </Show>
-                <Show when={groups().moving.length > 0}>
-                  <section data-testid="work-in-progress" class="mb-4">
-                    <Heading
-                      words={`In progress · ${groups().moving.length}`}
-                    />
-                    <Works rows={groups().moving} shape={rowShape()} />
-                  </section>
-                </Show>
-                <Show when={groups().watching.length > 0}>
-                  <section data-testid="work-watching" class="mb-4">
-                    <Heading words={`Watching · ${groups().watching.length}`} />
-                    <Works rows={groups().watching} shape={rowShape()} />
-                  </section>
-                </Show>
-                <Legend />
-              </Show>
-              <Show when={done().length > 0}>
-                {/* FINISHED IS SHUT BY DEFAULT. It is history: worth having,
+                <Show when={done().length > 0}>
+                  {/* FINISHED IS SHUT BY DEFAULT. It is history: worth having,
                     never worth the top of the list. One press opens it; a
                     work in it is picked as a live one is. */}
-                <section data-testid="work-finished" class="mt-4">
+                  <section data-testid="work-finished" class="mt-4">
+                    <button
+                      type="button"
+                      data-testid="work-finished-toggle"
+                      aria-expanded={isFinishedOpen()}
+                      class="mb-1.5 w-full cursor-pointer text-start font-mono text-[0.58rem] uppercase tracking-[0.12em] text-fg-3 hover:text-fg-2"
+                      onClick={toggleFinished}
+                    >
+                      {isFinishedOpen() ? "▾" : "▸"} Finished · {done().length}
+                    </button>
+                    <Show when={isFinishedOpen()}>
+                      <Works rows={done()} shape="line" />
+                    </Show>
+                  </section>
+                </Show>
+              </div>
+            </Board>
+          }
+        >
+          {(id) => (
+            <Show
+              when={!phone()}
+              fallback={
+                // ON A PHONE A PICKED WORK IS A PAGE of its own, with the way
+                // back above it; the tab bar under it stays.
+                <div data-testid="works-picked" class="px-3 py-3">
                   <button
                     type="button"
-                    data-testid="work-finished-toggle"
-                    aria-expanded={isFinishedOpen()}
-                    class="mb-1.5 w-full cursor-pointer text-start font-mono text-[0.58rem] uppercase tracking-[0.12em] text-fg-3 hover:text-fg-2"
-                    onClick={toggleFinished}
+                    data-testid="works-all"
+                    class="mb-2 cursor-pointer text-[0.78rem] font-semibold text-accent hover:underline"
+                    onClick={() => unpickWork()}
                   >
-                    {isFinishedOpen() ? "▾" : "▸"} Finished · {done().length}
+                    ← All work
                   </button>
-                  <Show when={isFinishedOpen()}>
-                    <Works rows={done()} shape="line" />
-                  </Show>
-                </section>
-              </Show>
-            </div>
-          </Board>
-        }
-      >
-        {(id) => (
-          <Show
-            when={layoutMode() !== "phone"}
-            fallback={
-              // ON A PHONE A PICKED WORK IS A PAGE of its own, with the way
-              // back above it; the tab bar under it stays.
-              <div data-testid="works-picked" class="px-3 py-3">
-                <button
-                  type="button"
-                  data-testid="works-all"
-                  class="mb-2 cursor-pointer text-[0.78rem] font-semibold text-accent hover:underline"
-                  onClick={() => unpickWork()}
-                >
-                  ← All work
-                </button>
-                <PickedCard id={id} record={pickedRow()?.[1]} />
-              </div>
-            }
-          >
-            {/* THE OTHER WORKS FOLD TO A RAIL, and the picked one has the
-                rest of the room. */}
-            <div
-              data-testid="works-picked"
-              class="grid min-h-full grid-cols-[3.5rem_minmax(0,1fr)] conductor-md:grid-cols-[15rem_minmax(0,1fr)]"
+                  <PickedCard id={id} record={pickedRow()?.[1]} />
+                </div>
+              }
             >
-              <WorkRail groups={railGroups()} />
-              <div class="min-w-0 px-4 py-3">
+              <div data-testid="works-picked" class="min-w-0 px-4 py-3">
                 <PickedCard id={id} record={pickedRow()?.[1]} />
               </div>
-            </div>
-          </Show>
-        )}
-      </Show>
+            </Show>
+          )}
+        </Show>
+      </div>
     </div>
   );
 };

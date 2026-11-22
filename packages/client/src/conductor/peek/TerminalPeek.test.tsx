@@ -62,6 +62,9 @@ vi.mock("../../useMobile", () => ({
 vi.mock("../useWorks", () => ({
   useWorkMembers: () => () => seam.members,
   useMembership: () => () => membership(),
+  // The head says how long a terminal has stood where it is; these have
+  // not been read by kolu's watch.
+  useSeen: () => () => new Map(),
 }));
 vi.mock("../WorkLock", () => ({
   default: (props: { pill?: boolean }) => (
@@ -160,6 +163,31 @@ describe("TerminalPeek", () => {
     ).toBe("Thinking · writing the plan");
     expect(seam.props?.host).toBe("remote:nix@example");
     expect(seam.props?.id).toBe(ID);
+  });
+
+  it("says the agent's facts under its status line: name, model and context", () => {
+    setStanding({
+      kind: "here",
+      meta: {
+        state: "active",
+        foreground: null,
+        agent: {
+          kind: "claude-code",
+          state: "thinking",
+          summary: null,
+          taskProgress: null,
+          model: "fable-5.2",
+          contextTokens: 0,
+        },
+      } as never,
+    });
+    openPeek({ host: "local", id: ID });
+    mount();
+    const facts =
+      document.querySelector('[data-testid="peek-facts"]')?.textContent ?? "";
+    expect(facts).toContain("fable-5.2");
+    // A context of none used is still said.
+    expect(facts).toContain("ctx");
   });
 
   it("closes on the window's ×", () => {

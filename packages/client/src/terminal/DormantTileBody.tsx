@@ -26,7 +26,7 @@ import type { TerminalId } from "kolu-common/surface";
 import { resumableCommand } from "kolu-common/surface";
 import { type Component, Show } from "solid-js";
 import { GitBranchIcon } from "../ui/Icons";
-import { ChecksIndicator, PrStateIcon } from "@kolu/solid-dockrow";
+import { PrMarks } from "@kolu/solid-dockrow";
 import { MOONLIT } from "./moonlit";
 import { prTooltip } from "@kolu/solid-dockrow/rowValues";
 import { formatTimeAgo } from "./staleness";
@@ -154,10 +154,7 @@ const DormantTileBody: Component<{
                 data-testid="dormant-pr"
                 title={prTooltip(info())}
               >
-                <PrStateIcon state={info().state} class="h-3 w-3 shrink-0" />
-                <Show when={info().checks}>
-                  {(checks) => <ChecksIndicator status={checks()} />}
-                </Show>
+                <PrMarks pr={info()} iconClass="h-3 w-3 shrink-0" />
                 <a
                   href={info().url}
                   target="_blank"

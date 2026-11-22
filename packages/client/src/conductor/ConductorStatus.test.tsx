@@ -48,6 +48,7 @@ const work = (branch: string, title: string): WorkRow => [
     decisions: [],
     startedAt: "2026-01-01T09:00:00.000Z",
     state: { kind: "open" },
+    worktree: { kind: "unread" },
   },
 ];
 

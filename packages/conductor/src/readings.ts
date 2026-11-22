@@ -128,10 +128,12 @@ export const recordName = (record: PadiTerminal | undefined): string => {
   const branch = live?.git.kind === "repo" ? live.git.info.branch : "";
   return live?.intent ?? branch;
 };
-
 /** WHERE THE TERMINAL IS WORKING, off the git fact padi already resolved for
- *  it — the worktree a work's `.waterfall/` files are listed from, the branch
- *  and the repository root.
+ *  it — the TOP FOLDER of its worktree (`repoRoot`: for a linked worktree,
+ *  the worktree's own folder; for a plain repository, the repository's), the
+ *  folder a work's `.waterfall/` files are listed from. Not `worktreePath`,
+ *  which is the directory the reading was asked about: a terminal first read
+ *  in a subfolder would have pinned the work to that subfolder.
  *
  *  `null` for every case that is not a resolved repository (`unresolved`,
  *  `none`, a dormant record): "nobody has looked" and "it is in no repo" are
@@ -140,12 +142,7 @@ export const recordName = (record: PadiTerminal | undefined): string => {
 const gitOf = (record: PadiTerminal | undefined): WatchGit | null => {
   const live = record?.state === "active" ? record : undefined;
   if (live?.git.kind !== "repo") return null;
-  const info = live.git.info;
-  return {
-    worktree: info.worktreePath,
-    branch: info.branch,
-    repo: info.repoRoot,
-  };
+  return { worktree: live.git.info.repoRoot };
 };
 
 /** A pull request as the forge resolved it — the `ok` arm's value. */

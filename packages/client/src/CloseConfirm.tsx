@@ -10,7 +10,7 @@ import {
 } from "@kolu/padi-client/surface";
 import type { TerminalId } from "kolu-common/surface";
 import { type Component, Show } from "solid-js";
-import { ChecksIndicator, PrStateIcon } from "@kolu/solid-dockrow";
+import { PrMarks } from "@kolu/solid-dockrow";
 import { prTooltip } from "@kolu/solid-dockrow/rowValues";
 import { WorktreeIcon } from "./ui/Icons";
 import ModalDialog from "./ui/ModalDialog";
@@ -167,10 +167,7 @@ const CloseConfirm: Component<{
                 data-testid="close-confirm-pr"
                 title={prTooltip(pr())}
               >
-                <PrStateIcon state={pr().state} class="w-3.5 h-3.5 shrink-0" />
-                <Show when={pr().checks}>
-                  {(checks) => <ChecksIndicator status={checks()} />}
-                </Show>
+                <PrMarks pr={pr()} iconClass="w-3.5 h-3.5 shrink-0" />
                 <span class="text-fg-2 font-medium">#{pr().number}</span>
                 <span class="text-fg-3 truncate">{pr().title}</span>
               </a>

@@ -45,13 +45,6 @@ export function checksProgress(tally: ChecksTally): string {
   return `${tally.pass + tally.fail} of ${tally.total} checks`;
 }
 
-/** `14 passed · 9 running · 0 failed` — the Pull request section's own line,
- *  which states every bucket including the empty ones: a zero failed is the
- *  fact a reader came for. */
-function checksBreakdown(tally: ChecksTally): string {
-  return `${tally.pass} passed · ${tally.pending} running · ${tally.fail} failed`;
-}
-
 /** WHY GITHUB WILL NOT MERGE A PR, said plainly. */
 const BLOCK_WORDS: Record<MergeBlock, string> = {
   blocked: "the branch's rules still want something, such as a required check",
@@ -87,20 +80,22 @@ export function mergeWords(merge: MergeKnown): string {
 export const mergeReason = (merge: MergeKnown): string =>
   merge.kind === "cannot" ? merge.why : merge.kind;
 
-/** THE PULL REQUEST SECTION of a card: the PR and how it stands, what its
- *  checks say, and — while it is open — whether GitHub would merge it.
+/** THE PULL REQUEST SECTION of a card: the PR and how it stands, the last
+ *  check result the timeline recorded, and — while it is open — whether GitHub
+ *  would merge it.
  *
- *  The checks are the LIVE tally while a member's record carries one (true
- *  only for the instant it is read), and otherwise the last check event the
- *  timeline recorded, with the gates that were red: that is all a finished
- *  work still knows. */
+ *  The LIVE tally is not here: while a member's record carries one, the Work
+ *  section above says it (with odu's lanes beside it). The recorded result,
+ *  with the gates that were red, is said only while there is no live one —
+ *  it is all a finished work, or one with nothing running, still knows. */
 export interface PrSection {
   readonly number: number;
   readonly state: "open" | "merged" | "closed";
   /** Whether it is open and a draft — still being built, not up for review.
    *  False for a PR whose word kolu never recorded: it claims nothing. */
   readonly draft: boolean;
-  readonly checks: string;
+  /** The last recorded check result, or none while the live tally speaks. */
+  readonly checks: Option.Option<string>;
   /** The gates the last recorded check reading named red — none while the
    *  live tally speaks, or when nothing failed. Drawn as {@link failingLine}
    *  until the whole list is asked for. */
@@ -139,14 +134,14 @@ export function prSection(
       number: pr.number,
       state: pr.state,
       draft: isOpenDraft(pr),
-      checks: Option.match(live, {
-        onSome: checksBreakdown,
-        onNone: () =>
-          Option.match(last, {
-            onNone: () => "No checks reported",
-            onSome: (one) => RECORDED_CHECKS[one.kind],
-          }),
-      }),
+      checks: Option.isSome(live)
+        ? Option.none()
+        : Option.some(
+            Option.match(last, {
+              onNone: () => "No checks reported",
+              onSome: (one) => RECORDED_CHECKS[one.kind],
+            }),
+          ),
       failing: Option.match(last, {
         onNone: () => [],
         onSome: (one) => one.failing,

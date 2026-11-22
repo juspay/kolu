@@ -111,3 +111,23 @@ Feature: A picked work's terminals, live
     When I take over the "implementor" in its live terminal
     Then the live terminal should have a key bar
     And there should be no page errors
+
+  Scenario: Inspect unfolds a terminal in the details, and its Compose writes to that terminal
+    # Inspect on a live pane opens the work's Details with that terminal's row
+    # unfolded. The Compose there writes to that terminal on its own host,
+    # through the same lock a keystroke asks.
+    Given a repo for the work
+    When I ask the conductor to open the work "compose from the work"
+    And I answer the work's question with "hand-over" in the chat
+    And I ask the conductor to run the implementor in the work's repo
+    And the implementor's agent starts working
+    And I open the work card
+    Then the picked work should show 1 live terminal
+    When I take over the "implementor" in its live terminal
+    And I inspect the "implementor" in its live terminal
+    Then the picked work should be showing its details
+    And the "implementor" row should be unfolded, with its agent card and Compose
+    When I send "composed-in-the-work" from the "implementor" row's Compose
+    And I show the work's terminals
+    Then the "implementor" live terminal should show "composed-in-the-work"
+    And there should be no page errors

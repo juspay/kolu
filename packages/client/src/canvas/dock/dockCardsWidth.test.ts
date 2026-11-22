@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
-import {
-  CARDS_WIDTH_PX,
-  clampDockCardsWidth,
-  effectiveDockCardsWidth,
-} from "./dockCardsWidth";
+import { DOCK_CARDS_WIDTH } from "./dockCardsWidth";
+
+// The dock's width rides the shared sidebar width; these are its three faces
+// the cases below pin, unchanged from before it was shared.
+const CARDS_WIDTH_PX = DOCK_CARDS_WIDTH.bounds.defaultPx;
+const clampDockCardsWidth = DOCK_CARDS_WIDTH.clamp;
+const effectiveDockCardsWidth = DOCK_CARDS_WIDTH.effective;
 
 // The drag setter and the stored-value parse both route through
 // `clampDockCardsWidth`, so a pointer-drag past either edge — or a

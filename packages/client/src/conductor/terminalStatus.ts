@@ -1,4 +1,7 @@
+import { agentBucket } from "@kolu/terminal-vocab/agentProjection";
+import { rowSubline } from "@kolu/solid-dockrow/rowValues";
 import { activeArm } from "@kolu/padi-client/surface";
+import type { ConductorReadingLevel } from "kolu-common/conductor";
 import type { FleetTerminalStanding } from "../palette/fleetTerminals";
 import {
   type AgentStateTone,
@@ -52,6 +55,44 @@ export function liveArm(standing: FleetTerminalStanding) {
   return standing.kind === "here" ? activeArm(standing.meta) : undefined;
 }
 
+/** THE WATCH'S LEVEL FOR THE WORDS THE BROWSER SHOWS — which level of kolu's
+ *  own watch (`ConductorReadingLevel`) a terminal standing as it does here
+ *  would be read at, or `null` where the watch has no level for it (still
+ *  loading, a host not connected, an agent state no level holds). The watch
+ *  reads padi's frame and the browser reads the record, so the two can
+ *  disagree for a moment; a time from the watch belongs beside these words
+ *  only when they name the same level. */
+export function watchLevelOf(
+  standing: FleetTerminalStanding,
+): ConductorReadingLevel | null {
+  switch (standing.kind) {
+    case "gone":
+      return "gone";
+    case "loading":
+    case "unreachable":
+      return null;
+    case "here": {
+      const arm = liveArm(standing);
+      if (arm === undefined) return "asleep";
+      if (arm.agent === null) return "shell";
+      switch (agentBucket(arm.agent.state)) {
+        case "working":
+          return "working";
+        case "awaiting":
+          return "asking";
+        case "waiting":
+          return "stopped";
+        case "starting":
+          return "starting";
+        case "fresh":
+          return "fresh";
+        case "other":
+          return null;
+      }
+    }
+  }
+}
+
 /** The status line's words for a terminal, read off the one standing reading. */
 export function terminalStatus(
   standing: FleetTerminalStanding,
@@ -103,19 +144,18 @@ export function terminalStatus(
           doing: agent.summary,
         };
       }
+      // AT THE PROMPT there is no command to name. Anything else in front
+      // is said as the Dock's row says it — the program's own title, else
+      // its name (`rowSubline`, the one reading of a shell's words).
       const front = arm.foreground;
-      if (front === null || front.shell)
-        return {
-          tone: "none",
-          state: "no agent",
-          progress: null,
-          doing: "at the shell",
-        };
       return {
         tone: "none",
         state: "no agent",
         progress: null,
-        doing: `running ${front.name}`,
+        doing:
+          front === null || front.shell
+            ? "at the shell"
+            : rowSubline(standing.meta).text,
       };
     }
   }

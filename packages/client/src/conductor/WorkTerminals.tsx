@@ -3,10 +3,10 @@
  *
  *  A ROW IS SIX PARTS IN FIXED PLACES: the role as a plain word; the name,
  *  which goes to the terminal's tile while the terminal is here; what it
- *  runs, small, beside the name; a dot with the state in words right beside
- *  it and for how long ("Thinking for 3m"), then how far through its tasks it
- *  is and what it is doing; **Look**; and **Take over** or **Hand back** when
- *  someone drives it.
+ *  runs, small, beside the name; the Dock's status indicator with the state
+ *  in words right beside it and for how long ("Thinking for 3m"), then how
+ *  far through its tasks it is and what it is doing; **Look**; and **Take
+ *  over** or **Hand back** when someone drives it.
  *
  *  THE LIST IS A GRID AND EACH ROW A SUBGRID of it, so the roles, the Look
  *  buttons and the lock buttons each share one left edge down the list, and
@@ -22,39 +22,25 @@
  *  (`memberNames.ts`). A sleeping or gone terminal has no Look — there is no
  *  screen to look at — and a terminal nobody drives has no lock button. */
 
-import { activeArm } from "@kolu/padi-client/surface";
-import { Option } from "effect";
 import type { Work } from "kolu-work";
-import { type Component, createMemo, For, Show } from "solid-js";
-import type { FleetTerminalStanding } from "../palette/fleetTerminals";
-import { elapsedSince } from "../time/duration";
-import { agentName } from "../ui/agentDisplay";
+import { Key } from "@solid-primitives/keyed";
+import { type Component, createMemo, Show } from "solid-js";
 import { onHostWords, useKnownNames } from "./memberNames";
-import type { MemberRef } from "./memberRef";
 import { openPeek } from "./peek/usePeek";
-import { liveArm, STATUS_DOT, terminalStatus } from "./terminalStatus";
-import { useConductor } from "./useConductor";
+import MemberInspector from "./MemberInspector";
+import DriveButton from "./DriveButton";
+import MemberPip from "./MemberPip";
+import StateFor from "./StateFor";
+import { liveArm, terminalStatus } from "./terminalStatus";
 import { useOpenTile } from "./useOpenTile";
 import { useMembership, useSeen } from "./useWorks";
-import { LEVEL_WORD } from "./wake";
 import {
-  type Lock,
-  ROLE_WORD,
-  roleRuns,
-  type WorkMemberRow,
-} from "./workReadings";
-
-/** One member as a card holds it: its row in the work, its ref split into the
- *  keys the fleet index is read by (`null` when this browser cannot read
- *  it), and its live standing, read once by the card. */
-export interface MemberLine extends WorkMemberRow {
-  readonly split: MemberRef | null;
-  readonly standing: FleetTerminalStanding | undefined;
-}
-
-/** The two controls at a row's end, in the row's smaller type. */
-const CONTROL =
-  "cursor-pointer whitespace-nowrap rounded-sm px-1.5 py-[0.1rem] font-mono text-[0.56rem] font-semibold uppercase tracking-[0.06em] transition-colors";
+  isMemberInspected,
+  isMemberUnfolded,
+  toggleMember,
+} from "./workListing";
+import { type MemberLine, memberRuns } from "./workFacts";
+import { type Lock, ROLE_WORD } from "./workReadings";
 
 /** "thinking" → "Thinking": the state starts the status, as a sentence. */
 const sentence = (words: string): string =>
@@ -65,10 +51,11 @@ const MemberRow: Component<{
   one: MemberLine;
   names: ReadonlyMap<string, string>;
   now: number;
+  /** In a work's Details the row unfolds into what is about this terminal. */
+  unfolds: boolean;
 }> = (props) => {
   const seen = useSeen();
   const membership = useMembership();
-  const conductor = useConductor();
   const openTileAt = useOpenTile();
   const ref = () => props.one.terminal;
   /** Its own name, else its host — beside its role, so the role is not
@@ -76,22 +63,15 @@ const MemberRow: Component<{
   const name = () => props.names.get(ref()) ?? onHostWords(ref());
   const here = () =>
     props.one.standing?.kind === "here" ? props.one.split : null;
-  /** WHAT IT RUNS: the setup's harness and model for the role, else the
-   *  agent kolu sees in it, else nothing. */
-  const runs = () =>
-    Option.getOrElse(roleRuns(props.work, props.one.member.role), () => {
-      const standing = props.one.standing;
-      const kind =
-        standing?.kind === "here"
-          ? activeArm(standing.meta)?.agent?.kind
-          : undefined;
-      return kind === undefined ? "" : agentName(kind);
-    });
-  const status = createMemo(() =>
-    props.one.standing === undefined
+  const runs = () => memberRuns(props.work, props.one);
+  /** Its standing and the words for it, read together, or `null` for a
+   *  terminal this browser cannot read. */
+  const status = createMemo(() => {
+    const standing = props.one.standing;
+    return standing === undefined
       ? null
-      : terminalStatus(props.one.standing),
-  );
+      : { standing, words: terminalStatus(standing) };
+  });
   const lookable = () =>
     props.one.standing !== undefined &&
     liveArm(props.one.standing) !== undefined;
@@ -102,20 +82,60 @@ const MemberRow: Component<{
     const at = membership().get(ref());
     return at === undefined || at.driver === "nobody" ? undefined : at.driver;
   };
+  /** WHAT UNFOLDS UNDER IT, or `null` when nothing would: in a work's
+   *  Details, a terminal kolu can read that is up and holding its PTY. The
+   *  one fact that decides both whether the role is an unfold button and what
+   *  the button opens. */
+  const unfoldable = createMemo(() => {
+    const at = props.one.split;
+    const standing = props.one.standing;
+    if (!props.unfolds || at === null || standing === undefined) return null;
+    const arm = liveArm(standing);
+    return arm === undefined ? null : { at, arm };
+  });
+  /** Open, as the picked work's Details hold it — by a press here or by
+   *  Inspect on a live pane. */
+  const open = () => isMemberUnfolded(ref());
+  const inspected = () => isMemberInspected(ref());
 
   return (
     <li
       data-testid="work-member"
       data-role={props.one.member.role}
       data-ref={ref()}
-      class="col-span-full grid min-w-0 grid-cols-subgrid items-center gap-y-0.5 overflow-hidden text-[0.7rem]"
+      data-inspected={inspected() ? "" : undefined}
+      class={`col-span-full grid min-w-0 grid-cols-subgrid items-center gap-y-0.5 overflow-hidden rounded-sm text-[0.7rem] ${
+        inspected() ? "bg-surface-2 outline outline-1 outline-edge-bright" : ""
+      }`}
     >
-      <span
-        data-testid="work-member-role"
-        class="col-start-1 whitespace-nowrap font-semibold text-fg"
+      <Show
+        when={unfoldable()}
+        fallback={
+          <span
+            data-testid="work-member-role"
+            class="col-start-1 whitespace-nowrap font-semibold text-fg"
+          >
+            {ROLE_WORD[props.one.member.role]}
+          </span>
+        }
       >
-        {ROLE_WORD[props.one.member.role]}
-      </span>
+        <button
+          type="button"
+          data-testid="work-member-role"
+          aria-expanded={open()}
+          aria-label={`${open() ? "Fold" : "Unfold"} ${ROLE_WORD[props.one.member.role]}`}
+          class="col-start-1 flex cursor-pointer items-center gap-1 whitespace-nowrap text-start font-semibold text-fg hover:text-accent"
+          onClick={() => toggleMember(ref())}
+        >
+          <span
+            aria-hidden="true"
+            class="w-2 font-mono text-[0.6rem] text-fg-3"
+          >
+            {open() ? "▾" : "▸"}
+          </span>
+          {ROLE_WORD[props.one.member.role]}
+        </button>
+      </Show>
       <span class="col-span-3 col-start-2 flex min-w-0 items-baseline gap-2 @min-[32rem]:col-span-1">
         <Show
           when={here()}
@@ -162,30 +182,22 @@ const MemberRow: Component<{
         >
           {(now) => (
             <>
-              <span
-                class={`h-2 w-2 shrink-0 rounded-full ${STATUS_DOT[now().tone]}`}
-              />
+              <Show when={props.one.split}>
+                {(at) => <MemberPip at={at()} standing={props.one.standing} />}
+              </Show>
               {/* THE STATE AND ITS TIME hold their room; the tail after
                   them is what gives way. */}
               <span class="shrink-0 whitespace-nowrap">
-                <span class="font-semibold text-fg">
-                  {sentence(now().state)}
-                </span>
-                <Show when={reading()}>
-                  {(read) => (
-                    <span
-                      data-testid="work-member-since"
-                      title={`${LEVEL_WORD[read().level]} for ${elapsedSince(read().since, props.now)}`}
-                      class="tabular-nums text-fg-3"
-                    >
-                      {" for "}
-                      {elapsedSince(read().since, props.now)}
-                    </span>
-                  )}
-                </Show>
+                <StateFor
+                  word={sentence(now().words.state)}
+                  standing={now().standing}
+                  reading={reading()}
+                  now={props.now}
+                  testId="work-member-since"
+                />
               </span>
               <span class="min-w-0 truncate text-fg-3">
-                <Show when={now().progress}>
+                <Show when={now().words.progress}>
                   {(tasks) => (
                     <>
                       {"· "}
@@ -195,7 +207,9 @@ const MemberRow: Component<{
                     </>
                   )}
                 </Show>
-                <Show when={now().doing}>{(doing) => <>· {doing()}</>}</Show>
+                <Show when={now().words.doing}>
+                  {(doing) => <>· {doing()}</>}
+                </Show>
               </span>
             </>
           )}
@@ -222,31 +236,14 @@ const MemberRow: Component<{
       <span class="col-start-4 flex @min-[32rem]:col-start-5">
         <Show when={driver()}>
           {(who) => (
-            <Show
-              when={who() === "conductor"}
-              fallback={
-                <button
-                  type="button"
-                  data-testid="work-member-hand-back"
-                  class={`${CONTROL} bg-alert/20 text-alert hover:bg-alert/30`}
-                  onClick={() => conductor.handBack(ref())}
-                >
-                  Hand back
-                </button>
-              }
-            >
-              <button
-                type="button"
-                data-testid="work-member-take-over"
-                class={`${CONTROL} bg-conductor/20 text-conductor hover:bg-conductor/30`}
-                onClick={() => conductor.takeOver(ref())}
-              >
-                Take over
-              </button>
-            </Show>
+            <DriveButton terminal={ref()} driver={who()} testId="work-member" />
           )}
         </Show>
       </span>
+      {/* UNFOLDED: what is about this terminal, under its row. */}
+      <Show when={open() ? unfoldable() : null}>
+        {(what) => <MemberInspector at={what().at} arm={what().arm} />}
+      </Show>
     </li>
   );
 };
@@ -256,6 +253,9 @@ const WorkTerminals: Component<{
   work: Work;
   members: ReadonlyArray<MemberLine>;
   now: number;
+  /** In a work's Details each row unfolds into what is about its terminal;
+   *  on a work's face it does not. */
+  unfolds?: boolean;
 }> = (props) => {
   const names = useKnownNames();
   return (
@@ -274,16 +274,21 @@ const WorkTerminals: Component<{
     >
       <section data-testid="work-terminals" class="@container min-w-0">
         <ul class="m-0 grid list-none grid-cols-[auto_minmax(0,1fr)_auto_auto] gap-x-2.5 gap-y-1.5 p-0 @min-[32rem]:grid-cols-[auto_minmax(0,1fr)_minmax(0,1.5fr)_auto_auto] @min-[32rem]:gap-y-1">
-          <For each={props.members}>
+          {/* KEYED BY THE TERMINAL'S REF, not by its line: a line is minted
+              afresh when its record moves, and a row keyed by the line would
+              be taken down and built again — its mark, its spin, the Look
+              button under the pointer — for every record change. */}
+          <Key each={props.members} by="terminal">
             {(one) => (
               <MemberRow
                 work={props.work}
-                one={one}
+                one={one()}
                 names={names()}
                 now={props.now}
+                unfolds={props.unfolds === true}
               />
             )}
-          </For>
+          </Key>
         </ul>
       </section>
     </Show>

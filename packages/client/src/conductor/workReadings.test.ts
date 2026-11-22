@@ -198,6 +198,7 @@ const work = (over: Partial<Work> = {}): Work => ({
   decisions: [],
   startedAt: "2026-01-01T09:00:00.000Z",
   state: { kind: "open" },
+  worktree: { kind: "unread" },
   ...over,
 });
 
@@ -449,7 +450,7 @@ describe("the Pull request section", () => {
         number: 9,
         state: "open",
         draft: false,
-        checks: "Checks failed",
+        checks: Option.some("Checks failed"),
         failing: ["ci::nix", "ci::biome"],
         merge: Option.some({
           words: "GitHub cannot merge it yet · the branch is behind its base",
@@ -474,14 +475,15 @@ describe("the Pull request section", () => {
     expect(failingLine(["ci::nix"])).toBe("1 failing: ci::nix");
   });
 
-  it("prefers the live tally, and says when GitHub has not answered", () => {
+  it("leaves a live tally to the Work section, and says when GitHub has not answered", () => {
     const section = Option.getOrThrow(
       prSection(
         handingOver([opened, passed]),
         Option.some({ pass: 3, pending: 1, fail: 0, total: 4 }),
       ),
     );
-    expect(section.checks).toBe("3 passed · 1 running · 0 failed");
+    // The recorded "Checks passed" is not said over a live reading.
+    expect(section.checks).toEqual(Option.none());
     expect(Option.map(section.merge, (merge) => merge.reason)).toEqual(
       Option.some("unknown"),
     );
