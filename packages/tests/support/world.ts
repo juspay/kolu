@@ -56,11 +56,14 @@ export const HYDRATION_TIMEOUT = 60_000;
 const READY_TIMEOUT = HYDRATION_TIMEOUT;
 
 /** Cucumber outer-kill timeout. Derived so the relationship
- *  `POLL_TIMEOUT < HYDRATION_TIMEOUT < setDefaultTimeout` is structural —
+ *  `POLL_TIMEOUT < HYDRATION_TIMEOUT < STEP_TIMEOUT` is structural —
  *  bumping either inner constant cannot silently make the outer envelope
- *  too tight to surface the inner timeout's real error message. */
-const STEP_GUARD = 10_000;
-setDefaultTimeout(Math.max(POLL_TIMEOUT, HYDRATION_TIMEOUT) + STEP_GUARD);
+ *  too tight to surface the inner timeout's real error message. It is also
+ *  the limit of every hook that sets none of its own. */
+export const STEP_GUARD = 10_000;
+export const STEP_TIMEOUT =
+  Math.max(POLL_TIMEOUT, HYDRATION_TIMEOUT) + STEP_GUARD;
+setDefaultTimeout(STEP_TIMEOUT);
 export const MOD_KEY = process.platform === "darwin" ? "Meta" : "Control";
 
 /** kolu's APPLICATION modifier — Cmd on macOS, Super elsewhere. Mirrors the

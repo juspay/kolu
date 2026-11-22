@@ -83,14 +83,14 @@ cd packages/tests && REUSE_SERVER=1 HEADLESS=false nix develop ../..#default -c 
 | `CUCUMBER_SHARD` | Cucumber's native one-based `<index>/<total>` scenario shard. `ci::e2e` derives it from odu's zero-based `ODU_SHARD_INDEX` and the `ODU_SHARD_TOTAL` it actually obtained, so each borrowed CI box runs one slice. `just test` and `just test-quick` leave it unset and run every scenario. |
 | `HEADLESS` | `false` opens a visible browser. |
 | `KOLU_SERVER` | The server under test: a binary path each worker spawns on a random port, or an `http://` URL of a server you are already running. `just test` points it at the nix-built binary, `just test-quick` at `scripts/kolu-source-wrapper.sh`. |
-| `KOLU_SERVER_NEXT_BUILD` | The build a scenario's deploy starts in place of `KOLU_SERVER` (`kolu is deployed under this page`): the same server with a different padi build id, so the new server's binder replaces padi as a real deploy's does. `just test` builds `.#koluBin-next-padi-build` (flake.nix `legacyPackages`: `koluBin` from the same source and commit string, with `padiBuildIdOverride`); `just test-quick` sets the source wrapper, which takes the id from the env the harness passes. A deploy fails when it is unset. |
+| `KOLU_SERVER_NEXT_BUILD` | The build a scenario's deploy starts in place of `KOLU_SERVER` (`kolu is deployed under this page`): the same server with a different padi build id, so the new server's binder replaces padi as a real deploy's does. `just test` builds `.#koluBin-next-padi-build` (flake.nix `legacyPackages`: `koluBin` from the same source and commit string, with `padiBuildIdOverride`); `just test-quick` sets the source wrapper, which takes the padi build id and commit from the env the harness passes. A deploy fails when it is unset. |
 
 ## How it works
 
 - **Cucumber.js** is the test runner. It parses `.feature` files and matches steps to TypeScript functions.
 - **Playwright** is the browser automation library. `chromium.launch()` starts a real Chromium instance.
 - **KoluWorld** (in `support/world.ts`) holds per-scenario state: the Playwright `page`, collected errors, and terminal helper methods (`zoomIn()`, `resizeViewport()`, `terminalRun()`, etc.).
-- **Hooks** (`support/hooks.ts`) manage lifecycle: one browser for the entire run (`BeforeAll`), fresh context + page per scenario (`Before`/`After`), screenshot on failure.
+- **Hooks** (`support/hooks.ts`) manage lifecycle: one browser and one server per worker for the entire run (`BeforeAll`), fresh context + page per scenario (`Before`/`After`), screenshot on failure. A scenario that restarts or deploys the server mid-run and fails to bring one back ends its worker (exit 1); the scenarios still queued go to the other workers.
 - **Two-sided screen reads** (`support/daemonScreen.ts`) answer "does the pane show what the program actually drew": the pane's screen comes off the `__xterm` bridge, the daemon's copy of the same terminal comes from padi's `screen.text` over the harness's own wire, and both are cut to the same window so equality means something.
 
 ### Adding a new test
