@@ -24,6 +24,8 @@ const h = vi.hoisted(() => ({
     subject: () => unknown;
     door: CodeDoor;
   }>,
+  /** Every arrangement a mounted Code view was handed, in order. */
+  arrangements: [] as string[],
 }));
 
 vi.mock("@kolu/surface/client", async () => {
@@ -98,6 +100,7 @@ vi.mock("../right-panel/useRightPanel", () => ({ useRightPanel: () => ({}) }));
 // keeps the rest for the test to read.
 vi.mock("../code-view/CodeTab", async () => {
   const { useShown } = await import("../ui/shown");
+  const { createRenderEffect } = await import("solid-js");
   return {
     default: (props: {
       subject: unknown;
@@ -106,9 +109,11 @@ vi.mock("../code-view/CodeTab", async () => {
         localStatus: { pending: () => boolean };
       };
       door: CodeDoor;
+      arrangement: string;
     }) => {
       props.queries.lease(useShown());
       h.tabs.push({ subject: () => props.subject, door: props.door });
+      createRenderEffect(() => h.arrangements.push(props.arrangement));
       return (
         <div data-testid="code-tab">
           {String(props.queries.localStatus.pending())}
@@ -181,10 +186,12 @@ beforeEach(() => {
   h.calls = [];
   h.emit = [];
   h.tabs = [];
+  h.arrangements = [];
 });
 afterEach(() => {
   dispose?.();
   document.body.innerHTML = "";
+  vi.restoreAllMocks();
 });
 
 const mount = (body: () => JSX.Element, shown: () => boolean = () => true) => {
@@ -274,5 +281,14 @@ describe("a picked work's Code view", () => {
       mode: "browse",
     });
     expect(pendingOpen()).toBeNull();
+  });
+
+  it("is built beside on a wide box, never stacked first", () => {
+    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue({
+      width: 1000,
+      height: 600,
+    } as DOMRect);
+    mount(() => <WorkCode id={ID} work={readWork} members={[]} />);
+    expect(h.arrangements).toEqual(["beside"]);
   });
 });

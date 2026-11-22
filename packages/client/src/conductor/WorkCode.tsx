@@ -21,9 +21,9 @@
  *  - **Its arrangement**, from its own box's width, not the window's: the
  *    work shares the window with the chat and a sidebar a person sizes. A
  *    wide box stands the tree beside the file, a narrow one (every phone)
- *    stacks it above (`codeArrangement`). The box is measured in the same
- *    pass that mounts it, before the first paint, so a wide view never
- *    draws stacked first.
+ *    stacks it above (`codeArrangement`). The view is not built until the
+ *    box has been measured once, so it is built in the arrangement its width
+ *    calls for; after that a change of width turns it and never rebuilds it.
  *
  *  An open work whose worktree kolu has not read yet says so in one line, the
  *  Worktree part's own. A finished work has no switch, so no Code view. */
@@ -85,6 +85,12 @@ const Read: Component<{
   createEffect(() => syncWorkCodeRoot(props.id, props.place.repoPath));
   const [box, setBox] = createSignal<HTMLDivElement>();
   const boxSize = createElementSize(box);
+  // The box's width once it has been measured, and from then on. A fresh
+  // object per width keeps the gate below truthy at a width of 0, so it opens
+  // once and stays open.
+  const measured = createMemo((was: { px: number } | undefined) =>
+    boxSize.width === null ? was : { px: boxSize.width },
+  );
   return (
     <div
       ref={setBox}
@@ -92,13 +98,17 @@ const Read: Component<{
       class="min-h-0"
       style={{ height: paneHeight("stack", 1) }}
     >
-      <CodeTab
-        subject={subject()}
-        state={state}
-        queries={queries}
-        door={door}
-        arrangement={codeArrangement(boxSize.width)}
-      />
+      <Show when={measured()}>
+        {(width) => (
+          <CodeTab
+            subject={subject()}
+            state={state}
+            queries={queries}
+            door={door}
+            arrangement={codeArrangement(width().px)}
+          />
+        )}
+      </Show>
     </div>
   );
 };
