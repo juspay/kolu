@@ -5278,3 +5278,16 @@ retirements:
       file: packages/tests/features/conductor-code.feature
       symbol: "Scenario: The Code view lists the worktree, its local changes and a file, and keeps its place across a reload"
       test: The same journey with two checks added — with Code in front the picked work draws no live pane at all, and back on Terminals it draws its pane and no Code view — so it also shows that one view is mounted at a time. Nothing it checked before was taken out.
+  - id: revise-f1c1962a51d27dad9dbd
+    revisionId: revision-f1c1962a51d27dad9dbd
+    action: revised
+    status: landed
+    promise: The work's Code view leaves the Right panel's Code tab where it was
+    defectSurface: [conductor, code-tab, user-journey]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-b3019ff5436febb98294]
+    sameCodePathEvidence:
+      file: packages/tests/features/conductor-code.feature
+      symbol: "Scenario: The work's Code view leaves the Right panel's Code tab where it was"
+      test: The same journey with one arrangement step added — the host tab's shown terminal goes into the work's repo before its Right panel Code tab is opened — so the Right panel is about the same repository and offers its Local view. The first run of the scenario showed the Right panel about a terminal outside any repository, which never offers one. Nothing it checks was taken out.

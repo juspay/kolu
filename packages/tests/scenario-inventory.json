@@ -13246,6 +13246,18 @@
       "exampleRows": [],
       "executions": 1,
       "firstSeenSha": "20fdd3ec6c937c7c88f0b9e88627ed8fa96aa58b"
+    },
+    {
+      "revisionId": "revision-b3019ff5436febb98294",
+      "scenarioKey": "scenario-ed91090a0074187dc01f",
+      "feature": "features/conductor-code.feature",
+      "scenario": "The work's Code view leaves the Right panel's Code tab where it was",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "969ecea7d85764ab37ce95106af7fec7d6842a882532b3905da987559202fc86",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "897e7abaabe54381ac905eb2094a73b45562d192"
     }
   ]
 }

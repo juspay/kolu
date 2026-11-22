@@ -1766,10 +1766,11 @@ Then(
     // its title. Every element with a box is measured — except what is not
     // on screen to begin with. While the Conductor is shown its layer covers
     // the host's canvas, whose tiles sit wherever the canvas was panned, and
-    // a covered tile is not on screen. And a terminal wider than its pane
-    // pans inside its own scroller — the live pane's or the peek's, the two
-    // boxes built to pan — so what lies past that scroller's edge is
-    // scrolled out of view, not cut: the scroller itself is what is measured.
+    // a covered tile is not on screen. And a box built to pan sideways —
+    // the live pane's and the peek's scrollers, where a terminal wider than
+    // its pane pans, and the Code view's toolbar, which pans on a screen too
+    // narrow for all its controls — holds what lies past its edge scrolled
+    // out of view, not cut: the scroller itself is what is measured.
     // Nothing else is forgiven: a box that only scrolls up and down computes
     // to `overflow-x: auto` too, and a line too wide for it must still fail.
     const offenders = await this.page.evaluate(() => {
@@ -1789,7 +1790,7 @@ Then(
           )
             return false;
           const pans = el.closest<HTMLElement>(
-            '[data-testid="live-scroller"], [data-testid="peek-scroller"]',
+            '[data-testid="live-scroller"], [data-testid="peek-scroller"], [data-testid="code-tab-toolbar"]',
           );
           if (
             pans !== null &&

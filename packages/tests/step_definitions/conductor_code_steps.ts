@@ -13,7 +13,7 @@ import {
   type KoluWorld,
   POLL_TIMEOUT,
 } from "../support/world.ts";
-import { showPickedView } from "./conductor_steps.ts";
+import { showPickedView, workRepo } from "./conductor_steps.ts";
 
 const COLUMN = '[data-testid="work-column"]';
 const WORK_CODE = `${COLUMN} [data-testid="work-code"]`;
@@ -26,6 +26,18 @@ const tree = (scope: string): string =>
 /** A file's real row in the shown tree under `scope` (not its sticky copy). */
 const fileRow = (scope: string, path: string): string =>
   `${tree(scope)} [data-item-path="${path}"][data-item-type="file"]:not([data-file-tree-sticky-row])`;
+
+/** THE RIGHT PANEL FOLLOWS THE FOCUSED PANE. The implementor's terminal is
+ *  made from the conversation and never shown, so the pane the host tab
+ *  focuses is the scenario's first terminal: it stands in the work's repo
+ *  for the Right panel's Code tab to be about the same repository. */
+When(
+  "I go into the work's repo in the terminal",
+  async function (this: KoluWorld) {
+    await this.terminalRunAndWait(`cd ${workRepo(this)}`);
+    await this.waitForFrame();
+  },
+);
 
 When("I show the work's code", async function (this: KoluWorld) {
   // The switch is there for a work in progress: wait for it, then press.

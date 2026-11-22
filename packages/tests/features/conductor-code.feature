@@ -50,6 +50,7 @@ Feature: A picked work's Code view
     And I ask the conductor to run the implementor in the work's repo
     And the implementor writes "plan.md" into the work's repo
     And I leave the conductor for the host tab
+    And I go into the work's repo in the terminal
     And I click the Code tab
     And I click the Code tab mode "local"
     And I enter conductor mode

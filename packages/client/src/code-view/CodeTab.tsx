@@ -1258,8 +1258,10 @@ const CodeTab: Component<{
           {/* Toolbar grows roomier on a coarse pointer (back/fwd + each scope
            *  segment clear the WCAG 2.2 24px tap floor); `overflow-x-auto`
            *  +`scrollbar-none` is a clip safety net for the narrowest phones,
-           *  where the segments + filter can't all fit the drawer width. */}
+           *  where the segments + filter can't all fit the width the view is
+           *  given (a phone's drawer, a picked work on a phone). */}
           <div
+            data-testid="code-tab-toolbar"
             data-touch={isTouch() || undefined}
             class="group/toolbar flex items-center h-7 data-[touch=true]:h-10 px-1.5 bg-surface-1/30 border-b border-edge shrink-0 gap-2 overflow-x-auto scrollbar-none"
           >
