@@ -31,8 +31,8 @@ owns the one websocket and the singleton subscriptions.
 | `agents` | The agent chips, the chooser and the per-host agent marks. |
 | `attention` | The one path every alert goes through (`attend`), the channels it reaches you by, the engines that raise items into it, its diagnostics and its marks. |
 | `canvas` | The desktop spatial canvas: tiles, layout, minimap, title-bar actions. |
-| `comments` | Selection capture and the comment composer and tray. |
-| `conductor` | The Conductor conversation: transcript cards, composer, asks, diffs, the reader window, and the memory (its proposal cards and the Memory sheet). |
+| `comments` | Selection capture and the comment composer and tray. Each view that captures comments holds its own draft and its own jump to a comment (`commentView.ts`), so two views mounted at once never share them. |
+| `conductor` | The Conductor conversation: transcript cards, composer, asks, diffs, the reader window, the memory (its proposal cards and the Memory sheet), and a picked work's three views (its terminals live, its Code view, its details). |
 | `debug`, `dom` | Console hooks; shadow-DOM walking. |
 | `forwards` | Forwarded ports: rows, pills and the printed-URL links. |
 | `host` | Per-host canvases and sections, including the boot-stalled and connect surfaces. |
@@ -42,7 +42,7 @@ owns the one websocket and the singleton subscriptions.
 | `kaval`, `padi` | The two daemons as the browser sees them: liveness, info dialogs, updates, the degraded canvas. |
 | `palette` | The command palette's fleet actions and the create-terminal preview. |
 | `recorder` | Screen and mic recording: the button, the popover, the level meter, the webcam overlay. |
-| `right-panel` | The Inspector: agent status, the Code browser, diffs and file views. |
+| `right-panel` | The Inspector: agent status, the Code browser, diffs and file views. The Code view takes its subject, its state, its reads and its door as inputs, so a picked work in the Conductor shows the same view about its own worktree. |
 | `rpc` | The typed root procedures, declared errors and the transport overlay. |
 | `settings` | The settings popover, its rows and tips. |
 | `terminal` | The terminal tile itself: xterm wiring, search, agent indicator, scrollback affordances. |

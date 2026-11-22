@@ -55,8 +55,9 @@ thing that does it.
 | `attachments.ts` | a prompt's files on their way up, and the rule that reaps them |
 | `recordWrites.ts` | how often any of it hits disk — one leading-edge timer, one flag per record |
 | `workFiles.ts` | the port kolu-server implements over padi |
-| `persisted.ts` | the five records a restart reads (works, members, memory, the conversation's own record, the transcript), decoded through `kolu-work`'s `parseStore` so a store that breaks an invariant fails with the sentence naming it, and the re-validation that refuses a file with holes in it. The conversation's own record carries `taught` — whether the standing prompt has already gone out in the session it names — because the agent's memory of it outlives the subprocess holding it, and a restart that assumed nothing taught a chat in progress again |
+| `persisted.ts` | the six records a restart reads (works, members, memory, where each work's Code view was left, the conversation's own record, the transcript), decoded through `kolu-work`'s `parseStore` so a store that breaks an invariant fails with the sentence naming it, and the re-validation that refuses a file with holes in it. The conversation's own record carries `taught` — whether the standing prompt has already gone out in the session it names — because the agent's memory of it outlives the subprocess holding it, and a restart that assumed nothing taught a chat in progress again |
 | `memoryStore.ts` · `memoryBlock.ts` | the memory's single writer (propose, approve, decline, save, remove, import, restore) and the `# [kolu] What you remember` block the standing prompt ends with |
+| `workCodeViewStore.ts` | where each work's Code view was left (its mode and the file open in each mode), keyed by `WorkId`: an equal write is dropped, a view lives exactly as long as its work (the work store says when one may be made and when one goes), and a restore writes at once |
 | `kolu.ts` | WHAT A TOOL CALL MEANS TO KOLU: the reading a card is drawn from (one per tool the fleet face serves, each gated on `isTerminalId`), the fold of a call's two frames, and the `Fleet` — the terminals this conversation has created or typed into, in first-touch order. `conductor.ts` hands the reader to `@kolu/acp-harness` as its `readCall` and computes the fleet out of what it reads |
 | `aboutBlock.ts` | the `[kolu] about …` lines a message carries above the words, composed here and handed to the harness as the body a person's message is sent under |
 | `wakeText.ts` · `teaching.ts` · `surface.ts` · `transcriptStream.ts` | what the agent reads, what it is taught, and what a browser subscribes to |
@@ -82,6 +83,11 @@ appending what it observes.
   Losing terminals never ends a work: an open work with no members says "no
   terminals" on its card and the Conductor is woken ONCE with exactly that,
   and `work_adopt` re-joins existing terminals with a role.
+- **Where each work's Code view was left** is a record of its own beside the
+  works (`workCodeViews`, `setWorkCodeView`): the mode and the file open in
+  each mode, keyed by `WorkId`, saved under `config.json`'s `workCodeViews`
+  key. A view lives exactly as long as its work: the work store refuses one
+  for a work it does not hold, and drops it when the work goes.
 - **What kolu knows about each member TERMINAL** is its own key beside them,
   `members` (ref → `MemberWatch`, `./members.ts`): the name kolu last saw,
   whether an agent was ever seen in it, the level the conversation has already
