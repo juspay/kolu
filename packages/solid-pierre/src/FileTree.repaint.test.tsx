@@ -33,7 +33,7 @@
  * the revision counter, so disabling the counter outright leaves these tests
  * green. See the PR that added this file for the full evidence.
  */
-import { createSignal } from "solid-js";
+import { batch, createSignal } from "solid-js";
 import { render } from "solid-js/web";
 import { afterEach, describe, expect, it } from "vitest";
 import type { GitStatusEntry } from "@pierre/trees";
@@ -158,4 +158,39 @@ it("applies a standing selection when its path arrives in the retained tree", as
     root.querySelector('[data-item-path="src/a.ts"][aria-selected="true"]'),
   ).not.toBeNull();
   expect(root.isConnected).toBe(true);
+});
+
+// The Code tab's hidden browse tree can sit on an empty inventory, then receive
+// the inventory AND a selection in one update (an "Open path:N" from a diff).
+// Solid runs the effects that update queued in the order their inputs changed,
+// so the selection can be applied before the paths it names exist in Pierre.
+// Writing the selection first in the batch is what puts it first in the queue.
+it("applies a selection that arrives in the same update as its path", async () => {
+  const [paths, setPaths] = createSignal<string[]>([]);
+  const [selected, setSelected] = createSignal<string | null>(null);
+  const root = mountInto((host) =>
+    render(
+      () => (
+        <FileTree
+          paths={paths()}
+          selectedPath={selected()}
+          search={false}
+          onError={(err) => {
+            throw err;
+          }}
+        />
+      ),
+      host,
+    ),
+  );
+  batch(() => {
+    setSelected("docs/notes.txt");
+    setPaths(["docs/notes.txt"]);
+  });
+  await flush();
+  expect(
+    root.querySelector(
+      '[data-item-path="docs/notes.txt"][aria-selected="true"]',
+    ),
+  ).not.toBeNull();
 });
