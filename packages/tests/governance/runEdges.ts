@@ -421,6 +421,11 @@ export const RUN_EDGE_ALLOWLIST: readonly RunEdge[] = [
     why: "the unix listener's per-peer boundary: serve each accepted connection in its own scope, release that scope on the socket's `close`/`error` — node `net` callbacks either side",
   },
   {
+    path: "packages/tests/step_definitions/conductor_details_steps.ts",
+    sites: 1,
+    why: "one cucumber step ends a member terminal where it lives — a scoped dial of the kaval daemon and the kill, as one Effect; a step body is a Promise the runner awaits, so there is no Effect above it to compose into",
+  },
+  {
     path: "packages/tests/step_definitions/spawn_detection_steps.ts",
     sites: 4,
     why: "the cucumber steps' four boundaries — a scoped dial of the kaval daemon, the command-rooted spawn under test, and the kill + scope-close an `After` hook must complete before the world is torn down; a step body is a Promise the runner awaits, so there is no Effect above it to compose into",

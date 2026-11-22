@@ -460,3 +460,21 @@ Feature: A piece of work is a stored thing
     And every stage label and time should be whole
     And nothing on screen should reach past the window's right edge
     And there should be no page errors
+
+  Scenario: A work keeps where it works after its terminal has gone
+    # The work holds its worktree on its own record: its folder, its files and
+    # the reader all stay when the only terminal in it ends.
+    Given a repo for the work
+    When I ask the conductor to open the work "outlive the terminal"
+    And I answer the work's question with "hand-over" in the chat
+    And I ask the conductor to run the implementor in the work's repo
+    And the implementor writes a plan with a table into the work's repo
+    Then the work card should list the file ".waterfall/plan.md"
+    And the work's worktree part should show the work's folder and its branch
+    When the implementor's terminal goes away
+    Then the work should have no terminals
+    And the work card should list the file ".waterfall/plan.md"
+    And the work's worktree part should show the work's folder and its branch
+    When I open the work's file ".waterfall/plan.md"
+    Then the reader should render "The plan" as a heading
+    And there should be no page errors

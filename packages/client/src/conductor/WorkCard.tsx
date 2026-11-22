@@ -317,6 +317,7 @@ const WorkCard: Component<{
   );
   const title = () => (
     <span
+      data-testid="work-card-title"
       class={`min-w-0 flex-1 truncate font-semibold text-fg ${
         props.shape === "picked" ? "text-base" : "text-[0.78rem]"
       }`}

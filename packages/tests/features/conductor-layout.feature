@@ -165,3 +165,15 @@ Feature: The Conductor reads as a conversation
     Then the command palette should not be visible
     And the conductor pane should be visible
     And there should be no page errors
+
+  Scenario: A work's row keeps its title readable beside the sidebar, at its default and at its widest
+    # The works give the sidebar its width, so a row is laid out for what is
+    # left beside it, not for the window.
+    Given a repo for the work
+    When I resize the viewport to 1280x800
+    And I ask the conductor to open the work "a title long enough to need its room beside the sidebar"
+    And I ask the conductor to open the work "and a second one beside it"
+    Then every work's row should fit its column, with room for its title
+    When the works sidebar is at its widest
+    Then every work's row should fit its column, with room for its title
+    And there should be no page errors

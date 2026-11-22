@@ -280,3 +280,76 @@ Then(
       .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
   },
 );
+
+/** A ROW IN THE PICKED WORK'S DETAILS, by its terminal's role. */
+const rowOf = (role: string): string =>
+  `${COLUMN} [data-testid="work-member"][data-role="${role}"]`;
+
+/** INSPECT, from a live pane's head: the work's Details with that terminal's
+ *  row unfolded. */
+When(
+  "I inspect the {string} in its live terminal",
+  async function (this: KoluWorld, role: string) {
+    await this.page
+      .locator(`${paneOf(role)} [data-testid="live-inspect"]`)
+      .click();
+  },
+);
+
+/** UNFOLDED: the row's own toggle says so, and under it are the terminal's
+ *  agent card and its Compose. */
+Then(
+  "the {string} row should be unfolded, with its agent card and Compose",
+  async function (this: KoluWorld, role: string) {
+    const row = this.page.locator(rowOf(role));
+    await pollFor({
+      observe: () =>
+        row
+          .locator('[data-testid="work-member-role"]')
+          .getAttribute("aria-expanded", { timeout: 500 })
+          .catch(() => null),
+      isDone: (expanded) => expanded === "true",
+      timeoutMs: POLL_TIMEOUT,
+      onTimeout: (last, ms) =>
+        new Error(
+          `the ${role}'s row said aria-expanded=${JSON.stringify(last)} after ${ms}ms`,
+        ),
+    });
+    const inspector = row.locator('[data-testid="work-member-inspector"]');
+    await inspector
+      .locator('[data-testid="inspector-agent-card"]')
+      .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    await inspector
+      .locator('[data-testid="compose-input"]')
+      .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+  },
+);
+
+/** SEND FROM THE ROW'S COMPOSE — the draft written into that terminal, on its
+ *  own host, as the Right panel's Compose writes into the focused pane. */
+When(
+  "I send {string} from the {string} row's Compose",
+  async function (this: KoluWorld, text: string, role: string) {
+    const inspector = this.page.locator(
+      `${rowOf(role)} [data-testid="work-member-inspector"]`,
+    );
+    await inspector.locator('[data-testid="compose-input"]').fill(text);
+    await inspector.locator('[data-testid="compose-send"]').click();
+  },
+);
+
+/** WHAT A LIVE PANE'S SCREEN SHOWS — any text on it, typed or printed. */
+Then(
+  "the {string} live terminal should show {string}",
+  async function (this: KoluWorld, role: string, text: string) {
+    await pollFor({
+      observe: () => readBufferText(this.page, screenOf(role)),
+      isDone: (seen) => seen.includes(text),
+      timeoutMs: POLL_TIMEOUT,
+      onTimeout: (last, ms) =>
+        new Error(
+          `the ${role}'s live terminal never showed ${JSON.stringify(text)} after ${ms}ms; it reads ${JSON.stringify((last ?? "").trim().slice(-300))}`,
+        ),
+    });
+  },
+);

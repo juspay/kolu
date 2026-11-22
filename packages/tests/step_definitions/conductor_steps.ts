@@ -3080,7 +3080,7 @@ After(() => {
   statedPr = null;
 });
 
-function workRepo(world: KoluWorld): string {
+export function workRepo(world: KoluWorld): string {
   const dir = world.workRepoDir;
   assert.ok(dir, "this scenario never made a repo for its work");
   return dir;
