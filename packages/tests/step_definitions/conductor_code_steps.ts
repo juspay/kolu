@@ -386,8 +386,8 @@ When(
     await dragResizeHandle(
       this,
       `${WORK_CODE} [data-testid="diff-tree-content-handle"][data-corvu-resizable-handle]`,
-      "x",
       pixels,
+      0,
     );
   },
 );
