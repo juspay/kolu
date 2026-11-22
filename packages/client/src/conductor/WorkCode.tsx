@@ -2,7 +2,7 @@
  *  own worktree, on the work's own host.
  *
  *  Not a copy: it is the one Code view (`code-view/CodeTab.tsx`), handed
- *  the work's four inputs.
+ *  the work's five inputs.
  *
  *  - **What it is about**, from the one reading of a work's worktree
  *    (`workPlaceOf`): its host and path; who lists the root, from the git
@@ -18,17 +18,31 @@
  *    work, and leases the Conductor's own shown fact.
  *  - **Its own door**: a link, a wikilink, "Open path:N" and a history step
  *    land in THIS view, and never touch the Right panel.
+ *  - **Its arrangement**, from its own box's width, not the window's: the
+ *    work shares the window with the chat and a sidebar a person sizes. A
+ *    wide box stands the tree beside the file, a narrow one (every phone)
+ *    stacks it above (`codeArrangement`). The box is measured in the same
+ *    pass that mounts it, before the first paint, so a wide view never
+ *    draws stacked first.
  *
  *  An open work whose worktree kolu has not read yet says so in one line, the
  *  Worktree part's own. A finished work has no switch, so no Code view. */
 
 import { decodeHostKey } from "kolu-common/hostKey";
 import type { Work, WorkId } from "kolu-work";
-import { type Component, createEffect, createMemo, Show } from "solid-js";
+import { createElementSize } from "@solid-primitives/resize-observer";
+import {
+  type Component,
+  createEffect,
+  createMemo,
+  createSignal,
+  Show,
+} from "solid-js";
 import CodeTab from "../code-view/CodeTab";
 import { buildCodeQueries, createCodeLeases } from "../code-view/codeQueries";
 import type { CodeSubject } from "../code-view/codeSubject";
 import { codeOwner } from "../code-view/codeTabOpenController";
+import { codeArrangement } from "../code-view/codeSplit";
 import { createCodeDoor } from "../code-view/codeDoor";
 import { paneHeight } from "./livePanes";
 import { syncWorkCodeRoot, workCodeState } from "./workCodeView";
@@ -69,8 +83,11 @@ const Read: Component<{
   // The work's back/forward follows its root, handed over with the work it
   // belongs to as one pair.
   createEffect(() => syncWorkCodeRoot(props.id, props.place.repoPath));
+  const [box, setBox] = createSignal<HTMLDivElement>();
+  const boxSize = createElementSize(box);
   return (
     <div
+      ref={setBox}
       data-testid="work-code"
       class="min-h-0"
       style={{ height: paneHeight("stack", 1) }}
@@ -80,6 +97,7 @@ const Read: Component<{
         state={state}
         queries={queries}
         door={door}
+        arrangement={codeArrangement(boxSize.width)}
       />
     </div>
   );

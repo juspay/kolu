@@ -10,9 +10,9 @@
  *  per-mode selection from {@link selectionWith}, so the two homes cannot
  *  come to disagree about what back/forward or a deselect does.
  *
- *  What is NOT here: the tree's width, which is one preference shared by every
- *  Code view (`useRightPanel().codeTabTreeSize`), and the visible file
- *  content, which is read through the view's query set. */
+ *  What is NOT here: the tree's share of the split, a preference per
+ *  arrangement (`codeSplit.ts`), and the visible file content, which is read
+ *  through the view's query set. */
 
 import type {
   CodeTabView,
