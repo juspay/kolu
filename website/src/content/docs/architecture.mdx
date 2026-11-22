@@ -478,9 +478,10 @@ its question, each mint a wake that runs a turn as your prompt does. A host
 without an established roster is read as settling, so no wake says a terminal
 is gone until a host can say so.
 
-Works keyed by branch, their members by terminal and the
-[memory](/conductor-memory) are three saved keys, reaching the browser as
-`works`, `memberReadings` and `conductorMemory`. See [the Conductor](/conductor).
+Works keyed by branch, their members by terminal, their Code views and the
+[memory](/conductor-memory) are four saved keys, served as `works`,
+`memberReadings`, `workCodeViews` and `conductorMemory`. See [the
+Conductor](/conductor).
 
 ## The packages
 
@@ -494,7 +495,7 @@ out. The map:
 | --- | --- | --- |
 | `client` | The browser app: SolidJS, xterm.js, Tailwind. | `padi-client`, `surface`, `xterm-kit`, `theme`, `kolu-work`, the `solid-*` leaves |
 | `server` | The Effect HTTP shell: serves the app, the preview route and the websocket, binds one padi per host, and mounts [the Conductor](/conductor). | `padi`, `padi-client`, `conductor`, `kolu-work`, `surface-remote`, `port-forward` |
-| `conductor` | The conversation itself, split by clock: the agent and its transcript, the work and member stores, observation, wakes and asking. | `acp`, `acp-harness`, `padi-client`, `kolu-work`, `surface` |
+| `conductor` | The conversation itself, split by clock: the agent and its transcript, the work, member and Code view stores, observation, wakes and asking. | `acp`, `acp-harness`, `padi-client`, `kolu-work`, `surface` |
 | `kolu-work` | A piece of work as kolu stores it, and the waterfall's words. | `effect` |
 | `kolu-cli` | The `kolu` binary: subcommand dispatch and the terminal verbs `ls`, `create`, `send`, `wait`, `snapshot`, `history`, `kill`, `watch`. | `padi`, `padi-client`, `surface-cli` |
 | `kolu-mcp` | The agent face, and the one place the exposed tool list is declared: `kolu mcp`, plus the fleet projection kolu-server serves over a host map. | `padi`, `padi-client`, `surface-mcp`, `conductor`, `kolu-work` |
