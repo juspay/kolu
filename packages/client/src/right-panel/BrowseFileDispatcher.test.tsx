@@ -10,6 +10,7 @@ import BrowseFileDispatcher, {
   type BrowseFileDispatcherProps,
 } from "./BrowseFileDispatcher";
 
+import { CommentView, createCommentView } from "../comments/commentView";
 import { Shown } from "../ui/shown";
 
 type FileAt = BrowseFileDispatcherProps["at"];
@@ -35,15 +36,18 @@ const show = (path: string, content: string): HTMLElement => {
   document.body.append(host);
   dispose = render(
     () => (
-      <BrowseFileDispatcher
-        at={null}
-        open={null}
-        filePath={path}
-        file={{ path, source: { content, truncated: false } }}
-        error={undefined}
-        repoVault={{ paths: [], pending: false }}
-        theme="dark"
-      />
+      // The viewer is drawn inside the view that holds its comment state.
+      <CommentView.Provider value={createCommentView()}>
+        <BrowseFileDispatcher
+          at={null}
+          open={null}
+          filePath={path}
+          file={{ path, source: { content, truncated: false } }}
+          error={undefined}
+          repoVault={{ paths: [], pending: false }}
+          theme="dark"
+        />
+      </CommentView.Provider>
     ),
     host,
   );
@@ -92,18 +96,20 @@ describe("a drawn document, as the terminal it hangs on comes and goes", () => {
       () => (
         // Commenting asks whether its pane is shown, as every pane does.
         <Shown.Provider value={() => true}>
-          <BrowseFileDispatcher
-            at={at()}
-            open={null}
-            filePath="plan.md"
-            file={{
-              path: "plan.md",
-              source: { content: "# The plan", truncated: false },
-            }}
-            error={undefined}
-            repoVault={{ paths: [], pending: false }}
-            theme="dark"
-          />
+          <CommentView.Provider value={createCommentView()}>
+            <BrowseFileDispatcher
+              at={at()}
+              open={null}
+              filePath="plan.md"
+              file={{
+                path: "plan.md",
+                source: { content: "# The plan", truncated: false },
+              }}
+              error={undefined}
+              repoVault={{ paths: [], pending: false }}
+              theme="dark"
+            />
+          </CommentView.Provider>
         </Shown.Provider>
       ),
       host,

@@ -17,7 +17,6 @@ import {
   DEFAULT_MAX_ENTRIES,
 } from "@kolu/solid-browser";
 import type { Accessor } from "solid-js";
-import type { CodeOwner } from "./codeTabOpenController";
 
 /** A spot in the Code tab's navigable space — the unit `@kolu/solid-browser`'s
  *  history records. `mode` is the All/Local/Branch sub-view, carried *inside*
@@ -54,11 +53,15 @@ export function createCodeHistory(): Browser<BrowserLocation> {
   });
 }
 
-/** A Code view's place, behind one interface. Every read is reactive. */
+/** A Code view's place, behind one interface. Every read is reactive.
+ *
+ *  Whose place it is and which root it shows are NOT asked here: they come
+ *  together in the view's subject, from one read by the caller. The home
+ *  keeps its own history in step with its root — history records
+ *  repo-relative locations with no root of their own, so a stack built under
+ *  one root is dropped by the home when the root moves (the Right panel's:
+ *  `useRightPanel().syncRepo`, fed by `RightPanel` from that same read). */
 export interface CodeViewState {
-  /** Who owns this place — the identity an open request made in the view is
-   *  scoped to. `null` while there is nobody to own it (no pane shown). */
-  readonly owner: Accessor<CodeOwner | null>;
   /** The mode the view SHOWS — the stored mode through `codeModeFor`, so a
    *  root git cannot list always browses. */
   readonly codeMode: Accessor<CodeTabView>;
@@ -75,9 +78,4 @@ export interface CodeViewState {
   readonly navigateForward: () => BrowserLocation | null;
   readonly canNavigateBack: Accessor<boolean>;
   readonly canNavigateForward: Accessor<boolean>;
-  /** Tell the place which root the view is showing now. History records
-   *  repo-relative locations with no root of their own, so a stack built
-   *  under one root is dropped when the root moves; the first call only
-   *  records the baseline, so a restored stack survives the first mount. */
-  readonly syncRepo: (repo: string | null) => void;
 }

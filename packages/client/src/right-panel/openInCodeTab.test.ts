@@ -25,7 +25,8 @@ vi.mock("./useRightPanel", () => ({
   }),
 }));
 
-import type { WorkId } from "kolu-work";
+import { paneCodeOwner } from "./codeSubject";
+import { codeOwner } from "./codeTabOpenController";
 import { createCodeDoor, openInCodeTab, pendingOpen } from "./openInCodeTab";
 
 describe("openInCodeTab", () => {
@@ -53,7 +54,7 @@ describe("openInCodeTab", () => {
     );
     expect(pendingOpen()?.scope).toMatchObject({
       host: { kind: "local" },
-      owner: { kind: "pane", terminalId: "terminal-b" },
+      owner: paneCodeOwner("terminal-b"),
       repoRoot: "/repo",
       mode: "browse",
     });
@@ -85,7 +86,7 @@ describe("openInCodeTab", () => {
 
     expect(h.focusTerminalSilently).toHaveBeenCalledWith("split-b");
     expect(pendingOpen()?.scope).toMatchObject({
-      owner: { kind: "pane", terminalId: "split-b" },
+      owner: paneCodeOwner("split-b"),
       repoRoot: "/split-repo",
     });
   });
@@ -109,10 +110,10 @@ describe("openInCodeTab", () => {
   // document must land in THAT view — never move the Right panel's focus, tab
   // or open file, and never be answered by the other view.
   it("a request made in one view's door is seen by that view alone", () => {
-    const work = "w-1" as WorkId;
+    const work = codeOwner("a-caller's-own-kind", "w-1");
     const own = createCodeDoor((mode) => ({
       host: { kind: "local" },
-      owner: { kind: "work", id: work },
+      owner: work,
       repoRoot: "/worktree",
       mode,
     }));
@@ -125,7 +126,7 @@ describe("openInCodeTab", () => {
 
     expect(own.pending()?.scope).toEqual({
       host: { kind: "local" },
-      owner: { kind: "work", id: work },
+      owner: work,
       repoRoot: "/worktree",
       mode: "browse",
     });

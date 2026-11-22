@@ -56,6 +56,7 @@
  *  they flip together within a single reactive tick. */
 
 import { scopedByEntry } from "@kolu/surface-map/client";
+import { type Accessor, createMemo } from "solid-js";
 import { createSharedRoot } from "../createSharedRoot";
 import { windowedSub } from "../hostScope/windowedSub.ts";
 import { useTerminalStore } from "../terminal/useTerminalStore";
@@ -65,8 +66,24 @@ import {
   type CodeQueries,
   createCodeLeases,
 } from "./codeQueries";
-import { codeSubjectOf } from "./codeSubject";
+import { type CodeSubject, codeSubjectOf } from "./codeSubject";
 import { useRightPanel } from "./useRightPanel";
+
+/** WHAT THE RIGHT PANEL'S CODE VIEW IS ABOUT — the focused pane on the shown
+ *  host, from the terminal store's ONE (id, record) bundle (`store.focused()`),
+ *  so the pane, its place and its root can never tear apart. `focused()` is a
+ *  tile's main terminal OR any split, so focusing a split re-keys everything
+ *  onto THAT pane. Said once: the view, the per-host sets below and the
+ *  history reset (`RightPanel`) all read this. */
+const rightPanelSubject = createSharedRoot(() => {
+  const store = useTerminalStore();
+  return createMemo((): CodeSubject => {
+    const pane = store.focused();
+    return codeSubjectOf(activeHost(), pane.id, pane.meta);
+  });
+});
+export const rightPanelCodeSubject: Accessor<CodeSubject> = () =>
+  rightPanelSubject()();
 
 /** The Right panel's leases: its one Code view leases here, and every host's
  *  set reads only while that view is shown AND its host is the shown one. */
@@ -77,20 +94,13 @@ const leases = createCodeLeases();
 // app-lifetime root, so its `padiMap` read is decoupled from import order (a unit test
 // can stand up a mock `padiMap` before the owner first reads it).
 const codeTabScopes = createSharedRoot(() =>
-  scopedByEntry(padiMap, activeHost, (_host, ctx) => {
-    const store = useTerminalStore();
-    return buildCodeQueries({
-      // The SHOWN pane on the shown host. `store.focused()` is the focused pane —
-      // a tile's main terminal OR any split — so focusing a split re-keys every
-      // query onto THAT pane's repo and selection.
-      subject: () => {
-        const pane = store.focused();
-        return codeSubjectOf(activeHost(), pane.id, pane.meta);
-      },
+  scopedByEntry(padiMap, activeHost, (_host, ctx) =>
+    buildCodeQueries({
+      subject: rightPanelCodeSubject,
       state: useRightPanel().code,
       active: () => ctx.isActive() && leases.shown(),
-    });
-  }),
+    }),
+  ),
 );
 
 /** The ACTIVE host's retained set — `undefined` only during the removal race (the

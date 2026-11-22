@@ -36,6 +36,7 @@ import { type Accessor, batch, createSignal } from "solid-js";
 import { useTerminalStore } from "../terminal/useTerminalStore";
 import type { LineRef } from "../ui/lineRef";
 import { activeHost } from "../wire";
+import { paneCodeOwner } from "./codeSubject";
 import type {
   CodeTabScope,
   OpenInCodeTabRequest,
@@ -147,7 +148,7 @@ export function openInCodeTab(req: OpenInCodeTabInput): void {
     allowBasenameFallback: req.allowBasenameFallback,
     scope: {
       host: activeHost(),
-      owner: { kind: "pane", terminalId: req.terminalId },
+      owner: paneCodeOwner(req.terminalId),
       repoRoot,
       mode: req.targetMode,
     },

@@ -415,7 +415,7 @@ describe("useRightPanel — the panel follows the focused pane", () => {
 // must be dropped when the terminal it belongs to moves to a different repo —
 // but NOT when the user merely switches the active terminal between two repos.
 // The decision is keyed per terminal (`history.get(id).lastRepo`) — the pane
-// that has focus when the view tells its state the root — which is what lets
+// the caller names together with its root — which is what lets
 // it catch a repo change that happened while the terminal was INACTIVE (F6): a
 // previous-active-tuple compare would see the switch-back as a plain terminal
 // change and skip the reset, replaying repo-A history against repo A's new repo.
@@ -435,7 +435,7 @@ describe("useRightPanel — syncRepo scopes history per repo, per terminal", () 
     h.activeId = a;
     expect(rp.code.canNavigateBack()).toBe(true);
     // First syncRepo for this terminal just adopts its repo — history survives.
-    rp.code.syncRepo("/repo/A");
+    rp.syncRepo(a, "/repo/A");
     expect(rp.code.canNavigateBack()).toBe(true);
   });
 
@@ -444,9 +444,9 @@ describe("useRightPanel — syncRepo scopes history per repo, per terminal", () 
     recordAt(a, "one.txt", "two.txt");
     const rp = useRightPanel();
     h.activeId = a;
-    rp.code.syncRepo("/repo/A"); // baseline
+    rp.syncRepo(a, "/repo/A"); // baseline
     expect(rp.code.canNavigateBack()).toBe(true);
-    rp.code.syncRepo("/repo/A2"); // cd into another repo
+    rp.syncRepo(a, "/repo/A2"); // cd into another repo
     expect(rp.code.canNavigateBack()).toBe(false);
   });
 
@@ -456,17 +456,17 @@ describe("useRightPanel — syncRepo scopes history per repo, per terminal", () 
     const rp = useRightPanel();
     recordAt(a, "a1.txt", "a2.txt");
     h.activeId = a;
-    rp.code.syncRepo("/repo/A");
+    rp.syncRepo(a, "/repo/A");
     recordAt(b, "b1.txt", "b2.txt");
     h.activeId = b;
-    rp.code.syncRepo("/repo/B");
+    rp.syncRepo(b, "/repo/B");
     // Switch back to A — same repo as before, so its history must be intact.
     h.activeId = a;
-    rp.code.syncRepo("/repo/A");
+    rp.syncRepo(a, "/repo/A");
     expect(rp.code.canNavigateBack()).toBe(true);
     // And B's is untouched too.
     h.activeId = b;
-    rp.code.syncRepo("/repo/B");
+    rp.syncRepo(b, "/repo/B");
     expect(rp.code.canNavigateBack()).toBe(true);
   });
 
@@ -477,20 +477,41 @@ describe("useRightPanel — syncRepo scopes history per repo, per terminal", () 
     // A builds history in repo A and becomes the baseline.
     recordAt(a, "a1.txt", "a2.txt");
     h.activeId = a;
-    rp.code.syncRepo("/repo/A");
+    rp.syncRepo(a, "/repo/A");
     expect(rp.code.canNavigateBack()).toBe(true);
     // Switch to B; A is now inactive. (CodeTab only ever syncs the active id.)
     recordAt(b, "b1.txt");
     h.activeId = b;
-    rp.code.syncRepo("/repo/B");
+    rp.syncRepo(b, "/repo/B");
     // While A was inactive its PTY cd'd into a different repo — the metadata
     // change reaches CodeTab only when A becomes active again. The previous
     // active tuple was (B, /repo/B), so a previous-tuple compare would treat
     // this as a plain terminal switch and SKIP the reset; per-terminal tracking
     // sees A's own repo moved (/repo/A → /repo/A2) and drops the stale stack.
     h.activeId = a;
-    rp.code.syncRepo("/repo/A2");
+    rp.syncRepo(a, "/repo/A2");
     expect(rp.code.canNavigateBack()).toBe(false);
+  });
+
+  // A focus move is one propagation step: for that step the root last handed
+  // over is still the PREVIOUS pane's. The reset must be told which pane that
+  // root belongs to — the pane read with it — not whichever pane has focus by
+  // now, or the newly focused pane is told the old pane's root and its history
+  // is wiped.
+  it("a focus move while the previous pane's root is still being handed over clears neither pane's history", () => {
+    const a = "f6-tear-A" as TerminalId;
+    const b = "f6-tear-B" as TerminalId;
+    const rp = useRightPanel();
+    recordAt(a, "a1.txt", "a2.txt");
+    rp.syncRepo(a, "/repo/A");
+    recordAt(b, "b1.txt", "b2.txt");
+    rp.syncRepo(b, "/repo/B");
+    // Focus is on B, and the subject handed over still names A with A's root.
+    h.activeId = b;
+    rp.syncRepo(a, "/repo/A");
+    expect(rp.code.canNavigateBack()).toBe(true);
+    h.activeId = a;
+    expect(rp.code.canNavigateBack()).toBe(true);
   });
 });
 

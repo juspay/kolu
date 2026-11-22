@@ -23,7 +23,7 @@ import { type Accessor, createEffect, createSignal, onCleanup } from "solid-js";
 import { codeViewItemIdAt } from "@kolu/solid-pierre";
 import { walkShadowRoots } from "../dom/shadowWalk";
 import { useShown } from "../ui/shown";
-import { useComposer } from "./composerState";
+import { useComposer } from "./commentView";
 
 /** Debounced live-selection snapshot. The pill placement only needs the
  *  rect — the real W3C Locator is built lazily in `activate()` from the

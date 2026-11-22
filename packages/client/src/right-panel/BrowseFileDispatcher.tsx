@@ -70,7 +70,7 @@ import {
 import { toast } from "solid-sonner";
 import { match, P } from "ts-pattern";
 import { CommentTextSurface } from "../comments/CommentTextSurface";
-import { useCommentScrollRequest } from "../comments/scrollRequest";
+import { useCommentScrollRequest } from "../comments/commentView";
 import { OptionMenu } from "../ui/OptionMenu";
 import BrowseFileView from "./BrowseFileView";
 import BrowseIframeRenderer from "./BrowseIframeRenderer";

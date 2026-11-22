@@ -215,13 +215,17 @@ const HOST_B: HostKey = { kind: "remote", target: "B" };
 const [driveHost, setDriveHost] = createSignal<HostKey>(HOST_A);
 bag.activeHost = driveHost;
 
-// The focused pane's id and its repo, driven REACTIVELY: a pane switch inside one
-// repo must be observable as an invalidation of the query inputs that changes
-// nothing downstream — that is the whole point of keying the listings on the repo.
+// The focused pane's id, its repo and whether that repo is bare, driven
+// REACTIVELY: the Right panel's subject is one memo over the focused pane, so a
+// change must be observable as an invalidation. A pane switch inside one repo
+// changes nothing downstream — that is the whole point of keying the listings
+// on the repo.
 const [driveTermId, setDriveTermId] = createSignal<string | null>("t1");
 const [driveRepo, setDriveRepo] = createSignal<string | null>("/repo");
+const [driveBare, setDriveBare] = createSignal(false);
 bag.termId = driveTermId;
 bag.repoRoot = driveRepo;
+bag.bare = driveBare;
 
 function switchTo(host: HostKey): void {
   batch(() => {
@@ -251,7 +255,7 @@ beforeEach(async () => {
   setDriveRepo("/repo");
   bag.counts = {};
   bag.previewTagInputs = [];
-  bag.bare = () => false;
+  setDriveBare(false);
   bag.listDirectoryInputs = [];
   bag.branchFailure = null;
   bag.toastError.mockClear();
@@ -582,7 +586,7 @@ it("one hidden or disposed consumer cannot pause another shown Code view", async
 
 describe("a folder git cannot list (a bare repository's)", () => {
   it("reads the root level from disk and never asks git for a list or a status", async () => {
-    bag.bare = () => true;
+    setDriveBare(true);
     setShowIgnoredFiles(true);
     switchTo(HOST_A);
     void codeDiskRootLevel.pending();

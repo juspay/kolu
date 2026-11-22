@@ -376,10 +376,6 @@ export function useRightPanel() {
    *  interface. Each verb reads and writes the pane that has focus — main or
    *  any split — so focus moving between panes moves the whole place with it. */
   const code: CodeViewState = {
-    owner: () => {
-      const id = store.focusedTerminalId();
-      return id === null ? null : { kind: "pane", terminalId: id };
-    },
     codeMode: paneCodeMode,
     setCodeMode: (mode) => mutatePane({ codeMode: mode }),
     /** Per-mode file selection, keyed by `(focusedPane, mode)` so each pane
@@ -424,9 +420,23 @@ export function useRightPanel() {
       const id = store.focusedTerminalId();
       return id === null ? false : browserFor(id).canForward();
     },
-    /** Reconcile the focused pane's history with the repo it sits in,
-     *  dropping the stack only when *that pane's own* repo has changed since
-     *  its history was last touched.
+  };
+
+  return {
+    /** Reconcile terminal `id`'s history with the repo it sits in, dropping
+     *  the stack only when *that terminal's own* repo has changed since its
+     *  history was last touched. The caller hands the pane and its root as ONE
+     *  pair, read together (`RightPanel`, from the focused pane's bundle): a
+     *  pane looked up here on its own could be paired with the previous pane's
+     *  root for a propagation step, and wipe the new pane's history.
+     *
+     *  The recorded locations are repo-relative paths (`{ mode, path }`) with
+     *  no repo identity of their own, so they are only meaningful within the
+     *  repo they were captured in. When a terminal `cd`s from repo A to repo B,
+     *  re-applying an A-relative entry inside B would open the wrong same-named
+     *  file (or a path B's membership effect then clears). Resetting on a
+     *  genuine repo change keeps back/forward scoped to the repo currently
+     *  shown; the next `recordNavigation` re-seeds the stack.
      *
      *  The decision is keyed PER TERMINAL (`history.get(id).lastRepo`), not
      *  against the previously focused pane: a terminal's repo can change while
@@ -438,23 +448,19 @@ export function useRightPanel() {
      *  switch. The first call for a terminal records its repo without
      *  resetting, so a session-restored (seeded) stack survives the initial
      *  mount. */
-    syncRepo: (repo) => {
-      const id = store.focusedTerminalId();
-      if (id === null) return;
+    syncRepo: (id: TerminalId, repo: string | null) => {
       // `historyFor` resolves (creating if absent) the terminal's record, so a
       // `lastRepo` of `undefined` is the sole "no repo recorded yet" marker —
       // distinct from `null` ("recorded, terminal is in no repo").
       const h = historyFor(id);
       const prevRepo = h.lastRepo;
       h.lastRepo = repo;
-      // A genuine repo move on a terminal we've already seen drops the
-      // now-stale stack — cleared in place so the toolbar stays subscribed to
-      // the live instance.
+      // First sight of this terminal (fresh mount or session restore): adopt
+      // its repo as the baseline, leaving any seeded stack intact. A genuine
+      // repo move on a terminal we've already seen drops the now-stale stack —
+      // cleared in place so the toolbar stays subscribed to the live instance.
       if (prevRepo !== undefined && repo !== prevRepo) h.browser.reset();
     },
-  };
-
-  return {
     // ── Workspace chrome ─────────────────────────────────────────────
     // `size`/`codeTabTreeSize` are GLOBAL server prefs — viewer layout/density
     // taste, per-tab by THE RULE. `collapsed` is per-terminal (it follows the

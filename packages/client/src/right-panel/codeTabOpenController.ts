@@ -1,29 +1,23 @@
 import type { CodeTabView } from "@kolu/padi-client/surface";
 import { Effect, type Fiber } from "effect";
 import { encodeHostKey, type HostKey } from "kolu-common/hostKey";
-import type { TerminalId } from "kolu-common/surface";
-import type { WorkId } from "kolu-work";
 import { createEffect, onCleanup } from "solid-js";
 import { match } from "ts-pattern";
 import { runOwnedAction } from "../runAction";
 import type { LineRef } from "../ui/lineRef";
 
-/** WHO OWNS a Code view's place — its selected file per mode, its history and
- *  the open requests made in it. The Right panel's place belongs to the PANE
- *  it shows; a work's Code view keeps one place for the WORK, whichever
- *  terminal (if any) is standing in its worktree. */
-export type CodeOwner =
-  | { readonly kind: "pane"; readonly terminalId: TerminalId }
-  | { readonly kind: "work"; readonly id: WorkId };
+declare const codeOwnerBrand: unique symbol;
 
-/** Collision-safe key for a {@link CodeOwner} — a pane and a work never share
- *  one, whatever their ids. */
-export function codeOwnerKey(owner: CodeOwner): string {
-  return JSON.stringify(
-    owner.kind === "pane"
-      ? [owner.kind, owner.terminalId]
-      : [owner.kind, owner.id],
-  );
+/** WHO OWNS a Code view's place — its selected file per mode, its history and
+ *  the open requests made in it. An identity its CALLER mints with
+ *  {@link codeOwner}; the view only compares two of them, and never looks
+ *  inside one. */
+export type CodeOwner = string & { readonly [codeOwnerBrand]: true };
+
+/** Mint an owner from the caller's own kind of owner and its id. Two callers'
+ *  kinds keep their owners apart whatever their ids. */
+export function codeOwner(kind: string, id: string): CodeOwner {
+  return JSON.stringify([kind, id]) as CodeOwner;
 }
 
 /** The complete owner of a Code-tab selection slot and open request. */
@@ -56,12 +50,7 @@ export function codeTabRepoSlotKey(scope: CodeTabScope | null): string | null {
 function codeTabScopeIdentity(
   scope: CodeTabScope,
 ): readonly [string, string, string, CodeTabView] {
-  return [
-    encodeHostKey(scope.host),
-    codeOwnerKey(scope.owner),
-    scope.repoRoot,
-    scope.mode,
-  ];
+  return [encodeHostKey(scope.host), scope.owner, scope.repoRoot, scope.mode];
 }
 
 /** A captured user intent to navigate one exact Code-tab owner to a file ref. */

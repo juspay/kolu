@@ -78,6 +78,7 @@ vi.mock("../wire", () => {
 vi.mock("solid-sonner", () => ({ toast: { error: () => {} } }));
 
 import { buildCodeQueries } from "./codeQueries";
+import { codeOwner } from "./codeTabOpenController";
 
 const flush = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
 
@@ -87,6 +88,7 @@ describe("a Code view's query set", () => {
     const dispose = createRoot((dispose) => {
       const q = buildCodeQueries({
         subject: () => ({
+          owner: codeOwner("test-view", "kestrel"),
           host: elsewhere,
           git: { kind: "repo", root: "/srv/code/kestrel", lister: "git" },
           terminalId: null,
