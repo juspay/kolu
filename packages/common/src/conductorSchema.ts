@@ -801,8 +801,9 @@ export const ConductorStateSchema = Schema.Struct({
    *  nothing, which is different from a conversation that has spent nothing
    *  (`{used: 0, size: 200000}`). */
   usage: Schema.NullOr(Usage),
-  /** Where the agent compacts the conversation, in tokens of context — kolu's
-   *  number, said by this server. `null` for an agent kolu sets none for. */
+  /** Where the running agent compacts the conversation, in tokens of context —
+   *  kolu's number as it stood when that agent was started, said by this
+   *  server. `null` until this server has started the agent. */
   compactsAt: Schema.NullOr(Schema.Int),
   /** Whether this agent kept a memory of its own that the person can bring
    *  over once into kolu's — what draws "Bring over from Claude Code". */
