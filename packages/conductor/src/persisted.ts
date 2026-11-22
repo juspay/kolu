@@ -8,7 +8,7 @@
  * with a sentence about why. That makes resume the default and these records
  * the things that make it possible.
  *
- * FIVE RECORDS, because they survive differently and are written at different
+ * SIX RECORDS, because they survive differently and are written at different
  * cadences:
  *
  *  - {@link PersistedConductorSchema} — the CONVERSATION, in `config.json`'s
@@ -23,6 +23,11 @@
  *    A piece of work OUTLIVES the conversation that opened it: "New session"
  *    clears the chat and keeps the work, so the work cannot live inside the
  *    conversation's record.
+ *  - {@link PersistedMembersSchema} — what kolu knows about each work's MEMBER
+ *    TERMINALS, in `config.json`'s `members` key, by fleet ref: which work and
+ *    role, and the watch's own memory of that terminal. Beside the works
+ *    because it is a fact about a terminal and moves every time a host is
+ *    read.
  *  - {@link PersistedMemorySchema} — the MEMORY, in `config.json`'s `memory`
  *    key: what the human approved for the Conductor to remember, and the
  *    proposals waiting on them. It outlives every session, as the works do.

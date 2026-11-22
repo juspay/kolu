@@ -34,6 +34,7 @@
 import { Option, Schema } from "effect";
 import { notKeptWhy } from "kolu-common/workFiles";
 import { type MemberReading, MemberReadingSchema } from "kolu-common/works";
+import type { WorkCodeView } from "kolu-common/works";
 import {
   capFinished,
   type Driver,
@@ -205,6 +206,10 @@ export interface WorkStore {
   readonly persisted: () => PersistedWorks;
   /** WHAT GONE WORKS LEAVE BEHIND, RECONCILED TO THE WORKS. */
   readonly forgetGone: () => void;
+  /** PUT A WORK'S CODE VIEW WHERE A PERSON LEFT IT — refused for a work kolu
+   *  does not hold, so no view is made without its work, as none outlives
+   *  one. An equal write is dropped by the view store. */
+  readonly setCodeView: (id: WorkId, view: WorkCodeView) => void;
   /** THE PULL-REQUEST WATCH'S SCOPE — every work IN PROGRESS that is a branch
    *  on a machine. Read off the works' own keys, so there is no second list
    *  that can disagree with the cards. */
@@ -331,12 +336,17 @@ export const workStore = (deps: WorkStoreDeps): WorkStore => {
     deps.records.schedule("works");
   };
 
+  /** NO VIEW WITHOUT ITS WORK — the half of the rule that lets a view go.
+   *  Every place the works are replaced or lose one asks it. */
+  const viewsKeepTheirWorks = (): void =>
+    deps.views.keepOnly(new Set(works.keys()));
+
   /** THE RULE FOR EVERY WAY A WORK GOES — the finished cap, a declined card,
    *  a restored backup that lacks it: what it left behind goes too. Its kept
    *  files are swept, and its Code view is forgotten, so neither outlives the
    *  work. Said here once; the three places a work goes each ask it. */
   const forgetGone = (): void => {
-    deps.views.keepOnly(new Set(works.keys()));
+    viewsKeepTheirWorks();
     void deps.workFiles
       .sweep([...works.keys()].map(workDirOf))
       .catch((err: unknown) => {
@@ -563,6 +573,15 @@ export const workStore = (deps: WorkStoreDeps): WorkStore => {
     publishWorks,
     publishReadings,
     forgetGone,
+    setCodeView: (id, view) => {
+      if (!works.has(id)) {
+        throw new WorkRefusal(
+          "unknown-work",
+          `kolu holds no piece of work called ${JSON.stringify(id)}, so there is no Code view of it to keep — it may have ended and dropped off the finished list, or been declined.`,
+        );
+      }
+      deps.views.set(id, view);
+    },
     memberRefs: activeRefs,
     prWatches,
     persisted: () => Object.fromEntries(works),
@@ -648,7 +667,7 @@ export const workStore = (deps: WorkStoreDeps): WorkStore => {
       deps.members.load(members);
       deps.views.load(views);
       // A view whose work the file no longer holds has nothing to stand in.
-      deps.views.keepOnly(new Set(works.keys()));
+      viewsKeepTheirWorks();
     },
     restore: (kept, members, views) => {
       const before = [...deps.members.all().keys()];

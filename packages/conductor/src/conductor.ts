@@ -2691,13 +2691,7 @@ export function startConductorHost(deps: ConductorDeps): ConductorHost {
     },
     setWorkCodeView: (id, view) => {
       remembered();
-      if (Option.isNone(works.get(id))) {
-        throw new WorkRefusal(
-          "unknown-work",
-          `kolu holds no piece of work called ${JSON.stringify(id)}, so there is no Code view of it to keep — it may have ended and dropped off the finished list, or been declined.`,
-        );
-      }
-      codeViews.set(id, view);
+      works.setCodeView(id, view);
     },
     restoreMemory: (restored) => {
       remembered();

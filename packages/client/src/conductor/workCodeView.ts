@@ -25,8 +25,8 @@ import { toError } from "@kolu/surface/run-stream";
 import { Effect } from "effect";
 import { DEFAULT_WORK_CODE_VIEW, type WorkCodeView } from "kolu-common/works";
 import type { WorkId } from "kolu-work";
-import type { Accessor } from "solid-js";
-import { createStore } from "solid-js/store";
+import { type Accessor, createEffect } from "solid-js";
+import { createStore, produce } from "solid-js/store";
 import { toast } from "solid-sonner";
 import { createSharedRoot } from "../createSharedRoot";
 import { type CodeLister, codeModeFor } from "../right-panel/codeLister";
@@ -38,6 +38,7 @@ import {
 } from "../right-panel/codeViewState";
 import { runAction } from "../runAction";
 import { app } from "../wire";
+import { useWorkMap } from "./useWorks";
 
 /** The views this browser has written, by work — the layer read first. */
 const [written, setWritten] = createStore<Record<WorkId, WorkCodeView>>({});
@@ -47,6 +48,27 @@ const served = createSharedRoot(() => app.collections.workCodeViews.use());
 
 /** Back/forward per work, with the root it was recorded under. */
 const histories = createCodeHistories<WorkId>();
+
+/** A WORK THAT GOES TAKES ITS VIEW WITH IT, here as on kolu-server. A work's
+ *  id is its branch, so the same branch opened again later is the same id:
+ *  without this, a declined work (or one off the finished list) would come
+ *  back holding this browser's old view and history and write the old view
+ *  back on the next click. Said once: every id the works mirror held and no
+ *  longer holds is let go of — its write and its history. Started by the
+ *  first view of a work, and app-lifetime from then on. */
+const forgetGoneWorks = createSharedRoot(() => {
+  const works = useWorkMap();
+  let held = new Set<WorkId>();
+  createEffect(() => {
+    const now = new Set(works().keys());
+    for (const id of held) {
+      if (now.has(id)) continue;
+      setWritten(produce((all) => delete all[id]));
+      histories.forget(id);
+    }
+    held = now;
+  });
+});
 
 /** The view as it stands: this browser's write, else the one kolu keeps,
  *  else where a fresh pane stands. */
@@ -91,6 +113,7 @@ export function workCodeState(
   work: WorkId,
   lister: Accessor<CodeLister | null>,
 ): CodeViewState {
+  forgetGoneWorks();
   return {
     codeMode: () => codeModeFor(lister(), viewOf(work).codeMode),
     setCodeMode: (mode) => {

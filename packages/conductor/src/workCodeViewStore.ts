@@ -27,7 +27,8 @@ export interface WorkCodeViewStore {
   /** Put one work's view where a person left it — a whole-record replace.
    *  A write equal to what is held is DROPPED: the browser reports on every
    *  file click, and an unchanged view is neither republished nor written.
-   *  Whether the work exists is the caller's to check. */
+   *  Reached only through the work store, which refuses a work it does not
+   *  hold (`WorkStore.setCodeView`). */
   readonly set: (id: WorkId, view: WorkCodeView) => void;
   /** EVERY VIEW, REPLACED — a restored backup. Followed by
    *  {@link keepOnly}, so a view whose work the snapshot lacks goes. */

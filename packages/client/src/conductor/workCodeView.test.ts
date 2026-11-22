@@ -1,6 +1,7 @@
 /** A WORK'S CODE VIEW IN THE BROWSER — written first, reported after. A file
  *  click moves the view at once and the whole view is reported behind it; a
- *  report kolu refuses says so in one toast, however many clicks it refuses. */
+ *  report kolu refuses says so in one toast, however many clicks it refuses;
+ *  and a work that goes takes this browser's view and history with it. */
 
 import { Effect } from "effect";
 import { ConductorRefused } from "kolu-common/conductorErrors";
@@ -16,15 +17,28 @@ const h = vi.hoisted(() => ({
   refuse: false,
   shown: (): string | null => null,
   toastError: vi.fn(),
+  /** The works mirror's keys, driven by a test. */
+  setWorks: (_ids: string[]): void => {},
 }));
 
-vi.mock("../wire", () => ({
-  app: {
-    collections: {
-      workCodeViews: {
-        use: () => ({ keys: () => [], byKey: () => undefined }),
+vi.mock("../wire", async () => {
+  // The factory runs before this file's own imports are bound.
+  const { createSignal } = await import("solid-js");
+  const [works, setWorks] = createSignal<string[]>([]);
+  h.setWorks = setWorks;
+  return {
+    app: {
+      collections: {
+        workCodeViews: {
+          use: () => ({ keys: () => [], byKey: () => undefined }),
+        },
+        works: {
+          use: () => ({
+            keys: works,
+            byKey: (id: string) => () => ({ title: id }),
+          }),
+        },
       },
-    },
     procedures: {
       conductor: {
         setWorkCodeView: (input: { work: string; view: WorkCodeView }) =>
@@ -36,8 +50,8 @@ vi.mock("../wire", () => ({
           }),
       },
     },
-  },
-}));
+  };
+});
 vi.mock("solid-sonner", () => ({ toast: { error: h.toastError } }));
 
 import { workCodeState } from "./workCodeView";
@@ -103,5 +117,25 @@ describe("a work's Code view in the browser", () => {
     await flush();
 
     expect(h.reports).toHaveLength(reports);
+  });
+
+  it("lets go of a work's view and history when the work goes", async () => {
+    const work = "branch:local/%2Fsrv%2Fcode%2Fkestrel/export" as WorkId;
+    h.setWorks([work]);
+    const state = workCodeState(work, () => "git");
+    await flush();
+    state.setSelectedFile("browse", "notes.md");
+    state.recordNavigation({ mode: "browse", path: "a.md" });
+    state.recordNavigation({ mode: "browse", path: "notes.md" });
+    expect(state.canNavigateBack()).toBe(true);
+
+    // Declined, or off the finished list: kolu-server has dropped its view.
+    h.setWorks([]);
+    await flush();
+
+    // The same branch opened again reads where a fresh view stands.
+    const again = workCodeState(work, () => "git");
+    expect(again.selectedFile("browse")).toBeNull();
+    expect(again.canNavigateBack()).toBe(false);
   });
 });

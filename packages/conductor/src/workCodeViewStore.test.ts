@@ -7,7 +7,7 @@
  */
 
 import type { WorkCodeView } from "kolu-common/works";
-import type { WorkId } from "kolu-work";
+import { type WorkId, WorkRefusal } from "kolu-work";
 import type { Logger } from "pino";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { memberStore } from "./memberStore.ts";
@@ -77,14 +77,23 @@ afterEach(() => {
 });
 
 describe("a work's Code view", () => {
+  it("is refused for a work kolu does not hold", () => {
+    const r = rig();
+    expect(() =>
+      r.works.setCodeView("branch:local/%2Fnowhere/none", LOCAL),
+    ).toThrow(WorkRefusal);
+    expect(r.views.read()).toEqual({});
+    expect(r.published).toEqual([]);
+  });
+
   it("drops a write equal to what it holds", () => {
     const r = rig();
     const id = r.open("export");
-    r.views.set(id, LOCAL);
+    r.works.setCodeView(id, LOCAL);
     const writes = r.viewRecords.scheduled();
     const published = r.published.length;
 
-    r.views.set(id, {
+    r.works.setCodeView(id, {
       codeMode: "local",
       selectedFileByMode: { local: "src/ledger.rs" },
     });
@@ -97,7 +106,7 @@ describe("a work's Code view", () => {
   it("goes with a declined work", () => {
     const r = rig();
     const id = r.open("export");
-    r.views.set(id, LOCAL);
+    r.works.setCodeView(id, LOCAL);
 
     expect(r.works.declined(id)).toBe(true);
 
@@ -113,8 +122,8 @@ describe("a work's Code view", () => {
     const [oldest, newest] = [ids[0], ids[FINISHED_KEPT]];
     if (oldest === undefined || newest === undefined)
       throw new Error("no works");
-    r.views.set(oldest, LOCAL);
-    r.views.set(newest, LOCAL);
+    r.works.setCodeView(oldest, LOCAL);
+    r.works.setCodeView(newest, LOCAL);
 
     // Ended one after another, so the first is the oldest finished work.
     ids.forEach((id, i) => {
@@ -131,7 +140,7 @@ describe("a work's Code view", () => {
     const r = rig();
     const gone = r.open("export");
     const kept = r.open("import");
-    r.views.set(gone, LOCAL);
+    r.works.setCodeView(gone, LOCAL);
     const snapshot = r.works.persisted();
 
     r.works.restore(

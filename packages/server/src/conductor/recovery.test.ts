@@ -139,7 +139,7 @@ function hostOver(): ConductorHost {
  *  it. */
 const recover = (
   host: ConductorHost,
-  key: "conductor" | "works" | "members" | "transcript",
+  key: "conductor" | "works" | "members" | "workCodeViews" | "transcript",
   how: "backup" | "empty",
 ) =>
   recoverConductorStore(
@@ -188,6 +188,7 @@ beforeEach(() => {
   conductorStore.set({ ...EMPTY_PERSISTED_CONDUCTOR, cwd: HOME });
   worksStore.set({});
   membersStore.set({});
+  workCodeViewsStore.set({});
   rmSync(join(stateRoot, "conductor"), { recursive: true, force: true });
   rmSync(stateBackupRing.dir, { recursive: true, force: true });
 });
@@ -196,6 +197,7 @@ afterEach(() => {
   conductorStore.set(EMPTY_PERSISTED_CONDUCTOR);
   worksStore.set({});
   membersStore.set({});
+  workCodeViewsStore.set({});
   rmSync(join(stateRoot, "conductor"), { recursive: true, force: true });
   rmSync(stateBackupRing.dir, { recursive: true, force: true });
 });
@@ -359,6 +361,24 @@ describe("start with the record empty", () => {
     expect(keptAside()[0]).toMatch(/^unreadable-members-.*\.json$/);
     expect(store.get("members")).toEqual({});
     expect(host.state().refusal).toBeNull();
+  });
+
+  it("keeps an unreadable record of where each work's Code view was aside, and comes up with its works and no views", () => {
+    worksStore.set(works(work("one", "the first")));
+    workCodeViewsStore.set({
+      "branch:local/%2Fsrv%2Frepo/one": 7,
+    } as unknown as PersistedWorkCodeViews);
+    const host = hostOver();
+    const said = refuse(host);
+    expect(said.unreadable.key).toBe("workCodeViews");
+    expect(said.refusal).toContain("where each work's Code view was left");
+
+    recover(host, "workCodeViews", "empty");
+
+    expect(keptAside()[0]).toMatch(/^unreadable-workCodeViews-.*\.json$/);
+    expect(store.get("workCodeViews")).toEqual({});
+    expect(host.state().refusal).toBeNull();
+    expect(host.works().map(([, one]) => one.title)).toEqual(["the first"]);
   });
 });
 

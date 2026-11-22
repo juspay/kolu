@@ -7,7 +7,15 @@
 
 import { createSignal, type JSX } from "solid-js";
 import { render } from "solid-js/web";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
 import BrowseFileDispatcher from "../right-panel/BrowseFileDispatcher";
 import { Shown } from "../ui/shown";
 import { CommentComposer } from "./CommentComposer";
@@ -107,49 +115,99 @@ describe("two comment-capturing views mounted at once", () => {
     expect(composers()).toHaveLength(1);
   });
 
-  it("a jump made in one view neither flips the other's toggle nor is used up by it", async () => {
+  describe("a jump to a comment", () => {
+    // The overlay that uses a request up runs only where the browser has the
+    // CSS Custom Highlight API (`highlightOverlay.ts` returns at once without
+    // it), and this test DOM has none — so it gets the two pieces the overlay
+    // touches: a registry and a `Highlight`. happy-dom's `window.CSS` is a
+    // getter handing out a fresh object, so the whole property is replaced.
+    beforeAll(() => {
+      Object.defineProperty(window, "CSS", {
+        value: { highlights: new Map() },
+        configurable: true,
+      });
+      Object.defineProperty(window, "Highlight", {
+        value: class {
+          constructor(..._ranges: unknown[]) {}
+        },
+        configurable: true,
+      });
+    });
+    afterAll(() => {
+      Reflect.deleteProperty(window, "CSS");
+      Reflect.deleteProperty(window, "Highlight");
+    });
+
     // The other view shows the same file of the same terminal — a work's view
     // borrowing the terminal the Right panel is on. The comment's quote is not
-    // in what that view draws, so its overlay would clear a request it saw.
+    // in what that view draws, so its overlay uses up a request it sees.
     const terminalId = "shared-terminal";
-    const comment = useComments(terminalId).add({
-      path: "plan.md",
-      locator: { quote: "words not in the plan", prefix: "", suffix: "" },
-      surface: "source",
-      body: "Say why",
-    });
-    const a = createCommentView();
-    const b = createCommentView();
-    const [shown] = createSignal({ host: "local", terminalId });
-    mount(() => (
-      <>
-        <CommentView.Provider value={a}>{null}</CommentView.Provider>
-        <CommentView.Provider value={b}>
-          <BrowseFileDispatcher
-            at={shown()}
-            open={null}
-            filePath="plan.md"
-            file={{
-              path: "plan.md",
-              source: { content: "# The plan", truncated: false },
-            }}
-            error={undefined}
-            repoVault={{ paths: [], pending: false }}
-            theme="dark"
-          />
-        </CommentView.Provider>
-      </>
-    ));
+    const twoViewsOnOneFile = () => {
+      const comment = useComments(terminalId).add({
+        path: "plan.md",
+        locator: { quote: "words not in the plan", prefix: "", suffix: "" },
+        surface: "source",
+        body: "Say why",
+      });
+      const a = createCommentView();
+      const b = createCommentView();
+      const [shown] = createSignal({ host: "local", terminalId });
+      mount(() => (
+        <>
+          <CommentView.Provider value={a}>{null}</CommentView.Provider>
+          <CommentView.Provider value={b}>
+            <BrowseFileDispatcher
+              at={shown()}
+              open={null}
+              filePath="plan.md"
+              file={{
+                path: "plan.md",
+                source: { content: "# The plan", truncated: false },
+              }}
+              error={undefined}
+              repoVault={{ paths: [], pending: false }}
+              theme="dark"
+            />
+          </CommentView.Provider>
+        </>
+      ));
+      return { comment, a, b };
+    };
     const renderedPressed = () =>
       document
         .querySelector("[data-testid=fileview-toggle-rendered]")
         ?.getAttribute("aria-pressed");
-    expect(renderedPressed()).toBe("true");
+    const settle = () =>
+      new Promise<void>((resolve) => setTimeout(resolve, 20));
 
-    a.scroll.set({ commentId: comment.id, path: "plan.md", surface: "source" });
-    await Promise.resolve();
+    it("made in the view that draws the file, moves its toggle and is used up there (the control)", async () => {
+      const { comment, b } = twoViewsOnOneFile();
+      expect(renderedPressed()).toBe("true");
 
-    expect(renderedPressed()).toBe("true");
-    expect(a.scroll.request()?.commentId).toBe(comment.id);
+      b.scroll.set({
+        commentId: comment.id,
+        path: "plan.md",
+        surface: "source",
+      });
+      await settle();
+
+      expect(renderedPressed()).toBe("false");
+      expect(b.scroll.request()).toBeNull();
+    });
+
+    it("made in the other view, neither moves this view's toggle nor is used up by it", async () => {
+      const { comment, a } = twoViewsOnOneFile();
+      expect(renderedPressed()).toBe("true");
+
+      a.scroll.set({
+        commentId: comment.id,
+        path: "plan.md",
+        surface: "source",
+      });
+      await settle();
+
+      expect(renderedPressed()).toBe("true");
+      expect(a.scroll.request()?.commentId).toBe(comment.id);
+    });
   });
 });
