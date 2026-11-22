@@ -250,11 +250,11 @@ describe("useRightPanel — the panel follows the focused pane", () => {
     };
     // No working tree: nothing to diff, so the Code tab browses.
     h.metadata = { git: { kind: "repo", info: { ...info, isBare: true } } };
-    expect(rp.codeMode()).toBe("browse");
+    expect(rp.code.codeMode()).toBe("browse");
     expect(rp.activeTab()).toEqual({ kind: "code", mode: "browse" });
     // Into a checkout: the mode the user picked is still theirs.
     h.metadata = { git: { kind: "repo", info: { ...info, isBare: false } } };
-    expect(rp.codeMode()).toBe("local");
+    expect(rp.code.codeMode()).toBe("local");
     expect(rp.activeTab()).toEqual({ kind: "code", mode: "local" });
   });
 
@@ -281,14 +281,14 @@ describe("useRightPanel — the panel follows the focused pane", () => {
     h.activeId = tile;
     h.focusedId = split;
     const rp = useRightPanel();
-    rp.setSelectedFile("browse", "split-only.ts");
-    expect(rp.selectedFile("browse")).toBe("split-only.ts");
+    rp.code.setSelectedFile("browse", "split-only.ts");
+    expect(rp.code.selectedFile("browse")).toBe("split-only.ts");
     h.focusedId = undefined;
-    expect(rp.selectedFile("browse")).toBeNull();
-    rp.setSelectedFile("browse", "main-only.ts");
-    expect(rp.selectedFile("browse")).toBe("main-only.ts");
+    expect(rp.code.selectedFile("browse")).toBeNull();
+    rp.code.setSelectedFile("browse", "main-only.ts");
+    expect(rp.code.selectedFile("browse")).toBe("main-only.ts");
     h.focusedId = split;
-    expect(rp.selectedFile("browse")).toBe("split-only.ts");
+    expect(rp.code.selectedFile("browse")).toBe("split-only.ts");
   });
 
   it("navigation history is per pane", () => {
@@ -297,17 +297,20 @@ describe("useRightPanel — the panel follows the focused pane", () => {
     h.activeId = tile;
     const rp = useRightPanel();
     h.focusedId = undefined;
-    rp.recordNavigation({ mode: "browse", path: "main.txt" });
-    rp.recordNavigation({ mode: "browse", path: "main2.txt" });
-    expect(rp.canNavigateBack()).toBe(true);
+    rp.code.recordNavigation({ mode: "browse", path: "main.txt" });
+    rp.code.recordNavigation({ mode: "browse", path: "main2.txt" });
+    expect(rp.code.canNavigateBack()).toBe(true);
     // The split has its OWN stack — empty.
     h.focusedId = split;
-    expect(rp.canNavigateBack()).toBe(false);
-    rp.recordNavigation({ mode: "browse", path: "split.txt" });
-    expect(rp.navigateBack()).toBeNull(); // a single-entry stack
+    expect(rp.code.canNavigateBack()).toBe(false);
+    rp.code.recordNavigation({ mode: "browse", path: "split.txt" });
+    expect(rp.code.navigateBack()).toBeNull(); // a single-entry stack
     // Back to main: main's own earlier entry.
     h.focusedId = undefined;
-    expect(rp.navigateBack()).toEqual({ mode: "browse", path: "main.txt" });
+    expect(rp.code.navigateBack()).toEqual({
+      mode: "browse",
+      path: "main.txt",
+    });
   });
 
   it("seedSplitTab seeds a new split from the pane it was split from", () => {
@@ -354,7 +357,7 @@ describe("useRightPanel — the panel follows the focused pane", () => {
     h.setRightPanel.mockClear();
     rp.seedSplitTab(tile)(split);
     expect(h.setRightPanel).not.toHaveBeenCalled();
-    expect(rp.codeMode()).toBe("branch");
+    expect(rp.code.codeMode()).toBe("branch");
   });
 
   it("seedSplitTab adopts a record the creator passed instead of overwriting it", () => {
@@ -375,7 +378,7 @@ describe("useRightPanel — the panel follows the focused pane", () => {
     rp.seedSplitTab(tile)(split);
     h.focusedId = split;
     expect(rp.activeTab().kind).toBe("inspector");
-    expect(rp.codeMode()).toBe("branch");
+    expect(rp.code.codeMode()).toBe("branch");
     // Adopted, not reported back: the server already holds this record.
     expect(h.setRightPanel).not.toHaveBeenCalled();
   });
@@ -411,7 +414,8 @@ describe("useRightPanel — the panel follows the focused pane", () => {
 // records repo-relative `{ mode, path }` locations with no repo identity, so it
 // must be dropped when the terminal it belongs to moves to a different repo —
 // but NOT when the user merely switches the active terminal between two repos.
-// The decision is keyed per terminal (`history.get(id).lastRepo`), which is what lets
+// The decision is keyed per terminal (`history.get(id).lastRepo`) — the pane
+// that has focus when the view tells its state the root — which is what lets
 // it catch a repo change that happened while the terminal was INACTIVE (F6): a
 // previous-active-tuple compare would see the switch-back as a plain terminal
 // change and skip the reset, replaying repo-A history against repo A's new repo.
@@ -420,7 +424,8 @@ describe("useRightPanel — syncRepo scopes history per repo, per terminal", () 
   function recordAt(id: TerminalId, ...paths: string[]): void {
     h.activeId = id;
     const rp = useRightPanel();
-    for (const path of paths) rp.recordNavigation({ mode: "browse", path });
+    for (const path of paths)
+      rp.code.recordNavigation({ mode: "browse", path });
   }
 
   it("first sight records the baseline without resetting a seeded/built stack", () => {
@@ -428,10 +433,10 @@ describe("useRightPanel — syncRepo scopes history per repo, per terminal", () 
     recordAt(a, "one.txt", "two.txt");
     const rp = useRightPanel();
     h.activeId = a;
-    expect(rp.canNavigateBack()).toBe(true);
+    expect(rp.code.canNavigateBack()).toBe(true);
     // First syncRepo for this terminal just adopts its repo — history survives.
-    rp.syncRepo(a, "/repo/A");
-    expect(rp.canNavigateBack()).toBe(true);
+    rp.code.syncRepo("/repo/A");
+    expect(rp.code.canNavigateBack()).toBe(true);
   });
 
   it("a genuine repo change on the same terminal drops its history", () => {
@@ -439,10 +444,10 @@ describe("useRightPanel — syncRepo scopes history per repo, per terminal", () 
     recordAt(a, "one.txt", "two.txt");
     const rp = useRightPanel();
     h.activeId = a;
-    rp.syncRepo(a, "/repo/A"); // baseline
-    expect(rp.canNavigateBack()).toBe(true);
-    rp.syncRepo(a, "/repo/A2"); // cd into another repo
-    expect(rp.canNavigateBack()).toBe(false);
+    rp.code.syncRepo("/repo/A"); // baseline
+    expect(rp.code.canNavigateBack()).toBe(true);
+    rp.code.syncRepo("/repo/A2"); // cd into another repo
+    expect(rp.code.canNavigateBack()).toBe(false);
   });
 
   it("switching the active terminal between repos preserves each terminal's history (F5)", () => {
@@ -451,18 +456,18 @@ describe("useRightPanel — syncRepo scopes history per repo, per terminal", () 
     const rp = useRightPanel();
     recordAt(a, "a1.txt", "a2.txt");
     h.activeId = a;
-    rp.syncRepo(a, "/repo/A");
+    rp.code.syncRepo("/repo/A");
     recordAt(b, "b1.txt", "b2.txt");
     h.activeId = b;
-    rp.syncRepo(b, "/repo/B");
+    rp.code.syncRepo("/repo/B");
     // Switch back to A — same repo as before, so its history must be intact.
     h.activeId = a;
-    rp.syncRepo(a, "/repo/A");
-    expect(rp.canNavigateBack()).toBe(true);
+    rp.code.syncRepo("/repo/A");
+    expect(rp.code.canNavigateBack()).toBe(true);
     // And B's is untouched too.
     h.activeId = b;
-    rp.syncRepo(b, "/repo/B");
-    expect(rp.canNavigateBack()).toBe(true);
+    rp.code.syncRepo("/repo/B");
+    expect(rp.code.canNavigateBack()).toBe(true);
   });
 
   it("resets a terminal whose repo changed WHILE INACTIVE, caught on switch-back (F6)", () => {
@@ -472,20 +477,20 @@ describe("useRightPanel — syncRepo scopes history per repo, per terminal", () 
     // A builds history in repo A and becomes the baseline.
     recordAt(a, "a1.txt", "a2.txt");
     h.activeId = a;
-    rp.syncRepo(a, "/repo/A");
-    expect(rp.canNavigateBack()).toBe(true);
+    rp.code.syncRepo("/repo/A");
+    expect(rp.code.canNavigateBack()).toBe(true);
     // Switch to B; A is now inactive. (CodeTab only ever syncs the active id.)
     recordAt(b, "b1.txt");
     h.activeId = b;
-    rp.syncRepo(b, "/repo/B");
+    rp.code.syncRepo("/repo/B");
     // While A was inactive its PTY cd'd into a different repo — the metadata
     // change reaches CodeTab only when A becomes active again. The previous
     // active tuple was (B, /repo/B), so a previous-tuple compare would treat
     // this as a plain terminal switch and SKIP the reset; per-terminal tracking
     // sees A's own repo moved (/repo/A → /repo/A2) and drops the stale stack.
     h.activeId = a;
-    rp.syncRepo(a, "/repo/A2");
-    expect(rp.canNavigateBack()).toBe(false);
+    rp.code.syncRepo("/repo/A2");
+    expect(rp.code.canNavigateBack()).toBe(false);
   });
 });
 

@@ -25,7 +25,8 @@ vi.mock("./useRightPanel", () => ({
   }),
 }));
 
-import { openInCodeTab, pendingOpen } from "./openInCodeTab";
+import type { WorkId } from "kolu-work";
+import { createCodeDoor, openInCodeTab, pendingOpen } from "./openInCodeTab";
 
 describe("openInCodeTab", () => {
   beforeEach(() => {
@@ -52,7 +53,7 @@ describe("openInCodeTab", () => {
     );
     expect(pendingOpen()?.scope).toMatchObject({
       host: { kind: "local" },
-      terminalId: "terminal-b",
+      owner: { kind: "pane", terminalId: "terminal-b" },
       repoRoot: "/repo",
       mode: "browse",
     });
@@ -84,7 +85,7 @@ describe("openInCodeTab", () => {
 
     expect(h.focusTerminalSilently).toHaveBeenCalledWith("split-b");
     expect(pendingOpen()?.scope).toMatchObject({
-      terminalId: "split-b",
+      owner: { kind: "pane", terminalId: "split-b" },
       repoRoot: "/split-repo",
     });
   });
@@ -102,5 +103,45 @@ describe("openInCodeTab", () => {
         targetMode: "browse",
       }),
     ).toThrow(/terminal-b has no repo/);
+  });
+
+  // Two Code views can be mounted at once. A link followed in one view's
+  // document must land in THAT view — never move the Right panel's focus, tab
+  // or open file, and never be answered by the other view.
+  it("a request made in one view's door is seen by that view alone", () => {
+    const work = "w-1" as WorkId;
+    const own = createCodeDoor((mode) => ({
+      host: { kind: "local" },
+      owner: { kind: "work", id: work },
+      repoRoot: "/worktree",
+      mode,
+    }));
+    const panelBefore = pendingOpen();
+
+    own.open({
+      ref: { path: "notes.md", startLine: 3, endLine: 3 },
+      targetMode: "browse",
+    });
+
+    expect(own.pending()?.scope).toEqual({
+      host: { kind: "local" },
+      owner: { kind: "work", id: work },
+      repoRoot: "/worktree",
+      mode: "browse",
+    });
+    expect(own.pending()?.ref.path).toBe("notes.md");
+    expect(pendingOpen()).toBe(panelBefore);
+    expect(h.focusTerminalSilently).not.toHaveBeenCalled();
+    expect(h.openCodeAt).not.toHaveBeenCalled();
+    expect(h.reveal).not.toHaveBeenCalled();
+
+    const ownBefore = own.pending();
+    openInCodeTab({
+      terminalId: "terminal-b",
+      ref: { path: "new.ts", startLine: 1, endLine: 1 },
+      targetMode: "browse",
+    });
+    expect(pendingOpen()?.ref.path).toBe("new.ts");
+    expect(own.pending()).toBe(ownBefore);
   });
 });

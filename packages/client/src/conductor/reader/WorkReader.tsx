@@ -48,6 +48,7 @@ import { CommentComposer } from "../../comments/CommentComposer";
 import { formatMarkdown } from "../../comments/formatMarkdown";
 import { commentsForTerminal } from "../../comments/useComments";
 import BrowseFileDispatcher from "../../right-panel/BrowseFileDispatcher";
+import { rightPanelCodeDoor } from "../../right-panel/openInCodeTab";
 import { useColorScheme } from "../../settings/useColorScheme";
 import { useWorkMap, useWorkMembers } from "../useWorks";
 import WorkChip from "../WorkChip";
@@ -59,6 +60,7 @@ import {
   type WorkFileSource,
   workFileSource,
 } from "../workFile";
+import { readWorkFacts } from "../workFacts";
 import WorkFileList from "../WorkFileList";
 import { membersIn } from "../workReadings";
 import type { ReaderTarget } from "./useReader";
@@ -87,6 +89,11 @@ const WorkReader: Component<{
   const { themeTypeLiteral: theme } = useColorScheme();
   const works = useWorkMap();
   const allMembers = useWorkMembers();
+  /** The work's members, each with its standing read once — what the one
+   *  "which member stands in the worktree" rule reads. */
+  const { members } = readWorkFacts(() =>
+    membersIn(allMembers(), props.target.work),
+  );
 
   /** THE WORK, from the one mirror every surface reads, by the id it is filed
    *  under. A work that is not in it is one this browser has not been told
@@ -103,17 +110,18 @@ const WorkReader: Component<{
   const source = createMemo(() => {
     const one = work();
     if (one === undefined) return null;
-    return workFileSource(
-      props.target.work,
-      one,
-      membersIn(allMembers(), props.target.work),
-    );
+    return workFileSource(props.target.work, one, members());
   });
 
   /** The terminal a comment is anchored against, and whose host serves the
    *  bytes. A kept file has none: kolu holds the bytes, not the tree they
    *  were written in. */
   const at = createMemo(() => source()?.at ?? null);
+
+  /** Where a link in the document opens: the Right panel's Code tab, through
+   *  its front door, for the terminal the bytes belong to — and nowhere for a
+   *  kept file. */
+  const door = rightPanelCodeDoor(() => at()?.terminalId ?? null);
 
   /** The work's other files, which are the header's tabs — the one list
    *  derivation, shared with the card. */
@@ -244,6 +252,7 @@ const WorkReader: Component<{
         >
           <BrowseFileDispatcher
             at={at()}
+            open={at() === null ? null : door.open}
             filePath={props.target.path}
             // A resource RE-THROWS its failure at its reader, and `error`
             // beside it is how the viewer is told — so the value is only read

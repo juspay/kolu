@@ -37,6 +37,7 @@ const show = (path: string, content: string): HTMLElement => {
     () => (
       <BrowseFileDispatcher
         at={null}
+        open={null}
         filePath={path}
         file={{ path, source: { content, truncated: false } }}
         error={undefined}
@@ -93,6 +94,7 @@ describe("a drawn document, as the terminal it hangs on comes and goes", () => {
         <Shown.Provider value={() => true}>
           <BrowseFileDispatcher
             at={at()}
+            open={null}
             filePath="plan.md"
             file={{
               path: "plan.md",

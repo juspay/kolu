@@ -14,23 +14,21 @@ import {
   diffItems,
   useCodeViewSelection,
 } from "@kolu/solid-pierre";
-import type { TerminalId } from "kolu-common/surface";
 import { type Component, createMemo } from "solid-js";
 import { toast } from "solid-sonner";
 import { koluCodeViewProps } from "../ui/pierreTheme";
+import type { LineRef } from "../ui/lineRef";
 import CodeMenuFrame from "./CodeMenuFrame";
-import { openInCodeTab } from "./openInCodeTab";
 
 export type BrowseDiffViewProps = {
-  /** Terminal whose per-terminal Code-tab selection the open mutates. */
-  terminalId: TerminalId;
+  /** The line menu's "Open" — the view this diff is drawn in opens the
+   *  file at the selected lines, through its own door. */
+  onOpen: (ref: LineRef) => void;
   /** Repo-relative path the diff is for — anchors the line-selection menu. */
   path: string;
   /** The unified-diff hunk text for this file (Pierre parses it). */
   hunk: string;
   theme: "light" | "dark";
-  /** Repo root, for the context-menu "Open" → jump-to-browse action. */
-  repoRoot: string;
 };
 
 const BrowseDiffView: Component<BrowseDiffViewProps> = (props) => {
@@ -45,16 +43,7 @@ const BrowseDiffView: Component<BrowseDiffViewProps> = (props) => {
   );
 
   return (
-    <CodeMenuFrame
-      path={props.path}
-      onOpen={(ref) =>
-        openInCodeTab({
-          terminalId: props.terminalId,
-          ref,
-          targetMode: "browse",
-        })
-      }
-    >
+    <CodeMenuFrame path={props.path} onOpen={props.onOpen}>
       {(selection) => {
         // Keyed by the selection's own file, so a range on a former child
         // highlights on that child and the menu names it.

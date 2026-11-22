@@ -2,15 +2,34 @@ import type { CodeTabView } from "@kolu/padi-client/surface";
 import { Effect, type Fiber } from "effect";
 import { encodeHostKey, type HostKey } from "kolu-common/hostKey";
 import type { TerminalId } from "kolu-common/surface";
+import type { WorkId } from "kolu-work";
 import { createEffect, onCleanup } from "solid-js";
 import { match } from "ts-pattern";
 import { runOwnedAction } from "../runAction";
 import type { LineRef } from "../ui/lineRef";
 
+/** WHO OWNS a Code view's place — its selected file per mode, its history and
+ *  the open requests made in it. The Right panel's place belongs to the PANE
+ *  it shows; a work's Code view keeps one place for the WORK, whichever
+ *  terminal (if any) is standing in its worktree. */
+export type CodeOwner =
+  | { readonly kind: "pane"; readonly terminalId: TerminalId }
+  | { readonly kind: "work"; readonly id: WorkId };
+
+/** Collision-safe key for a {@link CodeOwner} — a pane and a work never share
+ *  one, whatever their ids. */
+export function codeOwnerKey(owner: CodeOwner): string {
+  return JSON.stringify(
+    owner.kind === "pane"
+      ? [owner.kind, owner.terminalId]
+      : [owner.kind, owner.id],
+  );
+}
+
 /** The complete owner of a Code-tab selection slot and open request. */
 export interface CodeTabScope {
   host: HostKey;
-  terminalId: TerminalId;
+  owner: CodeOwner;
   repoRoot: string;
   mode: CodeTabView;
 }
@@ -23,12 +42,11 @@ export function codeTabScopesEqual(a: CodeTabScope, b: CodeTabScope): boolean {
 }
 
 /** Collision-safe key for state scoped to one REPO SLOT of the Code tab — the
- *  (host, repo, mode) triple, deliberately WITHOUT the terminal. The file list,
+ *  (host, repo, mode) triple, deliberately WITHOUT the owner. The file list,
  *  the lazily-loaded folder levels, the tree's expansion and the filename filter
  *  are all facts about the repo, so moving focus between two panes of one repo
- *  must not reset any of them. (The terminal id IS part of a `CodeTabScope`,
- *  which owns the open-request identity and the preview URL — those really are
- *  per-pane.) */
+ *  must not reset any of them. (The owner IS part of a `CodeTabScope`, which
+ *  owns the open-request identity — that really is per-pane.) */
 export function codeTabRepoSlotKey(scope: CodeTabScope | null): string | null {
   return scope === null
     ? null
@@ -37,10 +55,10 @@ export function codeTabRepoSlotKey(scope: CodeTabScope | null): string | null {
 
 function codeTabScopeIdentity(
   scope: CodeTabScope,
-): readonly [string, TerminalId, string, CodeTabView] {
+): readonly [string, string, string, CodeTabView] {
   return [
     encodeHostKey(scope.host),
-    scope.terminalId,
+    codeOwnerKey(scope.owner),
     scope.repoRoot,
     scope.mode,
   ];
@@ -48,7 +66,7 @@ function codeTabScopeIdentity(
 
 /** A captured user intent to navigate one exact Code-tab owner to a file ref. */
 export interface OpenInCodeTabRequest {
-  /** The exact host + terminal + repository + mode allowed to consume this request. */
+  /** The exact host + owner + repository + mode allowed to consume this request. */
   scope: CodeTabScope;
   /** Parsed `path:line[-end]` to navigate to. */
   ref: LineRef;

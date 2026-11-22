@@ -19,13 +19,13 @@
  *  Drawn only for a work in progress: a finished one reads the copies kolu
  *  kept, and has no worktree to describe. */
 
-import { activeArm } from "@kolu/padi-client/surface";
 import { decodeHostKey } from "kolu-common/hostKey";
 import type { Work } from "kolu-work";
 import { type Component, createMemo, Show } from "solid-js";
 import { useOduLink } from "../right-panel/useOduLink";
 import WorkSection, { type WorkSubject } from "../right-panel/WorkSection";
 import type { MemberLine } from "./workFacts";
+import { memberInWorktree } from "./workFile";
 import { repoName } from "./workReadings";
 
 /** The read worktree, as the section's subject. */
@@ -37,21 +37,13 @@ const Read: Component<{
 }> = (props) => {
   const hostKey = createMemo(() => decodeHostKey(props.host));
   const odu = useOduLink(hostKey);
-  /** A member terminal up IN THE WORK'S WORKTREE — on its host, and whose own
-   *  git reading names the same top folder: the one whose record the live
-   *  facts are read off. A member standing in another checkout speaks for
-   *  that checkout, not for this work. */
-  const live = createMemo(() => {
-    for (const one of props.members) {
-      if (one.split?.host !== props.host) continue;
-      const standing = one.standing;
-      if (standing?.kind !== "here") continue;
-      const arm = activeArm(standing.meta);
-      if (arm?.git.kind === "repo" && arm.git.info.repoRoot === props.path)
-        return { info: arm.git.info, pr: arm.pr };
-    }
-    return null;
-  });
+  /** The member standing IN THE WORK'S WORKTREE, by the one rule
+   *  (`memberInWorktree`): the one whose record the live facts are read off.
+   *  A member standing in another checkout speaks for that checkout, not for
+   *  this work. */
+  const live = createMemo(() =>
+    memberInWorktree(props.host, props.path, props.members),
+  );
   const subject = (): WorkSubject => {
     const key = props.work.key;
     const fact = live();
@@ -59,7 +51,7 @@ const Read: Component<{
       host: hostKey(),
       git:
         fact !== null
-          ? fact.info
+          ? fact.git
           : key.kind === "branch"
             ? {
                 repoName: repoName(key.repo),

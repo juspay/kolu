@@ -32,8 +32,12 @@ import { dockRowLabel } from "../canvas/dock/dockRowData";
 import { CHROME_ICON_BUTTON_CLASS } from "../ui/chromeSpacing";
 import { ChevronRightIcon } from "../ui/Icons";
 import { ACTIVE_TERMINAL_ACCENT } from "./activeTerminalAccent";
+import { activeHost } from "../wire";
 import CodeTab from "./CodeTab";
+import { codeSubjectOf } from "./codeSubject";
+import { rightPanelCodeQueries } from "./hostCodeTab";
 import MetadataInspector from "./MetadataInspector";
+import { rightPanelCodeDoor } from "./openInCodeTab";
 import { paneDirectory } from "./paneDirectory";
 import { useRightPanel } from "./useRightPanel";
 
@@ -89,6 +93,9 @@ const RightPanel: Component<{
    *  everything below it dims. The split itself lives in `paneDirectory`, with
    *  its own test. */
   const directory = () => paneDirectory(props.meta);
+
+  /** The Code view's door: the panel's front door, opening in the pane shown. */
+  const codeDoor = rightPanelCodeDoor(() => props.terminalId);
 
   return (
     <div
@@ -219,8 +226,14 @@ const RightPanel: Component<{
                     ))
                     .with("code", () => (
                       <CodeTab
-                        terminalId={props.terminalId}
-                        meta={props.meta}
+                        subject={codeSubjectOf(
+                          activeHost(),
+                          props.terminalId,
+                          props.meta,
+                        )}
+                        state={rightPanel.code}
+                        queries={rightPanelCodeQueries}
+                        door={codeDoor}
                       />
                     ))
                     .exhaustive()}

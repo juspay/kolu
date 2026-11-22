@@ -91,10 +91,11 @@ const bag = vi.hoisted(() => ({
 
 vi.mock("../wire", async () => {
   const { mockPadiMap } = await import("../hostScope/mockHostMap.testlib");
-  // The EFFECT-native procedures face. Each verb answers with a DESCRIPTION, so
-  // the recorded side effects below run when the query is RUN — which is what
-  // the call-count assertions are really about.
-  const activePadiRpc = {
+  // The EFFECT-native procedures face, PER HOST — a read's label names the host
+  // it was sent to. Each verb answers with a DESCRIPTION, so the recorded side
+  // effects below run when the query is RUN — which is what the call-count
+  // assertions are really about.
+  const padiRpcOf = (host: HostKey) => ({
     git: {
       getStatus: (i: { repoPath: string; mode: string }) =>
         Effect.suspend(() => {
@@ -103,7 +104,7 @@ vi.mock("../wire", async () => {
             return Effect.fail(bag.branchFailure);
           return Effect.succeed({
             files: [],
-            label: `${encodeHostKey(bag.activeHost())}:${i.mode}`,
+            label: `${encodeHostKey(host)}:${i.mode}`,
             n: bag.counts[i.mode],
           });
         }),
@@ -132,18 +133,20 @@ vi.mock("../wire", async () => {
           return "same-content-tag";
         }),
     },
-  };
-  // The un-enrolled change pulses ride the entry's STREAM face now
-  // (`activePadiStreams.<pulse>.unenrolled`) — a no-op stream stub.
-  const activePadiStreams = {
+  });
+  // The un-enrolled change pulses ride the entry's STREAM face
+  // (`padiMap.entry(host).streams.<pulse>.unenrolled`) — a no-op stream stub.
+  const streams = {
     subscribeRepoChange: { unenrolled: pulseCtl.repoProc },
     subscribeFileChange: { unenrolled: pulseCtl.fileProc },
   };
   return {
-    padiMap: mockPadiMap,
+    padiMap: {
+      ...mockPadiMap,
+      entry: (host: HostKey) => ({ ...mockPadiMap.entry(host), streams }),
+    },
     activeHost: () => bag.activeHost(),
-    activePadiRpc,
-    activePadiStreams,
+    padiRpcOf,
   };
 });
 
@@ -167,8 +170,10 @@ vi.mock("../terminal/useTerminalStore", () => ({
 
 vi.mock("./useRightPanel", () => ({
   useRightPanel: () => ({
-    codeMode: () => bag.mode(),
-    selectedFile: (_m: string) => bag.selected(),
+    code: {
+      codeMode: () => bag.mode(),
+      selectedFile: (_m: string) => bag.selected(),
+    },
   }),
 }));
 
@@ -177,15 +182,17 @@ import {
   removeHost,
   resetHosts,
 } from "../hostScope/mockHostMap.testlib";
-import {
-  leaseCodeQueries,
-  codeActiveStatus,
-  codeAllPaths,
-  codeDiskRootLevel,
-  codeFileContent,
-  codeLocalStatus,
-} from "./hostCodeTab";
+import { rightPanelCodeQueries } from "./hostCodeTab";
 import { setShowIgnoredFiles } from "./showIgnoredFiles";
+
+const {
+  lease: leaseCodeQueries,
+  activeStatus: codeActiveStatus,
+  allPaths: codeAllPaths,
+  diskRootLevel: codeDiskRootLevel,
+  fileContent: codeFileContent,
+  localStatus: codeLocalStatus,
+} = rightPanelCodeQueries;
 
 const flush = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
 const pulse = () => {

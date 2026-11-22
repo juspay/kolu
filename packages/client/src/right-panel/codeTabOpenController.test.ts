@@ -11,7 +11,7 @@ import {
 
 const scope = (terminalId: string): CodeTabScope => ({
   host: { kind: "local" },
-  terminalId,
+  owner: { kind: "pane", terminalId },
   repoRoot: "/repo",
   mode: "browse",
 });

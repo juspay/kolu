@@ -54,11 +54,7 @@ import {
   type RightPanelTab,
   rightPanelView,
 } from "@kolu/padi-client/surface";
-import {
-  type Browser,
-  createBrowser,
-  DEFAULT_MAX_ENTRIES,
-} from "@kolu/solid-browser";
+import type { Browser } from "@kolu/solid-browser";
 import { toError } from "@kolu/surface/run-stream";
 import { Effect } from "effect";
 import type { TerminalId } from "kolu-common/surface";
@@ -76,28 +72,12 @@ import {
   preferences,
   updatePreferences,
 } from "../wire";
-import { codeLister } from "./codeLister";
-
-/** A spot in the Code tab's navigable space — the unit `@kolu/solid-browser`'s
- *  history records. `mode` is the All/Local/Branch sub-view, carried *inside*
- *  the location so back/forward cross modes naturally; `path` is the selected
- *  repo-relative file (null when the mode has no selection yet); `ref` is an
- *  optional line range to re-highlight when the entry is revisited (terminal
- *  `path:N` links, comment jumps), absent for plain file picks. */
-export type BrowserLocation = {
-  mode: CodeTabView;
-  path: string | null;
-  ref?: { startLine: number; endLine: number };
-};
-
-/** Two locations name the "same page" — same file in the same mode — when
- *  their mode+path match. `navigate` then refreshes the entry's `ref` in place
- *  instead of recording a duplicate (re-opening the current file at a new line
- *  doesn't deepen history). This idempotence is what lets every navigation
- *  funnel — including Pierre's echoed re-selects — call `recordNavigation`
- *  without risking double history entries. */
-const SAME_LOCATION = (a: BrowserLocation, b: BrowserLocation): boolean =>
-  a.mode === b.mode && a.path === b.path;
+import { codeLister, codeModeFor } from "./codeLister";
+import {
+  type BrowserLocation,
+  type CodeViewState,
+  createCodeHistory,
+} from "./codeViewState";
 
 const MIN_PANEL_SIZE = 0.05;
 /** Lower bound for the Code-tab vertical split — keep the tree and content
@@ -158,20 +138,6 @@ type TerminalHistory = {
 };
 const history = new Map<TerminalId, TerminalHistory>();
 
-/** Single owner of a terminal history controller's construction contract:
- *  `isSameEntry: SAME_LOCATION` (idempotent on mode+path) and the explicit
- *  `DEFAULT_MAX_ENTRIES` cap, wired in exactly one place. Always an empty
- *  stack — seeding (session restore) and clearing (repo change) happen *in
- *  place* via `browser.reset(...)`, never by building a replacement, so the
- *  instance (and the toolbar's reactive subscriptions to its enablement
- *  signals) survives every reset. */
-function newBrowserFor(): Browser<BrowserLocation> {
-  return createBrowser<BrowserLocation>({
-    isSameEntry: SAME_LOCATION,
-    maxEntries: DEFAULT_MAX_ENTRIES,
-  });
-}
-
 /** Resolve (creating if absent) a terminal's history record. The browser
  *  instance is created once and then **never replaced** — resets clear it in
  *  place — so reading `.canBack()/.canForward()` through it is reactive on the
@@ -182,7 +148,7 @@ function newBrowserFor(): Browser<BrowserLocation> {
 function historyFor(id: TerminalId): TerminalHistory {
   let h = history.get(id);
   if (!h) {
-    h = { browser: newBrowserFor(), lastRepo: undefined };
+    h = { browser: createCodeHistory(), lastRepo: undefined };
     history.set(id, h);
   }
   return h;
@@ -312,16 +278,14 @@ export function useRightPanel() {
     return stateOf(store.focusedTerminalId());
   }
 
-  /** The focused pane's EFFECTIVE Code-tab mode. A root git cannot list (a
-   *  bare repository's folder, {@link codeLister} `"disk"`) has nothing to
-   *  diff, so it answers `"browse"` whatever mode is stored. The stored mode
-   *  is not written, so it comes back when the pane moves into a working tree.
-   *  Every reader of the mode goes through here, so the Code tab, its queries,
-   *  the per-mode selection and `openInCodeTab` all agree. */
+  /** The focused pane's EFFECTIVE Code-tab mode — the stored mode through the
+   *  one browse-only rule ({@link codeModeFor}). Every reader of the mode goes
+   *  through here, so the Code tab, its queries, the per-mode selection and
+   *  `openInCodeTab` all agree. */
   function paneCodeMode(): CodeTabView {
     const id = store.focusedTerminalId();
     const git = id === null ? undefined : store.getMetadata(id)?.git;
-    return codeLister(git) === "disk" ? "browse" : paneState().codeMode;
+    return codeModeFor(codeLister(git), paneState().codeMode);
   }
 
   /** All panel writes share local initialization, mutation, and persistence.
@@ -408,6 +372,88 @@ export function useRightPanel() {
     h.lastRepo = undefined;
   }
 
+  /** The FOCUSED PANE's Code-tab place, behind the Code view's one state
+   *  interface. Each verb reads and writes the pane that has focus — main or
+   *  any split — so focus moving between panes moves the whole place with it. */
+  const code: CodeViewState = {
+    owner: () => {
+      const id = store.focusedTerminalId();
+      return id === null ? null : { kind: "pane", terminalId: id };
+    },
+    codeMode: paneCodeMode,
+    setCodeMode: (mode) => mutatePane({ codeMode: mode }),
+    /** Per-mode file selection, keyed by `(focusedPane, mode)` so each pane
+     *  remembers its own pick in each of local/branch/browse. */
+    selectedFile: (mode) => paneState().selectedFileByMode?.[mode] ?? null,
+    // A shallow PATCH, not a `produce` mutator: the decoded record is readonly
+    // (Effect's `Struct.Type`), so the map is REBUILT — the deselect arm drops
+    // the mode's key entirely rather than writing `undefined` into it, which is
+    // also what keeps the reported payload decodable (#17: these inner fields are
+    // `optionalKey` too).
+    setSelectedFile: (mode, path) => {
+      const cur = paneState().selectedFileByMode ?? {};
+      if (path === null) {
+        if (!(mode in cur)) return;
+        const { [mode]: _dropped, ...rest } = cur;
+        mutatePane({
+          selectedFileByMode: Object.keys(rest).length > 0 ? rest : undefined,
+        });
+      } else {
+        if (cur[mode] === path) return;
+        mutatePane({ selectedFileByMode: { ...cur, [mode]: path } });
+      }
+    },
+    // ── Navigation history (back / forward), one stack per pane ──────
+    recordNavigation: (loc) => {
+      const id = store.focusedTerminalId();
+      if (id !== null) browserFor(id).navigate(loc);
+    },
+    navigateBack: () => {
+      const id = store.focusedTerminalId();
+      return id === null ? null : browserFor(id).back();
+    },
+    navigateForward: () => {
+      const id = store.focusedTerminalId();
+      return id === null ? null : browserFor(id).forward();
+    },
+    canNavigateBack: () => {
+      const id = store.focusedTerminalId();
+      return id === null ? false : browserFor(id).canBack();
+    },
+    canNavigateForward: () => {
+      const id = store.focusedTerminalId();
+      return id === null ? false : browserFor(id).canForward();
+    },
+    /** Reconcile the focused pane's history with the repo it sits in,
+     *  dropping the stack only when *that pane's own* repo has changed since
+     *  its history was last touched.
+     *
+     *  The decision is keyed PER TERMINAL (`history.get(id).lastRepo`), not
+     *  against the previously focused pane: a terminal's repo can change while
+     *  it is UNFOCUSED (a `cd` in its PTY updates server metadata unobserved).
+     *  Tracking each terminal's last-seen repo independently catches that
+     *  change the moment the terminal next becomes focused — even if other
+     *  panes were focused in between — without wiping a freshly-focused
+     *  terminal's history just because the focused repo shifted on a plain
+     *  switch. The first call for a terminal records its repo without
+     *  resetting, so a session-restored (seeded) stack survives the initial
+     *  mount. */
+    syncRepo: (repo) => {
+      const id = store.focusedTerminalId();
+      if (id === null) return;
+      // `historyFor` resolves (creating if absent) the terminal's record, so a
+      // `lastRepo` of `undefined` is the sole "no repo recorded yet" marker —
+      // distinct from `null` ("recorded, terminal is in no repo").
+      const h = historyFor(id);
+      const prevRepo = h.lastRepo;
+      h.lastRepo = repo;
+      // A genuine repo move on a terminal we've already seen drops the
+      // now-stale stack — cleared in place so the toolbar stays subscribed to
+      // the live instance.
+      if (prevRepo !== undefined && repo !== prevRepo) h.browser.reset();
+    },
+  };
+
   return {
     // ── Workspace chrome ─────────────────────────────────────────────
     // `size`/`codeTabTreeSize` are GLOBAL server prefs — viewer layout/density
@@ -473,15 +519,14 @@ export function useRightPanel() {
         activeTab: paneState().activeTab,
         codeMode: paneCodeMode(),
       }),
-    /** Persisted Code-tab sub-mode regardless of which tab is active.
-     *  CodeTab needs the mode even when the user has flipped over to
-     *  Inspector — selection / filter state is keyed by it, and the
-     *  fallback behaviour of reading `activeTab` would mask a "browse"
-     *  selection as "local" while Inspector is active and trigger a
-     *  spurious reset on the round-trip back. Read per focused pane, so a
-     *  split's own mode is what the Code tab renders when focus lands there.
-     *  Always `"browse"` on a root git cannot list — see `paneCodeMode`. */
-    codeMode: (): CodeTabView => paneCodeMode(),
+    /** The focused pane's Code-tab place — mode, per-mode selection, history —
+     *  as the Code view's one state interface. The mode is the persisted
+     *  sub-mode regardless of which tab is active: CodeTab needs it even when
+     *  the user has flipped over to Inspector — selection / filter state is
+     *  keyed by it, and the fallback behaviour of reading `activeTab` would mask
+     *  a "browse" selection as "local" while Inspector is active and trigger a
+     *  spurious reset on the round-trip back. */
+    code,
     /** Switch the focused pane to Inspector. `codeMode` is preserved so toggling
      *  back to Code restores the user's last sub-mode. */
     showInspector: () => mutatePane({ activeTab: "inspector" }),
@@ -510,106 +555,6 @@ export function useRightPanel() {
       const cur = paneState();
       if (cur.activeTab === "code" && cur.codeMode === mode) return;
       mutatePane({ activeTab: "code", codeMode: mode });
-    },
-    /** Change the sub-mode within the Code tab. */
-    setCodeMode: (mode: CodeTabView) => mutatePane({ codeMode: mode }),
-
-    /** Per-mode file selection — repo-relative path, or null when no file
-     *  is selected in this mode. Keyed by `(focusedPane, mode)` so each pane
-     *  remembers its own pick in each of local/branch/browse. */
-    selectedFile: (mode: CodeTabView): string | null =>
-      paneState().selectedFileByMode?.[mode] ?? null,
-    // A shallow PATCH, not a `produce` mutator: the decoded record is readonly
-    // (Effect's `Struct.Type`), so the map is REBUILT — the deselect arm drops
-    // the mode's key entirely rather than writing `undefined` into it, which is
-    // also what keeps the reported payload decodable (#17: these inner fields are
-    // `optionalKey` too).
-    setSelectedFile: (mode: CodeTabView, path: string | null) => {
-      const cur = paneState().selectedFileByMode ?? {};
-      if (path === null) {
-        if (!(mode in cur)) return;
-        const { [mode]: _dropped, ...rest } = cur;
-        mutatePane({
-          selectedFileByMode: Object.keys(rest).length > 0 ? rest : undefined,
-        });
-      } else {
-        if (cur[mode] === path) return;
-        mutatePane({ selectedFileByMode: { ...cur, [mode]: path } });
-      }
-    },
-
-    // ── Navigation history (back / forward) ──────────────────────────
-    /** Record a visit to `loc` in the FOCUSED PANE's history — the
-     *  address-bar path. Idempotent on mode+path (re-recording the current
-     *  location refreshes its `ref` in place rather than duplicating it), so
-     *  it's safe to call from every navigation funnel — tree click, in-iframe
-     *  link, resolved front-door open, and Pierre's echoed re-selects alike.
-     *  Records only; `selectedFileByMode` stays the render truth. Each pane
-     *  (main or split) keeps its own stack. */
-    recordNavigation: (loc: BrowserLocation) => {
-      const id = store.focusedTerminalId();
-      if (id !== null) browserFor(id).navigate(loc);
-    },
-    /** Step back one entry, returning the now-current location to re-apply (or
-     *  null when there's nowhere to go). Traversal, not a new visit — does NOT
-     *  record. */
-    navigateBack: (): BrowserLocation | null => {
-      const id = store.focusedTerminalId();
-      return id === null ? null : browserFor(id).back();
-    },
-    /** Step forward one entry, returning the now-current location (or null). */
-    navigateForward: (): BrowserLocation | null => {
-      const id = store.focusedTerminalId();
-      return id === null ? null : browserFor(id).forward();
-    },
-    /** Reactive: is there an earlier entry to return to? Drives ◀ enablement.
-     *  Read for the focused pane, so the buttons retarget when focus moves. */
-    canNavigateBack: (): boolean => {
-      const id = store.focusedTerminalId();
-      return id === null ? false : browserFor(id).canBack();
-    },
-    /** Reactive: is there a later entry to advance to? Drives ▶ enablement. */
-    canNavigateForward: (): boolean => {
-      const id = store.focusedTerminalId();
-      return id === null ? false : browserFor(id).canForward();
-    },
-    /** Reconcile a terminal's history with the repo it currently sits in,
-     *  dropping the stack only when *that terminal's own* repo has changed
-     *  since the history was last touched.
-     *
-     *  The recorded locations are repo-relative paths (`{ mode, path }`) with
-     *  no repo identity of their own, so they are only meaningful within the
-     *  repo they were captured in. When a terminal `cd`s from repo A to repo B,
-     *  re-applying an A-relative entry inside B would open the wrong same-named
-     *  file (or a path B's membership effect then clears). Resetting on a
-     *  genuine repo change keeps back/forward scoped to the repo currently
-     *  shown; the next `recordNavigation` re-seeds the stack.
-     *
-     *  The decision is keyed PER TERMINAL (`history.get(id).lastRepo`), not
-     *  against the previously focused pane: `CodeTab` is a singleton over the
-     *  focused pane and only calls this for whichever pane it shows, but a
-     *  terminal's repo can change while it is UNFOCUSED (a `cd` in its PTY
-     *  updates server metadata unobserved). Tracking each terminal's last-seen
-     *  repo independently catches that change the moment the terminal next
-     *  becomes focused — even if other panes were focused in between — without
-     *  wiping a freshly-focused terminal's history just because the focused
-     *  repo shifted on a plain switch. The first call for a terminal records
-     *  its repo without resetting, so a session-restored (seeded) stack
-     *  survives the initial mount. */
-    syncRepo: (id: TerminalId, repo: string | null) => {
-      // `historyFor` resolves (creating if absent) the terminal's record, so a
-      // `lastRepo` of `undefined` is the sole "no repo recorded yet" marker —
-      // distinct from `null` ("recorded, terminal is in no repo").
-      const h = historyFor(id);
-      const prevRepo = h.lastRepo;
-      h.lastRepo = repo;
-      // First sight of this terminal (fresh mount or session restore): adopt
-      // its repo as the baseline, leaving any seeded stack intact. A genuine
-      // repo move on a terminal we've already seen drops the now-stale stack —
-      // cleared in place so the toolbar stays subscribed to the live instance.
-      if (prevRepo !== undefined && repo !== prevRepo) {
-        h.browser.reset();
-      }
     },
 
     // ── Handing panel state to a terminal that has just appeared ─────
