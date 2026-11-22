@@ -66,6 +66,7 @@ import { startFleetMcpEndpoint } from "./fleet/mcpEndpoint.ts";
 import {
   disposeServerConductor,
   liveServerConductor,
+  setConductorCompactsAt,
   setConductorFleetHosts,
   setConductorOffer,
   setFleetMcpEndpoint,
@@ -127,6 +128,7 @@ import {
 import {
   assembleServedHandlers,
   currentAgentDistroSetting,
+  currentConductorCompactsAt,
   currentNewTerminalPolicy,
   implementKoluSurface,
   servedGroup,
@@ -1096,6 +1098,9 @@ export async function bootKoluWeb(flags: KoluBootFlags): Promise<void> {
   setConductorOffer(
     koluOfferOver({ listing: agentDistroListing, hosts: fleetHosts }),
   );
+  // ... and WHERE ITS CONVERSATION IS COMPACTED, the person's preference, read
+  // at each bring-up of its agent.
+  setConductorCompactsAt(currentConductorCompactsAt);
   const deliveryBake = readAgentDistroDeliveryBake();
   // The delivery itself is installed BELOW, once kolu's surface — whose
   // `agentProfiles` cell it writes — is served: installing it delivers at once

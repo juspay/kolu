@@ -31,8 +31,10 @@ Three things make the conversation work and they are all here:
 - **compactions** — each one the agent reports is one `compaction` row, minted
   here (`kolu:compaction:<id>`) and updated in place from running to done or
   failed, with the usage it began at and its summary; a row still running
-  when its agent went away is settled as failed at the next spawn. The cell
-  says where the agent compacts (`compactsAt`).
+  when its agent went away is settled as failed at the next spawn. Where the
+  agent compacts is read from `ConductorDeps.compactsAt` at each spawn, and
+  that one number builds the leg, the harness's `compacts` and the cell's
+  `compactsAt`, so the cell says where the running agent compacts.
 
 The `koluSurface` members a browser subscribes to are here too (`./surface`),
 because an implementation of "what `conductor.prompt` does" belongs with the
@@ -303,6 +305,7 @@ registry, and knows nothing about kolu-server. Everything server-owned is
 | `store` · `storePath` · `stateRoot` | kolu has one state ladder and one state directory, and they are kolu-server's |
 | `fleetMcp` · `proveFleetMcp` | the loopback MCP door, and the `initialize` that proves it — the MCP SDK's pin, not ACP's |
 | `publish` | the served cell's writer; importing the ctx would be a cycle |
+| `compactsAt` | the person's preference, in the store kolu-server owns |
 | `home` · `hostName` | facts about the machine kolu-server is running on |
 | `spawn` | the composition root is the one place that knows a conversation is a subprocess |
 

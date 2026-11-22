@@ -240,6 +240,13 @@ export function currentAgentDistroSetting(): AgentDistroSetting {
   return agentDistroSettingOf(preferencesStore.get().agentDistro);
 }
 
+/** Where the Conductor compacts its conversation — the preference read off the
+ *  SAME store the `preferences` cell serves. The conversation reads it at each
+ *  bring-up of its agent (`index.ts` hands it over). */
+export function currentConductorCompactsAt(): number {
+  return preferencesStore.get().conductorCompactsAt;
+}
+
 // ── The bound padi's rail state — the projected payload the push cells derive from ──
 //
 // `padiLink` + `processStartedAt` both derive from the bound padi's `onState`. To keep

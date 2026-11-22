@@ -41,7 +41,7 @@ describe("Preferences — the conf store's `preferences` field", () => {
         '"attentionAlerts":true,"colorScheme":"dark","terminalRenderer":"auto",' +
         '"rightPanel":{"size":0.25,"codeTabTreeSize":0.35},' +
         '"agentDistro":null,"agentProfilesRecent":[],"tipBarCollapsed":false,' +
-        '"hostOrder":[]}',
+        '"hostOrder":[],"conductorCompactsAt":200000}',
     );
   });
 
@@ -52,7 +52,7 @@ describe("Preferences — the conf store's `preferences` field", () => {
       '"attentionAlerts":false,"colorScheme":"system","terminalRenderer":"webgl",' +
       '"rightPanel":{"size":0.4,"codeTabTreeSize":0.5},' +
       '"agentDistro":{"enabled":false,"profiles":["github:juspay/skills","~/mine"]},"agentProfilesRecent":["github:me/p"],"tipBarCollapsed":true,' +
-      '"hostOrder":["remote:zest","remote:srid@builder"]}';
+      '"hostOrder":["remote:zest","remote:srid@builder"],"conductorCompactsAt":500000}';
     const decoded = Schema.decodeUnknownSync(PreferencesSchema)(
       JSON.parse(stored),
     );

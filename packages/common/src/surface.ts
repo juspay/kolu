@@ -277,6 +277,21 @@ export const ShuffleBehaviorSchema = Schema.Literals([
   "colourful",
 ]);
 
+/** The token counts the Conductor can compact its conversation at — the one
+ *  list the `conductorCompactsAt` preference and its Settings row both read.
+ *  Past the chosen count Claude Code replaces the older part of the
+ *  conversation with a summary. The floor is the CLI's: it refuses a window
+ *  under 100,000, and kolu sends the count plus a reserve
+ *  (`compactingAt` in `@kolu/acp-claude`). */
+export const CONDUCTOR_COMPACTS_AT_OPTIONS = [
+  100_000, 200_000, 300_000, 500_000,
+] as const;
+
+/** One of {@link CONDUCTOR_COMPACTS_AT_OPTIONS}. */
+export const ConductorCompactsAtSchema = Schema.Literals(
+  CONDUCTOR_COMPACTS_AT_OPTIONS,
+);
+
 /** Right-panel preferences — workspace-level layout chrome: the panel's width
  *  and the Code-tab tree/content split. Both are viewer density taste — tuned
  *  once and left put, with real writers (`setPanelSize`/`setCodeTabTreeSize`).
@@ -370,6 +385,12 @@ export const PreferencesSchema = Schema.Struct({
    *  is never stored here, the same rule `PersistedHostsSchema` applies to the
    *  persisted fleet. */
   hostOrder: Schema.Array(Schema.String),
+  /** Where the Conductor compacts its conversation, in tokens — one of
+   *  {@link CONDUCTOR_COMPACTS_AT_OPTIONS}. kolu-conductor reads it each time
+   *  it starts its agent, so a change applies at the next start (in practice a
+   *  kolu restart), to the same conversation; the running agent keeps the
+   *  count it was started with. */
+  conductorCompactsAt: ConductorCompactsAtSchema,
 });
 
 /** Preference patch — top-level fields are optional; `rightPanel` is deep-partial.
@@ -500,6 +521,7 @@ export const DEFAULT_PREFERENCES: typeof PreferencesSchema.Type = {
   tipBarCollapsed: false,
   // Nobody has rearranged yet — pool order, local first.
   hostOrder: [],
+  conductorCompactsAt: 200_000,
 };
 
 // `applyPreferencesPatch` references `Preferences` / `PreferencesPatch`

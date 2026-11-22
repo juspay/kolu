@@ -18,6 +18,7 @@ import {
   migratePreferences_1_41_0,
   migratePreferences_1_42_0,
   migratePreferences_1_43_0,
+  migratePreferences_1_66_0,
 } from "./stateLadder.ts";
 
 // KOLU_STATE_DIR is set by the `test:unit` script in package.json — state.ts
@@ -320,17 +321,18 @@ describe("migratePreferences_1_42_0 — Juspay leaves the stack: it is opt-in", 
 describe("the CHAINED preference ladder (a pre-1.30 blob walking every rung)", () => {
   /** The rungs that read the `preferences` blob, in ladder order. 1.31.0 /
    *  1.33.0 / 1.35.0 / 1.36.0 never touch it (key strip, `hosts` seed, no-op,
-   *  `viewerMode` seed), so these nine (1.37.0 seeds `agentDistro`, 1.38.0 turns
+   *  `viewerMode` seed), so these (1.37.0 seeds `agentDistro`, 1.38.0 turns
    *  an Off one into "never chosen", 1.39.0 seeds `tipBarCollapsed`, 1.40.0
    *  seeds `agentProfilesRecent`, 1.41.0 turns `profile` into `profiles`,
    *  1.42.0 takes Juspay's reference out of a stack that reached 1.41.0,
-   *  1.43.0 seeds `hostOrder`) ARE
+   *  1.43.0 seeds `hostOrder`, 1.66.0 seeds `conductorCompactsAt`) ARE
    *  the whole walk a pre-1.30 file
    *  makes. Testing each rung in isolation cannot catch a cross-rung defect:
    *  1.32.0 spreads today's `DEFAULT_PREFERENCES` into the record, which hands
    *  1.34.0 an `attentionAlerts` the user never chose. */
   const walkLadder = (blob: Record<string, unknown>) =>
-    migratePreferences_1_43_0(
+    migratePreferences_1_66_0(
+      migratePreferences_1_43_0(
       migratePreferences_1_42_0(
         migratePreferences_1_41_0(
           migratePreferences_1_40_0(
@@ -387,6 +389,18 @@ describe("the CHAINED preference ladder (a pre-1.30 blob walking every rung)", (
     expect(
       migratePreferences_1_43_0({ hostOrder: ["remote:zest"] }).hostOrder,
     ).toEqual(["remote:zest"]);
+  });
+
+  it("a 1.65 file is seeded at 200000; a chosen count is left alone", () => {
+    // A 1.65-era record: today's shape without the key. Not walked from
+    // pre-1.30, because 1.32.0's defaults spread would hand it today's default
+    // and leave this rung nothing to do.
+    const { conductorCompactsAt: _absent, ...at_1_65 } = DEFAULT_PREFERENCES;
+    expect(migratePreferences_1_66_0(at_1_65).conductorCompactsAt).toBe(200000);
+    expect(
+      migratePreferences_1_66_0({ ...at_1_65, conductorCompactsAt: 500000 })
+        .conductorCompactsAt,
+    ).toBe(500000);
   });
 
   it("a 1.37-era Agents choice walks the agent rungs into the stack", () => {

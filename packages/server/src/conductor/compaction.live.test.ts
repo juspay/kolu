@@ -42,14 +42,17 @@ import {
   type TurnEnded,
 } from "@kolu/acp-harness";
 import {
-  CONDUCTOR_ENGINE as ENGINE,
+  CONDUCTOR_SEAT,
   conductorConfigDir,
+  conductorEngine,
 } from "kolu-agents/acp";
 import type { ConductorRow } from "kolu-common/conductor";
 
 const LIVE = process.env.KOLU_ACP_LIVE === "1" && process.env.KOLU_ACP_AGENT;
 
 const DEADLINE = 240_000;
+/** The Conductor's engine at the default point, the one this file measures. */
+const engine = conductorEngine(200_000);
 const TEACHING = "# [kolu] live test — RULES-CANARY";
 const SUMMARY_CANARY = "SUMMARY-CANARY";
 
@@ -242,7 +245,7 @@ describe.skipIf(!LIVE)(
     ) => {
       if (home === "")
         home = await mkdtemp(path.join(tmpdir(), "kolu-compacting-"));
-      const seating = ENGINE.at({
+      const seating = CONDUCTOR_SEAT.at({
         env: process.env,
         cwd: home,
         found: () => null,
@@ -254,8 +257,8 @@ describe.skipIf(!LIVE)(
       const ended = new Map<string, TurnEnded>();
       const waiting = new Map<string, (turn: TurnEnded) => void>();
       const harness = await startHarness<ConductorRow>({
-        agent: ENGINE.id,
-        leg: over.leg ?? ENGINE.leg,
+        agent: CONDUCTOR_SEAT.id,
+        leg: over.leg ?? engine.leg,
         adapter: {
           ...seated,
           unset: [
@@ -279,9 +282,9 @@ describe.skipIf(!LIVE)(
         mcpServers: [],
         teaching: TEACHING,
         taught: over.taught ?? false,
-        ...(ENGINE.compacts === undefined
+        ...(engine.compacts === undefined
           ? {}
-          : { compacts: ENGINE.compacts.due }),
+          : { compacts: engine.compacts.due }),
         onCompaction: (one) => compactions.push(one),
         log: silent,
         opens:
@@ -375,7 +378,7 @@ describe.skipIf(!LIVE)(
     test(
       "compacts a conversation from before the upgrade on its first message, once loaded with the settings",
       async () => {
-        const before = await started({ leg: withoutSettings(ENGINE.leg) });
+        const before = await started({ leg: withoutSettings(engine.leg) });
         await before.say("first", 1_000);
         await before.say("long", 250_000);
         await before.say("still long", 250_000);

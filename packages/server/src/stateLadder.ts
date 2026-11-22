@@ -224,6 +224,19 @@ export function migratePreferences_1_43_0(
   return { ...current, hostOrder: [] };
 }
 
+/** 1.66.0 — where the Conductor compacts its conversation joined preferences.
+ *  Seeds `conductorCompactsAt: 200000` (the count every earlier build used, a
+ *  module constant until then) onto a record that has none; a record that
+ *  already carries one is returned untouched. Spelled here rather than read off
+ *  `DEFAULT_PREFERENCES`: a rung says what ITS version did. Exported for
+ *  `state.test.ts`. */
+export function migratePreferences_1_66_0(
+  current: Record<string, unknown>,
+): Record<string, unknown> {
+  if ("conductorCompactsAt" in current) return current;
+  return { ...current, conductorCompactsAt: 200000 };
+}
+
 /** 1.32.0 — the new-terminal collapsed DEFAULT moved off `rightPanel.collapsed`
  *  (a write-dead seed jammed next to live geometry) to a top-level
  *  `newTerminalCollapsed` preference beside `newTerminalTheme`. CARRY the old
@@ -3048,4 +3061,15 @@ export const CONF_MIGRATIONS = {
   // WHERE EACH WORK'S CODE VIEW STANDS: a `workCodeViews` key, seeded empty
   // (`workCodeViews_1_65_0`).
   "1.65.0": workCodeViews_1_65_0,
+  // WHERE THE CONDUCTOR COMPACTS ITS CONVERSATION joins preferences, seeded at
+  // the 200000 every earlier build used (`migratePreferences_1_66_0`). The
+  // transcript file is untouched, so TRANSCRIPT_FILE_VERSION stays at 1.63.0.
+  "1.66.0": (store: Conf<PersistedState>) => {
+    store.set(
+      "preferences",
+      migratePreferences_1_66_0(
+        store.get("preferences") as Record<string, unknown>,
+      ) as unknown as Preferences,
+    );
+  },
 };

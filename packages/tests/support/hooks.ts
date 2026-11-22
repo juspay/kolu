@@ -1464,6 +1464,9 @@ Before(
       // No host arrangement: the strip is in pool order, local pinned first —
       // what every scenario that lists hosts expects.
       hostOrder: [],
+      // The Conductor compacts at the shipped point, which
+      // `conductor-compaction.feature` reads back as "about 200k".
+      conductorCompactsAt: 200_000,
     });
     // Reset padi's terminals + cells as one retryable transaction. It waits for
     // padi to be live, which is what bounds the tight policy poll that follows.

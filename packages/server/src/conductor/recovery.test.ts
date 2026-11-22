@@ -103,6 +103,7 @@ function hostOver(): ConductorHost {
     home: HOME,
     hostName: "test-box",
     fleetMcp: () => null,
+    compactsAt: () => 200_000,
     offer: () => {
       throw new Error("no test here opens a work, so none reads kolu's offer");
     },

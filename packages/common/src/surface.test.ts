@@ -420,3 +420,12 @@ describe("applyPreferencesPatch — the Agents setting", () => {
     expect(DEFAULT_PREFERENCES.agentDistro).toBeNull();
   });
 });
+
+describe("the Conductor's compaction point — one of a list", () => {
+  it("takes a count on the list and refuses one off it", () => {
+    const patchAccepts = accepts(PreferencesPatchSchema);
+    expect(patchAccepts({ conductorCompactsAt: 300_000 })).toBe(true);
+    expect(patchAccepts({ conductorCompactsAt: 250_000 })).toBe(false);
+    expect(patchAccepts({ conductorCompactsAt: "200000" })).toBe(false);
+  });
+});

@@ -22,11 +22,11 @@
  * `Registering` contract (`@kolu/acp/engine`) already says everything a second
  * agent would need to say — its name, the leg that reads its wire, how to seat
  * it on a host, and the channel its standing prompt rides — so a codex or an
- * opencode that grows an ACP adapter joins by adding a row to {@link ACP_ENGINES},
+ * opencode that grows an ACP adapter joins by being seated here the same way,
  * and nothing above here learns its name.
  */
 
-import type { Engine, Registering } from "@kolu/acp/engine";
+import type { Engine } from "@kolu/acp/engine";
 import {
   type Adapter,
   AGENT_ENV,
@@ -68,8 +68,6 @@ const INSTALL: NotHere = {
   why: "not found — this host's padi was started without the wrapper that carries the pinned adapter",
 };
 
-const COMPACTS_AT = 200_000;
-
 /**
  * WHAT THE LAUNCHER IN FRONT OF THIS ADAPTER SETS, said again. The adapter
  * drives agent-distro's `claude`, which launches the CLI with `--settings`
@@ -80,17 +78,32 @@ const COMPACTS_AT = 200_000;
  */
 const LAUNCHER_SETTINGS = { attribution: { commit: "", pr: "" } };
 
+/** The word this engine is registered under — an identifier, not the name a
+ *  person reads ({@link CONDUCTOR_SEAT}`.name`). Written once, here, and read
+ *  by the conductor that files its conversation's notes under it. */
+const CLAUDE_CODE = "claude-code";
+
 /**
- * THE CLAUDE CODE ENGINE, as a VALUE — everything kolu's side of the wall adds
- * to the facts its own package owns.
+ * THE CLAUDE CODE ENGINE AS THE CONDUCTOR SEATS IT, all but where it compacts
+ * — everything kolu's side of the wall adds to the facts its own package owns,
+ * WITH THE KEY IT IS REGISTERED UNDER, which is what a caller that has to name
+ * the agent (the client files a conversation's memory and model notes under
+ * it) reads, so nobody retypes the word.
  *
  * Exported rather than built where it is mounted for the reason every reader in
  * this tree is a pure function: what an integration registers is data, and data
  * is a thing a unit test can hold.
+ *
+ * A CONSTANT rather than a setting, deliberately: the adapter it names is
+ * baked into kolu's closure (`KOLU_ACP_AGENT`), one per build, and an engine
+ * knob would be a choice a person could make that the binary cannot honour.
+ * When a second adapter is pinned, this becomes a reading of whatever the
+ * build actually carries — still not a knob. Where it compacts IS a person's
+ * choice, so that one number is {@link conductorEngine}'s argument.
  */
-export const ENGINE: Registering = {
+export const CONDUCTOR_SEAT: Omit<Engine, "leg" | "compacts"> = {
+  id: CLAUDE_CODE,
   name: NAME,
-  ...compactingAt(COMPACTS_AT, LAUNCHER_SETTINGS),
   // SHIPPED, NOT FOUND, which is why the probe is a variable read and never a
   // search-path lookup: the adapter is a wrapper inside the nix store and is on
   // nobody's PATH — `where.found` is not consulted here and padi hands one that
@@ -124,7 +137,7 @@ export const ENGINE: Registering = {
       // changes who is looking at the screen.
       //
       // ... AND FOUR MORE THAT WOULD OVERRIDE THE COMPACTION the open's
-      // settings ask for ({@link COMPACTS_AT}): a host that exports
+      // settings ask for ({@link conductorEngine}): a host that exports
       // one would otherwise turn it off or move it, for this conversation and
       // without a word.
       unset: [...REMOTE_SIGNALS, ...COMPACTION_OVERRIDES],
@@ -137,31 +150,16 @@ export const ENGINE: Registering = {
   prompt: { kind: "first-turn" },
 };
 
-/** The word this engine is registered under — an identifier, not the name a
- *  person reads ({@link ENGINE}`.name`). Written once, here, and read by both
- *  the registry below and the conductor that files its conversation's notes
- *  under it. */
-const CLAUDE_CODE = "claude-code";
-
-/** Every agent kolu can hold an ACP conversation with, by the registry's own
- *  agent kind. */
-export const ACP_ENGINES: Readonly<Record<string, Registering>> = {
-  [CLAUDE_CODE]: ENGINE,
-};
-
 /**
- * The engine a host's conductor runs, WITH THE KEY IT IS REGISTERED UNDER —
- * which is what a caller that has to name the agent (the client files a
- * conversation's memory and model notes under it) reads, so nobody retypes
- * the word.
- *
- * A CONSTANT rather than a setting, deliberately: the adapter it names is
- * baked into kolu's closure (`KOLU_ACP_AGENT`), one per build, and an engine
- * knob would be a choice a person could make that the binary cannot honour.
- * When a second adapter is pinned, this becomes a reading of whatever the
- * build actually carries — still not a knob.
+ * THE ENGINE THE CONDUCTOR RUNS, compacting its conversation at `compactsAt`
+ * tokens — {@link CONDUCTOR_SEAT} with the leg that opens every session so,
+ * and the point the harness reads, both from ONE `compactingAt` call so the
+ * two cannot be built apart.
  */
-export const CONDUCTOR_ENGINE: Engine = { id: CLAUDE_CODE, ...ENGINE };
+export const conductorEngine = (compactsAt: number): Engine => ({
+  ...CONDUCTOR_SEAT,
+  ...compactingAt(compactsAt, LAUNCHER_SETTINGS),
+});
 
 /**
  * WHERE THAT ENGINE READS ITS SIGNATURE on the host this daemon runs on.

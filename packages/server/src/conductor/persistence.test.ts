@@ -377,6 +377,7 @@ function hostOver(): {
     home: HOME,
     hostName: "test-box",
     fleetMcp: () => liveEndpoint,
+    compactsAt: () => 200_000,
     offer: () => {
       throw new Error("no test here opens a work, so none reads kolu's offer");
     },
@@ -1172,6 +1173,7 @@ describe("a session nobody spoke into, across a restart", () => {
       home,
       hostName: "test-box",
       fleetMcp: () => liveEndpoint,
+      compactsAt: () => 200_000,
       offer: () => {
         throw new Error(
           "no test here opens a work, so none reads kolu's offer",
