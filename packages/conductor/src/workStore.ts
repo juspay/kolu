@@ -204,8 +204,6 @@ export interface WorkStore {
   readonly publishReadings: () => void;
   /** What the `works` key holds. */
   readonly persisted: () => PersistedWorks;
-  /** WHAT GONE WORKS LEAVE BEHIND, RECONCILED TO THE WORKS. */
-  readonly forgetGone: () => void;
   /** PUT A WORK'S CODE VIEW WHERE A PERSON LEFT IT — refused for a work kolu
    *  does not hold, so no view is made without its work, as none outlives
    *  one. An equal write is dropped by the view store. */
@@ -280,7 +278,7 @@ export interface WorkStoreDeps {
   readonly records: RecordWrites<"works" | "members">;
   readonly members: MemberStore;
   /** Where each work's Code view stands — kept exactly as long as its work,
-   *  by {@link WorkStore.forgetGone}. */
+   *  by the store's one rule for a work going (`forgetGone`). */
   readonly views: WorkCodeViewStore;
   readonly log: Logger;
 }
@@ -572,7 +570,6 @@ export const workStore = (deps: WorkStoreDeps): WorkStore => {
     changed,
     publishWorks,
     publishReadings,
-    forgetGone,
     setCodeView: (id, view) => {
       if (!works.has(id)) {
         throw new WorkRefusal(
