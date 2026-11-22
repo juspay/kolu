@@ -20,7 +20,10 @@
  *  is unchanged from the hand-rolled sites, so values already in
  *  `localStorage` keep loading. */
 
-import { makePersisted } from "@solid-primitives/storage";
+import {
+  makePersisted,
+  type PersistenceSyncAPI,
+} from "@solid-primitives/storage";
 import { encodeHostKey, type HostKey } from "kolu-common/hostKey";
 import {
   type Accessor,
@@ -59,6 +62,11 @@ export interface PersistedPrefOptions<T> {
    *  decided by another tab (the `activeHost` pref and the host-switch trail
    *  that shadows it). Tests also inject a synchronous in-memory fake. */
   storage?: Storage;
+  /** Follow writes other pages make to the same key — {@link originStorageSync}
+   *  for `localStorage`. Without it the value is read once, at load, and a
+   *  page's next write puts back whatever it read then. For a value several
+   *  pages change, where a write must not undo another page's. */
+  sync?: PersistenceSyncAPI;
 }
 
 /** The validate-on-read core: run `parse`, fall back on throw. Exported so
@@ -88,6 +96,36 @@ function defaultSerialize<T>(value: T): string {
   return typeof value === "string" ? value : JSON.stringify(value);
 }
 
+/** The {@link PersistedPrefOptions.sync} for a `localStorage` value every page
+ *  of this ORIGIN shares: the browser's `storage` event, handed on without
+ *  the writer's address. `makePersisted` drops a sync event whose `url` is not
+ *  this page's own address — `@solid-primitives/storage` 4.3.4,
+ *  `dist/persisted.js:46`:
+ *  `(!isServer && (data.url || globalThis.location.href) !== globalThis.location.href) ||`
+ *  — and `storageSync` hands the event on as it is, so a page opened from a
+ *  kolu link, which keeps the link (`#/…`) in its address bar, never heard
+ *  the other pages, nor they it. `localStorage` is one store per origin, and
+ *  the address a page shows does not change what it reads.
+ *
+ *  WHY THIS STEPS AROUND THE LIBRARY instead of fixing it there: no released
+ *  version removes that check. 4.3.5 and 4.4.0 carry the same line at `:46`;
+ *  5.0.0 (and 5.0.0-next.8) carry it at `:88`, and 5.0.0 needs solid-js 2.
+ *  Kept here by decision until a release drops it. */
+export const originStorageSync: PersistenceSyncAPI = [
+  (subscriber) =>
+    window.addEventListener("storage", (event) => {
+      // `key` is null only for `localStorage.clear()`, which names no value.
+      if (event.key === null) return;
+      subscriber({
+        key: event.key,
+        newValue: event.newValue,
+        timeStamp: event.timeStamp,
+      });
+    }),
+  // The browser announces a write to the other pages itself.
+  () => {},
+];
+
 /** Build a persisted signal whose stored value is validated on every read.
  *  Returns the same `[Accessor, Setter]` tuple as `createSignal`. */
 export function persistedPref<T>(
@@ -102,6 +140,7 @@ export function persistedPref<T>(
     serialize,
     deserialize: (raw: string): T =>
       readWithFallback(raw, opts.parse, opts.fallback, opts.onInvalid),
+    sync: opts.sync,
   });
   return [value, setValue];
 }

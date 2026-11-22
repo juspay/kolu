@@ -45,7 +45,6 @@
  */
 
 import { isTransportError } from "@kolu/surface/client";
-import { mergeDisjointGroups } from "@kolu/surface/define";
 import {
   isSurfaceRelayTransportLost,
   isSurfaceStdioTransportClosed,
@@ -59,24 +58,14 @@ import { surfaceWsUrl } from "@kolu/surface-app";
 import { isStaleProcessClose } from "@kolu/surface-app/connect";
 import { fold } from "@kolu/surface-map";
 import { Cause, Effect, Exit, Option, Result, Schema, Stream } from "effect";
-import { koluSurfaceGroup } from "kolu-common/contract";
 import { encodeHostKey, LOCAL_HOST, parseHostInput } from "kolu-common/hostKey";
-import { PADI_SURFACE_NAME, padiHostMap } from "kolu-common/surfacesWithPadi";
+import { koluWireGroup, PADI_SURFACE_NAME } from "kolu-common/surfacesWithPadi";
 
-/** The client group: kolu's own siblings (`surface/kolu/*`, `surface/surfaceApp/*`)
- *  PLUS the padi host map's key-folded members (`surface/padi/*`). Assembled from the
- *  SAME two sources `packages/server/src/surface.ts` merges into `servedGroup`, so a
- *  tag the harness can spell is a tag the server serves — the client group is a
- *  strict subset of the served one (the root `server/*` / `daemon/*` / `hosts/*`
- *  procedures are not merged because no scenario drives them from here).
- *
- *  No cast: `mergeDisjointGroups` takes the element-union erasure on itself
- *  (`RpcGroup` is invariant in that union), so the precisely-typed halves go in as
- *  they are. */
-const clientGroup = mergeDisjointGroups({
-  koluSurfaces: koluSurfaceGroup,
-  padiMap: padiHostMap.group,
-});
+/** The client group: {@link koluWireGroup}, THE one assembly of kolu's wire —
+ *  kolu's own siblings, the root procedures (`server/*`, `daemon/*`,
+ *  `hosts/*`) and the padi host map — the value the server serves and
+ *  `kolu-rpc` dials. A tag the harness can spell is a tag the server serves. */
+const clientGroup = koluWireGroup;
 
 /** The wire `mapKey` — the CANONICAL encoded form (`encodeHostKey`) — the e2e drives its
  *  padi resets against: the local default's `"local"` (the single-host CI e2e —

@@ -34,10 +34,12 @@ non-survivable detached spawn. A NixOS VM has *real* systemd, so the production
 | `currency.nix` | **Build-skew** path (B3.4) → check `adoption-currency`. |
 | `upgrade.nix` | **W2.2 upgrade-migration** path → TWO checks. `adoption-upgrade`: a legacy PORT-keyed kaval (`kaval-<port>`) is ADOPTED — not leaked — when the digest-keyed W2.2 padi first boots (ARM 1), and a Restart-kaval recycle CONVERGES the daemon under `kaval-<digest>` (ARM 2). `adoption-upgrade-reboot`: from that adopted state, a HOST REBOOT proves the legacy residue is BOUNDED (ARM 3) — kaval is mortal (its process + its `$XDG_RUNTIME_DIR`-tmpfs gate die), so padi spawns DIGEST-keyed and the saved session (on the persistent state-root) takes the degraded-restore path. Its flow INVERTS the others' — it stands up the legacy daemon + a matching pre-W2.2 `config.json` BEFORE kolu starts. |
 | `padi-upgrade.nix` | **padi build-skew convergence** (#1670) → check `adoption-padi-upgrade`. A redeploy that changes padi's *build* but not its wire contract used to leave the freshly-booted binder ADOPTING the old-build padi forever. Asserts the binder drains the survivor at boot **on its own** (padi gate pid CHANGES, kaval gate UNCHANGED, session warm) — no manual drain, unlike `currency.nix`. |
-| `offline-provision.nix` | **I1 offline remote provisioning** (juspay/kolu#2101) → check `offline-provision`. The only **two-node** member: a binder plus a bare sshd+nix remote, both with `nix.settings.substituters` forced empty (asserted, not inherited). A `hosts/add` dial must SHIP the agent closure out of the deployed generation's own store and converge — with neither incident string from `packages/surface-remote/src/nixCopy.ts` in the journal. Falsified by reverting the module's agent attachment: the same fixture then narrates `no local copy of the agent to ship`. |
-| `default.nix` | Aggregator — pins the `port` + `kavalTui` + `kavalBin` once, imports `lib.nix`, returns the seven checks. |
+| `remoteHost.nix` | The **two-node** fixture `offline-provision.nix` and `remote-deploy.nix` share: a binder plus a bare sshd+nix remote, both with `nix.settings.substituters` forced empty, and the runtime ssh-trust and `hosts/add` steps. |
+| `offline-provision.nix` | **I1 offline remote provisioning** (juspay/kolu#2101) → check `offline-provision`. Two nodes (`remoteHost.nix`), substitution asserted off on both. A `hosts/add` dial must SHIP the agent closure out of the deployed generation's own store and converge — with neither incident string from `packages/surface-remote/src/nixCopy.ts` in the journal. Falsified by reverting the module's agent attachment: the same fixture then narrates `no local copy of the agent to ship`. |
+| `remote-deploy.nix` | **A deploy replaces a remote host's padi** → check `remote-deploy`. Two nodes (`remoteHost.nix`). On the remote, a sleeping terminal saved first and a terminal with an idle Claude Code agent after it; the binder is then replaced by a padi-build-bumped kolu. Asserts the remote padi was replaced (gate pid CHANGES, kaval gate UNCHANGED, the agent's shell alive) and that no settled `urgency` frame from the new remote padi has the agent lingering or in no list. |
+| `default.nix` | Aggregator — pins the `port` + `kavalTui` + `kavalBin` once, imports `lib.nix`, returns the eight checks. |
 
-`../flake.nix` spreads all seven into `checks.x86_64-linux` — alongside the
+`../flake.nix` spreads all eight into `checks.x86_64-linux` — alongside the
 service `vm-test` and the VM-free `agent-closure-containment` proof it also
 defines — so they ride the Linux arm of `ci::home-manager` (see
 [Running](#running)).
@@ -102,7 +104,7 @@ it is read via `journalctl --user` broadly, not `-u kolu`.
 
 ### `offline-provision` — a connect ships, it never fetches or compiles (I1)
 
-The one check here with **two nodes**. `machine` is the deployed generation;
+One of the two checks here with **two nodes**. `machine` is the deployed generation;
 `agenthost` is a bare NixOS box with sshd, nix and a writable store. Both force
 `nix.settings.substituters = []`, and the script reads the *effective* value back
 before it dials — a VM test is offline anyway, and inheriting a property is not
@@ -122,6 +124,34 @@ closure**: post-fix `padi-agent` is in the generation, so the binder's
 bits sit unregistered on the shared host store, which is exactly production's
 "not valid locally". Evaluation is scaffolded identically on both arms — I1
 guarantees the closure, not the drv resolution, which stays lazy per F6.
+
+### `remote-deploy` — a deploy does not re-finish an agent on a remote host
+
+The same two nodes. The test opens two terminals on the remote over the
+binder's wire, puts the first to sleep, and gives the second an idle Claude Code
+agent: a session file keyed to the terminal's shell pid and a transcript whose
+last turn ended, under root's `~/.claude` (the e2e harness's "on the noted
+terminal" arrangement). It waits until the remote's saved session lists the
+sleeper first, and until the remote padi lists the agent finished.
+
+Then it stops `kolu` and starts `kolu-new` — the deployed build with
+`padiBuildIdOverride` and the deployed commit hash. The commit hash is written
+into the agent flake source, so keeping it keeps the remote's `padi-agent` the
+same closure and nothing new ships. The remote padi still reports the build it
+was shipped with, so the new binder drains it on its first dial and starts
+another.
+
+The remote padi's `urgency` is followed on the remote itself, over its unix
+socket (`kolu surface get urgency --follow` from the shipped `padi-agent`), each
+frame stamped with the gate pid of the padi it came from. The binder's mirror is
+not read: it serves a cell's last value across a padi restart, so its frames
+cannot be told apart from the old padi's. The test passes when the remote padi
+was replaced, its kaval was not, and no settled frame from a new remote padi
+lists the agent in `lingerIds` or in no list.
+
+The remote node sets `users.users.root.linger`, for the same reason the binder
+node lingers alice: without it, root's runtime dir — where the remote padi's and
+kaval's sockets live — is removed when the old binder's ssh session closes.
 
 ## Running
 
@@ -148,10 +178,9 @@ and all adoption VM tests build and run on the Linux lane after `ci::nix`.
 > `adoption-currency` is the *cheap* skew: `kavalBuildIdOverride` only rewrites the
 > wrapper's `--set`, so `koluNew` shares the `kolu` closure.
 >
-> `offline-provision` is slow for a different reason: it boots **two** VMs and
-> genuinely transfers the agent closure between their stores over ssh. That
-> transfer *is* the thing under test, so it cannot be shortened — but it is a
-> copy, never a build, which is the whole point.
+> `offline-provision` and `remote-deploy` are slow for a different reason: each
+> boots **two** VMs and genuinely transfers the agent closure between their
+> stores over ssh. That transfer is a copy, never a build.
 
 ## Why the scaffold looks the way it does
 

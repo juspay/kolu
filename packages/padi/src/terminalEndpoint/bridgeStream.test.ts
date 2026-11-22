@@ -140,6 +140,7 @@ describe("onForegroundTapError — the production handler never publishes (STAYS
       const survivor = "t1" as TerminalId;
       const fleet = new Map([[survivor, {} as PadiTerminal]]);
       gate.awaitFirstRead(survivor);
+      gate.establish();
       expect(gate.admit(fleet)).toBe(false);
       onForegroundTapError(survivor, { publish: () => {} }, new Error("gone"));
       expect(gate.admit(fleet)).toBe(true);

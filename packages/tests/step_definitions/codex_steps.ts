@@ -248,11 +248,19 @@ Then(
       observe: () =>
         this.page.evaluate(() => {
           // Prefer a focused split's indicator (sub-terminal agents live there),
-          // then the main tile titlebar. Without the sub-terminal arm a split
-          // agent is invisible to this step even when detection is healthy.
-          const el = document.querySelector(
-            '[data-sub-terminal] [data-testid="agent-indicator"], [data-testid="canvas-tile"] [data-testid="agent-indicator"], [data-testid="mobile-tile-titlebar"] [data-testid="agent-indicator"]',
-          );
+          // then the ACTIVE tile's titlebar, then any tile's. Without the
+          // sub-terminal arm a split agent is invisible to this step even when
+          // detection is healthy; without the active arm a second agent's
+          // tile reads as the first agent tile on the canvas.
+          const indicator = '[data-testid="agent-indicator"]';
+          const el =
+            document.querySelector(`[data-sub-terminal] ${indicator}`) ??
+            document.querySelector(
+              `[data-testid="canvas-tile"][data-active] ${indicator}`,
+            ) ??
+            document.querySelector(
+              `[data-testid="canvas-tile"] ${indicator}, [data-testid="mobile-tile-titlebar"] ${indicator}`,
+            );
           return {
             state: el?.getAttribute("data-agent-state") ?? null,
             kind: el?.getAttribute("data-agent-kind") ?? null,

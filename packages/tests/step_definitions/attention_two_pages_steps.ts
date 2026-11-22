@@ -1,0 +1,137 @@
+/**
+ * Two pages of the same kolu in one browser — the same origin, so the same
+ * `localStorage`, and so one saved record of unread marks per host
+ * (`kolu-attention:<host>`) that both pages read and write.
+ */
+
+import * as assert from "node:assert";
+import { After, Then, When } from "@cucumber/cucumber";
+import type { Page } from "playwright";
+import {
+  waitForFinishedTurn,
+  withAttentionDiagnosis,
+} from "../support/attentionWaits.ts";
+import { pollFor } from "../support/poll.ts";
+import {
+  DOCK_ROW_SELECTOR,
+  type KoluWorld,
+  POLL_TIMEOUT,
+} from "../support/world.ts";
+
+const secondPages = new WeakMap<KoluWorld, Page>();
+
+function second(world: KoluWorld): Page {
+  const page = secondPages.get(world);
+  assert.ok(page, "no second page in this scenario");
+  return page;
+}
+
+function createdId(world: KoluWorld, index: number): string {
+  const id = world.createdTerminalIds[index - 1];
+  assert.ok(id, `No terminal created at index ${index} in this scenario`);
+  return id;
+}
+
+After(async function (this: KoluWorld) {
+  await secondPages.get(this)?.close();
+});
+
+/** A second page of this kolu in the same browser. `at another address`
+ *  opens it on a kolu link (`#/h/local`, this host's own), the way a page
+ *  opened from a link keeps its link in the address bar: same origin, same
+ *  storage, a different address. */
+When(
+  /^I open a second page of the same kolu( at another address)?$/,
+  async function (this: KoluWorld, elsewhere: string | null | undefined) {
+    const url = new URL(this.page.url());
+    if (elsewhere) {
+      url.hash = "#/h/local";
+      assert.notStrictEqual(url.href, this.page.url());
+    }
+    const page = await this.page.context().newPage();
+    await page.goto(url.href);
+    await page
+      .locator(DOCK_ROW_SELECTOR)
+      .first()
+      .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    secondPages.set(this, page);
+  },
+);
+
+/** Waits until terminal N's row in the SECOND page carries (or lacks) the
+ *  unread mark. The mark and the page's write of its unread list happen in
+ *  one step of the page, so a row that has lost its mark is a page that has
+ *  written the list without it. A timeout carries the second page's
+ *  attention diagnosis. */
+Then(
+  /^terminal (\d+)'s dock row should (be|not be) unread in the second page$/,
+  async function (this: KoluWorld, index: string, how: string) {
+    const page = second(this);
+    const row = page.locator(
+      `${DOCK_ROW_SELECTOR}[data-terminal-id="${createdId(this, Number(index))}"][data-unread]`,
+    );
+    const want = how === "be" ? 1 : 0;
+    await withAttentionDiagnosis(page, () =>
+      pollFor({
+        observe: () => row.count(),
+        isDone: (count) => count === want,
+        timeoutMs: POLL_TIMEOUT,
+        onTimeout: (count, ms) =>
+          new Error(
+            `after ${ms}ms terminal ${index}'s row in the second page was ${count === 1 ? "unread" : "not unread"}, wanted it to ${how} unread`,
+          ),
+      }),
+    );
+  },
+);
+
+When(
+  "I click terminal {int}'s dock row in the second page",
+  async function (this: KoluWorld, index: number) {
+    await second(this)
+      .locator(
+        `${DOCK_ROW_SELECTOR}[data-terminal-id="${createdId(this, index)}"]`,
+      )
+      .click();
+  },
+);
+
+When("I reload the first page", async function (this: KoluWorld) {
+  await this.page.reload();
+  await this.page
+    .locator(DOCK_ROW_SELECTOR)
+    .first()
+    .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+});
+
+/** Terminal N's row in the first page shows padi's verdict that its agent's
+ *  turn is over — see {@link waitForFinishedTurn}. */
+Then(
+  "terminal {int}'s dock row should show its finished turn",
+  async function (this: KoluWorld, index: number) {
+    await waitForFinishedTurn(
+      this.page,
+      `${DOCK_ROW_SELECTOR}[data-terminal-id="${createdId(this, index)}"]`,
+      `terminal ${index}'s row`,
+    );
+  },
+);
+
+Then(
+  "terminal {int}'s dock row should not be unread",
+  async function (this: KoluWorld, index: number) {
+    // Two frames, so the page has painted whatever its last write decided.
+    await this.waitForFrame();
+    await this.waitForFrame();
+    const unread = await this.page
+      .locator(
+        `${DOCK_ROW_SELECTOR}[data-terminal-id="${createdId(this, index)}"][data-unread]`,
+      )
+      .count();
+    assert.strictEqual(
+      unread,
+      0,
+      `terminal ${index}'s dock row is unread on the first page`,
+    );
+  },
+);

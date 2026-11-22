@@ -18,8 +18,16 @@ import * as path from "node:path";
 import { After, AfterAll, Before, BeforeAll, Status } from "@cucumber/cucumber";
 import type { AgentDistroSetting } from "@kolu/agent-distro/schema";
 import { padiKavalSocketPath } from "@kolu/padi/stateRoot";
+import { padiClientOver } from "@kolu/padi-client/dial";
 import { padiGatePath, padiSocketPath } from "@kolu/padi-client/rendezvous";
-import type { NewTerminalPolicy } from "@kolu/padi-client/surface";
+import {
+  type NewTerminalPolicy,
+  type PadiIdentity,
+  type PadiUrgency,
+  padiDaemonGroup,
+} from "@kolu/padi-client/surface";
+import { unixSocketLink } from "@kolu/surface/links/unix-socket";
+import { Effect, Option, Stream } from "effect";
 import getPort from "get-port";
 import { composeSpawnEnv, NIX_ENV_WHITELIST, pickEnv } from "kolu-pty";
 import type { Browser, BrowserContext, Page } from "playwright";
@@ -30,6 +38,7 @@ import { agentDistroFixtureEnv } from "./agentDistroFixture.ts";
 import { AGENT_DIR_VARS, FAKE_BIN_NAMES } from "./agentHarnessLists.ts";
 import { stageFakeGh } from "./fake-gh.ts";
 import { waitForPadiCell } from "./padiCellWait.ts";
+import { pollFor } from "./poll.ts";
 import { stageRenamedBash } from "./renamed-bash.ts";
 import {
   disposeRpcWire,
@@ -419,6 +428,39 @@ export function readPadiGatePid(): number | undefined {
  *  one is spawned fresh; either way a new pid holds the gate. */
 export function readKavalGatePid(): number | undefined {
   return readPidAtGate(kavalGate());
+}
+
+/** padi's `urgency` and `identity`, read off THIS worker's padi socket — the
+ *  padi itself, not the server's mirror of it. The mirror holds a cell's last
+ *  value across a padi restart and serves it until the new padi's first frame
+ *  for that cell, so a read through the server just after padi is replaced can
+ *  be the OLD padi's word. Throws when no padi answers on the socket. */
+export async function readPadiDirect(): Promise<{
+  urgency: PadiUrgency;
+  identity: PadiIdentity;
+}> {
+  const link = await unixSocketLink({
+    group: padiDaemonGroup,
+    socketPath: withWorkerRuntimeDir(() => padiSocketPath(padiStateDir)),
+  });
+  try {
+    const { surface } = padiClientOver(link.dispatch).padi;
+    const head = <A, E>(stream: Stream.Stream<A, E>): Promise<A> =>
+      Effect.runPromise(
+        Effect.map(Stream.runHead(stream), (frame) =>
+          Option.getOrThrowWith(
+            frame,
+            () => new Error("padi closed a cell before its first frame"),
+          ),
+        ),
+      );
+    return {
+      urgency: await head(surface.urgency.get(undefined)),
+      identity: await head(surface.identity.get(undefined)),
+    };
+  } finally {
+    await link.dispose();
+  }
 }
 
 /** SIGKILL the padi PROCESS this worker's server spawned. The cutover put padi
@@ -830,6 +872,28 @@ const acpFixtureAgent = path.resolve(
 /** ... and the store it remembers prompted sessions in, per worker. */
 const acpFixtureSessions = mkSubDir("acp-sessions");
 
+/** Which of the two server builds a start runs: `base` is `KOLU_SERVER`;
+ *  `next` is `KOLU_SERVER_NEXT_BUILD`, the same server with a different padi
+ *  build id — what {@link deployKoluServer} deploys. A Nix-built server bakes
+ *  its id (`--set PADI_BUILD_ID`), so there `next` is a second build; the
+ *  source wrapper reads it from the env this start passes, so there `next` is
+ *  the same wrapper with another id. */
+type ServerBuild = "base" | "next";
+
+/** The build the running server is — the one a deploy replaces. */
+let runningBuild: ServerBuild = "base";
+
+function serverBinary(koluServer: string, build: ServerBuild): string {
+  if (build === "base") return koluServer;
+  const next = process.env.KOLU_SERVER_NEXT_BUILD;
+  if (!next) {
+    throw new Error(
+      "a scenario deploys a second server build, but KOLU_SERVER_NEXT_BUILD is not set (the `just test` / `just test-quick` recipes set it)",
+    );
+  }
+  return next;
+}
+
 async function startServerChild(
   koluServer: string,
   /** How this start proves padi is live — see {@link waitForPadiLive}. A
@@ -837,6 +901,12 @@ async function startServerChild(
    *  MIDDLE of one must not, because what the new padi parked from the saved
    *  session is what that scenario is about. */
   probe: "killAll" | "read" = "killAll",
+  /** Start on THIS port rather than a random one — a deploy keeps the address,
+   *  and so the origin, the open page has. One child only, with no fresh port
+   *  to move to: a child that exits fails the start at once, and a live child
+   *  gets the whole budget every other start gets across its tries. */
+  fixedPort?: number,
+  build: ServerBuild = "base",
 ): Promise<void> {
   // Refuse a destructive ssh-leg bind BEFORE spawning the child — the spawn itself is
   // destructive, so the ack cannot wait until after (P2/F1).
@@ -857,16 +927,27 @@ async function startServerChild(
 
   // Spawn on a random port, retrying on a fresh port if our child can't take
   // ownership of it (a stale orphan may be squatting — see waitForOwnedServer).
-  const MAX_SPAWN_ATTEMPTS = 5;
+  // A child that finds its port taken EXITS, so a live child that has not yet
+  // announced is still starting: on a fixed port, with nowhere to retry, it
+  // gets the whole budget in one wait — never less than the random-port tries
+  // give in total — and only an exit fails it early.
+  const RANDOM_PORT_TRIES = 5;
+  const OWN_PORT_WAIT_MS = 15_000;
+  const MAX_SPAWN_ATTEMPTS = fixedPort === undefined ? RANDOM_PORT_TRIES : 1;
+  const attemptWaitMs =
+    fixedPort === undefined
+      ? OWN_PORT_WAIT_MS
+      : RANDOM_PORT_TRIES * OWN_PORT_WAIT_MS;
+  let lastFailure = "";
   let started = false;
   for (let attempt = 1; attempt <= MAX_SPAWN_ATTEMPTS && !started; attempt++) {
-    const port = await getPort();
+    const port = fixedPort ?? (await getPort());
     const url = `http://localhost:${port}`;
     console.log(
       `[worker:${workerId}] Starting server on port ${port} (attempt ${attempt}/${MAX_SPAWN_ATTEMPTS})...`,
     );
     const child = spawn(
-      koluServer,
+      serverBinary(koluServer, build),
       [
         // `web` is spelled explicitly: bare `kolu` lists its subcommands and
         // exits non-zero now — it stopped being an alias for the server when
@@ -975,6 +1056,12 @@ async function startServerChild(
           // scenario wrote into its own repo rather than whatever the real
           // `gh` can reach.
           KOLU_GH_BIN: fakeGhBin,
+          // THE PADI BUILD, for the source wrapper: it bakes nothing, so its
+          // binder and the padi it spawns (`inheritParentEnv`) read the id
+          // from here, and the two builds differ only by it — the one axis a
+          // deploy's build check converges on. A Nix-built server's own
+          // `--set` overrides it.
+          PADI_BUILD_ID: `e2e-${build}`,
         },
       },
     );
@@ -985,6 +1072,7 @@ async function startServerChild(
     let outBuf = "";
     let ownsPort = false;
     let exited = false;
+    let exitedAs = "";
     const scan = (data: Buffer) => {
       serverLog.write(data);
       if (!ownsPort) {
@@ -1011,6 +1099,7 @@ async function startServerChild(
     // failure (port squatted) shows up here and flips `exited`.
     child.on("exit", (code, signal) => {
       exited = true;
+      exitedAs = `code=${code} signal=${signal}`;
       const line = `[server:${workerId}] process exited code=${code} signal=${signal}\n`;
       serverLog.write(line);
       process.stderr.write(line);
@@ -1020,10 +1109,11 @@ async function startServerChild(
       url,
       () => ownsPort,
       () => exited,
-      15_000,
+      attemptWaitMs,
     );
     if (owned) {
       serverProcess = child;
+      runningBuild = build;
       baseUrl = url;
       // Re-point the shared RPC wire at THIS server: a restart lands on a fresh
       // random port, and a socket left dialling the old one would retry against a
@@ -1032,16 +1122,27 @@ async function startServerChild(
       started = true;
       console.log(`[worker:${workerId}] Server is healthy on ${port}.`);
     } else {
-      console.log(
-        `[worker:${workerId}] Server did not take ownership of port ${port} ` +
-          `(ownsPort=${ownsPort} exited=${exited}) — likely a squatter; retrying on a fresh port.`,
-      );
-      child.kill("SIGKILL");
+      lastFailure = ownsPort
+        ? exited
+          ? `the server announced port ${port} and then exited (${exitedAs}) before it answered /api/health`
+          : `the server was alive and announced port ${port} but did not answer /api/health within ${attemptWaitMs}ms`
+        : exited
+          ? `the server exited (${exitedAs}) before it owned port ${port} — the port may be held by another process`
+          : `the server was alive but had not announced owning port ${port} after ${attemptWaitMs}ms`;
+      const action =
+        [
+          exited ? null : "killing it",
+          attempt < MAX_SPAWN_ATTEMPTS ? "retrying on a fresh port" : null,
+        ]
+          .filter((step) => step !== null)
+          .join(" and ") || "giving up";
+      console.log(`[worker:${workerId}] ${lastFailure}; ${action}.`);
+      if (!exited) child.kill("SIGKILL");
     }
   }
   if (!started) {
     throw new Error(
-      `[worker:${workerId}] could not start a kolu server that owns its port after ${MAX_SPAWN_ATTEMPTS} attempts`,
+      `[worker:${workerId}] could not start a kolu server that owns its port after ${MAX_SPAWN_ATTEMPTS} attempt(s): ${lastFailure}`,
     );
   }
   // BOTH arms now warm padi ASYNC (fail-open by design: the local arm's boot no
@@ -1693,4 +1794,79 @@ export async function restartKoluServer(
   // leaving a redeploy really was.
   await startServerChild(koluServer, "read");
   return baseUrl;
+}
+
+/** DEPLOY UNDER AN OPEN PAGE, the way a deploy does it: stop ONLY the server
+ *  (SIGTERM, as a service manager would), leave padi and kaval running, and
+ *  start the OTHER build of the server ({@link ServerBuild}: a different padi
+ *  build id) on the SAME port. Nothing here touches padi: what replaces it is
+ *  the new server's binder, draining a padi whose build is not its own.
+ *
+ *  Resolves once the deploy has taken that path, and throws unless it has:
+ *  the old padi outlived the old server, the new server logged its binder's
+ *  `padi build change on boot`, a NEW padi holds the gate, and kaval is the
+ *  process it was. The server listens before its binder has replaced padi, so
+ *  "the new server is up" is not yet any of that — it is waited for. */
+export async function deployKoluServer(): Promise<void> {
+  const koluServer = process.env.KOLU_SERVER;
+  if (!koluServer || koluServer.startsWith("http")) {
+    throw new Error(
+      "a scenario asked for a deploy, but KOLU_SERVER is a reused URL this run does not own",
+    );
+  }
+  const old = serverProcess;
+  if (!old) throw new Error("no server child to deploy over");
+  const port = Number(new URL(baseUrl).port);
+  const logFile = path.join(serverLogDir, `server-w${workerId}.log`);
+  const logOffset = fs.statSync(logFile).size;
+  const padiBefore = readPadiGatePid();
+  const kavalBefore = readKavalGatePid();
+  if (padiBefore === undefined || kavalBefore === undefined) {
+    throw new Error(
+      `nothing to deploy over: padi pid ${padiBefore}, kaval pid ${kavalBefore}`,
+    );
+  }
+  console.log(
+    `[worker:${workerId}] deploying: stopping only the server (padi ${padiBefore} and kaval ${kavalBefore} keep running).`,
+  );
+  const { promise: exited, resolve: onExit } = Promise.withResolvers<void>();
+  old.once("exit", () => onExit());
+  old.kill("SIGTERM");
+  serverProcess = undefined;
+  await exited;
+  if (!isPidLive(padiBefore)) {
+    throw new Error(
+      `padi (pid ${padiBefore}) did not outlive the old server: that is a kill, not a deploy`,
+    );
+  }
+  await startServerChild(
+    koluServer,
+    "read",
+    port,
+    runningBuild === "base" ? "next" : "base",
+  );
+  await pollFor({
+    observe: async () => ({
+      logged: fs
+        .readFileSync(logFile)
+        .subarray(logOffset)
+        .toString("utf8")
+        .includes("padi build change on boot"),
+      pid: readPadiGatePid(),
+    }),
+    isDone: ({ logged, pid }) =>
+      logged && pid !== undefined && pid !== padiBefore && isPidLive(pid),
+    timeoutMs: 60_000,
+    intervalMs: 100,
+    onTimeout: (last, ms) =>
+      new Error(
+        `after ${ms}ms the new server had not replaced padi: \`padi build change on boot\` logged: ${last?.logged}; padi pid ${padiBefore} -> ${last?.pid}`,
+      ),
+  });
+  const kavalAfter = readKavalGatePid();
+  if (kavalAfter !== kavalBefore) {
+    throw new Error(
+      `kaval was replaced by the deploy (pid ${kavalBefore} -> ${kavalAfter}): the terminals did not survive it`,
+    );
+  }
 }

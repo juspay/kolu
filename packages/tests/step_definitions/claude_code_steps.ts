@@ -453,8 +453,8 @@ const CLAUDE_HEARD_MARKER = HEARD_HALVES.join("");
  * which writes the staged transcript and echoes the words with the heard
  * marker.
  *
- * Quoting: the caller wraps this in single quotes, so the payload uses only
- * double quotes inside.
+ * Quoting: the payload uses only double quotes inside, so it reads the same
+ * as a script file or as a single-quoted `-c` argument.
  */
 function claudeMockPayload(opts: {
   sessionsDir: string;
@@ -553,10 +553,12 @@ function stageClaudePrompt(state: MockState): void {
  * that never ran (a missing binary, an rc still initializing) fails here rather
  * than surfacing later as an indicator that never lit.
  *
- * The fake is a copy of bash, so `-c <script>` keeps it resident and the agent's
- * own flags ride AFTER the script (bash stops option parsing at `-c`) — the argv
- * the stable-flag filter sees is exactly `… -c <script> <the flags the scenario
- * named>`.
+ * The fake is a copy of bash, so `<bin> <script file>` keeps it resident and the
+ * agent's own flags ride AFTER the script — the argv the stable-flag filter
+ * sees is exactly `… <script file> <the flags the scenario named>`, and the file
+ * path, a positional, falls out of it. Only that launch line is typed: a typed
+ * program is hundreds of keystrokes, which under load is what ran a start
+ * step out of time (dev/skills/e2e-testing).
  */
 async function startFakeClaude(world: KoluWorld, args = ""): Promise<void> {
   const bin = process.env.KOLU_FAKE_CLAUDE_BIN;
@@ -581,15 +583,19 @@ async function startFakeClaude(world: KoluWorld, args = ""): Promise<void> {
   const marker = path.join(mockScratchDir, "pid");
   mockStagePath = path.join(mockScratchDir, "stage");
 
-  const payload = claudeMockPayload({
-    sessionsDir,
-    cwd,
-    pidMarker: marker,
-    transcriptPath: mockTranscriptPath,
-    stagePath: mockStagePath,
-  });
+  const program = path.join(mockScratchDir, "claude-stand-in.sh");
+  fs.writeFileSync(
+    program,
+    claudeMockPayload({
+      sessionsDir,
+      cwd,
+      pidMarker: marker,
+      transcriptPath: mockTranscriptPath,
+      stagePath: mockStagePath,
+    }),
+  );
   await world.page.keyboard.type(
-    `${bin} -c '${payload}'${args === "" ? "" : ` ${args}`}`,
+    `${bin} ${program}${args === "" ? "" : ` ${args}`}`,
   );
   await world.page.keyboard.press("Enter");
 

@@ -40,14 +40,22 @@ describe("createFleetGate", () => {
     expect(gate.admit(frame(0))).toBe(false);
   });
 
-  it("opens on the first REAL inventory", () => {
+  it("establishes the CENSUS on the first real inventory, and admits nothing until the boot says adoption is finished", () => {
+    // A frame is a census, never the end of adoption: the boot registers a
+    // saved session one record at a time, and a frame between two of them is
+    // half of it.
     const gate = createFleetGate();
     gate.admit(frame(0));
+    expect(gate.admit(frame(2))).toBe(false);
+    expect(gate.roster().kind).toBe("established");
+    gate.establish();
     expect(gate.admit(frame(2))).toBe(true);
   });
 
   it("STAYS open — an empty fleet after a real one is every terminal exiting", () => {
     const gate = createFleetGate();
+    gate.admit(frame(1));
+    gate.establish();
     expect(gate.admit(frame(1))).toBe(true);
     // The whole reason this is a gate and not an is-empty test: a supervisor
     // whose last worker just exited must be told, and a `gone` event for it is
@@ -55,8 +63,8 @@ describe("createFleetGate", () => {
     expect(gate.admit(frame(0))).toBe(true);
   });
 
-  it("admits a first frame that is already populated — a daemon that adopted before serving", () => {
-    expect(createFleetGate().admit(frame(3))).toBe(true);
+  it("does not admit a first frame that is already populated — only the boot says adoption is finished", () => {
+    expect(createFleetGate().admit(frame(3))).toBe(false);
   });
 
   it("ESTABLISHES an empty roster when the boot says adoption finished", () => {
@@ -71,6 +79,7 @@ describe("createFleetGate", () => {
 
   it("CLOSES again for a recycle's drain window, and re-opens at the re-park", () => {
     const gate = createFleetGate();
+    gate.establish();
     expect(gate.admit(frame(2))).toBe(true);
     // `killAllTerminals` empties the registry on purpose; nothing missing from
     // it is a terminal that died.
@@ -98,6 +107,8 @@ describe("createFleetGate", () => {
       census: () => registry,
       now: () => 7,
     });
+    gate.admit(frame(2));
+    gate.establish();
     expect(gate.admit(frame(2))).toBe(true);
     gate.settling();
     // `drainTerminals`: snapshot-and-clear, synchronously.
@@ -134,7 +145,7 @@ describe("createFleetGate", () => {
     gate.admit(frame(0));
     gate.admit(frame(1));
     // Idempotent: a second establish (the boot landing after a frame already
-    // opened the gate) republishes nothing — same arm, same census.
+    // established the census) republishes nothing — same arm, same census.
     gate.establish();
     gate.settling();
     expect(seen).toEqual([
@@ -178,19 +189,22 @@ describe("createFleetGate", () => {
   });
 });
 
-/** A redeploy's adoption, in the order the adopt path says it: each survivor is
- *  named to the gate BEFORE it is registered, then the registry's frame
- *  arrives with every survivor listed and no agent read. */
-function adopted(n: number) {
+/** A redeploy's boot, in the order the adopt path says it: each survivor is
+ *  named to the gate BEFORE it is registered, the registry's frame arrives
+ *  with every survivor listed and no agent read, and then the boot says
+ *  adoption is finished. */
+function booted(n: number) {
   const gate = createFleetGate();
   expect(gate.admit(frame(0))).toBe(false);
   for (let i = 0; i < n; i++) gate.awaitFirstRead(`t${i}` as TerminalId);
+  expect(gate.admit(frame(n))).toBe(false);
+  gate.establish();
   return gate;
 }
 
 describe("createFleetGate — the survivors are read before attention", () => {
   it("refuses the adopted frame until every survivor has been read once, and opens on the last", () => {
-    const gate = adopted(2);
+    const gate = booted(2);
     expect(gate.admit(frame(2))).toBe(false);
     gate.firstRead("t0" as TerminalId);
     expect(gate.admit(frame(2))).toBe(false);
@@ -201,13 +215,30 @@ describe("createFleetGate — the survivors are read before attention", () => {
   it("opens the CENSUS as soon as a survivor is listed — only the attention feed waits", () => {
     // The Conductor's watch reads "not listed" as "gone"; holding the census
     // back while agents are read would reopen #2376.
-    const gate = adopted(2);
-    gate.admit(frame(2));
+    const gate = createFleetGate();
+    gate.awaitFirstRead("t0" as TerminalId);
+    gate.awaitFirstRead("t1" as TerminalId);
+    expect(gate.admit(frame(2))).toBe(false);
     expect(gate.roster().kind).toBe("established");
   });
 
+  it("waits for a survivor announced after a frame that held none — a sleeping terminal saved first", () => {
+    // The boot walks the saved session in order. A sleeper is registered with
+    // nothing announced, so the first non-empty frame lists it alone; the
+    // survivor behind it is announced after that frame and must still be read.
+    const gate = createFleetGate();
+    expect(gate.admit(frame(0))).toBe(false);
+    expect(gate.admit(frame(1))).toBe(false);
+    gate.awaitFirstRead("t1" as TerminalId);
+    expect(gate.admit(frame(2))).toBe(false);
+    gate.establish();
+    expect(gate.admit(frame(2))).toBe(false);
+    gate.firstRead("t1" as TerminalId);
+    expect(gate.admit(frame(2))).toBe(true);
+  });
+
   it("stops waiting for a survivor that goes away before it is read", () => {
-    const gate = adopted(2);
+    const gate = booted(2);
     expect(gate.admit(frame(2))).toBe(false);
     gate.firstRead("t0" as TerminalId);
     // t1 exited (or its wiring failed and it was reaped): the frame no longer
@@ -216,7 +247,7 @@ describe("createFleetGate — the survivors are read before attention", () => {
   });
 
   it("does not wait on a terminal adopted after the feed opened — a mid-session adoption", () => {
-    const gate = adopted(1);
+    const gate = booted(1);
     gate.firstRead("t0" as TerminalId);
     expect(gate.admit(frame(1))).toBe(true);
     gate.awaitFirstRead("t1" as TerminalId);
@@ -224,7 +255,7 @@ describe("createFleetGate — the survivors are read before attention", () => {
   });
 
   it("still closes for a recycle's drain and re-opens at the re-park", () => {
-    const gate = adopted(1);
+    const gate = booted(1);
     gate.firstRead("t0" as TerminalId);
     expect(gate.admit(frame(1))).toBe(true);
     gate.settling();
@@ -237,7 +268,7 @@ describe("createFleetGate — the survivors are read before attention", () => {
     // A survivor whose agent quit while kolu was down is read as a shell, and
     // a shell publishes nothing — so the read changes no record, and only the
     // gate's own generation can wake the fold that is waiting on it.
-    const gate = adopted(1);
+    const gate = booted(1);
     const unchanged = frame(1);
     let runs = 0;
     const fold = computed(() => {
@@ -249,6 +280,21 @@ describe("createFleetGate — the survivors are read before attention", () => {
     expect(fold.value.value).toBe(false);
     expect(runs).toBe(settledRuns);
     gate.firstRead("t0" as TerminalId);
+    expect(fold.value.value).toBe(true);
+    gate.dispose();
+  });
+
+  it("re-runs that fold when the boot says adoption is finished after every survivor was read", () => {
+    // The reads can land before the boot's last step; then the boot's word is
+    // the only thing left to move, and it moves no frame.
+    const gate = createFleetGate();
+    gate.awaitFirstRead("t0" as TerminalId);
+    const listed = frame(1);
+    const fold = computed(() => gate.admit(listed));
+    expect(fold.value.value).toBe(false);
+    gate.firstRead("t0" as TerminalId);
+    expect(fold.value.value).toBe(false);
+    gate.establish();
     expect(fold.value.value).toBe(true);
     gate.dispose();
   });
