@@ -1426,23 +1426,36 @@ Then(
 );
 
 When("I scroll the conductor transcript up", async function (this: KoluWorld) {
-  const box = await this.page.locator(TRANSCRIPT).boundingBox();
+  const transcript = this.page.locator(TRANSCRIPT);
+  const box = await transcript.boundingBox();
   assert.ok(box !== null, "the transcript has no box to scroll over");
+  const scrollTop = () => transcript.evaluate((el) => el.scrollTop);
+  const from = await scrollTop();
   // A REAL WHEEL over the column, not an assignment to `scrollTop`: the
   // client reads the notch itself (to decide intent before the browser has
   // moved anything), and a scripted scroll would skip that half.
   await this.page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
   await this.page.mouse.wheel(0, -600);
   // Chromium animates the notch, so the view has not arrived when `wheel`
-  // resolves. Wait for it to be demonstrably off the end before anything
-  // asserts about where it stays.
+  // resolves. Wait for THIS notch to land: the view is above where it was,
+  // has stopped moving, and is off the end. "Off the end" alone is not enough
+  // — a view already short of its end satisfies it before the notch moves
+  // anything, and the next step then reads the notch landing as the view
+  // moving on its own.
+  let previous = from;
   await pollFor({
-    observe: () => transcriptGap(this),
-    isDone: (gap) => gap > FOLLOW_SLACK_PX + 1,
+    observe: async () => {
+      const top = await scrollTop();
+      const still = top === previous;
+      previous = top;
+      return { top, still, gap: await transcriptGap(this) };
+    },
+    isDone: ({ top, still, gap }) =>
+      top < from && still && gap > FOLLOW_SLACK_PX + 1,
     timeoutMs: POLL_TIMEOUT,
     onTimeout: (last, elapsedMs) =>
       new Error(
-        `the wheel left the transcript ${last}px from its end after ${elapsedMs}ms — it never scrolled up`,
+        `the wheel left the transcript at ${last?.top} (from ${from}, ${last?.gap}px from its end) after ${elapsedMs}ms — it never came to rest above where it was`,
       ),
   });
 });
