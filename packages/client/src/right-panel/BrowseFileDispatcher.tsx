@@ -269,31 +269,31 @@ const BrowseFileDispatcher: Component<BrowseFileDispatcherProps> = (props) => {
   //
   // WITH NO TERMINAL there is nothing to anchor a comment TO — a kept file's
   // bytes are kolu's own copy, addressed by the work that kept them and not by
-  // a repo any agent can be pointed back at. The view is then mounted bare: a
-  // comment surface over it would offer to save a quote nobody could resolve.
+  // a repo any agent can be pointed back at, and a reader can draw a work's
+  // file before it has learnt the work's terminal. The surface is still
+  // there, with commenting off: a terminal arriving or leaving turns
+  // commenting on or off around the SAME drawn view. The view is never put in
+  // two places (a bare arm and a wrapped arm): moving one drawn node between
+  // them is a DOM insert into itself.
   const textSurface = (
     file: () => FileData,
     view: JSX.Element,
     opts: { lineAnchored: boolean; surface?: "source" | "prose" },
   ): JSX.Element => (
-    <Show when={props.at} fallback={view}>
-      {(at) => (
-        <CommentTextSurface
-          terminalId={at().terminalId}
-          path={file().path}
-          // The host's text is the file source, so the highlight overlay
-          // re-anchors when the server bumps content on save.
-          contentTick={file().source?.content ?? ""}
-          // `flex-1 min-h-0` so the host fills the space left under the
-          // (optional) truncation-banner sibling without overflowing it.
-          class="min-h-0 w-full flex-1"
-          lineAnchored={opts.lineAnchored}
-          surface={opts.surface}
-        >
-          {view}
-        </CommentTextSurface>
-      )}
-    </Show>
+    <CommentTextSurface
+      terminalId={props.at?.terminalId ?? null}
+      path={file().path}
+      // The host's text is the file source, so the highlight overlay
+      // re-anchors when the server bumps content on save.
+      contentTick={file().source?.content ?? ""}
+      // `flex-1 min-h-0` so the host fills the space left under the
+      // (optional) truncation-banner sibling without overflowing it.
+      class="min-h-0 w-full flex-1"
+      lineAnchored={opts.lineAnchored}
+      surface={opts.surface}
+    >
+      {view}
+    </CommentTextSurface>
   );
 
   // A comment records its surface only when the file is multi-surface — i.e.
