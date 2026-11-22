@@ -134,6 +134,15 @@ const SettingsPopover: Component<{
 
   const chrome = surface({ portalled: true });
 
+  /** The room below where the panel opens. It opens under its trigger, and
+   *  that is not always the top bar: on a phone the trigger sits in the
+   *  pull-down sheet, lower down, and a cap measured from the top bar would let
+   *  the panel's foot, and its last row, run off the screen. */
+  const maxHeight = () => {
+    const top = panelStyle().top;
+    return top === undefined ? undefined : `calc(100dvh - ${top} - 0.5rem)`;
+  };
+
   return (
     <Show when={props.open}>
       <Portal>
@@ -142,10 +151,14 @@ const SettingsPopover: Component<{
           data-testid="settings-popover"
           // A fixed width that fits every row: hints wrap instead of setting the
           // width, so switching a setting never moves the panel's left edge.
-          // Capped to the window below the top bar and scrolled within, so a
+          // Capped to the room below where it opens and scrolled within, so a
           // short window still reaches the last row (the Agents profile list).
-          class={`fixed z-50 ${chrome.class} p-4 w-[min(92vw,30rem)] max-h-[calc(100dvh-3.5rem)] overflow-y-auto overscroll-contain space-y-4`}
-          style={{ ...panelStyle(), ...chrome.style }}
+          class={`fixed z-50 ${chrome.class} p-4 w-[min(92vw,30rem)] overflow-y-auto overscroll-contain space-y-4`}
+          style={{
+            ...panelStyle(),
+            "max-height": maxHeight(),
+            ...chrome.style,
+          }}
         >
           <SettingRow
             label="Theme"
