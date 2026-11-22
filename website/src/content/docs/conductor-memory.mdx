@@ -66,13 +66,19 @@ The header shows how full the conversation's context is, as `148k/1M`. Every tur
 
 Past a set number of tokens, Claude Code **compacts** the conversation: it replaces the older part with a summary it writes itself, and the count in the header drops. You never type `/compact`. Hover the count to see where the conversation is compacted.
 
-The point is a setting, 200k unless you change it. Open **Settings** (the gear in the top bar) and pick 100k, 200k, 300k or 500k in the **Conductor compacts at** row.
+Open **Settings** (the gear in the top bar) and choose in the **Conductor compacts at** row:
 
-- A new point applies the next time kolu starts, to the same conversation. **New session** does not apply it.
-- A point below what the conversation already holds compacts it on your next message.
-- On a model with a 200k window, the conversation is compacted at about 167k at the latest, whatever you choose.
+| Choice | What happens |
+| --- | --- |
+| **200k** | The default. Claude Code compacts the conversation at 200k tokens. |
+| **Model limit** | kolu sends no compaction setting. Your own Claude Code settings decide when the conversation is compacted, and whether it is at all. |
+| **Custom** | Type a whole number of thousands from 100 to 1000, then press <kbd>Enter</kbd> or leave the field. `250` compacts at 250k. Anything else is not saved, and the row says so. |
 
-kolu sets this point for the Conductor alone, whatever your own Claude Code settings say. The `claude` you run in your terminals is unchanged.
+- A new choice applies the next time kolu starts, to the same conversation. **New session** does not apply it.
+- A number below what the conversation already holds compacts it on your next message.
+- With a number, on a model with a 200k window, the conversation is compacted at about 167k at the latest.
+
+With a number, kolu sets the point for the Conductor alone, whatever your own Claude Code settings say. The `claude` you run in your terminals is unchanged either way.
 
 ## The compaction line
 

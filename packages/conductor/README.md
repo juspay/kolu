@@ -32,9 +32,11 @@ Three things make the conversation work and they are all here:
   here (`kolu:compaction:<id>`) and updated in place from running to done or
   failed, with the usage it began at and its summary; a row still running
   when its agent went away is settled as failed at the next spawn. Where the
-  agent compacts is read from `ConductorDeps.compactsAt` at each spawn, and
-  that one number builds the leg, the harness's `compacts` and the cell's
-  `compactsAt`, so the cell says where the running agent compacts.
+  agent compacts is read from `ConductorDeps.compactsAt` at each spawn: a
+  number, or Model limit (no setting sent, and no point for the harness). That
+  one choice builds the leg, the harness's `compacts` when there is one, and
+  the cell's `compactsAt`, so the cell says what the running agent was started
+  with.
 
 The `koluSurface` members a browser subscribes to are here too (`./surface`),
 because an implementation of "what `conductor.prompt` does" belongs with the
