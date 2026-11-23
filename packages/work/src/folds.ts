@@ -14,7 +14,16 @@
  */
 
 import { Option } from "effect";
-import { isOpenDraft, type PrReading, prStep } from "./readings.ts";
+import {
+  type Holding,
+  handsOver,
+  holderOf,
+  holdStep,
+  joinedAs,
+  NOBODY_HOLDS,
+  type PrReading,
+  prStep,
+} from "./readings.ts";
 import {
   type Asked,
   type CheckHead,
@@ -57,58 +66,60 @@ export interface Policy {
   readonly run: Run;
 }
 
-/** WHICH PART OF ITS LIFE A WORK IS IN — cut by two moments the record
- *  holds: the implementor joining, and its pull request being READY FOR
- *  REVIEW after it did — opened ready, or a draft marked ready. A PR that was
- *  already there when the implementor arrived (a work that takes up a
- *  dependabot PR) does not end the build by being open; if it is a draft,
- *  marking it ready does. Moves forward, except for two ways back to the
- *  build: a PR turned back into a draft (its author said it is not ready),
- *  and a work reopened with no PR of its own open (a second attempt on the
- *  same branch builds again). */
-type Part = "before" | "build" | "after";
+/** WHETHER WHO HELD THE WORK WAS RECORDED — kolu kept no hand-offs before
+ *  the upgrade that wrote `hand-offs-kept`, so on a work that carries one,
+ *  who held it is not known (`unrecorded`) until that event, nor after it
+ *  (`awaiting`) until the first hand-off since; from then on it is
+ *  `recorded`. A work with no such event was recorded from its start. */
+type HandOffs = "unrecorded" | "awaiting" | "recorded";
 
 /** The fold's running state, advanced one event at a time — the SAME step
  *  {@link waitingOn}, {@link standing}, {@link timeSpent} and {@link stages}
- *  use, so the strip and the sentence over it cannot disagree about when a
+ *  use, so the map and the sentence over it cannot disagree about when a
  *  wait began. The pull request is what `./readings.ts`'s {@link prStep}
  *  says it is — the ONE statement of the PR-fact rule (which commit a check
  *  or a merge answer is about, and what opening, merging, closing and
- *  reopening forget), which the observer reads too. */
+ *  reopening forget), which the observer reads too — and who holds the work
+ *  is what its {@link holdStep} says, the one statement of the hand-off
+ *  rule. */
 interface Running {
   readonly openAsks: ReadonlySet<string>;
   readonly pr: Option.Option<PrReading>;
   readonly ended: boolean;
-  readonly part: Part;
-  /** A planner has joined — before that there is no plan to approve, so a
-   *  wait on the human (the setup's questions) is still the planning. */
-  readonly planned: boolean;
-  /** An implementor has joined at some point — where a reopened work with
-   *  no PR goes back to, and what makes a PR opening the end of a build. */
-  readonly implemented: boolean;
+  readonly holding: Holding;
+  readonly handOffs: HandOffs;
 }
 
-const START: Running = {
+/** Where a work's walk begins: nothing asked, no PR, nobody holding it, and
+ *  its hand-offs recorded unless the upgrade said they were not. */
+const startOf = (work: Work): Running => ({
   openAsks: new Set(),
   pr: Option.none(),
   ended: false,
-  part: "before",
-  planned: false,
-  implemented: false,
-};
+  holding: NOBODY_HOLDS,
+  handOffs: work.events.some((one) => one.kind === "hand-offs-kept")
+    ? "unrecorded"
+    : "recorded",
+});
 
 /** Whether the PR is in this state. */
 const prIs = (at: Running, state: PrReading["state"]): boolean =>
   Option.exists(at.pr, (pr) => pr.state === state);
 
-/** The moves that are not the PR's own: questions, members, the end. `pr` is
- *  the PR as this event leaves it ({@link prStep}), which is what says
- *  whether it is ready for review. */
-const partStep = (
-  at: Running,
-  event: WorkEvent,
-  pr: Option.Option<PrReading>,
-): Running => {
+/** Whether the hand-offs are recorded after this event: the upgrade's
+ *  `hand-offs-kept` starts the wait for one, and the first hand-off after
+ *  it ends the wait. */
+const handOffsStep = (at: Running, event: WorkEvent): HandOffs => {
+  if (at.handOffs === "unrecorded" && event.kind === "hand-offs-kept")
+    return "awaiting";
+  if (at.handOffs === "awaiting" && handsOver(at.holding, event))
+    return "recorded";
+  return at.handOffs;
+};
+
+/** The moves that are not the PR's own: questions, who holds the work, the
+ *  end. */
+const askStep = (at: Running, event: WorkEvent): Running => {
   switch (event.kind) {
     case "question":
       return { ...at, openAsks: new Set([...at.openAsks, event.ask]) };
@@ -118,57 +129,21 @@ const partStep = (
       open.delete(event.ask);
       return { ...at, openAsks: open };
     }
-    case "joined":
-      if (event.role === "planner") return { ...at, planned: true };
-      return event.role === "implementor"
-        ? {
-            ...at,
-            implemented: true,
-            part: at.part === "before" ? "build" : at.part,
-          }
-        : at;
-    // A PR the implementor opened ends the build at once when it opened
-    // ready (or kolu never recorded its word: the open ends it, as it always
-    // did), and stays the build's while it is a draft. One that was there
-    // before any implementor joined says nothing by being open.
-    case "pr-opened":
-      return at.implemented
-        ? { ...at, part: Option.exists(pr, isOpenDraft) ? "build" : "after" }
-        : at;
-    // A DRAFT FLIP, once an implementor has joined: turned back into a draft
-    // is the build's again, and marked ready ends the build — but only a PR
-    // that WAS a draft. Learning `ready` for a PR whose word kolu never
-    // recorded is kolu learning a word, not anybody marking anything ready,
-    // so the part stays where it was (the stage half of the rule `prStep`
-    // follows for the merge answer).
-    case "draft-state":
-      if (!at.implemented) return at;
-      if (Option.exists(pr, isOpenDraft)) return { ...at, part: "build" };
-      return Option.exists(at.pr, isOpenDraft) ? { ...at, part: "after" } : at;
     case "ended":
       return { ...at, ended: true };
-    // THE OTHER WAY BACK. Reopened with its own PR still open, the work is
-    // where it was; with none, it is a new attempt on the branch.
     case "reopened":
-      return {
-        ...at,
-        ended: false,
-        part:
-          at.part === "after" && prIs(at, "open")
-            ? "after"
-            : at.implemented
-              ? "build"
-              : "before",
-      };
+      return { ...at, ended: false };
     default:
       return at;
   }
 };
 
-const step = (at: Running, event: WorkEvent): Running => {
-  const pr = prStep(at.pr, event);
-  return { ...partStep(at, event, pr), pr };
-};
+const step = (at: Running, event: WorkEvent): Running => ({
+  ...askStep(at, event),
+  pr: prStep(at.pr, event),
+  holding: holdStep(at.holding, event),
+  handOffs: handOffsStep(at, event),
+});
 
 /** THE GREEN PULL REQUEST, and therefore the human's when they asked for the
  *  hand-over: the forge would merge it, and no check that has reported is
@@ -195,7 +170,7 @@ const waiterOf = (handOver: boolean, at: Running): Waiter | "done" => {
 export const waitingOn = (work: Work, policy: Policy): Waiter | "done" =>
   work.state.kind === "ended"
     ? "done"
-    : waiterOf(policy.handOver, work.events.reduce(step, START));
+    : waiterOf(policy.handOver, work.events.reduce(step, startOf(work)));
 
 /** A GREEN PULL REQUEST, as a merge wait names it: its number, the commit
  *  that is green (the forge's last merge answer was about it — the one
@@ -324,7 +299,7 @@ export const standing = (work: Work, policy: Policy): Standing => {
       since: work.state.at,
     };
   }
-  let at = START;
+  let at = startOf(work);
   let who = waiterOf(policy.handOver, at);
   let since = work.startedAt;
   for (const event of work.events) {
@@ -356,26 +331,27 @@ const ms = (from: string, to: string): number =>
  *  instant too, with no length, which is how a stage that took no time is
  *  still known to have happened. An event stamped before the one ahead of
  *  it, or after the end, is held to the walk's own clock, so the stretches
- *  always tile the life exactly. */
+ *  always tile the life exactly. Each stretch is visited with the instant it
+ *  begins on that clock. */
 const walk = (
   work: Work,
   now: string,
-  visit: (at: Running, length: number) => void,
+  visit: (at: Running, length: number, from: number) => void,
 ): Running => {
   const start = Date.parse(work.startedAt);
   const end = Math.max(
     start,
     Date.parse(Option.getOrElse(endedAt(work), () => now)),
   );
-  let at = START;
+  let at = startOf(work);
   let from = start;
   for (const event of work.events) {
     const until = Math.min(Math.max(Date.parse(event.at), from), end);
-    visit(at, until - from);
+    visit(at, until - from, from);
     from = until;
     at = step(at, event);
   }
-  visit(at, end - from);
+  visit(at, end - from, from);
   return at;
 };
 
@@ -429,12 +405,35 @@ export const STAGES = [
 export type StageName = (typeof STAGES)[number];
 
 /** WHERE A STRETCH, AND THE EVENT THAT BEGINS IT, IS FILED: one of the six
- *  stages, or `setup` — time before the first stage a mode has, in a mode
- *  with no Plan to hold it: a trivial work's setup form, and the Conductor
- *  starting its implementor. It is somebody's time (it counts in
- *  {@link timeSpent}) but no cell's: nothing was built yet. A full waterfall
- *  has no `setup` stretch — its setup's questions are Plan's. */
-export type Filed = StageName | "setup";
+ *  stages, or time that is somebody's but no cell's:
+ *
+ *  - `setup` — time before the first stage a mode has, in a mode with no
+ *    Plan to hold it: a trivial work's setup form, and the Conductor starting
+ *    its implementor. Nothing was built yet. A full waterfall has no `setup`
+ *    stretch — its setup's questions are Plan's;
+ *  - `unrecorded` — on a work saved before kolu kept hand-offs, the agents'
+ *    time that would be Build or Review, up to the first hand-off after the
+ *    upgrade: which of the two it was depends on who held the work, and
+ *    nobody recorded that. */
+export type Filed = StageName | "setup" | "unrecorded";
+
+/** ONE VISIT to a place — a run of stretches filed in one place, closed by
+ *  the work moving somewhere else or ending. A visit that took no time
+ *  still happened.
+ *
+ *  - `from`, `until` — when it began and ended; `until` is none for the
+ *    visit the work is in now;
+ *  - `time` — its time by whom the work waited on, which adds up to its
+ *    length less any time the work spent ended;
+ *  - `events` — the events filed in it, as indices into the work's events:
+ *    from `from`, up to and not including `until`. */
+export interface Visit {
+  readonly stage: Filed;
+  readonly from: string;
+  readonly until: Option.Option<string>;
+  readonly time: Readonly<Record<Waiter, number>>;
+  readonly events: { readonly from: number; readonly until: number };
+}
 
 /** WHERE A STAGE STANDS, as a sum — each arm carries only what is true of it:
  *
@@ -463,12 +462,14 @@ export interface Stage {
 /** THE STAGES OF A WORK, as a sum, from its mode's row of `MODE_RUNS`: a
  *  work whose mode nobody has answered has none yet (`unset`); a mode that
  *  declares none (a plain watch) has none (`none`); any other has all six
- *  cells, the ones its mode does not declare reading "did not happen". It
- *  files every event of its timeline (`events`, one per event, in the
- *  timeline's order: where the stretch that event begins is {@link Filed},
- *  by the same walk that files the time, so an event and the time after it
- *  are never in two places), and says once where the work is (`current`:
- *  where it is now, or where it ended). */
+ *  cells, the ones its mode does not declare reading "did not happen", each
+ *  holding its time across every visit to it. It files every event of its
+ *  timeline (`events`, one per event, in the timeline's order: where the
+ *  stretch that event begins is {@link Filed}, by the same walk that files
+ *  the time, so an event and the time after it are never in two places),
+ *  says once where the work is (`current`: where it is now, or where it
+ *  ended), and keeps every visit in order (`trail`): the cells are the
+ *  trail summed by stage. */
 export type Stages =
   | { readonly kind: "unset" }
   | { readonly kind: "none" }
@@ -477,6 +478,7 @@ export type Stages =
       readonly stages: ReadonlyArray<Stage>;
       readonly events: ReadonlyArray<Filed>;
       readonly current: Filed;
+      readonly trail: ReadonlyArray<Visit>;
     };
 
 /** How long a stage has had: its time, or none for a stage that has had
@@ -484,55 +486,72 @@ export type Stages =
 export const stageMs = (state: StageState): number =>
   state.kind === "done" || state.kind === "now" ? state.ms : 0;
 
-/** WHERE A STRETCH WOULD GO in a waterfall that has all six stages:
+/** WHERE A STRETCH WOULD GO in a waterfall that has all six stages. The
+ *  stage is WHO HOLDS THE WORK (`./readings.ts`'s `holdStep`), and every
+ *  hand-off is an event kolu saw:
  *
  *  - a PR the forge merged is the merge, and CI running is the checks,
- *    wherever they fall — except on a draft still in the build, whose CI is
- *    the build's;
+ *    whoever holds the work — the same fact the standing line reads as a
+ *    wait on CI;
  *  - a green PR handed to the human is the merge;
  *  - a question to the human never moves the work: it stays in the stage it
  *    is in (`current`), which is then theirs — except before the implementor,
  *    where it is the approval once a planner has joined, and the planning
  *    (the setup's own questions) before that;
- *  - the agents' time is the plan before the implementor joins, the build
- *    until its PR is ready for review, and the review after. There are two
- *    ways back to the build: the PR turned back into a draft, and a reopen
- *    with no PR of its own open. */
+ *  - the agents' time is the plan before the implementor joins — except
+ *    that a plan you answered stays in the approval while nobody holds the
+ *    work, until the implementor joins or the planner is handed it again
+ *    (you asked for changes); after the implementor joins, it is the review
+ *    while the planner holds the work and the build while the implementor
+ *    does — or `unrecorded`, where who held it was not kept.
+ *
+ *  A draft decides no stage: it only cannot merge. */
 const placeOf = (at: Running, who: Waiter, current: Filed): Filed => {
   if (prIs(at, "merged")) return "merge";
-  if (who === "ci")
-    return at.part === "build" && Option.exists(at.pr, isOpenDraft)
-      ? "build"
-      : "checks";
+  if (who === "ci") return "checks";
+  const implemented = joinedAs(at.holding, "implementor");
   if (who === "you") {
     if (at.openAsks.size === 0) return "merge";
-    if (at.part === "before") return at.planned ? "approve" : "plan";
+    if (!implemented)
+      return joinedAs(at.holding, "planner") ? "approve" : "plan";
     return current;
   }
-  switch (at.part) {
-    case "before":
-      return "plan";
-    case "build":
-      return "build";
-    case "after":
-      return "review";
-    default:
-      return at.part satisfies never;
-  }
+  if (!implemented)
+    return current === "approve" && at.holding.holding.length === 0
+      ? "approve"
+      : "plan";
+  if (at.handOffs !== "recorded") return "unrecorded";
+  return Option.exists(holderOf(at.holding), (role) => role === "planner")
+    ? "review"
+    : "build";
 };
+
+/** A visit while it is walked: open until the work moves on or ends. */
+interface Walking {
+  readonly stage: Filed;
+  readonly from: number;
+  until: number | undefined;
+  readonly time: Record<Waiter, number>;
+  readonly events: { readonly from: number; until: number };
+}
 
 /** THE STAGES: the same walk as {@link timeSpent}, each stretch filed under
  *  the stage it belongs to ({@link placeOf}) — and a stage the work's mode
  *  does not have is never written to: its time goes to the nearest stage
- *  before it that the mode has (a trivial work's agents build, before the
- *  PR and after it), else to no stage at all (`setup`, {@link Filed}). A
- *  stage the work was in for no time (two events stamped at one instant)
- *  still happened. The stages' times and the setup's add up to
- *  {@link lifetime}.
+ *  before it that the mode has (a trivial work has no Review: its agents
+ *  build), else to no stage at all (`setup`, {@link Filed}). The stages'
+ *  times, the setup's and the unrecorded time add up to {@link lifetime}.
  *
- *  Each event is filed where the stretch it begins is; one that leaves the
- *  work ended (or begins a stretch of it ended) stays where the work was
- *  last. */
+ *  ONE INSTANT IS ONE MOMENT. Events stamped at one instant (one reading of
+ *  a pull request writes its check and the forge's merge answer together)
+ *  leave stretches of no length between them, and those are no visit: the
+ *  work did not stand there. The last one before the work ended is: a PR
+ *  merged and the work ended at one instant still reached the merge.
+ *
+ *  Each event is filed where the stretch it begins is — one that begins no
+ *  visit with the visit the next stretch is in, and one that leaves the work
+ *  ended (or begins a stretch of it ended) where the work was last, in the
+ *  visit the ending closed. */
 export const stages = (work: Work, policy: Policy, now: string): Stages => {
   const run = policy.run;
   if (run.kind === "unset") return { kind: "unset" };
@@ -540,50 +559,120 @@ export const stages = (work: Work, policy: Policy, now: string): Stages => {
   const declared = new Set<StageName>(run.stages);
   /** Where a stretch is filed in THIS mode. */
   const file = (place: Filed): Filed =>
-    place === "setup" || declared.has(place)
+    place === "setup" || place === "unrecorded" || declared.has(place)
       ? place
       : (STAGES.slice(0, STAGES.indexOf(place))
           .filter((one) => declared.has(one))
           .at(-1) ?? "setup");
-  /** Each stage's time by whose it was, and who it began with — what a
-   *  stage entered for no time is coloured by. */
-  const held = new Map<StageName, Record<Waiter, number>>();
+  // FIRST, every stretch and where it goes, in order — a question keeps the
+  // stage the stretch before it was in, whether or not that was a visit.
+  // Stretch `k` is the one the `k - 1`th event begins (the first, none).
+  const placed: Array<{
+    readonly who: Waiter | "done";
+    readonly place: Filed;
+    readonly length: number;
+    readonly from: number;
+  }> = [];
+  let current: Filed = file("plan");
+  const last = walk(work, now, (at, length, from) => {
+    const who = waiterOf(policy.handOver, at);
+    if (who !== "done") current = file(placeOf(at, who, current));
+    placed.push({ who, place: current, length, from });
+  });
+  // ... THEN THE VISITS. Who each stage began with is what a stage entered
+  // for no time is coloured by.
   const began = new Map<StageName, Waiter>();
   const events: Filed[] = [];
-  let current: Filed = file("plan");
-  let visits = 0;
-  const last = walk(work, now, (at, length) => {
-    const who = waiterOf(policy.handOver, at);
-    if (who !== "done") {
-      current = file(placeOf(at, who, current));
-      if (current !== "setup") {
-        const into = held.get(current) ?? { agent: 0, you: 0, ci: 0 };
-        into[who] += length;
-        held.set(current, into);
-        if (!began.has(current)) began.set(current, who);
+  const trail: Walking[] = [];
+  let clock = Date.parse(work.startedAt);
+  placed.forEach((stretch, index) => {
+    clock = stretch.from + stretch.length;
+    const next = placed[index + 1];
+    const who = stretch.who;
+    if (
+      who !== "done" &&
+      stretch.length === 0 &&
+      next !== undefined &&
+      next.who !== "done"
+    )
+      return;
+    const visit = trail.at(-1);
+    if (who === "done") {
+      // ENDED: nobody's time. The visit it ended in closes.
+      if (visit !== undefined) visit.until ??= stretch.from;
+    } else {
+      const stage = stretch.place;
+      if (stage !== "setup" && stage !== "unrecorded" && !began.has(stage))
+        began.set(stage, who);
+      if (visit?.stage === stage && visit.until === undefined)
+        visit.time[who] += stretch.length;
+      else {
+        if (visit !== undefined) visit.until ??= stretch.from;
+        const time = { agent: 0, you: 0, ci: 0 };
+        time[who] = stretch.length;
+        trail.push({
+          stage,
+          from: stretch.from,
+          until: undefined,
+          time,
+          events: { from: events.length, until: events.length },
+        });
       }
     }
-    // The first stretch is the one before any event; each after it is the
-    // one the event before it began.
-    if (visits > 0) events.push(current);
-    visits += 1;
+    // Every event up to the one that began this stretch is in the visit the
+    // work is in now.
+    const into = trail.at(-1);
+    while (events.length < index) events.push(into?.stage ?? stretch.place);
+    if (into !== undefined) into.events.until = index;
   });
   // WHERE IT IS NOW. An OPEN work is waiting on somebody whatever its
   // timeline's last `ended` event said, as {@link standing} reads it; a
-  // finished one is where it ended. A work still in its setup is in no cell.
+  // finished one is where it ended. A work still in its setup, or in time
+  // nobody recorded, is in no cell.
   const open = work.state.kind === "open";
   const waiter = waiterOf(policy.handOver, last);
   const nowWho: Waiter = waiter === "done" ? "agent" : waiter;
   if (open) current = file(placeOf(last, nowWho, current));
+  const final = trail.at(-1);
+  if (open && (final?.stage !== current || final.until !== undefined))
+    trail.push({
+      stage: current,
+      from: clock,
+      until: undefined,
+      time: { agent: 0, you: 0, ci: 0 },
+      events: { from: work.events.length, until: work.events.length },
+    });
+  else if (final !== undefined)
+    final.until = open ? undefined : (final.until ?? clock);
+  const held = new Map<StageName, Record<Waiter, number>>();
+  for (const visit of trail) {
+    if (visit.stage === "setup" || visit.stage === "unrecorded") continue;
+    const into = held.get(visit.stage) ?? { agent: 0, you: 0, ci: 0 };
+    into.agent += visit.time.agent;
+    into.you += visit.time.you;
+    into.ci += visit.time.ci;
+    held.set(visit.stage, into);
+  }
   const at = !open
     ? STAGES.length
-    : current === "setup"
+    : current === "setup" || current === "unrecorded"
       ? -1
       : STAGES.indexOf(current);
   return {
     kind: "staged",
     events,
     current,
+    trail: trail.map(
+      (visit): Visit => ({
+        stage: visit.stage,
+        from: new Date(visit.from).toISOString(),
+        until: Option.map(Option.fromUndefinedOr(visit.until), (until) =>
+          new Date(until).toISOString(),
+        ),
+        time: visit.time,
+        events: visit.events,
+      }),
+    ),
     stages: STAGES.map((name, index): Stage => {
       const time = held.get(name);
       const ms = time === undefined ? 0 : time.agent + time.you + time.ci;
@@ -616,6 +705,31 @@ export const stages = (work: Work, policy: Policy, now: string): Stages => {
   };
 };
 
+/** One way a work went between two places, and how many times. */
+export interface Move {
+  readonly from: Filed;
+  readonly to: Filed;
+  readonly times: number;
+}
+
+/** HOW MANY TIMES THE WORK WENT FROM EACH PLACE TO EACH OTHER, counted off
+ *  its trail — the loops a map counts (Review and Build, Build and Checks).
+ *  Two visits to one place in a row (a work that ended and was reopened
+ *  where it was) are no move. In the order each move was first made. */
+export const movesOf = (trail: ReadonlyArray<Visit>): ReadonlyArray<Move> => {
+  const moves: Array<{ from: Filed; to: Filed; times: number }> = [];
+  trail.forEach((visit, index) => {
+    const next = trail[index + 1];
+    if (next === undefined || next.stage === visit.stage) return;
+    const known = moves.find(
+      (one) => one.from === visit.stage && one.to === next.stage,
+    );
+    if (known !== undefined) known.times += 1;
+    else moves.push({ from: visit.stage, to: next.stage, times: 1 });
+  });
+  return moves;
+};
+
 /** Whose time a stage mostly was — who it began with, when nobody's was
  *  more. */
 const mostly = (
@@ -635,7 +749,7 @@ export const took = (
   work: Work,
   now: string,
 ): ReadonlyArray<{ readonly ms: number; readonly open: boolean }> => {
-  let at = START;
+  let at = startOf(work);
   return work.events.map((event, index) => {
     at = step(at, event);
     const next = work.events[index + 1];

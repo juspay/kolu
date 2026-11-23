@@ -247,7 +247,13 @@ export type WorkState = typeof WorkStateSchema.Type;
  *  (`merge-state`). A required check that has not started is in neither the
  *  rollup nor the checks' events; it is why a PR cannot merge. A third is
  *  whether the PR is a draft (`pr-opened`'s `draft`, then `draft-state`):
- *  GitHub's merge answer no longer says it, so it is its own event. */
+ *  GitHub's merge answer no longer says it, so it is its own event.
+ *
+ *  WHO HOLDS THE WORK is read off members joining, their agents stopping
+ *  and `told` — the Conductor handing the work to a member — and a store
+ *  saved before kolu kept hand-offs carries one `hand-offs-kept` from the
+ *  upgrade that says so (`./folds.ts` files what it cannot know as
+ *  `unrecorded`). */
 export const EVENT_KINDS = [
   "requested",
   "carried-over",
@@ -279,6 +285,8 @@ export const EVENT_KINDS = [
   "taken-over",
   "handed-back",
   "folded",
+  "told",
+  "hand-offs-kept",
 ] as const;
 export const EventKindSchema = Schema.Literals(EVENT_KINDS);
 export type EventKind = typeof EventKindSchema.Type;
@@ -471,6 +479,13 @@ export const WorkEventSchema = Schema.Union([
   eventOf("taken-over", {}),
   eventOf("handed-back", {}),
   eventOf("folded", { count: Schema.Int }),
+  /** The Conductor spoke to this member, handing it the work — recorded
+   *  only when that member did not hold it already. The role is on the
+   *  terminal's `joined`. */
+  eventOf("told", {}),
+  /** Written once, by the upgrade, on every work saved before kolu kept
+   *  hand-offs: who held the work before it was not recorded. */
+  eventOf("hand-offs-kept", {}),
 ]);
 export type WorkEvent = typeof WorkEventSchema.Type;
 

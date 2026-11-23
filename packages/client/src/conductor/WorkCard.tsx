@@ -239,7 +239,10 @@ const WorkCard: Component<{
    *  shows, none while it is not picked or the whole timeline is out. */
   const shownStage = (): StageName | undefined => {
     const shown = view().view;
-    return isOpen() && shown.kind === "stage" && shown.stage !== "setup"
+    return isOpen() &&
+      shown.kind === "stage" &&
+      shown.stage !== "setup" &&
+      shown.stage !== "unrecorded"
       ? shown.stage
       : undefined;
   };

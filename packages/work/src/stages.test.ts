@@ -1,15 +1,17 @@
 /**
- * THE SIX STAGES, checked against numbers computed without the folds.
+ * THE SIX STAGES AND THE TRAIL, checked against numbers computed without the
+ * folds.
  *
  * Two kinds of generated record. The CHAOTIC ones throw every event the
- * timeline can hold at a work — questions, members joining and leaving, two
- * pull requests, checks, the forge's merge answers, merges, closes, stops,
- * reopens, events stamped out of order — and check what must hold whatever
- * happens: the stages add up to the work's life, measured here from the
- * events directly, and the strip names a current stage exactly while the work
- * is open. The SCRIPTED ones walk a waterfall through its stages with random
- * durations, and check each stage's time against the duration that was put
- * there. Seeded, so a failure names the seed that reproduces it.
+ * timeline can hold at a work — questions, members joining and leaving,
+ * hand-offs and stops, two pull requests, checks, the forge's merge answers,
+ * merges, closes, stops, reopens, the upgrade's `hand-offs-kept`, events
+ * stamped out of order — and check what must hold whatever happens: the
+ * stages add up to the work's life, measured here from the events directly,
+ * the trail's visits tile it, and the map names a current stage exactly while
+ * the work is open. The SCRIPTED ones walk a waterfall through its stages
+ * with random durations, and check each stage's time against the duration
+ * that was put there. Seeded, so a failure names the seed that reproduces it.
  */
 
 import { Option } from "effect";
@@ -33,6 +35,7 @@ import {
   recordEvent,
   reopenWork,
   type Filed,
+  movesOf,
   type Stage,
   type StageName,
   stageMs,
@@ -164,6 +167,50 @@ const merged = (work: Work, minute: number, pr = 7): Work =>
     { outcome: { kind: "merged", pr }, at: at(minute) },
   );
 
+/** The Conductor hands the work to a member (`agent_say`). */
+const told = (work: Work, terminal: string, minute: number): Work =>
+  recordEvent(work, {
+    at: at(minute),
+    by: "agent",
+    kind: "told",
+    about: { kind: "member", terminal },
+  });
+
+/** A member's agent stops — or asks, exits, sleeps. */
+const stop = (
+  work: Work,
+  terminal: string,
+  minute: number,
+  kind: "ready" | "stopped" | "asking" | "exited" | "asleep" = "stopped",
+): Work =>
+  recordEvent(work, {
+    at: at(minute),
+    by: "agent",
+    kind,
+    about: { kind: "member", terminal },
+    why: { kind: "none" },
+  });
+
+/** What the upgrade writes on a work saved before kolu kept hand-offs. */
+const handOffsKept = (work: Work, minute: number): Work =>
+  recordEvent(work, {
+    at: at(minute),
+    by: "kolu",
+    kind: "hand-offs-kept",
+    about: ABOUT_WORK,
+  });
+
+const PLANNER = "local/planner";
+const IMPLEMENTOR = "local/implementor";
+
+/** The places of a work's trail, in order. */
+const trailOf = (
+  work: Work,
+  policy: Policy,
+  now: string,
+): ReadonlyArray<Filed> =>
+  waterfall(work, policy, now).trail.map((visit) => visit.stage);
+
 /** A policy for a mode, read off its own row of `MODE_RUNS`, as `policyOf`
  *  reads it. */
 const policyFor = (mode: "full" | "trivial", handOver = true): Policy => ({
@@ -213,6 +260,7 @@ const timeByEventStage = (
 ): Record<Filed, number> => {
   const sums: Record<Filed, number> = {
     setup: 0,
+    unrecorded: 0,
     plan: 0,
     approve: 0,
     build: 0,
@@ -297,12 +345,12 @@ const chaotic = (seed: number, steps: number): Work => {
     } else if (roll < 0.26) {
       const terminal = `local/t${step}`;
       members.push(terminal);
-      work = join(
-        work,
-        pick() < 0.5 ? "planner" : "implementor",
-        when,
+      const roles = ["planner", "implementor", "other"] as const;
+      work = joinWork(work, {
         terminal,
-      );
+        role: roles[Math.floor(pick() * 2.2)] ?? "other",
+        at: at(when),
+      });
     } else if (roll < 0.3 && members.length > 0) {
       work = leaveWork(work, {
         terminal: members.shift() ?? "local/none",
@@ -371,13 +419,29 @@ const chaotic = (seed: number, steps: number): Work => {
     } else if (roll < 0.8) {
       work = reopenWork(work, at(when));
     } else {
-      work = recordEvent(work, {
-        at: at(when),
-        by: "agent",
-        kind: "stopped",
-        about: { kind: "member", terminal: "local/t0" },
-        why: { kind: "none" },
-      });
+      // A HAND-OFF OR A STOP, about a member still in the work — or, with
+      // none, a terminal that never joined it.
+      const terminal =
+        members[Math.floor(pick() * members.length)] ?? "local/t0";
+      const hand = pick();
+      if (hand < 0.35) work = told(work, terminal, when);
+      else if (hand < 0.42) work = handOffsKept(work, when);
+      else {
+        const kinds = [
+          "stopped",
+          "ready",
+          "asking",
+          "exited",
+          "asleep",
+        ] as const;
+        work = recordEvent(work, {
+          at: at(when),
+          by: "agent",
+          kind: kinds[Math.floor(pick() * kinds.length)] ?? "stopped",
+          about: { kind: "member", terminal },
+          why: { kind: "none" },
+        });
+      }
     }
   }
   return work;
@@ -407,22 +471,29 @@ describe("on chaotic records", () => {
       expect(filed[one.name], `seed ${seed}: ${one.name}`).toBe(
         stageMs(one.state),
       );
-    // ... so the stages and the setup add up to the life, and the setup is
-    // only ever a mode's with no Plan to hold it.
+    // ... so the stages, the setup and the unrecorded time add up to the
+    // life, and the setup is only ever a mode's with no Plan to hold it.
     expect(lifetime(work, now), `seed ${seed}: lifetime`).toBe(life);
     // A DRAFT IS NEVER THE HUMAN'S TO MERGE, whatever the forge answered.
     if (Option.exists(prOf(work), (one) => one.draft === "draft"))
       expect(standing(work, policy).why, `seed ${seed}: draft`).not.toBe(
         "merge",
       );
-    expect(total(all) + filed.setup, `seed ${seed}: stages`).toBe(life);
+    expect(
+      total(all) + filed.setup + filed.unrecorded,
+      `seed ${seed}: stages`,
+    ).toBe(life);
     if (policy.run.kind === "set" && policy.run.stages.includes("plan"))
       expect(filed.setup, `seed ${seed}: setup`).toBe(0);
     expect(spent.agent + spent.you + spent.ci, `seed ${seed}: spent`).toBe(
       life,
     );
     expect(all.filter((one) => one.state.kind === "now").length).toBe(
-      work.state.kind === "open" && read.current !== "setup" ? 1 : 0,
+      work.state.kind === "open" &&
+        read.current !== "setup" &&
+        read.current !== "unrecorded"
+        ? 1
+        : 0,
     );
     // ONE answer to "where is it now": the strip's outlined cell is where
     // the fold says it is.
@@ -439,6 +510,74 @@ describe("on chaotic records", () => {
           kind: "skipped",
         });
     }
+    // THE TRAIL TILES THE LIFE: the first visit begins with the work, a
+    // visit's time is its length, each one after begins where the one before
+    // it ended — or later, only on a work that was ended in between — and
+    // their times add up to the life.
+    const trail = read.trail;
+    const length = (time: Record<"agent" | "you" | "ci", number>) =>
+      time.agent + time.you + time.ci;
+    const everEnded = work.events.some((one) => one.kind === "ended");
+    expect(trail[0]?.from, `seed ${seed}: first visit`).toBe(work.startedAt);
+    trail.forEach((visit, index) => {
+      const until = Option.getOrElse(visit.until, () =>
+        work.state.kind === "open" ? now : visit.from,
+      );
+      expect(length(visit.time), `seed ${seed}: visit ${index}`).toBe(
+        Math.max(0, Date.parse(until) - Date.parse(visit.from)),
+      );
+      const next = trail[index + 1];
+      if (next === undefined) return;
+      const gap = Date.parse(next.from) - Date.parse(until);
+      if (everEnded)
+        expect(gap, `seed ${seed}: after ${index}`).toBeGreaterThanOrEqual(0);
+      else expect(gap, `seed ${seed}: after ${index}`).toBe(0);
+    });
+    expect(
+      trail.reduce((sum, visit) => sum + length(visit.time), 0),
+      `seed ${seed}: trail`,
+    ).toBe(life);
+    // Each place holds the sum of its visits.
+    for (const one of read.stages)
+      expect(
+        trail
+          .filter((visit) => visit.stage === one.name)
+          .reduce((sum, visit) => sum + length(visit.time), 0),
+        `seed ${seed}: ${one.name}'s visits`,
+      ).toBe(stageMs(one.state));
+    for (const place of ["setup", "unrecorded"] as const)
+      expect(
+        trail
+          .filter((visit) => visit.stage === place)
+          .reduce((sum, visit) => sum + length(visit.time), 0),
+        `seed ${seed}: ${place}'s visits`,
+      ).toBe(filed[place]);
+    // EVERY EVENT IS IN EXACTLY ONE VISIT, the one it is filed in.
+    expect(trail[0]?.events.from).toBe(0);
+    expect(trail.at(-1)?.events.until).toBe(work.events.length);
+    trail.forEach((visit, index) => {
+      const next = trail[index + 1];
+      if (next !== undefined)
+        expect(next.events.from, `seed ${seed}: events of ${index}`).toBe(
+          visit.events.until,
+        );
+      for (let one = visit.events.from; one < visit.events.until; one += 1)
+        expect(read.events[one], `seed ${seed}: event ${one}`).toBe(
+          visit.stage,
+        );
+    });
+    // THE LAST VISIT IS OPEN EXACTLY WHEN THE WORK IS, and it is where the
+    // work is now.
+    expect(
+      trail.map((visit) => Option.isNone(visit.until)),
+      `seed ${seed}: which visit is open`,
+    ).toEqual(
+      trail.map(
+        (_, index) => work.state.kind === "open" && index === trail.length - 1,
+      ),
+    );
+    if (work.state.kind === "open")
+      expect(trail.at(-1)?.stage, `seed ${seed}: now`).toBe(read.current);
   });
 });
 
@@ -447,7 +586,9 @@ describe("on scripted waterfalls", () => {
     Array.from({ length: 200 }, (_, one) => one + 1),
   )("each stage holds the time put in it, waterfall %i", (seed) => {
     const pick = seeded(seed);
-    const span = (): number => Math.floor(pick() * 30);
+    // At least a minute each: a stage that took no time between two events
+    // of one instant is no visit (`stages`' "one instant is one moment").
+    const span = (): number => 1 + Math.floor(pick() * 29);
     const planner = pick() < 0.6;
     const want: Record<StageName, number> = {
       plan: 0,
@@ -463,6 +604,8 @@ describe("on scripted waterfalls", () => {
       work = join(work, "planner", 0);
       want.plan = span();
       minute += want.plan;
+      // The planner writes the plan and stops; the Conductor asks you.
+      work = stop(work, PLANNER, minute);
       work = ask(work, "approve", minute);
       want.approve = span();
       minute += want.approve;
@@ -471,7 +614,12 @@ describe("on scripted waterfalls", () => {
     work = join(work, "implementor", minute);
     want.build = span();
     minute += want.build;
-    work = prOpened(work, minute);
+    // The implementor opens its PR — a draft or not, which decides nothing —
+    // stops, and the Conductor hands the work to the planner.
+    const draft = pick() < 0.5;
+    work = prOpened(work, minute, 7, draft ? "draft" : "ready");
+    work = stop(work, IMPLEMENTOR, minute);
+    work = told(work, PLANNER, minute);
     want.review = span();
     minute += want.review;
     // A question during the review keeps the work in the review.
@@ -482,10 +630,12 @@ describe("on scripted waterfalls", () => {
       want.review += asked;
       minute += asked;
     }
+    work = stop(work, PLANNER, minute);
     work = check(work, "checks-running", minute);
     want.checks = span();
     minute += want.checks;
     work = check(work, "checks-passed", minute);
+    if (draft) work = draftState(work, "ready", minute);
     work = mergeState(work, { kind: "can" }, minute);
     want.merge = span();
     minute += want.merge;
@@ -550,9 +700,13 @@ describe("where a work's stages stand", () => {
     });
   });
 
-  it("keeps a question after the PR opens in the review, the human's", () => {
-    let work = join(opened(), "implementor", 0);
+  it("keeps a question during the review in the review, the human's", () => {
+    let work = join(opened(), "planner", 0);
+    work = stop(work, PLANNER, 0);
+    work = join(work, "implementor", 0);
     work = prOpened(work, 10);
+    work = stop(work, IMPLEMENTOR, 10);
+    work = told(work, PLANNER, 10);
     work = ask(work, "which", 14);
     const named = byName(strip(work, FULL, at(20)));
     expect(named.review).toEqual({ kind: "now", ms: 10 * MINUTE, who: "you" });
@@ -619,21 +773,34 @@ describe("where a work's stages stand", () => {
     ).toEqual({ kind: "unset" });
   });
 
-  it("counts a review that took no time as done, and a merge kolu made itself", () => {
-    // `pr-opened` and the first check event land at one instant, as the
-    // observer stamps them; the forge merged it with nobody handed anything.
-    let work = join(opened(), "implementor", 0);
+  it("files what stood between events of one instant nowhere, and keeps a merge kolu made itself", () => {
+    // The planner is handed the work and CI starts at one instant: the
+    // review it was handed is no visit. The forge merged it, and the work
+    // ended at that same instant, with nobody handed anything: it still
+    // reached the merge.
+    let work = join(opened(), "planner", 0);
+    work = stop(work, PLANNER, 10);
+    work = join(work, "implementor", 10);
     work = prOpened(work, 40);
+    work = stop(work, IMPLEMENTOR, 40);
+    work = told(work, PLANNER, 40);
     work = check(work, "checks-running", 40);
     work = check(work, "checks-passed", 52);
     work = merged(work, 52);
-    const named = byName(strip(work, policyFor("full", false), at(90)));
-    expect(named.review).toMatchObject({ kind: "done", ms: 0 });
+    const read = waterfall(work, policyFor("full", false), at(90));
+    const named = byName(read.stages);
+    expect(named.review).toEqual({ kind: "skipped" });
     expect(named.checks).toMatchObject({ kind: "done", ms: 12 * MINUTE });
     expect(named.merge).toMatchObject({ kind: "done", ms: 0 });
+    expect(read.trail.map((visit) => visit.stage)).toEqual([
+      "plan",
+      "build",
+      "checks",
+      "merge",
+    ]);
   });
 
-  it("builds again on a second attempt after the first PR was closed", () => {
+  it("is where its holder left it on a second attempt after the first PR was closed", () => {
     let work = join(opened(), "implementor", 0);
     work = prOpened(work, 10);
     work = endWork(
@@ -648,14 +815,16 @@ describe("where a work's stages stand", () => {
     );
     work = reopenWork(work, at(30));
     work = prOpened(work, 45, 8);
-    const named = byName(strip(work, FULL, at(50)));
-    // 10 before the first PR, 15 after the reopen before the second.
-    expect(named.build).toMatchObject({ kind: "done", ms: 25 * MINUTE });
-    expect(named.review).toEqual({
+    // 20 before the close, 20 since the reopen; the ten it spent closed are
+    // nobody's, and they split the build into two visits — no move.
+    expect(byName(strip(work, FULL, at(50))).build).toEqual({
       kind: "now",
-      ms: 15 * MINUTE,
+      ms: 40 * MINUTE,
       who: "agent",
     });
+    const read = waterfall(work, FULL, at(50));
+    expect(read.trail.map((visit) => visit.stage)).toEqual(["build", "build"]);
+    expect(movesOf(read.trail)).toEqual([]);
   });
 });
 
@@ -667,10 +836,14 @@ describe("the shapes of real works", () => {
 
   it("a full waterfall that opens its own PR, is reviewed, runs CI and is merged", () => {
     let work = join(opened(), "planner", 0);
+    work = stop(work, PLANNER, 20);
     work = ask(work, "approve", 20);
     work = answer(work, "approve", 25);
-    work = join(work, "implementor", 25);
+    work = join(work, "implementor", 26);
     work = prOpened(work, 60);
+    work = stop(work, IMPLEMENTOR, 60);
+    work = told(work, PLANNER, 60);
+    work = stop(work, PLANNER, 75);
     work = check(work, "checks-running", 80);
     work = check(work, "checks-passed", 95);
     work = mergeState(work, { kind: "can" }, 95);
@@ -678,6 +851,16 @@ describe("the shapes of real works", () => {
     expect(cells(work, FULL, at(120))).toBe(
       "plan done, approve done, build done, review done, checks done, merge done",
     );
+    // The minute between your answer and the implementor joining is still
+    // the approval: the plan went nowhere.
+    expect(trailOf(work, FULL, at(120))).toEqual([
+      "plan",
+      "approve",
+      "build",
+      "review",
+      "checks",
+      "merge",
+    ]);
   });
 
   it("a trivial work that takes up a PR that already existed (the dependabot card)", () => {
@@ -785,33 +968,43 @@ describe("the shapes of real works", () => {
     );
   });
 
-  it("Page chats open in a pane (olai#702): a draft opened early, never marked ready", () => {
+  it("Page chats open in a pane (olai#702): a draft opened early, built in steps", () => {
     // A full work. The implementor opened a draft after the first of six
     // steps, about two hours in, and pushed after each step; CI ran on every
-    // push. Never marked ready: all of it is the build's.
+    // push. Never marked ready, never handed to the planner: each CI run is
+    // a visit to the checks and back to the build, and there is no review.
     let work = join(opened(), "planner", 0);
+    work = stop(work, PLANNER, 20);
     work = ask(work, "approve", 20);
     work = answer(work, "approve", 25);
     work = join(work, "implementor", 25);
     work = prOpened(work, 145, 7, "draft");
-    let ci = 0;
     for (let push = 0; push < 6; push += 1) {
       const start = 145 + push * 60;
       work = check(work, "checks-running", start, 7, `p${push}`);
       work = check(work, "checks-passed", start + 15, 7, `p${push}`);
-      ci += 15 * MINUTE;
     }
     const now = at(145 + 6 * 60);
-    const named = byName(strip(work, FULL, now));
+    const read = waterfall(work, FULL, now);
+    const named = byName(read.stages);
     expect(named.build).toEqual({
       kind: "now",
-      ms: Date.parse(now) - Date.parse(at(25)),
+      ms: Date.parse(now) - Date.parse(at(25)) - 6 * 15 * MINUTE,
       who: "agent",
     });
+    expect(named.checks).toEqual({
+      kind: "done",
+      ms: 6 * 15 * MINUTE,
+      who: "ci",
+    });
     expect(named.review).toEqual({ kind: "not-started" });
-    expect(named.checks).toEqual({ kind: "not-started" });
-    // Who the work waited on is unchanged: CI's time is still CI's.
-    expect(timeSpent(work, FULL, now).ci).toBe(ci);
+    expect(read.trail.map((visit) => visit.stage)).toEqual([
+      "plan",
+      "approve",
+      "build",
+      ...Array.from({ length: 6 }, () => ["checks", "build"]).flat(),
+    ]);
+    expect(timeSpent(work, FULL, now).ci).toBe(6 * 15 * MINUTE);
   });
 
   it("One ACP runner for kolu and olai (#2405): green as a draft for a day, merged at ready", () => {
@@ -844,131 +1037,207 @@ describe("the shapes of real works", () => {
       );
       work = check(work, "checks-passed", minute(green), 2405, `h${index}`);
     }
-    // Mid-draft, with the hand-over: still the build, and not the human's.
+    // Mid-draft, with the hand-over: the build, and not the human's — a
+    // draft is never theirs to merge, however green.
     const midDraft = "2026-11-18T12:00:00.000Z";
     expect(waterfall(work, FULL, midDraft).current).toBe("build");
     expect(standing(work, FULL).why).toBe("working");
     work = draftState(work, "ready", minute(ready), 2405);
     work = mergeState(work, { kind: "can" }, minute(ready), 2405, "h3");
     work = merged(work, minute("2026-11-19T02:15:53.000Z"), 2405);
-    const named = byName(strip(work, FULL, "2026-11-19T03:00:00.000Z"));
+    const read = waterfall(work, FULL, "2026-11-19T03:00:00.000Z");
+    const named = byName(read.stages);
     expect(named.build).toEqual({
       kind: "done",
-      ms: Date.parse(ready) - Date.parse(started),
+      ms: Date.parse(ready) - Date.parse(started) - 4 * 20 * MINUTE,
       who: "agent",
     });
-    expect(stageMs(named.build)).toBeGreaterThan(25 * 60 * MINUTE);
-    expect(stageMs(named.review)).toBe(0);
-    expect(stageMs(named.checks)).toBe(0);
+    expect(stageMs(named.checks)).toBe(4 * 20 * MINUTE);
+    expect(named.review).toEqual({ kind: "skipped" });
+    expect(read.trail.map((visit) => visit.stage)).toEqual([
+      "build",
+      ...Array.from({ length: 4 }, () => ["checks", "build"]).flat(),
+      "merge",
+    ]);
   });
 });
 
-describe("the build ends when the PR is ready for review", () => {
-  it("ends at once for a PR opened ready", () => {
+describe("the stage follows who holds the work", () => {
+  it("the reported work: six review rounds and two CI runs, on a draft throughout", () => {
+    // Planned, approved, built; the planner reviews it six times, the
+    // implementor answering each round; a final pass, a CI run with a red
+    // lane, a fix, and CI running again. The PR is never marked ready.
+    let work = join(opened(), "planner", 0);
+    work = stop(work, PLANNER, 30);
+    work = ask(work, "approve", 30);
+    work = answer(work, "approve", 32);
+    work = join(work, "implementor", 33);
+    work = prOpened(work, 50, 7, "draft");
+    let minute = 92;
+    work = stop(work, IMPLEMENTOR, minute);
+    for (let round = 0; round < 6; round += 1) {
+      work = told(work, PLANNER, minute);
+      work = stop(work, PLANNER, minute + 8);
+      work = told(work, IMPLEMENTOR, minute + 8);
+      minute += 20;
+      work = stop(work, IMPLEMENTOR, minute);
+    }
+    work = told(work, IMPLEMENTOR, minute);
+    work = check(work, "checks-running", minute + 10, 7, "f1");
+    work = check(work, "checks-failed", minute + 22, 7, "f1");
+    work = check(work, "checks-running", minute + 37, 7, "f2");
+    const now = at(minute + 45);
+    const read = waterfall(work, FULL, now);
+    expect(read.trail.map((visit) => visit.stage)).toEqual([
+      "plan",
+      "approve",
+      "build",
+      ...Array.from({ length: 6 }, () => ["review", "build"]).flat(),
+      "checks",
+      "build",
+      "checks",
+    ]);
+    expect(read.current).toBe("checks");
+    expect(byName(read.stages).checks).toEqual({
+      kind: "now",
+      ms: 20 * MINUTE,
+      who: "ci",
+    });
+    expect(Option.getOrThrow(prOf(work)).draft).toBe("draft");
+    // ... and the map's loops are counted off the trail.
+    expect(movesOf(read.trail)).toEqual([
+      { from: "plan", to: "approve", times: 1 },
+      { from: "approve", to: "build", times: 1 },
+      { from: "build", to: "review", times: 6 },
+      { from: "review", to: "build", times: 6 },
+      { from: "build", to: "checks", times: 2 },
+      { from: "checks", to: "build", times: 1 },
+    ]);
+  });
+
+  it("is the build again when the planner answers a doubt mid-build and stops", () => {
+    let work = join(opened(), "planner", 0);
+    work = stop(work, PLANNER, 10);
+    work = join(work, "implementor", 10);
+    // The implementor is still at work when the Conductor asks the planner.
+    work = told(work, PLANNER, 20);
+    expect(waterfall(work, FULL, at(22)).current).toBe("review");
+    work = stop(work, PLANNER, 25);
+    const read = waterfall(work, FULL, at(40));
+    expect(read.current).toBe("build");
+    expect(read.trail.map((visit) => visit.stage)).toEqual([
+      "plan",
+      "build",
+      "review",
+      "build",
+    ]);
+  });
+
+  it("moves nothing on a second word to the member that holds it, or a word to an `other`", () => {
     let work = join(opened(), "implementor", 0);
-    work = prOpened(work, 10);
-    expect(cells(work, FULL, at(20))).toBe(
-      "plan done, approve –, build done, review now, checks ·, merge ·",
+    work = joinWork(work, {
+      terminal: "local/watched",
+      role: "other",
+      at: at(1),
+    });
+    const before = waterfall(work, FULL, at(30));
+    work = told(work, IMPLEMENTOR, 10);
+    work = told(work, "local/watched", 12);
+    const after = waterfall(work, FULL, at(30));
+    expect(after.stages).toEqual(before.stages);
+    expect(after.trail.map((visit) => visit.stage)).toEqual(
+      before.trail.map((visit) => visit.stage),
     );
   });
 
-  it("does not end at a draft's open, and ends when it is marked ready", () => {
-    let work = join(opened(), "implementor", 0);
-    work = prOpened(work, 10, 7, "draft");
-    expect(waterfall(work, FULL, at(20)).current).toBe("build");
-    work = draftState(work, "ready", 30);
-    const named = byName(strip(work, FULL, at(45)));
-    expect(named.build).toMatchObject({ kind: "done", ms: 30 * MINUTE });
-    // The agents' time after it is the review.
-    expect(named.review).toEqual({
-      kind: "now",
-      ms: 15 * MINUTE,
-      who: "agent",
-    });
+  it("is the plan when the planner is told again after you asked for changes", () => {
+    let work = join(opened(), "planner", 0);
+    work = stop(work, PLANNER, 20);
+    work = ask(work, "approve", 20);
+    work = answer(work, "approve", 25);
+    work = told(work, PLANNER, 26);
+    const read = waterfall(work, FULL, at(40));
+    expect(read.current).toBe("plan");
+    expect(read.trail.map((visit) => visit.stage)).toEqual([
+      "plan",
+      "approve",
+      "plan",
+    ]);
   });
 
-  it("goes back to the build when the PR is turned back into a draft, and the review keeps its time", () => {
-    let work = join(opened(), "implementor", 0);
-    work = prOpened(work, 10);
-    work = draftState(work, "draft", 25);
-    expect(byName(strip(work, FULL, at(40))).build).toMatchObject({
-      kind: "now",
-      ms: 25 * MINUTE,
-    });
-    work = draftState(work, "ready", 40);
-    const named = byName(strip(work, FULL, at(50)));
-    expect(named.build).toMatchObject({ kind: "done", ms: 25 * MINUTE });
-    expect(named.review).toMatchObject({ kind: "now", ms: 25 * MINUTE });
-  });
-
-  it("reads a PR whose word was never recorded as before: the open ends the build", () => {
-    const read = (draft: "ready" | "unrecorded") => {
-      let work = join(opened(), "implementor", 0);
-      work = prOpened(work, 10, 7, draft);
-      work = check(work, "checks-running", 20);
-      work = check(work, "checks-passed", 30);
-      return strip(work, FULL, at(40));
-    };
-    expect(read("unrecorded")).toEqual(read("ready"));
-    expect(byName(read("unrecorded")).build).toMatchObject({
-      kind: "done",
-      ms: 10 * MINUTE,
-    });
-  });
-
-  // LEARNING A WORD IS NOT AN ACT. A PR recorded before kolu kept the draft
-  // word (`unrecorded`) learns it from its next reading after the upgrade;
-  // nobody marked anything ready, so the strip must read as it did.
-  it("keeps an existing PR's work in the build when kolu learns the PR is ready", () => {
-    let work = prOpened(opened(), 0, 7, "unrecorded");
-    work = join(work, "implementor", 5);
-    const before = cells(work, FULL, at(30));
-    expect(waterfall(work, FULL, at(30)).current).toBe("build");
-    work = draftState(work, "ready", 20);
-    expect(cells(work, FULL, at(30))).toBe(before);
-    expect(waterfall(work, FULL, at(30)).current).toBe("build");
-  });
-
-  it("keeps the implementor's own PR past the build when kolu learns it is ready", () => {
-    let work = join(opened(), "implementor", 0);
-    work = prOpened(work, 10, 7, "unrecorded");
-    const before = cells(work, FULL, at(30));
-    expect(waterfall(work, FULL, at(30)).current).toBe("review");
-    work = draftState(work, "ready", 20);
-    expect(cells(work, FULL, at(30))).toBe(before);
-  });
-
-  it("keeps an existing PR's work in the build when kolu learns the PR is a draft", () => {
-    let work = prOpened(opened(), 0, 7, "unrecorded");
-    work = join(work, "implementor", 5);
-    work = draftState(work, "draft", 20);
-    expect(waterfall(work, FULL, at(30)).current).toBe("build");
-  });
-
-  it("ends the build when an existing DRAFT is marked ready after the implementor joined", () => {
-    let work = prOpened(opened(), 0, 7, "draft");
-    work = join(work, "implementor", 5);
-    expect(waterfall(work, FULL, at(15)).current).toBe("build");
-    work = draftState(work, "ready", 20);
-    const named = byName(strip(work, FULL, at(30)));
-    expect(named.build).toMatchObject({ kind: "done", ms: 15 * MINUTE });
-    expect(named.review).toMatchObject({ kind: "now", ms: 10 * MINUTE });
-  });
-
-  it("keeps a trivial work's draft CI in the build, and files CI as checks once it is ready", () => {
+  it("files a trivial work's CI as checks and a red check back with the implementor as the build", () => {
     let work = join(opened(), "implementor", 0);
     work = prOpened(work, 10, 7, "draft");
     work = check(work, "checks-running", 15);
     expect(cells(work, TRIVIAL, at(25))).toBe(
-      "plan –, approve –, build now, review –, checks ·, merge ·",
+      "plan –, approve –, build done, review –, checks now, merge ·",
     );
-    work = check(work, "checks-passed", 25);
-    work = draftState(work, "ready", 30);
-    work = check(work, "checks-running", 35, 7, "b2");
-    const named = byName(strip(work, TRIVIAL, at(45)));
-    expect(named.build).toMatchObject({ kind: "done", ms: 35 * MINUTE });
-    expect(named.checks).toMatchObject({ kind: "now", ms: 10 * MINUTE });
-    expect(named.review).toEqual({ kind: "skipped" });
+    work = check(work, "checks-failed", 25);
+    // No planner to hand it to: a word to one moves nothing.
+    work = told(work, PLANNER, 26);
+    const read = waterfall(work, TRIVIAL, at(40));
+    expect(read.current).toBe("build");
+    expect(read.trail.map((visit) => visit.stage)).toEqual([
+      "build",
+      "checks",
+      "build",
+    ]);
+  });
+
+  it("says who held a saved work was not recorded, up to the first hand-off after the upgrade", () => {
+    // Saved before kolu kept hand-offs: the planner, your approval, the
+    // implementor, a PR and a CI run — and no `told` anywhere.
+    let work = join(opened(), "planner", 0);
+    work = stop(work, PLANNER, 20);
+    work = ask(work, "approve", 20);
+    work = answer(work, "approve", 25);
+    work = join(work, "implementor", 25);
+    work = prOpened(work, 60);
+    work = check(work, "checks-running", 70);
+    work = check(work, "checks-failed", 80);
+    // The upgrade, and later the first hand-off since.
+    work = handOffsKept(work, 90);
+    work = stop(work, IMPLEMENTOR, 95);
+    work = told(work, PLANNER, 100);
+    const read = waterfall(work, FULL, at(110));
+    expect(read.trail.map((visit) => visit.stage)).toEqual([
+      "plan",
+      "approve",
+      "unrecorded",
+      "checks",
+      "unrecorded",
+      "review",
+    ]);
+    const named = byName(read.stages);
+    // Plan, Approve and Checks do not depend on who held it, and read as
+    // they are; the build never got a minute it cannot vouch for.
+    expect(named.plan).toMatchObject({ kind: "done", ms: 20 * MINUTE });
+    expect(named.approve).toMatchObject({ kind: "done", ms: 5 * MINUTE });
+    expect(named.checks).toMatchObject({ kind: "done", ms: 10 * MINUTE });
+    expect(named.build).toEqual({ kind: "skipped" });
+    expect(named.review).toEqual({
+      kind: "now",
+      ms: 10 * MINUTE,
+      who: "agent",
+    });
+  });
+
+  it("files a finished saved work's build and review as unrecorded, and keeps its merge", () => {
+    let work = join(opened(), "implementor", 0);
+    work = prOpened(work, 30);
+    work = check(work, "checks-running", 40);
+    work = check(work, "checks-passed", 50);
+    work = mergeState(work, { kind: "can" }, 50);
+    work = merged(work, 60);
+    work = handOffsKept(work, 60);
+    const read = waterfall(work, FULL, at(90));
+    expect(read.trail.map((visit) => visit.stage)).toEqual([
+      "unrecorded",
+      "checks",
+      "merge",
+    ]);
+    expect(stageMs(byName(read.stages).build)).toBe(0);
+    expect(read.trail[0]?.time.agent).toBe(40 * MINUTE);
   });
 });
 
@@ -981,11 +1250,11 @@ describe("green is the forge saying it can merge", () => {
     return mergeState(work, { kind: "cannot", why: "blocked" }, 12);
   };
 
-  it("leaves a PR the forge will not merge with the agents, in review", () => {
+  it("leaves a PR the forge will not merge with the implementor, in the build", () => {
     const named = byName(strip(blocked(), FULL, at(30)));
-    expect(named.review).toEqual({
+    expect(named.build).toEqual({
       kind: "now",
-      ms: 20 * MINUTE,
+      ms: 30 * MINUTE,
       who: "agent",
     });
     expect(named.checks).toEqual({ kind: "not-started" });
@@ -1000,7 +1269,7 @@ describe("green is the forge saying it can merge", () => {
     });
     // The base moved on: the stale green is gone.
     work = mergeState(work, { kind: "cannot", why: "behind" }, 40);
-    expect(byName(strip(work, FULL, at(45))).review.kind).toBe("now");
+    expect(byName(strip(work, FULL, at(45))).build.kind).toBe("now");
   });
 
   it("is green with no checks at all", () => {
@@ -1016,13 +1285,13 @@ describe("green is the forge saying it can merge", () => {
     work = check(work, "checks-passed", 12);
     work = mergeState(work, { kind: "can" }, 12);
     expect(byName(strip(work, FULL, at(14))).merge.kind).toBe("now");
-    // A push GitHub has not worked out yet: not green, back to review.
+    // A push GitHub has not worked out yet: not green, back to the build.
     work = mergeState(work, { kind: "unsettled" }, 20, 7, "b2");
-    expect(byName(strip(work, FULL, at(22))).review.kind).toBe("now");
+    expect(byName(strip(work, FULL, at(22))).build.kind).toBe("now");
     // ... and checks about the new commit take the old answer away too.
     let checked = mergeState(blocked(), { kind: "can" }, 14);
     checked = check(checked, "checks-passed", 20, 7, "b2");
-    expect(byName(strip(checked, FULL, at(22))).review.kind).toBe("now");
+    expect(byName(strip(checked, FULL, at(22))).build.kind).toBe("now");
   });
 
   it("forgets the checks and the answer when a work stopped green is reopened", () => {
@@ -1032,12 +1301,13 @@ describe("green is the forge saying it can merge", () => {
       at: at(16),
     });
     work = reopenWork(work, at(60));
-    // Four minutes of review before it went green, then ten since the reopen
-    // — not a merge waiting on you off an answer from before it stopped.
+    // Fourteen minutes of building before it went green, then ten since the
+    // reopen — not a merge waiting on you off an answer from before it
+    // stopped.
     const named = byName(strip(work, FULL, at(70)));
-    expect(named.review).toEqual({
+    expect(named.build).toEqual({
       kind: "now",
-      ms: 14 * MINUTE,
+      ms: 24 * MINUTE,
       who: "agent",
     });
   });

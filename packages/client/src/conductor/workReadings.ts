@@ -117,9 +117,11 @@ export const WORK_DOT: Record<Waiter | "done", string> = {
 };
 
 /** What each stage is called on the strip — and what a timeline calls the
- *  setup, which no cell holds. */
+ *  setup and the stretch whose hand-offs nobody recorded, which no cell
+ *  holds. */
 export const STAGE_LABEL: Record<Filed, string> = {
   setup: "Setup",
+  unrecorded: "Not recorded",
   plan: "Plan",
   approve: "Approve",
   build: "Build",
@@ -784,6 +786,11 @@ export function eventReader(work: Work): (event: WorkEvent) => string {
         return `${event.count} files kept`;
       case "keep-failed":
         return `Not kept · ${event.why}`;
+      // A HAND-OFF: the Conductor gave the work to this member.
+      case "told":
+        return `Handed to the ${part}`;
+      case "hand-offs-kept":
+        return "kolu began keeping who holds the work";
       default:
         return event satisfies never;
     }

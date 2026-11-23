@@ -39,6 +39,7 @@ const STAGED: Stages = {
   ],
   events: [],
   current: "build",
+  trail: [],
 };
 
 function mount(stages: Stages, withIndex: boolean) {
@@ -128,6 +129,7 @@ describe("the stage strip's segments", () => {
       ],
       events: [],
       current: "merge",
+      trail: [],
     };
     const { el } = mount(done, true);
     const emphasised = [
@@ -242,6 +244,7 @@ describe("each stage's own time", () => {
       ),
       events: [],
       current: "build",
+      trail: [],
     };
     const { el } = mount(long, true);
     // "14h 20m" would be cut in a sixth of the row; "14h" is the one-unit
