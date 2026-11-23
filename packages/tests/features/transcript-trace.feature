@@ -11,7 +11,8 @@ Feature: TEMPORARY trace of the transcript following after a work is picked and 
     Then the conductor transcript should show a row of kind "agent" saying "line 30"
     And the conductor transcript should be scrolled to the bottom
     When I ask the conductor to open the work "two"
-    And I open the work card
+    Then the conductor transcript should be scrolled to the bottom
+    When I open the work card
     And I go back to all the works
     Then the conductor transcript should be scrolled to the bottom
     And the conductor should not offer the way back to the bottom
@@ -23,7 +24,8 @@ Feature: TEMPORARY trace of the transcript following after a work is picked and 
     Then the conductor transcript should show a row of kind "agent" saying "line 30"
     And the conductor transcript should be scrolled to the bottom
     When I ask the conductor to open the work "two"
-    And I open the work card
+    Then the conductor transcript should be scrolled to the bottom
+    When I open the work card
     And I go back to all the works
     Then the conductor transcript should be scrolled to the bottom
     And the conductor should not offer the way back to the bottom
@@ -35,7 +37,8 @@ Feature: TEMPORARY trace of the transcript following after a work is picked and 
     Then the conductor transcript should show a row of kind "agent" saying "line 30"
     And the conductor transcript should be scrolled to the bottom
     When I ask the conductor to open the work "probe-3"
-    And I open the work card
+    Then the conductor transcript should be scrolled to the bottom
+    When I open the work card
     And I go back to all the works
     Then the conductor transcript should be scrolled to the bottom
     And the conductor should not offer the way back to the bottom
@@ -47,7 +50,8 @@ Feature: TEMPORARY trace of the transcript following after a work is picked and 
     Then the conductor transcript should show a row of kind "agent" saying "line 30"
     And the conductor transcript should be scrolled to the bottom
     When I ask the conductor to open the work "probe-4"
-    And I open the work card
+    Then the conductor transcript should be scrolled to the bottom
+    When I open the work card
     And I go back to all the works
     Then the conductor transcript should be scrolled to the bottom
     And the conductor should not offer the way back to the bottom
@@ -59,7 +63,8 @@ Feature: TEMPORARY trace of the transcript following after a work is picked and 
     Then the conductor transcript should show a row of kind "agent" saying "line 30"
     And the conductor transcript should be scrolled to the bottom
     When I ask the conductor to open the work "probe-5"
-    And I open the work card
+    Then the conductor transcript should be scrolled to the bottom
+    When I open the work card
     And I go back to all the works
     Then the conductor transcript should be scrolled to the bottom
     And the conductor should not offer the way back to the bottom
@@ -71,7 +76,8 @@ Feature: TEMPORARY trace of the transcript following after a work is picked and 
     Then the conductor transcript should show a row of kind "agent" saying "line 30"
     And the conductor transcript should be scrolled to the bottom
     When I ask the conductor to open the work "probe-6"
-    And I open the work card
+    Then the conductor transcript should be scrolled to the bottom
+    When I open the work card
     And I go back to all the works
     Then the conductor transcript should be scrolled to the bottom
     And the conductor should not offer the way back to the bottom
@@ -83,7 +89,8 @@ Feature: TEMPORARY trace of the transcript following after a work is picked and 
     Then the conductor transcript should show a row of kind "agent" saying "line 30"
     And the conductor transcript should be scrolled to the bottom
     When I ask the conductor to open the work "probe-7"
-    And I open the work card
+    Then the conductor transcript should be scrolled to the bottom
+    When I open the work card
     And I go back to all the works
     Then the conductor transcript should be scrolled to the bottom
     And the conductor should not offer the way back to the bottom
@@ -95,7 +102,8 @@ Feature: TEMPORARY trace of the transcript following after a work is picked and 
     Then the conductor transcript should show a row of kind "agent" saying "line 30"
     And the conductor transcript should be scrolled to the bottom
     When I ask the conductor to open the work "probe-8"
-    And I open the work card
+    Then the conductor transcript should be scrolled to the bottom
+    When I open the work card
     And I go back to all the works
     Then the conductor transcript should be scrolled to the bottom
     And the conductor should not offer the way back to the bottom
