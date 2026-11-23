@@ -5014,6 +5014,30 @@ describe("an agent that has just come up", () => {
     });
     expect(agent.wakes()).toEqual([]);
   });
+
+  it("puts the hand-off on the work when the Conductor speaks to an agent that stopped", async () => {
+    const r = rig();
+    await r.host.prompt("hello", [], [], false);
+    const work = await watchWork(r);
+    r.host.joinWork(work, A, "implementor", "created-run");
+    const told = () => theWork(r).events.filter((one) => one.kind === "told");
+    // Up and stopped: it has let go of the work.
+    r.host.observe([seeing(A, "stopped")]);
+    expect(theWork(r).events.map((one) => one.kind)).toContain("ready");
+    expect(told()).toEqual([]);
+    // `agent_say` lands, and the fleet face says so: the work is the
+    // implementor's again, on the record the stage is read from.
+    r.host.saidTo(A);
+    expect(told()).toEqual([
+      expect.objectContaining({
+        by: "agent",
+        about: { kind: "member", terminal: A },
+      }),
+    ]);
+    // A second word while it is at work hands nothing over.
+    r.host.saidTo(A);
+    expect(told()).toHaveLength(1);
+  });
 });
 
 describe("a terminal the Conductor closed itself", () => {
