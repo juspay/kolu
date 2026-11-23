@@ -69,9 +69,13 @@ const StageTrail: Component<{
       <h4 class="m-0 font-mono text-[0.58rem] uppercase tracking-[0.1em] text-fg-3">
         Trail
       </h4>
+      {/* THE ROW SCROLLS SIDEWAYS, and a scrolling box clips both ways, so
+          it pads every side by more than the ring (2px and a 1px gap) and
+          the outline (1px off by 1px) reach past a segment. The ringed and
+          the pressed segment sit above their neighbours. */}
       <ol
         aria-label="Trail"
-        class="m-0 mt-1 flex h-4 list-none items-stretch gap-px overflow-x-auto p-0"
+        class="m-0 flex h-6 list-none items-stretch gap-px overflow-x-auto p-1"
       >
         <Index each={props.trail}>
           {(visit, index) => {
@@ -88,7 +92,9 @@ const StageTrail: Component<{
                   flex: `${visitMs(visit())} 1 0`,
                   "min-width": "0.6rem",
                 }}
-                class={`flex ${visit().stage === "unrecorded" ? "mx-1" : ""}`}
+                class={`flex ${visit().stage === "unrecorded" ? "mx-1" : ""} ${
+                  open() || shown() ? "relative z-10" : ""
+                }`}
               >
                 <button
                   type="button"

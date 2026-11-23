@@ -11,8 +11,10 @@
  *  Each stage carries its name and, once it has had any, its total time over
  *  every visit. A RING is on the stage the work is in, with how long it has
  *  been in it this time; on a finished work the stage it ended in is the
- *  emphasised one. A stage the mode does not have, or the work went past, is
- *  DASHED; one not reached is FAINT. A colour names a stage — the same colour
+ *  emphasised one. A Build or Review whose time nobody recorded (a work saved
+ *  before kolu kept hand-offs) is HATCHED, as that stretch is on the trail.
+ *  A stage the mode does not have, or the work went past, is DASHED; one not
+ *  reached is FAINT. A colour names a stage — the same colour
  *  as on the trail (`STAGE_INK`) — and every stage also says, in its title
  *  and to a screen reader, its time, whose time it mostly was, where it
  *  stands and how many times the work was in it, so nothing is said by
@@ -60,9 +62,18 @@ const PLACE: Record<StageName, { readonly col: number; readonly row: number }> =
 const STATE_WORD: Record<StageState["kind"], string> = {
   done: "done",
   now: "now",
+  unrecorded: "not recorded",
   "not-started": "not started",
   skipped: "did not happen",
 };
+
+/** The hatch a stage whose time nobody recorded is drawn in — the trail's
+ *  hatch for that stretch, faint enough to read the stage's name over. */
+const UNRECORDED_HATCH =
+  "bg-[repeating-linear-gradient(135deg,color-mix(in_oklch,var(--color-fg-3)_30%,transparent)_0_2px,transparent_2px_5px)]";
+
+/** The ring on what the work is in now. */
+const RING = "ring-2 ring-fg ring-offset-1 ring-offset-surface-0";
 
 /** Whose time a stage mostly was, in words — the colour no longer says it. */
 const WHOSE: Record<Waiter, string> = {
@@ -72,13 +83,17 @@ const WHOSE: Record<Waiter, string> = {
 };
 
 /** A box's look, by where its stage stands. The ring is the stage the work
- *  is in; dashed did not happen; faint is not reached yet. */
+ *  is in; hatched is a time nobody recorded (ringed, both of the two it may
+ *  have been, while the work is in it); dashed did not happen; faint is not
+ *  reached yet. */
 const boxInk = (name: StageName, state: StageState): string => {
   switch (state.kind) {
     case "now":
-      return `${STAGE_INK[name].edge} ring-2 ring-fg ring-offset-1 ring-offset-surface-0`;
+      return `${STAGE_INK[name].edge} ${RING}`;
     case "done":
       return STAGE_INK[name].edge;
+    case "unrecorded":
+      return `${STAGE_INK.unrecorded.edge} ${UNRECORDED_HATCH} ${state.now ? RING : ""}`;
     case "not-started":
       return "border-edge opacity-60";
     case "skipped":
@@ -151,6 +166,7 @@ const spokenOf = (stage: Stage, visits: number): string => {
       : STAGE_LABEL[stage.name],
     ...(had ? [WHOSE[state.who]] : []),
     STATE_WORD[state.kind],
+    ...(state.kind === "unrecorded" && state.now ? ["now"] : []),
     ...(visits > 1 ? [`${visits} times`] : []),
   ].join(", ");
 };

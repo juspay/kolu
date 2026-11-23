@@ -84,6 +84,29 @@ const TRIVIAL: Stages = {
   trail: trailOf([["build", 5]]),
 };
 
+/** A WORK SAVED BEFORE KOLU KEPT HAND-OFFS, in its unrecorded stretch: its
+ *  build and review were one or the other, and nobody can say which. */
+const SAVED: Stages = {
+  kind: "staged",
+  stages: [
+    { name: "plan", state: { kind: "done", ms: 20 * MIN, who: "agent" } },
+    { name: "approve", state: { kind: "done", ms: 5 * MIN, who: "you" } },
+    { name: "build", state: { kind: "unrecorded", now: true } },
+    { name: "review", state: { kind: "unrecorded", now: true } },
+    { name: "checks", state: { kind: "done", ms: 10 * MIN, who: "ci" } },
+    { name: "merge", state: { kind: "not-started" } },
+  ],
+  events: [],
+  current: "unrecorded",
+  trail: trailOf([
+    ["plan", 20],
+    ["approve", 5],
+    ["unrecorded", 60],
+    ["checks", 10],
+    ["unrecorded", 5],
+  ]),
+};
+
 function mount(stages: Stages) {
   const [shown, setShown] = createSignal<StageName | undefined>();
   const pressed: StageName[] = [];
@@ -203,6 +226,20 @@ describe("the stage map", () => {
         .querySelector('[data-testid="stage-cell"]')
         ?.getAttribute("aria-pressed"),
     ).toBe("true");
+  });
+
+  it("says a saved work's build and review were not recorded, rather than that they did not happen", () => {
+    const { el } = mount(SAVED);
+    for (const name of ["build", "review"]) {
+      expect(stage(el, name).dataset.state).toBe("unrecorded");
+      expect(stage(el, name).title).toBe(
+        `${name === "build" ? "Build" : "Review"}, not recorded, now`,
+      );
+      // Nothing of its own to show in the timeline: the trail's stretch is.
+      expect(
+        stage(el, name).querySelector('[data-testid="stage-cell"]'),
+      ).toBeNull();
+    }
   });
 
   it("draws nothing for a mode with no stages", () => {

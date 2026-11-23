@@ -110,7 +110,8 @@ The map shows a work's six stages: **Plan**, **Approve**, **Build**, **Checks** 
 The work can go round **Review** and **Build**, or **Build** and **Checks**, any number of times. A loop it went round says how often, as in **×6**. Each stage shows its time over all its visits (**Build 1h**).
 
 - A ring marks the stage the work is in, with its time there now (**now · 8m**). A finished work's last stage is emphasised instead.
-- A dashed stage did not happen: its mode has none, or the work went past it. A faint one is not reached yet.
+- A dashed stage did not happen: its mode has none, or the work went past it. A faint one is not reached.
+- A hatched **Build** or **Review** was not recorded, and is ringed while the work is in that stretch.
 - A colour names a stage, the same on [the trail](#the-trail).
 
 Before the mode is chosen, all six are faint. On a card, clicking a stage that has happened opens the card on its events.
@@ -141,7 +142,7 @@ Which stages a work has comes from its mode:
 | Watch | None, and no map. |
 
 - In a full work, answering the setup form counts as Plan time. A trivial work has no Plan, so its setup is in no stage; that time still counts as **you** in the time line.
-- On a work saved before kolu kept hand-offs, build and review time reads **Not recorded** until the Conductor next hands the work over.
+- On a work saved before kolu kept hand-offs, build and review time reads **Not recorded** until the next hand-off.
 
 ## What every card offers
 
@@ -216,7 +217,7 @@ Each visit to a stage is one segment above the timeline, as wide as it was long,
 
 A timeline is kept short in four ways:
 
-- A work keeps its latest **30** agent state changes; older ones fold into one **N earlier agent state changes** line. A stop that ended an agent's hold on the work is never folded, and neither is a hand-off.
+- A work keeps its latest **30** agent state changes; older ones fold into one **N earlier agent state changes** line. Hand-offs, and stops that ended a hold, are never folded.
 - While a PR's checks run, only GitHub's latest answer about merging it is kept.
 - One commit keeps at most **8** check results and **8** merge answers. Past that, an old one in the middle is dropped, never the first or the newest.
 - kolu lists the first **200** files and folders in `.waterfall/`, and draws a run of files written into one folder as one row.
