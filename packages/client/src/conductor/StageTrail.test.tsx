@@ -122,7 +122,7 @@ describe("the trail", () => {
     expect(unrecorded?.dataset.stage).toBe("unrecorded");
     expect(unrecorded?.className).toContain("mx-1");
     expect(unrecorded?.title).toBe(
-      "2. Not recorded 1h 30m, the build and the review were not recorded for this stretch",
+      "2. Not recorded 1h 30m, who held the work was not recorded for this stretch",
     );
     expect(
       el.querySelectorAll('[data-testid="trail-label"]')[1]?.textContent,

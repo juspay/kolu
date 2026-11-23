@@ -218,10 +218,12 @@ the nearest stage at or before that the mode has, so "a trivial work in
 Review" cannot be written down. A stretch with no such stage — a trivial
 work's setup form and the Conductor starting its implementor — is filed as
 `setup` (`Filed`). On a work saved before kolu kept hand-offs (the upgrade
-wrote it a `hand-offs-kept`), the agents' time that would be Build or Review
-is `unrecorded` up to the first hand-off after the upgrade. Both are somebody's
-time but no cell's; a Build or Review with no time of its own on such a work
-reads `unrecorded` (`StageState`), neither done nor skipped.
+wrote it a `hand-offs-kept`), the agents' time whose stage turns on who held
+the work is `unrecorded` up to the first hand-off after the upgrade: a plan
+you answered (Approve, or Plan again once sent back) and everything after the
+implementor (Build or Review). Both are somebody's time but no cell's; on a
+work an implementor joined, a Build or Review with no time of its own reads
+`unrecorded` (`StageState`), neither done nor skipped.
 
 **The trail is every visit, in order.** A visit is a run of stretches filed in
 one place, closed by the work moving on or ending; Review and Build, and Build

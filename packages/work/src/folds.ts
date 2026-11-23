@@ -411,10 +411,12 @@ export type StageName = (typeof STAGES)[number];
  *    Plan to hold it: a trivial work's setup form, and the Conductor starting
  *    its implementor. Nothing was built yet. A full waterfall has no `setup`
  *    stretch — its setup's questions are Plan's;
- *  - `unrecorded` — on a work saved before kolu kept hand-offs, the agents'
- *    time that would be Build or Review, up to the first hand-off after the
- *    upgrade: which of the two it was depends on who held the work, and
- *    nobody recorded that. */
+ *  - `unrecorded` — on a work saved before kolu kept hand-offs, up to the
+ *    first hand-off after the upgrade, the agents' time whose stage depends
+ *    on who held the work, which nobody recorded: after the implementor, a
+ *    Build or a Review; before it, after you answered a plan, a plan waiting
+ *    for its implementor (Approve) or one sent back and being changed
+ *    (Plan). */
 export type Filed = StageName | "setup" | "unrecorded";
 
 /** ONE VISIT to a place — a run of stretches filed in one place, closed by
@@ -451,9 +453,10 @@ const UNRECORDED_STAGES: ReadonlySet<StageName> = new Set(["build", "review"]);
  *    mostly been so far, by the same rule as a finished stage. Who the work
  *    waits on at this moment is the standing line's fact, not this bar's;
  *  - `unrecorded` — a Build or a Review that had no time of its own on a
- *    work whose hand-offs were not recorded for a stretch: that stretch was
- *    one or the other, and nobody can say which, so it neither happened nor
- *    did not. `now` says the work is in that stretch at this moment;
+ *    work an implementor joined, whose hand-offs were not recorded for a
+ *    stretch: that stretch was one or the other, and nobody can say which,
+ *    so it neither happened nor did not. `now` says the work is in that
+ *    stretch at this moment;
  *  - `not-started` — the work has not reached it;
  *  - `skipped` — it did not happen: the work's mode has no such stage (a
  *    trivial work is never planned or reviewed), the work went past it
@@ -515,7 +518,9 @@ export const stageMs = (state: StageState): number =>
  *    work, until the implementor joins or the planner is handed it again
  *    (you asked for changes); after the implementor joins, it is the review
  *    while the planner holds the work and the build while the implementor
- *    does — or `unrecorded`, where who held it was not kept.
+ *    does. Where who held it was not kept, each of those that turns on it —
+ *    a plan you answered, and everything after the implementor — is
+ *    `unrecorded`, until the next question, the implementor or a hand-off.
  *
  *  A draft decides no stage: it only cannot merge. */
 const placeOf = (at: Running, who: Waiter, current: Filed): Filed => {
@@ -528,10 +533,16 @@ const placeOf = (at: Running, who: Waiter, current: Filed): Filed => {
       return joinedAs(at.holding, "planner") ? "approve" : "plan";
     return current;
   }
-  if (!implemented)
-    return current === "approve" && at.holding.holding.length === 0
-      ? "approve"
-      : "plan";
+  if (!implemented) {
+    // A PLAN YOU ANSWERED: in the approval while nobody holds the work, the
+    // plan again once the planner is handed it — and on a work whose
+    // hand-offs were not kept, which of the two nobody can say.
+    if (current === "approve" || current === "unrecorded") {
+      if (at.handOffs !== "recorded") return "unrecorded";
+      if (at.holding.holding.length === 0) return "approve";
+    }
+    return "plan";
+  }
   if (at.handOffs !== "recorded") return "unrecorded";
   return Option.exists(holderOf(at.holding), (role) => role === "planner")
     ? "review"
@@ -710,9 +721,11 @@ export const stages = (work: Work, policy: Policy, now: string): Stages => {
       if (time !== undefined && who !== undefined)
         return { name, state: { kind: "done", ms, who: mostly(time, who) } };
       // A STAGE WHOSE TIME NOBODY RECORDED: no time of its own, on a work
-      // with a stretch that was it or the other one.
+      // an implementor joined, with a stretch that was it or the other one.
+      // A work stopped before its build never had one to lose.
       if (
         UNRECORDED_STAGES.has(name) &&
+        joinedAs(last.holding, "implementor") &&
         trail.some((visit) => visit.stage === "unrecorded")
       )
         return {

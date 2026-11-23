@@ -28,8 +28,7 @@ import { STAGE_INK, STAGE_LABEL } from "./workReadings";
 
 /** What a stretch nobody recorded is, in words — the hatch says it to the
  *  eye. */
-const UNRECORDED_WORDS =
-  "the build and the review were not recorded for this stretch";
+const UNRECORDED_WORDS = "who held the work was not recorded for this stretch";
 
 /** A visit's name as a label and a title say it: `Build 15m`, or the
  *  sentence for a stretch nobody recorded. */

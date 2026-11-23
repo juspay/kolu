@@ -1282,6 +1282,59 @@ describe("the stage follows who holds the work", () => {
     ]);
   });
 
+  it("says a saved work's sent-back plan was not recorded, rather than filing it as the approval", () => {
+    // Plan 20m, your answer 5m, the planner changing it 20m (no hand-off
+    // kept), your second answer 5m, and the implementor a minute later.
+    let work = join(opened(), "planner", 0);
+    work = stop(work, PLANNER, 20);
+    work = ask(work, "a1", 20);
+    work = answer(work, "a1", 25);
+    work = ask(work, "a2", 45);
+    work = answer(work, "a2", 50);
+    work = join(work, "implementor", 51);
+    work = handOffsKept(work, 60);
+    const read = waterfall(work, FULL, at(70));
+    expect(
+      read.trail.map(
+        (visit) =>
+          `${visit.stage} ${(visit.time.agent + visit.time.you + visit.time.ci) / MINUTE}m`,
+      ),
+    ).toEqual([
+      "plan 20m",
+      "approve 5m",
+      "unrecorded 20m",
+      "approve 5m",
+      "unrecorded 20m",
+    ]);
+    // No round counted that nobody can say was asked for, and none hidden
+    // inside Approve either.
+    expect(byName(read.stages).approve).toMatchObject({
+      kind: "done",
+      ms: 10 * MINUTE,
+    });
+  });
+
+  it("does not call the build of a saved work that never had one unrecorded", () => {
+    let work = join(opened(), "planner", 0);
+    work = stop(work, PLANNER, 20);
+    work = ask(work, "approve", 20);
+    work = answer(work, "approve", 25);
+    work = endWork(work, {
+      outcome: { kind: "stopped", by: "you" },
+      at: at(30),
+    });
+    work = handOffsKept(work, 30);
+    const read = waterfall(work, FULL, at(40));
+    expect(read.trail.map((visit) => visit.stage)).toEqual([
+      "plan",
+      "approve",
+      "unrecorded",
+    ]);
+    const named = byName(read.stages);
+    expect(named.build).toEqual({ kind: "skipped" });
+    expect(named.review).toEqual({ kind: "skipped" });
+  });
+
   it("keeps the build when the implementor's terminal comes back as an `other`", () => {
     let work = join(opened(), "implementor", 0);
     work = leaveWork(work, {
