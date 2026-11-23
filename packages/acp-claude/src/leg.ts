@@ -965,6 +965,32 @@ export const CLAUDE: Leg = {
 const COMPACT_RESERVE = 33_000;
 
 /**
+ * WHAT THE LAUNCHER IN FRONT OF THIS ADAPTER SETS, said again, for
+ * {@link compactingAt}'s `launched`. The adapter drives agent-distro's
+ * `claude`, which launches the CLI with `--settings` holding its session
+ * defaults: Claude Code's own attribution off. This restates those defaults
+ * (`SESSION_DEFAULTS` in agent-distro's `src/harness/claude.ts`) at the
+ * revision this repository pins.
+ *
+ * Said again because session settings replace the launcher's `--settings`
+ * rather than merge with them, so a session opened with any settings of its
+ * own loses the launcher's unless they ride along.
+ *
+ * NOT THE SAME RULE AS THE LAUNCHER'S. The launcher drops a default the person
+ * has decided for themselves: someone whose own settings set `attribution` gets
+ * no `--settings` for it. This constant is sent regardless, so a person who
+ * turned attribution on is overridden in every session opened through
+ * {@link compactingAt}.
+ *
+ * A COPY, and nothing compares it with its origin: agent-distro does not export
+ * the value, so no test here can read it. Re-read it against agent-distro
+ * whenever that pin moves.
+ */
+export const LAUNCHER_SETTINGS = {
+  attribution: { commit: "", pr: "" },
+} as const;
+
+/**
  * {@link CLAUDE}, asking for the protocol's compaction reports and opening
  * every session with auto-compaction forced on to fire at `tokens` — and the
  * point it fires at, read off the same number, so the two cannot be built
@@ -980,9 +1006,9 @@ const COMPACT_RESERVE = 33_000;
  *
  * MEASURED: session settings REPLACE a `--settings` the CLI was launched
  * with, they do not merge. So whatever the launcher in front of this adapter
- * set is lost unless it is said again, and `launched` is that: the caller's,
- * because which launcher this adapter runs behind is a build fact of the
- * product, not of this package.
+ * set is lost unless it is said again, and `launched` is that. Which launcher
+ * this adapter runs behind is a fact of the adapter derivation, so what it sets
+ * is {@link LAUNCHER_SETTINGS}, in this package.
  */
 export const compactingAt = (
   tokens: number,

@@ -1,14 +1,22 @@
 {
   "index.ts": {
-    "exports": ["CLAUDE", "NAME", "REMOTE_SIGNALS", "spelling"],
+    "exports": [
+      "CLAUDE",
+      "COMPACTION_OVERRIDES",
+      "compactingAt",
+      "LAUNCHER_SETTINGS",
+      "NAME",
+      "REMOTE_SIGNALS",
+      "spelling"
+    ],
     "members": []
   },
   "leg.ts": {
-    "exports": ["CLAUDE", "spelling"],
+    "exports": ["CLAUDE", "compactingAt", "LAUNCHER_SETTINGS", "spelling"],
     "members": []
   },
   "env.ts": {
-    "exports": ["REMOTE_SIGNALS"],
+    "exports": ["COMPACTION_OVERRIDES", "REMOTE_SIGNALS"],
     "members": []
   },
   "name.ts": {
