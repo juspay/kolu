@@ -76,7 +76,11 @@ import {
   padiMap,
   preferences,
 } from "../wire";
-import { createAttemptGate, onlyWhenCurrent } from "./attachAttempts";
+import {
+  createAttemptGate,
+  createOwnFiber,
+  onlyWhenCurrent,
+} from "./attachAttempts";
 import {
   createFileRefLinkProvider,
   fileRefAtCell,
@@ -726,6 +730,10 @@ const Terminal: Component<{
       // latch, set BEFORE its fiber is interrupted.
       const attempt = attempts.open();
       let superseded = false;
+      /** THIS attempt's fiber — never the shared `attachFiber`, which a
+       *  successor may already hold, and interruptible before the fork has
+       *  returned it (`attachAttempts.ts`). */
+      const ownFiber = createOwnFiber();
       /** The reason, spent. Both halves are ONE-SHOT and the shot is this
        *  attempt's FIRST: the repaint is owed to the first snapshot frame, and
        *  the cause describes the open, so the loop's own re-subscribe after a
@@ -780,12 +788,21 @@ const Terminal: Component<{
        *  callbacks reaching here produce ONE successor, not a cascade. */
       const endAndReopen = (cause: AttachCause) => {
         // Latch first, interrupt second — the window between them is exactly
-        // where a late frame of this attempt would otherwise land. From inside
-        // the fence's retry hook the interrupt is deferred by the runtime to
-        // the fiber's next suspension, which is the retry's own pause: the
-        // replay never goes out.
+        // where a late frame of this attempt would otherwise land.
+        //
+        // The interrupt is this attempt's OWN fiber's. From the fence's retry
+        // hook the fiber is the one running the hook; the runtime applies the
+        // interrupt at the next step of its run loop, before the retry's
+        // pause, so the replay never goes out. And should a drop ever fail the
+        // first subscribe in the same turn as the fork, before the handle
+        // exists, the interrupt is owed and applied when the fork returns —
+        // while the fence sits in that pause.
+        //
+        // BETA-ASSUMPTION(4.1.4): an interrupt issued from inside the fence's onRetry hook stops the stream before the retry's re-subscribe.
+        // Measured by packages/client/src/terminal/ownFiber.test.ts with the
+        // real `unenrolledStreamCall`: one subscribe, not two.
         superseded = true;
-        attachFiber?.interruptUnsafe();
+        ownFiber.interrupt();
         resetForFreshSnapshot();
         // The pause is a timer rather than a sleeping fiber because there is no
         // fiber left to sleep in — this attempt's was just interrupted. It is
@@ -1066,6 +1083,7 @@ const Terminal: Component<{
       // here is unreachable by construction and says so loudly rather than
       // silently ending the attach.
       attachFiber = runAction("Terminal attach", consume.pipe(Effect.orDie));
+      ownFiber.set(attachFiber);
     }
 
     /** End the live attach and open NOTHING — the pane stopped being shown.
