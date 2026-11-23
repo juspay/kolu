@@ -150,6 +150,56 @@ When(
   },
 );
 
+/** THE AGENT'S FACTS ROW, read off a pane's head: a shell's row is empty, an
+ *  agent's names it. */
+const factsOf = (world: KoluWorld, role: string): Promise<string> =>
+  world.page
+    .locator(`${paneOf(role)} [data-testid="live-facts"]`)
+    .innerText({ timeout: POLL_TIMEOUT })
+    .then((text) => text.trim());
+
+Then(
+  "the {word}'s head should name an agent, and the {word}'s none",
+  async function (this: KoluWorld, agentRole: string, shellRole: string) {
+    await pollFor({
+      observe: () => factsOf(this, agentRole),
+      isDone: (text) => text.length > 0,
+      timeoutMs: POLL_TIMEOUT,
+      onTimeout: (text, ms) =>
+        new Error(
+          `the ${agentRole}'s head named no agent after ${ms}ms (facts row ${JSON.stringify(text)}), so the height check below would compare two shells`,
+        ),
+    });
+    assert.equal(
+      await factsOf(this, shellRole),
+      "",
+      `the ${shellRole}'s head names an agent; it is meant to be a shell`,
+    );
+  },
+);
+
+/** ONE HEIGHT FOR EVERY STACKED PANE'S BODY — what a pane sizes its terminal
+ *  from. A head that grew a row for an agent would make the agent's body a
+ *  row shorter than the shell's. */
+Then(
+  "the stacked live panes should give their terminals one height",
+  async function (this: KoluWorld) {
+    const heights = await this.page
+      .locator('[data-testid="live-pane"] [data-testid="live-scroller"]')
+      .evaluateAll((all) => all.map((el) => el.getBoundingClientRect().height));
+    assert.ok(
+      heights.length >= 2,
+      `expected two stacked panes, found ${heights.length}`,
+    );
+    const [first, ...rest] = heights;
+    for (const h of rest)
+      assert.ok(
+        Math.abs(h - (first ?? 0)) < 0.5,
+        `the stacked panes' bodies differ in height: ${heights.join(", ")}px`,
+      );
+  },
+);
+
 Then(
   "the {word}'s program should be told one size larger than 80x24",
   { timeout: 120_000 },

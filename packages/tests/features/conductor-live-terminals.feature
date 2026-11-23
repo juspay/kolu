@@ -22,6 +22,8 @@ Feature: A picked work's terminals, live
     And I open the work card
     Then the picked work should show 2 live terminals
     And the planner's program should be told its pane's size, and nothing else
+    And the implementor's head should name an agent, and the planner's none
+    And the stacked live panes should give their terminals one height
     When I open the planner's tile from its live pane
     Then the planner's program should be told its tile's size
     When I go back to the conductor
