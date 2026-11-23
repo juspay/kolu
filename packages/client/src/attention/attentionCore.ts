@@ -42,13 +42,14 @@ export interface AttentionHooks {
    *  focus) — a live gate they've already "seen". */
   isWatched(encHost: string, id: TerminalId): boolean;
   /** Is the Conductor driving this terminal? It answers its own agents (the
-   *  Conductor is woken about them), so the terminal does not ring you on its
-   *  own: no sound and no OS popup. A terminal the human has taken over is
-   *  theirs again and rings as any other. */
+   *  Conductor is woken about them), so the terminal raises nothing for the
+   *  person: it is never delivered and never counted on its host tab. A
+   *  terminal the human has taken over is theirs again and reaches them as
+   *  any other. */
   isDriven(encHost: string, id: TerminalId): boolean;
   /** Reach the user for one terminal — the channel the engine decides to
-   *  fire. `loud` is the sound and the OS popup; the dock unread is drawn
-   *  either way, because the marks are what a person scans for. */
+   *  fire. `loud` is the sound and the OS popup, held back only on a resumed
+   *  first frame; the dock unread is drawn either way. */
   deliver(
     encHost: string,
     id: TerminalId,
@@ -81,6 +82,10 @@ export interface AttentionCore {
   forgetHost(encHost: string): void;
   /** The user switched TO this host — clear its unseen-finished dot ("you looked"). */
   markHostSeen(encHost: string): void;
+  /** The Conductor now drives this terminal — it joined a driven work, or the
+   *  person handed it back. Whatever it had raised comes off: its unread mark,
+   *  and its place in its host tab's count. */
+  conductorDrives(encHost: string, id: TerminalId): void;
 }
 
 export function createAttentionCore(hooks: AttentionHooks): AttentionCore {
@@ -162,6 +167,7 @@ export function createAttentionCore(hooks: AttentionHooks): AttentionCore {
       candidates,
       cur.finished,
       hooks.isActiveHost(encHost),
+      (id) => hooks.isDriven(encHost, id),
     );
     unseenByHost.set(encHost, unseen);
     hooks.writeMark(encHost, unseen.size);
@@ -192,15 +198,13 @@ export function createAttentionCore(hooks: AttentionHooks): AttentionCore {
     // so this loop records-only on the first frame with no guard here.
     for (const { id, asking } of candidates) {
       if (latched.get(encHost)?.has(id) ?? false) continue;
+      // A terminal the Conductor drives raises nothing, and is not latched
+      // either: should the person take it over mid-episode, a question it
+      // then asks is the first they hear of it, and rings.
+      if (hooks.isDriven(encHost, id)) continue;
       const seen = hooks.isWatched(encHost, id);
       const alerted = hooks.alertsEnabled() && !seen;
-      if (alerted)
-        hooks.deliver(
-          encHost,
-          id,
-          asking,
-          !resumed && !hooks.isDriven(encHost, id),
-        );
+      if (alerted) hooks.deliver(encHost, id, asking, !resumed);
       // Latch once the user has been MADE AWARE — an actual alert, OR looking
       // right at a live gate (eyes work with sound off). A `finished` seen
       // while watched is NOT latched, so a later real gate still fires (#1177).
@@ -228,5 +232,14 @@ export function createAttentionCore(hooks: AttentionHooks): AttentionCore {
     }
   };
 
-  return { observe, forgetHost, markHostSeen };
+  const conductorDrives = (encHost: string, id: TerminalId): void => {
+    const set = unseenByHost.get(encHost);
+    if (set?.delete(id)) {
+      hooks.writeMark(encHost, set.size);
+      save(encHost);
+    }
+    hooks.clearUnread(encHost, id);
+  };
+
+  return { observe, forgetHost, markHostSeen, conductorDrives };
 }
