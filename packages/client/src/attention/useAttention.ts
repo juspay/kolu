@@ -32,12 +32,14 @@
  *    • the app badge sums ASKING across live hosts; the host-tab finished mark
  *      (rendered by the chips off the same cell) shows finished work on a host you
  *      aren't looking at;
- *    • a terminal the Conductor DRIVES raises none of it — no sound, no popup,
- *      no unread mark, no host-tab count — because the Conductor answers its
- *      agents, and a person hearing "finished" for a planner the Conductor is
- *      about to brief again learns to ignore the bell. When the Conductor
- *      starts driving one, whatever it had raised comes off. One the person
- *      has taken over is theirs, and reaches them like any other.
+ *    • a terminal the Conductor DRIVES makes no sound and no popup, gets no
+ *      unread mark and is not in its host tab's unread count, because the
+ *      Conductor answers its agents, and a person hearing "finished" for a
+ *      planner the Conductor is about to brief again learns to ignore the
+ *      bell. When the Conductor starts driving one, its unread mark comes
+ *      off. Blocked on a prompt, it still counts as needs-you (the app badge
+ *      above, the host tab's violet count). One the person has taken over is
+ *      theirs, and reaches them like any other.
  *
  *  Delivery is `attend.raise` (`./attend.ts`) — the ONE path every source goes
  *  through: this module describes each thing that needs the human as an
@@ -358,9 +360,9 @@ export function useAttention(deps: AttentionDeps): {
   });
   createEffect(() => void showing());
 
-  // A TERMINAL THE CONDUCTOR STARTS DRIVING LIFTS WHAT IT HAD RAISED — it
-  // joined a driven work, or the person handed it back: its unread mark and
-  // its place in its host tab's count. Once per terminal entering the driven
+  // A TERMINAL THE CONDUCTOR STARTS DRIVING LIFTS ITS UNREAD MARK — it
+  // joined a driven work, or the person handed it back: the mark, and its
+  // place in its host tab's unread count. Once per terminal entering the driven
   // list, not once per work event: the list keeps a terminal's entry while
   // the Conductor keeps driving it. Not gated on the works record arriving —
   // a terminal in no work keeps its marks if it never does; this is what

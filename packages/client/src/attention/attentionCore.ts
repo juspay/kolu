@@ -42,8 +42,9 @@ export interface AttentionHooks {
    *  focus) — a live gate they've already "seen". */
   isWatched(encHost: string, id: TerminalId): boolean;
   /** Is the Conductor driving this terminal? It answers its own agents (the
-   *  Conductor is woken about them), so the terminal raises nothing for the
-   *  person: it is never delivered and never counted on its host tab. A
+   *  Conductor is woken about them), so the terminal is never delivered and
+   *  never in its host tab's unread count. Its needs-you count is not this
+   *  engine's: a driven terminal blocked on a prompt still counts there. A
    *  terminal the human has taken over is theirs again and reaches them as
    *  any other. */
   isDriven(encHost: string, id: TerminalId): boolean;
@@ -83,8 +84,8 @@ export interface AttentionCore {
   /** The user switched TO this host — clear its unseen-finished dot ("you looked"). */
   markHostSeen(encHost: string): void;
   /** The Conductor now drives this terminal — it joined a driven work, or the
-   *  person handed it back. Whatever it had raised comes off: its unread mark,
-   *  and its place in its host tab's count. */
+   *  person handed it back. Its unread mark comes off, and so does its place
+   *  in its host tab's unread count. */
   conductorDrives(encHost: string, id: TerminalId): void;
 }
 

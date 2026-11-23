@@ -329,9 +329,10 @@ export function inputAllowed(at: Option.Option<Membership>): boolean {
 /** IS THE CONDUCTOR DRIVING THIS TERMINAL — the same rule as
  *  {@link inputAllowed}, asked of the membership index by fleet ref. The
  *  Conductor answers its own agents (it is woken about them), so a terminal
- *  it drives raises nothing for the person: no sound, no popup, no unread
- *  mark, no count on its host tab. One the human has taken over, a member of
- *  a watch and a terminal in no work reach the person as any terminal does. */
+ *  it drives makes no sound and no popup, and gets no unread mark and no
+ *  place in its host tab's unread count. Blocked on a prompt, it still
+ *  counts as needs-you. One the human has taken over, a member of a watch
+ *  and a terminal in no work reach the person as any terminal does. */
 export function drivenByConductor(
   membership: ReadonlyMap<string, Membership>,
   encHost: string,
