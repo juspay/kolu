@@ -3073,12 +3073,15 @@ Then("the help sheet should not be open", async function (this: KoluWorld) {
 // own write.
 
 /** The scratch repos this scenario made, and the session file of the agent in
- *  its member terminal. Module state rather than world state because the After
- *  hook that reaps them has no scenario-shaped work to do. */
+ *  each member terminal it ran, by role — as the test Conductor keeps its
+ *  terminals. Module state rather than world state because the After hook
+ *  that reaps them has no scenario-shaped work to do. */
 const workRepos: string[] = [];
-let memberFixture: { transcriptPath: string; sessionId: string } | null = null;
-/** ... and the planner's, in a scenario that runs one. */
-let plannerFixture: { transcriptPath: string; sessionId: string } | null = null;
+type AgentRole = "planner" | "implementor";
+const agentSessions = new Map<
+  AgentRole,
+  { transcriptPath: string; sessionId: string }
+>();
 /** How many times the repo's branch has been moved to hurry the PR sensor —
  *  each move needs a name no earlier one used. */
 let branchBumps = 0;
@@ -3091,8 +3094,7 @@ After(() => {
     fs.rmSync(dir, { recursive: true, force: true });
   }
   workRepos.length = 0;
-  memberFixture = null;
-  plannerFixture = null;
+  agentSessions.clear();
   branchBumps = 0;
   statedPr = null;
 });
@@ -3481,7 +3483,7 @@ When(
     if (!ompDir) throw new Error("KOLU_OMP_DIR must be set");
     const repo = workRepo(this);
     const fixture = ompTranscriptPath({ ompDir, cwd: repo });
-    memberFixture = fixture;
+    agentSessions.set("implementor", fixture);
     // The program only has to be somewhere the repo is not, so the worktree
     // stays the work's own files: beside the relay, in the fixture's own
     // private temp directory.
@@ -3522,7 +3524,7 @@ When(
       ),
       sessionId: beside.sessionId,
     };
-    plannerFixture = fixture;
+    agentSessions.set("planner", fixture);
     const program = path.join(
       path.dirname(fixtureClaudeRelay()),
       "omp-planner-stand-in.sh",
@@ -3562,7 +3564,7 @@ export async function runImplementor(
  *  not an earlier one's. */
 async function runMember(
   world: KoluWorld,
-  role: "planner" | "implementor",
+  role: AgentRole,
   relay: string,
 ): Promise<string> {
   const repo = workRepo(world);
@@ -3599,9 +3601,13 @@ async function runMember(
   return said;
 }
 
-function memberSession(): { transcriptPath: string; sessionId: string } {
-  assert.ok(memberFixture, "no member agent was started in this scenario");
-  return memberFixture;
+function sessionOf(role: AgentRole): {
+  transcriptPath: string;
+  sessionId: string;
+} {
+  const session = agentSessions.get(role);
+  assert.ok(session, `no ${role} was started in this scenario`);
+  return session;
 }
 
 /** THE AGENT TAKES A PROMPT. The session file appears with the entries a real
@@ -3609,27 +3615,20 @@ function memberSession(): { transcriptPath: string; sessionId: string } {
  *  stand-in would append had a person typed into it, written here because the
  *  keyboard belongs to the conversation by now (the `found session` case the
  *  Claude scenarios write the same way). */
-When("the implementor's agent starts working", () => {
-  stageOmpPrompt(memberSession().transcriptPath, "thinking");
-});
+const startsWorking = (role: AgentRole) => () => {
+  stageOmpPrompt(sessionOf(role).transcriptPath, "thinking");
+};
 
 /** ... and STOPS, by appending the entries that end a turn — the honest
  *  production channel: an append to the live transcript, no rewrite. */
-When("the implementor's agent stops", () => {
-  updateOmpFixture(memberSession(), "waiting");
-});
+const stops = (role: AgentRole) => () => {
+  updateOmpFixture(sessionOf(role), "waiting");
+};
 
-/** ... and the PLANNER's agent, the same two ways. */
-function plannerSession(): { transcriptPath: string; sessionId: string } {
-  assert.ok(plannerFixture, "no planner was started in this scenario");
-  return plannerFixture;
-}
-When("the planner's agent starts working", () => {
-  stageOmpPrompt(plannerSession().transcriptPath, "thinking");
-});
-When("the planner's agent stops", () => {
-  updateOmpFixture(plannerSession(), "waiting");
-});
+When("the implementor's agent starts working", startsWorking("implementor"));
+When("the implementor's agent stops", stops("implementor"));
+When("the planner's agent starts working", startsWorking("planner"));
+When("the planner's agent stops", stops("planner"));
 
 /** THE CONDUCTOR HANDS THE WORK TO A MEMBER, by speaking to it — the
  *  fixture's `tell the <role> <words>`, a real `agent_say` that kolu records
