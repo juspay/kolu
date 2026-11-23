@@ -263,9 +263,11 @@ Feature: A picked work's terminals, live
     And there should be no page errors
 
   @mobile
-  Scenario: On a phone a work's pane leaves its terminal's size alone
+  Scenario: On a phone a work's pane leaves its terminal's size alone until pressed
     # A phone's pane follows: it draws the terminal at the size it has, and
-    # Fit width shrinks it to the phone.
+    # Fit width shrinks it to the phone. Its head offers the one press that
+    # takes the size, which is also this scenario's proof that something
+    # could have been told all along.
     Given a repo for the work
     When I ask the conductor to open the work "follow on a phone"
     And I answer the work's question with "hand-over" in the chat
@@ -275,6 +277,9 @@ Feature: A picked work's terminals, live
     Then the picked work should show 1 live terminal
     And the implementor's program should be told nothing more
     And the "implementor" live pane's Fit width should be lit
+    When I press the implementor's Resize to fit
+    Then the implementor's program should be told one new size
+    And the implementor live pane should show the size its program was told
     And there should be no page errors
 
   Scenario: Inspect unfolds a terminal in the details, and its Compose writes to that terminal

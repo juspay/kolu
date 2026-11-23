@@ -139,6 +139,17 @@ When(
   },
 );
 
+/** THE ONE PRESS: the head's size readout, offered as a button while the
+ *  terminal is not the size the pane would ask for. */
+When(
+  "I press the {word}'s Resize to fit",
+  async function (this: KoluWorld, role: string) {
+    await this.page
+      .locator(`${paneOf(role)} [data-testid="live-resize"]`)
+      .click({ timeout: POLL_TIMEOUT });
+  },
+);
+
 Then(
   "the {word}'s program should be told one size larger than 80x24",
   { timeout: 120_000 },

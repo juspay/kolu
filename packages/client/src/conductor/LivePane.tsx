@@ -199,6 +199,14 @@ const LivePane: Component<{
     cancelPublish: publisher.cancel,
   });
   createEffect(on([onScreen, isDesktop, asked], () => paneSize.observe()));
+  /** THE ONE PRESS (the head's readout, while the terminal is not the size
+   *  this pane would ask for): publish that size once. It is how a phone's or
+   *  a tablet's pane, which follows, takes the size — and how a desktop pane
+   *  takes it back from a viewer that took it since. */
+  const resizeToFit = () => {
+    const g = asked();
+    if (g) publisher.publish(g);
+  };
   // A publish dropped while the host was down is restated when it is back —
   // the same publish landing late, not a new reason to speak — and only while
   // this pane is on screen.
@@ -254,6 +262,7 @@ const LivePane: Component<{
         grid={grid()}
         phase={phase()}
         held={held()}
+        resize={{ asked: asked(), onPress: resizeToFit }}
       />
       <div
         ref={setBody}
