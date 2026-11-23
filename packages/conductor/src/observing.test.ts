@@ -185,6 +185,19 @@ describe("what speaking to a member puts on the timeline", () => {
     expect(toldEvents(asking, A, AT)).toBe(asking);
   });
 
+  it("records nothing for any word to an `other` member: nothing is handed over", () => {
+    const watched = "local/watched";
+    const withOther = joinWork(work(), {
+      terminal: watched,
+      role: "other",
+      at: AT,
+    });
+    let said = withOther;
+    for (let word = 0; word < 40; word += 1)
+      said = toldEvents(said, watched, AT);
+    expect(said).toBe(withOther);
+  });
+
   it("records a word to a planner on a saved work, whatever its old record says", () => {
     // The planner joined and its stop was folded away before kolu kept
     // hand-offs, so its record alone reads as if it held the work.

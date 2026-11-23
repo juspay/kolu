@@ -244,11 +244,12 @@ appending what it observes.
   agent flips to working — would wake the Conductor about the agent it has
   just briefed.
 - **The hand-off** — the same `saidTo(ref)` records a `told` event on the
-  member's work (`toldEvents`): the Conductor handed that member the work.
-  Not when the member already holds it — an answer to an agent that is
-  asking, or a second word to one still at work, hands nothing over — and
-  "holds" is `kolu-work`'s one rule (`holdingOf`). The card's stage is who
-  holds the work, so this is the record it is read from.
+  member's work (`toldEvents`) exactly when the word hands the work over:
+  to a planner or an implementor that is not holding it. An answer to an
+  agent that is asking, a second word to one still at work, and any word to
+  an `other` member hand nothing over and record nothing; whether it does is
+  `kolu-work`'s one rule (`handsOver`). The card's stage is who holds the
+  work, so this is the record it is read from.
 - **The hold** (`@kolu/acp-harness`'s `holding`) — while a turn runs, news
   WAITS: one slot per terminal, newest only, kept in the position the first one
   took, withdrawn when that terminal goes back to working. On every turn

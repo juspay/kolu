@@ -480,7 +480,8 @@ export const WorkEventSchema = Schema.Union([
   eventOf("handed-back", {}),
   eventOf("folded", { count: Schema.Int }),
   /** The Conductor spoke to this member, handing it the work — recorded
-   *  only when that member did not hold it already. The role is on the
+   *  only when the word hands it over: to a planner or an implementor not
+   *  holding it (`./readings.ts`'s `handsOver`). The role is on the
    *  terminal's `joined`. */
   eventOf("told", {}),
   /** Written once, by the upgrade, on every work saved before kolu kept

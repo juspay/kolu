@@ -40,7 +40,7 @@ import {
   linkPr,
   filesSeen,
   holdingOf,
-  holds,
+  handsOver,
   type MergeState,
   prOf,
   type PrReading,
@@ -125,21 +125,21 @@ export const ringEvent = (
   }
 };
 
-/** WHAT SPEAKING TO A MEMBER PUTS ON THE TIMELINE — a `told`, the Conductor
- *  handing that member the work, unless the member holds it already: an
- *  answer to an agent that is asking, or a second word to one still at work,
- *  hands nothing over. Who holds the work is `kolu-work`'s one rule
- *  (`holdingOf`), never a copy of it. Recorded for any member, whatever its
- *  role; the replay moves a stage only for a planner or an implementor. */
-export const toldEvents = (work: Work, ref: string, at: string): Work =>
-  holds(holdingOf(work), ref)
-    ? work
-    : recordEvent(work, {
-        at,
-        by: "agent",
-        kind: "told",
-        about: aboutMember(ref),
-      });
+/** WHAT SPEAKING TO A MEMBER PUTS ON THE TIMELINE — a `told`, exactly when
+ *  the word HANDS THE WORK OVER: to a planner or an implementor that is not
+ *  holding it. An answer to an agent that is asking, a second word to one
+ *  still at work, and any word to an `other` member hand nothing over and
+ *  record nothing. Whether it does is `kolu-work`'s one rule (`handsOver`,
+ *  over `holdingOf`), never a copy of it. */
+export const toldEvents = (work: Work, ref: string, at: string): Work => {
+  const told: WorkEvent = {
+    at,
+    by: "agent",
+    kind: "told",
+    about: aboutMember(ref),
+  };
+  return handsOver(holdingOf(work), told) ? recordEvent(work, told) : work;
+};
 
 /** Two merge answers say the same thing. */
 const sameMerge = (a: MergeState, b: MergeState): boolean => {
