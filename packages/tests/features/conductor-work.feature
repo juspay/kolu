@@ -43,7 +43,7 @@ Feature: A piece of work is a stored thing
     Then the work column should list the terminal as a member
     And the work's timeline should show a "joined" event
     And the work's timeline should show a "ready" event
-    And the work's stage strip should be at "build"
+    And the work's stage map should be at "build"
     # A file lands in the worktree's `.waterfall/`; kolu lists that directory
     # when the member's state changes, so the plan becomes an event without
     # anybody announcing it.
@@ -56,15 +56,17 @@ Feature: A piece of work is a stored thing
     And the work card should name the pull request "#7"
     When the work's pull request starts its checks
     Then the work's timeline should show a "checks-running" event
-    And the work's stage strip should be at "checks"
+    And the work's stage map should be at "checks"
     # GREEN IS GITHUB'S ANSWER, not the checks alone: while the branch's
     # rules still want a review the checks have passed but nothing is handed
-    # over, and the card says why. The answer is its own timeline row.
+    # over, and the card says why. The answer is its own timeline row. The
+    # work is back with its implementor — nobody handed it to a planner —
+    # so it is the build again.
     When the work's pull request goes green but GitHub still wants a review
     Then the work's timeline should show a "checks-passed" event
     And the work's timeline should show GitHub's merge answer as "review"
     And the work should not be waiting on you
-    And the work's stage strip should be at "review"
+    And the work's stage map should be at "build"
     And the work's pull request section should give GitHub's merge answer as "review"
     And the work card should link the pull request "#7"
     # The open PR's first answer was "can" (nothing in the way yet), then
@@ -72,13 +74,13 @@ Feature: A piece of work is a stored thing
     When GitHub lets the work's pull request merge
     Then the work's timeline should show 3 "merge-state" events
     And the work should be waiting on you
-    And the work's stage strip should be at "merge"
+    And the work's stage map should be at "merge"
     And the work's pull request section should give GitHub's merge answer as "can"
-    # THE STRIP IS THE INDEX INTO THE TIMELINE: an open card shows one
-    # stage's events, and a press on a cell shows another's.
-    When I press the "checks" stage on the work's strip
+    # THE MAP IS THE INDEX INTO THE TIMELINE: an open card shows one
+    # stage's events, and a press on a stage shows another's.
+    When I press the "checks" stage on the work's map
     Then the work card should show only its "checks" events
-    When I press the "build" stage on the work's strip
+    When I press the "build" stage on the work's map
     Then the work card should show only its "build" events
     # A PUSH IS NEWS; LOOKING AGAIN IS NOT. A check event says which commit
     # it is about, so the new head's run is a second "checks-running" — and
@@ -90,55 +92,97 @@ Feature: A piece of work is a stored thing
     And the work should be finished as "merged"
     And there should be no page errors
 
-  Scenario: A draft pull request is still the build
-    # A DRAFT IS NOT UP FOR REVIEW, whatever its checks say. GitHub answers
-    # CLEAN for a draft with green checks — it works the merge out as if the
-    # PR were ready — so kolu reads the draft word itself: the work stays in
-    # the build, nothing is handed over, and the bell is silent. Marking it
-    # ready is what hands it over, and what rings; that last ring is the
-    # proof the silence before it was the draft's, not a bell that never
-    # could have rung.
+  Scenario: A draft pull request's CI is the checks, and a draft is never yours to merge
+    # THE DRAFT WORD DECIDES NO STAGE. CI running is the checks whatever the
+    # PR's draft word, and once it is over the work is back with whoever
+    # holds it — here the implementor, so the build. What a draft still
+    # decides is the merge: GitHub answers CLEAN for a draft with green
+    # checks — it works the merge out as if the PR were ready — so kolu reads
+    # the draft word itself, nothing is handed over and the bell is silent.
+    # Marking it ready is what hands it over, and what rings; that last ring
+    # is the proof the silence before it was the draft's, not a bell that
+    # never could have rung.
     Given a repo for the work
     When I ask the conductor to open the work "draft the parser"
     And I answer the work's question with "hand-over" in the chat
     And I ask the conductor to run the implementor in the work's repo
-    Then the work's stage strip should be at "build"
+    Then the work's stage map should be at "build"
     When I stub the notification sound
     And I simulate the Kolu window losing focus
     And the work's pull request opens as draft #7 "Draft the parser"
     Then the work's timeline should show a "pr-opened" event saying "#7"
-    And the work's stage strip should be at "build"
+    And the work's stage map should be at "build"
     And the work card should say its pull request is a draft
     When the work's pull request starts its checks
     Then the work's timeline should show a "checks-running" event
-    And the work's stage strip should be at "build"
+    And the work's stage map should be at "checks"
     When the work's pull request passes its checks
     Then the work's timeline should show a "checks-passed" event
     And the work's timeline should show no "merge-state" event
+    And the work's stage map should be at "build"
     And the work should not be waiting on you
     And the Conductor's bell should have had its frames to decide
     And the notification sound should have played 0 times
     When the work's pull request is marked ready for review
     Then the work's timeline should show a "draft-state" event saying "ready for review"
-    And the work's stage strip should be at "merge"
+    And the work's stage map should be at "merge"
     And the work should be waiting on you
     And the notification sound should have played 1 time
     And there should be no page errors
 
-  Scenario: A trivial work's strip with a draft pull request
-    # A trivial work has no review: its agents' time is the build, before the
-    # PR and after it. What a draft changes is CI — on a draft it is still
-    # the build's, and once the PR is ready it is the checks.
+  Scenario: A trivial work's map with a draft pull request
+    # A trivial work has no review: its agents' time is the build. Its CI is
+    # the checks, a draft or not, and a red check sends it back to the
+    # implementor that holds it.
     Given a repo for the work
     When I ask the conductor to open the trivial work "tidy the lexer quickly"
     And I ask the conductor to run the implementor in the work's repo
     And the work's pull request opens as draft #8 "Tidy the lexer"
     And the work's pull request starts its checks
     Then the work's timeline should show a "checks-running" event
-    And the work's stage strip should be at "build"
-    When the work's pull request is marked ready for review
-    Then the work's timeline should show a "draft-state" event saying "ready for review"
-    And the work's stage strip should be at "checks"
+    And the work's stage map should be at "checks"
+    When the work's pull request fails its checks
+    Then the work's timeline should show a "checks-failed" event
+    And the work's stage map should be at "build"
+    And there should be no page errors
+
+  Scenario: A draft's work goes round review twice and into the checks, and the map counts the loops
+    # THE STAGE IS WHO HOLDS THE WORK. The Conductor hands it over by speaking
+    # to a member — a real `agent_say` — so each hand-off is on the record:
+    # to the planner is the review, back to the implementor is the build. The
+    # PR stays a draft throughout, which no longer holds the work in the
+    # build. The map counts the rounds, and the trail shows every visit.
+    Given a repo for the work
+    When I ask the conductor to open the work "review the parser twice"
+    And I answer the work's question with "hand-over" in the chat
+    And I ask the conductor to run the planner in the work's repo
+    Then the work's timeline should show a "ready" event
+    When I ask the conductor to run the implementor in the work's repo
+    Then the work's timeline should show 2 "ready" events
+    And the work's stage map should be at "build"
+    When the work's pull request opens as draft #9 "Review the parser"
+    And I ask the conductor to tell the planner "review the parser"
+    Then the work's timeline should show a "told" event
+    And the work's stage map should be at "review"
+    When the planner's agent starts working
+    And the planner's agent stops
+    And I ask the conductor to tell the implementor "answer the review"
+    Then the work's timeline should show 2 "told" events
+    And the work's stage map should be at "build"
+    When the implementor's agent starts working
+    And the implementor's agent stops
+    And I ask the conductor to tell the planner "look again"
+    Then the work's timeline should show 3 "told" events
+    And the work's stage map should be at "review"
+    When the planner's agent starts working
+    And the planner's agent stops
+    And I ask the conductor to tell the implementor "answer it again"
+    Then the work's timeline should show 4 "told" events
+    And the work's stage map should be at "build"
+    When the work's pull request starts its checks
+    Then the work's stage map should be at "checks"
+    And the work's stage map should count 2 review rounds
+    And the work's trail should read "plan, build, review, build, review, build, checks"
     And there should be no page errors
 
   Scenario: The plan is approved from the card while the Conductor sits idle
@@ -397,23 +441,23 @@ Feature: A piece of work is a stored thing
     And there should be no page errors
 
   @mobile
-  Scenario: A full work's stage strip fits a phone
-    # A watch has no strip; this work does, and every name and time under a
-    # bar is drawn whole in a 390px window.
+  Scenario: A full work's stage map fits a phone
+    # A watch has no map; this work does, and every name and time in it is
+    # drawn whole in a 390px window.
     Given a repo for the work
-    When I ask the conductor to open the work "a phone strip"
+    When I ask the conductor to open the work "a phone map"
     And I answer the work's question with "hand-over" in the chat
     And I open the work card
     Then every stage label and time should be whole
     And there should be no page errors
 
-  Scenario: The stage strip names every stage and emphasises the one it is in
+  Scenario: The stage map names every stage and emphasises the one it is in
     Given a repo for the work
     When I ask the conductor to open the work "name the stage"
     And I answer the work's question with "hand-over" in the chat
     And I ask the conductor to run the implementor in the work's repo
-    Then the work's stage strip should be at "build"
-    And the work's stage strip should name every stage and emphasise "Build"
+    Then the work's stage map should be at "build"
+    And the work's stage map should name every stage and emphasise "Build"
     And there should be no page errors
 
   Scenario: A work that needs you is answered on its card without opening it

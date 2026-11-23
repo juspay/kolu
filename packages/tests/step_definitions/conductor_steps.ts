@@ -2359,9 +2359,9 @@ export function workCard(world: KoluWorld) {
 const ALL_WORK = '[data-testid="works-all"]';
 
 /** A CARD'S HEAD IS AN OVERLAY UNDER ITS CONTENT, and the content lets its
- *  buttons through — the strip's stage cells among them. Now that a cell
- *  carries a label and a time, a centre press can land on a cell instead of
- *  the head, so press where the title is, clear of the strip. */
+ *  buttons through — the map's stage boxes among them. A box carries a label
+ *  and a time, so a centre press can land on a box instead of the head:
+ *  press where the title is, clear of the map. */
 const pressCardHead = async (card: Locator): Promise<void> => {
   await card
     .locator('[data-testid="work-card-head"]')
@@ -3077,6 +3077,8 @@ Then("the help sheet should not be open", async function (this: KoluWorld) {
  *  hook that reaps them has no scenario-shaped work to do. */
 const workRepos: string[] = [];
 let memberFixture: { transcriptPath: string; sessionId: string } | null = null;
+/** ... and the planner's, in a scenario that runs one. */
+let plannerFixture: { transcriptPath: string; sessionId: string } | null = null;
 /** How many times the repo's branch has been moved to hurry the PR sensor —
  *  each move needs a name no earlier one used. */
 let branchBumps = 0;
@@ -3090,6 +3092,7 @@ After(() => {
   }
   workRepos.length = 0;
   memberFixture = null;
+  plannerFixture = null;
   branchBumps = 0;
   statedPr = null;
 });
@@ -3501,6 +3504,44 @@ When(
   },
 );
 
+/** THE PLANNER, the same way: a real `lifecycle_create` with the planner's
+ *  role, running its own omp stand-in with a session file of its own beside
+ *  the implementor's — two agents in one worktree are two omp sessions. */
+When(
+  "I ask the conductor to run the planner in the work's repo",
+  async function (this: KoluWorld) {
+    const bin = process.env.KOLU_FAKE_OMP_BIN;
+    if (!bin) throw new Error("KOLU_FAKE_OMP_BIN must be set");
+    const ompDir = process.env.KOLU_OMP_DIR;
+    if (!ompDir) throw new Error("KOLU_OMP_DIR must be set");
+    const beside = ompTranscriptPath({ ompDir, cwd: workRepo(this) });
+    const fixture = {
+      transcriptPath: path.join(
+        path.dirname(beside.transcriptPath),
+        "2026-09-14T17-07-13-000Z_planner.jsonl",
+      ),
+      sessionId: beside.sessionId,
+    };
+    plannerFixture = fixture;
+    const program = path.join(
+      path.dirname(fixtureClaudeRelay()),
+      "omp-planner-stand-in.sh",
+    );
+    fs.writeFileSync(
+      program,
+      ompMockPayload({
+        breadcrumbDir: path.join(ompDir, "terminal-sessions"),
+        transcriptPath: fixture.transcriptPath,
+        stagePath: path.join(
+          os.tmpdir(),
+          `kolu-work-stage-planner-${process.pid}`,
+        ),
+      }),
+    );
+    await runMember(this, "planner", `${bin} ${program}`);
+  },
+);
+
 /** THE CONDUCTOR RUNS THE WORK'S IMPLEMENTOR, and kolu types its command —
  *  whose stand-in `claude` execs `relay` (`agentDistroFixture.ts`). Answers
  *  the new terminal's id, as the Conductor's reply names it, and makes it the
@@ -3509,21 +3550,40 @@ export async function runImplementor(
   world: KoluWorld,
   relay: string,
 ): Promise<string> {
+  const said = await runMember(world, "implementor", relay);
+  world.memberTerminalId = said;
+  // Every `… the member terminal` assertion below is about this one.
+  world.watchedTerminalId = said;
+  return said;
+}
+
+/** THE CONDUCTOR RUNS ONE OF THE WORK'S MEMBERS, in the work's repo, and
+ *  answers the terminal it made — the `ran:` this prompt was answered with,
+ *  not an earlier one's. */
+async function runMember(
+  world: KoluWorld,
+  role: "planner" | "implementor",
+  relay: string,
+): Promise<string> {
   const repo = workRepo(world);
   fs.writeFileSync(fixtureClaudeRelay(), relay);
   await enterConductor(world);
-  await sendPrompt(world, `run the implementor in ${repo}`);
+  const ran = async (): Promise<ReadonlyArray<string>> => {
+    const rows = await world.page
+      .locator(`${TRANSCRIPT} ${ROW}[data-row-kind="agent"]`)
+      .evaluateAll((all) => all.map((row) => row.textContent ?? ""));
+    return rows.flatMap((text) => {
+      const ref = /ran:[\s\S]*?\blocal\/([0-9a-f-]{36})\b/.exec(text);
+      return ref?.[1] ? [ref[1]] : [];
+    });
+  };
+  const before = (await ran()).length;
+  await sendPrompt(world, `run the ${role} in ${repo}`);
   let inventoryAtTimeout = "(not observed)";
   const said = await pollFor({
     observe: async () => {
-      const rows = await world.page
-        .locator(`${TRANSCRIPT} ${ROW}[data-row-kind="agent"]`)
-        .evaluateAll((all) => all.map((row) => row.textContent ?? ""));
-      for (const text of rows) {
-        const ref = /ran:[\s\S]*?\blocal\/([0-9a-f-]{36})\b/.exec(text);
-        if (ref?.[1]) return ref[1];
-      }
-      return null;
+      const all = await ran();
+      return all.length > before ? (all.at(-1) ?? null) : null;
     },
     isDone: (ref) => ref !== null,
     timeoutMs: POLL_TIMEOUT,
@@ -3532,13 +3592,10 @@ export async function runImplementor(
     },
     onTimeout: (_last, ms) =>
       new Error(
-        `the conductor never answered with the terminal it made for the work after ${ms}ms; the transcript holds ${inventoryAtTimeout}`,
+        `the conductor never answered with the ${role} it made for the work after ${ms}ms; the transcript holds ${inventoryAtTimeout}`,
       ),
   });
   if (said === null) throw new Error("no terminal ref was answered");
-  world.memberTerminalId = said;
-  // Every `… the member terminal` assertion below is about this one.
-  world.watchedTerminalId = said;
   return said;
 }
 
@@ -3561,6 +3618,36 @@ When("the implementor's agent starts working", () => {
 When("the implementor's agent stops", () => {
   updateOmpFixture(memberSession(), "waiting");
 });
+
+/** ... and the PLANNER's agent, the same two ways. */
+function plannerSession(): { transcriptPath: string; sessionId: string } {
+  assert.ok(plannerFixture, "no planner was started in this scenario");
+  return plannerFixture;
+}
+When("the planner's agent starts working", () => {
+  stageOmpPrompt(plannerSession().transcriptPath, "thinking");
+});
+When("the planner's agent stops", () => {
+  updateOmpFixture(plannerSession(), "waiting");
+});
+
+/** THE CONDUCTOR HANDS THE WORK TO A MEMBER, by speaking to it — the
+ *  fixture's `tell the <role> <words>`, a real `agent_say` that kolu records
+ *  as `told` when that member was not holding the work. */
+When(
+  "I ask the conductor to tell the planner {string}",
+  async function (this: KoluWorld, words: string) {
+    await enterConductor(this);
+    await sendPrompt(this, `tell the planner ${words}`);
+  },
+);
+When(
+  "I ask the conductor to tell the implementor {string}",
+  async function (this: KoluWorld, words: string) {
+    await enterConductor(this);
+    await sendPrompt(this, `tell the implementor ${words}`);
+  },
+);
 
 /** A FILE IN THE WORKTREE. `.waterfall/` is where a waterfall's plan lands,
  *  and kolu lists that directory after a member's state changes — so this is
@@ -3629,6 +3716,21 @@ When(
         { name: "tests", outcome: "pass" },
       ],
       mergeState: "CLEAN",
+    });
+  },
+);
+
+/** A check fails: the run is over and red, and the work is back with
+ *  whoever holds it. */
+When(
+  "the work's pull request fails its checks",
+  async function (this: KoluWorld) {
+    restatePullRequest(this, {
+      ...statedPullRequest(),
+      checks: [
+        { name: "build", outcome: "fail" },
+        { name: "tests", outcome: "pass" },
+      ],
     });
   },
 );
@@ -4047,15 +4149,15 @@ Then(
   },
 );
 
-/** THE STRIP SAYS WHERE THE WORK IS: the cell outlined as `now`. */
+/** THE MAP SAYS WHERE THE WORK IS: the stage ringed as `now`. */
 Then(
-  "the work's stage strip should be at {string}",
+  "the work's stage map should be at {string}",
   async function (this: KoluWorld, stage: string) {
     await showWorkColumn(this);
-    const strip = workCard(this).locator('[data-testid="stage-strip"]');
+    const map = workCard(this).locator('[data-testid="stage-map"]');
     await pollFor({
       observe: () =>
-        strip
+        map
           .locator('[data-testid="stage"][data-state="now"]')
           .getAttribute("data-stage", { timeout: 1_000 })
           .catch(() => null),
@@ -4063,23 +4165,23 @@ Then(
       timeoutMs: POLL_TIMEOUT,
       onTimeout: (last, ms) =>
         new Error(
-          `the strip was at ${JSON.stringify(last)} after ${ms}ms, not ${JSON.stringify(stage)}`,
+          `the map was at ${JSON.stringify(last)} after ${ms}ms, not ${JSON.stringify(stage)}`,
         ),
     });
   },
 );
 
-/** EVERY STAGE IS NAMED UNDER ITS BAR, and exactly one is emphasised:
- *  the stage the work is in. */
+/** EVERY STAGE IS NAMED ON THE MAP, and exactly one is emphasised: the
+ *  stage the work is in. */
 Then(
-  "the work's stage strip should name every stage and emphasise {string}",
+  "the work's stage map should name every stage and emphasise {string}",
   async function (this: KoluWorld, label: string) {
     await showWorkColumn(this);
-    const strip = workCard(this).locator('[data-testid="stage-strip"]');
+    const map = workCard(this).locator('[data-testid="stage-map"]');
     const LABELS = ["Plan", "Approve", "Build", "Review", "Checks", "Merge"];
     await pollFor({
       observe: () =>
-        strip.evaluate((el) => ({
+        map.evaluate((el) => ({
           labels: Array.from(
             el.querySelectorAll('[data-testid="stage-label"]'),
           ).map((one) => (one.textContent ?? "").trim()),
@@ -4094,23 +4196,23 @@ Then(
       timeoutMs: POLL_TIMEOUT,
       onTimeout: (seen, ms) =>
         new Error(
-          `after ${ms}ms the stage strip reads ${JSON.stringify(seen)}, not every stage named with only ${JSON.stringify(label)} emphasised`,
+          `after ${ms}ms the stage map reads ${JSON.stringify(seen)}, not every stage named with only ${JSON.stringify(label)} emphasised`,
         ),
     });
   },
 );
 
-/** THE STRIP'S TEXT IS WHOLE, not cut: every stage name and every duration
- *  drawn under a bar fits in its own column (`scrollWidth` against
- *  `clientWidth`, which is the browser's layout, not a class name). */
+/** THE MAP'S TEXT IS WHOLE, not cut: every stage name and every duration
+ *  drawn in its box fits (`scrollWidth` against `clientWidth`, which is the
+ *  browser's layout, not a class name). */
 Then(
   "every stage label and time should be whole",
   async function (this: KoluWorld) {
     await showWorkColumn(this);
-    const strip = workCard(this).locator('[data-testid="stage-strip"]');
+    const map = workCard(this).locator('[data-testid="stage-map"]');
     await pollFor({
       observe: () =>
-        strip.evaluate((el) =>
+        map.evaluate((el) =>
           Array.from(
             el.querySelectorAll(
               '[data-testid="stage-label"], [data-testid="stage-time"]',
@@ -4177,21 +4279,21 @@ Then(
   },
 );
 
-/** THE STRIP IS THE TIMELINE'S INDEX: a press on a cell shows that stage. */
+/** THE MAP IS THE TIMELINE'S INDEX: a press on a stage shows that stage. */
 When(
-  "I press the {string} stage on the work's strip",
+  "I press the {string} stage on the work's map",
   async function (this: KoluWorld, stage: string) {
     await showWorkColumn(this);
     await workCard(this)
       .locator(
-        `[data-testid="stage-strip"] [data-testid="stage"][data-stage="${stage}"] [data-testid="stage-cell"]`,
+        `[data-testid="stage-map"] [data-testid="stage"][data-stage="${stage}"] [data-testid="stage-cell"]`,
       )
       .click();
   },
 );
 
 /** ... and the open card shows that stage's events and no other's: fewer
- *  than the whole timeline, and the cell pressed. */
+ *  than the whole timeline, and the stage pressed. */
 Then(
   "the work card should show only its {string} events",
   async function (this: KoluWorld, stage: string) {
@@ -4214,11 +4316,67 @@ Then(
     assert.equal(
       await card
         .locator(
-          `[data-testid="stage"][data-stage="${stage}"] [data-testid="stage-cell"]`,
+          `[data-testid="stage-map"] [data-testid="stage"][data-stage="${stage}"] [data-testid="stage-cell"]`,
         )
         .getAttribute("aria-pressed"),
       "true",
     );
+  },
+);
+
+/** HOW MANY REVIEW ROUNDS the map counts on its Review loop — read off the
+ *  arrow's own count, which the trail gives it. */
+Then(
+  "the work's stage map should count {int} review rounds",
+  async function (this: KoluWorld, rounds: number) {
+    await showWorkColumn(this);
+    const loop = workCard(this).locator(
+      '[data-testid="stage-map"] [data-testid="stage-arrow-build-review"]',
+    );
+    await pollFor({
+      observe: () =>
+        loop.getAttribute("data-rounds", { timeout: 1_000 }).catch(() => null),
+      isDone: (seen) => seen === String(rounds),
+      timeoutMs: POLL_TIMEOUT,
+      onTimeout: (last, ms) =>
+        new Error(
+          `after ${ms}ms the map counts ${JSON.stringify(last)} review rounds, not ${rounds}`,
+        ),
+    });
+  },
+);
+
+/** THE TRAIL, visit by visit, on the picked work's Details — and the last
+ *  visit is the one the work is in now. */
+Then(
+  "the work's trail should read {string}",
+  async function (this: KoluWorld, places: string) {
+    const want = places.split(",").map((one) => one.trim());
+    const putBack = await pickToRead(this);
+    const trail = workCard(this).locator('[data-testid="stage-trail"]');
+    await pollFor({
+      observe: () =>
+        trail
+          .evaluate((el) =>
+            Array.from(
+              el.querySelectorAll<HTMLElement>('[data-testid="trail-visit"]'),
+            ).map((one) => ({
+              stage: one.dataset.stage ?? "",
+              now: one.dataset.now !== undefined,
+            })),
+          )
+          .catch(() => []),
+      isDone: (seen) =>
+        seen.map((one) => one.stage).join(",") === want.join(",") &&
+        seen.at(-1)?.now === true &&
+        seen.filter((one) => one.now).length === 1,
+      timeoutMs: POLL_TIMEOUT,
+      onTimeout: (last, ms) =>
+        new Error(
+          `after ${ms}ms the trail reads ${JSON.stringify(last)}, not ${JSON.stringify(want)} ending in the visit it is in now`,
+        ),
+    });
+    await putBack();
   },
 );
 

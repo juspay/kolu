@@ -13462,6 +13462,78 @@
       "exampleRows": [],
       "executions": 1,
       "firstSeenSha": "67af87236345a5a7244aa31bea38a861d781f260"
+    },
+    {
+      "revisionId": "revision-f7e42b422db7c0c4671b",
+      "scenarioKey": "scenario-78d84ff244c0718197ee",
+      "feature": "features/conductor-work.feature",
+      "scenario": "A draft pull request's CI is the checks, and a draft is never yours to merge",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "15f464b3da13fbef0955768409b707af62f7aadaebe7d81df46a06450f5108a2",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "b00bf30163235e5628f6d09ad4d74166d4c51aba"
+    },
+    {
+      "revisionId": "revision-5f14c3e2753aabf066a3",
+      "scenarioKey": "scenario-2b923277b81d9d795a74",
+      "feature": "features/conductor-work.feature",
+      "scenario": "A draft's work goes round review twice and into the checks, and the map counts the loops",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "dfc7f55514332adb116fea8e280041349259b6af9af51f9071bac1334731079d",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "b00bf30163235e5628f6d09ad4d74166d4c51aba"
+    },
+    {
+      "revisionId": "revision-45fe7f5ce242f430cb95",
+      "scenarioKey": "scenario-48d07fcb1c689bc75330",
+      "feature": "features/conductor-work.feature",
+      "scenario": "A full work's stage map fits a phone",
+      "kind": "scenario",
+      "tags": ["@mobile"],
+      "bodyHash": "6c29749fd15e3b66c3ce83e1fbbe7dc698f95a26ea839eb1f1a9dc757940ff02",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "b00bf30163235e5628f6d09ad4d74166d4c51aba"
+    },
+    {
+      "revisionId": "revision-51c24a14bd9ee5415d01",
+      "scenarioKey": "scenario-50b2050acec4ca7adf66",
+      "feature": "features/conductor-work.feature",
+      "scenario": "A trivial work's map with a draft pull request",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "c6c90294b9bef41dd2ed41a53c403359c8a57cd56e8df58a38b807770c089258",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "b00bf30163235e5628f6d09ad4d74166d4c51aba"
+    },
+    {
+      "revisionId": "revision-33c64733f9510d65e213",
+      "scenarioKey": "scenario-0e4c0afb060bb3ec7b14",
+      "feature": "features/conductor-work.feature",
+      "scenario": "A waterfall's card, from the request to the merge",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "776f81133771b7116e87c6b5db191398c8be62b5a2e75c45b1a8328ec7353545",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "b00bf30163235e5628f6d09ad4d74166d4c51aba"
+    },
+    {
+      "revisionId": "revision-550742e4101d9a4050e4",
+      "scenarioKey": "scenario-ce14c5a724119ba897ef",
+      "feature": "features/conductor-work.feature",
+      "scenario": "The stage map names every stage and emphasises the one it is in",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "7b1d3b85d1d2167dbd432df93b4d127a7c42cc2d568ca8e8fa145b3d28e4784a",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "b00bf30163235e5628f6d09ad4d74166d4c51aba"
     }
   ]
 }
