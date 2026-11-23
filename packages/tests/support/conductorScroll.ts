@@ -34,16 +34,28 @@ interface ScrollSample {
   phase: string | null;
 }
 
-async function sample(page: Page, at: ConductorScreen): Promise<ScrollSample> {
-  const rowsBack = await page.evaluate((sel) => {
-    const el = document.querySelector<HTMLElement & { __xterm?: unknown }>(sel);
-    const term = el?.__xterm as
-      | { buffer: { active: { baseY: number; viewportY: number } } }
-      | undefined;
+/** The screen's container, as the page holds it: the bridged terminal, and
+ *  the record {@link markMove} keeps on it. */
+type ScreenEl = HTMLElement & {
+  __xterm?: {
+    buffer: { active: { baseY: number; viewportY: number } };
+    onScroll(fn: () => void): { dispose(): void };
+  };
+  __leftBottom?: { left: boolean; sub?: { dispose(): void } };
+};
+
+function rowsBackOf(page: Page, at: ConductorScreen): Promise<number | null> {
+  return page.evaluate((sel) => {
+    const term = document.querySelector<ScreenEl>(sel)?.__xterm;
     if (!term) return null;
     const buf = term.buffer.active;
     return buf.baseY - buf.viewportY;
   }, at.screen);
+}
+
+/** One look, for a wait: a readout not (yet) there reads as `null`. */
+async function sample(page: Page, at: ConductorScreen): Promise<ScrollSample> {
+  const rowsBack = await rowsBackOf(page, at);
   const phase = await page
     .locator(at.readout)
     .getAttribute("data-phase", { timeout: 500 })
@@ -54,6 +66,42 @@ async function sample(page: Page, at: ConductorScreen): Promise<ScrollSample> {
 const scrolledBack = (s: ScrollSample): boolean =>
   s.rowsBack !== null && s.rowsBack > 0 && s.phase === "held";
 
+/** Start recording whether the view leaves the bottom, from the terminal's
+ *  own scroll event, before a move is made. The kit throws an unreported
+ *  scroll back to the bottom a microtask later, which no sample from outside
+ *  can see; this record can. */
+async function markMove(page: Page, at: ConductorScreen): Promise<void> {
+  // No function in this page code may carry an inferred name: tsx's esbuild
+  // (keepNames) would wrap it in a `__name(...)` the page does not have. The
+  // scroll callback is an argument, so it carries none.
+  const armed = await page.evaluate((sel) => {
+    const el = document.querySelector<ScreenEl>(sel);
+    const term = el?.__xterm;
+    if (!el || !term) return false;
+    el.__leftBottom?.sub?.dispose();
+    const record: NonNullable<ScreenEl["__leftBottom"]> = { left: false };
+    record.sub = term.onScroll(() => {
+      const buf = term.buffer.active;
+      if (buf.viewportY < buf.baseY) record.left = true;
+    });
+    el.__leftBottom = record;
+    return true;
+  }, at.screen);
+  if (!armed) throw new Error(`${at.label} has no terminal to move`);
+}
+
+/** What the last move did, in words for a failure. */
+async function moveStory(page: Page, at: ConductorScreen): Promise<string> {
+  const left = await page.evaluate(
+    (sel) => document.querySelector<ScreenEl>(sel)?.__leftBottom?.left,
+    at.screen,
+  );
+  if (left === undefined) return "no move was recorded";
+  return left
+    ? "it scrolled back and was thrown to the bottom"
+    : "it never scrolled";
+}
+
 /** A real mouse wheel over the middle of the screen. */
 export async function wheelOver(
   page: Page,
@@ -62,35 +110,59 @@ export async function wheelOver(
 ): Promise<void> {
   const box = await page.locator(at.screen).boundingBox();
   if (!box) throw new Error(`${at.label} has no box to wheel over`);
+  await markMove(page, at);
   await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
   await page.mouse.wheel(0, deltaY);
+}
+
+/** A key pressed on the screen itself. */
+export async function pressOn(
+  page: Page,
+  at: ConductorScreen,
+  key: string,
+): Promise<void> {
+  await page.locator(`${at.screen} .xterm-helper-textarea`).focus();
+  await markMove(page, at);
+  await page.keyboard.press(key);
 }
 
 /** The view is above the bottom and the head says `held` — first reached, then
  *  held for {@link STAYS_WINDOW_MS}, sampled every {@link STAYS_SAMPLE_MS}. A
  *  view that never scrolled back fails the first half, so the hold cannot pass
- *  on a screen that was never moved. */
+ *  on a screen that was never moved; that failure says whether the move
+ *  scrolled at all. */
 export async function expectStaysScrolledBack(
   page: Page,
   at: ConductorScreen,
 ): Promise<void> {
-  await pollFor({
-    observe: () => sample(page, at),
-    isDone: scrolledBack,
-    timeoutMs: POLL_TIMEOUT,
-    intervalMs: STAYS_SAMPLE_MS,
-    onTimeout: (last, ms) =>
-      new Error(
-        `${at.label} never stayed scrolled back: after ${ms}ms it reads ${JSON.stringify(last)}`,
-      ),
-  });
-  const start = Date.now();
-  while (Date.now() - start < STAYS_WINDOW_MS) {
+  try {
+    await pollFor({
+      observe: () => sample(page, at),
+      isDone: scrolledBack,
+      timeoutMs: POLL_TIMEOUT,
+      intervalMs: STAYS_SAMPLE_MS,
+      onTimeout: (last, ms) =>
+        new Error(
+          `${at.label} never stayed scrolled back: after ${ms}ms it reads ${JSON.stringify(last)}`,
+        ),
+    });
+  } catch (e) {
+    throw new Error(`${(e as Error).message} — ${await moveStory(page, at)}`);
+  }
+  const held = Date.now();
+  while (Date.now() - held < STAYS_WINDOW_MS) {
     await page.waitForTimeout(STAYS_SAMPLE_MS);
-    const now = await sample(page, at);
+    // The readout was there a moment ago: a read that fails now is its own
+    // failure, not a snap-back.
+    const now: ScrollSample = {
+      rowsBack: await rowsBackOf(page, at),
+      phase: await page
+        .locator(at.readout)
+        .getAttribute("data-phase", { timeout: 500 }),
+    };
     if (!scrolledBack(now))
       throw new Error(
-        `${at.label} snapped back ${Date.now() - start}ms after it was scrolled back: it reads ${JSON.stringify(now)}`,
+        `${at.label} snapped back ${Date.now() - held}ms after it was scrolled back: it reads ${JSON.stringify(now)}`,
       );
   }
 }

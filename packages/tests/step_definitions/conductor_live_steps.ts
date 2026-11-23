@@ -16,6 +16,7 @@ import {
   type ConductorScreen,
   expectLiveAtBottom,
   expectStaysScrolledBack,
+  pressOn,
   wheelOver,
 } from "../support/conductorScroll.ts";
 import { pollFor } from "../support/poll.ts";
@@ -381,12 +382,13 @@ When(
   },
 );
 
-/** SHIFT+PAGE UP, the keyboard's way back — pressed on the screen itself. */
+/** SHIFT+PAGE UP, the keyboard's way back — pressed on the screen itself. A
+ *  failure says whether the view left the bottom and was thrown back, or
+ *  never scrolled. */
 When(
   "I press Shift+PageUp in the {string} live terminal",
   async function (this: KoluWorld, role: string) {
-    await this.page.locator(`${screenOf(role)} .xterm-helper-textarea`).focus();
-    await this.page.keyboard.press("Shift+PageUp");
+    await pressOn(this.page, scrollingOf(role), "Shift+PageUp");
   },
 );
 

@@ -19,6 +19,8 @@ const seam = vi.hoisted(() => ({
   allowed: true,
   onData: undefined as ((data: string) => void) | undefined,
   keyHandler: undefined as ((e: { key: string }) => boolean) | undefined,
+  /** Changes a signal the stand-in's `terminal.reset()` reads. */
+  touchResetRead: undefined as (() => void) | undefined,
 }));
 
 vi.mock("../../wire", async () => {
@@ -53,11 +55,17 @@ vi.mock("@kolu/surface/client", async () => {
 });
 
 vi.mock("@kolu/xterm-kit/solid", async () => {
-  const { onMount } = await import("solid-js");
+  const { createSignal, onMount } = await import("solid-js");
+  // A signal the screen's reset reads, as xterm's `reset()` runs the scroll
+  // lock's listener, which reads the lock: whatever the attach effect calls
+  // reads signals the effect must never restart on.
+  const [resetRead, setResetRead] = createSignal(0);
+  seam.touchResetRead = () => setResetRead((n) => n + 1);
   const handle = {
     container: document.createElement("div"),
     terminal: {
       reset() {
+        resetRead();
         seam.log.push("reset");
       },
       focus() {},
@@ -191,6 +199,21 @@ describe("PeekTerminal", () => {
     expect(seam.keyHandler?.({ key: "Escape" })).toBe(false);
     setMayType(true);
     expect(seam.keyHandler?.({ key: "Escape" })).toBe(true);
+    dispose();
+  });
+
+  it("re-attaches on nothing the attach reads: only shown and the tab's visibility", async () => {
+    const { dispose } = mount();
+    await vi.waitFor(() => expect(seam.attached).toHaveLength(1));
+    const resets = seam.log.filter((l) => l === "reset").length;
+
+    seam.touchResetRead?.();
+    await Promise.resolve();
+
+    expect({
+      attaches: seam.attached.length,
+      resets: seam.log.filter((l) => l === "reset").length,
+    }).toEqual({ attaches: 1, resets });
     dispose();
   });
 });
