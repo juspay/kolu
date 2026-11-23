@@ -40,6 +40,46 @@ Feature: A picked work's terminals, live
     And the work's timeline should show a "handed-back" event
     And there should be no page errors
 
+  Scenario: Scrolling back in a live terminal stays where you scrolled
+    # Scrolling back holds the view and the head says "new output below" —
+    # while the Conductor drives, and once the terminal is yours. A screen
+    # that snapped back would re-attach and land on the newest line.
+    Given a repo for the work
+    When I ask the conductor to open the work "read back through it"
+    And I answer the work's question with "hand-over" in the chat
+    And I ask the conductor to run the implementor in the work's repo
+    And I open the work card
+    Then the picked work should show 1 live terminal
+    When I take over the "implementor" in its live terminal
+    And I type "fill-scrollback" into the "implementor" live terminal
+    Then the "implementor" live terminal should show "omp-line 300"
+    When I hand back the "implementor" in its live terminal
+    Then the "implementor" live terminal should say the Conductor is driving
+    When I wheel back over the "implementor" live terminal
+    Then the "implementor" live terminal should stay scrolled back
+    When I wheel to the bottom of the "implementor" live terminal
+    Then the "implementor" live terminal should be live at the bottom
+    When I take over the "implementor" in its live terminal
+    And I wheel back over the "implementor" live terminal
+    Then the "implementor" live terminal should stay scrolled back
+    When I wheel to the bottom of the "implementor" live terminal
+    Then the "implementor" live terminal should be live at the bottom
+    And there should be no page errors
+
+  Scenario: Shift+PageUp scrolls a live terminal back, and it stays
+    Given a repo for the work
+    When I ask the conductor to open the work "page back through it"
+    And I answer the work's question with "hand-over" in the chat
+    And I ask the conductor to run the implementor in the work's repo
+    And I open the work card
+    Then the picked work should show 1 live terminal
+    When I take over the "implementor" in its live terminal
+    And I type "fill-scrollback" into the "implementor" live terminal
+    Then the "implementor" live terminal should show "omp-line 300"
+    When I press Shift+PageUp in the "implementor" live terminal
+    Then the "implementor" live terminal should stay scrolled back
+    And there should be no page errors
+
   Scenario: Fit width fits a wide terminal, and the choice survives a view switch
     # Fit width is on from the start and shared by every pane, so a wide
     # terminal opens fitted rather than as a sideways scroller. Pressing it

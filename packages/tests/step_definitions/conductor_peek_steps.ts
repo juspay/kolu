@@ -2,6 +2,12 @@ import assert from "node:assert";
 import { Then, When } from "@cucumber/cucumber";
 import { OMP_HEARD_MARKER, OMP_UP_MARKER } from "../support/agent-mock-omp.ts";
 import { readBufferText } from "../support/buffer.ts";
+import {
+  type ConductorScreen,
+  expectLiveAtBottom,
+  expectStaysScrolledBack,
+  wheelOver,
+} from "../support/conductorScroll.ts";
 import { pollFor } from "../support/poll.ts";
 import { type KoluWorld, POLL_TIMEOUT } from "../support/world.ts";
 
@@ -327,3 +333,26 @@ Then(
     );
   },
 );
+
+/** THE PEEK'S SCREEN AND ITS HEAD'S READOUT, for the scroll-back steps. */
+const SCROLLING: ConductorScreen = {
+  screen: SCREEN,
+  readout: `${PEEK} [data-testid="peek-live"]`,
+  label: "the peek",
+};
+
+When("I wheel back over the peek", async function (this: KoluWorld) {
+  await wheelOver(this.page, SCROLLING, -500);
+});
+
+When("I wheel to the bottom of the peek", async function (this: KoluWorld) {
+  await wheelOver(this.page, SCROLLING, 20_000);
+});
+
+Then("the peek should stay scrolled back", async function (this: KoluWorld) {
+  await expectStaysScrolledBack(this.page, SCROLLING);
+});
+
+Then("the peek should be live at the bottom", async function (this: KoluWorld) {
+  await expectLiveAtBottom(this.page, SCROLLING);
+});

@@ -1,5 +1,5 @@
 import type { Terminal } from "@xterm/xterm";
-import { createRoot } from "solid-js";
+import { createEffect, createRoot } from "solid-js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createScrollLock, SCROLL_INTENT_WINDOW_MS } from "./scrollLock";
 
@@ -52,6 +52,15 @@ function makeMockTerm() {
     scrollToBottom() {
       if (buf.viewportY === buf.baseY) return;
       buf.viewportY = buf.baseY;
+      fire();
+    },
+    /** xterm's own `reset()` clears the buffer and fires its scroll event
+     *  before it returns (`BufferSet.reset` → `_onBufferActivate` →
+     *  `BufferService`'s `onScroll`) — so a scroll listener runs INSIDE
+     *  whoever called `reset()`. */
+    reset() {
+      buf.baseY = 0;
+      buf.viewportY = 0;
       fire();
     },
   };
@@ -218,6 +227,31 @@ describe("createScrollLock — user-intent latch (#1272)", () => {
       expect(t.lock.lastEvent()?.source).toBe(source);
       t.dispose();
     }
+  });
+
+  it("an effect that resets the terminal is not re-run when the lock engages", () => {
+    const t = setup();
+    let runs = 0;
+    // A consumer's effect that resets the terminal: xterm runs the lock's
+    // scroll listener inside that call, so whatever the listener reads would
+    // otherwise subscribe the consumer's effect to it.
+    const disposeEffect = createRoot((d) => {
+      createEffect(() => {
+        runs += 1;
+        t.term.reset();
+      });
+      return d;
+    });
+    expect(runs).toBe(1);
+    t.emitOutputAtBottom(100);
+    t.lock.armUserScrollIntent("wheel");
+    t.scrollUp(10);
+    expect({ runs, locked: t.lock.isLocked() }).toEqual({
+      runs: 1,
+      locked: true,
+    });
+    disposeEffect();
+    t.dispose();
   });
 });
 

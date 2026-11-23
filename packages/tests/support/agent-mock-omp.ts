@@ -374,7 +374,8 @@ export const OMP_GONE_MARKER = "omp-stand-in-is-gone";
  *
  *  The resident `read` loop is what lets a scenario paint the approval dialog or
  *  clear it mid-scenario (omp's own dialogs appear while the process holds the
- *  terminal). Bash runs the program file itself, so `/proc/<pid>/comm` stays
+ *  terminal), or print `fill-scrollback`'s 300 lines for a reader to scroll
+ *  back through. Bash runs the program file itself, so `/proc/<pid>/comm` stays
  *  `omp`.
  *
  *  `bootPaint` gives the screen-still-being-drawn half of presence a WITNESS: a
@@ -421,6 +422,7 @@ export function ompMockPayload(opts: {
   const cases = [
     `approval) printf "%s\\n" ${approval} ;;`,
     `clear) for i in {1..40}; do printf "omp-clear %s\\n" "$i"; done ;;`,
+    `fill-scrollback) for i in {1..300}; do printf "omp-line %s\\n" "$i"; done ;;`,
     ...(boot === undefined ? [] : [`settle) touch "${boot}" ;;`]),
     "quit) break ;;",
     `*) ${onPrompt} ;;`,
