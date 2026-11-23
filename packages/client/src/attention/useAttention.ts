@@ -31,7 +31,15 @@
  *      something you left unread;
  *    • the app badge sums ASKING across live hosts; the host-tab finished mark
  *      (rendered by the chips off the same cell) shows finished work on a host you
- *      aren't looking at.
+ *      aren't looking at;
+ *    • a terminal the Conductor DRIVES makes no sound and no popup, gets no
+ *      unread mark and is not in its host tab's unread count, because the
+ *      Conductor answers its agents, and a person hearing "finished" for a
+ *      planner the Conductor is about to brief again learns to ignore the
+ *      bell. When the Conductor starts driving one, its unread mark comes
+ *      off. Blocked on a prompt, it still counts as needs-you (the app badge
+ *      above, the host tab's violet count). One the person has taken over is
+ *      theirs, and reaches them like any other.
  *
  *  Delivery is `attend.raise` (`./attend.ts`) — the ONE path every source goes
  *  through: this module describes each thing that needs the human as an
@@ -70,10 +78,11 @@ import {
   enterConductorMode,
   conductorMode,
 } from "../conductor/useConductorMode";
+import { splitMemberRef } from "../conductor/memberRef";
 import { memorySheet, useMemoryNeed } from "../conductor/memory/useMemory";
 import { useMembership, useNeedsYou, useWorkMap } from "../conductor/useWorks";
 import { showWork } from "../conductor/workListing";
-import { drivenByConductor } from "../conductor/workReadings";
+import { drivenByConductor, drivenRefs } from "../conductor/workReadings";
 import { typedReply } from "../conductor/typedReply";
 import { runAction } from "../runAction";
 import type { TerminalSubject } from "../terminal/terminalSubject";
@@ -169,13 +178,9 @@ export function useAttention(deps: AttentionDeps): {
 
   /** Actually reach the user for one terminal: hand the item to the one path
    *  when `loud`, plus its unread mark on its own host's record when it is not
-   *  in front of you. The `WHEN` gate lives in the engine; this is the
-   *  terminal's own reading of the one path, shared with the simulate hook. A
-   *  terminal the Conductor drives is delivered QUIET — the marks and nothing
-   *  else —
-   *  because the Conductor answers its agents, and a person hearing
-   *  "finished" for a planner the Conductor is about to brief again learns
-   *  to ignore the bell.
+   *  in front of you. The `WHEN` gate lives in the engine — including that a
+   *  terminal the Conductor drives is never delivered — and this is the
+   *  terminal's own reading of the one path, shared with the simulate hook.
    *
    *  The FUNNEL GUARD: both emission paths (the engine's `hooks.deliver`, fired
    *  from a per-host `createEffect`, and `simulateAlert`) run through here, and the
@@ -266,7 +271,7 @@ export function useAttention(deps: AttentionDeps): {
   });
 
   // WHO DRIVES EACH MEMBER TERMINAL — the one membership index the dock
-  // mark and the tile's lock read, keyed by fleet ref.
+  // mark, the tile's lock and the attention engine read, keyed by fleet ref.
   const membership = useMembership();
 
   // The detect→fire ENGINE (`attentionCore`) — unit-tested off the wire. It owns
@@ -354,6 +359,27 @@ export function useAttention(deps: AttentionDeps): {
     return null;
   });
   createEffect(() => void showing());
+
+  // A TERMINAL THE CONDUCTOR STARTS DRIVING LIFTS ITS UNREAD MARK — it
+  // joined a driven work, or the person handed it back: the mark, and its
+  // place in its host tab's unread count. Once per terminal entering the driven
+  // list, not once per work event: the list keeps a terminal's entry while
+  // the Conductor keeps driving it. Not gated on the works record arriving —
+  // a terminal in no work keeps its marks if it never does; this is what
+  // lifts a mark raised in the moment before it did. A member this browser
+  // cannot resolve (a host key that is not canonical) is skipped: there is
+  // no record of it to lift a mark from, and a throw here would stop the
+  // lift for every other member.
+  const driving = mapArray(
+    () => drivenRefs(membership()),
+    (ref) => {
+      const member = splitMemberRef(ref);
+      if (member !== null)
+        untrack(() => core.conductorDrives(member.host, member.id));
+      return null;
+    },
+  );
+  createEffect(() => void driving());
 
   // App badge = Σ ASKING over LIVE hosts. A dead host's held count never inflates
   // it; the active host is live, so its asking agents are counted too.

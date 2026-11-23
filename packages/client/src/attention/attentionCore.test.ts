@@ -3,7 +3,7 @@
  *  FINISHES must fire an alert. */
 
 import type { TerminalId } from "kolu-common/surface";
-import type { Membership } from "kolu-work";
+import type { Driver, Membership } from "kolu-work";
 import { describe, expect, it, vi } from "vitest";
 import { drivenByConductor } from "../conductor/workReadings";
 import {
@@ -23,6 +23,8 @@ function harness(over: Partial<AttentionHooks> = {}) {
   /** The deliveries that made NO sound and no OS popup — only the marks. */
   const quiet: string[] = [];
   const cleared: Array<{ host: string; id: string }> = [];
+  /** Each host-tab count the engine published, latest last. */
+  const marks: Array<{ host: string; count: number }> = [];
   /** What the engine handed back to be saved, per host, latest last. */
   const remembered: Array<{ host: string; memory: AttentionMemory }> = [];
   const hooks: AttentionHooks = {
@@ -34,7 +36,7 @@ function harness(over: Partial<AttentionHooks> = {}) {
       delivered.push({ id, asking });
       if (!loud) quiet.push(id);
     },
-    writeMark: () => {},
+    writeMark: (host, count) => marks.push({ host, count }),
     clearUnread: (host, id) => cleared.push({ host, id }),
     resume: () => null, // a browser that has saved nothing
     remember: (host, memory) => remembered.push({ host, memory }),
@@ -45,6 +47,7 @@ function harness(over: Partial<AttentionHooks> = {}) {
     delivered,
     quiet,
     cleared,
+    marks,
     remembered,
   };
 }
@@ -67,17 +70,36 @@ describe("attentionCore — a terminal the Conductor drives", () => {
       { work: "v", title: "v", role: "other", driver: "nobody" },
     ],
   ]);
-  const harnessed = () =>
-    harness({
-      isDriven: (encHost, id) => drivenByConductor(membership, encHost, id),
-    });
+  /** A harness over its own copy of the index, whose drivers a case moves
+   *  with `drive` — `null` takes the terminal out of every work. */
+  const harnessed = (over: Partial<AttentionHooks> = {}) => {
+    const index = new Map(membership);
+    const drive = (id: string, driver: Driver | null): void => {
+      if (driver === null) index.delete(`local/${id}`);
+      else
+        index.set(`local/${id}`, {
+          work: "w",
+          title: "w",
+          role: "planner",
+          driver,
+        });
+    };
+    return {
+      ...harness({
+        isDriven: (encHost, id) => drivenByConductor(index, encHost, id),
+        ...over,
+      }),
+      drive,
+    };
+  };
 
-  it("is silent — its question draws the mark and rings nothing", () => {
-    const { core, delivered, quiet } = harnessed();
+  it("raises nothing — its question and its finish are not delivered at all", () => {
+    const { core, delivered } = harnessed();
     core.observe("local", u([], []));
     core.observe("local", u(["planner"], []));
-    expect(delivered).toEqual([{ id: "planner", asking: true }]);
-    expect(quiet).toEqual(["planner"]);
+    core.observe("local", u([], []));
+    core.observe("local", u([], ["planner"]));
+    expect(delivered).toEqual([]);
   });
 
   it("rings once the human has taken it over, and for a watch or no work", () => {
@@ -93,6 +115,62 @@ describe("attentionCore — a terminal the Conductor drives", () => {
     core.observe("remote:box", u([], []));
     core.observe("remote:box", u(["planner"], []));
     expect(quiet).toEqual([]);
+  });
+
+  it("its finish on a host that is not shown counts 0 on the host tab; a loose terminal's counts 1", () => {
+    const { core, marks } = harnessed({ isActiveHost: () => false });
+    core.observe("local", u([], []));
+    core.observe("local", u([], ["planner"]));
+    expect(marks.at(-1)).toEqual({ host: "local", count: 0 });
+    core.observe("local", u([], ["planner", "loose"]));
+    expect(marks.at(-1)).toEqual({ host: "local", count: 1 });
+  });
+
+  it("a saved count naming it, driven and still finished, is not resumed", () => {
+    const { core, marks } = harnessed({
+      isActiveHost: () => false,
+      resume: () => ({
+        frame: u([], ["planner"]),
+        latched: ["planner" as TerminalId],
+        unseenFinished: ["planner" as TerminalId],
+      }),
+    });
+    core.observe("local", u([], ["planner"]));
+    expect(marks).toEqual([{ host: "local", count: 0 }]);
+  });
+
+  it("when the Conductor starts driving it, its mark lifts and it leaves the host tab's count", () => {
+    const { core, marks, cleared, remembered, drive } = harnessed({
+      isActiveHost: () => false,
+    });
+    core.observe("local", u([], []));
+    core.observe("local", u([], ["loose"]));
+    expect(marks.at(-1)).toEqual({ host: "local", count: 1 });
+    drive("loose", "conductor");
+    core.conductorDrives("local", "loose" as TerminalId);
+    expect(cleared).toEqual([{ host: "local", id: "loose" }]);
+    expect(marks.at(-1)).toEqual({ host: "local", count: 0 });
+    expect(remembered.at(-1)?.memory.unseenFinished).toEqual([]);
+  });
+
+  it("taken over mid-turn: a question over a turn that ended while driven rings once, loud", () => {
+    const { core, delivered, quiet, drive } = harnessed();
+    core.observe("local", u([], []));
+    core.observe("local", u([], ["planner"]));
+    expect(delivered).toEqual([]);
+    drive("planner", "you");
+    core.observe("local", u(["planner"], []));
+    expect(delivered).toEqual([{ id: "planner", asking: true }]);
+    expect(quiet).toEqual([]);
+  });
+
+  it("out of the work: nothing is raised after the fact for a turn that ended while driven", () => {
+    const { core, delivered, drive } = harnessed();
+    core.observe("local", u([], []));
+    core.observe("local", u([], ["planner"]));
+    drive("planner", null);
+    core.observe("local", u(["loose"], ["planner"]));
+    expect(delivered).toEqual([{ id: "loose", asking: true }]);
   });
 });
 
