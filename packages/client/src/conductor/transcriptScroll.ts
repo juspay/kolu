@@ -98,12 +98,26 @@ export function transcriptPinned(): boolean {
   return offset() === null;
 }
 
+/** Where each scroller stood when this module last saw it: after its own
+ *  writes, and at each `scroll`. What tells a reader who moved the view from
+ *  a column that grew under a view nobody moved. */
+const stood = new WeakMap<object, number>();
+
 /** The view moved: record where the reader is now. Called from the container's
  *  own `scroll`, which fires for a wheel, a drag, a keypress and our own pin
- *  alike — so there is no path that moves the view without this seeing it. Our
- *  own pin lands at the end and therefore re-states `null`, which is what it
- *  meant. */
+ *  alike — so there is no path that moves the view without this seeing it.
+ *
+ *  A FOLLOWING VIEW IS LEFT ONLY BY MOVING UP. The browser dispatches `scroll`
+ *  a frame after the view moved and measures the column as it is then: a pin
+ *  to the end, then a work's question card drawn under it before that frame,
+ *  and the event finds the view short of a new end it never left. Read as the
+ *  reader's place, that short view was the place the whole conversation
+ *  reopened at after a work was picked and left. A view no higher than where
+ *  it stood is still following. */
 export function rememberTranscriptScroll(el: ScrollMetrics): void {
+  const was = stood.get(el);
+  stood.set(el, el.scrollTop);
+  if (offset() === null && was !== undefined && el.scrollTop >= was) return;
   setOffset(atEnd(el) ? null : el.scrollTop);
 }
 
@@ -125,13 +139,15 @@ export function pinTranscript(): void {
   setOffset(null);
 }
 
-/** Put a freshly mounted container back where the reader left it — or at the
- *  end, if that is where they were. */
+/** Put the container where the reader is — at the end while they are
+ *  following, else at their own pixel. A fresh mount, a document change and
+ *  every step of following all land here. */
 export function applyTranscriptScroll(el: {
   scrollTop: number;
   readonly scrollHeight: number;
 }): void {
   el.scrollTop = offset() ?? el.scrollHeight;
+  stood.set(el, el.scrollTop);
 }
 
 /** Bring one row into view — the strip's "reveal this row". A row the
