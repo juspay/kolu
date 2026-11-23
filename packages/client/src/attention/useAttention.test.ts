@@ -133,6 +133,7 @@ beforeEach(() => {
     "remote:box-3",
     "remote:box-4",
     "remote:box-5",
+    "remote:box-6",
   ])
     attentionRecordOf(host).clearAllUnread();
   conductor.asks = () => undefined;
@@ -283,6 +284,37 @@ describe("a terminal the Conductor drives", () => {
       await flush();
       expect(attentionRecordOf("remote:box-5").isUnread(A)).toBe(false);
       expect(hostMarks("remote:box-5").unseenFinished()).toBe(0);
+    });
+  });
+
+  it("a driven member this browser cannot resolve does not stop the lift for the others", async () => {
+    vi.spyOn(document, "hasFocus").mockReturnValue(true);
+    vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue(undefined);
+    // A member whose host key is not canonical: a ref no record can be read by.
+    const unresolvable: [string, Membership] = [
+      "gone-host/22222222-2222-4222-8222-222222222222",
+      { work: "w", title: "w", role: "planner", driver: "conductor" },
+    ];
+    const [membership, setMembership] = createSignal<
+      ReadonlyMap<string, Membership>
+    >(new Map());
+    works.membership = membership;
+    const away = drivenHost("remote:box-6");
+    await withAttention(null, async () => {
+      await flush();
+      away.finish(A);
+      await flush();
+      expect(attentionRecordOf("remote:box-6").isUnread(A)).toBe(true);
+      expect(() => setMembership(new Map([unresolvable]))).not.toThrow();
+      await flush();
+      expect(() =>
+        setMembership(
+          new Map([unresolvable, ...naming("remote:box-6", "conductor")]),
+        ),
+      ).not.toThrow();
+      await flush();
+      expect(attentionRecordOf("remote:box-6").isUnread(A)).toBe(false);
+      expect(hostMarks("remote:box-6").unseenFinished()).toBe(0);
     });
   });
 });

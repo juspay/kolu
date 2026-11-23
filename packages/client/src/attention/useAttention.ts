@@ -76,6 +76,7 @@ import {
   enterConductorMode,
   conductorMode,
 } from "../conductor/useConductorMode";
+import { splitMemberRef } from "../conductor/memberRef";
 import { memorySheet, useMemoryNeed } from "../conductor/memory/useMemory";
 import { useMembership, useNeedsYou, useWorkMap } from "../conductor/useWorks";
 import { showWork } from "../conductor/workListing";
@@ -363,13 +364,16 @@ export function useAttention(deps: AttentionDeps): {
   // list, not once per work event: the list keeps a terminal's entry while
   // the Conductor keeps driving it. Not gated on the works record arriving —
   // a terminal in no work keeps its marks if it never does; this is what
-  // lifts a mark raised in the moment before it did.
+  // lifts a mark raised in the moment before it did. A member this browser
+  // cannot resolve (a host key that is not canonical) is skipped: there is
+  // no record of it to lift a mark from, and a throw here would stop the
+  // lift for every other member.
   const driving = mapArray(
     () => drivenRefs(membership()),
     (ref) => {
-      const split = splitFleetTerminalRef(ref);
-      if (split !== null)
-        untrack(() => core.conductorDrives(split.host, split.id as TerminalId));
+      const member = splitMemberRef(ref);
+      if (member !== null)
+        untrack(() => core.conductorDrives(member.host, member.id));
       return null;
     },
   );
