@@ -122,7 +122,7 @@ export function inspectMember(ref: string): void {
 }
 
 /** PICK A WORK: the screen is about it, and so is the chat — on the stage
- *  `stage` names, when a press on its strip picked it, which was a press to
+ *  `stage` names, when a press on its map picked it, which was a press to
  *  read that stage: its Details are in front. */
 export function pickWork(id: WorkId, stage?: StageName): void {
   batch(() => {
