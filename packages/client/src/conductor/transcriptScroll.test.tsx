@@ -23,6 +23,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 // grammar aliases; no row here is a tool call. Stub it so this file tests the
 // scroll container.
 vi.mock("./ConductorDiffs", () => ({ default: () => null }));
+// The works, scripted: a work's record reaches the page on its own stream,
+// and what it draws grows the column with no row arriving.
+vi.mock("./useWorks", async (importOriginal) => ({
+  ...(await importOriginal<typeof UseWorks>()),
+  useWorkMap: () => works,
+}));
 
 import ConductorTranscript from "./ConductorTranscript";
 import type { ConductorRow } from "kolu-common/conductor";
@@ -38,6 +44,10 @@ import {
   WHOLE_TRANSCRIPT,
 } from "./transcriptScroll";
 import { turnWorks } from "./turnWorks";
+import type { Work, WorkId } from "kolu-work";
+import type * as UseWorks from "./useWorks";
+
+const [works, setWorks] = createSignal<ReadonlyMap<WorkId, Work>>(new Map());
 
 /** Is the pane the view being read? The pane is RETAINED across a tab switch,
  *  so the follow rule has to ask — a scroll written into a subtree with no
@@ -150,6 +160,7 @@ beforeEach(() => {
 afterEach(() => {
   unmount();
   column = COLUMN;
+  setWorks(new Map());
   showTranscriptDocument(WHOLE_TRANSCRIPT);
   pinTranscript();
 });
@@ -259,6 +270,32 @@ describe("the transcript's follow rule", () => {
     setRows?.(replying("The first half,"));
     column += ROW_HEIGHT;
     setRows?.(replying("The first half, and the second half."));
+    expect(scroller.scrollTop).toBe(endOf(column));
+  });
+
+  it("keeps following when the column grows before the pin's own scroll event arrives", () => {
+    // The browser dispatches `scroll` a frame after the view moved, and
+    // measures the column as it is THEN. A row lands and the view is put at
+    // the end; before that frame, a work's question card is drawn under it
+    // (its record arrived after its row), so the event finds the view 162px
+    // short of a new end that nobody scrolled away from.
+    const scroller = mount();
+    append();
+    column += 162;
+    scroller.dispatchEvent(new Event("scroll"));
+    expect(pill()).toBeNull();
+
+    append();
+    expect(scroller.scrollTop).toBe(endOf(column));
+  });
+
+  it("follows the column growing when the works change and no row arrives", () => {
+    // A work's question card is drawn under its ask row only once the work's
+    // record is in, and the record comes on its own stream, after the row.
+    // Nothing in the rows changes when it lands.
+    const scroller = mount();
+    column += 162;
+    setWorks(new Map());
     expect(scroller.scrollTop).toBe(endOf(column));
   });
 

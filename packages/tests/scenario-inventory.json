@@ -13318,6 +13318,18 @@
       "exampleRows": [],
       "executions": 1,
       "firstSeenSha": "821f51db2a8ec06da4cb4415ad4d5d32574205c2"
+    },
+    {
+      "revisionId": "revision-5abc81b56968793499ac",
+      "scenarioKey": "scenario-c1fd5e387ec2df9459a7",
+      "feature": "features/conductor.feature",
+      "scenario": "Picking a work and going back leaves a following chat at the bottom",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "a1ad0b4e5833c8437ea0b6f94682b9f6e0cb2230f8237db6e61730f4cb67f824",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "e8f111d56108b721052a5165d11dc130aec497bb"
     }
   ]
 }

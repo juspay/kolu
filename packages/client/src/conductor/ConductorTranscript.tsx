@@ -393,19 +393,20 @@ const ConductorTranscript: Component<{
   /** The document the container was last put at the place of. `undefined`
    *  until the first run, so the mount's restore is not repeated. */
   let atDocument: string | undefined;
-  /** Bumped once after a document change, so the follow rule is asked AGAIN
-   *  after the DOM has revealed the other document's rows. The class effect
-   *  that shows them is created after this effect, so the column measured on
-   *  the first pass is still the old height. */
-  const [reapplied, setReapplied] = createSignal(0);
 
   createEffect(
     // `on`, so the body's reads of the ELEMENT are not dependencies and the
-    // deps are exactly these four: what was drawn, a row redrawn in place,
-    // whether the reader is following, and whether the conversation is the
-    // view being read. The pin is a dep because the pill and a sent message
-    // re-pin with no row arriving, and the view must move then too; a redraw
-    // is one because a diagram landing grows its row with no text arriving.
+    // deps are exactly these: what was drawn, a row redrawn in place, the
+    // works, whether the reader is following, whether the conversation is the
+    // view being read, and which document it shows. The pin is a dep because
+    // the pill and a sent message re-pin with no row arriving, and the view
+    // must move then too; a redraw is one because a diagram landing grows its
+    // row with no text arriving.
+    //
+    // THE WORKS are one because a work's record reaches this page on its own
+    // stream, often after the rows that name it, and the column grows when it
+    // lands: the work's question card under its ask row (`ChatWorkQuestion`
+    // draws nothing until then) and the chips of the turns about it.
     //
     // SHOWN is a dep rather than a guard that returns early for a reason: a
     // hidden pane has no layout at all (`content-visibility: hidden` skips the
@@ -418,37 +419,31 @@ const ConductorTranscript: Component<{
       [
         signature,
         redraws,
+        workMap,
         transcriptPinned,
         shown,
         () => chatScope()?.id,
-        reapplied,
       ],
-      ([drawn, , pinned, visible, doc], prev) => {
+      ([drawn, , , pinned, visible, doc], prev) => {
         if (!visible) return;
         // A DOCUMENT CHANGE IS PUT AT ITS OWN PLACE, and then the run is over:
         // `applyTranscriptScroll` opens a follower at the end and a reader who
         // had scrolled up at their own pixel. The first run does the same for
         // the document the transcript mounted with. Nothing else moves the
-        // view for a scope change.
+        // view for a scope change. The rows the document shows are already
+        // revealed when this runs: the class bindings that hide and show them
+        // are render effects, which Solid runs before this one.
         if (!placed || doc !== atDocument) {
-          const changed = prev !== undefined && prev[4] !== doc;
           atDocument = doc;
           applyTranscriptScroll(scroller);
           placed = scroller.scrollHeight > scroller.clientHeight;
-          // The rows this document shows are revealed by a class effect
-          // created AFTER this one, so the column measured above can still be
-          // the other document's height — 162px short in one CI run. One more
-          // pass, after the DOM has committed, asks the same rule of the
-          // column that is really there: a follower lands at the end, and a
-          // reader who scrolled up is left where they are.
-          if (changed) setReapplied((n) => n + 1);
           return;
         }
         // NOT `atEnd(scroller)`. The rows are already in the column by now, so
         // that measurement answers about the chunk that just landed, not about
         // the reader — which is precisely how the transcript stopped following.
         if (pinned) {
-          scroller.scrollTop = scroller.scrollHeight;
+          applyTranscriptScroll(scroller);
           setUnseen(false);
           return;
         }
