@@ -609,14 +609,19 @@ const visitsOf = (
   readonly events: ReadonlyArray<Filed>;
   readonly began: ReadonlyMap<StageName, Waiter>;
 } => {
-  /** A visit while it is walked: open until the work moves on or ends. */
+  /** A visit while it is walked: open (`until` none) until the work moves on
+   *  or ends. */
   interface Walking {
     readonly stage: Filed;
     readonly from: number;
-    until: number | undefined;
+    until: Option.Option<number>;
     readonly time: Record<Waiter, number>;
     readonly events: { readonly from: number; until: number };
   }
+  /** Close a visit at `at`, unless it was closed already. */
+  const close = (visit: Walking, at: number): void => {
+    if (Option.isNone(visit.until)) visit.until = Option.some(at);
+  };
   const began = new Map<StageName, Waiter>();
   const events: Filed[] = [];
   const trail: Walking[] = [];
@@ -633,21 +638,21 @@ const visitsOf = (
     const visit = trail.at(-1);
     if (who === "done") {
       // ENDED: nobody's time. The visit it ended in closes.
-      if (visit !== undefined) visit.until ??= stretch.from;
+      if (visit !== undefined) close(visit, stretch.from);
     } else {
       const stage = stretch.place;
       if (stage !== "setup" && stage !== "unrecorded" && !began.has(stage))
         began.set(stage, who);
-      if (visit?.stage === stage && visit.until === undefined)
+      if (visit?.stage === stage && Option.isNone(visit.until))
         visit.time[who] += stretch.length;
       else {
-        if (visit !== undefined) visit.until ??= stretch.from;
+        if (visit !== undefined) close(visit, stretch.from);
         const time = { agent: 0, you: 0, ci: 0 };
         time[who] = stretch.length;
         trail.push({
           stage,
           from: stretch.from,
-          until: undefined,
+          until: Option.none(),
           time,
           events: { from: events.length, until: events.length },
         });
@@ -664,17 +669,16 @@ const visitsOf = (
   const final = trail.at(-1);
   if (
     where.open &&
-    (final?.stage !== where.current || final.until !== undefined)
+    (final?.stage !== where.current || Option.isSome(final.until))
   )
     trail.push({
       stage: where.current,
       from: clock,
-      until: undefined,
+      until: Option.none(),
       time: { agent: 0, you: 0, ci: 0 },
       events: { from: where.eventCount, until: where.eventCount },
     });
-  else if (final !== undefined)
-    final.until = where.open ? undefined : (final.until ?? clock);
+  else if (final !== undefined && !where.open) close(final, clock);
   return {
     events,
     began,
@@ -682,7 +686,7 @@ const visitsOf = (
       (visit): Visit => ({
         stage: visit.stage,
         from: new Date(visit.from).toISOString(),
-        until: Option.map(Option.fromUndefinedOr(visit.until), (until) =>
+        until: Option.map(visit.until, (until) =>
           new Date(until).toISOString(),
         ),
         time: visit.time,
