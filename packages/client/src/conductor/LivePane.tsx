@@ -49,14 +49,13 @@ import { padiMap, padiRpcOf } from "../wire";
 import { useMemberName } from "./memberNames";
 import { inputAllowedAt } from "./personInput";
 import { fitWidth, setFitWidth } from "./fitWidth";
-import { createPaneSize } from "./paneSize";
+import { createPaneSize, paneGrid } from "./paneSize";
 import { createResizeOffer } from "./resizeOffer";
 import PeekTerminal, { type PeekTerminalHandle } from "./peek/PeekTerminal";
 import {
   type PeekCell,
   type PeekPad,
   fitFontSize,
-  paneGrid,
   peekNatural,
   peekPans,
 } from "./peek/peekSize";
@@ -199,8 +198,11 @@ const LivePane: Component<{
     asked,
     publish: publisher.publish,
     cancelPublish: publisher.cancel,
+    restateOwed: publisher.republishSuppressed,
   });
-  createEffect(on([onScreen, isDesktop, asked], () => paneSize.observe()));
+  createEffect(
+    on([onScreen, isDesktop, asked, hostState], () => paneSize.observe()),
+  );
   /** THE ONE PRESS (the head's readout, offered once the terminal has stayed
    *  at a size this pane would not ask for — `resizeOffer.ts`): publish that
    *  size once. It is how a phone's or a tablet's pane, which follows, takes
@@ -222,14 +224,6 @@ const LivePane: Component<{
   });
   onCleanup(offer.dispose);
   createEffect(on([realGrid, asked], () => offer.observe()));
-  // A publish dropped while the host was down is restated when it is back —
-  // the same publish landing late, not a new reason to speak — and only while
-  // this pane is on screen.
-  createEffect(
-    on(hostState, (kind) => {
-      if (kind === "connected" && onScreen()) publisher.republishSuppressed();
-    }),
-  );
 
   return (
     <section

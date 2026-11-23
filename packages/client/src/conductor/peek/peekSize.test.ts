@@ -1,11 +1,5 @@
 import { describe, expect, it } from "vitest";
-import {
-  fitFontSize,
-  paneGrid,
-  peekNatural,
-  peekPans,
-  peekWindowSize,
-} from "./peekSize";
+import { fitFontSize, peekNatural, peekPans, peekWindowSize } from "./peekSize";
 
 describe("peekNatural", () => {
   it("is the grid at the cell size plus the terminal's padding", () => {
@@ -80,66 +74,5 @@ describe("peekWindowSize", () => {
       width: 936,
       height: 636,
     });
-  });
-});
-
-describe("paneGrid", () => {
-  // A 14-point cell of 8.4×17 px inside 26 px of padding across, 12 down.
-  const measured = {
-    cell: { width: 8.4, height: 17 },
-    pad: { x: 26, y: 12 },
-    fontSize: 14,
-    fit: true,
-  };
-
-  it("asks for every column and row the body holds", () => {
-    // (1374 − 26) / 8.4 = 160.5 columns; (900 − 12) / 17 = 52.2 rows.
-    expect(paneGrid({ ...measured, width: 1374, height: 900 })).toEqual({
-      cols: 160,
-      rows: 52,
-    });
-  });
-
-  it("asks for no fewer than 80 columns, keeping the rows it holds", () => {
-    // 474 / 8.4 = 56 columns of room.
-    expect(
-      paneGrid({ ...measured, fit: false, width: 500, height: 900 }),
-    ).toEqual({ cols: 80, rows: 52 });
-  });
-
-  it("asks for no fewer than 24 rows, keeping the columns it holds", () => {
-    // 288 / 17 = 16 rows of room.
-    expect(paneGrid({ ...measured, width: 1374, height: 300 })).toEqual({
-      cols: 160,
-      rows: 24,
-    });
-  });
-
-  it("counts the rows at the font Fit width shrinks 80 columns to", () => {
-    // 80 columns in 500 px shrink 14 points to 9: an 11 px row (10.9 rounded
-    // up, as the renderer rounds it), so 408 px hold 37 rows where the
-    // 14-point font held 24.
-    const body = { width: 500, height: 420 };
-    expect(paneGrid({ ...measured, ...body })).toEqual({ cols: 80, rows: 37 });
-    expect(paneGrid({ ...measured, ...body, fit: false })).toEqual({
-      cols: 80,
-      rows: 24,
-    });
-  });
-
-  it("rounds the shrunk font's row up, so it never asks for a row that does not fit", () => {
-    // 416 px over the unrounded 10.93 px row is 38 rows, but 38 rows of the
-    // 11 px row the renderer draws need 418 px: the top row would be cut.
-    expect(paneGrid({ ...measured, width: 500, height: 428 })).toEqual({
-      cols: 80,
-      rows: 37,
-    });
-  });
-
-  it("asks for nothing until the pane has measured", () => {
-    const body = { width: 1374, height: 900 };
-    expect(paneGrid({ ...measured, ...body, cell: null })).toBeNull();
-    expect(paneGrid({ ...measured, ...body, pad: null })).toBeNull();
-    expect(paneGrid({ ...measured, width: 0, height: 900 })).toBeNull();
   });
 });

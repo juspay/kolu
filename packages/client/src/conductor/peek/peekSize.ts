@@ -1,5 +1,4 @@
-import { BIRTH_GRID } from "@kolu/xterm-kit";
-import { gridForBox, type TerminalGrid } from "@kolu/xterm-kit/solid";
+import type { TerminalGrid } from "@kolu/xterm-kit/solid";
 
 /** One cell of the terminal, in CSS px, as the renderer measured it. */
 export interface PeekCell {
@@ -66,74 +65,4 @@ export function fitFontSize(i: {
   if (need <= room) return i.fontSize;
   const exact = (i.fontSize * room) / need;
   return Math.max(PEEK_MIN_FONT_SIZE, Math.floor(exact * 2) / 2 - 0.5);
-}
-
-/** THE GRID A PANE WOULD ASK FOR — the most columns and rows its body holds,
- *  never below the size a terminal is born at ({@link BIRTH_GRID}), each axis
- *  floored on its own. `null` while the pane has not measured its cell or
- *  padding, or its body is too small to hold a grid at all.
- *
- *  `cell` is the cell measured at `fontSize`, the font the pane draws at when
- *  nothing shrinks it — never the cell of a font Fit width already shrank,
- *  which this would shrink again. With Fit width on and room for fewer
- *  columns than the floor, the floor's columns are drawn at the font Fit
- *  width shrinks to, so the rows are counted at that font: a smaller font
- *  holds more of them.
- *
- *  That font is not drawn yet, so its row is an ESTIMATE — the measured row
- *  scaled by the font ratio, then rounded UP to a whole pixel. The renderer's
- *  row is the font's height rounded up to a whole device pixel (xterm's
- *  `DomRenderer`: `Math.ceil(charSize.height * dpr)`), so the real row is at
- *  least that tall: rounding up can ask for a row too few, never one too
- *  many, at any pixel ratio — the worst it costs is a strip thinner than a
- *  row, where rounding down would cut the top row off.
- *
- *  The box-to-grid division is the kit's (`gridForBox`), fed the pane's own
- *  measurements: the cell as drawn, so device pixels are already folded in. */
-export function paneGrid(i: {
-  width: number;
-  height: number;
-  cell: PeekCell | null;
-  pad: PeekPad | null;
-  fontSize: number;
-  fit: boolean;
-}): TerminalGrid | null {
-  const { cell, pad } = i;
-  if (!cell || !pad) return null;
-  const holds = (c: PeekCell): TerminalGrid | null =>
-    gridForBox({
-      parentWidth: i.width,
-      parentHeight: i.height,
-      paddingHorizontal: pad.x,
-      paddingVertical: pad.y,
-      scrollbarWidth: 0,
-      charWidth: c.width,
-      letterSpacing: 0,
-      deviceCellHeight: c.height,
-      devicePixelRatio: 1,
-    });
-  const full = holds(cell);
-  if (!full) return null;
-  if (!i.fit || full.cols >= BIRTH_GRID.cols)
-    return {
-      cols: Math.max(BIRTH_GRID.cols, full.cols),
-      rows: Math.max(BIRTH_GRID.rows, full.rows),
-    };
-  const scale =
-    fitFontSize({
-      cols: BIRTH_GRID.cols,
-      cellWidth: cell.width,
-      fontSize: i.fontSize,
-      availWidth: i.width,
-      padX: pad.x,
-    }) / i.fontSize;
-  const small = holds({
-    width: cell.width * scale,
-    height: Math.ceil(cell.height * scale),
-  });
-  if (!small) return null;
-  return {
-    cols: BIRTH_GRID.cols,
-    rows: Math.max(BIRTH_GRID.rows, small.rows),
-  };
 }
