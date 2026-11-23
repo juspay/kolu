@@ -15,7 +15,9 @@
  *  Atlas note `xterm-kit`. */
 
 // Mirror anchoring — absolute mirror-line coordinates that survive eviction and
-// a RIS buffer swap (the bookkeeping lifted from kaval's ptyHost). The only core
-// piece the headless daemon actually consumes.
+// a RIS buffer swap (the bookkeeping lifted from kaval's ptyHost).
 export { createMirrorAnchor, snapToWrapHead } from "./mirrorAnchor";
 export type { MirrorAnchor } from "./mirrorAnchor";
+// The grid every terminal is born at — kaval's spawn default, `<Xterm>`'s seed,
+// and the floor a Conductor pane asks no lower than.
+export { BIRTH_GRID } from "./birthGrid";
