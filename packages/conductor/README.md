@@ -52,7 +52,7 @@ thing that does it.
 | `members.ts` | pure: what a reading MEANS for a member (`MemberWatchSchema`, `observed`, `spokenTo`) |
 | `observation.ts` | the observation vocabulary alone (`WatchObservation`, `WatchGit`, `WatchPr`, `PrWatch`) — a leaf both rule modules read |
 | `readings.ts` | pure: a host's frames → one `WatchObservation` per member terminal |
-| `observing.ts` | pure `ringEvent` / `prEvents` / `fileEvents` + the ONE pass per reading that applies them |
+| `observing.ts` | pure `ringEvent` / `prEvents` / `fileEvents` / `toldEvents` + the ONE pass per reading that applies them |
 | `wakes.ts` | when news reaches a turn: the held queue (`@kolu/acp-harness`'s `holding`, the slot discipline both products share), the one-flight flush, the failure episode, the `told` write-back |
 | `asking.ts` | kolu's own questions: minted, recorded on the work and SAID in the transcript, answered later from any face — nothing waits on a person, and the answer leaves as news through one sink |
 | `askNews.ts` | what a settled ask says — to its transcript row and to the Conductor — and the drop that an ending performs, read by `asking` and by the writer alike |
@@ -243,6 +243,12 @@ appending what it observes.
   Without the two, `agent_say` — which returns on the keystrokes, before the
   agent flips to working — would wake the Conductor about the agent it has
   just briefed.
+- **The hand-off** — the same `saidTo(ref)` records a `told` event on the
+  member's work (`toldEvents`): the Conductor handed that member the work.
+  Not when the member already holds it — an answer to an agent that is
+  asking, or a second word to one still at work, hands nothing over — and
+  "holds" is `kolu-work`'s one rule (`holdingOf`). The card's stage is who
+  holds the work, so this is the record it is read from.
 - **The hold** (`@kolu/acp-harness`'s `holding`) — while a turn runs, news
   WAITS: one slot per terminal, newest only, kept in the position the first one
   took, withdrawn when that terminal goes back to working. On every turn

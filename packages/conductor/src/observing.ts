@@ -16,9 +16,10 @@
  *
  * ## What is pure, and why it matters
  *
- * {@link ringEvent}, {@link prEvents} and {@link fileEvents} take a work and
- * answer a work. They are the half that revs with the forge and the
- * `.waterfall` convention, and they are exercised by calling them
+ * {@link ringEvent}, {@link prEvents}, {@link fileEvents} and
+ * {@link toldEvents} take a work and answer a work (or an event). They are
+ * the half that revs with the forge, the `.waterfall` convention and the
+ * hand-off rule, and they are exercised by calling them
  * (`./observing.test.ts`).
  *
  * ## Nothing here ENDS a work for going quiet
@@ -38,6 +39,8 @@ import {
   endWork,
   linkPr,
   filesSeen,
+  holdingOf,
+  holds,
   type MergeState,
   prOf,
   type PrReading,
@@ -121,6 +124,22 @@ export const ringEvent = (
       return level satisfies never;
   }
 };
+
+/** WHAT SPEAKING TO A MEMBER PUTS ON THE TIMELINE — a `told`, the Conductor
+ *  handing that member the work, unless the member holds it already: an
+ *  answer to an agent that is asking, or a second word to one still at work,
+ *  hands nothing over. Who holds the work is `kolu-work`'s one rule
+ *  (`holdingOf`), never a copy of it. Recorded for any member, whatever its
+ *  role; the replay moves a stage only for a planner or an implementor. */
+export const toldEvents = (work: Work, ref: string, at: string): Work =>
+  holds(holdingOf(work), ref)
+    ? work
+    : recordEvent(work, {
+        at,
+        by: "agent",
+        kind: "told",
+        about: aboutMember(ref),
+      });
 
 /** Two merge answers say the same thing. */
 const sameMerge = (a: MergeState, b: MergeState): boolean => {
@@ -547,6 +566,13 @@ export const observing = (deps: {
       // The news it was about to make is the state the Conductor has just
       // acted on, so it goes — and the member re-baselines at that state.
       deps.withdraw(ref);
+      // THE HAND-OFF, on the work's timeline: the stage follows who holds
+      // the work, and this is the Conductor handing it over.
+      const work = toldEvents(found.work, ref, nowIso());
+      if (work !== found.work) {
+        deps.store.save(found.id, work);
+        deps.store.changed();
+      }
       const member = found.member;
       deps.members.set(ref, spokenTo(member));
       deps.publishState();
