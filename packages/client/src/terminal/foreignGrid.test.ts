@@ -28,10 +28,13 @@ function harness(init?: {
   let mine: TerminalGrid | null =
     init && "mine" in init ? (init.mine ?? null) : { cols: 120, rows: 40 };
   let host = init?.host ?? "connected";
+  /** Is the pane's view in front — false while the Conductor covers it. */
+  let inFront = true;
   let reopens = 0;
   const watcher = createForeignGridWatcher({
     served: () => served ?? undefined,
-    mine: () => mine,
+    // As `Terminal.tsx` binds it: a pane behind the Conductor states no grid.
+    mine: () => (inFront ? mine : null),
     hostState: () => host,
     reopen: () => {
       reopens += 1;
@@ -40,7 +43,7 @@ function harness(init?: {
   });
   return {
     watcher,
-    /** The record published a new grid — the only thing that drives `observe`. */
+    /** The record published a new grid. */
     record(grid: TerminalGrid | null) {
       served = grid;
       watcher.observe();
@@ -51,6 +54,12 @@ function harness(init?: {
     },
     disconnect() {
       host = "warming";
+    },
+    /** The Conductor came in front of this pane's view, or left — the other
+     *  thing that drives `observe`. */
+    front(next: boolean) {
+      inFront = next;
+      watcher.observe();
     },
     reopens: () => reopens,
   };
@@ -149,5 +158,35 @@ describe("the foreign-grid watcher", () => {
     h.watcher.dispose();
     vi.advanceTimersByTime(SETTLE * 4);
     expect(h.reopens()).toBe(0);
+  });
+});
+
+describe("the foreign-grid watcher, under the Conductor", () => {
+  it("does not answer a foreign resize while the Conductor is in front", () => {
+    // A pane in front sizes the terminal; the tile under it must not take the
+    // size back.
+    const h = harness({ mine: { cols: 120, rows: 40 } });
+    h.front(false);
+    h.record({ cols: 145, rows: 50 });
+    vi.advanceTimersByTime(SETTLE * 4);
+    expect(h.reopens()).toBe(0);
+  });
+
+  it("drops a verdict still settling when the Conductor comes in front", () => {
+    const h = harness({ mine: { cols: 120, rows: 40 } });
+    h.record({ cols: 145, rows: 50 });
+    h.front(false);
+    vi.advanceTimersByTime(SETTLE * 4);
+    expect(h.reopens()).toBe(0);
+  });
+
+  it("takes its size back after the settle once the canvas is in front again", () => {
+    const h = harness({ mine: { cols: 120, rows: 40 } });
+    h.front(false);
+    h.record({ cols: 145, rows: 50 });
+    h.front(true);
+    expect(h.reopens()).toBe(0);
+    vi.advanceTimersByTime(SETTLE);
+    expect(h.reopens()).toBe(1);
   });
 });

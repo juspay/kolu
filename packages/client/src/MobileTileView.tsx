@@ -27,6 +27,7 @@ import { DockList } from "./canvas/dock/DockList";
 import { useTerminalStore } from "./terminal/useTerminalStore";
 import { useTileStore } from "./tile/useTileStore";
 import { withKeyboardDismiss } from "./ui/dismissSoftKeyboard";
+import { useShown } from "./ui/shown";
 
 /** Minimum horizontal travel (px) before a swipe commits to a tile change. */
 const SWIPE_THRESHOLD = 60;
@@ -46,8 +47,13 @@ const MobileTileView: Component<{
    *  swipe order matches what the user would see if they switched to
    *  desktop. */
   orderedIds: TerminalId[];
-  /** Render the actual terminal body (xterm + sub-panel + search bar). */
-  renderBody: (id: TerminalId, visible: () => boolean) => JSX.Element;
+  /** Render the actual terminal body (xterm + sub-panel + search bar), told
+   *  whether it is the active tile and whether this view is in front. */
+  renderBody: (
+    id: TerminalId,
+    visible: () => boolean,
+    viewShown: () => boolean,
+  ) => JSX.Element;
   /** Soft-keyboard helper bar (Esc, Tab, arrows, etc.). */
   bottomBar?: JSX.Element;
   /** Suppress the left-edge dock handle + swipe drawer. The compact layout
@@ -58,6 +64,9 @@ const MobileTileView: Component<{
 }> = (props) => {
   const store = useTerminalStore();
   const tileStore = useTileStore();
+  // Is this view the one in front? The Conductor covers it without unmounting
+  // it; a tile under it stays attached but states no size (`ui/shown.ts`).
+  const viewShown = useShown();
   const [touchStart, setTouchStart] = createSignal<{
     x: number;
     y: number;
@@ -147,7 +156,7 @@ const MobileTileView: Component<{
                   }}
                   inert={!visible()}
                 >
-                  {props.renderBody(id, visible)}
+                  {props.renderBody(id, visible, viewShown)}
                 </div>
               );
             }}

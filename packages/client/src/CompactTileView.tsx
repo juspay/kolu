@@ -12,7 +12,11 @@ const CompactTileView: Component<{
   compact: boolean;
   /** The same dock-filtered ids the workspace terminal owner renders. */
   orderedIds: TerminalId[];
-  renderBody: (id: TerminalId, visible: () => boolean) => JSX.Element;
+  renderBody: (
+    id: TerminalId,
+    visible: () => boolean,
+    viewShown: () => boolean,
+  ) => JSX.Element;
   bottomBar?: JSX.Element;
 }> = (props) => {
   const store = useTerminalStore();

@@ -35,10 +35,13 @@ export interface ForeignGridDeps {
   /** The pty's grid as the RECORD states it — absent from a padi that predates
    *  the field, and from a terminal nothing has resized yet. */
   readonly served: () => TerminalGrid | null | undefined;
-  /** This pane's own measured grid — absent until it has measured, and again
-   *  once it is disposed. `null` because that is the kit's spelling of "not
-   *  measured"; both absences answer the same, so both are accepted rather than
-   *  normalised at the call site. */
+  /** The grid this pane STATES — absent until it has measured, again once it
+   *  is disposed, and while its view is behind the Conductor (the pane stays
+   *  attached but states no size, `shownPane.ts`: something in front is sizing
+   *  the terminal, and a pane nobody is looking at must not take it back).
+   *  `null` because that is the kit's spelling of "not measured"; every
+   *  absence answers the same, so all are accepted rather than normalised at
+   *  the call site. */
   readonly mine: () => TerminalGrid | null | undefined;
   /** The host entry's state KIND, the same fact `publishGrid` gates on. */
   readonly hostState: () => string;
@@ -49,7 +52,9 @@ export interface ForeignGridDeps {
 }
 
 export interface ForeignGridWatcher {
-  /** Call on every change to the served grid. */
+  /** Call on every change to the served grid, and when `mine` comes back
+   *  from absence — the view returning in front, which is how a pane that sat
+   *  out someone else's resize takes its size back. */
   observe(): void;
   /** Cancel a pending settle — the pane's teardown. */
   dispose(): void;

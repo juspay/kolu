@@ -22,10 +22,22 @@ it("moves the same terminal DOM between desktop and touch shells", () => {
           <Show
             when={desktop()}
             fallback={
-              <section data-touch="">{outlet("tile", () => true)}</section>
+              <section data-touch="">
+                {outlet(
+                  "tile",
+                  () => true,
+                  () => true,
+                )}
+              </section>
             }
           >
-            <main data-desktop="">{outlet("tile", () => true)}</main>
+            <main data-desktop="">
+              {outlet(
+                "tile",
+                () => true,
+                () => true,
+              )}
+            </main>
           </Show>
         )}
       </WorkspaceTerminals>
@@ -73,7 +85,13 @@ it("switches hosts when each pane appears after its id", async () => {
           <For each={ids()}>
             {(id) => (
               <Show when={ready[id]}>
-                <section data-pane={id}>{outlet(id, () => true)}</section>
+                <section data-pane={id}>
+                  {outlet(
+                    id,
+                    () => true,
+                    () => true,
+                  )}
+                </section>
               </Show>
             )}
           </For>
@@ -129,10 +147,16 @@ it("asks the shell that is placing the body whether it can be seen", () => {
           <Show
             when={desktop()}
             fallback={
-              <section data-touch="">{outlet("tile", () => true)}</section>
+              <section data-touch="">
+                {outlet(
+                  "tile",
+                  () => true,
+                  () => true,
+                )}
+              </section>
             }
           >
-            <main data-desktop="">{outlet("tile", onCanvas)}</main>
+            <main data-desktop="">{outlet("tile", onCanvas, () => true)}</main>
           </Show>
         )}
       </WorkspaceTerminals>

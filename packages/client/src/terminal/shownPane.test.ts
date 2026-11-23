@@ -18,6 +18,8 @@ function harness(init?: { grid?: TerminalGrid | null; visible?: boolean }) {
   let grid: TerminalGrid | null =
     init && "grid" in init ? (init.grid ?? null) : null;
   let visible = init?.visible ?? false;
+  /** Is the view in front — false while the Conductor covers the canvas. */
+  let inFront = true;
   /** The grid each attach ASSERTED — the pane's `resizeTo`, read at open. */
   const attachedAt: (TerminalGrid | null)[] = [];
   const published: TerminalGrid[] = [];
@@ -26,6 +28,7 @@ function harness(init?: { grid?: TerminalGrid | null; visible?: boolean }) {
   let cancels = 0;
   const pane = createShownPane({
     shown: () => grid !== null && visible,
+    viewShown: () => inFront,
     attach: () => attachedAt.push(grid),
     detach: () => {
       detaches += 1;
@@ -49,6 +52,11 @@ function harness(init?: { grid?: TerminalGrid | null; visible?: boolean }) {
     },
     pane,
     attachedAt,
+    /** The Conductor came in front of this pane's view, or left. */
+    front(next: boolean) {
+      inFront = next;
+      pane.observe();
+    },
     published,
     detaches: () => detaches,
     cancels: () => cancels,
@@ -147,5 +155,38 @@ describe("the shown-pane gate", () => {
     h.measure({ cols: 80, rows: 24 });
     h.measure(null);
     expect(h.detaches()).toBe(1);
+  });
+});
+
+describe("the shown-pane gate, under the Conductor", () => {
+  it("publishes no new measurement while the Conductor is in front, and stays attached", () => {
+    // The window is resized while the Conductor covers the canvas: the tile
+    // under it re-measures, and must not size a terminal a pane is sizing.
+    const h = harness({ visible: true });
+    h.measure({ cols: 120, rows: 40 });
+    h.front(false);
+    h.measure({ cols: 132, rows: 43 });
+    expect(h.published).toEqual([{ cols: 120, rows: 40 }]);
+    expect(h.detaches()).toBe(0);
+  });
+
+  it("drops a measurement still settling when the Conductor comes in front", () => {
+    const h = harness({ visible: true });
+    h.measure({ cols: 120, rows: 40 });
+    const before = h.cancels();
+    h.front(false);
+    expect(h.cancels()).toBe(before + 1);
+  });
+
+  it("publishes again once the canvas is back in front", () => {
+    const h = harness({ visible: true });
+    h.measure({ cols: 120, rows: 40 });
+    h.front(false);
+    h.front(true);
+    h.measure({ cols: 132, rows: 43 });
+    expect(h.published).toEqual([
+      { cols: 120, rows: 40 },
+      { cols: 132, rows: 43 },
+    ]);
   });
 });

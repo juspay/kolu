@@ -42,6 +42,11 @@ const TerminalContent: Component<{
    *  may not state a size. The canvas answers it per mode; the touch shells
    *  place one tile at a time and always answer true. */
   boxDecided: boolean;
+  /** Is the VIEW the shell draws this tile in the one in front? False while
+   *  the Conductor covers the workspace: the tile stays attached and drawing,
+   *  and its panes state no size. Every shell answers it — the canvas and the
+   *  touch shells alike. */
+  viewShown: boolean;
   /** Whether this terminal should grab keyboard focus. True only for
    *  the selected tile on the canvas; same as `visible` on mobile. Also
    *  gates the per-terminal find bar (only the focused terminal shows it). */
@@ -254,6 +259,7 @@ const TerminalContent: Component<{
             terminalId={props.terminalId}
             visible={props.visible}
             boxDecided={boxDecided()}
+            viewShown={props.viewShown}
             focused={shouldFocusMain()}
             theme={props.theme}
             searchOpen={props.focused && search.isOpen(props.terminalId)}
@@ -388,6 +394,7 @@ const TerminalContent: Component<{
                   terminalId={subId}
                   visible={subVisible(subId)}
                   boxDecided={boxDecided()}
+                  viewShown={props.viewShown}
                   focused={shouldFocusSub(subId)}
                   theme={props.theme}
                   searchOpen={false}

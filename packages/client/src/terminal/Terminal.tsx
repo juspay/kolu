@@ -146,6 +146,11 @@ const Terminal: Component<{
    *  states it (`TerminalContent`); the pane only carries it to the kit, which
    *  refuses to measure an undecided box (`XtermOwnProps.boxDecided`). */
   boxDecided: boolean;
+  /** Is the VIEW this pane is drawn in the one in front? The shell that places
+   *  the tile states it (false while the Conductor covers the workspace). The
+   *  pane stays attached and drawing either way; behind the Conductor it
+   *  states no size (`shownPane.ts`, `foreignGrid.ts`). */
+  viewShown: boolean;
   /** When true, this terminal should grab keyboard focus. */
   focused?: boolean;
   /** Bumped by the host to force a focus re-assert when the reactive `focused`
@@ -598,8 +603,14 @@ const Terminal: Component<{
     // own `visible` prop, which a mobile body hidden with `content-visibility`
     // still has a measurable box under.
     const shown = () => h.wantedGrid() !== null && props.visible;
+    // IN FRONT is the shell's other fact: whether the view this pane is drawn
+    // in is the one being looked at (false while the Conductor covers the
+    // workspace). It does not touch the attach — the pane keeps drawing — only
+    // whether it states a size (`shownPane.ts`).
+    const viewShown = () => props.viewShown;
     const shownPane = createShownPane({
       shown,
+      viewShown,
       attach: () => {
         // Everything the pane still holds from the attach its last hide ended
         // has to go — but the SCREEN is not cleared, because the snapshot this
@@ -611,7 +622,7 @@ const Terminal: Component<{
       publish: gridPublisher.publish,
       cancelPublish: gridPublisher.cancel,
     });
-    createEffect(on(shown, () => shownPane.observe()));
+    createEffect(on([shown, viewShown], () => shownPane.observe()));
 
     // The ONE publisher of this pane's WANTED grid → the PTY. (The attach's own
     // `resizeTo` states the grid the pane OPENS at; every change after that
@@ -638,8 +649,10 @@ const Terminal: Component<{
         activeArm(terminalStore.getMetadata(props.terminalId))?.grid,
       // The grid this pane WANTS, never the one its terminal currently has: the
       // terminal follows the pty by design now, so comparing the two served
-      // facts would always agree and the watcher would never fire.
-      mine: h.wantedGrid,
+      // facts would always agree and the watcher would never fire. Absent while
+      // the view is behind the Conductor: a pane that states no size has none
+      // to compare.
+      mine: () => (viewShown() ? h.wantedGrid() : null),
       hostState: hostEntryKind,
       reopen: () => reassertGrid?.(),
       settleMs: FOREIGN_GRID_SETTLE_MS,
@@ -647,7 +660,10 @@ const Terminal: Component<{
     onCleanup(() => foreignGrid.dispose());
     createEffect(
       on(
-        () => activeArm(terminalStore.getMetadata(props.terminalId))?.grid,
+        [
+          () => activeArm(terminalStore.getMetadata(props.terminalId))?.grid,
+          viewShown,
+        ],
         () => foreignGrid.observe(),
       ),
     );

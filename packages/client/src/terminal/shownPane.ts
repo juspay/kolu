@@ -50,6 +50,14 @@ export interface ShownPaneDeps {
    *  80×24) and VISIBLE (a user could be reading it)? Both are live signals;
    *  this reads them, it does not remember them. */
   readonly shown: () => boolean;
+  /** Is the VIEW this pane is drawn in the one in front? False while the
+   *  Conductor covers the workspace. The pane stays attached and keeps drawing
+   *  — `shown` is untouched — but it states no size: a measurement is not
+   *  published, and one still settling is dropped. Something else in front is
+   *  sizing the terminal, and a pane nobody is looking at must not take the
+   *  size back. On the way back in front the pane's foreign-grid watcher
+   *  (`foreignGrid.ts`) restates its size if the terminal no longer has it. */
+  readonly viewShown: () => boolean;
   /** Open the attach stream at the pane's current grid. The screen is NOT
    *  cleared first: the fresh snapshot carries the reset that replaces the
    *  stale bytes, so the two land as one write. */
@@ -66,10 +74,11 @@ export interface ShownPaneDeps {
 }
 
 export interface ShownPane {
-  /** Re-read `shown()` and act on a CHANGE. Idempotent: safe on every tick of
-   *  either fact the predicate reads. */
+  /** Re-read `shown()` and `viewShown()` and act on a CHANGE. Idempotent:
+   *  safe on every tick of any fact they read. */
   observe(): void;
-  /** The pane measured a new grid. Published only while the pane is shown. */
+  /** The pane measured a new grid. Published only while the pane is shown
+   *  and its view is in front. */
   measured(grid: TerminalGrid): void;
 }
 
@@ -78,6 +87,7 @@ export function createShownPane(deps: ShownPaneDeps): ShownPane {
   let attached = false;
   return {
     observe() {
+      if (!deps.viewShown()) deps.cancelPublish();
       const shown = deps.shown();
       if (shown === attached) return;
       attached = shown;
@@ -88,7 +98,7 @@ export function createShownPane(deps: ShownPaneDeps): ShownPane {
       }
     },
     measured(grid: TerminalGrid) {
-      if (!deps.shown()) return;
+      if (!deps.shown() || !deps.viewShown()) return;
       deps.publish(grid);
     },
   };
