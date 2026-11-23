@@ -79,7 +79,15 @@ export const TerminalControls: Component<{
 };
 
 /** The status line: host, state, who drives it and the way to change that,
- *  the grid, and whether the screen is live. */
+ *  the grid, and whether the screen is live.
+ *
+ *  IN A LIVE PANE THE HEAD KEEPS ONE HEIGHT. The pane's body is what its
+ *  section has left after the head, and a desktop pane sizes its terminal
+ *  from that body (`paneSize.ts`): a head that grew a row when an agent
+ *  started would resize the terminal as the agent starts, and again when it
+ *  quits. So in a live pane the status line has a fixed height on a desktop,
+ *  and the agent's facts row keeps its one line whether or not there is an
+ *  agent. Look's window is not sized from its body and keeps the old shape. */
 export const TerminalStatusLine: Component<{
   kind: HeadKind;
   host: string;
@@ -116,7 +124,11 @@ export const TerminalStatusLine: Component<{
     <>
       <div
         data-testid={`${props.kind}-statusline`}
-        class="flex min-w-0 shrink-0 items-center gap-2 bg-surface-0 px-3 py-1.5 text-[0.7rem] max-sm:flex-wrap"
+        class={
+          props.kind === "live"
+            ? "flex min-w-0 shrink-0 items-center gap-2 bg-surface-0 px-3 py-1.5 text-[0.7rem] max-sm:flex-wrap sm:h-8"
+            : "flex min-w-0 shrink-0 items-center gap-2 bg-surface-0 px-3 py-1.5 text-[0.7rem] max-sm:flex-wrap"
+        }
         onPointerDown={() => props.onPointerDown?.()}
       >
         <span class="shrink-0 font-mono text-[0.6rem] uppercase tracking-[0.1em] text-accent">
@@ -204,33 +216,46 @@ export const TerminalStatusLine: Component<{
       </div>
       {/* THE AGENT'S FACTS, under the status line: what it is, the model its
         session reports, how long it has run, the context it has used —
-        nothing about the worktree, which is the work's. */}
-      <Show when={agent()}>
-        {(one) => (
-          <div
-            data-testid={`${props.kind}-facts`}
-            class="flex min-w-0 shrink-0 flex-wrap gap-x-2.5 gap-y-0.5 bg-surface-0 px-3 pb-1.5 font-mono text-[0.6rem] tabular-nums text-fg-3"
-          >
-            <span class="text-fg-2">{agentName(one().kind)}</span>
-            <Show when={one().model}>{(model) => <span>{model()}</span>}</Show>
-            <Show when={one().startedAt}>
-              {(startedAt) => (
-                <span
-                  title={`Started ${new Date(startedAt()).toLocaleString()}`}
-                >
-                  {runningFor(startedAt())}
-                </span>
-              )}
-            </Show>
-            <Show when={context()}>
-              {(box) => (
-                <span title={`Context: ${box().value.toLocaleString()} tokens`}>
-                  {formatContextTokens(box().value)} ctx
-                </span>
-              )}
-            </Show>
-          </div>
-        )}
+        nothing about the worktree, which is the work's. In a live pane the
+        row keeps its place and its one line with no agent too. */}
+      <Show when={props.kind === "live" || agent()}>
+        <div
+          data-testid={`${props.kind}-facts`}
+          class={
+            props.kind === "live"
+              ? "flex h-5.5 min-w-0 shrink-0 gap-x-2.5 overflow-hidden whitespace-nowrap bg-surface-0 px-3 pb-1.5 font-mono text-[0.6rem] leading-4 tabular-nums text-fg-3"
+              : "flex min-w-0 shrink-0 flex-wrap gap-x-2.5 gap-y-0.5 bg-surface-0 px-3 pb-1.5 font-mono text-[0.6rem] tabular-nums text-fg-3"
+          }
+        >
+          <Show when={agent()}>
+            {(one) => (
+              <>
+                <span class="text-fg-2">{agentName(one().kind)}</span>
+                <Show when={one().model}>
+                  {(model) => <span>{model()}</span>}
+                </Show>
+                <Show when={one().startedAt}>
+                  {(startedAt) => (
+                    <span
+                      title={`Started ${new Date(startedAt()).toLocaleString()}`}
+                    >
+                      {runningFor(startedAt())}
+                    </span>
+                  )}
+                </Show>
+                <Show when={context()}>
+                  {(box) => (
+                    <span
+                      title={`Context: ${box().value.toLocaleString()} tokens`}
+                    >
+                      {formatContextTokens(box().value)} ctx
+                    </span>
+                  )}
+                </Show>
+              </>
+            )}
+          </Show>
+        </div>
       </Show>
     </>
   );
