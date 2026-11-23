@@ -1,11 +1,13 @@
 /** WHICH PART OF A WORK'S TIMELINE THE PICKED WORK SHOWS — one stage of it,
- *  until the whole is asked for. Pure, and read ONCE per redraw by the card,
- *  which hands the one answer to the strip (which cell is pressed) and to the
- *  timeline (which rows it draws).
+ *  or one visit, until the whole is asked for. Pure, and read ONCE per redraw
+ *  by the card, which hands the one answer to the map (which stage is
+ *  pressed), the trail (which visit is pressed) and the timeline (which rows
+ *  it draws).
  *
- *  Which stage an event is in is `kolu-work`'s own filing (`Stages`'
- *  `events`, from the walk that files the time), and which stage the work is
- *  in is its `current` — never a rule of this face's. */
+ *  Which stage and which visit an event is in is `kolu-work`'s own filing
+ *  (`Stages`' `events` and each visit's `events`, from the walk that files
+ *  the time), and which stage the work is in is its `current` — never a rule
+ *  of this face's. */
 
 import { Option } from "effect";
 import {
@@ -21,15 +23,31 @@ import {
  *  to index its timeline by. */
 export const WATCH_EVENTS_SHOWN = 5;
 
+/** WHAT A PERSON PRESSED to choose the part of the timeline shown: a stage
+ *  on the map, or one visit on the trail, by its index into the trail. */
+export type TimelinePick =
+  | { readonly kind: "stage"; readonly stage: StageName }
+  | { readonly kind: "visit"; readonly visit: number };
+
 /** WHAT A PICKED WORK'S TIMELINE SHOWS:
  *
- *  - `stage` — one stage's events: the one pressed on the strip, else the
- *    stage the work is in (for a finished work, the stage it ended in);
+ *  - `stage` — one stage's events, across every visit to it: the one pressed
+ *    on the map, else the stage the work is in (for a finished work, the
+ *    stage it ended in);
+ *  - `visit` — the events of one visit pressed on the trail: its index, its
+ *    stage, and which of that stage's visits it is (`nth` of `of`);
  *  - `latest` — a work with no stages (a watch, or a mode not chosen yet):
  *    its last {@link WATCH_EVENTS_SHOWN} rows;
  *  - `whole` — all of it, once "whole timeline" is pressed. */
 export type TimelineView =
   | { readonly kind: "stage"; readonly stage: Filed }
+  | {
+      readonly kind: "visit";
+      readonly visit: number;
+      readonly stage: Filed;
+      readonly nth: number;
+      readonly of: number;
+    }
   | { readonly kind: "latest" }
   | { readonly kind: "whole" };
 
@@ -128,7 +146,7 @@ const rowsOf = (
 export function timelineShown(
   work: Work,
   stages: Stages,
-  pressed: StageName | undefined,
+  pressed: TimelinePick | undefined,
   whole: boolean,
 ): TimelineShown {
   const all = work.events
@@ -147,7 +165,39 @@ export function timelineShown(
           total,
         };
   }
-  const folded = { kind: "stage", stage: pressed ?? stages.current } as const;
+  // A VISIT PRESSED ON THE TRAIL: its own events, from the trail's filing.
+  const visit =
+    pressed?.kind === "visit" ? stages.trail[pressed.visit] : undefined;
+  if (pressed?.kind === "visit" && visit !== undefined) {
+    const same = stages.trail.flatMap((one, index) =>
+      one.stage === visit.stage ? [index] : [],
+    );
+    const folded = {
+      kind: "visit",
+      visit: pressed.visit,
+      stage: visit.stage,
+      nth: same.indexOf(pressed.visit) + 1,
+      of: same.length,
+    } as const;
+    return whole
+      ? { view: { kind: "whole" }, folded, rows: every, total }
+      : {
+          view: folded,
+          folded,
+          rows: rowsOf(
+            work,
+            all.filter(
+              (index) =>
+                index >= visit.events.from && index < visit.events.until,
+            ),
+          ),
+          total,
+        };
+  }
+  const folded = {
+    kind: "stage",
+    stage: pressed?.kind === "stage" ? pressed.stage : stages.current,
+  } as const;
   return whole
     ? { view: { kind: "whole" }, folded, rows: every, total }
     : {

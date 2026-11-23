@@ -74,7 +74,7 @@ describe("the time a long gap prints", () => {
 
   it("prints the repo's own short duration for a long gap", () => {
     // Not a second spelling of hours and minutes: the same one unit the
-    // stage strip prints.
+    // stage map prints.
     expect(gapWordsFor(3 * HOUR)).toBe(compactPhrase(3 * HOUR));
     expect(gapWordsFor(DAY)).toBe(compactPhrase(DAY));
   });

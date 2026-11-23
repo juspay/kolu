@@ -1,12 +1,14 @@
-/** A PICKED WORK'S TIMELINE — one stage of it, until the whole is asked for.
+/** A PICKED WORK'S TIMELINE — one stage of it, or one visit, until the whole
+ *  is asked for.
  *
  *  A card stays short however long its work runs: the timeline shows the
  *  events of ONE stage (the stage the work is in, or the one pressed on the
- *  strip, which is the timeline's index), and "whole timeline · N events"
- *  unfolds all of it in place and folds it back. Which part is shown is the
- *  card's one reading (`./timelineView.ts`), handed in, so the strip and this
- *  never disagree. A watch has no stages, so its card shows its latest few
- *  events instead.
+ *  map) or of one visit pressed on the trail — the map and the trail are its
+ *  index — and "whole timeline · N events" unfolds all of it in place and
+ *  folds it back. Which part is shown is the card's one reading
+ *  (`./timelineView.ts`), handed in, so the map, the trail and this never
+ *  disagree. A watch has no stages, so its card shows its latest few events
+ *  instead.
  *
  *  EACH ROW IS ONE LINE: its time, who it was by, its words, and how long that
  *  step took. Words longer than the line are cut, with a "more" beside them
@@ -53,6 +55,10 @@ const viewWord = (view: TimelineView): string => {
   switch (view.kind) {
     case "stage":
       return STAGE_LABEL[view.stage];
+    case "visit":
+      return view.of > 1
+        ? `${STAGE_LABEL[view.stage]}, visit ${view.nth} of ${view.of}`
+        : STAGE_LABEL[view.stage];
     case "latest":
       return `latest ${WATCH_EVENTS_SHOWN}`;
     case "whole":
@@ -163,9 +169,9 @@ const WorkTimeline: Component<{
     if (shown().view.kind !== "whole")
       return `whole timeline · ${shown().total} events`;
     const folded = shown().folded;
-    return folded.kind === "stage"
-      ? `only ${viewWord(folded)}`
-      : viewWord(folded);
+    return folded.kind === "latest"
+      ? viewWord(folded)
+      : `only ${viewWord(folded)}`;
   };
 
   /** ONE EVENT'S ROW — drawn the same at the top level and inside an
@@ -357,7 +363,13 @@ const WorkTimeline: Component<{
       data-view={shown().view.kind}
       data-stage={(() => {
         const view = shown().view;
-        return view.kind === "stage" ? view.stage : undefined;
+        return view.kind === "stage" || view.kind === "visit"
+          ? view.stage
+          : undefined;
+      })()}
+      data-visit={(() => {
+        const view = shown().view;
+        return view.kind === "visit" ? view.visit : undefined;
       })()}
       class="mt-2.5"
     >

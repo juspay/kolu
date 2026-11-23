@@ -45,8 +45,8 @@ const [picked, setPicked] = persistedPref<WorkId | null>({
   storage: sessionStorage,
   onInvalid: defaultInvalidWarning("kolu-conductor-picked-work", null),
 });
-/** The stage a press on a work's strip asked for, carried into the picked
- *  work's timeline: the strip that was pressed is not the one that shows. */
+/** The stage a press on a work's map asked for, carried into the picked
+ *  work's timeline: the map that was pressed is not the one that shows. */
 const [pickedStage, setPickedStage] = createSignal<StageName | undefined>();
 /** The view a person chose for the picked work — Terminals or Details — or
  *  none, which leaves it to `pickedView`. The pick's, not the drawing's: the

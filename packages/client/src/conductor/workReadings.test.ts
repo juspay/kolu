@@ -591,32 +591,76 @@ describe("what an open card shows of the setup and the decisions", () => {
 });
 
 describe("which events an open card shows", () => {
+  const minute = (n: number): string =>
+    new Date(Date.parse(AT) + n * 60_000).toISOString();
+  const said = (terminal: string, n: number): WorkEvent =>
+    event({
+      kind: "told",
+      by: "agent",
+      about: aboutMember(terminal),
+      at: minute(n),
+    });
+  const stopped = (terminal: string, n: number): WorkEvent =>
+    event({
+      kind: "stopped",
+      by: "agent",
+      about: aboutMember(terminal),
+      why: { kind: "none" },
+      at: minute(n),
+    });
+  // Planned, built, handed to the planner for a review, and built again.
   const timeline = [
     event({ kind: "requested", by: "you" }),
     joined("local/p", "planner"),
-    joined("local/i", "implementor"),
-    opened,
+    stopped("local/p", 10),
+    { ...joined("local/i", "implementor"), at: minute(10) },
+    { ...opened, at: minute(20) },
+    said("local/p", 25),
+    stopped("local/p", 30),
   ];
   const one = work({ decisions: [mode("full")], events: timeline });
   const rowsOfEvents = (indices: ReadonlyArray<number>) =>
     indices.map((index) => ({ kind: "event", index }));
 
   it("shows the stage the work is in, until a stage is pressed", () => {
-    const read = stagesOf(one, "2026-01-01T10:30:00.000Z");
+    const read = stagesOf(one, minute(40));
+    // Every Build visit's events, both of them.
     expect(timelineShown(one, read, undefined, false)).toMatchObject({
-      view: { kind: "stage", stage: "review" },
-      rows: rowsOfEvents([3]),
+      view: { kind: "stage", stage: "build" },
+      rows: rowsOfEvents([2, 3, 4, 6]),
     });
-    expect(timelineShown(one, read, "plan", false)).toMatchObject({
+    const plan = { kind: "stage", stage: "plan" } as const;
+    expect(timelineShown(one, read, plan, false)).toMatchObject({
       view: { kind: "stage", stage: "plan" },
       rows: rowsOfEvents([0, 1]),
     });
     // ... and the whole of it folds back to the stage it came from.
-    expect(timelineShown(one, read, "plan", true).folded).toEqual({
-      kind: "stage",
-      stage: "plan",
+    expect(timelineShown(one, read, plan, true).folded).toEqual(plan);
+    expect(timelineShown(one, read, plan, true).rows).toHaveLength(7);
+  });
+
+  it("shows one visit's events when a visit is pressed on the trail", () => {
+    const read = stagesOf(one, minute(40));
+    if (read.kind !== "staged") throw new Error(read.kind);
+    expect(read.trail.map((visit) => visit.stage)).toEqual([
+      "plan",
+      "build",
+      "review",
+      "build",
+    ]);
+    expect(
+      timelineShown(one, read, { kind: "visit", visit: 2 }, false),
+    ).toMatchObject({
+      view: { kind: "visit", visit: 2, stage: "review", nth: 1, of: 1 },
+      rows: rowsOfEvents([5]),
     });
-    expect(timelineShown(one, read, "plan", true).rows).toHaveLength(4);
+    // The second Build: only what happened in it, not the first one's.
+    expect(
+      timelineShown(one, read, { kind: "visit", visit: 3 }, false),
+    ).toMatchObject({
+      view: { kind: "visit", visit: 3, stage: "build", nth: 2, of: 2 },
+      rows: rowsOfEvents([6]),
+    });
   });
 
   it("shows a watch's latest few, a watch having no stages", () => {

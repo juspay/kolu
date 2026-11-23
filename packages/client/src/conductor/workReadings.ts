@@ -73,38 +73,16 @@ import { hostLabel } from "../host/hostChipTone";
 import { type ChecksTally, checksProgress, mergeWords } from "./prReadings";
 
 /** THE THREE INKS, by who is being waited on — violet for you, amber for CI,
- *  teal for the agents. One table, read by the standing line, the stage
- *  strip, the work chip's dot, the timeline's dots and the legend, so a stage
- *  and the sentence over it are never two different colours of the same
- *  wait. `tint` is a stage that had that waiter's time; `now` is the stage
- *  the work is in, outlined. */
+ *  teal for the agents. One table, read by the standing line, the work
+ *  chip's dot, the timeline's dots and the legend, so a wait and the
+ *  sentence about it are never two different colours. */
 export const WAITER_INK: Record<
   Waiter,
-  {
-    readonly text: string;
-    readonly fill: string;
-    readonly tint: string;
-    readonly now: string;
-  }
+  { readonly text: string; readonly fill: string }
 > = {
-  agent: {
-    text: "text-accent",
-    fill: "bg-accent",
-    tint: "bg-accent/15",
-    now: "bg-accent/30 border-accent",
-  },
-  you: {
-    text: "text-alert",
-    fill: "bg-alert",
-    tint: "bg-alert/15",
-    now: "bg-alert/30 border-alert",
-  },
-  ci: {
-    text: "text-attention",
-    fill: "bg-attention",
-    tint: "bg-attention/15",
-    now: "bg-attention/30 border-attention",
-  },
+  agent: { text: "text-accent", fill: "bg-accent" },
+  you: { text: "text-alert", fill: "bg-alert" },
+  ci: { text: "text-attention", fill: "bg-attention" },
 };
 
 /** A WORK'S DOT, by who it waits on — the waiter's fill, pulsing when it is
@@ -116,8 +94,8 @@ export const WORK_DOT: Record<Waiter | "done", string> = {
   done: "bg-ok",
 };
 
-/** What each stage is called on the strip — and what a timeline calls the
- *  setup and the stretch whose hand-offs nobody recorded, which no cell
+/** What each stage is called on the map and the trail — and what they call
+ *  the setup and the stretch whose hand-offs nobody recorded, which no cell
  *  holds. */
 export const STAGE_LABEL: Record<Filed, string> = {
   setup: "Setup",
@@ -128,6 +106,29 @@ export const STAGE_LABEL: Record<Filed, string> = {
   review: "Review",
   checks: "Checks",
   merge: "Merge",
+};
+
+/** THE COLOUR THAT NAMES A STAGE — the same on the map and on the trail, so a
+ *  run of Review and Build visits reads as one at a glance. A stage's hue
+ *  (`--color-stage-*`, `@kolu/theme`) says WHICH stage, never whose time it
+ *  was: that stays in a stage's title and spoken label. The setup is a quiet
+ *  grey, and the stretch nobody recorded is hatched, so it is drawn apart
+ *  from every stage. `fill` paints a trail segment, `edge` a map box. */
+export const STAGE_INK: Record<
+  Filed,
+  { readonly fill: string; readonly edge: string }
+> = {
+  setup: { fill: "bg-fg-3/40", edge: "border-fg-3" },
+  unrecorded: {
+    fill: "bg-[repeating-linear-gradient(135deg,var(--color-fg-3)_0_2px,transparent_2px_5px)]",
+    edge: "border-dashed border-fg-3",
+  },
+  plan: { fill: "bg-stage-plan", edge: "border-stage-plan" },
+  approve: { fill: "bg-stage-approve", edge: "border-stage-approve" },
+  build: { fill: "bg-stage-build", edge: "border-stage-build" },
+  review: { fill: "bg-stage-review", edge: "border-stage-review" },
+  checks: { fill: "bg-stage-checks", edge: "border-stage-checks" },
+  merge: { fill: "bg-stage-merge", edge: "border-stage-merge" },
 };
 
 /** THE STAGES of a work, under its own policy. */

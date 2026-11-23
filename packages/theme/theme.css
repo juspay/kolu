@@ -63,6 +63,18 @@
    * "asleep" identically in light and dark. */
   --color-moonlit: #8895ad;
 
+  /* THE SIX STAGES OF A WORK — one hue each, so a stage reads the same on a
+   * work's stage map and its trail, and a run of Review and Build visits is
+   * told apart at a glance. A stage's NAME, not a state: who the work waits
+   * on keeps its own inks (`accent`, `alert`, `attention`), and every stage
+   * is also named in words wherever its colour is drawn. */
+  --color-stage-plan: #9aa4b2;
+  --color-stage-approve: #e879b9;
+  --color-stage-build: #2dd4bf;
+  --color-stage-review: #60a5fa;
+  --color-stage-checks: #fbbf24;
+  --color-stage-merge: #86efac;
+
   /* StatePip + rail chip activity motion — one source so spin/glow cadences
    * cannot drift between packages (statepip.css ↔ client index.css). */
   --motion-spin-duration: 2.8s;
@@ -95,4 +107,10 @@
   /* Darker over white: the azure above is tuned for near-black and reads as a
    * pale wash on paper, where a tab label has to carry text contrast. */
   --color-conductor: #1d6fd6;
+  --color-stage-plan: #6e7781;
+  --color-stage-approve: #bf3989;
+  --color-stage-build: #0f766e;
+  --color-stage-review: #1d4ed8;
+  --color-stage-checks: #a16207;
+  --color-stage-merge: #15803d;
 }
