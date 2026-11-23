@@ -3,6 +3,7 @@ import { describe, expect, test } from "vitest";
 import {
   CLAUDE,
   compactingAt,
+  LAUNCHER_SETTINGS,
   OPEN_SESSION_META,
   REPORTING_COMPACTION,
 } from "./leg.ts";
@@ -21,9 +22,7 @@ describe("a leg that only asks for compaction reports", () => {
 
 describe("a leg that compacts at a number of kolu's choosing", () => {
   test("opens every session with the launcher's settings and its own, beside the raw-message subscription", () => {
-    const { leg } = compactingAt(200_000, {
-      attribution: { commit: "", pr: "" },
-    });
+    const { leg } = compactingAt(200_000, LAUNCHER_SETTINGS);
     expect(leg.compaction).toBe(true);
     expect(leg.rawMessages?.openMeta).toEqual({
       claudeCode: {

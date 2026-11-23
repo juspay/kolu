@@ -40,6 +40,7 @@ export {
 export {
   CLAUDE,
   compactingAt,
+  LAUNCHER_SETTINGS,
   REPORTING_COMPACTION,
   spelling,
 } from "./leg.ts";
