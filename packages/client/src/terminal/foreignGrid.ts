@@ -31,6 +31,23 @@
 
 import type { TerminalGrid } from "@kolu/xterm-kit/solid";
 
+/** How long the pty's grid must sit at a size this pane did not ask for before
+ *  the pane treats it as a FOREIGN resize and re-attaches.
+ *
+ *  A mismatch is also the ordinary transient shape of the pane's OWN resize —
+ *  it measures first and the record catches up a round-trip later — so the
+ *  window is what separates "someone else holds this terminal" from "my own
+ *  resize is still in flight". It MUST exceed `publishGrid.ts`'s
+ *  `GRID_SETTLE_MS` plus a round trip, and that constraint is load-bearing
+ *  rather than decorative: since the snapshot-refusal lane went away this
+ *  watcher is the only thing that repairs a transport retry replaying a stale
+ *  captured grid, so a publish settle raised past this one would turn every
+ *  ordinary resize into a re-attach. Short enough, at the other end, that a
+ *  genuinely foreign resize is repaired before the user has read a screenful of
+ *  mis-wrapped output. A Conductor pane offers its one press on the same
+ *  reasoning (`conductor/resizeOffer.ts`). */
+export const FOREIGN_GRID_SETTLE_MS = 750;
+
 export interface ForeignGridDeps {
   /** The pty's grid as the RECORD states it — absent from a padi that predates
    *  the field, and from a terminal nothing has resized yet. */

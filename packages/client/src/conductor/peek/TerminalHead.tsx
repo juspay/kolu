@@ -14,7 +14,7 @@
 import { decodeHostKey } from "kolu-common/hostKey";
 import type { TerminalId } from "kolu-common/surface";
 import type { Driver } from "kolu-work";
-import { sameGrid, type TerminalGrid } from "@kolu/xterm-kit/solid";
+import type { TerminalGrid } from "@kolu/xterm-kit/solid";
 import { type Component, createMemo, type JSX, Show } from "solid-js";
 import { hostLabel } from "../../host/hostChipTone";
 import { fleetTerminalStanding } from "../../palette/fleetTerminals";
@@ -99,11 +99,11 @@ export const TerminalStatusLine: Component<{
   phase: ScreenPhase;
   held: boolean;
   onPointerDown?: () => void;
-  /** A live pane's one press to take the size: the grid the pane would ask
-   *  for, and the press. The readout becomes the button while the terminal's
-   *  REAL size — its record's, never the drawn screen's, which lags behind
-   *  the scroll lock — is not that grid. Not given in Look. */
-  resize?: { asked: TerminalGrid | null; onPress: () => void };
+  /** A live pane's one press to take the size: whether it is offered — the
+   *  pane's call (`conductor/resizeOffer.ts`), from the terminal's record and
+   *  the size the pane would ask for — and the press. The readout becomes the
+   *  button while it is offered. Not given in Look. */
+  resize?: { offered: boolean; onPress: () => void };
 }> = (props) => {
   /** Who drives it, when someone does: what the lock part draws for. */
   const lock = (): Lock | undefined =>
@@ -125,18 +125,8 @@ export const TerminalStatusLine: Component<{
     return tokens == null ? null : { value: tokens };
   };
   const lookable = () => liveArm(standing()) !== undefined;
-  /** The press is offered: a live pane, a record that states a size, a grid
-   *  to ask for, and the two differ. A record with no size is no evidence. */
-  const offersResize = () => {
-    const asked = props.resize?.asked;
-    const real = liveArm(standing())?.grid;
-    return (
-      props.kind === "live" &&
-      asked != null &&
-      real != null &&
-      !sameGrid(real, asked)
-    );
-  };
+  const offersResize = () =>
+    props.kind === "live" && props.resize?.offered === true;
   const readout = (g: TerminalGrid): JSX.Element => (
     <span
       data-testid={`${props.kind}-grid`}

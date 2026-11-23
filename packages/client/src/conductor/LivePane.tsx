@@ -42,6 +42,7 @@ import { DEFAULT_FONT_SIZE, getThemeByName } from "terminal-themes";
 import MobileKeyBar from "../MobileKeyBar";
 import { fleetTerminalStanding } from "../palette/fleetTerminals";
 import { runAction } from "../runAction";
+import { FOREIGN_GRID_SETTLE_MS } from "../terminal/foreignGrid";
 import { createGridPublisher } from "../terminal/publishGrid";
 import { isDesktop, isTouch } from "../useMobile";
 import { padiMap, padiRpcOf } from "../wire";
@@ -49,6 +50,7 @@ import { useMemberName } from "./memberNames";
 import { inputAllowedAt } from "./personInput";
 import { fitWidth, setFitWidth } from "./fitWidth";
 import { createPaneSize } from "./paneSize";
+import { createResizeOffer } from "./resizeOffer";
 import PeekTerminal, { type PeekTerminalHandle } from "./peek/PeekTerminal";
 import {
   type PeekCell,
@@ -199,14 +201,27 @@ const LivePane: Component<{
     cancelPublish: publisher.cancel,
   });
   createEffect(on([onScreen, isDesktop, asked], () => paneSize.observe()));
-  /** THE ONE PRESS (the head's readout, while the terminal is not the size
-   *  this pane would ask for): publish that size once. It is how a phone's or
-   *  a tablet's pane, which follows, takes the size — and how a desktop pane
-   *  takes it back from a viewer that took it since. */
+  /** THE ONE PRESS (the head's readout, offered once the terminal has stayed
+   *  at a size this pane would not ask for — `resizeOffer.ts`): publish that
+   *  size once. It is how a phone's or a tablet's pane, which follows, takes
+   *  the size — and how a desktop pane takes it back from a viewer that took
+   *  it since. */
   const resizeToFit = () => {
     const g = asked();
     if (g) publisher.publish(g);
   };
+  const [resizeOffered, setResizeOffered] = createSignal(false);
+  /** The terminal's REAL size: its record's, never the drawn screen's, which
+   *  lags behind the scroll lock. */
+  const realGrid = () => liveArm(standing())?.grid;
+  const offer = createResizeOffer({
+    real: realGrid,
+    asked,
+    settleMs: FOREIGN_GRID_SETTLE_MS,
+    show: setResizeOffered,
+  });
+  onCleanup(offer.dispose);
+  createEffect(on([realGrid, asked], () => offer.observe()));
   // A publish dropped while the host was down is restated when it is back —
   // the same publish landing late, not a new reason to speak — and only while
   // this pane is on screen.
@@ -262,7 +277,7 @@ const LivePane: Component<{
         grid={grid()}
         phase={phase()}
         held={held()}
-        resize={{ asked: asked(), onPress: resizeToFit }}
+        resize={{ offered: resizeOffered(), onPress: resizeToFit }}
       />
       <div
         ref={setBody}
