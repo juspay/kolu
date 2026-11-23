@@ -57,7 +57,9 @@ answering the agent clears it.
 
 An agent that finishes in the background washes its whole dock row amber. A
 blocked one washes violet and gets a mirrored entry in the dock's pinned
-[Needs-you strip](/dock), while the row itself stays where it is.
+[Needs-you strip](/dock), while the row itself stays where it is. A terminal
+[the Conductor is driving](/tiles#a-terminal-the-conductor-is-driving) is never
+unread, and any amber mark it had lifts when the Conductor starts driving it.
 
 A terminal is in the background unless it is in front of you, which means one
 of these:
@@ -99,9 +101,9 @@ quiet.
 - Clicking the notification brings kolu forward. When the agent is on another
   machine, kolu switches to that host and focuses the exact terminal.
 - A terminal [the Conductor is driving](/tiles#a-terminal-the-conductor-is-driving)
-  makes no chime and no notification of its own: the Conductor is woken about
-  it instead. Its dock marks and counts stay, and a terminal you have taken
-  over reaches you as any other.
+  makes no chime and no notification, and gets no unread mark or host-tab count:
+  the Conductor is woken about it instead. A terminal you have taken over
+  reaches you as any other.
 
 If notifications do not appear, see
 [Troubleshooting](/troubleshooting#i-am-not-getting-desktop-notifications).
