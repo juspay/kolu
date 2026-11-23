@@ -305,6 +305,11 @@ const LETS_GO: ReadonlySet<string> = new Set<EventKind>([
 export const holds = (holding: Holding, terminal: string): boolean =>
   holding.holding.includes(terminal);
 
+/** Whether nobody is holding the work now — every member handed it has let
+ *  go, or none ever was. */
+export const nobodyHolds = (holding: Holding): boolean =>
+  holding.holding.length === 0;
+
 /** Whether this event HANDS THE WORK to the member it is about: a planner or
  *  an implementor joining, or a `told` to one that is not holding it. */
 export const handsOver = (holding: Holding, event: WorkEvent): boolean => {

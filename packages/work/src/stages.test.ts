@@ -224,8 +224,9 @@ const policyFor = (mode: "full" | "trivial", handOver = true): Policy => ({
 const FULL = policyFor("full");
 const TRIVIAL = policyFor("trivial");
 
-/** The six stages of a waterfall, or a failure saying the policy gave none. */
-const strip = (work: Work, policy: Policy, now: string) =>
+/** The six cells of a waterfall's map, or a failure saying the policy gave
+ *  none. */
+const cellsAt = (work: Work, policy: Policy, now: string) =>
   waterfall(work, policy, now).stages;
 
 const waterfall = (work: Work, policy: Policy, now: string) => {
@@ -238,7 +239,7 @@ const waterfall = (work: Work, policy: Policy, now: string) => {
  *  `now`, `done`, `?` for one nobody recorded, `–` for a stage that did not
  *  happen, `·` for one not reached. */
 const cells = (work: Work, policy: Policy, now: string): string =>
-  strip(work, policy, now)
+  cellsAt(work, policy, now)
     .map((one) => {
       const word = {
         now: "now",
@@ -457,7 +458,7 @@ describe("on chaotic records", () => {
     const policy = policyFor(pick() < 0.6 ? "full" : "trivial", pick() < 0.5);
     const now = at(34 * 12 + Math.floor(pick() * 60));
     const life = lifeOf(work, now);
-    const all = strip(work, policy, now);
+    const all = cellsAt(work, policy, now);
     const spent = timeSpent(work, policy, now);
     const read = waterfall(work, policy, now);
     // EVERY EVENT IS FILED where the time after it went: one place per
@@ -496,8 +497,8 @@ describe("on chaotic records", () => {
         ? 1
         : 0,
     );
-    // ONE answer to "where is it now": the strip's outlined cell is where
-    // the fold says it is.
+    // ONE answer to "where is it now": the map's ringed stage is where the
+    // fold says it is.
     const current = read.stages.find((one) => one.state.kind === "now");
     if (current !== undefined)
       expect(read.current, `seed ${seed}: current`).toBe(current.name);
@@ -641,7 +642,7 @@ describe("on scripted waterfalls", () => {
     want.merge = span();
     minute += want.merge;
     work = merged(work, minute);
-    const named = byName(strip(work, planner ? FULL : TRIVIAL, at(minute)));
+    const named = byName(cellsAt(work, planner ? FULL : TRIVIAL, at(minute)));
     // A TRIVIAL WORK HAS NOBODY TO REVIEW: its agents' time after the PR is
     // still the build, and its Plan, Approve and Review did not happen.
     if (!planner) {
@@ -671,7 +672,7 @@ describe("where a work's stages stand", () => {
   it("plans, then waits on you to approve", () => {
     let work = join(opened(), "planner", 0);
     work = ask(work, "approve", 22);
-    const named = byName(strip(work, FULL, at(34)));
+    const named = byName(cellsAt(work, FULL, at(34)));
     expect(named.plan).toEqual({ kind: "done", ms: 22 * MINUTE, who: "agent" });
     expect(named.approve).toEqual({ kind: "now", ms: 12 * MINUTE, who: "you" });
     expect(named.build).toEqual({ kind: "not-started" });
@@ -682,7 +683,7 @@ describe("where a work's stages stand", () => {
     work = ask(work, "which", 20);
     // 15 minutes of the implementor's time against 5 of yours: the bar keeps
     // the agents' ink while it waits, because that is whose time it was.
-    expect(byName(strip(work, FULL, at(25))).build).toEqual({
+    expect(byName(cellsAt(work, FULL, at(25))).build).toEqual({
       kind: "now",
       ms: 20 * MINUTE,
       who: "agent",
@@ -694,7 +695,7 @@ describe("where a work's stages stand", () => {
     work = ask(work, "which", 23);
     // 18 minutes of the agents' time, then 2 waiting on you. Who it waits on
     // now is the standing line's fact; this bar says whose time it mostly was.
-    expect(byName(strip(work, FULL, at(25))).build).toEqual({
+    expect(byName(cellsAt(work, FULL, at(25))).build).toEqual({
       kind: "now",
       ms: 20 * MINUTE,
       who: "agent",
@@ -709,7 +710,7 @@ describe("where a work's stages stand", () => {
     work = stop(work, IMPLEMENTOR, 10);
     work = told(work, PLANNER, 10);
     work = ask(work, "which", 14);
-    const named = byName(strip(work, FULL, at(20)));
+    const named = byName(cellsAt(work, FULL, at(20)));
     expect(named.review).toEqual({ kind: "now", ms: 10 * MINUTE, who: "you" });
     expect(named.merge).toEqual({ kind: "not-started" });
   });
@@ -746,7 +747,7 @@ describe("where a work's stages stand", () => {
     work = answer(work, "setup", 12);
     work = join(work, "planner", 12);
     work = ask(work, "approve", 15);
-    expect(byName(strip(work, FULL, at(20))).plan).toEqual({
+    expect(byName(cellsAt(work, FULL, at(20))).plan).toEqual({
       kind: "done",
       ms: 15 * MINUTE,
       who: "you",
@@ -818,7 +819,7 @@ describe("where a work's stages stand", () => {
     work = prOpened(work, 45, 8);
     // 20 before the close, 20 since the reopen; the ten it spent closed are
     // nobody's, and they split the build into two visits — no move.
-    expect(byName(strip(work, FULL, at(50))).build).toEqual({
+    expect(byName(cellsAt(work, FULL, at(50))).build).toEqual({
       kind: "now",
       ms: 40 * MINUTE,
       who: "agent",
@@ -917,7 +918,7 @@ describe("the shapes of real works", () => {
     expect(cells(work, FULL, at(10))).toBe(
       "plan done, approve –, build –, review –, checks –, merge –",
     );
-    expect(byName(strip(work, FULL, at(10))).plan).toEqual({
+    expect(byName(cellsAt(work, FULL, at(10))).plan).toEqual({
       kind: "done",
       ms: 4 * MINUTE,
       who: "you",
@@ -934,7 +935,7 @@ describe("the shapes of real works", () => {
     expect(waterfall(asking, TRIVIAL, at(5)).current).toBe("setup");
     let work = answer(asking, "setup", 5);
     work = join(work, "implementor", 5);
-    const named = byName(strip(work, TRIVIAL, at(20)));
+    const named = byName(cellsAt(work, TRIVIAL, at(20)));
     expect(named.build).toEqual({ kind: "now", ms: 15 * MINUTE, who: "agent" });
     expect(timeSpent(work, TRIVIAL, at(20)).you).toBe(5 * MINUTE);
   });
@@ -961,7 +962,7 @@ describe("the shapes of real works", () => {
     work = check(work, "checks-running", 70);
     work = check(work, "checks-passed", 85);
     work = mergeState(work, { kind: "can" }, 85);
-    const named = byName(strip(work, FULL, at(90)));
+    const named = byName(cellsAt(work, FULL, at(90)));
     // All the implementor's time is the build, before and after a push.
     expect(named.build).toMatchObject({ kind: "done", ms: 45 * MINUTE });
     expect(cells(work, FULL, at(90))).toBe(
@@ -1363,7 +1364,7 @@ describe("green is the forge saying it can merge", () => {
   };
 
   it("leaves a PR the forge will not merge with the implementor, in the build", () => {
-    const named = byName(strip(blocked(), FULL, at(30)));
+    const named = byName(cellsAt(blocked(), FULL, at(30)));
     expect(named.build).toEqual({
       kind: "now",
       ms: 30 * MINUTE,
@@ -1374,21 +1375,21 @@ describe("green is the forge saying it can merge", () => {
 
   it("hands it over once the forge says it can merge, and takes it back when it cannot", () => {
     let work = mergeState(blocked(), { kind: "can" }, 30);
-    expect(byName(strip(work, FULL, at(40))).merge).toEqual({
+    expect(byName(cellsAt(work, FULL, at(40))).merge).toEqual({
       kind: "now",
       ms: 10 * MINUTE,
       who: "you",
     });
     // The base moved on: the stale green is gone.
     work = mergeState(work, { kind: "cannot", why: "behind" }, 40);
-    expect(byName(strip(work, FULL, at(45))).build.kind).toBe("now");
+    expect(byName(cellsAt(work, FULL, at(45))).build.kind).toBe("now");
   });
 
   it("is green with no checks at all", () => {
     let work = join(opened(), "implementor", 0);
     work = prOpened(work, 10);
     work = mergeState(work, { kind: "can" }, 10);
-    expect(byName(strip(work, FULL, at(15))).merge.kind).toBe("now");
+    expect(byName(cellsAt(work, FULL, at(15))).merge.kind).toBe("now");
   });
 
   it("does not let one commit's answer stand for a push", () => {
@@ -1396,14 +1397,14 @@ describe("green is the forge saying it can merge", () => {
     work = prOpened(work, 10);
     work = check(work, "checks-passed", 12);
     work = mergeState(work, { kind: "can" }, 12);
-    expect(byName(strip(work, FULL, at(14))).merge.kind).toBe("now");
+    expect(byName(cellsAt(work, FULL, at(14))).merge.kind).toBe("now");
     // A push GitHub has not worked out yet: not green, back to the build.
     work = mergeState(work, { kind: "unsettled" }, 20, 7, "b2");
-    expect(byName(strip(work, FULL, at(22))).build.kind).toBe("now");
+    expect(byName(cellsAt(work, FULL, at(22))).build.kind).toBe("now");
     // ... and checks about the new commit take the old answer away too.
     let checked = mergeState(blocked(), { kind: "can" }, 14);
     checked = check(checked, "checks-passed", 20, 7, "b2");
-    expect(byName(strip(checked, FULL, at(22))).build.kind).toBe("now");
+    expect(byName(cellsAt(checked, FULL, at(22))).build.kind).toBe("now");
   });
 
   it("forgets the checks and the answer when a work stopped green is reopened", () => {
@@ -1416,7 +1417,7 @@ describe("green is the forge saying it can merge", () => {
     // Fourteen minutes of building before it went green, then ten since the
     // reopen — not a merge waiting on you off an answer from before it
     // stopped.
-    const named = byName(strip(work, FULL, at(70)));
+    const named = byName(cellsAt(work, FULL, at(70)));
     expect(named.build).toEqual({
       kind: "now",
       ms: 24 * MINUTE,
@@ -1463,7 +1464,7 @@ describe("green is the forge saying it can merge", () => {
     expect(kept.at(0)?.at).toBe(at(11));
     expect(kept.at(-1)?.at).toBe(at(50));
     expect(kept.at(-1)?.kind).toBe("checks-passed");
-    expect(byName(strip(work, FULL, at(60))).checks.kind).not.toBe("now");
+    expect(byName(cellsAt(work, FULL, at(60))).checks.kind).not.toBe("now");
   });
 
   it("keeps a hand-over's time when a ninth check result arrives", () => {
@@ -1480,7 +1481,7 @@ describe("green is the forge saying it can merge", () => {
       );
     work = mergeState(work, { kind: "can" }, 20);
     work = check(work, "checks-running", 50);
-    const cells = byName(strip(work, FULL, at(55)));
+    const cells = byName(cellsAt(work, FULL, at(55)));
     expect(cells.merge).toEqual({ kind: "done", ms: 30 * 60_000, who: "you" });
     expect(cells.checks.kind).toBe("now");
     expect(
@@ -1517,7 +1518,7 @@ describe("a draft cannot merge", () => {
     work = check(work, "checks-passed", 12);
     work = mergeState(work, { kind: "can" }, 12);
     expect(readMerge(work)).toEqual({ kind: "cannot", why: "draft" });
-    expect(byName(strip(work, FULL, at(20))).merge.kind).not.toBe("now");
+    expect(byName(cellsAt(work, FULL, at(20))).merge.kind).not.toBe("now");
   });
 
   it("forgets the merge answer on entering a draft and on leaving one", () => {
