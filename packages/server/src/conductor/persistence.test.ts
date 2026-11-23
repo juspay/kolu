@@ -157,9 +157,10 @@ const OTHER_KEY = {
  * transcript row be a compaction; 1.63.0 gives the Conductor its memory,
  * and lets a row be a memory proposal; 1.64.0 gives each work the worktree
  * it keeps when its terminals go; 1.65.0 gives `config.json` the record
- * of where each work's Code view stands; and 1.66.0 gives the preferences
- * where the Conductor compacts its conversation. */
-const STATE_SCHEMA_VERSION = "1.66.0";
+ * of where each work's Code view stands; 1.66.0 gives the preferences
+ * where the Conductor compacts its conversation; and 1.67.0 records who
+ * holds each work from then on. */
+const STATE_SCHEMA_VERSION = "1.67.0";
 
 const log = {
   debug() {},
