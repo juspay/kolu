@@ -106,9 +106,9 @@ const StageTrail: Component<{
                   aria-label={spokenOf(visit(), index)}
                   class={`block h-full w-full cursor-pointer rounded-sm hover:brightness-125 ${
                     STAGE_INK[visit().stage].fill
-                  } ${
-                    open()
-                      ? "ring-2 ring-fg ring-offset-1 ring-offset-surface-0"
+                  } ${open() ? NOW_RING : ""} ${
+                    shown()
+                      ? "outline outline-1 outline-offset-1 outline-fg-2"
                       : ""
                   }`}
                   onClick={() => props.index.show(index)}
