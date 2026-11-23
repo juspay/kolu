@@ -37,6 +37,7 @@ import {
   COMPACTION_OVERRIDES,
   compactingAt,
   configDirIn as claudeConfigDir,
+  LAUNCHER_SETTINGS,
   NAME,
   OWN_MEMORY_OFF,
   ownMemoryHint,
@@ -68,16 +69,6 @@ const INSTALL: NotHere = {
   where: null,
   why: "not found — this host's padi was started without the wrapper that carries the pinned adapter",
 };
-
-/**
- * WHAT THE LAUNCHER IN FRONT OF THIS ADAPTER SETS, said again. The adapter
- * drives agent-distro's `claude`, which launches the CLI with `--settings`
- * turning Claude Code's own attribution off; the session settings the leg
- * opens with replace those rather than merge with them (measured), so they
- * carry this too. A person who turned attribution on in their own settings is
- * overridden by it, for the Conductor's session only.
- */
-const LAUNCHER_SETTINGS = { attribution: { commit: "", pr: "" } };
 
 /** The word this engine is registered under — an identifier, not the name a
  *  person reads ({@link CONDUCTOR_SEAT}`.name`). Written once, here, and read
