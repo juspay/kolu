@@ -13,6 +13,10 @@
  * head, so a head that grew a row when an agent started would resize the
  * terminal as the agent starts and again when it quits. In a live pane the
  * row is there with an agent and without.
+ *
+ * THE ONE PRESS. In a live pane the size readout becomes a button while the
+ * terminal's REAL size — its record's — is not the size the pane would ask
+ * for. Never in Look, and never on a record that states no size.
  */
 
 import type { TerminalGrid } from "@kolu/xterm-kit/solid";
@@ -100,6 +104,7 @@ function mountControls(pans: boolean, fit: boolean): HTMLElement {
 function mountStatus(opts: {
   kind: HeadKind;
   drawn?: TerminalGrid;
+  resize?: { asked: TerminalGrid | null; onPress: () => void };
 }): HTMLElement {
   root = document.createElement("div");
   document.body.append(root);
@@ -115,6 +120,7 @@ function mountStatus(opts: {
           grid={opts.drawn ?? { cols: 80, rows: 24 }}
           phase="live"
           held={false}
+          resize={opts.resize}
         />
       </Shown.Provider>
     ),
@@ -158,5 +164,91 @@ describe("the agent's facts row", () => {
   it("is drawn in Look only for an agent", () => {
     setStanding(here({ agent: false }));
     expect(facts(mountStatus({ kind: "peek" }), "peek")).toBeNull();
+  });
+});
+
+describe("the one press to take the size", () => {
+  const press = (el: HTMLElement, kind: HeadKind) =>
+    el.querySelector<HTMLButtonElement>(`[data-testid="${kind}-resize"]`);
+  const BIG = { cols: 145, rows: 50 };
+
+  it("is offered in a live pane whose terminal is not the size it would ask for", () => {
+    setStanding(here({ agent: false, grid: { cols: 80, rows: 24 } }));
+    const onPress = vi.fn();
+    const button = press(
+      mountStatus({ kind: "live", resize: { asked: BIG, onPress } }),
+      "live",
+    );
+    expect(button?.textContent).toBe("80×24 · Resize to fit");
+    button?.click();
+    expect(onPress).toHaveBeenCalledTimes(1);
+  });
+
+  it("is not offered once the terminal is that size", () => {
+    setStanding(here({ agent: false, grid: BIG }));
+    expect(
+      press(
+        mountStatus({
+          kind: "live",
+          drawn: BIG,
+          resize: { asked: BIG, onPress: () => {} },
+        }),
+        "live",
+      ),
+    ).toBeNull();
+  });
+
+  it("reads the record, not the drawn screen", () => {
+    // The screen still draws the old size behind the scroll lock; the record
+    // already states the size the pane asks for.
+    setStanding(here({ agent: false, grid: BIG }));
+    expect(
+      press(
+        mountStatus({
+          kind: "live",
+          drawn: { cols: 80, rows: 24 },
+          resize: { asked: BIG, onPress: () => {} },
+        }),
+        "live",
+      ),
+    ).toBeNull();
+  });
+
+  it("is not offered on a record that states no size, or before the pane has measured", () => {
+    setStanding(here({ agent: false }));
+    expect(
+      press(
+        mountStatus({
+          kind: "live",
+          resize: { asked: BIG, onPress: () => {} },
+        }),
+        "live",
+      ),
+    ).toBeNull();
+    dispose?.();
+    root?.remove();
+    setStanding(here({ agent: false, grid: { cols: 80, rows: 24 } }));
+    expect(
+      press(
+        mountStatus({
+          kind: "live",
+          resize: { asked: null, onPress: () => {} },
+        }),
+        "live",
+      ),
+    ).toBeNull();
+  });
+
+  it("is never offered in Look", () => {
+    setStanding(here({ agent: false, grid: { cols: 80, rows: 24 } }));
+    expect(
+      press(
+        mountStatus({
+          kind: "peek",
+          resize: { asked: BIG, onPress: () => {} },
+        }),
+        "peek",
+      ),
+    ).toBeNull();
   });
 });
