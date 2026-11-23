@@ -110,10 +110,9 @@ const stood = new WeakMap<object, number>();
  *  A FOLLOWING VIEW IS LEFT ONLY BY MOVING UP. The browser dispatches `scroll`
  *  a frame after the view moved and measures the column as it is then: a pin
  *  to the end, then a work's question card drawn under it before that frame,
- *  and the event finds the view short of a new end it never left. Read as the
- *  reader's place, that short view was the place the whole conversation
- *  reopened at after a work was picked and left. A view no higher than where
- *  it stood is still following. */
+ *  and the event finds the view short of a new end it never left. Recorded as
+ *  the reader's place, that short view is where the conversation would reopen.
+ *  A view no higher than where it stood is still following. */
 export function rememberTranscriptScroll(el: ScrollMetrics): void {
   const was = stood.get(el);
   stood.set(el, el.scrollTop);
