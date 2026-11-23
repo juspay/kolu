@@ -132,8 +132,6 @@ The works take the wide side of the Conductor, and the conversation is a panel o
 
 The header shows who the agent is signed in as, the **model**, the [context used](/conductor-memory) (as `148k/1M`), **?** for the help, and the **⋯** menu. Click the model to change it, its reasoning effort or its permission mode.
 
-The model the conversation is on survives a restart, whether or not you chose it. If the agent no longer offers that model, the conversation opens on the agent's own model, and a line in the transcript names the old one and says it could not be put back. The line is written again each time the agent is asked for that model and refuses, for example when you start a new session.
-
 | ⋯ menu item | What it does |
 | --- | --- |
 | **New session** | Starts an empty conversation: the messages and their attached files are deleted. The pieces of work and the memory stay. It asks first, and there is no undo. |
@@ -222,7 +220,7 @@ The Conductor never implements anything itself, never starts an agent or opens a
 
 ## After a restart
 
-kolu-server restarts when it is upgraded. The conversation comes back with its transcript and model, and so does every piece of work, which is stored apart from the conversation.
+kolu-server restarts when it is upgraded. The conversation comes back with its transcript and model, and so does every piece of work. A model no longer offered is not put back, and a line says so.
 
 An agent that finished while kolu-server was down still wakes the Conductor, and nothing wakes it twice. A running turn and held wakes are lost.
 
