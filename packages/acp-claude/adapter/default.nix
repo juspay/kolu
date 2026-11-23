@@ -4,18 +4,14 @@
 # all facts about WHICH Claude ACP adapter is pinned. kolu bakes one into
 # padi's wrapper and olai bakes the same version into its own, and a second copy
 # of this file is a second answer to "which adapter" that nothing compares —
-# so it lives here, beside the shim and the patches it describes, and each
-# product reads it:
-#
-#   - kolu: `nix/packages/acp-adapter.nix`, which adds only kolu's own lines
-#     (the `claude` the adapter drives, and its `env`).
-#   - olai: its `packages/plugins/claude/default.nix`, which does the same.
+# so it lives here, beside the shim and the patches it describes, and is read
+# by `nix/packages/acp-adapter.nix`, the one place that names the `claude` the
+# adapter drives and the env its wrapper is armed with.
 #
 # Everything here is a plain value or a path into this directory. It returns a
-# set rather than calling the builder because the builder is each product's to
-# reach (`nix/npm-adapter.nix` in kolu), and a shared file that imported one
-# product's builder would be the two products' build systems braided again in
-# the one place that must not braid them.
+# set rather than calling the builder (`nix/npm-adapter.nix`) because the
+# builder is its reader's to call: a file of facts that imported a builder
+# would tie the answer to "which adapter" to one way of building it.
 let
   shim = ./shim;
   # The npm package inside the shim — a binding rather than a literal repeated,

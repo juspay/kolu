@@ -17,6 +17,9 @@
 # so both readers import THIS file with the same pin and name the same store
 # path; a second copy of the launchers would be a second floor, and the whole
 # point is that the conductor runs the one the terminals do.
+#
+# This file is also imported by path from outside this repository, so moving
+# it or changing its arguments breaks that importer's eval.
 { pkgs, src }:
 let
   inherit (pkgs) lib;

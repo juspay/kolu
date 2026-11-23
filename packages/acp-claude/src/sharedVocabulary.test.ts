@@ -23,8 +23,8 @@
  * own: the picker it draws is this one, reached through `CLAUDE.models`.
  * `compactingAt` and `COMPACTION_OVERRIDES` are how its server opens a session
  * that compacts and the variables it strips so nothing on the host moves that.
- * `LAUNCHER_SETTINGS` is recorded beside them because it exists to be
- * `compactingAt`'s second argument, which makes it a promise once exported.
+ * `LAUNCHER_SETTINGS` is recorded beside them because it is exported for a
+ * caller outside this repository to pass as `compactingAt`'s second argument.
  *
  * `configDirIn` is not here. kolu alone calls it — olai's host decides where a
  * signature lives for itself — so it carries no promise to another repository,

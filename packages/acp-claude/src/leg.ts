@@ -1007,8 +1007,8 @@ export const LAUNCHER_SETTINGS = {
  * MEASURED: session settings REPLACE a `--settings` the CLI was launched
  * with, they do not merge. So whatever the launcher in front of this adapter
  * set is lost unless it is said again, and `launched` is that. Which launcher
- * this adapter runs behind is a fact of the adapter derivation, so what it sets
- * is {@link LAUNCHER_SETTINGS}, in this package.
+ * this adapter runs behind is `nix/packages/acp-adapter.nix`'s answer, so what
+ * it sets is {@link LAUNCHER_SETTINGS}, in this package.
  */
 export const compactingAt = (
   tokens: number,
