@@ -116,13 +116,23 @@ describe("paneGrid", () => {
   });
 
   it("counts the rows at the font Fit width shrinks 80 columns to", () => {
-    // 80 columns in 500 px shrink 14 points to 9: a 10.9 px row, so 408 px
-    // hold 37 rows where the 14-point font held 24.
+    // 80 columns in 500 px shrink 14 points to 9: an 11 px row (10.9 rounded
+    // up, as the renderer rounds it), so 408 px hold 37 rows where the
+    // 14-point font held 24.
     const body = { width: 500, height: 420 };
     expect(paneGrid({ ...measured, ...body })).toEqual({ cols: 80, rows: 37 });
     expect(paneGrid({ ...measured, ...body, fit: false })).toEqual({
       cols: 80,
       rows: 24,
+    });
+  });
+
+  it("rounds the shrunk font's row up, so it never asks for a row that does not fit", () => {
+    // 416 px over the unrounded 10.93 px row is 38 rows, but 38 rows of the
+    // 11 px row the renderer draws need 418 px: the top row would be cut.
+    expect(paneGrid({ ...measured, width: 500, height: 428 })).toEqual({
+      cols: 80,
+      rows: 37,
     });
   });
 

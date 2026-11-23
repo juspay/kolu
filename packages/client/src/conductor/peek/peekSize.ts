@@ -74,9 +74,19 @@ export function fitFontSize(i: {
  *  padding, or its body is too small to hold a grid at all.
  *
  *  `cell` is the cell measured at `fontSize`, the font the pane draws at when
- *  nothing shrinks it. With Fit width on and room for fewer columns than the
- *  floor, the floor's columns are drawn at the font Fit width shrinks to, so
- *  the rows are counted at that font: a smaller font holds more of them.
+ *  nothing shrinks it — never the cell of a font Fit width already shrank,
+ *  which this would shrink again. With Fit width on and room for fewer
+ *  columns than the floor, the floor's columns are drawn at the font Fit
+ *  width shrinks to, so the rows are counted at that font: a smaller font
+ *  holds more of them.
+ *
+ *  That font is not drawn yet, so its row is an ESTIMATE — the measured row
+ *  scaled by the font ratio, then rounded UP to a whole pixel. The renderer's
+ *  row is the font's height rounded up to a whole device pixel (xterm's
+ *  `DomRenderer`: `Math.ceil(charSize.height * dpr)`), so the real row is at
+ *  least that tall: rounding up can ask for a row too few, never one too
+ *  many, at any pixel ratio — the worst it costs is a strip thinner than a
+ *  row, where rounding down would cut the top row off.
  *
  *  The box-to-grid division is the kit's (`gridForBox`), fed the pane's own
  *  measurements: the cell as drawn, so device pixels are already folded in. */
@@ -90,33 +100,37 @@ export function paneGrid(i: {
 }): TerminalGrid | null {
   const { cell, pad } = i;
   if (!cell || !pad) return null;
-  const at = (scale: number): TerminalGrid | null =>
+  const holds = (c: PeekCell): TerminalGrid | null =>
     gridForBox({
       parentWidth: i.width,
       parentHeight: i.height,
       paddingHorizontal: pad.x,
       paddingVertical: pad.y,
       scrollbarWidth: 0,
-      charWidth: cell.width * scale,
+      charWidth: c.width,
       letterSpacing: 0,
-      deviceCellHeight: cell.height * scale,
+      deviceCellHeight: c.height,
       devicePixelRatio: 1,
     });
-  const full = at(1);
+  const full = holds(cell);
   if (!full) return null;
   if (!i.fit || full.cols >= BIRTH_GRID.cols)
     return {
       cols: Math.max(BIRTH_GRID.cols, full.cols),
       rows: Math.max(BIRTH_GRID.rows, full.rows),
     };
-  const shrunk = fitFontSize({
-    cols: BIRTH_GRID.cols,
-    cellWidth: cell.width,
-    fontSize: i.fontSize,
-    availWidth: i.width,
-    padX: pad.x,
+  const scale =
+    fitFontSize({
+      cols: BIRTH_GRID.cols,
+      cellWidth: cell.width,
+      fontSize: i.fontSize,
+      availWidth: i.width,
+      padX: pad.x,
+    }) / i.fontSize;
+  const small = holds({
+    width: cell.width * scale,
+    height: Math.ceil(cell.height * scale),
   });
-  const small = at(shrunk / i.fontSize);
   if (!small) return null;
   return {
     cols: BIRTH_GRID.cols,
