@@ -965,16 +965,13 @@ export const CLAUDE: Leg = {
 const COMPACT_RESERVE = 33_000;
 
 /**
- * WHAT THE LAUNCHER IN FRONT OF THIS ADAPTER SETS, said again, for
- * {@link compactingAt}'s `launched`. The adapter drives agent-distro's
- * `claude`, which launches the CLI with `--settings` holding its session
- * defaults: Claude Code's own attribution off. This restates those defaults
- * (`SESSION_DEFAULTS` in agent-distro's `src/harness/claude.ts`) at the
- * revision this repository pins.
- *
- * Said again because session settings replace the launcher's `--settings`
- * rather than merge with them, so a session opened with any settings of its
- * own loses the launcher's unless they ride along.
+ * WHAT THE LAUNCHER IN FRONT OF THIS ADAPTER SETS, said again as
+ * {@link compactingAt}'s `launched`, whose doc says why a session has to say
+ * it again. The adapter drives agent-distro's `claude`, which launches the CLI
+ * with `--settings` holding its session defaults: Claude Code's own
+ * attribution off. This restates those defaults (`SESSION_DEFAULTS` in
+ * agent-distro's `src/harness/claude.ts`) at the revision this repository
+ * pins.
  *
  * NOT THE SAME RULE AS THE LAUNCHER'S. The launcher drops a default the person
  * has decided for themselves: someone whose own settings set `attribution` gets

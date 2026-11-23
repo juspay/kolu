@@ -52,6 +52,17 @@ const laneOf = (id: string): string | null => {
  *  glued to a word is a context size, not a version. */
 const LABEL_VERSION = /(?<![\w.])\d+(?:\.\d+)*(?![\w.])/;
 
+/** Whether a row labelled `label` may answer for an id whose version parts are
+ *  `version` (`["5", "1"]` for `claude-fable-5-1`), by the adapter's own rule
+ *  (`modelVersionsCompatible`) read off the label: equal when both state a
+ *  version, and agreed when either states none. */
+const versionsAgree = (label: string, version: readonly string[]): boolean => {
+  const stated = LABEL_VERSION.exec(label)?.[0];
+  return (
+    version.length === 0 || stated === undefined || stated === version.join(".")
+  );
+};
+
 /**
  * WHICH ROW OF THE PICKER a model id is — the row whose label is what the
  * agent calls this model, and whose context lane is how big its window is. Or
@@ -160,13 +171,10 @@ const rowFor = (
   const row = only(
     (value) => withoutLane(value) === family && laneOf(value) === lanes,
   );
-  if (row === null) return null;
   // ... and a row that says which version it is has to be this one.
-  const idVersion = version.length > 0 ? version.join(".") : null;
-  const rowVersion = LABEL_VERSION.exec(labels.get(row) ?? "")?.[0] ?? null;
-  const versionsAgree =
-    idVersion === null || rowVersion === null || idVersion === rowVersion;
-  return versionsAgree ? row : null;
+  return row !== null && versionsAgree(labels.get(row) ?? "", version)
+    ? row
+    : null;
 };
 
 /** What the agent calls the model with this id: the label of the row above, or
