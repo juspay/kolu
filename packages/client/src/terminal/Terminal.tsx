@@ -802,12 +802,6 @@ const Terminal: Component<{
           openAttachStream({ cause, repaint: false });
         }, REATTACH_BACKOFF_MS);
       };
-      // `"foreign"` is the watcher lane's only cause: an attach that exists
-      // because another viewer took the terminal is not the same event as a
-      // user revealing a pane, and the host can only tell them apart if the
-      // client says which it is.
-      const reassertWantedGrid = () => endAndReopen("foreign");
-
       /** The input the fence will replay on a transport retry — the one the
        *  current subscribe of THIS attempt was opened with. */
       let sent: TileAttachInput | null = null;
@@ -823,9 +817,12 @@ const Terminal: Component<{
       // The served-grid watcher's route into THIS attempt (see the binding's
       // note). Guarded exactly as every other cross-lane callback is, so a
       // watcher tick that lands on a superseded attempt does nothing.
-      reassertGrid = onlyWhenCurrent(
-        { isCurrent: attemptLive },
-        reassertWantedGrid,
+      // `"foreign"` is the watcher lane's only cause: an attach that exists
+      // because another viewer took the terminal is not the same event as a
+      // user revealing a pane, and the host can only tell them apart if the
+      // client says which it is.
+      reassertGrid = onlyWhenCurrent({ isCurrent: attemptLive }, () =>
+        endAndReopen("foreign"),
       );
 
       // The hide route into THIS attempt (see the binding's note). A close is
@@ -838,29 +835,19 @@ const Terminal: Component<{
 
       const consume = consumeReattachingStream(
         () => {
-          // The grid this pane WANTS, read at the moment the stream opens —
-          // sent as `resizeTo` while the view is in front, which is an
-          // ASSERTION: the host resizes the shared pty to it and serializes in
-          // one act. Behind the Conductor nothing is sent (`attachInput.ts`).
+          // The grid this pane WANTS, read at the moment the stream opens,
+          // and the input built from it (`attachInput.ts`, which says what an
+          // attach may carry and what a transport retry may replay). Nothing
+          // downstream compares a frame against it: what comes back states
+          // its OWN grid and the pane follows that.
           //
-          // Nothing downstream compares a frame against it. What comes back
-          // states its OWN grid and the pane follows that, so the honest
-          // question is never "is this the size I asked for" but "what size is
-          // this" — and the answer rides on the frame. The input is kept
-          // (`sent`) only to decide what a transport retry may replay.
-          //
-          // This thunk is NOT the transport-retry path: `unenrolledStreamCall`
-          // invokes the procedure once and the fence re-subscribes by
-          // replaying that captured input, so a STREAM_RETRY re-asserts the grid
-          // read here even if the pane has moved since
-          // (`dev/skills/streaming/SKILL.md`, "A member's input is CAPTURED").
-          // `consumeReattachingStream`'s own outer re-attach DOES re-enter this
-          // thunk and picks up a fresh one. In front, a retry that re-asserts a
-          // stale grid leaves the pty at a size this pane does not want, which
-          // the served-grid watcher sees on the record and repairs by
-          // reopening — the same lane a foreign viewer's resize takes, because
-          // it is the same condition. Behind the Conductor the retry hook
-          // reopens before the replay goes out (`onRetry` above).
+          // This thunk is NOT the transport-retry path: the fence re-subscribes
+          // by replaying the input captured here (`dev/skills/streaming/
+          // SKILL.md`, "A member's input is CAPTURED"), while
+          // `consumeReattachingStream`'s own outer re-attach DOES re-enter it
+          // and picks up a fresh one. In front, a replayed stale grid is
+          // repaired by the served-grid watcher, the lane a foreign viewer's
+          // resize takes; behind the Conductor `onRetry` reopens instead.
           //
           // Absent is unreachable — the shown-pane gate opens the stream only
           // once a measurement exists, and a measured box is never un-measured.
@@ -885,9 +872,6 @@ const Terminal: Component<{
           // re-enter it — see above — it replays this input, cause and all.)
           const cause = causeOwed ?? "attach";
           causeOwed = null;
-          // Behind the Conductor the input carries no size at all
-          // (`attachInput.ts`): an attach with `resizeTo` is a resize, not a
-          // description of this pane.
           sent = tileAttachInput({
             id: props.terminalId,
             cause,
