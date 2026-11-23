@@ -64,6 +64,9 @@ const WorkDetails: Component<{
   });
   /** Whether the PR's red gates are unfolded from their one line. */
   const [allFailing, setAllFailing] = createSignal(false);
+  /** The work's visits, for a work that has stages. */
+  const trail = () =>
+    props.stages.kind === "staged" ? props.stages.trail : undefined;
 
   return (
     <div data-testid="work-details">
@@ -160,13 +163,8 @@ const WorkDetails: Component<{
 
       <WorkDecisions work={props.work} />
 
-      <Show
-        when={(() => {
-          const read = props.stages;
-          return read.kind === "staged" ? read.trail : undefined;
-        })()}
-      >
-        {(trail) => <StageTrail trail={trail()} index={props.trail} />}
+      <Show when={trail()}>
+        {(visits) => <StageTrail trail={visits()} index={props.trail} />}
       </Show>
 
       <WorkTimeline

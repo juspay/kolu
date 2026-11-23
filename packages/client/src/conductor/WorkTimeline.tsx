@@ -173,6 +173,13 @@ const WorkTimeline: Component<{
       ? viewWord(folded)
       : `only ${viewWord(folded)}`;
   };
+  /** The stage the view is about — a stage's own, or a visit's. */
+  const viewStage = () => {
+    const view = shown().view;
+    return view.kind === "stage" || view.kind === "visit"
+      ? view.stage
+      : undefined;
+  };
 
   /** ONE EVENT'S ROW — drawn the same at the top level and inside an
    *  unfolded folder row. */
@@ -361,16 +368,7 @@ const WorkTimeline: Component<{
     <section
       data-testid="work-timeline"
       data-view={shown().view.kind}
-      data-stage={(() => {
-        const view = shown().view;
-        return view.kind === "stage" || view.kind === "visit"
-          ? view.stage
-          : undefined;
-      })()}
-      data-visit={(() => {
-        const view = shown().view;
-        return view.kind === "visit" ? view.visit : undefined;
-      })()}
+      data-stage={viewStage()}
       class="mt-2.5"
     >
       <h4 class="m-0 font-mono text-[0.58rem] uppercase tracking-[0.1em] text-fg-3">

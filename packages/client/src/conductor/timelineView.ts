@@ -143,6 +143,58 @@ const rowsOf = (
   );
 };
 
+/** THE PART THE TIMELINE FOLDS TO, and its rows: a watch's latest few, a
+ *  visit pressed on the trail, or a stage — the one pressed on the map, else
+ *  the one the work is in. `all` is every event index the timeline draws,
+ *  `every` their rows. */
+const foldedPart = (
+  work: Work,
+  stages: Stages,
+  pressed: TimelinePick | undefined,
+  all: ReadonlyArray<number>,
+  every: ReadonlyArray<TimelineRow>,
+): {
+  readonly folded: TimelineShown["folded"];
+  readonly rows: ReadonlyArray<TimelineRow>;
+} => {
+  if (stages.kind !== "staged")
+    return {
+      folded: { kind: "latest" },
+      rows: every.slice(-WATCH_EVENTS_SHOWN),
+    };
+  // A VISIT PRESSED ON THE TRAIL: its own events, from the trail's filing.
+  const visit =
+    pressed?.kind === "visit" ? stages.trail[pressed.visit] : undefined;
+  if (pressed?.kind === "visit" && visit !== undefined) {
+    const same = stages.trail.flatMap((one, index) =>
+      one.stage === visit.stage ? [index] : [],
+    );
+    return {
+      folded: {
+        kind: "visit",
+        visit: pressed.visit,
+        stage: visit.stage,
+        nth: same.indexOf(pressed.visit) + 1,
+        of: same.length,
+      },
+      rows: rowsOf(
+        work,
+        all.filter(
+          (index) => index >= visit.events.from && index < visit.events.until,
+        ),
+      ),
+    };
+  }
+  const stage = pressed?.kind === "stage" ? pressed.stage : stages.current;
+  return {
+    folded: { kind: "stage", stage },
+    rows: rowsOf(
+      work,
+      all.filter((index) => stages.events[index] === stage),
+    ),
+  };
+};
+
 export function timelineShown(
   work: Work,
   stages: Stages,
@@ -154,59 +206,8 @@ export function timelineShown(
     .filter((index) => !repeats(work, index));
   const every = rowsOf(work, all);
   const total = every.length;
-  if (stages.kind !== "staged") {
-    const folded = { kind: "latest" } as const;
-    return whole
-      ? { view: { kind: "whole" }, folded, rows: every, total }
-      : {
-          view: folded,
-          folded,
-          rows: every.slice(-WATCH_EVENTS_SHOWN),
-          total,
-        };
-  }
-  // A VISIT PRESSED ON THE TRAIL: its own events, from the trail's filing.
-  const visit =
-    pressed?.kind === "visit" ? stages.trail[pressed.visit] : undefined;
-  if (pressed?.kind === "visit" && visit !== undefined) {
-    const same = stages.trail.flatMap((one, index) =>
-      one.stage === visit.stage ? [index] : [],
-    );
-    const folded = {
-      kind: "visit",
-      visit: pressed.visit,
-      stage: visit.stage,
-      nth: same.indexOf(pressed.visit) + 1,
-      of: same.length,
-    } as const;
-    return whole
-      ? { view: { kind: "whole" }, folded, rows: every, total }
-      : {
-          view: folded,
-          folded,
-          rows: rowsOf(
-            work,
-            all.filter(
-              (index) =>
-                index >= visit.events.from && index < visit.events.until,
-            ),
-          ),
-          total,
-        };
-  }
-  const folded = {
-    kind: "stage",
-    stage: pressed?.kind === "stage" ? pressed.stage : stages.current,
-  } as const;
+  const { folded, rows } = foldedPart(work, stages, pressed, all, every);
   return whole
     ? { view: { kind: "whole" }, folded, rows: every, total }
-    : {
-        view: folded,
-        folded,
-        rows: rowsOf(
-          work,
-          all.filter((index) => stages.events[index] === folded.stage),
-        ),
-        total,
-      };
+    : { view: folded, folded, rows, total };
 }

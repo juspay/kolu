@@ -24,7 +24,11 @@ import { Option } from "effect";
 import type { Filed, Visit } from "kolu-work";
 import { type Component, createMemo, Index } from "solid-js";
 import { type TrailLabel, trailLabels, visitMs } from "./trailView";
-import { STAGE_INK, STAGE_LABEL } from "./workReadings";
+import { NOW_RING, STAGE_INK, STAGE_LABEL } from "./workReadings";
+
+/** The stage a label's dot is coloured by: a run of rounds is the review's. */
+const labelStage = (label: TrailLabel): Filed =>
+  label.kind === "rounds" ? "review" : label.stage;
 
 /** What a stretch nobody recorded is, in words — the hatch says it to the
  *  eye. */
@@ -106,7 +110,7 @@ const StageTrail: Component<{
                     open()
                       ? "ring-2 ring-fg ring-offset-1 ring-offset-surface-0"
                       : ""
-                  } ${shown() ? "outline outline-1 outline-offset-1 outline-fg-2" : ""}`}
+                  }`}
                   onClick={() => props.index.show(index)}
                 />
               </li>
@@ -122,20 +126,13 @@ const StageTrail: Component<{
           {(label) => (
             <li
               data-testid="trail-label"
-              data-kind={label().kind}
-              data-now={label().now ? "" : undefined}
               class={`flex items-center gap-1 whitespace-nowrap ${
                 label().now ? "text-fg" : ""
               }`}
             >
               <span
                 class={`inline-block h-1.5 w-1.5 rounded-full ${
-                  STAGE_INK[
-                    (() => {
-                      const it = label();
-                      return it.kind === "rounds" ? "review" : it.stage;
-                    })()
-                  ].fill
+                  STAGE_INK[labelStage(label())].fill
                 }`}
               />
               {labelWords(label())}

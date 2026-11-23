@@ -112,15 +112,17 @@ export const STAGE_LABEL: Record<Filed, string> = {
  *  run of Review and Build visits reads as one at a glance. A stage's hue
  *  (`--color-stage-*`, `@kolu/theme`) says WHICH stage, never whose time it
  *  was: that stays in a stage's title and spoken label. The setup is a quiet
- *  grey, and the stretch nobody recorded is hatched, so it is drawn apart
- *  from every stage. `fill` paints a trail segment, `edge` a map box. */
+ *  grey, and the stretch nobody recorded is hatched — the one hatch, faint
+ *  enough to read a map box's name over — so it is drawn apart from every
+ *  stage. `fill` paints a trail segment (and the hatch a map box), `edge` a
+ *  map box's border. */
 export const STAGE_INK: Record<
   Filed,
   { readonly fill: string; readonly edge: string }
 > = {
   setup: { fill: "bg-fg-3/40", edge: "border-fg-3" },
   unrecorded: {
-    fill: "bg-[repeating-linear-gradient(135deg,var(--color-fg-3)_0_2px,transparent_2px_5px)]",
+    fill: "bg-[repeating-linear-gradient(135deg,color-mix(in_oklch,var(--color-fg-3)_45%,transparent)_0_2px,transparent_2px_5px)]",
     edge: "border-dashed border-fg-3",
   },
   plan: { fill: "bg-stage-plan", edge: "border-stage-plan" },
@@ -130,6 +132,10 @@ export const STAGE_INK: Record<
   checks: { fill: "bg-stage-checks", edge: "border-stage-checks" },
   merge: { fill: "bg-stage-merge", edge: "border-stage-merge" },
 };
+
+/** THE RING ON WHERE A WORK IS NOW — its stage on the map, its visit on the
+ *  trail. */
+export const NOW_RING = "ring-2 ring-fg ring-offset-1 ring-offset-surface-0";
 
 /** THE STAGES of a work, under its own policy. */
 export function stagesOf(work: Work, now: string): Stages {

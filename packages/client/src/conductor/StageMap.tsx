@@ -44,7 +44,7 @@ import {
 } from "kolu-work";
 import { type Component, createMemo, Index, Show } from "solid-js";
 import { visitMs } from "./trailView";
-import { STAGE_INK, STAGE_LABEL } from "./workReadings";
+import { NOW_RING, STAGE_INK, STAGE_LABEL } from "./workReadings";
 
 /** WHERE EACH STAGE SITS on the map's grid: five in a row, Review above
  *  Build. Columns alternate stage and arrow. */
@@ -67,14 +67,6 @@ const STATE_WORD: Record<StageState["kind"], string> = {
   skipped: "did not happen",
 };
 
-/** The hatch a stage whose time nobody recorded is drawn in — the trail's
- *  hatch for that stretch, faint enough to read the stage's name over. */
-const UNRECORDED_HATCH =
-  "bg-[repeating-linear-gradient(135deg,color-mix(in_oklch,var(--color-fg-3)_30%,transparent)_0_2px,transparent_2px_5px)]";
-
-/** The ring on what the work is in now. */
-const RING = "ring-2 ring-fg ring-offset-1 ring-offset-surface-0";
-
 /** Whose time a stage mostly was, in words — the colour no longer says it. */
 const WHOSE: Record<Waiter, string> = {
   agent: "the agents' time",
@@ -89,11 +81,11 @@ const WHOSE: Record<Waiter, string> = {
 const boxInk = (name: StageName, state: StageState): string => {
   switch (state.kind) {
     case "now":
-      return `${STAGE_INK[name].edge} ${RING}`;
+      return `${STAGE_INK[name].edge} ${NOW_RING}`;
     case "done":
       return STAGE_INK[name].edge;
     case "unrecorded":
-      return `${STAGE_INK.unrecorded.edge} ${UNRECORDED_HATCH} ${state.now ? RING : ""}`;
+      return `${STAGE_INK.unrecorded.edge} ${STAGE_INK.unrecorded.fill} ${state.now ? NOW_RING : ""}`;
     case "not-started":
       return "border-edge opacity-60";
     case "skipped":
@@ -171,27 +163,35 @@ const spokenOf = (stage: Stage, visits: number): string => {
   ].join(", ");
 };
 
-/** AN ARROW between two places on the map, and the count once its loop has
- *  been walked: `→`, or `→ ×2` over `← ×1`. Drawn, not spoken — each stage's
- *  own sentence says how many times the work was in it. */
+/** AN ARROW between two places on the map. One that is half of a LOOP (it
+ *  has a way back) says, once the work has gone back along it, how many
+ *  times each way: `→×2` over `←×1`. Drawn, not spoken — each stage's own
+ *  sentence says how many times the work was in it. */
 const Arrow: Component<{
   col: number;
-  forward: number;
-  back: number;
-  loops: boolean;
   testId: string;
+  loop?: { readonly forward: number; readonly back: number };
 }> = (props) => (
   <li
     aria-hidden="true"
     data-testid={props.testId}
-    data-forward={props.forward}
-    data-back={props.back}
+    data-forward={props.loop?.forward}
+    data-back={props.loop?.back}
     style={{ "grid-column": `${props.col}`, "grid-row": "3" }}
     class="flex flex-col items-center justify-center px-0.5 font-mono text-[0.5rem] leading-tight text-fg-3"
   >
-    <Show when={props.loops && props.back > 0} fallback={<span>→</span>}>
-      <span class="whitespace-nowrap">→×{props.forward}</span>
-      <span class="whitespace-nowrap">←×{props.back}</span>
+    <Show
+      when={
+        props.loop !== undefined && props.loop.back > 0 ? props.loop : undefined
+      }
+      fallback={<span>→</span>}
+    >
+      {(loop) => (
+        <>
+          <span class="whitespace-nowrap">→×{loop().forward}</span>
+          <span class="whitespace-nowrap">←×{loop().back}</span>
+        </>
+      )}
     </Show>
   </li>
 );
@@ -228,8 +228,6 @@ const StageMap: Component<{
       {(read) => (
         <div
           data-testid={props.testId}
-          data-size={props.size}
-          data-run={props.stages.kind}
           class={`min-w-0 ${full() ? "mt-2" : "mt-1.5"}`}
         >
           <ol
@@ -295,15 +293,6 @@ const StageMap: Component<{
                     data-testid="stage"
                     data-stage={name()}
                     data-state={state().kind}
-                    data-who={(() => {
-                      const now = state();
-                      return now.kind === "done" || now.kind === "now"
-                        ? now.who
-                        : undefined;
-                    })()}
-                    data-shown={
-                      props.index?.shown() === name() ? "" : undefined
-                    }
                     title={spoken()}
                     style={{
                       "grid-column": `${PLACE[name()].col}`,
@@ -360,18 +349,13 @@ const StageMap: Component<{
                 down between them and says how many rounds it has had. */}
             <Arrow
               col={2}
-              forward={read().moved("plan", "approve")}
-              back={read().moved("approve", "plan")}
-              loops
               testId="stage-arrow-plan-approve"
+              loop={{
+                forward: read().moved("plan", "approve"),
+                back: read().moved("approve", "plan"),
+              }}
             />
-            <Arrow
-              col={4}
-              forward={read().moved("approve", "build")}
-              back={0}
-              loops={false}
-              testId="stage-arrow-approve-build"
-            />
+            <Arrow col={4} testId="stage-arrow-approve-build" />
             <li
               aria-hidden="true"
               data-testid="stage-arrow-build-review"
@@ -386,18 +370,13 @@ const StageMap: Component<{
             </li>
             <Arrow
               col={6}
-              forward={read().moved("build", "checks")}
-              back={read().moved("checks", "build")}
-              loops
               testId="stage-arrow-build-checks"
+              loop={{
+                forward: read().moved("build", "checks"),
+                back: read().moved("checks", "build"),
+              }}
             />
-            <Arrow
-              col={8}
-              forward={read().moved("checks", "merge")}
-              back={0}
-              loops={false}
-              testId="stage-arrow-checks-merge"
-            />
+            <Arrow col={8} testId="stage-arrow-checks-merge" />
           </ol>
         </div>
       )}
