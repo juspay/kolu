@@ -5,8 +5,8 @@
 # padi's wrapper and olai bakes the same version into its own, and a second copy
 # of this file is a second answer to "which adapter" that nothing compares —
 # so it lives here, beside the shim and the patches it describes, and is read
-# by `nix/packages/acp-adapter.nix`, the one place that names the `claude` the
-# adapter drives and the env its wrapper is armed with.
+# by `nix/packages/acp-adapter.nix`, which names the `claude` the adapter drives
+# and the env its wrapper is armed with.
 #
 # Everything here is a plain value or a path into this directory. It returns a
 # set rather than calling the builder (`nix/npm-adapter.nix`) because the
