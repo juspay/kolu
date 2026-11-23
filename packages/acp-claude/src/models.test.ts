@@ -193,9 +193,9 @@ describe("how big the running model's context is", () => {
 });
 
 describe("the version an alias row stands for", () => {
-  /** The picker the pinned adapter sends a signed-out CLI 2.1.325, captured
-   *  off the wire. Every family row is a bare alias, and the adapter wrote the
-   *  version it stands for into each label. */
+  /** The picker the pinned adapter sends when it drives a signed-out CLI
+   *  2.1.325, captured off the wire. Every family row is a bare alias, and the
+   *  adapter wrote the version it stands for into each label. */
   const PINNED = new Map([
     ["default", "Default (recommended)"],
     ["opus", "Opus 5.5"],

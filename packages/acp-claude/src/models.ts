@@ -81,26 +81,25 @@ const LABEL_VERSION = /(?<![\w.])\d+(?:\.\d+)*(?![\w.])/;
  *   2. the same model in the adapter's two spellings of a context lane —
  *      `claude-fable-5` is the `claude-fable-5[1m]` row;
  *   3. an ALIAS row: a value that is one bare word naming a FAMILY, against an
- *      id that is that family and a version and nothing else.
- *      `claude-sonnet-5` is the `sonnet` row because "sonnet" is literally
- *      what that id says it is.
+ *      id that is that family and a version and nothing else, where the
+ *      version is the one the row's label states. `claude-sonnet-5-5` is the
+ *      `sonnet` row labelled "Sonnet 5.5" because "sonnet" is literally what
+ *      that id says it is, and 5.5 is the version the row says it stands for.
+ *      `claude-sonnet-5` is not.
  *
- * Tier 3 answers for a family and a version — `claude-sonnet-5`,
- * `claude-haiku-4-5` — and for nothing more decorated than that. A dated or
- * otherwise pinned id (`claude-opus-4-5-20260101`) names something more
- * specific than any alias claims to cover, and gets the raw id: an alias row
- * that answered for it would be saying the picker offers a model it does not.
+ * Tier 3 answers for a family and a version and for nothing more decorated
+ * than that. A dated or otherwise pinned id (`claude-opus-4-5-20260101`) names
+ * something more specific than any alias claims to cover, and gets the raw id:
+ * an alias row that answered for it would be saying the picker offers a model
+ * it does not.
  *
- * AND THE VERSIONS HAVE TO AGREE. An alias row stands for one version of its
- * family, and the adapter says which in the row's label: it writes the version
- * into a terse label itself, so `sonnet` goes out as "Sonnet 5.5". When the id
- * states a version and the row's label states one, they are equal or the row
- * does not answer: `claude-fable-5-1` against a `fable` row labelled "Fable
- * 5.2" is no row, and the id is said raw. That is the adapter's own rule
- * (`modelVersionsCompatible`), the one it refuses a request for that id by, so
- * the row named here and the row the adapter would put the id on never differ
- * by a version. An id or a label that states no version answers as the
- * adapter's does: on family and lane alone.
+ * The version an alias row stands for is the adapter's statement: it writes
+ * the version into a terse label itself, so `sonnet` goes out as "Sonnet 5.5".
+ * And the rule is the adapter's own (`modelVersionsCompatible`): asked for
+ * `claude-fable-5-1` with a `fable` row labelled "Fable 5.2", the adapter
+ * refuses, so this names no row and the id is said raw. A label or an id that
+ * states no version passes, as under the adapter's rule, and the row answers
+ * on family and lane alone.
  *
  * And every tier that could answer twice answers `null` instead. Tier 3 in
  * particular takes a UNIQUE hit or none: two alias rows for one family — a
