@@ -13320,6 +13320,18 @@
       "firstSeenSha": "821f51db2a8ec06da4cb4415ad4d5d32574205c2"
     },
     {
+      "revisionId": "revision-5abc81b56968793499ac",
+      "scenarioKey": "scenario-c1fd5e387ec2df9459a7",
+      "feature": "features/conductor.feature",
+      "scenario": "Picking a work and going back leaves a following chat at the bottom",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "a1ad0b4e5833c8437ea0b6f94682b9f6e0cb2230f8237db6e61730f4cb67f824",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "e8f111d56108b721052a5165d11dc130aec497bb"
+    },
+    {
       "revisionId": "revision-00a6f6e83da87753ad8b",
       "scenarioKey": "scenario-e01dd9fb73130624d56f",
       "feature": "features/conductor-live-terminals.feature",
@@ -13329,7 +13341,7 @@
       "bodyHash": "687ec694d570740cca03a57d2941d1bda9f8d6e0adedc6e686ff9d2ec964bc5b",
       "exampleRows": [],
       "executions": 1,
-      "firstSeenSha": "51d3967e0f6943d027137cf1183be0c03ba56617"
+      "firstSeenSha": "67af87236345a5a7244aa31bea38a861d781f260"
     },
     {
       "revisionId": "revision-9e25ab166ff233a38f73",
@@ -13341,7 +13353,7 @@
       "bodyHash": "5802960df00a08fbfb63d13706155b7588ebe26d41e5915aa0d25629f526f9b6",
       "exampleRows": [],
       "executions": 1,
-      "firstSeenSha": "51d3967e0f6943d027137cf1183be0c03ba56617"
+      "firstSeenSha": "67af87236345a5a7244aa31bea38a861d781f260"
     },
     {
       "revisionId": "revision-94566e26a099f3c7dad3",
@@ -13353,7 +13365,7 @@
       "bodyHash": "ba66cbbabaab8e2b80fb4a0187308461e45cbb68474115be651bce4a24978398",
       "exampleRows": [],
       "executions": 1,
-      "firstSeenSha": "51d3967e0f6943d027137cf1183be0c03ba56617"
+      "firstSeenSha": "67af87236345a5a7244aa31bea38a861d781f260"
     },
     {
       "revisionId": "revision-a4199adf61eb735c1e9d",
@@ -13365,7 +13377,7 @@
       "bodyHash": "13a24cd19a9b9e5abf6d573c7d4d214209ceb0097210caa6e1b7e2da6468c689",
       "exampleRows": [],
       "executions": 1,
-      "firstSeenSha": "51d3967e0f6943d027137cf1183be0c03ba56617"
+      "firstSeenSha": "67af87236345a5a7244aa31bea38a861d781f260"
     },
     {
       "revisionId": "revision-580f152b7cc8bcc7188b",
@@ -13377,7 +13389,7 @@
       "bodyHash": "81ffc0dd853ab57903d0bf59094ea4e8e194d24a2f91054c9ad5776b8d0ef353",
       "exampleRows": [],
       "executions": 1,
-      "firstSeenSha": "51d3967e0f6943d027137cf1183be0c03ba56617"
+      "firstSeenSha": "67af87236345a5a7244aa31bea38a861d781f260"
     },
     {
       "revisionId": "revision-a654e4527c940c32ee66",
@@ -13389,7 +13401,7 @@
       "bodyHash": "46125930c23a8ced0291d51cff0d0707386c2371aa030c0d334cadc170e1c122",
       "exampleRows": [],
       "executions": 1,
-      "firstSeenSha": "51d3967e0f6943d027137cf1183be0c03ba56617"
+      "firstSeenSha": "67af87236345a5a7244aa31bea38a861d781f260"
     },
     {
       "revisionId": "revision-dcd272bc8fd3b344cecd",
@@ -13401,7 +13413,7 @@
       "bodyHash": "7bf682fedaf0edd415c2002a5643384525548c5712b005954b5abb321b3bd2a4",
       "exampleRows": [],
       "executions": 1,
-      "firstSeenSha": "51d3967e0f6943d027137cf1183be0c03ba56617"
+      "firstSeenSha": "67af87236345a5a7244aa31bea38a861d781f260"
     },
     {
       "revisionId": "revision-1dfb605d5841284ddd6a",
@@ -13413,7 +13425,7 @@
       "bodyHash": "712a82a057984e0134d2ac0789268d633357e62b10aef4c4c4d88f21a0ee07bf",
       "exampleRows": [],
       "executions": 1,
-      "firstSeenSha": "51d3967e0f6943d027137cf1183be0c03ba56617"
+      "firstSeenSha": "67af87236345a5a7244aa31bea38a861d781f260"
     },
     {
       "revisionId": "revision-bace0a80af6f05caf5c5",
@@ -13425,7 +13437,7 @@
       "bodyHash": "56ada3b66e3bbe31cce4afc4741f9477d5133ff36db1251217d62ae246ff7e2e",
       "exampleRows": [],
       "executions": 1,
-      "firstSeenSha": "51d3967e0f6943d027137cf1183be0c03ba56617"
+      "firstSeenSha": "67af87236345a5a7244aa31bea38a861d781f260"
     },
     {
       "revisionId": "revision-13556647a3da349e4b34",
@@ -13437,7 +13449,7 @@
       "bodyHash": "66d968295af2bd36a1fd9b70ddb30b0a203ca62130076a151743ecc35a115f6d",
       "exampleRows": [],
       "executions": 1,
-      "firstSeenSha": "51d3967e0f6943d027137cf1183be0c03ba56617"
+      "firstSeenSha": "67af87236345a5a7244aa31bea38a861d781f260"
     },
     {
       "revisionId": "revision-4ca9a8c49e40143d3d47",
@@ -13449,7 +13461,7 @@
       "bodyHash": "5976973824343b8c3869d13bf242e3d47710f00f21a05a562cb06fb1d3ab2ebf",
       "exampleRows": [],
       "executions": 1,
-      "firstSeenSha": "51d3967e0f6943d027137cf1183be0c03ba56617"
+      "firstSeenSha": "67af87236345a5a7244aa31bea38a861d781f260"
     }
   ]
 }

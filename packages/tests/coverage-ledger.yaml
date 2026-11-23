@@ -5317,6 +5317,19 @@ retirements:
       file: packages/tests/features/preferences.feature
       symbol: "Scenario: The Conductor's compaction point persists across reload"
       test: The same check — a choice made in Settings is still the one selected after a reload — over the row's new choices, Custom with 250 typed and then Model limit. The fixed 300k it clicked before is no longer on the row.
+  - id: revise-b5a73252c25fc719cae0
+    revisionId: revision-b5a73252c25fc719cae0
+    action: revised
+    status: landed
+    promise: Picking a work and going back leaves a following chat at the bottom
+    defectSurface: [conductor, user-journey]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-5abc81b56968793499ac]
+    sameCodePathEvidence:
+      file: packages/tests/features/conductor.feature
+      symbol: "Scenario: Picking a work and going back leaves a following chat at the bottom"
+      test: The same journey with one check added — right after the work is opened, before it is picked, the chat is at the bottom, so a follower sees the work's question card that lands with the work's record. Nothing it checked before was taken out.
   - id: revise-2e2b44f9fae2bf07e8b2
     revisionId: revision-2e2b44f9fae2bf07e8b2
     action: revised
