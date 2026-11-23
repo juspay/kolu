@@ -46,6 +46,12 @@ const laneOf = (id: string): string | null => {
   return found?.[1] ?? found?.[2] ?? null;
 };
 
+/** The version a picker row's label states: its first number standing alone,
+ *  dotted parts and all, so "Fable 5.2" states `5.2`. "Sonnet" and "Default
+ *  (recommended)" state none, and neither does "Opus (1M context)": a number
+ *  glued to a word is a context size, not a version. */
+const LABEL_VERSION = /(?<![\w.])\d+(?:\.\d+)*(?![\w.])/;
+
 /**
  * WHICH ROW OF THE PICKER a model id is — the row whose label is what the
  * agent calls this model, and whose context lane is how big its window is. Or
@@ -84,6 +90,17 @@ const laneOf = (id: string): string | null => {
  * otherwise pinned id (`claude-opus-4-5-20260101`) names something more
  * specific than any alias claims to cover, and gets the raw id: an alias row
  * that answered for it would be saying the picker offers a model it does not.
+ *
+ * AND THE VERSIONS HAVE TO AGREE. An alias row stands for one version of its
+ * family, and the adapter says which in the row's label: it writes the version
+ * into a terse label itself, so `sonnet` goes out as "Sonnet 5.5". When the id
+ * states a version and the row's label states one, they are equal or the row
+ * does not answer: `claude-fable-5-1` against a `fable` row labelled "Fable
+ * 5.2" is no row, and the id is said raw. That is the adapter's own rule
+ * (`modelVersionsCompatible`), the one it refuses a request for that id by, so
+ * the row named here and the row the adapter would put the id on never differ
+ * by a version. An id or a label that states no version answers as the
+ * adapter's does: on family and lane alone.
  *
  * And every tier that could answer twice answers `null` instead. Tier 3 in
  * particular takes a UNIQUE hit or none: two alias rows for one family — a
@@ -141,9 +158,16 @@ const rowFor = (
   // a family alias names a family, and may not throw in a context window the
   // thing it is naming never claimed.
   const lanes = laneOf(id);
-  return only(
+  const row = only(
     (value) => withoutLane(value) === family && laneOf(value) === lanes,
   );
+  if (row === null) return null;
+  // ... and a row that says which version it is has to be this one.
+  const idVersion = version.length > 0 ? version.join(".") : null;
+  const rowVersion = LABEL_VERSION.exec(labels.get(row) ?? "")?.[0] ?? null;
+  const versionsAgree =
+    idVersion === null || rowVersion === null || idVersion === rowVersion;
+  return versionsAgree ? row : null;
 };
 
 /** What the agent calls the model with this id: the label of the row above, or

@@ -191,3 +191,81 @@ describe("how big the running model's context is", () => {
     ).toBeNull();
   });
 });
+
+describe("the version an alias row stands for", () => {
+  /** The picker the pinned adapter sends a signed-out CLI 2.1.325, captured
+   *  off the wire. Every family row is a bare alias, and the adapter wrote the
+   *  version it stands for into each label. */
+  const PINNED = new Map([
+    ["default", "Default (recommended)"],
+    ["opus", "Opus 5.5"],
+    ["fable", "Fable 5.2"],
+    ["sonnet", "Sonnet 5.5"],
+    ["haiku", "Haiku 5.5"],
+  ]);
+
+  test("an id whose version the row does not state is no row", () => {
+    // A conversation that remembers `claude-fable-5-1` used to be named
+    // "Fable 5.2" and asked back as `fable`: moved to a newer model, silently.
+    // The adapter refuses each of these ids, so naming a row for one claims a
+    // model the picker does not offer.
+    for (const id of [
+      "claude-fable-5-1",
+      "claude-fable-5",
+      "claude-opus-4-5",
+      "claude-sonnet-5",
+      "claude-haiku-4-5",
+    ]) {
+      expect(modelNameIn(PINNED, id)).toBeNull();
+      expect(modelWindowIn(PINNED, id)).toBeNull();
+    }
+  });
+
+  test("an id whose version the row states is that row", () => {
+    expect(modelNameIn(PINNED, "claude-fable-5-2")).toBe("Fable 5.2");
+    expect(modelNameIn(PINNED, "claude-opus-5-5")).toBe("Opus 5.5");
+    expect(modelNameIn(PINNED, "claude-sonnet-5-5")).toBe("Sonnet 5.5");
+    for (const id of [
+      "claude-fable-5-2",
+      "claude-opus-5-5",
+      "claude-sonnet-5-5",
+    ])
+      expect(modelWindowIn(PINNED, id)).toBe(200_000);
+    // A lane spelling is tier 2, which compares ids and not versions.
+    expect(modelNameIn(PINNED, "opus[1m]")).toBe("Opus 5.5");
+  });
+
+  test("which version a bare row stands for is the picker's to say", () => {
+    // A larger picker recorded off the wire, where `fable` was still 5.1 and
+    // 5.2 had a row of its own: the same id lands on `fable` here because this
+    // label says 5.1.
+    const RECORDED = new Map([
+      ["default", "Default (recommended)"],
+      ["opus", "Opus 5.5"],
+      ["claude-fable-5-2", "Fable 5.2"],
+      ["sonnet", "Sonnet 5.5"],
+      ["haiku", "Haiku 5.5"],
+      ["fable", "Fable 5.1"],
+      ["claude-haiku-4-5-20251001", "Haiku 4.5"],
+      ["claude-sonnet-5", "Sonnet 5"],
+      ["claude-opus-5", "Opus 5"],
+      ["claude-fable-5", "Fable 5"],
+      ["claude-opus-4-8", "Opus 4.8"],
+      ["claude-opus-4-7", "Opus 4.7"],
+      ["claude-opus-4-6", "Opus 4.6"],
+      ["claude-sonnet-4-6", "Sonnet 4.6"],
+    ]);
+    expect(modelNameIn(RECORDED, "claude-fable-5-1")).toBe("Fable 5.1");
+    expect(modelNameIn(RECORDED, "claude-haiku-5-5")).toBe("Haiku 5.5");
+    // The dated 4.5 row is a pin no alias covers, and `haiku` says 5.5.
+    expect(modelNameIn(RECORDED, "claude-haiku-4-5")).toBeNull();
+  });
+
+  test("a context size in a label is not a version", () => {
+    // "1M" is glued to a word, so this label states no version, and the row
+    // answers on family and lane as it always has.
+    const lane = new Map([["sonnet[1m]", "Sonnet (1M context)"]]);
+    expect(modelNameIn(lane, "claude-sonnet-5-1m")).toBe("Sonnet (1M context)");
+    expect(modelWindowIn(lane, "claude-sonnet-5-1m")).toBe(1_000_000);
+  });
+});
