@@ -81,6 +81,11 @@ import {
   createFileRefLinkProvider,
   fileRefAtCell,
 } from "./fileRefLinkProvider";
+import {
+  attachRetry,
+  type TileAttachInput,
+  tileAttachInput,
+} from "./attachInput";
 import { installTerminalFocusProvenance } from "./focusProvenance";
 import { createForeignGridWatcher } from "./foreignGrid";
 import { handleWebLink } from "./handleWebLink";
@@ -754,29 +759,36 @@ const Terminal: Component<{
         resetForFreshSnapshot,
       );
 
-      /** End this loop and start exactly one replacement AT THE GRID THIS PANE
-       *  WANTS — the FOURTH reopen lane, named in `reattachingStream.ts`'s
+      /** End this loop and start exactly one replacement, built from the pane
+       *  as it is NOW — the FOURTH reopen lane, named in `reattachingStream.ts`'s
        *  module-header taxonomy along with the other three (kolu#2101 K5).
        *
-       *  Its one caller is the served-grid watcher: the pty is sitting at a size
-       *  this pane did not ask for and has stayed there past the settle, so
-       *  re-attaching is how the pane asks again (`resizeTo` is last-attach-wins
-       *  — the attach IS the assertion). It cannot go through the loop's own
-       *  error channel because nothing failed: the frames arriving are correct,
-       *  the screen is correct, and the only thing wrong is a size.
+       *  Two callers, both about a size rather than a failure:
+       *   - the served-grid watcher (`"foreign"`): the pty is sitting at a size
+       *     this pane did not ask for and has stayed there past the settle, so
+       *     re-attaching is how the pane asks again (`resizeTo` is
+       *     last-attach-wins — the attach IS the assertion);
+       *   - a transport retry behind the Conductor (`"attach"`): the fence would
+       *     replay this attempt's captured `resizeTo`, and a tile behind the
+       *     Conductor states no size (`attachInput.ts`), so it reopens instead
+       *     and the successor asks for nothing.
+       *  Neither can go through the loop's own error channel because nothing
+       *  failed that a replay would repair: what is wrong is a size.
        *
        *  What it takes instead is the loop's DISCIPLINE: the same
        *  {@link REATTACH_BACKOFF_MS} pause, in the same order the loop uses
        *  (reset now, re-subscribe after the pause), rather than reopening
        *  instantly and letting one lane jump the queue. Its episode accounting
-       *  needs no special case: a delivered frame refills both budgets, and this
-       *  lane can only fire for a pane that is receiving frames.
+       *  needs no special case: a delivered frame refills both budgets.
        *
        *  Guarded by `attemptLive()` at every call site, so several superseded
        *  callbacks reaching here produce ONE successor, not a cascade. */
-      const reassertWantedGrid = () => {
+      const endAndReopen = (cause: AttachCause) => {
         // Latch first, interrupt second — the window between them is exactly
-        // where a late frame of this attempt would otherwise land.
+        // where a late frame of this attempt would otherwise land. From inside
+        // the fence's retry hook the interrupt is deferred by the runtime to
+        // the fiber's next suspension, which is the retry's own pause: the
+        // replay never goes out.
         superseded = true;
         attachFiber?.interruptUnsafe();
         resetForFreshSnapshot();
@@ -788,13 +800,26 @@ const Terminal: Component<{
         reassertTimer = setTimeout(() => {
           reassertTimer = null;
           if (attachTornDown) return;
-          // `"foreign"` is the lane's only cause and needs no parameter: an
-          // attach that exists because another viewer took the terminal is not
-          // the same event as a user revealing a pane, and the host can only
-          // tell them apart if the client says which it is.
-          openAttachStream({ cause: "foreign", repaint: false });
+          openAttachStream({ cause, repaint: false });
         }, REATTACH_BACKOFF_MS);
       };
+      // `"foreign"` is the watcher lane's only cause: an attach that exists
+      // because another viewer took the terminal is not the same event as a
+      // user revealing a pane, and the host can only tell them apart if the
+      // client says which it is.
+      const reassertWantedGrid = () => endAndReopen("foreign");
+
+      /** The input the fence will replay on a transport retry — the one the
+       *  current subscribe of THIS attempt was opened with. */
+      let sent: TileAttachInput | null = null;
+      /** The fence's retry hook: replay as always (clearing the screen for the
+       *  fresh snapshot the replay brings), or — behind the Conductor, with a
+       *  size captured — end this attempt and reopen asking for nothing. */
+      const onRetry = onlyWhenCurrent({ isCurrent: attemptLive }, () => {
+        if (sent && attachRetry(sent, viewShown()) === "reopen")
+          endAndReopen("attach");
+        else resetForFreshSnapshot();
+      });
 
       // The served-grid watcher's route into THIS attempt (see the binding's
       // note). Guarded exactly as every other cross-lane callback is, so a
@@ -815,25 +840,28 @@ const Terminal: Component<{
       const consume = consumeReattachingStream(
         () => {
           // The grid this pane WANTS, read at the moment the stream opens —
-          // sent as `resizeTo`, which is an ASSERTION: the host resizes the
-          // shared pty to it and serializes in one act.
+          // sent as `resizeTo` while the view is in front, which is an
+          // ASSERTION: the host resizes the shared pty to it and serializes in
+          // one act. Behind the Conductor nothing is sent (`attachInput.ts`).
           //
-          // It is not remembered, and nothing downstream compares against it.
-          // What comes back states its OWN grid and the pane follows that, so
-          // the honest question is never "is this the size I asked for" but
-          // "what size is this" — and the answer rides on the frame.
+          // Nothing downstream compares a frame against it. What comes back
+          // states its OWN grid and the pane follows that, so the honest
+          // question is never "is this the size I asked for" but "what size is
+          // this" — and the answer rides on the frame. The input is kept
+          // (`sent`) only to decide what a transport retry may replay.
           //
           // This thunk is NOT the transport-retry path: `unenrolledStreamCall`
-          // invokes the procedure once and the retry plugin re-subscribes by
+          // invokes the procedure once and the fence re-subscribes by
           // replaying that captured input, so a STREAM_RETRY re-asserts the grid
           // read here even if the pane has moved since
           // (`dev/skills/streaming/SKILL.md`, "A member's input is CAPTURED").
           // `consumeReattachingStream`'s own outer re-attach DOES re-enter this
-          // thunk and picks up a fresh one. A retry that re-asserts a stale grid
-          // leaves the pty at a size this pane does not want, which the
-          // served-grid watcher sees on the record and repairs by reopening —
-          // the same lane a foreign viewer's resize takes, because it is the
-          // same condition.
+          // thunk and picks up a fresh one. In front, a retry that re-asserts a
+          // stale grid leaves the pty at a size this pane does not want, which
+          // the served-grid watcher sees on the record and repairs by
+          // reopening — the same lane a foreign viewer's resize takes, because
+          // it is the same condition. Behind the Conductor the retry hook
+          // reopens before the replay goes out (`onRetry` above).
           //
           // Absent is unreachable — the shown-pane gate opens the stream only
           // once a measurement exists, and a measured box is never un-measured.
@@ -852,16 +880,24 @@ const Terminal: Component<{
               `terminal ${props.terminalId}: attach opened without a measured grid`,
             );
           }
-          // The reason this attempt opened, spent as it is sent: a transparent
-          // STREAM_RETRY re-enters this thunk, and that re-subscribe is an
-          // ordinary open rather than a second foreign one.
+          // The reason this attempt opened, spent as it is sent: the loop's
+          // own re-attach re-enters this thunk, and that open is an ordinary
+          // one rather than a second foreign one. (A transport retry does NOT
+          // re-enter it — see above — it replays this input, cause and all.)
           const cause = causeOwed ?? "attach";
           causeOwed = null;
+          // Behind the Conductor the input carries no size at all
+          // (`attachInput.ts`): an attach with `resizeTo` is a resize, not a
+          // description of this pane.
+          sent = tileAttachInput({
+            id: props.terminalId,
+            cause,
+            wanted: measured,
+            viewShown: viewShown(),
+          });
           return unenrolledStreamCall(
             activePadiStreams.terminalAttach.unenrolled,
-            // `resizeTo`, not a description of this pane: the host resizes the
-            // shared PTY to it before serializing.
-            { id: props.terminalId, resizeTo: measured, cause },
+            sent,
             {
               // Names the PANE, in the framework's `<key>[<id>]` spelling and
               // with the same terminal id the attach loop's log lines carry — a
@@ -871,10 +907,10 @@ const Terminal: Component<{
               label: `terminalAttach[${props.terminalId}]`,
               // The attempt's lifetime IS its fiber — interrupting it tears the
               // subscription down through the stream's own finalizers, so there
-              // is no signal to thread into the call (D10/#18). The reset hook
-              // stays guarded for the same reason as before: a superseded
-              // attempt's retry must not wipe the successor's screen.
-              onRetry: resetIfLive,
+              // is no signal to thread into the call (D10/#18). The hook stays
+              // guarded for the same reason as before: a superseded attempt's
+              // retry must not wipe the successor's screen, or reopen past it.
+              onRetry,
             },
           );
         },
