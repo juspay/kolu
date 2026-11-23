@@ -86,7 +86,10 @@ import { useTips } from "./settings/useTips";
 import TerminalContent from "./terminal/TerminalContent";
 import TerminalMeta from "./terminal/TerminalMeta";
 import { useTerminals } from "./terminal/useTerminals";
-import { WorkspaceTerminals } from "./terminal/WorkspaceTerminals";
+import {
+  type TilePlacement,
+  WorkspaceTerminals,
+} from "./terminal/WorkspaceTerminals";
 import { useTileStore } from "./tile/useTileStore";
 import {
   controlledSizes,
@@ -304,17 +307,12 @@ const App: Component = () => {
   // (`WorkspaceTerminals`). App does not re-derive it: the old
   // `visible={isDesktop() || …}` called every desktop tile visible, so one
   // mount attached every terminal of the host (kolu#2362).
-  const renderTerminalBody = (
-    id: TerminalId,
-    seen: () => boolean,
-    viewShown: () => boolean,
-    boxDecided: () => boolean,
-  ) => (
+  const renderTerminalBody = (id: TerminalId, placement: TilePlacement) => (
     <TerminalContent
       terminalId={id}
-      visible={seen()}
-      viewShown={viewShown()}
-      boxDecided={boxDecided()}
+      visible={placement.seen()}
+      viewShown={placement.viewShown()}
+      boxDecided={placement.boxDecided()}
       focused={tileStore.isActiveTile(id)}
       theme={getTerminalTheme(id)}
       onCloseTerminal={closeTerminal}

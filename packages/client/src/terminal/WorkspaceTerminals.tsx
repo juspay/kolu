@@ -24,51 +24,53 @@ import { type JSX, For, Show, onCleanup, untrack } from "solid-js";
 import { createStore } from "solid-js/store";
 import { Portal } from "solid-js/web";
 
-/** A mounted destination: where the body goes, whether its shell can SEE it,
- *  whether the view that shell is drawn in is in front, and whether the box
- *  that shell put it in is one the shell's layout DECIDED. One record so the
- *  facts can never disagree about which shell is live. */
-interface Destination {
-  readonly el: HTMLDivElement;
+/** What the shell that places a body says about it — one record, so two
+ *  facts of one type can never be passed in each other's place. */
+export interface TilePlacement {
+  /** Can a user SEE it — what the pane turns into "attach / stop attaching". */
   readonly seen: () => boolean;
+  /** Is the view the shell is drawn in the one in front — false while the
+   *  Conductor covers it: the body stays attached, and states no size. */
   readonly viewShown: () => boolean;
+  /** Is the box the shell put it in one the shell's layout DECIDED — what the
+   *  pane turns into "may I measure". */
   readonly boxDecided: () => boolean;
 }
 
+/** A destination: where a body goes, and its shell's answers about it. One
+ *  record so the facts can never disagree about which shell is live. */
+interface Destination extends TilePlacement {
+  readonly el: HTMLDivElement;
+}
+
+/** What a shell hands the outlet: a {@link TilePlacement} whose `boxDecided`
+ *  may be left out by a shell that places one tile at a time, at the
+ *  window's size, and so has no answer but yes. */
+export type ShellPlacement = Omit<TilePlacement, "boxDecided"> &
+  Partial<Pick<TilePlacement, "boxDecided">>;
+
 export function WorkspaceTerminals(props: {
   ids: TerminalId[];
-  renderBody: (
-    id: TerminalId,
-    seen: () => boolean,
-    viewShown: () => boolean,
-    boxDecided: () => boolean,
-  ) => JSX.Element;
+  renderBody: (id: TerminalId, placement: TilePlacement) => JSX.Element;
   children: (
-    outlet: (
-      id: TerminalId,
-      seen: () => boolean,
-      viewShown: () => boolean,
-      boxDecided?: () => boolean,
-    ) => JSX.Element,
+    outlet: (id: TerminalId, placement: ShellPlacement) => JSX.Element,
   ) => JSX.Element;
 }): JSX.Element {
   const [destinations, setDestinations] = createStore<
     Record<string, Destination | undefined>
   >({});
-  const outlet = (
-    id: TerminalId,
-    seen: () => boolean,
-    viewShown: () => boolean,
-    // A shell that places one tile at a time, at the window's size, has no
-    // other answer to give (see `App.renderTerminalBody`).
-    boxDecided: () => boolean = () => true,
-  ) => (
+  const outlet = (id: TerminalId, placement: ShellPlacement) => (
     <div
       class="flex flex-col h-full w-full min-h-0"
       ref={(el) => {
         // Wrapped in a record: a bare function value would be read as a store
         // UPDATER rather than stored.
-        setDestinations(id, { el, seen, viewShown, boxDecided });
+        setDestinations(id, {
+          el,
+          seen: placement.seen,
+          viewShown: placement.viewShown,
+          boxDecided: placement.boxDecided ?? (() => true),
+        });
         onCleanup(() => {
           if (destinations[id]?.el === el) setDestinations(id, undefined);
         });
@@ -79,11 +81,11 @@ export function WorkspaceTerminals(props: {
    *  store (not captured), so a shell swap re-points them in place. A body with
    *  no destination is a body nobody is placing: not seen, not in front, and
    *  in nobody's layout. */
-  const seenOf = (id: TerminalId) => () => destinations[id]?.seen() ?? false;
-  const viewShownOf = (id: TerminalId) => () =>
-    destinations[id]?.viewShown() ?? false;
-  const boxDecidedOf = (id: TerminalId) => () =>
-    destinations[id]?.boxDecided() ?? false;
+  const placementOf = (id: TerminalId): TilePlacement => ({
+    seen: () => destinations[id]?.seen() ?? false,
+    viewShown: () => destinations[id]?.viewShown() ?? false,
+    boxDecided: () => destinations[id]?.boxDecided() ?? false,
+  });
   return (
     <>
       {untrack(() => props.children(outlet))}
@@ -98,12 +100,7 @@ export function WorkspaceTerminals(props: {
                 el.className = "flex flex-col h-full w-full min-h-0";
               }}
             >
-              {props.renderBody(
-                id,
-                seenOf(id),
-                viewShownOf(id),
-                boxDecidedOf(id),
-              )}
+              {props.renderBody(id, placementOf(id))}
             </Portal>
           </Show>
         )}

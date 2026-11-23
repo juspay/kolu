@@ -59,6 +59,7 @@ import { useTileTheme } from "./useTileTheme";
 import { useViewPosture } from "./useViewPosture";
 import { capturePointerGesture } from "./viewport/capturePointerGesture";
 import { useCanvasViewport } from "./viewport/useCanvasViewport";
+import type { TilePlacement } from "../terminal/WorkspaceTerminals";
 
 const MIN_W = 300;
 const MIN_H = 200;
@@ -101,21 +102,16 @@ const TerminalCanvas: Component<{
   renderTileTitleActions?: (id: TileId) => JSX.Element;
   /** Optional bar between the title bar and the body — the tile tip. */
   renderTileBar?: (id: TileId) => JSX.Element;
-  /** Render a tile's body, told whether a user can SEE this tile — the fact
-   *  the pane turns into "attach / stop attaching" (`tileSeen.ts`) — whether
-   *  the canvas is the view in front (false while the Conductor covers it: the
-   *  tile stays attached, and states no size), and whether its box is one
-   *  this canvas DECIDED, which is the separate fact the pane turns into "may
-   *  I state a size" (`CanvasTile`'s `boxDecided`). Accessors, not values, so
-   *  the subtree doesn't remount when an answer changes: reads happen inside
-   *  the returned JSX's props (fine-grained reactivity), not around the
+  /** Render a tile's body, told where it stands (`TilePlacement`): whether a
+   *  user can SEE this tile — the fact the pane turns into "attach / stop
+   *  attaching" (`tileSeen.ts`) — whether the canvas is the view in front
+   *  (false while the Conductor covers it: the tile stays attached, and
+   *  states no size), and whether its box is one this canvas DECIDED
+   *  (`CanvasTile`'s `boxDecided`). Accessors, not values, so the subtree
+   *  doesn't remount when an answer changes: reads happen inside the
+   *  returned JSX's props (fine-grained reactivity), not around the
    *  render-prop call. */
-  renderTileBody: (
-    id: TileId,
-    seen: () => boolean,
-    viewShown: () => boolean,
-    boxDecided: () => boolean,
-  ) => JSX.Element;
+  renderTileBody: (id: TileId, placement: TilePlacement) => JSX.Element;
 }> = (props) => {
   // Asked ONCE here and handed to each tile, so the tile shell keeps knowing
   // nothing about what sits on top of the canvas (`ui/shown.ts`).
@@ -468,7 +464,11 @@ const TerminalCanvas: Component<{
             }
             renderBar={() => props.renderTileBar?.(tileId)}
             renderBody={(seen, boxDecided) =>
-              props.renderTileBody(tileId, seen, canvasShown, boxDecided)
+              props.renderTileBody(tileId, {
+                seen,
+                viewShown: canvasShown,
+                boxDecided,
+              })
             }
             getLayout={layoutOf}
             startResize={startResize}

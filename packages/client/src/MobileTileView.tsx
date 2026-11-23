@@ -25,6 +25,7 @@ import type { TerminalId } from "kolu-common/surface";
 import { type Component, createSignal, For, type JSX, Show } from "solid-js";
 import { DockList } from "./canvas/dock/DockList";
 import { useTerminalStore } from "./terminal/useTerminalStore";
+import type { ShellPlacement } from "./terminal/WorkspaceTerminals";
 import { useTileStore } from "./tile/useTileStore";
 import { withKeyboardDismiss } from "./ui/dismissSoftKeyboard";
 import { useShown } from "./ui/shown";
@@ -49,11 +50,7 @@ const MobileTileView: Component<{
   orderedIds: TerminalId[];
   /** Render the actual terminal body (xterm + sub-panel + search bar), told
    *  whether it is the active tile and whether this view is in front. */
-  renderBody: (
-    id: TerminalId,
-    visible: () => boolean,
-    viewShown: () => boolean,
-  ) => JSX.Element;
+  renderBody: (id: TerminalId, placement: ShellPlacement) => JSX.Element;
   /** Soft-keyboard helper bar (Esc, Tab, arrows, etc.). */
   bottomBar?: JSX.Element;
   /** Suppress the left-edge dock handle + swipe drawer. The compact layout
@@ -156,7 +153,7 @@ const MobileTileView: Component<{
                   }}
                   inert={!visible()}
                 >
-                  {props.renderBody(id, visible, viewShown)}
+                  {props.renderBody(id, { seen: visible, viewShown })}
                 </div>
               );
             }}
