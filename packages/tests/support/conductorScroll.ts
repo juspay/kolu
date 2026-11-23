@@ -53,15 +53,20 @@ function rowsBackOf(page: Page, at: ConductorScreen): Promise<number | null> {
   }, at.screen);
 }
 
-/** One look, for a wait: a readout not (yet) there reads as `null`. */
+/** One look at the screen and its head. A readout that is not there fails the
+ *  read; a wait that may begin before it is drawn reads that as
+ *  {@link NOT_YET}. */
 async function sample(page: Page, at: ConductorScreen): Promise<ScrollSample> {
-  const rowsBack = await rowsBackOf(page, at);
-  const phase = await page
-    .locator(at.readout)
-    .getAttribute("data-phase", { timeout: 500 })
-    .catch(() => null);
-  return { rowsBack, phase };
+  return {
+    rowsBack: await rowsBackOf(page, at),
+    phase: await page
+      .locator(at.readout)
+      .getAttribute("data-phase", { timeout: 500 }),
+  };
 }
+
+/** What a wait reads while the screen or its readout is not drawn yet. */
+const NOT_YET: ScrollSample = { rowsBack: null, phase: null };
 
 const scrolledBack = (s: ScrollSample): boolean =>
   s.rowsBack !== null && s.rowsBack > 0 && s.phase === "held";
@@ -137,7 +142,7 @@ export async function expectStaysScrolledBack(
 ): Promise<void> {
   try {
     await pollFor({
-      observe: () => sample(page, at),
+      observe: () => sample(page, at).catch(() => NOT_YET),
       isDone: scrolledBack,
       timeoutMs: POLL_TIMEOUT,
       intervalMs: STAYS_SAMPLE_MS,
@@ -154,12 +159,7 @@ export async function expectStaysScrolledBack(
     await page.waitForTimeout(STAYS_SAMPLE_MS);
     // The readout was there a moment ago: a read that fails now is its own
     // failure, not a snap-back.
-    const now: ScrollSample = {
-      rowsBack: await rowsBackOf(page, at),
-      phase: await page
-        .locator(at.readout)
-        .getAttribute("data-phase", { timeout: 500 }),
-    };
+    const now = await sample(page, at);
     if (!scrolledBack(now))
       throw new Error(
         `${at.label} snapped back ${Date.now() - held}ms after it was scrolled back: it reads ${JSON.stringify(now)}`,
@@ -173,7 +173,7 @@ export async function expectLiveAtBottom(
   at: ConductorScreen,
 ): Promise<void> {
   await pollFor({
-    observe: () => sample(page, at),
+    observe: () => sample(page, at).catch(() => NOT_YET),
     isDone: (s) => s.rowsBack === 0 && s.phase === "live",
     timeoutMs: POLL_TIMEOUT,
     onTimeout: (last, ms) =>
