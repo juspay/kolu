@@ -366,7 +366,7 @@ export const Xterm: Component<
       makeEventListener(window, "focus", () => recovery.recover());
 
       scrollLock.attachToTerminal(term);
-      // Wheel + pointer-held scroll inputs arm the latch (#1272).
+      // Wheel, pointer-held and Shift+PageUp/PageDown scrolls arm the latch (#1272).
       wireScrollIntent(container, scrollLock);
 
       // Single write door: rate coalesce (fullRate policy) → scroll-lock → term.

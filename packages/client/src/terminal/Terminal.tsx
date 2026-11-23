@@ -413,22 +413,6 @@ const Terminal: Component<{
     // xterm.js has attachCustomKeyEventHandler for intercepting keys.
     // Return false to prevent xterm from handling the key.
     term.attachCustomKeyEventHandler((e: KeyboardEvent) => {
-      // Shift+PageUp / Shift+PageDown are the ONLY chords this xterm build turns
-      // into a viewport scroll (KeyboardResultType.PAGE_UP / PAGE_DOWN →
-      // scrollLines). Shift+Home/End emit escape SEQUENCES, not scrolls — arming
-      // on them would leave a stale intent that an unrelated programmatic
-      // off-bottom scroll could latch onto within the window (#1272). So arm
-      // only on the keys that actually scroll; the resulting synchronous
-      // onScroll must read as user intent or the latch suppresses it. The key
-      // still falls through to xterm below.
-      if (
-        e.type === "keydown" &&
-        e.shiftKey &&
-        (e.key === "PageUp" || e.key === "PageDown")
-      ) {
-        h.scrollLock.armUserScrollIntent("keyboard");
-      }
-
       // Let Cmd+key pass through to browser (except copy/paste without Shift)
       if (e.metaKey) {
         const key = e.key.toLowerCase();
