@@ -3017,16 +3017,17 @@ export const make = (options: Options): Effect.Effect<Agent, never, never> =>
      *
      * SAID ONLY WHEN IT DISAGREES, and disagreement is judged in names rather
      * than in strings ({@link sameAs}): what we remember is as often a live
-     * API id (`claude-fable-5`) as a picker value (`fable`), and those are the
-     * same model. A conversation that came back on the model it left on is one
-     * this says nothing about at all — no round trip, and no request to fail.
+     * API id (`claude-fable-5-2`) as a picker value (`fable`), and those are
+     * the same model. A conversation that came back on the model it left on is
+     * one this says nothing about at all — no round trip, and no request to
+     * fail.
      *
      * SAID IN THE PICKER'S OWN WORDS, for the same reason one step further on
      * ({@link pickerValueFor}): a config option takes the values the picker
      * offers, and what we remember is the id the CLI reported. The pinned
-     * adapter would resolve `claude-fable-5` onto its `fable` row; an agent
-     * that checked its own list would refuse, and refusing leaves the
-     * conversation on the pin. So the row is named where a row can be found.
+     * adapter puts `claude-fable-5-2` onto its `fable` row; an agent that
+     * checked its own list would refuse, and refusing leaves the conversation
+     * on the pin. So the row is named where a row can be found.
      *
      * WHAT IT COSTS, and this is the honest half: olai's note is not the only
      * way this conversation's model can move. A `/model` typed into a terminal

@@ -46,6 +46,23 @@ const laneOf = (id: string): string | null => {
   return found?.[1] ?? found?.[2] ?? null;
 };
 
+/** The version a picker row's label states: its first number standing alone,
+ *  dotted parts and all, so "Fable 5.2" states `5.2`. "Sonnet" and "Default
+ *  (recommended)" state none, and neither does "Opus (1M context)": a number
+ *  glued to a word is a context size, not a version. */
+const LABEL_VERSION = /(?<![\w.])\d+(?:\.\d+)*(?![\w.])/;
+
+/** Whether a row labelled `label` may answer for an id whose version parts are
+ *  `version` (`["5", "1"]` for `claude-fable-5-1`), by the adapter's own rule
+ *  (`modelVersionsCompatible`) read off the label: equal when both state a
+ *  version, and agreed when either states none. */
+const versionsAgree = (label: string, version: readonly string[]): boolean => {
+  const stated = LABEL_VERSION.exec(label)?.[0];
+  return (
+    version.length === 0 || stated === undefined || stated === version.join(".")
+  );
+};
+
 /**
  * WHICH ROW OF THE PICKER a model id is — the row whose label is what the
  * agent calls this model, and whose context lane is how big its window is. Or
@@ -75,15 +92,25 @@ const laneOf = (id: string): string | null => {
  *   2. the same model in the adapter's two spellings of a context lane —
  *      `claude-fable-5` is the `claude-fable-5[1m]` row;
  *   3. an ALIAS row: a value that is one bare word naming a FAMILY, against an
- *      id that is that family and a version and nothing else.
- *      `claude-sonnet-5` is the `sonnet` row because "sonnet" is literally
- *      what that id says it is.
+ *      id that is that family and a version and nothing else, where the
+ *      version is the one the row's label states. `claude-sonnet-5-5` is the
+ *      `sonnet` row labelled "Sonnet 5.5" because "sonnet" is literally what
+ *      that id says it is, and 5.5 is the version the row says it stands for.
+ *      `claude-sonnet-5` is not.
  *
- * Tier 3 answers for a family and a version — `claude-sonnet-5`,
- * `claude-haiku-4-5` — and for nothing more decorated than that. A dated or
- * otherwise pinned id (`claude-opus-4-5-20260101`) names something more
- * specific than any alias claims to cover, and gets the raw id: an alias row
- * that answered for it would be saying the picker offers a model it does not.
+ * Tier 3 answers for a family and a version and for nothing more decorated
+ * than that. A dated or otherwise pinned id (`claude-opus-4-5-20260101`) names
+ * something more specific than any alias claims to cover, and gets the raw id:
+ * an alias row that answered for it would be saying the picker offers a model
+ * it does not.
+ *
+ * The version an alias row stands for is the adapter's statement: it writes
+ * the version into a terse label itself, so `sonnet` goes out as "Sonnet 5.5".
+ * And the rule is the adapter's own (`modelVersionsCompatible`): asked for
+ * `claude-fable-5-1` with a `fable` row labelled "Fable 5.2", the adapter
+ * refuses, so this names no row and the id is said raw. A label or an id that
+ * states no version passes, as under the adapter's rule, and the row answers
+ * on family and lane alone.
  *
  * And every tier that could answer twice answers `null` instead. Tier 3 in
  * particular takes a UNIQUE hit or none: two alias rows for one family — a
@@ -141,9 +168,13 @@ const rowFor = (
   // a family alias names a family, and may not throw in a context window the
   // thing it is naming never claimed.
   const lanes = laneOf(id);
-  return only(
+  const row = only(
     (value) => withoutLane(value) === family && laneOf(value) === lanes,
   );
+  // ... and a row that says which version it is has to be this one.
+  return row !== null && versionsAgree(labels.get(row) ?? "", version)
+    ? row
+    : null;
 };
 
 /** What the agent calls the model with this id: the label of the row above, or

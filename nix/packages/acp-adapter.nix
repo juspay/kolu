@@ -10,12 +10,17 @@
 # The shared mechanism is `nix/npm-adapter.nix` — one derivation per adapter
 # from its own npm shim, with `patch -p1 -F0` over `patches/`.
 #
-# WHAT IS SHARED WITH OLAI, AND WHAT IS NOT. The shim, the two patches, and the
+# WHAT IS SHARED, AND WHAT IS THIS FILE'S. The shim, the two patches, and the
 # package/entry/bin names are facts about WHICH adapter is pinned, so they live
-# with the agent — `packages/acp-claude/adapter/default.nix` — and both products
-# read them there rather than each keeping a copy nothing compares. Everything
-# below this line is kolu's own: which `claude` the adapter drives, and the env
-# its wrapper is armed with.
+# with the agent — `packages/acp-claude/adapter/default.nix` — and are read
+# there rather than copied. Which `claude` the adapter drives, and the env its
+# wrapper is armed with, is this file's answer for whoever builds it; the
+# settings that launcher passes are restated for the adapter's sessions as
+# `LAUNCHER_SETTINGS` in `packages/acp-claude/src/leg.ts`.
+#
+# It takes `agent-distro` as an argument so that a consumer in another
+# repository can `callPackage` it with the floor that consumer pins. That
+# consumer imports it by path, so renaming or moving this file breaks its eval.
 { pkgs, lib, ripgrep, procps, agent-distro }:
 let
   npmAdapter = import ../npm-adapter.nix { inherit pkgs; };

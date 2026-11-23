@@ -17,6 +17,10 @@
 # so both readers import THIS file with the same pin and name the same store
 # path; a second copy of the launchers would be a second floor, and the whole
 # point is that the conductor runs the one the terminals do.
+#
+# Because it imports nothing of kolu's and takes only `pkgs` and `src`, another
+# repository can import it by path with its own pin; moving it or changing its
+# arguments breaks such an importer.
 { pkgs, src }:
 let
   inherit (pkgs) lib;
