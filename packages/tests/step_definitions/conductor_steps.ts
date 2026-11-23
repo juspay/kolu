@@ -3497,37 +3497,50 @@ When(
         stagePath: path.join(os.tmpdir(), `kolu-work-stage-${process.pid}`),
       }),
     );
-    fs.writeFileSync(fixtureClaudeRelay(), `${bin} ${program}`);
-    await enterConductor(this);
-    await sendPrompt(this, `run the implementor in ${repo}`);
-    let inventoryAtTimeout = "(not observed)";
-    const said = await pollFor({
-      observe: async () => {
-        const rows = await this.page
-          .locator(`${TRANSCRIPT} ${ROW}[data-row-kind="agent"]`)
-          .evaluateAll((all) => all.map((row) => row.textContent ?? ""));
-        for (const text of rows) {
-          const ref = /ran:[\s\S]*?\blocal\/([0-9a-f-]{36})\b/.exec(text);
-          if (ref?.[1]) return ref[1];
-        }
-        return null;
-      },
-      isDone: (ref) => ref !== null,
-      timeoutMs: POLL_TIMEOUT,
-      onTick: async () => {
-        inventoryAtTimeout = await transcriptInventory(this);
-      },
-      onTimeout: (_last, ms) =>
-        new Error(
-          `the conductor never answered with the terminal it made for the work after ${ms}ms; the transcript holds ${inventoryAtTimeout}`,
-        ),
-    });
-    if (said === null) throw new Error("no terminal ref was answered");
-    this.memberTerminalId = said;
-    // Every `… the member terminal` assertion below is about this one.
-    this.watchedTerminalId = said;
+    await runImplementor(this, `${bin} ${program}`);
   },
 );
+
+/** THE CONDUCTOR RUNS THE WORK'S IMPLEMENTOR, and kolu types its command —
+ *  whose stand-in `claude` execs `relay` (`agentDistroFixture.ts`). Answers
+ *  the new terminal's id, as the Conductor's reply names it, and makes it the
+ *  member every `… the member terminal` assertion is about. */
+export async function runImplementor(
+  world: KoluWorld,
+  relay: string,
+): Promise<string> {
+  const repo = workRepo(world);
+  fs.writeFileSync(fixtureClaudeRelay(), relay);
+  await enterConductor(world);
+  await sendPrompt(world, `run the implementor in ${repo}`);
+  let inventoryAtTimeout = "(not observed)";
+  const said = await pollFor({
+    observe: async () => {
+      const rows = await world.page
+        .locator(`${TRANSCRIPT} ${ROW}[data-row-kind="agent"]`)
+        .evaluateAll((all) => all.map((row) => row.textContent ?? ""));
+      for (const text of rows) {
+        const ref = /ran:[\s\S]*?\blocal\/([0-9a-f-]{36})\b/.exec(text);
+        if (ref?.[1]) return ref[1];
+      }
+      return null;
+    },
+    isDone: (ref) => ref !== null,
+    timeoutMs: POLL_TIMEOUT,
+    onTick: async () => {
+      inventoryAtTimeout = await transcriptInventory(world);
+    },
+    onTimeout: (_last, ms) =>
+      new Error(
+        `the conductor never answered with the terminal it made for the work after ${ms}ms; the transcript holds ${inventoryAtTimeout}`,
+      ),
+  });
+  if (said === null) throw new Error("no terminal ref was answered");
+  world.memberTerminalId = said;
+  // Every `… the member terminal` assertion below is about this one.
+  world.watchedTerminalId = said;
+  return said;
+}
 
 function memberSession(): { transcriptPath: string; sessionId: string } {
   assert.ok(memberFixture, "no member agent was started in this scenario");

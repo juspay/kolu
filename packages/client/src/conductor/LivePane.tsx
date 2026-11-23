@@ -8,22 +8,25 @@
  *  not put the screen back to a sideways scroller with a button to press
  *  again.
  *
- *  It is the peek's screen (`PeekTerminal`), so it never resizes the
- *  terminal, it draws it in its own colours, and a key reaches the terminal
- *  only while it is the person's — a key typed at a terminal the Conductor
- *  drives raises the lock's card over it (`WorkLock`, without its pill: the
- *  head carries Hand back). On a touch screen the key bar (`MobileKeyBar`,
- *  aimed at this terminal) is under it while the terminal is the person's:
- *  a key bar under a terminal that takes no keys would only raise the card.
+ *  It draws the peek's screen (`PeekTerminal`), whose attach asks for no
+ *  size; on a desktop the PANE sets the terminal's size (`paneSize.ts`), and
+ *  on a phone or a tablet it follows. It draws the terminal in its own
+ *  colours, and a key reaches the terminal only while it is the person's — a
+ *  key typed at a terminal the Conductor drives raises the lock's card over
+ *  it (`WorkLock`, without its pill: the head carries Hand back). On a touch
+ *  screen the key bar (`MobileKeyBar`, aimed at this terminal) is under it
+ *  while the terminal is the person's: a key bar under a terminal that takes
+ *  no keys would only raise the card.
  *
  *  It holds a read of the terminal's screen only while `connected`
  *  (`livePanes.ts` decides): a pane that is not on screen draws its head and
  *  nothing else. */
 
 import { createElementSize } from "@solid-primitives/resize-observer";
-import type { TerminalGrid } from "@kolu/xterm-kit/solid";
+import { sameGrid, type TerminalGrid } from "@kolu/xterm-kit/solid";
 import type { WorkRole } from "kolu-work";
 import { fleetTerminalRef } from "kolu-mcp/fleetRef";
+import { decodeHostKey } from "kolu-common/hostKey";
 import type { TerminalId } from "kolu-common/surface";
 import {
   type Component,
@@ -32,20 +35,26 @@ import {
   type JSX,
   on,
   createEffect,
+  onCleanup,
   Show,
 } from "solid-js";
 import { DEFAULT_FONT_SIZE, getThemeByName } from "terminal-themes";
 import MobileKeyBar from "../MobileKeyBar";
 import { fleetTerminalStanding } from "../palette/fleetTerminals";
-import { isTouch } from "../useMobile";
+import { runAction } from "../runAction";
+import { createGridPublisher } from "../terminal/publishGrid";
+import { isDesktop, isTouch } from "../useMobile";
+import { padiMap, padiRpcOf } from "../wire";
 import { useMemberName } from "./memberNames";
 import { inputAllowedAt } from "./personInput";
 import { fitWidth, setFitWidth } from "./fitWidth";
+import { createPaneSize } from "./paneSize";
 import PeekTerminal, { type PeekTerminalHandle } from "./peek/PeekTerminal";
 import {
   type PeekCell,
   type PeekPad,
   fitFontSize,
+  paneGrid,
   peekNatural,
   peekPans,
 } from "./peek/peekSize";
@@ -145,6 +154,59 @@ const LivePane: Component<{
         .background ?? "var(--color-surface-0)"
     );
   };
+
+  /** THE GRID THIS PANE WOULD ASK FOR — its body at the base font's cell,
+   *  never below 80×24 (`paneGrid`). The BASE cell, never the drawn one: a
+   *  pane Fit width has shrunk would otherwise shrink an already shrunk cell.
+   *  Value-compared, so a re-measure that finds the same grid is no change. */
+  const asked = createMemo<TerminalGrid | null>(
+    () =>
+      paneGrid({
+        width: bodySize.width ?? 0,
+        height: bodySize.height ?? 0,
+        cell: baseCell(),
+        pad: pad(),
+        fontSize: DEFAULT_FONT_SIZE,
+        fit: fitWidth(),
+      }),
+    null,
+    { equals: (a, b) => (a && b ? sameGrid(a, b) : a === b) },
+  );
+  const hostState = () => padiMap.entry(decodeHostKey(props.host)).state().kind;
+  /** The pane's own publisher: the tile's settle and host-down latch, aimed at
+   *  `lifecycle.resize` on the terminal's own host. */
+  const publisher = createGridPublisher({
+    terminalId: props.id,
+    hostState,
+    ptyLive: lookable,
+    resize: (g) =>
+      padiRpcOf(decodeHostKey(props.host)).lifecycle.resize({
+        id: props.id,
+        cols: g.cols,
+        rows: g.rows,
+      }),
+    run: (action) => {
+      runAction("publish terminal grid", action);
+    },
+  });
+  onCleanup(publisher.cancel);
+  const onScreen = () => props.connected && lookable();
+  const paneSize = createPaneSize({
+    connected: onScreen,
+    desktop: isDesktop,
+    asked,
+    publish: publisher.publish,
+    cancelPublish: publisher.cancel,
+  });
+  createEffect(on([onScreen, isDesktop, asked], () => paneSize.observe()));
+  // A publish dropped while the host was down is restated when it is back —
+  // the same publish landing late, not a new reason to speak — and only while
+  // this pane is on screen.
+  createEffect(
+    on(hostState, (kind) => {
+      if (kind === "connected" && onScreen()) publisher.republishSuppressed();
+    }),
+  );
 
   return (
     <section

@@ -30,7 +30,7 @@ const PANE = `${COLUMN} [data-testid="live-pane"]`;
  *  peek's and the lock's window. */
 const BLOCKED_WINDOW_MS = 3_000;
 
-const paneOf = (role: string): string => `${PANE}[data-role="${role}"]`;
+export const paneOf = (role: string): string => `${PANE}[data-role="${role}"]`;
 const screenOf = (role: string): string =>
   `${paneOf(role)} [data-testid="live-screen"]`;
 
