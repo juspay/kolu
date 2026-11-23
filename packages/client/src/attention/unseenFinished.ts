@@ -16,7 +16,10 @@ import type { AttentionTransition, TerminalId } from "kolu-common/surface";
  *    • it keeps only ids still finished (a finish that goes back to work, or
  *      escalates to asking, drops out);
  *    • it grows only by a FRESH background finish (a `waiting` a terminal just
- *      entered), never by the baseline discovery of already-finished agents.
+ *      entered), never by the baseline discovery of already-finished agents;
+ *    • a terminal the Conductor drives (`isDriven`) is never in it: its fresh
+ *      finish is not added, and an id that is driven now drops out — which is
+ *      also what keeps a set saved by an earlier page from bringing it back.
  *  Pure and stateful-by-fold: the caller threads the previous set back in, together
  *  with the transition it ALREADY computed this frame (no re-diff here — the
  *  transition is the one source of truth for "what changed"). On the baseline
@@ -29,15 +32,17 @@ export function nextUnseenFinished(
   candidates: AttentionTransition["candidates"],
   finishedIds: readonly TerminalId[],
   isActiveHost: boolean,
+  isDriven: (id: TerminalId) => boolean,
 ): Set<TerminalId> {
   if (isActiveHost) return new Set(); // you're looking at it → nothing unseen.
-  // Keep only ids still finished (drops ended + finished→asking).
+  // Keep only ids still finished (drops ended + finished→asking) and not driven.
   const finishedNow = new Set(finishedIds);
   const next = new Set<TerminalId>(
-    [...unseen].filter((id) => finishedNow.has(id)),
+    [...unseen].filter((id) => finishedNow.has(id) && !isDriven(id)),
   );
   for (const { id, asking } of candidates) {
-    if (!asking) next.add(id); // a fresh background finish is unseen.
+    // A fresh background finish is unseen, unless the Conductor reads it.
+    if (!asking && !isDriven(id)) next.add(id);
   }
   return next;
 }

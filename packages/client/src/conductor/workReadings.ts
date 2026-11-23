@@ -327,10 +327,12 @@ export function inputAllowed(at: Option.Option<Membership>): boolean {
 }
 
 /** IS THE CONDUCTOR DRIVING THIS TERMINAL — the same rule as
- *  {@link inputAllowed}, asked of the membership index by fleet ref: it
- *  answers its own agents (it is woken about them), so the terminal does not
- *  ring you on its own. One the human has taken over, a member of a watch and
- *  a terminal in no work all ring as any terminal does. */
+ *  {@link inputAllowed}, asked of the membership index by fleet ref. The
+ *  Conductor answers its own agents (it is woken about them), so a terminal
+ *  it drives makes no sound and no popup, and gets no unread mark and no
+ *  place in its host tab's unread count. Blocked on a prompt, it still
+ *  counts as needs-you. One the human has taken over, a member of a watch
+ *  and a terminal in no work reach the person as any terminal does. */
 export function drivenByConductor(
   membership: ReadonlyMap<string, Membership>,
   encHost: string,
@@ -339,6 +341,20 @@ export function drivenByConductor(
   return !inputAllowed(
     Option.fromUndefinedOr(membership.get(fleetTerminalRef(encHost, id))),
   );
+}
+
+/** EVERY TERMINAL THE CONDUCTOR DRIVES, by fleet ref — {@link
+ *  drivenByConductor}'s rule over the whole index, for a reader that must act
+ *  as a terminal comes under the Conductor (attention lifts its unread mark
+ *  then). Strings, so a list over it keeps each terminal's entry while others
+ *  come and go. */
+export function drivenRefs(
+  membership: ReadonlyMap<string, Membership>,
+): string[] {
+  const refs: string[] = [];
+  for (const [ref, at] of membership)
+    if (!inputAllowed(Option.some(at))) refs.push(ref);
+  return refs;
 }
 
 /** The repository as a person names it: the last segment of its path. */
