@@ -234,15 +234,16 @@ const waterfall = (work: Work, policy: Policy, now: string) => {
   return read;
 };
 
-/** THE STRIP AS A PERSON READS IT: each cell's stage and what it shows —
- *  `now`, `done`, `–` for a stage that did not happen, `·` for one not
- *  reached. */
+/** THE MAP AS A PERSON READS IT: each cell's stage and what it shows —
+ *  `now`, `done`, `?` for one nobody recorded, `–` for a stage that did not
+ *  happen, `·` for one not reached. */
 const cells = (work: Work, policy: Policy, now: string): string =>
   strip(work, policy, now)
     .map((one) => {
       const word = {
         now: "now",
         done: "done",
+        unrecorded: "?",
         skipped: "–",
         "not-started": "·",
       }[one.state.kind];
@@ -1210,11 +1211,12 @@ describe("the stage follows who holds the work", () => {
     ]);
     const named = byName(read.stages);
     // Plan, Approve and Checks do not depend on who held it, and read as
-    // they are; the build never got a minute it cannot vouch for.
+    // they are; the build never got a minute it cannot vouch for, and says
+    // so rather than that it did not happen.
     expect(named.plan).toMatchObject({ kind: "done", ms: 20 * MINUTE });
     expect(named.approve).toMatchObject({ kind: "done", ms: 5 * MINUTE });
     expect(named.checks).toMatchObject({ kind: "done", ms: 10 * MINUTE });
-    expect(named.build).toEqual({ kind: "skipped" });
+    expect(named.build).toEqual({ kind: "unrecorded", now: false });
     expect(named.review).toEqual({
       kind: "now",
       ms: 10 * MINUTE,
@@ -1236,8 +1238,65 @@ describe("the stage follows who holds the work", () => {
       "checks",
       "merge",
     ]);
-    expect(stageMs(byName(read.stages).build)).toBe(0);
+    const named = byName(read.stages);
+    expect(stageMs(named.build)).toBe(0);
+    // Finished: its build and review were one or the other, never "did not
+    // happen".
+    expect(named.build).toEqual({ kind: "unrecorded", now: false });
+    expect(named.review).toEqual({ kind: "unrecorded", now: false });
     expect(read.trail[0]?.time.agent).toBe(40 * MINUTE);
+  });
+
+  it("rings a saved work's unrecorded build and review while it is in that stretch", () => {
+    let work = join(opened(), "implementor", 0);
+    work = prOpened(work, 30);
+    work = handOffsKept(work, 30);
+    const named = byName(waterfall(work, FULL, at(40)).stages);
+    expect(named.build).toEqual({ kind: "unrecorded", now: true });
+    expect(named.review).toEqual({ kind: "unrecorded", now: true });
+  });
+
+  it("believes nothing about who held a saved work before the upgrade", () => {
+    // The planner's stop was folded away before kolu kept hand-offs, so its
+    // record still reads as if it held the work.
+    let work = join(opened(), "planner", 0);
+    work = ask(work, "approve", 20);
+    work = answer(work, "approve", 25);
+    work = join(work, "implementor", 25);
+    work = handOffsKept(work, 60);
+    // The Conductor hands the work to the implementor, which stops: nobody
+    // handed it to the planner, so it is the build, not the review.
+    work = told(work, IMPLEMENTOR, 70);
+    work = stop(work, IMPLEMENTOR, 90);
+    expect(waterfall(work, FULL, at(95)).current).toBe("build");
+    // ... and the next word to the planner hands it over.
+    work = told(work, PLANNER, 95);
+    const read = waterfall(work, FULL, at(100));
+    expect(read.current).toBe("review");
+    expect(read.trail.map((visit) => visit.stage)).toEqual([
+      "plan",
+      "approve",
+      "unrecorded",
+      "build",
+      "review",
+    ]);
+  });
+
+  it("keeps the build when the implementor's terminal comes back as an `other`", () => {
+    let work = join(opened(), "implementor", 0);
+    work = leaveWork(work, {
+      terminal: IMPLEMENTOR,
+      why: "released",
+      at: at(10),
+    });
+    work = joinWork(work, {
+      terminal: IMPLEMENTOR,
+      role: "other",
+      at: at(12),
+    });
+    const read = waterfall(work, FULL, at(20));
+    expect(read.current).toBe("build");
+    expect(read.trail.map((visit) => visit.stage)).toEqual(["build"]);
   });
 });
 

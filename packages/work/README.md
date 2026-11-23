@@ -199,7 +199,10 @@ is not holding it (`told`, recorded by `kolu-conductor`'s observer); it lets
 go when its agent stops, exits or sleeps, or it leaves. An agent asking a
 question has not let go. The holder is the member handed the work most
 recently among those still holding it, or, when nobody is, the one handed it
-last; an `other` member never holds it. `holdStep` says this once.
+last; an `other` member never holds it, and a role once joined in stays
+joined even if its terminal comes back as `other`. The upgrade's
+`hand-offs-kept` forgets who holds the work — nothing read off the events
+before it is believed. `holdStep` says this once.
 
 **The stages a work has are its mode's.** `MODE_RUNS` declares them: `full`
 has all six, `trivial` has Build, Checks and Merge (nobody plans, approves or
@@ -217,7 +220,8 @@ work's setup form and the Conductor starting its implementor — is filed as
 `setup` (`Filed`). On a work saved before kolu kept hand-offs (the upgrade
 wrote it a `hand-offs-kept`), the agents' time that would be Build or Review
 is `unrecorded` up to the first hand-off after the upgrade. Both are somebody's
-time but no cell's.
+time but no cell's; a Build or Review with no time of its own on such a work
+reads `unrecorded` (`StageState`), neither done nor skipped.
 
 **The trail is every visit, in order.** A visit is a run of stretches filed in
 one place, closed by the work moving on or ending; Review and Build, and Build
@@ -225,8 +229,8 @@ and Checks, can loop any number of times, and `movesOf` counts the loops off
 the trail. Events stamped at one instant are one moment: the stretches of no
 length between them are no visit, except the last before the work ended (a PR
 merged at the instant the work ended still reached Merge). The cells are the
-trail summed by stage; a stage the work entered is done, even if it took no
-time, and says whose time it mostly was. The same walk files EVERY EVENT where
+trail summed by stage; a stage the work entered is done and says whose time
+it mostly was (it has no time only where the work ended as it got there). The same walk files EVERY EVENT where
 the stretch it begins is (`Stages`' `events`, and each visit's `events`) and
 says where the work is (`current`), which is what lets a card show one stage's
 or one visit's events. `stages.test.ts` checks, over generated records walked

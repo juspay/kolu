@@ -260,14 +260,23 @@ export const prLinks = (work: Work): ReadonlyMap<number, string> => {
  *  - it LETS GO when its agent stops (`ready` is a stop of an agent nobody
  *    had spoken to), exits or is put to sleep, or when it leaves. An agent
  *    asking a question has not let go;
- *  - a member whose role is `other` never holds it.
+ *  - a member whose role is `other` never holds it;
+ *  - the upgrade's `hand-offs-kept` FORGETS who holds it: before it kolu kept
+ *    no hand-offs (and its cap folded stops away), so nothing read off the
+ *    events before it is believed. Nobody holds it after it, and nobody was
+ *    handed it last; the roles members joined in are kept.
  *
  *  The HOLDER ({@link holderOf}) is the member handed the work most recently
  *  among those still holding it, and when nobody is, the one handed it
  *  last. */
 export interface Holding {
-  /** The waterfall role each member joined in. */
+  /** The waterfall role each member has now, as its latest `joined` said —
+   *  none for one that joined as `other`. */
   readonly roles: ReadonlyMap<string, WaterfallRole>;
+  /** The waterfall roles any member has EVER joined in — kept apart from
+   *  {@link roles}, so a terminal that comes back as `other` does not take
+   *  back that an implementor joined. */
+  readonly joined: ReadonlySet<WaterfallRole>;
   /** The members holding the work now, the one handed it most recently
    *  last. */
   readonly holding: ReadonlyArray<string>;
@@ -278,6 +287,7 @@ export interface Holding {
 /** A work nobody has been handed yet. */
 export const NOBODY_HOLDS: Holding = {
   roles: new Map(),
+  joined: new Set(),
   holding: [],
   last: Option.none(),
 };
@@ -314,19 +324,27 @@ export const letsGo = (holding: Holding, event: WorkEvent): boolean =>
 
 /** ONE EVENT'S MOVE ON WHO HOLDS THE WORK. */
 export const holdStep = (was: Holding, event: WorkEvent): Holding => {
+  if (event.kind === "hand-offs-kept")
+    return { ...was, holding: [], last: Option.none() };
   if (event.about.kind !== "member") return was;
   const terminal = event.about.terminal;
-  let roles = was.roles;
-  if (event.kind === "joined" && roles.get(terminal) !== event.role) {
-    const next = new Map(roles);
-    if (isWaterfallRole(event.role)) next.set(terminal, event.role);
-    else next.delete(terminal);
-    roles = next;
+  let at = was;
+  if (event.kind === "joined") {
+    const role = event.role;
+    const roles = new Map(was.roles);
+    if (isWaterfallRole(role)) roles.set(terminal, role);
+    else roles.delete(terminal);
+    at = {
+      ...was,
+      roles,
+      joined: isWaterfallRole(role)
+        ? new Set([...was.joined, role])
+        : was.joined,
+    };
   }
-  const at: Holding = roles === was.roles ? was : { ...was, roles };
   if (handsOver(at, event))
     return {
-      roles,
+      ...at,
       holding: [...at.holding, terminal],
       last: Option.some(terminal),
     };
@@ -354,7 +372,7 @@ export const holderOf = (holding: Holding): Option.Option<WaterfallRole> =>
 
 /** Whether a member has ever joined in this role. */
 export const joinedAs = (holding: Holding, role: WaterfallRole): boolean =>
-  [...holding.roles.values()].includes(role);
+  holding.joined.has(role);
 
 /** The worktree-relative paths of every file kolu has seen appear. */
 export const filesSeen = (work: Work): ReadonlySet<string> =>

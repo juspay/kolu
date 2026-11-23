@@ -185,6 +185,24 @@ describe("what speaking to a member puts on the timeline", () => {
     expect(toldEvents(asking, A, AT)).toBe(asking);
   });
 
+  it("records a word to a planner on a saved work, whatever its old record says", () => {
+    // The planner joined and its stop was folded away before kolu kept
+    // hand-offs, so its record alone reads as if it held the work.
+    expect(holds(holdingOf(work()), B)).toBe(true);
+    const saved = recordEvent(work(), {
+      at: AT,
+      by: "kolu",
+      kind: "hand-offs-kept",
+      about: ABOUT_WORK,
+    });
+    expect(toldEvents(saved, B, AT).events.at(-1)).toEqual({
+      at: AT,
+      by: "agent",
+      kind: "told",
+      about: aboutMember(B),
+    });
+  });
+
   it("writes nothing on any work for a terminal that is no member", () => {
     const saved: Array<Work> = [];
     const watching = observing({

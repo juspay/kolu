@@ -328,8 +328,8 @@ const ms = (from: string, to: string): number =>
 /** THE WALK every time fold takes: the work's life, from its start to its end
  *  (or `now`), visited one stretch at a time with the running state that
  *  stretch was spent in — a stretch between two events stamped at the same
- *  instant too, with no length, which is how a stage that took no time is
- *  still known to have happened. An event stamped before the one ahead of
+ *  instant too, with no length (what {@link stages} makes of one is its own
+ *  rule: one instant is one moment). An event stamped before the one ahead of
  *  it, or after the end, is held to the walk's own clock, so the stretches
  *  always tile the life exactly. Each stretch is visited with the instant it
  *  begins on that clock. */
@@ -418,8 +418,10 @@ export type StageName = (typeof STAGES)[number];
 export type Filed = StageName | "setup" | "unrecorded";
 
 /** ONE VISIT to a place — a run of stretches filed in one place, closed by
- *  the work moving somewhere else or ending. A visit that took no time
- *  still happened.
+ *  the work moving somewhere else or ending. A visit may take no time only
+ *  where the work ended at the instant it got there (a PR merged and the
+ *  work ended at once still reached the merge): between events of one
+ *  instant there is no visit.
  *
  *  - `from`, `until` — when it began and ended; `until` is none for the
  *    visit the work is in now;
@@ -435,14 +437,23 @@ export interface Visit {
   readonly events: { readonly from: number; readonly until: number };
 }
 
+/** The stages whose time a stretch filed `unrecorded` stands for: which of
+ *  the two it was depends on who held the work, which nobody recorded. */
+const UNRECORDED_STAGES: ReadonlySet<StageName> = new Set(["build", "review"]);
+
 /** WHERE A STAGE STANDS, as a sum — each arm carries only what is true of it:
  *
- *  - `done` — the work was in it (for `ms`, which may be none) and is not
- *    in it now; `who` is whose time it mostly was, so the setup's questions
- *    filed under Plan read as yours when they were most of it;
+ *  - `done` — the work was in it (for `ms`, which is none only for the stage
+ *    a work ended in at the instant it got there) and is not in it now;
+ *    `who` is whose time it mostly was, so the setup's questions filed under
+ *    Plan read as yours when they were most of it;
  *  - `now` — the work is in it, for `ms` so far; `who` is whose time it has
  *    mostly been so far, by the same rule as a finished stage. Who the work
  *    waits on at this moment is the standing line's fact, not this bar's;
+ *  - `unrecorded` — a Build or a Review that had no time of its own on a
+ *    work whose hand-offs were not recorded for a stretch: that stretch was
+ *    one or the other, and nobody can say which, so it neither happened nor
+ *    did not. `now` says the work is in that stretch at this moment;
  *  - `not-started` — the work has not reached it;
  *  - `skipped` — it did not happen: the work's mode has no such stage (a
  *    trivial work is never planned or reviewed), the work went past it
@@ -450,6 +461,7 @@ export interface Visit {
 export type StageState =
   | { readonly kind: "done"; readonly ms: number; readonly who: Waiter }
   | { readonly kind: "now"; readonly ms: number; readonly who: Waiter }
+  | { readonly kind: "unrecorded"; readonly now: boolean }
   | { readonly kind: "not-started" }
   | { readonly kind: "skipped" };
 
@@ -697,6 +709,16 @@ export const stages = (work: Work, policy: Policy, now: string): Stages => {
       const who = began.get(name);
       if (time !== undefined && who !== undefined)
         return { name, state: { kind: "done", ms, who: mostly(time, who) } };
+      // A STAGE WHOSE TIME NOBODY RECORDED: no time of its own, on a work
+      // with a stretch that was it or the other one.
+      if (
+        UNRECORDED_STAGES.has(name) &&
+        trail.some((visit) => visit.stage === "unrecorded")
+      )
+        return {
+          name,
+          state: { kind: "unrecorded", now: open && current === "unrecorded" },
+        };
       return {
         name,
         state: { kind: index < at ? "skipped" : "not-started" },
