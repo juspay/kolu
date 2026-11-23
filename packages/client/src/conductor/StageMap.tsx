@@ -11,7 +11,12 @@
  *  Each stage carries its name and, once it has had any, its total time over
  *  every visit. A RING is on the stage the work is in, with how long it has
  *  been in it this time; on a finished work the stage it ended in is the
- *  emphasised one. A Build or Review whose time nobody recorded (a work saved
+ *  emphasised one. A NARROW MAP (under 18rem of its own width, a container
+ *  query) cannot fit five names beside four arrows, two of them counting a
+ *  loop, so each name is its first letter — P, A, B, R, C, M are six
+ *  different letters — and the ring drops its `now ·`; the whole name stays
+ *  in the title and the spoken label.
+ *  A Build or Review whose time nobody recorded (a work saved
  *  before kolu kept hand-offs) is HATCHED, as that stretch is on the trail.
  *  A stage the mode does not have, or the work went past, is DASHED; one not
  *  reached is FAINT. A colour names a stage — the same colour
@@ -228,7 +233,7 @@ const StageMap: Component<{
       {(read) => (
         <div
           data-testid={props.testId}
-          class={`min-w-0 ${full() ? "mt-2" : "mt-1.5"}`}
+          class={`@container/map min-w-0 ${full() ? "mt-2" : "mt-1.5"}`}
         >
           <ol
             aria-label="Stages"
@@ -257,7 +262,10 @@ const StageMap: Component<{
                             : "text-fg-2"
                       }`}
                     >
-                      {STAGE_LABEL[name()]}
+                      {STAGE_LABEL[name()].slice(0, 1)}
+                      <span class="hidden @min-[18rem]/map:inline">
+                        {STAGE_LABEL[name()].slice(1)}
+                      </span>
                     </span>
                     {/* ITS TIME, over every visit — one unit, because a cut
                         duration is a wrong number; the exact time is in the
@@ -337,7 +345,10 @@ const StageMap: Component<{
                             full() ? "text-[0.5rem]" : "text-[0.46rem]"
                           }`}
                         >
-                          now · {compactPhrase(ms())}
+                          <span class="hidden @min-[18rem]/map:inline">
+                            now ·{" "}
+                          </span>
+                          {compactPhrase(ms())}
                         </span>
                       )}
                     </Show>
