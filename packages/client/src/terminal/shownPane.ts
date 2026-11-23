@@ -71,11 +71,18 @@ export interface ShownPaneDeps {
    *  `publishGrid.ts` owns the window and what dropping it costs; this owns
    *  when it is no longer owed. */
   readonly cancelPublish: () => void;
+  /** Restate the grid a not-connected window dropped, if one is still owed
+   *  (`publishGrid.ts`'s latch, kolu#2101 K4). The latch is the publisher's,
+   *  and so is the host check: with nothing owed or the host not connected it
+   *  does nothing. What this gate adds is the VIEW: behind the Conductor the
+   *  grid stays owed, and it is restated once the view is back in front. */
+  readonly restateOwed: () => void;
 }
 
 export interface ShownPane {
-  /** Re-read `shown()` and `viewShown()` and act on a CHANGE. Idempotent:
-   *  safe on every tick of any fact they read. */
+  /** Re-read `shown()` and `viewShown()` and act on a CHANGE; restate an owed
+   *  grid while in front. Idempotent: safe on every tick of any fact they
+   *  read, and of the host's state. */
   observe(): void;
   /** The pane measured a new grid. Published only while the pane is shown
    *  and its view is in front. */
@@ -87,7 +94,8 @@ export function createShownPane(deps: ShownPaneDeps): ShownPane {
   let attached = false;
   return {
     observe() {
-      if (!deps.viewShown()) deps.cancelPublish();
+      if (deps.viewShown()) deps.restateOwed();
+      else deps.cancelPublish();
       const shown = deps.shown();
       if (shown === attached) return;
       attached = shown;

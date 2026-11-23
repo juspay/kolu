@@ -626,8 +626,22 @@ const Terminal: Component<{
       detach: closeAttachStream,
       publish: gridPublisher.publish,
       cancelPublish: gridPublisher.cancel,
+      // The OTHER thing that can owe the PTY a size: a grid change that
+      // happened while this pane's host was not connected (kolu#2101 K4). The
+      // grid effect below fires per GRID CHANGE, so nothing re-observes the host
+      // coming back — and if the open attach stays silent through the outage
+      // there is no re-attach to restate it either, leaving the PTY at its old
+      // size with no symptom but wrong output. So the gate is re-observed on the
+      // host's state too (below), and leans on the latch for idempotence: with
+      // nothing owed it does nothing, and a restatement that lands clears the
+      // latch. Reachable on the LOCAL host too — `daemon.restart` drains it out
+      // of `connected`. No settle window: the latched grid is a measurement that
+      // stopped moving an outage ago. Behind the Conductor it stays owed.
+      restateOwed: gridPublisher.republishSuppressed,
     });
-    createEffect(on([shown, viewShown], () => shownPane.observe()));
+    createEffect(
+      on([shown, viewShown, hostEntryKind], () => shownPane.observe()),
+    );
 
     // The ONE publisher of this pane's WANTED grid → the PTY. (The attach's own
     // `resizeTo` states the grid the pane OPENS at; every change after that
@@ -671,25 +685,6 @@ const Terminal: Component<{
         ],
         () => foreignGrid.observe(),
       ),
-    );
-
-    // …and the OTHER thing that can owe the PTY a size: a grid change that
-    // happened while this pane's host was not connected (kolu#2101 K4). The
-    // effect above fires per GRID CHANGE, so nothing re-observes the host coming
-    // back — and if the open attach stays silent through the outage there is no
-    // re-attach to restate it either, leaving the PTY at its old size with no
-    // symptom but wrong output. This watches the host entry instead, and leans
-    // on the latch for idempotence: with nothing owed it does nothing, and a
-    // restatement that lands clears the latch, so the effect's re-runs (and a
-    // tile that mounts while the host is already up) cost nothing. Reachable on
-    // the LOCAL host too — `daemon.restart` drains it out of `connected`.
-    //
-    // No settle window on this one: the latched grid is a measurement that
-    // stopped moving an outage ago, so there is nothing left to wait out.
-    createEffect(
-      on(hostEntryKind, (kind) => {
-        if (kind === "connected") gridPublisher.republishSuppressed();
-      }),
     );
 
     // Supersession for restartable attach loops: every attempt holds its OWN
