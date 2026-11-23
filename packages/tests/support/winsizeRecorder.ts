@@ -183,6 +183,13 @@ export async function readWinsizes(terminalId: string): Promise<Winsize[]> {
   return sizes;
 }
 
+/** The command line that runs the recorder — typed into a shell by
+ *  {@link startRecorder}, or left for a stand-in agent to exec when kolu
+ *  itself types the terminal's command (a work's implementor). */
+export function recorderCommand(): string {
+  return `'${process.execPath}' '${recorderScript()}'`;
+}
+
 /**
  * Start the recorder in `terminalId` and return the size it started at.
  *
@@ -191,16 +198,21 @@ export async function readWinsizes(terminalId: string): Promise<Winsize[]> {
  * here, and a split's sub-pane has to be reachable too.
  */
 export async function startRecorder(terminalId: string): Promise<Winsize> {
-  const script = recorderScript();
   await padiCall("lifecycle/sendInput", {
     id: terminalId,
-    data: `'${process.execPath}' '${script}'\r`,
+    data: `${recorderCommand()}\r`,
   });
+  return awaitRecorder(terminalId);
+}
 
-  // Prove the program is UP, from a line only its own first write can
-  // produce. Without this, every environmental way a spawn can fail (no such
-  // node, a shell still initializing) would surface later as "no new sizes
-  // were recorded" — which is what a PASS looks like.
+/**
+ * Wait for the recorder in `terminalId` to be UP and return the size it
+ * started at — from a line only its own first write can produce. Without
+ * this, every environmental way a spawn can fail (no such node, a shell still
+ * initializing) would surface later as "no new sizes were recorded" — which is
+ * what a PASS looks like.
+ */
+export async function awaitRecorder(terminalId: string): Promise<Winsize> {
   let sizes: Winsize[];
   try {
     sizes = await pollFor({

@@ -80,6 +80,7 @@ it("tears down without reading the host's split state", () => {
           terminalId={MAIN}
           visible
           boxDecided
+          viewShown
           focused
           theme={{} as ITheme}
           onCloseTerminal={vi.fn()}

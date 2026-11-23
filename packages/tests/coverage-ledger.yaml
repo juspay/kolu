@@ -5330,3 +5330,16 @@ retirements:
       file: packages/tests/features/conductor.feature
       symbol: "Scenario: Picking a work and going back leaves a following chat at the bottom"
       test: The same journey with one check added — right after the work is opened, before it is picked, the chat is at the bottom, so a follower sees the work's question card that lands with the work's record. Nothing it checked before was taken out.
+  - id: revise-2e2b44f9fae2bf07e8b2
+    revisionId: revision-2e2b44f9fae2bf07e8b2
+    action: revised
+    status: landed
+    promise: A picked work shows its terminals live, and does not resize them
+    defectSurface: [conductor, terminal-resize, user-journey]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-94566e26a099f3c7dad3]
+    sameCodePathEvidence:
+      file: packages/tests/features/conductor-live-terminals.feature
+      symbol: "Scenario: A tile behind the Conductor does not take its terminal's size back"
+      test: The same journey — a terminal looked at as a tile, joined to a work as its planner beside the implementor, both shown live in the work's panes. Its claim was that the pane does not resize the terminal, which is no longer true on a desktop; it now records every size the planner's program is told and checks the pane's size lands, the agent's pane and the shell's are one height, the tile behind the Conductor never takes the size back, Open tile restores the tile's size and coming back restores the pane's.

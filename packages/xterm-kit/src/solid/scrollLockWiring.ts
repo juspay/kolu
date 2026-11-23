@@ -7,12 +7,12 @@
  * across several independent `makeEventListener` calls in Terminal.tsx, each
  * carrying an out-of-band rule in a comment ("capture phase is load-bearing",
  * "hold from press to release", "this source string"). This module collapses
- * the wheel/pointer cluster — the bulk of those sites — into one helper so the
- * source strings and the capture/hold/release rules live in a single place.
+ * the wheel/pointer/keyboard cluster — the bulk of those sites — into one
+ * helper so the source strings and the capture/hold/release rules live in a
+ * single place, and every `<Xterm>` (a tile, a Look, a live pane) gets them.
  *
- * Kept at their call sites (interleaved with non-scroll logic): the keyboard
- * arm inside `attachCustomKeyEventHandler`, the touch arm inside the touchmove
- * bridge, and SearchBar navigation.
+ * Kept at their call sites (interleaved with non-scroll logic): the touch arm
+ * inside the touchmove bridge, and SearchBar navigation.
  */
 
 import { createEffect, createSignal } from "solid-js";
@@ -21,19 +21,20 @@ import { makeEventListener } from "@solid-primitives/event-listener";
 /** The slice of the scroll-lock API the DOM wiring drives. Structural so the
  *  state machine stays unaware of this module. */
 export interface ScrollIntentTarget {
-  armUserScrollIntent(source: "wheel"): void;
+  armUserScrollIntent(source: "wheel" | "keyboard"): void;
   holdUserScrollIntent(source: "pointer"): void;
   releaseUserScrollIntent(): void;
 }
 
 /**
- * Wire the wheel + pointer-held scroll inputs into the scroll-lock latch
- * (#1272). Must be called synchronously within a reactive scope so the
+ * Wire the wheel, pointer-held and keyboard scroll inputs into the scroll-lock
+ * latch (#1272). Must be called synchronously within a reactive scope so the
  * `makeEventListener` cleanups register on the caller's owner.
  *
- * Both clusters listen in capture phase: xterm's own wheel/pointer handlers sit
- * deeper in the DOM and fire `onScroll` synchronously, so the intent must be
- * armed before they run — a bubble listener would arrive too late.
+ * Every listener is in capture phase: xterm's own wheel/pointer/keydown
+ * handlers sit deeper in the DOM and fire `onScroll` synchronously, so the
+ * intent must be armed before they run — a bubble listener would arrive too
+ * late.
  */
 export function wireScrollIntent(
   container: HTMLElement,
@@ -46,6 +47,22 @@ export function wireScrollIntent(
     container,
     "wheel",
     () => scrollLock.armUserScrollIntent("wheel"),
+    { capture: true, passive: true },
+  );
+
+  // Shift+PageUp / Shift+PageDown are the ONLY chords this xterm build turns
+  // into a viewport scroll (KeyboardResultType.PAGE_UP / PAGE_DOWN →
+  // scrollLines). Shift+Home/End emit escape SEQUENCES, not scrolls — arming
+  // on them would leave a stale intent that an unrelated programmatic
+  // off-bottom scroll could latch onto within the window. So arm only on the
+  // keys that actually scroll; the key still reaches xterm's textarea after.
+  makeEventListener(
+    container,
+    "keydown",
+    (e: KeyboardEvent) => {
+      if (e.shiftKey && (e.key === "PageUp" || e.key === "PageDown"))
+        scrollLock.armUserScrollIntent("keyboard");
+    },
     { capture: true, passive: true },
   );
 

@@ -134,3 +134,30 @@ Feature: Peek at a terminal from the Conductor
     Then the peek's terminal should be a different size
     And the peek's top bar should not have moved
     And there should be no page errors
+
+  Scenario: Scrolling back in Look stays where you scrolled
+    Given a repo for the work
+    When I ask the conductor to open the work "read back in look"
+    And I answer the work's question with "hand-over" in the chat
+    And I ask the conductor to run the implementor in the work's repo
+    Then the work column should list the terminal as a member
+    When I look at the member terminal
+    Then the peek should be open
+    And the peek's terminal should have come up
+    When I take over from the peek
+    Then the peek should say you are driving
+    When I type "fill-scrollback" into the peek
+    Then the peek should show "omp-line 300"
+    When I hand back from the peek
+    Then the peek should say the Conductor is driving
+    When I wheel back over the peek
+    Then the peek should stay scrolled back
+    When I wheel to the bottom of the peek
+    Then the peek should be live at the bottom
+    When I take over from the peek
+    Then the peek should say you are driving
+    When I wheel back over the peek
+    Then the peek should stay scrolled back
+    When I wheel to the bottom of the peek
+    Then the peek should be live at the bottom
+    And there should be no page errors

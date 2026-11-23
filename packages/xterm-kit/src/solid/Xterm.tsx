@@ -27,6 +27,7 @@ import {
   onCleanup,
   splitProps,
 } from "solid-js";
+import { BIRTH_GRID } from "../birthGrid";
 import { gridForBox, sameGrid, type TerminalGrid } from "./grid";
 import { clearWriteQueue } from "../internals";
 import { measureGridBox } from "./measureBox";
@@ -223,12 +224,13 @@ export const Xterm: Component<
   const [wantedGrid, setWantedGrid] = createSignal<TerminalGrid | null>(null, {
     equals: gridEquals,
   });
-  // Seeded with the constructor's invented 80×24 and corrected the moment a
-  // terminal exists — honest, because an unmeasured xterm really is 80×24. It
-  // is never null, which is what separates it from `wantedGrid`: the question
-  // "has this pane measured?" has exactly one answer, and this is not it.
+  // Seeded with the constructor's invented 80×24 (`BIRTH_GRID`) and corrected
+  // the moment a terminal exists — honest, because an unmeasured xterm really
+  // is that size. It is never null, which is what separates it from
+  // `wantedGrid`: the question "has this pane measured?" has exactly one
+  // answer, and this is not it.
   const [termGrid, setTermGrid] = createSignal<TerminalGrid>(
-    { cols: 80, rows: 24 },
+    { ...BIRTH_GRID },
     { equals: sameGrid },
   );
 
@@ -364,7 +366,7 @@ export const Xterm: Component<
       makeEventListener(window, "focus", () => recovery.recover());
 
       scrollLock.attachToTerminal(term);
-      // Wheel + pointer-held scroll inputs arm the latch (#1272).
+      // Wheel, pointer-held and Shift+PageUp/PageDown scrolls arm the latch (#1272).
       wireScrollIntent(container, scrollLock);
 
       // Single write door: rate coalesce (fullRate policy) → scroll-lock → term.

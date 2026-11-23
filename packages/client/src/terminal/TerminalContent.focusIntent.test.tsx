@@ -165,6 +165,7 @@ describe("TerminalContent panel expansion intent", () => {
           terminalId={MAIN}
           visible
           boxDecided
+          viewShown
           focused
           theme={{} as ITheme}
           onCloseTerminal={() => {}}

@@ -13330,6 +13330,138 @@
       "exampleRows": [],
       "executions": 1,
       "firstSeenSha": "e8f111d56108b721052a5165d11dc130aec497bb"
+    },
+    {
+      "revisionId": "revision-00a6f6e83da87753ad8b",
+      "scenarioKey": "scenario-e01dd9fb73130624d56f",
+      "feature": "features/conductor-live-terminals.feature",
+      "scenario": "A dropped connection behind the Conductor tells a work's terminal nothing",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "687ec694d570740cca03a57d2941d1bda9f8d6e0adedc6e686ff9d2ec964bc5b",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "67af87236345a5a7244aa31bea38a861d781f260"
+    },
+    {
+      "revisionId": "revision-9e25ab166ff233a38f73",
+      "scenarioKey": "scenario-fb3ea8f3b5030493ea79",
+      "feature": "features/conductor-live-terminals.feature",
+      "scenario": "A terminal the Conductor starts fills its pane",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "5802960df00a08fbfb63d13706155b7588ebe26d41e5915aa0d25629f526f9b6",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "67af87236345a5a7244aa31bea38a861d781f260"
+    },
+    {
+      "revisionId": "revision-94566e26a099f3c7dad3",
+      "scenarioKey": "scenario-98fbb7f443f8ca120e8b",
+      "feature": "features/conductor-live-terminals.feature",
+      "scenario": "A tile behind the Conductor does not take its terminal's size back",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "ba66cbbabaab8e2b80fb4a0187308461e45cbb68474115be651bce4a24978398",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "67af87236345a5a7244aa31bea38a861d781f260"
+    },
+    {
+      "revisionId": "revision-a4199adf61eb735c1e9d",
+      "scenarioKey": "scenario-f33ba6db0d79fe06be51",
+      "feature": "features/conductor-live-terminals.feature",
+      "scenario": "A work's pane never tells its terminal less than 80x24",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "13a24cd19a9b9e5abf6d573c7d4d214209ceb0097210caa6e1b7e2da6468c689",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "67af87236345a5a7244aa31bea38a861d781f260"
+    },
+    {
+      "revisionId": "revision-580f152b7cc8bcc7188b",
+      "scenarioKey": "scenario-a14fb6e1cfbc51a6ea50",
+      "feature": "features/conductor-live-terminals.feature",
+      "scenario": "A work's pane tells its terminal a new size when the window changes",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "81ffc0dd853ab57903d0bf59094ea4e8e194d24a2f91054c9ad5776b8d0ef353",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "67af87236345a5a7244aa31bea38a861d781f260"
+    },
+    {
+      "revisionId": "revision-a654e4527c940c32ee66",
+      "scenarioKey": "scenario-d1932e239002f1495b14",
+      "feature": "features/conductor-live-terminals.feature",
+      "scenario": "A work's pane tells its terminal its size once",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "46125930c23a8ced0291d51cff0d0707386c2371aa030c0d334cadc170e1c122",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "67af87236345a5a7244aa31bea38a861d781f260"
+    },
+    {
+      "revisionId": "revision-dcd272bc8fd3b344cecd",
+      "scenarioKey": "scenario-67833d363eeab5f39d3f",
+      "feature": "features/conductor-live-terminals.feature",
+      "scenario": "On a phone a work's pane leaves its terminal's size alone until pressed",
+      "kind": "scenario",
+      "tags": ["@mobile"],
+      "bodyHash": "7bf682fedaf0edd415c2002a5643384525548c5712b005954b5abb321b3bd2a4",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "67af87236345a5a7244aa31bea38a861d781f260"
+    },
+    {
+      "revisionId": "revision-1dfb605d5841284ddd6a",
+      "scenarioKey": "scenario-889cd86c293ddbf1e692",
+      "feature": "features/conductor-live-terminals.feature",
+      "scenario": "Resizing the window while scrolled back keeps the view where it was",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "712a82a057984e0134d2ac0789268d633357e62b10aef4c4c4d88f21a0ee07bf",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "67af87236345a5a7244aa31bea38a861d781f260"
+    },
+    {
+      "revisionId": "revision-bace0a80af6f05caf5c5",
+      "scenarioKey": "scenario-53cb9755b1cfa9aedfd5",
+      "feature": "features/conductor-live-terminals.feature",
+      "scenario": "Scrolling back in a live terminal stays where you scrolled",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "56ada3b66e3bbe31cce4afc4741f9477d5133ff36db1251217d62ae246ff7e2e",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "67af87236345a5a7244aa31bea38a861d781f260"
+    },
+    {
+      "revisionId": "revision-13556647a3da349e4b34",
+      "scenarioKey": "scenario-adbb5517398f0b1aece7",
+      "feature": "features/conductor-live-terminals.feature",
+      "scenario": "Shift+PageUp scrolls a live terminal back, and it stays",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "66d968295af2bd36a1fd9b70ddb30b0a203ca62130076a151743ecc35a115f6d",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "67af87236345a5a7244aa31bea38a861d781f260"
+    },
+    {
+      "revisionId": "revision-4ca9a8c49e40143d3d47",
+      "scenarioKey": "scenario-1a5034e1930482136c38",
+      "feature": "features/conductor-peek.feature",
+      "scenario": "Scrolling back in Look stays where you scrolled",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "5976973824343b8c3869d13bf242e3d47710f00f21a05a562cb06fb1d3ab2ebf",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "67af87236345a5a7244aa31bea38a861d781f260"
     }
   ]
 }

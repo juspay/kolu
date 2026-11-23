@@ -77,9 +77,9 @@ by its host, such as **Implementor on nix@example**, never by an id.
   the window. **Open tile** goes to the terminal's own tile.
 
 A [picked work](/work-card#the-picked-work) shows its terminals the same way,
-in panes beside the chat, each with the window's head and **Inspect**. A pane
-never resizes the terminal either, and **Fit width** is one choice shared by
-the pane and the Look window.
+in panes beside the chat, each with the window's head and **Inspect**. Unlike
+the window, a pane on a desktop sizes its terminal to fill it, and **Fit
+width** is one choice shared by the pane and the Look window.
 
 ## Splits and tabs
 
@@ -181,25 +181,27 @@ tile on screen. On the desktop it is:
 
 A tile panned off the canvas, a tile behind a maximized one, a background split
 tab, and every tile while the [Conductor](/conductor) covers the canvas are left
-alone. This is about the canvas, not the window: a kolu tab in the background of
-your browser keeps its tiles live.
+alone. This is about the canvas, not the window: a kolu tab in your browser's
+background keeps its tiles live.
 
 On the desktop, a tile that leaves your view keeps its feed for an hour. Come
-back within the hour and nothing changed: you are where you were reading, with
-no pause while the tile fetches a screen. The cost is the other side of that —
-a tile you looked away from keeps receiving output for the whole hour. After
-the hour it lets go, and coming back puts you at the end of its output.
+back within the hour and you are where you were reading, with no pause while
+the tile fetches a screen. The cost: a tile you looked away from keeps
+receiving output for that hour. After it, coming back puts you at the end of
+its output.
 
-Maximizing leaves the tiles behind it alone: they keep their own size, and
-their programs are told nothing going in or coming back out. The tile you are
-looking at is told the window's size when you maximize it, and its own size
-again when you restore. Leaving maximized gives every tile then in view its
-feed back at once.
+Maximizing leaves the tiles behind it alone: they keep their size, and their
+programs are told nothing. The tile you look at is told the window's size when
+you maximize it, and its own size when you restore. Leaving maximized gives
+every tile then in view its feed back at once.
 
 A tile that is not live does not tell its terminal how big it is, so opening
-kolu on a second device does not reshape every terminal on the host. Coming
-back to a pane keeps the old screen up until the current one arrives, and the
-activity dot tells you a terminal changed while you were elsewhere.
+kolu on a second device reshapes nothing. While the Conductor covers the
+canvas, no tile tells its terminal a size: a work's pane does, and the tile
+takes its size back when the canvas returns.
+
+Coming back to a pane keeps the old screen up until the current one arrives,
+and the activity dot says a terminal changed while you were away.
 
 ## A tip under the title bar
 

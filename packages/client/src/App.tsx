@@ -86,7 +86,10 @@ import { useTips } from "./settings/useTips";
 import TerminalContent from "./terminal/TerminalContent";
 import TerminalMeta from "./terminal/TerminalMeta";
 import { useTerminals } from "./terminal/useTerminals";
-import { WorkspaceTerminals } from "./terminal/WorkspaceTerminals";
+import {
+  type TilePlacement,
+  WorkspaceTerminals,
+} from "./terminal/WorkspaceTerminals";
 import { useTileStore } from "./tile/useTileStore";
 import {
   controlledSizes,
@@ -304,15 +307,12 @@ const App: Component = () => {
   // (`WorkspaceTerminals`). App does not re-derive it: the old
   // `visible={isDesktop() || …}` called every desktop tile visible, so one
   // mount attached every terminal of the host (kolu#2362).
-  const renderTerminalBody = (
-    id: TerminalId,
-    seen: () => boolean,
-    boxDecided: () => boolean,
-  ) => (
+  const renderTerminalBody = (id: TerminalId, placement: TilePlacement) => (
     <TerminalContent
       terminalId={id}
-      visible={seen()}
-      boxDecided={boxDecided()}
+      visible={placement.seen()}
+      viewShown={placement.viewShown()}
+      boxDecided={placement.boxDecided()}
       focused={tileStore.isActiveTile(id)}
       theme={getTerminalTheme(id)}
       onCloseTerminal={closeTerminal}
@@ -629,12 +629,18 @@ const App: Component = () => {
                         layoutMode() === "phone" ? "flex-col" : undefined
                       }
                     >
-                      <CompactTileView
-                        compact={layoutMode() === "compact"}
-                        orderedIds={orderedIds()}
-                        renderBody={outlet}
-                        bottomBar={<MobileKeyBar />}
-                      />
+                      {/* The touch shell's answer to "is this view in
+                       *  front?" — the same accessor the canvas is given
+                       *  below, so a tile under the Conductor states no size
+                       *  on any layout. */}
+                      <Shown.Provider value={canvasShown}>
+                        <CompactTileView
+                          compact={layoutMode() === "compact"}
+                          orderedIds={orderedIds()}
+                          renderBody={outlet}
+                          bottomBar={<MobileKeyBar />}
+                        />
+                      </Shown.Provider>
                     </RightPanelDrawer>
                   </Match>
                   <Match when={isDesktop()}>
@@ -691,8 +697,9 @@ const App: Component = () => {
                          *  (`ui/shown.ts`). For a tile that means its pane's
                          *  attach: reading the conversation for a minute
                          *  stops the output of the terminals behind it.
-                         *  Provided at its one consumer; a second one (the
-                         *  dock, the inspector) moves it up to the Switch. */}
+                         *  Provided at each shell's consumer — this one and
+                         *  the touch shell above; a third one (the dock, the
+                         *  inspector) moves it up to the Switch. */}
                         <Shown.Provider value={canvasShown}>
                           <TerminalCanvas
                             tileIds={tileStore.tileIds()}

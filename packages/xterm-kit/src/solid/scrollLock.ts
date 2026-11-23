@@ -41,6 +41,7 @@ import {
   createSignal,
   on,
   onCleanup,
+  untrack,
 } from "solid-js";
 
 /** How long a reported scroll input arms the latch. Long enough to cover
@@ -368,37 +369,45 @@ export function createScrollLock(
    *  (e.g. inside `onMount`, or within a `runWithOwner` restoring the
    *  component's owner after an await) — otherwise `onCleanup` silently
    *  no-ops and the `onScroll` closure + `termRef` leak the xterm Terminal
-   *  across the component's lifetime (#591 heap-snapshot evidence). */
+   *  across the component's lifetime (#591 heap-snapshot evidence).
+   *
+   *  The handler body runs UNTRACKED. xterm fires its scroll event from
+   *  inside other people's calls — `terminal.reset()` among them — so a
+   *  tracked read here would subscribe whichever effect made that call to
+   *  the lock, and re-run it every time the lock engages. */
   function attachToTerminal(term: Terminal): void {
     termRef = term;
-    const scrollDisposable = term.onScroll(() => {
-      if (enabled() === false) return;
-      const buf = term.buffer.active;
-      const atBottom = buf.baseY <= buf.viewportY;
-      const source = recentIntent();
-      switch (classify(atBottom, isLocked(), source)) {
-        case "flush-release":
-          flushAndRelease();
-          return;
-        case "stay-locked":
-          // The user is moving through scrollback — no new transition to
-          // record, the lock simply stays engaged.
-          return;
-        case "suppress":
-          suppressAndSnap(term);
-          return;
-        case "engage":
-          // `source` is non-null on this branch by construction of `classify`;
-          // the guard narrows it for the type checker without a cast.
-          if (source !== null) engage(source, term);
-          return;
-      }
-    });
+    const scrollDisposable = term.onScroll(() => untrack(() => onScroll(term)));
     onCleanup(() => {
       scrollDisposable.dispose();
       termRef = null;
       setPending([]);
     });
+  }
+
+  /** One xterm scroll event, classified against the lock. */
+  function onScroll(term: Terminal): void {
+    if (enabled() === false) return;
+    const buf = term.buffer.active;
+    const atBottom = buf.baseY <= buf.viewportY;
+    const source = recentIntent();
+    switch (classify(atBottom, isLocked(), source)) {
+      case "flush-release":
+        flushAndRelease();
+        return;
+      case "stay-locked":
+        // The user is moving through scrollback — no new transition to
+        // record, the lock simply stays engaged.
+        return;
+      case "suppress":
+        suppressAndSnap(term);
+        return;
+      case "engage":
+        // `source` is non-null on this branch by construction of `classify`;
+        // the guard narrows it for the type checker without a cast.
+        if (source !== null) engage(source, term);
+        return;
+    }
   }
 
   /**

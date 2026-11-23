@@ -11,13 +11,17 @@
  */
 
 import type { TerminalGrid } from "@kolu/xterm-kit/solid";
-import { describe, expect, it } from "vitest";
+import { Effect } from "effect";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { createGridPublisher, GRID_SETTLE_MS } from "./publishGrid";
 import { createShownPane } from "./shownPane";
 
 function harness(init?: { grid?: TerminalGrid | null; visible?: boolean }) {
   let grid: TerminalGrid | null =
     init && "grid" in init ? (init.grid ?? null) : null;
   let visible = init?.visible ?? false;
+  /** Is the view in front — false while the Conductor covers the canvas. */
+  let inFront = true;
   /** The grid each attach ASSERTED — the pane's `resizeTo`, read at open. */
   const attachedAt: (TerminalGrid | null)[] = [];
   const published: TerminalGrid[] = [];
@@ -26,6 +30,7 @@ function harness(init?: { grid?: TerminalGrid | null; visible?: boolean }) {
   let cancels = 0;
   const pane = createShownPane({
     shown: () => grid !== null && visible,
+    viewShown: () => inFront,
     attach: () => attachedAt.push(grid),
     detach: () => {
       detaches += 1;
@@ -34,6 +39,7 @@ function harness(init?: { grid?: TerminalGrid | null; visible?: boolean }) {
     cancelPublish: () => {
       cancels += 1;
     },
+    restateOwed: () => {},
   });
   return {
     /** The pane measured its box (a first fit, a re-fit, a disposal). */
@@ -49,6 +55,11 @@ function harness(init?: { grid?: TerminalGrid | null; visible?: boolean }) {
     },
     pane,
     attachedAt,
+    /** The Conductor came in front of this pane's view, or left. */
+    front(next: boolean) {
+      inFront = next;
+      pane.observe();
+    },
     published,
     detaches: () => detaches,
     cancels: () => cancels,
@@ -147,5 +158,112 @@ describe("the shown-pane gate", () => {
     h.measure({ cols: 80, rows: 24 });
     h.measure(null);
     expect(h.detaches()).toBe(1);
+  });
+});
+
+describe("the shown-pane gate, under the Conductor", () => {
+  it("publishes no new measurement while the Conductor is in front, and stays attached", () => {
+    // The window is resized while the Conductor covers the canvas: the tile
+    // under it re-measures, and must not size a terminal a pane is sizing.
+    const h = harness({ visible: true });
+    h.measure({ cols: 120, rows: 40 });
+    h.front(false);
+    h.measure({ cols: 132, rows: 43 });
+    expect(h.published).toEqual([{ cols: 120, rows: 40 }]);
+    expect(h.detaches()).toBe(0);
+  });
+
+  it("drops a measurement still settling when the Conductor comes in front", () => {
+    const h = harness({ visible: true });
+    h.measure({ cols: 120, rows: 40 });
+    const before = h.cancels();
+    h.front(false);
+    expect(h.cancels()).toBe(before + 1);
+  });
+
+  it("publishes again once the canvas is back in front", () => {
+    const h = harness({ visible: true });
+    h.measure({ cols: 120, rows: 40 });
+    h.front(false);
+    h.front(true);
+    h.measure({ cols: 132, rows: 43 });
+    expect(h.published).toEqual([
+      { cols: 120, rows: 40 },
+      { cols: 132, rows: 43 },
+    ]);
+  });
+});
+
+describe("a grid owed from a host outage, under the Conductor", () => {
+  // The REAL publisher behind the gate, as `Terminal.tsx` binds it: its latch
+  // holds a grid a not-connected window dropped, and the gate decides when it
+  // may be restated.
+  function owing() {
+    let host = "warming";
+    let inFront = true;
+    const resized: TerminalGrid[] = [];
+    const publisher = createGridPublisher({
+      terminalId: "t",
+      hostState: () => host,
+      ptyLive: () => true,
+      resize: (grid) => Effect.sync(() => resized.push(grid)),
+      run: (action) => Effect.runSync(action),
+    });
+    const pane = createShownPane({
+      shown: () => true,
+      viewShown: () => inFront,
+      attach: () => {},
+      detach: () => {},
+      publish: publisher.publish,
+      cancelPublish: publisher.cancel,
+      restateOwed: publisher.republishSuppressed,
+    });
+    pane.observe();
+    // Measured while the host was down: the publish is dropped and latched.
+    pane.measured({ cols: 120, rows: 40 });
+    vi.advanceTimersByTime(GRID_SETTLE_MS);
+    return {
+      resized,
+      /** The host's state changed; `Terminal.tsx` re-observes the gate. */
+      host(next: string) {
+        host = next;
+        pane.observe();
+      },
+      front(next: boolean) {
+        inFront = next;
+        pane.observe();
+      },
+    };
+  }
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.spyOn(console, "info").mockImplementation(() => {});
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
+  it("restates nothing when the host comes back behind the Conductor", () => {
+    const o = owing();
+    o.front(false);
+    o.host("connected");
+    expect(o.resized).toEqual([]);
+  });
+
+  it("restates the owed grid once, back in front with the host connected", () => {
+    const o = owing();
+    o.front(false);
+    o.host("connected");
+    o.front(true);
+    o.host("connected");
+    expect(o.resized).toEqual([{ cols: 120, rows: 40 }]);
+  });
+
+  it("restates on the host coming back while in front, as before", () => {
+    const o = owing();
+    o.host("connected");
+    expect(o.resized).toEqual([{ cols: 120, rows: 40 }]);
   });
 });

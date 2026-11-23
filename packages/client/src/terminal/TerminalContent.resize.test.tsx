@@ -138,6 +138,7 @@ function mountContent(): void {
         terminalId={MAIN}
         visible
         boxDecided
+        viewShown
         focused
         theme={{} as ITheme}
         onCloseTerminal={() => {}}

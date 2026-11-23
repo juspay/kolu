@@ -31,6 +31,7 @@ import { shellJoin } from "@kolu/shell-quote";
 import { shouldForwardHeadlessReply } from "@kolu/terminal-protocol";
 import type { Logger } from "@kolu/surface-daemon";
 import {
+  BIRTH_GRID,
   createMirrorAnchor,
   type MirrorAnchor,
   snapToWrapHead,
@@ -45,9 +46,6 @@ import {
   PtyNotFound,
 } from "./ptyHostSurface.ts";
 
-/** Default terminal grid dimensions (matches xterm/VT100 standard). */
-const DEFAULT_COLS = 80;
-const DEFAULT_ROWS = 24;
 /** The per-live-terminal headless-mirror depth, in lines — the SINGLE source of
  *  truth for "how deep a mirror kaval keeps per terminal". It lives in kaval
  *  because the mirror lives in kaval: this is the number every spawn path lands
@@ -251,9 +249,9 @@ export interface PtySpawnOpts {
   env: Record<string, string>;
   /** Starting working directory. */
   cwd: string;
-  /** Grid width (default 80). */
+  /** Grid width (default `BIRTH_GRID.cols`). */
   cols?: number;
-  /** Grid height (default 24). */
+  /** Grid height (default `BIRTH_GRID.rows`). */
   rows?: number;
   /** Headless scrollback override for this PTY. */
   scrollback?: number;
@@ -1125,8 +1123,8 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
     if (entries.has(id)) {
       throw new Error(`pty-host: PTY ${id} already exists`);
     }
-    const cols = spawnOpts.cols ?? DEFAULT_COLS;
-    const rows = spawnOpts.rows ?? DEFAULT_ROWS;
+    const cols = spawnOpts.cols ?? BIRTH_GRID.cols;
+    const rows = spawnOpts.rows ?? BIRTH_GRID.rows;
     const scrollback = spawnOpts.scrollback ?? defaultScrollback;
 
     log.debug({ id, shell: spawnOpts.shell, cwd: spawnOpts.cwd }, "spawning");

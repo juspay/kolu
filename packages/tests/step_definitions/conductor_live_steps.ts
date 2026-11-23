@@ -12,6 +12,13 @@ import assert from "node:assert";
 import { Then, When } from "@cucumber/cucumber";
 import { OMP_HEARD_MARKER } from "../support/agent-mock-omp.ts";
 import { readBufferText } from "../support/buffer.ts";
+import {
+  type ConductorScreen,
+  expectLiveAtBottom,
+  expectStaysScrolledBack,
+  pressOn,
+  wheelOver,
+} from "../support/conductorScroll.ts";
 import { pollFor } from "../support/poll.ts";
 import { type KoluWorld, POLL_TIMEOUT } from "../support/world.ts";
 import { showPickedView } from "./conductor_steps.ts";
@@ -23,7 +30,7 @@ const PANE = `${COLUMN} [data-testid="live-pane"]`;
  *  peek's and the lock's window. */
 const BLOCKED_WINDOW_MS = 3_000;
 
-const paneOf = (role: string): string => `${PANE}[data-role="${role}"]`;
+export const paneOf = (role: string): string => `${PANE}[data-role="${role}"]`;
 const screenOf = (role: string): string =>
   `${paneOf(role)} [data-testid="live-screen"]`;
 
@@ -351,5 +358,50 @@ Then(
           `the ${role}'s live terminal never showed ${JSON.stringify(text)} after ${ms}ms; it reads ${JSON.stringify((last ?? "").trim().slice(-300))}`,
         ),
     });
+  },
+);
+
+/** A LIVE PANE'S SCREEN AND ITS HEAD'S READOUT, for the scroll-back steps. */
+const scrollingOf = (role: string): ConductorScreen => ({
+  screen: screenOf(role),
+  readout: `${paneOf(role)} [data-testid="live-live"]`,
+  label: `the ${role}'s live terminal`,
+});
+
+When(
+  "I wheel back over the {string} live terminal",
+  async function (this: KoluWorld, role: string) {
+    await wheelOver(this.page, scrollingOf(role), -500);
+  },
+);
+
+When(
+  "I wheel to the bottom of the {string} live terminal",
+  async function (this: KoluWorld, role: string) {
+    await wheelOver(this.page, scrollingOf(role), 20_000);
+  },
+);
+
+/** SHIFT+PAGE UP, the keyboard's way back — pressed on the screen itself. A
+ *  failure says whether the view left the bottom and was thrown back, or
+ *  never scrolled. */
+When(
+  "I press Shift+PageUp in the {string} live terminal",
+  async function (this: KoluWorld, role: string) {
+    await pressOn(this.page, scrollingOf(role), "Shift+PageUp");
+  },
+);
+
+Then(
+  "the {string} live terminal should stay scrolled back",
+  async function (this: KoluWorld, role: string) {
+    await expectStaysScrolledBack(this.page, scrollingOf(role));
+  },
+);
+
+Then(
+  "the {string} live terminal should be live at the bottom",
+  async function (this: KoluWorld, role: string) {
+    await expectLiveAtBottom(this.page, scrollingOf(role));
   },
 );

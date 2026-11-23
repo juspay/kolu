@@ -1,3 +1,5 @@
+import type { Fiber } from "effect";
+
 /** Generational supersession for restartable attach attempts.
  *
  *  A terminal's attach loop can be restarted while the previous one is still
@@ -51,5 +53,38 @@ export function onlyWhenCurrent<A extends unknown[]>(
 ): (...args: A) => void {
   return (...args: A) => {
     if (attempt.isCurrent()) effect(...args);
+  };
+}
+
+/** One attempt's OWN fiber, interruptible before the fork has handed it back.
+ *
+ *  An attempt that ends itself (a reassert, or a transport retry that must not
+ *  replay) interrupts its fiber from code the fiber itself is running: the
+ *  fence's `onRetry` hook runs inside the stream. If a drop could fail the
+ *  first subscribe in the same turn as the fork, the hook would run before the
+ *  fork returned the handle — and an interrupt aimed at "the attach fiber"
+ *  would hit nothing, or worse, a successor's. So the attempt keeps its own
+ *  handle, and an interrupt asked for before it exists is OWED and applied the
+ *  moment the fork returns. The fence then is in its retry pause, so the
+ *  replay still never goes out. */
+export interface OwnFiber {
+  /** The attempt's fiber, as the fork returned it. Applies an owed interrupt. */
+  set(fiber: Fiber.Fiber<unknown, unknown>): void;
+  /** Interrupt this attempt's fiber — now, or as soon as it has one. */
+  interrupt(): void;
+}
+
+export function createOwnFiber(): OwnFiber {
+  let fiber: Fiber.Fiber<unknown, unknown> | null = null;
+  let owed = false;
+  return {
+    set(next) {
+      fiber = next;
+      if (owed) fiber.interruptUnsafe();
+    },
+    interrupt() {
+      if (fiber) fiber.interruptUnsafe();
+      else owed = true;
+    },
   };
 }

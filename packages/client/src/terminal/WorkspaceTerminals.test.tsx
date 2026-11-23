@@ -4,6 +4,9 @@ import { render } from "solid-js/web";
 import { expect, it } from "vitest";
 import { WorkspaceTerminals } from "./WorkspaceTerminals";
 
+/** A shell's placement that is seen and in front. */
+const ALWAYS = { seen: () => true, viewShown: () => true };
+
 it("moves the same terminal DOM between desktop and touch shells", () => {
   const host = document.createElement("div");
   document.body.append(host);
@@ -21,11 +24,9 @@ it("moves the same terminal DOM between desktop and touch shells", () => {
         {(outlet) => (
           <Show
             when={desktop()}
-            fallback={
-              <section data-touch="">{outlet("tile", () => true)}</section>
-            }
+            fallback={<section data-touch="">{outlet("tile", ALWAYS)}</section>}
           >
-            <main data-desktop="">{outlet("tile", () => true)}</main>
+            <main data-desktop="">{outlet("tile", ALWAYS)}</main>
           </Show>
         )}
       </WorkspaceTerminals>
@@ -73,7 +74,7 @@ it("switches hosts when each pane appears after its id", async () => {
           <For each={ids()}>
             {(id) => (
               <Show when={ready[id]}>
-                <section data-pane={id}>{outlet(id, () => true)}</section>
+                <section data-pane={id}>{outlet(id, ALWAYS)}</section>
               </Show>
             )}
           </For>
@@ -120,7 +121,7 @@ it("asks the shell that is placing the body whether it can be seen", () => {
     () => (
       <WorkspaceTerminals
         ids={["tile"]}
-        renderBody={(_id, seen) => {
+        renderBody={(_id, { seen }) => {
           mounts++;
           return <output data-seen={seen() ? "" : undefined} />;
         }}
@@ -128,11 +129,11 @@ it("asks the shell that is placing the body whether it can be seen", () => {
         {(outlet) => (
           <Show
             when={desktop()}
-            fallback={
-              <section data-touch="">{outlet("tile", () => true)}</section>
-            }
+            fallback={<section data-touch="">{outlet("tile", ALWAYS)}</section>}
           >
-            <main data-desktop="">{outlet("tile", onCanvas)}</main>
+            <main data-desktop="">
+              {outlet("tile", { seen: onCanvas, viewShown: () => true })}
+            </main>
           </Show>
         )}
       </WorkspaceTerminals>

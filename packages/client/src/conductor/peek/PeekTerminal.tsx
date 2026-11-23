@@ -21,6 +21,7 @@ import {
   type Component,
   createEffect,
   createSignal,
+  on,
   onCleanup,
 } from "solid-js";
 import { FONT_FAMILY, getThemeByName } from "terminal-themes";
@@ -149,52 +150,59 @@ const PeekTerminal: Component<{
       },
     };
     let generation = 0;
-    createEffect(() => {
-      if (!shown() || !tabVisible()) return;
-      generation += 1;
-      const mine = generation;
-      const live = () => mine === generation;
-      onCleanup(() => {
+    // The attach restarts on `shown` and `tabVisible` and on NOTHING else:
+    // `on` runs the body untracked, so no signal read by what it calls —
+    // the scroll lock inside `screen.reset()`, the frame writes — can join
+    // that list. A bare effect here re-attached on every scroll-lock change,
+    // which threw a scrolled-back view to the bottom.
+    createEffect(
+      on([shown, tabVisible], ([isShown, isTabVisible]) => {
+        if (!isShown || !isTabVisible) return;
         generation += 1;
-      });
-      screen.reset();
-      props.onPhase("reading");
-      const again = () => {
-        if (!live()) return;
+        const mine = generation;
+        const live = () => mine === generation;
+        onCleanup(() => {
+          generation += 1;
+        });
         screen.reset();
-        props.onPhase("reconnecting");
-      };
-      runOwnedAction(
-        "peek attach",
-        consumeReattachingStream(
-          () =>
-            unenrolledStreamCall(
-              entry.streams.terminalAttach.unenrolled,
-              peekAttachInput(props.id),
-              {
-                label: `terminalAttach[peek ${props.id}]`,
-                onRetry: again,
-              },
-            ),
-          (frame) => {
-            if (!live()) return;
-            applyPeekFrame(screen, frame);
-            if (isSnapshotFrame(frame)) props.onPhase("live");
-          },
-          again,
-          `Peek attach ${props.id}`,
-          {
-            hasExited: () => {
-              const s = fleetTerminalStanding(props.host, props.id);
-              return (
-                s.kind === "gone" ||
-                (s.kind === "here" && activeArm(s.meta) === undefined)
-              );
+        props.onPhase("reading");
+        const again = () => {
+          if (!live()) return;
+          screen.reset();
+          props.onPhase("reconnecting");
+        };
+        runOwnedAction(
+          "peek attach",
+          consumeReattachingStream(
+            () =>
+              unenrolledStreamCall(
+                entry.streams.terminalAttach.unenrolled,
+                peekAttachInput(props.id),
+                {
+                  label: `terminalAttach[peek ${props.id}]`,
+                  onRetry: again,
+                },
+              ),
+            (frame) => {
+              if (!live()) return;
+              applyPeekFrame(screen, frame);
+              if (isSnapshotFrame(frame)) props.onPhase("live");
             },
-          },
-        ).pipe(Effect.orDie),
-      );
-    });
+            again,
+            `Peek attach ${props.id}`,
+            {
+              hasExited: () => {
+                const s = fleetTerminalStanding(props.host, props.id);
+                return (
+                  s.kind === "gone" ||
+                  (s.kind === "here" && activeArm(s.meta) === undefined)
+                );
+              },
+            },
+          ).pipe(Effect.orDie),
+        );
+      }),
+    );
   };
 
   return (

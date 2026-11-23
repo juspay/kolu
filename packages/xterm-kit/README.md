@@ -21,7 +21,10 @@ named import that crashes Node's cjs-module-lexer under tsx — both pinned by
 
 - `createMirrorAnchor` / `snapToWrapHead` — absolute mirror-line coordinates that
   survive scrollback eviction and a RIS buffer swap (the bookkeeping lifted from
-  kaval's `ptyHost`). The only core piece the headless daemon consumes.
+  kaval's `ptyHost`).
+- `BIRTH_GRID` — the 80×24 every terminal is born at: kaval's spawn default when
+  no size is asked for, `<Xterm>`'s seed before it measures, and the floor a
+  Conductor pane never asks below. One name, so the three cannot drift apart.
 
 ## `@kolu/xterm-kit/backfill` — in-place scrollback backfill (browser-only)
 
