@@ -28,11 +28,7 @@
  */
 
 import { BIRTH_GRID } from "@kolu/xterm-kit";
-import {
-  gridForBox,
-  sameGrid,
-  type TerminalGrid,
-} from "@kolu/xterm-kit/solid";
+import { gridForBox, sameGrid, type TerminalGrid } from "@kolu/xterm-kit/solid";
 import { fitFontSize, type PeekCell, type PeekPad } from "./peek/peekSize";
 
 export interface PaneSizeDeps {

@@ -137,7 +137,6 @@ describe("a live pane's owed grid", () => {
   });
 });
 
-
 describe("paneGrid", () => {
   // A 14-point cell of 8.4×17 px inside 26 px of padding across, 12 down.
   const measured = {
