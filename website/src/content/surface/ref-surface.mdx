@@ -1381,6 +1381,38 @@ Reaches a server over a WebSocket. This is the browser path.
   `SocketOpenError`, so the reconnect schedule backs off and asks again.
 - A throwing thunk does not kill the link. A link that stopped dialling would
   sit `connecting` forever with nothing logged.
+- `onSelfSever(sever, socket)` is optional. The link calls it once for each
+  socket it ends on its own judgment, after calling `close()` on that socket
+  and before dialling again. `socket` is the object `connect` returned for that
+  dial.
+- A close someone else made is never reported: `forceReconnect`, `dispose`,
+  the peer, or the network.
+- A reporter that throws is logged with `console.error` and stops nothing.
+- The call that failed keeps its retryable `RpcClientError`. The report names
+  the socket's end, not the call's failure.
+
+| `SelfSever` | When the link sends it |
+| --- | --- |
+| `{ cause: "undecodableFrame", frame }` | The decoder refused a read. `frame` is an `UndecodableFrame`, below. |
+| `{ cause: "keepAliveUnanswered", silentMs }` | The keep-alive gave up. `silentMs` is the monotonic time since the socket last received a message, or since it opened. |
+
+- In a tab that kept running, `silentMs` lies between `RPC_PING_TIMEOUT_MS` and
+  `RPC_PING_FATAL_SILENCE_MS`. The pinger measures on the wall clock, so a
+  smaller value means the runtime was suspended for part of that time.
+
+| `UndecodableFrame` `kind` | Fields | When |
+| --- | --- | --- |
+| `"invalidJson"` | `parserMessage`, `read` | A line is not JSON. `parserMessage` is the JSON engine's own sentence, cut to `PARSER_MESSAGE_MAX_CHARS` (200). |
+| `"overCap"` | `cap`, `read` | A line, or an unfinished tail, is longer than the decoder's cap. `cap` comes from the decoder's own error. |
+| `"unrecognized"` | `read` | The decoder threw something else. The socket is still cycled. |
+
+- `read` is a `FrameRead`, `{ unit, length }`: the size of the read the
+  decoder refused. A text read counts UTF-16 code units (`"utf16"`), the unit
+  the cap counts. A binary read counts bytes (`"bytes"`).
+- `read` does not count text the decoder was still holding from an earlier
+  read.
+- No report carries the frame. `parserMessage` is the one field that can quote
+  it, because engines quote a few characters around the fault.
 
 ### `websocketLink().diagnostics`
 
@@ -1389,7 +1421,7 @@ server's log.
 
 | Member | Answers |
 | --- | --- |
-| `dialHistory()` | The last 20 dial attempts, oldest first: `startedAt`, `openedAt?`, `endedAt?`, `closeCode?` and a `classification`. |
+| `dialHistory()` | The last 20 dial attempts, oldest first: `startedAt`, `openedAt?`, `endedAt?`, `closeCode?`, `selfSever?` and a `classification`. |
 | `epoch()` | How many times this wire has reached `open`. |
 
 | `classification` | What it means |
@@ -1402,14 +1434,22 @@ server's log.
 - An `"ended-without-open"` attempt is swallowed, publishes no status of its own
   and never reaches the server, so the dial history is the only record of it.
 - Timestamps are `Date.now()`, so they sit beside a server log.
+- `closeCode` is the code from that attempt's own socket, even when its
+  `close` arrives after the next dial has begun.
+- `selfSever` is the value `onSelfSever` was handed, when the link ended that
+  socket itself.
 - Diagnostics ride on the returned link object rather than on `WatchableWire`.
   Consumers and tests implement `WatchableWire` by hand, and widening it would
   break every such implementation for a fact only a real link can produce.
 
-The shapes are exported from `@kolu/surface/links/websocket`: `WebsocketLink`
-(the returned link, a `WireLink` and a `WireTransport`, plus `diagnostics`),
-`WireDiagnostics` (`{ dialHistory, epoch }`), `DialAttempt` (one record) and
-`DialClassification` (the four verdicts above).
+These are exported from `@kolu/surface/links/websocket`:
+
+- `WebsocketLink`: the returned link, a `WireLink` and a `WireTransport`, plus
+  `diagnostics`.
+- `WireDiagnostics` (`{ dialHistory, epoch }`), `DialAttempt` (one record) and
+  `DialClassification` (the four verdicts above).
+- `SelfSever`, `UndecodableFrame`, `FrameRead` and `PARSER_MESSAGE_MAX_CHARS`,
+  the shapes `onSelfSever` reports.
 
 ### `stdioLink`
 
@@ -1488,7 +1528,7 @@ exported from this subpath.
 - On a duplex leg that death is `SurfaceStdioTransportClosed` with
   `death: "keepAliveUnanswered"`, named by Effect's `onPingTimeout` hook. On the
   websocket leg it is the same retryable `RpcClientError` as any other socket
-  loss.
+  loss, and the link names it to its host through `onSelfSever`.
 
 ### Failure and re-subscription across re-dials
 
@@ -2660,14 +2700,14 @@ A malformed JSON line on an ndjson link ends the link. The decoder has already d
 
 - Every call then in flight, and every later call, fails. This holds whether or not a call was in flight.
 - On a stdio or unix-socket leg they fail as `SurfaceStdioTransportClosed` with `death: "undecodableFrame"`, and the owner re-dials a fresh link.
-- The websocket leg cycles its socket instead. The failed calls are the retryable `RpcClientError` that the face's fence re-subscribes on the new socket.
+- The websocket leg cycles its socket instead, and names it to its host through `onSelfSever`. The failed calls are the retryable `RpcClientError` that the face's fence re-subscribes on the new socket.
 - The daemon identity probe separately rejects a malformed first frame.
 
 #### An oversized frame is a closed socket
 
 An oversized frame is not a failed call. Effect's server-side decode answers a frame over the cap with `CloseEvent(1009)`, which takes every subscription on that multiplexed connection with it.
 
-- The client leg is asymmetric. An oversized frame arriving server to client surfaces as a broadcast `ClientProtocolError`, so the socket survives and the retry fence recovers.
+- The client leg is asymmetric. An oversized frame arriving server to client fails at the client's decoder like a malformed one, above: the link ends or the socket cycles, and the websocket leg reports it as `overCap`.
 - `1009` must stay out of any `isTerminalClose` set. It is recoverable, and halting the retry schedule on it would strand the tab with no subscriptions.
 
 #### What a member author owns

@@ -229,7 +229,7 @@ Observation is one option, `onEvent`, taking one tagged union, because every con
 | `_tag` | Carries | Default (`reportSurfaceAppEvent`) |
 | --- | --- | --- |
 | `Connected` | `connection` | silent — the accept a live-connection count increments on |
-| `Disconnected` | `connection`, `code`, `reason` | silent — the same connection hung up (peer, reaper, or the app's own `connection.close`), with the close frame's own account of why |
+| `Disconnected` | `connection`, `code`, `reason`, `reaped` | silent — the same connection hung up (peer, reaper, or the app's own `connection.close`). `reaped` is `true` when this listener's reaper terminated it |
 | `SocketError` | `error`, `url` | loud `console.error` — a transport error |
 | `GenerationRefused` | `error`, `url` | loud `console.error` — a live generation `restrictHandlers` refused. The socket is terminated |
 | `UpgradeHeadersRefused` | `error`, `url` | loud `console.error` — a live `upgradeHeaders` could not be produced. The socket is served anyway, with no named headers ([why](#a-live-allowlist-read-at-each-accept)) |
@@ -239,6 +239,7 @@ Observation is one option, `onEvent`, taking one tagged union, because every con
 
 - A refused generation terminates the socket: there is no honest reduced thing to serve when the served set itself is unservable.
 - `Connected` and `Disconnected` are the pair a live-connection count is built from. The package's own example counts its `serverStats.connections` on them.
+- A reaped socket closes with `1006`, the same code as a network drop. `reaped` is what tells the two apart.
 
 ### `reportSurfaceAppEvent(event)`
 
@@ -493,6 +494,17 @@ These are the pieces a hand-built listener assembles when `serveSurfaceApp` does
 
 `acceptSurfaceSocket` (`@kolu/surface-app/server`) accepts a browser WebSocket onto a served surface. It owns the server-side liveness reaper and sequences stale-gate, enrol and serve in one `accept(...)`, so a socket can never be served un-enrolled. It is the server twin of the client's `connectSurface` watchdog.
 
+| Option | Effect |
+| --- | --- |
+| `server` | The WS server whose `clients` the reaper sweeps. Its socket type is the one `accept` takes and `onReaped` hands back |
+| `intervalMs` | The sweep cadence. Defaults to 30 s |
+| `onError(err, requestUrl)` | A transport error on an accepted socket. Defaults to a loud `console.error` |
+| `onReject(claimedPid, requestUrl)` | A stale tab the gate closed |
+| `onReaped(ws, requestUrl)` | The reaper terminated this socket: it answered no ping since the previous sweep |
+
+- `onReaped` runs after `terminate()` and before the socket's own `close` is emitted.
+- It is told only for sockets this acceptor enrolled. A socket in `clients` that never went through `accept` is still terminated, and not reported.
+
 ### `serveSurfaceSocket`
 
 `serveSurfaceSocket({ group, handlers, socket, services? })` is the serve half: the browser-facing counterpart of `serveOverStdio` and `serveOverUnixSocket`. It takes the same `{ group, handlers }` pair `implementSurface` returns, and replaces the oRPC `RPCHandler(...).upgrade(ws)` call.
@@ -515,6 +527,10 @@ The WS-upgrade handshake gate (error-handler-first; close `4001`). It takes no l
 ### `startWsHeartbeat` · `heartbeatSweep`
 
 The server-side liveness reaper, and its one sweep.
+
+- Each sweep terminates every `OPEN` socket that answered no ping since the previous sweep, then pings the rest.
+- `onReaped` is told each socket the sweep terminated, after `terminate()`. A reporter that throws is logged with `console.error`, and the sweep goes on.
+- Both are generic in the socket type, so the socket `onReaped` hands back is typed as the caller's own.
 
 ### `STALE_PROCESS_CLOSE_CODE` · `SERVER_PROCESS_ID_PARAM`
 
@@ -782,6 +798,13 @@ It derives the connection lifecycle (`connecting → connected → disconnected 
 - Every door in the family takes it in the same position: `connectSurface` (to its one client), `connectSurfaces` (threaded inward to every sibling and the root, via `surfaceClients` → each `buildSurfaceClient`), `connectSurfaceMap`, and `surfaceClient` itself for a hand-built client.
 - So the app spells one interpreter, not one per surface.
 - It is optional at the type. A policy-free surface needs none, but a member that does carry a policy makes `buildSurfaceClient` throw at construction if it was omitted, so a declared policy can never route nowhere.
+
+### `onSelfSever`
+
+`onSelfSever?: (sever, socket) => void` tells the app when the link ended one of its sockets on its own judgment, why, and which socket. It is [`websocketLink`'s option](/surface/ref-surface#websocketlink), passed through unchanged.
+
+- `connectSurface`, `connectSurfaces` and `createSurfaceSocket` take it.
+- Every later dial carries it, including the new wire `conn.redial` builds.
 
 ### `createLiveSignal`
 
