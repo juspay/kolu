@@ -737,6 +737,11 @@ export const serveSurfaceApp = <Svc = never, H extends string = never>(
       maxPayload: RPC_MAX_FRAME_BYTES,
     });
 
+    // The sockets the reaper terminated, read when each one's `close` arrives:
+    // the reaper reports in the same turn as `terminate()`, and `ws` emits the
+    // `close` on a later tick.
+    const reaped = new WeakSet<WebSocket>();
+
     // Gate (stale tab) → enrol (liveness reaper) → dispatch, sequenced by the
     // seam so a socket cannot be served without first being gated and enrolled.
     // The gate takes no id from here: it compares against this process's own
@@ -746,10 +751,6 @@ export const serveSurfaceApp = <Svc = never, H extends string = never>(
     // (it must comfortably exceed `createHeartbeat`'s recovery so a reconnect
     // wins the race), which makes it the same class of number as the frame cap —
     // one a consumer who guesses turns into sockets reaped mid-revival, silently.
-    // The sockets the reaper terminated, read when each one's `close` arrives:
-    // the reaper reports after `terminate()`, and `ws` emits the `close` on a
-    // later tick.
-    const reaped = new WeakSet<WebSocket>();
     const acceptor = acceptSurfaceSocket({
       server: sockets,
       onError: (error, url) => report({ _tag: "SocketError", error, url }),

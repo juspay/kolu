@@ -733,16 +733,19 @@ describe("heartbeatSweep — the server-side liveness reaper", () => {
     const first = fakeServerSocket();
     const second = fakeServerSocket();
     const logged = vi.spyOn(console, "error").mockImplementation(() => {});
-    let calls = 0;
-    heartbeatSweep([first, second], new WeakSet(), () => {
-      calls += 1;
-      if (calls === 1) throw new Error("the app's reporter broke");
-    });
-    expect(first.terminate).toHaveBeenCalledTimes(1);
-    expect(second.terminate).toHaveBeenCalledTimes(1);
-    expect(calls).toBe(2);
-    expect(logged).toHaveBeenCalledTimes(1);
-    logged.mockRestore();
+    try {
+      let calls = 0;
+      heartbeatSweep([first, second], new WeakSet(), () => {
+        calls += 1;
+        if (calls === 1) throw new Error("the app's reporter broke");
+      });
+      expect(first.terminate).toHaveBeenCalledTimes(1);
+      expect(second.terminate).toHaveBeenCalledTimes(1);
+      expect(calls).toBe(2);
+      expect(logged).toHaveBeenCalledTimes(1);
+    } finally {
+      logged.mockRestore();
+    }
   });
 });
 

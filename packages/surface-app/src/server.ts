@@ -849,9 +849,10 @@ export function acceptSurfaceSocket<S extends HeartbeatableSocket>(opts: {
    *  upgrade `requestUrl` is passed alongside for the same per-host log context. */
   onReject?: (claimedPid: string, requestUrl: URL) => void;
   /** The reaper terminated this socket: it answered no ping since the previous sweep.
-   *  Told for every socket this acceptor enrolled, after `terminate()` and before the
-   *  socket's own `close` is emitted. A socket in `clients` that never went through
-   *  `accept` is terminated too, but was never enrolled, so it is not reported. */
+   *  Told for every socket this acceptor enrolled, in the same turn as its
+   *  `terminate()`; a `ws` socket emits its own `close` on a later tick. A socket in
+   *  `clients` that never went through `accept` is terminated too, but was never
+   *  enrolled, so it is not reported. */
   onReaped?: (ws: S, requestUrl: URL) => void;
 }): SurfaceSocketAcceptor<S> {
   const { onReaped } = opts;

@@ -502,7 +502,7 @@ These are the pieces a hand-built listener assembles when `serveSurfaceApp` does
 | `onReject(claimedPid, requestUrl)` | A stale tab the gate closed |
 | `onReaped(ws, requestUrl)` | The reaper terminated this socket: it answered no ping since the previous sweep |
 
-- `onReaped` runs after `terminate()` and before the socket's own `close` is emitted.
+- `onReaped` runs in the same turn as `terminate()`. A `ws` socket emits its own `close` on a later tick.
 - It is told only for sockets this acceptor enrolled. A socket in `clients` that never went through `accept` is still terminated, and not reported.
 
 ### `serveSurfaceSocket`
