@@ -1,15 +1,10 @@
 import solid from "vite-plugin-solid";
 import { defineConfig } from "vitest/config";
 
-// The tests that RUN Solid — every client-layer test under `src/solid/`, plus the
-// two outside it that drive the Solid client (`collectionDeltas` through the
-// `createRoot` deltas harness, `memberFace` through `surfaceClient`). They run in
-// the DOM project; every other test runs in the Node project.
-const DOM_TESTS = [
-  "src/solid/**/*.test.{ts,tsx}",
-  "src/collectionDeltas.test.ts",
-  "src/memberFace.test.ts",
-];
+// The tests that RUN Solid live with the Solid client layer, under `src/solid/`:
+// a test that drives the client or renders belongs there, and joins the DOM
+// project by existing. Every other test runs in the Node project.
+const DOM_TESTS = ["src/solid/**/*.test.{ts,tsx}"];
 
 export default defineConfig({
   // The Solid JSX transform — so the `.test.tsx` render harness (`SurfaceGate`)

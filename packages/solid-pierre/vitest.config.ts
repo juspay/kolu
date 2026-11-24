@@ -8,10 +8,6 @@ if (!rhaiGrammarPath) {
   );
 }
 
-// The `FileTree` render tests, plus `rowPathsCss`, which calls the DOM's
-// `CSS.escape`. Every other test runs in Node.
-const DOM_TESTS = ["src/**/*.test.tsx", "src/rowPathsCss.test.ts"];
-
 export default defineConfig({
   // The Solid JSX transform — so the `.test.tsx` render harness compiles its JSX
   // to real DOM. Harmless for the `.test.ts` files (no JSX).
@@ -38,20 +34,26 @@ export default defineConfig({
     },
   },
   test: {
-    // Two projects, both inheriting this config: `DOM_TESTS` under a DOM
-    // (`happy-dom`, as in the client), the pure-logic tests in Node.
+    // Two projects, both inheriting this config, split by file name: a test
+    // that needs a DOM — it renders, imports a Solid component module, or calls
+    // a DOM API such as `CSS.escape` — is a `.test.tsx` and runs under
+    // `happy-dom` (as in the client); a `.test.ts` is pure logic and runs in
+    // Node.
     projects: [
       {
         extends: true,
-        test: { name: "dom", environment: "happy-dom", include: DOM_TESTS },
+        test: {
+          name: "dom",
+          environment: "happy-dom",
+          include: ["src/**/*.test.tsx"],
+        },
       },
       {
         extends: true,
         test: {
           name: "node",
           environment: "node",
-          include: ["src/**/*.test.{ts,tsx}"],
-          exclude: DOM_TESTS,
+          include: ["src/**/*.test.ts"],
         },
       },
     ],
