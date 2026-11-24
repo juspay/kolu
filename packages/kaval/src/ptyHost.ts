@@ -1972,17 +1972,22 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
     //
     // ORDER MATTERS, and it is not the obvious one. `headless.resize()` now
     // drains the mirror's queued writes SYNCHRONOUSLY before it reflows —
-    // `CoreTerminal.resize()` calls `WriteBuffer.flushSync()` first, so an
-    // async write cannot be parsed at a width it was not written for — and
+    // `CoreTerminal.resize()` calls `WriteBuffer.flushSyncAttempt()` first, so
+    // a queued write cannot be parsed at a width it was not written for — and
     // each drained chunk fires the write callback that publishes it. Those
     // bytes were produced BEFORE this grid change: they are ordinary output,
     // not the repaint. Draining them while the window is open withholds them,
     // and anything withheld that is ALSO in a snapshot forces
     // `claimWithheldOverlap` to re-sync EVERY viewer of this PTY.
     //
+    // The drain stops early only at a chunk whose parser handler returns a
+    // promise (xtermjs/xterm.js#6327). Every handler this mirror registers —
+    // OSC 7, OSC 633 and the CSI one above — answers synchronously, so here
+    // the drain is always complete.
+    //
     // That drain is new in the `@xterm/headless` this repo pins (kolu#2377):
     // 6.0.0's `resize()` went straight to `_bufferService.resize()` and had no
-    // `flushSync` at all, so a chunk still queued when a resize arrived was
+    // flush at all, so a chunk still queued when a resize arrived was
     // parsed afterwards, at the NEW width. The old ordering here was resting
     // on that — which is why it only started re-syncing on the bump.
     //

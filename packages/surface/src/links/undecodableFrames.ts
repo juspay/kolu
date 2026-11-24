@@ -5,12 +5,17 @@
  * This header is the canonical account; everything else that mentions the
  * hazard points here.
  *
- * THE HAZARD (effect@4.1.4). A decode failure is never about one call. The
+ * THE HAZARD (still so at effect@4.1.5). A decode failure is never about one call. The
  * ndjson parser holds a byte buffer shared by every request on the wire, and
  * when it throws it discards that buffer, so whatever followed the bad line in
  * the same read is gone too, and the next read starts at an unknown offset.
  * Effect then fails every call in flight and KEEPS the socket. The link looks
  * alive, but the stream it is reading can no longer be trusted.
+ * Effect 4.1.5 (Effect-TS/effect#10579) changed only the SERVER side: an
+ * ndjson stdio server now answers a bad line with a parse error and keeps
+ * reading, and a parser that throws now also drops the UTF-8 bytes it was
+ * still holding. A CLIENT's parser still throws and its socket still
+ * survives, so this workaround is still needed.
  *
  * THE WORKAROUND. {@link undecodableAware} wraps the shared serialization
  * (`../frameLimit`) so the leg is told the moment the parser throws, and
@@ -28,16 +33,16 @@
  * `undecodableFrames.test.ts` and `@kolu/surface-remote`'s
  * `undecodableFrame.test.ts` are the measure either way.
  *
- * BETA-ASSUMPTION(4.1.4): a decode throw from the ndjson parser fails every call in flight but keeps the socket run alive.
- * In effect@4.1.4 `rpc/RpcSerialization.ts` `makeNdjson` throws
+ * BETA-ASSUMPTION(4.1.5): a decode throw from the ndjson parser fails every call in flight but keeps the socket run alive.
+ * In effect@4.1.5 `rpc/RpcSerialization.ts` `makeNdjson` throws
  * `NdjsonDecodeError` (or `MaxBufferSizeExceeded`) after resetting its
  * buffer, and `rpc/RpcClient.ts` `makeProtocolSocket`'s `processData` catches
  * it and broadcasts a `ClientProtocolError` without ending the run. Measured
  * by `stdio.test.ts` ("a corrupted answer ends the link") and
  * `websocket.test.ts` ("an undecodable frame cycles the socket").
  *
- * BETA-ASSUMPTION(4.1.4): the ndjson parser throws only NdjsonDecodeError (JSON.parse's error as cause) or MaxBufferSizeExceeded.
- * In effect@4.1.4 `rpc/RpcSerialization.ts` `makeNdjson`'s `decode` has
+ * BETA-ASSUMPTION(4.1.5): the ndjson parser throws only NdjsonDecodeError (JSON.parse's error as cause) or MaxBufferSizeExceeded.
+ * In effect@4.1.5 `rpc/RpcSerialization.ts` `makeNdjson`'s `decode` has
  * exactly those two `throw`s, and the cap it enforces counts UTF-16 code units
  * of the decoded text. {@link classifyUndecodable} keys on the two classes; a
  * third would surface as `"unrecognized"`, never be dropped. Measured by
@@ -79,7 +84,7 @@ export type UndecodableFrame =
       readonly cap: number;
       readonly read: FrameRead;
     }
-  /** The parser threw something Effect 4.1.4 never throws. Sound, not a fallback: the
+  /** The parser threw something Effect 4.1.5 never throws. Sound, not a fallback: the
    *  socket is still cycled and the original throw still reaches Effect. */
   | { readonly kind: "unrecognized"; readonly read: FrameRead };
 

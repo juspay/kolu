@@ -39,7 +39,7 @@ let
       --add-flags "${entry}/runner/main.ts" \
       --prefix PATH : ${pkgs.lib.makeBinPath [
         pkgs.nodejs
-        pkgs.pnpm_10
+        pkgs.pnpm_10_latest
         pkgs.bash
         pkgs.coreutils
       ]}

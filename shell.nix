@@ -33,7 +33,7 @@ pkgs.mkShell {
     just
     jq # used by ci/lib.just recipes
     nodejs
-    pnpm_10
+    pnpm_10_latest # see nix/pnpm.nix for why not pnpm_10
     tsx
     nixpkgs-fmt
     # Biome from nixpkgs — single toolchain source, avoids per-platform Rust

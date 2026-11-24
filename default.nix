@@ -818,7 +818,8 @@ let
 
   # Base wrapper: single-process Node + tsx loader, env vars, and PATH. The
   # loader form lets SIGTERM reach the server directly so its graceful shutdown
-  # exits zero; tsx's CLI parent otherwise exits 143 before the child completes.
+  # exits zero; the CLI parent of the tsx this is built from (older than tsx
+  # 4.23.4, privatenumber/tsx#827) exits 143 before the child completes.
   # Does NOT set KOLU_STATE_DIR —
   # callers must provide it (state.ts crashes with a clear error if missing).
   # Tests use this directly so a missing KOLU_STATE_DIR crashes immediately
@@ -1028,11 +1029,12 @@ let
   # runnable program the daemon flip (B2) will spawn.
   #
   # Launched as `node --import <tsx loader> bin.ts`, NOT `tsx bin.ts`: tsx's CLI
-  # forks a child, and that fork does NOT relay SIGTERM to the daemon's
-  # `waitForShutdown` — the daemon gets killed (143) and LEAKS its socket + gate
-  # instead of releasing them. The single-process loader form delivers the signal
-  # to the daemon directly, so SIGTERM teardown works (proven by socketDaemon.test's
-  # "shipped tsx-CLI wrapper" guard, which spawns BOTH shapes and pins the diff).
+  # forks a child, and in the tsx this is built from (older than tsx 4.23.4,
+  # privatenumber/tsx#827) that fork does not let the daemon's `waitForShutdown`
+  # finish — the daemon gets killed (143) and LEAKS its socket + gate. The
+  # single-process loader form delivers the signal to the daemon directly, so
+  # SIGTERM teardown works whatever the CLI does (socketDaemon.test's "SIGTERM
+  # teardown exits 0" case runs this shape).
   kaval = pkgs.runCommand "kaval"
     {
       nativeBuildInputs = [ pkgs.makeWrapper ];

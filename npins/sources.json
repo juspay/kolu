@@ -48,9 +48,9 @@
       },
       "branch": "nixos-26.05",
       "submodules": false,
-      "revision": "21a67dc470149f337cecafbe965d8d252a390518",
-      "url": "https://github.com/nixos/nixpkgs/archive/21a67dc470149f337cecafbe965d8d252a390518.tar.gz",
-      "hash": "sha256-ugpsyk3NM2s87vXfUiIIiibbJ4Pp0JPS5p/3mfs+q+c="
+      "revision": "0dc498bfe49baeb18b0f9891e800b53bb2603193",
+      "url": "https://github.com/nixos/nixpkgs/archive/0dc498bfe49baeb18b0f9891e800b53bb2603193.tar.gz",
+      "hash": "sha256-s/0jq8usZtLVOolYBwmyUmd3JsfAu7w3FU+a0dgMqSY="
     },
     "odu": {
       "type": "Git",
@@ -61,9 +61,9 @@
       },
       "branch": "master",
       "submodules": false,
-      "revision": "3f1c65c4369b627e62231d186ebaa3fc4dab886a",
-      "url": "https://github.com/juspay/odu/archive/3f1c65c4369b627e62231d186ebaa3fc4dab886a.tar.gz",
-      "hash": "sha256-E1hm/lx0A24UN9w/1puM1HC2+JCIKaae/nCEXD6WVkg="
+      "revision": "26ccaaf94ca733cd2d0d9eff834a1d38bdd3e62a",
+      "url": "https://github.com/juspay/odu/archive/26ccaaf94ca733cd2d0d9eff834a1d38bdd3e62a.tar.gz",
+      "hash": "sha256-2HkCF+IUSDDbQnHMT6Wv7pH9XsXvbFu/uw0jjkMfMHA="
     },
     "osfacts": {
       "type": "Git",
@@ -74,9 +74,9 @@
       },
       "branch": "main",
       "submodules": false,
-      "revision": "1b13477b72c24f6feba450720e33d582045382a6",
-      "url": "https://github.com/juspay/osfacts/archive/1b13477b72c24f6feba450720e33d582045382a6.tar.gz",
-      "hash": "sha256-qNE0NFO6/jSABe2H/PTNHsqhOTJnN7j24f4vvClTzbY="
+      "revision": "a91cd2acdb000bb27784919a996f5d779450ac0b",
+      "url": "https://github.com/juspay/osfacts/archive/a91cd2acdb000bb27784919a996f5d779450ac0b.tar.gz",
+      "hash": "sha256-UsjW86fkhUX6e9NCL6ROVSAPZskxPTZtMiIIKsznVCE="
     },
     "rhai-lsp": {
       "type": "Git",

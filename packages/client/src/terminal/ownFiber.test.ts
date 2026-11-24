@@ -9,7 +9,7 @@
  * before the retry re-subscribes. So it runs the REAL fence
  * (`unenrolledStreamCall`) over a procedure that drops the way a socket does,
  * and counts subscribes a second and a half on — past the fence's one-second
- * retry pause. The `BETA-ASSUMPTION(4.1.4)` marker in `Terminal.tsx` points
+ * retry pause. The `BETA-ASSUMPTION(4.1.5)` marker in `Terminal.tsx` points
  * here.
  *
  * Time is Effect's TestClock: the fence's pause is an Effect schedule, which is

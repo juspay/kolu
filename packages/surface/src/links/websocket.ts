@@ -367,7 +367,7 @@ export async function websocketLink(
   // closed/retired edge stays exactly as observable as before — and it reads the
   // `retired` flag the socket's own `close` listener has already set.
   //
-  // BETA-ASSUMPTION(4.1.4): `onDisconnect` runs on EVERY attempt end, including
+  // BETA-ASSUMPTION(4.1.5): `onDisconnect` runs on EVERY attempt end, including
   // the ones whose failure `retryTransientErrors` then swallows — Effect RPC applies
   // `Effect.ensuring(hooks.onDisconnect)` to the whole attempt, OUTSIDE the `tapCause`
   // that returns early for a `SocketOpenError`. Two things below rest on it and on
@@ -439,7 +439,7 @@ export async function websocketLink(
 
   // The two protocol-side moments have no socket in hand, so they reach the
   // current dial. Each asks only for what it uses. Both run inside a connected
-  // run on Effect 4.1.4, so a missing piece means an Effect assumption broke,
+  // run on Effect 4.1.5, so a missing piece means an Effect assumption broke,
   // and each path contains that differently:
   //
   //  - A bad frame needs the dial and its socket, nothing more: while the link
@@ -475,8 +475,8 @@ export async function websocketLink(
       // close; what it NAMES is the socket's end, to the host, through
       // `onPingTimeout`.
       //
-      // BETA-ASSUMPTION(4.1.4): `onPingTimeout` runs only for a connected run, after the socket's release and before `onDisconnect`.
-      // In effect@4.1.4 `rpc/RpcClient.ts` `makeProtocolSocket` races the
+      // BETA-ASSUMPTION(4.1.5): `onPingTimeout` runs only for a connected run, after the socket's release and before `onDisconnect`.
+      // In effect@4.1.5 `rpc/RpcClient.ts` `makeProtocolSocket` races the
       // scoped read loop against the pinger and runs the hook only when
       // `connected`, inside the attempt that `onDisconnect` ensures. So `dial`
       // still names the socket that went silent, and that socket is already

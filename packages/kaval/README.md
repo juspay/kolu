@@ -173,6 +173,16 @@ budget. A same-size `resize()` stays a no-op and emits nothing. It is typed
 rather than an escape sequence inside a `delta`, because PTY output is untrusted
 and an in-band marker would be forgeable by the program on the other end.
 
+## The node-pty fork
+
+`node-pty` comes from juspay's fork (`github:juspay/node-pty#feat/foreground-pid-dist`),
+which adds the `foregroundPid` accessor this package reads. pnpm installs it as a
+git-hosted tarball, and from pnpm 10.34.2 a package NAME no longer approves the
+build script of such an artifact: the root `package.json`'s
+`pnpm.onlyBuiltDependencies` names it by its lockfile path, commit included. Move
+that entry in the same change that moves the fork's commit, or a fresh install
+skips the native build and `pty.node` is missing.
+
 ## Usage
 
 ```ts

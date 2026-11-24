@@ -769,7 +769,7 @@ const Terminal: Component<{
         // exists, the interrupt is owed and applied when the fork returns —
         // while the fence sits in that pause.
         //
-        // BETA-ASSUMPTION(4.1.4): an interrupt issued from inside the fence's onRetry hook stops the stream before the retry's re-subscribe.
+        // BETA-ASSUMPTION(4.1.5): an interrupt issued from inside the fence's onRetry hook stops the stream before the retry's re-subscribe.
         // Measured by packages/client/src/terminal/ownFiber.test.ts with the
         // real `unenrolledStreamCall`: one subscribe, not two.
         superseded = true;

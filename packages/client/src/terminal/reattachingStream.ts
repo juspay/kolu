@@ -208,7 +208,7 @@ const CLEAN_END_REATTACH_BUDGET = 1;
  *  race is harmless: both roads end in channel 2, the same re-subscribe, and the
  *  budget below bounds the second one either way.
  *
- *  BETA-ASSUMPTION(4.1.4): pre-open SocketOpenError retries leave registered calls pending, but an established socket's ping timeout fails them.
+ *  BETA-ASSUMPTION(4.1.5): pre-open SocketOpenError retries leave registered calls pending, but an established socket's ping timeout fails them.
  *  Effect's src/rpc/RpcClient.ts (`makeProtocolSocket`) swallows only SocketOpenError and
  *  broadcasts the pinger's SocketReadError. Measured by
  *  packages/surface/src/links/socketRedialLaws.test.ts. This deadline still

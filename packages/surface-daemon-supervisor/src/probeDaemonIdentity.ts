@@ -47,8 +47,8 @@ const CONTROL_CORE_HELLO_TIMEOUT_MS = 30_000;
  *   trigger exists to fix (a real previous-release kaval, silent, refused
  *   instead of recycled).
  *
- * BETA-ASSUMPTION(4.1.4): an Effect RPC server answers a client's Ping with Pong from the protocol layer, below its handlers.
- *   Re-read in effect@4.1.4 src/rpc/RpcServer.ts (`Ping` → `send(client.id,
+ * BETA-ASSUMPTION(4.1.5): an Effect RPC server answers a client's Ping with Pong from the protocol layer, below its handlers.
+ *   Re-read in effect@4.1.5 src/rpc/RpcServer.ts (`Ping` → `send(client.id,
  *   constPong)`, outside any handler fiber); measured by the "a pong is speech"
  *   case in probeDaemonIdentity.test.ts. It is the one Effect behaviour the
  *   floor stands on — the numbers themselves are the link's own.
