@@ -33,7 +33,7 @@
  */
 
 import { PADI_SURFACE_VERSION } from "@kolu/padi-client/surface";
-import type { DialAttempt } from "@kolu/surface/links/websocket";
+import type { DialAttempt, SelfSever } from "@kolu/surface/links/websocket";
 import {
   type SubscriptionLiveness,
   subscriptionLiveness,
@@ -283,6 +283,32 @@ function ago(ms: number | undefined, now: number): string {
   return `${at(ms)} (${((now - ms) / 1000).toFixed(1)}s ago)`;
 }
 
+/** Why the link ended a dial on its own judgment, as one token. Sizes and the
+ *  cap only: the parser's own sentence can quote characters of the frame, and
+ *  this block is pasted into bug reports. */
+function selfSeverOf(sever: SelfSever): string {
+  return match(sever)
+    .with(
+      { cause: "keepAliveUnanswered" },
+      (s) => `keepAliveUnanswered(silent ${(s.silentMs / 1000).toFixed(1)}s)`,
+    )
+    .with({ cause: "undecodableFrame" }, ({ frame }) => {
+      const read = `read ${frame.read.length} ${frame.read.unit}`;
+      return match(frame)
+        .with(
+          { kind: "overCap" },
+          (f) => `undecodableFrame(overCap cap=${f.cap}, ${read})`,
+        )
+        .with(
+          { kind: "invalidJson" },
+          { kind: "unrecognized" },
+          (f) => `undecodableFrame(${f.kind}, ${read})`,
+        )
+        .exhaustive();
+    })
+    .exhaustive();
+}
+
 /** Render the snapshot as the plain text a user copies. Stable order, one fact
  *  per line, `unknown` wherever a value is genuinely absent. */
 export function formatDiagnosticSnapshot(snap: DiagnosticSnapshot): string {
@@ -322,7 +348,11 @@ export function formatDiagnosticSnapshot(snap: DiagnosticSnapshot): string {
     lines.push(
       `  ${dial.classification} started=${at(dial.startedAt)} opened=${at(
         dial.openedAt,
-      )} ended=${at(dial.endedAt)} code=${dial.closeCode ?? UNKNOWN}`,
+      )} ended=${at(dial.endedAt)} code=${dial.closeCode ?? UNKNOWN}${
+        dial.selfSever === undefined
+          ? ""
+          : ` selfSever=${selfSeverOf(dial.selfSever)}`
+      }`,
     );
   }
   lines.push("");

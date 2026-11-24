@@ -704,6 +704,49 @@ describe("heartbeatSweep — the server-side liveness reaper", () => {
     expect(ws.terminate).not.toHaveBeenCalled();
     expect(ws.ping).not.toHaveBeenCalled();
   });
+
+  it("reports a socket it reaped, AFTER terminating it", () => {
+    const ws = fakeServerSocket();
+    const terminatedWhenReported: boolean[] = [];
+    const reaped: HeartbeatableSocket[] = [];
+    heartbeatSweep([ws], new WeakSet(), (socket) => {
+      terminatedWhenReported.push(ws.terminate.mock.calls.length === 1);
+      reaped.push(socket);
+    });
+    expect(reaped).toEqual([ws]);
+    expect(terminatedWhenReported).toEqual([true]);
+  });
+
+  it("never reports a socket it pinged, or one that is not OPEN", () => {
+    const pinged = fakeServerSocket();
+    const closing = fakeServerSocket(0);
+    const onReaped = vi.fn();
+    heartbeatSweep(
+      [pinged, closing],
+      new WeakSet<HeartbeatableSocket>([pinged]),
+      onReaped,
+    );
+    expect(onReaped).not.toHaveBeenCalled();
+  });
+
+  it("a reporter that throws stops nothing: every dead socket is still terminated, and the throw is logged", () => {
+    const first = fakeServerSocket();
+    const second = fakeServerSocket();
+    const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      let calls = 0;
+      heartbeatSweep([first, second], new WeakSet(), () => {
+        calls += 1;
+        if (calls === 1) throw new Error("the app's reporter broke");
+      });
+      expect(first.terminate).toHaveBeenCalledTimes(1);
+      expect(second.terminate).toHaveBeenCalledTimes(1);
+      expect(calls).toBe(2);
+      expect(logged).toHaveBeenCalledTimes(1);
+    } finally {
+      logged.mockRestore();
+    }
+  });
 });
 
 describe("startWsHeartbeat — the interval-driven sweep", () => {
@@ -799,6 +842,24 @@ describe("acceptSurfaceSocket — the gate→enrol→dispatch acceptance seam", 
     vi.advanceTimersByTime(1000);
     expect(t.ping).toHaveBeenCalledTimes(1);
     expect(t.terminate).not.toHaveBeenCalled();
+    acceptor.stop();
+  });
+
+  it("reports a reaped socket with the upgrade URL it was accepted on", () => {
+    const t = fakeAcceptable();
+    const reaped: { ws: unknown; url: URL }[] = [];
+    const acceptor = acceptSurfaceSocket({
+      server: { clients: new Set([t.ws]) },
+      intervalMs: 1000,
+      onReaped: (ws, url) => reaped.push({ ws, url }),
+    });
+    const url = upgradeUrl(surfaceProcessId());
+    acceptor.accept(t.ws, url, () => {});
+    vi.advanceTimersByTime(1000); // sweep 1: enrolled and alive → pinged
+    expect(reaped).toEqual([]);
+    vi.advanceTimersByTime(1000); // sweep 2: never ponged → reaped
+    expect(t.terminate).toHaveBeenCalledTimes(1);
+    expect(reaped).toEqual([{ ws: t.ws, url }]);
     acceptor.stop();
   });
 

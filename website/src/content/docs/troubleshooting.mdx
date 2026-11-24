@@ -185,7 +185,10 @@ The block names:
 
 - **every connection attempt this tab has made**: when it started, whether it
   came up, when it ended and with what close code. An attempt that failed
-  before it was established is recorded here and nowhere else;
+  before it was established is recorded here and nowhere else. An attempt the
+  tab ended itself also says why: a message it could not read (its kind and
+  size, never its content), or a keep-alive nobody answered, with how long it
+  was silent;
 - **every live subscription**: what it is, when it opened, when it last heard
   from your machine, its update and reconnect counts. One marked **parked**
   last heard something older than the connection it rides on, the fingerprint
