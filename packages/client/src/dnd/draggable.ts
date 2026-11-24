@@ -9,21 +9,12 @@ import {
   onCleanup,
   onMount,
 } from "solid-js";
+import { nearestCenter } from "./collision";
 import {
-  type DragDropScope,
   type DragTransform,
   NO_TRANSFORM,
-  useDragDropScope,
+  requireDragDropScope,
 } from "./DragDropProvider";
-
-/** The nearest scope, or a loud failure naming the caller: a draggable outside
- *  every scope is a wiring bug, never a drag that quietly does nothing. */
-export function requireDragDropScope(caller: string): DragDropScope {
-  const scope = useDragDropScope();
-  if (!scope)
-    throw new Error(`${caller}: no drag scope — wrap it in a DragDropProvider`);
-  return scope;
-}
 
 export type DraggableHandle = {
   /** The dragged element: what the drag measures and the overlay is sized to. */
@@ -78,7 +69,12 @@ export function createDraggable(
 export function createDroppable(id: string): DroppableHandle {
   const scope = requireDragDropScope("createDroppable");
   const droppable = new Droppable(
-    { id, register: false, collisionDetector: scope.collisionDetector },
+    {
+      id,
+      register: false,
+      collisionDetector: nearestCenter,
+      accept: (source) => scope.accepts(String(source.id), id),
+    },
     scope.manager,
   );
   droppable.register();
@@ -93,10 +89,16 @@ export function createDroppable(id: string): DroppableHandle {
   };
 }
 
-/** A drag offset as a `style` object — empty when there is no offset, so an
- *  element at rest carries no `transform` at all. */
-export function transformStyle(transform: DragTransform): JSX.CSSProperties {
+/** A drag offset as a CSS `transform` value — empty when there is no offset,
+ *  so an element at rest carries no `transform` at all. */
+export function transformCss(transform: DragTransform): string {
   return transform.x === 0 && transform.y === 0
-    ? {}
-    : { transform: `translate3d(${transform.x}px, ${transform.y}px, 0)` };
+    ? ""
+    : `translate3d(${transform.x}px, ${transform.y}px, 0)`;
+}
+
+/** {@link transformCss} as a `style` object, for a `style` binding. */
+export function transformStyle(transform: DragTransform): JSX.CSSProperties {
+  const css = transformCss(transform);
+  return css === "" ? {} : { transform: css };
 }

@@ -30,12 +30,13 @@ export type DragTrackerOptions = {
   ) => void;
   /** The pointer moved: the drag's offset from where it started. */
   onMove: (transform: Coordinates) => void;
-  /** Which draggable is being dragged and which droppable it is over — both
-   *  `null` once the operation is over. */
+  /** Which draggable is being dragged and which droppable it is over. */
   onIds: (
-    sourceId: UniqueIdentifier | null,
+    sourceId: UniqueIdentifier,
     targetId: UniqueIdentifier | null,
   ) => void;
+  /** The drag is over (dropped or cancelled), and its operation reset. */
+  onEnd: () => void;
 };
 
 /** Measure a droppable from its element and hand dnd-kit the result as its
@@ -57,7 +58,7 @@ export class DragTracker extends Plugin<DragDropManager, DragTrackerOptions> {
       throw new Error(
         "DragTracker: configure it with DragTracker.configure(options)",
       );
-    const { elementOf, onStart, onMove, onIds } = options;
+    const { elementOf, onStart, onMove, onIds, onEnd } = options;
     let source: Rectangle | undefined;
 
     const stopMeasuring = manager.monitor.addEventListener(
@@ -86,14 +87,22 @@ export class DragTracker extends Plugin<DragDropManager, DragTrackerOptions> {
       onMove(transform);
     });
 
+    let reported = false;
     this.registerEffect(() => {
       const operation = manager.dragOperation;
       if (operation.status.idle) {
         source = undefined;
-        onIds(null, null);
+        // Only the end of a drag that was reported; never the idle state the
+        // manager is born in.
+        if (!reported) return;
+        reported = false;
+        onEnd();
         return;
       }
-      onIds(operation.sourceIdentifier, operation.targetIdentifier);
+      const sourceId = operation.sourceIdentifier;
+      if (sourceId === null) return;
+      reported = true;
+      onIds(sourceId, operation.targetIdentifier);
     });
 
     const destroy = this.destroy.bind(this);

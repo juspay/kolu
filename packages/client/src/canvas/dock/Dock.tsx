@@ -118,10 +118,10 @@ import { createDockRowData, dockRowLabel } from "./dockRowData";
 import type { DockBranchCluster, DockGroup, DockTree } from "./dockTree";
 import { arrayMove, moveCluster, moveRepo } from "./dockTree";
 import {
-  type DockDropTarget,
-  HEADER_DROP_ID,
-  dockCollisionDetector,
+  dockAccepts,
+  dockTargetOf,
   dropHighlightOf,
+  HEADER_DROP_ID,
   reparentDropOf,
   rowIdOfDragId,
 } from "./dockReparent";
@@ -559,20 +559,6 @@ const SortableSection: Component<{
   );
 };
 
-/** The drop target a row drag resolved to, from the droppable id the drag scope
- *  reports. The collision filter admits only row and header droppables to a row
- *  drag, so a third answer is a wiring bug and is said out loud rather than
- *  silently no-opping. */
-function dropTargetOf(droppableId: string): DockDropTarget {
-  if (droppableId === HEADER_DROP_ID) return { kind: "header" };
-  const rowId = rowIdOfDragId(droppableId);
-  if (rowId === null)
-    throw new Error(
-      `dock row drag resolved to an unknown droppable: ${droppableId}`,
-    );
-  return { kind: "row", id: rowId };
-}
-
 /** The repo card's header as a drop target — where a split's row goes to get
  *  its own tile back.
  *
@@ -749,11 +735,15 @@ const RepoSection: Component<{
     // Released where no target answered: for a row drag the filter has already
     // excluded every cluster, so `null` means genuinely nothing was under it.
     if (targetId === null) return;
-    const drop = reparentDropOf(
-      dockDropContext(store),
-      draggedId,
-      dropTargetOf(targetId),
-    );
+    // The filter admits only row and header droppables to a row drag, so a
+    // third answer is a wiring bug and is said out loud rather than silently
+    // no-opping.
+    const target = dockTargetOf(targetId);
+    if (target === null)
+      throw new Error(
+        `dock row drag resolved to an unknown droppable: ${targetId}`,
+      );
+    const drop = reparentDropOf(dockDropContext(store), draggedId, target);
     // Refused — the row itself, one of its descendants, its current parent, a
     // sleeping target, or the header for a row that is already its own tile.
     // The hover painted exactly this verdict, so the write must not out-vote it.
@@ -772,7 +762,7 @@ const RepoSection: Component<{
     // tile is also `z-40`; the portal is appended last, so the ghost wins
     // there, which is what a drag inside the dock wants.)
     <DragDropProvider
-      collisionDetector={dockCollisionDetector}
+      accepts={dockAccepts}
       onDragEnd={onDragEnd}
       overlay={{
         class: "z-40",

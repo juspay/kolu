@@ -57,7 +57,7 @@ import {
   type DropEvent,
   type SortableHandle,
   SortableProvider,
-  transformStyle,
+  transformCss,
 } from "../dnd";
 import { makeEventListener } from "@solid-primitives/event-listener";
 import { createMediaQuery } from "@solid-primitives/media";
@@ -197,8 +197,7 @@ const HostChip: Component<{
   createEffect(() => {
     const drag = props.drag;
     if (!drag || !chipEl) return;
-    const { transform } = transformStyle(drag.transform());
-    chipEl.style.transform = transform ?? "";
+    chipEl.style.transform = transformCss(drag.transform());
   });
 
   // UNIFORM SHAPE: measurable SIZE never depends on `isActive()` — only
@@ -730,13 +729,10 @@ const HostSelectorStrip: Component = () => {
 
   const [chipWidths, setChipWidths] = createStore<Record<string, number>>({});
   const [measureRefs, setMeasureRefs] = createStore<
-    Record<string, HTMLDivElement | undefined>
+    Record<string, HTMLDivElement>
   >({});
   createResizeObserver(
-    () =>
-      Object.values(measureRefs).filter(
-        (el): el is HTMLDivElement => el !== undefined,
-      ),
+    () => Object.values(measureRefs),
     (rect, el) => {
       const key = el.dataset.hostKey;
       if (key)

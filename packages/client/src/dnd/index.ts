@@ -11,20 +11,18 @@
  *    preview of the order a drop would produce.
  *  - `data-no-drag` — an attribute on a control inside a handle (a title-bar
  *    button, a link) that keeps a press on it from starting a drag.
- *  - `transformStyle` — a drag offset as a `style` object. */
+ *  - `transformCss` / `transformStyle` — a drag offset as a CSS value or a
+ *    `style` object. */
 
 export {
   DragDropProvider,
-  type DragTransform,
   type DropEvent,
-  NO_TRANSFORM,
+  requireDragDropScope,
 } from "./DragDropProvider";
 export {
   createDraggable,
   createDroppable,
-  type DraggableHandle,
-  type DroppableHandle,
-  requireDragDropScope,
+  transformCss,
   transformStyle,
 } from "./draggable";
 export {

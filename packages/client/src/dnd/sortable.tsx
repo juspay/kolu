@@ -17,12 +17,15 @@ import {
   type JSX,
   useContext,
 } from "solid-js";
-import { type DragTransform, NO_TRANSFORM } from "./DragDropProvider";
+import {
+  type DragTransform,
+  NO_TRANSFORM,
+  requireDragDropScope,
+} from "./DragDropProvider";
 import {
   createDraggable,
   createDroppable,
   type DraggableHandle,
-  requireDragDropScope,
 } from "./draggable";
 
 type SortableList = {

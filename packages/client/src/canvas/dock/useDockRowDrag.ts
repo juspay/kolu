@@ -107,14 +107,14 @@ export function useDockRowDrag(id: TerminalId): DockRowDrag {
   // registered so the refusal can be PAINTED — a sleeping row under the pointer
   // reads as "no", rather than letting the drop silently resolve to some other
   // row behind it.
-  const live = () => activeArm(store.getMetadata(id)) !== undefined;
+  const { isLive } = dockDropContext(store);
   return {
     ref: (el) => {
       draggable.ref(el);
       droppable.ref(el);
     },
     get handle() {
-      return live() ? draggable.handleRef : undefined;
+      return isLive(id) ? draggable.handleRef : undefined;
     },
     get drop() {
       return drop();

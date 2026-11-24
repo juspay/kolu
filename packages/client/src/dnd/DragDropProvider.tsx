@@ -6,7 +6,6 @@
  *  repo cards and each repo card's clusters are separate scopes, so a drag in
  *  one can never resolve against a target in another. */
 
-import type { CollisionDetector } from "@dnd-kit/collision";
 import {
   DragDropManager,
   type Droppable,
@@ -26,7 +25,6 @@ import {
   useContext,
 } from "solid-js";
 import { Portal } from "solid-js/web";
-import { nearestCenter } from "./collision";
 import {
   DragTracker,
   type DragTrackerOptions,
@@ -70,8 +68,8 @@ export type DropEvent = {
 
 export type DragDropScope = {
   readonly manager: DragDropManager;
-  /** Every droppable in this scope resolves through this. */
-  readonly collisionDetector: CollisionDetector;
+  /** Whether the droppable `targetId` may answer a drag of `sourceId`. */
+  readonly accepts: (sourceId: string, targetId: string) => boolean;
   /** Give a droppable the element it is measured from. */
   readonly attachDroppable: (droppable: Droppable, el: Element) => void;
   /** Measure a droppable that mounted while a drag is under way, so it can be
@@ -91,14 +89,20 @@ export type DragDropScope = {
 
 const DragDropContext = createContext<DragDropScope>();
 
-/** The nearest drag scope, or `undefined` outside every scope. */
-export function useDragDropScope(): DragDropScope | undefined {
-  return useContext(DragDropContext);
+/** The nearest scope, or a loud failure naming the caller: a draggable outside
+ *  every scope is a wiring bug, never a drag that quietly does nothing. */
+export function requireDragDropScope(caller: string): DragDropScope {
+  const scope = useContext(DragDropContext);
+  if (!scope)
+    throw new Error(`${caller}: no drag scope — wrap it in a DragDropProvider`);
+  return scope;
 }
 
 export const DragDropProvider: Component<{
-  /** How a droppable answers a drag. {@link nearestCenter} by default. */
-  collisionDetector?: CollisionDetector;
+  /** Whether a droppable may answer a drag at all; every droppable may by
+   *  default. One that refuses is never a candidate, so the nearest droppable
+   *  that accepts wins. Collision itself is always `nearestCenter`. */
+  accepts?: (sourceId: string, targetId: string) => boolean;
   onDragEnd: (event: DropEvent) => void;
   /** A ghost that rides under the pointer for the whole drag, portalled to
    *  `document.body`: sized to at least the dragged element, centred on where
@@ -126,13 +130,15 @@ export const DragDropProvider: Component<{
     },
     onMove: (offset) => setTransform({ x: offset.x, y: offset.y }),
     onIds: (sourceId, targetId) => {
-      setActiveId(sourceId === null ? null : String(sourceId));
+      setActiveId(String(sourceId));
       setOverId(targetId === null ? null : String(targetId));
-      if (sourceId === null) {
-        setTransform(NO_TRANSFORM);
-        setSourceRect(undefined);
-        setStartRects(new Map());
-      }
+    },
+    onEnd: () => {
+      setActiveId(null);
+      setOverId(null);
+      setTransform(NO_TRANSFORM);
+      setSourceRect(undefined);
+      setStartRects(new Map());
     },
   };
   const manager = new DragDropManager({
@@ -147,7 +153,7 @@ export const DragDropProvider: Component<{
       props.onDragEnd({
         sourceId: String(operation.source.id),
         targetId: operation.target ? String(operation.target.id) : null,
-        transform: operation.transform,
+        transform: { x: operation.transform.x, y: operation.transform.y },
       });
     },
   );
@@ -158,8 +164,8 @@ export const DragDropProvider: Component<{
 
   const scope: DragDropScope = {
     manager,
-    collisionDetector: (input) =>
-      (props.collisionDetector ?? nearestCenter)(input),
+    accepts: (sourceId, targetId) =>
+      props.accepts?.(sourceId, targetId) ?? true,
     attachDroppable: (droppable, el) => {
       droppableElements.set(droppable, el);
     },

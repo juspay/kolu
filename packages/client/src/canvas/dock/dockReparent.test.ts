@@ -1,11 +1,9 @@
-import { sortCollisions } from "@dnd-kit/abstract";
-import type { CollisionDetector } from "@dnd-kit/collision";
-import { Rectangle } from "@dnd-kit/geometry";
 import { describe, expect, it } from "vitest";
 import type { ParentEdge } from "../../terminal/terminalTree";
 import {
   type DockDropContext,
-  dockCollisionDetector,
+  dockAccepts,
+  dockTargetOf,
   dropHighlightOf,
   HEADER_DROP_ID,
   reparentDropOf,
@@ -139,91 +137,24 @@ describe("dropHighlightOf — one rule, two readers", () => {
   });
 });
 
-type Point = { x: number; y: number };
-type DetectorInput = Parameters<CollisionDetector>[0];
+describe("dockTargetOf", () => {
+  it("names a row and the header, and nothing outside the row space", () => {
+    expect(dockTargetOf(rowDragId("t1"))).toEqual({ kind: "row", id: "t1" });
+    expect(dockTargetOf(HEADER_DROP_ID)).toEqual({ kind: "header" });
+    expect(dockTargetOf("feat/x")).toBeNull();
+  });
+});
 
-/** A 10×10 box centred on `center` — the shape of the dragged element and of
- *  every droppable below. */
-function box(center: Point): Rectangle {
-  return new Rectangle(center.x - 5, center.y - 5, 10, 10);
-}
-
-/** What a drag scope resolves to: every droppable asked through the detector,
- *  the answers ranked the way dnd-kit ranks them. The pointer sits at the
- *  dragged element's centre unless `pointer` says otherwise. */
-function resolve(
-  dragged: { id: string; at: Point; pointer?: Point },
-  droppables: { id: string; at: Point }[],
-): string | null {
-  const dragOperation = {
-    source: { id: dragged.id },
-    shape: { current: box(dragged.at) },
-    position: { current: dragged.pointer ?? dragged.at },
-  } as unknown as DetectorInput["dragOperation"];
-  const [first] = droppables
-    .map((d) =>
-      dockCollisionDetector({
-        dragOperation,
-        droppable: {
-          id: d.id,
-          shape: box(d.at),
-        } as unknown as DetectorInput["droppable"],
-      }),
-    )
-    .filter((c) => c !== null)
-    .sort(sortCollisions);
-  return first === undefined ? null : String(first.id);
-}
-
-describe("dockCollisionDetector", () => {
-  it("resolves from the dragged element's centre, not from the pointer", () => {
-    // The grip sits at the row's right edge, so the pointer rides well to the
-    // right of the row it carries. The row nearest the CARRIED row wins, even
-    // when the pointer is over another one.
-    const chosen = resolve(
-      {
-        id: rowDragId("t1"),
-        at: { x: 0, y: 0 },
-        pointer: { x: 100, y: 0 },
-      },
-      [
-        { id: rowDragId("t2"), at: { x: 20, y: 0 } },
-        { id: rowDragId("t3"), at: { x: 100, y: 0 } },
-      ],
-    );
-    expect(chosen).toBe(rowDragId("t2"));
+describe("dockAccepts — a drag answers only from its own id space", () => {
+  it("lets a row drag land on rows and the header, never on a cluster", () => {
+    expect(dockAccepts(rowDragId("t1"), rowDragId("t2"))).toBe(true);
+    expect(dockAccepts(rowDragId("t1"), HEADER_DROP_ID)).toBe(true);
+    expect(dockAccepts(rowDragId("t1"), "feat/x")).toBe(false);
   });
 
-  it("ignores a nearer cluster droppable on a row drag", () => {
-    const chosen = resolve({ id: rowDragId("t1"), at: { x: 0, y: 0 } }, [
-      { id: "feat/x", at: { x: 0, y: 0 } },
-      { id: rowDragId("t2"), at: { x: 100, y: 0 } },
-    ]);
-    expect(chosen).toBe(rowDragId("t2"));
-  });
-
-  it("picks the header on a row drag when no row is nearer", () => {
-    const chosen = resolve({ id: rowDragId("t1"), at: { x: 0, y: 0 } }, [
-      { id: HEADER_DROP_ID, at: { x: 10, y: 0 } },
-      { id: rowDragId("t2"), at: { x: 100, y: 0 } },
-    ]);
-    expect(chosen).toBe(HEADER_DROP_ID);
-  });
-
-  it("never resolves a cluster drag to a row or the header", () => {
-    const chosen = resolve({ id: "feat/x", at: { x: 0, y: 0 } }, [
-      { id: rowDragId("t2"), at: { x: 1, y: 0 } },
-      { id: HEADER_DROP_ID, at: { x: 2, y: 0 } },
-      { id: "fix/y", at: { x: 3, y: 0 } },
-    ]);
-    expect(chosen).toBe("fix/y");
-  });
-
-  it("resolves nothing when a cluster drag has only row-space droppables", () => {
-    const chosen = resolve({ id: "feat/x", at: { x: 0, y: 0 } }, [
-      { id: rowDragId("t2"), at: { x: 1, y: 0 } },
-      { id: HEADER_DROP_ID, at: { x: 2, y: 0 } },
-    ]);
-    expect(chosen).toBeNull();
+  it("lets a cluster drag land on clusters, never on a row or the header", () => {
+    expect(dockAccepts("feat/x", "fix/y")).toBe(true);
+    expect(dockAccepts("feat/x", rowDragId("t2"))).toBe(false);
+    expect(dockAccepts("feat/x", HEADER_DROP_ID)).toBe(false);
   });
 });
