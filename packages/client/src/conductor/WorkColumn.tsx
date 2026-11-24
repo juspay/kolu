@@ -93,8 +93,10 @@ const Heading: Component<{ words: string }> = (props) => (
   </h3>
 );
 
-/** WHAT THE STAGE LINE'S COLOURS MEAN — said once, under the works in
- *  progress, rather than on every row. */
+/** WHAT THE BOARD'S COLOURS OF WAITING MEAN — the standing line's and a
+ *  work's dot: who it waits on — and what the map's ring means, said once,
+ *  under the works in progress, rather than on every row. A stage's own
+ *  colour needs no key: the map names every stage. */
 const Legend: Component = () => (
   <p
     data-testid="work-legend"

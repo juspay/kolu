@@ -50,7 +50,7 @@ export function timelineGap(ms: number): number {
 
 /** The words a long gap prints on its line (`42m`, `3h`, `2d`), or none for a
  *  gap short enough that its length is the whole message. One ladder, the
- *  same `compactPhrase` the stage strip prints its times with. */
+ *  same `compactPhrase` the stage map prints its times with. */
 export function gapWordsFor(ms: number): string | undefined {
   if (timelineGap(ms) < GAP_LABEL_AT_PX) return undefined;
   return compactPhrase(ms);

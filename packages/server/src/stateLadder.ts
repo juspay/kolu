@@ -2296,6 +2296,63 @@ export function workCodeViews_1_65_0(store: Conf<PersistedState>): void {
   if (!store.has("workCodeViews")) store.set("workCodeViews", {});
 }
 
+/** What {@link handOffsKept_1_67_0} appends to every saved work, less its
+ *  `at` — frozen under this rung's own number, so a later change to the live
+ *  vocabulary never changes what this rung writes. */
+const HAND_OFFS_KEPT_1_67_0 = {
+  by: "kolu",
+  about: { kind: "work" },
+  kind: "hand-offs-kept",
+} as const;
+
+/** The 1.67.0 rung — WHO HOLDS A WORK IS RECORDED FROM HERE ON. A work's
+ *  stage is now who holds it, read off the `told` events the Conductor's
+ *  hand-offs write; a saved work has none, because kolu kept none, and a
+ *  rung must not guess them. So every saved work, in progress or finished,
+ *  gains ONE `hand-offs-kept` event, appended after its last: at its end
+ *  time for a finished work (`state.at`), at its last event's time for one in
+ *  progress (its start, for one with no events) — never a clock. The replay
+ *  then files the time that would read Build or Review as `unrecorded` up to
+ *  the first hand-off after it, and reads Plan, Approve, Checks and Merge as
+ *  they were. A work that already carries the event is walked past, so the
+ *  rung run twice changes nothing; a value it does not know is walked past
+ *  unchanged. `works` is written only when something moved. Only `works`
+ *  moves; the transcript file is untouched, so TRANSCRIPT_FILE_VERSION stays
+ *  at 1.63.0. Exported for `stateMigration.test.ts`. */
+export function handOffsKept_1_67_0(store: Conf<PersistedState>): void {
+  const works = recordOf(store.get("works"));
+  if (works === null) return;
+  let changed = false;
+  const next: Record<string, unknown> = {};
+  for (const [id, value] of Object.entries(works)) {
+    const work = recordOf(value);
+    const events = Array.isArray(work?.events) ? work.events : null;
+    const state = recordOf(work?.state);
+    const last = recordOf(events?.at(-1));
+    const at =
+      state?.kind === "ended"
+        ? state.at
+        : last !== null
+          ? last.at
+          : work?.startedAt;
+    if (
+      work === null ||
+      events === null ||
+      typeof at !== "string" ||
+      events.some((one: unknown) => recordOf(one)?.kind === "hand-offs-kept")
+    ) {
+      next[id] = value;
+      continue;
+    }
+    changed = true;
+    next[id] = {
+      ...work,
+      events: [...events, { at, ...HAND_OFFS_KEPT_1_67_0 }],
+    };
+  }
+  if (changed) store.set("works", next as unknown as PersistedState["works"]);
+}
+
 /** The migration ladder — hoisted so {@link decodeStateBackup}'s scratch
  *  store walks the REAL ladder on a backup snapshot (which may predate any
  *  rung), never a parallel re-implementation of it. */
@@ -3072,4 +3129,9 @@ export const CONF_MIGRATIONS = {
       ) as unknown as Preferences,
     );
   },
+  // WHO HOLDS A WORK IS RECORDED FROM HERE ON: every saved work gains one
+  // `hand-offs-kept` event at its end, so the replay says the build and the
+  // review it cannot know were not recorded (`handOffsKept_1_67_0`). The
+  // transcript file is untouched, so TRANSCRIPT_FILE_VERSION stays at 1.63.0.
+  "1.67.0": handOffsKept_1_67_0,
 };

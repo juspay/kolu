@@ -6,7 +6,8 @@
  *
  * THE TIMELINE ONLY GROWS, with three exceptions, each here and each with
  * its reason: the one `append` below keeps it BOUNDED (old agent states fold
- * into one count; a merge answer within one check run replaces the one
+ * into one count, except a stop that let go of the work; a merge answer
+ * within one check run replaces the one
  * before it; past {@link PR_FACTS_PER_COMMIT} check results, or merge
  * answers, on one commit, the oldest of them between its first and its
  * newest goes), and {@link linkPr} amends a `pr-opened` recorded before kolu
@@ -20,7 +21,13 @@
  */
 
 import { Array as Arr, Option } from "effect";
-import { isCheckEvent, sameHead } from "./readings.ts";
+import {
+  holdStep,
+  isCheckEvent,
+  letsGo,
+  NOBODY_HOLDS,
+  sameHead,
+} from "./readings.ts";
 import {
   ABOUT_WORK,
   type AnsweredFromFace,
@@ -59,15 +66,35 @@ const AGENT_STATE: ReadonlySet<string> = new Set(AGENT_STATE_KINDS);
 
 /** How many agent-state events a work keeps. Thirty is what a card's timeline
  *  can show of them before a reader scrolls past the rest anyway, and the
- *  `folded` event keeps the count of the ones that went. */
+ *  `folded` event keeps the count of the ones that went. A state that LET GO
+ *  of the work (`./readings.ts`'s `letsGo`) is never folded and does not
+ *  count: it ends a visit on the work's trail, and a trail with its stops
+ *  folded away would put the time somewhere else. */
 export const AGENT_STATES_KEPT = 30;
 
-/** Drop the oldest agent-state event and count it into the work's ONE `folded`
- *  event — created, on the first fold, exactly where that event sat, so the
- *  timeline's order still says when the folded stretch happened. Mutates the
- *  array the append above has already copied. */
-const foldOldest = (events: Array<WorkEvent>): void => {
-  const at = events.findIndex((one) => AGENT_STATE.has(one.kind));
+/** THE AGENT STATES THAT MAY FOLD: every one that let go of nothing, read
+ *  off the one hand-off rule. Folding one never moves who holds the work —
+ *  a state that lets go of nothing is no step for it. */
+const foldable = (
+  events: ReadonlyArray<WorkEvent>,
+): ((one: WorkEvent) => boolean) => {
+  const lettingGo = new Set<WorkEvent>();
+  events.reduce((holding, one) => {
+    if (letsGo(holding, one)) lettingGo.add(one);
+    return holdStep(holding, one);
+  }, NOBODY_HOLDS);
+  return (one) => AGENT_STATE.has(one.kind) && !lettingGo.has(one);
+};
+
+/** Drop the oldest foldable agent-state event and count it into the work's
+ *  ONE `folded` event — created, on the first fold, exactly where that event
+ *  sat, so the timeline's order still says when the folded stretch happened.
+ *  Mutates the array the append above has already copied. */
+const foldOldest = (
+  events: Array<WorkEvent>,
+  folds: (one: WorkEvent) => boolean,
+): void => {
+  const at = events.findIndex(folds);
   if (at < 0) return;
   const dropped = events[at];
   if (dropped === undefined) return;
@@ -174,7 +201,8 @@ const crowdedOut = (
 
 /** THE ONE APPEND. Every transition in this module goes through it, so the
  *  bounds cannot be forgotten by a caller or by a transition added later:
- *  agent states fold past {@link AGENT_STATES_KEPT}, a merge answer given
+ *  agent states fold past {@link AGENT_STATES_KEPT} (a stop that let go of
+ *  the work never does), a merge answer given
  *  while its commit's checks run replaces the last one
  *  ({@link replacesLastMerge}), and a commit's check results or merge answers
  *  past {@link PR_FACTS_PER_COMMIT} lose one from the middle
@@ -194,9 +222,10 @@ const append = (work: Work, event: WorkEvent): Work => {
   const crowded = crowdedOut(work.events, event);
   if (crowded >= 0) events.splice(crowded, 1);
   if (AGENT_STATE.has(event.kind)) {
-    let states = events.filter((one) => AGENT_STATE.has(one.kind)).length;
+    const folds = foldable(events);
+    let states = events.filter(folds).length;
     while (states > AGENT_STATES_KEPT) {
-      foldOldest(events);
+      foldOldest(events, folds);
       states -= 1;
     }
   }

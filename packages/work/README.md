@@ -2,7 +2,8 @@
 
 A **piece of work**, as kolu stores it: the record, its event vocabulary, the
 pure transitions that grow it, and the folds that read it — where it stands,
-who it is waiting on, the six stages, how long each step took.
+who it is waiting on, who holds it, the six stages and the trail of visits
+through them, how long each step took.
 One dependency (`effect`, for the schemas). It knows nothing of the Conductor,
 ACP, MCP, padi or the browser: a terminal is a string (`host/id`), a question
 is its words and its options.
@@ -103,11 +104,11 @@ conversation — a model is that role's own last one with that harness first.
 
 | module | what |
 | --- | --- |
-| `schema.ts` | the KEY (`WorkKey`, `workIdOf`, `workKeyOf`), the record, the `state`/`outcome` sums and their readings (`isOpen`, `endedAt`, `outcomeOf`, `keptOf`), the `Asked \| Settled` decision sum (each arm split by topic: `mode`, `on-green`, a kolu choice, or a question about the work) and its answer sums, the event union typed by kind with its `about` / `why` / `head` / `request` arms, the PR's draft word (`PR_DRAFT`, which `pr-opened` widens with `unrecorded` and `draft-state` moves), and the waterfall's WORDS (`WORK_ROLES`, `WORK_MODES`, `ON_GREEN`, `SETUP_KEYS`, `KOLU_CHOICE_KEYS`, `OFFERED_SETUP_KEYS`) — declared here because the record's schema embeds them |
+| `schema.ts` | the KEY (`WorkKey`, `workIdOf`, `workKeyOf`), the record, the `state`/`outcome` sums and their readings (`isOpen`, `endedAt`, `outcomeOf`, `keptOf`), the `Asked \| Settled` decision sum (each arm split by topic: `mode`, `on-green`, a kolu choice, or a question about the work) and its answer sums, the event union typed by kind with its `about` / `why` / `head` / `request` arms (`told` is the Conductor handing the work to a member; `hand-offs-kept` is the upgrade's word that a saved work's hand-offs were not recorded), the PR's draft word (`PR_DRAFT`, which `pr-opened` widens with `unrecorded` and `draft-state` moves), and the waterfall's WORDS (`WORK_ROLES`, `WORK_MODES`, `ON_GREEN`, `SETUP_KEYS`, `KOLU_CHOICE_KEYS`, `OFFERED_SETUP_KEYS`) — declared here because the record's schema embeds them |
 | `store.ts` | the ONE smart constructor over works + members: `parseStore` (what the decoder and the single writer both go through), `storeFault` and the `InvalidWorkStore` carrying the `StoreFault` that names the rule that broke and the rows that break it — a VALUE, because the sentence belongs to the face that shows it |
 | `record.ts` | the transitions: `openWork`, `askQuestions`, `answerAsk` (a blank question stays asked; `answered` or `answered-part` on the timeline), `answeredWith`, `dropAsk`, `dropQuestions`, `joinWork`, `leaveWork`, `recordEvent`, `linkPr` (a PR recorded before kolu kept addresses learns its own, by AMENDING its `pr-opened`), `takeOver`/`handBack`, `endWork`, `reopenWork`, `keepFiles`/`keepFailed` — the record only grows, except for the bounds below and that amend; `openAsks`/`hasOpenAsk` derive what is still waiting on a person |
-| `readings.ts` | the MECHANISM of a reading: the decisions of one ask, the PR as the timeline last said it (`prStep`, the ONE statement of the PR-fact rule, and `prOf` over it: its state, its recorded link, whether it is a draft, the last check event and the last merge answer — what the observer compares a reading with, so it records only a CHANGE for that PR at that commit, and what the folds carry to tell green) with the one check table (`CHECK_STEP`), `sameHead` (two facts about one commit, by kind and sha), `prLinks` (each PR number the timeline opened, to the URL recorded with it), the files seen, and why the latest ending did not keep some (`notKeptOf`) |
-| `folds.ts` | `waitingOn`, `standing` (a sum: a question with its `ask` and its words, a merge with the `GreenPr` it waits on — number, head and link — when the timeline knows one, CI, the agents, or done), `timeSpent`, `stages` (a `Stages` sum: `unset` none yet, `none` for a mode that declares none, `staged` the six cells with every event filed and the `current` stage, each cell a `StageState` sum), `took`, `lifetime`, `inProgress`/`finished` over `WorkRow`, `capFinished` — each taking a `Policy` (`handOver`, and how the work is `run`: `unset`, or `set` with whether it is driven and the stages its mode declares) rather than reading the setup itself |
+| `readings.ts` | the MECHANISM of a reading: the decisions of one ask, the PR as the timeline last said it (`prStep`, the ONE statement of the PR-fact rule, and `prOf` over it: its state, its recorded link, whether it is a draft, the last check event and the last merge answer — what the observer compares a reading with, so it records only a CHANGE for that PR at that commit, and what the folds carry to tell green) with the one check table (`CHECK_STEP`), `sameHead` (two facts about one commit, by kind and sha), WHO HOLDS THE WORK (`holdStep`, the ONE statement of the hand-off rule, and `holdingOf`, `holds`, `nobodyHolds`, `holderOf`, `handsOver`, `letsGo`, `joinedAs` and `plannersTurn` — the one question the stage of the agents' time asks — over it, read by the folds, by the agent-state bound and by the Conductor's observer), `prLinks` (each PR number the timeline opened, to the URL recorded with it), the files seen, and why the latest ending did not keep some (`notKeptOf`) |
+| `folds.ts` | `waitingOn`, `standing` (a sum: a question with its `ask` and its words, a merge with the `GreenPr` it waits on — number, head and link — when the timeline knows one, CI, the agents, or done), `timeSpent`, `stages` (a `Stages` sum: `unset` none yet, `none` for a mode that declares none, `staged` the six cells with every event filed, `where` the work is or ended and the `trail` of `Visit`s, each cell a `StageState` sum, each place a `Filed`: a stage, the setup or a `Doubt` — `DOUBTS` the one list of them, `DOUBT_STAGES` their two stages — with `canBe` its stages), `visitMs` (a visit's time), `doubtsOf` (each doubt the trail visited, with its time), `movedTimes`/`visitedTimes` (the map's loop counts and a stage's visits, each a `Count`: `exactly`, or `at-least` where a doubt may hide more), `took`, `lifetime`, `inProgress`/`finished` over `WorkRow`, `capFinished` — each taking a `Policy` (`handOver`, and how the work is `run`: `unset`, or `set` with whether it is driven and the stages its mode declares) rather than reading the setup itself |
 | `needsYou.ts` | WHAT NEEDS THE HUMAN, `standing` and `WAITER_OF` read as a list: `needsYou` over the rows, `needsYouOf` for one, the `NeedsYou` item (its work and title, the `question` or `merge` arm, `since`, the `wanted` words and the item's `key` — the work, the reason and the ask or the green commit, so a merge answer flickering on one commit is ONE item), and `wantedWords`, the one phrase every face says |
 | `waterfall.ts` | the WORDS and every rule over them: `MODE_RUNS` (what each mode runs, needs and drives, and the stages it HAS), `rolesOf`, `setupKeyOf`, `roleOfKey`, `roleRank`, the one setup reading (`setupStanding`, `setupValue`, `modeOf`/`onGreenOf`/`setupOf`/`roleSetupOf`, `keysToAsk`, `openSetupQuestions`, `startBlockers`), `missingSetup` + `foreignSetupWords`, the kolu-choice rules (`harnessForModel`, `askedAnswersOf`/`givenAnswersOf`/`savedAnswersOf`, `modelHarnessesOf`, `modelNotOffered`, `unofferedAnswers`, `koluKeysOf`, `unofferedWhy`/`unofferedWords`, `setupMemory`), `driverOf`, `membershipOf`, `policyOf`, where a work's files live (`WATERFALL_DIR`, `waterfallFileName`), and a flat list of them read as a tree, the same for a live listing and a kept copy (`waterfallLevel`, `childFolderOf`, `compareWaterfallPaths`, `waterfallBytes`) |
 | `refusal.ts` | why a call about a work is refused — `WORK_REFUSALS` and the `WorkRefusal` every face `instanceof`s |
@@ -149,7 +150,10 @@ itself when the member leaves or the work ends.
 otherwise grow a work without limit. The `append` every transition goes
 through keeps the most recent `AGENT_STATES_KEPT` (30) agent-state events
 (`ready`, `stopped`, `asking`, `exited`, `asleep`) and counts the rest into ONE
-`folded` event, sitting where the oldest one it stands for sat. GitHub flips
+`folded` event, sitting where the oldest one it stands for sat. A state that
+LET GO of the work (`letsGo`) is never folded and does not count: it ends a
+visit on the trail, so a work keeps it, and every `told`, for as long as it is
+kept. GitHub flips
 its merge answer while required checks land, so a `merge-state` given while
 its commit's checks are running REPLACES the one before it from the same
 run (unless a draft flip came between them, which keeps both): CI holds the
@@ -189,33 +193,66 @@ stretches tile the work's life exactly: an event stamped before the one
 ahead of it is held to the walk's clock, and time a reopened work spent
 ended is nobody's and counts in none of them.
 
+**The stage is who holds the work.** A member is handed the work when it
+joins as planner or implementor and when the Conductor speaks to it while it
+is not holding it (`told`, recorded by `kolu-conductor`'s observer); it lets
+go when its agent stops, exits or sleeps, or it leaves. An agent asking a
+question has not let go. The holder is the member handed the work most
+recently among those still holding it, or, when nobody is, the one handed it
+last; an `other` member never holds it, and a role once joined in stays
+joined even if its terminal comes back as `other`. The upgrade's
+`hand-offs-kept` forgets who holds the work — nothing read off the events
+before it is believed. `holdStep` says this once.
+
 **The stages a work has are its mode's.** `MODE_RUNS` declares them: `full`
 has all six, `trivial` has Build, Checks and Merge (nobody plans, approves or
 reviews it), `watch` has none. The fold places each stretch as a six-stage
-waterfall would — CI running is Checks and a green PR handed over is Merge
-wherever they fall, except that CI on a draft still in the build is Build;
-a question keeps the work in the stage it is in (before
-the implementor: Approve once a planner has joined, Plan before that — the
-setup's own questions); the agents' time is Plan before the implementor, Build
-until the IMPLEMENTOR'S PR is ready for review — opened ready, or a draft
-marked ready, while one turned back into a draft builds again; a PR that was
-already there, such as one a bot opened, ends nothing by being open, and
-ends the build only when it was a draft and is marked ready — Review after —
-and files it under the nearest
-stage at or before that the mode has. So "a trivial work in Review" cannot be
-written down. A stretch with no such stage — a trivial work's setup form and
-the Conductor starting its implementor — is filed as `setup` (`Filed`): it is
-still somebody's time spent, but no cell's, because nothing was built. A
-stage the work entered is done, even if it took no time, and says whose time
-it mostly was. The same walk files EVERY EVENT where the stretch it begins is
-(`Stages`' `events`) and says where the work is (`current`), which is what
-lets a card show one stage's events. `stages.test.ts` checks, over generated
-records walked by its own independent fold, that the stages and the setup
-add up to `lifetime`, that so do the waiters, and that each stage holds
-exactly the time after its events, and reads the cells of the
-shapes real works have taken, each by name; the seeded generator it and
-`work.test.ts` share lives in `test/seeded.ts`, outside `src/`, so it is
-never shipped.
+waterfall would: a merged PR is Merge; CI running is Checks, whoever holds
+the work; a green PR handed over is Merge; a question keeps the work in the
+stage it is in (before the implementor: Approve once a planner has joined,
+Plan before that); the agents' time asks one thing, whether it is the
+planner's turn (`plannersTurn`): before the implementor it is Plan, except
+that a plan you answered is Approve when it is not; after, it is Review on
+the planner's turn and Build otherwise. A draft decides no stage: it only
+cannot merge. Each stretch is filed under the nearest stage at or before
+that the mode has, so "a trivial work in Review" cannot be written down. A
+stretch with no such stage — a trivial work's setup form and the Conductor
+starting its implementor — is filed as `setup`.
+
+**A doubt is a type.** On a work saved before kolu kept hand-offs (the upgrade
+wrote it a `hand-offs-kept`), who held the work is not known up to the first
+hand-off after the upgrade, so the fold takes every answer that is possible —
+the planner's turn only if a planner ever joined — and two different stages
+make a `Doubt` between them: `plan-or-approve` or `build-or-review`
+(`DOUBT_STAGES`). One answer is no doubt: a work no planner joined is Build. A
+mode that does not have both of a doubt's stages files it where it files its
+`others` stage, so a trivial work's `build-or-review` is its Build and no
+doubt ever names a stage the mode lacks. A stage with no visit of its own
+that a visited doubt names is `unrecorded` (`StageState`), neither done nor
+skipped; the doubt's time — how long the two took together, known exactly —
+is `doubtsOf`'s.
+
+**The trail is every visit, in order.** A visit is a run of stretches filed in
+one place, closed by the work moving on or ending; Review and Build, and Build
+and Checks, can loop any number of times, and `movedTimes` counts the loops
+off the trail — `exactly`, or `at-least` where a move could hide in a doubt.
+Events stamped at one instant are one moment: the stretches of no length
+between them are no visit, except the last before the work ended (a PR
+merged at the instant the work ended still reached Merge). The cells are the
+trail summed by stage; a stage the work entered is done and says whose time
+it mostly was (it has no time only where the work ended as it got there),
+and the stage the work is in is `now`, with the visit in hand's time
+(`here`). The same walk files EVERY EVENT where the stretch it begins is
+(`Stages`' `events`, and each visit's `events`) and says `where` the work is
+(`in`, while open) or ended (`ended-in`), which is what lets a card show one
+place's or one visit's events. `stages.test.ts` checks, over generated
+records walked by its own independent fold, that the stages, the setup and
+the doubts add up to `lifetime`, that so do the waiters, that each stage
+holds exactly the time after its events, that the visits tile the life and
+hold every event once, and that a doubt only ever stands on a work whose
+hand-offs were not kept; it reads the trails of the shapes real works have
+taken, each by name; the seeded generator it and `work.test.ts` share lives
+in `test/seeded.ts`, outside `src/`, so it is never shipped.
 
 ## Why a package of its own
 

@@ -11,7 +11,7 @@
  *  Hover or keyboard focus shows where the work stands without leaving the
  *  chat: its subtitle and age, the card's own standing line, one line per
  *  terminal (its mark, its role, its state and for how long, what it runs),
- *  and the small stage strip — drawn by the same components and readings the
+ *  and the small stage map — drawn by the same components and readings the
  *  card draws, so the two cannot disagree. The hover card is the repo's
  *  tooltip (Corvu), mounted only while open, so its lines are read only
  *  while someone looks at them. */
@@ -25,7 +25,7 @@ import { elapsedSince } from "../time/duration";
 import { useShownClock } from "../ui/shown";
 import MemberPip from "./MemberPip";
 import PrText from "./PrText";
-import StageStrip from "./StageStrip";
+import StageMap from "./StageMap";
 import { terminalStatus } from "./terminalStatus";
 import { useSeen } from "./useWorks";
 import WorkChipFace from "./WorkChipFace";
@@ -117,10 +117,10 @@ const WorkChipCard: Component<{ id: WorkId; work: Work }> = (props) => {
           </Key>
         </ul>
       </Show>
-      <StageStrip
+      <StageMap
         stages={stagesOf(props.work, new Date(now()).toISOString())}
         size="mini"
-        testId="chip-stage-strip"
+        testId="chip-stage-map"
       />
       {/* THE CHAT ABOUT IT, from where the work was named — there is no card
           to pick here, so this is the chip's own way in. */}

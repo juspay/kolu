@@ -20,7 +20,7 @@
  *  where the pick is kept. What a reload does not keep is the chat's narrowing
  *  to the work, which a reload has always ended. */
 
-import type { StageName, WorkId } from "kolu-work";
+import type { Doubt, StageName, WorkId } from "kolu-work";
 import type { PickedView } from "./livePanes";
 import { batch, createSignal } from "solid-js";
 import { defaultInvalidWarning, persistedPref } from "../persistedPref";
@@ -45,9 +45,12 @@ const [picked, setPicked] = persistedPref<WorkId | null>({
   storage: sessionStorage,
   onInvalid: defaultInvalidWarning("kolu-conductor-picked-work", null),
 });
-/** The stage a press on a work's strip asked for, carried into the picked
- *  work's timeline: the strip that was pressed is not the one that shows. */
-const [pickedStage, setPickedStage] = createSignal<StageName | undefined>();
+/** The stage (or the doubt between two) a press on a work's map asked for,
+ *  carried into the picked work's timeline: the map that was pressed is not
+ *  the one that shows. */
+const [pickedStage, setPickedStage] = createSignal<
+  StageName | Doubt | undefined
+>();
 /** The view a person chose for the picked work — Terminals or Details — or
  *  none, which leaves it to `pickedView`. The pick's, not the drawing's: the
  *  picked work can be drawn again (the works are re-read, the list is drawn
@@ -122,9 +125,9 @@ export function inspectMember(ref: string): void {
 }
 
 /** PICK A WORK: the screen is about it, and so is the chat — on the stage
- *  `stage` names, when a press on its strip picked it, which was a press to
+ *  `stage` names, when a press on its map picked it, which was a press to
  *  read that stage: its Details are in front. */
-export function pickWork(id: WorkId, stage?: StageName): void {
+export function pickWork(id: WorkId, stage?: StageName | Doubt): void {
   batch(() => {
     setPicked(id);
     setPickedStage(stage);

@@ -1297,6 +1297,42 @@ describe("the readings", () => {
     expect(folded).toMatchObject({ kind: "folded", count: 5 });
   });
 
+  it("keeps every hand-off and every stop that let go of the work, and folds the rest past the bound", () => {
+    let work = joinWork(opened(), {
+      terminal: "local/a",
+      role: "implementor",
+      at: T(0),
+    });
+    const state = (kind: "asking" | "stopped", at: number) =>
+      recordEvent(work, {
+        at: T(at),
+        by: "agent",
+        kind,
+        about: aboutMember("local/a"),
+        why: { kind: "none" },
+      });
+    // Forty rounds: the agent asks a person (it lets go of nothing), stops
+    // (it lets go), and is handed the work again.
+    for (let round = 0; round < 40; round += 1) {
+      work = state("asking", round);
+      work = state("stopped", round);
+      work = recordEvent(work, {
+        at: T(round),
+        by: "agent",
+        kind: "told",
+        about: aboutMember("local/a"),
+      });
+    }
+    const count = (kind: string) =>
+      work.events.filter((one) => one.kind === kind).length;
+    expect(count("told")).toBe(40);
+    expect(count("stopped")).toBe(40);
+    expect(count("asking")).toBe(AGENT_STATES_KEPT);
+    expect(work.events.find((one) => one.kind === "folded")).toMatchObject({
+      count: 40 - AGENT_STATES_KEPT,
+    });
+  });
+
   it("measures where the time went and what each step took", () => {
     const work = worked();
     const spent = timeSpent(work, policyOf(work), T(10));

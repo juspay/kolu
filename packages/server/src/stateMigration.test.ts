@@ -54,6 +54,7 @@ import {
   foldWorksByKey_1_53_0,
   memberWatchOutOfWorks_1_52_0,
   migrateConductorToWorks_1_50_0,
+  handOffsKept_1_67_0,
   koluChoicesSayHowChosen_1_56_0,
   mentionsSayTheirKind_1_58_0,
   toolOutings_1_59_0,
@@ -812,11 +813,13 @@ describe("what an EARLIER COMMIT of this branch wrote, read by head", () => {
     });
     expect(decoded.members[REF]?.watch.name).toBe("Planner: odu docs");
     // The 1.51.0 sweep read the old detail grammar as "names no commit", so
-    // the two failures collapse to the first and the running one stands.
+    // the two failures collapse to the first and the running one stands —
+    // and 1.67.0 says its hand-offs were not recorded.
     expect(work?.events.map((one) => one.kind)).toEqual([
       "pr-opened",
       "checks-running",
       "checks-failed",
+      "hand-offs-kept",
     ]);
     // The detail string became typed fields: the gates that are red are a
     // list, and the event carries the pull request it is about.
@@ -2494,6 +2497,7 @@ describe("the 1.57.0 rung — a PR's address and the forge's merge answer", () =
       "merge-state",
       "merged",
       "ended",
+      "hand-offs-kept",
     ]);
     expect(events?.[1]).toMatchObject({ url: { kind: "unrecorded" } });
     expect(events?.[3]).toEqual({
@@ -2520,10 +2524,17 @@ describe("the 1.57.0 rung — a PR's address and the forge's merge answer", () =
     >;
     // IN FLIGHT: an address it will learn, and no answer it never had — its
     // next reading records GitHub's. (The walk runs to head, so the 1.61.0
-    // rung's draft word is on it too.)
+    // rung's draft word is on it too, and 1.67.0's word that its hand-offs
+    // were not recorded.)
     expect(works[OPEN]?.events).toEqual([
       { ...opened(4), url: { kind: "unrecorded" }, draft: "unrecorded" },
       passed(4, HEAD),
+      {
+        at: passed(4, HEAD).at,
+        by: "kolu",
+        about: WORK,
+        kind: "hand-offs-kept",
+      },
     ]);
     // FINISHED, TWO PRs: the first was closed unmerged, so its pass gets no
     // answer; the second's pass already had its answer, which stands.
@@ -2536,6 +2547,7 @@ describe("the 1.57.0 rung — a PR's address and the forge's merge answer", () =
       "checks-passed",
       "merge-state",
       "merged",
+      "hand-offs-kept",
     ]);
     expect(two[5]).toMatchObject({
       pr: 10,
@@ -2862,13 +2874,25 @@ describe("the 1.61.0 rung — a pull request says whether it opened as a draft",
         },
       ]),
     );
-    // The head's later rungs add to a work (1.64.0: its worktree); this rung
-    // is held to what IT moves.
+    // The head's later rungs add to a work (1.64.0: its worktree; 1.67.0: a
+    // `hand-offs-kept` at its end); this rung is held to what IT moves.
     expect(
       Object.fromEntries(
         Object.entries(
-          state.works as Record<string, Record<string, unknown>>,
-        ).map(([id, { worktree: _later, ...rest }]) => [id, rest]),
+          state.works as Record<
+            string,
+            { events: ReadonlyArray<{ kind: string }> } & Record<
+              string,
+              unknown
+            >
+          >,
+        ).map(([id, { worktree: _later, events, ...rest }]) => [
+          id,
+          {
+            ...rest,
+            events: events.filter((event) => event.kind !== "hand-offs-kept"),
+          },
+        ]),
       ),
     ).toEqual(expected);
     expect(
@@ -2895,13 +2919,13 @@ describe("the 1.61.0 rung — a pull request says whether it opened as a draft",
     expect(set).not.toHaveBeenCalled();
   });
 
-  it("leaves the work in progress reading as 1.60.0 read it: the build ended at the open", () => {
+  it("leaves the work in progress reading as a PR opened ready reads: green, and yours to merge", () => {
     const { state } = walk();
     const decoded = Schema.decodeUnknownSync(PersistedWorksSchema)(state.works);
     const upgraded = decoded[IN_PROGRESS];
     if (upgraded === undefined) throw new Error("no work in progress");
-    // 1.60.0's reading is the one a PR opened READY gets today: the open
-    // ends the build. The upgraded work must read the same, cell for cell.
+    // The draft word decides no stage any more; what it still decides is
+    // the merge answer, and an `unrecorded` one reads as a ready one did.
     const asBefore = {
       ...upgraded,
       events: upgraded.events.map((event) =>
@@ -2922,7 +2946,7 @@ describe("the 1.61.0 rung — a pull request says whether it opened as a draft",
     const read = stages(upgraded, policy, now);
     expect(read).toEqual(stages(asBefore, policy, now));
     if (read.kind !== "staged") throw new Error(read.kind);
-    expect(read.current).toBe("merge");
+    expect(read.where.place).toBe("merge");
     expect(Option.getOrThrow(prOf(upgraded)).merge).toEqual({ kind: "can" });
   });
 });
@@ -3274,5 +3298,133 @@ describe("the 1.65.0 rung — where each work's Code view stands", () => {
     // What a restore hands the live host with the works: none moved yet.
     expect(decoded.workCodeViews).toEqual({});
     expect(Object.keys(decoded.works).length).toBeGreaterThan(0);
+  });
+});
+
+describe("the 1.67.0 rung — a saved work says its hand-offs were not recorded", () => {
+  const at = (minute: number): string =>
+    new Date(Date.UTC(2026, 11, 5, 9, minute)).toISOString();
+  const OPEN = "branch:local/%2Fsrv%2Frepo/open";
+  const DONE = "branch:local/%2Fsrv%2Frepo/done";
+  const IMPLEMENTOR = "local/t-implementor";
+  const requested = {
+    at: at(0),
+    by: "you",
+    about: { kind: "work" },
+    kind: "requested",
+    request: { kind: "said", text: "fix the parser" },
+  };
+  const joined = {
+    at: at(1),
+    by: "kolu",
+    about: { kind: "member", terminal: IMPLEMENTOR },
+    kind: "joined",
+    role: "implementor",
+  };
+  const prOpened = {
+    at: at(30),
+    by: "kolu",
+    about: { kind: "work" },
+    kind: "pr-opened",
+    pr: 7,
+    title: "Fix the parser",
+    url: { kind: "link", href: "https://forge.example/pr/7" },
+    draft: "draft",
+  };
+  const ended = {
+    at: at(50),
+    by: "kolu",
+    about: { kind: "work" },
+    kind: "ended",
+    outcome: { kind: "stopped", by: "you" },
+  };
+  const kept = (when: string) => ({
+    at: when,
+    by: "kolu",
+    about: { kind: "work" },
+    kind: "hand-offs-kept",
+  });
+  const work = (
+    branch: string,
+    events: ReadonlyArray<unknown>,
+    state: unknown,
+  ) => ({
+    key: { kind: "branch", host: "local", repo: "/srv/repo", branch },
+    title: branch,
+    startedAt: at(0),
+    decisions: [],
+    events,
+    state,
+    worktree: { kind: "unread" },
+  });
+  const saved = () =>
+    makeStore({
+      works: {
+        [OPEN]: work("open", [requested, joined, prOpened], { kind: "open" }),
+        [DONE]: work("done", [requested, joined, ended], {
+          kind: "ended",
+          at: at(50),
+          outcome: { kind: "stopped", by: "you" },
+          kept: [],
+        }),
+      },
+      members: {},
+    });
+  const FULL: Policy = {
+    handOver: true,
+    run: {
+      kind: "set",
+      driven: MODE_RUNS.full.driven,
+      stages: MODE_RUNS.full.stages,
+    },
+  };
+
+  it("appends one to every work: at its last event in progress, at its end once finished", () => {
+    const conf = saved();
+    handOffsKept_1_67_0(conf as never);
+    const works = conf.get("works") as Record<string, { events: unknown }>;
+    expect(works[OPEN]?.events).toEqual([
+      requested,
+      joined,
+      prOpened,
+      kept(at(30)),
+    ]);
+    expect(works[DONE]?.events).toEqual([
+      requested,
+      joined,
+      ended,
+      kept(at(50)),
+    ]);
+    expect(
+      Result.isSuccess(Schema.decodeUnknownResult(PersistedWorksSchema)(works)),
+    ).toBe(true);
+  });
+
+  it("changes nothing when it runs again", () => {
+    const conf = saved();
+    handOffsKept_1_67_0(conf as never);
+    const once = JSON.stringify(conf.get("works"));
+    const set = vi.spyOn(conf, "set");
+    handOffsKept_1_67_0(conf as never);
+    expect(set).not.toHaveBeenCalled();
+    expect(JSON.stringify(conf.get("works"))).toBe(once);
+  });
+
+  it("lets the replay read a work no planner joined as the build, not guess at a review", () => {
+    const conf = saved();
+    handOffsKept_1_67_0(conf as never);
+    const works = Schema.decodeUnknownSync(PersistedWorksSchema)(
+      conf.get("works"),
+    );
+    const open = works[OPEN];
+    const done = works[DONE];
+    if (open === undefined || done === undefined) throw new Error("a work");
+    const place = (one: typeof open) => {
+      const read = stages(one, FULL, at(40));
+      if (read.kind !== "staged") throw new Error(read.kind);
+      return read.trail.map((visit) => visit.stage);
+    };
+    expect(place(open)).toEqual(["plan", "build"]);
+    expect(place(done)).toEqual(["plan", "build"]);
   });
 });

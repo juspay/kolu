@@ -3,11 +3,12 @@
  *  ON THE BOARD it is a few lines and answers the only question a person has
  *  while something is running: what is this, who is it waiting on, and for
  *  how long. A work that needs you, and a finished one, is a CARD; every
- *  other work in progress is a ROW of its group's table. The stage strip is
- *  where the time has gone, stage by stage, and which stage the work is in
- *  now. A question waiting on you is on the face, as the SAME form as in the
- *  chat (answering either settles the one question), so a work that needs
- *  you is answered without picking it. It is drawn once, on the face.
+ *  other work in progress is a ROW of its group's table. The stage map is
+ *  where the work has been, which loops it has gone round and how often,
+ *  and which stage it is in now. A question waiting on you is on the face,
+ *  as the SAME form as in the chat (answering either settles the one
+ *  question), so a work that needs you is answered without picking it. It
+ *  is drawn once, on the face.
  *
  *  PICKED, it is the work the screen is about, with a switch between three
  *  views. **Terminals** is a live pane per terminal (`WorkLive.tsx`), in
@@ -16,8 +17,9 @@
  *  the record behind the face, short
  *  however long the work runs: one row per terminal; the files; the pull
  *  request; the setup as one line and the latest three decisions; and the
- *  timeline of ONE stage — the strip is its index: pressing a segment shows
- *  that stage's events, and "whole timeline" unfolds all of it in place.
+ *  timeline of ONE stage — the map is its index: pressing a stage shows
+ *  that stage's events — with the TRAIL of every visit above it, whose
+ *  segments index it by visit; "whole timeline" unfolds all of it in place.
  *  Then **Stop**, one of the two ways a piece of work is ended on purpose.
  *
  *  A CARD IS DRAWN FROM THE STATE SUM, and the two faces are built from
@@ -40,6 +42,7 @@
 import { dualPhrase } from "@kolu/terminal-vocab/duration";
 import { DASH } from "kolu-common/surface";
 import {
+  type Doubt,
   lifetime,
   openAsks,
   type StageName,
@@ -65,7 +68,7 @@ import { useShown, useShownClock } from "../ui/shown";
 import Tip from "../ui/Tip";
 import WorkCardActions from "./WorkCardActions";
 import WorkQuestion from "./WorkQuestion";
-import StageStrip from "./StageStrip";
+import StageMap from "./StageMap";
 import WorkDetails from "./WorkDetails";
 import WorkLive from "./WorkLive";
 import { PICKED_VIEWS, type PickedView, pickedView } from "./livePanes";
@@ -82,7 +85,7 @@ import {
   wantedCard,
 } from "./workListing";
 import { createWorkFacts } from "./workFacts";
-import { timelineShown } from "./timelineView";
+import { type TimelinePick, timelineShown } from "./timelineView";
 import WorkStanding from "./WorkStanding";
 import {
   outcomeWords,
@@ -213,17 +216,23 @@ const WorkCard: Component<{
     workFileSource(props.id, props.work, members()),
   );
 
-  /** THE STAGES, read once for the strip and the timeline it indexes. */
+  /** THE STAGES, read once for the map, the trail and the timeline they
+   *  index. */
   const read = createMemo(() =>
     stagesOf(props.work, new Date(now()).toISOString()),
   );
-  /** WHAT THE PICKED WORK SHOWS OF ITS TIMELINE — the stage a person pressed
-   *  on the strip (none: the stage the work is in) and whether the whole
-   *  timeline is out. The face's own, seeded from the press that picked it:
-   *  a work unpicked forgets both, so the next time it is picked it follows
-   *  the work again. */
-  const [pressed, setPressed] = createSignal<StageName | undefined>(
-    isOpen() ? stageAskedFor() : undefined,
+  /** WHAT THE PICKED WORK SHOWS OF ITS TIMELINE — the stage pressed on the
+   *  map or the visit pressed on the trail (none: the stage the work is in)
+   *  and whether the whole timeline is out. The face's own, seeded from the
+   *  press that picked it: a work unpicked forgets both, so the next time it
+   *  is picked it follows the work again. */
+  const [pressed, setPressed] = createSignal<TimelinePick | undefined>(
+    (() => {
+      const asked = stageAskedFor();
+      return isOpen() && asked !== undefined
+        ? { kind: "stage", stage: asked }
+        : undefined;
+    })(),
   );
   const [whole, setWhole] = createSignal(false);
   createEffect(() => {
@@ -231,17 +240,23 @@ const WorkCard: Component<{
     setPressed(undefined);
     setWhole(false);
   });
-  /** ... read ONCE per redraw, for the strip and the timeline both. */
+  /** ... read ONCE per redraw, for the map, the trail and the timeline. */
   const view = createMemo(() =>
     timelineShown(props.work, read(), pressed(), whole()),
   );
-  /** The cell pressed on the strip: the stage whose events the picked work
-   *  shows, none while it is not picked or the whole timeline is out. */
-  const shownStage = (): StageName | undefined => {
+  /** The stage, or doubt, pressed on the map: the place whose events the
+   *  picked work shows, none while it is not picked, a visit is shown or the
+   *  whole timeline is out. */
+  const shownStage = (): StageName | Doubt | undefined => {
     const shown = view().view;
     return isOpen() && shown.kind === "stage" && shown.stage !== "setup"
       ? shown.stage
       : undefined;
+  };
+  /** ... and the visit pressed on the trail. */
+  const shownVisit = (): number | undefined => {
+    const shown = view().view;
+    return shown.kind === "visit" ? shown.visit : undefined;
   };
 
   const row = () => props.shape === "row";
@@ -345,17 +360,17 @@ const WorkCard: Component<{
       testId="work-standing"
     />
   );
-  /** THE STRIP — each segment that has happened is a button that picks the
-   *  work on that stage's events: the index into the timeline. */
-  const strip = () => (
-    <StageStrip
+  /** THE MAP — each stage that has happened is a button that picks the work
+   *  on that stage's events: an index into the timeline. */
+  const map = () => (
+    <StageMap
       stages={read()}
       size="full"
-      testId="stage-strip"
+      testId="stage-map"
       index={{
         shown: shownStage,
         show: (stage) => {
-          setPressed(stage);
+          setPressed({ kind: "stage", stage });
           setWhole(false);
           if (isOpen()) chooseView("details");
           else pickWork(props.id, stage);
@@ -373,7 +388,7 @@ const WorkCard: Component<{
   );
   /** The face's press: a button laid UNDER the text rather than wrapped
    *  round it, so the PR number the text names can be a link of its own and
-   *  the strip's segments and the terminals' controls buttons of their own —
+   *  the map's stages and the terminals' controls buttons of their own —
    *  the text lets presses through to it, and only those take them. */
   const head = () => (
     <button
@@ -422,7 +437,7 @@ const WorkCard: Component<{
             when={row()}
             fallback={
               <>
-                {/* THE CARD: head, then the strip and the card's ways on — the
+                {/* THE CARD: head, then the map and the card's ways on — the
                 chat about it, its link, and its PR while that waits on you. */}
                 <div class="relative px-2.5 py-2">
                   {head()}
@@ -436,14 +451,14 @@ const WorkCard: Component<{
                   </div>
                 </div>
                 <div class="px-2.5 pb-2">
-                  {strip()}
+                  {map()}
                   <WorkCardActions id={props.id} work={props.work} />
                   <Show when={isOpen() && live() !== undefined}>{views()}</Show>
                 </div>
               </>
             }
           >
-            {/* THE ROW: what it is and where; the stage line and where it
+            {/* THE ROW: what it is and where; the stage map and where it
             stands; its terminals; its age — side by side on a wide row, the
             terminals dropping under the title on a narrow one. The row's
             OWN width decides (a container query), not the window's: the
@@ -458,7 +473,7 @@ const WorkCard: Component<{
                   {subtitle()}
                 </div>
                 <div class="col-start-2 row-start-1 min-w-0">
-                  {strip()}
+                  {map()}
                   {standing()}
                 </div>
                 <div class="col-span-full row-start-2 min-w-0 @min-[52rem]/row:col-span-1 @min-[52rem]/row:col-start-3 @min-[52rem]/row:row-start-1">
@@ -584,6 +599,14 @@ const WorkCard: Component<{
                 checks={checks()}
                 shown={view()}
                 onWhole={() => setWhole((was) => !was)}
+                stages={read()}
+                trail={{
+                  shown: shownVisit,
+                  show: (visit) => {
+                    setPressed({ kind: "visit", visit });
+                    setWhole(false);
+                  },
+                }}
                 now={now()}
               />
             </div>

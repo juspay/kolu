@@ -66,9 +66,10 @@
  *                      given (on green: merge), so nothing is asked and an
  *                      implementor can be run in it at once
  *   run the implementor in <cwd>
+ *   run the planner in <cwd>
  *                    — a REAL `lifecycle_create` with `work` = the last work
- *                      opened and `role: implementor`. NO command: kolu
- *                      builds one from that work's setup and types it
+ *                      opened and that `role`. NO command: kolu builds one
+ *                      from that work's setup and types it
  *   ask about the work — a REAL `work_ask` ("Approve the plan?", approve or
  *                      revise) about the last work opened; says
  *                      `asked: <ask id>` and ENDS THE TURN. The answer comes
@@ -94,6 +95,10 @@
  *   tell it <words>  — a REAL `agent_say` to the terminal `run` last started,
  *                      answered verbatim: the tool's report when it landed,
  *                      its refusal sentence when it did not
+ *   tell the planner <words>
+ *   tell the implementor <words>
+ *                    — the same, to the terminal last started in that role:
+ *                      the Conductor handing the work to that member
  *   work for a while — a turn held open for twelve seconds: long enough for a
  *                      member terminal to ring while it runs and be HELD
  *   work until steered — a turn held open until a STEER arrives
@@ -526,6 +531,8 @@ let awaitingCancel: (() => void) | null = null;
  *  answered with — what `tell it <words>` speaks to. `null` until one is
  *  started, and the `tell` verb says so rather than inventing a ref. */
 let lastStarted: string | null = null;
+/** ... and the terminal last started in each role, for `tell the <role>`. */
+const startedAs = new Map<string, string>();
 /** The work the last `open`/`run`/`watch` opened — what every later verb in
  *  this vocabulary names, because a terminal is now created INTO a piece of
  *  work and a question is asked ABOUT one. */
@@ -719,14 +726,17 @@ const turn = async (
     endTurn(id);
     return;
   }
-  if (text.startsWith("run the implementor in ")) {
+  const running = /^run the (implementor|planner) in (.+)$/.exec(text);
+  if (running !== null) {
     // A MEMBER OF THE WORK ALREADY OPEN, in a directory the scenario made —
     // which is where its `.waterfall/` files and its PR are observed from.
     //
-    // NO COMMAND: an implementor is started by KOLU, from the harness and
-    // model this work's setup carries — `lifecycle_create` refuses a `run`
-    // beside that role. The answer says what kolu typed, as `ran`.
-    const cwd = text.slice("run the implementor in ".length).trim();
+    // NO COMMAND: a planner or an implementor is started by KOLU, from the
+    // harness and model this work's setup carries — `lifecycle_create`
+    // refuses a `run` beside that role. The answer says what kolu typed, as
+    // `ran`.
+    const [, role = "implementor", where = ""] = running;
+    const cwd = where.trim();
     if (lastWork === null) {
       say("no work is open");
       endTurn(id);
@@ -736,11 +746,12 @@ const turn = async (
       host: "local",
       placement: { kind: "toplevel" },
       cwd,
-      intent: "build it",
+      intent: role === "planner" ? "plan it" : "build it",
       work: lastWork,
-      role: "implementor",
+      role,
     });
     lastStarted = /\blocal\/[0-9a-f-]{36}\b/.exec(answer)?.[0] ?? null;
+    if (lastStarted !== null) startedAs.set(role, lastStarted);
     say(`ran: ${answer}`);
     endTurn(id);
     return;
@@ -935,6 +946,21 @@ const turn = async (
         text: text.slice("tell it ".length).trim(),
       }),
     );
+    endTurn(id);
+    return;
+  }
+  const telling = /^tell the (planner|implementor) (.+)$/.exec(text);
+  if (telling !== null) {
+    // HANDING THE WORK TO A MEMBER, by speaking to it: the same `agent_say`,
+    // to the terminal started in that role.
+    const [, role = "", words = ""] = telling;
+    const ref = startedAs.get(role);
+    if (ref === undefined) {
+      say(`no ${role} was started to tell`);
+      endTurn(id);
+      return;
+    }
+    say(await callTool("agent_say", { id: ref, text: words.trim() }));
     endTurn(id);
     return;
   }

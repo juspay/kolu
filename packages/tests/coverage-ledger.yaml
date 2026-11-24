@@ -4400,7 +4400,7 @@ retirements:
     defectSurface: [conductor, user-journey]
     destinationLayer: L5
     replacements: []
-    survivorRevisionIds: [revision-12f77c4e4e311ca03048]
+    survivorRevisionIds: [revision-33c64733f9510d65e213]
     sameCodePathEvidence:
       file: packages/tests/features/conductor-work.feature
       symbol: "Scenario: A waterfall's card, from the request to the merge"
@@ -4413,7 +4413,7 @@ retirements:
     defectSurface: [conductor, user-journey]
     destinationLayer: L5
     replacements: []
-    survivorRevisionIds: [revision-12f77c4e4e311ca03048]
+    survivorRevisionIds: [revision-33c64733f9510d65e213]
     sameCodePathEvidence:
       file: packages/tests/features/conductor-work.feature
       symbol: "Scenario: A waterfall's card, from the request to the merge"
@@ -4673,7 +4673,7 @@ retirements:
     defectSurface: [conductor, user-journey]
     destinationLayer: L5
     replacements: []
-    survivorRevisionIds: [revision-12f77c4e4e311ca03048]
+    survivorRevisionIds: [revision-33c64733f9510d65e213]
     sameCodePathEvidence:
       file: packages/tests/features/conductor-work.feature
       symbol: "Scenario: A waterfall's card, from the request to the merge"
@@ -4699,7 +4699,7 @@ retirements:
     defectSurface: [conductor, user-journey]
     destinationLayer: L5
     replacements: []
-    survivorRevisionIds: [revision-12f77c4e4e311ca03048]
+    survivorRevisionIds: [revision-33c64733f9510d65e213]
     sameCodePathEvidence:
       file: packages/tests/features/conductor-work.feature
       symbol: "Scenario: A waterfall's card, from the request to the merge"
@@ -5065,7 +5065,7 @@ retirements:
     defectSurface: [conductor]
     destinationLayer: L5
     replacements: []
-    survivorRevisionIds: [revision-25ddbb16216b445b4fe8]
+    survivorRevisionIds: [revision-550742e4101d9a4050e4]
     sameCodePathEvidence:
       file: packages/tests/features/conductor-work.feature
       symbol: "Scenario: The stage strip names every stage and emphasises the one it is in"
@@ -5117,7 +5117,7 @@ retirements:
     defectSurface: [conductor, mobile]
     destinationLayer: L5
     replacements: []
-    survivorRevisionIds: [revision-1380c0b24614461d6756]
+    survivorRevisionIds: [revision-45fe7f5ce242f430cb95]
     sameCodePathEvidence:
       file: packages/tests/features/conductor-work.feature
       symbol: "Scenario: A full work's stage strip fits a phone"
@@ -5343,3 +5343,68 @@ retirements:
       file: packages/tests/features/conductor-live-terminals.feature
       symbol: "Scenario: A tile behind the Conductor does not take its terminal's size back"
       test: The same journey — a terminal looked at as a tile, joined to a work as its planner beside the implementor, both shown live in the work's panes. Its claim was that the pane does not resize the terminal, which is no longer true on a desktop; it now records every size the planner's program is told and checks the pane's size lands, the agent's pane and the shell's are one height, the tile behind the Conductor never takes the size back, Open tile restores the tile's size and coming back restores the pane's.
+  - id: revise-12f77c4e4e311ca03048
+    revisionId: revision-12f77c4e4e311ca03048
+    action: revised
+    status: landed
+    promise: A waterfall's card, from the request to the merge
+    defectSurface: [conductor, user-journey]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-33c64733f9510d65e213]
+    sameCodePathEvidence:
+      file: packages/tests/features/conductor-work.feature
+      symbol: "Scenario: A waterfall's card, from the request to the merge"
+      test: The same journey and the same steps. The stage strip is now the stage map, so its steps say map; and the work that went green while GitHub still wanted a review now reads Build, not Review — nobody handed it to a planner, and the stage is who holds the work.
+  - id: revise-e3711fbd114186165ac0
+    revisionId: revision-e3711fbd114186165ac0
+    action: revised
+    status: landed
+    promise: A draft pull request is never yours to merge, and does not ring
+    defectSurface: [conductor, attention-alerts, user-journey]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-f7e42b422db7c0c4671b]
+    sameCodePathEvidence:
+      file: packages/tests/features/conductor-work.feature
+      symbol: "Scenario: A draft pull request's CI is the checks, and a draft is never yours to merge"
+      test: The same draft journey and the same steps — no merge answer, not waiting on you, silent until marked ready, then waiting on you and ringing once. The draft word no longer holds the work in the build, so the survivor asserts Checks while CI runs and Build once it passes, where this revision asserted Build throughout.
+  - id: revise-82f4e3b161a5e3bc9220
+    revisionId: revision-82f4e3b161a5e3bc9220
+    action: revised
+    status: landed
+    promise: A trivial work's stages with a draft pull request
+    defectSurface: [conductor]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-51c24a14bd9ee5415d01]
+    sameCodePathEvidence:
+      file: packages/tests/features/conductor-work.feature
+      symbol: "Scenario: A trivial work's map with a draft pull request"
+      test: The same trivial work with a draft and its CI. This revision asserted a draft's CI was still the build and turned Checks once marked ready; the draft word decides no stage now, so the survivor asserts Checks while CI runs, and a red check sending the work back to its implementor's Build.
+  - id: revise-1380c0b24614461d6756
+    revisionId: revision-1380c0b24614461d6756
+    action: renamed
+    status: landed
+    promise: A full work's stages fit a phone
+    defectSurface: [conductor, mobile]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-45fe7f5ce242f430cb95]
+    sameCodePathEvidence:
+      file: packages/tests/features/conductor-work.feature
+      symbol: "Scenario: A full work's stage map fits a phone"
+      test: Same phone journey and the same whole-text assertion, now about the stage map that replaced the strip; only the title and the work's name changed.
+  - id: revise-25ddbb16216b445b4fe8
+    revisionId: revision-25ddbb16216b445b4fe8
+    action: renamed
+    status: landed
+    promise: The stages name every stage and emphasise the one the work is in
+    defectSurface: [conductor]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-550742e4101d9a4050e4]
+    sameCodePathEvidence:
+      file: packages/tests/features/conductor-work.feature
+      symbol: "Scenario: The stage map names every stage and emphasises the one it is in"
+      test: Same journey and the same assertions, now about the stage map that replaced the strip; only the title and the step wording changed.

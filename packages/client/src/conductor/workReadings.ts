@@ -73,38 +73,16 @@ import { hostLabel } from "../host/hostChipTone";
 import { type ChecksTally, checksProgress, mergeWords } from "./prReadings";
 
 /** THE THREE INKS, by who is being waited on — violet for you, amber for CI,
- *  teal for the agents. One table, read by the standing line, the stage
- *  strip, the work chip's dot, the timeline's dots and the legend, so a stage
- *  and the sentence over it are never two different colours of the same
- *  wait. `tint` is a stage that had that waiter's time; `now` is the stage
- *  the work is in, outlined. */
+ *  teal for the agents. One table, read by the standing line, the work
+ *  chip's dot, the timeline's dots and the legend, so a wait and the
+ *  sentence about it are never two different colours. */
 export const WAITER_INK: Record<
   Waiter,
-  {
-    readonly text: string;
-    readonly fill: string;
-    readonly tint: string;
-    readonly now: string;
-  }
+  { readonly text: string; readonly fill: string }
 > = {
-  agent: {
-    text: "text-accent",
-    fill: "bg-accent",
-    tint: "bg-accent/15",
-    now: "bg-accent/30 border-accent",
-  },
-  you: {
-    text: "text-alert",
-    fill: "bg-alert",
-    tint: "bg-alert/15",
-    now: "bg-alert/30 border-alert",
-  },
-  ci: {
-    text: "text-attention",
-    fill: "bg-attention",
-    tint: "bg-attention/15",
-    now: "bg-attention/30 border-attention",
-  },
+  agent: { text: "text-accent", fill: "bg-accent" },
+  you: { text: "text-alert", fill: "bg-alert" },
+  ci: { text: "text-attention", fill: "bg-attention" },
 };
 
 /** A WORK'S DOT, by who it waits on — the waiter's fill, pulsing when it is
@@ -116,10 +94,12 @@ export const WORK_DOT: Record<Waiter | "done", string> = {
   done: "bg-ok",
 };
 
-/** What each stage is called on the strip — and what a timeline calls the
- *  setup, which no cell holds. */
+/** What each place is called on the map and the trail — the six stages, the
+ *  setup no cell holds, and the two doubts between a pair of stages. */
 export const STAGE_LABEL: Record<Filed, string> = {
   setup: "Setup",
+  "plan-or-approve": "Plan or Approve",
+  "build-or-review": "Build or Review",
   plan: "Plan",
   approve: "Approve",
   build: "Build",
@@ -127,6 +107,66 @@ export const STAGE_LABEL: Record<Filed, string> = {
   checks: "Checks",
   merge: "Merge",
 };
+
+/** THE HATCH — the one ink of a doubt, on the trail, on a map box that may
+ *  have been it, and on the doubt's own mark: kolu did not record which of
+ *  two stages that time was. */
+export const HATCH = {
+  fill: "bg-[repeating-linear-gradient(135deg,color-mix(in_oklch,var(--color-fg-3)_45%,transparent)_0_2px,transparent_2px_5px)]",
+  edge: "border-dashed border-fg-3",
+  tint: "bg-fg-3/20",
+} as const;
+
+/** THE COLOUR THAT NAMES A STAGE — the same on the map and on the trail, so a
+ *  run of Review and Build visits reads as one at a glance. A stage's hue
+ *  (`--color-stage-*`, `@kolu/theme`) says WHICH stage, never whose time it
+ *  was: that stays in a stage's title and spoken label. The setup is a quiet
+ *  grey, and a doubt is the {@link HATCH}, so it is drawn apart from every
+ *  stage. `fill` paints a trail segment (and the hatch a map box), `edge` a
+ *  map box's border, and `tint` a map box or doubt mark whose events the
+ *  timeline shows. */
+export const STAGE_INK: Record<
+  Filed,
+  { readonly fill: string; readonly edge: string; readonly tint: string }
+> = {
+  setup: { fill: "bg-fg-3/40", edge: "border-fg-3", tint: "bg-fg-3/20" },
+  "plan-or-approve": HATCH,
+  "build-or-review": HATCH,
+  plan: {
+    fill: "bg-stage-plan",
+    edge: "border-stage-plan",
+    tint: "bg-stage-plan/20",
+  },
+  approve: {
+    fill: "bg-stage-approve",
+    edge: "border-stage-approve",
+    tint: "bg-stage-approve/20",
+  },
+  build: {
+    fill: "bg-stage-build",
+    edge: "border-stage-build",
+    tint: "bg-stage-build/20",
+  },
+  review: {
+    fill: "bg-stage-review",
+    edge: "border-stage-review",
+    tint: "bg-stage-review/20",
+  },
+  checks: {
+    fill: "bg-stage-checks",
+    edge: "border-stage-checks",
+    tint: "bg-stage-checks/20",
+  },
+  merge: {
+    fill: "bg-stage-merge",
+    edge: "border-stage-merge",
+    tint: "bg-stage-merge/20",
+  },
+};
+
+/** THE RING ON WHERE A WORK IS NOW — its stage on the map, its visit on the
+ *  trail. */
+export const NOW_RING = "ring-2 ring-fg ring-offset-1 ring-offset-surface-0";
 
 /** THE STAGES of a work, under its own policy. */
 export function stagesOf(work: Work, now: string): Stages {
@@ -784,6 +824,11 @@ export function eventReader(work: Work): (event: WorkEvent) => string {
         return `${event.count} files kept`;
       case "keep-failed":
         return `Not kept · ${event.why}`;
+      // A HAND-OFF: the Conductor gave the work to this member.
+      case "told":
+        return `Handed to the ${part}`;
+      case "hand-offs-kept":
+        return "kolu began keeping who holds the work";
       default:
         return event satisfies never;
     }

@@ -22,7 +22,7 @@ The works come in four groups:
 | **Watching · N** | Terminals you asked the Conductor to watch, one row each. |
 | **Finished** | Works that ended, collapsed until you click it, one line each: title and repository, how it ended, how long it ran, and when. |
 
-A row puts the title, the stage line, the terminals and the age side by side. When the works column is narrower than about 830px, its terminals drop under its title. On a phone every work in progress is a card. With nothing in progress the list says **Nothing in progress.**
+A row puts the title, the stage map, the terminals and the age side by side. When the works column is narrower than about 830px, its terminals drop under its title. On a phone every work in progress is a card. With nothing in progress the list says **Nothing in progress.**
 
 ## The works sidebar
 
@@ -47,45 +47,112 @@ In a window under 1280px wide the sidebar is a strip of initials. A work that ne
 | Title and age | What the work is, and how long it has run. |
 | **repo · branch · host · mode** | Where it is: the repository's monogram, the branch in the dock's colour, then the PR as a link (`PR #n`, `draft PR #n`) and, while live, the dock's PR mark. In progress, **you 12m** is its total wait on you. |
 | Where it stands | Who it waits on and why, coloured by them, and for how long. Under **Needs you** it leads with what is wanted, as in **Needs you · Merge PR #700 · green for 12m**. |
-| Stage strip | Its six stages, below. |
+| Stage map | Its six stages and the loops it has gone round, below. |
 | Terminals | One row each: its [dock](/dock) status mark, its role, its name (click it to go to the tile), what it runs, how it stands and for how long, **Look** (a [live window](/tiles#look-from-the-conductor)), and **Take over** or **Hand back**. |
 | The question waiting for you | Its form, to answer without picking the work. The same decision the chat and the reader show: answering it in any of them answers it. |
 
 A PR recorded before kolu kept PR addresses shows its number as plain text. A work still in progress gets the link the next time kolu reads its PR.
 
-## The stage strip
+## The stage map
 
-The strip is one thin line of six segments, always in this order: **Plan**, **Approve**, **Build**, **Review**, **Checks**, **Merge**.
+The map shows a work's six stages: **Plan**, **Approve**, **Build**, **Checks** and **Merge** in a row, **Review** above **Build**.
 
-Every segment is named under its bar. A stage the work has been in also prints its own time there, in one unit (**Plan 4m**, **Checks 1h**). The stage in hand's time keeps growing. A stage not reached yet has its label and no time.
+<figure class="doc-figure">
+  <svg viewBox="0 0 720 190" role="img" aria-labelledby="wc-map-title">
+    <title id="wc-map-title">A stage map after six review rounds and two CI runs: Review over Build marked ×6, Build and Checks marked ×2 and ×1, Checks ringed with now 8m inside it.</title>
+    <defs>
+      <marker id="wc-arrow" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="6.5" markerHeight="6.5" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" class="ax-d-arrow"></path>
+      </marker>
+    </defs>
 
-What the marks mean:
+    <rect x="10" y="108" width="100" height="44" rx="8" class="ax-d-box"></rect>
+    <text x="60" y="127" text-anchor="middle" class="ax-d-label2">Plan</text>
+    <text x="60" y="144" text-anchor="middle" class="ax-d-sub">1h</text>
 
-- The colour is whose time the stage mostly was: violet you, amber CI, teal the agents. A Build that has been the agents' for two hours stays teal while it waits on you.
-- A ring marks the stage the work is in. On a finished work, the last stage's label is emphasised instead.
-- A dashed segment is a stage that did not happen. A faint one has not been reached.
+    <path d="M110,130 H146" class="ax-d-flow" marker-end="url(#wc-arrow)"></path>
+
+    <rect x="148" y="108" width="100" height="44" rx="8" class="ax-d-box"></rect>
+    <text x="198" y="127" text-anchor="middle" class="ax-d-label2">Approve</text>
+    <text x="198" y="144" text-anchor="middle" class="ax-d-sub">2m</text>
+
+    <path d="M248,130 H284" class="ax-d-flow" marker-end="url(#wc-arrow)"></path>
+
+    <rect x="286" y="108" width="100" height="44" rx="8" class="ax-d-box"></rect>
+    <text x="336" y="127" text-anchor="middle" class="ax-d-label2">Build</text>
+    <text x="336" y="144" text-anchor="middle" class="ax-d-sub">1h</text>
+
+    <rect x="286" y="14" width="100" height="44" rx="8" class="ax-d-box"></rect>
+    <text x="336" y="33" text-anchor="middle" class="ax-d-label2">Review</text>
+    <text x="336" y="50" text-anchor="middle" class="ax-d-sub">48m</text>
+
+    <path d="M321,108 V60" class="ax-d-flow" marker-end="url(#wc-arrow)"></path>
+    <path d="M351,58 V106" class="ax-d-flow" marker-end="url(#wc-arrow)"></path>
+    <text x="362" y="87" class="ax-d-sub">×6</text>
+
+    <path d="M386,122 H462" class="ax-d-flow" marker-end="url(#wc-arrow)"></path>
+    <text x="424" y="114" text-anchor="middle" class="ax-d-sub">×2</text>
+    <path d="M464,138 H388" class="ax-d-flow" marker-end="url(#wc-arrow)"></path>
+    <text x="424" y="156" text-anchor="middle" class="ax-d-sub">×1</text>
+
+    <rect x="464" y="101" width="100" height="58" rx="8" class="ax-d-daemon" style="stroke-width: 3"></rect>
+    <text x="514" y="120" text-anchor="middle" class="ax-d-daemon-label2">Checks</text>
+    <text x="514" y="137" text-anchor="middle" class="ax-d-sub">20m</text>
+    <text x="514" y="154" text-anchor="middle" class="ax-d-sub">now 8m</text>
+
+    <path d="M564,130 H600" class="ax-d-flow" marker-end="url(#wc-arrow)"></path>
+
+    <rect x="602" y="108" width="100" height="44" rx="8" class="ax-d-box" style="opacity: 0.5"></rect>
+    <text x="652" y="127" text-anchor="middle" class="ax-d-sub">Merge</text>
+  </svg>
+</figure>
+
+A loop the work went round says how often (**×6**). Each stage shows its total time (**Build 1h**).
+
+On a work saved before kolu kept hand-offs, time that could have been either of two stages, **Build or Review** or **Plan or Approve**, is a doubt. A count across one is at least that many (**×2+**), or unknown (**×?**).
+
+- A ring marks where the work is, with this visit's time inside (**now 8m**) when the stage had others.
+- A finished work's last stage has a bold name.
+- A dashed stage did not happen: its mode has none, or the work went past it. A faint one is not reached.
+- A hatched stage may have had a doubt's time.
+- A doubt's mark, **▨ 1h 20m**, sits between its two stages: their time together. Both are ringed while the work is in it.
+- A colour names a stage, the same on [the trail](#the-trail).
+
+On a narrow card a stage shows its first letter; hover for its name. Before the mode is chosen, all six are faint. Clicking a stage that happened, or a doubt's mark, opens its events.
+
+### Which stage the work is in
+
+The stage is who holds the work. The Conductor hands it to an agent by starting it, or by speaking to it while it is not at work. An agent lets go when it stops, exits, sleeps or leaves; asking you a question is not letting go. The holder is the agent handed the work last among those still holding it, or the last one handed it.
+
+| The work is | Stage |
+| --- | --- |
+| merged | **Merge** |
+| waiting on CI, whoever holds it | **Checks** |
+| a green PR handed to you | **Merge** |
+| waiting on your answer, before any implementor | **Approve** once a planner has joined, **Plan** before that |
+| waiting on your answer, later | the stage it is in |
+| with the agents, before any implementor | **Plan**. A plan you answered stays in **Approve** until the implementor starts. |
+| held by the planner | **Review** |
+| held by the implementor | **Build** |
+
+A draft PR decides no stage. It only cannot be merged.
 
 Which stages a work has comes from its mode:
 
 | Mode | Its stages |
 | --- | --- |
 | Full | All six. |
-| Trivial | **Build**, **Checks** and **Merge**. Nobody plans, approves or reviews, so those segments read as not happening. |
-| Watch | None, and no strip. |
+| Trivial | **Build**, **Checks** and **Merge**. Nobody plans, approves or reviews, so those stages are dashed. |
+| Watch | None, and no map. |
 
 - In a full work, answering the setup form counts as Plan time. A trivial work has no Plan, so its setup is in no stage; that time still counts as **you** in the time line.
-- The build ends when the implementor's PR is ready for review: at once if it opened ready, or when a draft is marked ready. A PR turned back into a draft returns the work to Build. A PR already open when the implementor joined does not end it by being open.
-- CI's time is **Checks**, except on a draft, where it is still **Build**. A green PR handed to you is always **Merge**.
-
-A work whose mode is not chosen yet shows six quiet segments.
-
-On a card, the strip is the index into the timeline. Clicking a segment that has happened opens the card on that stage's events.
+- A doubt ends at the first hand-off after the upgrade. With no planner, as in a trivial work, it is **Build**.
 
 ## What every card offers
 
-Under a card's stage strip, and at the top of an open row, a card offers **Open PR #N ↗** while a green PR waits for you to merge it. It opens the pull request on its forge. There is no merge button: you merge on the forge, or tell the Conductor to.
+Under a card's stage map, and at the top of an open row, a card offers **Open PR #N ↗**, to the pull request on its forge, while a green PR waits for you to merge it. There is no merge button: you merge on the forge, or tell the Conductor to.
 
-Picking a work points the chat at it. A work chip in the conversation also offers **About this work**, because it is named there rather than picked from a card.
+Picking a work points the chat at it. A work chip in the conversation, which names a work rather than picks it, also offers **About this work**.
 
 ## Reach a work from anywhere
 
@@ -103,7 +170,7 @@ A switch in the head of a picked work in progress has three views. It opens on *
 
 - **Terminals**: each terminal of the work live, in a pane with the [Look](/tiles#look-from-the-conductor) window's head and **Inspect**, which opens Details on that terminal. One or two stack; three or more, or a window under 1280px wide, show one pane with a tab each. How big each terminal is depends on the pane ([below](#a-terminals-size-in-its-pane)).
 - **Code**: the work's own folder in the [Code tab](/code-tab)'s view, read on the work's machine: the tree, the **Local** and **Branch** changes, and the files. It stays after the work's terminals have ended. When there is room, the tree stands beside the file, at a width you drag and this device keeps. Which of **All files**, **Local** and **Branch** you were on, and the file open in each, are kept for the work, across a reload and in another browser.
-- **Details**: the terminals' rows and the parts below. Clicking a stage on the strip shows Details.
+- **Details**: the terminals' rows and the parts below. Clicking a stage on the map shows Details.
 
 Code shows less in two cases:
 
@@ -114,9 +181,9 @@ Code shows less in two cases:
 
 ### A terminal's size in its pane
 
-- On a desktop, a pane sizes its terminal to fill it, never below 80×24 on either side. It does so when it comes on screen and when its box changes, as when you resize the window.
+- On a desktop, a pane sizes its terminal to fill it, never below 80×24 on either side, when it comes on screen and whenever its box changes.
 - On a phone or a tablet, a pane leaves the terminal's size alone.
-- When the terminal has stayed at a size other than the one its pane would give it, the size in the pane's head reads **Resize to fit**. Click it once to give the terminal the pane's size, never below 80×24, on a phone as on a desktop.
+- When the terminal's size has stayed other than its pane's, the size in the pane's head reads **Resize to fit**. Click it once to give the terminal the pane's size, never below 80×24, on a phone as on a desktop.
 - **Fit width** (one choice for every pane) shrinks a terminal wider than its pane to fit, and is offered only while it is wider. In a pane narrower than 80 columns it also sets how many rows the terminal gets.
 - **Look** never changes a terminal's size.
 
@@ -133,19 +200,28 @@ Below the rows:
 | Pull request | Its number as a link: open, merged or closed, and **draft** while it is one. The last check result, failed ones in one line (`7 failing: ci::nix, ci::unit, +5`) to click. While open, whether GitHub would merge it. |
 | Setup | One line: the mode, each role's harness and model, and what happens on green. |
 | Decisions | The latest three, one line each. **all N** shows the rest. Click a row for the question. |
-| Timeline | The events of one stage, with their time and duration. |
+| Trail | Every visit the work made to a stage, in order ([below](#the-trail)). |
+| Timeline | The events of one stage or one visit, with their time and duration. |
 
-The timeline shows the stage the work is in, or the one you clicked on the strip, and a finished work's last stage. **whole timeline · N events** unfolds all of it in place. A watch, which has no stages, shows its latest five events.
+The timeline shows the stage the work is in, or a finished work's last stage, until you click a stage, a doubt or a visit. **whole timeline · N events** unfolds it all in place. A watch, which has no stages, shows its latest five events.
 
-A line runs through the event dots. The space between two events grows with the wait between them, up to about four rows, so a long wait is visibly a long stretch of line. A wait near that maximum prints its time on the line, such as **3h**.
+A line runs through the event dots. The gap between two events grows with the wait, up to about four rows, and a wait near that maximum prints its time on the line, such as **3h**.
 
 A question reads **Asked:** and your answer **You:**. A run of files one agent wrote into a folder is one row, such as **Wrote mockup/ · 49 files**. A line too long for the row is cut, and a folder's row lists its files, with **more** beside it.
+
+### The trail
+
+Each visit is one segment above the timeline, as wide as it was long, in its stage's colour. Clicking one, however short, shows its events.
+
+- The visit the work is in is ringed and labelled **now**.
+- A run of review rounds is labelled once, as in **6 review rounds · 1h 10m**; every other visit by itself, as in **Checks 12m**.
+- A doubt is hatched, set apart and labelled with both stages: **Build or Review 1h 20m**.
 
 ### What a timeline keeps
 
 A timeline is kept short in four ways:
 
-- A work keeps its latest **30** agent state changes; older ones fold into one **N earlier agent state changes** line.
+- A work keeps its latest **30** agent state changes; older ones fold into one **N earlier agent state changes** line. Hand-offs, and stops that ended a hold, are never folded.
 - While a PR's checks run, only GitHub's latest answer about merging it is kept.
 - One commit keeps at most **8** check results and **8** merge answers. Past that, an old one in the middle is dropped, never the first or the newest.
 - kolu lists the first **200** files and folders in `.waterfall/`, and draws a run of files written into one folder as one row.

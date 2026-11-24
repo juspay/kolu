@@ -1,4 +1,4 @@
-/** A CARD'S WAY OUT — under its stage strip, on every card.
+/** A CARD'S WAY OUT — under its stage map, on every card.
  *
  *  - **Open PR #N ↗**, while a green PR waits on you to merge it: a plain
  *    link out to the forge. The merge itself is yours to press there.

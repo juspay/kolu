@@ -1,24 +1,26 @@
 /** A WORK'S DETAILS — what a picked work's Details view shows: how it ended
- *  (once it has), the files, the pull request, the decisions, the timeline of
- *  one stage, where the time went, and the one control at the foot, **Stop**
- *  or **Reopen**.
+ *  (once it has), the files, the pull request, the decisions, the trail of
+ *  every visit and the timeline of one stage or one visit, where the time
+ *  went, and the one control at the foot, **Stop** or **Reopen**.
  *
  *  A PART OF ITS OWN so it can be drawn wherever a work's details are asked
  *  for, not only under a card's face. It owns nothing a face also needs: the
- *  stage the timeline shows and whether the whole timeline is out are the
- *  face's (its strip is their index), and handed in; whether the PR's red
- *  gates are unfolded is this part's own, and goes with it when it closes.
+ *  stage or visit the timeline shows and whether the whole timeline is out
+ *  are the face's (its map and this trail are their index), and handed in;
+ *  whether the PR's red gates are unfolded is this part's own, and goes with
+ *  it when it closes.
  *
  *  An ENDED work's details say how it ended, what was kept and where the time
  *  went, and offer **Reopen**; a running one's offer **Stop**. */
 
 import { Option } from "effect";
-import { notKeptOf, type Work, type WorkId } from "kolu-work";
+import { notKeptOf, type Stages, type Work, type WorkId } from "kolu-work";
 import { type Component, createMemo, createSignal, Show } from "solid-js";
 import InlineConfirmButton from "../ui/InlineConfirmButton";
 import PrText from "./PrText";
 import { type ChecksTally, failingLine, prSection } from "./prReadings";
 import type { TimelineShown } from "./timelineView";
+import StageTrail from "./StageTrail";
 import { useConductor } from "./useConductor";
 import WorkDecisions from "./WorkDecisions";
 import WorkFiles from "./WorkFiles";
@@ -43,6 +45,13 @@ const WorkDetails: Component<{
   /** Which part of the timeline is shown — the face's choice. */
   shown: TimelineShown;
   onWhole: () => void;
+  /** The work's stages, read once by the face — the trail is their visits. */
+  stages: Stages;
+  /** The visit the timeline shows, and how to show another. */
+  trail: {
+    readonly shown: () => number | undefined;
+    readonly show: (visit: number) => void;
+  };
   /** The face's clock, so every duration here ticks with the face's. */
   now: number;
 }> = (props) => {
@@ -55,6 +64,9 @@ const WorkDetails: Component<{
   });
   /** Whether the PR's red gates are unfolded from their one line. */
   const [allFailing, setAllFailing] = createSignal(false);
+  /** The work's visits, for a work that has stages. */
+  const trail = () =>
+    props.stages.kind === "staged" ? props.stages.trail : undefined;
 
   return (
     <div data-testid="work-details">
@@ -151,6 +163,10 @@ const WorkDetails: Component<{
 
       <WorkDecisions work={props.work} />
 
+      <Show when={trail()}>
+        {(visits) => <StageTrail trail={visits()} index={props.trail} />}
+      </Show>
+
       <WorkTimeline
         id={props.id}
         work={props.work}
@@ -159,8 +175,8 @@ const WorkDetails: Component<{
         now={props.now}
       />
 
-      {/* WHERE THE TIME WENT, for a work that is over: the stage line says
-          it in colour, this says it in figures. */}
+      {/* WHERE THE TIME WENT, for a work that is over: the map says it by
+          stage, this says it by who the work waited on. */}
       <Show when={ended() !== undefined}>
         <section class="mt-2.5">
           <h4 class="m-0 font-mono text-[0.58rem] uppercase tracking-[0.1em] text-fg-3">

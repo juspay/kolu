@@ -20,9 +20,11 @@ import type {
   MergeState,
   PrLink,
   PrOpenedDraft,
+  WaterfallRole,
   Work,
   WorkEvent,
 } from "./schema.ts";
+import { isWaterfallRole } from "./schema.ts";
 
 /** The decisions of one ask, in the order they were asked. */
 export const decisionsOfAsk = (
@@ -246,6 +248,145 @@ export const prLinks = (work: Work): ReadonlyMap<number, string> => {
       links.set(one.pr, one.url.href);
   return links;
 };
+
+/** WHO HOLDS THE WORK, as the timeline has said it so far — the ONE
+ *  statement of the hand-off rule, read by the folds (the stage a stretch is
+ *  in), by the bound on agent states (`./record.ts`: a stop that lets go is
+ *  never folded) and by the Conductor's observer (whether speaking to a
+ *  member hands it the work, and is recorded as `told`).
+ *
+ *  - a member is HANDED the work when it joins as planner or implementor,
+ *    and when a `told` is recorded about it while it is not holding it;
+ *  - it LETS GO when its agent stops (`ready` is a stop of an agent nobody
+ *    had spoken to), exits or is put to sleep, or when it leaves. An agent
+ *    asking a question has not let go;
+ *  - a member whose role is `other` never holds it;
+ *  - the upgrade's `hand-offs-kept` FORGETS who holds it: before it kolu kept
+ *    no hand-offs (and its cap folded stops away), so nothing read off the
+ *    events before it is believed. Nobody holds it after it, and nobody was
+ *    handed it last; the roles members joined in are kept.
+ *
+ *  The HOLDER ({@link holderOf}) is the member handed the work most recently
+ *  among those still holding it, and when nobody is, the one handed it
+ *  last. */
+export interface Holding {
+  /** The waterfall role each member has now, as its latest `joined` said —
+   *  none for one that joined as `other`. */
+  readonly roles: ReadonlyMap<string, WaterfallRole>;
+  /** The waterfall roles any member has EVER joined in — kept apart from
+   *  {@link roles}, so a terminal that comes back as `other` does not take
+   *  back that an implementor joined. */
+  readonly joined: ReadonlySet<WaterfallRole>;
+  /** The members holding the work now, the one handed it most recently
+   *  last. */
+  readonly holding: ReadonlyArray<string>;
+  /** The member handed the work last, holding it or not. */
+  readonly last: Option.Option<string>;
+}
+
+/** A work nobody has been handed yet. */
+export const NOBODY_HOLDS: Holding = {
+  roles: new Map(),
+  joined: new Set(),
+  holding: [],
+  last: Option.none(),
+};
+
+/** The events that end a member's hold on the work. */
+const LETS_GO: ReadonlySet<string> = new Set<EventKind>([
+  "ready",
+  "stopped",
+  "exited",
+  "asleep",
+  "left",
+]);
+
+/** Whether this member is holding the work now. */
+export const holds = (holding: Holding, terminal: string): boolean =>
+  holding.holding.includes(terminal);
+
+/** Whether nobody is holding the work now — every member handed it has let
+ *  go, or none ever was. */
+export const nobodyHolds = (holding: Holding): boolean =>
+  holding.holding.length === 0;
+
+/** Whether this event HANDS THE WORK to the member it is about: a planner or
+ *  an implementor joining, or a `told` to one that is not holding it. */
+export const handsOver = (holding: Holding, event: WorkEvent): boolean => {
+  if (event.about.kind !== "member") return false;
+  const terminal = event.about.terminal;
+  if (holds(holding, terminal)) return false;
+  if (event.kind === "joined") return isWaterfallRole(event.role);
+  return event.kind === "told" && holding.roles.has(terminal);
+};
+
+/** Whether this event ENDS a member's hold: its agent stopped, exited or
+ *  was put to sleep, or it left, while holding the work. */
+export const letsGo = (holding: Holding, event: WorkEvent): boolean =>
+  LETS_GO.has(event.kind) &&
+  event.about.kind === "member" &&
+  holds(holding, event.about.terminal);
+
+/** ONE EVENT'S MOVE ON WHO HOLDS THE WORK. */
+export const holdStep = (was: Holding, event: WorkEvent): Holding => {
+  if (event.kind === "hand-offs-kept")
+    return { ...was, holding: [], last: Option.none() };
+  if (event.about.kind !== "member") return was;
+  const terminal = event.about.terminal;
+  let at = was;
+  if (event.kind === "joined") {
+    const role = event.role;
+    const roles = new Map(was.roles);
+    if (isWaterfallRole(role)) roles.set(terminal, role);
+    else roles.delete(terminal);
+    at = {
+      ...was,
+      roles,
+      joined: isWaterfallRole(role)
+        ? new Set([...was.joined, role])
+        : was.joined,
+    };
+  }
+  if (handsOver(at, event))
+    return {
+      ...at,
+      holding: [...at.holding, terminal],
+      last: Option.some(terminal),
+    };
+  if (letsGo(at, event))
+    return {
+      ...at,
+      holding: at.holding.filter((one) => one !== terminal),
+    };
+  return at;
+};
+
+/** Who holds the work after its whole timeline. */
+export const holdingOf = (work: Work): Holding =>
+  work.events.reduce(holdStep, NOBODY_HOLDS);
+
+/** THE HOLDER'S ROLE — none before anybody was handed the work. */
+export const holderOf = (holding: Holding): Option.Option<WaterfallRole> =>
+  Option.flatMap(
+    Option.orElse(
+      Option.fromUndefinedOr(holding.holding.at(-1)),
+      () => holding.last,
+    ),
+    (terminal) => Option.fromUndefinedOr(holding.roles.get(terminal)),
+  );
+
+/** Whether a member has ever joined in this role. */
+export const joinedAs = (holding: Holding, role: WaterfallRole): boolean =>
+  holding.joined.has(role);
+
+/** IS IT THE PLANNER'S TURN — the one thing the stage of the agents' time
+ *  asks of the hand-offs. Before an implementor joined, it is while
+ *  somebody holds the work (only the planner can); after, while the holder
+ *  is the planner. */
+export const plannersTurn = (holding: Holding): boolean =>
+  joinedAs(holding, "implementor")
+    ? Option.exists(holderOf(holding), (role) => role === "planner")
+    : !nobodyHolds(holding);
 
 /** The worktree-relative paths of every file kolu has seen appear. */
 export const filesSeen = (work: Work): ReadonlySet<string> =>
