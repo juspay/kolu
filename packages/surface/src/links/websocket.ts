@@ -42,8 +42,14 @@ import { SurfaceTransportRetired } from "../errors";
 import { RPC_PING_INTERVAL_MS, RPC_PING_TIMEOUT_MS } from "../keepAlive";
 import type { WireStatus, WireTransport } from "../link";
 import { monotonicNow } from "../time";
-import { undecodableAware } from "./undecodableFrames";
+import { type UndecodableFrame, undecodableAware } from "./undecodableFrames";
 import { openWireLink, type WireLink } from "./wire";
+
+export {
+  type FrameRead,
+  PARSER_MESSAGE_MAX_CHARS,
+  type UndecodableFrame,
+} from "./undecodableFrames";
 
 /** Close code the link itself uses when {@link WatchableWire.forceReconnect}
  *  severs a wedged-but-open socket. A NORMAL closure (1000) on purpose: the
@@ -71,6 +77,20 @@ function reconnectSchedule(
   );
 }
 
+/** Why the link ended a socket ON ITS OWN JUDGMENT.
+ *  Closed, and these two are all of it: every other close the link makes was asked for by
+ *  a caller (`forceReconnect`, `dispose`), who already knows why. */
+export type SelfSever =
+  | { readonly cause: "undecodableFrame"; readonly frame: UndecodableFrame }
+  | {
+      readonly cause: "keepAliveUnanswered";
+      /** Monotonic ms from this socket's last inbound message (or from its open, if it
+       *  heard none) to this report. In a tab that kept running it lies in
+       *  (RPC_PING_TIMEOUT_MS, RPC_PING_FATAL_SILENCE_MS]. The pinger measures on the wall
+       *  clock, so a smaller value means the runtime was suspended for part of the window. */
+      readonly silentMs: number;
+    };
+
 export interface WebsocketLinkOptions {
   /** The served surface's flat `RpcGroup` (`surface.group`). */
   readonly group: RpcGroup.RpcGroup<Rpc.Any>;
@@ -83,6 +103,10 @@ export interface WebsocketLinkOptions {
    *  Promise-facing API can accept. Omitted in a browser; supplied by a test
    *  (or a Node host) that has no `globalThis.WebSocket`. */
   readonly connect?: (url: string) => WebSocket;
+  /** Told once per socket, when the link ends it on its own judgment. `socket` is the
+   *  object `connect` returned for that dial. Runs after the link has called `close()` on
+   *  it and before the link dials again. */
+  readonly onSelfSever?: (sever: SelfSever, socket: WebSocket) => void;
 }
 
 /** How many dial attempts the link remembers (kolu#2101 J1). Twenty covers a
@@ -120,11 +144,15 @@ export interface DialAttempt {
   /** When the attempt's run ended (`onDisconnect`, which fires on EVERY attempt
    *  end — including the swallowed ones). Absent ⇒ still in flight. */
   readonly endedAt?: number;
-  /** The close code, when a `close` event carried one. Absent for a dial that
-   *  failed before any socket existed (a throwing URL thunk) and for one whose
-   *  run ended without a close (a ping timeout). */
+  /** The close code this attempt's OWN socket's `close` event carried. Absent
+   *  for a dial that failed before any socket existed (a throwing URL thunk),
+   *  and until that event arrives: a socket the link ended can report its
+   *  close after the next attempt has begun, and the code still lands here. */
   readonly closeCode?: number;
   readonly classification: DialClassification;
+  /** Present when the link ended this socket on its own judgment. Absent otherwise: the
+   *  peer or the network closed it, a caller asked, or it is still in flight. */
+  readonly selfSever?: SelfSever;
 }
 
 /** What the link knows about its own dialing, for a client-side diagnostic
@@ -180,27 +208,46 @@ export async function websocketLink(
   // ── The dial history (kolu#2101 J1) ─────────────────────────────────────
   // A ring buffer of the last DIAL_HISTORY_LIMIT attempts. Built mutably and
   // handed out as `readonly DialAttempt[]`, because an attempt is written in
-  // three places at three moments: the acquire (started), `onConnect` (opened),
-  // the socket's own `close` listener (the code) and `onDisconnect` (ended).
+  // several places at several moments: the acquire (started), `onConnect`
+  // (opened), the socket's own `close` listener (the code), a self-sever (why
+  // the link ended it) and `onDisconnect` (ended).
   type OpenDialAttempt = {
     -readonly [K in keyof DialAttempt]: DialAttempt[K];
   };
+  /** One dial, private to the link: its public attempt, the socket it made
+   *  (absent when the URL thunk or `connect` threw), and when the protocol
+   *  reported that socket usable, on the monotonic clock. A socket's own
+   *  listeners capture THEIR dial, so an event that arrives late — after the
+   *  next attempt has begun — still describes the socket that fired it. The
+   *  protocol hooks have no socket in hand; they reach the current dial
+   *  through `dial`. */
+  interface Dial {
+    readonly attempt: OpenDialAttempt;
+    socket?: WebSocket;
+    openedMono?: number;
+  }
   const dialHistory: OpenDialAttempt[] = [];
-  let dial: OpenDialAttempt | undefined;
-  const beginDial = (): void => {
-    dial = { startedAt: Date.now(), classification: "in-flight" };
-    dialHistory.push(dial);
+  let dial: Dial | undefined;
+  const beginDial = (): Dial => {
+    const attempt: OpenDialAttempt = {
+      startedAt: Date.now(),
+      classification: "in-flight",
+    };
+    dialHistory.push(attempt);
     if (dialHistory.length > DIAL_HISTORY_LIMIT) dialHistory.shift();
+    dial = { attempt };
+    return dial;
   };
   /** Called from `onDisconnect`, which Effect RPC runs with `Effect.ensuring`
    *  on EVERY attempt end — including the ones whose failure it then swallows,
    *  which is precisely what makes `"ended-without-open"` recordable at all. */
   const endDial = (retiredNow: boolean): void => {
     if (dial === undefined) return;
-    dial.endedAt = Date.now();
-    dial.classification = retiredNow
+    const { attempt } = dial;
+    attempt.endedAt = Date.now();
+    attempt.classification = retiredNow
       ? "terminal"
-      : dial.openedAt === undefined
+      : attempt.openedAt === undefined
         ? "ended-without-open"
         : "opened-then-closed";
     dial = undefined;
@@ -214,7 +261,6 @@ export async function websocketLink(
   // true by the time the run's failure reaches an in-flight call.
   let retired = false;
   let retiredCode: number | undefined;
-  let currentSocket: WebSocket | undefined;
   // When this transport last received an inbound frame, on the monotonic clock —
   // the "liveness is PROGRESS" reading the watchdog folds a timed-out probe
   // against (`@kolu/surface/heartbeat`'s `lastActivity`, threaded here as
@@ -249,10 +295,10 @@ export async function websocketLink(
             // BEFORE the thunk: a thunk that throws is still a dial that
             // happened, and `"ended-without-open"` is exactly the class the
             // field could not see.
-            beginDial();
+            const own = beginDial();
             setStatus("connecting");
             const ws = connect(opts.url());
-            currentSocket = ws;
+            own.socket = ws;
             // Stamp every inbound frame (see `lastInbound` above). Registered
             // alongside Effect's own reader — a plain `message` listener, so it
             // observes the same events the socket layer reads and adds nothing the
@@ -266,13 +312,16 @@ export async function websocketLink(
             // protocol reports the disconnect. It does NOT publish the status: that
             // is the protocol's job (see `connectionHooks` below). It is also the
             // only place the dial history can learn a close code, for the same
-            // reason: nothing downstream carries it.
+            // reason: nothing downstream carries it. The code is written to THIS
+            // socket's own attempt (`own`), never to whichever is current: a
+            // socket the link ended itself can fire `close` after the next dial
+            // has begun.
             ws.addEventListener(
               "close",
               (event: Event) => {
                 const code = (event as CloseEvent).code;
                 if (typeof code !== "number") return;
-                if (dial !== undefined) dial.closeCode = code;
+                own.attempt.closeCode = code;
                 if (opts.isTerminalClose(code)) {
                   retired = true;
                   retiredCode = code;
@@ -289,7 +338,8 @@ export async function websocketLink(
         }),
         (ws) =>
           Effect.sync(() => {
-            if (currentSocket === ws) currentSocket = undefined;
+            // Release runs before `onDisconnect`, so `dial` still names this
+            // socket afterwards; `readyState` is what makes a later sever a no-op.
             // 0 CONNECTING / 1 OPEN — anything else is already closing.
             if (ws.readyState <= 1) ws.close(FORCE_RECONNECT_CLOSE_CODE);
           }),
@@ -331,7 +381,10 @@ export async function websocketLink(
         // Stamped BEFORE the status publish, so an epoch watcher (or a consumer
         // reading `diagnostics` off the `open` edge) never sees an open wire
         // whose current dial claims it never opened.
-        if (dial !== undefined) dial.openedAt = Date.now();
+        if (dial !== undefined) {
+          dial.attempt.openedAt = Date.now();
+          dial.openedMono = monotonicNow();
+        }
         setStatus("open");
       }),
       // `retired` is TERMINAL and is raised INSTEAD of `closed`: the schedule below
@@ -351,10 +404,51 @@ export async function websocketLink(
   // re-dial, review #4.) A no-op while a re-dial is already in flight: there is
   // no socket to sever.
   const severCurrentSocket = (): void => {
-    const ws = currentSocket;
+    const ws = dial?.socket;
     if (ws !== undefined && ws.readyState <= 1) {
       ws.close(FORCE_RECONNECT_CLOSE_CODE);
     }
+  };
+
+  // The link ending a socket ON ITS OWN JUDGMENT, as opposed to a caller asking
+  // (`forceReconnect`, `dispose`): record why on that socket's attempt, close
+  // it, then tell the host — act first, report second, so a reporter that
+  // throws cannot stop the redial. At most once per socket: the first judgment
+  // is the one recorded and reported.
+  const severOnOwnJudgment = (
+    own: Dial,
+    ws: WebSocket,
+    sever: SelfSever,
+  ): void => {
+    if (own.attempt.selfSever !== undefined) return;
+    own.attempt.selfSever = sever;
+    if (ws.readyState <= 1) ws.close(FORCE_RECONNECT_CLOSE_CODE);
+    if (opts.onSelfSever === undefined) return;
+    try {
+      opts.onSelfSever(sever, ws);
+    } catch (error) {
+      console.error(
+        "websocketLink: onSelfSever reporter threw; the socket was still ended and will be redialled",
+        error,
+      );
+    }
+  };
+
+  // The current dial, its socket and when it connected, for the two
+  // protocol-side moments that have no socket in hand. Both happen inside a run
+  // after its `onConnect` and before its `onDisconnect`, so a dial missing any
+  // of them is a broken assumption about Effect, said loudly rather than
+  // skipped.
+  const connectedDial = (
+    moment: string,
+  ): { own: Dial; ws: WebSocket; openedMono: number } => {
+    const own = dial;
+    if (own?.socket === undefined || own.openedMono === undefined) {
+      throw new Error(
+        `websocketLink: ${moment} with no connected dial current — Effect's socket protocol no longer runs it inside a connected run`,
+      );
+    }
+    return { own, ws: own.socket, openedMono: own.openedMono };
   };
 
   const protocol = Layer.effect(RpcClient.Protocol)(
@@ -367,10 +461,26 @@ export async function websocketLink(
       // The framework's own numbers, not Effect's defaults: the pinger is a
       // BACKSTOP above the wake-aware watchdog (`createLiveSignal`), which is
       // the authority on this leg (`../keepAlive.ts` has the account). Its
-      // death needs no name here: it fails calls as the same retryable
-      // `RpcClientError` as any other close.
+      // death fails calls as the same retryable `RpcClientError` as any other
+      // close; what it NAMES is the socket's end, to the host, through
+      // `onPingTimeout`.
+      //
+      // BETA-ASSUMPTION(4.1.4): `onPingTimeout` runs only for a connected run, after the socket's release and before `onDisconnect`.
+      // In effect@4.1.4 `rpc/RpcClient.ts` `makeProtocolSocket` races the
+      // scoped read loop against the pinger and runs the hook only when
+      // `connected`, inside the attempt that `onDisconnect` ensures. So `dial`
+      // still names the socket that went silent, and that socket is already
+      // closed. Measured by `websocket.test.ts` ("silence past the backstop
+      // names the socket").
       pingInterval: RPC_PING_INTERVAL_MS,
       pingTimeout: RPC_PING_TIMEOUT_MS,
+      onPingTimeout: Effect.sync(() => {
+        const { own, ws, openedMono } = connectedDial("the keep-alive gave up");
+        severOnOwnJudgment(own, ws, {
+          cause: "keepAliveUnanswered",
+          silentMs: monotonicNow() - Math.max(openedMono, lastInbound),
+        });
+      }),
     }),
   ).pipe(
     Layer.provide([
@@ -379,8 +489,12 @@ export async function websocketLink(
       // `RpcClientError`s the face's fence retries, and they land on a fresh
       // socket instead of the one whose stream can no longer be trusted
       // (`./undecodableFrames.ts`). The duplex legs END the link for the same
-      // reason; this leg's way of ending a socket is to redial it.
-      undecodableAware(severCurrentSocket),
+      // reason; this leg's way of ending a socket is to redial it, and it
+      // names that end to the host.
+      undecodableAware((frame) => {
+        const { own, ws } = connectedDial("a frame failed to decode");
+        severOnOwnJudgment(own, ws, { cause: "undecodableFrame", frame });
+      }),
       connectionHooks,
     ]),
   );
@@ -406,8 +520,9 @@ export async function websocketLink(
           // the `RpcClientError` the face's per-subscription retry fence
           // (D3/#12) retries on — translating it here would silently make
           // every reconnect permanent. Its ping timeout is a RETRYABLE orphan,
-          // not a terminal fact, so it is a different fact from the duplex
-          // leg's and correctly wears a different tag.
+          // not a terminal fact, so the CALL's error stays a different fact
+          // from the duplex leg's and correctly wears a different tag; why the
+          // SOCKET ended is named separately, to the host (`onSelfSever`).
           error,
     disposedError: () =>
       new SurfaceTransportRetired({

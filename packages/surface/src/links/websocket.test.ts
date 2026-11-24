@@ -17,11 +17,12 @@
  */
 
 import { Effect, Schema } from "effect";
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { defineSurface } from "../define";
 import { SurfaceTransportRetired } from "../errors";
+import { RPC_PING_FATAL_SILENCE_MS, RPC_PING_TIMEOUT_MS } from "../keepAlive";
 import { isHalfOpenDispatch, type WireStatus } from "../link";
-import { websocketLink } from "./websocket";
+import { type SelfSever, websocketLink } from "./websocket";
 
 const surface = defineSurface({
   procedures: {
@@ -47,6 +48,11 @@ const STALE_PROCESS_CLOSE_CODE = 4001;
 class FakeWebSocket extends EventTarget {
   readyState = 0; // CONNECTING
   readonly sent: (string | Uint8Array)[] = [];
+  /** A browser's `close()` only STARTS the closing handshake; the `close` event
+   *  comes later, when the peer answers or gives up. Off by default (the event
+   *  fires at once); on, `close()` leaves the socket CLOSING and
+   *  {@link emitClose} delivers the event whenever the test says. */
+  holdsClose = false;
   constructor(readonly url: string) {
     super();
   }
@@ -54,6 +60,15 @@ class FakeWebSocket extends EventTarget {
     this.sent.push(data);
   }
   close(code = 1000, reason = ""): void {
+    if (this.readyState >= 2) return;
+    if (this.holdsClose) {
+      this.readyState = 2; // CLOSING
+      return;
+    }
+    this.emitClose(code, reason);
+  }
+  /** The `close` event, as the browser finally reports it. */
+  emitClose(code: number, reason = ""): void {
     if (this.readyState === 3) return;
     this.readyState = 3; // CLOSED
     const event = new Event("close") as Event & {
@@ -69,6 +84,10 @@ class FakeWebSocket extends EventTarget {
     this.readyState = 1; // OPEN
     this.dispatchEvent(new Event("open"));
   }
+  /** The server wrote `data` as one websocket message. */
+  receive(data: string): void {
+    this.dispatchEvent(new MessageEvent("message", { data }));
+  }
 }
 
 function harness(opts?: {
@@ -76,6 +95,9 @@ function harness(opts?: {
   /** Make the first N evaluations of the URL thunk THROW — a consumer thunk that
    *  cannot answer yet (kolu's reads the server pid out of live state). */
   urlThrowsFirst?: number;
+  onSelfSever?: (sever: SelfSever, socket: WebSocket) => void;
+  /** Every dialled socket holds its `close` event (see `holdsClose`). */
+  holdClose?: boolean;
 }) {
   const dialled: FakeWebSocket[] = [];
   const urls: string[] = [];
@@ -98,9 +120,13 @@ function harness(opts?: {
       opts?.isTerminalClose ?? ((code) => code === STALE_PROCESS_CLOSE_CODE),
     connect: (url) => {
       const ws = new FakeWebSocket(url);
+      ws.holdsClose = opts?.holdClose ?? false;
       dialled.push(ws);
       return ws as unknown as WebSocket;
     },
+    ...(opts?.onSelfSever === undefined
+      ? {}
+      : { onSelfSever: opts.onSelfSever }),
   });
   return {
     link,
@@ -441,5 +467,226 @@ describe("websocketLink — the dial history (J1)", () => {
     attempt.classification = "tampered";
     expect(link.diagnostics.dialHistory()[0]?.classification).toBe("in-flight");
     await link.dispose();
+  });
+});
+
+/**
+ * The SELF-SEVER report — the two moments the link ends a socket on its own
+ * judgment, named to the host with the very socket it ended, and recorded on
+ * that socket's own dial attempt. Every other close is someone else's, and is
+ * never reported.
+ */
+describe("websocketLink — naming the sockets it ends itself", () => {
+  /** Every report, with the socket's `readyState` at the moment it ran. */
+  function reporter() {
+    const reports: {
+      sever: SelfSever;
+      socket: WebSocket;
+      readyState: number;
+    }[] = [];
+    const onSelfSever = (sever: SelfSever, socket: WebSocket) => {
+      reports.push({ sever, socket, readyState: socket.readyState });
+    };
+    return { reports, onSelfSever };
+  }
+
+  it("a bad line names the socket it ended, already closed, and records it on that dial", async () => {
+    const r = reporter();
+    const h = harness({ onSelfSever: r.onSelfSever });
+    const link = await h.link;
+    const first = await nthSocket(h.dialled, 1);
+    first.open();
+    await expect
+      .poll(() => link.wire.status(), { timeout: 3_000 })
+      .toBe("open");
+
+    first.receive("not a protocol frame\n");
+
+    expect(r.reports).toHaveLength(1);
+    const [report] = r.reports;
+    expect(report?.sever).toEqual({
+      cause: "undecodableFrame",
+      frame: {
+        kind: "invalidJson",
+        parserMessage: expect.any(String),
+        read: { unit: "utf16", length: 21 },
+      },
+    });
+    expect(report?.socket).toBe(first);
+    expect(report?.readyState).toBeGreaterThanOrEqual(2);
+    expect(link.diagnostics.dialHistory()[0]?.selfSever).toEqual(report?.sever);
+    await nthSocket(h.dialled, 2);
+    await link.dispose();
+  });
+
+  it("reports a socket once, however many bad reads arrive before its close", async () => {
+    const r = reporter();
+    // The close is held, so the socket stays readable after the link ends it.
+    const h = harness({ onSelfSever: r.onSelfSever, holdClose: true });
+    const link = await h.link;
+    const first = await nthSocket(h.dialled, 1);
+    first.open();
+    await expect
+      .poll(() => link.wire.status(), { timeout: 3_000 })
+      .toBe("open");
+
+    first.receive("bad\nworse\n");
+    first.receive("still bad\n");
+    first.emitClose(1000);
+
+    await nthSocket(h.dialled, 2);
+    expect(r.reports).toHaveLength(1);
+    await link.dispose();
+  });
+
+  it("a reporter that throws stops nothing: the next socket is still dialled, and the throw is logged once", async () => {
+    const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const h = harness({
+        onSelfSever: () => {
+          throw new Error("the host's reporter broke");
+        },
+      });
+      const link = await h.link;
+      const first = await nthSocket(h.dialled, 1);
+      first.open();
+      await expect
+        .poll(() => link.wire.status(), { timeout: 3_000 })
+        .toBe("open");
+
+      first.receive("not a protocol frame\n");
+
+      const second = await nthSocket(h.dialled, 2);
+      expect(second).not.toBe(first);
+      expect(logged).toHaveBeenCalledTimes(1);
+      await link.dispose();
+    } finally {
+      logged.mockRestore();
+    }
+  });
+
+  it("never reports a close someone else made: forceReconnect, the peer's 1006, dispose, a terminal close", async () => {
+    const r = reporter();
+    const h = harness({ onSelfSever: r.onSelfSever });
+    const link = await h.link;
+    const first = await nthSocket(h.dialled, 1);
+    first.open();
+    await expect
+      .poll(() => link.wire.status(), { timeout: 3_000 })
+      .toBe("open");
+    link.wire.forceReconnect();
+    const second = await nthSocket(h.dialled, 2);
+    second.open();
+    await expect
+      .poll(() => link.diagnostics.epoch(), { timeout: 3_000 })
+      .toBe(2);
+    second.close(1006, "network went away");
+    const third = await nthSocket(h.dialled, 3);
+    third.open();
+    await expect
+      .poll(() => link.diagnostics.epoch(), { timeout: 3_000 })
+      .toBe(3);
+    await link.dispose();
+
+    const retiring = harness({ onSelfSever: r.onSelfSever });
+    const retired = await retiring.link;
+    const only = await nthSocket(retiring.dialled, 1);
+    only.open();
+    await expect
+      .poll(() => retired.wire.status(), { timeout: 3_000 })
+      .toBe("open");
+    only.close(STALE_PROCESS_CLOSE_CODE, "stale server process");
+    await expect
+      .poll(() => retired.wire.status(), { timeout: 3_000 })
+      .toBe("retired");
+    await retired.dispose();
+
+    expect(r.reports).toEqual([]);
+    for (const attempt of [
+      ...link.diagnostics.dialHistory(),
+      ...retired.diagnostics.dialHistory(),
+    ]) {
+      expect(attempt.selfSever).toBe(undefined);
+    }
+  });
+
+  /** The keep-alive backstop is a minute, so these run on a VIRTUAL clock, as
+   *  law 3 of `socketRedialLaws.test.ts` does — plus `performance`, because the
+   *  silence the report names is measured on the monotonic clock. */
+  describe("silence past the backstop (virtual clock)", () => {
+    beforeEach(() => {
+      vi.useFakeTimers({
+        toFake: [
+          "setTimeout",
+          "clearTimeout",
+          "setInterval",
+          "clearInterval",
+          "Date",
+          "performance",
+        ],
+      });
+    });
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    /** Walk the virtual clock in 100ms steps until `holds()`, failing loudly
+     *  past the backstop plus slack for the re-dial backoff. */
+    async function virtually(holds: () => boolean, what: string) {
+      const budgetMs = RPC_PING_FATAL_SILENCE_MS + 5_000;
+      for (let walked = 0; !holds(); walked += 100) {
+        if (walked > budgetMs) {
+          throw new Error(`${what} did not hold within ${budgetMs}ms`);
+        }
+        await vi.advanceTimersByTimeAsync(100);
+      }
+    }
+
+    it("silence past the backstop names the socket, and how long it was silent; the call still fails retryably", async () => {
+      const r = reporter();
+      const h = harness({ onSelfSever: r.onSelfSever });
+      const link = await h.link;
+      const first = await nthSocket(h.dialled, 1);
+      first.open();
+      await virtually(() => link.wire.status() === "open", "the open");
+      const call = Effect.runPromise(
+        Effect.flip(link.dispatch.unary(DOUBLE_TAG, { x: 1 })),
+      );
+
+      await virtually(() => r.reports.length > 0, "the keep-alive report");
+
+      expect(r.reports).toHaveLength(1);
+      const [report] = r.reports;
+      expect(report?.socket).toBe(first);
+      expect(report?.readyState).toBeGreaterThanOrEqual(2);
+      const sever = report?.sever;
+      if (sever?.cause !== "keepAliveUnanswered") {
+        throw new Error(`expected a keep-alive sever, got ${sever?.cause}`);
+      }
+      expect(sever.silentMs).toBeGreaterThan(RPC_PING_TIMEOUT_MS);
+      expect(sever.silentMs).toBeLessThanOrEqual(RPC_PING_FATAL_SILENCE_MS);
+      expect(await call).toMatchObject({ _tag: "RpcClientError" });
+      expect(link.diagnostics.dialHistory()[0]?.selfSever).toEqual(sever);
+      await link.dispose();
+    });
+
+    it("a late close lands on its OWN socket's attempt, not on the next one's", async () => {
+      const h = harness({ holdClose: true });
+      const link = await h.link;
+      const first = await nthSocket(h.dialled, 1);
+      first.open();
+      await virtually(() => link.wire.status() === "open", "the open");
+
+      await virtually(() => h.dialled.length >= 2, "the re-dial");
+      // The browser finally reports the close of the socket the link ended a
+      // whole backoff ago.
+      first.emitClose(1006);
+
+      const [one, two] = link.diagnostics.dialHistory();
+      expect(one?.closeCode).toBe(1006);
+      expect(two?.closeCode).toBe(undefined);
+      expect(one?.selfSever?.cause).toBe("keepAliveUnanswered");
+      await link.dispose();
+    });
   });
 });

@@ -17,7 +17,8 @@
  * leg the run ending is the link ending (it cannot be retried through, see
  * `neverReconnect`), and the leg names it `keepAliveUnanswered` through
  * `onPingTimeout` (`../errors.ts` says what that means about the peer). On
- * the websocket leg it is an ordinary socket loss, and the socket is redialled.
+ * the websocket leg the socket is redialled, and the leg names that end to
+ * its host through the same hook (`websocketLink`'s `onSelfSever`).
  *
  * THE RULE THEY ENCODE: the pinger is a BACKSTOP. A peer that really dies on
  * a stdio or unix-socket leg is reported by the OS (EOF) at once, so all the
