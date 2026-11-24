@@ -61,6 +61,7 @@ import {
   type SurfaceAppConnection,
   type SurfaceAppEvent,
 } from "./serve";
+import { DEFAULT_SERVER_HEARTBEAT_INTERVAL_MS } from "./server";
 
 /** A viewer fact only a per-connection `Layer` can supply — the seam kolu's
  *  `viewerAddress` rides. Declared here so the passthrough is proven, not
@@ -565,6 +566,8 @@ describe("serveSurfaceApp — the whole listener in one call", () => {
       connection: { id: 1 },
       code: 4001,
       reason: "goodbye",
+      // The peer hung up; the reaper had nothing to do with it.
+      reaped: false,
     });
 
     // The next connection is the next ordinal — not a reused 1, and not global.
@@ -577,6 +580,38 @@ describe("serveSurfaceApp — the whole listener in one call", () => {
       connection: { id: 2 },
     });
     await second.dispose();
+  });
+
+  it("says when its liveness reaper ended a connection that a 1006 alone cannot tell from a network drop", async () => {
+    // Only the interval is virtual: the reaper's sweep is a 30s `setInterval`,
+    // and everything else (the bind, the upgrade, the close) runs for real.
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
+    try {
+      const events: SurfaceAppEvent[] = [];
+      const server = await boot({ onEvent: (event) => events.push(event) });
+      // A client that never answers a ping: the silently half-open peer the
+      // reaper exists for.
+      const silent = new WsClient(server.wsUrl, { autoPong: false });
+      // Executor form: this package's `lib` predates `Promise.withResolvers`.
+      await new Promise<void>((resolve, reject) => {
+        silent.on("open", () => resolve());
+        silent.on("error", reject);
+      });
+      await vi.waitFor(() => expect(events).toHaveLength(1));
+
+      vi.advanceTimersByTime(DEFAULT_SERVER_HEARTBEAT_INTERVAL_MS); // pinged
+      vi.advanceTimersByTime(DEFAULT_SERVER_HEARTBEAT_INTERVAL_MS); // reaped
+
+      await vi.waitFor(() => expect(events).toHaveLength(2));
+      expect(events[1]).toMatchObject({
+        _tag: "Disconnected",
+        connection: { id: 1 },
+        code: 1006,
+        reaped: true,
+      });
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 

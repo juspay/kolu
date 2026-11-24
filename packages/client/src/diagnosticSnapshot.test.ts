@@ -49,7 +49,13 @@ const dials = [
     startedAt: T_SUBSCRIBED - 1_000,
     openedAt: T_SUBSCRIBED - 900,
     endedAt: T_SWALLOWED - 100,
+    closeCode: 1006,
     classification: "opened-then-closed" as const,
+    // The socket that died silently: the link's keep-alive gave up on it.
+    selfSever: {
+      cause: "keepAliveUnanswered" as const,
+      silentMs: 61_234,
+    },
   },
   {
     startedAt: T_SWALLOWED,
@@ -158,6 +164,57 @@ describe("the snapshot proves the park by itself", () => {
     // The dial nothing else in the system records — not the client, not the
     // console, not the server's log, because the server never saw a connection.
     expect(text).toContain("ended-without-open");
+    // Why the link ended the silent socket itself — which its 1006 alone does
+    // not say — and only on the dial it ended.
+    const dialLines = text
+      .split("\n")
+      .filter((line) => line.includes(" started="));
+    expect(dialLines[0]).toContain(
+      "code=1006 selfSever=keepAliveUnanswered(silent 61.2s)",
+    );
+    expect(dialLines.slice(1).join("\n")).not.toContain("selfSever=");
+  });
+
+  it("names an undecodable frame by its kind and size, never by its content", () => {
+    vi.setSystemTime(T_CAPTURE);
+    const snap = collectDiagnosticSnapshot();
+    const read = { unit: "utf16" as const, length: 21 };
+    const text = formatDiagnosticSnapshot({
+      ...snap,
+      wire: {
+        ...snap.wire,
+        dials: [
+          {
+            startedAt: T_SUBSCRIBED,
+            classification: "opened-then-closed",
+            selfSever: {
+              cause: "undecodableFrame",
+              frame: {
+                kind: "invalidJson",
+                parserMessage: `Unexpected token 'n', "not a protocol frame" is not valid JSON`,
+                read,
+              },
+            },
+          },
+          {
+            startedAt: T_REOPEN,
+            classification: "opened-then-closed",
+            selfSever: {
+              cause: "undecodableFrame",
+              frame: { kind: "overCap", cap: 16_777_216, read },
+            },
+          },
+        ],
+      },
+    });
+    expect(text).toContain(
+      "selfSever=undecodableFrame(invalidJson, read 21 utf16)",
+    );
+    expect(text).toContain(
+      "selfSever=undecodableFrame(overCap cap=16777216, read 21 utf16)",
+    );
+    // The parser's sentence quotes the frame, so the pasted block leaves it out.
+    expect(text).not.toContain("not a protocol frame");
   });
 
   it("a stable heartbeat failure and re-subscription land reads live", () => {

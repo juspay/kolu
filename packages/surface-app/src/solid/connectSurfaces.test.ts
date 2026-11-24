@@ -693,6 +693,37 @@ describe("connectSurfaces — a ROSTER CHANGE moves the WIRE, not the connection
     });
   });
 
+  it("a redialled wire still names the sockets its link ends itself, to the app's own reporter", async () => {
+    const d = dialRecorder();
+    const reported: { cause: string; socket: WebSocket }[] = [];
+    await createRoot(async (dispose) => {
+      const conn = await connectSurfaces({
+        surfaces: { a: surface },
+        url: "ws://test",
+        retired: () => {},
+        connect: d.connect,
+        onSelfSever: (sever, socket) => {
+          reported.push({ cause: sever.cause, socket });
+        },
+      });
+      (await d.nth(1)).open();
+      await settle();
+
+      await conn.redial({ b: later });
+      const secondSocket = await d.nth(2);
+      secondSocket.open();
+      await settle();
+
+      secondSocket.receive("not a protocol frame\n");
+
+      expect(reported).toEqual([
+        { cause: "undecodableFrame", socket: secondSocket },
+      ]);
+      await conn.dispose();
+      dispose();
+    });
+  });
+
   it("an arriving sibling appears on `clients`; a departing one is dropped, and ITS client refuses in words", async () => {
     const d = dialRecorder();
     await createRoot(async (dispose) => {
