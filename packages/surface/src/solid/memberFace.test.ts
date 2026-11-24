@@ -29,11 +29,11 @@ import {
   isTransportError,
   type SurfaceCallFailure,
   type UnaryEffect,
-} from "./client";
-import { defineSurface } from "./define";
-import { directDispatch } from "./links/direct";
-import { implementSurface } from "./server";
-import { surfaceClient } from "./solid/surfaceClient";
+} from "../client";
+import { defineSurface } from "../define";
+import { directDispatch } from "../links/direct";
+import { implementSurface } from "../server";
+import { surfaceClient } from "./surfaceClient";
 
 class DemoRefused extends Schema.TaggedError<DemoRefused>(
   "@kolu/surface/test/DemoRefused",

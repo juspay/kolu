@@ -1,6 +1,7 @@
 import * as assert from "node:assert";
 import { Given, Then, When } from "@cucumber/cucumber";
 import { readBufferText, waitForBufferContains } from "../support/buffer.ts";
+import { dragFromCenter } from "../support/pointerDrag.ts";
 import { padiCall } from "../support/rpcWire.ts";
 import {
   ACTIVE_CANVAS_TILE_SELECTOR,
@@ -1256,6 +1257,41 @@ Then(
       },
       { timeout: POLL_TIMEOUT },
     );
+  },
+);
+
+/** The identity area of a canvas tile's title bar — the repo name, which is
+ *  not a control (the branch button and the action cluster opt out of the
+ *  tile drag), so a press there picks the tile up. */
+const titleIdentity = (index: number) =>
+  `${TILE_SELECTOR} >> nth=${index - 1} >> [data-testid="canvas-tile-titlebar"] [data-testid="terminal-meta-name"]`;
+
+When(
+  "I drag the title bar of canvas tile {int} by x={int} y={int}",
+  async function (this: KoluWorld, index: number, dx: number, dy: number) {
+    await dragFromCenter(this, titleIdentity(index), dx, dy);
+  },
+);
+
+When(
+  "I drag the title bar of canvas tile {int} by x={int} y={int} and press Esc before releasing",
+  async function (this: KoluWorld, index: number, dx: number, dy: number) {
+    await dragFromCenter(this, titleIdentity(index), dx, dy, {
+      escapeBeforeRelease: true,
+    });
+  },
+);
+
+Then(
+  "canvas tile {int} position should be unchanged",
+  async function (this: KoluWorld, index: number) {
+    const saved = this.savedCanvasTilePositions?.[index];
+    if (!saved) throw new Error(`No saved canvas tile ${index} position`);
+    // A drop writes the tile's new place on release, so a frame after it the
+    // style already says where the tile went.
+    await this.waitForFrame();
+    const now = await readCanvasTilePosition(this, index);
+    assert.deepStrictEqual(now, saved);
   },
 );
 

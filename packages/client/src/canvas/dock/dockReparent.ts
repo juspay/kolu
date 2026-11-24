@@ -9,11 +9,10 @@
  *  write quietly no-ops.
  *
  *  The row id is prefixed (`row:<terminalId>`) because the sortables in the
- *  same DragDropProvider key branch clusters by LABEL — a raw terminal id in
- *  that space could collide with a cluster label, and one collision is enough
- *  to turn a row drag into a cluster reorder. */
+ *  same drag scope key branch clusters by LABEL — a raw terminal id in that
+ *  space could collide with a cluster label, and one collision is enough to
+ *  turn a row drag into a cluster reorder. */
 
-import { closestCenter, type CollisionDetector } from "@thisbeyond/solid-dnd";
 import type { TerminalId } from "kolu-common/surface";
 import type { ParentEdge } from "../../terminal/terminalTree";
 
@@ -43,6 +42,15 @@ export function rowIdOfDragId(id: string | number): TerminalId | null {
 export type DockDropTarget =
   | { kind: "row"; id: TerminalId }
   | { kind: "header" };
+
+/** The drop target a droppable id names in the ROW space — a row or the repo
+ *  card's header — or `null` for an id outside it (a branch cluster). The one
+ *  decoder of that id space: both the drop filter and the drop write read it. */
+export function dockTargetOf(droppableId: string): DockDropTarget | null {
+  if (droppableId === HEADER_DROP_ID) return { kind: "header" };
+  const rowId = rowIdOfDragId(droppableId);
+  return rowId === null ? null : { kind: "row", id: rowId };
+}
 
 /** The two app facts the validity rules need. `isLive` is the same live-arm
  *  gate the split shortcuts use (`activeArm`): a sleeping terminal may not be a
@@ -105,22 +113,14 @@ export function dropHighlightOf(
   return reparentDropOf(ctx, draggedId, target) === null ? "invalid" : "over";
 }
 
-/** Partition the droppables by which id space the ACTIVE drag lives in, then
- *  let `closestCenter` pick within the half that can actually answer: a row
- *  drag resolves against rows + the header, a cluster drag against everything
- *  else. Without the split a cluster sitting nearest the pointer would win a
- *  row drop (silently turning it into a cluster reorder), and a row would win a
- *  cluster drag (resolving `reorderClusters` to a no-op). */
-export const dockCollisionDetector: CollisionDetector = (
-  draggable,
-  droppables,
-  context,
-) => {
-  const isRowDrag = rowIdOfDragId(draggable.id) !== null;
-  const candidates = droppables.filter((droppable) => {
-    const inRowSpace =
-      rowIdOfDragId(droppable.id) !== null || droppable.id === HEADER_DROP_ID;
-    return inRowSpace === isRowDrag;
-  });
-  return closestCenter(draggable, candidates, context);
-};
+/** Whether a droppable may answer a drag: only from the id space the drag
+ *  lives in. A row drag resolves against rows + the header, a cluster drag
+ *  against everything else. Without the split a cluster sitting nearest the
+ *  dragged row would win a row drop (silently turning it into a cluster
+ *  reorder), and a row would win a cluster drag (resolving `reorderClusters`
+ *  to a no-op). */
+export function dockAccepts(sourceId: string, targetId: string): boolean {
+  return (
+    (rowIdOfDragId(sourceId) !== null) === (dockTargetOf(targetId) !== null)
+  );
+}

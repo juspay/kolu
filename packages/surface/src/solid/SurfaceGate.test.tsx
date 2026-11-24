@@ -1,4 +1,3 @@
-// @vitest-environment happy-dom
 /**
  * `<SurfaceGate>` is the ONE place subscription-health POLICY lives — it turns the
  * `client.health()` FACT into a `connecting | degraded | ready` verdict and gates

@@ -74,17 +74,18 @@ Part of the kolu monorepo — `"@kolu/solid-dockrow": "workspace:*"`.
 
   | prop | what it is |
   | --- | --- |
-  | `ref` | The row ROOT as a node (solid-dnd's `setNodeRef` — the droppable). Solid calls a `ref` function with the element. |
-  | `handle` | The consumer's activator dict (`DockDragHandlers`) for the row's own grip. **Supplying it renders the grip**; omitting it renders no grip at all, so a touch row or a row whose terminal is not live has nothing to re-home. |
+  | `ref` | The row ROOT as a node for the consumer's drag library — what it measures as the draggable and the droppable. Solid calls a `ref` function with the element. |
+  | `handle` | A ref for the row's own grip element, which the consumer's drag library binds as the row's drag handle. **Supplying it renders the grip**; omitting it renders no grip at all, so a touch row or a row whose terminal is not live has nothing to re-home. |
   | `drop` | The drop verdict the drag library is holding over this row — `"over"` (valid re-home target) or `"invalid"` (would be refused). Stamps `data-drop`, which `dockrow.css` paints. |
 
   The grip is the package's (`data-testid="dock-row-grip"`, `aria-label="Drag
   to nest this terminal"`), absolutely positioned at the row's right edge —
   never a grid item, or it would eat a subgrid track and shift the pip / label /
-  recency columns. Its listeners stop propagation before running the consumer's,
-  so a grip drag bubbles through the cluster's own activator without lifting the
-  whole branch. `handle`'s dict is spread as-is; the package invents no drag
-  library.
+  recency columns. A grip tap stops its `click`, so it never selects the row.
+  The grip sits inside the cluster's own draggable, so the consumer's library
+  must let the innermost handle claim the press — dnd-kit's sensors do: the
+  first to see the `pointerdown` marks it, and outer draggables leave it alone.
+  The package invents no drag library.
 - **`<DockNeedsYouRow>`** — an entry in the pinned needs-you strip, at `full` or
   `icon` density.
 - **`<DockSection>` · `<DockNeedsYouStrip>`** — the two outer CONTAINERS. They
@@ -95,11 +96,10 @@ Part of the kolu monorepo — `"@kolu/solid-dockrow": "workspace:*"`.
   branch/intent cluster (a named group of rows that drag as one). An anonymous
   fragment has no node a sortable can register; this is the element a drag
   gesture lands on. The package ships no drag lib of its own — `label` /
-  `ref` / `style` / `handlers` are the sockets the consumer wires its own
-  library through (e.g. solid-dnd's `createSortable` triple), while the paint
-  contract (the `.dock-cluster` scope the washes and dividers key on) stays in
-  `dockrow.css`. `DockDragHandlers` is the narrow `Record<string, (e) => void>`
-  shape `handlers` takes — just far enough from any one library's emit.
+  `ref` / `style` are the sockets the consumer wires its own library through
+  (the `ref`'d element is both the sortable and its drag handle; `style`
+  carries its transform), while the paint contract (the `.dock-cluster` scope
+  the washes and dividers key on) stays in `dockrow.css`.
 - **`<PrPip>` · `<PrMarks>` · `<PrStateIcon>` · `<ChecksIndicator>` ·
   `prTooltip`** — the PR badge and its glyphs. The row's, and the repo's only
   copy of them. `<PrPip>` is a link wrapping `<PrMarks>` with the tooltip that

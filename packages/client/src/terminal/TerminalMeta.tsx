@@ -149,6 +149,7 @@ const TerminalMeta: Component<{
               <Tip label={v().meta.intent ? "Edit intent" : "Set intent"}>
                 <button
                   type="button"
+                  data-no-drag
                   data-testid="terminal-meta-branch"
                   aria-label={
                     v().meta.intent
@@ -258,6 +259,7 @@ export const TerminalMetaCompact: Component<{
                   {(pr) => (
                     <a
                       data-testid="terminal-meta-pr-compact"
+                      data-no-drag
                       href={pr().url}
                       target="_blank"
                       rel="noopener noreferrer"

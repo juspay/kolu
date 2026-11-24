@@ -1,11 +1,14 @@
 import solid from "vite-plugin-solid";
 import { defineConfig } from "vitest/config";
 
+// The tests that RUN Solid live with the Solid client layer, under `src/solid/`:
+// a test that drives the client or renders belongs there, and joins the DOM
+// project by existing. Every other test runs in the Node project.
+const DOM_TESTS = ["src/solid/**/*.test.{ts,tsx}"];
+
 export default defineConfig({
   // The Solid JSX transform — so the `.test.tsx` render harness (`SurfaceGate`)
-  // compiles its JSX to real DOM. Harmless for the `.test.ts` files (no JSX); the
-  // per-file `// @vitest-environment happy-dom` docblock opts ONLY the render
-  // tests into a DOM, leaving the reactive/primitive tests on the node default.
+  // compiles its JSX to real DOM. Harmless for the `.test.ts` files (no JSX).
   plugins: [solid()],
   // solid-js's package.json picks `dist/server.cjs` (the SSR build) under
   // Node's `"node"` export condition, where `createEffect` is a no-op.
@@ -37,15 +40,28 @@ export default defineConfig({
     },
   },
   test: {
-    include: ["src/**/*.test.ts", "src/**/*.test.tsx"],
     // Scrub the production daemon-locator env in every worker so a test can
     // never reach a live daemon (#1334 adversary path). See @kolu/daemon-test-gate.
     setupFiles: ["@kolu/daemon-test-gate/setup"],
-    // `vite-plugin-solid` defaults the test environment to `jsdom`; pin it back
-    // to `node` so the reactive/primitive `.test.ts` files run plain, and let
-    // ONLY the render `.test.tsx` opt into a DOM via its
-    // `// @vitest-environment happy-dom` docblock.
-    environment: "node",
+    // Two projects, both inheriting this config: Solid code runs under a DOM
+    // (`happy-dom`, as in the client), the transport/server/reactor tests run in
+    // plain Node. Each project names its environment, so `vite-plugin-solid`'s
+    // `jsdom` default never applies.
+    projects: [
+      {
+        extends: true,
+        test: { name: "dom", environment: "happy-dom", include: DOM_TESTS },
+      },
+      {
+        extends: true,
+        test: {
+          name: "node",
+          environment: "node",
+          include: ["src/**/*.test.{ts,tsx}"],
+          exclude: DOM_TESTS,
+        },
+      },
+    ],
     server: {
       deps: {
         // Pull solid-js (and `@solid-primitives/scheduled`) THROUGH Vitest's

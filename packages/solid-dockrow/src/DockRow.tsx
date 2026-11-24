@@ -41,7 +41,6 @@ import {
 import type { TerminalId } from "@kolu/terminal-vocab/schema";
 import type { PrInfo } from "anyforge/schemas";
 import { type Component, type JSX, Show } from "solid-js";
-import type { DockDragHandlers } from "./DockSection.tsx";
 import {
   DOCK_CARDS_SUBGRID_LEFT_RESTORE,
   DOCK_ROW_BRANCH_COL,
@@ -131,16 +130,19 @@ export type DockRowProps = {
   /** A pointer-down trap. kolu's touch drawer stops propagation here so Corvu's
    *  drag-to-dismiss cannot claim the tap. */
   onPointerDown?: (event: PointerEvent) => void;
-  /** The row ROOT as a node for the consumer's drag library — solid-dnd's
-   *  `setNodeRef` (droppable target), same socket shape `DockSection` and
-   *  `DockCluster` carry. Solid calls a `ref` function with the element. */
+  /** The row ROOT as a node for the consumer's drag library — what it
+   *  measures as the draggable and the droppable, the same socket shape
+   *  `DockSection` and `DockCluster` carry. Solid calls a `ref` function with
+   *  the element. */
   ref?: (el: HTMLElement) => void;
-  /** The consumer's drag ACTIVATORS for the row's own grip (solid-dnd's
-   *  `dragActivators`, or any pointer-sensor's dict). Supplying it makes the
-   *  PACKAGE render the grip; omitting it renders no grip at all — a touch row
-   *  has no mouse drag, and a row whose terminal is not live has nothing to
-   *  re-home. */
-  handle?: DockDragHandlers;
+  /** A ref for the row's own drag GRIP, which the consumer's drag library binds
+   *  as the row's drag handle. Supplying it makes the PACKAGE render the grip;
+   *  omitting it renders no grip at all — a touch row has no mouse drag, and a
+   *  row whose terminal is not live has nothing to re-home. The grip sits
+   *  inside the cluster's draggable, so the library must let the innermost
+   *  handle claim the press (dnd-kit's sensors do: the first one to see the
+   *  pointerdown marks it, and outer draggables leave it alone). */
+  handle?: (el: HTMLElement) => void;
   /** The drop verdict the consumer's drag library is currently holding over
    *  this row: `over` (a valid re-home target) or `invalid` (drop would be
    *  refused). Stamps `data-drop`, which `dockrow.css` paints. */
@@ -151,21 +153,6 @@ export type DockRowProps = {
  *  gap, and every hop past the first adds 0.75rem. */
 function treeIndent(depth: number): string {
   return `${1.25 + (depth - 1) * 0.75}rem`;
-}
-
-/** The grip's listeners: every consumer handler FIRST stops the event from
- *  reaching the cluster's own activator on the wrapper around the row (a grip
- *  drag must never lift the whole branch cluster), then runs. */
-function gripHandlers(handle: DockDragHandlers): DockDragHandlers {
-  return Object.fromEntries(
-    Object.entries(handle).map(([key, fn]) => [
-      key,
-      (event: Event) => {
-        event.stopPropagation();
-        fn(event);
-      },
-    ]),
-  );
 }
 
 export const DockRow: Component<DockRowProps> = (props) => {
@@ -250,7 +237,7 @@ export const DockRow: Component<DockRowProps> = (props) => {
         )}
       </Show>
       {/* The drag grip — the package's own, rendered ONLY when the consumer
-       *  hands us activators. Absolutely positioned and (crucially) NOT a grid
+       *  hands us a handle ref. Absolutely positioned and (crucially) NOT a grid
        *  item: the row is `grid-cols-subgrid`, so an in-flow child would eat a
        *  track and shift the pip / label / recency columns. `<Show>` means
        *  there is no grip in the DOM at all without a handle — touch rows and
@@ -271,7 +258,7 @@ export const DockRow: Component<DockRowProps> = (props) => {
             tabIndex={-1}
             aria-label="Drag to nest this terminal"
             class="dock-row-grip"
-            {...gripHandlers(h())}
+            ref={h()}
             // A grip tap is not a row activation — the click must not select.
             onClick={(e) => e.stopPropagation()}
           />

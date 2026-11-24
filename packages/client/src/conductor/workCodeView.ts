@@ -78,7 +78,13 @@ function viewOf(work: WorkId): WorkCodeView {
 
 /** Write first, report after. */
 function write(work: WorkId, next: WorkCodeView): void {
-  setWritten(work, next);
+  setWritten(
+    produce((all) => {
+      const held = all[work];
+      if (held) Object.assign(held, next);
+      else all[work] = next;
+    }),
+  );
   runAction(
     "save a work's Code view",
     app.procedures.conductor

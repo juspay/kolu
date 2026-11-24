@@ -27,7 +27,11 @@ export default defineConfig({
   },
   test: {
     include: ["src/**/*.test.ts", "src/**/*.test.tsx"],
-    environment: "node",
+    // The whole suite runs under a DOM (`happy-dom`, as in the client): every
+    // test but one imports the Solid map client, directly or through
+    // `mapHarness.testlib`, so a new test joins the DOM by existing. The one
+    // pure test runs there too.
+    environment: "happy-dom",
     server: {
       deps: {
         inline: [/solid-js/, "@solid-primitives/scheduled"],

@@ -50,19 +50,32 @@ export const useTerminalSearch = createSharedRoot(() => {
     },
     /** Open or close the find bar for terminal `id`. */
     setOpen(id: TerminalId, open: boolean) {
-      setState(id, open);
+      setState(
+        produce((s) => {
+          s[id] = open;
+        }),
+      );
     },
     /** Open the find bar for terminal `id` — the "find in THIS terminal" intent
      *  named once, so the tile's find button doesn't hand-roll `setOpen(id,
      *  true)`. The search singleton owns find-bar state; tile selection stays
      *  with the caller (TileTitleActions' `onTile`). */
     openFor(id: TerminalId) {
-      setState(id, true);
+      setState(
+        produce((s) => {
+          s[id] = true;
+        }),
+      );
     },
     /** Toggle the find bar for the active terminal — the `Cmd+F` action. */
     toggleActive() {
       const id = store.activeId();
-      if (id !== null) setState(id, (v) => !v);
+      if (id !== null)
+        setState(
+          produce((s) => {
+            s[id] = !s[id];
+          }),
+        );
     },
     /** Drop a terminal's find-bar state when it's removed. */
     removeTerminal(id: TerminalId) {

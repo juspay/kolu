@@ -2,11 +2,11 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-vi.mock("@thisbeyond/solid-dnd", () => ({
+vi.mock("../dnd", () => ({
   createDraggable: () => ({
     ref: () => undefined,
-    dragActivators: {},
-    transform: { x: 0, y: 0 },
+    handleRef: () => undefined,
+    transform: () => ({ x: 0, y: 0 }),
   }),
 }));
 

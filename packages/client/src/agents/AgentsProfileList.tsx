@@ -42,6 +42,7 @@ import {
   profilesWithMoved,
   profilesWithRemoved,
 } from "@kolu/agent-distro/status";
+import { makeEventListener } from "@solid-primitives/event-listener";
 import {
   type Component,
   createEffect,
@@ -142,7 +143,37 @@ const AddField: Component<{
   return (
     <div ref={field} class="relative min-w-0">
       <input
-        ref={input}
+        ref={(el) => {
+          input = el;
+          // Native, so Escape can stop here: with the menu open it closes the
+          // menu, not Settings around it.
+          makeEventListener(el, "keydown", (e) => {
+            switch (e.key) {
+              case "ArrowDown":
+              case "ArrowUp":
+                e.preventDefault();
+                if (!open()) show(false);
+                move(e.key === "ArrowDown" ? 1 : -1);
+                return;
+              case "Enter": {
+                e.preventDefault();
+                const at = active();
+                const row = at === undefined ? undefined : rows()[at];
+                add(open() && row !== undefined ? row.value : draft());
+                return;
+              }
+              case "Escape":
+                if (open()) {
+                  e.stopPropagation();
+                  close();
+                } else if (draft() !== "") {
+                  e.stopPropagation();
+                  setDraft("");
+                }
+                return;
+            }
+          });
+        }}
         id="agents-profile-input"
         type="text"
         role="combobox"
@@ -164,34 +195,6 @@ const AddField: Component<{
         onInput={(e) => {
           setDraft(e.currentTarget.value);
           show(true);
-        }}
-        // Native, so Escape can stop here: with the menu open it closes the
-        // menu, not Settings around it.
-        on:keydown={(e) => {
-          switch (e.key) {
-            case "ArrowDown":
-            case "ArrowUp":
-              e.preventDefault();
-              if (!open()) show(false);
-              move(e.key === "ArrowDown" ? 1 : -1);
-              return;
-            case "Enter": {
-              e.preventDefault();
-              const at = active();
-              const row = at === undefined ? undefined : rows()[at];
-              add(open() && row !== undefined ? row.value : draft());
-              return;
-            }
-            case "Escape":
-              if (open()) {
-                e.stopPropagation();
-                close();
-              } else if (draft() !== "") {
-                e.stopPropagation();
-                setDraft("");
-              }
-              return;
-          }
         }}
         onFocus={() => show(false)}
         onBlur={close}

@@ -147,6 +147,7 @@ export const PrUnavailableButton: Component<{
       <button
         ref={setTriggerEl}
         type="button"
+        data-no-drag
         data-testid={props.testId}
         class="flex items-center text-fg-3 shrink-0 cursor-pointer hover:text-warning focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 rounded"
         title={reason()}

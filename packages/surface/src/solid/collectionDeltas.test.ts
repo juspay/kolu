@@ -19,20 +19,20 @@ import { describe, expect, it } from "vitest";
 import {
   collectionDeltasChannel,
   collectionKeysetChannel,
-} from "./channelNames";
+} from "../channelNames";
 import {
   type CollectionDelta,
   type CollectionDeltasMsg,
   defineSurface,
-} from "./define";
+} from "../define";
+import { collection } from "../index";
 import {
   type Channel,
   collectionHandlers,
   implementSurfaceOnPublisher,
   inMemoryChannel,
-} from "./server";
-import { collection } from "./index";
-import { driveDeltas as drive, settle } from "./solid/deltasHarness.testlib";
+} from "../server";
+import { driveDeltas as drive, settle } from "./deltasHarness.testlib";
 
 const tick = () => new Promise((r) => setTimeout(r, 0));
 

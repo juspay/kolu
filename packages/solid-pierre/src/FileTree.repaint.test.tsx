@@ -1,4 +1,3 @@
-// @vitest-environment happy-dom
 /**
  * Live-repaint invariant for a MOUNTED file tree — juspay/kolu#1534.
  *

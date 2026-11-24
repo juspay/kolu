@@ -1,9 +1,9 @@
-import type { Draggable, Droppable } from "@thisbeyond/solid-dnd";
 import { describe, expect, it } from "vitest";
 import type { ParentEdge } from "../../terminal/terminalTree";
 import {
   type DockDropContext,
-  dockCollisionDetector,
+  dockAccepts,
+  dockTargetOf,
   dropHighlightOf,
   HEADER_DROP_ID,
   reparentDropOf,
@@ -137,62 +137,24 @@ describe("dropHighlightOf — one rule, two readers", () => {
   });
 });
 
-/** `closestCenter` reads only `draggable.transformed.center` and
- *  `droppable.layout.center` — the fakes carry exactly those. */
-function drag(id: string, center: { x: number; y: number }): Draggable {
-  return { id, transformed: { center } } as unknown as Draggable;
-}
+describe("dockTargetOf", () => {
+  it("names a row and the header, and nothing outside the row space", () => {
+    expect(dockTargetOf(rowDragId("t1"))).toEqual({ kind: "row", id: "t1" });
+    expect(dockTargetOf(HEADER_DROP_ID)).toEqual({ kind: "header" });
+    expect(dockTargetOf("feat/x")).toBeNull();
+  });
+});
 
-function drop(id: string, center: { x: number; y: number }): Droppable {
-  return { id, layout: { center } } as unknown as Droppable;
-}
-
-const noActive = { activeDroppableId: null };
-
-describe("dockCollisionDetector", () => {
-  it("ignores a nearer cluster droppable on a row drag", () => {
-    const chosen = dockCollisionDetector(
-      drag(rowDragId("t1"), { x: 0, y: 0 }),
-      [drop("feat/x", { x: 0, y: 0 }), drop(rowDragId("t2"), { x: 100, y: 0 })],
-      noActive,
-    );
-    expect(chosen?.id).toBe(rowDragId("t2"));
+describe("dockAccepts — a drag answers only from its own id space", () => {
+  it("lets a row drag land on rows and the header, never on a cluster", () => {
+    expect(dockAccepts(rowDragId("t1"), rowDragId("t2"))).toBe(true);
+    expect(dockAccepts(rowDragId("t1"), HEADER_DROP_ID)).toBe(true);
+    expect(dockAccepts(rowDragId("t1"), "feat/x")).toBe(false);
   });
 
-  it("picks the header on a row drag when no row is nearer", () => {
-    const chosen = dockCollisionDetector(
-      drag(rowDragId("t1"), { x: 0, y: 0 }),
-      [
-        drop(HEADER_DROP_ID, { x: 10, y: 0 }),
-        drop(rowDragId("t2"), { x: 100, y: 0 }),
-      ],
-      noActive,
-    );
-    expect(chosen?.id).toBe(HEADER_DROP_ID);
-  });
-
-  it("never resolves a cluster drag to a row or the header", () => {
-    const chosen = dockCollisionDetector(
-      drag("feat/x", { x: 0, y: 0 }),
-      [
-        drop(rowDragId("t2"), { x: 1, y: 0 }),
-        drop(HEADER_DROP_ID, { x: 2, y: 0 }),
-        drop("fix/y", { x: 3, y: 0 }),
-      ],
-      noActive,
-    );
-    expect(chosen?.id).toBe("fix/y");
-  });
-
-  it("returns null when a cluster drag has only row-space droppables", () => {
-    const chosen = dockCollisionDetector(
-      drag("feat/x", { x: 0, y: 0 }),
-      [
-        drop(rowDragId("t2"), { x: 1, y: 0 }),
-        drop(HEADER_DROP_ID, { x: 2, y: 0 }),
-      ],
-      noActive,
-    );
-    expect(chosen).toBeNull();
+  it("lets a cluster drag land on clusters, never on a row or the header", () => {
+    expect(dockAccepts("feat/x", "fix/y")).toBe(true);
+    expect(dockAccepts("feat/x", rowDragId("t2"))).toBe(false);
+    expect(dockAccepts("feat/x", HEADER_DROP_ID)).toBe(false);
   });
 });

@@ -116,7 +116,13 @@ export function usePendingLayouts(): {
       return pending;
     },
     setOne(id, layout) {
-      setPending(id, layout);
+      setPending(
+        produce((draft: Record<string, TileLayout>) => {
+          const held = draft[id];
+          if (held) Object.assign(held, layout);
+          else draft[id] = layout;
+        }),
+      );
     },
     resolveLayout(id, echoed) {
       return pending[id] ?? echoed;

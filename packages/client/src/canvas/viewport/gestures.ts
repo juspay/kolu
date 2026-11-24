@@ -131,8 +131,8 @@ export function installGestures(
       );
     },
     // Capture phase: pan claim fires before deeper listeners (tile onMouseDown,
-    // solid-dnd sensor) so Shift+primary-drag pans instead of selecting or
-    // dragging a tile.
+    // the drag scope's delegated pointerdown) so Shift+primary-drag pans
+    // instead of selecting or dragging a tile.
     { signal, capture: true },
   );
 

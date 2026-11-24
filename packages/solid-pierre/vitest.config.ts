@@ -10,9 +10,7 @@ if (!rhaiGrammarPath) {
 
 export default defineConfig({
   // The Solid JSX transform — so the `.test.tsx` render harness compiles its JSX
-  // to real DOM. Harmless for the `.test.ts` files (no JSX); the per-file
-  // `// @vitest-environment happy-dom` docblock opts ONLY the render tests into a
-  // DOM, leaving the pure-logic tests (pathReconcile) on the node default.
+  // to real DOM. Harmless for the `.test.ts` files (no JSX).
   plugins: [solid()],
   // solid-js' package.json picks `dist/server.cjs` (the SSR build) under Node's
   // `"node"` export condition, where `createEffect` is a no-op. The render test
@@ -36,11 +34,29 @@ export default defineConfig({
     },
   },
   test: {
-    include: ["src/**/*.test.ts", "src/**/*.test.tsx"],
-    // `vite-plugin-solid` defaults the env to `jsdom`; pin it back to `node` so the
-    // pure-logic `.test.ts` files run plain, and let ONLY the render `.test.tsx`
-    // opt into a DOM via its `// @vitest-environment happy-dom` docblock.
-    environment: "node",
+    // Two projects, both inheriting this config, split by file name: a test
+    // that needs a DOM — it renders, imports a Solid component module, or calls
+    // a DOM API such as `CSS.escape` — is a `.test.tsx` and runs under
+    // `happy-dom` (as in the client); a `.test.ts` is pure logic and runs in
+    // Node.
+    projects: [
+      {
+        extends: true,
+        test: {
+          name: "dom",
+          environment: "happy-dom",
+          include: ["src/**/*.test.tsx"],
+        },
+      },
+      {
+        extends: true,
+        test: {
+          name: "node",
+          environment: "node",
+          include: ["src/**/*.test.ts"],
+        },
+      },
+    ],
     server: { deps: { inline: [/solid-js/] } },
   },
 });

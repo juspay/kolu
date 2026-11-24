@@ -268,12 +268,15 @@ export function useRightPanel() {
       | ((s: RightPanelPerTerminalState) => void),
     rpc: ReturnType<typeof padiRpcOf>,
   ): void {
-    if (!perTerminal[id]) setPerTerminal(id, { ...stateOf(id) });
-    if (typeof update === "function") {
-      setPerTerminal(id, produce(update));
-    } else {
-      setPerTerminal(id, update);
-    }
+    setPerTerminal(
+      produce((all) => {
+        const held = all[id];
+        const state = held ?? { ...stateOf(id) };
+        if (typeof update === "function") update(state);
+        else Object.assign(state, update);
+        if (!held) all[id] = state;
+      }),
+    );
     reportToServer(id, rpc);
   }
 

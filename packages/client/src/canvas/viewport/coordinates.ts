@@ -30,8 +30,8 @@ export function canvasTransformCSS(
  *  `scale(z)` keeps the element's top-left anchored at its natural `(left, top)`,
  *  so we add `translate(l.x*(z-1) - panX*z + dragX, …)` to shift the
  *  post-scale top-left to the target screen position. Drag delta is added in
- *  screen-space directly (no `/zoom` divisor — `solid-dnd` reports
- *  `draggable.transform` in screen-space pixels). */
+ *  screen-space directly (no `/zoom` divisor — the drag scope reports a
+ *  draggable's `transform` in screen-space pixels). */
 export function tileTransformCSS(
   layoutX: number,
   layoutY: number,

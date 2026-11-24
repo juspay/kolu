@@ -2,29 +2,29 @@
  *  component, and the hover verdict painted on it.
  *
  *  DESKTOP ONLY, by construction rather than by a flag: these sockets are
- *  created against the nearest drag context, and the touch drawer renders none.
- *  Both hooks therefore THROW when they find no context — a caller that reached
+ *  created against the nearest drag scope, and the touch drawer renders none.
+ *  Both hooks therefore THROW when they find no scope — a caller that reached
  *  them from the drawer has a wiring bug, and a silent no-op would show up as
  *  "dragging does nothing on my phone" instead.
  *
- *  Two sockets, not one: the row element is BOTH the draggable (what the library
- *  measures and resolves against) and the droppable (a row is a drop target in
- *  its own right). The GESTURE, though, is not on the row — kolu passes the
- *  activators to the package as `handle`, which renders the grip that carries
- *  them and stops them at the row's own boundary (see `DockRow`). A pointerdown
- *  on the row's body therefore still reaches the branch cluster's activator,
- *  which is the #2249 behaviour this feature must not break. */
+ *  Two sockets, not one: the row element is BOTH the draggable (what the drag
+ *  measures and the ghost is sized to) and the droppable (a row is a drop
+ *  target in its own right). The GESTURE, though, is not on the row — the row's
+ *  drag handle is the grip the package renders when kolu passes `handle`. A
+ *  pointerdown on the row's body therefore still reaches the branch cluster's
+ *  handle (the cluster element itself), which is the #2249 behaviour this
+ *  feature must not break; a pointerdown on the grip is claimed by the row's
+ *  sensor first, so the cluster leaves it alone. */
 
 import { activeArm } from "@kolu/padi-client/surface";
 import type { TerminalMetadata } from "@kolu/padi-client/surface";
-import type { DockDragHandlers } from "@kolu/solid-dockrow";
+import type { TerminalId } from "kolu-common/surface";
+import { type Accessor, createMemo } from "solid-js";
 import {
   createDraggable,
   createDroppable,
-  useDragDropContext,
-} from "@thisbeyond/solid-dnd";
-import type { TerminalId } from "kolu-common/surface";
-import { type Accessor, createMemo } from "solid-js";
+  requireDragDropScope,
+} from "../../dnd";
 import type { ParentEdge } from "../../terminal/terminalTree";
 import { useTerminalStore } from "../../terminal/useTerminalStore";
 import {
@@ -41,8 +41,8 @@ import {
 export type DockRowDrag = {
   /** Registers the row ELEMENT as the draggable + droppable node. */
   ref: (el: HTMLElement) => void;
-  /** The grip's listeners — absent on a row that cannot be dragged right now. */
-  handle: DockDragHandlers | undefined;
+  /** The grip's ref — absent on a row that cannot be dragged right now. */
+  handle: ((el: HTMLElement) => void) | undefined;
   drop: "over" | "invalid" | undefined;
 };
 
@@ -50,13 +50,8 @@ export type DockRowDrag = {
  *  not a row drag — a branch cluster, or nothing at all. The one reader is the
  *  repo card's header, which is a drop target for ROW drags only. */
 export function useDraggedRowId(): Accessor<TerminalId | null> {
-  const context = useDragDropContext();
-  if (!context)
-    throw new Error(
-      "useDraggedRowId: no drag context — a dock drop target exists only inside the desktop dock's DragDropProvider",
-    );
-  const [state] = context;
-  return () => rowIdOfDragId(state.active.draggableId ?? "");
+  const scope = requireDragDropScope("useDraggedRowId");
+  return () => rowIdOfDragId(scope.activeId() ?? "");
 }
 
 /** The app facts the drop rules need, built from the store in ONE place: the
@@ -82,17 +77,12 @@ export function useDockDropVerdict(
   target: DockDropTarget,
   isActiveTarget: Accessor<boolean>,
 ): Accessor<"over" | "invalid" | undefined> {
-  const context = useDragDropContext();
-  if (!context)
-    throw new Error(
-      "useDockDropVerdict: no drag context — a dock drop target exists only inside the desktop dock's DragDropProvider",
-    );
-  const [state] = context;
+  const scope = requireDragDropScope("useDockDropVerdict");
   const store = useTerminalStore();
   const drop = dockDropContext(store);
   return createMemo(() => {
     if (!isActiveTarget()) return undefined;
-    const dragged = rowIdOfDragId(state.active.draggableId ?? "");
+    const dragged = rowIdOfDragId(scope.activeId() ?? "");
     // A cluster drag hovering this target is not this target's business: the
     // verdict is about ROW drops.
     if (dragged === null) return undefined;
@@ -102,17 +92,12 @@ export function useDockDropVerdict(
 
 /** One desktop dock row's drag sockets. */
 export function useDockRowDrag(id: TerminalId): DockRowDrag {
-  const context = useDragDropContext();
-  if (!context)
-    throw new Error(
-      "useDockRowDrag: no drag context — dock rows are draggable in the desktop dock only",
-    );
   const store = useTerminalStore();
   const draggable = createDraggable(rowDragId(id));
   const droppable = createDroppable(rowDragId(id));
   const drop = useDockDropVerdict(
     { kind: "row", id },
-    () => droppable.isActiveDroppable,
+    droppable.isActiveDroppable,
   );
   // A row whose terminal is SLEEPING is neither draggable nor a drop target:
   // its grip is not rendered (so no gesture can start) and the drop rules refuse
@@ -122,14 +107,14 @@ export function useDockRowDrag(id: TerminalId): DockRowDrag {
   // registered so the refusal can be PAINTED — a sleeping row under the pointer
   // reads as "no", rather than letting the drop silently resolve to some other
   // row behind it.
-  const live = () => activeArm(store.getMetadata(id)) !== undefined;
+  const { isLive } = dockDropContext(store);
   return {
     ref: (el) => {
       draggable.ref(el);
       droppable.ref(el);
     },
     get handle() {
-      return live() ? draggable.dragActivators : undefined;
+      return isLive(id) ? draggable.handleRef : undefined;
     },
     get drop() {
       return drop();

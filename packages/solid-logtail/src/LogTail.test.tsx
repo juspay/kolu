@@ -1,4 +1,3 @@
-// @vitest-environment happy-dom
 /**
  * `LogTail` — the block every tail wears, and the clipboard write it owns. The
  * behaviours worth pinning are the pair a person depends on and cannot read off a

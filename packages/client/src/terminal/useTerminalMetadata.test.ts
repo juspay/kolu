@@ -3,7 +3,7 @@ import { Stream } from "effect";
 import { decodeHostKey, encodeHostKey, LOCAL_HOST } from "kolu-common/hostKey";
 import type { TerminalId } from "kolu-common/surface";
 import { createEffect, createRoot, createSignal } from "solid-js";
-import { createStore } from "solid-js/store";
+import { createStore, produce } from "solid-js/store";
 import { describe, expect, it, vi } from "vitest";
 
 // `useTerminalMetadata` pulls `padi` (a live surface socket) and `solid-sonner`
@@ -466,17 +466,23 @@ describe("getMetadata clock reprojection (the foreign-clock ingestion boundary)"
       const agentOf = (id: TerminalId) =>
         (getMetadata(id) as { agent?: unknown } | undefined)?.agent;
       expect(agentOf(a)).toMatchObject({ state: "fresh" });
-      setRecords("a", "agent", {
-        kind: "claude-code",
-        state: "thinking",
-        sessionId: "s1",
-        model: "m",
-        summary: null,
-        taskProgress: null,
-        workflow: null,
-        contextTokens: null,
-        startedAt: START,
-      });
+      setRecords(
+        produce((all) => {
+          const record = all.a;
+          if (!record) throw new Error("no record a");
+          Object.assign(record.agent, {
+            kind: "claude-code",
+            state: "thinking",
+            sessionId: "s1",
+            model: "m",
+            summary: null,
+            taskProgress: null,
+            workflow: null,
+            contextTokens: null,
+            startedAt: START,
+          });
+        }),
+      );
       await flush();
       expect(agentOf(a)).toMatchObject({
         state: "thinking",

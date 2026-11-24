@@ -87,30 +87,60 @@ export function registerDiagnostics(
     };
   },
 ): () => void {
-  setStore(id, {
+  const registered: TerminalDiagnostics = {
     id,
     term: term(),
     wanted: wanted(),
     renderer: renderer(),
     scrollLock: scrollLockSnapshot(scrollLock),
-  });
+  };
+  setStore(
+    produce((s) => {
+      const held = s[id];
+      if (held) Object.assign(held, registered);
+      else s[id] = registered;
+    }),
+  );
+  /** Write this terminal's registered entry in place. */
+  const write = (edit: (entry: TerminalDiagnostics) => void): void =>
+    setStore(
+      produce((s) => {
+        const entry = s[id];
+        if (!entry) throw new Error(`diagnostics: ${id} is not registered`);
+        edit(entry);
+      }),
+    );
 
   // Own the effect root explicitly so the subscription is torn down with
   // the terminal, not at the component's Solid owner (Terminal.tsx passes
   // the accessor as a closure; if the component disposes first there'd
-  // be a stale read).
+  // be a stale read). A grid or snapshot is merged into the one it replaces,
+  // so a reader of one field is not woken by another's write.
   const disposeRoot = createRoot((dispose) => {
     createEffect(() => {
-      setStore(id, "renderer", renderer());
+      const next = renderer();
+      write((entry) => {
+        entry.renderer = next;
+      });
     });
     createEffect(() => {
-      setStore(id, "term", term());
+      const next = term();
+      write((entry) => {
+        Object.assign(entry.term, next);
+      });
     });
     createEffect(() => {
-      setStore(id, "wanted", wanted());
+      const next = wanted();
+      write((entry) => {
+        if (entry.wanted && next) Object.assign(entry.wanted, next);
+        else entry.wanted = next;
+      });
     });
     createEffect(() => {
-      setStore(id, "scrollLock", scrollLockSnapshot(scrollLock));
+      const next = scrollLockSnapshot(scrollLock);
+      write((entry) => {
+        Object.assign(entry.scrollLock, next);
+      });
     });
     return dispose;
   });

@@ -1,5 +1,3 @@
-// @vitest-environment happy-dom
-
 import type { PrInfo } from "anyforge/schemas";
 import { render } from "solid-js/web";
 import { describe, expect, it } from "vitest";

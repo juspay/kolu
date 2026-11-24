@@ -35,7 +35,7 @@
  *  reads the remembered answer. */
 
 import { createSignal } from "solid-js";
-import { createStore } from "solid-js/store";
+import { createStore, produce } from "solid-js/store";
 
 /** How close to the bottom still counts as "following", in pixels. A couple of
  *  lines of slack, so a half-scrolled wheel notch does not unpin the view. */
@@ -89,7 +89,12 @@ const offset = (): number | null => places[documentKey()] ?? null;
  *  clamp inside a work's chat says where that chat is, not where the whole
  *  conversation was. */
 const setOffset = (place: number | null): void => {
-  setPlaces(documentKey(), place);
+  const key = documentKey();
+  setPlaces(
+    produce((all) => {
+      all[key] = place;
+    }),
+  );
 };
 
 /** Is the view following the conversation? The one question the render path

@@ -52,13 +52,14 @@ import { useActiveHostSelector } from "./isActiveHost";
 import { conductorMode } from "../conductor/useConductorMode";
 
 import {
-  closestCenter,
   createSortable,
   DragDropProvider,
-  DragDropSensors,
-  type DragEvent,
+  type DropEvent,
+  type SortableHandle,
   SortableProvider,
-} from "@thisbeyond/solid-dnd";
+  transformCss,
+} from "../dnd";
+import { makeEventListener } from "@solid-primitives/event-listener";
 import { createMediaQuery } from "@solid-primitives/media";
 import { createResizeObserver } from "@solid-primitives/resize-observer";
 import {
@@ -75,7 +76,7 @@ import {
   onCleanup,
   Show,
 } from "solid-js";
-import { createStore } from "solid-js/store";
+import { createStore, produce } from "solid-js/store";
 import { Portal } from "solid-js/web";
 import { AttentionTriplet } from "@kolu/solid-statepip";
 import { hostMarks } from "../attention/attentionMarks";
@@ -142,18 +143,15 @@ const labelForKey: (key: string) => string = (key) =>
 
 const HostChip: Component<{
   host: HostKey;
-  /** solid-dnd's `createSortable` as a DIRECTIVE, filled by
-   *  {@link SortableHostChip} for a RE-ORDERABLE (i.e. non-pinned) chip and left
-   *  empty for the pinned one — which is therefore neither draggable nor a drop
-   *  target. The directive registers the node, the activators AND the per-frame
-   *  transform in solid-dnd's own effects, writing `element.style.transform`
-   *  directly, which is what lets this chip root carry no spread and no `style`
-   *  binding: Solid groups every dynamic attribute on one element into ONE
-   *  effect, so a per-frame `style` here would re-read `isActive()` / `down()` →
-   *  `glance()` → `hostGlance(state(), kaval())` on every pointer move (and a
-   *  spread would re-add the activator listeners each frame, `dragActivators`
-   *  minting a fresh record per read). */
-  drag?: (el: HTMLElement) => void;
+  /** The chip's sortable, filled by {@link SortableHostChip} for a RE-ORDERABLE
+   *  (i.e. non-pinned) chip and left empty for the pinned one — which is
+   *  therefore neither draggable nor a drop target. The per-frame transform is
+   *  written to `element.style.transform` by an effect of its own, which is
+   *  what lets this chip root carry no spread and no `style` binding: Solid
+   *  groups every dynamic attribute on one element into ONE effect, so a
+   *  per-frame `style` here would re-read `isActive()` / `down()` → `glance()`
+   *  → `hostGlance(state(), kaval())` on every pointer move. */
+  drag?: SortableHandle;
   /** Consume the click a finished drag leaves behind — see `dragClickGuard`. */
   swallowClick?: () => boolean;
 }> = (props) => {
@@ -194,6 +192,13 @@ const HostChip: Component<{
   const diagOpen = () => isOpen(encKey);
 
   let chipEl: HTMLDivElement | undefined;
+  // The drag transform, straight onto the node (see the `drag` prop's doc):
+  // only the carried chip and the chips its preview shifts re-run this.
+  createEffect(() => {
+    const drag = props.drag;
+    if (!drag || !chipEl) return;
+    chipEl.style.transform = transformCss(drag.transform());
+  });
 
   // UNIFORM SHAPE: measurable SIZE never depends on `isActive()` — only
   // border/bg/text COLOR, and the drag transform is a translate, so a chip keeps
@@ -203,28 +208,31 @@ const HostChip: Component<{
     <div
       ref={(el) => {
         chipEl = el;
-        // The sortable's node, activators and transform in one call, when this
-        // chip is re-orderable (see the `drag` prop's doc).
-        props.drag?.(el);
+        // A re-orderable chip is the sortable AND its own drag handle: a
+        // press anywhere on it picks it up. The pinned chip has no sortable.
+        props.drag?.ref(el);
+        props.drag?.handleRef(el);
+        // A finished drag's trailing `click` can land on whichever of the
+        // chip's two buttons the gesture started on — switching host, or
+        // toggling diagnostics. Swallow it in the CAPTURE phase, before either
+        // button's (delegated) handler runs. The pinned chip passes no guard,
+        // so nothing is ever swallowed there.
+        makeEventListener(
+          el,
+          "click",
+          (e) => {
+            if (props.swallowClick?.() !== true) return;
+            e.stopPropagation();
+            e.preventDefault();
+          },
+          { capture: true },
+        );
         // This chip owns the element it hands the panel: when it unmounts
         // (overflow fit, the `md` row going away) the panel must not stay
         // floating against a detached node.
         onCleanup(() => releaseHostDiagnosticsAnchor(el));
       }}
       class="group -mb-px flex items-center shrink-0 text-xs"
-      // A finished drag's trailing `click` lands on whichever of the chip's two
-      // buttons the gesture started on — switching host, or toggling
-      // diagnostics. Swallow it in the CAPTURE phase, before either button's
-      // (delegated) handler runs. The pinned chip passes no guard, so nothing
-      // is ever swallowed there.
-      on:click={{
-        capture: true,
-        handleEvent: (e) => {
-          if (props.swallowClick?.() !== true) return;
-          e.stopPropagation();
-          e.preventDefault();
-        },
-      }}
       data-testid="host-chip"
       data-host={encKey}
       data-active={isActive() ? "" : undefined}
@@ -312,7 +320,7 @@ const SortableHostChip: Component<{ hostKey: string }> = (props) => {
   // `<For>` is keyed by the encoded string), so the host decodes exactly once —
   // the referential stability `HostChip`'s per-host lenses rest on.
   const host = decodeHostKey(props.hostKey);
-  const swallowClick = createDragClickGuard(() => sortable.isActiveDraggable);
+  const swallowClick = createDragClickGuard(sortable.isActiveDraggable);
   return <HostChip host={host} drag={sortable} swallowClick={swallowClick} />;
 };
 
@@ -721,16 +729,18 @@ const HostSelectorStrip: Component = () => {
 
   const [chipWidths, setChipWidths] = createStore<Record<string, number>>({});
   const [measureRefs, setMeasureRefs] = createStore<
-    Record<string, HTMLDivElement | undefined>
+    Record<string, HTMLDivElement>
   >({});
   createResizeObserver(
-    () =>
-      Object.values(measureRefs).filter(
-        (el): el is HTMLDivElement => el !== undefined,
-      ),
+    () => Object.values(measureRefs),
     (rect, el) => {
       const key = el.dataset.hostKey;
-      if (key) setChipWidths(key, rect.width);
+      if (key)
+        setChipWidths(
+          produce((widths) => {
+            widths[key] = rect.width;
+          }),
+        );
     },
   );
 
@@ -790,13 +800,13 @@ const HostSelectorStrip: Component = () => {
    *  dropping onto it moves the dragged host to that real slot — which may be
    *  inside the overflow. Deliberate: the arrangement is the thing being edited,
    *  and a borrowed seat is a width accident, not an order the user set. */
-  const dropHost = ({ draggable, droppable }: DragEvent): void => {
-    if (!droppable || draggable.id === droppable.id) return;
+  const dropHost = ({ sourceId, targetId }: DropEvent): void => {
+    if (targetId === null || sourceId === targetId) return;
     updatePreferences({
       hostOrder: moveHostKey(
         reorderableHostKeys(hostKeys()),
-        String(draggable.id),
-        String(droppable.id),
+        sourceId,
+        targetId,
       ),
     });
   };
@@ -828,17 +838,12 @@ const HostSelectorStrip: Component = () => {
         <HostDropdownSwitcher hosts={hostKeys()} />
       </div>
       <div classList={{ hidden: !atMd() }} inert={!atMd()}>
-        {/* The strip's OWN drag context, so a chip drag can never surface to
-         *  the canvas's provider — sortables bind to the NEAREST
-         *  `DragDropProvider`, and the nest is the isolation (the dock makes
-         *  the same nest for the same reason). Desktop only: the narrow
-         *  dropdown switcher and the phone host row are lists, not a strip,
-         *  and have no re-order gesture. */}
-        <DragDropProvider
-          collisionDetector={closestCenter}
-          onDragEnd={dropHost}
-        >
-          <DragDropSensors />
+        {/* The strip's OWN drag scope, so a chip drag can never surface to
+         *  the canvas's — sortables join the NEAREST drag scope, and the
+         *  nest is the isolation (the dock makes the same nest for the same
+         *  reason). Desktop only: the narrow dropdown switcher and the phone
+         *  host row are lists, not a strip, and have no re-order gesture. */}
+        <DragDropProvider onDragEnd={dropHost}>
           {/* Only the chips the fit computation SEATED are sortables, so only
            *  they are drop targets; a host folded into "⋯ +N" keeps its
            *  relative slot through a drag it took no part in (`moveHostKey`
@@ -889,10 +894,22 @@ const HostSelectorStrip: Component = () => {
         <For each={hostKeys()}>
           {(host) => {
             const key = encodeHostKey(host);
-            onCleanup(() => setMeasureRefs(key, undefined));
+            onCleanup(() =>
+              setMeasureRefs(
+                produce((refs) => {
+                  delete refs[key];
+                }),
+              ),
+            );
             return (
               <div
-                ref={(el) => setMeasureRefs(key, el)}
+                ref={(el) =>
+                  setMeasureRefs(
+                    produce((refs) => {
+                      refs[key] = el;
+                    }),
+                  )
+                }
                 data-host-key={key}
                 class="shrink-0"
               >

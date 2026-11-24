@@ -1,0 +1,114 @@
+/** The plugin that gives a kolu drag its geometry and reports the drag to Solid.
+ *
+ *  dnd-kit's own `Feedback` plugin MOVES the dragged element (into the top
+ *  layer, behind a placeholder) and measures droppables live. kolu paints its
+ *  drags itself — a canvas tile composes the drag into its pan/zoom transform, a
+ *  sortable shows a preview order — so this plugin does the measuring instead:
+ *
+ *  - When a drag starts, before anything has moved, it measures the source and
+ *    every droppable ONCE. Droppables resolve against those rects for the whole
+ *    drag, so a sortable's preview offsets (and a dragged item that follows the
+ *    pointer) never move a target out from under the collision. A droppable
+ *    that mounts during the drag is measured once, when it mounts.
+ *  - As the pointer moves, the operation's shape is the source's start rect
+ *    shifted by the drag transform: where the dragged element is drawn.
+ *
+ *  It reports to the scope through plain callbacks; it owns no Solid state. */
+
+import { Plugin, type UniqueIdentifier } from "@dnd-kit/abstract";
+import type { DragDropManager, Droppable } from "@dnd-kit/dom";
+import { type Coordinates, Rectangle } from "@dnd-kit/geometry";
+
+export type DragTrackerOptions = {
+  /** The element a droppable is measured from. Droppables are registered with
+   *  dnd-kit WITHOUT an element, so dnd-kit never measures them live. */
+  elementOf: (droppable: Droppable) => Element | undefined;
+  /** A drag began: the source's rect and every droppable's, by id. */
+  onStart: (
+    source: Rectangle,
+    droppables: ReadonlyMap<UniqueIdentifier, Rectangle>,
+  ) => void;
+  /** The pointer moved: the drag's offset from where it started. */
+  onMove: (transform: Coordinates) => void;
+  /** Which draggable is being dragged and which droppable it is over. */
+  onIds: (
+    sourceId: UniqueIdentifier,
+    targetId: UniqueIdentifier | null,
+  ) => void;
+  /** The drag is over (dropped or cancelled), and its operation reset. */
+  onEnd: () => void;
+};
+
+/** Measure a droppable from its element and hand dnd-kit the result as its
+ *  shape. Droppables carry no dnd-kit element, so this is the only thing that
+ *  ever gives one a shape. */
+export function measureDroppable(
+  droppable: Droppable,
+  element: Element,
+): Rectangle {
+  const rect = Rectangle.from(element.getBoundingClientRect());
+  droppable.shape = rect;
+  return rect;
+}
+
+export class DragTracker extends Plugin<DragDropManager, DragTrackerOptions> {
+  constructor(manager: DragDropManager, options?: DragTrackerOptions) {
+    super(manager, options);
+    if (!options)
+      throw new Error(
+        "DragTracker: configure it with DragTracker.configure(options)",
+      );
+    const { elementOf, onStart, onMove, onIds, onEnd } = options;
+    let source: Rectangle | undefined;
+
+    const stopMeasuring = manager.monitor.addEventListener(
+      "beforedragstart",
+      ({ operation }) => {
+        const element = operation.source?.element;
+        if (!element)
+          throw new Error(
+            `DragTracker: draggable ${String(operation.source?.id)} has no element`,
+          );
+        source = Rectangle.from(element.getBoundingClientRect());
+        const droppables = new Map<UniqueIdentifier, Rectangle>();
+        for (const droppable of manager.registry.droppables) {
+          const at = elementOf(droppable);
+          if (at) droppables.set(droppable.id, measureDroppable(droppable, at));
+        }
+        onStart(source, droppables);
+      },
+    );
+
+    this.registerEffect(() => {
+      const operation = manager.dragOperation;
+      if (!operation.status.initialized || source === undefined) return;
+      const transform = operation.transform;
+      operation.shape = source.translate(transform.x, transform.y);
+      onMove(transform);
+    });
+
+    let reported = false;
+    this.registerEffect(() => {
+      const operation = manager.dragOperation;
+      if (operation.status.idle) {
+        source = undefined;
+        // Only the end of a drag that was reported; never the idle state the
+        // manager is born in.
+        if (!reported) return;
+        reported = false;
+        onEnd();
+        return;
+      }
+      const sourceId = operation.sourceIdentifier;
+      if (sourceId === null) return;
+      reported = true;
+      onIds(sourceId, operation.targetIdentifier);
+    });
+
+    const destroy = this.destroy.bind(this);
+    this.destroy = () => {
+      stopMeasuring();
+      destroy();
+    };
+  }
+}

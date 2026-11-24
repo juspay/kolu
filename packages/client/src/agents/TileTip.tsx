@@ -20,6 +20,7 @@
 import AgentDistroLogo from "@kolu/agent-distro/solid";
 import { activeArm } from "@kolu/padi-client/surface";
 import type { TerminalId } from "kolu-common/surface";
+import { makeEventListener } from "@solid-primitives/event-listener";
 import { createResizeObserver } from "@solid-primitives/resize-observer";
 import {
   type Component,
@@ -178,10 +179,12 @@ const TileTip: Component<{ id: TerminalId }> = (props) => {
       // and does not take focus from the terminal (the chip types into it).
       // Native listeners, so the press stops here — Solid's delegated
       // handlers run at the document, after the tile's own listeners.
-      on:pointerdown={(e) => e.stopPropagation()}
-      on:mousedown={(e) => {
-        e.preventDefault();
-        e.stopPropagation();
+      ref={(el) => {
+        makeEventListener(el, "pointerdown", (e) => e.stopPropagation());
+        makeEventListener(el, "mousedown", (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+        });
       }}
     >
       <div

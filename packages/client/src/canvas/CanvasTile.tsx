@@ -1,5 +1,5 @@
 /** Single tile on the canvas — separated so createDraggable gets its own
- *  reactive owner per tile (required by solid-dnd). Shell only: positioning,
+ *  reactive owner per tile. Shell only: positioning,
  *  title bar, resize handles. Content is injected via render props — the
  *  canvas module has no knowledge of what renders inside a tile.
  *
@@ -12,7 +12,6 @@
  *    disabled. The maximize signal lives in `TerminalCanvas`, exposed here
  *    so chrome reflects state and double-click toggles it. */
 
-import { createDraggable } from "@thisbeyond/solid-dnd";
 import {
   type Component,
   createEffect,
@@ -24,6 +23,7 @@ import {
   Show,
 } from "solid-js";
 import { match } from "ts-pattern";
+import { createDraggable } from "../dnd";
 import { CHROME_ICON_BUTTON_CLASS } from "../ui/chromeSpacing";
 import { MaximizeIcon, RestoreIcon } from "../ui/Icons";
 import {
@@ -130,7 +130,11 @@ const CanvasTile: Component<{
 }> = (props) => {
   const isMaximized = () => props.mode === "maximized";
   const isCovered = () => props.mode === "covered";
-  const draggable = createDraggable(props.id);
+  // Only a TILED tile moves: maximized and covered tiles keep their title bar
+  // but start no drag from it.
+  const draggable = createDraggable(props.id, {
+    disabled: () => props.mode !== "tiled",
+  });
   /** Where this tile is saved to be — undefined while a host switch-back's
    *  `canvasLayout` metadata is still in flight. */
   const placed = () => props.getLayout(props.id);
@@ -309,8 +313,8 @@ const CanvasTile: Component<{
         props.panX(),
         props.panY(),
         props.zoom(),
-        draggable.transform.x,
-        draggable.transform.y,
+        draggable.transform().x,
+        draggable.transform().y,
       ),
     };
   };
@@ -448,9 +452,10 @@ const CanvasTile: Component<{
       {/* Clip shell — sole clip boundary for title/body (xterm, chrome). */}
       <div class="absolute inset-0 flex flex-col overflow-hidden rounded-[inherit]">
         {/* Title bar — uses tile foreground at low opacity for guaranteed
-         *  contrast against the tile background, regardless of theme. The
-         *  drag activators only attach when tiled — a maximized tile shouldn't
-         *  start a drag on grab. Double-click toggles maximize.
+         *  contrast against the tile background, regardless of theme. It is
+         *  the tile's drag handle, always bound; the draggable is disabled
+         *  unless the tile is tiled, so a maximized or covered tile starts no
+         *  drag on grab. Double-click toggles maximize.
          *
          *  Layout is a 2-column grid: `minmax(0,1fr)` for the identity block,
          *  `auto` for the action cluster. `items-start` hugs the actions to the
@@ -462,6 +467,7 @@ const CanvasTile: Component<{
          *  the span, the branch/PR row truncated early with dead space beneath
          *  a wide action cluster (agent status + theme + icons). */}
         <div
+          ref={draggable.handleRef}
           data-testid="canvas-tile-titlebar"
           class="grid [grid-template-columns:minmax(0,1fr)_auto] items-start gap-x-2 px-3 py-1.5 shrink-0 select-none border-l-4"
           classList={{
@@ -481,18 +487,21 @@ const CanvasTile: Component<{
           }}
           // Non-interactive chrome: prevent the browser's default
           // mousedown focus shift so clicks on the title bar don't blur
-          // the xterm textarea. solid-dnd's drag uses pointerdown, not
+          // the xterm textarea. The drag starts on pointerdown, not
           // mousedown, so drag is unaffected; child buttons handle their
-          // own focus via stopPropagation on pointerdown.
+          // own focus via stopPropagation on pointerdown, and stay out of the
+          // drag by carrying `data-no-drag` (see `dnd/`).
           onMouseDown={(e) => e.preventDefault()}
           onDblClick={(e) => {
             e.stopPropagation();
             props.onToggleMaximize();
           }}
-          {...(props.mode === "tiled" ? draggable.dragActivators : {})}
         >
           <div class="contents">{props.renderTitle()}</div>
-          <div class="col-start-2 row-start-1 flex items-center gap-1 shrink-0">
+          <div
+            data-no-drag
+            class="col-start-2 row-start-1 flex items-center gap-1 shrink-0"
+          >
             {props.renderTitleActions?.()}
             <button
               type="button"

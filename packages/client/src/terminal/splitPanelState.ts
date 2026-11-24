@@ -261,13 +261,20 @@ export const useSplitPanelState = createSharedRoot((): SplitPanelStore => {
       // it wrote one NUMBER into a store, and solid-js drops a property write
       // that equals what is there.
       if (sameSplitPanelState(state(id), next)) return;
-      setPending(id, (prev: SplitPending | undefined) => ({
-        value: next,
-        inFlight: (prev?.inFlight ?? 0) + 1,
-        // Stamped from the record as it stands NOW, so this entry's "the
-        // record moved" is measured from the gesture, not from nothing.
-        sawRecord: prev?.sawRecord ?? savedOf(id),
-      }));
+      setPending(
+        produce((draft: Record<string, SplitPending>) => {
+          const prev = draft[id];
+          const entry: SplitPending = {
+            value: next,
+            inFlight: (prev?.inFlight ?? 0) + 1,
+            // Stamped from the record as it stands NOW, so this entry's "the
+            // record moved" is measured from the gesture, not from nothing.
+            sawRecord: prev?.sawRecord ?? savedOf(id),
+          };
+          if (prev) Object.assign(prev, entry);
+          else draft[id] = entry;
+        }),
+      );
       persistSplitPanel(id, next, (ok) => settleWrite(id, ok));
     },
     forget: (id) => {

@@ -68,10 +68,13 @@ export function writeHostMarks(
     setMarks(produce((m) => delete m[encHost]));
     return;
   }
-  setMarks(encHost, (prev) => ({
-    ...(prev ?? { unseenFinished: 0 }),
-    ...value,
-  }));
+  setMarks(
+    produce((m) => {
+      const prev = m[encHost];
+      if (prev) Object.assign(prev, value);
+      else m[encHost] = { unseenFinished: 0, ...value };
+    }),
+  );
 }
 
 /** A host's frame in INDEXED form — the same three answers `@kolu/padi-client/attention`

@@ -1,5 +1,3 @@
-// @vitest-environment happy-dom
-
 /** The row's MODEL tag — line 2's trailing "on what", beside the status words'
  *  "doing what".
  *
@@ -166,10 +164,11 @@ describe("DockRow's drag sockets", () => {
   const gripEl = (host: HTMLElement) =>
     host.querySelector("[data-testid='dock-row-grip']") as HTMLElement | null;
 
-  it("renders no grip without a handle, and a labelled one when wired", () => {
+  it("renders no grip without a handle, and hands the wired one the grip", () => {
     // No handle = no grip in the DOM at all (touch rows, rows whose terminal
     // is not live) — not a hidden one. The package renders the grip itself,
-    // so the consumer never spells the markup.
+    // so the consumer never spells the markup; the handle ref is how its drag
+    // library learns which element to bind.
     const bare = renderRow(rowProps());
     try {
       expect(gripEl(bare.host)).toBeNull();
@@ -177,62 +176,23 @@ describe("DockRow's drag sockets", () => {
       bare.dispose();
     }
 
-    const wired = renderRow(rowProps({ handle: { onpointerdown: () => {} } }));
+    let bound: HTMLElement | undefined;
+    const wired = renderRow(
+      rowProps({
+        handle: (el) => {
+          bound = el;
+        },
+      }),
+    );
     try {
       const grip = gripEl(wired.host);
       expect(grip).not.toBeNull();
+      expect(bound).toBe(grip);
       expect(grip?.getAttribute("aria-label")).toBe(
         "Drag to nest this terminal",
       );
     } finally {
       wired.dispose();
-    }
-  });
-
-  it("keeps a grip pointerdown from reaching an ancestor listener", () => {
-    // The stopPropagation contract: the cluster's activator wraps the row, so
-    // a grip drag bubbles through it — and must NOT lift the whole branch.
-    //
-    // Both handlers here are Solid DELEGATED ones (the wrapper's, and the
-    // grip's own), because that is what the cluster's activator is too: the
-    // contract is delegated-handler-to-delegated-handler. A native listener on
-    // an ancestor would fire before the document-level delegated dispatch even
-    // walks the path, so it could not observe the stop. The host is attached
-    // to the document for the same reason — a detached tree never reaches the
-    // delegated listener at all.
-    let gripFired = 0;
-    let ancestorFired = 0;
-    const host = document.createElement("div");
-    document.body.appendChild(host);
-    const dispose = render(
-      () => (
-        <div
-          onPointerDown={() => {
-            ancestorFired += 1;
-          }}
-        >
-          <DockRow
-            {...rowProps({
-              handle: {
-                onpointerdown: () => {
-                  gripFired += 1;
-                },
-              },
-            })}
-          />
-        </div>
-      ),
-      host,
-    );
-    try {
-      const grip = gripEl(host);
-      expect(grip).not.toBeNull();
-      grip?.dispatchEvent(new Event("pointerdown", { bubbles: true }));
-      expect(gripFired).toBe(1);
-      expect(ancestorFired).toBe(0);
-    } finally {
-      dispose();
-      host.remove();
     }
   });
 

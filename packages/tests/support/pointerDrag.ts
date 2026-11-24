@@ -2,9 +2,10 @@
  *  share: press the SOURCE's center, step the pointer to a target point,
  *  release.
  *
- *  Stepped so the pointermove listeners see real frames — solid-dnd's
- *  PointerSensor (250 ms / 10 px activation) needs the drag to live in the DOM
- *  the way a user's does. Both in-canvas gestures (resize, selection,
+ *  Stepped so the pointermove listeners see real frames — kolu's drag
+ *  scopes run dnd-kit's PointerSensor (10 px activation, moves applied once
+ *  per animation frame), which needs the drag to live in the DOM the way a
+ *  user's does. Both in-canvas gestures (resize, selection,
  *  rearrange) and the dock's gestures feed the same engine. The dock
  *  features (dock_arrange_steps, dock_steps's resize) and the Code view's
  *  split handles were migrated off hand-spelled frames onto this driver; the
@@ -12,8 +13,12 @@
 
 import { type KoluWorld, POLL_TIMEOUT } from "./world.ts";
 
-/** Press at (x, y), step the pointer by (dx, dy), release, and let a frame
- *  land: the one drag every driver below performs. */
+/** Press at (x, y), step the pointer by (dx, dy), rest for a frame, release,
+ *  and let a frame land: the one drag every driver below performs. The rest
+ *  matters: dnd-kit applies pointer moves once per animation frame and ends a
+ *  drag without applying a move still pending
+ *  (https://github.com/clauderic/dnd-kit/issues/2201), so a release in the
+ *  same frame as the last move would drop one step short. */
 async function pressAndDrag(
   world: KoluWorld,
   x: number,
@@ -21,22 +26,27 @@ async function pressAndDrag(
   dx: number,
   dy: number,
   steps: number,
+  escapeBeforeRelease = false,
 ): Promise<void> {
   await world.page.mouse.move(x, y);
   await world.page.mouse.down();
   await world.page.mouse.move(x + dx, y + dy, { steps });
+  await world.waitForFrame();
+  // Esc goes to whatever holds keyboard focus, exactly as a user's would.
+  if (escapeBeforeRelease) await world.page.keyboard.press("Escape");
   await world.page.mouse.up();
   await world.waitForFrame();
 }
 
 /** Press the center of `fromSelector`, step the pointer by (dx, dy), release.
- *  The generic half: a target-point drag like the dock's resize. */
+ *  The generic half: a target-point drag like the dock's resize. With
+ *  `escapeBeforeRelease`, Esc is pressed while the drag is still held. */
 export async function dragFromCenter(
   world: KoluWorld,
   fromSelector: string,
   dx: number,
   dy: number,
-  opts: { steps?: number } = {},
+  opts: { steps?: number; escapeBeforeRelease?: boolean } = {},
 ): Promise<void> {
   const from = world.page.locator(fromSelector);
   await from.waitFor({ state: "visible", timeout: 10000 });
@@ -49,12 +59,17 @@ export async function dragFromCenter(
     dx,
     dy,
     opts.steps ?? 16,
+    opts.escapeBeforeRelease,
   );
 }
 
-/** The center-to-center case: a drop onto `toSelector` — solid-dnd's
- *  closestCenter collision resolves the droppable from the point, so the
- *  pointer must settle inside the target's box. */
+/** The center-to-center case: a drop onto `toSelector`. The pointer travels
+ *  from the centre of `fromSelector` to the centre of `toSelector`, and the
+ *  dragged element moves by exactly that delta. The drag scopes resolve to the
+ *  droppable whose centre is nearest the dragged element's centre, so when
+ *  `fromSelector` is a handle (a dock row's grip) rather than the dragged
+ *  element itself, the element lands offset from the target by the handle's
+ *  own offset — level with it in a vertical list of equal-width rows. */
 export async function dragCenterTo(
   world: KoluWorld,
   fromSelector: string,
