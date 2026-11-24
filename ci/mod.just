@@ -59,7 +59,8 @@ nix_shell := if env('IN_NIX_SHELL', '') != '' { '' } else { 'nix develop --accep
 #     Their nodes depend on `nix` so Nix builds do not fight over CPU, memory,
 #     and store locks; each remains a separate status and source boundary.
 #   * Every other node that invokes `nix build` depends on `nix`: e2e's
-#     `.#koluBin`, smoke's `.#default`, and the pnpm hash rebuild. Their
+#     `.#koluBin`, e2e-solid-dev's `.#koluBin-solid-dev`, smoke's `.#default`,
+#     and the pnpm hash rebuild. Their
 #     commands remain self-contained, but start from a warmed store after the
 #     root evaluator/build process has exited instead of competing with it for
 #     CPU, memory, and Nix locks.
@@ -71,7 +72,7 @@ nix_shell := if env('IN_NIX_SHELL', '') != '' { '' } else { 'nix develop --accep
 [macos]
 [parallel]
 [metadata("ci")]
-default: nix agent-flake-nix agent-bake agent-models agent-published website-nix website-pnpm-hash-fresh surface-examples-nix solid-browser-example-nix odu-nix home-manager e2e e2e-governance dev-smoke smoke fmt biome unit daemon upgrade-window surface-example-build surface-app-example-build pnpm-hash-fresh
+default: nix agent-flake-nix agent-bake agent-models agent-published website-nix website-pnpm-hash-fresh surface-examples-nix solid-browser-example-nix odu-nix home-manager e2e e2e-solid-dev e2e-governance dev-smoke smoke fmt biome unit daemon upgrade-window surface-example-build surface-app-example-build pnpm-hash-fresh
 
 # Single per-platform `pnpm install`. The runner fans every recipe out into
 # its own process and starts them all in parallel as soon as setup completes,
@@ -277,12 +278,38 @@ agent-published: install nix
 # the browser suite is the longest pole on the Linux lane and dwarfs the burst
 # `install`+`nix` copies a borrowed box pays, so it is worth up to four slots.
 # Cucumber owns the actual split (`CUCUMBER_SHARD`, packages/tests/cucumber.js);
-# this recipe only translates odu's zero-based index into Cucumber's one-based
+# `_e2e-suite` only translates odu's zero-based index into Cucumber's one-based
 # one, and refuses a pair that does not parse. With neither variable set — a
 # local `just ci::e2e`, and every darwin lane — this is the command it has
 # always been.
 [metadata("odu:shard=4")]
 e2e: install nix
+    just --no-deps ci::_e2e-suite
+
+# THE SOLID-DIAGNOSTICS LANE: the same full suite, sharded the same way, run
+# against a server whose client is built on Solid's DEVELOPMENT runtime
+# (`.#koluBin-solid-dev`, default.nix `koluBinSolidDev`), and failing any
+# scenario whose pages print a Solid dev diagnostic
+# (packages/tests/support/solidDevBuild.ts). Unit and component tests already
+# fail on any diagnostic; this lane covers what only the running app reaches.
+# A deploy mid-scenario lands on the dev-mode client too
+# (`.#koluBin-solid-dev-next-padi-build`). Permanent, so later code stays free
+# of diagnostics.
+[metadata("odu:shard=4")]
+e2e-solid-dev: install nix
+    #!/usr/bin/env bash
+    set -euo pipefail
+    export KOLU_SERVER="$(nix build .#koluBin-solid-dev --no-link --print-out-paths)/bin/kolu"
+    export KOLU_SERVER_NEXT_BUILD="$(nix build .#koluBin-solid-dev-next-padi-build --no-link --print-out-paths)/bin/kolu"
+    export KOLU_E2E_SOLID_DEV=1
+    just --no-deps ci::_e2e-suite
+
+# The browser suite one e2e lane runs: odu's shard pair translated for
+# Cucumber, then the root `test` recipe, which takes `KOLU_SERVER` /
+# `KOLU_SERVER_NEXT_BUILD` from the caller when set and builds `.#koluBin`
+# otherwise.
+[private]
+_e2e-suite:
     #!/usr/bin/env bash
     set -euo pipefail
     # Fail loud on a half-set or out-of-range pair rather than silently running

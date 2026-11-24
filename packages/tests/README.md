@@ -84,6 +84,7 @@ cd packages/tests && REUSE_SERVER=1 HEADLESS=false nix develop ../..#default -c 
 | `HEADLESS` | `false` opens a visible browser. |
 | `KOLU_SERVER` | The server under test: a binary path each worker spawns on a random port, or an `http://` URL of a server you are already running. `just test` points it at the nix-built binary, `just test-quick` at `scripts/kolu-source-wrapper.sh`. |
 | `KOLU_SERVER_NEXT_BUILD` | The build a scenario's deploy starts in place of `KOLU_SERVER` (`kolu is deployed under this page`): the same server with a different padi build id, so the new server's binder replaces padi as a real deploy's does. `just test` builds `.#koluBin-next-padi-build` (flake.nix `legacyPackages`: `koluBin` from the same source and commit string, with `padiBuildIdOverride`); `just test-quick` sets the source wrapper, which takes the padi build id and commit from the env the harness passes. A deploy fails when it is unset. |
+| `KOLU_E2E_SOLID_DEV` | `1` makes this the Solid-diagnostics run (`ci::e2e-solid-dev`): each worker first checks that the server's client carries Solid's development runtime, and a scenario fails if any page prints a Solid dev diagnostic (`support/solidDevBuild.ts`). The lane points `KOLU_SERVER` at `.#koluBin-solid-dev` and `KOLU_SERVER_NEXT_BUILD` at `.#koluBin-solid-dev-next-padi-build`. Unset for every other run; any other value fails. |
 
 ## How it works
 

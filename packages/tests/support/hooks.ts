@@ -55,6 +55,11 @@ import {
 } from "./scenarioSetupRetry.ts";
 import { retireWorldScrollFifo } from "./scrollFifo.ts";
 import { padiBuildEnv, type ServerBuild } from "./serverBuild.ts";
+import {
+  assertServesSolidDevBuild,
+  isSolidDiagnostic,
+  SOLID_DEV_LANE,
+} from "./solidDevBuild.ts";
 import { type KoluWorld, STEP_GUARD, STEP_TIMEOUT } from "./world.ts";
 
 const workerId = parseInt(process.env.CUCUMBER_WORKER_ID || "0", 10);
@@ -1330,6 +1335,9 @@ BeforeAll(async () => {
   } else {
     await startServerChild(koluServer); // waits for a live bound padi internally
   }
+  // The Solid-diagnostics lane must be RUNNING the dev-mode client, or it
+  // would pass for having nothing to report.
+  if (SOLID_DEV_LANE) await assertServesSolidDevBuild(baseUrl);
 
   // Launch browser — always use CI args for consistency and performance.
   // KOLU_X11CAP: go HEADFUL at 2× inside Xvfb so x11grab captures real physical
@@ -1603,6 +1611,21 @@ Before(
         this.errors.push(`${opened.url()}: ${err.message}`),
       );
     });
+    // THE SOLID-DIAGNOSTICS LANE: every console line a Solid dev diagnostic
+    // prints, from the main page and any window it opens; the last After hook
+    // fails the scenario on the first.
+    this.solidDiagnostics = [];
+    if (SOLID_DEV_LANE) {
+      const collect = (where: string, text: string) => {
+        if (isSolidDiagnostic(text)) this.solidDiagnostics.push(where + text);
+      };
+      this.page.on("console", (message) => collect("", message.text()));
+      this.context.on("page", (opened) => {
+        opened.on("console", (message) =>
+          collect(`${opened.url()}: `, message.text()),
+        );
+      });
+    }
 
     // KOLU_X11CAP: start grabbing the Xvfb framebuffer now. x11grab runs off its
     // own 30 fps clock independent of Chrome's paint speed, so the recording is
@@ -1629,6 +1652,18 @@ Before(
     }
   },
 );
+
+// THE SOLID-DIAGNOSTICS LANE'S VERDICT: a scenario whose pages printed any
+// Solid dev diagnostic fails, naming each. Defined BEFORE the main After hook
+// because Cucumber runs After hooks in reverse definition order, so this runs
+// last — after the teardown and failure artifacts, which a throw here must not
+// skip. Off the lane it has nothing to look at.
+After(function (this: KoluWorld) {
+  if (this.solidDiagnostics.length === 0) return;
+  throw new Error(
+    `Solid dev diagnostics (${this.solidDiagnostics.length}):\n  ${this.solidDiagnostics.join("\n  ")}`,
+  );
+});
 
 // Generous timeout: under KOLU_X11CAP this hook transcodes the raw grab (mp4 +
 // VP9 webm + poster). A long clip at 3200×1800 takes well over Cucumber's 70s

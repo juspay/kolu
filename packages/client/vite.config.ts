@@ -48,7 +48,16 @@ if (!rhaiGrammarPath) {
   );
 }
 
-export default defineConfig({
+/** The Vite mode that builds the client against Solid's DEVELOPMENT runtime
+ *  (`@solidjs/vite-plugin`'s `dev: true`, which forces the dev builds into
+ *  `vite build`), so every Solid dev diagnostic is live in a built bundle.
+ *  Only the Nix derivation that builds the dev-mode client passes it
+ *  (`koluClientSolidDevBuild` in default.nix), for the e2e lane that fails on
+ *  any Solid diagnostic (`ci::e2e-solid-dev`). Every other build and `vite`
+ *  dev server keeps the plugin's default. */
+const SOLID_DEV_MODE = "solid-dev";
+
+export default defineConfig(({ mode }) => ({
   // No VitePWA / no *caching* service worker: kolu can't work offline and a
   // precaching worker only served stale builds across deploys (see
   // docs/cache-bug.md). Freshness is surface-app's contract: the server's
@@ -78,7 +87,7 @@ export default defineConfig({
   // would stay pinned on the old stamp forever (kolu#1319).
   plugins: [
     devNotificationSw,
-    solid(),
+    solid(mode === SOLID_DEV_MODE ? { dev: true } : {}),
     tailwindcss(),
     surfaceApp({ commitEnvVar: "KOLU_COMMIT_HASH" }) as PluginOption,
     // Emit `.br` + `.gz` siblings for the immutable hashed assets at BUILD time,
@@ -165,4 +174,4 @@ export default defineConfig({
   build: {
     target: "esnext",
   },
-});
+}));

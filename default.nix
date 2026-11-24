@@ -637,6 +637,42 @@ let
     done
   '';
 
+  # THE ENVIRONMENT A CLIENT BUILD RUNS IN: every shared var except the
+  # adapter. Nothing at build time spawns the Conductor's ACP adapter — it is a
+  # runtime fact of the wrapper a person runs — and naming it here is not free:
+  # `KOLU_ACP_AGENT` resolves `pkgs.kolu-acp-adapter`, which drives
+  # agent-distro's floor `claude`, whose own `package.nix` `fetchTarball`s
+  # UPSTREAM'S locked nixpkgs at EVAL time. That turned a `nix eval` of
+  # `padi-agent` into a download, and the one machine that evaluates it with no
+  # network is the one that matters: `offline-provision`'s binder resolving a
+  # host's daemon spent its 900s retrying `github.com` and the dial never
+  # landed.
+  clientBuildEnv = builtins.removeAttrs
+    ({ KOLU_COMMIT_HASH = koluCommitPlaceholder; } // koluEnv)
+    [ "KOLU_ACP_AGENT" ];
+
+  # The client build, run inside a copy of the source tree: the dependency
+  # mirror and member farms from `koluDeps`, the fonts, then the client's
+  # `vite build` with `viteArgs` appended. ONE sequence for both client builds
+  # — `kolu` (production) and `koluClientSolidDevBuild` (Solid's dev runtime) —
+  # so the dev-mode bundle the e2e lane tests differs from the shipped one only
+  # by the Vite mode it is built in.
+  buildClient = viteArgs: ''
+    ${mirrorNodeModules koluDeps "."}
+    ${copyMemberFarms koluDeps}
+    ln -sfn $KOLU_FONTS_DIR packages/client/public/fonts
+    pnpm --filter kolu-client build ${viteArgs}
+  '';
+
+  # A string ONLY Solid's development runtime carries: the base URL its console
+  # prints after every diagnostic (`GUIDE_URL` in `@solidjs/signals`
+  # `dist/dev-shared.js`; absent from `dist/prod/`). Each client dist below is
+  # checked for it, so a production bundle that picked up the dev runtime — or
+  # a dev-mode bundle that silently fell back to production — fails its build.
+  # The e2e harness checks the served page for the same string
+  # (packages/tests/support/solidDevBuild.ts).
+  solidDevMarker = "docs.solidjs.com/reference/solid-js/diagnostics/";
+
   # The source tree, runnable — the fileset plus a node_modules that POINTS AT
   # the deps derivations rather than containing them. A commit's worth of
   # difference is now a few megabytes of source and a tree of symlinks.
@@ -685,18 +721,8 @@ let
     # derivation owns both.
     dontFixup = true;
 
-    # EVERY SHARED VAR EXCEPT THE ADAPTER. Nothing at build time spawns the
-    # Conductor's ACP adapter — it is a runtime fact of the wrapper a person
-    # runs — and naming it here is not free: `KOLU_ACP_AGENT` resolves
-    # `pkgs.kolu-acp-adapter`, which drives agent-distro's floor `claude`,
-    # whose own `package.nix` `fetchTarball`s UPSTREAM'S locked nixpkgs at EVAL
-    # time. That turned a `nix eval` of `padi-agent` into a download, and the
-    # one machine that evaluates it with no network is the one that matters:
-    # `offline-provision`'s binder resolving a host's daemon spent its 900s
-    # retrying `github.com` and the dial never landed.
-    env = builtins.removeAttrs
-      ({ KOLU_COMMIT_HASH = koluCommitPlaceholder; } // koluEnv)
-      [ "KOLU_ACP_AGENT" ];
+    # EVERY SHARED VAR EXCEPT THE ADAPTER — see `clientBuildEnv`.
+    env = clientBuildEnv;
 
     # Workspace typecheck is a REQUIRED input, not a parallel lane. Kolu runs
     # TypeScript at runtime (tsx); Vite only transpiles. Without this, a green
@@ -706,10 +732,7 @@ let
     buildPhase = ''
       runHook preBuild
       test -e ${typecheck}
-      ${mirrorNodeModules koluDeps "."}
-      ${copyMemberFarms koluDeps}
-      ln -sfn $KOLU_FONTS_DIR packages/client/public/fonts
-      pnpm --filter kolu-client build
+      ${buildClient ""}
       runHook postBuild
     '';
 
@@ -734,6 +757,33 @@ let
     '';
   };
 
+  # THE DEV-MODE CLIENT (D10): the same client, built in the `solid-dev` Vite
+  # mode, which `packages/client/vite.config.ts` maps to `@solidjs/vite-plugin`'s
+  # `dev: true` — Solid's DEVELOPMENT runtime in a `vite build`, so every Solid
+  # dev diagnostic is live in the bundle. Built only for the e2e lane that
+  # fails on any Solid diagnostic (`ci::e2e-solid-dev`, through
+  # `koluBinSolidDev`); nothing ships it. Its own derivation beside `kolu`
+  # rather than a variant of it, so the production tree is untouched and this
+  # one holds only the bundle.
+  koluClientSolidDevBuild = pkgs.stdenv.mkDerivation {
+    pname = "kolu-client-solid-dev";
+    inherit version src;
+    nativeBuildInputs = [ pkgs.nodejs pkgs.pnpm-build ];
+    dontConfigure = true;
+    dontFixup = true;
+    env = clientBuildEnv;
+    buildPhase = ''
+      runHook preBuild
+      ${buildClient "--mode solid-dev"}
+      runHook postBuild
+    '';
+    installPhase = ''
+      runHook preInstall
+      cp -r packages/client/dist $out
+      runHook postInstall
+    '';
+  };
+
   # Stamp the real commit hash into the no-store SHELL (index.html), NOT the
   # hashed JS bundle. The `surfaceApp()` Vite plugin injects the placeholder
   # onto the shell global (`window.__SURFACE_APP_COMMIT__`), so it lands in
@@ -748,33 +798,73 @@ let
   # index.html — assert that so a future build-graph change that moves it (back
   # into the bundle, or drops it) fails LOUD here instead of silently shipping an
   # unstamped or mis-stamped shell.
-  koluClientDist = pkgs.runCommand "kolu-client-dist" { } ''
-    # Only index.html changes with the commit. Link the content-hashed assets
-    # and other static files back to the cache-stable build instead of copying
-    # the entire runtime workspace into a second store path.
-    cp -rs ${kolu}/packages/client/dist/. "$out"
-    chmod u+w "$out"
-    rm "$out/index.html"
-    cp ${kolu}/packages/client/dist/index.html "$out/index.html"
-    chmod u+w "$out/index.html"
-    shell="$out/index.html"
-    if ! grep -q '${koluCommitPlaceholder}' "$shell"; then
-      echo "koluClientDist: '${koluCommitPlaceholder}' not found in index.html — the surfaceApp() shell injection broke (kolu#1319)." >&2
-      exit 1
-    fi
-    if assetMatches=$(grep -rl '${koluCommitPlaceholder}' "$out/assets"); then
-      echo "koluClientDist: '${koluCommitPlaceholder}' leaked into a hashed /assets/* file — identity must ride the shell, not an immutable bundle (kolu#1319)." >&2
-      echo "$assetMatches" >&2
-      exit 1
-    else
-      grepStatus=$?
-      if [ "$grepStatus" -ne 1 ]; then
-        echo "koluClientDist: failed to inspect hashed assets for '${koluCommitPlaceholder}'." >&2
-        exit "$grepStatus"
+  #
+  # The asset checks read with `grep -R`: the assets are SYMLINKS into the
+  # build, and `grep -r` skips a symlink it meets while recursing.
+  #
+  # `solidRuntime` is which Solid runtime the bundle must carry, checked
+  # against `solidDevMarker`: the production dist must not carry the
+  # development runtime, and the dev-mode dist must.
+  mkClientDist = { name, label, build, solidRuntime }:
+    pkgs.runCommand name { } (''
+      # Only index.html changes with the commit. Link the content-hashed assets
+      # and other static files back to the cache-stable build instead of copying
+      # the entire runtime workspace into a second store path.
+      cp -rs ${build}/. "$out"
+      chmod u+w "$out"
+      rm "$out/index.html"
+      cp ${build}/index.html "$out/index.html"
+      chmod u+w "$out/index.html"
+      shell="$out/index.html"
+      if ! grep -q '${koluCommitPlaceholder}' "$shell"; then
+        echo "${label}: '${koluCommitPlaceholder}' not found in index.html — the surfaceApp() shell injection broke (kolu#1319)." >&2
+        exit 1
       fi
-    fi
-    sed -i 's/${koluCommitPlaceholder}/${commitHash}/g' "$shell"
-  '';
+      if assetMatches=$(grep -Rl '${koluCommitPlaceholder}' "$out/assets"); then
+        echo "${label}: '${koluCommitPlaceholder}' leaked into a hashed /assets/* file — identity must ride the shell, not an immutable bundle (kolu#1319)." >&2
+        echo "$assetMatches" >&2
+        exit 1
+      else
+        grepStatus=$?
+        if [ "$grepStatus" -ne 1 ]; then
+          echo "${label}: failed to inspect hashed assets for '${koluCommitPlaceholder}'." >&2
+          exit "$grepStatus"
+        fi
+      fi
+    '' + (if solidRuntime == "development" then ''
+      if ! grep -RqF '${solidDevMarker}' "$out/assets"; then
+        echo "${label}: no asset carries Solid's development runtime ('${solidDevMarker}') — the solid-dev build fell back to production." >&2
+        exit 1
+      fi
+    '' else ''
+      if devMatches=$(grep -RlF '${solidDevMarker}' "$out/assets"); then
+        echo "${label}: Solid's development runtime ('${solidDevMarker}') reached the production bundle." >&2
+        echo "$devMatches" >&2
+        exit 1
+      else
+        grepStatus=$?
+        if [ "$grepStatus" -ne 1 ]; then
+          echo "${label}: failed to inspect hashed assets for '${solidDevMarker}'." >&2
+          exit "$grepStatus"
+        fi
+      fi
+    '') + ''
+      sed -i 's/${koluCommitPlaceholder}/${commitHash}/g' "$shell"
+    '');
+
+  koluClientDist = mkClientDist {
+    name = "kolu-client-dist";
+    label = "koluClientDist";
+    build = "${kolu}/packages/client/dist";
+    solidRuntime = "production";
+  };
+
+  koluClientSolidDevDist = mkClientDist {
+    name = "kolu-client-solid-dev-dist";
+    label = "koluClientSolidDevDist";
+    build = koluClientSolidDevBuild;
+    solidRuntime = "development";
+  };
 
   # The opt-in heap-capture --run hook, defined ONCE for every kolu-family
   # wrapper (koluBin + kaval) — the Nix half of the same capability `@kolu/heap-
@@ -840,7 +930,11 @@ let
   # OOMed and whose offline provisioning timed out shipping a closure that had
   # no business being that large. The Conductor runs in kolu-server, on the
   # machine a person is looking at; a remote host hosts no conversation.
-  koluBin = pkgs.runCommand "kolu-bin"
+  #
+  # `clientDist` is the client it serves: `koluClientDist` for `koluBin`, and
+  # the dev-mode `koluClientSolidDevDist` for `koluBinSolidDev`, the server the
+  # Solid-diagnostics e2e lane runs (`ci::e2e-solid-dev`). Nothing else differs.
+  mkKoluBin = clientDist: pkgs.runCommand "kolu-bin"
     {
       nativeBuildInputs = [ pkgs.makeWrapper ];
       meta.mainProgram = "kolu";
@@ -849,7 +943,7 @@ let
     makeWrapper ${runtimeNode}/bin/node $out/bin/kolu \
       --add-flags "--import ${runtimeTsxLoader}" \
       --add-flags "${kolu}/packages/kolu-cli/src/main.ts" \
-      --set KOLU_CLIENT_DIST "${koluClientDist}" \
+      --set KOLU_CLIENT_DIST "${clientDist}" \
       --set-default KOLU_GH_BIN "${koluEnv.KOLU_GH_BIN}" \
       ${osfactsBakeArg} \
       ${snapshotFontsBakeArg} \
@@ -863,6 +957,8 @@ let
       ${hostNixFirstArg} \
       --run ${pkgs.lib.escapeShellArg (diagRunHook "")}
   '';
+  koluBin = mkKoluBin koluClientDist;
+  koluBinSolidDev = mkKoluBin koluClientSolidDevDist;
 
   # One shell snippet both production wrappers use for KOLU_PADI_STATE_DIR
   # (juspay/kolu#1334): code never silently defaults the state-root; wrappers
@@ -1387,6 +1483,10 @@ let
 in
 {
   inherit agentFlakeSrc agentFlakeEnv default koluBin kaval kaval-tui kolu-rpc padi padi-agent padi-tui koluEnv pnpmDeps typecheck osfacts;
+  # The server the Solid-diagnostics e2e lane runs: `koluBin` serving the
+  # dev-mode client. A test artifact, so `flake.nix` keeps it out of
+  # `packages` (it is `legacyPackages.koluBin-solid-dev`).
+  inherit koluBinSolidDev;
   # The built workspace tree and the two dependency derivations it is composed
   # out of, exposed so CI builds them and the run's push lands them in the
   # cache. That push is the point of the split: `kolu-deps` and

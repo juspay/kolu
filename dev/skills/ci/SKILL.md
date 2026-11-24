@@ -58,7 +58,9 @@ run). Capture the stage's stderr:
 
 **After a green settle, post e2e metrics to the PR.** Source of
 truth: the run ledger `.ci/<sha7>/runs/<seq>.json` for each `ci::e2e@<platform>`
-node's recipe-wall `durationMs` and host (never Cucumber's internal timer), and
+and `ci::e2e-solid-dev@<platform>` node's recipe-wall `durationMs` and host
+(never Cucumber's internal timer; the second lane is the same suite against the
+client built on Solid's dev runtime, failing on any Solid diagnostic), and
 the LAST `^e2e: workers=` line in that node's own log (an unsharded lane's is
 `.ci/<sha7>/<platform>/ci::e2e.log`) for resolved parallelism. Maintain
 **one** comment keyed by the
@@ -68,8 +70,9 @@ the run identity `<sha7>#<seq>` and a table of
 rather than comment if any ingredient is missing. Post only after the full run
 settles green, before reporting the gate.
 
-**`ci::e2e` is sharded, so the ledger carries shard nodes and the comment has
-rows for them.** `[metadata("odu:shard=4")]` lets odu borrow up to four free
+**`ci::e2e` and `ci::e2e-solid-dev` are sharded, so the ledger carries shard
+nodes and the comment has rows for them** (each lane gets its own logical row
+and shard rows; below, `ci::e2e` stands for either). `[metadata("odu:shard=4")]` lets odu borrow up to four free
 pool slots on Linux; the slices are ledger nodes `ci::e2e[k-of-N]@<platform>`
 (their burst dependency copies are `ci::e2e[k-of-N]::ci::install` and
 `…::ci::nix`), and they fold into the ONE logical `ci::e2e@<platform>` node

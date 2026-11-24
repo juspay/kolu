@@ -113,6 +113,10 @@ export class KoluWorld extends World {
   context!: BrowserContext;
   page!: Page;
   errors: string[] = [];
+  /** Solid dev diagnostics the pages printed — collected only on the
+   *  Solid-diagnostics lane (`support/solidDevBuild.ts`), where any one fails
+   *  the scenario. */
+  solidDiagnostics: string[] = [];
 
   // Stashed state for comparison across steps
   savedSessionTerminalCount?: number;
@@ -335,7 +339,7 @@ export class KoluWorld extends World {
       .locator('[data-testid="conductor-pane"]')
       .isVisible();
 
-    // Wait for app to settle (onMount may still be restoring terminals from server)
+    // Wait for app to settle (the boot may still be restoring terminals from server)
     if (!covered) {
       const settled = this.page.locator(SETTLED_SELECTOR);
       await settled.first().waitFor({ state: "visible", timeout });
