@@ -47,7 +47,7 @@ vi.mock("@solid-primitives/resize-observer", () => ({
   createElementSize: () => ({ width: 1374, height: 900 }),
 }));
 vi.mock("./peek/PeekTerminal", async () => {
-  const { onMount } = await import("solid-js");
+  const { onSettled } = await import("solid-js");
   return {
     default: (props: {
       onGrid: (g: TerminalGrid) => void;
@@ -57,7 +57,7 @@ vi.mock("./peek/PeekTerminal", async () => {
       ) => void;
       onPhase: (p: "live") => void;
     }) => {
-      onMount(() => {
+      onSettled(() => {
         props.onCell({ width: 8.4, height: 17 }, { x: 26, y: 12 });
         props.onGrid(seam.drawn);
         props.onPhase("live");

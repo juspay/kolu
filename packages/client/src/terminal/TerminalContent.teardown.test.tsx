@@ -91,19 +91,22 @@ it("tears down without reading the host's split state", () => {
   );
   reads.splitState = 0;
   // The failure this stands in for: clicking a host tab threw
-  // `TypeError: Cannot read properties of null` inside Solid's `cleanNode` and
-  // aborted the update, so the incoming host's tiles never rendered. Corvu's
-  // Resizable.Panel unregisters in onCleanup and re-reads the controlled
-  // `sizes` there; on a host switch the split state behind it is a memo still
-  // pending in the flush doing the teardown, and resolving that pending read
-  // re-runs owners that are mid-disposal, so one is cleaned twice.
+  // `TypeError: Cannot read properties of null` inside Solid 1's `cleanNode`
+  // and aborted the update, so the incoming host's tiles never rendered.
+  // Corvu's Resizable.Panel unregisters in onCleanup and re-reads the
+  // controlled `sizes` there; on a host switch the split state behind it is
+  // still dirty in the flush doing the teardown, and Solid 1 answered that
+  // read by re-running owners mid-disposal, so one was cleaned twice.
   //
-  // The contract is deliberately STRONGER than "nothing throws": teardown
-  // reads the split state ZERO times. Zero reads ⇒ no pending memo is touched
-  // ⇒ no upstream flush ⇒ no re-entrant dispose, whatever the flush happens to
-  // hold. A mock store can't reproduce which memos are pending on a real host
+  // Solid 2 refuses to recompute a disposed node, so the re-entry itself is
+  // gone — but the contract here stays STRONGER than "nothing throws", and
+  // stronger than "no crash": teardown reads the host's split state ZERO
+  // times. Zero reads ⇒ teardown pulls no derivation at all, so no half-torn
+  // subtree can be asked for a value and no `onSizesChange` fires with a
+  // renormalized shape while the tile is dying, whatever the flush holds. A
+  // mock store can't reproduce which derivations are dirty on a real host
   // switch, so "reads are fine as long as nothing throws" would pass here and
-  // still crash in the app. Do not weaken this to a no-throw check.
+  // still misbehave in the app. Do not weaken this to a no-throw check.
   //
   // Unmount inside a reactive update, as every app teardown is.
   setMounted(false);

@@ -18,7 +18,7 @@
  * instantly.
  */
 
-import { createComputed, createRoot, createSignal } from "solid-js";
+import { createEffect, createRoot, createSignal } from "solid-js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { SubHealth, SurfaceHealth } from "./health";
 import type { SurfaceConnectionStatus } from "./liveSignal";
@@ -191,12 +191,16 @@ describe("createSurfaceReadout", () => {
         status,
         () => fact(true, subs()),
       );
-      // `createComputed`, not `createEffect`: it tracks in the same synchronous
-      // pass as the signal writes below, so each assertion reads a settled list
-      // without pumping Solid's effect queue. What is under test is the memo's
-      // NOTIFICATION, which is the same either way.
+      // A split `createEffect`: the compute reads the memo (so it has a live
+      // observer), the effect phase records what it read. Each flush paints at
+      // most once, so the list is the memo's NOTIFICATIONS, not its recomputes.
       const painted: SurfaceReadoutStatus[] = [];
-      createComputed(() => painted.push(readout().status));
+      createEffect(
+        () => readout().status,
+        (status) => {
+          painted.push(status);
+        },
+      );
       expect(painted).toEqual(["live"]);
 
       // Membership churn on a healthy page — a row opens, a terminal
@@ -239,7 +243,12 @@ describe("createSurfaceReadout", () => {
       // pass a fold-count assertion just as quietly as one that worked — the
       // reader is what makes the count evidence.
       const painted: SurfaceReadoutStatus[] = [];
-      createComputed(() => painted.push(readout().status));
+      createEffect(
+        () => readout().status,
+        (status) => {
+          painted.push(status);
+        },
+      );
       setStatus("reconnecting");
       expect(painted).toEqual(["live", "reconnecting"]);
       const folds = health.mock.calls.length;
@@ -267,17 +276,22 @@ describe("createSurfaceReadout — the graced down-state (presentingDown)", () =
   });
 
   /** Observe a readout's `presentingDown` as a painted list under a root. The
-   *  `await Promise.resolve()` after the mount and after each write flushes
-   *  `gracedDown`'s deferred `createEffect` (Solid runs effects at the end of a
-   *  batch), so its timer arms before the fake clock advances — the pattern
-   *  `gracedDown.test.ts` documents. */
+   *  `await Promise.resolve()` after the mount and after each write lets Solid's
+   *  flush run (writes are staged until it, and an effect's first run is part of
+   *  it), so `gracedDown`'s timer arms before the fake clock advances — the
+   *  pattern `gracedDown.test.ts` documents. */
   async function watch(initial: SurfaceConnectionStatus) {
     return createRoot(async (dispose) => {
       const [status, setStatus] =
         createSignal<SurfaceConnectionStatus>(initial);
       const { readout } = createSurfaceReadout(status, () => fact(true));
       const painted: boolean[] = [];
-      createComputed(() => painted.push(readout().presentingDown));
+      createEffect(
+        () => readout().presentingDown,
+        (presenting) => {
+          painted.push(presenting);
+        },
+      );
       await Promise.resolve();
       return { setStatus, painted, readout, dispose };
     });

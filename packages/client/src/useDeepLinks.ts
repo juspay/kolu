@@ -29,14 +29,7 @@ import { makeEventListener } from "@solid-primitives/event-listener";
 import { decodeHostKey, encodeHostKey } from "kolu-common/hostKey";
 import type { TerminalId } from "kolu-common/surface";
 import type { WorkId } from "kolu-work";
-import {
-  batch,
-  createEffect,
-  createSignal,
-  onCleanup,
-  onMount,
-  untrack,
-} from "solid-js";
+import { createEffect, createSignal, onSettled } from "solid-js";
 import { toast } from "solid-sonner";
 import { match } from "ts-pattern";
 import { showWork } from "./conductor/workListing";
@@ -80,6 +73,15 @@ type TerminalMeta = NonNullable<
   ReturnType<ReturnType<typeof useTerminalStore>["getMetadata"]>
 >;
 
+/** The target terminal's facts a settle verdict carries into the effect phase:
+ *  PLAIN VALUES read in the compute phase, never the live metadata record —
+ *  reads in the effect phase are untracked, so a record handed across the
+ *  boundary would be a snapshot the effect could not re-subscribe to. */
+type TargetFacts = {
+  readonly gitKind: TerminalMeta["git"]["kind"];
+  readonly cwd: TerminalMeta["cwd"];
+};
+
 /** Minimal `launchQueue` typing — Chromium PWA only (absent elsewhere, where the
  *  plain boot parse of the same URL covers the case). */
 interface LaunchParams {
@@ -110,6 +112,13 @@ export function useDeepLinks(): void {
 
   // The one terminal navigation the settle effect is watching (null = idle).
   const [pending, setPending] = createSignal<TerminalRoute | null>(null);
+  // The SAME fact as a plain variable, for the imperative guards that run in
+  // the turn a write is made (a command's supersession check, the backstop's
+  // "is this still my route?"): a setter's value only lands on the next
+  // microtask, so `pending()` would answer about the previous state there.
+  // Every write of one writes the other, in `routeToTerminal`,
+  // `disarmInFlightRoute` and the settle gate's enact arm.
+  let armedRoute: TerminalRoute | null = null;
 
   /** A LINK TO A WORK, until the works mirror has it. A work id that reads as
    *  a work key may still name nothing here — it finished and was let go, or
@@ -119,27 +128,35 @@ export function useDeepLinks(): void {
    *  bound a terminal route waits for its host. */
   const [pendingWork, setPendingWork] = createSignal<WorkId | null>(null);
   const workMap = useWorkMap();
-  createEffect(() => {
-    const id = pendingWork();
-    if (id !== null && workMap().has(id)) setPendingWork(null);
-  });
-  createEffect(() => {
-    if (pendingWork() === null) return;
-    // Started once per link, not again with every record that arrives.
-    const timer = setTimeout(() => {
-      setPendingWork(null);
-      toast.error(
-        "That piece of work isn't in kolu — it may have finished and been let go.",
-      );
-    }, MEMBERSHIP_BOUND_MS);
-    onCleanup(() => clearTimeout(timer));
-  });
+  createEffect(
+    () => {
+      const id = pendingWork();
+      return id !== null && workMap().has(id);
+    },
+    (arrived) => {
+      if (arrived) setPendingWork(null);
+    },
+  );
+  createEffect(
+    () => pendingWork() !== null,
+    (armed) => {
+      if (!armed) return;
+      // Started once per link, not again with every record that arrives.
+      const timer = setTimeout(() => {
+        setPendingWork(null);
+        toast.error(
+          "That piece of work isn't in kolu — it may have finished and been let go.",
+        );
+      }, MEMBERSHIP_BOUND_MS);
+      return () => clearTimeout(timer);
+    },
+  );
 
   /** Enact a terminal route once its target is known to exist. View-only:
    *  focus the terminal through the shared landing verb, then open the requested
    *  right-panel tab. Calls NO mutating verb.
    *
-   *  `meta` is the TARGET terminal's own metadata — a split addresses its OWN
+   *  `target` carries the TARGET terminal's own facts — a split addresses its OWN
    *  panel content and resolves its path against its OWN repo. The panel follows
    *  the focused pane, so no containing-tile indirection is needed or wanted: a
    *  `code` route on a split opens the split's panel showing the split's repo.
@@ -147,7 +164,7 @@ export function useDeepLinks(): void {
    *  panel / opens the drawer — which is why focusing first matters.) A null
    *  repoRoot at a `code` enact is an internal invariant break (crash loudly), not
    *  a reachable "no repo" path (that toasts from the backstop). */
-  function enact(route: TerminalRoute, meta: TerminalMeta): void {
+  function enact(route: TerminalRoute, target: TargetFacts): void {
     const id = route.terminalId;
     store.focusTerminal(id);
     match(route)
@@ -160,14 +177,14 @@ export function useDeepLinks(): void {
         rightPanel.reveal();
       })
       .with({ kind: "code" }, (r) => {
-        if (meta.git.kind !== "repo")
+        if (target.gitKind !== "repo")
           throw new Error(
-            `deep-link: code route enacted on a terminal whose git is ${meta.git.kind}`,
+            `deep-link: code route enacted on a terminal whose git is ${target.gitKind}`,
           );
         openInCodeTab({
           terminalId: id,
           ref: { path: r.path, startLine: r.line, endLine: r.line },
-          cwd: meta.cwd,
+          cwd: target.cwd,
           targetMode: "browse",
           // A deep-link path is explicit (GitHub-style exact), never a bare
           // terminal-printed basename — resolve it exactly or fail loud.
@@ -189,6 +206,7 @@ export function useDeepLinks(): void {
   function routeToTerminal(route: TerminalRoute): void {
     selectHostTab(decodeHostKey(route.host));
     setDeepLinkFocusIntent(route.terminalId);
+    armedRoute = route;
     setPending(route);
   }
 
@@ -201,18 +219,21 @@ export function useDeepLinks(): void {
    *  and a FAULT VERDICT (list-stream error, terminal gone, backstop timeout —
    *  the router gave up and toasted; a command declared failed must not be
    *  half-honored by a later hydration). An already-ENACTED intent
-   *  deliberately survives (`pending` is null then): hydration must keep
+   *  deliberately survives (`armedRoute` is null then): hydration must keep
    *  preferring the view the user actually reached. Clearing `pending` also
-   *  disposes the 8s backstop timer via its effect's onCleanup. */
+   *  disposes the 8s backstop timer via its effect's returned cleanup.
+   *
+   *  The guard asks the PLAIN MIRROR, never `pending()`: this runs from
+   *  commands (navigate, the traversal gate) that may have armed the route in
+   *  the same synchronous turn, and a setter's value is only visible on the
+   *  next microtask — the signal would still read the previous state. */
   function disarmInFlightRoute(): void {
-    if (pending() === null) return;
-    // Batched HERE so the disarm-together contract holds structurally from
-    // every call site (navigate's batch, the traversal gate, the settle
-    // effect's arms, the backstop), not just the batched ones.
-    batch(() => {
-      setPending(null);
-      setDeepLinkFocusIntent(null);
-    });
+    if (armedRoute === null) return;
+    armedRoute = null;
+    // Both writes land in one update: consecutive setter calls share the same
+    // microtask batch, so no observer ever sees a half-disarmed pair.
+    setPending(null);
+    setDeepLinkFocusIntent(null);
   }
 
   /** A terminal route's DISARMING resolution — a fault verdict (list error,
@@ -236,66 +257,60 @@ export function useDeepLinks(): void {
    *  defers. `none` is silent (no route present); `invalid` toasts + stays home
    *  (never silently ignores a new link shape).
    *
-   *  Batched, and supersedes any still-armed terminal route FIRST: a newer
-   *  navigation always supersedes an older in-flight one, so a stale route
-   *  can't enact, toast, or steer hydration after the user has moved on (a
-   *  later host/settings switch, or a second link). */
+   *  Supersedes any still-armed terminal route FIRST: a newer navigation always
+   *  supersedes an older in-flight one, so a stale route can't enact, toast, or
+   *  steer hydration after the user has moved on (a later host/settings switch,
+   *  or a second link). Its writes land together — consecutive setter calls
+   *  share one microtask batch.
+   *
+   *  A COMMAND, not a derivation: it writes reactive state (`setPending`) and
+   *  decides from plain guards, so it must never run in a TRACKING scope —
+   *  there, a read of the state it writes would subscribe the caller to the
+   *  very signals navigate writes and the app would busy-loop re-routing after
+   *  the first bridge-delivered link (reproduced deterministically on both CI
+   *  platforms). All four delivery paths are untracked by construction: the
+   *  preview bridge calls it from an effect's EFFECT phase, the PWA launch from
+   *  `onSettled`, and the boot parse / `hashchange` gate from plain callbacks. */
   function navigate(link: ParsedDeepLink): void {
-    // A COMMAND, not a derivation — the whole body runs UNTRACKED. Navigate
-    // both reads reactive state (the disarm guard's `pending()`) and writes it
-    // (`setPending`); run inside a caller's tracking scope — the preview-bridge
-    // effect is one today — those reads would subscribe that effect to the very
-    // signals navigate writes, and the app busy-loops re-routing forever after
-    // the first bridge-delivered link (reproduced deterministically on both CI
-    // platforms). `untrack` severs that class at the one funnel all four
-    // delivery paths share; the unit pin holds the spelling.
-    untrack(() => {
-      // A terminal route DEFERS its consumed-command stamp to when it RESOLVES
-      // (enact / a disarming verdict); an IMMEDIATE verdict resolves synchronously
-      // here and stamps now. Stamping a terminal route at PARSE would kill a
-      // mid-flight reload of a FRESH link — the entry would carry the stamp with
-      // the command never enacted, so the boot gate skips it forever (re-pressing
-      // Enter in the address bar is a reload too). #1900 R1.
-      const deferStamp = "terminalId" in link;
-      batch(() => {
-        disarmInFlightRoute();
-        match(link)
-          .with({ kind: "none" }, () => {})
-          .with({ kind: "invalid" }, ({ reason }) =>
-            toast.error(
-              `That link doesn't point anywhere kolu knows: ${reason}`,
-            ),
-          )
-          .with({ kind: "settings" }, () => openSettings())
-          // A work: the ONE route to a work, which every other face takes.
-          .with({ kind: "work" }, ({ work, ask }) => {
-            setPendingWork(work);
-            showWork(work, ask);
-          })
-          .with({ kind: "host" }, ({ host }) =>
-            selectHostTab(decodeHostKey(host)),
-          )
-          // terminal · code · inspector all target a terminal — one handler.
-          .with(
-            { kind: "terminal" },
-            { kind: "code" },
-            { kind: "inspector" },
-            (l) => routeToTerminal(l),
-          )
-          .exhaustive();
-      });
-      // COMMANDS ARE CONSUMED ONCE PER HISTORY ENTRY: mark this entry's command
-      // handled, so a later back/forward traversal RESTORING it does not re-route
-      // (the `hashchange` gate below) AND a RELOAD does not re-enact it (the boot
-      // gate) — the URL is a command channel, not a state mirror; mouse-back
-      // reverts the URL silently and a refresh lets session restore own the view
-      // (DL3 + #1900 R1). Uniform for every IMMEDIATE verdict incl. `invalid`
-      // (traversing/reloading a bad-link entry must not re-toast) and `none`
-      // (harmless). A terminal route stamps at RESOLUTION instead (`deferStamp`),
-      // so a mid-flight reload of a fresh link re-routes. A same-URL `replaceState`:
-      // the hash stays in the bar (durability), no entry is added.
-      if (!deferStamp) stampEntryRouted();
-    });
+    // A terminal route DEFERS its consumed-command stamp to when it RESOLVES
+    // (enact / a disarming verdict); an IMMEDIATE verdict resolves synchronously
+    // here and stamps now. Stamping a terminal route at PARSE would kill a
+    // mid-flight reload of a FRESH link — the entry would carry the stamp with
+    // the command never enacted, so the boot gate skips it forever (re-pressing
+    // Enter in the address bar is a reload too). #1900 R1.
+    const deferStamp = "terminalId" in link;
+    disarmInFlightRoute();
+    match(link)
+      .with({ kind: "none" }, () => {})
+      .with({ kind: "invalid" }, ({ reason }) =>
+        toast.error(`That link doesn't point anywhere kolu knows: ${reason}`),
+      )
+      .with({ kind: "settings" }, () => openSettings())
+      // A work: the ONE route to a work, which every other face takes.
+      .with({ kind: "work" }, ({ work, ask }) => {
+        setPendingWork(work);
+        showWork(work, ask);
+      })
+      .with({ kind: "host" }, ({ host }) => selectHostTab(decodeHostKey(host)))
+      // terminal · code · inspector all target a terminal — one handler.
+      .with(
+        { kind: "terminal" },
+        { kind: "code" },
+        { kind: "inspector" },
+        (l) => routeToTerminal(l),
+      )
+      .exhaustive();
+    // COMMANDS ARE CONSUMED ONCE PER HISTORY ENTRY: mark this entry's command
+    // handled, so a later back/forward traversal RESTORING it does not re-route
+    // (the `hashchange` gate below) AND a RELOAD does not re-enact it (the boot
+    // gate) — the URL is a command channel, not a state mirror; mouse-back
+    // reverts the URL silently and a refresh lets session restore own the view
+    // (DL3 + #1900 R1). Uniform for every IMMEDIATE verdict incl. `invalid`
+    // (traversing/reloading a bad-link entry must not re-toast) and `none`
+    // (harmless). A terminal route stamps at RESOLUTION instead (`deferStamp`),
+    // so a mid-flight reload of a fresh link re-routes. A same-URL `replaceState`:
+    // the hash stays in the bar (durability), no entry is added.
+    if (!deferStamp) stampEntryRouted();
   }
 
   /** A `code` route still waiting on its target's git context — the git sensor
@@ -305,98 +320,133 @@ export function useDeepLinks(): void {
    *  (message). */
   function codeRouteAwaitingRepo(
     route: TerminalRoute,
-    meta: TerminalMeta,
+    gitKind: TerminalMeta["git"]["kind"],
   ): boolean {
-    return route.kind === "code" && meta.git.kind === "unresolved";
+    return route.kind === "code" && gitKind === "unresolved";
   }
 
-  // The settle-then-verdict effect (CodeTab's `pendingOpen` precedent, over
-  // terminal membership). Waits for the active host's list to settle, then
-  // enacts or toasts "gone" — a bookmark never toasts mid-cold-boot because the
-  // list is still `pending`.
+  /** What the settle gate decided THIS run — every reactive fact already read,
+   *  so the effect phase only acts. `wait` is the "nothing to do yet" answer. */
+  type SettleVerdict =
+    | { kind: "wait" }
+    | { kind: "superseded" }
+    | { kind: "listError"; message: string }
+    | { kind: "gone"; host: string }
+    | { kind: "noRepo" }
+    | { kind: "enact"; route: TerminalRoute; target: TargetFacts };
+  const WAIT: SettleVerdict = { kind: "wait" };
 
-  createEffect(() => {
-    const route = pending();
-    if (!route) return;
-    // Only act while the ACTIVE host IS the route's host. `setActiveHost`
-    // re-windows the list sub, so a mismatch means either the switch hasn't
-    // landed (never happens — `routeToTerminal` batches host+pending) or the
-    // user has since navigated AWAY (a manual host-chip switch). That is a
-    // SUPERSESSION — disarm the command AND its hydration intent via the one
-    // named spelling, so neither the enact, the backstop toast, nor a later
-    // hydration can act on a route the user walked away from.
-    if (encodeHostKey(activeHost()) !== route.host) {
-      // The user switched host AWAY from the route's host (a manual host-chip
-      // switch — `routeToTerminal` batches host+pending, so the switch always
-      // landed). A SUPERSESSION: disarm the command + intent AND stamp the entry
-      // consumed, so a reload of the stale link doesn't re-enact it and yank the
-      // tab back to a host the user walked away from (#1900 R1).
-      disarmResolved();
-      return;
-    }
-    if (store.listSub.pending()) return; // membership not settled — wait
-    const listError = store.listSub.error();
-    if (listError) {
+  // The settle-then-verdict effect (CodeTab's `pendingOpen` precedent, over
+  // terminal membership). Its COMPUTE reads every membership fact and reaches a
+  // verdict; its EFFECT enacts, disarms or toasts — a bookmark never toasts
+  // mid-cold-boot because the list is still `pending`.
+  createEffect(
+    (): SettleVerdict => {
+      const route = pending();
+      if (!route) return WAIT;
+      // Only act while the ACTIVE host IS the route's host. `setActiveHost`
+      // re-windows the list sub, so a mismatch means either the switch hasn't
+      // landed (never happens — `routeToTerminal` writes host+pending in one
+      // update) or the user has since navigated AWAY (a manual host-chip
+      // switch). That is a SUPERSESSION — the effect disarms the command AND its
+      // hydration intent via the one named spelling, so neither the enact, the
+      // backstop toast, nor a later hydration can act on a route the user
+      // walked away from.
+      if (encodeHostKey(activeHost()) !== route.host)
+        return { kind: "superseded" };
+      if (store.listSub.pending()) return WAIT; // membership not settled — wait
+      const listError = store.listSub.error();
       // The list stream faulted — `pending()` is false but the value is stale
       // or absent, so we can't honestly say "gone". Fail the link loudly rather
       // than invent a gone-verdict from a broken subscription — and surface the
       // real error, not a generic message. A FAULT VERDICT disarms the pair (and
       // stamps): a command declared failed must not steer a later hydration.
-      disarmResolved();
-      toast.error(
-        `Couldn't load this host's terminals to resolve the link: ${listError.message}`,
-      );
-      return;
-    }
-    const id = route.terminalId;
-    const inList = (store.listSub() ?? []).some((t) => t.id === id);
-    if (!inList) {
-      // A settled snapshot lacking the id is "gone" ONLY once the list is a
-      // COMPLETE census. `listIsAuthoritative()` is that fact (the route host's
-      // kaval reconciled — not merely a first frame). Until it holds, the id is
-      // merely NOT-YET-reconciled — a genuinely-fresh link resolved inside the
-      // boot [connect, inventory-reconciled] window (the class the boot gate still
-      // lets route) — so wait; the 8s backstop bounds it. This subscribes to the
-      // census fact ONLY on the absent path (Solid control-flow = subscription),
-      // never while present or pending. #1900 R2.
-      if (!listIsAuthoritative()) return;
-      disarmResolved(); // fault verdict — disarm + intent + stamp together
-      // Name what the link pointed at (the host) — the host-gone path already
-      // names its host via wire.ts's reconcile toast, so the two agree.
-      toast.error(
-        `That terminal is no longer on "${route.host}" — it was closed or never existed. Staying on that host.`,
-      );
-      return;
-    }
-    // The route's TARGET is the panel's subject (the panel follows the focused
-    // pane), so no containing-tile anchor is computed. `getMetadata` is
-    // reactive: `undefined` means the record has not composed yet — wait.
-    const target = store.getMetadata(route.terminalId);
-    if (!target) return; // a record hasn't composed yet — wait
-    // `code` waits on its target's repo root (a fresh terminal / cold-boot
-    // window before the git watcher resolves) rather than toasting a false
-    // "not a git repository"; the effect re-runs when the git fact lands
-    // (getMetadata is reactive), bounded by the 8s backstop.
-    if (codeRouteAwaitingRepo(route, target)) return;
-    if (route.kind === "code" && target.git.kind === "none") {
+      if (listError) return { kind: "listError", message: listError.message };
+      const id = route.terminalId;
+      const inList = (store.listSub() ?? []).some((t) => t.id === id);
+      if (!inList) {
+        // A settled snapshot lacking the id is "gone" ONLY once the list is a
+        // COMPLETE census. `listIsAuthoritative()` is that fact (the route host's
+        // kaval reconciled — not merely a first frame). Until it holds, the id is
+        // merely NOT-YET-reconciled — a genuinely-fresh link resolved inside the
+        // boot [connect, inventory-reconciled] window (the class the boot gate still
+        // lets route) — so wait; the 8s backstop bounds it. This subscribes to the
+        // census fact ONLY on the absent path (Solid control-flow = subscription),
+        // never while present or pending. #1900 R2.
+        if (!listIsAuthoritative()) return WAIT;
+        return { kind: "gone", host: route.host };
+      }
+      // The route's TARGET is the panel's subject (the panel follows the focused
+      // pane), so no containing-tile anchor is computed. `getMetadata` is
+      // reactive: `undefined` means the record has not composed yet — wait. Its
+      // fields are read HERE, in the tracked phase, and travel as plain values.
+      const target = store.getMetadata(id);
+      if (!target) return WAIT; // a record hasn't composed yet — wait
+      const facts: TargetFacts = { gitKind: target.git.kind, cwd: target.cwd };
+      // `code` waits on its target's repo root (a fresh terminal / cold-boot
+      // window before the git watcher resolves) rather than toasting a false
+      // "not a git repository"; this compute re-runs when the git fact lands
+      // (getMetadata is reactive), bounded by the 8s backstop.
+      if (codeRouteAwaitingRepo(route, facts.gitKind)) return WAIT;
       // The sensor answered: no repo. A verdict, not a wait — say so now.
-      disarmResolved();
-      toast.error(
-        "Couldn't open that file — that terminal isn't in a git repository.",
-      );
-      return;
-    }
-    // The ONLY non-disarming clear: an ENACTED route's intent survives so
-    // cold-boot hydration keeps the reached view. Clear `pending` FIRST (so a
-    // throwing enact can't leave the effect armed into a retry loop), then enact,
-    // then stamp the entry consumed — but ONLY after enact RETURNS. If a view seam
-    // in enact throws, the entry is left UNSTAMPED and retryable on reload, never
-    // durably stamped-but-un-enacted (the exact state #1900 R1 prevents). Never
-    // `disarmResolved` here — that would clear the surviving intent.
-    setPending(null);
-    enact(route, target);
-    stampEntryRouted();
-  });
+      if (route.kind === "code" && facts.gitKind === "none")
+        return { kind: "noRepo" };
+      return { kind: "enact", route, target: facts };
+    },
+    (verdict) => {
+      match(verdict)
+        .with({ kind: "wait" }, () => {})
+        .with({ kind: "superseded" }, () => {
+          // The user switched host AWAY from the route's host (a manual
+          // host-chip switch). A SUPERSESSION: disarm the command + intent AND
+          // stamp the entry consumed, so a reload of the stale link doesn't
+          // re-enact it and yank the tab back to a host the user walked away
+          // from (#1900 R1).
+          disarmResolved();
+        })
+        .with({ kind: "listError" }, ({ message }) => {
+          disarmResolved();
+          toast.error(
+            `Couldn't load this host's terminals to resolve the link: ${message}`,
+          );
+        })
+        .with({ kind: "gone" }, ({ host }) => {
+          disarmResolved(); // fault verdict — disarm + intent + stamp together
+          // Name what the link pointed at (the host) — the host-gone path already
+          // names its host via wire.ts's reconcile toast, so the two agree.
+          toast.error(
+            `That terminal is no longer on "${host}" — it was closed or never existed. Staying on that host.`,
+          );
+        })
+        .with({ kind: "noRepo" }, () => {
+          disarmResolved();
+          toast.error(
+            "Couldn't open that file — that terminal isn't in a git repository.",
+          );
+        })
+        .with({ kind: "enact" }, ({ route, target }) => {
+          // The ONLY non-disarming clear: an ENACTED route's intent survives so
+          // cold-boot hydration keeps the reached view. Clear `pending` FIRST (so a
+          // throwing enact can't leave the gate armed into a retry loop), then
+          // enact, then stamp the entry consumed — but ONLY after enact RETURNS. If
+          // a view seam in enact throws, the entry is left UNSTAMPED and retryable
+          // on reload, never durably stamped-but-un-enacted (the exact state #1900
+          // R1 prevents). Never `disarmResolved` here — that would clear the
+          // surviving intent.
+          //
+          // The enact itself runs at the settle that follows: it drives view seams
+          // (focus, panel reveal, the Code tab) that consult reactive state, which
+          // an effect callback is the wrong scope to read in.
+          armedRoute = null;
+          setPending(null);
+          onSettled(() => {
+            enact(route, target);
+            stampEntryRouted();
+          });
+        })
+        .exhaustive();
+    },
+  );
 
   // Bounded backstop: if the wait never resolves, give up loudly rather than
   // wait forever. Two DIFFERENT reasons land here, and the message must tell
@@ -407,33 +457,36 @@ export function useDeepLinks(): void {
   // name the git sensor rather than falsely blame the host. The git wording is
   // gated on `route.kind === "code"` so a terminal/inspector route that timed
   // out via the membership path never masquerades as a "no git repo".
-  createEffect(() => {
-    const route = pending();
-    if (!route) return;
-    const timer = setTimeout(() => {
-      if (pending() !== route) return;
-      disarmResolved(); // fault verdict — disarm + intent + stamp together
-      // Same target + repo-readiness facts the settle gate reads, so the
-      // message can't drift from the gate's own verdict.
-      const target = store.getMetadata(route.terminalId);
-      if (target && codeRouteAwaitingRepo(route, target)) {
-        toast.error(
-          "Couldn't open that file — that terminal's git repository never resolved.",
-        );
-      } else if (!listIsAuthoritative()) {
-        // The wait expired with the list still non-authoritative: the host's
-        // kaval never came up (or is wedged), so the membership never converged.
-        // Name THAT — the host WAS reached, its daemon isn't running — rather than
-        // a false "couldn't reach the host", mirroring the git hedge above (#1900 R4).
-        toast.error(
-          `Couldn't open that link — that host's daemon isn't running.`,
-        );
-      } else {
-        toast.error("Couldn't reach the host for that link in time.");
-      }
-    }, MEMBERSHIP_BOUND_MS);
-    onCleanup(() => clearTimeout(timer));
-  });
+  createEffect(
+    () => pending(),
+    (route) => {
+      if (!route) return;
+      const timer = setTimeout(() => {
+        if (armedRoute !== route) return;
+        disarmResolved(); // fault verdict — disarm + intent + stamp together
+        // Same target + repo-readiness facts the settle gate reads — read HERE
+        // at expiry, because the question is what is true when the wait runs
+        // out, not what was true when it started.
+        const target = store.getMetadata(route.terminalId);
+        if (target && codeRouteAwaitingRepo(route, target.git.kind)) {
+          toast.error(
+            "Couldn't open that file — that terminal's git repository never resolved.",
+          );
+        } else if (!listIsAuthoritative()) {
+          // The wait expired with the list still non-authoritative: the host's
+          // kaval never came up (or is wedged), so the membership never converged.
+          // Name THAT — the host WAS reached, its daemon isn't running — rather than
+          // a false "couldn't reach the host", mirroring the git hedge above (#1900 R4).
+          toast.error(
+            `Couldn't open that link — that host's daemon isn't running.`,
+          );
+        } else {
+          toast.error("Couldn't reach the host for that link in time.");
+        }
+      }, MEMBERSHIP_BOUND_MS);
+      return () => clearTimeout(timer);
+    },
+  );
 
   /** Route a hash delivered from OUTSIDE the address bar (a PWA launch, the
    *  preview bridge). Reflect it into the bar with `replaceState` — the hash
@@ -461,13 +514,20 @@ export function useDeepLinks(): void {
   // navigate the parent, so the bridge posts the hash here; it takes the same
   // external pipeline as a PWA launch, so an invalid hash toasts exactly as a
   // typed URL would.
-  createEffect(() => {
-    const hash = externalNavRequest();
-    if (hash === null) return;
-    navigateFromExternal(hash);
-  });
+  createEffect(
+    () => externalNavRequest(),
+    (hash) => {
+      if (hash === null) return;
+      // Routing is a COMMAND that consults current state (the settings drawer's
+      // breakpoint, the active host, the works mirror) through the view seams it
+      // calls. An effect callback is a strict-read window, so the command runs at
+      // the settle that follows — the same scope the PWA-launch arm already uses,
+      // and still this turn.
+      onSettled(() => navigateFromExternal(hash));
+    },
+  );
 
-  onMount(() => {
+  onSettled(() => {
     // (c) PWA launch (Chromium): a focus-existing launch hands the URL here,
     // WITHOUT navigating an already-open window. `navigateFromExternal`
     // reflects the hash into the address bar (durability — a later reload

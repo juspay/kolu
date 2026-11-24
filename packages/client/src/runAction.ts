@@ -5,8 +5,8 @@
  *
  * Everything above it is a DESCRIPTION. A handler in `useTerminalCrud`, a
  * poll query in `hostCodeTab`, a device read in `useRecorder` — each returns an
- * `Effect` its caller composes. Only a DOM event handler, a Solid `createEffect`
- * body, or a module init has nowhere left to compose into, and those are the two
+ * `Effect` its caller composes. Only a DOM event handler, an effect's effect
+ * function, or a module init has nowhere left to compose into, and those are the two
  * functions below.
  *
  * **Why one helper and not ~100 `Effect.runFork`s.** Biome's `noFloatingPromises`
@@ -96,7 +96,7 @@ export function runAction<A>(
 /** Run a UI action tied to the CURRENT Solid owner: the fiber is interrupted
  *  when the owner disposes.
  *
- *  This is the edge for work launched from a `createEffect` body or a component
+ *  This is the edge for work launched from an effect's effect function or a component
  *  body — work whose lifetime is the component's, so that unmounting actually
  *  STOPS it. Interruption runs the effect's finalizers, which is what closes a
  *  wire subscription or a poll loop; there is no `AbortSignal` to thread and

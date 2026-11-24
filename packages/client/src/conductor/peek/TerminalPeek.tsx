@@ -7,10 +7,10 @@ import {
   createMemo,
   createSignal,
   For,
-  on,
   onCleanup,
-  onMount,
+  onSettled,
   Show,
+  untrack,
 } from "solid-js";
 import { DEFAULT_FONT_SIZE, getThemeByName } from "terminal-themes";
 import type { TerminalGrid } from "@kolu/xterm-kit/solid";
@@ -54,9 +54,12 @@ const TAB_CLASS =
 
 const TerminalPeek: Component = () => {
   const shown = useShown();
-  createEffect(() => {
-    if (!shown()) closePeek();
-  });
+  createEffect(
+    () => shown(),
+    (isShown) => {
+      if (!isShown) closePeek();
+    },
+  );
   return (
     <ModalDialog
       open={peekTarget() !== null}
@@ -92,7 +95,9 @@ const PeekWindow: Component<{ target: PeekTarget }> = (props) => {
   const lookable = () => liveArm(standing()) !== undefined;
   const openTileAt = useOpenTile();
   const [grid, setGrid] = createSignal<TerminalGrid | null>(
-    liveArm(standing())?.grid ?? null,
+    // READ ONCE: the window opens on the size the terminal has now, and
+    // every size after this one arrives through `onGrid`.
+    untrack(() => liveArm(standing())?.grid ?? null),
   );
   const [cell, setCell] = createSignal<PeekCell | null>(null);
   const [baseCell, setBaseCell] = createSignal<PeekCell | null>(null);
@@ -109,19 +114,33 @@ const PeekWindow: Component<{ target: PeekTarget }> = (props) => {
   const driver = () => membership().get(ref)?.driver ?? "nobody";
   const mayType = () => inputAllowedAt(ref);
   const typing = () => focused() && mayType();
-  createEffect(() => setPeekTyping(typing()));
+  createEffect(
+    () => typing(),
+    (now) => {
+      setPeekTyping(now);
+    },
+  );
   onCleanup(() => setPeekTyping(false));
   createEffect(
-    on(driver, (now, before) => {
-      if (now === "you" && before === "conductor") handle()?.focus();
+    () => ({
+      driver: driver(),
+      // READ ONCE, not depended on: the keyboard follows the DRIVER
+      // changing, not the screen's handle arriving.
+      handle: untrack(handle),
     }),
+    (now, before) => {
+      if (now.driver === "you" && before?.driver === "conductor")
+        now.handle?.focus();
+    },
   );
-  createEffect(() => {
-    const h = handle();
-    if (h !== undefined && !mayType()) h.focus();
-  });
+  createEffect(
+    () => ({ handle: handle(), mayType: mayType() }),
+    ({ handle: h, mayType: allowed }) => {
+      if (h !== undefined && !allowed) h.focus();
+    },
+  );
   let contentEl: HTMLDivElement | undefined;
-  onMount(() => contentEl?.focus());
+  onSettled(() => contentEl?.focus());
   const blurTerminal = () => contentEl?.focus();
   const onWindowKey = (e: KeyboardEvent): void => {
     const target = e.target instanceof Element ? e.target : null;

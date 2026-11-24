@@ -38,13 +38,7 @@
  *  gate must be one reading of one index. */
 
 import type { Membership } from "kolu-work";
-import {
-  type Component,
-  createEffect,
-  createMemo,
-  onCleanup,
-  Show,
-} from "solid-js";
+import { type Component, createEffect, createMemo, Show } from "solid-js";
 import { dismissLockCard, lockCardShown } from "./personInput";
 import { useConductor } from "./useConductor";
 import { useMembership } from "./useWorks";
@@ -85,30 +79,33 @@ const WorkLock: Component<{
    *  The press-elsewhere is captured too, but passed on untouched: a click
    *  in a driven terminal still focuses it for reading, which is the whole
    *  promise — it only also puts the card away. */
-  createEffect(() => {
-    if (!carded()) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key !== "Escape") return;
-      e.preventDefault();
-      e.stopPropagation();
-      dismissLockCard();
-    };
-    const onDown = (e: Event) => {
-      const target = e.target;
-      if (
-        target instanceof Element &&
-        target.closest("[data-lock-card]") !== null
-      )
-        return;
-      dismissLockCard();
-    };
-    document.addEventListener("keydown", onKey, true);
-    document.addEventListener("pointerdown", onDown, true);
-    onCleanup(() => {
-      document.removeEventListener("keydown", onKey, true);
-      document.removeEventListener("pointerdown", onDown, true);
-    });
-  });
+  createEffect(
+    () => carded(),
+    (up) => {
+      if (!up) return;
+      const onKey = (e: KeyboardEvent) => {
+        if (e.key !== "Escape") return;
+        e.preventDefault();
+        e.stopPropagation();
+        dismissLockCard();
+      };
+      const onDown = (e: Event) => {
+        const target = e.target;
+        if (
+          target instanceof Element &&
+          target.closest("[data-lock-card]") !== null
+        )
+          return;
+        dismissLockCard();
+      };
+      document.addEventListener("keydown", onKey, true);
+      document.addEventListener("pointerdown", onDown, true);
+      return () => {
+        document.removeEventListener("keydown", onKey, true);
+        document.removeEventListener("pointerdown", onDown, true);
+      };
+    },
+  );
 
   return (
     <Show when={driven()}>

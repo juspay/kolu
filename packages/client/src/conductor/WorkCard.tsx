@@ -58,9 +58,10 @@ import {
   For,
   Match,
   onCleanup,
-  onMount,
+  onSettled,
   Show,
   Switch,
+  untrack,
 } from "solid-js";
 import { elapsedSince } from "../time/duration";
 import WorkSubtitle from "./WorkSubtitle";
@@ -113,8 +114,10 @@ const AskSlot: Component<{
   children: JSX.Element;
 }> = (props) => {
   let box!: HTMLDivElement;
-  onMount(() => props.boxes.set(props.ask, box));
-  onCleanup(() => props.boxes.delete(props.ask));
+  onSettled(() => {
+    props.boxes.set(props.ask, box);
+    return () => props.boxes.delete(props.ask);
+  });
   return (
     <div ref={box} data-testid="work-ask-slot" class="mb-2.5 scroll-m-3">
       {props.children}
@@ -173,25 +176,27 @@ const WorkCard: Component<{
     clearTimeout(unflash);
     if (frame !== undefined) cancelAnimationFrame(frame);
   });
-  createEffect(() => {
-    const want = wantedCard();
-    if (want === null || want.id !== props.id || !onScreen()) return;
-    cardShown(want.seq);
-    // A second ask while the first still flashes starts it over: the mark
-    // comes off now and goes back on in the next frame.
-    setFlash(false);
-    clearTimeout(unflash);
-    if (frame !== undefined) cancelAnimationFrame(frame);
-    // After the frame that laid the card out: a card the listing has just
-    // opened, or a band that has just come out, has no box until then.
-    frame = requestAnimationFrame(() => {
-      frame = undefined;
-      const question = want.ask === null ? undefined : askBoxes.get(want.ask);
-      (question ?? card).scrollIntoView({ block: "nearest" });
-      setFlash(true);
-      unflash = window.setTimeout(() => setFlash(false), 1200);
-    });
-  });
+  createEffect(
+    () => ({ want: wantedCard(), id: props.id, onScreen: onScreen() }),
+    ({ want, id, onScreen: visible }) => {
+      if (want === null || want.id !== id || !visible) return;
+      cardShown(want.seq);
+      // A second ask while the first still flashes starts it over: the mark
+      // comes off now and goes back on in the next frame.
+      setFlash(false);
+      clearTimeout(unflash);
+      if (frame !== undefined) cancelAnimationFrame(frame);
+      // After the frame that laid the card out: a card the listing has just
+      // opened, or a band that has just come out, has no box until then.
+      frame = requestAnimationFrame(() => {
+        frame = undefined;
+        const question = want.ask === null ? undefined : askBoxes.get(want.ask);
+        (question ?? card).scrollIntoView({ block: "nearest" });
+        setFlash(true);
+        unflash = window.setTimeout(() => setFlash(false), 1200);
+      });
+    },
+  );
 
   /** WHAT IS BEING ASKED, or `undefined` for a work that is over. EVERY open
    *  ask: a Conductor that asks about a failing check while a plan approval
@@ -227,19 +232,24 @@ const WorkCard: Component<{
    *  press that picked it: a work unpicked forgets both, so the next time it
    *  is picked it follows the work again. */
   const [pressed, setPressed] = createSignal<TimelinePick | undefined>(
-    (() => {
+    // READ ONCE, deliberately: the seed is the press that picked this work,
+    // and a later press writes this signal rather than re-seeding it.
+    untrack(() => {
       const asked = stageAskedFor();
       return isOpen() && asked !== undefined
         ? { kind: "stage", stage: asked }
         : undefined;
-    })(),
+    }),
   );
   const [whole, setWhole] = createSignal(false);
-  createEffect(() => {
-    if (isOpen()) return;
-    setPressed(undefined);
-    setWhole(false);
-  });
+  createEffect(
+    () => isOpen(),
+    (open) => {
+      if (open) return;
+      setPressed(undefined);
+      setWhole(false);
+    },
+  );
   /** ... read ONCE per redraw, for the map, the trail and the timeline. */
   const view = createMemo(() =>
     timelineShown(props.work, read(), pressed(), whole()),

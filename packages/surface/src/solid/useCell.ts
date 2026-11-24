@@ -33,7 +33,6 @@ import {
   type Accessor,
   createEffect,
   createStore,
-  on,
   type SetStoreFunction,
 } from "solid-js";
 import {
@@ -253,16 +252,16 @@ function useCellLocal<Name extends string, T extends object, P>(
       arrayKey: cellDescriptor.arrayKey,
     },
   );
+  // The compute tracks the subscription's value; the seed itself is the effect
+  // phase's work (a store write, so it belongs there and nowhere else).
   createEffect(
-    on(
-      () => sub(),
-      (server) => {
-        if (server !== undefined && !initialized) {
-          initialized = true;
-          setStore(reconcileFrame(server as T, cellDescriptor.arrayKey));
-        }
-      },
-    ),
+    () => sub(),
+    (server) => {
+      if (server !== undefined && !initialized) {
+        initialized = true;
+        setStore(reconcileFrame(server as T, cellDescriptor.arrayKey));
+      }
+    },
   );
 
   function applyLocal(p: P): void {

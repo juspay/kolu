@@ -227,9 +227,12 @@ describe("surfaceClient health registry — totality", () => {
       // enrols) them — mirroring a component reading `byKey(id)`. An unobserved
       // per-key sub is never created, so it has nothing to be unhealthy about;
       // the registry tracks what's actually on screen.
-      createEffect(() => {
-        for (const id of items.keys()) items.byKey(id);
-      });
+      createEffect(
+        () => {
+          for (const id of items.keys()) items.byKey(id);
+        },
+        () => {},
+      );
       await settle();
 
       const names = app
@@ -869,7 +872,10 @@ describe("surfaceClients builds a bundle ALL-OR-NOTHING", () => {
         return bundle.health();
       });
       // A tracking observer, so the memo is live rather than lazily re-read.
-      createEffect(() => folded());
+      createEffect(
+        () => folded(),
+        () => {},
+      );
       await settle();
       const before = runs;
       expect(folded().subs.map((s) => s.name)).toEqual(["first/queue"]);

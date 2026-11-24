@@ -2,7 +2,7 @@
  *  the lifetime of the calling owner, bound to its elements through refs. */
 
 import { Draggable, Droppable } from "@dnd-kit/dom";
-import { type Accessor, createEffect, onCleanup, onMount } from "solid-js";
+import { type Accessor, createEffect, onCleanup, onSettled } from "solid-js";
 import type { JSX } from "@solidjs/web";
 import { nearestCenter } from "./collision";
 import {
@@ -42,9 +42,12 @@ export function createDraggable(
   onCleanup(draggable.destroy);
   const disabled = options?.disabled;
   if (disabled)
-    createEffect(() => {
-      draggable.disabled = disabled();
-    });
+    createEffect(
+      () => disabled(),
+      (off) => {
+        draggable.disabled = off;
+      },
+    );
   const isActiveDraggable = () => scope.activeId() === id;
   return {
     ref: (el) => {
@@ -74,8 +77,11 @@ export function createDroppable(id: string): DroppableHandle {
   );
   droppable.register();
   onCleanup(droppable.destroy);
-  // Mounted means in the document, so a drag already under way can measure it.
-  onMount(() => scope.measureArrival(droppable));
+  // Once the first render has settled the element is in the document, so a drag
+  // already under way can measure it.
+  onSettled(() => {
+    scope.measureArrival(droppable);
+  });
   return {
     ref: (el) => {
       scope.attachDroppable(droppable, el);

@@ -31,8 +31,8 @@ import {
 
 /** A grace-windowed view of `source`: `true` only once `source()` has stayed
  *  `true` continuously for `ms`; back to `false` the instant `source()` drops.
- *  Built from a `createEffect` over `source` + a single `setTimeout`, so it works
- *  identically for any boolean accessor and disposes its pending timer with its
+ *  Built from a split `createEffect` over `source` + a single `setTimeout`, so it
+ *  works identically for any boolean accessor and disposes its pending timer with its
  *  owner. Call under a reactive owner (a component / `createRoot`). */
 export function gracedDown(
   source: Accessor<boolean>,
@@ -46,26 +46,33 @@ export function gracedDown(
       timer = undefined;
     }
   };
-  createEffect(() => {
-    if (source()) {
-      // Rising edge: arm the grace window ONCE. A repeat `true` (the predicate
-      // re-firing while still up) must not reset a pending window, and once shown
-      // there is nothing left to arm. `untrack` keeps the effect reacting to
-      // `source` alone — `shown` is this signal's OWN output, not a dependency.
-      if (timer === undefined && !untrack(shown)) {
-        timer = setTimeout(() => {
-          timer = undefined;
-          // Re-read truth at fire: only show if `source` is STILL true.
-          if (source()) setShown(true);
-        }, ms);
+  createEffect(
+    // Both halves of the decision are read HERE, where reads are legal: `source`
+    // TRACKED (it is the dependency), `shown` UNTRACKED — it is this signal's OWN
+    // output, so depending on it would make the effect re-run on its own write.
+    () => [source(), untrack(shown)] as const,
+    ([down, isShown]) => {
+      if (down) {
+        // Rising edge: arm the grace window ONCE. A repeat `true` (the predicate
+        // re-firing while still up) must not reset a pending window, and once shown
+        // there is nothing left to arm.
+        if (timer === undefined && !isShown) {
+          timer = setTimeout(() => {
+            timer = undefined;
+            // Re-read truth at fire: only show if `source` is STILL true. Outside
+            // the effect callback (a later turn), so this read is an ordinary
+            // imperative one.
+            if (source()) setShown(true);
+          }, ms);
+        }
+      } else {
+        // Falling edge: cancel a pending show and hide INSTANTLY — the asymmetry
+        // (the grace delays only the rise) is the whole point.
+        clearTimer();
+        if (isShown) setShown(false);
       }
-    } else {
-      // Falling edge: cancel a pending show and hide INSTANTLY — the asymmetry
-      // (the grace delays only the rise) is the whole point.
-      clearTimer();
-      if (untrack(shown)) setShown(false);
-    }
-  });
+    },
+  );
   onCleanup(clearTimer);
   return shown;
 }

@@ -22,7 +22,6 @@ import {
   createEffect,
   createMemo,
   createSignal,
-  on,
   onCleanup,
   splitProps,
 } from "solid-js";
@@ -256,12 +255,14 @@ export const Xterm: Component<
    *  which they do. kolu's canvas tiles render under a transform, so gating on
    *  a quantity the measurement never reads would let the guard and the
    *  measurement disagree. */
-  const applyFit = () => {
+  const applyFit = (decided: boolean = own.boxDecided) => {
     if (!core) return;
     // The OWNER's gate, read first: a box its layout has not decided is a
     // stand-in, and a measurement of it is a size this pane would go on to
-    // state. See {@link XtermOwnProps.boxDecided}.
-    if (!own.boxDecided) return;
+    // state. See {@link XtermOwnProps.boxDecided}. The box-decided effect
+    // hands its compute's value in — an effect callback is a strict-read
+    // window, so the prop must not be read there.
+    if (!decided) return;
     if (container.clientWidth <= 0 || container.clientHeight <= 0) return;
     const box = measureGridBox(core.terminal, container);
     const next = box && gridForBox(box);
@@ -295,7 +296,9 @@ export const Xterm: Component<
   };
   const refit = () => {
     cancelAnimationFrame(fitRaf);
-    fitRaf = requestAnimationFrame(applyFit);
+    // Wrapped: `requestAnimationFrame` would otherwise hand `applyFit` the
+    // frame timestamp as its `decided` argument.
+    fitRaf = requestAnimationFrame(() => applyFit());
   };
 
   // See `XtermHandle.onceMeasured`. The one-shot-ness is latched in the DATA,
@@ -306,11 +309,9 @@ export const Xterm: Component<
     const first = createMemo<TerminalGrid | null>(
       (prev) => prev ?? wantedGrid(),
     );
-    createEffect(
-      on(first, (measured) => {
-        if (measured) fn(measured);
-      }),
-    );
+    createEffect(first, (measured) => {
+      if (measured) fn(measured);
+    });
   };
 
   // The constructed core (terminal + addons), built asynchronously and read by
@@ -392,13 +393,11 @@ export const Xterm: Component<
         coalesce = null;
       });
       createEffect(
-        on(
-          fullRate,
-          (fr) => {
-            if (fr) outputCoalesce.flush();
-          },
-          { defer: true },
-        ),
+        fullRate,
+        (fr) => {
+          if (fr) outputCoalesce.flush();
+        },
+        { defer: true },
       );
 
       // Touch: xterm 6.0 ships no touch path. The soft-keyboard input surface is
@@ -469,39 +468,33 @@ export const Xterm: Component<
 
   // Live theme switching.
   createEffect(
-    on(
-      () => own.theme,
-      (theme) => {
-        if (!core) return;
-        core.terminal.options.theme = theme;
-        clearAtlas?.();
-      },
-      { defer: true },
-    ),
+    () => own.theme,
+    (theme) => {
+      if (!core) return;
+      core.terminal.options.theme = theme;
+      clearAtlas?.();
+    },
+    { defer: true },
   );
   // Live font-size: apply + refit + clear atlas.
   createEffect(
-    on(
-      () => own.fontSize,
-      (size) => {
-        if (!core) return;
-        core.terminal.options.fontSize = size;
-        refit();
-        clearAtlas?.();
-      },
-      { defer: true },
-    ),
+    () => own.fontSize,
+    (size) => {
+      if (!core) return;
+      core.terminal.options.fontSize = size;
+      refit();
+      clearAtlas?.();
+    },
+    { defer: true },
   );
   // Re-fit against current geometry on reveal without changing the user's scroll position.
   createEffect(
-    on(
-      () => own.visible,
-      (visible) => {
-        if (!visible || !core) return;
-        refit();
-      },
-      { defer: true },
-    ),
+    () => own.visible,
+    (visible) => {
+      if (!visible || !core) return;
+      refit();
+    },
+    { defer: true },
   );
   // The box became DECIDED: measure it NOW, in this update, rather than on the
   // next animation frame `refit` would wait for.
@@ -515,15 +508,13 @@ export const Xterm: Component<
   // frame in which the gate is open and the measurement is still the stand-in's
   // — exactly the window this gate exists to close.
   createEffect(
-    on(
-      () => own.boxDecided,
-      (decided) => {
-        if (!decided || !core) return;
-        cancelAnimationFrame(fitRaf);
-        applyFit();
-      },
-      { defer: true },
-    ),
+    () => own.boxDecided,
+    (decided) => {
+      if (!decided || !core) return;
+      cancelAnimationFrame(fitRaf);
+      applyFit(decided);
+    },
+    { defer: true },
   );
 
   // The mount box and the terminal inside it are now two different HEIGHTS for a

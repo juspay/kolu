@@ -114,7 +114,6 @@ const ConductorPane: Component<{
           work: works.length === 1 ? (works[0] ?? null) : null,
         };
       },
-      undefined,
       {
         equals: (a, b) =>
           a === b ||

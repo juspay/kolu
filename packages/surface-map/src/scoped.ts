@@ -102,7 +102,12 @@ function keyedRoots<K, T>(
   const scopes = mapArray(sourceKeys, (item): T => build(item()), {
     keyed: enc,
   });
-  createRenderEffect(() => void scopes());
+  // The compute reads the mapped worlds, so build/dispose happen in the render
+  // pass itself; there is no imperative tail.
+  createRenderEffect(
+    () => scopes(),
+    () => {},
+  );
   return createMemo(() => {
     const keys = sourceKeys();
     const built = scopes();
@@ -175,7 +180,7 @@ export function scopedByEntry<
   // retained, lazy-again-after-re-add. This lazy source is scopedByEntry's ONE
   // difference from watchByEntry (which feeds the full member set); the roots
   // kernel below is shared.
-  const activated = createMemo<K[]>((prev) => {
+  const activated = createMemo<K[]>((prev: K[] = []) => {
     const a = active();
     const members = memberSet();
     const kept = prev.filter((k) => members.has(enc(k)));
@@ -188,7 +193,7 @@ export function scopedByEntry<
       return [...kept, a as K];
     }
     return kept.length === prev.length ? prev : kept;
-  }, []);
+  });
 
   // A member is scoped by MEMBERSHIP, not connectedness: an entry that is
   // `warming` or `failed` still gets an owner once activated — its build may open
@@ -220,24 +225,26 @@ export function scopedByEntry<
   // resolves to a member (or null) again. `null` (inhabitant a) never warns.
   if (process.env.NODE_ENV !== "production") {
     let warnedFor: string | null = null;
-    createEffect(() => {
-      const a = active();
-      if (a === null) {
-        warnedFor = null;
-        return;
-      }
-      const encA = enc(a);
-      if (index().get(encA) !== undefined) {
-        warnedFor = null;
-        return;
-      }
-      if (warnedFor === encA) return;
-      warnedFor = encA;
-      console.warn(
-        `scopedByEntry: active() names non-member ${encA} — no owned world this ` +
-          "tick (a removal race; a fallback should re-point active). Returning undefined.",
-      );
-    });
+    createEffect(
+      () => {
+        const a = active();
+        if (a === null) return null;
+        const encA = enc(a);
+        return index().get(encA) === undefined ? encA : null;
+      },
+      (missing) => {
+        if (missing === null) {
+          warnedFor = null;
+          return;
+        }
+        if (warnedFor === missing) return;
+        warnedFor = missing;
+        console.warn(
+          `scopedByEntry: active() names non-member ${missing} — no owned world this ` +
+            "tick (a removal race; a fallback should re-point active). Returning undefined.",
+        );
+      },
+    );
   }
 
   const get = (key: K): T | undefined => index().get(enc(key));

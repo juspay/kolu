@@ -18,7 +18,7 @@
  * the fence's `shouldRetryStreamError` policy.
  */
 
-import { createEffect, on, onCleanup } from "solid-js";
+import { createEffect, onCleanup } from "solid-js";
 import { type StreamingProcedure, unenrolledStreamCall } from "../client";
 import type { Event } from "../index";
 import { runStreamScoped } from "../runStream";
@@ -81,18 +81,14 @@ export function useEvent<Name extends string, I, T>(
   // Open the initial subscription synchronously so callers from async
   // contexts (e.g. fire-and-forget after `await client.X.create`) don't
   // race a not-yet-attached subscriber against the first server yield.
-  // `createEffect` with `defer` handles subsequent input changes only.
-  const initial = inputFn();
-  if (initial !== null) start(initial);
-
+  // `createEffect` with `defer` handles subsequent input changes only: the compute
+  // tracks `inputFn`, and the re-subscribe runs in the effect phase.
   createEffect(
-    on(
-      inputFn,
-      (input) => {
-        stop();
-        if (input !== null) start(input);
-      },
-      { defer: true },
-    ),
+    inputFn,
+    (input) => {
+      stop();
+      if (input !== null) start(input);
+    },
+    { defer: true },
   );
 }

@@ -3,7 +3,7 @@
  *  echoes. Multiple consumers need access:
  *
  *  - `TerminalCanvas` reads pending in `layoutOf()`, drops echoed
- *    entries via `dropEvicted` once the saved layout catches up, and
+ *    entries via `evictedIds`/`dropIds` once the saved layout catches up, and
  *    flushes everything via `clear()` on its own unmount so a
  *    mobile↔desktop remount never carries stale entries forward.
  *  - `useCanvasArrange` seeds pending in `handleCanvasAutoArrange` so
@@ -19,7 +19,13 @@
  *  that reads a different key. */
 
 import type { TerminalId } from "kolu-common/surface";
-import { createSignal, createStore, produce, reconcile } from "solid-js";
+import {
+  createSignal,
+  createStore,
+  produce,
+  reconcile,
+  untrack,
+} from "solid-js";
 import { layoutsEqual, type TileLayout } from "./TileLayout";
 
 // HOST-SCOPING: host-INDEPENDENT by design — keyed by globally-unique TerminalId
@@ -57,7 +63,7 @@ const [nextDefaultSize, setNextDefaultSize] = createSignal<{
 
 // E2e test hook — bounded ring of recent `applyMany` calls. Use
 // instead of a snapshot getter on the live store: the snapshot races
-// the `dropEvicted` cleanup (under CI load the seeded window can be
+// the `evictedIds`/`dropIds` cleanup (under CI load the seeded window can be
 // shorter than the polling interval), but the history survives. The
 // fix for the worktree-after-arrange race is "applyMany is called
 // synchronously inside the arrange handler"; the history records
@@ -90,13 +96,17 @@ export function usePendingLayouts(): {
   ) => TileLayout | undefined;
   /** Bulk-apply pending overrides (used by arrange). */
   applyMany: (layouts: Map<TerminalId, TileLayout>) => void;
-  /** Drop entries for tiles that are no longer alive OR whose saved
-   *  layout has caught up to their pending value. The cleanup policy
-   *  lives inside the module — callers don't reconstruct it. */
-  dropEvicted: (
+  /** Which pending entries are evictable: tiles that are no longer alive OR
+   *  whose saved layout has caught up to their pending value. PURE and fully
+   *  reactive (it reads the pending store and every `saved(id)` it considers),
+   *  so it belongs in an effect's COMPUTE phase; `dropIds` applies the result.
+   *  The cleanup policy lives inside the module — callers don't reconstruct it. */
+  evictedIds: (
     alive: Set<TerminalId>,
     saved: (id: TerminalId) => TileLayout | undefined,
-  ) => void;
+  ) => TerminalId[];
+  /** Drop the entries `evictedIds` named. A write — effect phase only. */
+  dropIds: (ids: readonly TerminalId[]) => void;
   /** Wipe all pending entries. Called on canvas unmount so a remount
    *  starts from a clean slate. */
   clear: () => void;
@@ -140,24 +150,26 @@ export function usePendingLayouts(): {
         }
       }
     },
-    dropEvicted(alive, saved) {
-      // Steady-state after echoes settle is empty pending — skip the
-      // produce-draft alloc on every effect tick when there's nothing
-      // to consider.
-      if (Object.keys(pending).length === 0) return;
+    evictedIds(alive, saved) {
+      const ids: TerminalId[] = [];
+      for (const id of Object.keys(pending) as TerminalId[]) {
+        if (!alive.has(id)) {
+          ids.push(id);
+          continue;
+        }
+        const entry = pending[id];
+        const current = saved(id);
+        if (entry && current && layoutsEqual(current, entry)) ids.push(id);
+      }
+      return ids;
+    },
+    dropIds(ids) {
+      // Steady state after echoes settle is nothing to drop — skip the
+      // produce-draft alloc on every effect tick.
+      if (ids.length === 0) return;
       setPending(
         produce((draft: Record<string, TileLayout>) => {
-          for (const id of Object.keys(draft)) {
-            const entry = draft[id];
-            if (!alive.has(id)) {
-              delete draft[id];
-              continue;
-            }
-            const current = saved(id);
-            if (entry && current && layoutsEqual(current, entry)) {
-              delete draft[id];
-            }
-          }
+          for (const id of ids) delete draft[id];
         }),
       );
     },
@@ -175,7 +187,10 @@ export function usePendingLayouts(): {
       setNextDefaultSize(size);
     },
     takeNextDefaultSize() {
-      const size = nextDefaultSize();
+      // Untracked: a read-and-CLEAR of a one-shot slot. Its caller is an
+      // effect's imperative phase, which must not subscribe to the slot it is
+      // about to empty (and would re-read as a dependency on its own write).
+      const size = untrack(nextDefaultSize);
       setNextDefaultSize(null);
       return size;
     },

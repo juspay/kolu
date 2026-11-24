@@ -29,7 +29,7 @@ import {
   type HostKey,
 } from "kolu-common/hostKey";
 import type { TerminalId } from "kolu-common/surface";
-import { type Accessor, createComputed, createMemo, mapArray } from "solid-js";
+import { type Accessor, createEffect, createMemo, mapArray } from "solid-js";
 import { rowRecencyAt, tsRank } from "../canvas/dock/dockRowRanking";
 import { createSharedRoot } from "../createSharedRoot";
 import { readStoredActivityWindow } from "../hostScope/createHostPrefs";
@@ -59,7 +59,6 @@ export function createStableFleetRows(
       const rows = read();
       return { rows, signature: JSON.stringify(rows) };
     },
-    undefined,
     { equals: (a, b) => a.signature === b.signature },
   );
   return () => snapshot().rows;
@@ -275,8 +274,12 @@ const useFleetHosts = createSharedRoot(() => {
       return { encHost, rows, standing };
     },
   );
-  // mapArray is lazy until read.
-  createComputed(() => void roots());
+  // mapArray is lazy until read — this pass keeps the per-host roots (and the
+  // subscriptions they hold) alive for the shared root's lifetime.
+  createEffect(
+    () => void roots(),
+    () => {},
+  );
   return roots;
 });
 

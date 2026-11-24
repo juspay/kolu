@@ -170,8 +170,14 @@ export function createSurfaceHealthRegistry(
   >();
   // Bumped on every add/remove so `health` re-folds on membership change.
   // `equals: false` makes each bump a distinct notification even though the
-  // value is constant.
-  const [membership, bumpMembership] = createSignal(0, { equals: false });
+  // value is constant. `ownedWrite`: enrolment HAPPENS in an owned scope by
+  // design — every birth site calls `enroll` from a component body or a
+  // `createRoot` (that is what gives the registration an owner to be dropped
+  // by), so this internal bump intentionally accepts in-scope writes.
+  const [membership, bumpMembership] = createSignal(0, {
+    equals: false,
+    ownedWrite: true,
+  });
   let nextId = 0;
 
   function enroll(name: string, source: HealthSource): () => void {

@@ -133,12 +133,15 @@ function beforeArm(): Arm {
     });
     for (let i = 0; i < READERS; i++) {
       const k = key(i);
-      createEffect(() => {
-        const fold = sub();
-        return fold !== undefined && k in fold.byKey
-          ? fold.byKey[k]
-          : undefined;
-      });
+      createEffect(
+        () => {
+          const fold = sub();
+          return fold !== undefined && k in fold.byKey
+            ? fold.byKey[k]
+            : undefined;
+        },
+        () => {},
+      );
     }
   });
   return { push };
@@ -151,7 +154,10 @@ function afterArm(): Arm {
     const view = useCollectionDeltas(rows, { source });
     for (let i = 0; i < READERS; i++) {
       const k = key(i);
-      createEffect(() => view.byKey(k)?.());
+      createEffect(
+        () => view.byKey(k)?.(),
+        () => {},
+      );
     }
   });
   return { push };

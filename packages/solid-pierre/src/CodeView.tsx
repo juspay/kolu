@@ -19,7 +19,13 @@ import {
   type CodeViewLineSelection,
   type CodeViewOptions,
 } from "@pierre/diffs";
-import { type Component, createEffect, on, onCleanup, onMount } from "solid-js";
+import {
+  type Component,
+  createEffect,
+  onCleanup,
+  onSettled,
+  untrack,
+} from "solid-js";
 import type { JSX } from "@solidjs/web";
 import type { CodeViewItem } from "./codeViewItem";
 import { safeApply } from "./safeApply";
@@ -209,7 +215,7 @@ export const CodeView: Component<CodeViewProps> = (props) => {
       : {}),
   });
 
-  onMount(() => {
+  onSettled(() => {
     safeApply(() => {
       // The shared worker pool moves syntax tokenization off the UI thread;
       // it is a session-lived singleton, so `cleanUp()` below tears down this
@@ -238,35 +244,44 @@ export const CodeView: Component<CodeViewProps> = (props) => {
   });
 
   createEffect(
-    on(
-      () => props.items,
-      (items) =>
-        safeApply(() => {
-          if (!instance) return;
-          instance.setItems(versionedItems(items));
-          // Pierre 1.3's FileDiff.render early-returns when layout has
-          // already stored the new fileDiff (`fileDiff === this.fileDiff`)
-          // and the viewport range is unchanged — so a same-path hunk
-          // swap (Code tab live git) never paints. setOptions with a
-          // fresh callback identity fails areOptionsEqual and bumps
-          // renderOptionsRevision, which is the forceRender the reused
-          // element path needs.
-          instance.setOptions(buildOptions());
-        }, props.onError),
-      { defer: true },
-    ),
+    // The effect phase is a strict-read window, so everything it needs comes
+    // from here. `buildOptions()` and `onError` are read with `untrack`: the
+    // items apply must re-run for a NEW `items` only — tracking the option
+    // sources here would re-apply the whole item list on a theme toggle (the
+    // options effect below already owns that), and `onError` is a channel, not
+    // a trigger.
+    () => ({
+      items: props.items,
+      options: untrack(buildOptions),
+      onError: untrack(() => props.onError),
+    }),
+    ({ items, options, onError }) =>
+      safeApply(() => {
+        if (!instance) return;
+        instance.setItems(versionedItems(items));
+        // Pierre 1.3's FileDiff.render early-returns when layout has
+        // already stored the new fileDiff (`fileDiff === this.fileDiff`)
+        // and the viewport range is unchanged — so a same-path hunk
+        // swap (Code tab live git) never paints. setOptions with a
+        // fresh callback identity fails areOptionsEqual and bumps
+        // renderOptionsRevision, which is the forceRender the reused
+        // element path needs.
+        instance.setOptions(options);
+      }, onError),
+    { defer: true },
   );
 
   createEffect(
-    on(
-      () => props.selectedLines,
-      (s) =>
-        safeApply(() => {
-          instance?.setSelectedLines(s ?? null);
-          scrollToSelection(s, "nearest");
-        }, props.onError),
-      { defer: true },
-    ),
+    () => ({
+      selected: props.selectedLines,
+      onError: untrack(() => props.onError),
+    }),
+    ({ selected, onError }) =>
+      safeApply(() => {
+        instance?.setSelectedLines(selected ?? null);
+        scrollToSelection(selected, "nearest");
+      }, onError),
+    { defer: true },
   );
 
   // A theme toggle (or any other option flip) lands on the existing
@@ -277,11 +292,9 @@ export const CodeView: Component<CodeViewProps> = (props) => {
   // is added to `buildOptions` later. Pierre's `setOptions` is
   // idempotent on identical input, so any incidental re-fire is harmless.
   createEffect(
-    on(
-      buildOptions,
-      (opts) => safeApply(() => instance?.setOptions(opts), props.onError),
-      { defer: true },
-    ),
+    () => ({ opts: buildOptions(), onError: untrack(() => props.onError) }),
+    ({ opts, onError }) => safeApply(() => instance?.setOptions(opts), onError),
+    { defer: true },
   );
 
   onCleanup(() => {

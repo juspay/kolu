@@ -524,9 +524,10 @@ function reactiveFace<
                     // Events' `.use()` returns void — keep the keyed root live
                     // (and re-keying) even when the caller never reads a result.
                     if (prim === "events") {
-                      createEffect(() => {
-                        current();
-                      });
+                      createEffect(
+                        () => current(),
+                        () => {},
+                      );
                       return undefined;
                     }
                     // `BoundStream.use()`'s WHOLE result IS a `Subscription<T>` (unlike
@@ -986,20 +987,22 @@ export function connectSurfaceMap<
   // the object-identity trap `K` itself would set.
   build(() => {
     let prevMembers: string[] = [];
-    createEffect(() => {
-      const members = rawEntries.use().keys();
-      const present = new Set(members);
-      for (const enc of [...clients.keys()]) {
-        if (!present.has(enc)) {
-          for (const c of clients.get(enc)?.values() ?? []) disposeKeyed(c);
-          clients.delete(enc);
+    createEffect(
+      () => rawEntries.use().keys(),
+      (members) => {
+        const present = new Set(members);
+        for (const enc of [...clients.keys()]) {
+          if (!present.has(enc)) {
+            for (const c of clients.get(enc)?.values() ?? []) disposeKeyed(c);
+            clients.delete(enc);
+          }
         }
-      }
-      for (const enc of prevMembers) {
-        if (!present.has(enc)) keyCache.delete(enc);
-      }
-      prevMembers = members;
-    });
+        for (const enc of prevMembers) {
+          if (!present.has(enc)) keyCache.delete(enc);
+        }
+        prevMembers = members;
+      },
+    );
   });
 
   const foldState = (key: K): EntryState<Failure, Conn> => {

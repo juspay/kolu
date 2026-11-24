@@ -8,10 +8,11 @@
  * is swallowed, and a sustained `true` surfaces once the window elapses (then
  * hides instantly on the fall).
  *
- * `await Promise.resolve()` after the mount flushes Solid's initial effect run
- * (deferred to the end of `createRoot`'s batch); thereafter a top-level signal
- * write re-runs the effect synchronously, so the timer is armed before the fake
- * clock advances.
+ * `await Promise.resolve()` after the mount lets Solid's flush run: writes are
+ * STAGED until it, and an effect's first run happens on it. A write made later is
+ * the same — the effect re-runs (and arms or clears its timer) on that write's
+ * flush, not on the write itself, so a turn has to pass before the fake clock
+ * advances.
  */
 
 import { type Accessor, createRoot, createSignal } from "solid-js";

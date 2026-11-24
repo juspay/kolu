@@ -25,11 +25,9 @@ import type { Stream } from "effect";
 import {
   type Accessor,
   $PROXY,
-  batch,
   createEffect,
   createSignal,
   createStore,
-  on,
   onCleanup,
 } from "solid-js";
 import { runStreamScoped } from "../runStream";
@@ -456,10 +454,10 @@ export interface SubscriptionState {
  *  copies of that skeleton drift; they had already drifted the first day they
  *  existed.
  *
- *  A frame is applied and `pending` cleared inside ONE `batch`, so no consumer ever
- *  observes a frame applied while the view still reads pending, and a view that
- *  writes several signals per frame (a keyed store plus its key list plus its folds)
- *  settles them in one tick.
+ *  A frame is applied and `pending` cleared in ONE synchronous handler, so the
+ *  writes share a flush: no consumer ever observes a frame applied while the view
+ *  still reads pending, and a view that writes several signals per frame (a keyed
+ *  store plus its key list plus its folds) settles them in one tick.
  *
  *  `createReactiveSubscription` deliberately does NOT build on this: its lifecycle
  *  RE-ARMS on every input change (fresh fiber, signals reset, tracker reset), which
@@ -468,7 +466,7 @@ export interface SubscriptionState {
 export function createStreamLifecycle<T>(
   source: Stream.Stream<T, unknown>,
   options: {
-    /** One stream frame. Runs inside the frame's batch, before `pending` clears. */
+    /** One stream frame. Runs before `pending` clears, in the same flush. */
     onFrame: (item: T) => void;
     /** The stream ENDED NORMALLY (a typed end), never on abort. */
     onComplete?: () => void;
@@ -481,42 +479,46 @@ export function createStreamLifecycle<T>(
     signal?: AbortSignal;
   },
 ): SubscriptionState {
-  const [error, setError] = createSignal<Error | undefined>();
-  const [pending, setPending] = createSignal(true);
-  const [complete, setComplete] = createSignal(false);
+  // `ownedWrite`: the three lifecycle signals are written by the stream loop, and
+  // that loop can run SYNCHRONOUSLY inside the scope that created the subscription
+  // (a fiber whose first frames are already available emits before `runStreamScoped`
+  // returns). They are internal state driven from outside the graph, never a
+  // component writing its own render-time state.
+  const [error, setError] = createSignal<Error | undefined>(undefined, {
+    ownedWrite: true,
+  });
+  const [pending, setPending] = createSignal(true, { ownedWrite: true });
+  const [complete, setComplete] = createSignal(false, { ownedWrite: true });
   const state: SubscriptionState = { error, pending, complete };
 
   // `runStreamScoped` owns the "a disposed subscription reports nothing" rule, so
   // nothing below re-checks an aborted flag.
   const stop = runStreamScoped<T>(source, {
-    onFrame: (item) =>
-      batch(() => {
-        options.onFrame(item);
-        // Unconditional: writing `false` over `false` is a no-op under the signal's
-        // default equality, so a read-then-write guard would only re-state that.
-        setPending(false);
-        // NOT "clear a stale error here". A failure is the FIBER'S EXIT, so no frame
-        // can follow one on the same subscription — an `error()` is terminal for this
-        // stream, and a clear-on-next-frame branch would be dead code implying a
-        // recovery that cannot happen. What actually keeps `error()` from LATCHING is
-        // one layer up: the retry fence re-subscribes transparently, so a transport
-        // drop never lands here at all. What DOES land is a declared (D4) failure,
-        // and terminal is the honest reading of it — the stream is over.
-      }),
+    onFrame: (item) => {
+      options.onFrame(item);
+      // Unconditional: writing `false` over `false` is a no-op under the signal's
+      // default equality, so a read-then-write guard would only re-state that.
+      setPending(false);
+      // NOT "clear a stale error here". A failure is the FIBER'S EXIT, so no frame
+      // can follow one on the same subscription — an `error()` is terminal for this
+      // stream, and a clear-on-next-frame branch would be dead code implying a
+      // recovery that cannot happen. What actually keeps `error()` from LATCHING is
+      // one layer up: the retry fence re-subscribes transparently, so a transport
+      // drop never lands here at all. What DOES land is a declared (D4) failure,
+      // and terminal is the honest reading of it — the stream is over.
+    },
     // A TYPED end (the server/map completed the stream), never an interruption.
     // Clear any lingering `pending` and latch `complete` so the dedup cache can
     // evict this slot and a re-added member never reuses an ended stream.
-    onEnd: () =>
-      batch(() => {
-        setPending(false);
-        setComplete(true);
-        options.onComplete?.();
-      }),
-    onFailure: (err) =>
-      batch(() => {
-        setError(err);
-        setPending(false);
-      }),
+    onEnd: () => {
+      setPending(false);
+      setComplete(true);
+      options.onComplete?.();
+    },
+    onFailure: (err) => {
+      setError(err);
+      setPending(false);
+    },
   });
 
   if (options.signal) {
@@ -578,15 +580,21 @@ export function createSubscription<T, R = T>(
   // The change-iff-fired half of the Dynamic — the ONE law shared with
   // `createReactiveSubscription` via `createUpdatedTracker`.
   const tracker = createUpdatedTracker<T | R>();
+  // The reduce accumulator is HELD here, not re-read off the store: a store write
+  // lands on the next flush, and a fiber can deliver several frames inside one
+  // synchronous turn, so reading `store.v` back would fold the second frame onto
+  // the value the first one replaced. The store is the VIEW of the accumulator;
+  // this is the accumulator.
+  let acc: T | R | undefined = initial;
 
   // The fiber, the three signals, the teardown path and the `onError` edge are the
   // shared seam; the ONE thing this primitive contributes is what a frame does —
   // reduce it, tell the tracker, write it into the wrapped store.
   const state = createStreamLifecycle<T>(source, {
     onFrame: (item) => {
-      const next = reduce ? reduce(store.v as T | R, item) : (item as T | R);
-      tracker.noteFrame(next); // fire `updated` on a genuine change, before the write
-      writeWrappedValue(setStore, next as T | R | undefined, options?.arrayKey);
+      acc = reduce ? reduce(acc as T | R, item) : (item as T | R);
+      tracker.noteFrame(acc); // fire `updated` on a genuine change, before the write
+      writeWrappedValue(setStore, acc, options?.arrayKey);
     },
     onComplete: options?.onComplete,
     onError: options?.onError,
@@ -614,17 +622,16 @@ export function createSubscription<T, R = T>(
  *  cell's standing view) can wire through it too, instead of every call site
  *  re-hand-rolling the same edge-effect (which drifts: a hand-rolled version tends
  *  to run the callback TRACKED, re-subscribing the effect to whatever the handler
- *  itself reads, where this helper's `on()` runs it untracked). */
+ *  itself reads, where this helper reads `error()` in the COMPUTE and runs the
+ *  callback in the effect phase, which is untracked by construction). */
 export function wireSubscriptionError(
   sub: { error: Accessor<Error | undefined> },
   onError: (err: Error) => void,
 ): void {
   createEffect(
-    on(
-      () => sub.error(),
-      (err) => {
-        if (err) onError(err);
-      },
-    ),
+    () => sub.error(),
+    (err) => {
+      if (err) onError(err);
+    },
   );
 }

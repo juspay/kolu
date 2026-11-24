@@ -13,7 +13,7 @@
 
 import type { TerminalGrid } from "@kolu/xterm-kit/solid";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { createForeignGridWatcher } from "./foreignGrid";
+import { createForeignGridWatcher, gridHeldByAnother } from "./foreignGrid";
 
 const SETTLE = 750;
 
@@ -41,12 +41,15 @@ function harness(init?: {
     },
     settleMs: SETTLE,
   });
+  /** The verdict `Terminal.tsx`'s effect compute hands the watcher. */
+  const held = () =>
+    gridHeldByAnother(served ?? undefined, inFront ? mine : null);
   return {
     watcher,
     /** The record published a new grid. */
     record(grid: TerminalGrid | null) {
       served = grid;
-      watcher.observe();
+      watcher.observe(held());
     },
     /** This pane measured a new box (a drag, a reveal, a disposal). */
     measure(grid: TerminalGrid | null) {
@@ -59,7 +62,7 @@ function harness(init?: {
      *  thing that drives `observe`. */
     front(next: boolean) {
       inFront = next;
-      watcher.observe();
+      watcher.observe(held());
     },
     reopens: () => reopens,
   };

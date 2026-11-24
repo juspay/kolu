@@ -29,9 +29,12 @@ export default function App() {
 
   // Mirror the theme onto `<html data-theme>` so Tailwind's `dark:`
   // variants pick it up for the whole document.
-  createEffect(() => {
-    document.documentElement.dataset.theme = prefs.value()?.theme ?? "light";
-  });
+  createEffect(
+    () => prefs.value()?.theme ?? "light",
+    (theme) => {
+      document.documentElement.dataset.theme = theme;
+    },
+  );
 
   // ── 2. Collection: notes keyed by id ────────────────────────────────
   // `keys` defaults to the server's keys stream — pass it explicitly

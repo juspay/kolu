@@ -17,7 +17,7 @@
  *  viewport / terminal store / active-host signal are read from their singletons /
  *  modules exactly as the inlined block did. */
 
-import { createEffect, createSignal, on } from "solid-js";
+import { createEffect, createSignal } from "solid-js";
 import { activeScope } from "../hostScope/hostScopes";
 import { useTerminalStore } from "../terminal/useTerminalStore";
 import { activeHost } from "../wire";
@@ -31,39 +31,45 @@ export function useCanvasCenterOnSwitch(
   const viewport = useCanvasViewport();
   const store = useTerminalStore();
 
-  const [pendingCenter, setPendingCenter] = createSignal(false);
-  createEffect(
-    on(activeHost, (_curr, prev) => {
-      // A switch invalidates any input still aimed at the host we are leaving: an
-      // in-flight center/pan animation or a queued gesture flush writes pan/zoom
-      // through `activeScope()`, which has just re-keyed to the NEW host — so a
-      // frame-late callback would land the outgoing host's motion in the incoming
-      // host's camera. Drop both up front so the switch cannot corrupt the retained
-      // pose of the host switched to.
-      viewport.abortTransientInput();
-      if (prev === undefined) return; // initial mount — no switch to service yet
-      setPendingCenter(true);
-    }),
-  );
-  createEffect(() => {
-    if (!pendingCenter() || !viewport.mounted()) return;
-    const activeTile = activeTileLayout();
-    if (!activeTile) return; // mount race — wait for the tile to be measured
-    const camera = activeScope()?.camera;
-    if (!camera) {
-      setPendingCenter(false);
-      return;
-    }
-    const { width, height } = viewport.viewportSize();
-    if (
-      switchInNeedsCenter(
-        camera.positioned() ? camera.snapshot() : null,
-        activeTile,
-        width,
-        height,
-      )
-    )
-      store.requestCenterActive();
-    setPendingCenter(false); // consume once resolved
+  // Monotonic switch counter, not a boolean "pending" flag: the resolver below
+  // records the switch it SERVED in a plain variable, so it never writes a
+  // signal its own compute reads (which would make the flush settle twice).
+  const [switchEpoch, setSwitchEpoch] = createSignal(0);
+  createEffect(activeHost, (_curr, prev) => {
+    // A switch invalidates any input still aimed at the host we are leaving: an
+    // in-flight center/pan animation or a queued gesture flush writes pan/zoom
+    // through `activeScope()`, which has just re-keyed to the NEW host — so a
+    // frame-late callback would land the outgoing host's motion in the incoming
+    // host's camera. Drop both up front so the switch cannot corrupt the retained
+    // pose of the host switched to.
+    viewport.abortTransientInput();
+    if (prev === undefined) return; // initial mount — no switch to service yet
+    setSwitchEpoch((n) => n + 1);
   });
+  let servedEpoch = 0;
+  createEffect(
+    (): { epoch: number; center: boolean } | null => {
+      const epoch = switchEpoch();
+      if (epoch === servedEpoch || !viewport.mounted()) return null;
+      const activeTile = activeTileLayout();
+      if (!activeTile) return null; // mount race — wait for the tile to be measured
+      const camera = activeScope()?.camera;
+      if (!camera) return { epoch, center: false };
+      const { width, height } = viewport.viewportSize();
+      return {
+        epoch,
+        center: switchInNeedsCenter(
+          camera.positioned() ? camera.snapshot() : null,
+          activeTile,
+          width,
+          height,
+        ),
+      };
+    },
+    (verdict) => {
+      if (!verdict) return;
+      servedEpoch = verdict.epoch; // consume once resolved
+      if (verdict.center) store.requestCenterActive();
+    },
+  );
 }

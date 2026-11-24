@@ -30,7 +30,7 @@ import {
   createMemo,
   createSignal,
   For,
-  onMount,
+  onSettled,
   Show,
 } from "solid-js";
 import { AttentionTriplet } from "@kolu/solid-statepip";
@@ -158,9 +158,9 @@ const MobileAddSection: Component<{ onClose: () => void }> = (props) => {
   const [draft, setDraft] = createSignal("");
   let inputEl: HTMLInputElement | undefined;
 
-  // Focus the input on mount (the section mounts fresh via `<Show>`, so a plain
-  // `onMount` fires exactly once) — shared timing with the desktop popover.
-  onMount(() => focusOnMount(inputEl));
+  // Focus the input once the section has settled (it mounts fresh via `<Show>`,
+  // so this fires exactly once) — shared timing with the desktop popover.
+  onSettled(() => focusOnMount(inputEl));
 
   const submit = (): void => {
     runAction("add host", addHost(draft(), props.onClose));

@@ -52,11 +52,14 @@ const ConductorHeader: Component<{
   // bargain: everything IN the pane is kept, everything it put on top of the
   // page is taken back.
   const shown = useShown();
-  createEffect(() => {
-    if (shown()) return;
-    setSettingsOpen(false);
-    setMenuOpen(false);
-  });
+  createEffect(
+    () => shown(),
+    (isShown) => {
+      if (isShown) return;
+      setSettingsOpen(false);
+      setMenuOpen(false);
+    },
+  );
   const usage = () => props.state.usage;
   const identity = () => props.state.identity;
   /** KNOWN signed in — which only changes what the menu's door is CALLED. The

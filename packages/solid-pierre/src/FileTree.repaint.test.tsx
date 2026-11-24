@@ -10,7 +10,7 @@
  * `FileTree.gitStatus.test.ts` only inspects a one-shot SSR payload. Nothing
  * drives the wrapper's in-place mutation path against the REAL library.
  *
- * That is the gap these tests close, and the wrapper's `batch(add/remove)`
+ * That is the gap these tests close, and the wrapper's in-place `add`/`remove`
  * delta path in `FileTree.tsx` is the subject: deleting the `t.batch(pathOps)`
  * apply turns three of these four red. The tests are deliberately at the DOM
  * level rather than asserting Pierre called some method, because "value right,
@@ -32,7 +32,7 @@
  * the revision counter, so disabling the counter outright leaves these tests
  * green. See the PR that added this file for the full evidence.
  */
-import { batch, createSignal } from "solid-js";
+import { createSignal } from "solid-js";
 import { render } from "@solidjs/web";
 import { afterEach, describe, expect, it } from "vitest";
 import type { GitStatusEntry } from "@pierre/trees";
@@ -182,10 +182,9 @@ it("applies a selection that arrives in the same update as its path", async () =
       host,
     ),
   );
-  batch(() => {
-    setSelected("docs/notes.txt");
-    setPaths(["docs/notes.txt"]);
-  });
+  // Consecutive writes already share one microtask batch in Solid 2.
+  setSelected("docs/notes.txt");
+  setPaths(["docs/notes.txt"]);
   await flush();
   expect(
     root.querySelector(

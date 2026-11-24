@@ -9,7 +9,7 @@
  */
 
 import Dialog from "@corvu-next/dialog";
-import { type Component, createEffect, onCleanup } from "solid-js";
+import { type Component, createEffect } from "solid-js";
 import type { JSX } from "@solidjs/web";
 import {
   getActiveTerminalNode,
@@ -103,12 +103,14 @@ const ModalDialog: Component<{
   // self-healing "is any dialog open" signal — no enumeration of per-dialog
   // signals to keep in sync.
   const dialogStack = useDialogStack();
-  createEffect(() => {
-    if (props.open) {
+  createEffect(
+    () => props.open,
+    (open) => {
+      if (!open) return;
       dialogStack.increment();
-      onCleanup(() => dialogStack.decrement());
-    }
-  });
+      return () => dialogStack.decrement();
+    },
+  );
 
   const handleOpenChange = (open: boolean) => {
     props.onOpenChange(open);

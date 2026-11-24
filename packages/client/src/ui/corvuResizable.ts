@@ -1,4 +1,4 @@
-import { type Accessor, createComputed, createSignal } from "solid-js";
+import { type Accessor, createMemo } from "solid-js";
 
 /** How a Corvu handle looks, by its root's `orientation`: a zero-size line
  *  whose `::before` is an 8px hit area, lit on hover. `vertical` stacks the
@@ -29,28 +29,31 @@ export function realSizes(sizes: number[]): [number, number] | undefined {
 
 /** The value to hand a controlled Corvu Resizable as `sizes`.
  *
- *  The Corvu site (`@corvu/resizable` 0.2.5, `@corvu/utils` 0.4.2):
+ *  The Corvu site (`@corvu-next/resizable`, `@corvu-next/utils`):
  *  `Resizable.Panel`'s `onCleanup` calls the root's `unregisterPanel`, which
  *  calls `setSizes(fn)`; `createControllableSignal`'s setter evaluates
- *  `fn(value())`, and when controlled `value()` reads the `sizes` prop. So an
- *  inline `sizes={…}` derivation runs during teardown — and a teardown happens
- *  inside the very flush that changed its inputs (a host switch, a canvas-mode
- *  change), so the derivation can hit a memo still pending in that flush. Solid
- *  answers a pending read by flushing upstream synchronously, which re-runs
- *  owners that are mid-disposal: an owner is cleaned twice and `cleanNode`
- *  throws, aborting the whole update. So Corvu reads a plain signal instead:
- *  one `createComputed` keeps it current in the update phase, and a
- *  teardown-time read has no sources left to recompute.
+ *  `fn(value())` inside `untrack`, and when controlled `value()` reads the
+ *  `sizes` prop. So this derivation runs during teardown — and a teardown
+ *  happens inside the very flush that changed its inputs (a host switch, a
+ *  canvas-mode change), so the read can land on a memo still dirty in that
+ *  flush.
  *
- *  This is the documented exception to "derive with a memo, not a computed that
- *  sets a signal": a memo read during cleanup is itself a pending read
- *  (`readSignal` → `lookUpstream` → `runTop` re-runs its stale ancestors from
- *  the top), which is exactly the re-entry. Retire this helper when Corvu stops
- *  reading the controlled value from that cleanup. */
+ *  Under Solid 1 that was a crash: resolving the pending read re-ran owners
+ *  that were mid-disposal and `cleanNode` threw, so the helper kept a plain
+ *  signal fed by a `createComputed` instead. Solid 2 closes that hole in the
+ *  core — `updateIfNecessary` refuses to recompute a node carrying the
+ *  DISPOSED flag ("it would come back alive"), `disposeChildren` returns at
+ *  once on an already-disposed node, and `dispose` strips the observation
+ *  lifecycle so a later read freezes at the last committed value. A dirty
+ *  derivation read during teardown therefore just recomputes, pull-style, or
+ *  answers frozen if it was itself disposed; nothing re-enters disposal.
+ *
+ *  So this is an ordinary memo now. What it still earns over an inline
+ *  `sizes={…}` is the value equality: Corvu's controllable setter compares
+ *  with `Object.is`, so a fresh array of the same two numbers would otherwise
+ *  read as a change on every recompute. */
 export function controlledSizes(derive: () => number[]): Accessor<number[]> {
-  const [sizes, setSizes] = createSignal<number[]>([], {
+  return createMemo(derive, {
     equals: (a, b) => a.length === b.length && a.every((v, i) => v === b[i]),
   });
-  createComputed(() => setSizes(derive()));
-  return sizes;
 }

@@ -313,7 +313,6 @@ export const Markdown: Component<{
       variant() === "inline" || !props.markdown.includes(DIAGRAM_LANG)
         ? NO_SOURCES
         : mermaidSources(props.markdown),
-    NO_SOURCES,
     { equals: sameSources },
   );
   // Source → drawn diagram (or why not) for the current blocks. When every one
@@ -370,11 +369,19 @@ export const Markdown: Component<{
   });
 
   // A user effect, so it runs after the `innerHTML` render effect of the same
-  // update: the host is told once the DOM it hears about is in place.
-  createEffect(() => {
-    html();
-    untrack(() => props.onRendered?.());
-  });
+  // update: the host is told once the DOM it hears about is in place. The
+  // callback itself is read in the compute with `untrack` — the effect phase
+  // is a strict-read window, and a tracked read of `props.onRendered` would
+  // make a host that rebuilds its prop object re-notify with no new DOM.
+  createEffect(
+    () => {
+      html();
+      return untrack(() => props.onRendered);
+    },
+    (onRendered) => {
+      onRendered?.();
+    },
+  );
 
   const Host = dynamic(() => (variant() === "inline" ? "span" : "div"));
   return (

@@ -41,6 +41,7 @@ import {
   revealTranscriptRow,
   showTranscriptDocument,
   transcriptPinned,
+  transcriptPlace,
   WHOLE_TRANSCRIPT,
 } from "./transcriptScroll";
 import { turnWorks } from "./turnWorks";
@@ -356,7 +357,7 @@ describe("each document's own place", () => {
     showTranscriptDocument(WHOLE_TRANSCRIPT);
     expect(transcriptPinned()).toBe(false);
     const el = { scrollTop: 0, scrollHeight: 1000, clientHeight: VIEWPORT };
-    applyTranscriptScroll(el);
+    applyTranscriptScroll(el, transcriptPlace(WHOLE_TRANSCRIPT));
     expect(el.scrollTop).toBe(300);
   });
 
@@ -375,7 +376,7 @@ describe("each document's own place", () => {
     showTranscriptDocument(WHOLE_TRANSCRIPT);
     expect(transcriptPinned()).toBe(true);
     const el = { scrollTop: 0, scrollHeight: 5000, clientHeight: VIEWPORT };
-    applyTranscriptScroll(el);
+    applyTranscriptScroll(el, transcriptPlace(WHOLE_TRANSCRIPT));
     expect(el.scrollTop).toBe(5000);
   });
 });

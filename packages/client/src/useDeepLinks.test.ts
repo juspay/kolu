@@ -47,24 +47,44 @@ describe("deep-link router is view-only (the negative pin)", () => {
   });
 });
 
-/** The loop pin: `navigate` is a COMMAND, and its whole body must run under
- *  `untrack`. It reads reactive state (the disarm guard's `pending()`) and
- *  writes it (`setPending`) — executed inside a caller's tracking scope (the
- *  preview-bridge `createEffect` delivers hashes from exactly such a scope),
- *  those reads subscribe the delivering effect to the very signals navigate
- *  writes, and the app busy-loops re-routing forever after the first
- *  bridge-delivered link (reproduced deterministically on both CI platforms;
- *  the DL2 repeat-pill e2e leg is the felt symptom). Losing the `untrack`
- *  must fail THIS test, not resurface as a CI-only e2e red. */
+/** The loop pin: `navigate` is a COMMAND, so it must never run in a TRACKING
+ *  scope. It writes reactive state (`setPending`) — run under tracking, a read
+ *  of that state subscribes the caller to the very signals navigate writes, and
+ *  the app busy-loops re-routing forever after
+ *  the first bridge-delivered link (reproduced deterministically on both CI
+ *  platforms; the DL2 repeat-pill e2e leg is the felt symptom).
+ *
+ *  The preview bridge is the one delivery path with a reactive source, and in
+ *  Solid 2 the guarantee is STRUCTURAL: the bridge's `createEffect` reads the
+ *  request in its COMPUTE arm and calls `navigateFromExternal` from its EFFECT
+ *  arm, which is untracked by construction. Collapsing that split (routing from
+ *  the compute arm) must fail THIS test, not resurface as a CI-only e2e red. */
 describe("navigate is a command — it runs untracked (the loop pin)", () => {
-  it("wraps navigate's body in untrack()", () => {
+  it("routes the bridge request from the effect arm, never the compute arm", () => {
+    const start = routerSrc.indexOf("// (d) the preview bridge");
+    expect(start).toBeGreaterThan(-1);
+    const bridge = routerSrc.slice(
+      start,
+      routerSrc.indexOf("onSettled(", start),
+    );
+    // The compute arm reads the request and NOTHING else; the hash is handed to
+    // the effect arm, which is where the command runs.
+    expect(bridge).toContain("() => externalNavRequest(),");
+    const compute = bridge.indexOf("() => externalNavRequest(),");
+    const routed = bridge.indexOf("navigateFromExternal(hash)");
+    expect(routed).toBeGreaterThan(compute);
+    expect(bridge).toContain("(hash) => {");
+  });
+
+  it("keeps navigate itself free of tracking scopes", () => {
     const start = routerSrc.indexOf("function navigate(");
     expect(start).toBeGreaterThan(-1);
     const body = routerSrc.slice(
       start,
       routerSrc.indexOf("stampEntryRouted();", start),
     );
-    expect(body).toContain("untrack(() => {");
+    // No memo/effect is created inside the command — it only reads and writes.
+    expect(body).not.toMatch(/create(Memo|Effect|RenderEffect)\(/);
   });
 });
 
@@ -224,22 +244,24 @@ describe("verdict-time stamping contract (#1900 R1 / codex F4)", () => {
     return routerSrc.slice(i, j);
   };
 
+  // The settle gate's compute arm REACHES a verdict; its effect arm ACTS on it,
+  // one `.with` branch per verdict — so each anchor is that branch.
   it.each([
-    ["host-mismatch supersession", "!== route.host", "store.listSub.pending()"],
+    [
+      "host-mismatch supersession",
+      '.with({ kind: "superseded" }',
+      '.with({ kind: "listError" }',
+    ],
     [
       "list-stream fault",
-      "const listError = store.listSub.error()",
-      "const id = route.terminalId",
+      '.with({ kind: "listError" }',
+      '.with({ kind: "gone" }',
     ],
-    [
-      "gone (post-authority)",
-      "if (!listIsAuthoritative()) return",
-      "no longer on",
-    ],
-    ["not a repo", 'target.git.kind === "none"', "isn't in a git repository"],
+    ["gone (post-authority)", '.with({ kind: "gone" }', "no longer on"],
+    ["not a repo", '.with({ kind: "noRepo" }', "isn't in a git repository"],
     [
       "backstop timeout",
-      "if (pending() !== route) return",
+      "if (armedRoute !== route) return",
       "Couldn't open that file",
     ],
   ])("the %s verdict stamps (disarmResolved in its own branch)", (_l, start, end) => {

@@ -195,11 +195,13 @@ const HostChip: Component<{
   let chipEl: HTMLDivElement | undefined;
   // The drag transform, straight onto the node (see the `drag` prop's doc):
   // only the carried chip and the chips its preview shifts re-run this.
-  createEffect(() => {
-    const drag = props.drag;
-    if (!drag || !chipEl) return;
-    chipEl.style.transform = transformCss(drag.transform());
-  });
+  createEffect(
+    () => props.drag?.transform(),
+    (transform) => {
+      if (!transform || !chipEl) return;
+      chipEl.style.transform = transformCss(transform);
+    },
+  );
 
   // UNIFORM SHAPE: measurable SIZE never depends on `isActive()` — only
   // border/bg/text COLOR, and the drag transform is a translate, so a chip keeps
@@ -637,9 +639,8 @@ const AddHostAffordance: Component = () => {
   // Focus the input the frame the popover mounts it (the ref isn't attached on
   // the tick `open()` flips, so defer past mount; `isConnected` guards a
   // dismiss that beats the microtask).
-  createEffect(() => {
-    if (!open()) return;
-    focusOnMount(inputEl);
+  createEffect(open, (isOpen) => {
+    if (isOpen) focusOnMount(inputEl);
   });
   // The add MECHANISM (parse · hosts.add · activate-on-join · error toast) is
   // the shared `addHost`; this popover supplies only its own cleanup on success.
@@ -795,10 +796,12 @@ const HostSelectorStrip: Component = () => {
   // The first strip holding two SEATED remote tabs — the first moment a drag
   // changes anything (one remote beside the pinned local tab has nowhere to
   // go). The tip announces the gesture there, then never again.
-  createEffect(() => {
-    if (draggableVisible().length > 1)
-      showTipOnce(CONTEXTUAL_TIPS.hostRearrange);
-  });
+  createEffect(
+    () => draggableVisible().length > 1,
+    (dragWorthwhile) => {
+      if (dragWorthwhile) showTipOnce(CONTEXTUAL_TIPS.hostRearrange);
+    },
+  );
   /** A drop writes the WHOLE next arrangement — every re-orderable member,
    *  seated or overflowed — so the stored order stays a total list and the next
    *  merge rule stays one. `updatePreferences` owns the failure report (a toast

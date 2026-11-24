@@ -358,24 +358,36 @@ const AgentsProfileList: Component<{
       }
     | undefined
   >();
-  createEffect(() => {
-    const target = refocus();
-    const now = JSON.stringify(references());
-    if (target === undefined || list === undefined || now === target.before)
-      return;
-    const row = [
-      ...list.querySelectorAll<HTMLElement>("[data-testid=agents-profile-row]"),
-    ].find((el) => el.dataset.reference === target.reference);
-    const buttons = row
-      ? [...row.querySelectorAll<HTMLButtonElement>("button[data-action]")]
-      : [];
-    // A row moved to an end has that direction disabled: take the other one.
-    const button =
-      buttons.find((b) => b.dataset.action === target.action && !b.disabled) ??
-      buttons.find((b) => !b.disabled);
-    button?.focus();
-    setRefocus(undefined);
-  });
+  // The refocus already spent, as a plain variable: consuming the slot must
+  // not be a write this effect's own compute reads back.
+  let refocused: object | undefined;
+  createEffect(
+    () => {
+      const target = refocus();
+      if (target === undefined || target === refocused) return null;
+      // Wait for the list the edit asked for: the write comes back through the
+      // preferences cell, so the rows are still the old ones for a beat.
+      return JSON.stringify(references()) === target.before ? null : target;
+    },
+    (target) => {
+      if (target === null || list === undefined) return;
+      refocused = target;
+      const row = [
+        ...list.querySelectorAll<HTMLElement>(
+          "[data-testid=agents-profile-row]",
+        ),
+      ].find((el) => el.dataset.reference === target.reference);
+      const buttons = row
+        ? [...row.querySelectorAll<HTMLButtonElement>("button[data-action]")]
+        : [];
+      // A row moved to an end has that direction disabled: take the other one.
+      const button =
+        buttons.find(
+          (b) => b.dataset.action === target.action && !b.disabled,
+        ) ?? buttons.find((b) => !b.disabled);
+      button?.focus();
+    },
+  );
 
   const edit = (
     next: readonly string[],

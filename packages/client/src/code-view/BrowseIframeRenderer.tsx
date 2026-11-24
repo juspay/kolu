@@ -66,10 +66,11 @@ function useIframeObserver(
   iframeEl: () => HTMLIFrameElement | undefined,
   observe: (el: HTMLIFrameElement) => () => void,
 ): void {
-  createEffect(() => {
-    const el = iframeEl();
+  createEffect(iframeEl, (el) => {
     if (!el) return;
-    onCleanup(observe(el));
+    // The disposer is RETURNED, not registered: it runs before the next bind
+    // (a new element) and on disposal.
+    return observe(el);
   });
 }
 

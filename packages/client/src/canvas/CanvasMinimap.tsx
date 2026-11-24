@@ -133,14 +133,16 @@ const CanvasMinimap: Component<{
 
   // ── Bounding box of all tiles ──
   const bounds = createMemo(
-    (previous: {
-      minX: number;
-      minY: number;
-      maxX: number;
-      maxY: number;
-      w: number;
-      h: number;
-    }) => {
+    (
+      previous: {
+        minX: number;
+        minY: number;
+        maxX: number;
+        maxY: number;
+        w: number;
+        h: number;
+      } = { minX: 0, minY: 0, maxX: 1, maxY: 1, w: 1, h: 1 },
+    ) => {
       if (!props.shown) return previous;
       let minX = Infinity,
         minY = Infinity,
@@ -169,7 +171,6 @@ const CanvasMinimap: Component<{
         h: padMaxY - padMinY,
       };
     },
-    { minX: 0, minY: 0, maxX: 1, maxY: 1, w: 1, h: 1 },
   );
 
   // ── Scale factor: fit bounding box into MAP_W × MAP_H ──

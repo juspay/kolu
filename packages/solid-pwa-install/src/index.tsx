@@ -21,7 +21,7 @@
  *  - BROWSER-ONLY: `createPwaInstall` touches `window` and must run inside a
  *    Solid owner. */
 
-import { type Accessor, createSignal, onCleanup, onMount } from "solid-js";
+import { type Accessor, createSignal, onSettled } from "solid-js";
 
 export type InstallPlatform =
   | "chromium-desktop" // Chrome/Edge/Brave desktop — real beforeinstallprompt
@@ -169,7 +169,7 @@ interface BeforeInstallPromptEvent extends Event {
 }
 
 /** Browser-only (touches window). Call inside a Solid component/owner so
- *  `onMount`/`onCleanup` register against it. */
+ *  `onSettled`'s setup and its returned teardown register against it. */
 export function createPwaInstall(): PwaInstall {
   const platform: InstallPlatform =
     typeof navigator === "undefined"
@@ -185,7 +185,7 @@ export function createPwaInstall(): PwaInstall {
   // Stashed Chromium event — replayable once on a user gesture.
   let deferredPrompt: BeforeInstallPromptEvent | null = null;
 
-  onMount(() => {
+  onSettled(() => {
     if (typeof window === "undefined") return;
 
     const onBeforeInstallPrompt = (e: Event) => {
@@ -210,11 +210,11 @@ export function createPwaInstall(): PwaInstall {
     // manual platforms (iOS Share→Add to Home Screen, Firefox Android menu,
     // Safari File→Add to Dock) have no JS prompt and stay `canPrompt() === false`.
 
-    onCleanup(() => {
+    return () => {
       window.removeEventListener("beforeinstallprompt", onBeforeInstallPrompt);
       window.removeEventListener("appinstalled", onAppInstalled);
       deferredPrompt = null;
-    });
+    };
   });
 
   const prompt = () => {

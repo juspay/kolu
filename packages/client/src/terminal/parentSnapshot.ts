@@ -39,9 +39,12 @@ export function createHostScopedParentSnapshot<V extends TerminalId | null>(
   activeHostKey: () => string,
   buildMap: (ids: TerminalId[]) => Map<TerminalId, V>,
 ): Accessor<{ host: string; map: Map<TerminalId, V> }> {
+  // No seed: the memo's first value IS the first snapshot, and the `equals`
+  // gate (host switch OR a membership/parentId change) decides every run after
+  // it. The retired empty-snapshot seed only ever compared equal to an empty
+  // first run, which carries the same facts.
   return createMemo<{ host: string; map: Map<TerminalId, V> }>(
     () => ({ host: activeHostKey(), map: buildMap(rawList()) }),
-    { host: "", map: new Map<TerminalId, V>() },
     { equals: (a, b) => a.host === b.host && sameParentSnapshot(a.map, b.map) },
   );
 }

@@ -31,7 +31,7 @@ import {
 import { Effect } from "effect";
 import type { HostKey } from "kolu-common/hostKey";
 import { encodeHostKey } from "kolu-common/hostKey";
-import { batch, createEffect, createRoot, createSignal } from "solid-js";
+import { createEffect, createRoot, createSignal } from "solid-js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 type PulseSubscription = {
@@ -230,10 +230,8 @@ bag.repoRoot = driveRepo;
 bag.bare = driveBare;
 
 function switchTo(host: HostKey): void {
-  batch(() => {
-    addHost(host);
-    setDriveHost(host);
-  });
+  addHost(host);
+  setDriveHost(host);
 }
 
 // The mock `getStatus` returns a deliberately minimal shape carrying an identity
@@ -332,9 +330,12 @@ describe("hostCodeTab — per-host query ownership (padi W9)", () => {
     // root subscribes the facade. It gets A's loaded value.
     let seen1: string | undefined;
     const dispose1 = createRoot((d) => {
-      createEffect(() => {
-        seen1 = read()?.label;
-      });
+      createEffect(
+        () => {
+          seen1 = read()?.label;
+        },
+        () => {},
+      );
       return d;
     });
     await flush();
@@ -353,9 +354,12 @@ describe("hostCodeTab — per-host query ownership (padi W9)", () => {
     // re-query needed. (Pre-fix, this reads `pending() === true` and the assertions fail.)
     let seen2: string | undefined;
     const dispose2 = createRoot((d) => {
-      createEffect(() => {
-        seen2 = read()?.label;
-      });
+      createEffect(
+        () => {
+          seen2 = read()?.label;
+        },
+        () => {},
+      );
       return d;
     });
     await flush();

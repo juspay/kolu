@@ -19,7 +19,7 @@
  *  consumer. */
 
 import type { TerminalId } from "kolu-common/surface";
-import { type Accessor, batch } from "solid-js";
+import type { Accessor } from "solid-js";
 import { useTerminalStore } from "../terminal/useTerminalStore";
 import { activeHost } from "../wire";
 import {
@@ -44,8 +44,8 @@ const [pending, setPending] = pendingRequest();
 export const pendingOpen = pending;
 
 /** Open the right panel's Code tab at `req.targetMode` showing `req.ref`.
- *  Four reactive writes wrapped in `batch()` so downstream effects see
- *  the changes in one reactive transaction: the issuing terminal becomes the
+ *  Four reactive writes, which share one microtask flush, so downstream
+ *  effects see the changes together: the issuing terminal becomes the
  *  FOCUSED PANE (and so the panel's subject), its tab/mode changes
  *  (`openCodeAt`), workspace visibility changes (`rp.reveal()` — uncollapse
  *  desktop or open the mobile drawer), and the producer signal fires
@@ -80,12 +80,10 @@ export function openInCodeTab(req: OpenInCodeTabInput): void {
       mode: req.targetMode,
     },
   };
-  batch(() => {
-    terminals.focusTerminalSilently(req.terminalId);
-    rp.openCodeAt(request.scope.mode);
-    rp.reveal();
-    setPending(request);
-  });
+  terminals.focusTerminalSilently(req.terminalId);
+  rp.openCodeAt(request.scope.mode);
+  rp.reveal();
+  setPending(request);
 }
 
 /** The Right panel's door, as its Code view is handed it — and as a reader

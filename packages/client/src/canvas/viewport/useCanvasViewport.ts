@@ -4,7 +4,7 @@
  *  Consumers import only this module. The three internal modules
  *  (gestures, transforms, coordinates) are implementation details. */
 
-import { type Accessor, batch, onCleanup, createSignal } from "solid-js";
+import { type Accessor, onCleanup, createSignal } from "solid-js";
 import { createResizeObserver } from "@solid-primitives/resize-observer";
 import { activeScope } from "../../hostScope/hostScopes";
 import type { TileLayout } from "../TileLayout";
@@ -115,13 +115,12 @@ function flushGesture() {
   gestureRaf = 0;
   const result = applyGestureBatch(panX(), panY(), zoom(), pending);
   pending = { ...EMPTY };
-  // Equal-value writes are no-ops (SolidJS skips on Object.is), so a pure-pan
-  // frame never notifies zoom dependents and vice versa.
-  batch(() => {
-    setPanX(result.panX);
-    setPanY(result.panY);
-    setZoom(result.zoom);
-  });
+  // Equal-value writes are no-ops (Object.is), so a pure-pan frame never
+  // notifies zoom dependents and vice versa; the three writes land in one
+  // flush because consecutive writes share a microtask.
+  setPanX(result.panX);
+  setPanY(result.panY);
+  setZoom(result.zoom);
 }
 
 /** Drop any queued gesture delta — a programmatic absolute pan/zoom (or a
@@ -298,10 +297,8 @@ function startAnimatedPan(target: { panX: number; panY: number }) {
     { x: panX(), y: panY() },
     { x: target.panX, y: target.panY },
     (x, y) => {
-      batch(() => {
-        setPanX(x);
-        setPanY(y);
-      });
+      setPanX(x);
+      setPanY(y);
     },
     // Reached the target: the pose is the one the user asked for, so the
     // tiles it shows are the tiles to attach. (An ABORT doesn't land here —
@@ -323,10 +320,8 @@ function panTo(x: number, y: number) {
 
 function setPan(x: number, y: number) {
   abortTransientInput();
-  batch(() => {
-    setPanX(x);
-    setPanY(y);
-  });
+  setPanX(x);
+  setPanY(y);
 }
 
 // The observed viewport changes even when the camera remains still.
@@ -357,11 +352,9 @@ function applyZoomToCenter(direction: "in" | "out" | "reset") {
     viewportSize().height,
     direction,
   );
-  batch(() => {
-    setPanX(result.panX);
-    setPanY(result.panY);
-    setZoom(result.zoom);
-  });
+  setPanX(result.panX);
+  setPanY(result.panY);
+  setZoom(result.zoom);
 }
 
 const viewport: CanvasViewport = {

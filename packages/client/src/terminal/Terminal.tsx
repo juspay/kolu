@@ -20,9 +20,9 @@ import {
   type Component,
   createEffect,
   createSignal,
-  on,
   onCleanup,
   Show,
+  untrack,
 } from "solid-js";
 import { toast } from "solid-sonner";
 import { match } from "ts-pattern";
@@ -94,6 +94,7 @@ import { installTerminalFocusProvenance } from "./focusProvenance";
 import {
   createForeignGridWatcher,
   FOREIGN_GRID_SETTLE_MS,
+  gridHeldByAnother,
 } from "./foreignGrid";
 import { handleWebLink } from "./handleWebLink";
 import { PrintedUrlCardMount } from "./PrintedUrlCard";
@@ -346,9 +347,10 @@ const Terminal: Component<{
     // Consumer teardown registered HERE, inside onReady — NOT at the component
     // body top. `<Xterm>` is a plain JSX child (no own reactive owner), so a
     // body-registered `onCleanup` lands FIRST on the shared owner and runs LAST
-    // under SolidJS LIFO — after the kit's `terminal.dispose()` / webgl-unload,
-    // and (since `cleanNode` has no per-entry try/catch) skipped entirely if
-    // either throws. Registered from inside `onReady` it lands AFTER the kit's
+    // under Solid's LIFO — after the kit's `terminal.dispose()` / webgl-unload,
+    // so it would be the one that sees an already-disposed graph (Solid 2 runs
+    // every cleanup even when one throws, but ORDER is still ours to get
+    // right). Registered from inside `onReady` it lands AFTER the kit's
     // disposal registrations, so LIFO runs it FIRST: the stream aborted, the
     // refs/diagnostics deregistered, backfill disposed, and the `__xterm` #606
     // bridge cleared BEFORE the terminal is disposed — the old single-function
@@ -589,8 +591,6 @@ const Terminal: Component<{
     // whether it states a size (`shownPane.ts`).
     const viewShown = () => props.viewShown;
     const shownPane = createShownPane({
-      shown,
-      viewShown,
       attach: () => {
         // Everything the pane still holds from the attach its last hide ended
         // has to go — but the SCREEN is not cleared, because the snapshot this
@@ -614,8 +614,16 @@ const Terminal: Component<{
       // stopped moving an outage ago. Behind the Conductor it stays owed.
       restateOwed: gridPublisher.republishSuppressed,
     });
+    // The facts come from the COMPUTE and travel as values: the effect phase is
+    // untracked, so a read down in the gate would see them without depending on
+    // them. What wakes the gate is named here, once.
     createEffect(
-      on([shown, viewShown, hostEntryKind], () => shownPane.observe()),
+      () => ({
+        shown: shown(),
+        viewShown: viewShown(),
+        hostState: hostEntryKind(),
+      }),
+      (facts) => shownPane.observe(facts),
     );
 
     // The ONE publisher of this pane's WANTED grid → the PTY. (The attach's own
@@ -628,9 +636,18 @@ const Terminal: Component<{
     // Driving it from the signal rather than a second `onResize` callback door
     // means "who states this pane's size" has a single answer.
     createEffect(
-      on(h.wantedGrid, (measured) => {
-        if (measured) shownPane.measured(measured);
+      // `shown`/`viewShown` are SAMPLED here, not tracked: a measurement is
+      // what publishes, and a visibility change is the other effect's to act
+      // on.
+      () => ({
+        measured: h.wantedGrid(),
+        shown: untrack(shown),
+        viewShown: untrack(viewShown),
       }),
+      ({ measured, shown: isShown, viewShown: inFront }) => {
+        if (measured)
+          shownPane.measured(measured, { shown: isShown, viewShown: inFront });
+      },
     );
 
     // The pty's OWN grid, as the record states it — the standing fact that says
@@ -653,13 +670,18 @@ const Terminal: Component<{
     });
     onCleanup(() => foreignGrid.dispose());
     createEffect(
-      on(
-        [
-          () => activeArm(terminalStore.getMetadata(props.terminalId))?.grid,
-          viewShown,
-        ],
-        () => foreignGrid.observe(),
-      ),
+      () => {
+        const served = activeArm(
+          terminalStore.getMetadata(props.terminalId),
+        )?.grid;
+        // The pane's own wanted grid is SAMPLED: this watcher is armed by the
+        // RECORD moving (and by the view coming back in front), never by the
+        // pane's own measurements, which would re-arm the settle window on
+        // every frame of a divider drag.
+        const mine = viewShown() ? untrack(h.wantedGrid) : null;
+        return gridHeldByAnother(served, mine);
+      },
+      (held) => foreignGrid.observe(held),
     );
 
     // Supersession for restartable attach loops: every attempt holds its OWN
@@ -1216,14 +1238,17 @@ const Terminal: Component<{
   // if it should have focus. The re-fit / scroll-to-bottom on visible is owned by
   // <Xterm>; this is the focus half. defer: true — onReady handles first focus.
   createEffect(
-    on(
-      () => props.visible,
-      (visible) => {
-        if (!visible) return;
-        if (props.focused !== false) focusOnSelection();
-      },
-      { defer: true },
-    ),
+    // `focused` is SAMPLED (untracked): only a visibility flip refocuses, and
+    // the focus-owning check is a read of how things stand when it does.
+    () => ({
+      visible: props.visible,
+      focused: untrack(() => props.focused),
+    }),
+    ({ visible, focused }) => {
+      if (!visible) return;
+      if (focused !== false) focusOnSelection();
+    },
+    { defer: true },
   );
 
   // Restore focus from two trigger sources, one guard. The `focused` prop
@@ -1235,34 +1260,36 @@ const Terminal: Component<{
   // pane's `focused`, so the nonce is what repairs it before the browser's
   // non-deterministic focus-after-removal lands (the linux flake this fixes).
   createEffect(
-    on(
-      () => [props.focused, props.refocusNonce] as const,
-      () => {
-        // A dock/canvas click writes selection from its click handler, before
-        // the browser has necessarily finished its own focus default. Focusing
-        // synchronously here lets that final default put focus back on the row.
-        // Re-check after the event turn and apply the already-written fact to
-        // the DOM; no selection write occurs on this path.
-        queueMicrotask(() => {
-          if (props.focused && props.visible) {
-            focusOnSelection();
-          }
-        });
-      },
-      { defer: true },
-    ),
+    () => [props.focused, props.refocusNonce] as const,
+    () => {
+      // A dock/canvas click writes selection from its click handler, before
+      // the browser has necessarily finished its own focus default. Focusing
+      // synchronously here lets that final default put focus back on the row.
+      // Re-check after the event turn and apply the already-written fact to
+      // the DOM; no selection write occurs on this path. The microtask runs
+      // outside the effect window, so these are ordinary live reads.
+      queueMicrotask(() => {
+        if (props.focused && props.visible) {
+          focusOnSelection();
+        }
+      });
+    },
+    { defer: true },
   );
 
   // Refocus terminal when search bar closes — only if this terminal should have focus.
   createEffect(
-    on(
-      () => props.searchOpen,
-      (open) => {
-        if (!open && props.visible && props.focused !== false)
-          focusOnSelection();
-      },
-      { defer: true },
-    ),
+    // Visibility and focus ownership are SAMPLED: the find bar closing is the
+    // only thing that refocuses.
+    () => ({
+      open: props.searchOpen,
+      visible: untrack(() => props.visible),
+      focused: untrack(() => props.focused),
+    }),
+    ({ open, visible, focused }) => {
+      if (!open && visible && focused !== false) focusOnSelection();
+    },
+    { defer: true },
   );
 
   return (

@@ -9,7 +9,7 @@ import {
   type MemoryEntry,
   type MemoryText,
 } from "kolu-common/conductorMemory";
-import { type Component, createEffect, createSignal, on, Show } from "solid-js";
+import { type Component, createEffect, createSignal, Show } from "solid-js";
 import MarkdownField from "../../ui/MarkdownField";
 import ModalDialog from "../../ui/ModalDialog";
 import { surface } from "../../ui/Surface";
@@ -63,14 +63,15 @@ const MemoryEditor: Component = () => {
   const [titleRef, setTitleRef] = createSignal<HTMLInputElement>();
 
   createEffect(
-    on(editing, (what) => {
+    () => editing(),
+    (what) => {
       if (what === null) return;
       const text = textOf(what);
       setTitle(text.title);
       setAbout(text.about ?? "");
       setBody(text.body);
       setRefusal(null);
-    }),
+    },
   );
 
   const close = (): void => {

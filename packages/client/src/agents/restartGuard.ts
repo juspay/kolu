@@ -10,13 +10,7 @@
  *
  *  Owned by the calling component: its timer is cleared on cleanup. */
 
-import {
-  type Accessor,
-  createEffect,
-  createSignal,
-  on,
-  onCleanup,
-} from "solid-js";
+import { type Accessor, createEffect, createSignal, onCleanup } from "solid-js";
 
 /** How long an armed guard waits for the confirming press. */
 export const RESTART_ARM_MS = 5000;
@@ -47,13 +41,11 @@ export function createRestartGuard(opts: {
   onCleanup(disarm);
   // The agent went quiet while armed: there is nothing left to warn about.
   createEffect(
-    on(
-      opts.guarded,
-      (guarded) => {
-        if (!guarded) disarm();
-      },
-      { defer: true },
-    ),
+    () => opts.guarded(),
+    (guarded) => {
+      if (!guarded) disarm();
+    },
+    { defer: true },
   );
   const press = () => {
     if (busy()) return;

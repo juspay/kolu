@@ -35,7 +35,7 @@
  *  cleared by the landing OR by the refusal, so it cannot outlive its write. */
 
 import type { TerminalId } from "kolu-common/surface";
-import { createEffect, createSignal } from "solid-js";
+import { createEffect, createSignal, untrack } from "solid-js";
 import { createSharedRoot } from "../../createSharedRoot";
 import { repairTileTabs, useSubPanel } from "../../terminal/useSubPanel";
 import { useTerminalCrud } from "../../terminal/useTerminalCrud";
@@ -62,45 +62,54 @@ export const useDockReparent = createSharedRoot(
     const focus = useDockFocus();
     const [pending, setPending] = createSignal<Pending | null>(null);
 
-    createEffect(() => {
-      const p = pending();
-      if (!p) return;
-      const edge = store.parentEdge(p.id);
-      // The terminal left the census while the write was in flight — nothing
-      // left to reconcile and nothing to focus.
-      if (edge === undefined) {
+    createEffect(
+      () => {
+        const p = pending();
+        if (!p) return null;
+        return {
+          p,
+          edge: store.parentEdge(p.id),
+          // Untracked: the repair below wants the pane list AT THE LANDING,
+          // and a pane list that moves on its own is not a reason to re-run
+          // the landing (the Solid 1 effect never acted on it either — it
+          // bailed on `pending` long before reaching this read).
+          panes: untrack(() => store.getSplitPaneIds(p.fromTile)),
+        };
+      },
+      (landing) => {
+        if (!landing) return;
+        const { p, edge, panes } = landing;
+        // The terminal left the census while the write was in flight — nothing
+        // left to reconcile and nothing to focus.
+        if (edge === undefined) {
+          setPending(null);
+          return;
+        }
+        if (edge !== p.parentId) return; // not landed yet
         setPending(null);
-        return;
-      }
-      if (edge !== p.parentId) return; // not landed yet
-      setPending(null);
-      if (p.fromTile === p.id) {
-        // The row WAS a tile: it is a split now, so the panel chrome keyed on
-        // its old tile identity is stale (the eviction path drops the same
-        // state when a tile departs) — and so is the per-host VISIT TRAIL, a
-        // list of TILES that `Ctrl+Tab`/`Alt+Tab` walks straight into
-        // `activate`, which throws on a split. Same prune the eviction path
-        // performs for a departing tile, for the same reason: this terminal is
-        // no longer a tile, which is exactly what that trail lists.
-        subPanel.removePanel(p.id);
-        store.forgetFromMru(p.id);
-      } else {
-        // The row left a tile that survives: repair that tile's tab strip so
-        // its `activeSubTab` cannot dangle at a pane that is no longer under
-        // it. The panes are handed over UNFILTERED — a same-tile move (a split
-        // dropped on its own sibling) still has the moved terminal under this
-        // tile, and `repairTileTabs`'s membership test then correctly finds
-        // nothing to repair. Focus is about to move to the dragged terminal
-        // anyway, so the repair never carries the focus fact.
-        repairTileTabs(
-          subPanel,
-          p.fromTile,
-          store.getSplitPaneIds(p.fromTile),
-          false,
-        );
-      }
-      focus(p.id);
-    });
+        if (p.fromTile === p.id) {
+          // The row WAS a tile: it is a split now, so the panel chrome keyed on
+          // its old tile identity is stale (the eviction path drops the same
+          // state when a tile departs) — and so is the per-host VISIT TRAIL, a
+          // list of TILES that `Ctrl+Tab`/`Alt+Tab` walks straight into
+          // `activate`, which throws on a split. Same prune the eviction path
+          // performs for a departing tile, for the same reason: this terminal is
+          // no longer a tile, which is exactly what that trail lists.
+          subPanel.removePanel(p.id);
+          store.forgetFromMru(p.id);
+        } else {
+          // The row left a tile that survives: repair that tile's tab strip so
+          // its `activeSubTab` cannot dangle at a pane that is no longer under
+          // it. The panes are handed over UNFILTERED — a same-tile move (a split
+          // dropped on its own sibling) still has the moved terminal under this
+          // tile, and `repairTileTabs`'s membership test then correctly finds
+          // nothing to repair. Focus is about to move to the dragged terminal
+          // anyway, so the repair never carries the focus fact.
+          repairTileTabs(subPanel, p.fromTile, panes, false);
+        }
+        focus(p.id);
+      },
+    );
 
     return (id, parentId) => {
       // The tile the row is leaving, read while the graph is still live. It is

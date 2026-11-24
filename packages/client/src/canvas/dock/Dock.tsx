@@ -87,7 +87,7 @@ import {
   createMemo,
   createSignal,
   For,
-  onMount,
+  onSettled,
   Show,
 } from "solid-js";
 import type { JSX } from "@solidjs/web";
@@ -225,12 +225,12 @@ const Dock: Component<{
   // parent. `effectiveDockWidth` caps the rendered width to it so a stored-wide
   // dock can't squeeze the canvas to zero and clip its own handle off-screen
   // (the right-panel split can shrink this host well below the 560px ceiling).
-  // Resolved in `onMount`, NOT the `ref` callback: Solid runs `ref` before the
+  // Resolved in `onSettled`, NOT the `ref` callback: Solid runs `ref` before the
   // element is inserted, so `parentElement` is still null there — reading it then
   // would leave the host unmeasured and the cap silently inert.
   let asideEl!: HTMLElement;
   const [hostEl, setHostEl] = createSignal<HTMLElement | null>(null);
-  onMount(() => setHostEl(asideEl.parentElement));
+  onSettled(() => setHostEl(asideEl.parentElement));
 
   /** The one resizable dock surface: the maximized cards sidebar. Named once so
    *  the width computation and the resize-handle gate stay provably
@@ -321,29 +321,33 @@ const RailOrCards: Component<{
   // The first tree that could be rearranged (2+ sections, or a repo whose
   // branch clusters have split) — the tip announces the gesture there, then
   // never again.
-  createEffect(() => {
-    const t = props.tree;
-    const rearrangeable =
-      t.groups.length > 1 || t.groups.some((g) => g.clusters.length > 1);
-    if (rearrangeable) showTipOnce(CONTEXTUAL_TIPS.dockRearrange);
-  });
+  createEffect(
+    () => {
+      const t = props.tree;
+      return t.groups.length > 1 || t.groups.some((g) => g.clusters.length > 1);
+    },
+    (rearrangeable) => {
+      if (rearrangeable) showTipOnce(CONTEXTUAL_TIPS.dockRearrange);
+    },
+  );
   // The first repo card holding two LIVE TOP-LEVEL rows — the first moment a
   // row drop is even possible. Top-level, not "any two live rows": a card with
   // one tile and its own split has no legal pair at all (child→its parent and
   // parent→its descendant are both refusals), and a banner that teaches a
   // gesture the card cannot perform is the same lie the hover verdict exists to
   // avoid. Live, not merely listed: a sleeping row has no grip.
-  createEffect(() => {
-    if (
+  createEffect(
+    () =>
       props.tree.groups.some(
         (g) =>
           g.topRows.filter(
             (r) => activeArm(store.getMetadata(r.id)) !== undefined,
           ).length >= 2,
-      )
-    )
-      showTipOnce(CONTEXTUAL_TIPS.dockRehome);
-  });
+      ),
+    (pairPossible) => {
+      if (pairPossible) showTipOnce(CONTEXTUAL_TIPS.dockRehome);
+    },
+  );
   // Pre-built `id → flat position` map. RepoSection used to compute
   // each row's flat index via `findIndex` over `flatShortcutRows`, costing
   // O(rows²) per render. The map is rebuilt only when the tree

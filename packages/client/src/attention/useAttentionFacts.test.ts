@@ -1,4 +1,4 @@
-import { batch, createRoot, createSignal } from "solid-js";
+import { createRoot, createSignal } from "solid-js";
 import { expect, it, vi } from "vitest";
 import { hostFrame } from "./attentionMarks";
 import type { PadiUrgency } from "@kolu/padi-client/surface";
@@ -80,15 +80,11 @@ it("does not publish an empty live set while the activity stream is pending", as
   source.urgency = () => frame({});
   await withMirror(() => {
     expect(hostFrame("local").reported).toBe(false);
-    batch(() => {
-      setIds(["a"]);
-      setPending(false);
-    });
+    setIds(["a"]);
+    setPending(false);
     expect(hostFrame("local").liveIds).toEqual(["a"]);
-    batch(() => {
-      setPending(true);
-      setIds([]);
-    });
+    setPending(true);
+    setIds([]);
     expect(hostFrame("local").liveIds).toEqual(["a"]);
     expect(hostFrame("local").reported).toBe(true);
     setPending(false);

@@ -25,7 +25,7 @@
 import { Effect } from "effect";
 import type { HostKey } from "kolu-common/hostKey";
 import type { TerminalId } from "kolu-common/surface";
-import { batch, createRoot, createSignal } from "solid-js";
+import { createRoot, createSignal } from "solid-js";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 // The `./wire` mock stands up the mock `padiMap` the real owner reads + the per-tab
@@ -74,12 +74,11 @@ const [driveHost, setDriveHost] = createSignal<HostKey>(HOST_A);
 bag.activeHost = driveHost;
 
 /** A real host switch: ADD the target as a member (add-as-member) and make it
- *  active, in one batch — the owner re-keys `activeScope()` to the target's owner. */
+ *  active — consecutive writes land in one update, so the owner re-keys
+ *  `activeScope()` to the target's owner in lockstep. */
 function switchTo(host: HostKey): void {
-  batch(() => {
-    addHost(host);
-    setDriveHost(host);
-  });
+  addHost(host);
+  setDriveHost(host);
 }
 
 beforeEach(() => {

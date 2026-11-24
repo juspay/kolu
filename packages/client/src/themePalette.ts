@@ -1,4 +1,3 @@
-import { batch } from "solid-js";
 import type { PaletteAction, PaletteGroup } from "./CommandPalette";
 
 export interface ThemePaletteDeps {
@@ -29,11 +28,10 @@ export function themePaletteGroup(
             name,
             onHighlight: () => deps.setPreviewThemeName(name),
             onCancel: restore,
-            onSelect: () =>
-              batch(() => {
-                restore();
-                deps.handleSetTheme(name);
-              }),
+            onSelect: () => {
+              restore();
+              deps.handleSetTheme(name);
+            },
           }),
         ),
   };

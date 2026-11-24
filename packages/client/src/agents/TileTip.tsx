@@ -28,7 +28,6 @@ import {
   createMemo,
   createSignal,
   For,
-  on,
   Show,
 } from "solid-js";
 import { showsAmbientTips } from "../capabilities";
@@ -305,7 +304,10 @@ const ChipRow: Component<{
   };
   // The row's width moves with the tile; the measured chips' with the font.
   createResizeObserver(() => [row, measure], fit);
-  createEffect(on(() => props.chips, fit));
+  createEffect(
+    () => props.chips,
+    () => fit(),
+  );
 
   const visible = () => props.chips.slice(0, count());
   const hidden = () => props.chips.slice(count());

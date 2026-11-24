@@ -528,56 +528,77 @@ createRoot(() => {
   const [linkRestoredAnnouncedAt, setLinkRestoredAnnouncedAt] = perHostMarks(
     "kolu.kaval.linkRestoredAnnouncedAt",
   );
-  createEffect(() => {
-    // The glue (`announceReattach`) commits the proven adoptedAt as the new high-water mark
-    // BEFORE toasting, so a re-run on the same snapshot is silent — both halves are unit-tested
-    // in `reattachAnnounce.test.ts`. Scoped to the ACTIVE host's OWN mark (per-host clocks are
-    // per-host facts — see the record above), captured once per run so the read and the commit
-    // target the same host across a mid-effect switch.
-    // The record is keyed by the host's CANONICAL string (`encodeHostKey`) — a `HostKey`
-    // object can't itself be a `Record` key.
-    const host = encodeHostKey(activeHost());
-    /** Commit a proven stamp as THIS host's new high-water mark on one rail —
-     *  the write all three rails share, so the read and the commit target the
-     *  same host and the same shape. */
-    const markFor =
-      (setMarks: typeof setReattachAnnouncedAt) =>
-      (mark: number): void => {
-        setMarks((prev) => ({ ...prev, [host]: mark }));
+  createEffect(
+    () => {
+      // Scoped to the ACTIVE host's OWN mark (per-host clocks are per-host facts —
+      // see the record above), captured once per run so the read and the commit
+      // target the same host across a mid-run switch.
+      // The record is keyed by the host's CANONICAL string (`encodeHostKey`) — a
+      // `HostKey` object can't itself be a `Record` key.
+      const host = encodeHostKey(activeHost());
+      const status = localDaemonStatus();
+      return {
+        host,
+        // The stamps the three rails read, taken as PLAIN VALUES here: the
+        // announce calls run in the effect phase, where reads are untracked.
+        status: status && {
+          state: status.state,
+          adopted: status.adopted,
+          adoptedAt: status.adoptedAt,
+          autoRecoveredAt: status.autoRecoveredAt,
+          linkRestoredAt: status.linkRestoredAt,
+        },
+        reattachMark: reattachAnnouncedAt()[host] ?? 0,
+        autoRecoveryMark: autoRecoveryAnnouncedAt()[host] ?? 0,
+        linkRestoredMark: linkRestoredAnnouncedAt()[host] ?? 0,
       };
-    announceReattach(
-      localDaemonStatus(),
-      reattachAnnouncedAt()[host] ?? 0,
-      markFor(setReattachAnnouncedAt),
-      (count) =>
-        toast.info(`${count} terminal${count === 1 ? "" : "s"} reattached`),
-    );
-    // #2101 N1's one toast: padi restarted an unresponsive kaval by itself and a
-    // probe proved the replacement serves. Same rail, same dedupe law, its OWN
-    // per-host mark — an adoption and a recovery are independent facts, and one
-    // shared mark would let either suppress the other.
-    announceAutoRecovery(
-      localDaemonStatus(),
-      autoRecoveryAnnouncedAt()[host] ?? 0,
-      markFor(setAutoRecoveryAnnouncedAt),
-      () =>
-        toast.warning(
-          "kaval was unresponsive — kolu restarted it; your session is ready to restore",
-        ),
-    );
-    // #2184's one toast, and a SUCCESS rather than a warning: the connection
-    // dropped, kolu re-made it, and nothing was lost — no process was restarted
-    // and nothing needs restoring, so the recovery line above would be false in
-    // every clause. Its own per-host mark, for the reason the one above has its
-    // own.
-    announceLinkRestored(
-      localDaemonStatus(),
-      linkRestoredAnnouncedAt()[host] ?? 0,
-      markFor(setLinkRestoredAnnouncedAt),
-      () =>
-        toast.success(
-          "lost the connection to kaval — kolu reconnected; your terminals kept running",
-        ),
-    );
-  });
+    },
+    ({ host, status, reattachMark, autoRecoveryMark, linkRestoredMark }) => {
+      /** Commit a proven stamp as THIS host's new high-water mark on one rail —
+       *  the write all three rails share, so the read and the commit target the
+       *  same host and the same shape. */
+      const markFor =
+        (setMarks: typeof setReattachAnnouncedAt) =>
+        (mark: number): void => {
+          setMarks((prev) => ({ ...prev, [host]: mark }));
+        };
+      // The glue (`announceReattach`) commits the proven adoptedAt as the new
+      // high-water mark BEFORE toasting, so a re-run on the same snapshot is
+      // silent — both halves are unit-tested in `reattachAnnounce.test.ts`.
+      announceReattach(
+        status,
+        reattachMark,
+        markFor(setReattachAnnouncedAt),
+        (count) =>
+          toast.info(`${count} terminal${count === 1 ? "" : "s"} reattached`),
+      );
+      // #2101 N1's one toast: padi restarted an unresponsive kaval by itself and a
+      // probe proved the replacement serves. Same rail, same dedupe law, its OWN
+      // per-host mark — an adoption and a recovery are independent facts, and one
+      // shared mark would let either suppress the other.
+      announceAutoRecovery(
+        status,
+        autoRecoveryMark,
+        markFor(setAutoRecoveryAnnouncedAt),
+        () =>
+          toast.warning(
+            "kaval was unresponsive — kolu restarted it; your session is ready to restore",
+          ),
+      );
+      // #2184's one toast, and a SUCCESS rather than a warning: the connection
+      // dropped, kolu re-made it, and nothing was lost — no process was restarted
+      // and nothing needs restoring, so the recovery line above would be false in
+      // every clause. Its own per-host mark, for the reason the one above has its
+      // own.
+      announceLinkRestored(
+        status,
+        linkRestoredMark,
+        markFor(setLinkRestoredAnnouncedAt),
+        () =>
+          toast.success(
+            "lost the connection to kaval — kolu reconnected; your terminals kept running",
+          ),
+      );
+    },
+  );
 });

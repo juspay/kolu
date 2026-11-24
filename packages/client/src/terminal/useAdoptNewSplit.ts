@@ -34,7 +34,7 @@
  *  genuinely-new sub that appears WHILE seeded is adopted. */
 
 import type { TerminalId } from "kolu-common/surface";
-import { type Accessor, createEffect, on } from "solid-js";
+import { type Accessor, createEffect, untrack } from "solid-js";
 import type { HydrationPhase } from "../hostScope/createSessionRestore";
 import { createHostScopedParentSnapshot } from "./parentSnapshot";
 import { containingTileOf, type ParentEdge } from "./terminalTree";
@@ -94,37 +94,69 @@ export function useAdoptNewSplit(deps: {
     },
   );
 
+  /** One split to adopt, decided in the compute and acted on in the effect. */
+  interface Adoption {
+    readonly subId: TerminalId;
+    readonly parentId: TerminalId;
+    /** The ROOT tile whose chrome the sub belongs to. */
+    readonly tileId: TerminalId;
+    readonly takeFocus: boolean;
+  }
+  interface AdoptPass {
+    readonly snap: { host: string; map: Map<TerminalId, TerminalId> };
+    readonly adopt: readonly Adoption[];
+  }
   createEffect(
-    on(snapshot, (curr, prev) => {
+    (prev?: AdoptPass): AdoptPass => {
+      const curr = snapshot();
+      const prevSnap = prev?.snap;
       // First run OR a host SWITCH — advance the baseline and adopt NONE: a fresh
-      // host must not auto-open its existing splits. `prev` is framework-maintained
-      // (SolidJS keeps the memo's prior value), so the switched-to host's subs land
-      // in the baseline next tick for free — no manual accumulator to reset.
-      if (prev === undefined || curr.host !== prev.host) return;
-      // `on` runs this callback untracked, so the SAMPLED phase read (and the
-      // ports' live reads below) add no dependency — the effect wakes only on a
-      // snapshot change, exactly like the reconcile. Not seeded (load/restore/
-      // recycle) → hydration owns the tabs; we skip, but `curr` still becomes next
-      // tick's `prev`, so a sub seen while unseeded is baseline, never a deferred
-      // false arrival.
-      if (deps.restorePhase() !== "seeded") return;
+      // host must not auto-open its existing splits. The baseline is the pass's
+      // own previous value, so the switched-to host's subs land in it next tick
+      // for free — no manual accumulator to reset.
+      if (prevSnap === undefined || curr.host !== prevSnap.host)
+        return { snap: curr, adopt: [] };
+      // Not seeded (load/restore/recycle) → hydration owns the tabs; we skip, but
+      // `curr` still becomes next tick's baseline, so a sub seen while unseeded is
+      // baseline, never a deferred false arrival. SAMPLED (untracked): a phase
+      // flip alone must not adopt anything — only a snapshot change may.
+      if (untrack(deps.restorePhase) !== "seeded")
+        return { snap: curr, adopt: [] };
       // Arrivals are curr − prev: a sub in the live map absent from last tick's.
+      const adopt: Adoption[] = [];
       for (const [subId, parentId] of curr.map) {
-        if (prev.map.has(subId)) continue;
-        // Sub-panel chrome is keyed on the ROOT tile. A nested create
-        // (`parentId` = a middle split) must expand that tile's panel, not a
-        // middle node that has no canvas chrome of its own.
-        const tileId = containingTileOf(parentId, deps.parentOf);
+        if (prevSnap.map.has(subId)) continue;
+        adopt.push(
+          untrack(() => {
+            // Sub-panel chrome is keyed on the ROOT tile. A nested create
+            // (`parentId` = a middle split) must expand that tile's panel, not a
+            // middle node that has no canvas chrome of its own. The tree walk and
+            // the tab read are SAMPLES of the current state — the snapshot is
+            // what wakes this, exactly as the retired `on(snapshot, …)` form had
+            // it.
+            const tileId = containingTileOf(parentId, deps.parentOf);
+            // Don't-steal: select the arrival only when no split is currently
+            // active. `activeSubTab` is null-or-live by invariant (evictTerminal
+            // clears it when a tile's last split departs), so a plain null-check
+            // IS the liveness test — an active tab is always a real split you're
+            // working in.
+            return {
+              subId,
+              parentId,
+              tileId,
+              takeFocus: deps.ports.activeSubTab(tileId) === null,
+            };
+          }),
+        );
+      }
+      return { snap: curr, adopt };
+    },
+    ({ adopt }) => {
+      for (const { subId, parentId, tileId, takeFocus } of adopt) {
         deps.ports.seedSplitTab(subId, parentId);
         deps.ports.expandPanel(tileId);
-        // Don't-steal: select the arrival only when no split is currently active.
-        // `activeSubTab` is null-or-live by invariant (evictTerminal clears it when
-        // a tile's last split departs), so a plain null-check IS the liveness
-        // test — an active tab is always a real split you're working in.
-        if (deps.ports.activeSubTab(tileId) === null) {
-          deps.ports.setActiveSubTab(tileId, subId);
-        }
+        if (takeFocus) deps.ports.setActiveSubTab(tileId, subId);
       }
-    }),
+    },
   );
 }

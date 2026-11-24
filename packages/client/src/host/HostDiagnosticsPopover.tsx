@@ -248,9 +248,12 @@ export const HostDiagnosticsPopover: Component<{
   };
 
   // Reset the two-step remove arm whenever the panel closes.
-  createEffect(() => {
-    if (!props.open()) setConfirmRemove(false);
-  });
+  createEffect(
+    () => props.open(),
+    (open) => {
+      if (!open) setConfirmRemove(false);
+    },
+  );
 
   const { panelRef, panelStyle } = useAnchoredPopover({
     triggerRef: props.triggerRef,

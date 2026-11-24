@@ -45,11 +45,14 @@
 
 import type { TerminalGrid } from "@kolu/xterm-kit/solid";
 
-export interface ShownPaneDeps {
+/** The two live facts the gate judges on, as they stand when it is called.
+ *  PASSED IN rather than read: the caller is a Solid effect, whose compute is
+ *  the one place a reactive read belongs — the effect phase this runs in is
+ *  untracked, so a read here would see the facts without depending on them. */
+export interface ShownPaneFacts {
   /** Is this pane shown — MEASURED (it has a real grid, not xterm's invented
-   *  80×24) and VISIBLE (a user could be reading it)? Both are live signals;
-   *  this reads them, it does not remember them. */
-  readonly shown: () => boolean;
+   *  80×24) and VISIBLE (a user could be reading it)? */
+  readonly shown: boolean;
   /** Is the VIEW this pane is drawn in the one in front? False while the
    *  Conductor covers the workspace. The pane stays attached and keeps drawing
    *  — `shown` is untouched — but it states no size: a measurement is not
@@ -57,7 +60,10 @@ export interface ShownPaneDeps {
    *  sizing the terminal, and a pane nobody is looking at must not take the
    *  size back. On the way back in front the pane's foreign-grid watcher
    *  (`foreignGrid.ts`) restates its size if the terminal no longer has it. */
-  readonly viewShown: () => boolean;
+  readonly viewShown: boolean;
+}
+
+export interface ShownPaneDeps {
   /** Open the attach stream at the pane's current grid. The screen is NOT
    *  cleared first: the fresh snapshot carries the reset that replaces the
    *  stale bytes, so the two land as one write. */
@@ -80,23 +86,22 @@ export interface ShownPaneDeps {
 }
 
 export interface ShownPane {
-  /** Re-read `shown()` and `viewShown()` and act on a CHANGE; restate an owed
-   *  grid while in front. Idempotent: safe on every tick of any fact they
-   *  read, and of the host's state. */
-  observe(): void;
+  /** Act on a CHANGE in the facts handed in; restate an owed grid while in
+   *  front. Idempotent: safe on every tick of any fact they come from, and of
+   *  the host's state. */
+  observe(facts: ShownPaneFacts): void;
   /** The pane measured a new grid. Published only while the pane is shown
    *  and its view is in front. */
-  measured(grid: TerminalGrid): void;
+  measured(grid: TerminalGrid, facts: ShownPaneFacts): void;
 }
 
 export function createShownPane(deps: ShownPaneDeps): ShownPane {
   /** The last answer acted on — and therefore whether an attach is live. */
   let attached = false;
   return {
-    observe() {
-      if (deps.viewShown()) deps.restateOwed();
+    observe({ shown, viewShown }: ShownPaneFacts) {
+      if (viewShown) deps.restateOwed();
       else deps.cancelPublish();
-      const shown = deps.shown();
       if (shown === attached) return;
       attached = shown;
       if (shown) deps.attach();
@@ -105,8 +110,8 @@ export function createShownPane(deps: ShownPaneDeps): ShownPane {
         deps.detach();
       }
     },
-    measured(grid: TerminalGrid) {
-      if (!deps.shown() || !deps.viewShown()) return;
+    measured(grid: TerminalGrid, { shown, viewShown }: ShownPaneFacts) {
+      if (!shown || !viewShown) return;
       deps.publish(grid);
     },
   };

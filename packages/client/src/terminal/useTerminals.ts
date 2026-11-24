@@ -140,11 +140,11 @@ export function useTerminals() {
   // seeds each panel in the SAME batch; an adopt run that sampled the just-flipped
   // `seeded` for a sub first entering the snapshot on that flush would false-adopt
   // it (re-opening a restored-collapsed panel, persisting the wrong state). Adopt
-  // runs first for TWO independent reasons: it is created first (creation order),
-  // AND its effect is memo-backed (`on(snapshot)`) while hydration is a plain
-  // effect — SolidJS schedules a memo-backed effect ahead of a plain one. So it
-  // samples the pre-flip `decided`, baselines the sub, and skips; hydration then
-  // owns the seed. (Verified against the installed runtime in useAdoptNewSplit.test.)
+  // runs first because it is created first: at equal depth Solid queues effects
+  // in creation order, and adopt's compute derives from the snapshot memo while
+  // hydration reads its sources directly. So it samples the pre-flip `decided`,
+  // baselines the sub, and skips; hydration then owns the seed. (Verified
+  // against the installed runtime in useAdoptNewSplit.test.)
   const subPanel = useSubPanel();
   const rightPanel = useRightPanel();
   useAdoptNewSplit({

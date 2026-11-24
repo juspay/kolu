@@ -79,7 +79,6 @@ export function useHostTerminals(): HostTerminals {
   const printedOnHost = createMemo(
     () =>
       new Set(store.terminalIds().flatMap((tileId) => [...printedBy(tileId)])),
-    undefined,
     { equals: sameSet },
   );
   return {

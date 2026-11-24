@@ -22,10 +22,10 @@ import {
   createMemo,
   For,
   Match,
-  on,
   onCleanup,
   Show,
   Switch,
+  untrack,
 } from "solid-js";
 import type { JSX } from "@solidjs/web";
 import { DragDropProvider, type DropEvent } from "../dnd";
@@ -135,9 +135,10 @@ const TerminalCanvas: Component<{
   // canvas only owns the trigger (tileIds + getLayout changes), not the
   // rule. `getLayout` is captured in a stable closure so SolidJS's
   // fine-grained tracking re-runs the effect when either input shifts.
-  createEffect(() => {
-    pendingLayouts.dropEvicted(new Set(props.tileIds), props.getLayout);
-  });
+  createEffect(
+    () => pendingLayouts.evictedIds(new Set(props.tileIds), props.getLayout),
+    (evicted) => pendingLayouts.dropIds(evicted),
+  );
 
   // Pending lives at module scope (singleton, shared with useCanvasArrange).
   // Flush on canvas unmount so a mobile↔desktop remount never inherits a
@@ -183,76 +184,87 @@ const TerminalCanvas: Component<{
   // `allRecordsSettled` re-arms the effect when a deferred tile's record arrives
   // (undefined -> defined). It's a BOOLEAN memo, so a metadata VALUE change (agent
   // state, cwd, git) does NOT re-run placement — only the tile set changing or the
-  // "all records arrived" edge does, preserving the original `on(tileIds)`
-  // stability (a metadata tick must not wake placement).
+  // "all records arrived" edge does, keeping placement's dependency set down to
+  // the tile ids (a metadata tick must not wake placement).
   const isMetadataRecordPresent = (id: TileId): boolean =>
     store.getMetadata(id) !== undefined;
   const allRecordsSettled = createMemo(() =>
     props.tileIds.every(isMetadataRecordPresent),
   );
   createEffect(
-    on(
-      () => [props.tileIds, allRecordsSettled(), viewport.mounted()] as const,
-      ([ids]) => {
-        const center = viewport.viewportCenter();
+    () => {
+      const ids = props.tileIds;
+      // The two edges that may WAKE placement, and nothing else.
+      void allRecordsSettled();
+      void viewport.mounted();
+      // Everything below is a snapshot at that edge — untracked, exactly as the
+      // Solid 1 `on(...)` callback was: a camera pan or a metadata VALUE tick
+      // must not wake placement.
+      return untrack(() => {
         // No viewport measurement yet — defer placement; the mounted edge
         // re-runs this effect once the observer has measured the laid-out canvas.
         // Reading the center via `viewportCenter()` (not an inlined pan+size
         // calc) keeps the unmounted-guard: a 0×0 viewport would otherwise
         // collapse the center to the raw pan origin and place tiles top-left.
-        if (!center) return;
-        const { x: cx, y: cy } = center;
+        const center = viewport.viewportCenter();
+        if (!center) return null;
+        return {
+          center,
+          plan: planTilePlacements(ids, layoutOf, isMetadataRecordPresent),
+          activeId: tileStore.activeId(),
+          onLayoutChange: props.onLayoutChange,
+        };
+      });
+    },
+    (work) => {
+      if (!work) return;
+      const { plan, activeId, onLayoutChange } = work;
+      const { x: cx, y: cy } = work.center;
 
-        const plan = planTilePlacements(ids, layoutOf, (id) =>
-          isMetadataRecordPresent(id),
-        );
+      // Consume the inherited size only when there are new tiles that need
+      // layouts — a re-run with no new tiles (session restore, chunked
+      // metadata, a deferred tile still pending) must not swallow the size
+      // pending for a later create.
+      const hasNewTiles = plan.some((p) => p.kind === "new");
+      const inheritSize = hasNewTiles
+        ? pendingLayouts.takeNextDefaultSize()
+        : null;
 
-        // Consume the inherited size only when there are new tiles that need
-        // layouts — a re-run with no new tiles (session restore, chunked
-        // metadata, a deferred tile still pending) must not swallow the size
-        // pending for a later create.
-        const hasNewTiles = plan.some((p) => p.kind === "new");
-        const inheritSize = hasNewTiles
-          ? pendingLayouts.takeNextDefaultSize()
-          : null;
-
-        const placed: {
-          id: TileId;
-          layout: TileLayout;
-          isNew: boolean;
-        }[] = [];
-        for (const p of plan) {
-          // Metadata record not yet arrived — wait; don't clobber a returning
-          // tile's saved layout with a default.
-          if (p.kind === "defer") continue;
-          if (p.kind === "existing") {
-            placed.push({ id: p.id, layout: p.layout, isNew: false });
-            continue;
-          }
-          const defaultLayout: TileLayout = {
-            ...findFreeTilePosition(
-              cx,
-              cy,
-              placed.map((x) => x.layout),
-            ),
-            w: inheritSize?.w ?? DEFAULT_TILE_W,
-            h: inheritSize?.h ?? DEFAULT_TILE_H,
-          };
-          setPendingLayout(p.id, defaultLayout);
-          props.onLayoutChange(p.id, defaultLayout);
-          placed.push({ id: p.id, layout: defaultLayout, isNew: true });
+      const placed: {
+        id: TileId;
+        layout: TileLayout;
+        isNew: boolean;
+      }[] = [];
+      for (const p of plan) {
+        // Metadata record not yet arrived — wait; don't clobber a returning
+        // tile's saved layout with a default.
+        if (p.kind === "defer") continue;
+        if (p.kind === "existing") {
+          placed.push({ id: p.id, layout: p.layout, isNew: false });
+          continue;
         }
-        // Pan to the active newly-placed tile. This is a tile-level landing with
-        // no explicit pane target, so it preserves the visible remembered pane;
-        // the call's job is bumping the centering signal once the new tile's
-        // pending layout exists. Same mechanism the `focus.request` effect below
-        // uses for every other system-driven activation.
-        const activeId = tileStore.activeId();
-        if (activeId && placed.some((p) => p.isNew && p.id === activeId)) {
-          tileStore.activateVisiblePane(activeId);
-        }
-      },
-    ),
+        const defaultLayout: TileLayout = {
+          ...findFreeTilePosition(
+            cx,
+            cy,
+            placed.map((x) => x.layout),
+          ),
+          w: inheritSize?.w ?? DEFAULT_TILE_W,
+          h: inheritSize?.h ?? DEFAULT_TILE_H,
+        };
+        setPendingLayout(p.id, defaultLayout);
+        onLayoutChange(p.id, defaultLayout);
+        placed.push({ id: p.id, layout: defaultLayout, isNew: true });
+      }
+      // Pan to the active newly-placed tile. This is a tile-level landing with
+      // no explicit pane target, so it preserves the visible remembered pane;
+      // the call's job is bumping the centering signal once the new tile's
+      // pending layout exists. Same mechanism the `focus.request` effect below
+      // uses for every other system-driven activation.
+      if (activeId && placed.some((p) => p.isNew && p.id === activeId)) {
+        tileStore.activateVisiblePane(activeId);
+      }
+    },
   );
 
   /** Apply the drag's offset to the tile's persisted position.
@@ -332,13 +344,15 @@ const TerminalCanvas: Component<{
   // to `layoutOf(id) === undefined` (the tile is gone) so the initial
   // run is a safe no-op.
   createEffect(
-    on(focus.request, (id) => {
-      if (!id) return;
-      const layout = layoutOf(id);
-      if (layout) {
-        requestAnimationFrame(() => viewport.centerOnTile(layout));
-      }
-    }),
+    () => {
+      const id = focus.request();
+      // Untracked, as the Solid 1 `on(...)` callback's read was: the request is
+      // the edge, and a later layout change for that tile is not a second pan.
+      return id ? untrack(() => layoutOf(id)) : undefined;
+    },
+    (layout) => {
+      if (layout) requestAnimationFrame(() => viewport.centerOnTile(layout));
+    },
   );
 
   // On first mount at the default origin, pan so the persisted active tile
@@ -348,64 +362,73 @@ const TerminalCanvas: Component<{
   const isDefaultViewport = () =>
     viewport.panX() === 0 && viewport.panY() === 0 && viewport.zoom() === 1;
 
-  createEffect(() => {
-    const ids = props.tileIds;
-    // The centering impulse is DROPPED, not deferred, while the viewport has no
-    // measured size (`targetForTile` answers null) — and nothing re-fires it, so
-    // a slow first measurement (a loaded CI box, a busy tab) left a restored
-    // session uncentered for the rest of the session. Wait for the first
-    // measurement: reading `mounted()` also makes this effect re-run when it
-    // lands, which is the retry the drop never had.
-    if (!viewport.mounted()) return;
-    if (ids.length === 0 || !isDefaultViewport()) return;
-    // Wait for the active id to hydrate before deciding between "centre on
-    // saved active" and "bbox fallback". Running the bbox fallback while the
-    // active is still in flight pans the viewport off-default, and the
-    // `isDefaultViewport()` guard above then blocks any re-centre once
-    // `useSessionRestore` calls `setActiveSilently` with the persisted id —
-    // leaving a restored session centred on the bbox instead of its active tile.
-    //
-    // TWO windows produce "tiles present, active not yet assigned":
-    //   - COLD LOAD: `terminalList.get` (which feeds `tileIds`) beats
-    //     `session.get`, so `session` is still `pending()`.
-    //   - RESTORE FROM CARD (W1.R6): `session.get` has ALREADY yielded (the card
-    //     needed it), so `pending()` is false — but the restored tiles arrive on
-    //     the `terminals` collection AFTER the click, and `useSessionRestore`'s
-    //     hydration assigns the active a tick later. A `pending()`-only guard
-    //     misses this window.
-    // So wait whenever there's no active yet AND one is expected — either the
-    // session snapshot is still in flight, or it names an `activeTerminalId`.
-    // Hydration always assigns SOME active when top-level tiles exist (it falls
-    // back to the first tile), so this can't wait forever.
-    const savedActiveId = savedSessionSub()?.activeTerminalId ?? null;
-    if (
-      tileStore.activeId() === null &&
-      (savedSessionSub.pending() || savedActiveId !== null)
-    )
-      return;
-    const active = tileStore.activeId();
-    const activeLayout = active ? layoutOf(active) : undefined;
-    if (activeLayout) {
-      requestAnimationFrame(() => viewport.centerOnTile(activeLayout));
-      return;
-    }
-    let minX = Infinity,
-      minY = Infinity,
-      maxX = -Infinity,
-      maxY = -Infinity;
-    for (const id of ids) {
-      const l = layoutOf(id);
-      if (!l) continue;
-      minX = Math.min(minX, l.x);
-      minY = Math.min(minY, l.y);
-      maxX = Math.max(maxX, l.x + l.w);
-      maxY = Math.max(maxY, l.y + l.h);
-    }
-    if (!Number.isFinite(minX)) return;
-    requestAnimationFrame(() => {
-      viewport.panTo((minX + maxX) / 2, (minY + maxY) / 2);
-    });
-  });
+  type CenterTarget =
+    | { kind: "tile"; layout: TileLayout }
+    | { kind: "bbox"; x: number; y: number };
+  createEffect(
+    (): CenterTarget | null => {
+      const ids = props.tileIds;
+      // The centering impulse is DROPPED, not deferred, while the viewport has no
+      // measured size (`targetForTile` answers null) — and nothing re-fires it, so
+      // a slow first measurement (a loaded CI box, a busy tab) left a restored
+      // session uncentered for the rest of the session. Wait for the first
+      // measurement: reading `mounted()` also makes this effect re-run when it
+      // lands, which is the retry the drop never had.
+      if (!viewport.mounted()) return null;
+      if (ids.length === 0 || !isDefaultViewport()) return null;
+      // Wait for the active id to hydrate before deciding between "centre on
+      // saved active" and "bbox fallback". Running the bbox fallback while the
+      // active is still in flight pans the viewport off-default, and the
+      // `isDefaultViewport()` guard above then blocks any re-centre once
+      // `useSessionRestore` calls `setActiveSilently` with the persisted id —
+      // leaving a restored session centred on the bbox instead of its active tile.
+      //
+      // TWO windows produce "tiles present, active not yet assigned":
+      //   - COLD LOAD: `terminalList.get` (which feeds `tileIds`) beats
+      //     `session.get`, so `session` is still `pending()`.
+      //   - RESTORE FROM CARD (W1.R6): `session.get` has ALREADY yielded (the card
+      //     needed it), so `pending()` is false — but the restored tiles arrive on
+      //     the `terminals` collection AFTER the click, and `useSessionRestore`'s
+      //     hydration assigns the active a tick later. A `pending()`-only guard
+      //     misses this window.
+      // So wait whenever there's no active yet AND one is expected — either the
+      // session snapshot is still in flight, or it names an `activeTerminalId`.
+      // Hydration always assigns SOME active when top-level tiles exist (it falls
+      // back to the first tile), so this can't wait forever.
+      const savedActiveId = savedSessionSub()?.activeTerminalId ?? null;
+      if (
+        tileStore.activeId() === null &&
+        (savedSessionSub.pending() || savedActiveId !== null)
+      )
+        return null;
+      const active = tileStore.activeId();
+      const activeLayout = active ? layoutOf(active) : undefined;
+      if (activeLayout) return { kind: "tile", layout: activeLayout };
+      let minX = Infinity,
+        minY = Infinity,
+        maxX = -Infinity,
+        maxY = -Infinity;
+      for (const id of ids) {
+        const l = layoutOf(id);
+        if (!l) continue;
+        minX = Math.min(minX, l.x);
+        minY = Math.min(minY, l.y);
+        maxX = Math.max(maxX, l.x + l.w);
+        maxY = Math.max(maxY, l.y + l.h);
+      }
+      if (!Number.isFinite(minX)) return null;
+      return { kind: "bbox", x: (minX + maxX) / 2, y: (minY + maxY) / 2 };
+    },
+    // The pan itself is the imperative half: one frame later, so the canvas has
+    // laid out at its new size before the camera moves.
+    (target) => {
+      if (!target) return;
+      requestAnimationFrame(() => {
+        if (target.kind === "tile") viewport.centerOnTile(target.layout);
+        else viewport.panTo(target.x, target.y);
+      });
+    },
+  );
 
   /** Render a live-terminal tile. Driven by two id faces that coincide today
    *  (`tileId === terminalId`) but are split to make the seam explicit: the

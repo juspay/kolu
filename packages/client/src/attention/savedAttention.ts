@@ -28,13 +28,7 @@ import {
   TerminalIdSchema,
 } from "@kolu/terminal-vocab/terminalId";
 import { Schema } from "effect";
-import {
-  createComputed,
-  createRoot,
-  createStore,
-  produce,
-  untrack,
-} from "solid-js";
+import { createProjection, createRoot, untrack } from "solid-js";
 import {
   defaultInvalidWarning,
   originStorageSync,
@@ -115,20 +109,13 @@ export function createAttentionRecord(opts: {
     else if (JSON.stringify(untrack(saved)) !== JSON.stringify(now))
       setSaved(() => now);
   };
-  // The saved list, one store key per terminal: a write from this page or
-  // another moves only the keys whose mark changed, so only those rows wake.
-  const [unread, setUnread] = createStore<Partial<Record<TerminalId, true>>>(
-    {},
-  );
-  createComputed(() => {
-    const next = new Set(saved().unread);
-    setUnread(
-      produce((marks) => {
-        for (const id of Object.keys(marks) as TerminalId[])
-          if (!next.has(id)) delete marks[id];
-        for (const id of next) marks[id] = true;
-      }),
-    );
+  // The saved list, one store key per terminal: a DERIVED store, so a write
+  // from this page or another moves only the keys whose mark changed and only
+  // those rows wake.
+  const unread = createProjection<Partial<Record<TerminalId, true>>>(() => {
+    const marks: Partial<Record<TerminalId, true>> = {};
+    for (const id of saved().unread) marks[id] = true;
+    return marks;
   });
   return {
     memory: () => untrack(saved).memory,

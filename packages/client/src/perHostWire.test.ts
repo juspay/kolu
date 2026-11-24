@@ -21,7 +21,7 @@
  *  the assertions below read via `wireLifecycle`. */
 
 import type { HostKey } from "kolu-common/hostKey";
-import { batch, createRoot, createSignal } from "solid-js";
+import { createRoot, createSignal } from "solid-js";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 // The `./wire` mock stands up the mock `padiMap` (with the instrumented `entry`)
@@ -64,13 +64,12 @@ const HOST_B: HostKey = { kind: "remote", target: "B" };
 const [driveHost, setDriveHost] = createSignal<HostKey>(HOST_A);
 bag.activeHost = driveHost;
 
-/** A real host switch: ADD the target as a member and make it active, in one
- *  batch — the owner builds (first activation) or re-keys `activeScope()` to it. */
+/** A real host switch: ADD the target as a member and make it active —
+ *  consecutive writes land in one update, so the owner builds (first
+ *  activation) or re-keys `activeScope()` to it. */
 function switchTo(host: HostKey): void {
-  batch(() => {
-    addHost(host);
-    setDriveHost(host);
-  });
+  addHost(host);
+  setDriveHost(host);
 }
 
 beforeEach(() => {

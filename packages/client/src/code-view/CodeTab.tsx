@@ -50,17 +50,16 @@ import { encodeHostKey } from "kolu-common/hostKey";
 import { buildTerminalFileUrl } from "kolu-common/preview";
 import type { GitDiffMode } from "kolu-git/schemas";
 import {
-  batch,
   type Component,
   createEffect,
   createMemo,
   createSignal,
   For,
   Match,
-  on,
   onCleanup,
   Show,
   Switch,
+  untrack,
 } from "solid-js";
 import { toast } from "solid-sonner";
 import { CommentComposer } from "../comments/CommentComposer";
@@ -472,7 +471,7 @@ const CodeTab: Component<{
     () =>
       `${terminalId() ?? ""}\0${selectedPath() ?? ""}\0${view()}\0${repoPath() ?? ""}`,
   );
-  createEffect(on(composerAnchor, () => composer.close(), { defer: true }));
+  createEffect(composerAnchor, () => composer.close(), { defer: true });
 
   // Filename filter — drives Pierre's tree filter externally. Reset on
   // mode switch so a stale needle doesn't hide the wrong file set.
@@ -532,37 +531,35 @@ const CodeTab: Component<{
   // the filter spuriously after #818 made CodeTab survive right-panel
   // tab toggles.
   createEffect(
-    on(
-      repoSlotKey,
-      (key, previous) => {
-        // Only a change BETWEEN two repos invalidates the slot's state. A `null`
-        // key means "no repo to scope to" — the shown pane's git is still
-        // unresolved, or the terminal sits outside a repo. Either way there is
-        // nothing to reset: an unresolved split may be in the very same repo,
-        // and a terminal outside a repo has no slot state to keep. Resetting on
-        // it would drop the filter and the open folders whenever focus lands on
-        // a just-created split whose git has not answered yet.
-        if (key === null || previous === null) return;
-        setSearchQuery("");
-        // Retire any standing folder reveal too — it was scoped to the previous
-        // repo/view. Clearing here can't clobber a folder click that *causes*
-        // the view switch: that switch fires this effect while fsListAll is
-        // still loading, before the gated resolution effect sets `revealDir`.
-        setRevealDir(null);
-        // The loaded levels were read out of the PREVIOUS repo, and repo-
-        // relative keys collide across repos (`out/` exists in both), so
-        // keeping them would paint one repo's build output inside another's.
-        // Aborting first covers the reads still in flight, which would
-        // otherwise resolve afterwards and write the previous repo's listing
-        // into the new repo's map under an identical folder name. The tree's
-        // own record of which lazy directories are open is invalidated by the
-        // same signal, via `lazyEpoch` below.
-        for (const ctl of inFlight.values()) ctl.abort();
-        inFlight.clear();
-        setLoadedChildren(new Map());
-      },
-      { defer: true },
-    ),
+    repoSlotKey,
+    (key, previous) => {
+      // Only a change BETWEEN two repos invalidates the slot's state. A `null`
+      // key means "no repo to scope to" — the shown pane's git is still
+      // unresolved, or the terminal sits outside a repo. Either way there is
+      // nothing to reset: an unresolved split may be in the very same repo,
+      // and a terminal outside a repo has no slot state to keep. Resetting on
+      // it would drop the filter and the open folders whenever focus lands on
+      // a just-created split whose git has not answered yet.
+      if (key === null || previous === null) return;
+      setSearchQuery("");
+      // Retire any standing folder reveal too — it was scoped to the previous
+      // repo/view. Clearing here can't clobber a folder click that *causes*
+      // the view switch: that switch fires this effect while fsListAll is
+      // still loading, before the gated resolution effect sets `revealDir`.
+      setRevealDir(null);
+      // The loaded levels were read out of the PREVIOUS repo, and repo-
+      // relative keys collide across repos (`out/` exists in both), so
+      // keeping them would paint one repo's build output inside another's.
+      // Aborting first covers the reads still in flight, which would
+      // otherwise resolve afterwards and write the previous repo's listing
+      // into the new repo's map under an identical folder name. The tree's
+      // own record of which lazy directories are open is invalidated by the
+      // same signal, via `lazyEpoch` below.
+      for (const ctl of inFlight.values()) ctl.abort();
+      inFlight.clear();
+      setLoadedChildren(new Map());
+    },
+    { defer: true },
   );
 
   // Highlight-session record for the latest handled door request. Holds
@@ -727,18 +724,16 @@ const CodeTab: Component<{
     // #1841 provenance gate drops any selection no user gesture caused — so
     // this ref is safe; only a later USER re-click of the same file reaches
     // `handleSelect`, whose `record` guard keeps it from clobbering the ref.
-    batch(() => {
-      setFreshSelection(
-        source === "fresh" ? { request: req, path: rel } : null,
-      );
-      select(req.scope.mode, rel, {
-        ref:
-          req.ref.startLine !== null && req.ref.endLine !== null
-            ? { startLine: req.ref.startLine, endLine: req.ref.endLine }
-            : undefined,
-      });
-      setHandled({ request: req, resolvedPath: rel });
+    // The writes share one microtask flush, so downstream readers see them
+    // together.
+    setFreshSelection(source === "fresh" ? { request: req, path: rel } : null);
+    select(req.scope.mode, rel, {
+      ref:
+        req.ref.startLine !== null && req.ref.endLine !== null
+          ? { startLine: req.ref.startLine, endLine: req.ref.endLine }
+          : undefined,
     });
+    setHandled({ request: req, resolvedPath: rel });
   };
 
   // The controller owns the volatile open lifecycle. This presenter exposes
@@ -780,17 +775,13 @@ const CodeTab: Component<{
     onResolved: finishOpenRequest,
     onNotFound: (request) => {
       toast.error(`File reference not found: ${request.ref.path}`);
-      batch(() => {
-        setFreshSelection(null);
-        setHandled({ request, resolvedPath: null });
-      });
+      setFreshSelection(null);
+      setHandled({ request, resolvedPath: null });
     },
     onError: (request, error) => {
       toast.error(`File list refresh: ${error.message}`);
-      batch(() => {
-        setFreshSelection(null);
-        setHandled({ request, resolvedPath: null });
-      });
+      setFreshSelection(null);
+      setHandled({ request, resolvedPath: null });
     },
   });
 
@@ -989,37 +980,39 @@ const CodeTab: Component<{
   // values for the new slot. (A pane switch inside one repo does not move this
   // key — the inventory is the same repo's — so no bail is needed there.)
   createEffect(
-    on(
-      () => {
-        const s = selectedPath();
-        const sk = repoSlotKey();
-        const { paths, pending: isPending } = treeInventory();
-        const fresh = freshSelection();
-        const freshPath =
-          fresh !== null && fresh.request === props.door.pending()
-            ? fresh.path
-            : null;
-        return {
+    () => {
+      const s = selectedPath();
+      const sk = repoSlotKey();
+      const { paths, pending: isPending } = treeInventory();
+      const fresh = freshSelection();
+      const freshPath =
+        fresh !== null && fresh.request === props.door.pending()
+          ? fresh.path
+          : null;
+      return {
+        s,
+        sk,
+        // Untracked, as the Solid 1 `on(...)` callback's read was: the mode a
+        // clear is addressed to is the one showing when the verdict lands, and
+        // a mode switch is not itself a reason to re-decide.
+        view: untrack(view),
+        verdict: codeTabSelectionInventoryVerdict(
           s,
-          sk,
-          verdict: codeTabSelectionInventoryVerdict(
-            s,
-            isPending,
-            paths,
-            freshPath,
-          ),
-        };
-      },
-      (cur, prev) => {
-        if (prev && prev.sk !== cur.sk) return;
-        if (cur.verdict === "confirm-fresh") {
-          setFreshSelection(null);
-        } else if (cur.s && cur.verdict === "clear") {
-          select(view(), null, { record: false });
-        }
-      },
-      { defer: true },
-    ),
+          isPending,
+          paths,
+          freshPath,
+        ),
+      };
+    },
+    (cur, prev) => {
+      if (prev && prev.sk !== cur.sk) return;
+      if (cur.verdict === "confirm-fresh") {
+        setFreshSelection(null);
+      } else if (cur.s && cur.verdict === "clear") {
+        select(cur.view, null, { record: false });
+      }
+    },
+    { defer: true },
   );
 
   const treeGitStatus = createMemo(() => {

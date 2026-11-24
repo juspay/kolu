@@ -29,8 +29,6 @@ function harness(init?: { grid?: TerminalGrid | null; visible?: boolean }) {
   /** Pending publishes dropped — what hiding costs a half-stated grid. */
   let cancels = 0;
   const pane = createShownPane({
-    shown: () => grid !== null && visible,
-    viewShown: () => inFront,
     attach: () => attachedAt.push(grid),
     detach: () => {
       detaches += 1;
@@ -41,24 +39,34 @@ function harness(init?: { grid?: TerminalGrid | null; visible?: boolean }) {
     },
     restateOwed: () => {},
   });
+  /** What `Terminal.tsx`'s effect compute hands the gate. */
+  const facts = () => ({
+    shown: grid !== null && visible,
+    viewShown: inFront,
+  });
   return {
     /** The pane measured its box (a first fit, a re-fit, a disposal). */
     measure(next: TerminalGrid | null) {
       grid = next;
-      pane.observe();
-      if (next) pane.measured(next);
+      pane.observe(facts());
+      if (next) pane.measured(next, facts());
     },
     /** The tile became the active one, or stopped being it. */
     show(next: boolean) {
       visible = next;
-      pane.observe();
+      pane.observe(facts());
     },
     pane,
+    facts,
+    /** Re-ask the gate with the facts unchanged. */
+    observe() {
+      pane.observe(facts());
+    },
     attachedAt,
     /** The Conductor came in front of this pane's view, or left. */
     front(next: boolean) {
       inFront = next;
-      pane.observe();
+      pane.observe(facts());
     },
     published,
     detaches: () => detaches,
@@ -145,7 +153,7 @@ describe("the shown-pane gate", () => {
     // replaces.
     const h = harness({ visible: true });
     h.measure({ cols: 80, rows: 24 });
-    for (let i = 0; i < 5; i++) h.pane.observe();
+    for (let i = 0; i < 5; i++) h.observe();
     expect(h.attachedAt).toHaveLength(1);
     h.show(true);
     expect(h.attachedAt).toHaveLength(1);
@@ -210,28 +218,27 @@ describe("a grid owed from a host outage, under the Conductor", () => {
       run: (action) => Effect.runSync(action),
     });
     const pane = createShownPane({
-      shown: () => true,
-      viewShown: () => inFront,
       attach: () => {},
       detach: () => {},
       publish: publisher.publish,
       cancelPublish: publisher.cancel,
       restateOwed: publisher.republishSuppressed,
     });
-    pane.observe();
+    const facts = () => ({ shown: true, viewShown: inFront });
+    pane.observe(facts());
     // Measured while the host was down: the publish is dropped and latched.
-    pane.measured({ cols: 120, rows: 40 });
+    pane.measured({ cols: 120, rows: 40 }, facts());
     vi.advanceTimersByTime(GRID_SETTLE_MS);
     return {
       resized,
       /** The host's state changed; `Terminal.tsx` re-observes the gate. */
       host(next: string) {
         host = next;
-        pane.observe();
+        pane.observe(facts());
       },
       front(next: boolean) {
         inFront = next;
-        pane.observe();
+        pane.observe(facts());
       },
     };
   }

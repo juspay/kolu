@@ -29,7 +29,6 @@ import {
   createMemo,
   createSignal,
   For,
-  on,
   Show,
 } from "solid-js";
 import type { WorkFileRow } from "./workFile";
@@ -154,8 +153,9 @@ const WorkFileList: Component<WorkFileListProps> = (props) => {
    *  too, so the strip's own `scrollLeft` is moved instead. */
   let strip: HTMLDivElement | undefined;
   createEffect(
-    on([() => props.openTo, () => props.rows], () => {
-      if (props.layout !== "line" || strip === undefined) return;
+    () => [props.openTo, props.rows, props.layout] as const,
+    ([, , layout]) => {
+      if (layout !== "line" || strip === undefined) return;
       const chip = strip.querySelector<HTMLElement>(
         '[data-testid="work-file"][data-open]',
       );
@@ -165,7 +165,7 @@ const WorkFileList: Component<WorkFileListProps> = (props) => {
       if (box.left < edge.left) strip.scrollLeft -= edge.left - box.left;
       else if (box.right > edge.right)
         strip.scrollLeft += box.right - edge.right;
-    }),
+    },
   );
 
   return (

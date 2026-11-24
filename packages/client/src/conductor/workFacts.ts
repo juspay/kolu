@@ -99,7 +99,7 @@ export function readWorkFacts(
   rows: Accessor<ReadonlyArray<WorkMemberRow>>,
 ): MemberFacts {
   const members = createMemo(
-    (prev: ReadonlyArray<MemberLine>): ReadonlyArray<MemberLine> => {
+    (prev: ReadonlyArray<MemberLine> = []): ReadonlyArray<MemberLine> => {
       const next = rows().map((row): MemberLine => {
         const split = splitMemberRef(row.terminal);
         const standing =
@@ -118,7 +118,6 @@ export function readWorkFacts(
         ? prev
         : next;
     },
-    [],
   );
   const livePr = createMemo(() => livePrOf(members()));
   const checks = createMemo(() => checksTally(Option.fromNullishOr(livePr())));

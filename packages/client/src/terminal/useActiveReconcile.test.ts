@@ -1,5 +1,5 @@
 import type { TerminalId } from "kolu-common/surface";
-import { batch, createRoot, createSignal } from "solid-js";
+import { createRoot, createSignal } from "solid-js";
 import { describe, expect, it, vi } from "vitest";
 import {
   createEvictionDedup,
@@ -11,9 +11,8 @@ import {
 
 const T = (s: string) => s as TerminalId;
 
-/** Let SolidJS flush the queued reactive effects (they don't run inside the
- *  synchronous `createRoot` batch). After this, signal writes made OUTSIDE the
- *  batch flush the reconcile effect synchronously. */
+/** Let Solid flush the queued reactive effects (they run on a microtask, not
+ *  inside the synchronous `createRoot` call). */
 const tick = () => new Promise((r) => setTimeout(r, 0));
 
 describe("pickAutoSwitchTarget", () => {
@@ -520,10 +519,8 @@ describe("useActiveReconcile — FULL cleanup driven off the list", () => {
     // edges. A live `containingTile` walk would therefore dangle and answer "S
     // itself", silently skipping the posture inheritance. The from-tile must come
     // from the pre-removal snapshot the reconcile carries.
-    batch(() => {
-      h.setParents({ S: null });
-      h.setRawIds([T("S")]);
-    });
+    h.setParents({ S: null });
+    h.setRawIds([T("S")]);
 
     expect(h.calls.promoteToTopLevel).toHaveBeenCalledExactlyOnceWith(
       T("S"),
@@ -728,21 +725,17 @@ describe("useActiveReconcile — FULL cleanup driven off the list", () => {
     // re-key in lockstep). Every host-A id "leaves" the list, but they didn't
     // close — the tab just looked away. NONE of the departure cleanup may fire:
     // no wrong-host promote (setParent) of P's sub, no auto-switch off P.
-    batch(() => {
-      h.setParents({ B1: null, B2: null });
-      h.setRawIds([T("B1"), T("B2")]);
-      h.setHost("remote:B");
-    });
+    h.setParents({ B1: null, B2: null });
+    h.setRawIds([T("B1"), T("B2")]);
+    h.setHost("remote:B");
 
     expect(h.calls.promoteToTopLevel).not.toHaveBeenCalled();
     expect(h.calls.dropFromMru).not.toHaveBeenCalled();
     expect(h.calls.activate).not.toHaveBeenCalled();
 
     // And a REAL close on host B still reconciles normally (baseline advanced to B).
-    batch(() => {
-      h.setParents({ B1: null });
-      h.setRawIds([T("B1")]);
-    });
+    h.setParents({ B1: null });
+    h.setRawIds([T("B1")]);
     expect(h.calls.dropFromMru).toHaveBeenCalledWith(T("B2"));
     h.dispose();
   });

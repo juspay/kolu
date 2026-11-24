@@ -26,12 +26,16 @@ import {
 } from "./useHostDiagnosticsOpen";
 
 const HostDiagnosticsHost: Component = () => {
-  createEffect(() => {
-    const key = openHostDiagnosticsKey();
-    if (key === null) return;
-    const stillMember = hostKeys().some((host) => encodeHostKey(host) === key);
-    if (!stillMember) closeHostDiagnostics();
-  });
+  createEffect(
+    () => {
+      const key = openHostDiagnosticsKey();
+      if (key === null) return false;
+      return !hostKeys().some((host) => encodeHostKey(host) === key);
+    },
+    (departed) => {
+      if (departed) closeHostDiagnostics();
+    },
+  );
   return (
     <Show when={openHostDiagnosticsKey()} keyed>
       {(key) => (

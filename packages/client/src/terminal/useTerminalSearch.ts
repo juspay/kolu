@@ -6,10 +6,10 @@
  *  reads `searchOpen` per id and `openFor(id)` targets a specific tile.
  *
  *  Behavior contract (preserved from the pre-refactor App, where a single
- *  `searchOpen` signal was reset by `on(activeId)`): the find bar closes when
+ *  `searchOpen` signal was reset on every active-terminal change): the find bar closes when
  *  the active terminal changes — switching away and back does NOT resurrect a
  *  previously-open bar. The keyed store alone would persist per-terminal state
- *  and reopen on return, so an explicit `on(store.activeId)` effect clears every
+ *  and reopen on return, so an explicit effect on `store.activeId` clears every
  *  key on switch, keeping at most the active terminal's bar open. Sub-terminals
  *  never open search (their leaf always passes `searchOpen={false}`). Keys are
  *  evicted in `removeAndAutoSwitch` (single remove) and wholesale via `reset()`
@@ -17,7 +17,7 @@
  *  terminal set or outlive the terminals it keyed. */
 
 import type { TerminalId } from "kolu-common/surface";
-import { createEffect, createStore, on, produce } from "solid-js";
+import { createEffect, createStore, produce } from "solid-js";
 import { createSharedRoot } from "../createSharedRoot";
 import { useTerminalStore } from "./useTerminalStore";
 
@@ -33,13 +33,13 @@ export const useTerminalSearch = createSharedRoot(() => {
 
   // Close every find bar when the active terminal changes. Deferred so the
   // initial run (boot) doesn't clobber a bar opened before the first switch.
-  // This reproduces the old App-level `on(activeId, () => setSearchOpen(false))`
+  // This reproduces the old App-level "reset on activeId change" behaviour
   // exactly: the bar is a per-session affordance on the focused terminal, not a
   // sticky per-terminal preference that reappears on return.
   createEffect(
-    on(store.activeId, () => setState(produce((s) => clearAll(s))), {
-      defer: true,
-    }),
+    () => store.activeId(),
+    () => setState(produce((s) => clearAll(s))),
+    { defer: true },
   );
 
   return {

@@ -6,7 +6,7 @@
  */
 
 import type { TerminalId } from "kolu-common/surface";
-import { type Accessor, createEffect, createSignal, untrack } from "solid-js";
+import { type Accessor, createEffect, createSignal, onSettled } from "solid-js";
 import { showsAmbientTips } from "../capabilities";
 import { preferences, preferencesArrived, updatePreferences } from "../wire";
 import { AMBIENT_TIPS, type Tip, type TipId } from "./tips";
@@ -141,25 +141,33 @@ function showStartupTip() {
  * Event-driven tips (pill click, theme button) stay at their call sites.
  */
 function initTipTriggers(deps: { terminalIds: Accessor<TerminalId[]> }) {
-  // Tips raised before the saved preferences arrived run once they have.
-  createEffect(() => {
-    if (!preferencesArrived()) return;
-    // Untracked: the tips read preferences, which must not re-run this.
-    untrack(() => {
-      for (const fn of awaitingPreferences.splice(0)) fn();
-    });
-  });
+  // Tips raised before the saved preferences arrived run once they have. The
+  // queued tips READ preferences themselves, which an effect callback is not
+  // the place for (effect-phase reads are untracked strict reads) — so the
+  // drain is scheduled for the settle that follows, where a tip reads the
+  // arrived preferences as any command would.
+  createEffect(
+    () => preferencesArrived(),
+    (arrived) => {
+      if (!arrived) return;
+      onSettled(() => {
+        for (const fn of awaitingPreferences.splice(0)) fn();
+      });
+    },
+  );
   // Startup tip — once, 1s after first terminal appears
   let startupFired = false;
-  createEffect(() => {
-    if (!startupFired && deps.terminalIds().length > 0) {
+  createEffect(
+    () => deps.terminalIds().length > 0,
+    (anyTerminals) => {
+      if (startupFired || !anyTerminals) return;
       startupFired = true;
-      // Fire-and-forget: the createEffect re-runs when terminalIds changes,
-      // and onCleanup would cancel the pending timeout before it fires.
-      // startupFired already guards against re-entry, so no cleanup needed.
+      // Fire-and-forget: the effect re-runs when terminalIds changes, and a
+      // returned cleanup would cancel the pending timeout before it fires.
+      // startupFired already guards against re-entry, so no cleanup is wanted.
       window.setTimeout(showStartupTip, 1000);
-    }
-  });
+    },
+  );
 }
 
 export function useTips() {

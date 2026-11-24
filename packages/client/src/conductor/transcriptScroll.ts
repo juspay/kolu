@@ -75,14 +75,21 @@ const [documentKey, setDocumentKey] = createSignal(WHOLE_TRANSCRIPT);
  *  its place changes. */
 const [places, setPlaces] = createStore<Record<string, number | null>>({});
 
-/** The scroller now shows `key`'s document. Called by the transcript from a
- *  computed on the chat's scope, above its follow effect. */
+/** The scroller now shows `key`'s document. Called by the transcript from an
+ *  effect on the chat's scope, above its follow effect. */
 export function showTranscriptDocument(key: string): void {
   setDocumentKey(key);
 }
 
+/** THE READER'S PLACE IN `key`'s DOCUMENT, or `null` for its end — read by
+ *  the transcript's follow effect in its COMPUTE (the effect phase may read
+ *  nothing reactive) and by its mount restore. */
+export function transcriptPlace(key: string): number | null {
+  return places[key] ?? null;
+}
+
 /** The place in the document now shown, or `null` for its end. */
-const offset = (): number | null => places[documentKey()] ?? null;
+const offset = (): number | null => transcriptPlace(documentKey());
 
 /** Write the place of the document now shown. Never another document's: a
  *  clamp inside a work's chat says where that chat is, not where the whole
@@ -142,14 +149,22 @@ export function pinTranscript(): void {
   setOffset(null);
 }
 
-/** Put the container where the reader is — at the end while they are
- *  following, else at their own pixel. A fresh mount, a document change and
- *  every step of following all land here. */
-export function applyTranscriptScroll(el: {
-  scrollTop: number;
-  readonly scrollHeight: number;
-}): void {
-  el.scrollTop = offset() ?? el.scrollHeight;
+/** Put the container at `place` — the reader's pixel in the document being
+ *  shown, or `null` for its end. A fresh mount, a document change and every
+ *  step of following all land here.
+ *
+ *  THE PLACE IS HANDED IN rather than read from {@link transcriptPlace}: the
+ *  caller is an effect's imperative half, which reads no reactive state, and
+ *  the transcript writes the shown document and places the container in the
+ *  same flush — where that write is not yet visible to a read anyway. */
+export function applyTranscriptScroll(
+  el: {
+    scrollTop: number;
+    readonly scrollHeight: number;
+  },
+  place: number | null,
+): void {
+  el.scrollTop = place ?? el.scrollHeight;
   stood.set(el, el.scrollTop);
 }
 

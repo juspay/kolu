@@ -213,8 +213,7 @@ export function createCodeTabOpenController<Paths, Resolved>(
     );
   };
 
-  createEffect(() => {
-    const current = options.snapshot();
+  createEffect(options.snapshot, (current) => {
     const request = current.request;
 
     if (request === null) {

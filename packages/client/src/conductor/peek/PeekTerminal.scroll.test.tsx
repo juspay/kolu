@@ -81,7 +81,6 @@ vi.mock("@kolu/surface/client", async () => {
 });
 
 vi.mock("@kolu/xterm-kit/solid", async () => {
-  const { onMount } = await import("solid-js");
   const { Terminal } = await import("@xterm/headless");
   // The real lock, through the kit's own entry — only the DOM half of
   // `<Xterm>` is stood in for.
@@ -104,35 +103,34 @@ vi.mock("@kolu/xterm-kit/solid", async () => {
       // the same buffer, scroll and reset, which is all the lock touches here.
       const term = core as unknown as BrowserTerminal;
       const scrollLock = createScrollLock(props.scrollLockEnabled);
-      onMount(() => {
-        // The order `<Xterm>` keeps: the lock listens to the terminal's
-        // scroll first, the consumer is handed the handle second
-        // (`xterm-kit/src/solid/Xterm.tsx:366,464`).
-        scrollLock.attachToTerminal(term);
-        seam.term = core;
-        seam.lock = scrollLock;
-        props.onReady({
-          container: document.createElement("div"),
-          terminal: {
-            reset: () => {
-              seam.resets += 1;
-              core.reset();
-            },
-            focus() {},
-            blur() {},
-            textarea: undefined,
-            dimensions: undefined,
-            onRender: () => ({ dispose() {} }),
-            attachCustomKeyEventHandler() {},
+      // The order `<Xterm>` keeps: the lock listens to the terminal's
+      // scroll first, the consumer is handed the handle second, inside the
+      // component's own owner (`xterm-kit/src/solid/Xterm.tsx:366,464`) —
+      // which is the scope the consumer's `onCleanup` belongs to.
+      scrollLock.attachToTerminal(term);
+      seam.term = core;
+      seam.lock = scrollLock;
+      props.onReady({
+        container: document.createElement("div"),
+        terminal: {
+          reset: () => {
+            seam.resets += 1;
+            core.reset();
           },
-          resize: (grid: { cols: number; rows: number }) =>
-            core.resize(grid.cols, grid.rows),
-          write: (data: string, parsed?: () => void) =>
-            scrollLock.writeData(term, data, parsed),
-          clearPendingOutput: () => scrollLock.dropPending(),
-          scrollLock,
-          recovery: { noteData() {} },
-        });
+          focus() {},
+          blur() {},
+          textarea: undefined,
+          dimensions: undefined,
+          onRender: () => ({ dispose() {} }),
+          attachCustomKeyEventHandler() {},
+        },
+        resize: (grid: { cols: number; rows: number }) =>
+          core.resize(grid.cols, grid.rows),
+        write: (data: string, parsed?: () => void) =>
+          scrollLock.writeData(term, data, parsed),
+        clearPendingOutput: () => scrollLock.dropPending(),
+        scrollLock,
+        recovery: { noteData() {} },
       });
       return <div data-testid="live-screen" />;
     },

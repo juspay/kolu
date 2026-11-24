@@ -14,7 +14,6 @@ import {
   createEffect,
   createSignal,
   For,
-  onCleanup,
   Show,
 } from "solid-js";
 import { dynamic, Portal } from "@solidjs/web";
@@ -95,14 +94,14 @@ export const CodeContextMenu: Component<{
     close();
   };
 
-  createEffect(() => {
-    if (!open()) return;
+  createEffect(open, (isOpen) => {
+    if (!isOpen) return;
     document.addEventListener("mousedown", onDocClick);
     document.addEventListener("keydown", onKeydown);
-    onCleanup(() => {
+    return () => {
       document.removeEventListener("mousedown", onDocClick);
       document.removeEventListener("keydown", onKeydown);
-    });
+    };
   });
 
   const handleItem = (item: CodeContextMenuItem) => {

@@ -1,4 +1,4 @@
-import { createComputed, createRoot, createSignal, on } from "solid-js";
+import { createEffect, createRoot, createSignal } from "solid-js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { CanvasTileMode } from "./CanvasTile";
 import {
@@ -98,14 +98,12 @@ describe("createHeldSeen", () => {
       const [seen, setSeen] = createSignal(initial);
       const held = createHeldSeen(seen);
       let changes = 0;
-      createComputed(
-        on(
-          held,
-          () => {
-            changes += 1;
-          },
-          { defer: true },
-        ),
+      createEffect(
+        held,
+        () => {
+          changes += 1;
+        },
+        { defer: true },
       );
       return { held, setSeen, changes: () => changes };
     });

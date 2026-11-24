@@ -18,7 +18,7 @@ import {
   createMemo,
   createSignal,
   For,
-  onMount,
+  onSettled,
   Show,
 } from "solid-js";
 import type { JSX } from "@solidjs/web";
@@ -152,19 +152,21 @@ const CanvasTile: Component<{
   // shell instance (not re-armed without remount).
   const [landing, setLanding] = createSignal(false);
   const spendLanding = () => setLanding(false);
-  onMount(() => {
+  onSettled(() => {
     if (prefersReducedMotion() || props.sleeping || props.mode !== "tiled")
       return;
     setLanding(true);
   });
-  createEffect(() => {
+  createEffect(
     // Mid-entrance loss of eligibility cancels CSS without animationend —
     // spend so a later restore/wake never re-plays.
-    if (!landing()) return;
-    if (props.sleeping || props.mode !== "tiled" || prefersReducedMotion()) {
-      spendLanding();
-    }
-  });
+    () =>
+      landing() &&
+      (props.sleeping || props.mode !== "tiled" || prefersReducedMotion()),
+    (lostEligibility) => {
+      if (lostEligibility) spendLanding();
+    },
+  );
   const onLandInAnim: JSX.EventHandlerUnion<HTMLDivElement, AnimationEvent> = (
     e,
   ) => {
@@ -248,19 +250,22 @@ const CanvasTile: Component<{
   // a later re-show of `.tile-aura` on the same shell never re-plays.
   // Held ring stays on `data-aura="finished"` alone.
   const [exhale, setExhale] = createSignal(false);
-  let prevAura: TileAura = "none";
-  createEffect(() => {
-    const next = aura();
-    const enteredFinished = next === "finished" && prevAura !== "finished";
-    const eligible =
-      showAura() && props.active !== true && !prefersReducedMotion();
-    if (enteredFinished) {
-      setExhale(eligible);
-    } else if (next !== "finished" || !eligible) {
-      setExhale(false);
-    }
-    prevAura = next;
-  });
+  createEffect(
+    () => ({
+      tier: aura(),
+      eligible: showAura() && props.active !== true && !prefersReducedMotion(),
+    }),
+    ({ tier, eligible }, prev) => {
+      // `prev` is the previous compute result, so the tier TRANSITION is read
+      // off it rather than a mutable closure variable.
+      const enteredFinished = tier === "finished" && prev?.tier !== "finished";
+      if (enteredFinished) {
+        setExhale(eligible);
+      } else if (tier !== "finished" || !eligible) {
+        setExhale(false);
+      }
+    },
+  );
   const onAuraAnim: JSX.EventHandlerUnion<HTMLDivElement, AnimationEvent> = (
     e,
   ) => {

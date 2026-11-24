@@ -32,7 +32,7 @@ import {
   createMemo,
   createSignal,
   For,
-  onMount,
+  onSettled,
   Show,
 } from "solid-js";
 import RepoMonogram from "../ui/RepoMonogram";
@@ -265,7 +265,7 @@ const WorkRail: Component<{ groups: RailGroups }> = (props) => {
   // read once it is in the page (a `ref` runs before it is inserted).
   let nav!: HTMLElement;
   const [host, setHost] = createSignal<HTMLElement | null>(null);
-  onMount(() => setHost(nav.parentElement));
+  onSettled(() => setHost(nav.parentElement));
   const resize = createWidthDrag(SIDEBAR_WIDTH, host);
   return (
     <nav

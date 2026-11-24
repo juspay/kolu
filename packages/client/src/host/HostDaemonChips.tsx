@@ -199,9 +199,16 @@ function useDaemonMarkOpen(host: HostKey): {
   // props-scoped status with another host's active-host rows (and restart would
   // recycle the newly-active host). Close it, so a shown panel always describes
   // the current active host — never a stale cross-host mix.
-  createEffect(() => {
-    if (open() && !sameHost(activeHost(), host)) setOpen(false);
-  });
+  // The compute asks only "has the active host drifted off this chip's host" —
+  // not whether the panel is open — so the close below never feeds back into
+  // this effect's own inputs. Closing an already-closed panel is an equal-value
+  // write, which notifies nobody.
+  createEffect(
+    () => !sameHost(activeHost(), host),
+    (drifted) => {
+      if (drifted) setOpen(false);
+    },
+  );
   return { open, setOpen, openForHost };
 }
 

@@ -28,6 +28,7 @@ import {
   createSignal,
   Match,
   onCleanup,
+  onSettled,
   Show,
   Switch,
 } from "solid-js";
@@ -127,7 +128,6 @@ export const PrintedUrlCard: Component<{ target: PrintedUrlCardTarget }> = (
         host: hostListeners(),
         forwards: forwardsForHost(host()),
       }),
-    undefined,
     // Structural equality: the keyed <Match> below re-creates its children on
     // every identity change, so a no-op scan tick must not re-key the card.
     { equals: (a, b) => JSON.stringify(a) === JSON.stringify(b) },
@@ -177,8 +177,10 @@ export const PrintedUrlCard: Component<{ target: PrintedUrlCardTarget }> = (
   });
 
   // Outside click + Escape — same discipline as useAnchoredPopover, but the
-  // "trigger" is a coordinate rather than an element.
-  createEffect(() => {
+  // "trigger" is a coordinate rather than an element. Nothing reactive is
+  // read, so this is mount-time work: it installs once and the returned
+  // cleanup takes the listeners down with the card.
+  onSettled(() => {
     const onDown = (e: MouseEvent) => {
       const node = e.target as Node;
       if (panelEl?.contains(node)) return;
@@ -193,10 +195,10 @@ export const PrintedUrlCard: Component<{ target: PrintedUrlCardTarget }> = (
     };
     document.addEventListener("mousedown", onDown);
     document.addEventListener("keydown", onKey);
-    onCleanup(() => {
+    return () => {
       document.removeEventListener("mousedown", onDown);
       document.removeEventListener("keydown", onKey);
-    });
+    };
   });
 
   /** Compose decide · act · effect for a joined open. */
@@ -294,9 +296,12 @@ export const PrintedUrlCard: Component<{ target: PrintedUrlCardTarget }> = (
     });
 
   // External should never open the card — but if the target drifts, dismiss.
-  createEffect(() => {
-    if (parseLoopbackUrl(props.target.uri) === null) closePrintedUrlCard();
-  });
+  createEffect(
+    () => parseLoopbackUrl(props.target.uri) === null,
+    (drifted) => {
+      if (drifted) closePrintedUrlCard();
+    },
+  );
 
   return (
     <Portal>

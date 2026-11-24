@@ -84,7 +84,6 @@ export const useTerminalStore = createSharedRoot(() => {
         WEBGL_CONTEXT_CAP,
       );
     },
-    undefined,
     {
       equals: (a, b) =>
         a.length === b.length && a.every((id) => b.includes(id)),

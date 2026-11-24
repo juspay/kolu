@@ -94,9 +94,12 @@ const MemoryProposalCard: Component<{ shown: ProposalShown }> = (props) => {
   const [busy, setBusy] = createSignal(false);
   const waiting = () => memory.waiting(props.shown.proposal) !== undefined;
   const { showTipOnce } = useTips();
-  createEffect(() => {
-    if (waiting()) showTipOnce(CONTEXTUAL_TIPS.conductorMemory);
-  });
+  createEffect(
+    () => waiting(),
+    (asked) => {
+      if (asked) showTipOnce(CONTEXTUAL_TIPS.conductorMemory);
+    },
+  );
   const change = () => props.shown.change;
   const text = () => {
     const now = change();

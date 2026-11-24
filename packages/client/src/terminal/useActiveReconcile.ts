@@ -20,7 +20,7 @@
  *  CLAIMS the id, and the reconcile skips (draining) a claimed id. */
 
 import type { TerminalId } from "kolu-common/surface";
-import { type Accessor, createEffect, on } from "solid-js";
+import { type Accessor, createEffect, untrack } from "solid-js";
 import { createHostScopedParentSnapshot } from "./parentSnapshot";
 import { containingTileOf, type ParentEdge } from "./terminalTree";
 import { type EvictionSubPanelPorts, repairTileTabs } from "./useSubPanel";
@@ -306,18 +306,48 @@ export function useActiveReconcile(deps: {
     },
   );
 
+  /** What this pass evicts, decided in the compute, acted on in the effect. */
+  interface ReconcilePass {
+    readonly snap: { host: string; map: Map<TerminalId, TerminalId | null> };
+    readonly departed: readonly TerminalId[];
+    /** The pre-removal top-level order (still contains the departed ids), for
+     *  byte-identical switch-target selection. */
+    readonly topLevelBefore: TerminalId[];
+    /** The whole departing set for THIS frame — so the per-tile auto-switch
+     *  clamps focus past every leaving tile at once. Without it a batch that
+     *  empties the top level lands focus on a sibling that is itself
+     *  departing. */
+    readonly departing: Set<TerminalId>;
+    /** Pre-removal parent graph — the intact tree before this frame's
+     *  departures. Live metadata already dropped departed ids; nested rehome
+     *  must not walk a dangling edge (grandchildren would fall out of the
+     *  root's pane set). */
+    readonly removal: RemovalGraph;
+    readonly parentOfDeparted: (id: TerminalId) => TerminalId | null;
+  }
+  const nothingToDo = (snap: ReconcilePass["snap"]): ReconcilePass => ({
+    snap,
+    departed: [],
+    topLevelBefore: [],
+    departing: new Set<TerminalId>(),
+    removal: { ids: [], parentOf: () => undefined },
+    parentOfDeparted: () => null,
+  });
   createEffect(
-    on(snapshot, (currSnap, prevSnap) => {
-      if (prevSnap === undefined) return; // first run — nothing has departed
+    (prev?: ReconcilePass): ReconcilePass => {
+      const currSnap = snapshot();
+      const prevSnap = prev?.snap;
+      if (prevSnap === undefined) return nothingToDo(currSnap); // first run
       // Host SWITCH — the list re-keyed to a disjoint host. Advance the baseline
       // WITHOUT evicting the departed host's tiles (they didn't close; the tab just
       // looked away). Any wrong-host promote/auto-switch write is thus unspellable.
-      if (currSnap.host !== prevSnap.host) return;
+      if (currSnap.host !== prevSnap.host) return nothingToDo(currSnap);
       const curr = currSnap.map;
-      const prev = prevSnap.map;
+      const prevMap = prevSnap.map;
       const departed: TerminalId[] = [];
-      for (const id of prev.keys()) if (!curr.has(id)) departed.push(id);
-      if (departed.length === 0) return; // a parentId change with no departure
+      for (const id of prevMap.keys()) if (!curr.has(id)) departed.push(id);
+      // a parentId change with no departure
+      if (departed.length === 0) return nothingToDo(currSnap);
       // SUPPRESS the eviction while the list is NOT an authoritative census (a
       // supervised recycle/restart/degraded). Then a departure is the server's own
       // doing — a `recycleKaval` holds `restarting` (published BEFORE the drain
@@ -325,42 +355,42 @@ export function useActiveReconcile(deps: {
       // lifecycle authority: promoting the split's subs here fires
       // `chrome.setParent(sub, null)` against a daemon that no longer has them (the
       // "Failed to set parent" toast), and a write that lands after park silently
-      // un-parents the parked sub so the split restores orphaned. Sampled, not
-      // tracked: `on` runs this callback untracked, so we read the current state
-      // without re-arming the effect on an authority flip — and `prev` still
-      // advances to `curr`, so a departure skipped here is never re-processed once
-      // the list is authoritative again. A real user-close only ever happens while
-      // the list is a complete census, where the cleanup runs as before.
-      if (!deps.listIsAuthoritative()) return;
-      // The pre-removal top-level order (still contains the departed ids), for
-      // byte-identical switch-target selection.
+      // un-parents the parked sub so the split restores orphaned. SAMPLED
+      // (untracked): the pass must not re-arm on an authority flip — and the
+      // baseline still advances to `curr`, so a departure skipped here is never
+      // re-processed once the list is authoritative again. A real user-close only
+      // ever happens while the list is a complete census, where the cleanup runs
+      // as before.
+      if (!untrack(deps.listIsAuthoritative)) return nothingToDo(currSnap);
       const topLevelBefore: TerminalId[] = [];
-      for (const [id, parentId] of prev) {
+      for (const [id, parentId] of prevMap) {
         if (parentId === null) topLevelBefore.push(id);
       }
-      // The whole departing set for THIS frame — so the per-tile auto-switch
-      // clamps focus past every leaving tile at once. Without it a batch that
-      // empties the top level lands focus on a sibling that is itself departing.
-      const departing = new Set(departed);
-      // Pre-removal parent graph — intact tree before this frame's departures.
-      // Live metadata already dropped departed ids; nested rehome must not walk
-      // a dangling edge (grandchildren would fall out of the root's pane set).
-      const removal: RemovalGraph = {
-        ids: [...prev.keys()],
-        parentOf: (x) => {
-          if (!prev.has(x)) return undefined;
-          return prev.get(x) ?? null;
+      return {
+        snap: currSnap,
+        departed,
+        topLevelBefore,
+        departing: new Set(departed),
+        removal: {
+          ids: [...prevMap.keys()],
+          parentOf: (x) => {
+            if (!prevMap.has(x)) return undefined;
+            return prevMap.get(x) ?? null;
+          },
         },
+        parentOfDeparted: (id) => prevMap.get(id) ?? null,
       };
-      for (const id of departed) {
+    },
+    (pass) => {
+      for (const id of pass.departed) {
         deps.evictDeparted(
           id,
-          prev.get(id) ?? null,
-          topLevelBefore,
-          departing,
-          removal,
+          pass.parentOfDeparted(id),
+          pass.topLevelBefore,
+          pass.departing,
+          pass.removal,
         );
       }
-    }),
+    },
   );
 }

@@ -91,7 +91,7 @@ export function ConnectCanvas(props: { daemonState: DaemonState | undefined }) {
     epoch: number;
     ms: number;
     at: number;
-  } | null>((prev) => {
+  } | null>((prev = null) => {
     const c = copy();
     const frame = info();
     const h = host();
@@ -121,7 +121,7 @@ export function ConnectCanvas(props: { daemonState: DaemonState | undefined }) {
       ms: sinceMs,
       at: untrack(() => clockNow()),
     };
-  }, null);
+  });
   // Plain function (not createMemo): reads clockNow() in the caller's tracking
   // context (JSX), the same pattern kaval uptime uses — so each shared-clock tick
   // re-evaluates the elapsed text with zero incoming frames.

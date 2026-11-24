@@ -101,17 +101,15 @@ function harness(init: { members: HostKey[]; active: HostKey }) {
     const [members, setMembers] = createSignal<HostKey[]>(init.members);
     const [activeHost, setActiveHost] = createSignal<HostKey>(init.active);
     const [pendingJoin, setPendingJoin] = createSignal<HostKey | null>(null);
-    createEffect(() => {
-      const action = hostReconcileTarget(
-        members(),
-        activeHost(),
-        pendingJoin(),
-        LOCAL_HOST,
-      );
-      if (action === null) return;
-      if (action.kind === "activate-joined") setPendingJoin(null);
-      setActiveHost(action.target);
-    });
+    createEffect(
+      () =>
+        hostReconcileTarget(members(), activeHost(), pendingJoin(), LOCAL_HOST),
+      (action) => {
+        if (action === null) return;
+        if (action.kind === "activate-joined") setPendingJoin(null);
+        setActiveHost(action.target);
+      },
+    );
     handles = {
       setMembers,
       setActiveHost,

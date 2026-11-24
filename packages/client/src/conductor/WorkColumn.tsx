@@ -39,9 +39,7 @@ import {
   createEffect,
   createMemo,
   For,
-  on,
-  onCleanup,
-  onMount,
+  onSettled,
   Show,
 } from "solid-js";
 import { MEMBERSHIP_BOUND_MS } from "../useDeepLinks";
@@ -72,12 +70,12 @@ const Board: Component<{ children: JSX.Element }> = (props) => {
   let root!: HTMLDivElement;
   const scroller = () =>
     root.closest<HTMLElement>("[data-works-scroll]") ?? undefined;
-  onMount(() => {
+  onSettled(() => {
     const box = scroller();
     if (box !== undefined) box.scrollTop = boardScroll;
-  });
-  onCleanup(() => {
-    boardScroll = scroller()?.scrollTop ?? 0;
+    return () => {
+      boardScroll = scroller()?.scrollTop ?? 0;
+    };
   });
   return (
     <div ref={root} data-testid="works-board">
@@ -260,18 +258,19 @@ const WorkColumn: Component = () => {
     const now = works().find(([one]) => one === id);
     if (now !== undefined) return now;
     return last?.[0] === id ? last : undefined;
-  }, undefined);
+  });
   /** A PICKED WORK THAT IS NOT HERE IS LET GO, after the bound a link waits:
    *  a reload keeps the pick (`workListing.ts`) and the works reach the mirror
    *  one by one after it, and a work can be away for a moment, so a pick
    *  that is not here yet, or not here now, is not one that is gone. One
    *  that stays away — the oldest finished works are let go — is dropped. */
   createEffect(
-    on([pickedWork, pickedHere], ([id, here]) => {
+    () => [pickedWork(), pickedHere()] as const,
+    ([id, here]) => {
       if (id === null || here) return;
       const timer = setTimeout(unpickWork, MEMBERSHIP_BOUND_MS);
-      onCleanup(() => clearTimeout(timer));
-    }),
+      return () => clearTimeout(timer);
+    },
   );
   /** The sidebar's four groups, each read from its own reading here — the
    *  sidebar draws four fixed places, so nothing here is a list it keys. */

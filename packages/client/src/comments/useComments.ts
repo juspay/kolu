@@ -14,7 +14,7 @@
  *  No flush logic lives here. `formatMarkdown` is a separate pure
  *  function; the tray's "Copy to clipboard" calls it directly. */
 
-import { createComputed, untrack, type Accessor } from "solid-js";
+import { type Accessor, createMemo } from "solid-js";
 import { toast } from "solid-sonner";
 import { persistedPref } from "../persistedPref";
 import { backfillSurface } from "./backfillSurface";
@@ -131,11 +131,11 @@ export function useComments(terminalId: string) {
   };
 }
 
-/** Initialize on identity changes before exposing a read-only reactive lookup. */
+/** The per-terminal comments API as a DERIVATION of the terminal id: the store
+ *  is created (or re-used from the module map) by `useComments` for whatever id
+ *  is current, and the memo owns that creation — its persisted signal's cleanup
+ *  binds to this scope and is released when the id changes or the caller is
+ *  disposed. */
 export function commentsForTerminal(terminalId: Accessor<string>) {
-  createComputed(() => {
-    const id = terminalId();
-    untrack(() => storeFor(id));
-  });
-  return () => useComments(terminalId());
+  return createMemo(() => useComments(terminalId()));
 }

@@ -71,8 +71,12 @@ export interface ForeignGridDeps {
 export interface ForeignGridWatcher {
   /** Call on every change to the served grid, and when `mine` comes back
    *  from absence — the view returning in front, which is how a pane that sat
-   *  out someone else's resize takes its size back. */
-  observe(): void;
+   *  out someone else's resize takes its size back. `held` is the verdict as
+   *  it stands NOW, computed by the caller (`gridHeldByAnother`): the caller
+   *  is a Solid effect, and the facts behind the verdict are its compute's to
+   *  read. The verdict after the settle window is re-read here, live, from
+   *  the deps — that read happens in a timer, long outside the effect. */
+  observe(held: boolean): void;
   /** Cancel a pending settle — the pane's teardown. */
   dispose(): void;
 }
@@ -83,9 +87,10 @@ export interface ForeignGridWatcher {
  *  yet states no grid, and an unmeasured or disposed pane has none to compare.
  *  Acting on ignorance would spin the re-attach loop against a pane with
  *  nothing to ask for. */
-function heldByAnother(deps: ForeignGridDeps): boolean {
-  const served = deps.served();
-  const mine = deps.mine();
+export function gridHeldByAnother(
+  served: TerminalGrid | null | undefined,
+  mine: TerminalGrid | null | undefined,
+): boolean {
   if (!served || !mine) return false;
   return served.cols !== mine.cols || served.rows !== mine.rows;
 }
@@ -99,17 +104,17 @@ export function createForeignGridWatcher(
     settle = null;
   };
   return {
-    observe() {
+    observe(held: boolean) {
       // Re-armed by each new record grid, so a drag costs ONE pending verdict
       // rather than one per frame — and a mismatch that resolved on its own (our
       // own resize landing, the common case) drops the pending one rather than
       // letting it fire against facts that have since agreed.
       cancel();
-      if (!heldByAnother(deps)) return;
+      if (!held) return;
       settle = setTimeout(() => {
         settle = null;
         // Both facts re-read LIVE — that is the point of having waited.
-        if (!heldByAnother(deps)) return;
+        if (!gridHeldByAnother(deps.served(), deps.mine())) return;
         // A disconnected host is the one persistent mismatch to sit out: this
         // pane's own publishes are SUPPRESSED while its host is down
         // (`publishGrid`'s H1), so the record legitimately holds a grid we never

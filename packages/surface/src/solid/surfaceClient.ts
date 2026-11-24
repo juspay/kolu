@@ -923,9 +923,10 @@ function bindCell<S extends SurfaceSpec>(
       const shared = readOnly ? standing : undefined;
       if (shared) {
         // Reuse the SAME edge-wiring `wireSubscriptionError` gives every other
-        // `onError` in this file (lines below) — not a hand-rolled tracked
-        // `createEffect`, which would re-subscribe to whatever `cb` itself reads
-        // and can double-fire in a way the shared `on()`-based helper does not.
+        // `onError` in this file (lines below) — not a hand-rolled effect whose
+        // callback also TRACKS, which would re-subscribe to whatever `cb` itself
+        // reads and can double-fire in a way the shared helper (whose callback is
+        // the untracked effect phase) does not.
         if (opts.onError) wireSubscriptionError(shared, opts.onError);
         return readOnlyCellView(shared);
       }
@@ -1524,8 +1525,14 @@ export function buildSurfaceClient<const S extends SurfaceSpec>(
           "`unenrolledStreamCall` from `@kolu/surface/client` and enrol by hand.",
       );
     }
-    const [pending, setPending] = createSignal(true);
-    const [error, setError] = createSignal<Error | undefined>(undefined);
+    // `ownedWrite`: `rawStream` is REQUIRED to run under an owner (asserted above),
+    // and the stream loop below can deliver its first frames synchronously, inside
+    // that very scope. These two signals are the stream's own state, written from
+    // the wire and never by a component rendering itself.
+    const [pending, setPending] = createSignal(true, { ownedWrite: true });
+    const [error, setError] = createSignal<Error | undefined>(undefined, {
+      ownedWrite: true,
+    });
     const source: HealthSource = { pending, error };
     // Owner asserted above, so this auto-drops when the owner unwinds.
     registry.enroll(name, source);
@@ -1547,8 +1554,11 @@ export function buildSurfaceClient<const S extends SurfaceSpec>(
           onFrame: (item) => {
             // Self-clearing edge: each frame proves the stream is live, so a
             // transient failure heals the instant it re-delivers (no latch).
-            if (pending()) setPending(false);
-            if (error()) setError(undefined);
+            // Unconditional: re-writing the value a signal already holds is a no-op
+            // under default equality, and a read-back here would see the pre-flush
+            // value anyway.
+            setPending(false);
+            setError(undefined);
             opts.onItem(item);
           },
           // Clean completion (the server ended the stream): no longer pending.

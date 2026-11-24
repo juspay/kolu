@@ -3,14 +3,7 @@
  *  notifications). Pure animation surface; `useTips` owns when a tip
  *  becomes active and when it auto-dismisses. */
 
-import {
-  type Component,
-  createEffect,
-  createSignal,
-  on,
-  onCleanup,
-  Show,
-} from "solid-js";
+import { type Component, createEffect, createSignal, Show } from "solid-js";
 import { Portal } from "@solidjs/web";
 import DocLink from "../ui/DocLink";
 import { CloseIcon } from "../ui/Icons";
@@ -20,15 +13,16 @@ const TipBanner: Component = () => {
   const [visible, setVisible] = createSignal(false);
 
   createEffect(
-    on(activeTip, (tip) => {
+    () => activeTip(),
+    (tip) => {
       // <Show> unmounts the DOM when tip is null — nothing to animate out.
       if (!tip) return;
       // Start off-screen, then flip on next frame so the CSS transition
       // runs instead of snapping straight to the final position.
       setVisible(false);
       const raf = requestAnimationFrame(() => setVisible(true));
-      onCleanup(() => cancelAnimationFrame(raf));
-    }),
+      return () => cancelAnimationFrame(raf);
+    },
   );
 
   return (

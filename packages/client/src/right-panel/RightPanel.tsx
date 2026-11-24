@@ -109,11 +109,17 @@ const RightPanel: Component<{
   // While git is still unresolved there is no root to record: recording "no
   // repo" then would make the first real answer look like a repo change and
   // drop a restored stack.
-  createEffect(() => {
-    const { terminalId, git } = rightPanelCodeSubject();
-    if (terminalId === null || git.kind === "unresolved") return;
-    rightPanel.syncRepo(terminalId, git.kind === "repo" ? git.root : null);
-  });
+  createEffect(
+    () => {
+      const { terminalId, git } = rightPanelCodeSubject();
+      if (terminalId === null || git.kind === "unresolved") return null;
+      return { terminalId, root: git.kind === "repo" ? git.root : null };
+    },
+    (subject) => {
+      if (subject === null) return;
+      rightPanel.syncRepo(subject.terminalId, subject.root);
+    },
+  );
 
   return (
     <div

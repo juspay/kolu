@@ -33,15 +33,7 @@ import {
   type ConductorAskRow,
   YES_NO,
 } from "kolu-common/conductor";
-import {
-  batch,
-  type Component,
-  createMemo,
-  For,
-  Match,
-  Show,
-  Switch,
-} from "solid-js";
+import { type Component, createMemo, For, Match, Show, Switch } from "solid-js";
 import { askLead, askQuestions, askRecord } from "./askRecord";
 import { askDraft, forgetAskDraft, setAskDraft } from "./drafts";
 import { useConductor } from "./useConductor";
@@ -125,21 +117,18 @@ const ConductorAsk: Component<{
       return;
     }
     const other = otherFor(field.key);
-    batch(() => {
-      setAskDraft(props.row.id, field.key, [value]);
-      if (other !== undefined) setAskDraft(props.row.id, other.key, []);
-    });
+    setAskDraft(props.row.id, field.key, [value]);
+    if (other !== undefined) setAskDraft(props.row.id, other.key, []);
   };
 
   /** Words typed into a question's "Other" box. The first character of an own
    *  answer to a single-answer question drops the pick — one question, one
    *  answer, and the chips go back to unselected as you watch. */
-  const typeOther = (asked: AskField, other: AskField, text: string): void =>
-    batch(() => {
-      setAskDraft(props.row.id, other.key, text === "" ? [] : [text]);
-      if (text !== "" && singleAnswer(asked))
-        setAskDraft(props.row.id, asked.key, []);
-    });
+  const typeOther = (asked: AskField, other: AskField, text: string): void => {
+    setAskDraft(props.row.id, other.key, text === "" ? [] : [text]);
+    if (text !== "" && singleAnswer(asked))
+      setAskDraft(props.row.id, asked.key, []);
+  };
 
   return (
     <section

@@ -12,7 +12,7 @@
  */
 
 import type { SelectedLineRange } from "@pierre/diffs";
-import { type Accessor, createEffect, createSignal, on } from "solid-js";
+import { type Accessor, createEffect, createSignal } from "solid-js";
 import type { CodeContextMenuItem } from "./CodeContextMenu";
 import { CopyIcon, OpenIcon } from "./Icons";
 import { formatLineRef, type LineRef } from "./lineRef";
@@ -72,14 +72,12 @@ export function useLineSelection(
   // Both seed from the same source, so one effect with a combined
   // dep tuple suffices.
   createEffect(
-    on(
-      () => [scope(), options.initialRange?.() ?? null] as const,
-      ([, initial]) => {
-        setAnchor(null);
-        setRange(initial);
-      },
-      { defer: true },
-    ),
+    () => [scope(), options.initialRange?.() ?? null] as const,
+    ([, initial]) => {
+      setAnchor(null);
+      setRange(initial);
+    },
+    { defer: true },
   );
 
   return {

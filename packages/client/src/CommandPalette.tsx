@@ -21,8 +21,8 @@ import {
   createSignal,
   createSelector,
   For,
-  on,
   Show,
+  untrack,
 } from "solid-js";
 import { match } from "ts-pattern";
 import { hostHue, hostLabel } from "./host/hostChipTone";
@@ -350,17 +350,24 @@ const CommandPalette: Component<{
 
   /** If a path segment disappears (host disconnect, group hidden), pop
    *  to the deepest still-valid segment — never keep showing children
-   *  from a stale path object. */
-  createEffect(() => {
-    if (!props.open) return;
-    const p = path();
-    if (p.length === 0) return;
-    const { valid } = resolveLivePath(p);
-    if (valid.length === p.length) return;
-    for (const g of p.slice(valid.length)) g.onCancel?.();
-    setPath(valid);
-    setQuery("");
-  });
+   *  from a stale path object. The compute decides WHETHER to pop (and
+   *  to where); the effect cancels the dropped segments and writes. */
+  createEffect(
+    () => {
+      if (!props.open) return null;
+      const p = path();
+      if (p.length === 0) return null;
+      const { valid } = resolveLivePath(p);
+      if (valid.length === p.length) return null;
+      return { valid, dropped: p.slice(valid.length) };
+    },
+    (trim) => {
+      if (!trim) return;
+      for (const g of trim.dropped) g.onCancel?.();
+      setPath(trim.valid);
+      setQuery("");
+    },
+  );
 
   /** Items at the current navigation level (may include hints).
    *
@@ -730,11 +737,13 @@ const CommandPalette: Component<{
     requestAnimationFrame(() => inputRef.focus());
   }
 
-  /** Walk `names` against the live command tree and set path. **Every**
+  /** Resolve `names` against the live command tree — the read half. **Every**
    *  segment must resolve — a partial match (e.g. Terminals without a
-   *  missing host) is rejected so deep-links never silently widen. */
-  function applyInitialPath(names: readonly string[]) {
-    if (names.length === 0) return false;
+   *  missing host) is rejected so deep-links never silently widen; `null` then. */
+  function resolveInitialPath(
+    names: readonly string[],
+  ): DrillableKind[] | null {
+    if (names.length === 0) return null;
     let level: PaletteItem[] = props.commands();
     const built: DrillableKind[] = [];
     for (const name of names) {
@@ -742,10 +751,17 @@ const CommandPalette: Component<{
         (item): item is DrillableKind =>
           isDrillable(item) && item.name === name,
       );
-      if (!match) return false;
+      if (!match) return null;
       built.push(match);
       level = resolveChildren(match);
     }
+    return built;
+  }
+
+  /** Drill to a resolved initial path — the write half of
+   *  {@link resolveInitialPath}. Answers whether it took the focus. */
+  function applyInitialPath(built: DrillableKind[] | null): boolean {
+    if (!built) return false;
     setPath(built);
     setQuery("");
     const leaf = built.at(-1);
@@ -849,99 +865,107 @@ const CommandPalette: Component<{
 
   // Open/close lifecycle — one effect so the read of `path()` for
   // `onCancel` propagation is ordered explicitly before the path
-  // reset. Splitting open-vs-initialPath into two `on()` effects
-  // raced when both depended on `props.open` (the path-reset effect
-  // could fire first, clearing the segments the close branch was
-  // about to walk for cancellation).
+  // reset. Splitting open-vs-initialPath into two effects raced when
+  // both depended on `props.open` (the path-reset effect could fire
+  // first, clearing the segments the close branch was about to walk
+  // for cancellation).
   createEffect(
-    on(
-      [() => props.open, () => props.initialPath?.join("\0") ?? ""],
-      ([isOpen, pathKey]) => {
-        if (isOpen) {
-          setQuery("");
-          setAmbientTip(peekAmbientTipText());
-          setMouseActive(false);
-          lastPointerPos = null;
-          setClosingForSelection(false);
-          setPath([]);
-          const names = props.initialPath ?? [];
-          if (names.length > 0) {
-            // Exact path only — no prefix fallback (a missing host must not
-            // open the broader Terminals list as if the deep-link succeeded).
-            // A rejected path leaves the root list showing; the highlight
-            // effect below lands on whichever path this run settles at.
-            if (!applyInitialPath(names)) {
-              requestAnimationFrame(() =>
-                requestAnimationFrame(() => inputRef.focus()),
-              );
-            }
-          } else {
-            // forceMount keeps the dialog in the DOM, so Corvu's initialFocusEl
-            // only fires on first mount. Re-focus explicitly on every root open.
-            // When a path is set, applyInitialPath is the sole focus owner —
-            // its rAF would otherwise race this double-rAF, and for a value-kind
-            // leaf the unconditional .focus() would clobber .select().
-            requestAnimationFrame(() =>
-              requestAnimationFrame(() => inputRef.focus()),
-            );
-          }
-          // pathKey keeps the effect subscribed to initialPath identity.
-          void pathKey;
-        } else {
-          if (!closingForSelection()) {
-            for (const g of path()) g.onCancel?.();
-          }
-          // Always clear leaf highlight lifecycle (theme preview, etc.) —
-          // path onCancel only covers drill segments.
-          lastHighlight?.onCancel?.();
-          lastHighlight = undefined;
-          setClosingForSelection(false);
-          setPath([]);
+    () => ({
+      isOpen: props.open,
+      // A dep, so a NEW initialPath while the palette stays open re-runs this.
+      pathKey: props.initialPath?.join("\0") ?? "",
+      // Snapshots, deliberately NOT dependencies — each is what the palette
+      // acts on AT the open/close edge, as the old untracked callback read it:
+      // the resolved initial path (an exact walk of the tree as it stands at
+      // the open), a peeked ambient tip (a random pick that must not re-roll on
+      // every tree tick), and the close branch's two facts (the segments to
+      // cancel, and whether the close completed a selection).
+      resolved: untrack(() => resolveInitialPath(props.initialPath ?? [])),
+      ambientTip: untrack(peekAmbientTipText),
+      openSegments: untrack(path),
+      closedBySelection: untrack(closingForSelection),
+    }),
+    ({ isOpen, resolved, ambientTip, openSegments, closedBySelection }) => {
+      if (isOpen) {
+        setQuery("");
+        setAmbientTip(ambientTip);
+        setMouseActive(false);
+        lastPointerPos = null;
+        setClosingForSelection(false);
+        setPath([]);
+        // Exact path only — no prefix fallback (a missing host must not
+        // open the broader Terminals list as if the deep-link succeeded).
+        // A rejected path leaves the root list showing; the highlight
+        // effect below lands on whichever path this run settles at.
+        if (!applyInitialPath(resolved)) {
+          // forceMount keeps the dialog in the DOM, so Corvu's initialFocusEl
+          // only fires on first mount. Re-focus explicitly on every root open.
+          // When a path is set, applyInitialPath is the sole focus owner —
+          // its rAF would otherwise race this double-rAF, and for a value-kind
+          // leaf the unconditional .focus() would clobber .select().
+          requestAnimationFrame(() =>
+            requestAnimationFrame(() => inputRef.focus()),
+          );
         }
-      },
-    ),
+      } else {
+        if (!closedBySelection) {
+          for (const g of openSegments) g.onCancel?.();
+        }
+        // Always clear leaf highlight lifecycle (theme preview, etc.) —
+        // path onCancel only covers drill segments.
+        lastHighlight?.onCancel?.();
+        lastHighlight = undefined;
+        setClosingForSelection(false);
+        setPath([]);
+      }
+    },
   );
 
   // THE default-highlight rule, applied reactively: whenever the SCOPE changes
   // (open, drill-in, drill-out, path repair, deep-link, typed query) the list is
   // freshly painted and the highlight re-lands. One rule, zero call sites — a
-  // future `setPath` cannot forget to follow it up, and reading `filtered()`
-  // here is guaranteed post-write rather than relying on read-after-write
-  // ordering at eight hand-held sites.
+  // future `setPath` cannot forget to follow it up, and the index is derived in
+  // one place rather than by read-after-write ordering at eight hand-held sites.
   //
   // Registered AFTER the open/close lifecycle effect above so it observes the
   // FINAL `path` of an `applyInitialPath` run, not the intermediate one.
   //
-  // `currentSelection` is a dep, not just a read: `on()` runs its callback
-  // untracked, and the "current" row CAN move while the palette stays open —
-  // Ctrl+Tab reaches the global dispatcher as well as this component, and the
-  // host-membership reconcile can bounce the canvas to local on its own. Both
-  // re-derive `filtered()` (the Recent band drops a different row), so a
-  // highlight left behind would point at a row that shifted under it, and Enter
-  // would run the wrong one. Tracking the fact re-lands the highlight instead.
+  // `currentSelection` is a COMPUTE dep, not just an effect-phase read: the
+  // "current" row CAN move while the palette stays open — Ctrl+Tab reaches the
+  // global dispatcher as well as this component, and the host-membership
+  // reconcile can bounce the canvas to local on its own. Both re-derive
+  // `filtered()` (the Recent band drops a different row), so a highlight left
+  // behind would point at a row that shifted under it, and Enter would run the
+  // wrong one. Tracking the fact re-lands the highlight instead.
   //
   // Still NOT keyed on `filtered` itself — that returns a new array reference on
   // every recomputation, so tracking it would reset the index whenever upstream
-  // data (the commands memo) recomputes in the background.
+  // data (the commands memo) recomputes in the background. `filtered`, `query`
+  // and `mode` are therefore read in the compute as `untrack` SNAPSHOTS: the
+  // index is computed from the list as it stands when a scope change lands,
+  // without making their own churn a trigger.
   createEffect(
-    on(
-      [path, filterQuery, () => props.open, currentSelection],
-      ([, , open]) => {
-        if (!open) return;
-        // A value leaf's children are passive labels, not a switcher: nothing
-        // there has a recency or a "current" row, so the highlight starts at the
-        // top. Keying on `filterQuery` (which is "" throughout value mode) is
-        // what keeps a keystroke from re-landing it off the label you picked,
-        // while a SCOPE change still does.
-        if (mode().kind === "value") {
-          setSelectedIndex(0);
-          return;
-        }
-        setSelectedIndex(
-          defaultSelectionIndex(filtered(), currentSelection(), query()),
-        );
-      },
-    ),
+    () => {
+      path();
+      filterQuery();
+      const open = props.open;
+      const selection = currentSelection();
+      // A value leaf's children are passive labels, not a switcher: nothing
+      // there has a recency or a "current" row, so the highlight starts at the
+      // top. Keying on `filterQuery` (which is "" throughout value mode) is
+      // what keeps a keystroke from re-landing it off the label you picked,
+      // while a SCOPE change still does.
+      const index = untrack(() =>
+        mode().kind === "value"
+          ? 0
+          : defaultSelectionIndex(filtered(), selection, query()),
+      );
+      return { open, index };
+    },
+    ({ open, index }) => {
+      if (!open) return;
+      setSelectedIndex(index);
+    },
   );
 
   const effectiveIndex = createMemo(() =>
@@ -954,7 +978,8 @@ const CommandPalette: Component<{
   // Tracks props.open so the effect re-fires on reopen with the same selection.
   let lastHighlight: (PaletteCommand | PaletteLabel) | undefined;
   createEffect(
-    on([filtered, effectiveIndex, () => props.open], ([items, idx, open]) => {
+    () => [filtered(), effectiveIndex(), props.open] as const,
+    ([items, idx, open]) => {
       if (!open) return;
       const next = items[idx];
       if (next === lastHighlight) {
@@ -964,7 +989,7 @@ const CommandPalette: Component<{
       lastHighlight?.onCancel?.();
       lastHighlight = next;
       next?.onHighlight?.();
-    }),
+    },
   );
 
   // Auto-scroll the highlighted row into view. One effect outside <For>:
@@ -973,13 +998,18 @@ const CommandPalette: Component<{
   // every way a fresh list lands its highlight (the effect above) — including
   // an open whose default row is not the first one — so there is no need to
   // re-scroll on `filtered()` reference churn.
-  createEffect(() => {
-    effectiveIndex();
-    if (!props.open) return;
-    listEl
-      ?.querySelector<HTMLElement>("[data-selected]")
-      ?.scrollIntoView({ block: "nearest" });
-  });
+  createEffect(
+    () => {
+      effectiveIndex();
+      return props.open;
+    },
+    (open) => {
+      if (!open) return;
+      listEl
+        ?.querySelector<HTMLElement>("[data-selected]")
+        ?.scrollIntoView({ block: "nearest" });
+    },
+  );
 
   return (
     <ModalDialog

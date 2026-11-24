@@ -30,7 +30,7 @@
 
 import { Option } from "effect";
 import type { Recalled } from "kolu-work";
-import { type Accessor, batch, createEffect, createMemo } from "solid-js";
+import { type Accessor, createEffect, createMemo, untrack } from "solid-js";
 import { type AskOption, defaultFirst } from "./AskOptions";
 import { askDraft, dropAskFields, setAskDraft } from "./drafts";
 
@@ -46,19 +46,15 @@ const seededKey = (decision: string): string => `${decision}~seeded`;
  *  last and empties the box beside it — the options and the box are two
  *  halves of one question. */
 export function pickOnly(ask: string, field: string, value: string): void {
-  batch(() => {
-    setAskDraft(ask, field, [value]);
-    setAskDraft(ask, typedKey(field), []);
-  });
+  setAskDraft(ask, field, [value]);
+  setAskDraft(ask, typedKey(field), []);
 }
 
 /** Words typed beside a single-answer question's options. The first character
  *  of an own answer drops the pick, as you watch. */
 export function typeOnly(ask: string, field: string, text: string): void {
-  batch(() => {
-    setAskDraft(ask, typedKey(field), text === "" ? [] : [text]);
-    if (text !== "") setAskDraft(ask, field, []);
-  });
+  setAskDraft(ask, typedKey(field), text === "" ? [] : [text]);
+  if (text !== "") setAskDraft(ask, field, []);
 }
 
 /** SEED THE DEFAULT, ONCE PER CONTEXT — the write {@link seededChips} owns.
@@ -78,8 +74,9 @@ function seedAskDefault(
   field: string,
   context: string,
   value: Option.Option<Recalled>,
+  seeded: string | undefined,
 ): void {
-  if (askDraft(ask, seededKey(field))[0] === context) return;
+  if (seeded === context) return;
   const as = (chosen: Recalled["chosen"]) =>
     Option.toArray(
       Option.map(
@@ -87,11 +84,9 @@ function seedAskDefault(
         (one) => one.value,
       ),
     );
-  batch(() => {
-    setAskDraft(ask, seededKey(field), [context]);
-    setAskDraft(ask, field, as("picked"));
-    setAskDraft(ask, typedKey(field), as("typed"));
-  });
+  setAskDraft(ask, seededKey(field), [context]);
+  setAskDraft(ask, field, as("picked"));
+  setAskDraft(ask, typedKey(field), as("typed"));
 }
 
 /** DEFAULT FIRST, SEEDED ONCE — the whole of how a question opens on what
@@ -111,12 +106,21 @@ export function seededChips(
   options: () => ReadonlyArray<AskOption>,
   standing: () => Option.Option<Recalled>,
 ): Accessor<ReadonlyArray<AskOption>> {
-  createEffect(() => {
-    Option.match(context(), {
-      onNone: () => {},
-      onSome: (now) => seedAskDefault(ask, field, now, standing()),
-    });
-  });
+  createEffect(
+    () => ({
+      context: context(),
+      standing: standing(),
+      // READ ONCE, not depended on: the mark is this effect's own write, and
+      // depending on it would re-run the effect on the seeding it just did.
+      seeded: untrack(() => askDraft(ask, seededKey(field))[0]),
+    }),
+    ({ context: now, standing: last, seeded }) => {
+      Option.match(now, {
+        onNone: () => {},
+        onSome: (one) => seedAskDefault(ask, field, one, last, seeded),
+      });
+    },
+  );
   return createMemo(() =>
     defaultFirst(
       options(),

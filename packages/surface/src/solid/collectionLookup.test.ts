@@ -1,5 +1,5 @@
 import { Schema, Stream } from "effect";
-import { createComputed, createRoot, createSignal } from "solid-js";
+import { createEffect, createRoot, createSignal } from "solid-js";
 import { expect, it, vi } from "vitest";
 import { defineSurface } from "../define";
 import { useCollection } from "./useCollection";
@@ -22,10 +22,14 @@ it("keeps per-key subscription creation lazy, first-duplicate lookup, and unrela
     });
     expect(opened).toHaveLength(0);
     let wakes = 0;
-    createComputed(() => {
-      view.byKey("a");
-      wakes++;
-    });
+    // The compute does the tracked lookup; the effect phase counts the wake. A live
+    // reader is also what makes `mapArray` create the per-key subscriptions.
+    createEffect(
+      () => view.byKey("a"),
+      () => {
+        wakes++;
+      },
+    );
     expect(opened).toHaveLength(2);
     expect(view.byKey("a")).toBe(opened[0]?.sub);
     setKeys(["a", "a", "b"]);

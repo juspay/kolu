@@ -57,7 +57,7 @@
 import { toError } from "@kolu/surface/run-stream";
 import { Effect } from "effect";
 import type { TerminalId } from "kolu-common/surface";
-import { createComputed, createStore, produce } from "solid-js";
+import { createSignal } from "solid-js";
 import { toast } from "solid-sonner";
 import { createSharedRoot } from "../createSharedRoot";
 import { activeScope } from "../hostScope/hostScopes";
@@ -183,10 +183,6 @@ export interface SplitPanelStore {
 }
 
 export const useSplitPanelState = createSharedRoot((): SplitPanelStore => {
-  const [pending, setPending] = createStore<Record<TerminalId, SplitPending>>(
-    {},
-  );
-
   /** This terminal's record, as the active host's collection holds it.
    *  `subPanel` is an optional key on the record, and a PARKED row carries no
    *  chrome at all, so the `in` check is the narrowing rather than a cast. */
@@ -195,56 +191,67 @@ export const useSplitPanelState = createSharedRoot((): SplitPanelStore => {
     return record && "subPanel" in record ? record.subPanel : undefined;
   };
 
-  // The settle rule, run against every live entry whenever a record one of
-  // them watches moves. Converges: each run either drops keys or re-stamps
-  // `sawRecord` with the value it just read, and a run where nothing moved
-  // and nothing settled returns before writing.
-  createComputed(() => {
-    const readings = Object.entries(pending).flatMap(([id, entry]) =>
-      entry ? [{ id, entry, record: savedOf(id) }] : [],
-    );
-    if (readings.length === 0) return;
-    const acts = readings.map((r) => ({
-      id: r.id,
-      record: r.record,
-      verdict: settleSplitPending(r.entry, r.record),
-      moved: splitRecordMoved(r.entry, r.record),
-    }));
-    if (acts.every((a) => a.verdict === "keep" && !a.moved)) return;
-    setPending(
-      produce((draft: Record<string, SplitPending>) => {
-        for (const { id, record, verdict } of acts) {
-          if (verdict !== "keep") {
-            delete draft[id];
-            continue;
-          }
-          const entry = draft[id];
-          if (entry) draft[id] = { ...entry, sawRecord: record };
-        }
-      }),
-    );
-  });
+  /** Read every live record, for the SUBSCRIPTION alone. The settle rule
+   *  below is a writable derivation, and a writable derivation does not
+   *  re-derive on its own writes: its dependencies are the ones its last run
+   *  read. An entry armed by a gesture after that run would therefore watch
+   *  nothing — its own record included — and never settle. Reading the whole
+   *  list once per run makes "a record moved" wake the rule whatever the
+   *  entries were when it last looked. */
+  const watchRecords = (): void => {
+    const wire = activeScope()?.wire;
+    if (!wire) return;
+    for (const id of wire.terminalKeys() ?? []) wire.terminals?.byKey(id)?.();
+  };
+
+  /** The live entries, and the settle rule that ends them — one writable
+   *  derivation rather than a rule that writes the state it reads. A gesture
+   *  (`write`), a write answering (`settleWrite`) and a departure (`forget`)
+   *  SET it; a record moving RE-DERIVES it from what was last set, dropping
+   *  the entries that landed or were superseded and re-stamping `sawRecord`
+   *  on the ones that stay. A run where nothing moved and nothing settled
+   *  returns the very map it was given, so it notifies nobody. */
+  const [pending, setPending] = createSignal<Record<TerminalId, SplitPending>>(
+    (prev: Record<TerminalId, SplitPending> = {}) => {
+      watchRecords();
+      const readings = Object.entries(prev).flatMap(([id, entry]) =>
+        entry ? [{ id: id as TerminalId, entry, record: savedOf(id) }] : [],
+      );
+      if (readings.length === 0) return prev;
+      const acts = readings.map((r) => ({
+        id: r.id,
+        entry: r.entry,
+        record: r.record,
+        verdict: settleSplitPending(r.entry, r.record),
+        moved: splitRecordMoved(r.entry, r.record),
+      }));
+      if (acts.every((a) => a.verdict === "keep" && !a.moved)) return prev;
+      const next: Record<TerminalId, SplitPending> = {};
+      for (const { id, entry, record, verdict } of acts) {
+        if (verdict !== "keep") continue;
+        next[id] = { ...entry, sawRecord: record };
+      }
+      return next;
+    },
+  );
 
   /** One of our writes answered: it is no longer outstanding, and a failure
    *  with nothing left outstanding ends the entry outright. Guarded on the
    *  entry still being there — a tile can depart mid-write. */
   const settleWrite = (id: TerminalId, ok: boolean): void => {
-    setPending(
-      produce((draft: Record<string, SplitPending>) => {
-        const entry = draft[id];
-        if (!entry) return;
-        const inFlight = Math.max(0, entry.inFlight - 1);
-        if (!ok && inFlight === 0) {
-          delete draft[id];
-          return;
-        }
-        draft[id] = { ...entry, inFlight };
-      }),
-    );
+    setPending((prev) => {
+      const entry = prev[id];
+      if (!entry) return prev;
+      const inFlight = Math.max(0, entry.inFlight - 1);
+      const next = { ...prev };
+      if (!ok && inFlight === 0) delete next[id];
+      else next[id] = { ...entry, inFlight };
+      return next;
+    });
   };
 
   const state = (id: TerminalId): SplitPanelState =>
-    savedSplitOf(savedOf(id), pending[id]?.value);
+    savedSplitOf(savedOf(id), pending()[id]?.value);
 
   return {
     state,
@@ -253,31 +260,35 @@ export const useSplitPanelState = createSharedRoot((): SplitPanelStore => {
       // here is what keeps a drag from eating itself. Corvu re-emits the
       // controlled `sizes` it was just handed, so a drag's own echo comes back
       // through `onSizesChange` while the gesture is still in progress. Writing
-      // that echo would touch this store (a fresh entry, one more owed write),
+      // that echo would touch this state (a fresh entry, one more owed write),
       // which moves the controlled value, which re-emits — a cycle with no
       // fixpoint, because an entry is a new object every time even when its
       // value is not. The copy this module replaced was immune by accident:
       // it wrote one NUMBER into a store, and solid-js drops a property write
       // that equals what is there.
       if (sameSplitPanelState(state(id), next)) return;
-      setPending(
-        produce((draft: Record<string, SplitPending>) => {
-          const prev = draft[id];
-          const entry: SplitPending = {
+      setPending((prev) => {
+        const was = prev[id];
+        return {
+          ...prev,
+          [id]: {
             value: next,
-            inFlight: (prev?.inFlight ?? 0) + 1,
+            inFlight: (was?.inFlight ?? 0) + 1,
             // Stamped from the record as it stands NOW, so this entry's "the
             // record moved" is measured from the gesture, not from nothing.
-            sawRecord: prev?.sawRecord ?? savedOf(id),
-          };
-          if (prev) Object.assign(prev, entry);
-          else draft[id] = entry;
-        }),
-      );
+            sawRecord: was?.sawRecord ?? savedOf(id),
+          },
+        };
+      });
       persistSplitPanel(id, next, (ok) => settleWrite(id, ok));
     },
     forget: (id) => {
-      setPending(produce((draft) => delete draft[id]));
+      setPending((prev) => {
+        if (!(id in prev)) return prev;
+        const next = { ...prev };
+        delete next[id];
+        return next;
+      });
     },
   };
 });

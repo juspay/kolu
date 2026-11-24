@@ -73,8 +73,9 @@ export function publishGridAction(
 ): UiAction<void> {
   const { cols, rows } = size;
   return Effect.suspend(() => {
-    // Read at RUN time, not at construction: the action is described in a
-    // `createEffect` body and the host's state is a live signal.
+    // Read at RUN time, not at construction: the action is described from the
+    // effect phase that states the pane's size, and the host's state is a live
+    // signal.
     const host = deps.hostState();
     if (host !== "connected") {
       console.info(

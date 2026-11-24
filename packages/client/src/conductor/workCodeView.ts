@@ -57,16 +57,17 @@ const histories = createCodeHistories<WorkId>();
  *  first view of a work, and app-lifetime from then on. */
 const forgetGoneWorks = createSharedRoot(() => {
   const works = useWorkMap();
-  let held = new Set<WorkId>();
-  createEffect(() => {
-    const now = new Set(works().keys());
-    for (const id of held) {
-      if (now.has(id)) continue;
-      setWritten(produce((all) => delete all[id]));
-      histories.forget(id);
-    }
-    held = now;
-  });
+  createEffect(
+    () => new Set(works().keys()),
+    (now, before) => {
+      if (before === undefined) return;
+      for (const id of before) {
+        if (now.has(id)) continue;
+        setWritten(produce((all) => delete all[id]));
+        histories.forget(id);
+      }
+    },
+  );
 });
 
 /** The view as it stands: this browser's write, else the one kolu keeps,

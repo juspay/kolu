@@ -82,7 +82,12 @@ const Read: Component<{
   }));
   // The work's back/forward follows its root, handed over with the work it
   // belongs to as one pair.
-  createEffect(() => syncWorkCodeRoot(props.id, props.place.repoPath));
+  createEffect(
+    () => ({ id: props.id, root: props.place.repoPath }),
+    ({ id, root }) => {
+      syncWorkCodeRoot(id, root);
+    },
+  );
   const [box, setBox] = createSignal<HTMLDivElement>();
   const boxSize = createElementSize(box);
   // The box's width once it has been measured, and from then on. A fresh

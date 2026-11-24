@@ -20,7 +20,6 @@ import {
   createMemo,
   createSignal,
   For,
-  on,
   Show,
 } from "solid-js";
 import type { JSX } from "@solidjs/web";
@@ -75,12 +74,10 @@ export function FileView<TFile extends FileData = FileData>(
   // too so a fresh mount whose host already names a surface (a tray jump that
   // remounted this view) lands on it instead of falling back to `defaultMode`.
   createEffect(
-    on(
-      () => props.mode,
-      (m) => {
-        if (m != null) setChosen(m);
-      },
-    ),
+    () => props.mode,
+    (m) => {
+      if (m != null) setChosen(m);
+    },
   );
 
   const mode = createMemo<FileViewMode>(() => {

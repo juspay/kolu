@@ -127,9 +127,12 @@ describe("surface-map mock-entry e2e harness", () => {
       const view = client.useEntry(active);
       const r = view.cells.urgency.use();
       let awaiting: number | undefined;
-      createEffect(() => {
-        awaiting = r.value()?.awaiting;
-      });
+      createEffect(
+        () => r.value()?.awaiting,
+        (v) => {
+          awaiting = v;
+        },
+      );
 
       await settle();
       expect(awaiting).toBe(3); // A
@@ -175,15 +178,24 @@ describe("surface-map mock-entry e2e harness", () => {
         kind: "warming",
         membershipId: testMembershipId(),
       };
-      createEffect(() => {
-        cellError = cell.error();
-      });
-      createEffect(() => {
-        keys = client.entries.use().keys().map(String);
-      });
-      createEffect(() => {
-        state = client.entry(A).state();
-      });
+      createEffect(
+        () => cell.error(),
+        (v) => {
+          cellError = v;
+        },
+      );
+      createEffect(
+        () => client.entries.use().keys().map(String),
+        (v) => {
+          keys = v;
+        },
+      );
+      createEffect(
+        () => client.entry(A).state(),
+        (v) => {
+          state = v;
+        },
+      );
 
       await settle();
       expect(cell.value()?.awaiting).toBe(9);
@@ -210,12 +222,18 @@ describe("surface-map mock-entry e2e harness", () => {
       const view = client.entries.use();
       let stC: EntryStatus | undefined;
       let stD: EntryStatus | undefined;
-      createEffect(() => {
-        stC = view.byKey(C)?.() as EntryStatus | undefined;
-      });
-      createEffect(() => {
-        stD = view.byKey(D)?.() as EntryStatus | undefined;
-      });
+      createEffect(
+        () => view.byKey(C)?.() as EntryStatus | undefined,
+        (v) => {
+          stC = v;
+        },
+      );
+      createEffect(
+        () => view.byKey(D)?.() as EntryStatus | undefined,
+        (v) => {
+          stD = v;
+        },
+      );
 
       addSession(C, makeEntry({ awaiting: 0, awaitingIds: [] }).dispatch, {
         kind: "connecting",
@@ -251,9 +269,12 @@ describe("surface-map mock-entry e2e harness", () => {
       const { client, addSession, setState } = setup();
       const view = client.entries.use();
       let st: EntryStatus | undefined;
-      createEffect(() => {
-        st = view.byKey(C)?.() as EntryStatus | undefined;
-      });
+      createEffect(
+        () => view.byKey(C)?.() as EntryStatus | undefined,
+        (v) => {
+          st = v;
+        },
+      );
 
       addSession(
         C,
@@ -442,9 +463,12 @@ describe("surface-map mock-entry e2e harness", () => {
 
       const cell = client.entry(A).cells.urgency.use();
       let cellError: Error | undefined;
-      createEffect(() => {
-        cellError = cell.error();
-      });
+      createEffect(
+        () => cell.error(),
+        (v) => {
+          cellError = v;
+        },
+      );
       await settle(); // forwardStream is now parked on the slow upstream
 
       // Remove A mid-flight: delete (has → false) + notify. The watcher (acquired
@@ -566,9 +590,12 @@ describe("surface-map mock-entry e2e harness", () => {
 
       const cell = client.entry(A).cells.urgency.use();
       let cellError: Error | undefined;
-      createEffect(() => {
-        cellError = cell.error();
-      });
+      createEffect(
+        () => cell.error(),
+        (v) => {
+          cellError = v;
+        },
+      );
       await settle(); // parked on the S1 upstream
 
       // Flap: remove A (has → false; the watcher LATCHES removed=true) THEN re-add under a
@@ -915,13 +942,17 @@ describe("membership is time — opaque membershipId (PR3)", () => {
   /** Read A's currently-published `membershipId` off the `entries` authority. */
   const idReader = (client: ReturnType<typeof setup>["client"]) => {
     let id: string | undefined;
-    createEffect(() => {
-      id = (
-        client.entries.use().byKey(A)?.() as
-          | EntryStatus<TestFailure>
-          | undefined
-      )?.membershipId;
-    });
+    createEffect(
+      () =>
+        (
+          client.entries.use().byKey(A)?.() as
+            | EntryStatus<TestFailure>
+            | undefined
+        )?.membershipId,
+      (v) => {
+        id = v;
+      },
+    );
     return () => id;
   };
 
@@ -931,12 +962,18 @@ describe("membership is time — opaque membershipId (PR3)", () => {
       const view = client.entries.use();
       let stA: EntryStatus<TestFailure> | undefined;
       let stB: EntryStatus<TestFailure> | undefined;
-      createEffect(() => {
-        stA = view.byKey(A)?.() as EntryStatus<TestFailure> | undefined;
-      });
-      createEffect(() => {
-        stB = view.byKey(B)?.() as EntryStatus<TestFailure> | undefined;
-      });
+      createEffect(
+        () => view.byKey(A)?.() as EntryStatus<TestFailure> | undefined,
+        (v) => {
+          stA = v;
+        },
+      );
+      createEffect(
+        () => view.byKey(B)?.() as EntryStatus<TestFailure> | undefined,
+        (v) => {
+          stB = v;
+        },
+      );
 
       addSession(A, makeEntry({ awaiting: 0, awaitingIds: [] }).dispatch, {
         kind: "connecting",
@@ -968,9 +1005,12 @@ describe("membership is time — opaque membershipId (PR3)", () => {
       const [active] = createSignal<HostKey>(A);
       const cell = client.useEntry(active).cells.urgency.use();
       let awaiting: number | undefined;
-      createEffect(() => {
-        awaiting = cell.value()?.awaiting;
-      });
+      createEffect(
+        () => cell.value()?.awaiting,
+        (v) => {
+          awaiting = v;
+        },
+      );
       const idOf = idReader(client);
       await settle();
       expect(awaiting).toBe(1);
@@ -1005,7 +1045,10 @@ describe("membership is time — opaque membershipId (PR3)", () => {
 
       const [active] = createSignal<HostKey>(A);
       const cell = client.useEntry(active).cells.urgency.use();
-      createEffect(() => void cell.value());
+      createEffect(
+        () => cell.value(),
+        () => {},
+      );
       const idOf = idReader(client);
       await settle();
       const id1 = idOf();
@@ -1083,13 +1126,19 @@ describe("membership is time — opaque membershipId (PR3)", () => {
 
       const retained = client.entry(A).cells.urgency.use();
       let retainedAwaiting: number | undefined;
-      createEffect(() => {
-        retainedAwaiting = retained.value()?.awaiting;
-      });
+      createEffect(
+        () => retained.value()?.awaiting,
+        (v) => {
+          retainedAwaiting = v;
+        },
+      );
 
       const [active] = createSignal<HostKey>(A);
       const view = client.useEntry(active).cells.urgency.use();
-      createEffect(() => void view.value());
+      createEffect(
+        () => view.value(),
+        () => {},
+      );
 
       // The frame lands → useEntry re-keys pending→real and builds the real client.
       await settle();
@@ -1125,9 +1174,12 @@ describe("membership is time — opaque membershipId (PR3)", () => {
       const [active] = createSignal<HostKey>(A);
       const cell = client.useEntry(active).cells.health.use();
       let n: number | undefined;
-      createEffect(() => {
-        n = (cell.value() as { n: number } | undefined)?.n;
-      });
+      createEffect(
+        () => (cell.value() as { n: number } | undefined)?.n,
+        (v) => {
+          n = v;
+        },
+      );
       await settle();
       expect(n).toBe(1);
 

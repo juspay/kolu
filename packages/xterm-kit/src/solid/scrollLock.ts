@@ -39,7 +39,6 @@ import {
   type Accessor,
   createEffect,
   createSignal,
-  on,
   onCleanup,
   untrack,
 } from "solid-js";
@@ -244,8 +243,7 @@ export function createScrollLock(
    *  still runs after the flush lands, instead of being dropped. A
    *  callback-less flush is what silently lost a snapshot frame's seed under
    *  scroll lock, leaving a stale backfill cursor against the reset buffer. */
-  function flush(): void {
-    const buffered = pending();
+  function drain(buffered: readonly PendingItem[]): void {
     const term = termRef;
     if (buffered.length === 0 || !term) return;
     setPending([]);
@@ -284,6 +282,15 @@ export function createScrollLock(
     writeRun();
   }
 
+  /** The imperative façade over {@link drain}: reads the buffer's current
+   *  contents and replays them. Every caller is an event handler, a write-door
+   *  entry or the public API — never an effect callback, which is a strict-read
+   *  window: the `enabled` effect below takes the buffer from its own compute
+   *  and calls `drain` directly. */
+  function flush(): void {
+    drain(pending());
+  }
+
   /** Drop everything the lock is holding, bytes and resizes alike, without
    *  applying any of it (snapshot / re-attach reset). */
   function dropPending(): void {
@@ -298,15 +305,18 @@ export function createScrollLock(
     setLockState(null);
   }
 
-  // Clear scroll lock when the setting is toggled off
+  // Clear scroll lock when the setting is toggled off. The buffer rides the
+  // compute (it is what the drain needs, and an effect callback may read no
+  // reactive source); the extra dependency only adds runs that return
+  // immediately while the setting is on.
   createEffect(
-    on(
-      enabled,
-      (v) => {
-        if (v === false) reset();
-      },
-      { defer: true },
-    ),
+    () => ({ off: enabled() === false, buffered: pending() }),
+    ({ off, buffered }) => {
+      if (!off) return;
+      drain(buffered);
+      setLockState(null);
+    },
+    { defer: true },
   );
 
   /** Pure verdict for an off-/at-bottom scroll — the latch decision in
@@ -366,7 +376,7 @@ export function createScrollLock(
 
   /** Wire the onScroll handler and self-register cleanup on the caller's
    *  reactive owner. Must be called synchronously within a reactive scope
-   *  (e.g. inside `onMount`, or within a `runWithOwner` restoring the
+   *  (e.g. within a `runWithOwner` restoring the
    *  component's owner after an await) — otherwise `onCleanup` silently
    *  no-ops and the `onScroll` closure + `termRef` leak the xterm Terminal
    *  across the component's lifetime (#591 heap-snapshot evidence).

@@ -53,10 +53,12 @@ const RecordPopover: Component<{
   });
 
   // Keep the preview `<video>` in sync with the webcam stream signal.
-  createEffect(() => {
-    const s = recorder.webcamStream();
-    if (webcamVideoRef) webcamVideoRef.srcObject = s;
-  });
+  createEffect(
+    () => recorder.webcamStream(),
+    (s) => {
+      if (webcamVideoRef) webcamVideoRef.srcObject = s;
+    },
+  );
 
   const showMicSelector = () => recorder.micDevices().length > 1;
   const showWebcamSelector = () => recorder.webcamDevices().length > 1;

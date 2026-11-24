@@ -97,9 +97,12 @@ describe("a map mounted as a sibling — one tag rule, no link re-wrap", () => {
       const { map, served, dispatch, addSession } = mountedSetup();
       const client = connectSurfaceMap(map, dispatch);
       let keys: string[] = [];
-      createEffect(() => {
-        keys = client.entries.use().keys().map(String);
-      });
+      createEffect(
+        () => client.entries.use().keys().map(String),
+        (v) => {
+          keys = v;
+        },
+      );
       addSession(
         A,
         makeEntry({ awaiting: 0, awaitingIds: [] }).dispatch,

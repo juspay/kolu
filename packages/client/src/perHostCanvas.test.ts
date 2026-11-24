@@ -47,7 +47,7 @@ import type {
 import { Effect } from "effect";
 import type { HostKey } from "kolu-common/hostKey";
 import type { TerminalId } from "kolu-common/surface";
-import { batch, createRoot, createSignal } from "solid-js";
+import { createRoot, createSignal } from "solid-js";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const rpcSpy = vi.hoisted(() => ({
@@ -240,25 +240,24 @@ function mountTwoHostFixture() {
     activeTerminalId: string,
   ) {
     const [a, b] = ids;
-    // Re-key membership + host + list/metadata/saved-session together (one batch =
-    // one atomic switch). ADD-AS-MEMBER: the target joins `entries` (the owner's
-    // disposal authority) as it becomes active — mirroring the real app, where a
-    // host is in the pool before you switch to it. Flipping `activeHost` re-keys
-    // the host-scoped readouts through the `scopedByEntry` owner in lockstep — the
-    // hydration effect never observes host B paired with host A's stale list (in
-    // the real app the readouts go PENDING on switch, gating that intermediate out;
-    // here the batch collapses it). Without this, the effect would seed B's record
-    // from A's still-current terminals before B's own arrive.
-    batch(() => {
-      addHost(target);
-      setDriveHost(target);
-      setDriveMeta({ [a]: activeMeta(), [b]: activeMeta() });
-      setDriveList([{ id: a }, { id: b }] as TerminalInfo[]);
-      setDriveSaved({
-        terminals: [savedTerminal(a), savedTerminal(b)],
-        activeTerminalId,
-        savedAt: 1,
-      });
+    // Re-key membership + host + list/metadata/saved-session together: consecutive
+    // writes share one update, so the switch is atomic. ADD-AS-MEMBER: the target
+    // joins `entries` (the owner's disposal authority) as it becomes active —
+    // mirroring the real app, where a host is in the pool before you switch to it.
+    // Flipping `activeHost` re-keys the host-scoped readouts through the
+    // `scopedByEntry` owner in lockstep — the hydration effect never observes host
+    // B paired with host A's stale list (in the real app the readouts go PENDING
+    // on switch, gating that intermediate out; here the shared update collapses
+    // it). Without this, the effect would seed B's record from A's still-current
+    // terminals before B's own arrive.
+    addHost(target);
+    setDriveHost(target);
+    setDriveMeta({ [a]: activeMeta(), [b]: activeMeta() });
+    setDriveList([{ id: a }, { id: b }] as TerminalInfo[]);
+    setDriveSaved({
+      terminals: [savedTerminal(a), savedTerminal(b)],
+      activeTerminalId,
+      savedAt: 1,
     });
   }
 

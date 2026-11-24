@@ -9,7 +9,7 @@
  *  read the one comments store. */
 
 import { bindArtifactSdk, pushHighlightsTo } from "@kolu/artifact-sdk/client";
-import { type Component, createEffect, createMemo, onCleanup } from "solid-js";
+import { type Component, createEffect, createMemo } from "solid-js";
 import { useComposer } from "./commentView";
 import { commentsForTerminal } from "./useComments";
 
@@ -34,43 +34,47 @@ export const CommentIframeSurface: Component<CommentIframeSurfaceProps> = (
 
   // Bind the bridge whenever the iframe element ticks. `onDocumentReady`
   // covers the lifecycle trigger (initial `ready` + in-iframe `load`);
-  // the reactive `createEffect` below covers data-change pushes. Two
+  // the reactive push effect below covers data-change pushes. Two
   // orthogonal triggers, one push path — no double-broadcast, no
   // "highlights vanish after in-iframe navigation" bug.
-  createEffect(() => {
-    const el = props.iframe;
-    if (!el) return;
-    const dispose = bindArtifactSdk(el, {
-      currentPath: () => props.path,
-      onDocumentReady: () => pushHighlightsTo(el, commentsForFile()),
-      onSelect: (msg) => {
-        const rect = el.getBoundingClientRect();
-        composer.open({
-          path: msg.path,
-          locator: msg.locator,
-          // Translate iframe-local coordinates to parent viewport so
-          // the composer Portal lands over the visible selection
-          // rather than the iframe's top-left corner.
-          rect: {
-            x: rect.left + msg.rect.x,
-            y: rect.top + msg.rect.y,
-            width: msg.rect.width,
-            height: msg.rect.height,
-          },
-        });
-      },
-    });
-    onCleanup(dispose);
-  });
+  createEffect(
+    () => props.iframe,
+    (el) => {
+      if (!el) return;
+      // The bridge's disposer is the effect's cleanup: it runs before the
+      // next iframe binds and on disposal.
+      return bindArtifactSdk(el, {
+        currentPath: () => props.path,
+        onDocumentReady: () => pushHighlightsTo(el, commentsForFile()),
+        onSelect: (msg) => {
+          const rect = el.getBoundingClientRect();
+          composer.open({
+            path: msg.path,
+            locator: msg.locator,
+            // Translate iframe-local coordinates to parent viewport so
+            // the composer Portal lands over the visible selection
+            // rather than the iframe's top-left corner.
+            rect: {
+              x: rect.left + msg.rect.x,
+              y: rect.top + msg.rect.y,
+              width: msg.rect.width,
+              height: msg.rect.height,
+            },
+          });
+        },
+      });
+    },
+  );
 
   // Re-push the comment set whenever it changes — the SDK re-applies
   // CSS Custom Highlights inside the iframe with the new range list.
-  createEffect(() => {
-    const el = props.iframe;
-    const list = commentsForFile();
-    if (!el) return;
-    pushHighlightsTo(el, list);
-  });
+  createEffect(
+    () => ({ el: props.iframe, list: commentsForFile() }),
+    ({ el, list }) => {
+      if (!el) return;
+      pushHighlightsTo(el, list);
+    },
+  );
 
   return null;
 };

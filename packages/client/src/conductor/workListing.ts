@@ -22,7 +22,7 @@
 
 import type { Doubt, StageName, WorkId } from "kolu-work";
 import type { PickedView } from "./livePanes";
-import { batch, createSignal } from "solid-js";
+import { createSignal } from "solid-js";
 import { defaultInvalidWarning, persistedPref } from "../persistedPref";
 import { pointChatAt, showAllChat } from "./chatScope";
 import { setPhoneView } from "./phoneView";
@@ -105,48 +105,40 @@ export const isMemberInspected = (ref: string): boolean =>
 /** A PRESS ON A ROW: open it, or fold it. Folding the inspected row ends the
  *  inspection with it. */
 export function toggleMember(ref: string): void {
-  batch(() => {
-    const next = new Set(unfolded());
-    if (next.delete(ref)) {
-      if (inspected() === ref) setInspected(null);
-    } else next.add(ref);
-    setUnfolded(next);
-  });
+  const next = new Set(unfolded());
+  if (next.delete(ref)) {
+    if (inspected() === ref) setInspected(null);
+  } else next.add(ref);
+  setUnfolded(next);
 }
 
 /** INSPECT ONE TERMINAL of the picked work: its Details in front, with that
  *  terminal's row open and marked as the one asked for. */
 export function inspectMember(ref: string): void {
-  batch(() => {
-    setUnfolded(new Set([...unfolded(), ref]));
-    setInspected(ref);
-    setViewChoice("details");
-  });
+  setUnfolded(new Set([...unfolded(), ref]));
+  setInspected(ref);
+  setViewChoice("details");
 }
 
 /** PICK A WORK: the screen is about it, and so is the chat — on the stage
  *  `stage` names, when a press on its map picked it, which was a press to
  *  read that stage: its Details are in front. */
 export function pickWork(id: WorkId, stage?: StageName | Doubt): void {
-  batch(() => {
-    setPicked(id);
-    setPickedStage(stage);
-    setViewChoice(stage === undefined ? undefined : "details");
-    setUnfolded(new Set<string>());
-    setInspected(null);
-    pointChatAt(id);
-  });
+  setPicked(id);
+  setPickedStage(stage);
+  setViewChoice(stage === undefined ? undefined : "details");
+  setUnfolded(new Set<string>());
+  setInspected(null);
+  pointChatAt(id);
 }
 
 /** BACK TO ALL THE WORKS: nothing picked, and the whole chat. */
 export function unpickWork(): void {
-  batch(() => {
-    setPicked(null);
-    setViewChoice(undefined);
-    setUnfolded(new Set<string>());
-    setInspected(null);
-    showAllChat();
-  });
+  setPicked(null);
+  setViewChoice(undefined);
+  setUnfolded(new Set<string>());
+  setInspected(null);
+  showAllChat();
 }
 
 /** A press on a work's head: pick it, or unpick it when it is the one. */
@@ -164,9 +156,13 @@ export const toggleFinished = (): void => {
 /** The work a route asked to bring into view, if one is waiting. */
 export const wantedCard = wanted;
 
-/** The work answered: it is in view. */
+/** The work answered: it is in view.
+ *
+ *  NO READ: the check rides the setter's updater, which is handed the value
+ *  in place — the only caller is a card's effect, whose imperative half
+ *  reads no reactive state, and a newer request is simply left standing. */
 export function cardShown(seq: number): void {
-  if (wanted()?.seq === seq) setWanted(null);
+  setWanted((was) => (was?.seq === seq ? null : was));
 }
 
 /** GO TO A WORK — the one route every face takes: a work chip, a `#/work/…`
@@ -178,11 +174,9 @@ export function cardShown(seq: number): void {
 export function showWork(id: WorkId, ask: string | null = null): void {
   asks += 1;
   const seq = asks;
-  batch(() => {
-    enterConductorMode();
-    closeReader();
-    setPhoneView("work");
-    pickWork(id);
-    setWanted({ id, ask, seq });
-  });
+  enterConductorMode();
+  closeReader();
+  setPhoneView("work");
+  pickWork(id);
+  setWanted({ id, ask, seq });
 }

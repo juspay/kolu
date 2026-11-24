@@ -54,14 +54,12 @@ import {
 } from "@kolu/surface/solid";
 import {
   type Accessor,
-  batch,
   createEffect,
   createMemo,
   createSignal,
   createStore,
-  on,
-  onCleanup,
   produce,
+  untrack,
 } from "solid-js";
 import { runActionPromise } from "../runAction";
 
@@ -189,7 +187,7 @@ export function createPolledQuery<Input, PulseInput, Pulse, Result>(
   // this file keeps only the Solid ergonomics that wrap it — the reconciled store
   // write, the `pending`/`error` signals, `shownKey`, and the #818/#1714 guard.
   // The core's in-flight requery is torn down through the pulse `signal` below
-  // (aborted by the effect's `onCleanup` on every re-run and on owner dispose).
+  // (aborted by the cleanup this effect RETURNS, on re-run and on dispose).
 
   // The input's VALUE identity — a canonical primitive key over (input, host).
   // `on` fires its callback on every INVALIDATION of its tracked source, not on a
@@ -210,20 +208,33 @@ export function createPolledQuery<Input, PulseInput, Pulse, Result>(
       const host = pulseHost?.();
       return { i, key: i === null ? null : JSON.stringify([i, host ?? null]) };
     },
-    undefined,
     { equals: (a, b) => a.key === b.key },
   );
 
   createEffect(
-    on([active, inputState], ([isActive, { i, key }]) => {
-      // The previous run's `onCleanup` (pulse abort) has already run. While PAUSED
+    () => {
+      const isActive = active();
+      const { i, key } = inputState();
+      // Untracked, as the Solid 1 `on(...)` callback's reads were: the pulse
+      // stream and its input are resolved for THIS run, and neither is a
+      // reason to tear the poll down and re-subscribe.
+      return {
+        isActive,
+        i,
+        key,
+        pulse: untrack(pulseProc),
+        pulseIn: i === null ? null : untrack(() => pulseInput(i)),
+      };
+    },
+    ({ isActive, i, key, pulse, pulseIn }) => {
+      // The previous run's RETURNED cleanup (pulse abort) has already run. While PAUSED
       // (this host is not the shown one), the pulse is torn down — no background
       // polling — and the held value + `pending` + `shownKey` are FROZEN for a later
       // resume. Do NOT blank; a switch-BACK must find the value here.
       // (The effect still re-runs when the ACTIVE host's `input` ticks while we are
       // paused, since `input` reads shared state; each such run is this same no-op.)
       if (!isActive) {
-        // The previous run's pulse `onCleanup` (below) has already fired, aborting its
+        // The previous run's returned cleanup (below) has already fired, aborting its
         // `pollOnChange` signal — which tears down BOTH the pulse AND any in-flight
         // requery the core dispatched. That matters: a requery already dispatched would
         // otherwise land AFTER the switch and write THIS now-background host's retained
@@ -235,7 +246,7 @@ export function createPolledQuery<Input, PulseInput, Pulse, Result>(
       }
 
       // ACTIVE. The resume/blank decision is "does `store.v` already hold THIS key?".
-      // (The previous run's pulse `onCleanup` already aborted its `pollOnChange` — pulse
+      // (The previous run's returned cleanup already aborted its `pollOnChange` — pulse
       // + in-flight requery — so a stale read can't land over this run.)
       setError(undefined);
       setComplete(false);
@@ -259,43 +270,46 @@ export function createPolledQuery<Input, PulseInput, Pulse, Result>(
       // stream re-subscribes transparently on reconnect (STREAM_RETRY) and re-yields its
       // snapshot frame, so `runQuery` fires per frame INCLUDING each post-reconnect
       // snapshot — the value stream's reconnect-refresh, preserved. It aborts on the next
-      // input change (this effect's `onCleanup`). A pulse failure routes into the SAME
+      // input change (the cleanup this effect returns). A pulse failure routes into the SAME
       // error/pending signals the requery does (via `surfaceError`), so a persistent
       // watcher failure (inotify ENOSPC) surfaces a real error state, not just a toast.
       // It is UNENROLLED (not the old whole-client `rawStream`) because the map has no
       // single per-host client to fold health into — and kolu ignores that fold anyway.
       const pulseCtl = new AbortController();
-      onCleanup(() => pulseCtl.abort());
       // The framework-free `pollOnChange` core owns the loop (subscribe pulse →
       // requery per frame → abort-supersede → emit); this file supplies the query
       // and the Solid landing. The `pulseCtl` signal owns the whole poll's lifetime
-      // — the effect's `onCleanup` aborts it on every re-run and on owner dispose,
+      // — the RETURNED cleanup aborts it on every re-run and on owner dispose,
       // tearing down the pulse AND the in-flight requery.
       pollOnChange<PulseInput, Pulse, Result>({
-        pulse: pulseProc(),
-        pulseInput: pulseInput(i),
+        pulse,
+        pulseInput: pulseIn as PulseInput,
         // THE bridge: the core hands a signal, the read is an Effect, and
         // `runActionPromise` makes the one drive the other — a superseded frame
         // really interrupts its in-flight read (running its finalizers) instead
         // of leaving a promise nobody awaits. Mirror image of the surface side's
         // `connectPollNode`, where an Effect's interruption drives a controller.
         query: (signal) => runActionPromise(query(i), signal),
-        onResult: (result) =>
-          batch(() => {
-            // A requery updates the value IN PLACE (reconciled — no blank), stamps the
-            // shown key, and clears `pending`/`error` on a fresh landing.
-            writeWrappedValue<Result>(setStore, result);
-            shownKey = activeKey;
-            if (pending()) setPending(false);
-            if (error()) setError(undefined);
-          }),
+        onResult: (result) => {
+          // A requery updates the value IN PLACE (reconciled — no blank), stamps the
+          // shown key, and clears `pending`/`error` on a fresh landing. The writes
+          // share one microtask flush.
+          writeWrappedValue<Result>(setStore, result);
+          shownKey = activeKey;
+          if (pending()) setPending(false);
+          if (error()) setError(undefined);
+        },
         onError: (err) => surfaceError(err),
         // Normal completion — the pulse ended on its own (a typed end, e.g. the
         // host/entry left membership). Mirrors `createSubscription`'s typed-end.
         onComplete: () => setComplete(true),
         signal: pulseCtl.signal,
       });
-    }),
+      // The poll's lifetime is this run's: the RETURNED cleanup aborts it on
+      // every re-run and on owner dispose, tearing down the pulse AND the
+      // in-flight requery.
+      return () => pulseCtl.abort();
+    },
   );
 
   const sub = Object.assign(() => store.v, {

@@ -426,17 +426,21 @@ const hostScoped = createRoot(() => {
   // a violation, so it is excluded. Dev-gated (the diagnostic is compiled out of production, as
   // with `scopedByEntry`'s non-member warn) — the real fix for a real violation is server-side.
   if (process.env.NODE_ENV !== "production") {
-    createEffect(() => {
-      const keys = members.keys();
-      if (keys.length > 0 && !hostKeysInclude([...keys], LOCAL_HOST)) {
+    createEffect(
+      () => {
+        const keys = [...members.keys()];
+        return keys.length > 0 && !hostKeysInclude(keys, LOCAL_HOST);
+      },
+      (violated) => {
+        if (!violated) return;
         console.error(
           "[wire] INVARIANT VIOLATION: membership loaded but LOCAL_HOST is absent — the " +
             "local host is the unremovable seed and must always be a member. groundedActiveHost " +
             "will read null and the reconcile will not bounce local, so the per-host scope stays " +
             "undefined (blank canvas) with no other signal. This is a server-side pool bug.",
         );
-      }
-    });
+      },
+    );
   }
   // The ACTIVE host's link health (W6 — "the honest connect"): its `phase`
   // (probing/provisioning/connecting/…) + live `log` tail drive the connect overlay so a cold
@@ -504,25 +508,34 @@ const hostScoped = createRoot(() => {
   const [pendingJoin, setPendingJoin] = createSignal<HostKey | null>(null);
   // THE ONE active-host effect — enacts `hostReconcileTarget` for BOTH the join-activation and
   // the departed-bounce (see its doc). One writer, one ordering to reason about.
-  createEffect(() => {
-    const action = hostReconcileTarget(
-      members.keys(),
-      activeHost(),
-      pendingJoin(),
-      LOCAL_HOST,
-    );
-    if (action === null) return;
-    if (action.kind === "activate-joined") {
-      setPendingJoin(null); // consume the intent — the added host is now active
+  createEffect(
+    () => {
+      const active = activeHost();
+      return {
+        action: hostReconcileTarget(
+          members.keys(),
+          active,
+          pendingJoin(),
+          LOCAL_HOST,
+        ),
+        // The host we are leaving, read in the same pass that decided to leave
+        // it — the toast must name the host the decision was made about.
+        departed: active,
+      };
+    },
+    ({ action, departed }) => {
+      if (action === null) return;
+      if (action.kind === "activate-joined") {
+        setPendingJoin(null); // consume the intent — the added host is now active
+        setActiveHost(action.target);
+        return;
+      }
       setActiveHost(action.target);
-      return;
-    }
-    const departed = activeHost();
-    setActiveHost(action.target);
-    toast.warning(
-      `Host "${encodeHostKey(departed)}" left the pool — switched to the local host`,
-    );
-  });
+      toast.warning(
+        `Host "${encodeHostKey(departed)}" left the pool — switched to the local host`,
+      );
+    },
+  );
   // The pool membership IN THE USER'S ARRANGEMENT, exposed so the host-switcher
   // palette group can list hosts off the SAME `members` authority this block
   // holds — no second `entries` subscription in the command layer.

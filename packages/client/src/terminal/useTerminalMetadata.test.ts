@@ -270,9 +270,9 @@ describe("terminalIds reference stability (the #1422 reactivity keystone)", () =
 
       let downstreamRuns = 0;
       let lastRef: TerminalId[] = [];
-      createEffect(() => {
+      createEffect(terminalIds, (ids) => {
         downstreamRuns++;
-        lastRef = terminalIds();
+        lastRef = ids;
       });
       await flush();
       expect(downstreamRuns).toBe(1);
@@ -304,9 +304,9 @@ describe("terminalIds reference stability (the #1422 reactivity keystone)", () =
 
       let downstreamRuns = 0;
       let lastRef: TerminalId[] = [];
-      createEffect(() => {
+      createEffect(terminalIds, (ids) => {
         downstreamRuns++;
-        lastRef = terminalIds();
+        lastRef = ids;
       });
       await flush();
       const refAfterTwo = lastRef;
@@ -345,9 +345,9 @@ describe("terminalIds reference stability (the #1422 reactivity keystone)", () =
 
       let downstreamRuns = 0;
       let lastRef: TerminalId[] = [];
-      createEffect(() => {
+      createEffect(terminalIds, (ids) => {
         downstreamRuns++;
-        lastRef = terminalIds();
+        lastRef = ids;
       });
       await flush();
       const prevRef = lastRef;
@@ -585,11 +585,16 @@ describe("getMetadata identity stability (the #1714 right-panel-flicker guard)",
 
       let runs = 0;
       let seen: string | null | undefined;
-      createEffect(() => {
-        runs++;
-        const git = getMetadata(a)?.git;
-        seen = git?.kind === "repo" ? git.info.repoRoot : null;
-      });
+      createEffect(
+        () => {
+          const git = getMetadata(a)?.git;
+          return git?.kind === "repo" ? git.info.repoRoot : null;
+        },
+        (repoRoot) => {
+          runs++;
+          seen = repoRoot;
+        },
+      );
       await flush();
       expect(runs).toBe(1);
       expect(seen).toBe("/p");
@@ -655,11 +660,13 @@ describe("getMetadata identity stability (the #1714 right-panel-flicker guard)",
 
       let stateRuns = 0;
       let seenState: unknown;
-      createEffect(() => {
-        stateRuns++;
-        seenState = (getMetadata(a) as { agent?: { state?: string } })?.agent
-          ?.state;
-      });
+      createEffect(
+        () => (getMetadata(a) as { agent?: { state?: string } })?.agent?.state,
+        (state) => {
+          stateRuns++;
+          seenState = state;
+        },
+      );
       await flush();
       expect(stateRuns).toBe(1);
       expect(seenState).toBe("thinking");
@@ -710,14 +717,18 @@ it("metadata ticks do not wake split-tree or unrelated display readers", async (
     });
     let splitWakes = 0;
     let displayWakes = 0;
-    createEffect(() => {
-      store.getPaneTree("a");
-      splitWakes++;
-    });
-    createEffect(() => {
-      store.getDisplayInfo("b")?.key.label;
-      displayWakes++;
-    });
+    createEffect(
+      () => store.getPaneTree("a"),
+      () => {
+        splitWakes++;
+      },
+    );
+    createEffect(
+      () => store.getDisplayInfo("b")?.key.label,
+      () => {
+        displayWakes++;
+      },
+    );
     await flush();
     setRecords((old) => ({ ...old, a: { ...old.a, lastActivityAt: 20 } }));
     await flush();

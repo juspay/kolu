@@ -28,8 +28,7 @@ import {
   createSignal,
   For,
   onCleanup,
-  on,
-  onMount,
+  onSettled,
   Show,
 } from "solid-js";
 import { dynamic, type JSX } from "@solidjs/web";
@@ -152,7 +151,7 @@ export default function SegmentedControl<T extends string>(props: {
     return focused() !== undefined || !offered ? tabStop() : pressed;
   });
   // A render effect, so the caller hears it before the first paint.
-  createRenderEffect(on(inView, (v) => props.onInViewChange?.(v)));
+  createRenderEffect(inView, (v) => props.onInViewChange?.(v));
   const keep = (value: T) => (el: HTMLButtonElement) => {
     buttons.set(value, el);
     onCleanup(() => {
@@ -185,7 +184,7 @@ export default function SegmentedControl<T extends string>(props: {
     )
       focusOn(undefined);
   };
-  onMount(() => {
+  onSettled(() => {
     if (!props.autofocus) return;
     // After the frame, so a dialog's own initial focus does not win over it.
     requestAnimationFrame(() => {

@@ -45,7 +45,7 @@ import {
 } from "solid-js";
 import { OptionMenu } from "../ui/OptionMenu";
 import { type FileHolders, fileTarget } from "./namedFiles";
-import { applyProseListFold } from "./proseListFold";
+import { applyProseListFold, proseListFoldOpen } from "./proseListFold";
 import { openReader, readerTarget } from "./reader/useReader";
 import { useWorkMap } from "./useWorks";
 import WorkChip from "./WorkChip";
@@ -176,10 +176,16 @@ const ConductorProse: Component<{
 
   const [rewrites, setRewrites] = createSignal(0);
 
-  createEffect(() => {
-    rewrites();
-    applyProseListFold(host, props.rowId);
-  });
+  createEffect(
+    () => ({
+      rewrites: rewrites(),
+      rowId: props.rowId,
+      open: proseListFoldOpen(props.rowId),
+    }),
+    ({ rowId, open }) => {
+      applyProseListFold(host, rowId, open);
+    },
+  );
 
   // `min-w-0`: this sits inside the transcript's flex column, where a child
   // floors at its content width unless released — one unbroken line in the

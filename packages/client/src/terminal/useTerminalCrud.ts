@@ -19,7 +19,7 @@ import type { TranscriptHtmlMode } from "@kolu/padi-client/surface";
 import { toError } from "@kolu/surface/run-stream";
 import { Data, Effect } from "effect";
 import type { TerminalId } from "kolu-common/surface";
-import { createEffect, createRoot, on } from "solid-js";
+import { createEffect, createRoot } from "solid-js";
 import { toast } from "solid-sonner";
 import AgentDistroLogo from "@kolu/agent-distro/solid";
 import { stackTitle } from "@kolu/agent-distro/landing";
@@ -529,13 +529,11 @@ export const useTerminalCrud = createSharedRoot(() => {
         dispose,
       };
       createEffect(
-        on(
-          () => store.getMetadata(id) === undefined,
-          (gone) => {
-            if (gone) forgetRestartGuard(id);
-          },
-          { defer: true },
-        ),
+        () => store.getMetadata(id) === undefined,
+        (gone) => {
+          if (gone) forgetRestartGuard(id);
+        },
+        { defer: true },
       );
       return created;
     });

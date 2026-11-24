@@ -32,7 +32,7 @@
 
 import {
   $TRACK,
-  createComputed,
+  createEffect,
   createRoot,
   createStore,
   unwrap,
@@ -270,16 +270,21 @@ function replay(
     writeWrappedValue(setStore, first, arrayKey);
     let track = -1;
     let leaf = -1;
-    // `createComputed`, not `createEffect`: it runs synchronously on write, so the
-    // counts are the store's own notifications and not a scheduler's coalescing.
-    createComputed(() => {
-      trackMembership(store.v?.rows);
-      track++;
-    });
-    createComputed(() => {
-      void store.v?.rows[0]?.node.title;
-      leaf++;
-    });
+    // Split effects: the compute does the tracked read, the effect phase counts it.
+    // What the counts measure is the store's NOTIFICATIONS — a write the store
+    // decided changed nothing never reaches the effect phase at all.
+    createEffect(
+      () => trackMembership(store.v?.rows),
+      () => {
+        track++;
+      },
+    );
+    createEffect(
+      () => store.v?.rows[0]?.node.title,
+      () => {
+        leaf++;
+      },
+    );
     for (const frame of frames.slice(1))
       writeWrappedValue(setStore, frame, arrayKey);
     dispose();

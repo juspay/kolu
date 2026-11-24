@@ -141,7 +141,6 @@ const WorkChoiceQuestion: Component<{
       what() === "model"
         ? harnessForModel(props.work, props.ask, props.decision.key, drafted())
         : Option.none<string>(),
-    undefined,
     // BY VALUE: every keystroke in the form re-reads the draft, and a fresh
     // `Option` of the same harness is not news — re-asking the host for it
     // would drop the list back to loading under the person typing.
@@ -166,7 +165,6 @@ const WorkChoiceQuestion: Component<{
           Option.map(repo(), (cwd) => ({ harness: one, cwd })),
         ),
       ),
-    undefined,
     {
       equals: (a, b) =>
         a === b ||

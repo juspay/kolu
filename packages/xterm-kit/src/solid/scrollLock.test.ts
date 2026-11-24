@@ -234,12 +234,19 @@ describe("createScrollLock — user-intent latch (#1272)", () => {
     let runs = 0;
     // A consumer's effect that resets the terminal: xterm runs the lock's
     // scroll listener inside that call, so whatever the listener reads would
-    // otherwise subscribe the consumer's effect to it.
+    // otherwise subscribe the consumer's effect to it. The reset stays in the
+    // COMPUTE phase on purpose — that is the tracked scope where the stray
+    // subscription would form; an effect-phase call is untracked and would
+    // prove nothing.
     const disposeEffect = createRoot((d) => {
-      createEffect(() => {
-        runs += 1;
-        t.term.reset();
-      });
+      createEffect(
+        () => {
+          runs += 1;
+          t.term.reset();
+          return runs;
+        },
+        () => {},
+      );
       return d;
     });
     expect(runs).toBe(1);

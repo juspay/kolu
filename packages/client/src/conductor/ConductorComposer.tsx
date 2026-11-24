@@ -32,7 +32,6 @@ import {
   createMemo,
   createSignal,
   For,
-  on,
   onCleanup,
   Show,
 } from "solid-js";
@@ -136,7 +135,6 @@ const ConductorComposer: Component<{
    *  fleet tick. */
   const terminalNames = createMemo<ReadonlySet<string>>(
     () => new Set(terminalCandidates().map((one) => one.name)),
-    new Set(),
     {
       equals: (a, b) => a.size === b.size && [...a].every((one) => b.has(one)),
     },
@@ -166,11 +164,12 @@ const ConductorComposer: Component<{
   // The pane's `Escape` leaves the mode and this component's closes the menu,
   // and exactly one of those may happen per press. The pane reads this fact
   // rather than waiting for an event the composer stops — see `drafts.ts`.
-  createEffect(() => {
-    setCompletionOpen(
-      mentionMatches().length > 0 || commandMatches().length > 0,
-    );
-  });
+  createEffect(
+    () => mentionMatches().length > 0 || commandMatches().length > 0,
+    (open) => {
+      setCompletionOpen(open);
+    },
+  );
   onCleanup(() => setCompletionOpen(false));
   const armed = createMemo(() => armedMentions(composerText(), candidates()));
 
@@ -226,10 +225,11 @@ const ConductorComposer: Component<{
   // its caret live: `write` sets the draft, the caret and the focus together,
   // so the caret cannot be left stale by a caller that only knew the text.
   createEffect(
-    on(welcomeAsk, (ask) => {
+    () => welcomeAsk(),
+    (ask) => {
       if (ask === null) return;
       write(ask.text, ask.text.length);
-    }),
+    },
   );
 
   /** Complete the token under the caret from one row of whichever menu is
@@ -246,9 +246,12 @@ const ConductorComposer: Component<{
   /** Keep the highlighted row on screen — the menu scrolls at six or so rows,
    *  and a selection you cannot see is a selection you cannot trust. */
   const revealWhenSelected = (el: HTMLElement, mine: () => boolean): void => {
-    createEffect(() => {
-      if (mine()) el.scrollIntoView({ block: "nearest" });
-    });
+    createEffect(
+      () => mine(),
+      (isMine) => {
+        if (isMine) el.scrollIntoView({ block: "nearest" });
+      },
+    );
   };
 
   /** A send already on the wire. The box never locks — you may keep typing —
@@ -268,9 +271,12 @@ const ConductorComposer: Component<{
   // to once per browser, and `shown()` keeps that one announcement from being
   // spent as a toast over a terminal: the pane is retained behind the host
   // tabs, so "it is offering now" can become true while nobody is reading it.
-  createEffect(() => {
-    if (shown() && offered()) showTipOnce(CONTEXTUAL_TIPS.conductorSteer);
-  });
+  createEffect(
+    () => shown() && offered(),
+    (announce) => {
+      if (announce) showTipOnce(CONTEXTUAL_TIPS.conductorSteer);
+    },
+  );
 
   /** Send what is in the box. `alt` is the chord that was held: it steers only
    *  where the offer stands, and is an ordinary send everywhere else — a
@@ -345,24 +351,26 @@ const ConductorComposer: Component<{
   // there is 0 — a height written from it would pin the box shut, and it
   // would stay shut until the next keystroke. `shown()` is a dependency
   // rather than a guard, so coming back re-measures with real boxes.
-  createEffect(() => {
-    const text = composerText();
-    if (!shown()) return;
-    if (text === "") {
-      box.style.height = "";
-      return;
-    }
-    box.style.height = "auto";
-    // `scrollHeight` is the CONTENT's height — padding in, border out — while
-    // the height written here is a border-box height (Tailwind's preflight
-    // sets `box-sizing: border-box`). Written bare, the box came up 2px short
-    // of its own one-line text and the browser drew a scrollbar with up/down
-    // arrows beside "lkjhn". The border the measurement left out is
-    // `offsetHeight - clientHeight`; adding it makes the box exactly its
-    // content's height, and `max-height` still turns a long message into a
-    // scroller once the content passes it.
-    box.style.height = `${box.scrollHeight + (box.offsetHeight - box.clientHeight)}px`;
-  });
+  createEffect(
+    () => ({ text: composerText(), shown: shown() }),
+    ({ text, shown: isShown }) => {
+      if (!isShown) return;
+      if (text === "") {
+        box.style.height = "";
+        return;
+      }
+      box.style.height = "auto";
+      // `scrollHeight` is the CONTENT's height — padding in, border out —
+      // while the height written here is a border-box height (Tailwind's
+      // preflight sets `box-sizing: border-box`). Written bare, the box came
+      // up 2px short of its own one-line text and the browser drew a
+      // scrollbar with up/down arrows beside "lkjhn". The border the
+      // measurement left out is `offsetHeight - clientHeight`; adding it
+      // makes the box exactly its content's height, and `max-height` still
+      // turns a long message into a scroller once the content passes it.
+      box.style.height = `${box.scrollHeight + (box.offsetHeight - box.clientHeight)}px`;
+    },
+  );
 
   const stopButton = () => (
     <button

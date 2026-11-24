@@ -26,7 +26,13 @@
  *  trees today and a shared one tomorrow. A component that had to know WHICH
  *  retained host it was in would be a component that cannot be moved. */
 
-import { type Accessor, createContext, createMemo, useContext } from "solid-js";
+import {
+  type Accessor,
+  createContext,
+  createMemo,
+  untrack,
+  useContext,
+} from "solid-js";
 import { getClockNow } from "../time/clock";
 
 export const Shown = createContext<Accessor<boolean>>();
@@ -50,9 +56,14 @@ export function useShown(): Accessor<boolean> {
  *  never reads `now()`, so this memo holds no subscription to the tick at all
  *  and the whole hidden subtree is silent for it. The frozen value is the last
  *  one that was on screen, which is what the first frame after coming back
- *  draws for the instant before the memo re-reads the clock. */
+ *  draws for the instant before the memo re-reads the clock. A view born
+ *  hidden has no such value, so it seeds one with a single untracked read of
+ *  the clock — untracked because taking a subscription there is exactly the
+ *  silence this memo exists to buy. */
 export function useShownClock(): Accessor<number> {
   const shown = useShown();
   const now = getClockNow();
-  return createMemo((previous: number) => (shown() ? now() : previous), now());
+  return createMemo((previous?: number) =>
+    shown() ? now() : (previous ?? untrack(now)),
+  );
 }

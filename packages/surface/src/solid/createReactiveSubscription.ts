@@ -7,7 +7,8 @@
  * change (selected file, active git mode, etc.). For static-input streams
  * use `createSubscription` — cheaper, simpler.
  *
- * Lifecycle: every input change runs `onCleanup` for the previous subscription,
+ * Lifecycle: every input change tears the previous subscription down (the effect's
+ * RETURNED cleanup, which Solid runs before the next effect run and on disposal),
  * which INTERRUPTS its fiber (the server tears down through the stream's own
  * finalizers), then opens a fresh one. The exposed `Subscription<T>` reads the
  * latest value any subscriber yielded; `pending()` is true between the input
@@ -17,12 +18,9 @@
 import type { Stream } from "effect";
 import {
   type Accessor,
-  batch,
   createEffect,
   createSignal,
   createStore,
-  on,
-  onCleanup,
   produce,
 } from "solid-js";
 import {
@@ -65,55 +63,53 @@ export function createReactiveSubscription<I, T>(
   // the new input's first frame is a value, not a change.
   const tracker = createUpdatedTracker<T>();
 
-  createEffect(
-    on(inputFn, (input) => {
-      // Reset state on every input change; the prior iterator is being
-      // torn down so the previously-yielded value is no longer authoritative —
-      // including `complete`: a fresh input opens a fresh iterator, so the
-      // PRIOR typed end no longer describes the current one.
-      setStore(
-        produce((s) => {
-          s.v = undefined;
-        }),
-      );
-      setError(undefined);
-      setPending(true);
-      setComplete(false);
-      tracker.reset();
-      if (input === null) return;
+  createEffect(inputFn, (input) => {
+    // Reset state on every input change; the prior iterator is being
+    // torn down so the previously-yielded value is no longer authoritative —
+    // including `complete`: a fresh input opens a fresh iterator, so the
+    // PRIOR typed end no longer describes the current one.
+    setStore(
+      produce((s) => {
+        s.v = undefined;
+      }),
+    );
+    setError(undefined);
+    setPending(true);
+    setComplete(false);
+    tracker.reset();
+    if (input === null) return;
 
-      // The prior input's fiber was interrupted by this effect's own `onCleanup`
-      // BEFORE this body ran, so the two subscriptions never overlap and a stale
-      // frame can never land in the fresh state reset above.
-      onCleanup(
-        runStreamScoped<T>(factory(input), {
-          // One tick per frame, matching `createStreamLifecycle`: the store write and
-          // the `pending` clear settle together, so no consumer observes a frame
-          // applied while the view still reads pending.
-          onFrame: (item) =>
-            batch(() => {
-              tracker.noteFrame(item);
-              writeWrappedValue(setStore, item, options?.arrayKey);
-              setPending(false);
-              // No clear-on-frame branch for the ERROR: a failure is the fiber's EXIT,
-              // so no frame can follow one on the same subscription (see
-              // `createSubscription`). Here the error clears when the INPUT changes —
-              // the state reset above — which is this primitive's own recovery point.
-            }),
-          // Mirrors `createSubscription`'s typed-end handling: an interruption
-          // (a superseding input, an unmount) reports nothing.
-          onEnd: () => {
-            if (pending()) setPending(false);
-            setComplete(true);
-          },
-          onFailure: (err) => {
-            setError(err);
-            setPending(false);
-          },
-        }),
-      );
-    }),
-  );
+    // The prior input's fiber was interrupted by the cleanup this effect RETURNED
+    // on its previous run — Solid runs it BEFORE re-running the effect — so the two
+    // subscriptions never overlap and a stale frame can never land in the fresh
+    // state reset above.
+    return runStreamScoped<T>(factory(input), {
+      // The store write and the `pending` clear happen in one synchronous handler,
+      // so they share a flush (matching `createStreamLifecycle`): no consumer
+      // observes a frame applied while the view still reads pending.
+      onFrame: (item) => {
+        tracker.noteFrame(item);
+        writeWrappedValue(setStore, item, options?.arrayKey);
+        setPending(false);
+        // No clear-on-frame branch for the ERROR: a failure is the fiber's EXIT,
+        // so no frame can follow one on the same subscription (see
+        // `createSubscription`). Here the error clears when the INPUT changes —
+        // the state reset above — which is this primitive's own recovery point.
+      },
+      // Mirrors `createSubscription`'s typed-end handling: an interruption
+      // (a superseding input, an unmount) reports nothing.
+      onEnd: () => {
+        // Unconditional: `false` over `false` is a no-op under the signal's default
+        // equality, and a read-back here would see the pre-flush value anyway.
+        setPending(false);
+        setComplete(true);
+      },
+      onFailure: (err) => {
+        setError(err);
+        setPending(false);
+      },
+    });
+  });
 
   const sub = Object.assign((() => store.v) as Accessor<T | undefined>, {
     error,

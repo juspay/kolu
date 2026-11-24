@@ -55,9 +55,12 @@ const sheetChrome = surface({ portalled: true });
  *  else's terminals would be taking clicks and Escape for a view they left. */
 export const ConductorHelpSheet: Component = () => {
   const shown = useShown();
-  createEffect(() => {
-    if (!shown()) helpSheet.close();
-  });
+  createEffect(
+    () => shown(),
+    (isShown) => {
+      if (!isShown) helpSheet.close();
+    },
+  );
   // FOCUS LANDS ON THE BODY, not on its first link. The only focusable thing
   // in the help is `Full docs` at the bottom, and a dialog that focused it
   // scrolled the sheet to its end on a phone — opening the help with its first

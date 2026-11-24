@@ -55,7 +55,7 @@ vi.mock("@kolu/surface/client", async () => {
 });
 
 vi.mock("@kolu/xterm-kit/solid", async () => {
-  const { createSignal, onMount } = await import("solid-js");
+  const { createSignal } = await import("solid-js");
   // A signal the screen's reset reads, as xterm's `reset()` runs the scroll
   // lock's listener, which reads the lock: whatever the attach effect calls
   // reads signals the effect must never restart on.
@@ -94,7 +94,10 @@ vi.mock("@kolu/xterm-kit/solid", async () => {
       onReady: (h: unknown) => void;
     }) => {
       seam.onData = props.onData;
-      onMount(() => props.onReady(handle));
+      // Inside the component's own owner, as `<Xterm>` hands the handle over
+      // (`xterm-kit/src/solid/Xterm.tsx:461`): the scope the consumer's
+      // `onCleanup` and its attach effect belong to.
+      props.onReady(handle);
       return <div data-testid="peek-screen" />;
     },
   };

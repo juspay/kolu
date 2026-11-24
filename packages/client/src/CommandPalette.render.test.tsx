@@ -1,5 +1,5 @@
 import { encodeHostKey } from "kolu-common/hostKey";
-import { createComputed, createSignal } from "solid-js";
+import { createEffect, createSignal } from "solid-js";
 import { type JSX, render } from "@solidjs/web";
 import { afterEach, expect, it, vi } from "vitest";
 import type { PaletteItem } from "./CommandPalette";
@@ -33,10 +33,12 @@ vi.mock("./palette/PaletteRow", () => ({
     selected: boolean;
     onSelect: () => void;
   }) => {
-    createComputed(() => {
-      void props.selected;
-      rowWakes.set(props.cmd.name, (rowWakes.get(props.cmd.name) ?? 0) + 1);
-    });
+    createEffect(
+      () => [props.selected, props.cmd.name] as const,
+      ([, name]) => {
+        rowWakes.set(name, (rowWakes.get(name) ?? 0) + 1);
+      },
+    );
     return (
       <button type="button" role="option" onClick={() => props.onSelect()}>
         {props.cmd.name}

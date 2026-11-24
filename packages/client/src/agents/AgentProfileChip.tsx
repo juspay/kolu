@@ -20,7 +20,7 @@
  *  The first pill a user ever sees is the moment to say where the setting lives,
  *  so it raises the one-shot `agents` tip. */
 
-import { type Component, onMount, Show } from "solid-js";
+import { type Component, onSettled, Show } from "solid-js";
 import type { TerminalAgents } from "@kolu/agent-distro/schema";
 import { CONTEXTUAL_TIPS } from "../settings/tips";
 import { useTips } from "../settings/useTips";
@@ -62,7 +62,7 @@ const AgentProfileChip: Component<{
   restart?: ChipRestart;
 }> = (props) => {
   const { showTipOnce } = useTips();
-  onMount(() => showTipOnce(CONTEXTUAL_TIPS.agents));
+  onSettled(() => showTipOnce(CONTEXTUAL_TIPS.agents));
   const stale = () =>
     props.staleness?.kind === "stale" ? props.staleness : undefined;
   let lastClick: MouseEvent | undefined;

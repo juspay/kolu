@@ -6,11 +6,9 @@ import {
 import type { AttentionClass, TerminalId } from "kolu-common/surface";
 import {
   type Accessor,
-  createComputed,
   createMemo,
+  createProjection,
   createSelector,
-  createStore,
-  reconcile,
 } from "solid-js";
 import type { HostAttentionIndex } from "./attentionMarks";
 
@@ -19,13 +17,14 @@ export function createAttentionIndex(
   byClass: Accessor<HostAttentionFrame["byClass"]>,
   liveIds: Accessor<readonly TerminalId[]>,
 ): HostAttentionIndex {
-  const [classes, setClasses] = createStore<Record<string, AttentionClass>>({});
-  createComputed(() => {
+  // A DERIVED store, so a frame that moves one terminal's class wakes only the
+  // readers of that id.
+  const classes = createProjection<Record<string, AttentionClass>>(() => {
     const next: Record<string, AttentionClass> = {};
     const frame = byClass();
     for (const klass of FRAME_CLASSES)
       for (const id of frame[klass]) next[id] = klass;
-    setClasses(reconcile(next));
+    return next;
   });
   const liveSet = createMemo(() => new Set(liveIds()));
   const isLive = createSelector(liveSet, (id: TerminalId, ids) => ids.has(id));

@@ -180,10 +180,12 @@ describe("fold — the frame is the unit of update", () => {
         step: (n, d) => n + d.upserts.length,
       });
       let runs = 0;
-      createEffect(() => {
-        count();
-        runs++;
-      });
+      createEffect(
+        () => count(),
+        () => {
+          runs++;
+        },
+      );
       await settle();
       expect(runs).toBe(1);
       push({ kind: "snapshot", entries: [["a", { n: 1 }]] });

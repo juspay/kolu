@@ -27,9 +27,12 @@ const ConductorLook: Component<{
   // alive behind a host tab must not spend that one announcement on a toast
   // over somebody's terminal, so it waits until the conversation is the view
   // being read.
-  createEffect(() => {
-    if (shown() && lookable()) showTipOnce(CONTEXTUAL_TIPS.conductorLook);
-  });
+  createEffect(
+    () => shown() && lookable(),
+    (announce) => {
+      if (announce) showTipOnce(CONTEXTUAL_TIPS.conductorLook);
+    },
+  );
 
   const status = createMemo(() => terminalStatus(standing()));
 

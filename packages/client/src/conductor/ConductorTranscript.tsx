@@ -35,17 +35,16 @@ import type {
 import type { WorkId } from "kolu-work";
 import {
   type Component,
-  createComputed,
   createContext,
   createEffect,
   createMemo,
   createSignal,
   For,
   Match,
-  on,
-  onMount,
+  onSettled,
   Show,
   Switch,
+  untrack,
   useContext,
 } from "solid-js";
 import ScrollToBottom from "../terminal/ScrollToBottom";
@@ -68,6 +67,7 @@ import {
   rememberTranscriptScroll,
   showTranscriptDocument,
   transcriptPinned,
+  transcriptPlace,
   unpinTranscript,
   WHOLE_TRANSCRIPT,
 } from "./transcriptScroll";
@@ -144,7 +144,6 @@ const TurnHead: Component<{ rows: ReadonlyArray<ConductorRow> }> = (props) => {
       const turn = turns.turnOf(first.id);
       return turn.head === first.id ? turn.works : NO_WORKS;
     },
-    NO_WORKS,
     { equals: sameWorks },
   );
   return (
@@ -349,11 +348,17 @@ const ConductorTranscript: Component<{
     );
   };
 
-  // BEFORE the follow effect below, and that order is the fix: declared first,
-  // so Solid runs it first and the first follow check measures a container
-  // already at the reader's position instead of a fresh one at 0 (which it
-  // would correctly read as "scrolled far up" and refuse to move).
-  onMount(() => applyTranscriptScroll(scroller));
+  // The mount's own restore, once the first stable render has put the rows in
+  // the column. The follow effect below places the container too — on its
+  // first run, which is what a conversation that mounts with rows already in
+  // hand goes through — and both land on the same remembered place, so the
+  // two are idempotent with each other.
+  onSettled(() =>
+    applyTranscriptScroll(
+      scroller,
+      transcriptPlace(chatScope()?.id ?? WHOLE_TRANSCRIPT),
+    ),
+  );
 
   /** New rows arrived while the reader was away from the end — what makes the
    *  pill's ring, so it says "there is something new down there" rather than
@@ -387,12 +392,18 @@ const ConductorTranscript: Component<{
 
   const shown = useShown();
 
-  /** WHICH DOCUMENT THE SCROLLER SHOWS — set here, above the follow effect,
-   *  and NOT behind the effect's `visible` guard: the pane showing a work's
-   *  chat is true whether or not anybody is looking at it, and the scroller's
-   *  place belongs to that document from the moment it is the one shown. */
-  createComputed(() =>
-    showTranscriptDocument(chatScope()?.id ?? WHOLE_TRANSCRIPT),
+  /** WHICH DOCUMENT THE SCROLLER SHOWS — written here, above the follow
+   *  effect, and NOT behind that effect's `visible` guard: the pane showing a
+   *  work's chat is true whether or not anybody is looking at it, and the
+   *  scroller's place belongs to that document from the moment it is the one
+   *  shown. The write lands for the next run of everything that reads it;
+   *  the follow effect puts the container at a place by the key its own run
+   *  computed, so it never depends on this write being visible yet. */
+  createEffect(
+    () => chatScope()?.id ?? WHOLE_TRANSCRIPT,
+    (doc) => {
+      showTranscriptDocument(doc);
+    },
   );
 
   /** The document the container was last put at the place of. `undefined`
@@ -400,13 +411,13 @@ const ConductorTranscript: Component<{
   let atDocument: string | undefined;
 
   createEffect(
-    // `on`, so the body's reads of the ELEMENT are not dependencies and the
-    // deps are exactly these: what was drawn, a row redrawn in place, the
-    // works, whether the reader is following, whether the conversation is the
-    // view being read, and which document it shows. The pin is a dep because
-    // the pill and a sent message re-pin with no row arriving, and the view
-    // must move then too; a redraw is one because a diagram landing grows its
-    // row with no text arriving.
+    // THE COMPUTE HOLDS EVERY READ, so the effect's reads of the ELEMENT are
+    // not dependencies and the deps are exactly these: what was drawn, a row
+    // redrawn in place, the works, whether the reader is following, whether
+    // the conversation is the view being read, and which document it shows.
+    // The pin is a dep because the pill and a sent message re-pin with no row
+    // arriving, and the view must move then too; a redraw is one because a
+    // diagram landing grows its row with no text arriving.
     //
     // THE WORKS are one because a work's record reaches this page on its own
     // stream, often after the rows that name it, and the column grows when it
@@ -420,41 +431,46 @@ const ConductorTranscript: Component<{
     // mechanism meant to preserve it. Rows that arrive while away leave the
     // remembered offset alone, and coming back re-runs this with the column
     // laid out again.
-    on(
-      [
-        signature,
-        redraws,
-        workMap,
-        transcriptPinned,
-        shown,
-        () => chatScope()?.id,
-      ],
-      ([drawn, , , pinned, visible, doc], prev) => {
-        if (!visible) return;
-        // A DOCUMENT CHANGE IS PUT AT ITS OWN PLACE, and then the run is over:
-        // `applyTranscriptScroll` opens a follower at the end and a reader who
-        // had scrolled up at their own pixel. The first run does the same for
-        // the document the transcript mounted with. Nothing else moves the
-        // view for a scope change. The rows the document shows are already
-        // revealed when this runs: the class bindings that hide and show them
-        // are render effects, which Solid runs before this one.
-        if (!placed || doc !== atDocument) {
-          atDocument = doc;
-          applyTranscriptScroll(scroller);
-          placed = scroller.scrollHeight > scroller.clientHeight;
-          return;
-        }
-        // NOT `atEnd(scroller)`. The rows are already in the column by now, so
-        // that measurement answers about the chunk that just landed, not about
-        // the reader — which is precisely how the transcript stopped following.
-        if (pinned) {
-          applyTranscriptScroll(scroller);
-          setUnseen(false);
-          return;
-        }
-        if (prev !== undefined && prev[0] !== drawn) setUnseen(true);
-      },
-    ),
+    () => {
+      const doc = chatScope()?.id ?? WHOLE_TRANSCRIPT;
+      return [
+        signature(),
+        redraws(),
+        workMap(),
+        transcriptPinned(),
+        shown(),
+        doc,
+        // READ ONCE, not depended on: the reader's pixel is what this run
+        // puts the container at, and a scroll that only moves that pixel
+        // must not re-run the effect that would then move the view again.
+        untrack(() => transcriptPlace(doc)),
+      ] as const;
+    },
+    ([drawn, , , pinned, visible, doc, place], prev) => {
+      if (!visible) return;
+      // A DOCUMENT CHANGE IS PUT AT ITS OWN PLACE, and then the run is over:
+      // `applyTranscriptScroll` opens a follower at the end and a reader who
+      // had scrolled up at their own pixel. The first run does the same for
+      // the document the transcript mounted with. Nothing else moves the
+      // view for a scope change. The rows the document shows are already
+      // revealed when this runs: the class bindings that hide and show them
+      // are render effects, which Solid runs before this one.
+      if (!placed || doc !== atDocument) {
+        atDocument = doc;
+        applyTranscriptScroll(scroller, place);
+        placed = scroller.scrollHeight > scroller.clientHeight;
+        return;
+      }
+      // NOT `atEnd(scroller)`. The rows are already in the column by now, so
+      // that measurement answers about the chunk that just landed, not about
+      // the reader — which is precisely how the transcript stopped following.
+      if (pinned) {
+        applyTranscriptScroll(scroller, place);
+        setUnseen(false);
+        return;
+      }
+      if (prev !== undefined && prev[0] !== drawn) setUnseen(true);
+    },
   );
 
   return (
@@ -534,7 +550,6 @@ const ConductorTranscript: Component<{
               });
               const works = createMemo(
                 () => turns().get(first().id)?.works ?? NO_WORKS,
-                NO_WORKS,
                 { equals: sameWorks },
               );
               /** A QUESTION IS NEVER FOLDED AWAY: it is the one thing in the
@@ -720,7 +735,7 @@ function TranscriptRow(props: {
   const turns = useTurns();
   /** The works this row's turn is about — the same list, by value, until the
    *  turn names another. */
-  const works = createMemo(() => turns.turnOf(props.row.id).works, NO_WORKS, {
+  const works = createMemo(() => turns.turnOf(props.row.id).works, {
     equals: sameWorks,
   });
   return (

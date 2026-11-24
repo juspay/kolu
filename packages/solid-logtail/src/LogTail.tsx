@@ -115,15 +115,20 @@ export const LogTail: Component<LogTailProps> = (props) => {
 
   // Follow the newest line while the reader is at the bottom; leave the view
   // exactly where a reader who scrolled up put it.
-  createEffect(() => {
-    // Tracked read: a consumer hands a FRESH array from its memo exactly when
-    // the tail changed, so this re-runs on a new line whether the block is still
-    // filling its depth or already sliding at a fixed one.
-    const lines = props.lines;
-    if (lines.length > 0 && pinned() && box !== undefined) {
-      box.scrollTop = box.scrollHeight;
-    }
-  });
+  createEffect(
+    () => {
+      // Tracked reads: a consumer hands a FRESH array from its memo exactly
+      // when the tail changed, so this re-runs on a new line whether the block
+      // is still filling its depth or already sliding at a fixed one.
+      const lines = props.lines;
+      return lines.length > 0 && pinned();
+    },
+    (follow) => {
+      if (follow && box !== undefined) {
+        box.scrollTop = box.scrollHeight;
+      }
+    },
+  );
 
   const copy = () => {
     // Built BEFORE the write, synchronously in the click handler: the

@@ -113,7 +113,10 @@ vi.mock("../code-view/CodeTab", async () => {
     }) => {
       props.queries.lease(useShown());
       h.tabs.push({ subject: () => props.subject, door: props.door });
-      createRenderEffect(() => h.arrangements.push(props.arrangement));
+      createRenderEffect(
+        () => props.arrangement,
+        (arrangement) => h.arrangements.push(arrangement),
+      );
       return (
         <div data-testid="code-tab">
           {String(props.queries.localStatus.pending())}

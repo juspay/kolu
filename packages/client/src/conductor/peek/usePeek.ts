@@ -1,6 +1,6 @@
 import type { TerminalId } from "kolu-common/surface";
 import type { WorkMember, WorkRole } from "kolu-work";
-import { type Accessor, batch, createSignal } from "solid-js";
+import { type Accessor, createSignal } from "solid-js";
 import { splitMemberRef } from "../memberRef";
 import { membersIn } from "../workReadings";
 
@@ -23,10 +23,8 @@ export function openPeek(next: PeekTarget): void {
 /** Close the peek, dropping the typing lock with it. The Fit width choice is
  *  NOT the window's: it is the one shared by every pane (`../fitWidth`). */
 export function closePeek(): void {
-  batch(() => {
-    setTarget(null);
-    setTyping(false);
-  });
+  setTarget(null);
+  setTyping(false);
 }
 
 export const peekTyping: Accessor<boolean> = typing;

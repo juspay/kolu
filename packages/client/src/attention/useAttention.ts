@@ -150,8 +150,8 @@ export function useAttention(deps: AttentionDeps): {
   // Ask for OS-notification permission REACTIVELY off the same pref that gates
   // delivery — so turning attention on later still prompts, and re-runs are cheap
   // (`requestPermission` is idempotent).
-  createEffect(() => {
-    if (alertsEnabled()) void notify.requestPermission();
+  createEffect(alertsEnabled, (enabled) => {
+    if (enabled) void notify.requestPermission();
   });
 
   const isActiveHost = (host: HostKey): boolean => sameHost(host, activeHost());
@@ -196,24 +196,30 @@ export function useAttention(deps: AttentionDeps): {
   ): void {
     try {
       const encHost = encodeHostKey(host);
-      const rich = isActiveHost(host) ? deps.activeSubject(id) : undefined;
-      if (loud)
-        attend.raise([
-          terminalItem({
-            encHost,
-            hostLabel: hostLabel(host),
-            id,
-            asking,
-            subject: rich,
-          }),
-        ]);
-      // THE UNREAD MARK, on any host: a terminal that is not in front of you
-      // — on a host you are not on, behind the Conductor, or simply not the
-      // pane you are in. Raised on the host's record, not its view state:
-      // right after a page loads, padi's first frame can arrive before the
-      // host's view state exists, and that is the frame that carries a
-      // finish that happened while kolu was down.
-      if (!inFront(host, id)) attentionRecordOf(encHost).markUnread(id);
+      // Untracked AS A WHOLE: every reading here — the subject, the host's
+      // label, whether the alert is loud, whether the terminal is in front of
+      // you — is taken at the INSTANT of delivery. Delivery runs from an
+      // effect's imperative phase and from a command; neither follows them.
+      untrack(() => {
+        const rich = isActiveHost(host) ? deps.activeSubject(id) : undefined;
+        if (loud)
+          attend.raise([
+            terminalItem({
+              encHost,
+              hostLabel: hostLabel(host),
+              id,
+              asking,
+              subject: rich,
+            }),
+          ]);
+        // THE UNREAD MARK, on any host: a terminal that is not in front of you
+        // — on a host you are not on, behind the Conductor, or simply not the
+        // pane you are in. Raised on the host's record, not its view state:
+        // right after a page loads, padi's first frame can arrive before the
+        // host's view state exists, and that is the frame that carries a
+        // finish that happened while kolu was down.
+        if (!inFront(host, id)) attentionRecordOf(encHost).markUnread(id);
+      });
     } catch (err) {
       console.error("useAttention: attention delivery failed", err);
     }
@@ -256,19 +262,27 @@ export function useAttention(deps: AttentionDeps): {
     },
   });
   const memoryNeed = useMemoryNeed();
-  createEffect(() => {
-    const asks = conductorAsks();
-    // Silence is not an empty list: before the server's first frame there is
-    // nothing to compare against, and the real first frame is the baseline.
-    if (asks === undefined) return;
-    conductorBell.observe({
-      ...asks,
-      works: new Set(workMap().keys()),
-      needs: needs(),
-      memory: memoryNeed(),
-      reply: typedReply(),
-    });
-  });
+  createEffect(
+    () => {
+      const asks = conductorAsks();
+      // Silence is not an empty list: before the server's first frame there is
+      // nothing to compare against, and the real first frame is the baseline.
+      if (asks === undefined) return null;
+      return {
+        ...asks,
+        works: new Set(workMap().keys()),
+        needs: needs(),
+        memory: memoryNeed(),
+        reply: typedReply(),
+      };
+    },
+    (frame) => {
+      if (frame === null) return;
+      // The bell folds the frame it is handed; what it reads while doing so
+      // (what is already ringing) is not an input of this feed.
+      conductorBell.observe(frame);
+    },
+  );
 
   // WHO DRIVES EACH MEMBER TERMINAL — the one membership index the dock
   // mark, the tile's lock and the attention engine read, keyed by fleet ref.
@@ -320,45 +334,65 @@ export function useAttention(deps: AttentionDeps): {
   // so the FIRST frame is its baseline (no fire) and every later change diffs
   // and may fire.
   const observers = mapArray(markedHosts, (encHost) => {
-    createEffect(() => {
-      const frame = hostFrame(encHost);
-      // Silence is not an empty frame — see `HostMarks.reported`.
-      if (!frame.reported) return;
-      // Nor is a default an answer. A page resuming from what it saved can
-      // raise marks on its first frame, and whether it may is the user's
-      // **Attention alerts** setting — which reads the defaults (on) until
-      // the server's first preferences frame lands. Fed before then, a page
-      // would mark a user who had switched alerts off.
-      if (!preferencesArrived()) return;
-      // The frame's own class map, handed straight over — the engine's type is
-      // a `Pick` of it, so there is no adapter object to mint per host per
-      // frame and no second name for the same two lists.
-      core.observe(encHost, frame.byClass);
-    });
+    createEffect(
+      () => {
+        const frame = hostFrame(encHost);
+        // Silence is not an empty frame — see `HostMarks.reported`.
+        if (!frame.reported) return null;
+        // Nor is a default an answer. A page resuming from what it saved can
+        // raise marks on its first frame, and whether it may is the user's
+        // **Attention alerts** setting — which reads the defaults (on) until
+        // the server's first preferences frame lands. Fed before then, a page
+        // would mark a user who had switched alerts off.
+        if (!preferencesArrived()) return null;
+        // The frame's own class map, handed straight over — the engine's type is
+        // a `Pick` of it, so there is no adapter object to mint per host per
+        // frame and no second name for the same two lists.
+        return frame.byClass;
+      },
+      (byClass) => {
+        if (byClass === null) return;
+        // The engine's own reads (what is watched, what the Conductor drives,
+        // this host's saved memory) happen as it folds the frame it is handed.
+        core.observe(encHost, byClass);
+      },
+    );
     onCleanup(() => core.forgetHost(encHost));
     return null;
   });
-  // Instantiate the observers (mapArray is lazy until read).
-  createEffect(() => void observers());
+  // Instantiate the observers (mapArray is lazy until read): the compute phase
+  // is that read, and there is nothing imperative to do with the result.
+  createEffect(observers, () => {});
 
   // Clear a host's unseen-finished dot the moment you switch TO it — "you looked".
   // The engine also zeroes it on any active-host cell tick, but a switch with no
   // accompanying cell change still needs this to clear the mark.
-  createEffect(() => core.markHostSeen(encodeHostKey(activeHost())));
+  createEffect(
+    () => encodeHostKey(activeHost()),
+    (encHost) => core.markHostSeen(encHost),
+  );
 
   // A SCREEN THAT COMES TO SHOW IN THE CONDUCTOR LIFTS ITS TERMINAL'S MARK —
   // Look opened or moved onto it, or its live pane coming on screen — on its
   // own host's record, which that host's Dock reads too. Once per showing:
   // the list keeps a terminal's entry while it stays shown.
-  const showing = mapArray(conductorScreensShowing, (ref) => {
-    const split = splitFleetTerminalRef(ref);
-    if (split !== null)
-      untrack(() =>
-        attentionRecordOf(split.host).clearUnread(split.id as TerminalId),
-      );
-    return null;
+  //
+  // The "once per entry" bookkeeping is a plain served-set rather than a
+  // `mapArray` mapper, because lifting a mark WRITES a record — imperative
+  // work, which belongs in the effect phase and not in a computation.
+  const showingServed = new Set<string>();
+  createEffect(conductorScreensShowing, (refs) => {
+    const current = new Set(refs);
+    for (const ref of showingServed)
+      if (!current.has(ref)) showingServed.delete(ref);
+    for (const ref of current) {
+      if (showingServed.has(ref)) continue;
+      showingServed.add(ref);
+      const split = splitFleetTerminalRef(ref);
+      if (split !== null)
+        attentionRecordOf(split.host).clearUnread(split.id as TerminalId);
+    }
   });
-  createEffect(() => void showing());
 
   // A TERMINAL THE CONDUCTOR STARTS DRIVING LIFTS ITS UNREAD MARK — it
   // joined a driven work, or the person handed it back: the mark, and its
@@ -370,16 +404,21 @@ export function useAttention(deps: AttentionDeps): {
   // cannot resolve (a host key that is not canonical) is skipped: there is
   // no record of it to lift a mark from, and a throw here would stop the
   // lift for every other member.
-  const driving = mapArray(
+  const drivingServed = new Set<string>();
+  createEffect(
     () => drivenRefs(membership()),
-    (ref) => {
-      const member = splitMemberRef(ref);
-      if (member !== null)
-        untrack(() => core.conductorDrives(member.host, member.id));
-      return null;
+    (refs) => {
+      const current = new Set(refs);
+      for (const ref of drivingServed)
+        if (!current.has(ref)) drivingServed.delete(ref);
+      for (const ref of current) {
+        if (drivingServed.has(ref)) continue;
+        drivingServed.add(ref);
+        const member = splitMemberRef(ref);
+        if (member !== null) core.conductorDrives(member.host, member.id);
+      }
     },
   );
-  createEffect(() => void driving());
 
   // App badge = Σ ASKING over LIVE hosts. A dead host's held count never inflates
   // it; the active host is live, so its asking agents are counted too.
@@ -414,19 +453,22 @@ export function useAttention(deps: AttentionDeps): {
       ),
     );
   };
-  createEffect(() => {
-    if (!("setAppBadge" in navigator)) return;
-    if (!alertsEnabled()) {
-      paintBadge(0);
-      return;
-    }
-    // Σ asking over LIVE hosts, PLUS what the conversation is waiting on —
-    // the SAME number the Conductor tab wears, so the icon and the tab cannot
-    // disagree about how many things need you. One number on the icon,
-    // because there is one OS slot and a person counting two badges has to
-    // add them anyway.
-    paintBadge(liveAskingTotal() + conductorWaiting.waiting());
-  });
+  createEffect(
+    (): number | null => {
+      if (!("setAppBadge" in navigator)) return null;
+      if (!alertsEnabled()) return 0;
+      // Σ asking over LIVE hosts, PLUS what the conversation is waiting on —
+      // the SAME number the Conductor tab wears, so the icon and the tab cannot
+      // disagree about how many things need you. One number on the icon,
+      // because there is one OS slot and a person counting two badges has to
+      // add them anyway.
+      return liveAskingTotal() + conductorWaiting.waiting();
+    },
+    (count) => {
+      if (count === null) return;
+      paintBadge(count);
+    },
+  );
 
   // The violet-capsule JUMP verb (see `attentionNav`): switch to the host, then
   // focus the next terminal blocked on you — cycling past the currently-active

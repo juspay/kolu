@@ -28,7 +28,6 @@ import {
   onCleanup,
   produce,
   runWithOwner,
-  untrack,
   unwrap,
 } from "solid-js";
 import { type StreamingProcedure, unenrolledStreamCall } from "../client";
@@ -352,7 +351,11 @@ export function useCollectionDeltas<Name extends string, K, T>(
   // Every read inside the frame loop goes through it: the loop is deciding what to
   // write, not rendering, so tracking there would be noise at best.
   const held = unwrap(dict);
-  const [order, setOrder] = createSignal<K[]>([]);
+  // `ownedWrite`: the key list is written by the frame loop, which can run
+  // SYNCHRONOUSLY inside the scope that created the view (a fiber whose first frames
+  // are already available emits before `createStreamLifecycle` returns). It is
+  // internal state driven from the wire, never a component writing its own state.
+  const [order, setOrder] = createSignal<K[]>([], { ownedWrite: true });
 
   const folds = new Set<FoldSlot<K, T>>();
   /** Whether a full-set frame has been applied — i.e. whether the held store is a
@@ -362,7 +365,16 @@ export function useCollectionDeltas<Name extends string, K, T>(
    *  {@link assertKeysInjective} costs O(1) rather than a walk over every key. */
   let size = 0;
 
-  const currentOrder = (): K[] => untrack(order);
+  /** The CURRENT key list, held beside the signal rather than read back out of it:
+   *  a signal write lands on the next flush, and a fiber can deliver several frames
+   *  inside one synchronous turn, so reading `order()` back would rebuild the second
+   *  frame's list from the one the first frame replaced. The signal is the VIEW of
+   *  this list (`keys()`); this is the list. */
+  let heldOrder: K[] = [];
+  const writeOrder = (next: K[]): void => {
+    heldOrder = next;
+    setOrder(next);
+  };
 
   /** Apply a FULL-SET frame. O(N), which is inherent — the frame carries N entries.
    *
@@ -398,7 +410,7 @@ export function useCollectionDeltas<Name extends string, K, T>(
     size = present.size;
     // A reconnect that names the same set keeps the previous array BY REFERENCE, so
     // `keys()` stays quiet through a link flap — the "order by reference" rule.
-    if (!sameOrder(currentOrder(), nextOrder)) setOrder(nextOrder);
+    if (!sameOrder(heldOrder, nextOrder)) writeOrder(nextOrder);
   }
 
   /** Apply ONE coalesced delta frame: one named-key store write per upsert, one
@@ -464,13 +476,13 @@ export function useCollectionDeltas<Name extends string, K, T>(
     let nextOrder: K[];
     if (removed.length > 0) {
       const gone = new Set<K>(removed);
-      nextOrder = currentOrder().filter((k) => !gone.has(k));
+      nextOrder = heldOrder.filter((k) => !gone.has(k));
     } else {
-      nextOrder = currentOrder().slice();
+      nextOrder = heldOrder.slice();
     }
     for (const k of added) nextOrder.push(k);
     assertKeysInjective(size, nextOrder.length);
-    setOrder(nextOrder);
+    writeOrder(nextOrder);
   }
 
   /** The full-set frame EVERY fold is seeded with — the wire's snapshot arm and a
@@ -489,7 +501,7 @@ export function useCollectionDeltas<Name extends string, K, T>(
    *  Costs N pairs on a path that is already O(N) in the frame it just applied, and
    *  only when a fold is registered at all. */
   function syntheticSnapshot(): [K, T][] {
-    return currentOrder().map((k) => {
+    return heldOrder.map((k) => {
       const value = held[String(k)];
       if (value === undefined) {
         // The key list and the dictionary are written together on every frame and
@@ -554,37 +566,52 @@ export function useCollectionDeltas<Name extends string, K, T>(
         "useCollectionDeltas: fold() must be called under a reactive owner — its registration is dropped by that owner's onCleanup, and an ownerless fold would accumulate for the life of the shared collection slot",
       );
     }
-    // ONE holder for the accumulator, and the accessor IS it. `undefined` reads as
-    // "there is no valid accumulator" and means nothing else, so a second internal
-    // seeded/unseeded flag beside this signal would be a duplicate that could
-    // disagree with what the consumer sees.
+    // ONE holder for the accumulator: `acc` below IS it, and the accessor reads it
+    // through a revision signal. `undefined` reads as "there is no valid
+    // accumulator" and means nothing else, so a second seeded/unseeded flag beside
+    // it would be a duplicate that could disagree with what the consumer sees.
     //
-    // `equals: false`: the framework cannot know whether `A` is a value or an
-    // accumulator the consumer mutates and returns, so it must never decide that a
-    // frame changed nothing. A spurious wake is harmless; a swallowed update is the bug.
-    const [value, setValue] = createSignal<A | undefined>(undefined, {
-      equals: false,
-    });
+    // HELD in a plain variable rather than in the signal for two reasons: a signal
+    // write lands on the next flush, so a `step` reading its own base back out of a
+    // signal would fold the second frame of a synchronous turn onto the base the
+    // first frame replaced; and registration seeds from the CALLING scope, where a
+    // signal write would be a write inside an owned scope.
+    //
+    // `equals: false` on the revision: the framework cannot know whether `A` is a
+    // value or an accumulator the consumer mutates and returns, so it must never
+    // decide that a frame changed nothing. A spurious wake is harmless; a swallowed
+    // update is the bug.
+    let acc: { value: A } | undefined;
+    const [revision, bumpRevision] = createSignal(0, { equals: false });
+    const value: Accessor<A | undefined> = () => {
+      revision();
+      return acc?.value;
+    };
     // A throwing `init`/`step` is contained PER FOLD and reported loudly — it must
     // never kill the stream, the store, or another fold. The accumulator is
     // INVALIDATED: applying later deltas onto a base that failed to build is how a
     // fold goes silently wrong, so the accessor goes back to `undefined` — where it
     // started, and where the next snapshot re-seeds it from.
-    const guard = (what: string, run: () => A): void => {
+    const rebuild = (what: string, compute: () => A): void => {
       let next: { value: A } | undefined;
       containThrow(
         `a collection fold's \`${what}\``,
         () => {
-          next = { value: run() };
+          next = { value: compute() };
         },
         "the stream, the store and every other fold keep flowing; this fold's accumulator is invalidated until the next snapshot re-seeds it",
       );
-      setValue(() => next?.value);
+      acc = next;
+    };
+    /** Rebuild AND notify — the frame loop's entry point. */
+    const guard = (what: string, compute: () => A): void => {
+      rebuild(what, compute);
+      bumpRevision(0);
     };
     const slot: FoldSlot<K, T> = {
       seed: (entries) => guard("init", () => foldOptions.init(entries)),
       step: (delta) => {
-        const base = untrack(value);
+        const base = acc?.value;
         if (base === undefined) return;
         guard("step", () => foldOptions.step(base, delta));
       },
@@ -593,7 +620,9 @@ export function useCollectionDeltas<Name extends string, K, T>(
     onCleanup(() => {
       folds.delete(slot);
     });
-    if (seeded) slot.seed(syntheticSnapshot());
+    // Seeding AT REGISTRATION rebuilds without notifying: no consumer can be
+    // reading this fold yet, and the caller's scope is an owned one.
+    if (seeded) rebuild("init", () => foldOptions.init(syntheticSnapshot()));
     return value;
   };
 

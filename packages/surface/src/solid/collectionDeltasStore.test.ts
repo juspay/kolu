@@ -48,21 +48,28 @@ describe("the deltas store — a frame re-notifies only what it named", () => {
       });
       await settle();
 
-      // One effect per key plus one on the key set. Each counts its own runs, so a
-      // frame's blast radius is a number, not an impression.
+      // One effect per key plus one on the key set. The compute does the tracked
+      // read, the effect phase counts its own runs, so a frame's blast radius is a
+      // number, not an impression.
       const runs = { a: 0, b: 0, keys: 0 };
-      createEffect(() => {
-        view.byKey("a")?.();
-        runs.a++;
-      });
-      createEffect(() => {
-        view.byKey("b")?.();
-        runs.b++;
-      });
-      createEffect(() => {
-        view.keys();
-        runs.keys++;
-      });
+      createEffect(
+        () => view.byKey("a")?.(),
+        () => {
+          runs.a++;
+        },
+      );
+      createEffect(
+        () => view.byKey("b")?.(),
+        () => {
+          runs.b++;
+        },
+      );
+      createEffect(
+        () => view.keys(),
+        () => {
+          runs.keys++;
+        },
+      );
       await settle();
       expect(runs).toEqual({ a: 1, b: 1, keys: 1 });
 
@@ -96,18 +103,24 @@ describe("the deltas store — a reconnect snapshot is a visual no-op", () => {
       await settle();
 
       const runs = { a: 0, b: 0, keys: 0 };
-      createEffect(() => {
-        view.byKey("a")?.();
-        runs.a++;
-      });
-      createEffect(() => {
-        view.byKey("b")?.();
-        runs.b++;
-      });
-      createEffect(() => {
-        view.keys();
-        runs.keys++;
-      });
+      createEffect(
+        () => view.byKey("a")?.(),
+        () => {
+          runs.a++;
+        },
+      );
+      createEffect(
+        () => view.byKey("b")?.(),
+        () => {
+          runs.b++;
+        },
+      );
+      createEffect(
+        () => view.keys(),
+        () => {
+          runs.keys++;
+        },
+      );
       await settle();
       expect(runs).toEqual({ a: 1, b: 1, keys: 1 });
 
@@ -149,14 +162,18 @@ describe("the deltas store — a reconnect snapshot is a visual no-op", () => {
       });
       await settle();
       const runs = { a: 0, keys: 0 };
-      createEffect(() => {
-        view.byKey("a")?.();
-        runs.a++;
-      });
-      createEffect(() => {
-        view.keys();
-        runs.keys++;
-      });
+      createEffect(
+        () => view.byKey("a")?.(),
+        () => {
+          runs.a++;
+        },
+      );
+      createEffect(
+        () => view.keys(),
+        () => {
+          runs.keys++;
+        },
+      );
       await settle();
 
       push({ kind: "snapshot", entries: [["a", { n: 1 }]] });

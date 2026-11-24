@@ -19,18 +19,12 @@ import {
   type TerminalMetadata,
   tileTerminalOf,
 } from "@kolu/padi-client/surface";
-import { writeWrappedValue } from "@kolu/surface/solid";
 import type { TerminalId } from "kolu-common/surface";
 import {
   type Accessor,
-  createComputed,
   createMemo,
-  createStore,
+  createProjection,
   mapArray,
-  onCleanup,
-  produce,
-  untrack,
-  unwrap,
 } from "solid-js";
 import { activeScope } from "../hostScope/hostScopes";
 import { activeHost, padiMap } from "../wire";
@@ -108,7 +102,7 @@ export { isParkedTerminal as isParked } from "@kolu/padi-client/surface";
  *  one of which consumers already render as "unknown", never the raw value.
  *
  *  MODULE-PRIVATE (not exported, and the ONLY caller is the metadata projection's
- *  per-id computed in `useTerminalMetadata`). It mints a FRESH object and reads the
+ *  per-id projection in `useTerminalMetadata`). It mints a FRESH object and reads the
  *  active host's clock reactively — correct behaviour INSIDE the projection, where
  *  `reconcile` collapses an unchanged reprojection back to a stable reference. Calling
  *  it from any other tracking scope would reintroduce #1714's per-call identity churn,
@@ -193,15 +187,17 @@ export function useTerminalMetadata(deps: {
   // --- The metadata projection: identity-stable reprojected records ---
   //
   /** Per-id reconcile-backed projection: `id → { read }`, where `read()` is the
-   *  reprojected record `getMetadata` returns. One `createComputed` per live
-   *  terminal reprojects its raw record and writes THROUGH `writeWrappedValue`
-   *  (the framework's reconcile-or-assign gate — `surface/src/solid/writeValue.ts`,
-   *  the same one every subscription value rides) into a per-id `{ v }` store.
-   *  Because that gate `reconcile`s, `store.v`'s proxy stays STABLE across the
-   *  record's continuous lifetime — a changed field mutates the proxy in place and
-   *  notifies only that leaf (the `useTerminalMetadata.test.ts` `lastActivityAt`
-   *  case). The reference turns over only around absence/recreation: `undefined ⇄
-   *  record`, or a structural swap `reconcile` can't merge in place.
+   *  reprojected record `getMetadata` returns. One `createProjection` per live
+   *  terminal reprojects its raw record into a per-id `{ v }` store. A
+   *  projection commits its draft through Solid's reconcile channel, so
+   *  `store.v`'s proxy stays STABLE across the record's continuous lifetime —
+   *  a changed field mutates the proxy in place and notifies only that leaf
+   *  (the `useTerminalMetadata.test.ts` `lastActivityAt` case). The reference
+   *  turns over only around absence/recreation: `undefined ⇄ record`, or a
+   *  structural swap `reconcile` can't merge in place. `key: null` is the same
+   *  undeclared-merge rule `writeWrappedValue` applies to every subscription
+   *  value: an array element is REPLACED rather than recycled, so no object is
+   *  ever carried across records.
    *
    *  This restores an identity-stability GUARANTEE at the one knowing endpoint.
    *  #1714 broke it by having `getMetadata` return a fresh reprojected object
@@ -212,70 +208,61 @@ export function useTerminalMetadata(deps: {
    *  With the projection, consumers reading `meta.git.…` track that leaf again
    *  and are notified only on a real value change.
    *
-   *  `slots` is a keyed store (not a plain Map) so `getMetadata`'s `slots[id]`
-   *  read re-subscribes when THIS id's projection is created/removed WITHOUT
-   *  tracking the whole membership — adding an unrelated terminal (a split) never
-   *  notifies `slots[otherId]` readers, so `active` doesn't churn on split-add.
-   *  `mapArray` gives each live id a reactive owner disposed when it leaves the
-   *  set. In-repo precedent for the shared-reprojection remedy: `HostDaemonChips`
-   *  `daemon()`. */
-  const [slots, setSlots] = createStore<
-    Record<
-      TerminalId,
-      {
-        read: Accessor<TerminalMetadata | undefined>;
-        parent: Accessor<TerminalId | null | undefined>;
-      }
-    >
-  >({});
-  const driveProjections = mapArray(keys, (id) => {
-    const [store, setStore] = createStore<{ v: TerminalMetadata | undefined }>({
-      v: undefined,
-    });
+   *  `slots` is a keyed PROJECTION (not a plain Map) so `getMetadata`'s
+   *  `slots[id]` read re-subscribes when THIS id's projection is created or
+   *  removed WITHOUT tracking the whole membership — adding an unrelated
+   *  terminal (a split) never notifies `slots[otherId]` readers, so `active`
+   *  doesn't churn on split-add. `mapArray` gives each live id a reactive owner
+   *  disposed when it leaves the set, and the table's own derive is what adds
+   *  and drops its key — no slot writes from inside a mapped owner.
+   *
+   *  Both projections are PULLED, which is what keeps the old eager drive
+   *  honest without one: `getMetadata` is read in the same tick this is set up
+   *  (the `active` memo on first render, and the hook's own `displayInfos` /
+   *  `isWorktreeShared`), and a read computes the table and the per-id record
+   *  right there rather than waiting for a queue. In-repo precedent for the
+   *  shared-reprojection remedy: `HostDaemonChips` `daemon()`. */
+  interface MetadataSlot {
+    readonly id: TerminalId;
+    readonly read: Accessor<TerminalMetadata | undefined>;
+    readonly parent: Accessor<TerminalId | null | undefined>;
+  }
+  const slotList = mapArray(keys, (id): MetadataSlot => {
     // Reprojects on every change of this id's raw record OR the active host's
-    // clock; `writeWrappedValue`'s `reconcile` keeps `store.v`'s identity when the
-    // reprojected value is unchanged. Sole write path for reprojected metadata —
-    // the fresh-object read path is unspellable elsewhere.
-    createComputed(() => {
-      const record = rawTile(id);
-      writeWrappedValue<TerminalMetadata | undefined>(
-        setStore,
-        record === undefined
-          ? undefined
-          : reprojectTerminalClock(
-              padiMap.entry(activeHost()).clock.toLocal,
-              record,
-            ),
-      );
-    });
+    // clock. Sole write path for reprojected metadata — the fresh-object read
+    // path is unspellable elsewhere.
+    const projected = createProjection<{ v: TerminalMetadata | undefined }>(
+      (draft) => {
+        const record = rawTile(id);
+        draft.v =
+          record === undefined
+            ? undefined
+            : reprojectTerminalClock(
+                padiMap.entry(activeHost()).clock.toLocal,
+                record,
+              );
+      },
+      { v: undefined },
+      { key: null },
+    );
     const parent = createMemo(() => {
       const tile = rawTile(id);
       return tile === undefined ? undefined : (tile.parentId ?? null);
     });
-    const slot = { read: () => store.v, parent };
-    setSlots(
-      produce((s) => {
-        const held = s[id];
-        if (held) Object.assign(held, slot);
-        else s[id] = slot;
-      }),
-    );
-    onCleanup(() =>
-      setSlots(
-        produce((s) => {
-          delete s[id];
-        }),
-      ),
-    );
+    return { id, read: () => projected.v, parent };
   });
-  // `mapArray` is lazy — drive it from a `createComputed` (not an effect) so the
-  // per-id owners are instantiated + reconciled SYNCHRONOUSLY: `getMetadata` is
-  // read in the same tick it's set up (the `active` memo on first render, and the
-  // hook's own `displayInfos`/`isWorktreeShared`), so the projection must be ready
-  // without waiting for the effect queue. Each per-id computed likewise reprojects
-  // eagerly, so a synchronous `getMetadata(id)` returns the value, not a transient
-  // `undefined`.
-  createComputed(driveProjections);
+  const slots = createProjection<Record<TerminalId, MetadataSlot>>(
+    (draft) => {
+      const live = slotList();
+      for (const slot of live)
+        if (draft[slot.id] !== slot) draft[slot.id] = slot;
+      const ids = new Set(live.map((slot) => slot.id));
+      for (const id of Object.keys(draft) as TerminalId[])
+        if (!ids.has(id)) delete draft[id];
+    },
+    {},
+    { key: null },
+  );
 
   /** The RAW composed tile record — presence + the parked-narrow, with NO clock
    *  reprojection. The ORDERING filters (`terminalIds`/`getSplitPaneIds`) read `parentId`
@@ -465,26 +452,26 @@ export function useTerminalMetadata(deps: {
 
   // Tile badge / subCount is the FLAT descendant count (what the canvas shows,
   // and what the Dock's sub-entries now cover), not the one-hop parent edge.
-  const [displayInfos, setDisplayInfos] = createStore<
-    Record<string, TerminalDisplayInfo>
-  >({});
-  createComputed(() => {
-    const next = buildTerminalDisplayInfos(
-      terminalIds(),
-      getMetadata,
-      getSplitPaneIds,
-    );
-    const previous = untrack(() => unwrap(displayInfos));
-    setDisplayInfos(
-      produce((table) => {
-        for (const id of Object.keys(previous))
-          if (!next.has(id)) delete table[id];
-        for (const [id, value] of next) {
-          if (!sameDisplayInfo(previous[id], value)) table[id] = value;
-        }
-      }),
-    );
-  });
+  /** The display table, derived per id. A projection rather than a store a
+   *  rule writes: the derive's `draft` IS the previous table (its reads are
+   *  not tracked, so diffing against it takes no untracking), and the commit
+   *  touches only the keys that moved — a tile whose row is unchanged
+   *  notifies nobody. */
+  const displayInfos = createProjection<Record<string, TerminalDisplayInfo>>(
+    (draft) => {
+      const next = buildTerminalDisplayInfos(
+        terminalIds(),
+        getMetadata,
+        getSplitPaneIds,
+      );
+      for (const id of Object.keys(draft)) if (!next.has(id)) delete draft[id];
+      for (const [id, value] of next) {
+        if (!sameDisplayInfo(draft[id], value)) draft[id] = value;
+      }
+    },
+    {},
+    { key: null },
+  );
 
   function getDisplayInfo(id: TerminalId): TerminalDisplayInfo | undefined {
     return displayInfos[id];

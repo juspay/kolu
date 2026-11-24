@@ -159,7 +159,7 @@ const App: Component = () => {
 
   // `openInCodeTab` (in `right-panel/openInCodeTab.ts`) dispatches both
   // desktop uncollapse and mobile drawer-open imperatively from the
-  // producer call. There is no `on(pendingOpen, ...)` subscriber here —
+  // producer call. There is no effect subscribing to `pendingOpen` here —
   // the deferred-effect shape lost re-fires under the production Solid
   // build (see `openInCodeTab.ts`'s header for the canary scenario).
 

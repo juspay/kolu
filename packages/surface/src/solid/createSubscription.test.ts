@@ -199,10 +199,15 @@ describe("createSubscription", () => {
 
           // Track whether reading `a` re-fires when only `b` changes
           let aFired = false;
-          createEffect(() => {
-            sub()?.a;
-            if (!sub.pending()) aFired = true;
-          });
+          createEffect(
+            () => {
+              sub()?.a;
+              return sub.pending();
+            },
+            (pending) => {
+              if (!pending) aFired = true;
+            },
+          );
 
           aFired = false;
           stream.push({ a: 1, b: 99 }); // only b changes

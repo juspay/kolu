@@ -40,7 +40,13 @@ import { createAttentionIndex } from "./createAttentionIndex";
 
 import { decodeHostKey, encodeHostKey } from "kolu-common/hostKey";
 import type { AttentionClass, TerminalId } from "kolu-common/surface";
-import { createEffect, createMemo, mapArray, onCleanup } from "solid-js";
+import {
+  createEffect,
+  createMemo,
+  mapArray,
+  onCleanup,
+  onSettled,
+} from "solid-js";
 import { createSharedRoot } from "../createSharedRoot";
 import { hostKeys, interpretClientError, padiMap } from "../wire";
 import {
@@ -110,24 +116,19 @@ export const useAttentionFacts = createSharedRoot(() => {
       // lists are no news: the reading stays at what padi last said it saw, and
       // the marks and counts it drives do not blink to idle and back.
       const byClass = createMemo(
-        (previous: Record<FrameClass, TerminalId[]>) => {
+        (previous: Record<FrameClass, TerminalId[]> = emptyByClass()) => {
           const value = urgency();
           return value?.settled === true ? frameByClass(value) : previous;
         },
-        emptyByClass(),
       );
-      const liveIds = createMemo<readonly TerminalId[]>(
-        (previous) => (activity.pending() ? previous : [...(activity() ?? [])]),
-        [],
+      const liveIds = createMemo(
+        (previous: readonly TerminalId[] = []): readonly TerminalId[] =>
+          activity.pending() ? previous : [...(activity() ?? [])],
       );
       // Has padi said what it SAW? Once it has, the held reading above is
       // its word, so this stays true across a later unsettled frame.
-      const reported = createMemo(
-        (previous: boolean) =>
-          activity.pending()
-            ? previous
-            : previous || urgency()?.settled === true,
-        false,
+      const reported = createMemo((previous: boolean = false) =>
+        activity.pending() ? previous : previous || urgency()?.settled === true,
       );
       registerHostFacts(encHost, () => ({
         get reported() {
@@ -143,8 +144,10 @@ export const useAttentionFacts = createSharedRoot(() => {
           return live();
         },
       }));
-      // Publish membership, independent of the live facts above.
-      writeHostMarks(encHost, {});
+      // Publish membership, independent of the live facts above. A store write
+      // cannot happen in this mapper's own computation, so it lands in the
+      // settled (imperative) phase of this host's owner.
+      onSettled(() => writeHostMarks(encHost, {}));
       registerHostIndex(encHost, createAttentionIndex(byClass, liveIds));
       // Host left the pool — drop its whole record, the index whose memos
       // are disposed with this owner, and what this browser saved about its
@@ -157,8 +160,9 @@ export const useAttentionFacts = createSharedRoot(() => {
       return null;
     },
   );
-  // Instantiate the roots (mapArray is lazy until read).
-  createEffect(() => void roots());
+  // Instantiate the roots (mapArray is lazy until read): the compute phase is
+  // that read, and there is nothing imperative to do with the result.
+  createEffect(roots, () => {});
 
   return {
     /** A terminal's class WITHOUT its live flag — the dock's rank/paint read.

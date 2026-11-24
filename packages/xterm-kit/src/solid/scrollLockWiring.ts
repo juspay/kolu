@@ -86,20 +86,21 @@ export function wireScrollIntent(
   );
   // Release on the document: a scrollbar/selection drag routinely ends with the
   // pointer outside the terminal, so a container-scoped pointerup would miss it
-  // and leave intent stuck open.
-  createEffect(() => {
-    if (!held()) return;
+  // and leave intent stuck open. The listeners are added in the effect phase
+  // and torn down by its returned cleanup (which runs before the next run and
+  // on disposal), so a hold that ends leaves nothing attached.
+  createEffect(held, (isHeld) => {
+    if (!isHeld) return;
     const release = () => {
       scrollLock.releaseUserScrollIntent();
       setHeld(false);
     };
-    makeEventListener(document, "pointerup", release, {
-      capture: true,
-      passive: true,
-    });
-    makeEventListener(document, "pointercancel", release, {
-      capture: true,
-      passive: true,
-    });
+    const options = { capture: true, passive: true } as const;
+    document.addEventListener("pointerup", release, options);
+    document.addEventListener("pointercancel", release, options);
+    return () => {
+      document.removeEventListener("pointerup", release, options);
+      document.removeEventListener("pointercancel", release, options);
+    };
   });
 }

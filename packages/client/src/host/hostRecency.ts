@@ -22,7 +22,7 @@
  *  would let one tab's switch decide the other tab's toggle target. */
 
 import { isEncodedHostKey } from "kolu-common/hostKey";
-import { type Accessor, createEffect, createRoot, on } from "solid-js";
+import { type Accessor, createEffect, createRoot } from "solid-js";
 import {
   defaultInvalidWarning,
   isSaneStamp,
@@ -136,11 +136,9 @@ export function createHostRecency(): Accessor<readonly HostVisit[]> {
   // when the HOST changes, while the raw signal changes on every WRITE — and
   // the membership reconcile writes a fresh-but-equal `HostKey` object, which
   // is not a switch and must not stamp one.
-  createEffect(
-    on(encActiveHost, (hostKey) => {
-      setMru((prev) => promoteHost(prev, hostKey, Date.now()));
-    }),
-  );
+  createEffect(encActiveHost, (hostKey) => {
+    setMru((prev) => promoteHost(prev, hostKey, Date.now()));
+  });
 
   return mru;
 }

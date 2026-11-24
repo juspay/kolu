@@ -16,7 +16,7 @@
  *  covering the whole frame. These tests are what should stop that. */
 
 import type { TerminalId } from "kolu-common/surface";
-import { createComputed, createRoot, createSignal } from "solid-js";
+import { createEffect, createRoot, createSignal } from "solid-js";
 import { beforeEach, describe, expect, it } from "vitest";
 import {
   forgetHostIndex,
@@ -41,10 +41,13 @@ beforeEach(() => {
 function countReruns(fn: () => unknown, steps: readonly (() => void)[]) {
   return createRoot((dispose) => {
     let runs = 0;
-    createComputed(() => {
-      fn();
-      runs += 1;
-    });
+    createEffect(
+      () => {
+        fn();
+        runs += 1;
+      },
+      () => {},
+    );
     const after: number[] = [];
     for (const step of steps) {
       step();

@@ -241,13 +241,9 @@ export function createSurfaceReadout(
     // The raw fold WITHOUT the graced bit — the input to both the grace window
     // and the final readout. Folded through the same `equals` gate as the final
     // one, so a healthy page's churn notifies neither.
-    const raw = createMemo(
-      () => surfaceReadout(status(), health(), false),
-      undefined,
-      {
-        equals: sameReadout,
-      },
-    );
+    const raw = createMemo(() => surfaceReadout(status(), health(), false), {
+      equals: sameReadout,
+    });
     // The grace-windowed "should a consumer present its down-state now?" fact.
     // Reads the FOLDED status so a mirror (live socket, upstream down → folds to
     // `reconnecting`) is graced like any other not-live readout.
@@ -268,7 +264,6 @@ export function createSurfaceReadout(
           const presentingDown = base.status === "retired" ? true : down();
           return { ...base, presentingDown };
         },
-        undefined,
         { equals: sameReadout },
       ),
       dispose,

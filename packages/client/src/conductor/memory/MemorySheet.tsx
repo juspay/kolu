@@ -191,9 +191,12 @@ export const MemorySheet: Component = () => {
   const memory = useMemory();
   const shown = useShown();
   const facts = useConductorFacts();
-  createEffect(() => {
-    if (!shown()) memorySheet.close();
-  });
+  createEffect(
+    () => shown(),
+    (isShown) => {
+      if (!isShown) memorySheet.close();
+    },
+  );
   const share = () => memory.used() / MEMORY_CAP;
   return (
     <ModalDialog

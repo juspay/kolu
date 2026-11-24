@@ -6,10 +6,10 @@
  * wins until the fact changes again."
  *
  * That is a promise about the VALUE. The original implementation only kept it
- * for callers who happened to pass a narrow leaf read: `createEffect(() => {
- * el.open = props.open })` re-runs on every DEPENDENCY tick, so a caller whose
- * `open` expression reaches through a bundle memo re-asserted `false` on every
- * unrelated field change and slammed the list shut under the user's hand.
+ * for callers who happened to pass a narrow leaf read: an effect whose compute
+ * reads `props.open` straight re-runs on every DEPENDENCY tick, so a caller
+ * whose `open` expression reaches through a bundle memo re-asserted `false` on
+ * every unrelated field change and slammed the list shut under the user's hand.
  *
  * The Inspector became exactly that caller (`open={p().hasException}`, where
  * `p()` carries the whole PR), which is what these tests pin — at the component

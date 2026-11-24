@@ -30,8 +30,8 @@ import {
   type Accessor,
   createEffect,
   createSignal,
-  on,
   onCleanup,
+  untrack,
 } from "solid-js";
 import type { CanvasTileMode } from "./CanvasTile";
 
@@ -112,32 +112,41 @@ export function tileIsSeen(facts: TileSeenFacts): boolean {
  *  Owned by the caller's reactive owner: the timer is cleared when the tile
  *  goes, so a closed tile cannot flip a disposed signal. */
 export function createHeldSeen(seen: Accessor<boolean>): Accessor<boolean> {
-  const [held, setHeld] = createSignal(seen());
+  // One-time seed of the mirror: the hold's own dependency on `seen` is
+  // established by the effect below, and the effect phase only runs after the
+  // first flush — a tracked read here would be a duplicate subscription and an
+  // unseeded read would make an already-seen tile detach for a microtask.
+  const initiallySeen = untrack(seen);
+  const [held, setHeld] = createSignal(initiallySeen);
+  // Plain mirror of `held` so the effect phase never READS a reactive value
+  // (effect-phase reads are untracked, and a compute that read `held` would
+  // feed on this effect's own write).
+  let attached = initiallySeen;
   let timer: ReturnType<typeof setTimeout> | undefined;
   const cancel = () => {
     if (timer === undefined) return;
     clearTimeout(timer);
     timer = undefined;
   };
-  createEffect(
-    on(seen, (now) => {
-      if (now) {
-        // Arriving is never delayed, and it spends a pending departure.
-        cancel();
-        setHeld(true);
-        return;
-      }
-      // Never seen (or already let go): nothing is attached, so nothing is
-      // owed a grace period. (No "already counting down" case to guard: this
-      // effect runs on CHANGES of `seen`, and the `true` that must precede a
-      // second `false` has already cancelled the timer above.)
-      if (!held()) return;
-      timer = setTimeout(() => {
-        timer = undefined;
-        setHeld(false);
-      }, SEEN_HOLD_MS);
-    }),
-  );
+  createEffect(seen, (now) => {
+    if (now) {
+      // Arriving is never delayed, and it spends a pending departure.
+      cancel();
+      attached = true;
+      setHeld(true);
+      return;
+    }
+    // Never seen (or already let go): nothing is attached, so nothing is
+    // owed a grace period. (No "already counting down" case to guard: this
+    // effect runs on CHANGES of `seen`, and the `true` that must precede a
+    // second `false` has already cancelled the timer above.)
+    if (!attached) return;
+    timer = setTimeout(() => {
+      timer = undefined;
+      attached = false;
+      setHeld(false);
+    }, SEEN_HOLD_MS);
+  });
   onCleanup(cancel);
   return held;
 }

@@ -1,14 +1,13 @@
 import type { TerminalId } from "kolu-common/surface";
-import { batch, createEffect, createRoot, createSignal } from "solid-js";
+import { createEffect, createRoot, createSignal } from "solid-js";
 import { describe, expect, it, vi } from "vitest";
 import type { HydrationPhase } from "../hostScope/createSessionRestore";
 import { type SplitAdoptPorts, useAdoptNewSplit } from "./useAdoptNewSplit";
 
 const T = (s: string) => s as TerminalId;
 
-/** Let SolidJS flush queued effects (they don't run inside the synchronous
- *  `createRoot` batch). After this, signal writes made OUTSIDE the batch flush
- *  the adopt effect synchronously — mirrors useActiveReconcile.test. */
+/** Let Solid flush queued effects (they run on a microtask, not inside the
+ *  synchronous `createRoot` call). Mirrors useActiveReconcile.test. */
 const tick = () => new Promise((r) => setTimeout(r, 0));
 
 /** Mount `useAdoptNewSplit` over signal-backed list/parents/host/phase, with spy
@@ -80,10 +79,8 @@ describe("useAdoptNewSplit — adopt an externally-created split", () => {
     expect(h.calls.expandPanel).not.toHaveBeenCalled();
 
     // padi-tui creates a split under P — arrives on the list with parentId = P.
-    batch(() => {
-      h.setParents({ P: null, S: T("P") });
-      h.setRawIds([T("P"), T("S")]);
-    });
+    h.setParents({ P: null, S: T("P") });
+    h.setRawIds([T("P"), T("S")]);
 
     expect(h.calls.expandPanel).toHaveBeenCalledWith(T("P"));
     expect(h.calls.setActiveSubTab).toHaveBeenCalledWith(T("P"), T("S"));
@@ -103,10 +100,8 @@ describe("useAdoptNewSplit — adopt an externally-created split", () => {
     await tick();
 
     // A second split S2 arrives via padi-tui.
-    batch(() => {
-      h.setParents({ P: null, S1: T("P"), S2: T("P") });
-      h.setRawIds([T("P"), T("S1"), T("S2")]);
-    });
+    h.setParents({ P: null, S1: T("P"), S2: T("P") });
+    h.setRawIds([T("P"), T("S1"), T("S2")]);
 
     expect(h.calls.expandPanel).toHaveBeenCalledWith(T("P")); // still opens
     expect(h.calls.setActiveSubTab).not.toHaveBeenCalled(); // but doesn't yank focus
@@ -124,10 +119,8 @@ describe("useAdoptNewSplit — adopt an externally-created split", () => {
 
     // Restored split S1 arrives while NOT seeded — hydration owns its tab, so the
     // adopt hook must stay quiet (but record S1 as baseline).
-    batch(() => {
-      h.setParents({ P: null, S1: T("P") });
-      h.setRawIds([T("P"), T("S1")]);
-    });
+    h.setParents({ P: null, S1: T("P") });
+    h.setRawIds([T("P"), T("S1")]);
     expect(h.calls.expandPanel).not.toHaveBeenCalled();
     expect(h.calls.setActiveSubTab).not.toHaveBeenCalled();
 
@@ -138,10 +131,8 @@ describe("useAdoptNewSplit — adopt an externally-created split", () => {
     expect(h.calls.expandPanel).not.toHaveBeenCalled();
 
     // NOW a genuinely-new split S2 arrives live → adopted.
-    batch(() => {
-      h.setParents({ P: null, S1: T("P"), S2: T("P") });
-      h.setRawIds([T("P"), T("S1"), T("S2")]);
-    });
+    h.setParents({ P: null, S1: T("P"), S2: T("P") });
+    h.setRawIds([T("P"), T("S1"), T("S2")]);
     expect(h.calls.expandPanel).toHaveBeenCalledWith(T("P"));
     expect(h.calls.setActiveSubTab).toHaveBeenCalledWith(T("P"), T("S2"));
     // S1 was never adopted.
@@ -159,10 +150,8 @@ describe("useAdoptNewSplit — adopt an externally-created split", () => {
     });
     await tick();
 
-    batch(() => {
-      h.setParents({ P: null, S: T("P"), G: T("S") });
-      h.setRawIds([T("P"), T("S"), T("G")]);
-    });
+    h.setParents({ P: null, S: T("P"), G: T("S") });
+    h.setRawIds([T("P"), T("S"), T("G")]);
 
     expect(h.calls.seedSplitTab).toHaveBeenCalledExactlyOnceWith(
       T("G"),
@@ -177,10 +166,8 @@ describe("useAdoptNewSplit — adopt an externally-created split", () => {
     await tick();
 
     // A second top-level tile Q — not a split.
-    batch(() => {
-      h.setParents({ P: null, Q: null });
-      h.setRawIds([T("P"), T("Q")]);
-    });
+    h.setParents({ P: null, Q: null });
+    h.setRawIds([T("P"), T("Q")]);
 
     expect(h.calls.expandPanel).not.toHaveBeenCalled();
     expect(h.calls.setActiveSubTab).not.toHaveBeenCalled();
@@ -213,18 +200,14 @@ describe("useAdoptNewSplit — adopt an externally-created split", () => {
     // Switch to host B, whose list already carries a split (B2 under B1). The host
     // token flips AND the list re-keys together — B's existing split must NOT be
     // read as an arrival.
-    batch(() => {
-      h.setParents({ B1: null, B2: T("B1") });
-      h.setRawIds([T("B1"), T("B2")]);
-      h.setHost("remote:B");
-    });
+    h.setParents({ B1: null, B2: T("B1") });
+    h.setRawIds([T("B1"), T("B2")]);
+    h.setHost("remote:B");
     expect(h.calls.expandPanel).not.toHaveBeenCalled();
 
     // A genuinely-new split on B (B3) THEN arrives → adopted (baseline advanced to B).
-    batch(() => {
-      h.setParents({ B1: null, B2: T("B1"), B3: T("B1") });
-      h.setRawIds([T("B1"), T("B2"), T("B3")]);
-    });
+    h.setParents({ B1: null, B2: T("B1"), B3: T("B1") });
+    h.setRawIds([T("B1"), T("B2"), T("B3")]);
     expect(h.calls.expandPanel).toHaveBeenCalledWith(T("B1"));
     expect(h.calls.setActiveSubTab).toHaveBeenCalledWith(T("B1"), T("B3"));
     h.dispose();
@@ -237,12 +220,10 @@ describe("useAdoptNewSplit — adopt an externally-created split", () => {
  *  end-to-end invariant this guards: a RESTORED split delivered on that seed-
  *  boundary flush is NOT false-adopted (which would re-open a persisted-collapsed
  *  panel and persist the wrong state), yet a genuinely-new split arriving LATER —
- *  the real feature — still is. The safety holds independent of the two effects'
- *  relative run order: `useAdoptNewSplit` is created before `useSessionRestore`
- *  (creation order), AND its effect is memo-backed (`on(snapshot,…)`) while
- *  hydration is a plain effect — SolidJS schedules a memo-backed effect ahead of a
- *  plain one regardless of creation order, so adopt samples the pre-flip `decided`
- *  either way. This test reproduces that production scheduling. */
+ *  the real feature — still is. The safety rests on run order the way production
+ *  wires it: `useAdoptNewSplit` is created before `useSessionRestore`, and at
+ *  equal depth Solid runs effects in creation order, so adopt samples the
+ *  pre-flip `decided`. This test reproduces that production scheduling. */
 describe("useAdoptNewSplit — composed with hydration", () => {
   it("baselines a restored split on the seed-boundary flush, then adopts a later live split", async () => {
     const latch = { phase: "decided" as HydrationPhase };
@@ -278,22 +259,23 @@ describe("useAdoptNewSplit — composed with hydration", () => {
       // Hydration stand-in: once the restored split S's metadata has arrived (the
       // seed boundary), flip the latch to `seeded` — the same non-reactive write
       // `markSeeded` makes inside the real hydration effect.
-      createEffect(() => {
-        if (parents().S === T("P") && latch.phase === "decided") {
-          latch.phase = "seeded";
-        }
-      });
+      createEffect(
+        () => parents().S === T("P"),
+        (restoredSplitArrived) => {
+          if (restoredSplitArrived && latch.phase === "decided") {
+            latch.phase = "seeded";
+          }
+        },
+      );
       handles = {
-        deliverSeedBoundary: () =>
-          batch(() => {
-            setParents({ P: null, S: T("P") });
-            setRawIds([T("P"), T("S")]);
-          }),
-        deliverLiveSplit: () =>
-          batch(() => {
-            setParents({ P: null, S: T("P"), S2: T("P") });
-            setRawIds([T("P"), T("S"), T("S2")]);
-          }),
+        deliverSeedBoundary: () => {
+          setParents({ P: null, S: T("P") });
+          setRawIds([T("P"), T("S")]);
+        },
+        deliverLiveSplit: () => {
+          setParents({ P: null, S: T("P"), S2: T("P") });
+          setRawIds([T("P"), T("S"), T("S2")]);
+        },
         dispose,
       };
     });

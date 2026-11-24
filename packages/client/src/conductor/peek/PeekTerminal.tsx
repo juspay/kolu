@@ -21,13 +21,13 @@ import {
   type Component,
   createEffect,
   createSignal,
-  on,
   onCleanup,
+  untrack,
 } from "solid-js";
 import { FONT_FAMILY, getThemeByName } from "terminal-themes";
 import { holdConductorScreen } from "../../attention/conductorScreens";
 import { fleetTerminalStanding } from "../../palette/fleetTerminals";
-import { runAction, runOwnedAction } from "../../runAction";
+import { runAction } from "../../runAction";
 import { consumeReattachingStream } from "../../terminal/reattachingStream";
 import { applyStickyModifiers } from "../../terminal/stickyModifiers";
 import { useShown } from "../../ui/shown";
@@ -65,9 +65,10 @@ const PeekTerminal: Component<{
   // Look and for a live pane alike, for as long as this part is mounted in a
   // view that is shown: what the attention engine reads to know the terminal
   // is in front of the person (`attention/conductorScreens.ts`).
-  createEffect(() => {
-    if (shown()) onCleanup(holdConductorScreen(ref));
-  });
+  createEffect(
+    () => shown(),
+    (isShown) => (isShown ? holdConductorScreen(ref) : undefined),
+  );
   const [tabVisible, setTabVisible] = createSignal(
     document.visibilityState === "visible",
   );
@@ -107,7 +108,15 @@ const PeekTerminal: Component<{
       makeEventListener(textarea, "focus", () => props.onFocus(true));
       makeEventListener(textarea, "blur", () => props.onFocus(false));
     }
-    createEffect(() => props.onHeld(h.scrollLock.isLocked()));
+    createEffect(
+      () => ({
+        held: h.scrollLock.isLocked(),
+        // READ ONCE, not depended on: a callback prop is the door this fact
+        // leaves through, never a reason to report it again.
+        report: untrack(() => props.onHeld),
+      }),
+      ({ held, report }) => report(held),
+    );
 
     let lastWidth = Number.NaN;
     let lastHeight = Number.NaN;
@@ -150,49 +159,63 @@ const PeekTerminal: Component<{
       },
     };
     let generation = 0;
-    // The attach restarts on `shown` and `tabVisible` and on NOTHING else:
-    // `on` runs the body untracked, so no signal read by what it calls —
-    // the scroll lock inside `screen.reset()`, the frame writes — can join
-    // that list. A bare effect here re-attached on every scroll-lock change,
-    // which threw a scrolled-back view to the bottom.
     createEffect(
-      on([shown, tabVisible], ([isShown, isTabVisible]) => {
+      () => ({
+        shown: shown(),
+        tabVisible: tabVisible(),
+        // READ ONCE, not depended on: the attach is restarted by `shown` and
+        // `tabVisible` and by NOTHING else — the terminal this screen is of,
+        // the host's stream door and the callbacks the phases leave through
+        // are the pane's fixed wiring, and the effect's phase may read no
+        // reactive state at all. A single-phase effect here re-attached on
+        // every scroll-lock change, which threw a scrolled-back view to the
+        // bottom.
+        id: untrack(() => props.id),
+        host: untrack(() => props.host),
+        onPhase: untrack(() => props.onPhase),
+        attach: untrack(() => entry.streams.terminalAttach.unenrolled),
+      }),
+      ({
+        shown: isShown,
+        tabVisible: isTabVisible,
+        id,
+        host,
+        onPhase,
+        attach,
+      }) => {
         if (!isShown || !isTabVisible) return;
         generation += 1;
         const mine = generation;
         const live = () => mine === generation;
-        onCleanup(() => {
-          generation += 1;
-        });
         screen.reset();
-        props.onPhase("reading");
+        onPhase("reading");
         const again = () => {
           if (!live()) return;
           screen.reset();
-          props.onPhase("reconnecting");
+          onPhase("reconnecting");
         };
-        runOwnedAction(
+        // `runAction` with the fiber interrupted below, rather than
+        // `runOwnedAction`: an effect's imperative half owns its work through
+        // the cleanup it returns, which is what stops the attach before the
+        // next one and on disposal.
+        const fiber = runAction(
           "peek attach",
           consumeReattachingStream(
             () =>
-              unenrolledStreamCall(
-                entry.streams.terminalAttach.unenrolled,
-                peekAttachInput(props.id),
-                {
-                  label: `terminalAttach[peek ${props.id}]`,
-                  onRetry: again,
-                },
-              ),
+              unenrolledStreamCall(attach, peekAttachInput(id), {
+                label: `terminalAttach[peek ${id}]`,
+                onRetry: again,
+              }),
             (frame) => {
               if (!live()) return;
               applyPeekFrame(screen, frame);
-              if (isSnapshotFrame(frame)) props.onPhase("live");
+              if (isSnapshotFrame(frame)) onPhase("live");
             },
             again,
-            `Peek attach ${props.id}`,
+            `Peek attach ${id}`,
             {
               hasExited: () => {
-                const s = fleetTerminalStanding(props.host, props.id);
+                const s = fleetTerminalStanding(host, id);
                 return (
                   s.kind === "gone" ||
                   (s.kind === "here" && activeArm(s.meta) === undefined)
@@ -201,7 +224,11 @@ const PeekTerminal: Component<{
             },
           ).pipe(Effect.orDie),
         );
-      }),
+        return () => {
+          generation += 1;
+          fiber.interruptUnsafe();
+        };
+      },
     );
   };
 

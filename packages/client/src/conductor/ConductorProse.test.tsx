@@ -71,16 +71,23 @@ vi.mock("@kolu/solid-markdown", async () => {
             ? props.markdown
             : actual.decorateInlineCode(props.markdown, inlineCode.action);
         },
-        undefined,
         { equals: false },
       );
-      solid.createRenderEffect(() => {
-        el.innerHTML = html();
-      });
-      solid.createEffect(() => {
-        html();
-        solid.untrack(() => props.onRendered?.());
-      });
+      solid.createRenderEffect(
+        () => html(),
+        (text) => {
+          el.innerHTML = text;
+        },
+      );
+      solid.createEffect(
+        () => ({
+          html: html(),
+          // Read once, not depended on: a callback prop is the door, never
+          // a reason to announce the prose again.
+          rendered: solid.untrack(() => props.onRendered),
+        }),
+        ({ rendered }) => rendered?.(),
+      );
       actual.bindMarkdownLinks(el, {
         onInlineCode: (text, anchor) => props.inlineCode?.onPress(text, anchor),
       });

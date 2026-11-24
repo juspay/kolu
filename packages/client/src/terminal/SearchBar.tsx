@@ -10,9 +10,9 @@ import {
   type Component,
   createEffect,
   createSignal,
-  on,
   onCleanup,
   Show,
+  untrack,
 } from "solid-js";
 import type { JSX } from "@solidjs/web";
 import { ChevronDownIcon, ChevronUpIcon, CloseIcon } from "../ui/Icons";
@@ -74,22 +74,22 @@ const SearchBar: Component<{
 
   // Focus input when opened; clear decorations when closed
   createEffect(
-    on(
-      () => props.open,
-      (open) => {
-        if (open) {
-          // rAF: input is inside <Show> and may not be in DOM yet when the effect runs
-          requestAnimationFrame(() => {
-            inputRef?.focus();
-            inputRef?.select();
-          });
-        } else {
-          props.searchAddon.clearDecorations();
-          setResultIndex(-1);
-          setResultCount(0);
-        }
-      },
-    ),
+    // The addon is the tile's, for this component's whole life — read
+    // untracked so a prop identity change is not a reason to clear.
+    () => ({ open: props.open, addon: untrack(() => props.searchAddon) }),
+    ({ open, addon }) => {
+      if (open) {
+        // rAF: input is inside <Show> and may not be in DOM yet when the effect runs
+        requestAnimationFrame(() => {
+          inputRef?.focus();
+          inputRef?.select();
+        });
+      } else {
+        addon.clearDecorations();
+        setResultIndex(-1);
+        setResultCount(0);
+      }
+    },
   );
 
   function findNext() {

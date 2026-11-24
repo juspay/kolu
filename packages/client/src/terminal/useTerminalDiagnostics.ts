@@ -11,7 +11,7 @@
  *  Separation from `terminalRefs`: `terminalRefs` is an imperative Map
  *  for handlers that grab xterm/addons on demand; this is a reactive
  *  store for UI subscription. Same lifecycle, different volatility axes
- *  — both registrations happen in Terminal.tsx onMount/onCleanup. */
+ *  — both registrations happen in Terminal.tsx at mount and teardown. */
 
 import type { TerminalId } from "kolu-common/surface";
 import {
@@ -122,31 +122,29 @@ export function registerDiagnostics(
   // be a stale read). A grid or snapshot is merged into the one it replaces,
   // so a reader of one field is not woken by another's write.
   const disposeRoot = createRoot((dispose) => {
-    createEffect(() => {
-      const next = renderer();
+    createEffect(renderer, (next) =>
       write((entry) => {
         entry.renderer = next;
-      });
-    });
-    createEffect(() => {
-      const next = term();
+      }),
+    );
+    createEffect(term, (next) =>
       write((entry) => {
         Object.assign(entry.term, next);
-      });
-    });
-    createEffect(() => {
-      const next = wanted();
+      }),
+    );
+    createEffect(wanted, (next) =>
       write((entry) => {
         if (entry.wanted && next) Object.assign(entry.wanted, next);
         else entry.wanted = next;
-      });
-    });
-    createEffect(() => {
-      const next = scrollLockSnapshot(scrollLock);
-      write((entry) => {
-        Object.assign(entry.scrollLock, next);
-      });
-    });
+      }),
+    );
+    createEffect(
+      () => scrollLockSnapshot(scrollLock),
+      (next) =>
+        write((entry) => {
+          Object.assign(entry.scrollLock, next);
+        }),
+    );
     return dispose;
   });
 

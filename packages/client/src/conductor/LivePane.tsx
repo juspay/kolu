@@ -33,10 +33,10 @@ import {
   type Component,
   createMemo,
   createSignal,
-  on,
   createEffect,
   onCleanup,
   Show,
+  untrack,
 } from "solid-js";
 import { DEFAULT_FONT_SIZE, getThemeByName } from "terminal-themes";
 import MobileKeyBar from "../MobileKeyBar";
@@ -95,7 +95,9 @@ const LivePane: Component<{
   const mayType = () => inputAllowedAt(ref());
 
   const [grid, setGrid] = createSignal<TerminalGrid | null>(
-    liveArm(standing())?.grid ?? null,
+    // READ ONCE: the pane opens on the size the terminal has now, and every
+    // size after this one arrives through `onGrid`.
+    untrack(() => liveArm(standing())?.grid ?? null),
   );
   const [cell, setCell] = createSignal<PeekCell | null>(null);
   const [baseCell, setBaseCell] = createSignal<PeekCell | null>(null);
@@ -111,10 +113,22 @@ const LivePane: Component<{
    *  the peek is in front of the pane, and it puts the keys in its own
    *  screen. */
   createEffect(
-    on(driver, (now, before) => {
-      if (now === "you" && before === "conductor" && peekTarget() === null)
-        handle()?.focus();
+    () => ({
+      driver: driver(),
+      // READ ONCE, not depended on: the keyboard follows the DRIVER
+      // changing — a peek opening, or the screen's handle arriving, is not a
+      // reason to take the keys.
+      peeking: untrack(() => peekTarget() !== null),
+      handle: untrack(handle),
     }),
+    (now, before) => {
+      if (
+        now.driver === "you" &&
+        before?.driver === "conductor" &&
+        !now.peeking
+      )
+        now.handle?.focus();
+    },
   );
 
   const [body, setBody] = createSignal<HTMLDivElement>();
@@ -170,7 +184,6 @@ const LivePane: Component<{
         fontSize: DEFAULT_FONT_SIZE,
         fit: fitWidth(),
       }),
-    null,
     { equals: (a, b) => (a && b ? sameGrid(a, b) : a === b) },
   );
   const hostState = () => padiMap.entry(decodeHostKey(props.host)).state().kind;
@@ -193,15 +206,22 @@ const LivePane: Component<{
   onCleanup(publisher.cancel);
   const onScreen = () => props.connected && lookable();
   const paneSize = createPaneSize({
-    connected: onScreen,
-    desktop: isDesktop,
-    asked,
     publish: publisher.publish,
     cancelPublish: publisher.cancel,
     restateOwed: publisher.republishSuppressed,
   });
   createEffect(
-    on([onScreen, isDesktop, asked, hostState], () => paneSize.observe()),
+    () => ({
+      connected: onScreen(),
+      desktop: isDesktop(),
+      asked: asked(),
+      // A dep, not a fact the tick is about: the host coming back is what
+      // makes a suppressed publish worth restating.
+      hostState: hostState(),
+    }),
+    ({ connected, desktop, asked: grid }) => {
+      paneSize.observe({ connected, desktop, asked: grid });
+    },
   );
   /** THE ONE PRESS (the head's readout, offered once the terminal has stayed
    *  at a size this pane would not ask for — `resizeOffer.ts`): publish that
@@ -217,13 +237,16 @@ const LivePane: Component<{
    *  lags behind the scroll lock. */
   const realGrid = () => liveArm(standing())?.grid;
   const offer = createResizeOffer({
-    real: realGrid,
-    asked,
     settleMs: FOREIGN_GRID_SETTLE_MS,
     show: setResizeOffered,
   });
   onCleanup(offer.dispose);
-  createEffect(on([realGrid, asked], () => offer.observe()));
+  createEffect(
+    () => ({ real: realGrid(), asked: asked() }),
+    (now) => {
+      offer.observe(now);
+    },
+  );
 
   return (
     <section

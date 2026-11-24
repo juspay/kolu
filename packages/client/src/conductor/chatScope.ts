@@ -11,7 +11,7 @@
  *  the honest boundary for a view nobody told the server about. */
 
 import type { Work, WorkId } from "kolu-work";
-import { batch, createSignal } from "solid-js";
+import { createSignal } from "solid-js";
 import { setPhoneView } from "./phoneView";
 import { closeReader } from "./reader/useReader";
 import { useWorkMap } from "./useWorks";
@@ -35,19 +35,15 @@ export const chatScope = (): {
 /** POINT THE CHAT AT A WORK: the reader gives way, and the chat shows the
  *  turns about it. What picking a work does (`workListing.ts`). */
 export function pointChatAt(id: WorkId): void {
-  batch(() => {
-    closeReader();
-    setScope(id);
-  });
+  closeReader();
+  setScope(id);
 }
 
 /** "About this work": point the chat at it, and on a phone show the chat,
  *  so the chat it filtered is the thing on screen. */
 export function aboutWork(id: WorkId): void {
-  batch(() => {
-    pointChatAt(id);
-    setPhoneView("chat");
-  });
+  pointChatAt(id);
+  setPhoneView("chat");
 }
 
 /** "Show all", and the scope chip's × in the box. */

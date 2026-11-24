@@ -30,10 +30,11 @@ async function* fromArray<T>(items: T[]): AsyncGenerator<T> {
   for (const item of items) yield item;
 }
 
-/** Drain several macrotasks. `createReactiveSubscription` wraps the iife in
- *  a `createEffect`, whose initial run is deferred. One tick covers signal
- *  propagation, one for factory resolution, one for the async iterator's
- *  first `next()`, one for store update — four is comfortable. */
+/** Drain several macrotasks. `createReactiveSubscription` opens its fiber in an
+ *  effect's EFFECT PHASE, which runs on a flush rather than at creation. One tick
+ *  covers that flush and signal propagation, one for factory resolution, one for
+ *  the async iterator's first `next()`, one for the store update — four is
+ *  comfortable. */
 async function flush(ticks = 4): Promise<void> {
   for (let i = 0; i < ticks; i++) {
     await new Promise<void>((r) => setTimeout(r, 0));

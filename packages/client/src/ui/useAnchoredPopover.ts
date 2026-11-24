@@ -78,28 +78,45 @@ export function useAnchoredPopover(
     right?: number;
   }>({});
 
-  const updatePos = () => {
-    const t = opts.triggerRef();
-    if (!t) return;
-    const r = t.getBoundingClientRect();
-    const offset = opts.offset ?? 4;
+  /** The placement inputs, READ. Separate from the write below because the
+   *  effect that repositions must take its reads in its compute: a read from
+   *  the effect phase would see these props without depending on them. Event
+   *  handlers (scroll, resize, the panel ref) are not that kind of scope, so
+   *  they read through `updatePos` as before. */
+  type Placement = {
+    trigger: HTMLElement | undefined;
+    anchor: AnchorSide | undefined;
+    offset: number;
+    minW: number;
+    flip: boolean;
+  };
+  const placement = (): Placement => ({
+    trigger: opts.triggerRef(),
+    anchor: opts.anchor,
+    offset: opts.offset ?? 4,
+    minW: opts.panelMinWidth ?? 0,
+    flip: opts.flip === true,
+  });
+  /** The placement inputs, APPLIED — measurement and the one write. */
+  const applyPos = ({ trigger, anchor, offset, minW, flip }: Placement) => {
+    if (!trigger) return;
+    const r = trigger.getBoundingClientRect();
     // Upward anchors set `bottom` in viewport coordinates so the panel's
     // bottom edge sits above the trigger without measuring panel height.
-    if (opts.anchor === "top-end") {
+    if (anchor === "top-end") {
       setPos({
         bottom: window.innerHeight - r.top + offset,
         right: window.innerWidth - r.right,
       });
       return;
     }
-    if (opts.anchor === "bottom-end") {
+    if (anchor === "bottom-end") {
       setPos({ top: r.bottom + offset, right: window.innerWidth - r.right });
       return;
     }
     // Left-anchored variants share the viewport clamp; the only
     // distinction is whether to anchor by the trigger's top edge
     // (`top-start`, upward) or bottom edge (`bottom-start`, downward).
-    const minW = opts.panelMinWidth ?? 0;
     const maxLeft = window.innerWidth - minW - VIEWPORT_PAD;
     const left = Math.max(VIEWPORT_PAD, Math.min(r.left, maxLeft));
     // Opt-in vertical flip: a `bottom-start` panel whose content is taller
@@ -112,16 +129,17 @@ export function useAnchoredPopover(
     const roomBelow = window.innerHeight - r.bottom - offset - VIEWPORT_PAD;
     const roomAbove = r.top - offset - VIEWPORT_PAD;
     const flipUp =
-      opts.flip === true &&
-      opts.anchor !== "top-start" &&
+      flip &&
+      anchor !== "top-start" &&
       panelH > roomBelow &&
       roomAbove > roomBelow;
-    if (opts.anchor === "top-start" || flipUp) {
+    if (anchor === "top-start" || flipUp) {
       setPos({ bottom: window.innerHeight - r.top + offset, left });
       return;
     }
     setPos({ top: r.bottom + offset, left });
   };
+  const updatePos = () => applyPos(placement());
 
   // Document listeners exist only while the popover is open — passing
   // `undefined` as the target detaches them.
@@ -156,11 +174,15 @@ export function useAnchoredPopover(
   });
   createEventListener(winTarget, "resize", updatePos, { passive: true });
 
-  // Reposition when the trigger ref or open state changes — covers both
-  // first open and trigger remounts (e.g. a button that re-renders).
-  createEffect(() => {
-    if (opts.open() && opts.triggerRef()) updatePos();
-  });
+  // Reposition when the placement inputs or the open state change — covers
+  // both first open and trigger remounts (e.g. a button that re-renders).
+  // The compute does the reading; the effect only measures and writes.
+  createEffect(
+    () => (opts.open() ? placement() : undefined),
+    (place) => {
+      if (place) applyPos(place);
+    },
+  );
 
   const panelRef = (el: HTMLElement) => {
     panelEl = el;

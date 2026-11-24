@@ -20,7 +20,7 @@
  *  Corvu re-emits the sizes it was handed (on mount, and when they change); an
  *  emission equal to what it was handed is an echo and writes nothing. */
 
-import { type Accessor, batch, createSignal, untrack } from "solid-js";
+import { type Accessor, createSignal, untrack } from "solid-js";
 import { defaultInvalidWarning, persistedPref } from "../persistedPref";
 import {
   MIN_CODE_PANE_SHARE,
@@ -116,10 +116,8 @@ export function createCodeSplit(arrangement: Accessor<CodeArrangement>) {
     onHandleDragEnd: () => {
       const reached = dragShare();
       if (reached === null) return;
-      batch(() => {
-        storeBeside(reached);
-        setDragShare(null);
-      });
+      storeBeside(reached);
+      setDragShare(null);
     },
   };
 }

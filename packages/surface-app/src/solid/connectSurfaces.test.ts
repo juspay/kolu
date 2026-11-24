@@ -1207,7 +1207,10 @@ describe("connectSurfaces — a ROSTER CHANGE moves the WIRE, not the connection
         runs += 1;
         return conn.health();
       });
-      createEffect(() => folded());
+      createEffect(
+        () => folded(),
+        () => {},
+      );
       await settle();
       const before = runs;
       expect(folded().subs.map((s) => s.name)).toContain("a/conn");
@@ -1396,7 +1399,12 @@ describe("connectSurfaces — a ROSTER CHANGE moves the WIRE, not the connection
       });
       const seen: number[] = [];
       createRoot((stop) => {
-        createEffect(() => seen.push(conn.connectionEpoch()));
+        createEffect(
+          () => conn.connectionEpoch(),
+          (epoch) => {
+            seen.push(epoch);
+          },
+        );
         return stop;
       });
       // Nothing established before the first open.

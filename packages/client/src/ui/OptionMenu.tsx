@@ -13,7 +13,7 @@
  *  not a popover, so it shares no chrome with this panel. The panel-chrome
  *  itself is shared via `surface()`. */
 
-import { createEffect, createUniqueId, For, Show } from "solid-js";
+import { createEffect, createUniqueId, For, Show, untrack } from "solid-js";
 import { Portal, type JSX } from "@solidjs/web";
 import { surface } from "./Surface";
 import { type AnchorSide, useAnchoredPopover } from "./useAnchoredPopover";
@@ -75,18 +75,22 @@ export const OptionMenu = <T extends string>(props: {
    *  it whoever opened it; and when it closes with focus left nowhere (the
    *  panel it was in is gone), focus returns to the trigger, so a keyboard
    *  reader keeps their place. */
-  let wasOpen = false;
-  createEffect(() => {
-    const open = props.open();
-    if (wasOpen && !open) {
-      const trigger = props.triggerRef();
+  createEffect(
+    // The trigger is read UNTRACKED: the effect needs the element that is
+    // standing when the menu closes, and a later remount of the trigger is
+    // not a reason to re-run the focus hand-back.
+    () => ({
+      open: props.open(),
+      trigger: untrack(() => props.triggerRef()),
+    }),
+    (now, was) => {
+      if (was?.open !== true || now.open) return;
       const lost =
         document.activeElement === null ||
         document.activeElement === document.body;
-      if (trigger?.isConnected === true && lost) trigger.focus();
-    }
-    wasOpen = open;
-  });
+      if (now.trigger?.isConnected === true && lost) now.trigger.focus();
+    },
+  );
   /** THE KEYS A MENU PROMISES: ↑/↓ move between its items (wrapping),
    *  Home/End go to the ends. Escape and an outside press are the popover's
    *  own dismissal. */
