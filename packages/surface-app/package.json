@@ -34,7 +34,7 @@
   },
   "peerDependencies": {
     "@effect/platform-node": "4.1.4",
-    "ws": "^8.21.0"
+    "ws": "^8.23.0"
   },
   "peerDependenciesMeta": {
     "@effect/platform-node": {
@@ -51,6 +51,6 @@
     "selfsigned": "^5.5.0",
     "typescript": "^7.0.2",
     "vitest": "^5.0.3",
-    "ws": "^8.21.0"
+    "ws": "^8.23.0"
   }
 }
