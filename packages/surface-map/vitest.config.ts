@@ -1,30 +1,12 @@
-import solid from "vite-plugin-solid";
+import solid from "@solidjs/vite-plugin";
 import { defineConfig } from "vitest/config";
 
 export default defineConfig({
   // The Solid JSX transform + the `useEntry` re-key atom (mapArray) need the real
-  // reactive core. Mirrors `@kolu/surface`'s vitest config: pin every solid import
-  // onto ONE browser-build core so stores share the test's reactive graph (an
-  // externalized `solid-js/store` loads its own core copy whose updates never
-  // re-run an observing effect/memo — a `mapArray` keyed off a subscription would
-  // never fan out). See `@kolu/surface/vitest.config.ts` for the full rationale.
+  // reactive core: the plugin gives the DOM environment below browser export
+  // conditions and Solid's development builds. Mirrors `@kolu/surface`'s vitest
+  // config.
   plugins: [solid()],
-  resolve: {
-    alias: {
-      "solid-js/store": new URL(
-        "./node_modules/solid-js/store/dist/store.js",
-        import.meta.url,
-      ).pathname,
-      "solid-js/web": new URL(
-        "./node_modules/solid-js/web/dist/web.js",
-        import.meta.url,
-      ).pathname,
-      "solid-js": new URL(
-        "./node_modules/solid-js/dist/solid.js",
-        import.meta.url,
-      ).pathname,
-    },
-  },
   test: {
     include: ["src/**/*.test.ts", "src/**/*.test.tsx"],
     // The whole suite runs under a DOM (`happy-dom`, as in the client): every
@@ -34,7 +16,11 @@ export default defineConfig({
     environment: "happy-dom",
     server: {
       deps: {
-        inline: [/solid-js/, "@solid-primitives/scheduled"],
+        // ONE browser-build core for every solid import — an externalized
+        // store loads its own core copy whose updates never re-run an observing
+        // effect/memo, so a `mapArray` keyed off a subscription would never fan
+        // out. See `@kolu/surface/vitest.config.ts`.
+        inline: [/solid-js/, /@solidjs\//, "@solid-primitives/scheduled"],
       },
     },
   },

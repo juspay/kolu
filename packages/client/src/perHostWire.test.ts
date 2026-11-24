@@ -53,8 +53,8 @@ import {
   wireLifecycle,
 } from "./hostScope/mockHostMap.testlib";
 
-/** Solid flushes membership/keying (and the keyArray render effect that builds an
- *  owner) on a microtask; a macrotask drains it. */
+/** Solid flushes membership/keying (and the `mapArray({ keyed })` render effect
+ *  that builds an owner) on a microtask; a macrotask drains it. */
 const flush = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
 
 const HOST_A: HostKey = { kind: "local" };

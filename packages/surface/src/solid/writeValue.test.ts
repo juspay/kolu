@@ -250,7 +250,7 @@ const trackMembership = (arr: unknown): void => {
 
 /** Replay `frames` through the seam under `arrayKey`, counting how many times each
  *  of two reads NOTIFIES after the first frame has been observed: the array's
- *  membership (`$TRACK` — what a keyed `<For>`/`<Key>` re-diffs on) and one leaf
+ *  membership (`$TRACK` — what a keyed `<For>` re-diffs on) and one leaf
  *  deep inside an element (what every per-row binding reads). */
 function replay(
   frames: readonly Reading[],

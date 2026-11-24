@@ -3,7 +3,7 @@
   "compilerOptions": {
     "rootDir": "src",
     "jsx": "preserve",
-    "jsxImportSource": "solid-js",
+    "jsxImportSource": "@solidjs/web",
     "lib": ["ES2022", "DOM", "DOM.Iterable"]
   },
   "include": ["src"]

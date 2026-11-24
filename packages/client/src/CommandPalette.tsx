@@ -12,7 +12,6 @@
 
 import Dialog from "@corvu/dialog";
 import { makeEventListener } from "@solid-primitives/event-listener";
-import { Key } from "@solid-primitives/keyed";
 import { encodeHostKey } from "kolu-common/hostKey";
 import {
   type Accessor,
@@ -659,15 +658,20 @@ const CommandPalette: Component<{
   /** List has content to paint (rows and/or host headers with zero terms). */
   const hasListContent = createMemo(() => displayed().length > 0);
 
-  /** The render list paired with the identity `<Key>` retains nodes by.
+  /** The render list paired with the identity `<For keyed>` retains nodes by.
    *
-   *  `keyedDisplay` is what the list actually iterates, never `displayed()`:
-   *  `keyArray` stores one mapped node per key, so two entries sharing a key
-   *  are handed the SAME node on the next refresh — the list silently loses a
-   *  row and Solid's node bookkeeping stops matching the DOM. `entryKey` can
-   *  only fall back to a display name, and names are not unique (two agents
-   *  with one command, two rows a repo root does not separate), so uniqueness
-   *  has to be established over the whole list rather than hoped for per item.
+   *  `keyedDisplay` is what the list actually iterates, never `displayed()`.
+   *  Solid 2's keyed `mapArray` does NOT drop a repeated key — it indexes the
+   *  new window by key and chains the earlier occurrences
+   *  (`newIndices` / `newIndicesNext`, @solidjs/signals 2.0.3 `dist/dev.js`
+   *  :3570-3593), so same-key entries are paired with old nodes in occurrence
+   *  order and every entry still gets a node. What it cannot do is tell two
+   *  same-key rows apart: pairing by occurrence means a reorder moves a row's
+   *  node (its pending click, its hover) to whichever twin now sits in that
+   *  slot. `entryKey` can only fall back to a display name, and names are not
+   *  unique (two agents with one command, two rows a repo root does not
+   *  separate), so uniqueness has to be established over the whole list rather
+   *  than hoped for per item.
    */
   const keyedDisplay = createMemo(() => keyDisplayEntries(displayed()));
 
@@ -1118,7 +1122,7 @@ const CommandPalette: Component<{
               {/* A refresh between mouse-down and mouse-up must not remove
                   the node that owns the pending click. Key by logical identity;
                   read the current entry for updated content and callbacks. */}
-              <Key each={keyedDisplay()} by={(keyed) => keyed.key}>
+              <For each={keyedDisplay()} keyed={(keyed) => keyed.key}>
                 {(keyed) => {
                   const entry = () => keyed().entry;
                   const header = () => {
@@ -1201,7 +1205,7 @@ const CommandPalette: Component<{
                     </>
                   );
                 }}
-              </Key>
+              </For>
             </div>
           </Show>
           <Show when={partitioned().hints.length > 0}>

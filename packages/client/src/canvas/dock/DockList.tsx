@@ -23,8 +23,7 @@ import { DockRow as DockRowView, DockSection } from "@kolu/solid-dockrow";
 import type { DockRowBucket } from "@kolu/solid-dockrow/rowValues";
 import { AttentionTriplet } from "@kolu/solid-statepip";
 import type { TerminalId } from "kolu-common/surface";
-import { Show } from "solid-js";
-import { Key } from "@solid-primitives/keyed";
+import { For, Show } from "solid-js";
 import RepoMonogram from "../../ui/RepoMonogram";
 import { useDockRowBag } from "./useDockRowBag";
 import { createDockRowData } from "./dockRowData";
@@ -51,11 +50,11 @@ export function DockList(props: { onSelect: (id: TerminalId) => void }) {
       />
       <div class="flex-1 min-h-0 overflow-y-auto">
         <div class="flex flex-col gap-2.5 p-2">
-          <Key each={tree().groups} by="name">
+          <For each={tree().groups} keyed={(group) => group.name}>
             {(group) => (
               <DockListSection group={group()} onSelect={props.onSelect} />
             )}
-          </Key>
+          </For>
         </div>
       </div>
       <HiddenFooter
@@ -130,7 +129,7 @@ function DockListSection(props: {
         </>
       }
     >
-      <Key each={props.group.topRows} by="id">
+      <For each={props.group.topRows} keyed={(row) => row.id}>
         {(row) => (
           <>
             <DockListRow
@@ -140,7 +139,7 @@ function DockListSection(props: {
               recencyAt={row().ts}
               onSelect={props.onSelect}
             />
-            <Key each={row().subRows} by="id">
+            <For each={row().subRows} keyed={(sub) => sub.id}>
               {(sub) => (
                 <SubTerminalRow
                   row={sub()}
@@ -149,10 +148,10 @@ function DockListSection(props: {
                   onSelect={props.onSelect}
                 />
               )}
-            </Key>
+            </For>
           </>
         )}
-      </Key>
+      </For>
     </DockSection>
   );
 }

@@ -19,8 +19,7 @@
 import Tooltip from "@corvu/tooltip";
 import { dualPhrase } from "@kolu/terminal-vocab/duration";
 import { lifetime, type Work, type WorkId } from "kolu-work";
-import { Key } from "@solid-primitives/keyed";
-import { type Component, Show } from "solid-js";
+import { type Component, For, Show } from "solid-js";
 import { elapsedSince } from "../time/duration";
 import { useShownClock } from "../ui/shown";
 import MemberPip from "./MemberPip";
@@ -110,11 +109,11 @@ const WorkChipCard: Component<{ id: WorkId; work: Work }> = (props) => {
           lines are minted afresh whenever any member's record moves. */}
       <Show when={members().length > 0}>
         <ul class="m-0 mt-1 flex list-none flex-col gap-0.5 p-0">
-          <Key each={members()} by="terminal">
+          <For each={members()} keyed={(one) => one.terminal}>
             {(one) => (
               <TerminalLine work={props.work} one={one()} now={now()} />
             )}
-          </Key>
+          </For>
         </ul>
       </Show>
       <StageMap

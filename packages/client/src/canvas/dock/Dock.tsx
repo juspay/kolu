@@ -63,7 +63,6 @@
  *  canvas as well as the populated one. */
 
 import type { DockRailEntry } from "./dockTree";
-import { Key } from "@solid-primitives/keyed";
 import { activeArm } from "@kolu/padi-client/surface";
 
 import {
@@ -87,6 +86,7 @@ import {
   createEffect,
   createMemo,
   createSignal,
+  For,
   type JSX,
   onMount,
   Show,
@@ -391,7 +391,7 @@ const RailOrCards: Component<{
           <DragDropProvider onDragEnd={dropSection}>
             <SortableProvider ids={props.tree.groups.map((g) => g.name)}>
               <div class="flex flex-col gap-2.5 p-2">
-                <Key each={props.tree.groups} by={"name"}>
+                <For each={props.tree.groups} keyed={(group) => group.name}>
                   {(group) => (
                     <SortableSection
                       group={group()}
@@ -405,7 +405,7 @@ const RailOrCards: Component<{
                       }
                     />
                   )}
-                </Key>
+                </For>
               </div>
             </SortableProvider>
           </DragDropProvider>
@@ -414,11 +414,11 @@ const RailOrCards: Component<{
           classList={{ hidden: props.mode !== "rail" }}
           inert={props.mode !== "rail"}
         >
-          <Key each={props.tree.groups} by={"name"}>
+          <For each={props.tree.groups} keyed={(group) => group.name}>
             {(group) => (
               <>
                 <RailSectionMark color={group().color} name={group().name} />
-                <Key each={group().railEntries} by={(entry) => entry.row.id}>
+                <For each={group().railEntries} keyed={(entry) => entry.row.id}>
                   {(entry) => (
                     <Show
                       when={entry().kind === "top"}
@@ -443,10 +443,10 @@ const RailOrCards: Component<{
                       />
                     </Show>
                   )}
-                </Key>
+                </For>
               </>
             )}
-          </Key>
+          </For>
         </div>
       </div>
       {/* Footer carries the dock's `Filters` group (activity window + ☾
@@ -839,14 +839,14 @@ const RepoSection: Component<{
             </>
           }
         >
-          <Key each={props.group.clusters} by={"label"}>
+          <For each={props.group.clusters} keyed={(cluster) => cluster.label}>
             {(cluster) => (
               <SortableCluster
                 cluster={cluster()}
                 flatIndexOf={props.flatIndexOf}
               />
             )}
-          </Key>
+          </For>
         </DockSection>
       </SortableProvider>
     </DragDropProvider>
@@ -878,7 +878,7 @@ const SortableCluster: Component<{
       }}
       style={transformStyle(sortable.transform())}
     >
-      <Key each={props.cluster.rows} by={"id"}>
+      <For each={props.cluster.rows} keyed={(row) => row.id}>
         {(row) => (
           <>
             <DockRow
@@ -888,14 +888,14 @@ const SortableCluster: Component<{
               recencyAt={row().ts}
               flatIndex={props.flatIndexOf.get(row().id) ?? -1}
             />
-            <Key each={row().subRows} by={"id"}>
+            <For each={row().subRows} keyed={(sub) => sub.id}>
               {(sub) => (
                 <DockSubRow row={sub()} tileId={row().id} onSelect={focus} />
               )}
-            </Key>
+            </For>
           </>
         )}
-      </Key>
+      </For>
     </DockCluster>
   );
 };

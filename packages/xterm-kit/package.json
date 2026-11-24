@@ -21,13 +21,14 @@
     "test:unit": "vitest run"
   },
   "peerDependencies": {
-    "solid-js": "^1.9.0"
+    "@solidjs/web": "^2.0.3",
+    "solid-js": "^2.0.3"
   },
   "dependencies": {
     "@kolu/url-shape": "workspace:*",
-    "@solid-primitives/event-listener": "^2.4.5",
-    "@solid-primitives/media": "^2.3.5",
-    "@solid-primitives/resize-observer": "^2.1.5",
+    "@solid-primitives/event-listener": "^3.0.0",
+    "@solid-primitives/media": "^4.0.0",
+    "@solid-primitives/resize-observer": "^4.0.0",
     "@xterm/addon-image": "^0.9.0",
     "@xterm/addon-search": "^0.16.0",
     "@xterm/addon-serialize": "^0.14.0",
@@ -39,10 +40,12 @@
   },
   "devDependencies": {
     "@babel/parser": "^7.29.2",
+    "@solidjs/vite-plugin": "^3.0.1",
+    "@solidjs/web": "^2.0.3",
     "@types/node": "^22.0.0",
     "@xterm/headless": "^6.0.0",
     "happy-dom": "^21.0.4",
-    "solid-js": "^1.9.0",
+    "solid-js": "^2.0.3",
     "typescript": "^7.0.2",
     "vitest": "^5.0.3"
   }

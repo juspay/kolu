@@ -576,6 +576,7 @@ let
            lightningcss* rollup@* @rollup* rolldown@* @rolldown* \
            vitest@* @vitest* \
            vite@* vitefu@* vite-plugin-* @tailwindcss* tailwindcss@* \
+           @solidjs+vite-plugin* @solidjs+compiler* \
            @babel* babel-plugin-* \
            concurrently@* rxjs@* happy-dom@* \
            es-toolkit@* \

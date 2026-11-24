@@ -26,7 +26,6 @@
  *  WITH NOTHING IN FLIGHT, it says WHAT THE PANEL IS FOR — a welcome, not a
  *  count: never `0`, and never a bare line that teaches nobody anything. */
 
-import { Key } from "@solid-primitives/keyed";
 import {
   finished,
   inProgress,
@@ -139,9 +138,9 @@ const Works: Component<{
         : "flex flex-col divide-y divide-edge overflow-hidden rounded-xl border border-edge"
     }
   >
-    <Key each={props.rows} by={([id]) => id}>
+    <For each={props.rows} keyed={([id]) => id}>
       {(row) => <WorkCard id={row()[0]} work={row()[1]} shape={props.shape} />}
-    </Key>
+    </For>
   </div>
 );
 

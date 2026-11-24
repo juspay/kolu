@@ -18,7 +18,6 @@
  *  where the running turn it belongs to is reported (`ConductorStatus`). */
 
 import { formatBytes } from "@kolu/byte-units";
-import { Key } from "@solid-primitives/keyed";
 import { decodeHostKey } from "kolu-common/hostKey";
 import type {
   ConductorMention,
@@ -414,7 +413,7 @@ const ConductorComposer: Component<{
             >
               Works
             </div>
-            <Key each={workMatches()} by="work">
+            <For each={workMatches()} keyed={(candidate) => candidate.work}>
               {(candidate, index) => (
                 <button
                   ref={(el) =>
@@ -443,7 +442,7 @@ const ConductorComposer: Component<{
                   </span>
                 </button>
               )}
-            </Key>
+            </For>
           </Show>
           <Show when={terminalMatches().length > 0}>
             <div
@@ -452,17 +451,18 @@ const ConductorComposer: Component<{
             >
               Terminals
             </div>
-            {/* KEYED, never `<For>`. `candidates` mints fresh objects on every
-                fleet notification and the fleet index notifies on ANY metadata
-                change on ANY host, so a reference-keyed list rebuilds every row
-                of this menu when a terminal nobody is looking at, on a machine
-                nobody is looking at, retitles itself — dropping the hovered row
-                mid-choice. The identity is the FLEET reference and not the bare
-                id: two hosts may carry one terminal id, and two entries sharing
-                a key are handed the SAME node, which silently loses a row. */}
-            <Key
+            {/* KEYED, never a plain `<For>`. `candidates` mints fresh objects
+                on every fleet notification and the fleet index notifies on ANY
+                metadata change on ANY host, so a reference-keyed list rebuilds
+                every row of this menu when a terminal nobody is looking at, on
+                a machine nobody is looking at, retitles itself — dropping the
+                hovered row mid-choice. The identity is the FLEET reference and
+                not the bare id: two hosts may carry one terminal id, and a
+                bare id would let one host's row adopt the other host's node,
+                keeping the wrong row's state under the pointer. */}
+            <For
               each={terminalMatches()}
-              by={(candidate) => `${candidate.host}/${candidate.terminalId}`}
+              keyed={(candidate) => `${candidate.host}/${candidate.terminalId}`}
             >
               {(candidate, index) => {
                 /** Where this row sits in the FLAT list the keyboard moves
@@ -531,7 +531,7 @@ const ConductorComposer: Component<{
                   </button>
                 );
               }}
-            </Key>
+            </For>
           </Show>
         </div>
       </Show>
@@ -600,7 +600,7 @@ const ConductorComposer: Component<{
               rebuilt chip is a chip whose press target moved under the finger.
               The TOKEN is the identity — `armedMentions` emits each one once,
               and the token is what the × drops from the text. */}
-          <Key each={armed()} by="token">
+          <For each={armed()} keyed={(armedOne) => armedOne.token}>
             {(armedOne) => (
               <>
                 <Show when={asWork(armedOne().mention)}>
@@ -676,7 +676,7 @@ const ConductorComposer: Component<{
                 </Show>
               </>
             )}
-          </Key>
+          </For>
         </div>
       </Show>
       <Show when={composerAttachments().length > 0}>

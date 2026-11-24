@@ -17,7 +17,6 @@
  *  of files one terminal wrote into one folder is ONE row (`Wrote mockup/ ·
  *  49 files`), whose "more" unfolds the per-file rows. */
 
-import { Key } from "@solid-primitives/keyed";
 import { dualPhrase } from "@kolu/terminal-vocab/duration";
 import { took, type Work, type WorkEvent, type WorkId } from "kolu-work";
 import {
@@ -375,10 +374,10 @@ const WorkTimeline: Component<{
         Timeline · {viewWord(shown().view)}
       </h4>
       <ul class="m-0 mt-1 flex list-none flex-col p-0">
-        {/* KEYED, not `<For>`: the view is read again on every tick of the
-            clock and mints fresh row objects, so a `<For>` over them would
-            rebuild every row each time. */}
-        <Key each={shown().rows} by={rowKey}>
+        {/* KEYED (`<For keyed>`, not a plain `<For>`): the view is read again
+            on every tick of the clock and mints fresh row objects, so an
+            unkeyed `<For>` over them would rebuild every row each time. */}
+        <For each={shown().rows} keyed={rowKey}>
           {(row, index) => {
             /** WHEN THIS ROW'S EVENT HAPPENED, for the wait to the next one. */
             const at = (one: TimelineRow): number => {
@@ -426,7 +425,7 @@ const WorkTimeline: Component<{
               </Switch>
             );
           }}
-        </Key>
+        </For>
       </ul>
       <Show
         when={

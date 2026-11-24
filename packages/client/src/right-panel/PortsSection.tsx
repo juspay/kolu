@@ -35,13 +35,13 @@
  *  effect at the row edge). This file is the section; `PortRow.tsx` is the row.
  */
 
-import { Key } from "@solid-primitives/keyed";
 import { hostKeysEqual as sameHost } from "kolu-common/hostKey";
 import { samePortList, type TerminalId } from "kolu-common/surface";
 import {
   type Component,
   createMemo,
   createSignal,
+  For,
   type JSX,
   Show,
 } from "solid-js";
@@ -134,10 +134,11 @@ const PortsSection: Component<{ terminalId: TerminalId }> = (props) => {
   const elsewhereFolded = () =>
     groups().elsewhere.length - elsewhereShown().length;
 
-  /** One row, KEYED by port (`<Key by={port}>`): the join rebuilds its row
-   *  objects whenever the host reading, a terminal's ports or a forward ticks,
-   *  and a reference-keyed `<For>` would tear down every row's DOM — and its
-   *  in-flight "opening…" state — on each of them. Keyed, a row updates in place. */
+  /** One row, KEYED by port (`<For keyed={(row) => row.port}>`): the join
+   *  rebuilds its row objects whenever the host reading, a terminal's ports or
+   *  a forward ticks, and a reference-keyed `<For>` would tear down every row's
+   *  DOM — and its in-flight "opening…" state — on each of them. Keyed, a row
+   *  updates in place. */
   const renderRow = (row: () => PortRowData): JSX.Element => {
     const decided = () =>
       rowAction({
@@ -166,9 +167,9 @@ const PortsSection: Component<{ terminalId: TerminalId }> = (props) => {
     <Show when={groups().here.length + groups().elsewhere.length > 0}>
       <Section title="Ports">
         <div class="flex flex-col" data-testid="inspector-ports">
-          <Key each={groups().here} by={(row) => row.port}>
+          <For each={groups().here} keyed={(row) => row.port}>
             {renderRow}
-          </Key>
+          </For>
           <Show when={groups().elsewhere.length > 0}>
             <div
               class="flex flex-col"
@@ -193,9 +194,9 @@ const PortsSection: Component<{ terminalId: TerminalId }> = (props) => {
                   · {groups().elsewhere.length}
                 </span>
               </button>
-              <Key each={elsewhereShown()} by={(row) => row.port}>
+              <For each={elsewhereShown()} keyed={(row) => row.port}>
                 {renderRow}
-              </Key>
+              </For>
               <Show when={elsewhereFolded() > 0 && elsewhereShown().length > 0}>
                 <span class="pl-4 text-[10px] text-fg-3/50">
                   +{elsewhereFolded()} more

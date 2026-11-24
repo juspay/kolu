@@ -11,11 +11,11 @@
  * the focused tile, the camera, per-host view posture — so switching hosts
  * restores the world you left instead of showing the wrong host's leftovers.
  *
- * Built on `@solid-primitives/keyed`'s `keyArray` (the ecosystem's
- * retained-per-key-root primitive — a dependency, not a reimplementation), plus
- * the map-tied glue: the key set is derived from the client's `entries`
- * membership, and "which key is active" stays APP POLICY (a signal the caller
- * owns — kolu's `activeHost`, drishti's `selectedHost`).
+ * Built on Solid's keyed `mapArray` (`mapArray(keys, build, { keyed })` — the
+ * framework's retained-per-key-root primitive, a dependency, not a
+ * reimplementation), plus the map-tied glue: the key set is derived from the
+ * client's `entries` membership, and "which key is active" stays APP POLICY (a
+ * signal the caller owns — kolu's `activeHost`, drishti's `selectedHost`).
  *
  * Two settled lifetime rules make the owners "lazy, retained, membership-tied":
  *   • LAZY — an owner is built on a key's FIRST activation, never for a member
@@ -36,13 +36,13 @@
 
 import type { SurfaceSpec, WireSchemaAny } from "@kolu/surface/define";
 import type { Subscription } from "@kolu/surface/solid";
-import { keyArray } from "@solid-primitives/keyed";
 import {
   type Accessor,
   createEffect,
   createMemo,
   createRenderEffect,
   getOwner,
+  mapArray,
   onCleanup,
 } from "solid-js";
 import type { Entry, SurfaceMapClient } from "./client";
@@ -60,7 +60,7 @@ import type { Entry, SurfaceMapClient } from "./client";
 function requireOwner(name: string): void {
   if (!getOwner()) {
     throw new Error(
-      `${name} must run under a reactive owner — it owns a keyArray of per-key ` +
+      `${name} must run under a reactive owner — it owns a keyed \`mapArray\` of per-key ` +
         "roots disposed on membership exit, and would leak them otherwise. Call " +
         "it inside a component / createRoot / the app-root owner.",
     );
@@ -90,22 +90,24 @@ function membershipKernel<
 
 /** Retained-per-key roots over a SOURCE key list, eager-pinned. A key's root
  *  (and everything `build` opens inside it) persists while the key stays in
- *  `sourceKeys` and is disposed the moment it leaves — `@solid-primitives/keyed`'s
- *  `keyArray` (the ecosystem's retained-per-key-root primitive), read in a render
- *  effect so build/dispose happen SYNCHRONOUSLY on a membership change, never
- *  lazily on the next read. Returns the enc→world index both accessors read. */
+ *  `sourceKeys` and is disposed the moment it leaves — Solid's keyed `mapArray`
+ *  (the framework's retained-per-key-root primitive), read in a render effect so
+ *  build/dispose happen SYNCHRONOUSLY on a membership change, never lazily on
+ *  the next read. Returns the enc→world index both accessors read. */
 function keyedRoots<K, T>(
   enc: (key: K) => string,
   sourceKeys: Accessor<K[]>,
   build: (key: K) => T,
 ): Accessor<Map<string, T>> {
-  const scopes = keyArray(sourceKeys, enc, (item): T => build(item()));
+  const scopes = mapArray(sourceKeys, (item): T => build(item()), {
+    keyed: enc,
+  });
   createRenderEffect(() => void scopes());
   return createMemo(() => {
     const keys = sourceKeys();
     const built = scopes();
     const m = new Map<string, T>();
-    // keyArray returns owners aligned 1:1 with `keys`, so `built[i]` is present.
+    // mapArray returns worlds aligned 1:1 with `keys`, so `built[i]` is present.
     keys.forEach((key, i) => {
       m.set(enc(key), built[i] as T);
     });
@@ -139,11 +141,11 @@ export interface ScopedByEntry<K, T> {
 
 /**
  * Scope per-key owned state by `entries` membership. Runs under the caller's
- * reactive owner (throws otherwise — it holds a keyArray of roots that must be
- * disposed with the app). `active` is app policy (nullable — `null` = nothing
- * selected). `build(key, ctx)` is invoked once per key on first activation, its
- * return value is the key's owned world, and everything it opens is torn down
- * when the key leaves membership.
+ * reactive owner (throws otherwise — it holds a keyed `mapArray` of roots that
+ * must be disposed with the app). `active` is app policy (nullable — `null` =
+ * nothing selected). `build(key, ctx)` is invoked once per key on first
+ * activation, its return value is the key's owned world, and everything it
+ * opens is torn down when the key leaves membership.
  */
 export function scopedByEntry<
   KS extends WireSchemaAny,
@@ -165,14 +167,14 @@ export function scopedByEntry<
   // member list to the roots directly, so the kernel doesn't build one.)
   const memberSet = createMemo(() => new Set(memberKeys().map(enc)));
 
-  // The ACTIVATED set — the keyArray source, and the single writer of owner
-  // lifetime. A pure prev-accumulator memo (no signal writes): it keeps the keys
-  // seen active that are still members, adds the current active member, and
-  // returns the SAME array reference when nothing changed so keyArray never
-  // churns. Enter-on-activation + prune-on-membership-exit = lazy, retained,
-  // lazy-again-after-re-add. This lazy source is scopedByEntry's ONE difference
-  // from watchByEntry (which feeds the full member set); the roots kernel below
-  // is shared.
+  // The ACTIVATED set — the keyed `mapArray` source, and the single writer of
+  // owner lifetime. A pure prev-accumulator memo (no signal writes): it keeps
+  // the keys seen active that are still members, adds the current active
+  // member, and returns the SAME array reference when nothing changed so the
+  // map never churns. Enter-on-activation + prune-on-membership-exit = lazy,
+  // retained, lazy-again-after-re-add. This lazy source is scopedByEntry's ONE
+  // difference from watchByEntry (which feeds the full member set); the roots
+  // kernel below is shared.
   const activated = createMemo<K[]>((prev) => {
     const a = active();
     const members = memberSet();
@@ -290,9 +292,9 @@ export interface WatchByEntry<K, A> {
  * classification, no per-window memory: the change-iff-fired law upstream is what
  * makes a plain set-diff trustworthy.
  *
- * Runs under the caller's reactive owner (throws otherwise — it holds a keyArray
- * of per-key roots). Everything a key opens (its cell subscription, its `updated`
- * registration) tears down when the key leaves membership.
+ * Runs under the caller's reactive owner (throws otherwise — it holds a keyed
+ * `mapArray` of per-key roots). Everything a key opens (its cell subscription,
+ * its `updated` registration) tears down when the key leaves membership.
  */
 export function watchByEntry<
   KS extends WireSchemaAny,

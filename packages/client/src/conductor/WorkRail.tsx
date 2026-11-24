@@ -25,13 +25,13 @@
 import { PrPip } from "@kolu/solid-dockrow";
 import { identityColor, recencyText } from "@kolu/solid-dockrow/rowValues";
 import { NeedsYouCapsule } from "@kolu/solid-statepip";
-import { Key } from "@solid-primitives/keyed";
 import { Option } from "effect";
 import type { Work, WorkId, WorkRow } from "kolu-work";
 import {
   type Component,
   createMemo,
   createSignal,
+  For,
   onMount,
   Show,
 } from "solid-js";
@@ -241,9 +241,9 @@ const Group: Component<{
         </button>
       </Show>
       <Show when={!props.folds || isFinishedOpen()}>
-        <Key each={props.rows} by={([id]) => id}>
+        <For each={props.rows} keyed={([id]) => id}>
           {(row) => <Line id={row()[0]} work={row()[1]} />}
-        </Key>
+        </For>
       </Show>
     </section>
   </Show>

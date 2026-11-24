@@ -23,8 +23,7 @@
  *  screen to look at — and a terminal nobody drives has no lock button. */
 
 import type { Work } from "kolu-work";
-import { Key } from "@solid-primitives/keyed";
-import { type Component, createMemo, Show } from "solid-js";
+import { type Component, createMemo, For, Show } from "solid-js";
 import { onHostWords, useKnownNames } from "./memberNames";
 import { openPeek } from "./peek/usePeek";
 import MemberInspector from "./MemberInspector";
@@ -278,7 +277,7 @@ const WorkTerminals: Component<{
               afresh when its record moves, and a row keyed by the line would
               be taken down and built again — its mark, its spin, the Look
               button under the pointer — for every record change. */}
-          <Key each={props.members} by="terminal">
+          <For each={props.members} keyed={(one) => one.terminal}>
             {(one) => (
               <MemberRow
                 work={props.work}
@@ -288,7 +287,7 @@ const WorkTerminals: Component<{
                 unfolds={props.unfolds === true}
               />
             )}
-          </Key>
+          </For>
         </ul>
       </section>
     </Show>

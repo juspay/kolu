@@ -221,8 +221,9 @@
         "@juspay/agent-distro"
       ],
       "external": {
+        "@solidjs/web": "^2.0.3",
         "effect": "4.1.5",
-        "solid-js": "^1.9.0"
+        "solid-js": "^2.0.3"
       }
     },
     "@kolu/artifact-sdk": {
@@ -369,7 +370,8 @@
         "@kolu/url-shape"
       ],
       "external": {
-        "solid-js": "^1.9.0"
+        "@solidjs/web": "^2.0.3",
+        "solid-js": "^2.0.3"
       }
     },
     "@kolu/solid-browser-example-docsite": {
@@ -378,7 +380,8 @@
         "@kolu/solid-browser"
       ],
       "external": {
-        "solid-js": "^1.9.0"
+        "@solidjs/web": "^2.0.3",
+        "solid-js": "^2.0.3"
       }
     },
     "@kolu/solid-dockrow": {
@@ -392,7 +395,8 @@
         "anyforge"
       ],
       "external": {
-        "solid-js": "^1.9.0"
+        "@solidjs/web": "^2.0.3",
+        "solid-js": "^2.0.3"
       }
     },
     "@kolu/solid-fileview": {
@@ -402,7 +406,8 @@
         "@kolu/theme"
       ],
       "external": {
-        "solid-js": "^1.9.0"
+        "@solidjs/web": "^2.0.3",
+        "solid-js": "^2.0.3"
       }
     },
     "@kolu/solid-logtail": {
@@ -411,8 +416,9 @@
         "@kolu/theme"
       ],
       "external": {
+        "@solidjs/web": "^2.0.3",
         "effect": "catalog:",
-        "solid-js": "^1.9.0"
+        "solid-js": "^2.0.3"
       }
     },
     "@kolu/solid-markdown": {
@@ -422,6 +428,7 @@
         "@kolu/url-shape"
       ],
       "external": {
+        "@solidjs/web": "^2.0.3",
         "dompurify": "^3.5.0",
         "marked": "^18.0.2",
         "marked-alert": "^2.1.2",
@@ -429,7 +436,7 @@
         "marked-gfm-heading-id": "^4.1.1",
         "mermaid": "^12.3.0",
         "shiki": "^4.2.0",
-        "solid-js": "^1.9.0",
+        "solid-js": "^2.0.3",
         "yaml": "^2.8.3"
       }
     },
@@ -439,15 +446,17 @@
       "external": {
         "@pierre/diffs": "^1.6.4",
         "@pierre/trees": "^1.0.0",
-        "@solid-primitives/event-listener": "^2.4.5",
-        "solid-js": "^1.9.0"
+        "@solid-primitives/event-listener": "^3.0.0",
+        "@solidjs/web": "^2.0.3",
+        "solid-js": "^2.0.3"
       }
     },
     "@kolu/solid-pwa-install": {
       "dir": "packages/solid-pwa-install",
       "workspace": [],
       "external": {
-        "solid-js": "^1.9.0"
+        "@solidjs/web": "^2.0.3",
+        "solid-js": "^2.0.3"
       }
     },
     "@kolu/solid-statepip": {
@@ -459,7 +468,8 @@
         "kolu-agents"
       ],
       "external": {
-        "solid-js": "^1.9.0"
+        "@solidjs/web": "^2.0.3",
+        "solid-js": "^2.0.3"
       }
     },
     "@kolu/surface": {
@@ -471,10 +481,11 @@
       "external": {
         "@effect/platform-browser": "4.1.5",
         "@effect/platform-node": "4.1.5",
-        "@solid-primitives/rootless": "^1.5.3",
-        "@solid-primitives/scheduled": "^1.5.3",
+        "@solid-primitives/rootless": "^2.0.0",
+        "@solid-primitives/scheduled": "^2.0.0",
+        "@solidjs/web": "^2.0.3",
         "effect": "4.1.5",
-        "solid-js": "^1.9.0"
+        "solid-js": "^2.0.3"
       }
     },
     "@kolu/surface-app": {
@@ -487,8 +498,9 @@
       "external": {
         "@effect/platform-browser": "4.1.5",
         "@effect/platform-node": "4.1.5",
+        "@solidjs/web": "^2.0.3",
         "effect": "4.1.5",
-        "solid-js": "^1.9.0",
+        "solid-js": "^2.0.3",
         "ws": "^8.23.0"
       }
     },
@@ -500,8 +512,9 @@
       ],
       "external": {
         "@effect/platform-node": "catalog:",
+        "@solidjs/web": "^2.0.3",
         "effect": "catalog:",
-        "solid-js": "^1.9.0",
+        "solid-js": "^2.0.3",
         "ws": "^8.23.0"
       }
     },
@@ -551,8 +564,9 @@
       ],
       "external": {
         "@effect/platform-node": "catalog:",
+        "@solidjs/web": "^2.0.3",
         "effect": "catalog:",
-        "solid-js": "^1.9.0",
+        "solid-js": "^2.0.3",
         "ws": "^8.23.0"
       }
     },
@@ -564,8 +578,9 @@
       ],
       "external": {
         "@effect/platform-node": "catalog:",
+        "@solidjs/web": "^2.0.3",
         "effect": "catalog:",
-        "solid-js": "^1.9.0",
+        "solid-js": "^2.0.3",
         "ws": "^8.23.0"
       }
     },
@@ -591,8 +606,9 @@
       ],
       "external": {
         "@effect/platform-node": "catalog:",
+        "@solidjs/web": "^2.0.3",
         "effect": "catalog:",
-        "solid-js": "^1.9.0",
+        "solid-js": "^2.0.3",
         "ts-pattern": "^5.9.0",
         "ws": "^8.23.0"
       }
@@ -616,8 +632,9 @@
       ],
       "external": {
         "@effect/platform-node": "catalog:",
+        "@solidjs/web": "^2.0.3",
         "effect": "catalog:",
-        "solid-js": "^1.9.0",
+        "solid-js": "^2.0.3",
         "ws": "^8.23.0"
       }
     },
@@ -636,7 +653,7 @@
       "external": {
         "@effect/platform-node": "catalog:",
         "effect": "catalog:",
-        "solid-js": "^1.9.0",
+        "solid-js": "^2.0.3",
         "ts-pattern": "^5.9.0"
       }
     },
@@ -647,10 +664,9 @@
         "@kolu/surface"
       ],
       "external": {
-        "@solid-primitives/keyed": "^1.5.3",
         "dequal": "^2.0.3",
         "effect": "4.1.5",
-        "solid-js": "^1.9.0",
+        "solid-js": "^2.0.3",
         "ts-pattern": "^5.9.0"
       }
     },
@@ -724,9 +740,10 @@
         "@kolu/url-shape"
       ],
       "external": {
-        "@solid-primitives/event-listener": "^2.4.5",
-        "@solid-primitives/media": "^2.3.5",
-        "@solid-primitives/resize-observer": "^2.1.5",
+        "@solid-primitives/event-listener": "^3.0.0",
+        "@solid-primitives/media": "^4.0.0",
+        "@solid-primitives/resize-observer": "^4.0.0",
+        "@solidjs/web": "^2.0.3",
         "@xterm/addon-image": "^0.9.0",
         "@xterm/addon-search": "^0.16.0",
         "@xterm/addon-serialize": "^0.14.0",
@@ -735,7 +752,7 @@
         "@xterm/addon-webgl": "^0.19.0",
         "@xterm/xterm": "^6.0.0",
         "effect": "catalog:",
-        "solid-js": "^1.9.0"
+        "solid-js": "^2.0.3"
       }
     },
     "@odu/run-client": {
@@ -919,6 +936,10 @@
     "kolu-client": {
       "dir": "packages/client",
       "workspace": [
+        "@corvu-next/dialog",
+        "@corvu-next/drawer",
+        "@corvu-next/resizable",
+        "@corvu-next/tooltip",
         "@kolu/acp",
         "@kolu/agent-distro",
         "@kolu/artifact-sdk",
@@ -952,10 +973,6 @@
         "terminal-snapshot"
       ],
       "external": {
-        "@corvu/dialog": "^0.2.4",
-        "@corvu/drawer": "^0.2.2",
-        "@corvu/resizable": "^0.2.5",
-        "@corvu/tooltip": "^0.2.2",
         "@dnd-kit/abstract": "^0.5.3",
         "@dnd-kit/collision": "^0.5.3",
         "@dnd-kit/dom": "^0.5.3",
@@ -963,12 +980,12 @@
         "@effect/platform-browser": "catalog:",
         "@pierre/diffs": "^1.6.4",
         "@pierre/trees": "^1.0.0",
-        "@solid-primitives/event-listener": "^2.4.5",
-        "@solid-primitives/keyed": "^1.5.3",
-        "@solid-primitives/media": "^2.3.5",
-        "@solid-primitives/resize-observer": "^2.1.5",
-        "@solid-primitives/storage": "^4.3.4",
-        "@solidjs/meta": "^0.29.4",
+        "@solid-primitives/event-listener": "^3.0.0",
+        "@solid-primitives/media": "^4.0.0",
+        "@solid-primitives/resize-observer": "^4.0.0",
+        "@solid-primitives/storage": "^5.0.0",
+        "@solidjs/meta": "^2.0.0",
+        "@solidjs/web": "^2.0.3",
         "@xterm/addon-clipboard": "^0.2.0",
         "@xterm/addon-search": "^0.16.0",
         "@xterm/addon-serialize": "^0.14.0",
@@ -976,8 +993,8 @@
         "effect": "catalog:",
         "fix-webm-duration": "^1.0.6",
         "neverthrow": "^8.2.0",
-        "solid-js": "^1.9.0",
-        "solid-sonner": "^0.2.0",
+        "solid-js": "^2.0.3",
+        "solid-sonner": "^1.0.0",
         "ts-pattern": "^5.9.0",
         "yaml": "^2.8.3"
       }

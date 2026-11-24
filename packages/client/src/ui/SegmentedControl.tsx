@@ -17,16 +17,16 @@
  *  ← → (Home / End) move focus
  *  within the group, wrapping; Enter or Space picks the focused option, once.
  *  Neither Corvu nor `@solid-primitives` ships a roving-focus primitive, so it
- *  lives here, once. Buttons are keyed by `value` (`Key`), so a caller that
- *  hands in fresh option objects for the same values (a re-emitted listing)
- *  keeps the very buttons — and the focus — it had. */
+ *  lives here, once. Buttons are keyed by `value` (`<For keyed>`), so a caller
+ *  that hands in fresh option objects for the same values (a re-emitted
+ *  listing) keeps the very buttons — and the focus — it had. */
 
-import { Key } from "@solid-primitives/keyed";
 import {
   type Component,
   createMemo,
   createRenderEffect,
   createSignal,
+  For,
   type JSX,
   onCleanup,
   on,
@@ -210,7 +210,7 @@ export default function SegmentedControl<T extends string>(props: {
           data-testid={`${props.testIdPrefix}-toggle`}
           class="flex rounded-lg overflow-hidden border border-edge"
         >
-          <Key each={props.options} by="value">
+          <For each={props.options} keyed={(opt) => opt.value}>
             {(opt) => (
               <button
                 type="button"
@@ -233,7 +233,7 @@ export default function SegmentedControl<T extends string>(props: {
                 {opt().label}
               </button>
             )}
-          </Key>
+          </For>
         </div>
       }
     >
@@ -245,7 +245,7 @@ export default function SegmentedControl<T extends string>(props: {
         data-touch={props.touch || undefined}
         class="flex items-center gap-0.5 data-[touch=true]:gap-1 shrink-0 rounded bg-surface-2/40 p-0.5 data-[touch=true]:p-1"
       >
-        <Key each={props.options} by="value">
+        <For each={props.options} keyed={(opt) => opt.value}>
           {(opt) => (
             <>
               <Show when={opt().dividerBefore}>
@@ -287,7 +287,7 @@ export default function SegmentedControl<T extends string>(props: {
               </button>
             </>
           )}
-        </Key>
+        </For>
       </div>
     </Show>
   );

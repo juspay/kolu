@@ -6,7 +6,7 @@ import xtermPackage from "@xterm/xterm/package.json" with { type: "json" };
 import { DEFAULT_PORT } from "kolu-common/config";
 import { defineConfig, type PluginOption } from "vite";
 import { compression, defineAlgorithm } from "vite-plugin-compression2";
-import solid from "vite-plugin-solid";
+import solid from "@solidjs/vite-plugin";
 
 const xtermVersion = xtermPackage.version;
 

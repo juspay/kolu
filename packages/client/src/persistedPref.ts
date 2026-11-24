@@ -99,21 +99,23 @@ function defaultSerialize<T>(value: T): string {
 /** The {@link PersistedPrefOptions.sync} for a `localStorage` value every page
  *  of this ORIGIN shares: the browser's `storage` event, handed on without
  *  the writer's address. `makePersisted` drops a sync event whose `url` is not
- *  this page's own address — `@solid-primitives/storage` 4.3.4,
- *  `dist/persisted.js:46`:
- *  `(!isServer && (data.url || globalThis.location.href) !== globalThis.location.href) ||`
+ *  this page's own address — `@solid-primitives/storage` 5.0.0,
+ *  `dist/persisted.js:88`:
+ *  `!isServer && (data.url || globalThis.location.href) !== globalThis.location.href ||`
  *  — and `storageSync` hands the event on as it is, so a page opened from a
  *  kolu link, which keeps the link (`#/…`) in its address bar, never heard
  *  the other pages, nor they it. `localStorage` is one store per origin, and
  *  the address a page shows does not change what it reads.
  *
  *  WHY THIS STEPS AROUND THE LIBRARY instead of fixing it there: no released
- *  version removes that check. 4.3.5 and 4.4.0 carry the same line at `:46`;
- *  5.0.0 (and 5.0.0-next.8) carry it at `:88`, and 5.0.0 needs solid-js 2.
- *  Kept here by decision until a release drops it. */
+ *  version removes that check (4.3.x and 4.4.0 carry it at `:46`, 5.0.0 at
+ *  `:88`). Kept here by decision until a release drops it.
+ *
+ *  The subscribe half returns its unsubscribe, which `makePersisted` calls from
+ *  the disposer it hands back (see {@link persistedPref}). */
 export const originStorageSync: PersistenceSyncAPI = [
-  (subscriber) =>
-    window.addEventListener("storage", (event) => {
+  (subscriber) => {
+    const onStorage = (event: StorageEvent) => {
       // `key` is null only for `localStorage.clear()`, which names no value.
       if (event.key === null) return;
       subscriber({
@@ -121,27 +123,38 @@ export const originStorageSync: PersistenceSyncAPI = [
         newValue: event.newValue,
         timeStamp: event.timeStamp,
       });
-    }),
+    };
+    window.addEventListener("storage", onStorage);
+    return () => window.removeEventListener("storage", onStorage);
+  },
   // The browser announces a write to the other pages itself.
   () => {},
 ];
 
 /** Build a persisted signal whose stored value is validated on every read.
- *  Returns the same `[Accessor, Setter]` tuple as `createSignal`. */
+ *  Returns the same `[Accessor, Setter]` tuple as `createSignal`.
+ *
+ *  `makePersisted` also returns the stored value it read at creation and a
+ *  disposer, which stops the sync subscription and any pending hydration read.
+ *  Under a reactive owner the disposer runs with that owner; a pref built at
+ *  module scope has no owner and lives as long as the page, so there is
+ *  nothing to dispose. */
 export function persistedPref<T>(
   opts: PersistedPrefOptions<T>,
 ): [Accessor<T>, Setter<T>] {
   const serialize = opts.serialize ?? defaultSerialize;
-  // `makePersisted` returns a 3-tuple `[get, set, init]`; expose just the
-  // `[get, set]` signal pair so call sites read exactly like `createSignal`.
-  const [value, setValue] = makePersisted(createSignal<T>(opts.fallback), {
-    name: opts.name,
-    storage: opts.storage,
-    serialize,
-    deserialize: (raw: string): T =>
-      readWithFallback(raw, opts.parse, opts.fallback, opts.onInvalid),
-    sync: opts.sync,
-  });
+  const [value, setValue, , dispose] = makePersisted(
+    createSignal<T>(opts.fallback),
+    {
+      name: opts.name,
+      storage: opts.storage,
+      serialize,
+      deserialize: (raw: string): T =>
+        readWithFallback(raw, opts.parse, opts.fallback, opts.onInvalid),
+      sync: opts.sync,
+    },
+  );
+  if (getOwner()) onCleanup(dispose);
   return [value, setValue];
 }
 

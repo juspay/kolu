@@ -47,8 +47,8 @@
  *  master switch. Neither this module nor the Conductor's bell touches an
  *  `Audio` or the `notify` seam for an alert.
  *
- *  Owned-by-caller: constructed once under the app owner (it holds a keyArray of
- *  per-host roots disposed on host removal). See `App.tsx`. */
+ *  Owned-by-caller: constructed once under the app owner (it holds a keyed
+ *  `mapArray` of per-host roots disposed on host removal). See `App.tsx`. */
 
 import {
   decodeHostKey,

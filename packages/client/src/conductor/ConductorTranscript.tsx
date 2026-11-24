@@ -32,7 +32,6 @@ import type {
   ConductorToolRow,
   ConductorWorkAskRow,
 } from "kolu-common/conductor";
-import { Key } from "@solid-primitives/keyed";
 import type { WorkId } from "kolu-work";
 import {
   type Component,
@@ -516,7 +515,7 @@ const ConductorTranscript: Component<{
             stable for the thing's life, and an item never changes kind under
             its key. */}
         <TurnsContext.Provider value={turnsContext}>
-          <Key each={items()} by={(item) => item.key}>
+          <For each={items()} keyed={(item) => item.key}>
             {(item) => {
               /** The row this item starts at — which turn it belongs to, and
                *  whether it is that turn's head, where the one line goes. */
@@ -617,7 +616,7 @@ const ConductorTranscript: Component<{
                 </>
               );
             }}
-          </Key>
+          </For>
         </TurnsContext.Provider>
       </div>
       {/* THE TERMINAL'S OWN PILL, not a second one that looks like it: the
@@ -667,9 +666,9 @@ function TranscriptFold(props: { rows: readonly ConductorToolRow[] }) {
         <span class="ml-1 hidden group-open:inline">⌄</span>
       </summary>
       <div class="mt-2 flex min-w-0 flex-col gap-2.5 border-l-2 border-edge pl-2.5">
-        <Key each={props.rows} by={(row) => row.id}>
+        <For each={props.rows} keyed={(row) => row.id}>
           {(row) => <TranscriptRow row={row()} repeat={1} />}
-        </Key>
+        </For>
       </div>
     </details>
   );
@@ -697,9 +696,9 @@ function TranscriptFailures(props: {
         failed {props.rows.length} times: {props.reason}
       </summary>
       <div class="mt-2 flex min-w-0 flex-col gap-2.5 border-l-2 border-danger/40 pl-2.5">
-        <Key each={props.rows} by={(row) => row.id}>
+        <For each={props.rows} keyed={(row) => row.id}>
           {(row) => <TranscriptRow row={row()} repeat={1} />}
-        </Key>
+        </For>
       </div>
     </details>
   );
