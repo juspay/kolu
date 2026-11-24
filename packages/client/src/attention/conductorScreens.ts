@@ -21,7 +21,11 @@ const [held, setHeld] = createStore<Record<string, number>>({});
 /** Hold a screen of the terminal at `ref` as showing; the returned function
  *  lets it go. */
 export function holdConductorScreen(ref: string): () => void {
-  setHeld(ref, (count) => (count ?? 0) + 1);
+  setHeld(
+    produce((all) => {
+      all[ref] = (all[ref] ?? 0) + 1;
+    }),
+  );
   let released = false;
   return () => {
     if (released) return;

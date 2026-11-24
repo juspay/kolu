@@ -268,12 +268,22 @@ export function useRightPanel() {
       | ((s: RightPanelPerTerminalState) => void),
     rpc: ReturnType<typeof padiRpcOf>,
   ): void {
-    if (!perTerminal[id]) setPerTerminal(id, { ...stateOf(id) });
-    if (typeof update === "function") {
-      setPerTerminal(id, produce(update));
-    } else {
-      setPerTerminal(id, update);
+    if (!perTerminal[id]) {
+      const seeded = { ...stateOf(id) };
+      setPerTerminal(
+        produce((all) => {
+          all[id] = seeded;
+        }),
+      );
     }
+    setPerTerminal(
+      produce((all) => {
+        const state = all[id];
+        if (!state) throw new Error(`mutatePanel: no panel state for ${id}`);
+        if (typeof update === "function") update(state);
+        else Object.assign(state, update);
+      }),
+    );
     reportToServer(id, rpc);
   }
 

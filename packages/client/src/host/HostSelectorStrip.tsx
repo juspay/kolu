@@ -75,7 +75,7 @@ import {
   onCleanup,
   Show,
 } from "solid-js";
-import { createStore } from "solid-js/store";
+import { createStore, produce } from "solid-js/store";
 import { Portal } from "solid-js/web";
 import { AttentionTriplet } from "@kolu/solid-statepip";
 import { hostMarks } from "../attention/attentionMarks";
@@ -737,7 +737,12 @@ const HostSelectorStrip: Component = () => {
       ),
     (rect, el) => {
       const key = el.dataset.hostKey;
-      if (key) setChipWidths(key, rect.width);
+      if (key)
+        setChipWidths(
+          produce((widths) => {
+            widths[key] = rect.width;
+          }),
+        );
     },
   );
 
@@ -891,10 +896,22 @@ const HostSelectorStrip: Component = () => {
         <For each={hostKeys()}>
           {(host) => {
             const key = encodeHostKey(host);
-            onCleanup(() => setMeasureRefs(key, undefined));
+            onCleanup(() =>
+              setMeasureRefs(
+                produce((refs) => {
+                  delete refs[key];
+                }),
+              ),
+            );
             return (
               <div
-                ref={(el) => setMeasureRefs(key, el)}
+                ref={(el) =>
+                  setMeasureRefs(
+                    produce((refs) => {
+                      refs[key] = el;
+                    }),
+                  )
+                }
                 data-host-key={key}
                 class="shrink-0"
               >

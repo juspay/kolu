@@ -250,7 +250,14 @@ export function useTerminalMetadata(deps: {
       const tile = rawTile(id);
       return tile === undefined ? undefined : (tile.parentId ?? null);
     });
-    setSlots(id, { read: () => store.v, parent });
+    const slot = { read: () => store.v, parent };
+    setSlots(
+      produce((s) => {
+        const held = s[id];
+        if (held) Object.assign(held, slot);
+        else s[id] = slot;
+      }),
+    );
     onCleanup(() =>
       setSlots(
         produce((s) => {

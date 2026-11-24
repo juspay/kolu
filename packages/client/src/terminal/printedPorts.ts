@@ -132,7 +132,11 @@ function record(id: TerminalId, found: ReadonlySet<number>): void {
     merged.length > MAX_TRACKED_PORTS
       ? merged.slice(merged.length - MAX_TRACKED_PORTS)
       : merged;
-  setPrinted(id, capped);
+  setPrinted(
+    produce((index) => {
+      index[id] = capped;
+    }),
+  );
 }
 
 /** What a tracked terminal's owner can tell the index. */

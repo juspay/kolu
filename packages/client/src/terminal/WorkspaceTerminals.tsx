@@ -21,7 +21,7 @@
  *  `Shown` accessor it is drawn in (`ui/shown.ts`). */
 import type { TerminalId } from "kolu-common/surface";
 import { type JSX, For, Show, onCleanup, untrack } from "solid-js";
-import { createStore } from "solid-js/store";
+import { createStore, produce } from "solid-js/store";
 import { Portal } from "solid-js/web";
 
 /** What the shell that places a body says about it — one record, so two
@@ -63,16 +63,26 @@ export function WorkspaceTerminals(props: {
     <div
       class="flex flex-col h-full w-full min-h-0"
       ref={(el) => {
-        // Wrapped in a record: a bare function value would be read as a store
-        // UPDATER rather than stored.
-        setDestinations(id, {
+        const destination: Destination = {
           el,
           seen: placement.seen,
           viewShown: placement.viewShown,
           boxDecided: placement.boxDecided ?? (() => true),
-        });
+        };
+        setDestinations(
+          produce((all) => {
+            const held = all[id];
+            if (held) Object.assign(held, destination);
+            else all[id] = destination;
+          }),
+        );
         onCleanup(() => {
-          if (destinations[id]?.el === el) setDestinations(id, undefined);
+          if (destinations[id]?.el === el)
+            setDestinations(
+              produce((all) => {
+                delete all[id];
+              }),
+            );
         });
       }}
     />

@@ -37,7 +37,7 @@
  *  The copy in the ⋯ menu is untouched: it copies the row TEXT, never this
  *  DOM, so a copied transcript always has every item. */
 
-import { createStore } from "solid-js/store";
+import { createStore, produce } from "solid-js/store";
 
 /** Longer than this, and the list folds. Five fit in a glance; six do not. */
 export const PROSE_LIST_FOLD_OVER = 5;
@@ -95,7 +95,13 @@ export function applyProseListFold(host: HTMLElement, rowId: string): void {
     button.textContent = open ? "fewer" : `and ${hiddenCount} more`;
     // Assigned, not added: a re-run replaces this handler instead of stacking
     // a second one that would toggle the list straight back.
-    button.onclick = () => setOpened(key, open ? undefined : true);
+    button.onclick = () =>
+      setOpened(
+        produce((all) => {
+          if (open) delete all[key];
+          else all[key] = true;
+        }),
+      );
   });
 }
 

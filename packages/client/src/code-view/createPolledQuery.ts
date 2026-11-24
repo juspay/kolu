@@ -61,7 +61,7 @@ import {
   on,
   onCleanup,
 } from "solid-js";
-import { createStore } from "solid-js/store";
+import { createStore, produce } from "solid-js/store";
 import { runActionPromise } from "../runAction";
 
 export interface PolledQueryConfig<Input, PulseInput, Pulse, Result> {
@@ -174,7 +174,11 @@ export function createPolledQuery<Input, PulseInput, Pulse, Result>(
   /** Reset to the empty/loading state: no value, `pending`, no shown key. The idle
    *  input and the changed-query paths below share it. */
   function blank(): void {
-    setStore("v", undefined);
+    setStore(
+      produce((s) => {
+        s.v = undefined;
+      }),
+    );
     setPending(true);
     shownKey = null;
   }

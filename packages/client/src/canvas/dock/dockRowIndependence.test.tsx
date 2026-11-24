@@ -29,7 +29,7 @@ import {
 import type { AgentInfo, TerminalId } from "kolu-common/surface";
 import type { GitInfo } from "kolu-git/schemas";
 import { createMemo, For } from "solid-js";
-import { createStore } from "solid-js/store";
+import { createStore, produce } from "solid-js/store";
 import { render } from "solid-js/web";
 import { afterEach, describe, expect, it } from "vitest";
 import type { TerminalAttention } from "@kolu/padi-client/attention";
@@ -217,8 +217,25 @@ describe("dock rows in one repository stay independent", () => {
 
     // Alice's harness finishes its turn, renames its task and gains an intent —
     // every field the Dock's primary line and sub-line read.
-    setMeta(ALICE, metaWith(agentInfo("awaiting_user", "Ship it?"), "Rewrite"));
-    setAttention(ALICE, { klass: "asking", live: false });
+    const aliceMeta = metaWith(
+      agentInfo("awaiting_user", "Ship it?"),
+      "Rewrite",
+    );
+    setMeta(
+      produce((all) => {
+        const held = all[ALICE];
+        if (held) Object.assign(held, aliceMeta);
+        else all[ALICE] = aliceMeta;
+      }),
+    );
+    setAttention(
+      produce((all) => {
+        const held = all[ALICE];
+        const asking: TerminalAttention = { klass: "asking", live: false };
+        if (held) Object.assign(held, asking);
+        else all[ALICE] = asking;
+      }),
+    );
 
     const aliceAfter = readRow(host, ALICE);
     expect(aliceAfter.title).toBe("Rewrite");
@@ -231,7 +248,11 @@ describe("dock rows in one repository stay independent", () => {
 
   it("lights the alert indicator on only the terminal that was marked", () => {
     const { host, setUnread } = renderDock();
-    setUnread(ALICE, true);
+    setUnread(
+      produce((all) => {
+        all[ALICE] = true;
+      }),
+    );
 
     expect(readRow(host, ALICE).unread).toBe(true);
     expect(readRow(host, BOB).unread).toBe(false);

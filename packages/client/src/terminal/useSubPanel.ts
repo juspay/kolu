@@ -40,8 +40,28 @@ function ensureState(parentId: TerminalId): PaneChrome {
   const existing = state[parentId];
   if (existing) return existing;
   const seeded: PaneChrome = { ...DEFAULT_PANE_CHROME };
-  setState(parentId, seeded);
+  setState(
+    produce((all) => {
+      all[parentId] = seeded;
+    }),
+  );
   return seeded;
+}
+
+/** Write one tile's pane chrome in place. Every caller has seeded it first
+ *  (`ensureState`) or found it present, so a missing entry is a wiring bug. */
+function writeChrome(
+  parentId: TerminalId,
+  write: (panel: PaneChrome) => void,
+): void {
+  setState(
+    produce((all) => {
+      const panel = all[parentId];
+      if (!panel)
+        throw new Error(`useSubPanel: no pane chrome for ${parentId}`);
+      write(panel);
+    }),
+  );
 }
 
 export function useSubPanel() {
@@ -67,10 +87,15 @@ export function useSubPanel() {
       const panel = state[parentId];
       // Preserve the implicit main default for a never-touched tile: landing on
       // it must not seed panel state merely to record the value it already has.
-      if (panel) setState(parentId, "rememberedPane", rememberedPane);
+      if (panel)
+        writeChrome(parentId, (p) => {
+          p.rememberedPane = rememberedPane;
+        });
       else if (rememberedPane === "sub") {
         ensureState(parentId);
-        setState(parentId, "rememberedPane", "sub");
+        writeChrome(parentId, (p) => {
+          p.rememberedPane = "sub";
+        });
       }
     }
     view.writeFocus({ id, tileHint: parentId });
@@ -80,7 +105,9 @@ export function useSubPanel() {
     // edge-less DOM impulse, never another focus authority.
     if (repeatsCurrentPane) {
       ensureState(parentId);
-      setState(parentId, "refocusNonce", (n) => n + 1);
+      writeChrome(parentId, (p) => {
+        p.refocusNonce += 1;
+      });
     }
   }
 
@@ -171,13 +198,17 @@ export function useSubPanel() {
      *  orchestration. Explicit user selection uses `selectSubTab`. */
     setActiveSubTab(parentId: TerminalId, subId: TerminalId | null) {
       ensureState(parentId);
-      setState(parentId, "activeSubTab", subId);
+      writeChrome(parentId, (p) => {
+        p.activeSubTab = subId;
+      });
     },
 
     /** Explicit tab choice: update remembered chrome and focus exactly once. */
     selectSubTab(parentId: TerminalId, subId: TerminalId | null) {
       ensureState(parentId);
-      setState(parentId, "activeSubTab", subId);
+      writeChrome(parentId, (p) => {
+        p.activeSubTab = subId;
+      });
       writePaneFocus(parentId, subId ?? parentId);
     },
 
@@ -185,7 +216,9 @@ export function useSubPanel() {
      *  commit the one focus fact exactly once. */
     focusSubTab(parentId: TerminalId, subId: TerminalId) {
       ensureState(parentId);
-      setState(parentId, "activeSubTab", subId);
+      writeChrome(parentId, (p) => {
+        p.activeSubTab = subId;
+      });
       saveSplit(parentId, { collapsed: false });
       writePaneFocus(parentId, subId);
     },
@@ -220,7 +253,9 @@ export function useSubPanel() {
       const next = (current + direction + ne.length) % ne.length;
       const nextId = ne[next] ?? ne[0];
       const followedActiveTab = focusedTerminalId() === panel.activeSubTab;
-      setState(parentId, "activeSubTab", nextId);
+      writeChrome(parentId, (p) => {
+        p.activeSubTab = nextId;
+      });
       if (followedActiveTab) writePaneFocus(parentId, nextId);
     },
 
@@ -230,7 +265,9 @@ export function useSubPanel() {
      *  edge-triggered focus effect can't restore it on its own. */
     requestRefocus(parentId: TerminalId) {
       ensureState(parentId);
-      setState(parentId, "refocusNonce", (n) => n + 1);
+      writeChrome(parentId, (p) => {
+        p.refocusNonce += 1;
+      });
     },
 
     /** Clean up state for a parent that no longer exists — the browser-only

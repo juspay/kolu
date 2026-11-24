@@ -21,7 +21,7 @@ import type { SurfaceHealth } from "@kolu/surface/solid";
 import { HostStatusPip } from "@kolu/surface/solid/HostStatusPip";
 import { SurfaceGate } from "@kolu/surface/solid/SurfaceGate";
 import { type Accessor, createMemo, createSignal, For, Show } from "solid-js";
-import { createStore, reconcile } from "solid-js/store";
+import { createStore, produce, reconcile } from "solid-js/store";
 import {
   type CoreId,
   type CpuCore,
@@ -82,8 +82,16 @@ export default function App() {
           // (see `@kolu/surface/solid`'s `writeValue`); a raw stream should too.
           setProcesses(reconcile(next, { key: null }));
         } else {
-          for (const [pid, value] of msg.upserts) setProcesses(pid, value);
-          for (const pid of msg.removes) setProcesses(pid, undefined!);
+          setProcesses(
+            produce((all) => {
+              for (const [pid, value] of msg.upserts) {
+                const held = all[pid];
+                if (held) Object.assign(held, value);
+                else all[pid] = value;
+              }
+              for (const pid of msg.removes) delete all[pid];
+            }),
+          );
         }
       },
     },
