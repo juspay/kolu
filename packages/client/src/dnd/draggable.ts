@@ -8,7 +8,7 @@ import { nearestCenter } from "./collision";
 import {
   type DragTransform,
   NO_TRANSFORM,
-  requireDragDropScope,
+  useDragDropScope,
 } from "./DragDropProvider";
 
 export type DraggableHandle = {
@@ -36,7 +36,7 @@ export function createDraggable(
     disabled?: Accessor<boolean>;
   },
 ): DraggableHandle {
-  const scope = requireDragDropScope("createDraggable");
+  const scope = useDragDropScope();
   const draggable = new Draggable({ id, register: false }, scope.manager);
   draggable.register();
   onCleanup(draggable.destroy);
@@ -71,7 +71,7 @@ export function createDraggable(
 }
 
 export function createDroppable(id: string): DroppableHandle {
-  const scope = requireDragDropScope("createDroppable");
+  const scope = useDragDropScope();
   const droppable = new Droppable(
     {
       id,

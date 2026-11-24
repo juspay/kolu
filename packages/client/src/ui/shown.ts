@@ -38,13 +38,11 @@ import { getClockNow } from "../time/clock";
 export const Shown = createContext<Accessor<boolean>>();
 
 /** Whether the retained view this is drawn in is the one being looked at.
- *  Throws where no provider stands: a view that reads this outside a retained
- *  host is a bug to be told about, not a view to guess visible. */
+ *  `Shown` has no default, so where no provider stands `useContext` throws
+ *  (`ContextNotFoundError`): a view that reads this outside a retained host is
+ *  a bug to be told about, not a view to guess visible. */
 export function useShown(): Accessor<boolean> {
-  const shown = useContext(Shown);
-  if (!shown)
-    throw new Error("A view that asks shown() must be drawn inside Shown");
-  return shown;
+  return useContext(Shown);
 }
 
 /** The app's one 1 s clock (`time/clock.ts`), STOPPED while the view is

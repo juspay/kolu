@@ -23,7 +23,7 @@ import { type Accessor, createMemo } from "solid-js";
 import {
   createDraggable,
   createDroppable,
-  requireDragDropScope,
+  useDragDropScope,
 } from "../../dnd";
 import type { ParentEdge } from "../../terminal/terminalTree";
 import { useTerminalStore } from "../../terminal/useTerminalStore";
@@ -50,7 +50,7 @@ export type DockRowDrag = {
  *  not a row drag — a branch cluster, or nothing at all. The one reader is the
  *  repo card's header, which is a drop target for ROW drags only. */
 export function useDraggedRowId(): Accessor<TerminalId | null> {
-  const scope = requireDragDropScope("useDraggedRowId");
+  const scope = useDragDropScope();
   return () => rowIdOfDragId(scope.activeId() ?? "");
 }
 
@@ -77,7 +77,7 @@ export function useDockDropVerdict(
   target: DockDropTarget,
   isActiveTarget: Accessor<boolean>,
 ): Accessor<"over" | "invalid" | undefined> {
-  const scope = requireDragDropScope("useDockDropVerdict");
+  const scope = useDragDropScope();
   const store = useTerminalStore();
   const drop = dockDropContext(store);
   return createMemo(() => {

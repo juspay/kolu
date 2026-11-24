@@ -96,12 +96,8 @@ interface Turns {
 }
 const TurnsContext = createContext<Turns>();
 
-const useTurns = (): Turns => {
-  const turns = useContext(TurnsContext);
-  if (turns === undefined)
-    throw new Error("a transcript row was drawn outside its transcript");
-  return turns;
-};
+// `TurnsContext` has no default, so a row drawn outside its transcript throws
+// (`ContextNotFoundError`).
 
 /** The same works, in the same order: what keeps a row's chips from being
  *  redrawn on every streamed chunk of its turn. */
@@ -135,7 +131,7 @@ const TurnChips: Component<{ works: ReadonlyArray<WorkId> }> = (props) => {
  *  whether that is a row, a fold or a run of failures. A turn that starts
  *  with your message or a wake-up draws them there instead. */
 const TurnHead: Component<{ rows: ReadonlyArray<ConductorRow> }> = (props) => {
-  const turns = useTurns();
+  const turns = useContext(TurnsContext);
   const works = createMemo(
     () => {
       const first = props.rows[0];
@@ -732,7 +728,7 @@ function TranscriptRow(props: {
   repeat: number;
   onRedrawn?: () => void;
 }) {
-  const turns = useTurns();
+  const turns = useContext(TurnsContext);
   /** The works this row's turn is about — the same list, by value, until the
    *  turn names another. */
   const works = createMemo(() => turns.turnOf(props.row.id).works, {

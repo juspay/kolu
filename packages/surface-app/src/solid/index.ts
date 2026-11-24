@@ -709,13 +709,11 @@ export function SurfaceAppProvider<
   });
 }
 
-/** Read the headless app-shell model. Must be used under `<SurfaceAppProvider>`. */
+/** Read the headless app-shell model. Must be used under `<SurfaceAppProvider>`:
+ *  the context has no default, so `useContext` throws (`ContextNotFoundError`)
+ *  anywhere else. */
 export function useSurfaceApp<
   T extends { commit: string } = { commit: string },
 >(): SurfaceAppModel<T> {
-  const model = useContext(SurfaceAppContext);
-  if (!model) {
-    throw new Error("useSurfaceApp must be used within <SurfaceAppProvider>");
-  }
-  return model as SurfaceAppModel<T>;
+  return useContext(SurfaceAppContext) as SurfaceAppModel<T>;
 }

@@ -20,7 +20,7 @@ import type { JSX } from "@solidjs/web";
 import {
   type DragTransform,
   NO_TRANSFORM,
-  requireDragDropScope,
+  useDragDropScope,
 } from "./DragDropProvider";
 import {
   createDraggable,
@@ -40,7 +40,7 @@ export const SortableProvider: Component<{
   ids: readonly string[];
   children: JSX.Element;
 }> = (props) => {
-  const scope = requireDragDropScope("SortableProvider");
+  const scope = useDragDropScope();
   const sortedIds = createMemo(() => {
     const ids = props.ids;
     const from = ids.indexOf(scope.activeId() ?? "");
@@ -70,12 +70,10 @@ export type SortableHandle = {
 };
 
 export function createSortable(id: string): SortableHandle {
-  const scope = requireDragDropScope("createSortable");
+  const scope = useDragDropScope();
+  // `SortableContext` has no default: a sortable outside a list throws
+  // (`ContextNotFoundError`).
   const list = useContext(SortableContext);
-  if (!list)
-    throw new Error(
-      `createSortable(${id}): no SortableProvider — a sortable belongs to a list`,
-    );
   const draggable = createDraggable(id);
   const droppable = createDroppable(id);
   // The offset from this item's own start rect to the rect of the slot the
