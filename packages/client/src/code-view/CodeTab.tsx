@@ -34,7 +34,7 @@
 
 import { useShown } from "../ui/shown";
 
-import Resizable from "@corvu-next/resizable"
+import Resizable from "@corvu-next/resizable";
 import {
   CODE_TAB_VIEW_ORDER,
   type CodeTabView,
@@ -44,6 +44,7 @@ import { attachBackForwardMouse } from "@kolu/solid-browser";
 import { FileTree, rowPathsCss } from "@kolu/solid-pierre";
 import { toError } from "@kolu/surface/run-stream";
 import { makeEventListener } from "@solid-primitives/event-listener";
+import type { JSX } from "@solidjs/web";
 import { Effect } from "effect";
 import { encodeHostKey } from "kolu-common/hostKey";
 import { buildTerminalFileUrl } from "kolu-common/preview";
@@ -55,7 +56,6 @@ import {
   createMemo,
   createSignal,
   For,
-  type JSX,
   Match,
   on,
   onCleanup,
@@ -161,7 +161,7 @@ const BinaryFileHint: Component<{ fileName: string | null }> = (props) => (
 // The Code-tab toolbar's icon button — ONE chrome for every toolbar affordance
 // (the nav arrows, the show-ignored eye), so the shared hit target and its
 // touch sizing (driven by the toolbar row's `data-touch` via the group variant)
-// live here rather than in hand-synced copies. `pressed` paints via `classList`
+// live here rather than in hand-synced copies. `pressed` paints via `class`
 // so the ARIA fact and the paint share one source, per the convention
 // `KavalAttachSection` documents.
 const ToolbarIconButton: Component<{
@@ -181,11 +181,13 @@ const ToolbarIconButton: Component<{
     title={props.title}
     disabled={props.disabled}
     onClick={props.onClick}
-    class="grid h-5 w-5 group-data-[touch=true]/toolbar:h-7 group-data-[touch=true]/toolbar:w-7 shrink-0 place-items-center rounded transition-colors hover:bg-surface-2/60 disabled:cursor-default disabled:opacity-30 disabled:hover:bg-transparent"
     // The repo's one accent-vs-neutral toggle grammar, shared with the dock's
     // activity-window and ☾ chips — so a change to what "actively filtering"
     // looks like is one edit, not three that drift apart.
-    classList={filterChipAccent(props.pressed === true)}
+    class={[
+      "grid h-5 w-5 group-data-[touch=true]/toolbar:h-7 group-data-[touch=true]/toolbar:w-7 shrink-0 place-items-center rounded transition-colors hover:bg-surface-2/60 disabled:cursor-default disabled:opacity-30 disabled:hover:bg-transparent",
+      filterChipAccent(props.pressed === true),
+    ]}
   >
     {props.children}
   </button>
@@ -1231,7 +1233,7 @@ const CodeTab: Component<{
   });
 
   return (
-    <CommentView.Provider value={comments}>
+    <CommentView value={comments}>
       <Show
         when={repoPath()}
         fallback={
@@ -1746,7 +1748,7 @@ const CodeTab: Component<{
           </Show>
         </div>
       </Show>
-    </CommentView.Provider>
+    </CommentView>
   );
 };
 

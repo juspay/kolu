@@ -13,8 +13,8 @@
  *  not a popover, so it shares no chrome with this panel. The panel-chrome
  *  itself is shared via `surface()`. */
 
-import { createEffect, createUniqueId, For, type JSX, Show } from "solid-js";
-import { Portal } from "solid-js/web";
+import { createEffect, createUniqueId, For, Show } from "solid-js";
+import { Portal, type JSX } from "@solidjs/web";
 import { surface } from "./Surface";
 import { type AnchorSide, useAnchoredPopover } from "./useAnchoredPopover";
 

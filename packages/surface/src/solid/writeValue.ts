@@ -95,8 +95,7 @@
  * same replaced-never-recycled law, same suite pinning it.
  */
 
-import type { SetStoreFunction } from "solid-js/store";
-import { reconcile } from "solid-js/store";
+import { reconcile, type SetStoreFunction } from "solid-js";
 
 /** Merge `next` into a store under the member's DECLARED array identity — the only
  *  merge this package performs (see the module docstring for what `arrayKey`

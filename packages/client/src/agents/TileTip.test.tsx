@@ -25,7 +25,7 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createSignal } from "solid-js";
-import { render } from "solid-js/web";
+import { render } from "@solidjs/web";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const state = vi.hoisted(() => ({

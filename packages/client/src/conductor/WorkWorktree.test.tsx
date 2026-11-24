@@ -9,7 +9,7 @@
 import type { TerminalMetadata } from "@kolu/padi-client/surface";
 import { LOCAL_LOCATION } from "@kolu/padi-client/surface";
 import type { Work } from "kolu-work";
-import { render } from "solid-js/web";
+import { render } from "@solidjs/web";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { WorkSubject } from "../right-panel/WorkSection";
 import type { MemberLine } from "./workFacts";

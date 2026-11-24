@@ -11,7 +11,7 @@
  */
 
 import { createSignal } from "solid-js";
-import { render } from "solid-js/web";
+import { render } from "@solidjs/web";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type {
   PaletteCommand,

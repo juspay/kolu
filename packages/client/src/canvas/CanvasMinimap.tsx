@@ -1,14 +1,8 @@
 /** Canvas minimap — spatial overview of all tiles + integrated zoom controls. */
 
 import { sleepingArm, type TerminalMetadata } from "@kolu/padi-client/surface";
-import {
-  type Component,
-  createMemo,
-  createSignal,
-  For,
-  type JSX,
-  Show,
-} from "solid-js";
+import { type Component, createMemo, createSignal, For, Show } from "solid-js";
+import type { JSX } from "@solidjs/web";
 import { MOONLIT } from "../terminal/moonlit";
 import { formatTimeAgo, useStaleCheck } from "../terminal/staleness";
 import type { TerminalDisplayInfo } from "../terminal/terminalDisplay";
@@ -306,17 +300,19 @@ const CanvasMinimap: Component<{
       {/* Minimap visualization */}
       <div
         data-testid="minimap-map"
-        class="rounded-t-lg bg-surface-2/80 backdrop-blur-sm border border-b-0 border-edge/40 overflow-hidden"
+        class={[
+          "rounded-t-lg bg-surface-2/80 backdrop-blur-sm border border-b-0 border-edge/40 overflow-hidden",
+          {
+            "cursor-default": !hoveringViewport() && !draggingViewport(),
+            "cursor-grab": hoveringViewport() && !draggingViewport(),
+            "cursor-grabbing": draggingViewport(),
+          },
+        ]}
         // `min-width` (not `width`) is fact (2) of the PANEL SEAM — see the
         // container comment above.
         style={{
           "min-width": `${mapDims().minW}px`,
           height: `${mapDims().h}px`,
-        }}
-        classList={{
-          "cursor-default": !hoveringViewport() && !draggingViewport(),
-          "cursor-grab": hoveringViewport() && !draggingViewport(),
-          "cursor-grabbing": draggingViewport(),
         }}
         onPointerDown={handleMapPointerDown}
         onPointerMove={handleMapPointerMove}
@@ -430,7 +426,7 @@ const CanvasMinimap: Component<{
             const isActive = () => tileStore.isActiveTile(id);
             const hasAgent = () => presence() === "agent";
             const badgeVisible = () => hasAgent();
-            // Parked-bg comes from the `bg-fg-3/40` class (see classList) so a
+            // Parked-bg comes from the `bg-fg-3/40` class (see `class`) so a
             // theme or Tailwind-color-space change flows through. Inline bg
             // is for non-parked only — `theme().bg` is a dynamic per-repo
             // color that can't be a static Tailwind token.
@@ -483,18 +479,20 @@ const CanvasMinimap: Component<{
                     data-tile-id={id}
                     data-bucket={state().bucket}
                     data-parked={parked() ? "" : undefined}
-                    class={`absolute cursor-pointer ${TILE_TRANSITION_PROPS} ${MORPH_TRANSITION} hover:ring-1 hover:ring-accent/40`}
-                    classList={{
-                      "rounded-full bg-fg-3/40": parked(),
-                      "rounded-sm hover:opacity-100": !parked(),
-                      "ring-1 ring-accent/60": isActive(),
-                      // Active needs solid chrome behind its ring; parked is
-                      // already dim from bg-color so don't double-dim. Other
-                      // inactive tiles fade to 70 % so the badge + active
-                      // tile dominate.
-                      "opacity-100": isActive() || parked(),
-                      "opacity-70": !isActive() && !parked(),
-                    }}
+                    class={[
+                      `absolute cursor-pointer ${TILE_TRANSITION_PROPS} ${MORPH_TRANSITION} hover:ring-1 hover:ring-accent/40`,
+                      {
+                        "rounded-full bg-fg-3/40": parked(),
+                        "rounded-sm hover:opacity-100": !parked(),
+                        "ring-1 ring-accent/60": isActive(),
+                        // Active needs solid chrome behind its ring; parked is
+                        // already dim from bg-color so don't double-dim. Other
+                        // inactive tiles fade to 70 % so the badge + active
+                        // tile dominate.
+                        "opacity-100": isActive() || parked(),
+                        "opacity-70": !isActive() && !parked(),
+                      },
+                    ]}
                     style={tileStyle(t())}
                     title={tooltip()}
                     onPointerDown={handleTilePointerDown}
@@ -505,11 +503,13 @@ const CanvasMinimap: Component<{
                     <Show when={hasAgent() || parked()}>
                       <span
                         data-testid={`minimap-${state().bucket}-dot`}
-                        class={`absolute -top-0.5 -right-0.5 w-1.5 h-1.5 rounded-full pointer-events-none transition-opacity ${MORPH_TRANSITION}`}
-                        classList={{
-                          "opacity-0": !badgeVisible(),
-                          "opacity-100": badgeVisible(),
-                        }}
+                        class={[
+                          `absolute -top-0.5 -right-0.5 w-1.5 h-1.5 rounded-full pointer-events-none transition-opacity ${MORPH_TRANSITION}`,
+                          {
+                            "opacity-0": !badgeVisible(),
+                            "opacity-100": badgeVisible(),
+                          },
+                        ]}
                         style={{
                           "background-color": bucketDescriptor(state().bucket)
                             .accentVar,

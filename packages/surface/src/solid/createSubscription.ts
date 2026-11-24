@@ -28,10 +28,10 @@ import {
   batch,
   createEffect,
   createSignal,
+  createStore,
   on,
   onCleanup,
 } from "solid-js";
-import { createStore } from "solid-js/store";
 import { runStreamScoped } from "../runStream";
 import { writeWrappedValue } from "./writeValue";
 

@@ -8,8 +8,9 @@
  * based on the open prop — forceMount only affects DOM presence.
  */
 
-import Dialog from "@corvu-next/dialog"
-import { type Component, createEffect, type JSX, onCleanup } from "solid-js";
+import Dialog from "@corvu-next/dialog";
+import { type Component, createEffect, onCleanup } from "solid-js";
+import type { JSX } from "@solidjs/web";
 import {
   getActiveTerminalNode,
   getFirstTerminalNode,
@@ -149,15 +150,19 @@ const ModalDialog: Component<{
       <Dialog.Portal forceMount>
         <Dialog.Overlay
           forceMount
-          class="fixed inset-0 z-50 data-[closed]:hidden transition-colors"
-          classList={{
-            "bg-black/50": !props.transparentOverlay,
-            "bg-transparent": !!props.transparentOverlay,
-          }}
+          class={[
+            "fixed inset-0 z-50 data-[closed]:hidden transition-colors",
+            {
+              "bg-black/50": !props.transparentOverlay,
+              "bg-transparent": !!props.transparentOverlay,
+            },
+          ]}
         />
         <div
-          class={props.size === "fit" ? FRAME_CLASS.fit : FRAME_CLASS.top}
-          classList={{ hidden: !props.open }}
+          class={[
+            props.size === "fit" ? FRAME_CLASS.fit : FRAME_CLASS.top,
+            { hidden: !props.open },
+          ]}
         >
           <div class={`pointer-events-auto ${SIZE_CLASS[props.size ?? "md"]}`}>
             {props.children}

@@ -28,9 +28,8 @@ import {
 } from "@kolu/padi-client/surface";
 import type { AgentInfo, TerminalId } from "kolu-common/surface";
 import type { GitInfo } from "kolu-git/schemas";
-import { createMemo, For } from "solid-js";
-import { createStore, produce } from "solid-js/store";
-import { render } from "solid-js/web";
+import { createMemo, createStore, For, produce } from "solid-js";
+import { render } from "@solidjs/web";
 import { afterEach, describe, expect, it } from "vitest";
 import type { TerminalAttention } from "@kolu/padi-client/attention";
 import { annotationLine } from "../../intent/text";

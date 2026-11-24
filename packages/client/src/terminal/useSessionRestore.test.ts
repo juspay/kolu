@@ -9,7 +9,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 // pending flag, the live terminal count, and the saved-session cell's pending
 // flag. Drive those three through a plain hoisted bag and stub every module
 // `useSessionRestore` pulls at import time so the hook loads under Node without
-// a live socket, toast DOM, or the SSR-only `solid-js/web` build.
+// a live socket, toast DOM, or the SSR-only `@solidjs/web` build.
 const h = vi.hoisted(() => ({
   lifecycleKind: (() => "connected") as () => "connected" | "restarted",
   listPending: true,

@@ -18,7 +18,7 @@
  */
 
 import { createSignal } from "solid-js";
-import { render } from "solid-js/web";
+import { render } from "@solidjs/web";
 import { afterEach, describe, expect, it } from "vitest";
 import type { SurfaceHealth } from "./health";
 import { gateStatus, SurfaceGate } from "./SurfaceGate";

@@ -22,11 +22,11 @@ import {
   createEffect,
   createMemo,
   createSignal,
-  type JSX,
   on,
   onCleanup,
   splitProps,
 } from "solid-js";
+import type { JSX } from "@solidjs/web";
 import { BIRTH_GRID } from "../birthGrid";
 import { gridForBox, sameGrid, type TerminalGrid } from "./grid";
 import { clearWriteQueue } from "../internals";

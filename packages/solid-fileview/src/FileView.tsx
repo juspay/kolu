@@ -20,10 +20,10 @@ import {
   createMemo,
   createSignal,
   For,
-  type JSX,
   on,
   Show,
 } from "solid-js";
+import type { JSX } from "@solidjs/web";
 import type {
   FileData,
   FileViewMode,

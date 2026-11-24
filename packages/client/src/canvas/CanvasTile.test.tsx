@@ -14,7 +14,7 @@ vi.mock("./viewport/animatedPan", () => ({
   prefersReducedMotion: () => true,
 }));
 
-import { render } from "solid-js/web";
+import { render } from "@solidjs/web";
 import CanvasTile from "./CanvasTile";
 
 describe("CanvasTile shell selection", () => {

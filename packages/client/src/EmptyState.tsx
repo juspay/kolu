@@ -157,11 +157,13 @@ const EmptyState: Component<EmptyStateProps> = (props) => {
     // be wheel-dead anyway).
     <div
       data-testid="empty-state"
-      class="flex h-full items-start justify-center px-5 pb-6 pointer-events-none"
-      classList={{
-        "pt-20": isDesktop(),
-        "pt-5": !isDesktop(),
-      }}
+      class={[
+        "flex h-full items-start justify-center px-5 pb-6 pointer-events-none",
+        {
+          "pt-20": isDesktop(),
+          "pt-5": !isDesktop(),
+        },
+      ]}
     >
       {/* App-shell card: a flex column capped to the wrapper's height. The
           wrapper owns the overflow but is `pointer-events-none` (double-click on
@@ -193,7 +195,7 @@ const EmptyState: Component<EmptyStateProps> = (props) => {
           <Show when={props.savedSession}>
             <div
               data-testid="session-restore"
-              classList={{
+              class={{
                 // On touch layouts the create button / Get started list follow
                 // this block in the SAME scroll region — restore the gap +
                 // divider that separated them. On desktop the pinned footer's
@@ -257,10 +259,10 @@ const EmptyState: Component<EmptyStateProps> = (props) => {
                                 data-terminal-id={t.id}
                               >
                                 <div
-                                  class="text-sm text-fg-2 truncate leading-snug"
-                                  classList={{
-                                    "opacity-60": t.state === "sleeping",
-                                  }}
+                                  class={[
+                                    "text-sm text-fg-2 truncate leading-snug",
+                                    { "opacity-60": t.state === "sleeping" },
+                                  ]}
                                 >
                                   <Show when={t.state === "sleeping"}>
                                     <span

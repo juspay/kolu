@@ -15,7 +15,7 @@ import type * as XtermKit from "@kolu/xterm-kit/solid";
 import type { Terminal as BrowserTerminal } from "@xterm/xterm";
 import type { HostKey } from "kolu-common/hostKey";
 import type { TerminalId } from "kolu-common/surface";
-import { render } from "solid-js/web";
+import { render } from "@solidjs/web";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Shown } from "../../ui/shown";
 
@@ -161,7 +161,7 @@ const mount = (mayType: boolean) => {
   document.body.append(root);
   return render(
     () => (
-      <Shown.Provider value={() => true}>
+      <Shown value={() => true}>
         <PeekTerminal
           host="local"
           id={ID}
@@ -175,7 +175,7 @@ const mount = (mayType: boolean) => {
           onHandle={() => {}}
           testId="live-screen"
         />
-      </Shown.Provider>
+      </Shown>
     ),
     root,
   );

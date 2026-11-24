@@ -9,7 +9,8 @@
  *  fact changes again. Native `<details>` carries the keyboard/ARIA behavior,
  *  so there is no toggle state to hand-roll. */
 
-import { type Component, createEffect, createMemo, type JSX } from "solid-js";
+import { type Component, createEffect, createMemo } from "solid-js";
+import type { JSX } from "@solidjs/web";
 import { SUMMARY_RESET } from "./disclosureChrome";
 import { ChevronRightIcon } from "./Icons";
 

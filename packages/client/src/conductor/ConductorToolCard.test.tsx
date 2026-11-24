@@ -13,7 +13,7 @@
 import type { ConductorToolRow } from "kolu-common/conductor";
 import type { HostKey } from "kolu-common/hostKey";
 import type { TerminalId } from "kolu-common/surface";
-import { render } from "solid-js/web";
+import { render } from "@solidjs/web";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 const landed = vi.hoisted(() => ({
@@ -70,9 +70,9 @@ function mount(host: string | null): HTMLElement {
   document.body.append(root);
   dispose = render(
     () => (
-      <Shown.Provider value={() => true}>
+      <Shown value={() => true}>
         <ConductorToolCard row={row(host)} />
-      </Shown.Provider>
+      </Shown>
     ),
     root,
   );
@@ -138,9 +138,9 @@ describe("a failed call", () => {
     document.body.append(root);
     dispose = render(
       () => (
-        <Shown.Provider value={() => true}>
+        <Shown value={() => true}>
           <ConductorToolCard row={one} />
-        </Shown.Provider>
+        </Shown>
       ),
       root,
     );
@@ -186,9 +186,9 @@ describe("the payload under a card kolu recognises", () => {
     document.body.append(root);
     dispose = render(
       () => (
-        <Shown.Provider value={() => true}>
+        <Shown value={() => true}>
           <ConductorToolCard row={one} />
-        </Shown.Provider>
+        </Shown>
       ),
       root,
     );

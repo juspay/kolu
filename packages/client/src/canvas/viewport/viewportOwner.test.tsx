@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { render } from "solid-js/web";
+import { render } from "@solidjs/web";
 import { expect, it, vi } from "vitest";
 const camera = vi.hoisted(() => ({
   setPanX: vi.fn(),

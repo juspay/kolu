@@ -8,8 +8,7 @@
  *  is the honest boundary for text the server was never told about. */
 
 import type { ConductorAttachment } from "kolu-common/conductor";
-import { createSignal } from "solid-js";
-import { createStore, produce } from "solid-js/store";
+import { createSignal, createStore, produce } from "solid-js";
 import { armedMentionText } from "./mentions";
 import { forgetThumbnail } from "./thumbnails";
 

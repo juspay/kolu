@@ -70,10 +70,10 @@ const AgentStatusCard: Component<{ agent: AgentInfo }> = (props) => {
           class={`ml-auto inline-flex shrink-0 items-center gap-1.5 rounded-full px-2 py-0.5 font-mono text-[10px] font-semibold ${tone().chip}`}
         >
           <span
-            class="h-1.5 w-1.5 rounded-full bg-current"
-            classList={{
-              "animate-pulse motion-reduce:animate-none": tone().pulse,
-            }}
+            class={[
+              "h-1.5 w-1.5 rounded-full bg-current",
+              { "animate-pulse motion-reduce:animate-none": tone().pulse },
+            ]}
           />
           {stateLabels[props.agent.state] ?? props.agent.state}
         </span>

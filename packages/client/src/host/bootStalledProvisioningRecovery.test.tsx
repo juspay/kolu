@@ -22,12 +22,12 @@
  * The escape mode is `{ via: "connector", phase }` — a warming REMOTE campaign the
  * resolver hands this component; the old `location.reload()` provisioning card is gone.
  *
- * Mirrors `BootStalledCanvas.test.tsx` (render through `solid-js/web`, mock
+ * Mirrors `BootStalledCanvas.test.tsx` (render through `@solidjs/web`, mock
  * `../wire` so the socket stack never boots).
  */
 import { Effect } from "effect";
 import { encodeHostKey, type HostKey } from "kolu-common/hostKey";
-import { render } from "solid-js/web";
+import { render } from "@solidjs/web";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 const h = vi.hoisted(() => ({

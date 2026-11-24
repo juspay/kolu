@@ -37,7 +37,7 @@ import type {
 } from "kolu-work";
 import { WORK_MODES } from "kolu-work";
 import { createSignal } from "solid-js";
-import { render } from "solid-js/web";
+import { render } from "@solidjs/web";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 /** What the work is told — the exact values one press of Answer sends. */
@@ -233,14 +233,14 @@ function mount(work: Work): HTMLElement {
   root = el;
   dispose = render(
     () => (
-      <Shown.Provider value={() => true}>
+      <Shown value={() => true}>
         <WorkQuestion
           work={work}
           id="branch:local/src/now"
           ask={ASK}
           from="card"
         />
-      </Shown.Provider>
+      </Shown>
     ),
     el,
   );

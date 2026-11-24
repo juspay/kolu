@@ -96,13 +96,15 @@ const AgentProfileChip: Component<{
         data-armed={guard.armed() ? "" : undefined}
         disabled={guard.busy()}
         aria-busy={guard.busy()}
-        class={`${props.buttonClass} gap-1.5 px-2 text-xs`}
-        classList={{
-          "opacity-50 cursor-wait": guard.busy(),
-          // Armed: the pill itself says "the next press acts" — a faint accent
-          // wash, no heavier text.
-          "bg-accent/10": guard.armed(),
-        }}
+        class={[
+          `${props.buttonClass} gap-1.5 px-2 text-xs`,
+          {
+            "opacity-50 cursor-wait": guard.busy(),
+            // Armed: the pill itself says "the next press acts" — a faint accent
+            // wash, no heavier text.
+            "bg-accent/10": guard.armed(),
+          },
+        ]}
         style={{ color: "var(--color-fg-3, currentColor)" }}
         onPointerDown={(e) => e.stopPropagation()}
         onClick={(e) => {
@@ -121,7 +123,7 @@ const AgentProfileChip: Component<{
           {(profile) => (
             <span
               data-testid="tile-agent-profile"
-              classList={{ "opacity-75": stale() !== undefined }}
+              class={{ "opacity-75": stale() !== undefined }}
             >
               {profile()}
             </span>

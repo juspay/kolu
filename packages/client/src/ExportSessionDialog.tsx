@@ -3,7 +3,7 @@
  *  The choice happens before generation so the lightweight chat log does not
  *  carry full tool payloads hidden inside the file. */
 
-import Dialog from "@corvu-next/dialog"
+import Dialog from "@corvu-next/dialog";
 import type { TranscriptHtmlMode } from "@kolu/padi-client/surface";
 import type { Component } from "solid-js";
 import { runAction } from "./runAction";

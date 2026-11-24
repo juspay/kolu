@@ -22,7 +22,8 @@
 
 import { LogTail, type LogLine } from "@kolu/solid-logtail";
 import { LOCAL_HOST } from "kolu-common/surfacesWithPadi";
-import { For, type JSX, Show } from "solid-js";
+import { For, Show } from "solid-js";
+import type { JSX } from "@solidjs/web";
 import { toast } from "solid-sonner";
 import { WarningIcon } from "../ui/Icons";
 import type { LogAbsence } from "../kaval/canvasModeResolver";

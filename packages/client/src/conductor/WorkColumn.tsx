@@ -33,12 +33,12 @@ import {
   type WorkId,
   type WorkRow,
 } from "kolu-work";
+import type { JSX } from "@solidjs/web";
 import {
   type Component,
   createEffect,
   createMemo,
   For,
-  type JSX,
   on,
   onCleanup,
   onMount,

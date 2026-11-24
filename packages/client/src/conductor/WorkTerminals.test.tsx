@@ -8,7 +8,7 @@
 import type { TerminalId } from "kolu-common/surface";
 import type { Work } from "kolu-work";
 import { createSignal } from "solid-js";
-import { render } from "solid-js/web";
+import { render } from "@solidjs/web";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { agentName } from "../ui/agentDisplay";
 import type { FleetTerminalStanding } from "../palette/fleetTerminals";

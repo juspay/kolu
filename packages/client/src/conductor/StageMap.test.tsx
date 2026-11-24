@@ -11,7 +11,7 @@
 import { Option } from "effect";
 import type { Doubt, Filed, StageName, Stages, Visit } from "kolu-work";
 import { createSignal } from "solid-js";
-import { render } from "solid-js/web";
+import { render } from "@solidjs/web";
 import { afterEach, describe, expect, it } from "vitest";
 import StageMap from "./StageMap";
 

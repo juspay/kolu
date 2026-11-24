@@ -37,11 +37,13 @@ const ModeControl: Component = () => {
           type="button"
           data-testid="mode-canvas"
           data-active={mode() === "canvas" ? "" : undefined}
-          class={segmentClass}
-          classList={{
-            "text-accent bg-accent/12": mode() === "canvas",
-            "text-fg-3 hover:text-fg": mode() !== "canvas",
-          }}
+          class={[
+            segmentClass,
+            {
+              "text-accent bg-accent/12": mode() === "canvas",
+              "text-fg-3 hover:text-fg": mode() !== "canvas",
+            },
+          ]}
           onClick={() => view.postureTo(false)}
         >
           {/* GLYPH AND WORD, both. Three unlabelled marks in a row is a rebus:
@@ -58,13 +60,15 @@ const ModeControl: Component = () => {
           type="button"
           data-testid="mode-maximized"
           data-active={mode() === "maximized" ? "" : undefined}
-          class={`${segmentClass} border-l border-edge`}
-          classList={{
-            "text-accent bg-accent/12": mode() === "maximized",
-            "text-fg-3 hover:text-fg":
-              mode() !== "maximized" && view.canMaximize(),
-            "text-fg-3/40 cursor-not-allowed": !view.canMaximize(),
-          }}
+          class={[
+            `${segmentClass} border-l border-edge`,
+            {
+              "text-accent bg-accent/12": mode() === "maximized",
+              "text-fg-3 hover:text-fg":
+                mode() !== "maximized" && view.canMaximize(),
+              "text-fg-3/40 cursor-not-allowed": !view.canMaximize(),
+            },
+          ]}
           disabled={!view.canMaximize()}
           onClick={() => view.postureTo(true)}
         >

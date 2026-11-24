@@ -29,8 +29,13 @@
 
 import { debounce } from "@solid-primitives/scheduled";
 import { Effect } from "effect";
-import { type Accessor, createEffect, on } from "solid-js";
-import { createStore, type SetStoreFunction } from "solid-js/store";
+import {
+  type Accessor,
+  createEffect,
+  createStore,
+  on,
+  type SetStoreFunction,
+} from "solid-js";
 import {
   type StreamingProcedure,
   type UnaryEffect,

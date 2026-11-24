@@ -13,7 +13,7 @@
 
 import type { HostKey } from "kolu-common/hostKey";
 import type { EntryFailedCause } from "kolu-common/surfacesWithPadi";
-import { render } from "solid-js/web";
+import { render } from "@solidjs/web";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { LogLine } from "@kolu/solid-logtail";
 

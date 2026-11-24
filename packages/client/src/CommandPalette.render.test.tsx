@@ -1,6 +1,6 @@
 import { encodeHostKey } from "kolu-common/hostKey";
-import { createComputed, createSignal, type JSX } from "solid-js";
-import { render } from "solid-js/web";
+import { createComputed, createSignal } from "solid-js";
+import { type JSX, render } from "@solidjs/web";
 import { afterEach, expect, it, vi } from "vitest";
 import type { PaletteItem } from "./CommandPalette";
 

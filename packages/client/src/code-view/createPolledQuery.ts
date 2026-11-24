@@ -58,10 +58,11 @@ import {
   createEffect,
   createMemo,
   createSignal,
+  createStore,
   on,
   onCleanup,
+  produce,
 } from "solid-js";
-import { createStore, produce } from "solid-js/store";
 import { runActionPromise } from "../runAction";
 
 export interface PolledQueryConfig<Input, PulseInput, Pulse, Result> {

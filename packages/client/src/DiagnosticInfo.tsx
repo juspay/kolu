@@ -6,7 +6,7 @@
 import { runAction, type UiAction } from "./runAction";
 import { toError } from "@kolu/surface/run-stream";
 import { Effect } from "effect";
-import Dialog from "@corvu-next/dialog"
+import Dialog from "@corvu-next/dialog";
 import { encodeHostKey } from "kolu-common/hostKey";
 import type { TerminalId } from "kolu-common/surface";
 import { type Component, createMemo, For, Show } from "solid-js";
@@ -467,11 +467,13 @@ const DiagnosticInfoContent: Component<{ activeId: TerminalId | null }> = (
             <For each={attention().terminals}>
               {(t) => (
                 <div
-                  class="space-y-0.5 border-l-2 pl-2"
-                  classList={{
-                    "border-danger": t.disagreement !== null,
-                    "border-edge/40": t.disagreement === null,
-                  }}
+                  class={[
+                    "space-y-0.5 border-l-2 pl-2",
+                    {
+                      "border-danger": t.disagreement !== null,
+                      "border-edge/40": t.disagreement === null,
+                    },
+                  ]}
                 >
                   <div class="grid grid-cols-[9ch_1fr_auto] items-baseline gap-3">
                     <span class="text-fg-3/70">{t.id.slice(0, 8)}</span>

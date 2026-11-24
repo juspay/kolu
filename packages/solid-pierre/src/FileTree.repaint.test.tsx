@@ -33,7 +33,7 @@
  * green. See the PR that added this file for the full evidence.
  */
 import { batch, createSignal } from "solid-js";
-import { render } from "solid-js/web";
+import { render } from "@solidjs/web";
 import { afterEach, describe, expect, it } from "vitest";
 import type { GitStatusEntry } from "@pierre/trees";
 import { FileTree } from "./FileTree";

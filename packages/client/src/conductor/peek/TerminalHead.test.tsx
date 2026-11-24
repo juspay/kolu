@@ -21,7 +21,7 @@
 import type { TerminalGrid } from "@kolu/xterm-kit/solid";
 import type { TerminalId } from "kolu-common/surface";
 import { createSignal } from "solid-js";
-import { render } from "solid-js/web";
+import { render } from "@solidjs/web";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { FleetTerminalStanding } from "../../palette/fleetTerminals";
 import { Shown } from "../../ui/shown";
@@ -109,7 +109,7 @@ function mountStatus(opts: {
   document.body.append(root);
   dispose = render(
     () => (
-      <Shown.Provider value={() => true}>
+      <Shown value={() => true}>
         <TerminalStatusLine
           kind={opts.kind}
           host="local"
@@ -121,7 +121,7 @@ function mountStatus(opts: {
           held={false}
           resize={opts.resize}
         />
-      </Shown.Provider>
+      </Shown>
     ),
     root,
   );

@@ -13,8 +13,7 @@
  */
 
 import { Effect, Schema, Stream } from "effect";
-import { createRoot } from "solid-js";
-import { unwrap } from "solid-js/store";
+import { createRoot, unwrap } from "solid-js";
 import { describe, expect, it } from "vitest";
 import { defineSurface } from "../define";
 import type { SurfaceDispatch } from "../link";

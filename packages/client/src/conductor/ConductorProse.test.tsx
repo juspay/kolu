@@ -29,7 +29,7 @@
 import type * as SolidMarkdown from "@kolu/solid-markdown";
 import { ABOUT_WORK, type Work, type WorkId } from "kolu-work";
 import { createSignal } from "solid-js";
-import { render } from "solid-js/web";
+import { render } from "@solidjs/web";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 /** Rewrite every mounted prose's DOM without changing its text — what a
@@ -128,7 +128,7 @@ function mount(
       () => (
         // The chat a reply is drawn in is a retained view: its chips' clocks
         // ask whether it is on screen.
-        <Shown.Provider value={() => true}>
+        <Shown value={() => true}>
           <ConductorProse
             rowId={rowId}
             text={text()}
@@ -136,7 +136,7 @@ function mount(
             holders={fileHolders(works())}
             onRedrawn={onRedrawn}
           />
-        </Shown.Provider>
+        </Shown>
       ),
       host,
     ),

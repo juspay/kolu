@@ -4,23 +4,24 @@
  *
  *  ONE CLASS AUTHORITY PER ELEMENT. Every element here carries a JSX spread (the
  *  attribute bags below), and Solid applies spread props in KEY ORDER: a bag
- *  carrying `classList` is applied first, then a static `class` lands as
- *  `node.className = "…"` and erases what `classList` just added — and Solid
+ *  carrying a state `class` is applied first, then a static `class` lands as
+ *  `node.className = "…"` and erases what the bag just added — and Solid
  *  remembers the class as applied, so nothing re-adds it until the value flips
  *  false → true. That is #2263's unlit-after-reload host tab. So the shell takes
  *  the two state facts as DATA (`active` / `down`) and derives each element's
  *  classes in a SINGLE `class` expression, and the bag types below forbid
- *  `class` / `classList` outright — a caller cannot reintroduce a second class
+ *  `class` outright — a caller cannot reintroduce a second class
  *  authority through the spread. Pinned by `HostChipShell.test.tsx`. */
 
 import type { HostKey } from "kolu-common/hostKey";
-import type { Component, JSX } from "solid-js";
+import type { Component } from "solid-js";
+import type { JSX } from "@solidjs/web";
 import { HostIdentityLabel } from "./HostIdentityLabel";
 
 /** An attribute bag a caller hands to one of this shell's elements: every
- *  attribute EXCEPT the two that would make a second class authority beside the
+ *  attribute EXCEPT the one that would make a second class authority beside the
  *  element's own `class` expression. */
-type ClassFreeBag<T> = Omit<T, "class" | "classList">;
+type ClassFreeBag<T> = Omit<T, "class">;
 
 /** The tab's own state paint. `active` and `down` are INDEPENDENT: a down host
  *  that still owns the canvas keeps a desaturated belly

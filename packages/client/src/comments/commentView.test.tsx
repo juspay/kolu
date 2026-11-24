@@ -5,8 +5,8 @@
  *  opened in, the other view's navigation does not close it, and a jump made
  *  in one view does not move the other's toggle or get used up by it. */
 
-import { createSignal, type JSX } from "solid-js";
-import { render } from "solid-js/web";
+import { createSignal } from "solid-js";
+import { type JSX, render } from "@solidjs/web";
 import {
   afterAll,
   afterEach,
@@ -42,10 +42,7 @@ afterEach(() => {
 const mount = (body: () => JSX.Element): void => {
   const host = document.createElement("div");
   document.body.append(host);
-  dispose = render(
-    () => <Shown.Provider value={() => true}>{body()}</Shown.Provider>,
-    host,
-  );
+  dispose = render(() => <Shown value={() => true}>{body()}</Shown>, host);
 };
 
 const draft = {
@@ -61,12 +58,12 @@ const composers = () =>
 function twoViews(a: CommentViewState, b: CommentViewState) {
   mount(() => (
     <>
-      <CommentView.Provider value={a}>
+      <CommentView value={a}>
         <CommentComposer terminalId="view-a-terminal" />
-      </CommentView.Provider>
-      <CommentView.Provider value={b}>
+      </CommentView>
+      <CommentView value={b}>
         <CommentComposer terminalId="view-b-terminal" />
-      </CommentView.Provider>
+      </CommentView>
     </>
   ));
 }
@@ -154,8 +151,8 @@ describe("two comment-capturing views mounted at once", () => {
       const [shown] = createSignal({ host: "local", terminalId });
       mount(() => (
         <>
-          <CommentView.Provider value={a}>{null}</CommentView.Provider>
-          <CommentView.Provider value={b}>
+          <CommentView value={a}>{null}</CommentView>
+          <CommentView value={b}>
             <BrowseFileDispatcher
               at={shown()}
               open={null}
@@ -168,7 +165,7 @@ describe("two comment-capturing views mounted at once", () => {
               repoVault={{ paths: [], pending: false }}
               theme="dark"
             />
-          </CommentView.Provider>
+          </CommentView>
         </>
       ));
       return { comment, a, b };

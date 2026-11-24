@@ -51,7 +51,7 @@ import {
   For,
   Show,
 } from "solid-js";
-import { Portal } from "solid-js/web";
+import { Portal } from "@solidjs/web";
 import DocLink from "../ui/DocLink";
 import { ChevronDownIcon, ChevronUpIcon, CloseIcon } from "../ui/Icons";
 import { surface } from "../ui/Surface";
@@ -244,11 +244,13 @@ const AddField: Component<{
                   data-testid="agents-profile-option"
                   data-value={row.value}
                   data-active={active() === i() ? "" : undefined}
-                  class="flex cursor-pointer items-baseline gap-2 rounded-md px-2 py-1.5 text-left text-xs"
-                  classList={{
-                    "bg-surface-3 text-fg": active() === i(),
-                    "text-fg-2 hover:bg-surface-2": active() !== i(),
-                  }}
+                  class={[
+                    "flex cursor-pointer items-baseline gap-2 rounded-md px-2 py-1.5 text-left text-xs",
+                    {
+                      "bg-surface-3 text-fg": active() === i(),
+                      "text-fg-2 hover:bg-surface-2": active() !== i(),
+                    },
+                  ]}
                   // Keep the focus in the input: a blur there closes the menu.
                   onMouseDown={(e) => e.preventDefault()}
                   onMouseEnter={() => setActive(i())}
@@ -293,11 +295,13 @@ const ResolvedLine: Component<{ line: AgentsResolvedLine }> = (props) => (
       fallback={
         <p
           title={props.line.text}
-          class="truncate"
-          classList={{
-            "text-fg-3/70 italic": props.line.kind === "pending",
-            "text-fg-3": props.line.kind === "resolved",
-          }}
+          class={[
+            "truncate",
+            {
+              "text-fg-3/70 italic": props.line.kind === "pending",
+              "text-fg-3": props.line.kind === "resolved",
+            },
+          ]}
         >
           {props.line.text}
         </p>

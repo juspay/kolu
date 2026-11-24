@@ -31,8 +31,8 @@ import type {
 import type { OduLinkOutlet } from "./useOduLink";
 import type { TerminalId } from "kolu-common/surface";
 import { SurfaceUpstreamRefused } from "@kolu/surface/errors";
-import { type Accessor, createSignal, type JSX } from "solid-js";
-import { render } from "solid-js/web";
+import { type Accessor, createSignal } from "solid-js";
+import { type JSX, render } from "@solidjs/web";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   assignColors,
@@ -188,10 +188,7 @@ const PI = terminal({
 function paint(body: () => JSX.Element) {
   host = document.createElement("div");
   document.body.append(host);
-  dispose = render(
-    () => <Shown.Provider value={() => true}>{body()}</Shown.Provider>,
-    host,
-  );
+  dispose = render(() => <Shown value={() => true}>{body()}</Shown>, host);
 }
 
 function mount(initial: TerminalMetadata) {
@@ -1073,9 +1070,9 @@ describe("WorkSection odu CI readout", () => {
     document.body.append(host);
     dispose = render(
       () => (
-        <Shown.Provider value={shown}>
+        <Shown value={shown}>
           <WorkSection subject={paneSubject(RESIZE_BUG, LOCAL)} />
-        </Shown.Provider>
+        </Shown>
       ),
       host,
     );

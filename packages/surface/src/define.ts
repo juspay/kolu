@@ -280,7 +280,7 @@ export interface CellSpec<T = unknown, P = T, TPolicy = never> {
    *  for the same erasure reason. */
   client?: ClientCellPolicy<TPolicy>;
   /** WHAT IDENTIFIES AN ELEMENT OF AN ARRAY inside this cell's value, as a field
-   *  name — the one thing `solid-js/store`'s `reconcile` cannot be told anywhere
+   *  name — the one thing `solid-js`'s `reconcile` cannot be told anywhere
    *  else, and must never guess (`./solid/writeValue.ts` argues that at length).
    *
    *  Undeclared, a frame REPLACES every array element it merges, so a frame that

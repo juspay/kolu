@@ -2,7 +2,7 @@
 import { decodeHostKey, type HostKey } from "kolu-common/hostKey";
 import type { TerminalId } from "kolu-common/surface";
 import { createSignal } from "solid-js";
-import { render } from "solid-js/web";
+import { render } from "@solidjs/web";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Shown } from "../../ui/shown";
 
@@ -122,7 +122,7 @@ const mount = () => {
   document.body.append(root);
   const dispose = render(
     () => (
-      <Shown.Provider value={() => true}>
+      <Shown value={() => true}>
         <PeekTerminal
           host="remote:nix@example"
           id={ID}
@@ -136,7 +136,7 @@ const mount = () => {
           onHandle={() => {}}
           testId="peek-screen"
         />
-      </Shown.Provider>
+      </Shown>
     ),
     root,
   );

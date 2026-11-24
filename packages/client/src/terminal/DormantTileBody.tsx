@@ -74,11 +74,13 @@ const DormantTileBody: Component<{
 
   return (
     <div
-      class="flex h-full min-h-0 flex-1 select-none flex-col items-center justify-center bg-[var(--moonlit-bg)] text-center text-[var(--moonlit-accent)]"
-      classList={{
-        "gap-3 px-4": !compact(),
-        "gap-1.5 px-2": compact(),
-      }}
+      class={[
+        "flex h-full min-h-0 flex-1 select-none flex-col items-center justify-center bg-[var(--moonlit-bg)] text-center text-[var(--moonlit-accent)]",
+        {
+          "gap-3 px-4": !compact(),
+          "gap-1.5 px-2": compact(),
+        },
+      ]}
       // Moonlit palette flows from the single MOONLIT source as CSS custom
       // properties so the arbitrary-value classes (which can't read a JS const)
       // and the hover state stay in sync with the minimap + Dock row ☾.
@@ -97,7 +99,7 @@ const DormantTileBody: Component<{
       data-testid="dormant-tile-body"
     >
       <div
-        classList={{
+        class={{
           "text-4xl leading-none opacity-80": !compact(),
           "text-lg leading-none opacity-80": compact(),
         }}
@@ -106,7 +108,7 @@ const DormantTileBody: Component<{
         ☾
       </div>
       <div
-        classList={{
+        class={{
           "text-sm font-semibold": !compact(),
           "text-xs": compact(),
         }}
@@ -176,7 +178,7 @@ const DormantTileBody: Component<{
       </Show>
       <button
         type="button"
-        classList={{
+        class={{
           "mt-1 rounded-md bg-[var(--moonlit-accent)] px-3 py-1 text-xs font-semibold text-[var(--moonlit-ink)] transition-colors hover:bg-[var(--moonlit-accent-hover)]":
             !compact(),
           "rounded bg-[var(--moonlit-accent)] px-2 py-0.5 text-[0.65rem] font-semibold text-[var(--moonlit-ink)] transition-colors hover:bg-[var(--moonlit-accent-hover)]":

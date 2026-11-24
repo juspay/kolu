@@ -17,8 +17,7 @@
  *  terminal set or outlive the terminals it keyed. */
 
 import type { TerminalId } from "kolu-common/surface";
-import { createEffect, on } from "solid-js";
-import { createStore, produce } from "solid-js/store";
+import { createEffect, createStore, on, produce } from "solid-js";
 import { createSharedRoot } from "../createSharedRoot";
 import { useTerminalStore } from "./useTerminalStore";
 

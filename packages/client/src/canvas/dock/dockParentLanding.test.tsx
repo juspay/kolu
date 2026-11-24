@@ -4,7 +4,7 @@ import { Effect } from "effect";
 import type { HostKey } from "kolu-common/hostKey";
 import type { TerminalId } from "kolu-common/surface";
 import { createRoot, createSignal } from "solid-js";
-import { render } from "solid-js/web";
+import { render } from "@solidjs/web";
 import { beforeEach, expect, it, vi } from "vitest";
 
 const HOST: HostKey = { kind: "local" };

@@ -34,8 +34,7 @@
  *  element only when the reader themself moved it, and every frame after that
  *  reads the remembered answer. */
 
-import { createSignal } from "solid-js";
-import { createStore, produce } from "solid-js/store";
+import { createSignal, createStore, produce } from "solid-js";
 
 /** How close to the bottom still counts as "following", in pixels. A couple of
  *  lines of slack, so a half-scrolled wheel notch does not unpin the view. */

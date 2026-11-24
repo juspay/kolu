@@ -17,7 +17,7 @@
  */
 
 import { createMemo, createSignal } from "solid-js";
-import { render } from "solid-js/web";
+import { render } from "@solidjs/web";
 import { afterEach, describe, expect, it } from "vitest";
 import Disclosure from "./Disclosure";
 

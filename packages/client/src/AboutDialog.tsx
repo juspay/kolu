@@ -2,7 +2,7 @@
  *  live server process id. Opened from the "About kolu" palette command; owns
  *  its open-state so App.tsx only mounts it. */
 
-import Dialog from "@corvu-next/dialog"
+import Dialog from "@corvu-next/dialog";
 import { shellCommit } from "@kolu/surface-app/lifecycle";
 import type { Component } from "solid-js";
 import { serverProcessId } from "./rpc/rpc";

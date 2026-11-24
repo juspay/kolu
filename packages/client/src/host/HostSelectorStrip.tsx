@@ -72,12 +72,13 @@ import {
   createEffect,
   createMemo,
   createSignal,
+  createStore,
   For,
   onCleanup,
+  produce,
   Show,
 } from "solid-js";
-import { createStore, produce } from "solid-js/store";
-import { Portal } from "solid-js/web";
+import { Portal } from "@solidjs/web";
 import { AttentionTriplet } from "@kolu/solid-statepip";
 import { hostMarks } from "../attention/attentionMarks";
 import { jumpToAsking } from "../attention/attentionNav";
@@ -273,7 +274,7 @@ const HostChip: Component<{
           "data-testid": "host-select",
           // Picking a host tab is also how you LEAVE the conductor, which
           // is why the already-active tab is not a no-op — see `selectHostTab`.
-          // No `classList` here: the shell owns every element's one class
+          // No `class` here: the shell owns every element's one class
           // expression now (`HostChipShell`), and a bag that carried one would
           // be the second authority #2351 removed.
           onClick: () => selectHostTab(props.host),
@@ -348,13 +349,15 @@ const HostSwitcherRow: Component<{
 
   return (
     <div
-      class="group/host-row relative grid grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-1.5 rounded-lg p-1.5 pl-2.5 transition-colors"
-      classList={{
-        "bg-accent/20 ring-2 ring-accent/65": isActive() && !down(),
-        "bg-surface-1/55 ring-1 ring-edge/70 hover:bg-surface-2/85 hover:ring-edge-bright/80":
-          !isActive() && !down(),
-        "opacity-70 ring-1 ring-danger/40": down(),
-      }}
+      class={[
+        "group/host-row relative grid grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-1.5 rounded-lg p-1.5 pl-2.5 transition-colors",
+        {
+          "bg-accent/20 ring-2 ring-accent/65": isActive() && !down(),
+          "bg-surface-1/55 ring-1 ring-edge/70 hover:bg-surface-2/85 hover:ring-edge-bright/80":
+            !isActive() && !down(),
+          "opacity-70 ring-1 ring-danger/40": down(),
+        },
+      ]}
       data-active={isActive() ? "" : undefined}
       data-down={down() ? "" : undefined}
     >
@@ -378,12 +381,14 @@ const HostSwitcherRow: Component<{
         />
         <span class="min-w-0 flex-1">
           <span
-            class="flex min-w-0 items-center gap-1.5 text-xs font-medium"
-            classList={{
-              "text-fg": isActive() && !down(),
-              "text-fg-2": !isActive() && !down(),
-              "text-fg-3": down(),
-            }}
+            class={[
+              "flex min-w-0 items-center gap-1.5 text-xs font-medium",
+              {
+                "text-fg": isActive() && !down(),
+                "text-fg-2": !isActive() && !down(),
+                "text-fg-3": down(),
+              },
+            ]}
           >
             <HostIdentityLabel
               host={host}
@@ -396,12 +401,14 @@ const HostSwitcherRow: Component<{
             </Show>
           </span>
           <span
-            class="block truncate text-[10px] leading-3"
-            classList={{
-              "text-accent": isActive() && !down(),
-              "text-fg-3": !isActive() && !down(),
-              "text-danger": down(),
-            }}
+            class={[
+              "block truncate text-[10px] leading-3",
+              {
+                "text-accent": isActive() && !down(),
+                "text-fg-3": !isActive() && !down(),
+                "text-danger": down(),
+              },
+            ]}
           >
             {glance().short}
           </span>
@@ -551,12 +558,14 @@ const HostDropdownSwitcher: Component<{ hosts: HostKey[] }> = (props) => {
       <div
         role="tablist"
         aria-label="Hosts"
-        class="host-tab -mb-px flex h-8 items-center shrink-0 has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-accent/50"
-        classList={{
-          "host-tab-active": current(),
-          "host-tab-idle": !current() && !down(),
-          "host-tab-down": down(),
-        }}
+        class={[
+          "host-tab -mb-px flex h-8 items-center shrink-0 has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-accent/50",
+          {
+            "host-tab-active": current(),
+            "host-tab-idle": !current() && !down(),
+            "host-tab-down": down(),
+          },
+        ]}
         style={{ "--host-hue": hostHue(active()) }}
         data-testid="host-dropdown-switcher"
         data-down={down() ? "" : undefined}
@@ -567,8 +576,10 @@ const HostDropdownSwitcher: Component<{ hosts: HostKey[] }> = (props) => {
           aria-selected={current()}
           aria-expanded={open()}
           ref={triggerEl}
-          class="pointer-events-auto flex h-8 items-center gap-1.5 pl-2.5 pr-2 text-xs transition-colors focus-visible:outline-none cursor-pointer"
-          classList={{ "text-fg": !down(), "text-fg-3": down() }}
+          class={[
+            "pointer-events-auto flex h-8 items-center gap-1.5 pl-2.5 pr-2 text-xs transition-colors focus-visible:outline-none cursor-pointer",
+            { "text-fg": !down(), "text-fg-3": down() },
+          ]}
           aria-label={`Switch host — currently ${hostLabel(active())}`}
           title={`Switch host — currently ${hostLabel(active())}`}
           onClick={() => setOpen((v) => !v)}
@@ -834,10 +845,10 @@ const HostSelectorStrip: Component = () => {
        *  `md:hidden`, which double-filled dual-daemon slots on the active
        *  host. Split is keyed on `md` (768px), not `sm` — ChromeBar never
        *  mounts below `sm` (phone chrome). */}
-      <div classList={{ hidden: atMd() }} inert={atMd()}>
+      <div class={{ hidden: atMd() }} inert={atMd()}>
         <HostDropdownSwitcher hosts={hostKeys()} />
       </div>
-      <div classList={{ hidden: !atMd() }} inert={!atMd()}>
+      <div class={{ hidden: !atMd() }} inert={!atMd()}>
         {/* The strip's OWN drag scope, so a chip drag can never surface to
          *  the canvas's — sortables join the NEAREST drag scope, and the
          *  nest is the isolation (the dock makes the same nest for the same

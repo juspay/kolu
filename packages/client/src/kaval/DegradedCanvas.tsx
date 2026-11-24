@@ -23,7 +23,8 @@
  */
 
 import { runAction } from "../runAction";
-import { type Component, type JSX, Show } from "solid-js";
+import { type Component, Show } from "solid-js";
+import type { JSX } from "@solidjs/web";
 import DocLink from "../ui/DocLink";
 import { WarningIcon } from "../ui/Icons";
 import type { DaemonDownState } from "./daemonPresentation";

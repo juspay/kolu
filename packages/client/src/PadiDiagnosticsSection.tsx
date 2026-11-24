@@ -14,11 +14,11 @@ import {
   type Component,
   createSignal,
   For,
-  type JSX,
   Match,
   Show,
   Switch,
 } from "solid-js";
+import type { JSX } from "@solidjs/web";
 import { runAction } from "./runAction";
 import { formatSize } from "./ui/memory";
 import Row from "./ui/Row";

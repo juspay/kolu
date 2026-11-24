@@ -3,7 +3,7 @@
  *  `Edit…` all open it; saving a proposal remembers what you wrote. Mounted
  *  once; {@link editMemory} says what it edits. */
 
-import Dialog from "@corvu-next/dialog"
+import Dialog from "@corvu-next/dialog";
 import {
   MEMORY_BODY_CAP,
   type MemoryEntry,
@@ -153,8 +153,10 @@ const MemoryEditor: Component = () => {
         </Show>
         <div class="mt-3 flex items-center justify-between gap-2">
           <span
-            class="font-mono text-[0.65rem] text-fg-3"
-            classList={{ "text-danger": body().length > MEMORY_BODY_CAP }}
+            class={[
+              "font-mono text-[0.65rem] text-fg-3",
+              { "text-danger": body().length > MEMORY_BODY_CAP },
+            ]}
           >
             {body().length.toLocaleString("en")} of{" "}
             {MEMORY_BODY_CAP.toLocaleString("en")} characters

@@ -9,7 +9,7 @@ import type { TerminalMetadata } from "@kolu/padi-client/surface";
 import { terminalKey } from "@kolu/terminal-vocab/terminalKey";
 import type { Component } from "solid-js";
 import { createMemo, Show } from "solid-js";
-import { Dynamic } from "solid-js/web";
+import { dynamic } from "@solidjs/web";
 import type {
   PaletteCommand,
   PaletteLabel,
@@ -201,6 +201,7 @@ const CreateIdentityPreview: Component<{
         // keystroke / highlight move while the Show condition never goes falsy,
         // so unwrapping the accessor here would freeze the card on the first
         // model. Non-keyed Show keeps the subtree alive across those recomputes.
+        const AgentIcon = dynamic(() => preview().AgentIcon);
         const annotationColor = () => preview().annotationColor;
         const annotationStyle = () => {
           const color = annotationColor();
@@ -223,7 +224,7 @@ const CreateIdentityPreview: Component<{
                 title={preview().agentLabel}
                 data-testid="create-preview-agent"
               >
-                <Dynamic component={preview().AgentIcon} class="w-3.5 h-3.5" />
+                <AgentIcon class="w-3.5 h-3.5" />
               </span>
               <RepoMonogram
                 group={preview().repoName}
@@ -239,11 +240,13 @@ const CreateIdentityPreview: Component<{
                   {preview().repoName}
                 </div>
                 <div
-                  class="font-mono text-[0.68rem] truncate leading-snug mt-0.5"
-                  classList={{
-                    "annotation-ink": annotationColor() != null,
-                    "text-fg-3": annotationColor() == null,
-                  }}
+                  class={[
+                    "font-mono text-[0.68rem] truncate leading-snug mt-0.5",
+                    {
+                      "annotation-ink": annotationColor() != null,
+                      "text-fg-3": annotationColor() == null,
+                    },
+                  ]}
                   style={annotationStyle()}
                   data-testid="create-preview-annotation"
                 >

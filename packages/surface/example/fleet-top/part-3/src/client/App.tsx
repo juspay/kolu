@@ -61,11 +61,13 @@ export default function App() {
               return (
                 <button
                   type="button"
-                  class="chip"
-                  classList={{
-                    active: host === activeHost(),
-                    [status().kind]: true,
-                  }}
+                  class={[
+                    "chip",
+                    {
+                      active: host === activeHost(),
+                      [status().kind]: true,
+                    },
+                  ]}
                   onClick={() => setActiveHost(host)}
                 >
                   {host} · {status().kind}

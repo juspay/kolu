@@ -1,6 +1,6 @@
 /** Modal overlay showing all keyboard shortcuts. */
 
-import Dialog from "@corvu-next/dialog"
+import Dialog from "@corvu-next/dialog";
 import { type Component, For } from "solid-js";
 import { ACTIONS, type ActionId } from "./input/actions";
 import { formatKeybind } from "./input/keyboard";

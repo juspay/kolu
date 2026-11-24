@@ -36,12 +36,12 @@
 
 import type { FileWithSource, FileWithUrl } from "@kolu/solid-fileview";
 import { type AnsweredFromFace, openAsks, type Work } from "kolu-work";
+import type { JSX } from "@solidjs/web";
 import {
   type Component,
   createMemo,
   createResource,
   For,
-  type JSX,
   Show,
 } from "solid-js";
 import { CommentComposer } from "../../comments/CommentComposer";
@@ -165,7 +165,7 @@ const WorkReader: Component<{
   const commentView = createCommentView();
 
   return (
-    <CommentView.Provider value={commentView}>
+    <CommentView value={commentView}>
       <section
         data-testid="conductor-reader"
         data-work={props.target.work}
@@ -199,8 +199,8 @@ const WorkReader: Component<{
           </Show>
           {props.chrome}
           {/* THE WORK'S OTHER FILES, as tabs: the notes beside a plan are read
-            in the same place as the plan, one press away — on a line of their
-            own, under the title and the chrome. */}
+          in the same place as the plan, one press away — on a line of their
+          own, under the title and the chrome. */}
           <div data-testid="reader-files" class="min-w-0 basis-full">
             <WorkFileList
               rows={files.rows()}
@@ -213,9 +213,9 @@ const WorkReader: Component<{
         </header>
 
         {/* THE QUESTIONS, PINNED ABOVE THE DOCUMENT — their buttons, and the
-          count of comments that will go with the answer. The same asks as on
-          the card and in the chat: this is where they are answered by whoever
-          is reading the thing they are about. */}
+        count of comments that will go with the answer. The same asks as on
+        the card and in the chat: this is where they are answered by whoever
+        is reading the thing they are about. */}
         <Show when={work()}>
           {(one) => (
             <For each={asks()}>
@@ -252,8 +252,8 @@ const WorkReader: Component<{
           }
         >
           {/* `reader-doc` is the reading frame's one hook: the column's measure,
-            the 16px body, and the full-width tables and code blocks are stated
-            once, in `index.css`, over the viewer's own DOM. */}
+          the 16px body, and the full-width tables and code blocks are stated
+          once, in `index.css`, over the viewer's own DOM. */}
           <div
             data-testid="reader-doc"
             class="reader-doc flex min-h-0 flex-1 flex-col"
@@ -277,18 +277,18 @@ const WorkReader: Component<{
             />
           </div>
           {/* SELECTING TEXT TAKES A COMMENT, as on the Code tab — the pill is
-            the surface's own, and this is the popover it opens. One per
-            reader, portalled, exactly as the Code tab mounts one per tab: a
-            surface that could capture a selection with nowhere to write it
-            would offer to comment and then swallow the comment. A kept file
-            has no terminal to anchor one against, so it has no composer
-            either. */}
+          the surface's own, and this is the popover it opens. One per
+          reader, portalled, exactly as the Code tab mounts one per tab: a
+          surface that could capture a selection with nowhere to write it
+          would offer to comment and then swallow the comment. A kept file
+          has no terminal to anchor one against, so it has no composer
+          either. */}
           <Show when={at()}>
             {(spot) => <CommentComposer terminalId={spot().terminalId} />}
           </Show>
         </Show>
       </section>
-    </CommentView.Provider>
+    </CommentView>
   );
 };
 

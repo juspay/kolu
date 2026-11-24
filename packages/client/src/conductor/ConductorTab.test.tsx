@@ -17,7 +17,7 @@
  * is none.
  */
 
-import { render } from "solid-js/web";
+import { render } from "@solidjs/web";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const cell = vi.hoisted(() => ({ waiting: 0 }));

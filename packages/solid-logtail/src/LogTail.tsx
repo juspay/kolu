@@ -27,7 +27,7 @@ import {
   type Component,
   createEffect,
   createSignal,
-  Index,
+  For,
   onCleanup,
 } from "solid-js";
 import { writeTextToClipboard } from "./clipboard";
@@ -161,9 +161,9 @@ export const LogTail: Component<LogTailProps> = (props) => {
         // row's own text never runs underneath it on a long line.
         class={`${LOG_TAIL_SURFACE} w-full pr-12 ${props.class ?? ""}`}
       >
-        <Index each={props.lines}>
+        <For each={props.lines} keyed={false}>
           {(entry) => <div class={LOG_TAIL_LINE}>{entry().line}</div>}
-        </Index>
+        </For>
       </div>
       {/* In the block's corner, and OUTSIDE the scroller so it cannot scroll
           away. A real <button>, so it is tab-reachable like any other control. */}

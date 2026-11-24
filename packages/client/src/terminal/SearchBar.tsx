@@ -10,11 +10,11 @@ import {
   type Component,
   createEffect,
   createSignal,
-  type JSX,
   on,
   onCleanup,
   Show,
 } from "solid-js";
+import type { JSX } from "@solidjs/web";
 import { ChevronDownIcon, ChevronUpIcon, CloseIcon } from "../ui/Icons";
 import { surface } from "../ui/Surface";
 import Tip from "../ui/Tip";

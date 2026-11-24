@@ -9,7 +9,7 @@ import type { PrUnavailableSource } from "kolu-common/surface";
 import { reasonForSource } from "kolu-common/surface";
 import type { GhUnavailableCode } from "kolu-github/schemas";
 import { type Component, createSignal, Show } from "solid-js";
-import { Portal } from "solid-js/web";
+import { Portal } from "@solidjs/web";
 import { match } from "ts-pattern";
 import CopyCommandButton from "../ui/CopyCommandButton";
 import DocLink from "../ui/DocLink";

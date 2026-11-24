@@ -34,7 +34,7 @@ import {
   onCleanup,
   untrack,
 } from "solid-js";
-import { Dynamic } from "solid-js/web";
+import { dynamic } from "@solidjs/web";
 import { type Diagram, diagrams as diagramCache } from "./diagram";
 import { highlightCode, loadHighlighter } from "./highlight";
 import { decorateInlineCode, type InlineCodeAction } from "./inlineCode";
@@ -376,9 +376,9 @@ export const Markdown: Component<{
     untrack(() => props.onRendered?.());
   });
 
+  const Host = dynamic(() => (variant() === "inline" ? "span" : "div"));
   return (
-    <Dynamic
-      component={variant() === "inline" ? "span" : "div"}
+    <Host
       ref={(el: HTMLElement) =>
         bindInteractions(el, {
           get onNavigateRelative() {

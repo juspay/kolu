@@ -302,10 +302,10 @@ const ConductorPane: Component<{
                   where they were, with their clocks stopped while nobody
                   could see them. */}
               <Show when={!phone()}>
-                <Shown.Provider value={worksShown}>
+                <Shown value={worksShown}>
                   {/* The works scroll inside the column (its
-                      `data-works-scroll`), beside a sidebar that stays put;
-                      this side itself never scrolls. */}
+                    `data-works-scroll`), beside a sidebar that stays put;
+                    this side itself never scrolls. */}
                   <aside
                     data-testid="conductor-side"
                     style={{
@@ -319,7 +319,7 @@ const ConductorPane: Component<{
                   >
                     <WorkColumn />
                   </aside>
-                </Shown.Provider>
+                </Shown>
               </Show>
               {/* ON A PHONE the works are a view of their own, drawn while
                   the Work tab is chosen and taken down when it is not: the
@@ -360,7 +360,7 @@ const ConductorPane: Component<{
                   contents skipped and out of reach — the conversation is one
                   press away, with the half-typed message and the scroll
                   position still in it. */}
-              <Shown.Provider value={chatShown}>
+              <Shown value={chatShown}>
                 <div
                   data-testid="conductor-chat"
                   style={{
@@ -396,13 +396,13 @@ const ConductorPane: Component<{
                     }}
                   />
                   {/* A conversation that would not OPEN has no composer under
-                    it: there is nothing to say to an agent that is not there,
-                    and nothing to say at all when the records a restart reads
-                    would not decode. What is offered depends on WHICH of
-                    those happened, which is `ConductorRefusal`'s whole job —
-                    and no status line either way, because the line reports on
-                    a conversation that is running and this one never
-                    started. */}
+                  it: there is nothing to say to an agent that is not there,
+                  and nothing to say at all when the records a restart reads
+                  would not decode. What is offered depends on WHICH of
+                  those happened, which is `ConductorRefusal`'s whole job —
+                  and no status line either way, because the line reports on
+                  a conversation that is running and this one never
+                  started. */}
                   <Show
                     when={state().refusal !== null}
                     fallback={
@@ -415,7 +415,7 @@ const ConductorPane: Component<{
                     <ConductorRefusal state={state()} />
                   </Show>
                 </div>
-              </Shown.Provider>
+              </Shown>
             </div>
             <Show when={phone()}>
               <ConductorPhoneTabs />

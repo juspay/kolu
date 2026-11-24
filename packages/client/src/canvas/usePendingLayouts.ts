@@ -19,8 +19,7 @@
  *  that reads a different key. */
 
 import type { TerminalId } from "kolu-common/surface";
-import { createSignal } from "solid-js";
-import { createStore, produce, reconcile } from "solid-js/store";
+import { createSignal, createStore, produce, reconcile } from "solid-js";
 import { layoutsEqual, type TileLayout } from "./TileLayout";
 
 // HOST-SCOPING: host-INDEPENDENT by design — keyed by globally-unique TerminalId

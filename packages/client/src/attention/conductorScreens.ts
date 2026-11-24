@@ -13,7 +13,7 @@
  *  Counted, not flagged: Look over a live pane of the same terminal is two
  *  screens, and closing one leaves the other showing. */
 
-import { createStore, produce } from "solid-js/store";
+import { createStore, produce } from "solid-js";
 
 /** Screens held, by fleet ref (`<encodedHost>/<id>`). */
 const [held, setHeld] = createStore<Record<string, number>>({});

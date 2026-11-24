@@ -21,7 +21,7 @@ import {
   GitPullRequestClosedIcon,
   GitPullRequestIcon,
 } from "./forgeIcons.tsx";
-import { Dynamic } from "solid-js/web";
+import { dynamic } from "@solidjs/web";
 import { prTooltip } from "./prTooltip.ts";
 
 const prStateConfig: Record<
@@ -39,9 +39,10 @@ export const PrStateIcon: Component<{
   class?: string;
 }> = (props) => {
   const cfg = () => prStateConfig[props.state];
+  const Icon = dynamic(() => cfg().icon);
   return (
     <span class={`${cfg().color} shrink-0`}>
-      <Dynamic component={cfg().icon} class={props.class ?? "w-3.5 h-3.5"} />
+      <Icon class={props.class ?? "w-3.5 h-3.5"} />
     </span>
   );
 };
@@ -49,12 +50,14 @@ export const PrStateIcon: Component<{
 /** Colored dot indicating CI check status (pass/pending/fail). */
 export const ChecksIndicator: Component<{ status: CheckStatus }> = (props) => (
   <span
-    class="inline-block w-1.5 h-1.5 rounded-full shrink-0"
-    classList={{
-      "bg-ok": props.status === "pass",
-      "bg-warning animate-pulse": props.status === "pending",
-      "bg-danger": props.status === "fail",
-    }}
+    class={[
+      "inline-block w-1.5 h-1.5 rounded-full shrink-0",
+      {
+        "bg-ok": props.status === "pass",
+        "bg-warning animate-pulse": props.status === "pending",
+        "bg-danger": props.status === "fail",
+      },
+    ]}
   />
 );
 

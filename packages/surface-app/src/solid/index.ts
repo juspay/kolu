@@ -17,10 +17,10 @@ import {
   createContext,
   createSignal,
   getOwner,
-  type JSX,
   onCleanup,
   useContext,
 } from "solid-js";
+import type { JSX } from "@solidjs/web";
 import {
   type BuildInfoDef,
   buildInfo as defaultBuildInfo,
@@ -690,7 +690,7 @@ export function SurfaceAppProvider<
     isInstalled: () => isInstalledFromEnv(installEnv()),
     canInstallPwa: () => canInstallFromEnv(installEnv()),
   };
-  return createComponent(SurfaceAppContext.Provider, {
+  return createComponent(SurfaceAppContext, {
     value: model as SurfaceAppModel,
     get children() {
       // The fault boundary sits INSIDE the context, so the app's `fault` LOOK

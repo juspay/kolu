@@ -27,12 +27,14 @@ const LevelMeter: Component<{
           };
           return (
             <div
-              class="flex-1 rounded-[1px] transition-opacity"
-              classList={{
-                [color()]: lit(),
-                "bg-edge opacity-40": !lit(),
-                "opacity-100": lit(),
-              }}
+              class={[
+                "flex-1 rounded-[1px] transition-opacity",
+                {
+                  [color()]: lit(),
+                  "bg-edge opacity-40": !lit(),
+                  "opacity-100": lit(),
+                },
+              ]}
             />
           );
         }}

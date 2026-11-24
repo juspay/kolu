@@ -20,8 +20,16 @@ import type { StreamingProcedure } from "@kolu/surface/client";
 import type { SurfaceHealth } from "@kolu/surface/solid";
 import { HostStatusPip } from "@kolu/surface/solid/HostStatusPip";
 import { SurfaceGate } from "@kolu/surface/solid/SurfaceGate";
-import { type Accessor, createMemo, createSignal, For, Show } from "solid-js";
-import { createStore, produce, reconcile } from "solid-js/store";
+import {
+  type Accessor,
+  createMemo,
+  createSignal,
+  createStore,
+  For,
+  produce,
+  reconcile,
+  Show,
+} from "solid-js";
 import {
   type CoreId,
   type CpuCore,

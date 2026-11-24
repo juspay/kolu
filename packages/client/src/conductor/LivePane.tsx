@@ -28,11 +28,11 @@ import type { WorkRole } from "kolu-work";
 import { fleetTerminalRef } from "kolu-mcp/fleetRef";
 import { decodeHostKey } from "kolu-common/hostKey";
 import type { TerminalId } from "kolu-common/surface";
+import type { JSX } from "@solidjs/web";
 import {
   type Component,
   createMemo,
   createSignal,
-  type JSX,
   on,
   createEffect,
   onCleanup,

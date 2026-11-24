@@ -1,7 +1,8 @@
 /** Tooltip wrapper — wraps any element with a Corvu Tooltip on hover. */
 
-import Tooltip from "@corvu-next/tooltip"
-import type { Component, JSX } from "solid-js";
+import Tooltip from "@corvu-next/tooltip";
+import type { Component } from "solid-js";
+import type { JSX } from "@solidjs/web";
 
 const Tip: Component<{
   label: JSX.Element;

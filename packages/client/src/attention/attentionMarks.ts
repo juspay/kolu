@@ -23,7 +23,7 @@ import {
   type TerminalAttention,
 } from "@kolu/padi-client/attention";
 import type { AttentionClass, TerminalId } from "kolu-common/surface";
-import { createStore, produce } from "solid-js/store";
+import { createStore, produce } from "solid-js";
 
 export interface HostMarks extends HostAttentionFrame {
   /** Finished-but-unvisited terminals on this host — the amber count. */

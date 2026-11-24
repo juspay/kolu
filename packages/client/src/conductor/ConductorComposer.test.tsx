@@ -32,7 +32,7 @@ import {
   type WorkRow,
 } from "kolu-work";
 import { type Accessor, createSignal } from "solid-js";
-import { render } from "solid-js/web";
+import { render } from "@solidjs/web";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { FleetTerminalRow } from "../palette/fleetTerminals";
 import { aboutWork, showAllChat } from "./chatScope";
@@ -214,9 +214,9 @@ function mount(
   document.body.append(root);
   dispose = render(
     () => (
-      <Shown.Provider value={() => true}>
+      <Shown value={() => true}>
         <ConductorComposer state={STATE} />
-      </Shown.Provider>
+      </Shown>
     ),
     root,
   );

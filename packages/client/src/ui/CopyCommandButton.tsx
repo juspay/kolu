@@ -11,13 +11,8 @@
 
 import { toError } from "@kolu/surface/run-stream";
 import { Effect } from "effect";
-import {
-  type Component,
-  createSignal,
-  type JSX,
-  onCleanup,
-  Show,
-} from "solid-js";
+import { type Component, createSignal, onCleanup, Show } from "solid-js";
+import type { JSX } from "@solidjs/web";
 import { toast } from "solid-sonner";
 import { runAction } from "../runAction";
 import { writeTextToClipboard } from "@kolu/solid-logtail";

@@ -2,8 +2,13 @@ import type { TerminalInfo, TerminalMetadata } from "@kolu/padi-client/surface";
 import { Stream } from "effect";
 import { decodeHostKey, encodeHostKey, LOCAL_HOST } from "kolu-common/hostKey";
 import type { TerminalId } from "kolu-common/surface";
-import { createEffect, createRoot, createSignal } from "solid-js";
-import { createStore, produce } from "solid-js/store";
+import {
+  createEffect,
+  createRoot,
+  createSignal,
+  createStore,
+  produce,
+} from "solid-js";
 import { describe, expect, it, vi } from "vitest";
 
 // `useTerminalMetadata` pulls `padi` (a live surface socket) and `solid-sonner`

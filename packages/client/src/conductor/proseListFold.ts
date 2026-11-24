@@ -37,7 +37,7 @@
  *  The copy in the ⋯ menu is untouched: it copies the row TEXT, never this
  *  DOM, so a copied transcript always has every item. */
 
-import { createStore, produce } from "solid-js/store";
+import { createStore, produce } from "solid-js";
 
 /** Longer than this, and the list folds. Five fit in a glance; six do not. */
 export const PROSE_LIST_FOLD_OVER = 5;

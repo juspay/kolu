@@ -5,7 +5,7 @@
  *  refused whole with the reason. Importing is the human's own act: it needs
  *  no approval and rings nothing. */
 
-import Dialog from "@corvu-next/dialog"
+import Dialog from "@corvu-next/dialog";
 import {
   MemoryRefused,
   type MemoryText,
@@ -157,8 +157,10 @@ const MemoryImport: Component = () => {
                     <li
                       data-testid="memory-import-entry"
                       data-known={known(text) ? "" : undefined}
-                      class="rounded-md border border-edge px-3 py-2"
-                      classList={{ "opacity-60": known(text) }}
+                      class={[
+                        "rounded-md border border-edge px-3 py-2",
+                        { "opacity-60": known(text) },
+                      ]}
                     >
                       <div class="flex items-baseline justify-between gap-2">
                         <b class="text-[0.8rem] text-fg">{text.title}</b>

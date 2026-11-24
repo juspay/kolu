@@ -4,7 +4,7 @@
 
 import { runAction } from "../runAction";
 import { type Component, createEffect, For, Show } from "solid-js";
-import { Portal } from "solid-js/web";
+import { Portal } from "@solidjs/web";
 import { surface } from "../ui/Surface";
 import Toggle from "../ui/Toggle";
 import { useAnchoredPopover } from "../ui/useAnchoredPopover";

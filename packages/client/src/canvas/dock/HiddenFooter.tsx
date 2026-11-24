@@ -187,7 +187,7 @@ const CardsLayout: Component<{
     <div
       data-testid={props.testId ?? DOCK_HIDDEN_FOOTER_TESTID}
       data-layout="cards"
-      classList={{
+      class={{
         // Common: bordered top edge, neutral text, left-aligned content.
         "flex items-center gap-1.5 border-t border-edge/40 text-fg-3 text-left": true,
         // Touch (mobile drawer): larger vertical padding, slightly bigger

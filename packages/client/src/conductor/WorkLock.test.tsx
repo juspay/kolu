@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { render } from "solid-js/web";
+import { render } from "@solidjs/web";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 const REF = "local/11111111-1111-4111-8111-111111111111";

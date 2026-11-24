@@ -15,7 +15,7 @@
  */
 import type { GitStatusEntry } from "@pierre/trees";
 import { createSignal, Show } from "solid-js";
-import { render } from "solid-js/web";
+import { render } from "@solidjs/web";
 import { afterEach, describe, expect, it } from "vitest";
 import { FileTree } from "./FileTree";
 import {

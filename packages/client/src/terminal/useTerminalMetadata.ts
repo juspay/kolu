@@ -25,11 +25,13 @@ import {
   type Accessor,
   createComputed,
   createMemo,
+  createStore,
   mapArray,
   onCleanup,
+  produce,
   untrack,
+  unwrap,
 } from "solid-js";
-import { createStore, produce, unwrap } from "solid-js/store";
 import { activeScope } from "../hostScope/hostScopes";
 import { activeHost, padiMap } from "../wire";
 import { reprojectTerminalClock } from "./reprojectClock";

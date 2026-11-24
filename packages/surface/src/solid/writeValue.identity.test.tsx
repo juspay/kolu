@@ -20,9 +20,8 @@
  *     a scroll, an open editor) still on it.
  */
 
-import { For } from "solid-js";
-import { createStore } from "solid-js/store";
-import { render } from "solid-js/web";
+import { createStore, For } from "solid-js";
+import { render } from "@solidjs/web";
 import { afterEach, describe, expect, it } from "vitest";
 import { writeWrappedValue } from "./writeValue";
 

@@ -19,14 +19,8 @@ import {
   type CodeViewLineSelection,
   type CodeViewOptions,
 } from "@pierre/diffs";
-import {
-  type Component,
-  createEffect,
-  type JSX,
-  on,
-  onCleanup,
-  onMount,
-} from "solid-js";
+import { type Component, createEffect, on, onCleanup, onMount } from "solid-js";
+import type { JSX } from "@solidjs/web";
 import type { CodeViewItem } from "./codeViewItem";
 import { safeApply } from "./safeApply";
 import { getCodeViewWorkerPool, HIGHLIGHTER_CONTRACT } from "./workerPool";

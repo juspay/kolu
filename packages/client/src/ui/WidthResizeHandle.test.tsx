@@ -6,7 +6,7 @@
  * back to the default by a double-click.
  */
 
-import { render } from "solid-js/web";
+import { render } from "@solidjs/web";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { resizableWidth } from "./resizableWidth";
 import { createWidthDrag, WidthResizeHandle } from "./WidthResizeHandle";

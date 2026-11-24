@@ -1,5 +1,5 @@
 import type { PrInfo } from "anyforge/schemas";
-import { render } from "solid-js/web";
+import { render } from "@solidjs/web";
 import { describe, expect, it } from "vitest";
 import { PrMarks, PrPip } from "./PrPip.tsx";
 

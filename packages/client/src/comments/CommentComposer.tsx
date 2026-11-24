@@ -6,7 +6,7 @@
 
 import type { SelectionRect } from "@kolu/artifact-sdk/client";
 import { type Component, createSignal, Show } from "solid-js";
-import { Portal } from "solid-js/web";
+import { Portal } from "@solidjs/web";
 import { useComposer } from "./commentView";
 import { useComments } from "./useComments";
 

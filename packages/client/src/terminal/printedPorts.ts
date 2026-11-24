@@ -51,8 +51,7 @@
 import { parseLoopbackUrl, WEB_URL_PATTERN } from "@kolu/url-shape";
 import { snapToWrapHead } from "@kolu/xterm-kit";
 import type { TerminalId } from "kolu-common/surface";
-import { createRoot } from "solid-js";
-import { createStore, produce } from "solid-js/store";
+import { createRoot, createStore, produce } from "solid-js";
 
 /** Rows read per turn before yielding. */
 export const SCAN_CHUNK_LINES = 2_000;

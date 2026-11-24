@@ -87,10 +87,10 @@ import {
   createMemo,
   createSignal,
   For,
-  type JSX,
   onMount,
   Show,
 } from "solid-js";
+import type { JSX } from "@solidjs/web";
 import { createSharedRoot } from "../../createSharedRoot";
 import { ACTIONS } from "../../input/actions";
 import { isPlatformModifier } from "../../input/keyboard";
@@ -259,26 +259,28 @@ const Dock: Component<{
       ref={asideEl}
       data-mode={dockMode()}
       data-maximized={posture.layout() === "maximized" ? "" : undefined}
-      class="flex flex-col select-none overflow-hidden bg-surface-1"
-      classList={{
-        // Tiled: absolute float inside the canvas; positions over
-        // tiles rather than reflowing them. `top-6` keeps a small
-        // gutter below the (now borderless) chrome so the dock reads as
-        // a canvas tool without floating conspicuously low. Opaque
-        // background (see base class) so canvas tiles don't bleed
-        // through the seams between rows or behind the rounded corners.
-        "absolute z-30 top-6 left-4 rounded-2xl shadow-2xl shadow-black/40":
-          posture.layout() === "tiled",
-        "max-h-[calc(100vh-14rem)]": posture.layout() === "tiled",
-        // Maximized: real left-panel flex sibling of the canvas. The
-        // canvas takes the remaining space via `flex-1` next to us
-        // (see TerminalCanvas). Full canvas height comes from the
-        // parent flex container (`stretch` is the default
-        // `align-items`); a right-edge separator reads as a hard
-        // panel boundary rather than a floating card.
-        "relative shrink-0 h-full border-r border-edge":
-          posture.layout() === "maximized",
-      }}
+      class={[
+        "flex flex-col select-none overflow-hidden bg-surface-1",
+        {
+          // Tiled: absolute float inside the canvas; positions over
+          // tiles rather than reflowing them. `top-6` keeps a small
+          // gutter below the (now borderless) chrome so the dock reads as
+          // a canvas tool without floating conspicuously low. Opaque
+          // background (see base class) so canvas tiles don't bleed
+          // through the seams between rows or behind the rounded corners.
+          "absolute z-30 top-6 left-4 rounded-2xl shadow-2xl shadow-black/40":
+            posture.layout() === "tiled",
+          "max-h-[calc(100vh-14rem)]": posture.layout() === "tiled",
+          // Maximized: real left-panel flex sibling of the canvas. The
+          // canvas takes the remaining space via `flex-1` next to us
+          // (see TerminalCanvas). Full canvas height comes from the
+          // parent flex container (`stretch` is the default
+          // `align-items`); a right-edge separator reads as a hard
+          // panel boundary rather than a floating card.
+          "relative shrink-0 h-full border-r border-edge":
+            posture.layout() === "maximized",
+        },
+      ]}
       style={{ width: `${effectiveDockWidth()}px` }}
     >
       <RailOrCards
@@ -380,7 +382,7 @@ const RailOrCards: Component<{
       />
       <div class="flex flex-col overflow-y-auto overflow-x-hidden scrollbar-none flex-1 min-h-0">
         <div
-          classList={{ hidden: props.mode === "rail" }}
+          class={{ hidden: props.mode === "rail" }}
           inert={props.mode === "rail"}
         >
           {/* The dock's OWN drag scope, nested inside the canvas's: a
@@ -411,7 +413,7 @@ const RailOrCards: Component<{
           </DragDropProvider>
         </div>
         <div
-          classList={{ hidden: props.mode !== "rail" }}
+          class={{ hidden: props.mode !== "rail" }}
           inert={props.mode !== "rail"}
         >
           <For each={props.tree.groups} keyed={(group) => group.name}>
@@ -483,11 +485,13 @@ const DockHeader: Component<{
   const railLayout = () => props.mode === "rail";
   return (
     <div
-      class="flex items-center gap-1 py-1 border-b border-edge/40 shrink-0"
-      classList={{
-        "px-1 flex-col": railLayout(),
-        "pl-1 pr-3": !railLayout(),
-      }}
+      class={[
+        "flex items-center gap-1 py-1 border-b border-edge/40 shrink-0",
+        {
+          "px-1 flex-col": railLayout(),
+          "pl-1 pr-3": !railLayout(),
+        },
+      ]}
     >
       <button
         type="button"
@@ -513,17 +517,21 @@ const DockHeader: Component<{
         type="button"
         data-testid="dock-mode-toggle"
         onClick={toggleRailCards}
-        class="flex items-center justify-center w-6 h-6 rounded-md cursor-pointer text-fg-3 hover:text-fg hover:bg-surface-2/70 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
-        classList={{ "ml-auto": !railLayout() }}
+        class={[
+          "flex items-center justify-center w-6 h-6 rounded-md cursor-pointer text-fg-3 hover:text-fg hover:bg-surface-2/70 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50",
+          { "ml-auto": !railLayout() },
+        ]}
         aria-label={railLayout() ? "Expand to cards" : "Collapse to rail"}
         title={railLayout() ? "Expand to cards" : "Collapse to rail"}
       >
         <span
-          class="inline-flex"
-          classList={{
-            "rotate-90": !railLayout(),
-            "-rotate-90": railLayout(),
-          }}
+          class={[
+            "inline-flex",
+            {
+              "rotate-90": !railLayout(),
+              "-rotate-90": railLayout(),
+            },
+          ]}
         >
           <ChevronDownIcon class="w-3.5 h-3.5" />
         </span>
@@ -604,13 +612,15 @@ const HeaderDropTarget: Component = () => {
       ref={droppable.ref}
       data-testid="dock-header-drop"
       data-drop={drop()}
-      class="pointer-events-none absolute inset-0 rounded-t-[var(--dock-card-radius-inner)] border-2 border-dashed transition-colors"
-      classList={{
-        "border-transparent": drop() === undefined,
-        "border-accent/40 bg-accent/5": drop() === "target",
-        "border-accent bg-accent/15": drop() === "over",
-        "border-edge bg-surface-2/50": drop() === "invalid",
-      }}
+      class={[
+        "pointer-events-none absolute inset-0 rounded-t-[var(--dock-card-radius-inner)] border-2 border-dashed transition-colors",
+        {
+          "border-transparent": drop() === undefined,
+          "border-accent/40 bg-accent/5": drop() === "target",
+          "border-accent bg-accent/15": drop() === "over",
+          "border-edge bg-surface-2/50": drop() === "invalid",
+        },
+      ]}
     />
   );
 };

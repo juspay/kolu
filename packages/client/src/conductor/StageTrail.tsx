@@ -18,13 +18,14 @@
  *  events, and while one is shown the others dim — never a line around it,
  *  so the only ring is where the work is.
  *
- *  `<Index>`, because a visit's POSITION is its identity — the trail only
- *  grows at its end — and the fold mints fresh objects every tick. */
+ *  `<For keyed={false}>`, because a visit's POSITION is its identity — the
+ *  trail only grows at its end — and the fold mints fresh objects every
+ *  tick. */
 
 import { compactPhrase, dualPhrase } from "@kolu/terminal-vocab/duration";
 import { Option } from "effect";
 import { type Filed, isDoubt, type Visit, visitMs } from "kolu-work";
-import { type Component, createMemo, Index } from "solid-js";
+import { type Component, createMemo, For } from "solid-js";
 import { type TrailLabel, trailLabels } from "./trailView";
 import { NOW_RING, STAGE_INK, STAGE_LABEL } from "./workReadings";
 
@@ -75,7 +76,7 @@ const StageTrail: Component<{
         aria-label="Trail"
         class="m-0 flex h-6 list-none items-stretch gap-px overflow-x-auto p-1"
       >
-        <Index each={props.trail}>
+        <For each={props.trail} keyed={false}>
           {(visit, index) => {
             const open = () => Option.isNone(visit().until);
             const shown = () => props.index.shown() === index;
@@ -111,13 +112,13 @@ const StageTrail: Component<{
               </li>
             );
           }}
-        </Index>
+        </For>
       </ol>
       <ul
         aria-hidden="true"
         class="m-0 mt-1 flex list-none flex-wrap gap-x-2.5 gap-y-0.5 p-0 font-mono text-[0.58rem] text-fg-3"
       >
-        <Index each={labels()}>
+        <For each={labels()} keyed={false}>
           {(label) => (
             <li
               data-testid="trail-label"
@@ -133,7 +134,7 @@ const StageTrail: Component<{
               {labelWords(label())}
             </li>
           )}
-        </Index>
+        </For>
       </ul>
     </section>
   );

@@ -34,7 +34,8 @@
  * a composed/multi-surface app (the Leak D shape) with no API difference.
  */
 
-import { type Accessor, createMemo, type JSX, Show } from "solid-js";
+import { type Accessor, createMemo, Show } from "solid-js";
+import type { JSX } from "@solidjs/web";
 import { type GateStatus, gateStatus, type SurfaceHealth } from "./health";
 
 // `gateStatus` / `GateStatus` now live in the JSX-free `./health` (the fact

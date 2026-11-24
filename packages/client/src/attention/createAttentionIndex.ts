@@ -9,8 +9,9 @@ import {
   createComputed,
   createMemo,
   createSelector,
+  createStore,
+  reconcile,
 } from "solid-js";
-import { createStore, reconcile } from "solid-js/store";
 import type { HostAttentionIndex } from "./attentionMarks";
 
 /** Index the host's two independent facts by terminal, notifying only changed ids. */

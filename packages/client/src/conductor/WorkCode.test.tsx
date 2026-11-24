@@ -9,8 +9,8 @@ import { Effect } from "effect";
 import type { HostKey } from "kolu-common/hostKey";
 import { encodeHostKey } from "kolu-common/hostKey";
 import type { Work, WorkId } from "kolu-work";
-import { createSignal, type JSX, Show } from "solid-js";
-import { render } from "solid-js/web";
+import { createSignal, Show } from "solid-js";
+import { type JSX, render } from "@solidjs/web";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { CodeDoor } from "../code-view/codeDoor";
 
@@ -197,10 +197,7 @@ afterEach(() => {
 const mount = (body: () => JSX.Element, shown: () => boolean = () => true) => {
   const host = document.createElement("div");
   document.body.append(host);
-  dispose = render(
-    () => <Shown.Provider value={shown}>{body()}</Shown.Provider>,
-    host,
-  );
+  dispose = render(() => <Shown value={shown}>{body()}</Shown>, host);
 };
 
 describe("a picked work's Code view", () => {

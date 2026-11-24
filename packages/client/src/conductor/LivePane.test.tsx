@@ -18,7 +18,7 @@ import type { TerminalGrid } from "@kolu/xterm-kit/solid";
 import type { WorkRole } from "kolu-work";
 import type { TerminalId } from "kolu-common/surface";
 import { createSignal } from "solid-js";
-import { render } from "solid-js/web";
+import { render } from "@solidjs/web";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { FleetTerminalStanding } from "../palette/fleetTerminals";
 import { Shown } from "../ui/shown";
@@ -114,7 +114,7 @@ function mount(): HTMLElement {
   document.body.append(root);
   const stop = render(
     () => (
-      <Shown.Provider value={() => true}>
+      <Shown value={() => true}>
         <LivePane
           host="local"
           id={ID}
@@ -122,7 +122,7 @@ function mount(): HTMLElement {
           connected={true}
           height="600px"
         />
-      </Shown.Provider>
+      </Shown>
     ),
     root,
   );

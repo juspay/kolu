@@ -14,7 +14,7 @@
 import { Effect } from "effect";
 import type { HostKey } from "kolu-common/hostKey";
 import { registerSubscription } from "@kolu/surface/subscriptions";
-import { render } from "solid-js/web";
+import { render } from "@solidjs/web";
 import { afterEach, expect, it, vi } from "vitest";
 
 const LOCAL: HostKey = { kind: "local" };

@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import type { TerminalId } from "kolu-common/surface";
 import { createSignal } from "solid-js";
-import { render } from "solid-js/web";
+import { render } from "@solidjs/web";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { FleetTerminalStanding } from "../palette/fleetTerminals";
 
@@ -53,9 +53,9 @@ function mount(): HTMLElement {
   document.body.append(root);
   dispose = render(
     () => (
-      <Shown.Provider value={shown}>
+      <Shown value={shown}>
         <ConductorLook host="remote:nix@example" id={TERMINAL} />
-      </Shown.Provider>
+      </Shown>
     ),
     root,
   );

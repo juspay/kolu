@@ -10,7 +10,7 @@
  * internally with capture-phase listener to intercept before terminal.
  */
 
-import Dialog from "@corvu-next/dialog"
+import Dialog from "@corvu-next/dialog";
 import { makeEventListener } from "@solid-primitives/event-listener";
 import { encodeHostKey } from "kolu-common/hostKey";
 import {
@@ -1033,12 +1033,15 @@ const CommandPalette: Component<{
                   <span class="text-fg-3/50">›</span>
                   <button
                     type="button"
-                    class="px-1.5 py-0.5 rounded-md hover:bg-surface-2/70 transition-colors"
-                    classList={{
-                      "text-accent font-medium":
-                        i() === breadcrumbSegments().length - 1,
-                      "hover:text-fg": i() !== breadcrumbSegments().length - 1,
-                    }}
+                    class={[
+                      "px-1.5 py-0.5 rounded-md hover:bg-surface-2/70 transition-colors",
+                      {
+                        "text-accent font-medium":
+                          i() === breadcrumbSegments().length - 1,
+                        "hover:text-fg":
+                          i() !== breadcrumbSegments().length - 1,
+                      },
+                    ]}
                     onClick={() => navigateTo(segment.depth)}
                   >
                     {segment.name}
@@ -1061,10 +1064,10 @@ const CommandPalette: Component<{
             data-value-input={mode().kind === "value" ? "" : undefined}
             data-value-invalid={valueError() ? "" : undefined}
             placeholder={placeholder()}
-            class="flex-1 min-w-0 bg-transparent text-fg text-base outline-none placeholder-fg-3/80"
-            classList={{
-              "text-danger": !!valueError(),
-            }}
+            class={[
+              "flex-1 min-w-0 bg-transparent text-fg text-base outline-none placeholder-fg-3/80",
+              { "text-danger": !!valueError() },
+            ]}
             value={query()}
             onInput={(e) => setQuery(e.currentTarget.value)}
           />

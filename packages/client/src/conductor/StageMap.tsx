@@ -38,8 +38,9 @@
  *  plain watch) draws no map; a work whose mode nobody has answered draws
  *  six faint stages until it is known.
  *
- *  `<Index>`, because a stage's POSITION is its identity — the six never
- *  move — and the fold mints fresh objects every tick of the clock. */
+ *  `<For keyed={false}>`, because a stage's POSITION is its identity — the
+ *  six never move — and the fold mints fresh objects every tick of the
+ *  clock. */
 
 import { compactPhrase, dualPhrase } from "@kolu/terminal-vocab/duration";
 import {
@@ -59,7 +60,7 @@ import {
   type Waiter,
   type Where,
 } from "kolu-work";
-import { type Component, createMemo, For, Index, Show } from "solid-js";
+import { type Component, createMemo, For, Show } from "solid-js";
 import { HATCH, NOW_RING, STAGE_INK, STAGE_LABEL } from "./workReadings";
 
 /** WHERE EACH STAGE SITS on the map's grid: five in a row, Review above
@@ -456,7 +457,7 @@ const StageMap: Component<{
             aria-label="Stages"
             class="m-0 grid min-w-0 list-none grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)_auto_minmax(0,1fr)_auto_minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-y-0.5 p-0"
           >
-            <Index each={read().cells}>
+            <For each={read().cells} keyed={false}>
               {(stage) => {
                 const state = () => stage().state;
                 const name = () => stage().name;
@@ -574,7 +575,7 @@ const StageMap: Component<{
                   </li>
                 );
               }}
-            </Index>
+            </For>
             {/* THE CELLS BETWEEN THE BOXES: the arrows, and each doubt's
                 mark between its two stages. */}
             <For each={BETWEEN}>

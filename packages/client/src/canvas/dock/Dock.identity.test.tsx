@@ -2,8 +2,8 @@
 /** Exercise the production Dock / DockList keyed loops with fresh tree objects.
  * Only the row's external services and paint are replaced; structural owners
  * (section, cluster, row) and their accessor props are the actual components. */
-import { createMemo, createSignal, type JSX } from "solid-js";
-import { render } from "solid-js/web";
+import { createMemo, createSignal } from "solid-js";
+import { type JSX, render } from "@solidjs/web";
 import { expect, it, vi } from "vitest";
 import type { DockTree } from "./dockTree";
 import type { TerminalId } from "kolu-common/surface";

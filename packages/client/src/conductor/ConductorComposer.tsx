@@ -378,8 +378,10 @@ const ConductorComposer: Component<{
     <button
       type="button"
       data-testid="conductor-send"
-      class="shrink-0 whitespace-nowrap rounded-md bg-accent px-3 font-mono text-[0.65rem] font-semibold text-surface-0 cursor-pointer"
-      classList={{ "py-1": !phone(), "py-2": phone() }}
+      class={[
+        "shrink-0 whitespace-nowrap rounded-md bg-accent px-3 font-mono text-[0.65rem] font-semibold text-surface-0 cursor-pointer",
+        { "py-1": !phone(), "py-2": phone() },
+      ]}
       // Alt-CLICK steers too, for the same reason Alt+Enter does: the chord is
       // a decision about the message, and a person who holds Alt means it
       // whichever way they then send.
@@ -424,8 +426,10 @@ const ConductorComposer: Component<{
                   data-kind="work"
                   data-work={candidate().work}
                   data-selected={index() === selected() ? "" : undefined}
-                  class="w-full min-w-0 flex items-center gap-2 rounded-md px-2 py-1 text-left text-xs hover:bg-surface-2 cursor-pointer"
-                  classList={{ "bg-surface-2": index() === selected() }}
+                  class={[
+                    "w-full min-w-0 flex items-center gap-2 rounded-md px-2 py-1 text-left text-xs hover:bg-surface-2 cursor-pointer",
+                    { "bg-surface-2": index() === selected() },
+                  ]}
                   onPointerEnter={() => setSelected(index())}
                   onClick={() => accept(index())}
                 >
@@ -479,8 +483,10 @@ const ConductorComposer: Component<{
                     data-terminal-id={candidate().terminalId}
                     data-host={candidate().host}
                     data-selected={at() === selected() ? "" : undefined}
-                    class="w-full min-w-0 flex items-center gap-2 rounded-md px-2 py-1 text-left text-xs hover:bg-surface-2 cursor-pointer"
-                    classList={{ "bg-surface-2": at() === selected() }}
+                    class={[
+                      "w-full min-w-0 flex items-center gap-2 rounded-md px-2 py-1 text-left text-xs hover:bg-surface-2 cursor-pointer",
+                      { "bg-surface-2": at() === selected() },
+                    ]}
                     // Hover moves the highlight so the mouse and the keyboard
                     // never disagree about which row Enter would take.
                     onPointerEnter={() => setSelected(at())}
@@ -518,11 +524,13 @@ const ConductorComposer: Component<{
                         <span
                           data-testid="conductor-mention-detail"
                           data-kind={detail().kind}
-                          class="min-w-0 truncate text-fg-2"
-                          classList={{
-                            "[direction:rtl] text-left font-mono text-[0.62rem]":
-                              detail().kind === "directory",
-                          }}
+                          class={[
+                            "min-w-0 truncate text-fg-2",
+                            {
+                              "[direction:rtl] text-left font-mono text-[0.62rem]":
+                                detail().kind === "directory",
+                            },
+                          ]}
                         >
                           <bdi>{detail().text}</bdi>
                         </span>
@@ -550,8 +558,10 @@ const ConductorComposer: Component<{
                 data-testid="conductor-command-row"
                 data-command={command.name}
                 data-selected={index() === selected() ? "" : undefined}
-                class="w-full flex items-baseline gap-2 rounded-md px-2 py-1 text-left text-xs hover:bg-surface-2 cursor-pointer"
-                classList={{ "bg-surface-2": index() === selected() }}
+                class={[
+                  "w-full flex items-baseline gap-2 rounded-md px-2 py-1 text-left text-xs hover:bg-surface-2 cursor-pointer",
+                  { "bg-surface-2": index() === selected() },
+                ]}
                 onPointerEnter={() => setSelected(index())}
                 onClick={() => accept(index())}
               >
@@ -696,8 +706,10 @@ const ConductorComposer: Component<{
                 data-uploading={attachment.path === null ? "" : undefined}
                 aria-busy={attachment.path === null ? "true" : undefined}
                 title={attachment.name}
-                class="flex max-w-[12rem] items-center gap-1.5 rounded-md border border-edge-bright bg-surface-1 px-1.5 py-1"
-                classList={{ "opacity-60": attachment.path === null }}
+                class={[
+                  "flex max-w-[12rem] items-center gap-1.5 rounded-md border border-edge-bright bg-surface-1 px-1.5 py-1",
+                  { "opacity-60": attachment.path === null },
+                ]}
               >
                 <Show
                   when={thumbnailOf(attachment)}

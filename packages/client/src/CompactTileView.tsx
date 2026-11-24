@@ -3,7 +3,8 @@
  *  RightPanelDrawer, so folding changes chrome without replacing terminals. */
 
 import type { TerminalId } from "kolu-common/surface";
-import { Show, type Component, type JSX } from "solid-js";
+import { Show, type Component } from "solid-js";
+import type { JSX } from "@solidjs/web";
 import { DockList } from "./canvas/dock/DockList";
 import MobileTileView from "./MobileTileView";
 import { useTerminalStore } from "./terminal/useTerminalStore";
@@ -28,9 +29,11 @@ const CompactTileView: Component<{
        *  `shrink-0` keeps the rail from collapsing under a busy tile. */}
       <aside
         data-testid="compact-dock-rail"
-        classList={{ hidden: !props.compact }}
         inert={!props.compact}
-        class="shrink-0 w-52 min-h-0 flex flex-col border-r border-edge bg-surface-1"
+        class={[
+          "shrink-0 w-52 min-h-0 flex flex-col border-r border-edge bg-surface-1",
+          { hidden: !props.compact },
+        ]}
       >
         <Show when={props.compact}>
           <DockList onSelect={store.focusTerminalSilently} />

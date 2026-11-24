@@ -11,7 +11,7 @@ import {
   onCleanup,
   Show,
 } from "solid-js";
-import { Portal } from "solid-js/web";
+import { Portal } from "@solidjs/web";
 import DocLink from "../ui/DocLink";
 import { CloseIcon } from "../ui/Icons";
 import { activeTip, dismissTip } from "./useTips";
@@ -37,11 +37,13 @@ const TipBanner: Component = () => {
         <Portal>
           <div
             data-testid="tip-banner"
-            class="fixed top-3 left-1/2 z-50 -translate-x-1/2 pointer-events-none transition-all duration-300 ease-out"
-            classList={{
-              "opacity-0 -translate-y-6": !visible(),
-              "opacity-100 translate-y-0": visible(),
-            }}
+            class={[
+              "fixed top-3 left-1/2 z-50 -translate-x-1/2 pointer-events-none transition-all duration-300 ease-out",
+              {
+                "opacity-0 -translate-y-6": !visible(),
+                "opacity-100 translate-y-0": visible(),
+              },
+            ]}
           >
             <div
               class="pointer-events-auto flex items-center gap-3 pl-4 pr-2 py-2 bg-surface-1 border border-accent/50 rounded-full max-w-[min(560px,calc(100vw-2rem))]"

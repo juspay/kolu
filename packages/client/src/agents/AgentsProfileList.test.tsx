@@ -18,7 +18,7 @@ import {
   type ProfileSuggestion,
 } from "@kolu/agent-distro/status";
 import { createSignal } from "solid-js";
-import { render } from "solid-js/web";
+import { render } from "@solidjs/web";
 import { afterEach, describe, expect, it } from "vitest";
 import AgentsProfileList, { type ProfileListRow } from "./AgentsProfileList";
 

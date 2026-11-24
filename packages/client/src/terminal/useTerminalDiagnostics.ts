@@ -14,8 +14,13 @@
  *  — both registrations happen in Terminal.tsx onMount/onCleanup. */
 
 import type { TerminalId } from "kolu-common/surface";
-import { type Accessor, createEffect, createRoot } from "solid-js";
-import { createStore, produce } from "solid-js/store";
+import {
+  type Accessor,
+  createEffect,
+  createRoot,
+  createStore,
+  produce,
+} from "solid-js";
 import type { ScrollLockEvent, TerminalGrid } from "@kolu/xterm-kit/solid";
 
 export type Renderer = "webgl" | "dom";

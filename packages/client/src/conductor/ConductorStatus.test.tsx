@@ -12,7 +12,7 @@ import {
   type ConductorState,
 } from "kolu-common/conductor";
 import { needsYou, type WorkRow } from "kolu-work";
-import { render } from "solid-js/web";
+import { render } from "@solidjs/web";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 // The count is a CONTROL on a phone, and a plain readout on a desktop, where
@@ -83,9 +83,9 @@ function mount(
       // The pane is a retained view; every part of it reads its visibility
       // from this context, so a status line mounted for a test says it is
       // being looked at.
-      <Shown.Provider value={() => true}>
+      <Shown value={() => true}>
         <ConductorStatus state={state} rows={rows} />
-      </Shown.Provider>
+      </Shown>
     ),
     root,
   );

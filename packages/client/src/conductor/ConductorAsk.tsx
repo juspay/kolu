@@ -46,8 +46,9 @@ import { askLead, askQuestions, askRecord } from "./askRecord";
 import { askDraft, forgetAskDraft, setAskDraft } from "./drafts";
 import { useConductor } from "./useConductor";
 
-/** One option chip. The SELECTED state is layered on through `classList`, so
- *  the shape of a chip is written once and only the two colours branch. */
+/** One option chip. The SELECTED state is layered on through the `class`
+ *  object, so the shape of a chip is written once and only the two colours
+ *  branch. */
 const OPTION_CLASS = "rounded-md border px-2.5 py-1 text-fg cursor-pointer";
 
 /** Does this question hold exactly ONE answer? A `choice` offers one of its
@@ -263,11 +264,13 @@ const ConductorAsk: Component<{
                             data-value={choice.value}
                             data-active={on() ? "" : undefined}
                             title={choice.hint ?? undefined}
-                            class={OPTION_CLASS}
-                            classList={{
-                              "border-accent bg-accent/15": on(),
-                              "border-edge-bright bg-surface-2": !on(),
-                            }}
+                            class={[
+                              OPTION_CLASS,
+                              {
+                                "border-accent bg-accent/15": on(),
+                                "border-edge-bright bg-surface-2": !on(),
+                              },
+                            ]}
                             onClick={() => pick(field, choice.value)}
                           >
                             {choice.label}
@@ -289,11 +292,13 @@ const ConductorAsk: Component<{
                             data-field={field.key}
                             data-value={value}
                             data-active={on() ? "" : undefined}
-                            class={OPTION_CLASS}
-                            classList={{
-                              "border-accent bg-accent/15": on(),
-                              "border-edge-bright bg-surface-2": !on(),
-                            }}
+                            class={[
+                              OPTION_CLASS,
+                              {
+                                "border-accent bg-accent/15": on(),
+                                "border-edge-bright bg-surface-2": !on(),
+                              },
+                            ]}
                             onClick={() => pick(field, value)}
                           >
                             {value === YES_NO.yes ? "Yes" : "No"}

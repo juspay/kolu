@@ -29,7 +29,7 @@ export function agentMark(kind: AgentInfo["kind"]): AgentMark {
 
 /** Stable per-kind icon components for the command palette, which carries an
  *  `icon: Component`. Built ONCE — a fresh component per call would make
- *  `<Dynamic>` tear down and recreate the SVG on every re-render. */
+ *  `dynamic()` tear down and recreate the SVG on every re-render. */
 const AGENT_ICONS: Record<
   AgentInfo["kind"],
   Component<{ class?: string }>

@@ -21,8 +21,8 @@ import {
   createSignal,
   getOwner,
   onCleanup,
+  type SetStoreFunction,
 } from "solid-js";
-import type { SetStoreFunction } from "solid-js/store";
 import type { Collection } from "../index";
 import {
   buildSurfaceFace,

@@ -20,12 +20,11 @@ import {
   type Component,
   createContext,
   createSignal,
-  type JSX,
   onCleanup,
   Show,
   useContext,
 } from "solid-js";
-import { Portal } from "solid-js/web";
+import { type JSX, Portal } from "@solidjs/web";
 import {
   DragTracker,
   type DragTrackerOptions,
@@ -201,7 +200,7 @@ export const DragDropProvider: Component<{
   };
 
   return (
-    <DragDropContext.Provider value={scope}>
+    <DragDropContext value={scope}>
       {props.children}
       <Show when={props.overlay}>
         {(overlay) => (
@@ -219,7 +218,7 @@ export const DragDropProvider: Component<{
           </Portal>
         )}
       </Show>
-    </DragDropContext.Provider>
+    </DragDropContext>
   );
 };
 

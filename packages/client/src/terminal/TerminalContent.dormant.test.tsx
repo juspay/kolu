@@ -14,8 +14,8 @@
 
 import type { ITheme } from "@xterm/xterm";
 import type { TerminalId } from "kolu-common/surface";
-import type { Component, JSX } from "solid-js";
-import { render } from "solid-js/web";
+import type { Component } from "solid-js";
+import { render, type JSX } from "@solidjs/web";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 const MAIN = "dormant-main" as TerminalId;

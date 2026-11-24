@@ -16,7 +16,8 @@
  *  state all wire the same way. */
 
 import { createEventListener } from "@solid-primitives/event-listener";
-import { createEffect, createSignal, type JSX } from "solid-js";
+import { createEffect, createSignal } from "solid-js";
+import type { JSX } from "@solidjs/web";
 
 export type AnchorSide =
   | "bottom-start"

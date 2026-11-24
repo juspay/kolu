@@ -44,10 +44,13 @@ describe("@kolu/solid-dockrow/rowValues", () => {
     // `reachedPackages` only with WORKSPACE MEMBERS whose files it opened, and
     // solid-js is not a workspace member — so `not.toContain("solid-js")` on
     // that field passes even when walked from this package's own barrel, which
-    // value-imports `solid-js` and `solid-js/web`. A guard that cannot fail is
+    // value-imports `solid-js` and `@solidjs/web`. A guard that cannot fail is
     // worse than no guard: it reads as one.
     const solid = reachedSpecifiers.filter(
-      (s) => s === "solid-js" || s.startsWith("solid-js/"),
+      (s) =>
+        s === "solid-js" ||
+        s.startsWith("solid-js/") ||
+        s.startsWith("@solidjs/"),
     );
     expect(
       solid,

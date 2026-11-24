@@ -18,11 +18,11 @@ import {
   type Component,
   createEffect,
   createMemo,
-  type JSX,
   on,
   onCleanup,
   onMount,
 } from "solid-js";
+import type { JSX } from "@solidjs/web";
 import { safeApply } from "./safeApply";
 import { toError } from "./toError";
 import {

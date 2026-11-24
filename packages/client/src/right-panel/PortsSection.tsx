@@ -37,14 +37,8 @@
 
 import { hostKeysEqual as sameHost } from "kolu-common/hostKey";
 import { samePortList, type TerminalId } from "kolu-common/surface";
-import {
-  type Component,
-  createMemo,
-  createSignal,
-  For,
-  type JSX,
-  Show,
-} from "solid-js";
+import { type Component, createMemo, createSignal, For, Show } from "solid-js";
+import type { JSX } from "@solidjs/web";
 import { rowAction } from "../forwards/portAction";
 import {
   type PortRow as PortRowData,
@@ -172,17 +166,18 @@ const PortsSection: Component<{ terminalId: TerminalId }> = (props) => {
           </For>
           <Show when={groups().elsewhere.length > 0}>
             <div
-              class="flex flex-col"
-              classList={{ "mt-1.5": groups().here.length > 0 }}
+              class={["flex flex-col", { "mt-1.5": groups().here.length > 0 }]}
               data-testid="inspector-ports-elsewhere"
             >
               <button
                 type="button"
-                class="-mx-1 flex items-center gap-1 rounded px-1 py-0.5 text-left text-[10px] text-fg-3/70 transition-colors hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 motion-reduce:transition-none"
-                aria-expanded={elsewhereOpen()}
                 // A coarse pointer gets the WCAG 2.2 24px tap floor, like the
                 // Code-tab toolbar; a mouse keeps the compact header.
-                classList={{ "min-h-6": isTouch() }}
+                class={[
+                  "-mx-1 flex items-center gap-1 rounded px-1 py-0.5 text-left text-[10px] text-fg-3/70 transition-colors hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 motion-reduce:transition-none",
+                  { "min-h-6": isTouch() },
+                ]}
+                aria-expanded={elsewhereOpen()}
                 data-testid="inspector-ports-elsewhere-toggle"
                 onClick={() => setElsewhereOpen((open) => !open)}
               >

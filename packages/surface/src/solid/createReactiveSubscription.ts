@@ -20,10 +20,11 @@ import {
   batch,
   createEffect,
   createSignal,
+  createStore,
   on,
   onCleanup,
+  produce,
 } from "solid-js";
-import { createStore, produce } from "solid-js/store";
 import {
   createUpdatedTracker,
   type Subscription,

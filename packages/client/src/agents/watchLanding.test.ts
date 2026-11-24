@@ -4,8 +4,7 @@
  *  object sees nothing; this one must see the edge. */
 
 import type { AgentDistroStatus } from "@kolu/agent-distro/schema";
-import { createRoot } from "solid-js";
-import { createStore, reconcile } from "solid-js/store";
+import { createRoot, createStore, reconcile } from "solid-js";
 import { describe, expect, it } from "vitest";
 import { watchLanding } from "./watchLanding";
 

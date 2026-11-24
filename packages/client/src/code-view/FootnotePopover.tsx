@@ -16,7 +16,7 @@
 import { bindMarkdownLinks } from "@kolu/solid-markdown";
 import { createEventListener } from "@solid-primitives/event-listener";
 import { type Component, createMemo, Show } from "solid-js";
-import { Portal } from "solid-js/web";
+import { Portal } from "@solidjs/web";
 import { surface } from "../ui/Surface";
 import { useAnchoredPopover } from "../ui/useAnchoredPopover";
 

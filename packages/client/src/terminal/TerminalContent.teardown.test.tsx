@@ -3,7 +3,7 @@
 import type { ITheme } from "@xterm/xterm";
 import type { TerminalId } from "kolu-common/surface";
 import { createSignal, Show } from "solid-js";
-import { render } from "solid-js/web";
+import { render } from "@solidjs/web";
 import { expect, it, vi } from "vitest";
 
 const MAIN = "teardown-main" as TerminalId;

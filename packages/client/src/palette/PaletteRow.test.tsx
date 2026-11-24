@@ -10,7 +10,7 @@ import { LOCAL_LOCATION } from "@kolu/padi-client/surface";
 import type { TerminalMetadata } from "@kolu/padi-client/surface";
 import type { HostKey } from "kolu-common/hostKey";
 import type { TerminalId } from "kolu-common/surface";
-import { render } from "solid-js/web";
+import { render } from "@solidjs/web";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("../wire", () => ({

@@ -23,7 +23,7 @@
 
 import type { ConductorState } from "kolu-common/conductor";
 import { type Component, For, Show } from "solid-js";
-import { Portal } from "solid-js/web";
+import { Portal } from "@solidjs/web";
 import { surface } from "../ui/Surface";
 import Toggle from "../ui/Toggle";
 import { useAnchoredPopover } from "../ui/useAnchoredPopover";
@@ -117,12 +117,15 @@ const ConductorSettings: Component<{
                             }
                             role="menuitemradio"
                             aria-checked={choice.value === section.option.value}
-                            class="w-full flex flex-col gap-0.5 px-2 py-1 rounded-md text-left hover:bg-surface-2 cursor-pointer"
-                            classList={{
-                              "text-accent":
-                                choice.value === section.option.value,
-                              "text-fg": choice.value !== section.option.value,
-                            }}
+                            class={[
+                              "w-full flex flex-col gap-0.5 px-2 py-1 rounded-md text-left hover:bg-surface-2 cursor-pointer",
+                              {
+                                "text-accent":
+                                  choice.value === section.option.value,
+                                "text-fg":
+                                  choice.value !== section.option.value,
+                              },
+                            ]}
                             onClick={() => {
                               orch.setOption(section.option.id, choice.value);
                               props.onOpenChange(false);

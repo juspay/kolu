@@ -18,7 +18,8 @@
  *  inline intent renderer, and a consumer that wants plain text passes
  *  `(md) => md`. */
 
-import type { Component, JSX } from "solid-js";
+import type { Component } from "solid-js";
+import type { JSX } from "@solidjs/web";
 
 export const RowLabel: Component<{
   /** The annotation line, as markdown source. */

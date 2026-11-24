@@ -20,14 +20,8 @@ import {
 import { installInstructions, type PwaInstall } from "@kolu/solid-pwa-install";
 import { LOCAL_HOST } from "kolu-common/hostKey";
 import { useSurfaceApp } from "@kolu/surface-app/solid";
-import {
-  type Component,
-  createMemo,
-  createSignal,
-  For,
-  type JSX,
-  Show,
-} from "solid-js";
+import { type Component, createMemo, createSignal, For, Show } from "solid-js";
+import type { JSX } from "@solidjs/web";
 import { makeEventListener } from "@solid-primitives/event-listener";
 import AgentsChooser from "./agents/AgentsChooser";
 import {

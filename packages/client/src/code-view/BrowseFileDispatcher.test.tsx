@@ -4,7 +4,7 @@
  *  own test), the no-preview line rather than a screen of garbage. */
 
 import { createSignal } from "solid-js";
-import { render } from "solid-js/web";
+import { render } from "@solidjs/web";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import BrowseFileDispatcher, {
   type BrowseFileDispatcherProps,
@@ -37,7 +37,7 @@ const show = (path: string, content: string): HTMLElement => {
   dispose = render(
     () => (
       // The viewer is drawn inside the view that holds its comment state.
-      <CommentView.Provider value={createCommentView()}>
+      <CommentView value={createCommentView()}>
         <BrowseFileDispatcher
           at={null}
           open={null}
@@ -47,7 +47,7 @@ const show = (path: string, content: string): HTMLElement => {
           repoVault={{ paths: [], pending: false }}
           theme="dark"
         />
-      </CommentView.Provider>
+      </CommentView>
     ),
     host,
   );
@@ -95,8 +95,8 @@ describe("a drawn document, as the terminal it hangs on comes and goes", () => {
     dispose = render(
       () => (
         // Commenting asks whether its pane is shown, as every pane does.
-        <Shown.Provider value={() => true}>
-          <CommentView.Provider value={createCommentView()}>
+        <Shown value={() => true}>
+          <CommentView value={createCommentView()}>
             <BrowseFileDispatcher
               at={at()}
               open={null}
@@ -109,8 +109,8 @@ describe("a drawn document, as the terminal it hangs on comes and goes", () => {
               repoVault={{ paths: [], pending: false }}
               theme="dark"
             />
-          </CommentView.Provider>
-        </Shown.Provider>
+          </CommentView>
+        </Shown>
       ),
       host,
     );

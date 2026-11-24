@@ -18,7 +18,8 @@
  *  host applies it to its NEXT new terminal. */
 
 import type { Hint } from "../settings/SettingRow";
-import { createSignal, type JSX, Show } from "solid-js";
+import { createSignal, Show } from "solid-js";
+import type { JSX } from "@solidjs/web";
 import { agentDistroSettingEqual } from "@kolu/agent-distro/schema";
 import { toast } from "solid-sonner";
 import Toggle from "../ui/Toggle";

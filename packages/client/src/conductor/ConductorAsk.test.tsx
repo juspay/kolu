@@ -26,7 +26,7 @@ import {
   type ConductorAskRow,
   YES_NO,
 } from "kolu-common/conductor";
-import { render } from "solid-js/web";
+import { render } from "@solidjs/web";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 /** What the agent is told. A settled card answers nothing — its buttons are

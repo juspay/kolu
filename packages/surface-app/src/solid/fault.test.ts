@@ -13,7 +13,7 @@
  * running, so the fallback renders when that batch FLUSHES — assert after
  * `createRoot` returns, not inside it.
  */
-import type { JSX } from "solid-js";
+import type { JSX } from "@solidjs/web";
 import { createComponent, createRoot } from "solid-js";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { SurfaceFaultBoundary } from "./fault";

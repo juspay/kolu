@@ -1,6 +1,5 @@
-import { createSignal, For, Show } from "solid-js";
-import { createStore, produce } from "solid-js/store";
-import { render } from "solid-js/web";
+import { createSignal, createStore, For, produce, Show } from "solid-js";
+import { render } from "@solidjs/web";
 import { expect, it } from "vitest";
 import { WorkspaceTerminals } from "./WorkspaceTerminals";
 

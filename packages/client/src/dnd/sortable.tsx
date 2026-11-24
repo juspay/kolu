@@ -14,9 +14,9 @@ import {
   type Component,
   createContext,
   createMemo,
-  type JSX,
   useContext,
 } from "solid-js";
+import type { JSX } from "@solidjs/web";
 import {
   type DragTransform,
   NO_TRANSFORM,
@@ -51,9 +51,9 @@ export const SortableProvider: Component<{
     return next;
   });
   return (
-    <SortableContext.Provider value={{ ids: () => props.ids, sortedIds }}>
+    <SortableContext value={{ ids: () => props.ids, sortedIds }}>
       {props.children}
-    </SortableContext.Provider>
+    </SortableContext>
   );
 };
 

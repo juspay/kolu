@@ -11,7 +11,7 @@
 
 import type { TerminalId } from "kolu-common/surface";
 import { nonEmpty } from "nonempty";
-import { createStore, produce } from "solid-js/store";
+import { createStore, produce } from "solid-js";
 import { activeScope } from "../hostScope/hostScopes";
 import { type SplitPanelState, useSplitPanelState } from "./splitPanelState";
 

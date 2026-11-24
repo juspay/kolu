@@ -20,7 +20,7 @@
 import type { HostKey } from "kolu-common/hostKey";
 import type { ConnectionInfo } from "kolu-common/surfacesWithPadi";
 import { createSignal } from "solid-js";
-import { render } from "solid-js/web";
+import { render } from "@solidjs/web";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const h = vi.hoisted(() => {

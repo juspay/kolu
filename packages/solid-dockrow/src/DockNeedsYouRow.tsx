@@ -20,7 +20,8 @@ import { StatePip } from "@kolu/solid-statepip";
 import { DOCK_ROW_PIP_BOX } from "@kolu/solid-statepip/pipVariant";
 import type { TerminalId } from "@kolu/terminal-vocab/schema";
 import { DOCK_ROW_FOCUS_RING, type NeedsYouDensity } from "./geometry.ts";
-import { type Component, type JSX, Show } from "solid-js";
+import { type Component, Show } from "solid-js";
+import type { JSX } from "@solidjs/web";
 import type { DockRowBucket, StatePipBind } from "./pipBind.ts";
 import { RecencyCell, type RowRecency } from "./RecencyCell.tsx";
 import { dockRowAttrs } from "./rowAttrs.ts";
@@ -67,10 +68,12 @@ export const DockNeedsYouRow: Component<{
     data-tile-id={props.tileId}
     onClick={() => props.onSelect()}
     title={props.title}
-    class={`flex items-center gap-1.5 w-full rounded-md cursor-pointer text-left transition-colors duration-150 ${DOCK_ROW_FOCUS_RING} ${
-      props.density === "icon" ? "justify-center py-1" : "px-1.5 py-1"
-    }`}
-    classList={{ "opacity-70": props.hiddenByFilter ?? false }}
+    class={[
+      `flex items-center gap-1.5 w-full rounded-md cursor-pointer text-left transition-colors duration-150 ${DOCK_ROW_FOCUS_RING} ${
+        props.density === "icon" ? "justify-center py-1" : "px-1.5 py-1"
+      }`,
+      { "opacity-70": props.hiddenByFilter ?? false },
+    ]}
   >
     <StatePip {...props.pip} class={DOCK_ROW_PIP_BOX} />
     <Show when={props.density === "full"}>

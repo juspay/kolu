@@ -11,7 +11,7 @@
  */
 
 import type { Accessor } from "solid-js";
-import { render } from "solid-js/web";
+import { render } from "@solidjs/web";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   endWork,
@@ -74,9 +74,9 @@ function mount(works: ReadonlyArray<WorkRow>): HTMLElement {
   document.body.append(root);
   dispose = render(
     () => (
-      <Shown.Provider value={() => true}>
+      <Shown value={() => true}>
         <WorkColumn />
-      </Shown.Provider>
+      </Shown>
     ),
     root,
   );

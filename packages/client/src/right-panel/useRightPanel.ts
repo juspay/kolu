@@ -57,8 +57,7 @@ import {
 import { toError } from "@kolu/surface/run-stream";
 import { Effect } from "effect";
 import type { TerminalId } from "kolu-common/surface";
-import { createSignal } from "solid-js";
-import { createStore, produce } from "solid-js/store";
+import { createSignal, createStore, produce } from "solid-js";
 import { toast } from "solid-sonner";
 import { runAction } from "../runAction";
 import { useTerminalStore } from "../terminal/useTerminalStore";

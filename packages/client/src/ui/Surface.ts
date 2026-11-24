@@ -22,7 +22,7 @@
  *  duplication is the workaround. Non-portal callers receive an empty
  *  `style` object; spreading it is a no-op. */
 
-import type { JSX } from "solid-js";
+import type { JSX } from "@solidjs/web";
 
 const RADIUS_CLASS = {
   md: "rounded-md",

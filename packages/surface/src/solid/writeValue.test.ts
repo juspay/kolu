@@ -30,8 +30,13 @@
  * between them is a spec field with a call site.
  */
 
-import { $TRACK, createComputed, createRoot } from "solid-js";
-import { createStore, unwrap } from "solid-js/store";
+import {
+  $TRACK,
+  createComputed,
+  createRoot,
+  createStore,
+  unwrap,
+} from "solid-js";
 import { describe, expect, it } from "vitest";
 import { writeWrappedValue } from "./writeValue";
 

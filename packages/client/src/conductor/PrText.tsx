@@ -8,16 +8,16 @@
  *  `#n` the work has no PR of. */
 
 import { prLinks, type Work } from "kolu-work";
-import { type Component, createMemo, Index, Show } from "solid-js";
+import { type Component, createMemo, For, Show } from "solid-js";
 
 const PR_NUMBER = /(#\d+)/;
 
 const PrText: Component<{ work: Work; text: string }> = (props) => {
   const links = createMemo(() => prLinks(props.work));
   const parts = createMemo(() => props.text.split(PR_NUMBER));
-  // `<Index>`: a part is a string, so its POSITION is its identity.
+  // `keyed={false}`: a part is a string, so its POSITION is its identity.
   return (
-    <Index each={parts()}>
+    <For each={parts()} keyed={false}>
       {(part) => (
         <Show
           when={
@@ -43,7 +43,7 @@ const PrText: Component<{ work: Work; text: string }> = (props) => {
           )}
         </Show>
       )}
-    </Index>
+    </For>
   );
 };
 

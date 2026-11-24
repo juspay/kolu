@@ -20,9 +20,8 @@
  *  it stays attached but states no size. Each shell answers from the same
  *  `Shown` accessor it is drawn in (`ui/shown.ts`). */
 import type { TerminalId } from "kolu-common/surface";
-import { type JSX, For, Show, onCleanup, untrack } from "solid-js";
-import { createStore, produce } from "solid-js/store";
-import { Portal } from "solid-js/web";
+import { createStore, For, onCleanup, produce, Show, untrack } from "solid-js";
+import { Portal, type JSX } from "@solidjs/web";
 
 /** What the shell that places a body says about it — one record, so two
  *  facts of one type can never be passed in each other's place. */

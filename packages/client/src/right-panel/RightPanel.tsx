@@ -231,7 +231,7 @@ const RightPanel: Component<{
                 inert={!isActive()}
                 aria-hidden={!isActive()}
               >
-                <Shown.Provider value={() => props.visible && isActive()}>
+                <Shown value={() => props.visible && isActive()}>
                   {match(kind)
                     .with("inspector", () => (
                       <MetadataInspector
@@ -252,7 +252,7 @@ const RightPanel: Component<{
                       />
                     ))
                     .exhaustive()}
-                </Shown.Provider>
+                </Shown>
               </div>
             );
           }}

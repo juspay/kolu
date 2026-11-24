@@ -4,7 +4,8 @@
  *
  *  ONE size: logo + status dot, sized for an `h-7` chrome row. */
 
-import type { Component, JSX } from "solid-js";
+import type { Component } from "solid-js";
+import type { JSX } from "@solidjs/web";
 import type { WsStatus } from "../rpc/rpc";
 
 const identityMarkFrameClass =

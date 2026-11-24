@@ -314,8 +314,10 @@ const ChipRow: Component<{
     <div
       ref={row}
       data-testid="tile-tip-chips"
-      class="relative flex items-center gap-[6px]"
-      classList={{ "min-w-0 flex-1": props.fill, "shrink-0": !props.fill }}
+      class={[
+        "relative flex items-center gap-[6px]",
+        { "min-w-0 flex-1": props.fill, "shrink-0": !props.fill },
+      ]}
     >
       <For each={visible()}>
         {(chip) => (

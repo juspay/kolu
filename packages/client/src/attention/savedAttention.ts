@@ -28,8 +28,13 @@ import {
   TerminalIdSchema,
 } from "@kolu/terminal-vocab/terminalId";
 import { Schema } from "effect";
-import { createComputed, createRoot, untrack } from "solid-js";
-import { createStore, produce } from "solid-js/store";
+import {
+  createComputed,
+  createRoot,
+  createStore,
+  produce,
+  untrack,
+} from "solid-js";
 import {
   defaultInvalidWarning,
   originStorageSync,

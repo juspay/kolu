@@ -18,10 +18,10 @@ import {
   createMemo,
   createSignal,
   For,
-  type JSX,
   onMount,
   Show,
 } from "solid-js";
+import type { JSX } from "@solidjs/web";
 import { match } from "ts-pattern";
 import { createDraggable } from "../dnd";
 import { CHROME_ICON_BUTTON_CLASS } from "../ui/chromeSpacing";
@@ -427,11 +427,14 @@ const CanvasTile: Component<{
       // Clip model is tier-independent: outer shell always overflow-visible so
       // outside-paint auras (working outer rail, future rings) are free; the
       // inner shell always clips title/body. Geometry does not branch on aura.
-      class="relative border transition-shadow duration-200 overflow-visible"
       // Geometry, layer, and visibility all live in `presentation().style` (one
-      // complete box per mode); the classList carries only non-geometric,
-      // mode-specific decoration (rounded corners vs. transparent border).
-      classList={presentation().classes}
+      // complete box per mode); the second `class` entry carries only
+      // non-geometric, mode-specific decoration (rounded corners vs.
+      // transparent border).
+      class={[
+        "relative border transition-shadow duration-200 overflow-visible",
+        presentation().classes,
+      ]}
       style={presentation().style}
       onMouseDown={(event) => {
         // A live terminal owns the more precise pane landing (main vs split).
@@ -469,10 +472,10 @@ const CanvasTile: Component<{
         <div
           ref={draggable.handleRef}
           data-testid="canvas-tile-titlebar"
-          class="grid [grid-template-columns:minmax(0,1fr)_auto] items-start gap-x-2 px-3 py-1.5 shrink-0 select-none border-l-4"
-          classList={{
-            "cursor-grab active:cursor-grabbing": !isMaximized(),
-          }}
+          class={[
+            "grid [grid-template-columns:minmax(0,1fr)_auto] items-start gap-x-2 px-3 py-1.5 shrink-0 select-none border-l-4",
+            { "cursor-grab active:cursor-grabbing": !isMaximized() },
+          ]}
           style={{
             "background-color": tileTitleBarBg(props.theme),
             "border-bottom": `1px solid ${tileTitleBarBorder(props.theme)}`,

@@ -29,7 +29,8 @@
  * it's safely consumable from `node_modules`.
  */
 
-import { createComponent, ErrorBoundary, type JSX } from "solid-js";
+import { createComponent, ErrorBoundary } from "solid-js";
+import type { JSX } from "@solidjs/web";
 import { thrownText } from "../index";
 
 /** The LOOK of an uncaught throw — the one thing a consumer supplies. Handed

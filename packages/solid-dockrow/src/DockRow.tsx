@@ -40,7 +40,8 @@ import {
 } from "@kolu/solid-statepip/pipVariant";
 import type { TerminalId } from "@kolu/terminal-vocab/schema";
 import type { PrInfo } from "anyforge/schemas";
-import { type Component, type JSX, Show } from "solid-js";
+import { type Component, Show } from "solid-js";
+import type { JSX } from "@solidjs/web";
 import {
   DOCK_CARDS_SUBGRID_LEFT_RESTORE,
   DOCK_ROW_BRANCH_COL,
@@ -191,11 +192,14 @@ export const DockRow: Component<DockRowProps> = (props) => {
           props.onSelect();
         }
       }}
-      class={`relative grid col-span-full items-center ${s().rowPad} ${DOCK_CARDS_SUBGRID_LEFT_RESTORE} ${s().rowGutter} ${DOCK_ROW_STRIPE_CLASS} text-left cursor-pointer transition-colors duration-150 ${s().rowFocus} ${s().rowPress} ${
-        props.depth === undefined
-          ? "w-full grid-cols-subgrid"
-          : `${DOCK_ROW_GRID} ${DOCK_ROW_GAP}`
-      }`}
+      class={[
+        `relative grid col-span-full items-center ${s().rowPad} ${DOCK_CARDS_SUBGRID_LEFT_RESTORE} ${s().rowGutter} ${DOCK_ROW_STRIPE_CLASS} text-left cursor-pointer transition-colors duration-150 ${s().rowFocus} ${s().rowPress} ${
+          props.depth === undefined
+            ? "w-full grid-cols-subgrid"
+            : `${DOCK_ROW_GRID} ${DOCK_ROW_GAP}`
+        }`,
+        { [SLEEPING_RECEDE_CLASS]: props.pip.sleeping },
+      ]}
       // A nested row indents by insetting its own tracks, and it CANNOT do that
       // as a subgrid item: a subgrid shares the parent's lines, so padding the
       // row slides only its first cell out from under the rest (measured —
@@ -217,7 +221,6 @@ export const DockRow: Component<DockRowProps> = (props) => {
           ? undefined
           : { "padding-left": `calc(0.75rem + ${treeIndent(props.depth)})` }
       }
-      classList={{ [SLEEPING_RECEDE_CLASS]: props.pip.sleeping }}
       title={props.title}
     >
       {/* The tree marker — a split's row sits directly under its parent in a

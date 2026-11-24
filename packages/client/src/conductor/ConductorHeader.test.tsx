@@ -31,7 +31,7 @@ import {
 } from "kolu-common/conductor";
 import { Effect } from "effect";
 import { createSignal } from "solid-js";
-import { render } from "solid-js/web";
+import { render } from "@solidjs/web";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import ConductorHeader from "./ConductorHeader";
 import { compactsTip } from "./compactsTip";
@@ -92,13 +92,13 @@ function mount(
   document.body.append(root);
   dispose = render(
     () => (
-      <Shown.Provider value={shown}>
+      <Shown value={shown}>
         <ConductorHeader
           state={{ ...DEFAULT_CONDUCTOR_STATE, phase: "idle", ...over }}
           rows={ROWS}
           onSignIn={() => verbs.signIn()}
         />
-      </Shown.Provider>
+      </Shown>
     ),
     root,
   );

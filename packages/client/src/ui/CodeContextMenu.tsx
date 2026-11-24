@@ -17,7 +17,7 @@ import {
   onCleanup,
   Show,
 } from "solid-js";
-import { Dynamic, Portal } from "solid-js/web";
+import { dynamic, Portal } from "@solidjs/web";
 import { toast } from "solid-sonner";
 import { match } from "ts-pattern";
 import { runAction } from "../runAction";
@@ -141,20 +141,20 @@ export const CodeContextMenu: Component<{
           style={{ left: `${pos().x}px`, top: `${pos().y}px`, ...chrome.style }}
         >
           <For each={items()}>
-            {(item) => (
-              <button
-                type="button"
-                role="menuitem"
-                class="flex w-full cursor-pointer items-center gap-2 rounded px-2 py-1 text-left hover:bg-surface-2"
-                onClick={() => handleItem(item)}
-              >
-                <Dynamic
-                  component={item.icon}
-                  class="w-3.5 h-3.5 shrink-0 opacity-70"
-                />
-                <span>{item.label}</span>
-              </button>
-            )}
+            {(item) => {
+              const Icon = dynamic(() => item.icon);
+              return (
+                <button
+                  type="button"
+                  role="menuitem"
+                  class="flex w-full cursor-pointer items-center gap-2 rounded px-2 py-1 text-left hover:bg-surface-2"
+                  onClick={() => handleItem(item)}
+                >
+                  <Icon class="w-3.5 h-3.5 shrink-0 opacity-70" />
+                  <span>{item.label}</span>
+                </button>
+              );
+            }}
           </For>
         </div>
       </Portal>

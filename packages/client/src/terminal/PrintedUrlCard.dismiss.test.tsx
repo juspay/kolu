@@ -8,7 +8,7 @@
  * the card's path must be keyed, so a stale read is unspellable.
  */
 
-import { render } from "solid-js/web";
+import { render } from "@solidjs/web";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("../wire", () => ({

@@ -11,7 +11,7 @@ import type { TerminalMetadata } from "@kolu/padi-client/surface";
 import type { PrInfo } from "anyforge/schemas";
 import type { TerminalId } from "kolu-common/surface";
 import type { Work } from "kolu-work";
-import { render } from "solid-js/web";
+import { render } from "@solidjs/web";
 import { afterEach, describe, expect, it } from "vitest";
 import { buildTerminalDisplayInfos } from "../terminal/terminalDisplay";
 import WorkSubtitle from "./WorkSubtitle";

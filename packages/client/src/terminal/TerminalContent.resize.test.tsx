@@ -13,7 +13,7 @@ import type { ITheme } from "@xterm/xterm";
 import { Deferred } from "effect";
 import type { TerminalId } from "kolu-common/surface";
 import { createRoot, createSignal } from "solid-js";
-import { render } from "solid-js/web";
+import { render } from "@solidjs/web";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const MAIN = "resize-main" as TerminalId;

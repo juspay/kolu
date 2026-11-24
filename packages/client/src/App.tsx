@@ -12,7 +12,7 @@
  *  agent indicator, screenshot, split toggle) lives on the tile title bar via
  *  `canvas/TileTitleActions`. The header is intentionally minimal. */
 
-import Resizable from "@corvu-next/resizable"
+import Resizable from "@corvu-next/resizable";
 import { activeArm, sleepingArm } from "@kolu/padi-client/surface";
 import { attachPageZoomGuard } from "@kolu/solid-browser";
 import { createPwaInstall } from "@kolu/solid-pwa-install";
@@ -633,14 +633,14 @@ const App: Component = () => {
                        *  front?" — the same accessor the canvas is given
                        *  below, so a tile under the Conductor states no size
                        *  on any layout. */}
-                      <Shown.Provider value={canvasShown}>
+                      <Shown value={canvasShown}>
                         <CompactTileView
                           compact={layoutMode() === "compact"}
                           orderedIds={orderedIds()}
                           renderBody={outlet}
                           bottomBar={<MobileKeyBar />}
                         />
-                      </Shown.Provider>
+                      </Shown>
                     </RightPanelDrawer>
                   </Match>
                   <Match when={isDesktop()}>
@@ -700,7 +700,7 @@ const App: Component = () => {
                          *  Provided at each shell's consumer — this one and
                          *  the touch shell above; a third one (the dock, the
                          *  inspector) moves it up to the Switch. */}
-                        <Shown.Provider value={canvasShown}>
+                        <Shown value={canvasShown}>
                           <TerminalCanvas
                             tileIds={tileStore.tileIds()}
                             getLayout={tileStore.getLayout}
@@ -726,7 +726,7 @@ const App: Component = () => {
                             renderTileBar={(id) => <TileTip id={id} />}
                             renderTileBody={outlet}
                           />
-                        </Shown.Provider>
+                        </Shown>
                       </Resizable.Panel>
                       <Show when={!rightPanel.collapsed()}>
                         <Resizable.Handle
@@ -749,10 +749,10 @@ const App: Component = () => {
                       </Show>
                       <Resizable.Panel
                         as="div"
-                        class="min-w-0 min-h-0 overflow-hidden"
-                        classList={{
-                          "border-l border-edge": !rightPanel.collapsed(),
-                        }}
+                        class={[
+                          "min-w-0 min-h-0 overflow-hidden",
+                          { "border-l border-edge": !rightPanel.collapsed() },
+                        ]}
                         minSize={0.1}
                       >
                         <RightPanel
@@ -829,9 +829,9 @@ const App: Component = () => {
             inert={!conductorMode()}
             aria-hidden={!conductorMode()}
           >
-            <Shown.Provider value={conductorMode}>
+            <Shown value={conductorMode}>
               <ConductorPane class="absolute inset-0" />
-            </Shown.Provider>
+            </Shown>
           </div>
         </Show>
       </div>

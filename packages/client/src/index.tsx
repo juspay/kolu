@@ -8,7 +8,7 @@ import { SurfaceAppProvider } from "@kolu/surface-app/solid";
 import { MetaProvider } from "@solidjs/meta";
 import { koluBuildInfo } from "kolu-common/surface";
 import { Show } from "solid-js";
-import { render } from "solid-js/web";
+import { render } from "@solidjs/web";
 import { toast } from "solid-sonner";
 import App from "./App";
 import ReaderWindow from "./conductor/reader/ReaderWindow";

@@ -38,7 +38,8 @@ import {
 } from "@odu/service-client/surface";
 import { type CheckStatus, type PrInfo, prValue } from "anyforge/schemas";
 import { type PrResult, prUnavailableSource } from "kolu-common/surface";
-import { type Component, createMemo, For, type JSX, Show } from "solid-js";
+import { type Component, createMemo, For, Show } from "solid-js";
+import type { JSX } from "@solidjs/web";
 import { ChecksIndicator, PrStateIcon } from "@kolu/solid-dockrow";
 import { ProviderUnavailableContent } from "../terminal/PrUnavailablePopover";
 import { assignColors } from "../terminal/terminalDisplay";
@@ -248,8 +249,10 @@ const LaneRow: Component<{
         {status().glyph}
       </span>
       <span
-        class={`min-w-0 truncate font-mono group-hover/lane:underline ${hue()}`}
-        classList={{ "font-semibold": status().isRed }}
+        class={[
+          `min-w-0 truncate font-mono group-hover/lane:underline ${hue()}`,
+          { "font-semibold": status().isRed },
+        ]}
       >
         {props.lane.id}
       </span>
@@ -277,12 +280,14 @@ const LaneRow: Component<{
           {(span) => (
             <span
               data-testid="inspector-odu-lane-bar"
-              class={`absolute inset-y-0 min-w-0.5 rounded-sm opacity-60 ${hue()}`}
-              classList={{
-                "bg-current": span().kind === "settled",
-                "bg-[repeating-linear-gradient(135deg,currentColor_0_3px,transparent_3px_6px)]":
-                  span().kind === "running",
-              }}
+              class={[
+                `absolute inset-y-0 min-w-0.5 rounded-sm opacity-60 ${hue()}`,
+                {
+                  "bg-current": span().kind === "settled",
+                  "bg-[repeating-linear-gradient(135deg,currentColor_0_3px,transparent_3px_6px)]":
+                    span().kind === "running",
+                },
+              ]}
               style={{
                 left: `${span().left * 100}%`,
                 width: `${span().width * 100}%`,
@@ -751,10 +756,12 @@ const WorkSection: Component<{
                       <li class="flex min-w-0 items-center gap-1.5">
                         <ChecksIndicator status={c.outcome} />
                         <span
-                          class="min-w-0 truncate font-mono"
-                          classList={{
-                            "text-danger font-semibold": c.outcome === "fail",
-                          }}
+                          class={[
+                            "min-w-0 truncate font-mono",
+                            {
+                              "text-danger font-semibold": c.outcome === "fail",
+                            },
+                          ]}
                         >
                           {c.name}
                         </span>
@@ -839,16 +846,18 @@ const WorkSection: Component<{
                     <For each={timelineTicks(ci().run, now())}>
                       {(tick) => (
                         <span
-                          class="absolute top-0 border-l border-edge pl-0.5"
-                          classList={{
-                            // The last mark sits ON the track's right edge, so
-                            // it hangs its rule and its label inward; asked by
-                            // POSITION rather than by an index, which would be
-                            // this file holding an opinion about how many marks
-                            // odu mints.
-                            "-translate-x-full border-l-0 border-r pr-0.5 pl-0":
-                              tick.at === 1,
-                          }}
+                          class={[
+                            "absolute top-0 border-l border-edge pl-0.5",
+                            {
+                              // The last mark sits ON the track's right edge, so
+                              // it hangs its rule and its label inward; asked by
+                              // POSITION rather than by an index, which would be
+                              // this file holding an opinion about how many marks
+                              // odu mints.
+                              "-translate-x-full border-l-0 border-r pr-0.5 pl-0":
+                                tick.at === 1,
+                            },
+                          ]}
                           style={{ left: `${tick.at * 100}%` }}
                         >
                           {/* kolu's OWN ladder, the one every duration in this

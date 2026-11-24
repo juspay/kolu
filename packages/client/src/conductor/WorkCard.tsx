@@ -49,13 +49,13 @@ import {
   type Work,
   type WorkId,
 } from "kolu-work";
+import type { JSX } from "@solidjs/web";
 import {
   type Component,
   createEffect,
   createMemo,
   createSignal,
   For,
-  type JSX,
   Match,
   onCleanup,
   onMount,

@@ -1,6 +1,6 @@
 import { FileView } from "@kolu/solid-fileview";
 import { createSignal } from "solid-js";
-import { render } from "solid-js/web";
+import { render } from "@solidjs/web";
 import { expect, it } from "vitest";
 
 it("keeps the source element across file saves and rendered-mode toggles", () => {

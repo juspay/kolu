@@ -31,7 +31,7 @@ import {
   Show,
   Switch,
 } from "solid-js";
-import { Portal } from "solid-js/web";
+import { Portal } from "@solidjs/web";
 import { toast } from "solid-sonner";
 import { match } from "ts-pattern";
 import { FORWARD_PILL } from "../forwards/forwardTone";
@@ -436,8 +436,10 @@ export const PrintedUrlCard: Component<{ target: PrintedUrlCardTarget }> = (
                       )}
                     </Show>
                     <span
-                      class="min-w-0 truncate font-mono text-fg-3"
-                      classList={{ italic: j.kind === "unclaimed" }}
+                      class={[
+                        "min-w-0 truncate font-mono text-fg-3",
+                        { italic: j.kind === "unclaimed" },
+                      ]}
                       title={
                         j.kind === "unclaimed" ? undefined : listenerLabel(j)
                       }

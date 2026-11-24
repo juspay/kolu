@@ -98,11 +98,13 @@ const AgentDistroHostMark: Component<{
         e.stopPropagation();
         openHostDiagnostics(encodeHostKey(props.host), e.currentTarget);
       }}
-      class="pointer-events-auto relative -ml-1 mr-2.5 grid h-[18px] w-[18px] shrink-0 cursor-pointer place-items-center rounded transition-colors hover:bg-fg/10"
-      classList={{
-        "text-warning": mark().kind === "failed",
-        "opacity-[0.55]": mark().kind === "checking",
-      }}
+      class={[
+        "pointer-events-auto relative -ml-1 mr-2.5 grid h-[18px] w-[18px] shrink-0 cursor-pointer place-items-center rounded transition-colors hover:bg-fg/10",
+        {
+          "text-warning": mark().kind === "failed",
+          "opacity-[0.55]": mark().kind === "checking",
+        },
+      ]}
     >
       <Show when={busy(mark())}>
         <Arc />

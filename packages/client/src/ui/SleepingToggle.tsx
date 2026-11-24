@@ -41,8 +41,12 @@ export const SleepingToggle: Component<{
       type="button"
       data-testid={`${props.testIdPrefix}-toggle`}
       data-hiding={hidden() ? "" : undefined}
-      class={`${FILTER_CHIP_BASE} gap-1 ${props.class ?? ""}`}
-      classList={filterChipAccent(hidden())}
+      class={[
+        FILTER_CHIP_BASE,
+        "gap-1",
+        props.class ?? "",
+        filterChipAccent(hidden()),
+      ]}
       aria-label={
         hidden()
           ? `${props.count} sleeping ${noun()} hidden — show them`

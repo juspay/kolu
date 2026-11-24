@@ -10,7 +10,7 @@ import type {
 import { type Component, Show } from "solid-js";
 import { AGENTS_PROFILE_MENU_TESTID } from "../agents/AgentsProfileList";
 import AgentsSettingsSection from "../agents/AgentsSettingsSection";
-import { Portal } from "solid-js/web";
+import { Portal } from "@solidjs/web";
 import SegmentedControl, {
   type SegmentedControlOption,
 } from "../ui/SegmentedControl";

@@ -25,8 +25,7 @@
  *   - a throwing consumer callback is contained to its own fold.
  */
 
-import { createEffect, createRoot } from "solid-js";
-import { unwrap } from "solid-js/store";
+import { createEffect, createRoot, unwrap } from "solid-js";
 import { describe, expect, it, vi } from "vitest";
 import type { CollectionDelta, CollectionDeltasMsg } from "../define";
 import {

@@ -26,7 +26,7 @@ import {
   createSignal,
   Show,
 } from "solid-js";
-import { Portal } from "solid-js/web";
+import { Portal } from "@solidjs/web";
 import { toast } from "solid-sonner";
 import { hostMarks } from "../attention/attentionMarks";
 import CopyDiagnosticsButton from "../CopyDiagnosticsButton";
@@ -78,7 +78,7 @@ const PopoverRow: Component<{
     data-testid={props.testid}
   >
     <span
-      classList={{
+      class={{
         "text-danger": props.danger,
         "text-fg-3": !props.danger,
       }}
@@ -86,11 +86,13 @@ const PopoverRow: Component<{
       {props.label}
     </span>
     <span
-      class="min-w-0 truncate font-medium tabular-nums"
-      classList={{
-        "text-danger": props.danger,
-        "text-fg": !props.danger,
-      }}
+      class={[
+        "min-w-0 truncate font-medium tabular-nums",
+        {
+          "text-danger": props.danger,
+          "text-fg": !props.danger,
+        },
+      ]}
     >
       {props.children}
     </span>

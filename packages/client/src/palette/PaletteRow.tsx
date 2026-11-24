@@ -17,7 +17,7 @@ import {
 } from "kolu-common/hostKey";
 import { DASH, type TerminalId } from "kolu-common/surface";
 import { type Component, For, Show } from "solid-js";
-import { Dynamic } from "solid-js/web";
+import { dynamic } from "@solidjs/web";
 import type { PaletteCommand, PaletteLabel } from "../CommandPalette";
 import { rowSubline } from "@kolu/solid-dockrow/rowValues";
 import { HostIdentityLabel } from "../host/HostIdentityLabel";
@@ -159,10 +159,10 @@ const CommandLead: Component<{
   selected: boolean;
 }> = (props) => (
   <span
-    class="shrink-0 w-4 h-4 inline-flex items-center justify-center rounded text-fg-3"
-    classList={{
-      "text-accent": props.selected,
-    }}
+    class={[
+      "shrink-0 w-4 h-4 inline-flex items-center justify-center rounded text-fg-3",
+      { "text-accent": props.selected },
+    ]}
   >
     <Show
       when={props.icon}
@@ -170,7 +170,10 @@ const CommandLead: Component<{
         <span class="font-mono text-[0.7rem] leading-none select-none">⌘</span>
       }
     >
-      {(icon) => <Dynamic component={icon()} class="w-3 h-3" />}
+      {(icon) => {
+        const Icon = dynamic(icon);
+        return <Icon class="w-3 h-3" />;
+      }}
     </Show>
   </span>
 );
@@ -254,14 +257,16 @@ const PaletteRow: Component<{
       data-palette-kind={kind()}
       data-palette-name={props.cmd.name}
       data-host={row()?.hostKey ? encodeHostAttr(row()!.hostKey!) : undefined}
-      class="flex items-center gap-2 py-1.5 pr-2.5 text-[0.86rem] rounded-lg cursor-pointer transition-colors duration-100 min-w-0"
-      classList={{
-        "bg-accent/[0.14] text-fg shadow-[inset_0_0_0_1px_color-mix(in_oklch,var(--color-accent)_38%,transparent)]":
-          props.selected,
-        "text-fg-2 hover:bg-surface-2/50": !props.selected,
-        "repo-spine pl-2": !!terminalRepo(),
-        "pl-2.5": !terminalRepo(),
-      }}
+      class={[
+        "flex items-center gap-2 py-1.5 pr-2.5 text-[0.86rem] rounded-lg cursor-pointer transition-colors duration-100 min-w-0",
+        {
+          "bg-accent/[0.14] text-fg shadow-[inset_0_0_0_1px_color-mix(in_oklch,var(--color-accent)_38%,transparent)]":
+            props.selected,
+          "text-fg-2 hover:bg-surface-2/50": !props.selected,
+          "repo-spine pl-2": !!terminalRepo(),
+          "pl-2.5": !terminalRepo(),
+        },
+      ]}
       style={
         terminalRepo() ? { "--repo-color": terminalRepo()!.color } : undefined
       }
@@ -381,11 +386,13 @@ const PaletteRow: Component<{
         <Show when={props.drillable}>
           <span
             aria-hidden="true"
-            class="text-sm leading-none"
-            classList={{
-              "text-accent": props.selected,
-              "text-fg-3/70": !props.selected,
-            }}
+            class={[
+              "text-sm leading-none",
+              {
+                "text-accent": props.selected,
+                "text-fg-3/70": !props.selected,
+              },
+            ]}
           >
             ›
           </span>

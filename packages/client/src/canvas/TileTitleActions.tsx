@@ -235,8 +235,10 @@ const TileTitleActions: Component<{
           <button
             type="button"
             data-testid="tile-split-toggle"
-            class={`${TILE_BUTTON_CLASS} gap-1 px-1.5`}
-            classList={{ "bg-black/20": splitExpanded() }}
+            class={[
+              `${TILE_BUTTON_CLASS} gap-1 px-1.5`,
+              { "bg-black/20": splitExpanded() },
+            ]}
             style={{ color: "var(--color-fg-3, currentColor)" }}
             onPointerDown={(e) => e.stopPropagation()}
             onClick={(e) =>
@@ -330,11 +332,13 @@ const TileTitleActions: Component<{
             type="button"
             data-testid="tile-restart"
             data-armed={restartArmed() ? "" : undefined}
-            class={`${TILE_BUTTON_CLASS} w-7`}
-            classList={{
-              "bg-warning/15": restartArmed(),
-              "opacity-50 cursor-wait": restartBusy(),
-            }}
+            class={[
+              `${TILE_BUTTON_CLASS} w-7`,
+              {
+                "bg-warning/15": restartArmed(),
+                "opacity-50 cursor-wait": restartBusy(),
+              },
+            ]}
             style={{ color: "var(--color-fg-3, currentColor)" }}
             disabled={restartBusy()}
             onPointerDown={(e) => e.stopPropagation()}

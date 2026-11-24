@@ -2,13 +2,8 @@
  *  the lifetime of the calling owner, bound to its elements through refs. */
 
 import { Draggable, Droppable } from "@dnd-kit/dom";
-import {
-  type Accessor,
-  createEffect,
-  type JSX,
-  onCleanup,
-  onMount,
-} from "solid-js";
+import { type Accessor, createEffect, onCleanup, onMount } from "solid-js";
+import type { JSX } from "@solidjs/web";
 import { nearestCenter } from "./collision";
 import {
   type DragTransform,

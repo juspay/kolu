@@ -102,8 +102,10 @@ export const PortRow: Component<{
 
   return (
     <div
-      class="group/fwd group/port flex items-baseline gap-2 rounded px-1 py-0.5 -mx-1 text-[11px] leading-snug transition-colors hover:bg-surface-2/60"
-      classList={{ "opacity-70": props.row.kind === "orphan" }}
+      class={[
+        "group/fwd group/port flex items-baseline gap-2 rounded px-1 py-0.5 -mx-1 text-[11px] leading-snug transition-colors hover:bg-surface-2/60",
+        { "opacity-70": props.row.kind === "orphan" },
+      ]}
       data-testid="inspector-port-row"
       data-port={props.row.port}
       data-kind={props.row.kind}
@@ -115,11 +117,13 @@ export const PortRow: Component<{
       {/* The subject wears a chip: the number carries the weight, and an open
        *  door tints it accent so "already reachable" reads before the text. */}
       <span
-        class="shrink-0 rounded px-1.5 font-mono text-[11px] font-semibold tabular-nums"
-        classList={{
-          "bg-accent/10 text-fg": forward() !== undefined,
-          "bg-surface-2/70 text-fg": forward() === undefined,
-        }}
+        class={[
+          "shrink-0 rounded px-1.5 font-mono text-[11px] font-semibold tabular-nums",
+          {
+            "bg-accent/10 text-fg": forward() !== undefined,
+            "bg-surface-2/70 text-fg": forward() === undefined,
+          },
+        ]}
       >
         {props.row.port}
       </span>
@@ -138,8 +142,10 @@ export const PortRow: Component<{
           when={props.serving}
           fallback={
             <span
-              class="min-w-0 truncate font-mono text-fg-3/80"
-              classList={{ italic: props.row.kind === "unclaimed" }}
+              class={[
+                "min-w-0 truncate font-mono text-fg-3/80",
+                { italic: props.row.kind === "unclaimed" },
+              ]}
               title={label()}
               data-testid="inspector-port-label"
             >

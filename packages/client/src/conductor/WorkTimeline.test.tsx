@@ -15,7 +15,7 @@ import {
   type Work,
   type WorkId,
 } from "kolu-work";
-import { render } from "solid-js/web";
+import { render } from "@solidjs/web";
 import { afterEach, describe, expect, it } from "vitest";
 import type { TimelineShown } from "./timelineView";
 import WorkTimeline from "./WorkTimeline";

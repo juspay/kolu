@@ -13,7 +13,7 @@
  */
 
 import { AttentionTriplet } from "@kolu/solid-statepip";
-import { render } from "solid-js/web";
+import { render } from "@solidjs/web";
 import { afterEach, describe, expect, it } from "vitest";
 
 let dispose: (() => void) | undefined;

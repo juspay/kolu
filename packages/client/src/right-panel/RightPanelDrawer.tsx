@@ -22,10 +22,11 @@
  *  selection; switch to the tile's main terminal and main's own selection
  *  returns. */
 
-import Drawer from "@corvu-next/drawer"
+import Drawer from "@corvu-next/drawer";
 import type { TerminalMetadata } from "@kolu/padi-client/surface";
 import type { TerminalId } from "kolu-common/surface";
-import type { Component, JSX } from "solid-js";
+import type { Component } from "solid-js";
+import type { JSX } from "@solidjs/web";
 import { withKeyboardDismiss } from "../ui/dismissSoftKeyboard";
 import RightPanel from "./RightPanel";
 import { useRightPanel } from "./useRightPanel";

@@ -20,9 +20,10 @@
  *
  *  The dock `Drawer`'s plain button drives its `open` setter directly. */
 
-import Drawer from "@corvu-next/drawer"
+import Drawer from "@corvu-next/drawer";
 import type { TerminalId } from "kolu-common/surface";
-import { type Component, createSignal, For, type JSX, Show } from "solid-js";
+import { type Component, createSignal, For, Show } from "solid-js";
+import type { JSX } from "@solidjs/web";
 import { DockList } from "./canvas/dock/DockList";
 import { useTerminalStore } from "./terminal/useTerminalStore";
 import type { ShellPlacement } from "./terminal/WorkspaceTerminals";

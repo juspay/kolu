@@ -99,8 +99,9 @@ export function optionsShown(list: {
   return { shown, hidden: list.options.length - shown.length };
 }
 
-/** One option chip. The SELECTED state is layered on through `classList`, so
- *  the shape of a chip is written once and only the two colours branch. */
+/** One option chip. The SELECTED state is layered on through the `class`
+ *  object, so the shape of a chip is written once and only the two colours
+ *  branch. */
 const OPTION_CLASS = "rounded-md border px-2.5 py-1 text-fg cursor-pointer";
 
 const BOX_CLASS =
@@ -160,11 +161,13 @@ const AskOptions: Component<{
                   data-field={props.field}
                   data-value={option.value}
                   data-active={on() ? "" : undefined}
-                  class={OPTION_CLASS}
-                  classList={{
-                    "border-accent bg-accent/15": on(),
-                    "border-edge-bright bg-surface-2": !on(),
-                  }}
+                  class={[
+                    OPTION_CLASS,
+                    {
+                      "border-accent bg-accent/15": on(),
+                      "border-edge-bright bg-surface-2": !on(),
+                    },
+                  ]}
                   onClick={() => props.onPick(option.value)}
                 >
                   {option.value}

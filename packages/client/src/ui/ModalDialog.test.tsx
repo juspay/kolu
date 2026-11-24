@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
-import Dialog from "@corvu-next/dialog"
+import Dialog from "@corvu-next/dialog";
 import { createSignal } from "solid-js";
-import { render } from "solid-js/web";
+import { render } from "@solidjs/web";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("../canvas/activeTerminal", () => ({

@@ -8,7 +8,7 @@
 import type { CodeTabView } from "@kolu/padi-client/surface";
 import type { Subscription } from "@kolu/surface/solid";
 import { createSignal } from "solid-js";
-import { render } from "solid-js/web";
+import { render } from "@solidjs/web";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Shown } from "../ui/shown";
 import type { BrowseFileContent, CodeQueries } from "./codeQueries";
@@ -176,7 +176,7 @@ const show = (
   document.body.append(host);
   dispose = render(
     () => (
-      <Shown.Provider value={() => true}>
+      <Shown value={() => true}>
         <CodeTab
           subject={subject}
           state={state(mode, opts.browsing ?? "notes.txt")}
@@ -184,7 +184,7 @@ const show = (
           door={door}
           arrangement={opts.arrangement?.() ?? "stacked"}
         />
-      </Shown.Provider>
+      </Shown>
     ),
     host,
   );

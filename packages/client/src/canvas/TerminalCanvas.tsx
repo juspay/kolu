@@ -21,13 +21,13 @@ import {
   createEffect,
   createMemo,
   For,
-  type JSX,
   Match,
   on,
   onCleanup,
   Show,
   Switch,
 } from "solid-js";
+import type { JSX } from "@solidjs/web";
 import { DragDropProvider, type DropEvent } from "../dnd";
 import { savedSessionSub } from "../hostScope/activeWire";
 import { useStaleCheck } from "../terminal/staleness";
@@ -563,7 +563,7 @@ const TerminalCanvas: Component<{
               {/* Minimap: spatial dashboard; hides in fullscreen-single-tile mode
                *  since there's nothing spatial to summarize. */}
               <div
-                classList={{ hidden: posture.layout() !== "tiled" }}
+                class={{ hidden: posture.layout() !== "tiled" }}
                 inert={posture.layout() !== "tiled"}
               >
                 <CanvasMinimap

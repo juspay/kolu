@@ -1,12 +1,11 @@
 // @vitest-environment happy-dom
-import type { JSX } from "solid-js";
 import {
   MEMORY_CAP,
   type MemoryEntry,
   memoryUsed,
 } from "kolu-common/conductorMemory";
 import { createSignal } from "solid-js";
-import { render } from "solid-js/web";
+import { type JSX, render } from "@solidjs/web";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { MemorySheet } from "./MemorySheet";
 

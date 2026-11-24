@@ -13,7 +13,7 @@
  * So this one changes a signal AFTER mount and demands the DOM follow.
  */
 
-import { render } from "solid-js/web";
+import { render } from "@solidjs/web";
 import { createSignal } from "solid-js";
 import { describe, expect, it } from "vitest";
 

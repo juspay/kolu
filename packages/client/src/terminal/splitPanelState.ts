@@ -57,8 +57,7 @@
 import { toError } from "@kolu/surface/run-stream";
 import { Effect } from "effect";
 import type { TerminalId } from "kolu-common/surface";
-import { createComputed } from "solid-js";
-import { createStore, produce } from "solid-js/store";
+import { createComputed, createStore, produce } from "solid-js";
 import { toast } from "solid-sonner";
 import { createSharedRoot } from "../createSharedRoot";
 import { activeScope } from "../hostScope/hostScopes";

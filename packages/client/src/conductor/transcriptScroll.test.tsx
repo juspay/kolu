@@ -17,7 +17,7 @@
  *  and makes a broken follow rule look right. */
 
 import { createSignal } from "solid-js";
-import { render } from "solid-js/web";
+import { render } from "@solidjs/web";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 // A tool card's diffs block drags in the whole code viewer and its Nix-backed
 // grammar aliases; no row here is a tool call. Stub it so this file tests the
@@ -107,7 +107,7 @@ function mount(): HTMLDivElement {
   setRows = write;
   dispose = render(
     () => (
-      <Shown.Provider value={shown}>
+      <Shown value={shown}>
         <ConductorTranscript
           rows={rows()}
           turns={turnWorks(rows(), new Map(), new Map())}
@@ -118,7 +118,7 @@ function mount(): HTMLDivElement {
             scroller = el;
           }}
         />
-      </Shown.Provider>
+      </Shown>
     ),
     root,
   );
@@ -398,7 +398,7 @@ describe("the strip's reveal", () => {
     ];
     dispose = render(
       () => (
-        <Shown.Provider value={() => true}>
+        <Shown value={() => true}>
           <ConductorTranscript
             rows={rows}
             turns={turnWorks(rows, new Map(), new Map())}
@@ -408,7 +408,7 @@ describe("the strip's reveal", () => {
               scroller = el;
             }}
           />
-        </Shown.Provider>
+        </Shown>
       ),
       root,
     );

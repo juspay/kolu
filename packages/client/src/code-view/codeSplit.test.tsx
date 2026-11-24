@@ -1,10 +1,10 @@
 /** THE CODE VIEW'S SPLIT: when the tree stands beside the file, and how the
  *  side-by-side share is read and kept on this device. */
 
-import Resizable from "@corvu-next/resizable"
+import Resizable from "@corvu-next/resizable";
 import { createElementSize } from "@solid-primitives/resize-observer";
 import { createRoot, createSignal } from "solid-js";
-import { render } from "solid-js/web";
+import { render } from "@solidjs/web";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   type CodeArrangement,

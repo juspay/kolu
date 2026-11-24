@@ -27,13 +27,12 @@ import {
   createRenderEffect,
   createSignal,
   For,
-  type JSX,
   onCleanup,
   on,
   onMount,
   Show,
 } from "solid-js";
-import { Dynamic } from "solid-js/web";
+import { dynamic, type JSX } from "@solidjs/web";
 
 export interface SegmentedControlOption<T extends string> {
   value: T;
@@ -222,12 +221,14 @@ export default function SegmentedControl<T extends string>(props: {
                 onFocusOut={onFocusOut}
                 onKeyDown={onKeyDown(opt().value)}
                 title={opt().hint}
-                class="px-2 py-0.5 text-xs transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/50"
-                classList={{
-                  "bg-accent text-surface-0": props.value === opt().value,
-                  "bg-surface-2 text-fg-2 hover:text-fg":
-                    props.value !== opt().value,
-                }}
+                class={[
+                  "px-2 py-0.5 text-xs transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/50",
+                  {
+                    "bg-accent text-surface-0": props.value === opt().value,
+                    "bg-surface-2 text-fg-2 hover:text-fg":
+                      props.value !== opt().value,
+                  },
+                ]}
                 onClick={() => props.onChange(opt().value)}
               >
                 {opt().label}
@@ -271,9 +272,10 @@ export default function SegmentedControl<T extends string>(props: {
                 onClick={() => props.onChange(opt().value)}
               >
                 <Show when={opt().icon}>
-                  {(icon) => (
-                    <Dynamic component={icon()} class="w-3 h-3 opacity-70" />
-                  )}
+                  {(icon) => {
+                    const Icon = dynamic(icon);
+                    return <Icon class="w-3 h-3 opacity-70" />;
+                  }}
                 </Show>
                 <span>{opt().label}</span>
                 <Show when={(opt().badge ?? 0) > 0}>

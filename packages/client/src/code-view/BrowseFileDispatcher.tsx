@@ -62,11 +62,11 @@ import {
   type Component,
   createMemo,
   createSignal,
-  type JSX,
   Match,
   Show,
   Switch,
 } from "solid-js";
+import type { JSX } from "@solidjs/web";
 import { toast } from "solid-sonner";
 import { match, P } from "ts-pattern";
 import { CommentTextSurface } from "../comments/CommentTextSurface";

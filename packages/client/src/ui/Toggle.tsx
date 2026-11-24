@@ -17,19 +17,17 @@ const Toggle: Component<{
     aria-label={props.label}
     data-testid={props.testId}
     data-enabled={props.enabled ? "" : undefined}
-    class="relative w-8 h-4 rounded-full transition-colors cursor-pointer"
-    classList={{
-      "bg-accent": props.enabled,
-      "bg-surface-3": !props.enabled,
-    }}
+    class={[
+      "relative w-8 h-4 rounded-full transition-colors cursor-pointer",
+      { "bg-accent": props.enabled, "bg-surface-3": !props.enabled },
+    ]}
     onClick={() => props.onChange(!props.enabled)}
   >
     <span
-      class="absolute top-0.5 w-3 h-3 rounded-full bg-fg transition-transform"
-      classList={{
-        "left-[18px]": props.enabled,
-        "left-0.5": !props.enabled,
-      }}
+      class={[
+        "absolute top-0.5 w-3 h-3 rounded-full bg-fg transition-transform",
+        { "left-[18px]": props.enabled, "left-0.5": !props.enabled },
+      ]}
     />
   </button>
 );

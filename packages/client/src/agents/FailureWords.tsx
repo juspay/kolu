@@ -44,11 +44,13 @@ const FailureWords: Component<{
     <div data-testid={props.testid} class={props.class}>
       <p
         data-testid={`${props.testid}-text`}
-        class="wrap-anywhere"
-        classList={{
-          "text-warning": props.tone === "warn",
-          "text-danger": props.tone === "danger",
-        }}
+        class={[
+          "wrap-anywhere",
+          {
+            "text-warning": props.tone === "warn",
+            "text-danger": props.tone === "danger",
+          },
+        ]}
       >
         {cause()}
       </p>

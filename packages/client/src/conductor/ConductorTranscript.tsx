@@ -199,16 +199,20 @@ const FoldLine: Component<{
       onClick={toggle}
       // A RUN OF FOLDED LINES IS A LIST, packed at the column's own gap; an
       // open turn keeps the clear gap between turns.
-      class="flex w-full min-w-0 cursor-pointer flex-wrap items-baseline gap-x-2 gap-y-0.5 rounded-sm text-left"
-      classList={{ "mt-4": props.open }}
+      class={[
+        "flex w-full min-w-0 cursor-pointer flex-wrap items-baseline gap-x-2 gap-y-0.5 rounded-sm text-left",
+        { "mt-4": props.open },
+      ]}
     >
       {/* WHEN, AND WHICH WORKS — on a line of its own when there are several,
           so the sentence is never squeezed to nothing beside them. Open, the
           chips are the wake row's own (pressable, under it), so the line
           keeps only its clock. */}
       <span
-        class="flex min-w-0 max-w-full items-center gap-1.5"
-        classList={{ "basis-full": !props.open && props.works.length > 1 }}
+        class={[
+          "flex min-w-0 max-w-full items-center gap-1.5",
+          { "basis-full": !props.open && props.works.length > 1 },
+        ]}
       >
         <span aria-hidden="true" class="w-2 shrink-0 text-fg-3">
           {props.open ? "▾" : "▸"}
@@ -241,11 +245,13 @@ const FoldLine: Component<{
       <Show when={!(props.open && props.turn.says.kind === "prose")}>
         <span
           data-testid="conductor-fold-says"
-          class="min-w-[16rem] flex-1 basis-0 truncate text-[0.8rem]"
-          classList={{
-            "text-fg-2": props.turn.says.kind === "prose",
-            "text-fg-3": props.turn.says.kind !== "prose",
-          }}
+          class={[
+            "min-w-[16rem] flex-1 basis-0 truncate text-[0.8rem]",
+            {
+              "text-fg-2": props.turn.says.kind === "prose",
+              "text-fg-3": props.turn.says.kind !== "prose",
+            },
+          ]}
         >
           <Show when={props.turn.says.kind === "noted"}>
             <span class="font-mono text-[0.68rem]">noted · </span>
@@ -514,7 +520,7 @@ const ConductorTranscript: Component<{
             id; a fold's is the id of the boundary that opens its run. Both are
             stable for the thing's life, and an item never changes kind under
             its key. */}
-        <TurnsContext.Provider value={turnsContext}>
+        <TurnsContext value={turnsContext}>
           <For each={items()} keyed={(item) => item.key}>
             {(item) => {
               /** The row this item starts at — which turn it belongs to, and
@@ -548,8 +554,8 @@ const ConductorTranscript: Component<{
               return (
                 <>
                   {/* THE HEADING OVER THE RUN OF UNASKED REPLIES — only in
-                      the whole conversation: a chat pointed at one work is
-                      not a run of anything. */}
+                    the whole conversation: a chat pointed at one work is
+                    not a run of anything. */}
                   <Show
                     when={
                       chatScope() === null &&
@@ -582,12 +588,12 @@ const ConductorTranscript: Component<{
                     />
                   </Show>
                   {/* HIDDEN, NEVER UNMOUNTED. `display: contents` leaves the
-                      item exactly where it was in the column — its own flex
-                      child, with the column's gaps — so a line that opens and
-                      closes is a class changing, not a `Markdown` subtree,
-                      an open `<details>` and a half-filled ask being built
-                      again. */}
-                  <div classList={{ contents: drawn(), hidden: !drawn() }}>
+                    item exactly where it was in the column — its own flex
+                    child, with the column's gaps — so a line that opens and
+                    closes is a class changing, not a `Markdown` subtree,
+                    an open `<details>` and a half-filled ask being built
+                    again. */}
+                  <div class={{ contents: drawn(), hidden: !drawn() }}>
                     <TurnHead rows={rowsOf(item())} />
                     <Switch>
                       <Match when={foldRowsOf(item())}>
@@ -617,7 +623,7 @@ const ConductorTranscript: Component<{
               );
             }}
           </For>
-        </TurnsContext.Provider>
+        </TurnsContext>
       </div>
       {/* THE TERMINAL'S OWN PILL, not a second one that looks like it: the
           affordance for "you are not following, here is the way back" already
@@ -735,10 +741,10 @@ function TranscriptRow(props: {
         // everything around them. A TURN KOLU WOKE carries that gap on its
         // fold line instead (`FoldLine`), which is above the wake row and is
         // there whether the turn is open or closed.
-        class="min-w-0"
-        classList={{
-          "self-end max-w-[86%] mt-4": props.row.kind === "user",
-        }}
+        class={[
+          "min-w-0",
+          { "self-end max-w-[86%] mt-4": props.row.kind === "user" },
+        ]}
       >
         <Switch>
           <Match when={props.row.kind === "user" && props.row}>
@@ -765,7 +771,7 @@ function TranscriptRow(props: {
                     <li
                       data-testid="conductor-plan-step"
                       data-status={step.status}
-                      classList={{ "text-fg": step.status === "in_progress" }}
+                      class={{ "text-fg": step.status === "in_progress" }}
                     >
                       {step.status === "completed"
                         ? "● "

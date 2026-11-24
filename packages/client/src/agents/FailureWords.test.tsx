@@ -5,7 +5,7 @@
  * whose Copy hands over the WHOLE failure (the cause line, then every line).
  */
 
-import { render } from "solid-js/web";
+import { render } from "@solidjs/web";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import FailureWords from "./FailureWords";
 

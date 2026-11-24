@@ -22,13 +22,15 @@ import {
   type Accessor,
   createMemo,
   createSignal,
+  createStore,
   getOwner,
   mapArray,
   onCleanup,
+  produce,
   runWithOwner,
   untrack,
+  unwrap,
 } from "solid-js";
-import { createStore, produce, unwrap } from "solid-js/store";
 import { type StreamingProcedure, unenrolledStreamCall } from "../client";
 import type { CollectionDelta, CollectionDeltasMsg } from "../define";
 import { containThrow } from "../containThrow";

@@ -157,8 +157,10 @@ const ComposeSection: Component<{
         }}
         rows={expanded() ? 4 : 1}
         placeholder="Draft a prompt for the agent… ⌘⏎ to send"
-        class="w-full rounded-md border border-edge bg-surface-1/30 px-2 py-1.5 text-[11px] font-mono text-fg leading-relaxed placeholder:text-fg-3/40 focus:outline-none focus:border-accent/60"
-        classList={{ "resize-y": expanded(), "resize-none": !expanded() }}
+        class={[
+          "w-full rounded-md border border-edge bg-surface-1/30 px-2 py-1.5 text-[11px] font-mono text-fg leading-relaxed placeholder:text-fg-3/40 focus:outline-none focus:border-accent/60",
+          { "resize-y": expanded(), "resize-none": !expanded() },
+        ]}
       />
       <Show when={expanded()}>
         <div class="flex items-center justify-between gap-2">
