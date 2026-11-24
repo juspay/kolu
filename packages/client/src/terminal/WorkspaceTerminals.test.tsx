@@ -1,4 +1,4 @@
-import { createSignal, createStore, For, produce, Show } from "solid-js";
+import { createSignal, createStore, For, Show } from "solid-js";
 import { render } from "@solidjs/web";
 import { expect, it } from "vitest";
 import { WorkspaceTerminals } from "./WorkspaceTerminals";
@@ -89,11 +89,9 @@ it("switches hosts when each pane appears after its id", async () => {
     setIds(["b1", "b2"]);
     await settle();
     // B's records arrive a beat after the switch.
-    setReady(
-      produce((ready) => {
-        Object.assign(ready, { b1: true, b2: true });
-      }),
-    );
+    setReady((ready) => {
+      Object.assign(ready, { b1: true, b2: true });
+    });
     await settle();
     expect(bodyInPane("b1")).not.toBeNull();
     expect(bodyInPane("b2")).not.toBeNull();

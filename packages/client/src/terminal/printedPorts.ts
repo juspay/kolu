@@ -51,7 +51,7 @@
 import { parseLoopbackUrl, WEB_URL_PATTERN } from "@kolu/url-shape";
 import { snapToWrapHead } from "@kolu/xterm-kit";
 import type { TerminalId } from "kolu-common/surface";
-import { createRoot, createStore, produce } from "solid-js";
+import { createRoot, createStore } from "solid-js";
 
 /** Rows read per turn before yielding. */
 export const SCAN_CHUNK_LINES = 2_000;
@@ -131,11 +131,9 @@ function record(id: TerminalId, found: ReadonlySet<number>): void {
     merged.length > MAX_TRACKED_PORTS
       ? merged.slice(merged.length - MAX_TRACKED_PORTS)
       : merged;
-  setPrinted(
-    produce((index) => {
-      index[id] = capped;
-    }),
-  );
+  setPrinted((index) => {
+    index[id] = capped;
+  });
 }
 
 /** What a tracked terminal's owner can tell the index. */
@@ -274,11 +272,9 @@ export function trackPrintedPorts(
       cancelPending = undefined;
       resume?.dispose();
       cont?.dispose();
-      setPrinted(
-        produce((index) => {
-          delete index[id];
-        }),
-      );
+      setPrinted((index) => {
+        delete index[id];
+      });
     },
   };
 }

@@ -15,7 +15,14 @@ function harness() {
   const [store, setStore] = createStore<{ v: AgentDistroStatus | undefined }>({
     v: undefined,
   });
-  const write = (next: AgentDistroStatus) => setStore("v", reconcile(next));
+  // `null` key — positional, the merge `@kolu/surface`'s `reconcileFrame`
+  // performs for a cell whose member declares no array identity. The first
+  // landing has no store node to reconcile into, so it is a plain write.
+  const write = (next: AgentDistroStatus) =>
+    setStore((s) => {
+      if (s.v === undefined) s.v = next;
+      else reconcile(next, null)(s.v);
+    });
   const landed: string[] = [];
   let dispose = () => {};
   createRoot((d) => {

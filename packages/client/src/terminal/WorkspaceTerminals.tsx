@@ -20,7 +20,7 @@
  *  it stays attached but states no size. Each shell answers from the same
  *  `Shown` accessor it is drawn in (`ui/shown.ts`). */
 import type { TerminalId } from "kolu-common/surface";
-import { createStore, For, onCleanup, produce, Show, untrack } from "solid-js";
+import { createStore, For, onCleanup, Show, untrack } from "solid-js";
 import { Portal, type JSX } from "@solidjs/web";
 
 /** What the shell that places a body says about it — one record, so two
@@ -67,11 +67,9 @@ export function WorkspaceTerminals(props: {
     let mine: HTMLDivElement | undefined;
     onCleanup(() => {
       if (mine !== undefined && destinations[id]?.el === mine)
-        setDestinations(
-          produce((all) => {
-            delete all[id];
-          }),
-        );
+        setDestinations((all) => {
+          delete all[id];
+        });
     });
     return (
       <div
@@ -84,13 +82,11 @@ export function WorkspaceTerminals(props: {
             viewShown: placement.viewShown,
             boxDecided: placement.boxDecided ?? (() => true),
           };
-          setDestinations(
-            produce((all) => {
-              const held = all[id];
-              if (held) Object.assign(held, destination);
-              else all[id] = destination;
-            }),
-          );
+          setDestinations((all) => {
+            const held = all[id];
+            if (held) Object.assign(held, destination);
+            else all[id] = destination;
+          });
         }}
       />
     );

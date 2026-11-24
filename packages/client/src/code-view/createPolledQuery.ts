@@ -58,7 +58,6 @@ import {
   createMemo,
   createSignal,
   createStore,
-  produce,
   untrack,
 } from "solid-js";
 import { runActionPromise } from "../runAction";
@@ -173,11 +172,9 @@ export function createPolledQuery<Input, PulseInput, Pulse, Result>(
   /** Reset to the empty/loading state: no value, `pending`, no shown key. The idle
    *  input and the changed-query paths below share it. */
   function blank(): void {
-    setStore(
-      produce((s) => {
-        s.v = undefined;
-      }),
-    );
+    setStore((s) => {
+      s.v = undefined;
+    });
     setPending(true);
     shownKey = null;
   }

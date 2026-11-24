@@ -17,7 +17,7 @@
 
 import { defineSurface } from "@kolu/surface/define";
 import { Schema } from "effect";
-import { createRoot, createSignal } from "solid-js";
+import { createRoot, createSignal, flush } from "solid-js";
 import { describe, expect, it } from "vitest";
 import { STALE_PROCESS_CLOSE_CODE } from "../index";
 import { connectSurface } from "./connectSurface";
@@ -72,6 +72,8 @@ describe("connectSurface().readout", () => {
       // the shape of lie a transport-only `status` had no way to report.
       setPending(false);
       setError(new Error("Internal server error"));
+      // Solid 2 defers a write: the readout reads the new sub state once it flushes.
+      flush();
       const degraded = conn.readout();
       expect(degraded.status).toBe("degraded");
       expect(degraded.stopped).toEqual(["documents.keys"]);
@@ -82,6 +84,7 @@ describe("connectSurface().readout", () => {
       // The stream re-delivers: the sub's error() self-clears, and so does the
       // readout. Nothing latches at this altitude that does not latch beneath.
       setError(undefined);
+      flush();
       expect(conn.readout()).toEqual({
         status: "live",
         needsReload: false,

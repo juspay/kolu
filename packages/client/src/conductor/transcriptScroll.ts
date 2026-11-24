@@ -34,7 +34,7 @@
  *  element only when the reader themself moved it, and every frame after that
  *  reads the remembered answer. */
 
-import { createSignal, createStore, produce } from "solid-js";
+import { createSignal, createStore } from "solid-js";
 
 /** How close to the bottom still counts as "following", in pixels. A couple of
  *  lines of slack, so a half-scrolled wheel notch does not unpin the view. */
@@ -96,11 +96,9 @@ const offset = (): number | null => transcriptPlace(documentKey());
  *  conversation was. */
 const setOffset = (place: number | null): void => {
   const key = documentKey();
-  setPlaces(
-    produce((all) => {
-      all[key] = place;
-    }),
-  );
+  setPlaces((all) => {
+    all[key] = place;
+  });
 };
 
 /** Is the view following the conversation? The one question the render path

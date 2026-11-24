@@ -17,7 +17,7 @@
  *  terminal set or outlive the terminals it keyed. */
 
 import type { TerminalId } from "kolu-common/surface";
-import { createEffect, createStore, produce } from "solid-js";
+import { createEffect, createStore } from "solid-js";
 import { createSharedRoot } from "../createSharedRoot";
 import { useTerminalStore } from "./useTerminalStore";
 
@@ -38,7 +38,7 @@ export const useTerminalSearch = createSharedRoot(() => {
   // sticky per-terminal preference that reappears on return.
   createEffect(
     () => store.activeId(),
-    () => setState(produce((s) => clearAll(s))),
+    () => setState(clearAll),
     { defer: true },
   );
 
@@ -49,42 +49,38 @@ export const useTerminalSearch = createSharedRoot(() => {
     },
     /** Open or close the find bar for terminal `id`. */
     setOpen(id: TerminalId, open: boolean) {
-      setState(
-        produce((s) => {
-          s[id] = open;
-        }),
-      );
+      setState((s) => {
+        s[id] = open;
+      });
     },
     /** Open the find bar for terminal `id` — the "find in THIS terminal" intent
      *  named once, so the tile's find button doesn't hand-roll `setOpen(id,
      *  true)`. The search singleton owns find-bar state; tile selection stays
      *  with the caller (TileTitleActions' `onTile`). */
     openFor(id: TerminalId) {
-      setState(
-        produce((s) => {
-          s[id] = true;
-        }),
-      );
+      setState((s) => {
+        s[id] = true;
+      });
     },
     /** Toggle the find bar for the active terminal — the `Cmd+F` action. */
     toggleActive() {
       const id = store.activeId();
       if (id !== null)
-        setState(
-          produce((s) => {
-            s[id] = !s[id];
-          }),
-        );
+        setState((s) => {
+          s[id] = !s[id];
+        });
     },
     /** Drop a terminal's find-bar state when it's removed. */
     removeTerminal(id: TerminalId) {
-      setState(produce((s) => delete s[id]));
+      setState((s) => {
+        delete s[id];
+      });
     },
     /** Clear every find bar — called by `handleCloseAll` after `killAll`, which
      *  resets the store wholesale instead of routing each terminal through
      *  `removeAndAutoSwitch`, so the per-terminal eviction never runs. */
     reset() {
-      setState(produce((s) => clearAll(s)));
+      setState(clearAll);
     },
   } as const;
 });

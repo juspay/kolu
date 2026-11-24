@@ -11,7 +11,7 @@
 
 import type { TerminalId } from "kolu-common/surface";
 import { nonEmpty } from "nonempty";
-import { createStore, produce } from "solid-js";
+import { createStore } from "solid-js";
 import { activeScope } from "../hostScope/hostScopes";
 import { type SplitPanelState, useSplitPanelState } from "./splitPanelState";
 
@@ -45,11 +45,9 @@ function ensureState(parentId: TerminalId): PaneChrome {
   const existing = state[parentId];
   if (existing) return existing;
   const seeded: PaneChrome = { ...DEFAULT_PANE_CHROME };
-  setState(
-    produce((all) => {
-      all[parentId] = seeded;
-    }),
-  );
+  setState((all) => {
+    all[parentId] = seeded;
+  });
   return seeded;
 }
 
@@ -59,14 +57,12 @@ function editChrome(
   parentId: TerminalId,
   write: (panel: PaneChrome) => void,
 ): void {
-  setState(
-    produce((all) => {
-      const held = all[parentId];
-      const panel = held ?? { ...DEFAULT_PANE_CHROME };
-      write(panel);
-      if (!held) all[parentId] = panel;
-    }),
-  );
+  setState((all) => {
+    const held = all[parentId];
+    const panel = held ?? { ...DEFAULT_PANE_CHROME };
+    write(panel);
+    if (!held) all[parentId] = panel;
+  });
 }
 
 export function useSubPanel() {
@@ -365,7 +361,9 @@ export function useSubPanel() {
     /** Clean up state for a parent that no longer exists — the browser-only
      *  chrome here, and any in-flight split write it left behind. */
     removePanel(parentId: TerminalId) {
-      setState(produce((s) => delete s[parentId]));
+      setState((s) => {
+        delete s[parentId];
+      });
       split.forget(parentId);
     },
   } as const;

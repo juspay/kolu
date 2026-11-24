@@ -8,7 +8,7 @@
  *  is the honest boundary for text the server was never told about. */
 
 import type { ConductorAttachment } from "kolu-common/conductor";
-import { createSignal, createStore, produce } from "solid-js";
+import { createSignal, createStore } from "solid-js";
 import { armedMentionText } from "./mentions";
 import { forgetThumbnail } from "./thumbnails";
 
@@ -194,24 +194,20 @@ export function setAskDraft(
   field: string,
   values: readonly string[],
 ): void {
-  setAskDrafts(
-    produce((drafts) => {
-      const form = drafts[askId] ?? {};
-      form[field] = values;
-      drafts[askId] = form;
-    }),
-  );
+  setAskDrafts((drafts) => {
+    const form = drafts[askId];
+    if (form) form[field] = values;
+    else drafts[askId] = { [field]: values };
+  });
 }
 
 /** The question stopped waiting — its draft is no longer anybody's unsent text.
  *  Deleting the key rather than blanking it keeps a long session's store from
  *  growing one empty form per question asked. */
 export function forgetAskDraft(askId: string): void {
-  setAskDrafts(
-    produce((drafts) => {
-      delete drafts[askId];
-    }),
-  );
+  setAskDrafts((drafts) => {
+    delete drafts[askId];
+  });
 }
 
 /** SOME OF ONE ASK'S FIELDS, forgotten — the questions a form sent and the
@@ -224,12 +220,10 @@ export function dropAskFields(
   askId: string,
   fields: ReadonlyArray<string>,
 ): void {
-  setAskDrafts(
-    produce((drafts) => {
-      const form = drafts[askId];
-      if (form === undefined) return;
-      for (const field of fields) delete form[field];
-      if (Object.keys(form).length === 0) delete drafts[askId];
-    }),
-  );
+  setAskDrafts((drafts) => {
+    const form = drafts[askId];
+    if (form === undefined) return;
+    for (const field of fields) delete form[field];
+    if (Object.keys(form).length === 0) delete drafts[askId];
+  });
 }

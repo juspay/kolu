@@ -12,7 +12,7 @@
  * "nothing is listening" is said only when the host positively holds nothing.
  */
 
-import { createSelector } from "solid-js";
+import { createKeySelector } from "../createKeySelector";
 import { createSharedRoot } from "../createSharedRoot";
 
 import { toError } from "@kolu/surface/run-stream";
@@ -571,7 +571,7 @@ export const PrintedUrlCard: Component<{ target: PrintedUrlCardTarget }> = (
  *  second-click crash). Terminal renders this; tests render this; there is no
  *  second copy of the mount pattern to drift. */
 const useCardTargetSelector = createSharedRoot(() =>
-  createSelector(() => printedUrlCardTarget()?.terminalId),
+  createKeySelector(() => printedUrlCardTarget()?.terminalId),
 );
 
 export const PrintedUrlCardMount: Component<{ terminalId: TerminalId }> = (

@@ -19,11 +19,11 @@ import {
   createEffect,
   createMemo,
   createSignal,
-  createSelector,
   For,
   Show,
   untrack,
 } from "solid-js";
+import { createKeySelector } from "./createKeySelector";
 import { match } from "ts-pattern";
 import { hostHue, hostLabel } from "./host/hostChipTone";
 import { ACTIONS } from "./input/actions";
@@ -999,7 +999,9 @@ const CommandPalette: Component<{
   const effectiveIndex = createMemo(() =>
     Math.max(0, Math.min(selectedIndex(), filtered().length - 1)),
   );
-  const isSelected = createSelector(effectiveIndex);
+  // Per-key projection (Solid 2's selector): moving the highlight wakes the
+  // row it left and the row it reached, not the whole list.
+  const isSelected = createKeySelector(effectiveIndex);
 
   // Notify highlighted item when selection changes. Cancels the previous
   // leaf's onCancel first so root-flattened previews (theme) don't stick.

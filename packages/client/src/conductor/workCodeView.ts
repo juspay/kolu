@@ -25,13 +25,7 @@ import { toError } from "@kolu/surface/run-stream";
 import { Effect } from "effect";
 import { DEFAULT_WORK_CODE_VIEW, type WorkCodeView } from "kolu-common/works";
 import type { WorkId } from "kolu-work";
-import {
-  type Accessor,
-  createEffect,
-  createStore,
-  produce,
-  untrack,
-} from "solid-js";
+import { type Accessor, createEffect, createStore, untrack } from "solid-js";
 import { toast } from "solid-sonner";
 import { createSharedRoot } from "../createSharedRoot";
 import { type CodeLister, codeModeFor } from "../code-view/codeLister";
@@ -69,7 +63,9 @@ const forgetGoneWorks = createSharedRoot(() => {
       if (before === undefined) return;
       for (const id of before) {
         if (now.has(id)) continue;
-        setWritten(produce((all) => delete all[id]));
+        setWritten((all) => {
+          delete all[id];
+        });
         histories.forget(id);
       }
     },
@@ -84,13 +80,11 @@ function viewOf(work: WorkId): WorkCodeView {
 
 /** Write first, report after. */
 function write(work: WorkId, next: WorkCodeView): void {
-  setWritten(
-    produce((all) => {
-      const held = all[work];
-      if (held) Object.assign(held, next);
-      else all[work] = next;
-    }),
-  );
+  setWritten((all) => {
+    const held = all[work];
+    if (held) Object.assign(held, next);
+    else all[work] = next;
+  });
   runAction(
     "save a work's Code view",
     app.procedures.conductor

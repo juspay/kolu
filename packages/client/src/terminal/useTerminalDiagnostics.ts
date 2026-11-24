@@ -14,13 +14,7 @@
  *  — both registrations happen in Terminal.tsx at mount and teardown. */
 
 import type { TerminalId } from "kolu-common/surface";
-import {
-  type Accessor,
-  createEffect,
-  createRoot,
-  createStore,
-  produce,
-} from "solid-js";
+import { type Accessor, createEffect, createRoot, createStore } from "solid-js";
 import type { ScrollLockEvent, TerminalGrid } from "@kolu/xterm-kit/solid";
 
 export type Renderer = "webgl" | "dom";
@@ -99,22 +93,18 @@ export function registerDiagnostics(
     renderer: renderer(),
     scrollLock: scrollLockSnapshot(scrollLock),
   };
-  setStore(
-    produce((s) => {
-      const held = s[id];
-      if (held) Object.assign(held, registered);
-      else s[id] = registered;
-    }),
-  );
+  setStore((s) => {
+    const held = s[id];
+    if (held) Object.assign(held, registered);
+    else s[id] = registered;
+  });
   /** Write this terminal's registered entry in place. */
   const write = (edit: (entry: TerminalDiagnostics) => void): void =>
-    setStore(
-      produce((s) => {
-        const entry = s[id];
-        if (!entry) throw new Error(`diagnostics: ${id} is not registered`);
-        edit(entry);
-      }),
-    );
+    setStore((s) => {
+      const entry = s[id];
+      if (!entry) throw new Error(`diagnostics: ${id} is not registered`);
+      edit(entry);
+    });
 
   // Own the effect root explicitly so the subscription is torn down with
   // the terminal, not at the component's Solid owner (Terminal.tsx passes
@@ -150,7 +140,9 @@ export function registerDiagnostics(
 
   return () => {
     disposeRoot();
-    setStore(produce((s) => void delete s[id]));
+    setStore((s) => {
+      delete s[id];
+    });
   };
 }
 

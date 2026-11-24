@@ -39,23 +39,23 @@ import {
   SLEEPING_RECEDE_CLASS,
 } from "@kolu/solid-statepip/pipVariant";
 import type { TerminalId } from "@kolu/terminal-vocab/schema";
+import type { JSX } from "@solidjs/web";
 import type { PrInfo } from "anyforge/schemas";
 import { type Component, Show } from "solid-js";
-import type { JSX } from "@solidjs/web";
 import {
   DOCK_CARDS_SUBGRID_LEFT_RESTORE,
   DOCK_ROW_BRANCH_COL,
   DOCK_ROW_GAP,
   DOCK_ROW_GRID,
-  DOCK_ROW_SURFACE,
   DOCK_ROW_STRIPE_CLASS,
+  DOCK_ROW_SURFACE,
   type DockRowSurface,
 } from "./geometry.ts";
-import type { DockRowBucket, StatePipBind } from "./pipBind.ts";
 import { PrPip } from "./PrPip.tsx";
+import type { DockRowBucket, StatePipBind } from "./pipBind.ts";
 import { RecencyCell, type RowRecency } from "./RecencyCell.tsx";
-import { dockRowAttrs } from "./rowAttrs.ts";
 import { RowLabel } from "./RowLabel.tsx";
+import { dockRowAttrs } from "./rowAttrs.ts";
 import type { RowSubline } from "./rowSubline.ts";
 
 /** The DOM handles a consuming surface stamps on its rows, so its own e2e suite
@@ -160,9 +160,10 @@ export const DockRow: Component<DockRowProps> = (props) => {
   const s = () => DOCK_ROW_SURFACE[props.surface];
   return (
     // biome-ignore lint/a11y/useSemanticElements: native button would nest invalid interactive HTML — see the module header
+    // biome-ignore lint/a11y/useFocusableInteractive: the row IS focusable — Solid 2's JSX types spell the attribute `tabindex` (lowercase, see `tabindex={0}` below), which this rule only recognises as React's `tabIndex`
     <div
       role="button"
-      tabIndex={0}
+      tabindex={0}
       ref={props.ref}
       data-testid={props.testIds?.row}
       // The shared row contract (`dockRowAttrs`) — wash hook, bucket, agent
@@ -250,7 +251,7 @@ export const DockRow: Component<DockRowProps> = (props) => {
           // A native button, not a `role="button"` span: the grip IS clickable
           // (a tap on it must not fall through to the row's own activation), and
           // a real button is the element that can carry a click AND a label
-          // without the row root's div+role dance. `tabIndex={-1}` keeps it out
+          // without the row root's div+role dance. `tabindex={-1}` keeps it out
           // of the tab order — a drag is a pointer gesture, and a focusable
           // handle no keyboard can operate is worse than an honest mouse-only
           // one. Nested in the row's `role="button"` div (never in a real
@@ -258,7 +259,7 @@ export const DockRow: Component<DockRowProps> = (props) => {
           <button
             type="button"
             data-testid="dock-row-grip"
-            tabIndex={-1}
+            tabindex={-1}
             aria-label="Drag to nest this terminal"
             class="dock-row-grip"
             ref={h()}

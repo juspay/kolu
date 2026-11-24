@@ -35,13 +35,8 @@ import { toError } from "@kolu/surface/run-stream";
 import { Effect } from "effect";
 import { encodeHostKey, type HostKey } from "kolu-common/hostKey";
 import type { TerminalId } from "kolu-common/surface";
-import {
-  type Accessor,
-  createMemo,
-  createSelector,
-  createSignal,
-  type Setter,
-} from "solid-js";
+import { type Accessor, createMemo, createSignal, type Setter } from "solid-js";
+import { createKeySelector } from "../createKeySelector";
 import { attentionRecordOf } from "../attention/savedAttention";
 import { perHostBoolPref } from "../persistedPref";
 import { runAction } from "../runAction";
@@ -100,8 +95,10 @@ export function createViewState(
   const [focus, setFocus] = createSignal<TerminalFocus | null>(null);
   const focusedTerminalId = createMemo(() => focus()?.id ?? null);
   const activeId = createMemo(() => activeTileOf(focus(), placementOf));
-  const isFocused = createSelector(focusedTerminalId);
-  const isActiveTile = createSelector(activeId);
+  // Per-key projections (Solid 2's selector): moving focus wakes the terminal
+  // that lost it and the one that took it, not every tile on the canvas.
+  const isFocused = createKeySelector(focusedTerminalId);
+  const isActiveTile = createKeySelector(activeId);
   // Cross-host visit trail — one client SOT for ⌘K Recent + Ctrl+Tab.
   const visits = useVisitRecency();
 

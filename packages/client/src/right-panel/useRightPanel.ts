@@ -57,7 +57,7 @@ import {
 import { toError } from "@kolu/surface/run-stream";
 import { Effect } from "effect";
 import type { TerminalId } from "kolu-common/surface";
-import { createEffect, createSignal, createStore, produce } from "solid-js";
+import { createEffect, createSignal, createStore } from "solid-js";
 import { toast } from "solid-sonner";
 import { createSharedRoot } from "../createSharedRoot";
 import { runAction } from "../runAction";
@@ -358,16 +358,14 @@ export function useRightPanel() {
   ): void {
     // Assigned by the mutator below, which the store setter runs synchronously.
     let written!: RightPanelPerTerminalState;
-    setPerTerminal(
-      produce((all) => {
-        const held = all[id];
-        const state = held ?? { ...base };
-        if (typeof update === "function") update(state);
-        else Object.assign(state, update);
-        if (!held) all[id] = state;
-        written = { ...state };
-      }),
-    );
+    setPerTerminal((all) => {
+      const held = all[id];
+      const state = held ?? { ...base };
+      if (typeof update === "function") update(state);
+      else Object.assign(state, update);
+      if (!held) all[id] = state;
+      written = { ...state };
+    });
     place.noteWrite(id, written);
     reportToServer(id, written, rpc);
   }
@@ -467,7 +465,7 @@ export function useRightPanel() {
     /** Per-mode file selection, keyed by `(focusedPane, mode)` so each pane
      *  remembers its own pick in each of local/branch/browse. */
     selectedFile: (mode) => paneState().selectedFileByMode?.[mode] ?? null,
-    // A shallow PATCH, not a `produce` mutator: the decoded record is readonly
+    // A shallow PATCH, not a draft mutation: the decoded record is readonly
     // (Effect's `Struct.Type`), so the map is REBUILT ({@link selectionWith}).
     //
     // WRITE-ONLY: the pane and the record it carries both come from the mirror,
@@ -704,7 +702,9 @@ export function useRightPanel() {
     /** Clean up state for a terminal that no longer exists. Mirrors
      *  `useSubPanel.removePanel`. */
     removePanel: (id: TerminalId) => {
-      setPerTerminal(produce((s) => delete s[id]));
+      setPerTerminal((s) => {
+        delete s[id];
+      });
       histories.forget(id);
     },
   } as const;

@@ -23,7 +23,7 @@ import {
   type TerminalAttention,
 } from "@kolu/padi-client/attention";
 import type { AttentionClass, TerminalId } from "kolu-common/surface";
-import { createStore, produce } from "solid-js";
+import { createStore } from "solid-js";
 
 export interface HostMarks extends HostAttentionFrame {
   /** Finished-but-unvisited terminals on this host — the amber count. */
@@ -65,16 +65,16 @@ export function writeHostMarks(
   value: Partial<Pick<HostMarks, "unseenFinished">> | undefined,
 ): void {
   if (value === undefined) {
-    setMarks(produce((m) => delete m[encHost]));
+    setMarks((m) => {
+      delete m[encHost];
+    });
     return;
   }
-  setMarks(
-    produce((m) => {
-      const prev = m[encHost];
-      if (prev) Object.assign(prev, value);
-      else m[encHost] = { unseenFinished: 0, ...value };
-    }),
-  );
+  setMarks((m) => {
+    const prev = m[encHost];
+    if (prev) Object.assign(prev, value);
+    else m[encHost] = { unseenFinished: 0, ...value };
+  });
 }
 
 /** A host's frame in INDEXED form — the same three answers `@kolu/padi-client/attention`

@@ -29,8 +29,8 @@
  * it's safely consumable from `node_modules`.
  */
 
-import { createComponent, createEffect, Errored } from "solid-js";
 import type { JSX } from "@solidjs/web";
+import { createComponent, createEffect, Errored } from "solid-js";
 import { thrownText } from "../index";
 
 /** The LOOK of an uncaught throw — the one thing a consumer supplies. Handed
@@ -53,9 +53,10 @@ export function SurfaceFaultBoundary(
   return createComponent(Errored, {
     // `Errored` hands its fallback the fault as an ACCESSOR (and a `reset` this
     // boundary does not offer: a client that threw mid-render is reloaded, not
-    // retried in place). The fallback body is a render scope, so the accessor
-    // is read where reads are tracked — the effect's compute and the returned
-    // render function — never at its top level.
+    // retried in place). The fallback IS the boundary's render scope — Solid 2
+    // runs it inside the boundary's own computation and an element is what it
+    // must return (a returned FUNCTION is not an `Element` there), so the
+    // accessor is read right here, where that scope tracks it.
     fallback: (error: () => unknown) => {
       // THE RECORD, and it is not decoration: the boundary swallows, so this
       // line is the only way the fault reaches a console at all. One line
@@ -66,7 +67,7 @@ export function SurfaceFaultBoundary(
           fault,
         );
       });
-      return () => props.fault(thrownText(error()));
+      return props.fault(thrownText(error()));
     },
     get children() {
       return props.children;

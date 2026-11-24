@@ -75,7 +75,6 @@ import {
   createStore,
   For,
   onCleanup,
-  produce,
   Show,
 } from "solid-js";
 import { Portal } from "@solidjs/web";
@@ -760,11 +759,9 @@ const HostSelectorStrip: Component = () => {
     (rect, el) => {
       const key = el.dataset.hostKey;
       if (key)
-        setChipWidths(
-          produce((widths) => {
-            widths[key] = rect.width;
-          }),
-        );
+        setChipWidths((widths) => {
+          widths[key] = rect.width;
+        });
     },
   );
 
@@ -921,20 +918,16 @@ const HostSelectorStrip: Component = () => {
           {(host) => {
             const key = encodeHostKey(host);
             onCleanup(() =>
-              setMeasureRefs(
-                produce((refs) => {
-                  delete refs[key];
-                }),
-              ),
+              setMeasureRefs((refs) => {
+                delete refs[key];
+              }),
             );
             return (
               <div
                 ref={(el) =>
-                  setMeasureRefs(
-                    produce((refs) => {
-                      refs[key] = el;
-                    }),
-                  )
+                  setMeasureRefs((refs) => {
+                    refs[key] = el;
+                  })
                 }
                 data-host-key={key}
                 class="shrink-0"

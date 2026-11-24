@@ -34,7 +34,6 @@
  */
 
 import type { Terminal } from "@xterm/xterm";
-import { resizeTerminal } from "../internals";
 import {
   type Accessor,
   createEffect,
@@ -42,6 +41,7 @@ import {
   onCleanup,
   untrack,
 } from "solid-js";
+import { resizeTerminal } from "../internals";
 
 /** How long a reported scroll input arms the latch. Long enough to cover
  *  xterm's wheel smooth-scroll animation frames (~125 ms) on a loaded
@@ -120,12 +120,40 @@ export function createScrollLock(
    *  locked; `hiddenAtEngage` carries whether the lock was created while the
    *  document was hidden (the signature `handleTabVisible` clears). Clearing
    *  the lock is one assignment (`setLockState(null)`) that necessarily drops
-   *  the hidden-origin with it — no parallel flag to reset in lockstep. */
-  const [lockState, setLockState] = createSignal<{
+   *  the hidden-origin with it — no parallel flag to reset in lockstep.
+   *
+   *  THE AUTHORITY IS THE PLAIN VARIABLE. Solid 2 holds a signal write until
+   *  the queue flushes, and every decision in here is made SYNCHRONOUSLY
+   *  inside one event dispatch: a scroll that engages the lock is followed, in
+   *  the same turn, by the write door asking whether to buffer. Read off a
+   *  signal that answer would still be "unlocked" and the bytes the lock was
+   *  just engaged to hold would jump the user's screen — the exact defect this
+   *  module exists to prevent. The signal beside it is the REACTIVE MIRROR the
+   *  UI (and the `enabled` effect) re-runs on; one writer moves both. The
+   *  readers below subscribe to the mirror and answer from the authority, so a
+   *  tracked read is never a flush behind an imperative one. */
+  let lock: {
+    source: ScrollIntentSource;
+    hiddenAtEngage: boolean;
+  } | null = null;
+  const [lockMirror, setLockMirror] = createSignal<{
     source: ScrollIntentSource;
     hiddenAtEngage: boolean;
   } | null>(null);
-  const isLocked = () => lockState() !== null;
+  const setLockState = (
+    next: { source: ScrollIntentSource; hiddenAtEngage: boolean } | null,
+  ): void => {
+    lock = next;
+    setLockMirror(next);
+  };
+  const lockNow = (): {
+    source: ScrollIntentSource;
+    hiddenAtEngage: boolean;
+  } | null => {
+    lockMirror();
+    return lock;
+  };
+  const isLocked = () => lockNow() !== null;
 
   /** What the lock is holding back, IN ORDER — flushed on unlock.
    *
@@ -138,9 +166,21 @@ export function createScrollLock(
    *  overtake bytes the user's scroll-up is keeping unparsed, which would
    *  reflow a screen those bytes were not written for.
    *
-   *  The reactive source for the buffer; `pendingChunks` counts the DATA items
-   *  only — it means "output you have not seen", and a resize is not output. */
-  const [pending, setPending] = createSignal<PendingItem[]>([]);
+   *  Authority + mirror for the same reason the lock has them: a drain empties
+   *  the buffer and a write that follows in the same turn must see it empty,
+   *  or the held bytes would be written twice. `pendingChunks` counts the DATA
+   *  items only — it means "output you have not seen", and a resize is not
+   *  output. */
+  let heldItems: PendingItem[] = [];
+  const [pendingMirror, setPendingMirror] = createSignal<PendingItem[]>([]);
+  const setPending = (next: PendingItem[]): void => {
+    heldItems = next;
+    setPendingMirror(next);
+  };
+  const pending = (): PendingItem[] => {
+    pendingMirror();
+    return heldItems;
+  };
   const pendingChunks = () =>
     pending().reduce((n, item) => (item.kind === "data" ? n + 1 : n), 0);
   const hasNewOutput = () => pendingChunks() > 0;
@@ -155,10 +195,18 @@ export function createScrollLock(
    *  dragging emit `onScroll` ticks for as long as the button is down, well
    *  past `SCROLL_INTENT_WINDOW_MS` after the initial press. */
   let heldSource: ScrollIntentSource | null = null;
-  /** Reactive source of truth for the transition history. `lastEvent` (live
-   *  row) and `events()` (JSON dump) are both derived from it — one ring, two
-   *  read patterns, no hand-synced head signal. */
-  const [eventRing, setEventRing] = createSignal<ScrollLockEvent[]>([]);
+  /** Source of truth for the transition history. `lastEvent` (live row) and
+   *  `events()` (JSON dump) are both derived from it — one ring, two read
+   *  patterns, no hand-synced head signal. Authority + mirror like the lock
+   *  above: a transition recorded inside a scroll dispatch is read back in the
+   *  same turn (the diagnostics row, and the tests that pin the transition),
+   *  which a deferred signal write would answer with the previous event. */
+  let ring: ScrollLockEvent[] = [];
+  const [ringMirror, setRingMirror] = createSignal<ScrollLockEvent[]>([]);
+  const eventRing = (): ScrollLockEvent[] => {
+    ringMirror();
+    return ring;
+  };
   let lastWarnAt = Number.NEGATIVE_INFINITY;
 
   /** Report a scroll input the user just made. Call BEFORE the input
@@ -213,10 +261,9 @@ export function createScrollLock(
       hasFocus: typeof document === "undefined" ? null : document.hasFocus(),
       stack: new Error("scroll-lock transition").stack,
     };
-    setEventRing((ring) => {
-      const next = [...ring, event];
-      return next.length > EVENT_RING_CAP ? next.slice(-EVENT_RING_CAP) : next;
-    });
+    const next = [...ring, event];
+    ring = next.length > EVENT_RING_CAP ? next.slice(-EVENT_RING_CAP) : next;
+    setRingMirror(ring);
     if (kind === "suppressed" && event.at - lastWarnAt >= WARN_THROTTLE_MS) {
       lastWarnAt = event.at;
       console.warn(
@@ -384,7 +431,7 @@ export function createScrollLock(
    *  The handler body runs UNTRACKED, and that is about DEPENDENCIES, not
    *  about quieting anything. xterm fires its scroll event from inside other
    *  people's calls — `terminal.reset()` among them — and the handler reads
-   *  the lock's own state (`enabled()`, `lockState()`). An effect CALLBACK is
+   *  the lock's own state (`enabled()`, `lockNow()`). An effect CALLBACK is
    *  already untracked in Solid 2, so the case this still covers is a TRACKING
    *  scope entering xterm's dispatch: a memo or a render effect's compute that
    *  resets/resizes the terminal would otherwise subscribe to the lock and
@@ -457,7 +504,7 @@ export function createScrollLock(
     // Stash the callback WITH the chunk (not invoked now — no paint yet); flush()
     // fires it once the buffered write parses on unlock, so a re-seed that rides
     // the callback survives the lock instead of being silently dropped.
-    setPending((buffered) => [...buffered, { kind: "data", data, onParsed }]);
+    setPending([...pending(), { kind: "data", data, onParsed }]);
   }
 
   /**
@@ -485,7 +532,7 @@ export function createScrollLock(
       resizeTerminal(term, cols, rows);
       return;
     }
-    setPending((buffered) => [...buffered, { kind: "resize", cols, rows }]);
+    setPending([...pending(), { kind: "resize", cols, rows }]);
   }
 
   /**
@@ -510,7 +557,7 @@ export function createScrollLock(
    * (#1272). Only a background/accidental latch is cleared here.
    */
   function handleTabVisible(): void {
-    if (!termRef || !lockState()?.hiddenAtEngage) return;
+    if (!termRef || !lockNow()?.hiddenAtEngage) return;
     recordEvent("unlatched", null, termRef);
     scrollToBottom(termRef);
   }

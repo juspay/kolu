@@ -13,6 +13,7 @@
  *  available mode renders with no chrome (today's behaviour for code, images,
  *  and documents alike). */
 
+import type { JSX } from "@solidjs/web";
 import {
   type Accessor,
   type Component,
@@ -22,7 +23,6 @@ import {
   For,
   Show,
 } from "solid-js";
-import type { JSX } from "@solidjs/web";
 import type {
   FileData,
   FileViewMode,
@@ -153,7 +153,7 @@ function KeepAliveMode<TFile extends FileData>(props: {
           "content-visibility": props.show ? "visible" : "hidden",
         }}
         inert={!props.show}
-        aria-hidden={!props.show}
+        aria-hidden={props.show ? "false" : "true"}
       >
         {props.render(heldFile)}
       </div>
@@ -177,7 +177,7 @@ const FileViewToggle: Component<{
         <button
           type="button"
           data-testid={`fileview-toggle-${value}`}
-          aria-pressed={props.mode === value}
+          aria-pressed={props.mode === value ? "true" : "false"}
           onClick={() => props.onChange(value)}
           class="rounded px-2 py-0.5 text-[0.7rem] font-medium capitalize opacity-60 transition-colors hover:opacity-100 aria-pressed:bg-current/15 aria-pressed:opacity-100"
         >

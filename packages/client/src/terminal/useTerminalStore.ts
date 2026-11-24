@@ -12,7 +12,7 @@
 
 import { activeArm } from "@kolu/padi-client/surface";
 import type { TerminalId } from "kolu-common/surface";
-import { createMemo, createSelector } from "solid-js";
+import { createMemo, createProjection } from "solid-js";
 import { createSharedRoot } from "../createSharedRoot";
 import { terminalListSub } from "../hostScope/activeWire";
 import { useViewState } from "../useViewState";
@@ -89,10 +89,19 @@ export const useTerminalStore = createSharedRoot(() => {
         a.length === b.length && a.every((id) => b.includes(id)),
     },
   );
-  const budgetContains = createSelector(
-    webglTileBudget,
-    (id: TerminalId, budget) => budget.includes(id),
-  );
+  // A per-key projection, Solid 2's spelling of the old membership selector:
+  // the derive lights the budgeted ids and clears the ones that fell out, so a
+  // budget change wakes only the tiles that crossed the line. The previous
+  // budget is kept in a closure variable — the draft is this projection's own
+  // state, and re-scanning it per run would be work the projection avoids.
+  let budgeted: readonly TerminalId[] = [];
+  const inBudget = createProjection<Record<string, boolean>>((draft) => {
+    const budget = webglTileBudget();
+    for (const id of budgeted) if (!budget.includes(id)) delete draft[id];
+    for (const id of budget) draft[id] = true;
+    budgeted = budget;
+  }, {});
+  const budgetContains = (id: TerminalId): boolean => inBudget[id] === true;
 
   /** Whether `id` should hold a WebGL renderer under the budget. A budgeted
    *  tile's slot covers its main pane AND its active split — the split inherits

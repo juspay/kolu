@@ -28,7 +28,7 @@ import {
 } from "@kolu/padi-client/surface";
 import type { AgentInfo, TerminalId } from "kolu-common/surface";
 import type { GitInfo } from "kolu-git/schemas";
-import { createMemo, createStore, For, produce } from "solid-js";
+import { createMemo, createStore, For } from "solid-js";
 import { render } from "@solidjs/web";
 import { afterEach, describe, expect, it } from "vitest";
 import type { TerminalAttention } from "@kolu/padi-client/attention";
@@ -220,21 +220,17 @@ describe("dock rows in one repository stay independent", () => {
       agentInfo("awaiting_user", "Ship it?"),
       "Rewrite",
     );
-    setMeta(
-      produce((all) => {
-        const held = all[ALICE];
-        if (held) Object.assign(held, aliceMeta);
-        else all[ALICE] = aliceMeta;
-      }),
-    );
-    setAttention(
-      produce((all) => {
-        const held = all[ALICE];
-        const asking: TerminalAttention = { klass: "asking", live: false };
-        if (held) Object.assign(held, asking);
-        else all[ALICE] = asking;
-      }),
-    );
+    setMeta((all) => {
+      const held = all[ALICE];
+      if (held) Object.assign(held, aliceMeta);
+      else all[ALICE] = aliceMeta;
+    });
+    setAttention((all) => {
+      const held = all[ALICE];
+      const asking: TerminalAttention = { klass: "asking", live: false };
+      if (held) Object.assign(held, asking);
+      else all[ALICE] = asking;
+    });
 
     const aliceAfter = readRow(host, ALICE);
     expect(aliceAfter.title).toBe("Rewrite");
@@ -247,11 +243,9 @@ describe("dock rows in one repository stay independent", () => {
 
   it("lights the alert indicator on only the terminal that was marked", () => {
     const { host, setUnread } = renderDock();
-    setUnread(
-      produce((all) => {
-        all[ALICE] = true;
-      }),
-    );
+    setUnread((all) => {
+      all[ALICE] = true;
+    });
 
     expect(readRow(host, ALICE).unread).toBe(true);
     expect(readRow(host, BOB).unread).toBe(false);

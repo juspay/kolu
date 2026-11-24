@@ -19,7 +19,7 @@
  *  that reads a different key. */
 
 import type { TerminalId } from "kolu-common/surface";
-import { createStore, produce, reconcile } from "solid-js";
+import { createStore, reconcile } from "solid-js";
 import { layoutsEqual, type TileLayout } from "./TileLayout";
 
 // HOST-SCOPING: host-INDEPENDENT by design — keyed by globally-unique TerminalId
@@ -120,23 +120,19 @@ export function usePendingLayouts(): {
       return pending;
     },
     setOne(id, layout) {
-      setPending(
-        produce((draft: Record<string, TileLayout>) => {
-          const held = draft[id];
-          if (held) Object.assign(held, layout);
-          else draft[id] = layout;
-        }),
-      );
+      setPending((draft) => {
+        const held = draft[id];
+        if (held) Object.assign(held, layout);
+        else draft[id] = layout;
+      });
     },
     resolveLayout(id, echoed) {
       return pending[id] ?? echoed;
     },
     applyMany(layouts) {
-      setPending(
-        produce((draft: Record<string, TileLayout>) => {
-          for (const [id, layout] of layouts) draft[id] = layout;
-        }),
-      );
+      setPending((draft) => {
+        for (const [id, layout] of layouts) draft[id] = layout;
+      });
       if (typeof window !== "undefined") {
         const history = window.__koluPendingApplyHistory;
         if (history) {
@@ -160,16 +156,17 @@ export function usePendingLayouts(): {
     },
     dropIds(ids) {
       // Steady state after echoes settle is nothing to drop — skip the
-      // produce-draft alloc on every effect tick.
+      // draft write (and the invalidation it would cost) on every effect tick.
       if (ids.length === 0) return;
-      setPending(
-        produce((draft: Record<string, TileLayout>) => {
-          for (const id of ids) delete draft[id];
-        }),
-      );
+      setPending((draft) => {
+        for (const id of ids) delete draft[id];
+      });
     },
     clear() {
-      setPending(reconcile({}));
+      // `null` key: positional reconcile. The value is `{}`, so every entry
+      // goes regardless — and the entries are layouts with no identity field,
+      // so there is nothing to match rows by.
+      setPending(reconcile({}, null));
       // The one-shot size slot is part of the same cleanup contract: a
       // canvas unmount wipes the keyed pending AND any size armed but not
       // yet consumed, so a remount can't have a stale create-time size

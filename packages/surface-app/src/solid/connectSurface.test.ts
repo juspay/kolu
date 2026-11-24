@@ -73,8 +73,11 @@ describe("connectSurface() — the url default", () => {
   });
 
   it("throws loudly when no url is given and there is no location (Node)", async () => {
-    // vitest's node env has no `location` — exactly the caller the default
-    // must refuse: a fabricated dial address would fail later and elsewhere.
+    // This file runs in the DOM project (happy-dom gives it a `location`), so
+    // the Node-shaped caller is spelled by stubbing that `location` away —
+    // exactly the caller the default must refuse: a fabricated dial address
+    // would fail later and elsewhere.
+    vi.stubGlobal("location", undefined);
     expect(typeof location).toBe("undefined");
     const connect = vi.fn(
       (url: string) => new FakeWebSocket(url) as unknown as WebSocket,
