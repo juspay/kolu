@@ -9,11 +9,7 @@
  *  Every other visit keeps its own label. */
 
 import { Option } from "effect";
-import type { Filed, Visit } from "kolu-work";
-
-/** How long a visit took: its time, whoever the work waited on. */
-export const visitMs = (visit: Visit): number =>
-  visit.time.agent + visit.time.you + visit.time.ci;
+import { type Filed, type Visit, visitMs } from "kolu-work";
 
 /** ONE LABEL UNDER THE TRAIL:
  *

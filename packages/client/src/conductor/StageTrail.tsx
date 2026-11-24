@@ -23,9 +23,9 @@
 
 import { compactPhrase, dualPhrase } from "@kolu/terminal-vocab/duration";
 import { Option } from "effect";
-import { type Filed, isDoubt, type Visit } from "kolu-work";
+import { type Filed, isDoubt, type Visit, visitMs } from "kolu-work";
 import { type Component, createMemo, Index } from "solid-js";
-import { type TrailLabel, trailLabels, visitMs } from "./trailView";
+import { type TrailLabel, trailLabels } from "./trailView";
 import { NOW_RING, STAGE_INK, STAGE_LABEL } from "./workReadings";
 
 /** The stage a label's dot is coloured by: a run of rounds is the review's. */

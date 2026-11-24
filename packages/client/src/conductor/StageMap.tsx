@@ -46,6 +46,7 @@ import {
   canBe,
   type Count,
   type Doubt,
+  DOUBTS,
   doubtsOf,
   movedTimes,
   STAGES,
@@ -58,7 +59,7 @@ import {
   type Waiter,
   type Where,
 } from "kolu-work";
-import { type Component, createMemo, Index, Show } from "solid-js";
+import { type Component, createMemo, For, Index, Show } from "solid-js";
 import { HATCH, NOW_RING, STAGE_INK, STAGE_LABEL } from "./workReadings";
 
 /** WHERE EACH STAGE SITS on the map's grid: five in a row, Review above
@@ -264,54 +265,143 @@ const DoubtMark: Component<{
   );
 };
 
-/** AN ARROW between two places on the map. One that is half of a LOOP (it
- *  has a way back) says, once the way back is not known to be none, how
- *  many times each way: `→×2` over `←×1`. Drawn, not spoken — each stage's
- *  own sentence says how many times the work was in it. The cell between
- *  Plan and Approve also holds the plan-or-approve doubt's mark. */
+/** WHAT EACH CELL BETWEEN TWO BOXES HOLDS, as {@link PLACE} says where each
+ *  box sits: its arrow from one stage to the other — `one` way, a `loop`
+ *  counted both ways once the work has gone back, or Review's `rounds` up
+ *  and down over Build — and, when the two are a doubt's stages, that
+ *  doubt's mark. */
+interface Between {
+  readonly testId: string;
+  readonly col: number;
+  readonly row: number;
+  readonly from: StageName;
+  readonly to: StageName;
+  readonly way: "one" | "loop" | "rounds";
+}
+const BETWEEN: ReadonlyArray<Between> = [
+  {
+    testId: "stage-arrow-plan-approve",
+    col: 2,
+    row: 3,
+    from: "plan",
+    to: "approve",
+    way: "loop",
+  },
+  {
+    testId: "stage-arrow-approve-build",
+    col: 4,
+    row: 3,
+    from: "approve",
+    to: "build",
+    way: "one",
+  },
+  {
+    testId: "stage-arrow-build-review",
+    col: 5,
+    row: 2,
+    from: "build",
+    to: "review",
+    way: "rounds",
+  },
+  {
+    testId: "stage-arrow-build-checks",
+    col: 6,
+    row: 3,
+    from: "build",
+    to: "checks",
+    way: "loop",
+  },
+  {
+    testId: "stage-arrow-checks-merge",
+    col: 8,
+    row: 3,
+    from: "checks",
+    to: "merge",
+    way: "one",
+  },
+];
+
+/** The doubt between a cell's two stages, if they are one's — read off
+ *  `kolu-work`'s doubts, never a second list here. */
+const doubtOf = (cell: Between): Doubt | undefined =>
+  DOUBTS.find(
+    (doubt) =>
+      canBe(doubt).includes(cell.from) && canBe(doubt).includes(cell.to),
+  );
+
+/** AN ARROW between two boxes. A LOOP says, once the way back is not known
+ *  to be none, how many times each way: `→×2` over `←×1`; Review's ROUNDS
+ *  say `↑↓ ×6`. Drawn, not spoken — each stage's own sentence says how many
+ *  times the work was in it. When the cell's stages are a doubt's that the
+ *  work visited, its mark sits under the arrow. */
 const Arrow: Component<{
-  col: number;
-  testId: string;
-  loop?: { readonly forward: Count; readonly back: Count };
-  mark?: { readonly doubt: Doubt; readonly ms: number };
-  pick?: (
-    doubt: Doubt,
-  ) => { readonly shown: boolean; readonly show: () => void } | undefined;
-}> = (props) => (
-  <li
-    aria-hidden={props.mark === undefined ? "true" : undefined}
-    data-testid={props.testId}
-    data-forward={props.loop ? countText(props.loop.forward) : undefined}
-    data-back={props.loop ? countText(props.loop.back) : undefined}
-    style={{ "grid-column": `${props.col}`, "grid-row": "3" }}
-    class="flex flex-col items-center justify-center px-0.5 font-mono text-[0.5rem] leading-tight text-fg-3"
-  >
-    <Show
-      when={props.loop && !isNone(props.loop.back) ? props.loop : undefined}
-      fallback={<span aria-hidden="true">→</span>}
+  cell: Between;
+  moved: (from: StageName, to: StageName) => Count;
+  mark: { readonly doubt: Doubt; readonly ms: number } | undefined;
+  pick: { readonly shown: boolean; readonly show: () => void } | undefined;
+}> = (props) => {
+  const forward = createMemo(() => props.moved(props.cell.from, props.cell.to));
+  const back = createMemo(() => props.moved(props.cell.to, props.cell.from));
+  const mark = createMemo(() => props.mark);
+  const glyphs = () => {
+    switch (props.cell.way) {
+      case "one":
+        return <span aria-hidden="true">→</span>;
+      case "rounds":
+        return (
+          <>
+            <span aria-hidden="true">↑↓</span>
+            <Show when={isNone(forward()) ? undefined : countText(forward())}>
+              {(count) => <span aria-hidden="true">×{count()}</span>}
+            </Show>
+          </>
+        );
+      case "loop":
+        return (
+          <Show
+            when={!isNone(back())}
+            fallback={<span aria-hidden="true">→</span>}
+          >
+            <span aria-hidden="true" class="whitespace-nowrap">
+              →×{countText(forward())}
+            </span>
+            <span aria-hidden="true" class="whitespace-nowrap">
+              ←×{countText(back())}
+            </span>
+          </Show>
+        );
+      default:
+        return props.cell.way satisfies never;
+    }
+  };
+  return (
+    <li
+      aria-hidden={mark() === undefined ? "true" : undefined}
+      data-testid={props.cell.testId}
+      data-forward={
+        props.cell.way === "loop" ? countText(forward()) : undefined
+      }
+      data-back={props.cell.way === "loop" ? countText(back()) : undefined}
+      data-rounds={
+        props.cell.way === "rounds" ? countText(forward()) : undefined
+      }
+      style={{
+        "grid-column": `${props.cell.col}`,
+        "grid-row": `${props.cell.row}`,
+      }}
+      class={`flex items-center justify-center font-mono text-[0.5rem] leading-tight text-fg-3 ${
+        props.cell.way === "rounds" ? "gap-1" : "flex-col px-0.5"
+      }`}
     >
-      {(loop) => (
-        <>
-          <span aria-hidden="true" class="whitespace-nowrap">
-            →×{countText(loop().forward)}
-          </span>
-          <span aria-hidden="true" class="whitespace-nowrap">
-            ←×{countText(loop().back)}
-          </span>
-        </>
-      )}
-    </Show>
-    <Show when={props.mark}>
-      {(mark) => (
-        <DoubtMark
-          doubt={mark().doubt}
-          ms={mark().ms}
-          pick={props.pick?.(mark().doubt)}
-        />
-      )}
-    </Show>
-  </li>
-);
+      {glyphs()}
+      <Show when={mark()}>
+        {(one) => (
+          <DoubtMark doubt={one().doubt} ms={one().ms} pick={props.pick} />
+        )}
+      </Show>
+    </li>
+  );
+};
 
 const StageMap: Component<{
   /** The work's stages, read once by the face that draws the map. */
@@ -341,17 +431,19 @@ const StageMap: Component<{
     const where = reading()?.where;
     return where?.kind === "ended-in" && canBe(where.place).includes(name);
   };
-  /** A doubt's mark as a button, on a card. */
-  const pickOf = (doubt: Doubt) => {
+  /** A cell's doubt mark as a button, on a card. */
+  const pickOf = (cell: Between) => {
+    const doubt = doubtOf(cell);
     const index = props.index;
-    return index === undefined
+    return doubt === undefined || index === undefined
       ? undefined
       : { shown: index.shown() === doubt, show: () => index.show(doubt) };
   };
-  /** A doubt's mark, when the work visited it. */
-  const markOf = (doubt: Doubt) => {
-    const ms = reading()?.doubt(doubt);
-    return ms === undefined ? undefined : { doubt, ms };
+  /** A cell's doubt mark, when the work visited that doubt. */
+  const markOf = (cell: Between) => {
+    const doubt = doubtOf(cell);
+    const ms = doubt === undefined ? undefined : reading()?.doubt(doubt);
+    return doubt === undefined || ms === undefined ? undefined : { doubt, ms };
   };
   return (
     <Show when={reading()}>
@@ -483,58 +575,18 @@ const StageMap: Component<{
                 );
               }}
             </Index>
-            {/* THE ARROWS. Review sits over Build, so its loop runs up and
-                down between them and says how many rounds it has had; the
-                build-or-review doubt's mark sits there too. */}
-            <Arrow
-              col={2}
-              testId="stage-arrow-plan-approve"
-              loop={{
-                forward: read().moved("plan", "approve"),
-                back: read().moved("approve", "plan"),
-              }}
-              mark={markOf("plan-or-approve")}
-              pick={pickOf}
-            />
-            <Arrow col={4} testId="stage-arrow-approve-build" />
-            <li
-              aria-hidden={
-                markOf("build-or-review") === undefined ? "true" : undefined
-              }
-              data-testid="stage-arrow-build-review"
-              data-rounds={countText(read().moved("build", "review"))}
-              style={{ "grid-column": "5", "grid-row": "2" }}
-              class="flex items-center justify-center gap-1 font-mono text-[0.5rem] leading-tight text-fg-3"
-            >
-              <span aria-hidden="true">↑↓</span>
-              <Show
-                when={
-                  isNone(read().moved("build", "review"))
-                    ? undefined
-                    : countText(read().moved("build", "review"))
-                }
-              >
-                {(count) => <span aria-hidden="true">×{count()}</span>}
-              </Show>
-              <Show when={markOf("build-or-review")}>
-                {(mark) => (
-                  <DoubtMark
-                    doubt={mark().doubt}
-                    ms={mark().ms}
-                    pick={pickOf(mark().doubt)}
-                  />
-                )}
-              </Show>
-            </li>
-            <Arrow
-              col={6}
-              testId="stage-arrow-build-checks"
-              loop={{
-                forward: read().moved("build", "checks"),
-                back: read().moved("checks", "build"),
-              }}
-            />
-            <Arrow col={8} testId="stage-arrow-checks-merge" />
+            {/* THE CELLS BETWEEN THE BOXES: the arrows, and each doubt's
+                mark between its two stages. */}
+            <For each={BETWEEN}>
+              {(cell) => (
+                <Arrow
+                  cell={cell}
+                  moved={read().moved}
+                  mark={markOf(cell)}
+                  pick={pickOf(cell)}
+                />
+              )}
+            </For>
           </ol>
         </div>
       )}
