@@ -1,4 +1,3 @@
-// @vitest-environment happy-dom
 /**
  * A folder the user collapsed under an active filter stays collapsed.
  *

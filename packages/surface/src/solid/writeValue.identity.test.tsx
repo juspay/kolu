@@ -1,4 +1,3 @@
-// @vitest-environment happy-dom
 /**
  * What the declaration is FOR, measured where the reader actually feels it: the
  * DOM.

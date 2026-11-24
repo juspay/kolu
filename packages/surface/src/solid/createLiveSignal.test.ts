@@ -1,4 +1,3 @@
-// @vitest-environment happy-dom
 /**
  * `createLiveSignal` — the single, UNFORGEABLE minter of a watchdog-backed
  * `LiveSignalHandle`. It lives in `@kolu/surface` (beside the module-private brand

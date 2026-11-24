@@ -1,4 +1,3 @@
-// @vitest-environment happy-dom
 /**
  * Regression for the Code-tab file-tree "shimmer" — juspay/kolu#1841.
  *

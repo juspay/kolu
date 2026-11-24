@@ -1,5 +1,3 @@
-// @vitest-environment happy-dom
-
 /** The row's MODEL tag — line 2's trailing "on what", beside the status words'
  *  "doing what".
  *

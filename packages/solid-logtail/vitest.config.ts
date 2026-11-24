@@ -3,9 +3,7 @@ import { defineConfig } from "vitest/config";
 
 export default defineConfig({
   // The Solid JSX transform — so the `.test.tsx` render harness compiles its
-  // JSX to real DOM. Harmless for the `.test.ts` files (no JSX); the per-file
-  // `// @vitest-environment happy-dom` docblock opts ONLY the render tests into
-  // a DOM, leaving anything pure on the node default.
+  // JSX to real DOM.
   plugins: [solid()],
   // solid-js' package.json picks `dist/server.cjs` (the SSR build) under Node's
   // `"node"` export condition, where `createEffect` is a no-op. The render tests
@@ -29,10 +27,10 @@ export default defineConfig({
   },
   test: {
     include: ["src/**/*.test.ts", "src/**/*.test.tsx"],
-    // `vite-plugin-solid` defaults the env to `jsdom`; pin it back to `node` so
-    // a pure test runs plain, and let ONLY the render tests opt into a DOM via
-    // their `// @vitest-environment happy-dom` docblock.
-    environment: "node",
+    // The package's one test renders `LogTail`, so the whole suite runs under a
+    // DOM (`happy-dom`, as in the client). There is no pure test to give a Node
+    // project; add one beside a `.test.ts` split when a pure test arrives.
+    environment: "happy-dom",
     server: { deps: { inline: [/solid-js/] } },
   },
 });

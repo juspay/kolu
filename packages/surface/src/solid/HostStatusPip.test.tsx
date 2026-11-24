@@ -1,4 +1,3 @@
-// @vitest-environment happy-dom
 /**
  * `<HostStatusPip>` — the ONE connection dot, green ONLY from the complete fact.
  *

@@ -1,6 +1,18 @@
 import solid from "vite-plugin-solid";
 import { defineConfig } from "vitest/config";
 
+// The tests that run the Solid map client. Every other test runs in Node.
+const DOM_TESTS = [
+  "src/clientPolicyOrigin.test.ts",
+  "src/connectionOptionalKey.test.ts",
+  "src/mapHarness.test.ts",
+  "src/nestedSiblings.test.ts",
+  "src/procedureUseVerb.test.ts",
+  "src/scoped.test.ts",
+  "src/siblingMount.test.ts",
+  "src/watchByEntry.test.ts",
+];
+
 export default defineConfig({
   // The Solid JSX transform + the `useEntry` re-key atom (mapArray) need the real
   // reactive core. Mirrors `@kolu/surface`'s vitest config: pin every solid import
@@ -26,8 +38,24 @@ export default defineConfig({
     },
   },
   test: {
-    include: ["src/**/*.test.ts", "src/**/*.test.tsx"],
-    environment: "node",
+    // Two projects, both inheriting this config: the tests that drive the Solid
+    // map client (`connectSurfaceMap`, `useEntry`, `scopedByEntry`) run under a
+    // DOM (`happy-dom`, as in the client); the server-side map tests run in Node.
+    projects: [
+      {
+        extends: true,
+        test: { name: "dom", environment: "happy-dom", include: DOM_TESTS },
+      },
+      {
+        extends: true,
+        test: {
+          name: "node",
+          environment: "node",
+          include: ["src/**/*.test.{ts,tsx}"],
+          exclude: DOM_TESTS,
+        },
+      },
+    ],
     server: {
       deps: {
         inline: [/solid-js/, "@solid-primitives/scheduled"],

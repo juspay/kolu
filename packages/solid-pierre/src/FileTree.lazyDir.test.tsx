@@ -1,4 +1,3 @@
-// @vitest-environment happy-dom
 /**
  * Lazily-loaded directory rows — juspay/kolu#2091.
  *
