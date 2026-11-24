@@ -209,6 +209,10 @@ describe("createSubscription", () => {
             },
           );
 
+          // An effect's first run is the flush's, not the call's: without this the
+          // reset below would land BEFORE that first run and the probe would be
+          // reading the effect being born rather than the frame re-firing it.
+          await flush();
           aFired = false;
           stream.push({ a: 1, b: 99 }); // only b changes
           await flush();

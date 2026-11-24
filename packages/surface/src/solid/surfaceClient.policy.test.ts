@@ -275,7 +275,10 @@ describe("SR11 dispatch cardinality — the policy fires per SUBSCRIPTION, not p
 describe("SR11 spec-sourced local authority + failed flush", () => {
   it("(5) a bare .use() on a local-authority cell seeds from CellSpec.default AND routes a failed coalesced flush through the declared policy", async () => {
     const onClientError = vi.fn<OnClientError>();
-    await createRoot(async (dispose) => {
+    // `.use()` runs under an owner (the shared-slot ownership depends on it); the
+    // WRITE runs outside it, as an event handler does — a store write inside an
+    // owned scope is the violation the dev build throws on.
+    const [cell, dispose] = createRoot((d) => {
       const app = buildSurfaceClient(
         surface,
         // The get stream is silent (store stays at default); the flush verb REJECTS.
@@ -287,24 +290,24 @@ describe("SR11 spec-sourced local authority + failed flush", () => {
       );
       // BARE .use() — no authority/initial/coalesceMs at the site: all sourced from
       // the spec's `client` block. The store seeds from `CellSpec.default`.
-      const cell = app.cells.prefs.use();
-      expect(cell.value()).toEqual({ size: 1 });
-
-      // A coalesced write applies locally at once (the returned promise resolves on the
-      // LOCAL apply, not the server ack) but defers the server flush by `coalesceMs`.
-      await Effect.runPromise(cell.patch({ size: 2 }, { coalesce: true }));
-      expect(cell.value()).toEqual({ size: 2 });
-      expect(onClientError).not.toHaveBeenCalled();
-
-      // After the coalesce window the deferred flush fires and REJECTS — routed through
-      // the SAME declared policy (design §E: the one funnel serves sub-drop AND flush).
-      await tick(60);
-      expect(onClientError).toHaveBeenCalledTimes(1);
-      const [policy, err] = onClientError.mock.calls[0]!;
-      expect(policy).toBe(PREFS_POLICY);
-      expect((err as Error).message).toMatch(/flush boom/);
-      dispose();
+      return [app.cells.prefs.use(), d] as const;
     });
+    expect(cell.value()).toEqual({ size: 1 });
+
+    // A coalesced write applies locally at once (the returned promise resolves on the
+    // LOCAL apply, not the server ack) but defers the server flush by `coalesceMs`.
+    await Effect.runPromise(cell.patch({ size: 2 }, { coalesce: true }));
+    expect(cell.value()).toEqual({ size: 2 });
+    expect(onClientError).not.toHaveBeenCalled();
+
+    // After the coalesce window the deferred flush fires and REJECTS — routed through
+    // the SAME declared policy (design §E: the one funnel serves sub-drop AND flush).
+    await tick(60);
+    expect(onClientError).toHaveBeenCalledTimes(1);
+    const [policy, err] = onClientError.mock.calls[0]!;
+    expect(policy).toBe(PREFS_POLICY);
+    expect((err as Error).message).toMatch(/flush boom/);
+    dispose();
   });
 });
 

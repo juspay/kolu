@@ -20,7 +20,7 @@
  *     a scroll, an open editor) still on it.
  */
 
-import { createStore, For } from "solid-js";
+import { createStore, flush, For } from "solid-js";
 import { render } from "@solidjs/web";
 import { afterEach, describe, expect, it } from "vitest";
 import { writeWrappedValue } from "./writeValue";
@@ -60,11 +60,17 @@ function mount(first: { rows: Row[] }, arrayKey?: string) {
     ),
     host,
   );
+  // `flush()` at both edges because a store write lands on the next microtask:
+  // the test is the imperative boundary that must see the DOM the frame produced
+  // before it counts elements.
+  flush();
   const items = () => [...host.querySelectorAll("li")];
   return {
     items,
-    push: (next: { rows: Row[] }) =>
-      writeWrappedValue(setStore, next, arrayKey),
+    push: (next: { rows: Row[] }) => {
+      writeWrappedValue(setStore, next, arrayKey);
+      flush();
+    },
   };
 }
 

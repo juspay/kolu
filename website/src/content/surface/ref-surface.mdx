@@ -102,20 +102,22 @@ streams: {
 - Undeclared, a frame replaces every array element it merges, so a frame that
   repeats itself still notifies every reader of every array.
 - Declared, an array whose elements carry the field is diffed by it: a repeated
-  frame notifies nothing, and a reorder moves the objects rather than rewriting
-  them.
+  frame notifies nothing, and a reorder moves the store rows a keyed view
+  follows rather than rebuilding them.
 
 #### Name a field the schema types required and non-nullable
 
-The merge decides keyed-versus-positional for a whole array from its *first*
-element's value, so an optional field lets whichever row happens to be first
-decide for every other row in that frame.
+The merge decides keyed-versus-positional *per element*, and an element whose
+key reads `undefined` takes the positional fallback: it adopts whatever row is
+standing at its index.
 
-- It cannot corrupt anything. An object survives a position only when its key
-  matches the one already standing there, so a mismatch replaces rather than
-  recycles.
-- It silently drops that frame back to the undeclared behaviour. The schema is
-  where that is made unrepresentable; the merge sees values, not schemas.
+- Inside an array the declaration was supposed to key, that row belongs to
+  another record — so an optional field does not merely cost identity
+  preservation, it hands one record's row to another, silently and one row at a
+  time.
+- That is the recycling an undeclared member is protected from, reappearing
+  inside a declaration meant to prevent it. The schema is where it is made
+  unrepresentable; the merge sees values, not schemas.
 
 #### Three things `arrayKey` is not
 
@@ -1071,26 +1073,30 @@ member the bound shapes cannot model.
 
 #### How a push reconciles
 
-A push merges by the member's declared key, else positionally, never by an
-inferred one. An undeclared merge into a bound store passes Solid's
-`reconcile(..., { key: null })`.
+A push merges by the member's declared key, else by a key that identifies no
+element at all, never by an inferred one. What a merge can carry across frames
+is a row's *store identity* — the proxy a `<For>` item, a per-row memo or a
+component holds — since a merge adopts the frame rather than mutating it, so the
+raw value is always the newest frame's.
 
 Solid's own default is `key: "id"`, which reads a field called `id` as an
-element's identity and recycles the previous row objects for the records it
-thinks matched. On a payload whose elements have no top-level `id`, every
-element's key reads `undefined` and they all match, so the object that held one
-record comes to hold another.
+element's identity and hands the row standing there the incoming element. On a
+payload whose elements have no top-level `id`, every element's key reads
+`undefined`, which is the positional fallback: the row that held one record
+comes to hold another.
 
 A reader that goes by position never notices. A `<For>` keyed by reference, a
 per-row memo, or a component holding a row across frames sees a row whose
 identity and whose fields disagree. A framework merging arbitrary app payloads
-has no basis for inferring identity from a field name, so undeclared, an element
-is replaced rather than recycled.
+has no basis for inferring identity from a field name, so an undeclared merge
+passes a key function that answers only for the *incoming* frame's array
+elements: nothing in the store can match one, so every element is replaced
+rather than recycled, while objects outside arrays keep merging field by field.
 
 The member pays for that safety or opts out of it:
 
 - Replacement is total. A frame that merely repeats what the store holds still replaces every element and notifies every reader of every array under it. A keyed `<For>` tears its DOM down on every frame, and every per-row binding re-runs for every row for a one-character change in one row.
-- A cell or stream that declares [`arrayKey`](#declaring-array-identity--arraykey) is merged by that field instead: a repeated frame notifies nothing, and a reorder moves the objects a keyed view is following.
+- A cell or stream that declares [`arrayKey`](#declaring-array-identity--arraykey) is merged by that field instead: a repeated frame notifies nothing, and a reorder moves the rows a keyed view is following.
 - A `deltas` collection's keyed dictionary is not merged here at all. Its hook owns a store and writes the keys a frame names, replacing each leaf whole, so an entry a `fold` consumer is holding never mutates under it.
 - A collection's per-key delivery does come through this merge, and honours the same declaration.
 

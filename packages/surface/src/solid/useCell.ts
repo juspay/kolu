@@ -33,7 +33,8 @@ import {
   type Accessor,
   createEffect,
   createStore,
-  type SetStoreFunction,
+  snapshot,
+  type StoreSetter,
 } from "solid-js";
 import {
   type StreamingProcedure,
@@ -75,16 +76,17 @@ export interface UseCellLocalOptions<T extends object, P = T> {
    *  differs from `T` (otherwise `set` semantics suffice). */
   applyPatch?: (current: T, patch: P) => T;
   /** Escape hatch for non-shallow merges (discriminated-union nested fields).
-   *  Receives Solid's `setStore` directly so callers can do nested path-form
-   *  writes that `applyPatch` + reconcile can't express cleanly.
+   *  Receives Solid's `setStore` directly so callers can write the nested fields
+   *  through its draft in ways `applyPatch` + a whole-value merge can't express
+   *  cleanly.
    *
-   *  Prefer flattening the storage shape so this hatch isn't needed — Solid's
-   *  setStore deep-merge can't preserve DU variant invariants without a
-   *  per-path `reconcile`, and the consumer-side cost is exporting Solid's
-   *  store API across the framework boundary. When you must use it, document
-   *  at the call site (1) why `applyPatch` is insufficient and (2) the
-   *  specific nested mutation required. */
-  mergeIntoStore?: (setStore: SetStoreFunction<T>, patch: P) => void;
+   *  Prefer flattening the storage shape so this hatch isn't needed — a draft
+   *  write of a whole value can't preserve DU variant invariants without
+   *  touching the nested fields one by one, and the consumer-side cost is
+   *  exporting Solid's store API across the framework boundary. When you must
+   *  use it, document at the call site (1) why `applyPatch` is insufficient and
+   *  (2) the specific nested mutation required. */
+  mergeIntoStore?: (setStore: StoreSetter<T>, patch: P) => void;
   /** Trailing-debounce window (ms) for writes that opt in via
    *  `patch(p, { coalesce: true })`. Such a write applies to the local store
    *  synchronously (the instant-UI guarantee local authority exists for) but
@@ -233,7 +235,13 @@ function useCellLocal<Name extends string, T extends object, P>(
   cellDescriptor: Cell<Name, T>,
   options: UseCellLocalOptions<T, P>,
 ): UseCellLocalResult<T, P> {
-  const [store, setStore] = createStore<T>(options.initial);
+  // The value form of `createStore` refuses a FUNCTION initial value — that
+  // spelling is the derived-store form — and its parameter type says so with a
+  // conditional no `T extends object` parameter can satisfy, since a type
+  // parameter could always be instantiated with a function type. A cell's value
+  // is wire data (schema-decoded), so it never is one: asserted once here, where
+  // the schema is what makes it true, rather than at every read of the store.
+  const [store, setStore] = createStore<T>(options.initial as never);
   // Mutable guard: once any server value arrives, seed the local store
   // from it and never overwrite again. Server echoes after init must not
   // stomp local mutations whose RPC hasn't round-tripped — the local
@@ -270,7 +278,11 @@ function useCellLocal<Name extends string, T extends object, P>(
       return;
     }
     if (options.applyPatch) {
-      const next = options.applyPatch(store as T, p);
+      // A SNAPSHOT, not the proxy: `applyPatch` builds the next whole value,
+      // usually by spreading what it is given, and spreading the proxy would put
+      // this very store's child proxies inside the frame about to be merged back
+      // into it. The patch is a pure function of plain data in and plain data out.
+      const next = options.applyPatch(snapshot(store) as T, p);
       setStore(reconcileFrame(next, cellDescriptor.arrayKey));
       return;
     }

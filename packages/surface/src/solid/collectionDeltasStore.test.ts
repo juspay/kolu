@@ -212,28 +212,30 @@ describe("the deltas store — an adopted frame object is frozen, not recycled",
   });
 });
 
-describe("the frame comparator — store tags are not content, other symbols are", () => {
+describe("the frame comparator — the store leaves no tag, so every symbol is content", () => {
   it("an object the store has wrapped still compares equal to identical fresh content", async () => {
-    // Solid plants `$PROXY` and its non-enumerable siblings on every object a
-    // consumer reads through a store proxy. Counting those as content inverts the
-    // law the value-diff serves: a reconnect snapshot would re-notify exactly the
-    // entries someone is watching, and nothing else. The "reconnect is a no-op"
-    // cases above are that pin end-to-end; this one names the mechanism.
+    // The law the value-diff serves: an entry someone is WATCHING must not
+    // re-notify on a reconnect that re-serialized the same content. The "reconnect
+    // is a no-op" cases above pin that end-to-end; this one names the mechanism,
+    // which is that there is no mechanism left to need — Solid 2 adopts a value by
+    // pointer swap and clones before a draft write, so it never stamps the object
+    // it was handed. (Solid 1.9 planted `$PROXY` and siblings on every wrapped
+    // object, and the comparator had to exempt them by provenance.)
     await drive(async ({ view, push }) => {
       const first = { n: 1 };
       push({ kind: "snapshot", entries: [["a", first]] });
       await settle();
       // Force the store to wrap the value — the read a rendered row performs.
       expect(view.byKey("a")?.()).toEqual({ n: 1 });
-      expect(Object.getOwnPropertySymbols(first).length).toBeGreaterThan(0);
+      expect(Object.getOwnPropertySymbols(first)).toEqual([]);
       expect(framesEqual(first, { n: 1 })).toBe(true);
     });
   });
 
-  it("a symbol the store did NOT plant still forces inequality", async () => {
-    // The exclusion is by provenance, not by shape: on an object the store has
-    // never wrapped, every own symbol is content and the comparator refuses to
-    // claim an equality it cannot prove.
+  it("an own symbol forces inequality — there is no exception to carve out", async () => {
+    // Every own symbol is content: the comparator cannot see it through
+    // `getOwnPropertyNames`, nothing else compares it, and it refuses to claim an
+    // equality it cannot prove.
     const tagged: Record<string, number> = { n: 1 };
     Object.defineProperty(tagged, Symbol("app-tag"), { value: 7 });
     expect(framesEqual(tagged, { n: 1 })).toBe(false);

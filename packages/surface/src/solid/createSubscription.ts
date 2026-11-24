@@ -27,7 +27,6 @@
 import type { Stream } from "effect";
 import {
   type Accessor,
-  $PROXY,
   createEffect,
   createSignal,
   createStore,
@@ -84,11 +83,12 @@ export interface Subscription<T> extends Accessor<T | undefined> {
    *  {@link updated}, fired at the same moments, but without the payload.
    *
    *  The distinction is not stylistic and it is not a mode: `updated` must hand
-   *  its handlers a SNAPSHOT, because the store adopts a frame and mutates it on
-   *  the next write, so a retained `{prev, next}` would change out from under the
-   *  consumer. That snapshot is two `structuredClone`s of a whole frame, and it is
-   *  the price of the payload. A consumer that only wants to know THAT something
-   *  arrived — a frame counter, a re-ask trigger, an invalidation — was paying it
+   *  its handlers a COPY, because the store ADOPTS a frame as its own backing, so
+   *  a retained `{prev, next}` would alias live store state and a consumer poking
+   *  at it would be writing into the store behind the store's back. That copy is
+   *  two `structuredClone`s of a whole frame, and it is the price of the payload.
+   *  A consumer that only wants to know THAT something arrived — a frame counter,
+   *  a re-ask trigger, an invalidation — was paying it
    *  for a value it discarded: two deep clones of a hundred-kilobyte page, per
    *  keystroke, for an integer. Subscribe here instead and the clones do not
    *  happen at all; nothing else about the law moves (a first frame is still not a
@@ -189,6 +189,19 @@ export interface SubscriptionOptions<T, R = T> {
  *  as the last one?". Exported so that question has ONE answer instead of a second
  *  hand-rolled one per store-writing seam.
  *
+ *  EVERY own symbol is content, with no exception carved out for the store, and
+ *  that is a fact about Solid 2 rather than a relaxation: a store neither stamps
+ *  nor mutates a value it is handed. It ADOPTS a frame as its own backing by a
+ *  pointer swap (`@solidjs/signals` 2.0.3 `dist/dev.js` `adoptPB` :4392), tracks
+ *  the wrapping in a private lookup rather than on the object, and CLONES before
+ *  a draft write touches anything — so an object a consumer has read through a
+ *  store proxy carries exactly the own symbols it arrived with (probed: a frame
+ *  adopted, wrapped, read through, and written over still answers
+ *  `Object.getOwnPropertySymbols(frame)` with `[]`). Solid 1.9 planted `$PROXY`
+ *  and its siblings on every wrapped object, which is why this comparator used
+ *  to exempt them by provenance; there is nothing left to exempt, and the
+ *  "never claim an equality we can't prove" contract is now total.
+ *
  *  Why hand-rolled and not `dequal` / `fast-deep-equal` (both already in the
  *  lockfile): a deep-equal here MUST be cycle-safe (a `directDispatch` frame can be
  *  cyclic) AND never false-positive (a false-positive DROPS a real change — the
@@ -210,31 +223,6 @@ export function framesEqual(a: unknown, b: unknown): boolean {
 interface Pairing {
   aToB: Map<unknown, unknown>;
   bToA: Map<unknown, unknown>;
-}
-
-/** Does this object carry an own symbol-keyed value that is FRAME CONTENT?
- *
- *  Own symbols force {@link framesEqual} to `false` — `getOwnPropertyNames` cannot
- *  see them, so two objects differing only in a symbol-keyed value would otherwise
- *  read equal. The one exception is by PROVENANCE, not by shape: the reactive store
- *  plants bookkeeping symbols (`$PROXY` and its non-enumerable siblings) on every
- *  object a consumer has read through a store proxy. Counting those as content makes
- *  an object someone looked at compare UNEQUAL to identical fresh content —
- *  precisely inverting the law this comparator serves, since a reconnect snapshot
- *  would then re-notify exactly the entries being watched.
- *
- *  `$PROXY` — the one Solid exports — IS the provenance marker: an object carrying
- *  it is one the store has wrapped, and only there are its non-enumerable symbols
- *  presumed to be the store's. On any other object every own symbol is content, so
- *  the "never claim an equality we can't prove" contract is unchanged for values
- *  the store has never touched. */
-function hasOwnDataSymbol(o: object): boolean {
-  const symbols = Object.getOwnPropertySymbols(o);
-  if (symbols.length === 0) return false;
-  if (!Object.hasOwn(o, $PROXY)) return true;
-  return symbols.some(
-    (sym) => Object.getOwnPropertyDescriptor(o, sym)?.enumerable === true,
-  );
 }
 
 function framesEqualOnPath(a: unknown, b: unknown, pairing: Pairing): boolean {
@@ -294,14 +282,21 @@ function framesEqualOnPath(a: unknown, b: unknown, pairing: Pairing): boolean {
     // Plain objects and arrays. A non-plain, non-array prototype (class instance,
     // RegExp, typed array, …) is treated as CHANGED — never claim an equality we
     // can't prove, so a real change is never suppressed. An own symbol-keyed VALUE
-    // likewise forces `false` (see {@link hasOwnDataSymbol}).
+    // likewise forces `false`: `getOwnPropertyNames` cannot see it, and the store
+    // never plants one of its own (see {@link framesEqual}), so every own symbol
+    // here is frame content nothing else compares.
     if (!aArr) {
       const protoA = Object.getPrototypeOf(a);
       if (protoA !== Object.prototype && protoA !== null) return false;
       const protoB = Object.getPrototypeOf(b);
       if (protoB !== Object.prototype && protoB !== null) return false;
     }
-    if (hasOwnDataSymbol(a) || hasOwnDataSymbol(b)) return false;
+    if (
+      Object.getOwnPropertySymbols(a).length > 0 ||
+      Object.getOwnPropertySymbols(b).length > 0
+    ) {
+      return false;
+    }
     // Full own-string-key set (enumerable AND non-enumerable). For arrays this
     // includes `length`, every present index (holes are absent ⇒ sparse ≠ dense),
     // and any augmenting prop — so nothing is silently ignored.
@@ -359,9 +354,9 @@ function notifyAll<A extends unknown[]>(
  *   - `updated(handler)` — subscribe WITH the `{prev, next}` payload.
  *   - `changed(handler)` — subscribe to the FACT alone.
  *
- *  ONE law, two subscriber sets, and the split is exactly the snapshot: `prev`
- *  and `next` must be CLONED before they are handed out, because the store adopts
- *  a frame and mutates it on the next write. Nothing else needs cloning, so a
+ *  ONE law, two subscriber sets, and the split is exactly the copy: `prev` and
+ *  `next` must be CLONED before they are handed out, because the store ADOPTS a
+ *  frame as its own backing. Nothing else needs cloning, so a
  *  frame with only `changed` subscribers takes none — the deep compare that
  *  decides whether to fire at all still runs, and must, since it is what keeps an
  *  equal reconnect snapshot silent. */
@@ -397,13 +392,13 @@ export function createUpdatedTracker<V>(): {
       if (framesEqual(lastSeen.value, next)) return; // equal reconnect snapshot: silent
       const prev = lastSeen.value;
       lastSeen = { kind: "seen", value: next };
-      // Hand payload consumers a SNAPSHOT: the store writes these frames through
-      // Solid's `reconcile`, which adopts a frame and mutates it on the next write
-      // — a retained `{prev, next}` would silently mutate out from under the
-      // consumer. Clone only when somebody is actually going to READ the payload:
-      // a frame watched only by `changed` subscribers pays nothing here, which is
-      // the whole reason that channel exists. (`framesEqual` above ran on the
-      // pre-write values, so the baseline compare is unaffected by the mutation.)
+      // Hand payload consumers a COPY: the store ADOPTS these frames — a written
+      // frame IS the store's backing, not a copy of it (`writeValue.ts`) — so a
+      // retained `{prev, next}` would alias live store state, and a consumer that
+      // poked at its payload would be writing into the store behind the store's
+      // back (no node notified, no fold run). Clone only when somebody is actually
+      // going to READ the payload: a frame watched only by `changed` subscribers
+      // pays nothing here, which is the whole reason that channel exists.
       if (handlers.size > 0) {
         notifyAll(
           handlers,

@@ -21,7 +21,6 @@ import {
   createEffect,
   createSignal,
   createStore,
-  produce,
 } from "solid-js";
 import {
   createUpdatedTracker,
@@ -68,11 +67,9 @@ export function createReactiveSubscription<I, T>(
     // torn down so the previously-yielded value is no longer authoritative —
     // including `complete`: a fresh input opens a fresh iterator, so the
     // PRIOR typed end no longer describes the current one.
-    setStore(
-      produce((s) => {
-        s.v = undefined;
-      }),
-    );
+    setStore((s) => {
+      s.v = undefined;
+    });
     setError(undefined);
     setPending(true);
     setComplete(false);

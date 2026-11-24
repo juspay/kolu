@@ -26,9 +26,7 @@ import {
   getOwner,
   mapArray,
   onCleanup,
-  produce,
   runWithOwner,
-  unwrap,
 } from "solid-js";
 import { type StreamingProcedure, unenrolledStreamCall } from "../client";
 import type { CollectionDelta, CollectionDeltasMsg } from "../define";
@@ -348,10 +346,15 @@ export function useCollectionDeltas<Name extends string, K, T>(
   // frame (a whole-dict copy) which `reconcile` then walked in full to rediscover the
   // keys the frame had already named — two O(N) passes per O(|frame|) update.
   const [dict, setDict] = createStore<Record<string, T>>(emptyDict<T>());
-  // The UNTRACKED view of the same dictionary (`createStore` wraps this exact object).
-  // Every read inside the frame loop goes through it: the loop is deciding what to
-  // write, not rendering, so tracking there would be noise at best.
-  const held = unwrap(dict);
+  // The PLAIN mirror of what the store holds, maintained key-for-key beside it by
+  // the two apply functions below — the dictionary twin of `heldOrder`, and for
+  // the same two reasons. A store's backing is COPY-ON-WRITE (a draft write clones
+  // the container it writes into, `@solidjs/signals` 2.0.3 `dist/dev.js`
+  // `cloneRaw`), so a `snapshot(dict)` taken once goes stale at the first write and
+  // one taken per frame copies the whole dictionary — O(N) per O(|frame|) update,
+  // which is the cost this path exists to avoid. Every read inside the frame loop
+  // goes through this instead: the loop is deciding what to write, not rendering.
+  const held: Record<string, T> = emptyDict<T>();
   // The arrival-order key list. A plain signal: the frame loop is the only writer,
   // and `createStreamLifecycle` opens the fiber from the EFFECT PHASE, so no frame
   // — not even one a fiber has ready before its first async boundary — is ever
@@ -397,18 +400,25 @@ export function useCollectionDeltas<Name extends string, K, T>(
       nextOrder.push(k);
     }
     assertKeysInjective(present.size, nextOrder.length);
-    setDict(
-      produce((d) => {
-        for (const sk of Object.keys(d)) if (!present.has(sk)) delete d[sk];
-        for (const [k, v] of entries) {
-          const sk = String(k);
-          // Membership through the draft; the VALUE through the raw dictionary — a
-          // read through the draft would mint a mutation proxy for every object it
-          // walks, and the comparison walks the whole value.
-          if (!(sk in d) || !framesEqual(held[sk], v)) d[sk] = v;
+    setDict((d) => {
+      for (const sk of Object.keys(held)) {
+        if (!present.has(sk)) {
+          delete d[sk];
+          delete held[sk];
         }
-      }),
-    );
+      }
+      for (const [k, v] of entries) {
+        const sk = String(k);
+        // Membership and the value to diff against BOTH come from the mirror, so
+        // neither question walks the draft: a read through it would mint a
+        // mutation proxy for every object it touches, and the comparison walks
+        // the whole value.
+        if (!(sk in held) || !framesEqual(held[sk], v)) {
+          d[sk] = v;
+          held[sk] = v;
+        }
+      }
+    });
     size = present.size;
     // A reconnect that names the same set keeps the previous array BY REFERENCE, so
     // `keys()` stays quiet through a link flap — the "order by reference" rule.
@@ -450,25 +460,27 @@ export function useCollectionDeltas<Name extends string, K, T>(
     // `1` and `"1"` would pass, which is the one case the guard is named for.
     let net = 0;
     const removed: K[] = [];
-    setDict(
-      produce((d) => {
-        // A LEAF REPLACEMENT per named key, not a merge into the object already
-        // there: the store must never mutate a frame object it previously adopted,
-        // since a fold may be holding that same object (§ the aliasing contract).
-        for (const [k, v] of delta.upserts) {
-          const sk = String(k);
-          if (!(sk in d)) net++;
-          d[sk] = v;
-        }
-        for (const k of delta.removes) {
-          const sk = String(k);
-          if (!(sk in d)) continue; // absent, or already removed by this same frame
-          delete d[sk];
-          net--;
-          removed.push(k);
-        }
-      }),
-    );
+    setDict((d) => {
+      // A LEAF REPLACEMENT per named key, not a merge into the object already
+      // there: the store must never write through a frame object it previously
+      // adopted, since a fold may be holding that same object (§ the aliasing
+      // contract). Membership is asked of the mirror, which is the same key set
+      // the draft holds and costs no trap.
+      for (const [k, v] of delta.upserts) {
+        const sk = String(k);
+        if (!(sk in held)) net++;
+        d[sk] = v;
+        held[sk] = v;
+      }
+      for (const k of delta.removes) {
+        const sk = String(k);
+        if (!(sk in held)) continue; // absent, or already removed by this same frame
+        delete d[sk];
+        delete held[sk];
+        net--;
+        removed.push(k);
+      }
+    });
     size += net;
     // Key set UNCHANGED (a pure value-update tick) → nothing to write; the order
     // signal keeps its array BY REFERENCE and `keys()` stays quiet.
@@ -526,10 +538,14 @@ export function useCollectionDeltas<Name extends string, K, T>(
   const state = createStreamLifecycle<CollectionDeltasMsg<K, T>>(
     options.source,
     {
-      // Assert keys → apply to the store → notify the folds. The lifecycle runs this
-      // inside ONE batch and clears `pending` after it, so no reader ever observes a
-      // half-applied frame, and folds run AFTER the store write — a `step` that reads
-      // `byKey` (discouraged, but expressible) sees state consistent with its frame.
+      // Assert keys → apply to the store → notify the folds. No reader ever
+      // observes a half-applied frame: the store write is ONE staged transaction
+      // that lands whole on the flush, and `pending` clears after it. Folds run
+      // after the write, but a store READ is served from the last flush, so a
+      // `step` that reads `byKey` (discouraged, and this is why) sees the frame
+      // BEFORE its own. The frame it is handed is the authoritative one; a fold
+      // that is SEEDED reads {@link syntheticSnapshot}, which is built from the
+      // mirror and therefore does describe the frame that just landed.
       onFrame: (msg) => {
         if (msg.kind === "snapshot") {
           applySnapshot(msg.entries);

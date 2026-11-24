@@ -22,7 +22,7 @@ import {
   createSignal,
   getOwner,
   onCleanup,
-  type SetStoreFunction,
+  type StoreSetter,
 } from "solid-js";
 import type { Collection } from "../index";
 import {
@@ -181,7 +181,7 @@ export type BoundCellOptions<T, P = T> = T extends object
           authority: "local";
           initial: T;
           applyPatch?: (current: T, patch: P) => T;
-          mergeIntoStore?: (setStore: SetStoreFunction<T>, patch: P) => void;
+          mergeIntoStore?: (setStore: StoreSetter<T>, patch: P) => void;
           coalesceMs?: number;
           onError?: (err: Error) => void;
         }
