@@ -13534,6 +13534,30 @@
       "exampleRows": [],
       "executions": 1,
       "firstSeenSha": "b00bf30163235e5628f6d09ad4d74166d4c51aba"
+    },
+    {
+      "revisionId": "revision-6ecd2ac3064205a1ad36",
+      "scenarioKey": "scenario-8b94e5b4ebc05bd6ca6f",
+      "feature": "features/canvas.feature",
+      "scenario": "Dragging a tile by its title bar moves it",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "1878f512e06dec210000a0f36ce74c550b785a740097680b61c778e9072f36bb",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "ce9606fec1ab02bb1af0cbb064a4152d0f8d946f"
+    },
+    {
+      "revisionId": "revision-c0068f7fd1729347d55e",
+      "scenarioKey": "scenario-073055aa33c53e65c694",
+      "feature": "features/canvas.feature",
+      "scenario": "Esc while dragging a tile cancels the drag",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "bd20c3f50afcc5f9839443cec7bec9377b8221adb730269d0edf995c4b9bfd16",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "ce9606fec1ab02bb1af0cbb064a4152d0f8d946f"
     }
   ]
 }

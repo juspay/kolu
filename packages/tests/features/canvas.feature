@@ -197,6 +197,25 @@ Feature: Canvas workspace
     And canvas tile 1 should be the active tile
     And there should be no page errors
 
+  # Tile 2 is the one just created, so the canvas is centred on it; its title
+  # bar's identity area is on screen. Tile 1 stays put, which pins that only
+  # the dragged tile moves.
+  Scenario: Dragging a tile by its title bar moves it
+    Given I create a terminal
+    When I save canvas tile 1 position
+    And I save canvas tile 2 position
+    And I drag the title bar of canvas tile 2 by x=120 y=0
+    Then canvas tile 2 position should have changed
+    And canvas tile 1 position should be unchanged
+    And there should be no page errors
+
+  Scenario: Esc while dragging a tile cancels the drag
+    Given I create a terminal
+    When I save canvas tile 2 position
+    And I drag the title bar of canvas tile 2 by x=120 y=0 and press Esc before releasing
+    Then canvas tile 2 position should be unchanged
+    And there should be no page errors
+
   # Viewport-pan assertion is flaky after the maximize signal landed
   # (sibling order in canvas-container changed; see Show wrapping the
   # Workspace switcher + minimap). The selection half of the behaviour is covered

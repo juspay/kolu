@@ -26,23 +26,27 @@ async function pressAndDrag(
   dx: number,
   dy: number,
   steps: number,
+  escapeBeforeRelease = false,
 ): Promise<void> {
   await world.page.mouse.move(x, y);
   await world.page.mouse.down();
   await world.page.mouse.move(x + dx, y + dy, { steps });
   await world.waitForFrame();
+  // Esc goes to whatever holds keyboard focus, exactly as a user's would.
+  if (escapeBeforeRelease) await world.page.keyboard.press("Escape");
   await world.page.mouse.up();
   await world.waitForFrame();
 }
 
 /** Press the center of `fromSelector`, step the pointer by (dx, dy), release.
- *  The generic half: a target-point drag like the dock's resize. */
+ *  The generic half: a target-point drag like the dock's resize. With
+ *  `escapeBeforeRelease`, Esc is pressed while the drag is still held. */
 export async function dragFromCenter(
   world: KoluWorld,
   fromSelector: string,
   dx: number,
   dy: number,
-  opts: { steps?: number } = {},
+  opts: { steps?: number; escapeBeforeRelease?: boolean } = {},
 ): Promise<void> {
   const from = world.page.locator(fromSelector);
   await from.waitFor({ state: "visible", timeout: 10000 });
@@ -55,6 +59,7 @@ export async function dragFromCenter(
     dx,
     dy,
     opts.steps ?? 16,
+    opts.escapeBeforeRelease,
   );
 }
 
