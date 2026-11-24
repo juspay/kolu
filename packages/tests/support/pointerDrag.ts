@@ -13,8 +13,12 @@
 
 import { type KoluWorld, POLL_TIMEOUT } from "./world.ts";
 
-/** Press at (x, y), step the pointer by (dx, dy), release, and let a frame
- *  land: the one drag every driver below performs. */
+/** Press at (x, y), step the pointer by (dx, dy), rest for a frame, release,
+ *  and let a frame land: the one drag every driver below performs. The rest
+ *  matters: dnd-kit applies pointer moves once per animation frame and ends a
+ *  drag without applying a move still pending
+ *  (https://github.com/clauderic/dnd-kit/issues/2201), so a release in the
+ *  same frame as the last move would drop one step short. */
 async function pressAndDrag(
   world: KoluWorld,
   x: number,
@@ -26,6 +30,7 @@ async function pressAndDrag(
   await world.page.mouse.move(x, y);
   await world.page.mouse.down();
   await world.page.mouse.move(x + dx, y + dy, { steps });
+  await world.waitForFrame();
   await world.page.mouse.up();
   await world.waitForFrame();
 }

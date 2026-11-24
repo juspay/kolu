@@ -27,7 +27,6 @@ import {
 } from "solid-js";
 import { Portal } from "solid-js/web";
 import { nearestCenter } from "./collision";
-import { ReleasePoint } from "./releasePoint";
 import { DragTracker, type DragTrackerOptions } from "./tracker";
 
 /** The attribute a control inside a drag handle carries — a title-bar button,
@@ -130,7 +129,7 @@ export const DragDropProvider: Component<{
     },
   };
   const manager = new DragDropManager({
-    plugins: [PreventSelection, DragTracker.configure(tracking), ReleasePoint],
+    plugins: [PreventSelection, DragTracker.configure(tracking)],
     sensors: [POINTER],
     modifiers: [],
   });
