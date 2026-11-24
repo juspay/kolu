@@ -40,7 +40,7 @@ describe("openInCodeTab", () => {
     });
   });
 
-  it("focuses the issuing terminal before opening its Code-tab request", () => {
+  it("names the issuing terminal in every write it makes", () => {
     openInCodeTab({
       terminalId: "terminal-b",
       ref: { path: "new.ts", startLine: 1, endLine: 1 },
@@ -48,8 +48,11 @@ describe("openInCodeTab", () => {
     });
 
     expect(h.focusTerminalSilently).toHaveBeenCalledWith("terminal-b");
-    expect(h.openCodeAt).toHaveBeenCalledWith("browse");
-    expect(h.reveal).toHaveBeenCalledOnce();
+    // The pane and the reveal are NAMED, never read back off the focus this
+    // call just moved — a staged focus write would still answer with the
+    // previous pane and tile.
+    expect(h.openCodeAt).toHaveBeenCalledWith("terminal-b", "browse");
+    expect(h.reveal).toHaveBeenCalledExactlyOnceWith("terminal-b");
     expect(h.focusTerminalSilently.mock.invocationCallOrder[0]).toBeLessThan(
       h.openCodeAt.mock.invocationCallOrder[0] ?? 0,
     );

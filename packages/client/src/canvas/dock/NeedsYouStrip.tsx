@@ -59,7 +59,7 @@ const NeedsYouEntryRow: Component<{
   onSelect: (id: TerminalId) => void;
 }> = (props) => {
   const store = useTerminalStore();
-  const tileData = createDockRowData(props.entry.tile.id);
+  const tileData = createDockRowData(() => props.entry.tile.id);
   // The blocked half gives METADATA only. `getDisplayInfo` is keyed on
   // `terminalIds()` — TOP-LEVEL tiles — so it answers `undefined` for any split,
   // and `pairDisplayRow` turns that into `null`. Asking it for a split's display

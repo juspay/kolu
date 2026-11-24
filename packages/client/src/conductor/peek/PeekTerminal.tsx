@@ -57,6 +57,10 @@ const PeekTerminal: Component<{
    *  picked work's pane, so the two views of one terminal are told apart. */
   testId: "peek-screen" | "live-screen";
 }> = (props) => {
+  // The terminal this screen is of is the pane's FIXED wiring (the attach
+  // effect below says the same of it): the host key and the fleet ref are
+  // taken at mount. Neither prop is reactive — both panes hand down a plain
+  // member ref — so the body reads nothing it must depend on.
   const hostKey = decodeHostKey(props.host);
   const ref = fleetTerminalRef(props.host, props.id);
   const entry = padiMap.useEntry(() => hostKey);

@@ -30,6 +30,11 @@ import { persistCanvasLayout } from "../terminal/persistCanvasLayout";
 import { useTerminalStore } from "../terminal/useTerminalStore";
 import type { TileContent, TileId } from "./tileContent";
 
+/** The writer a layout plan hands back when the id names no tile this
+ *  registry can persist for — the loud `console.error` already happened, and
+ *  a dropped layout must not also be a crash. */
+const NO_LAYOUT_SINK = (_layout: TileLayout): void => {};
+
 export const useTileStore = createSharedRoot(() => {
   const store = useTerminalStore();
 
@@ -68,8 +73,14 @@ export const useTileStore = createSharedRoot(() => {
 
   /** Persist a tile's position/size — the single tile-layout write seam.
    *  Dispatches by content kind to the right sink: today `persistCanvasLayout`
-   *  on the terminal; PR 2 writes a sleeping tile's layout to its record. */
-  const setLayout = (id: TileId, layout: TileLayout): void => {
+   *  on the terminal; PR 2 writes a sleeping tile's layout to its record.
+   *
+   *  In two phases, because the canvas's placement pass asks for the writer
+   *  from its effect's COMPUTE and calls it in the effect: the dispatch READ
+   *  (`contentOf`, and through it `tileIds()`) happens when the writer is
+   *  asked for, and the returned function only writes. A drag/resize handler
+   *  may read freely and calls {@link setLayout}. */
+  const planSetLayout = (id: TileId): ((layout: TileLayout) => void) => {
     const content = contentOf(id);
     // A persist for an id that isn't a tile is a caller bug — every write flows
     // from a rendered tile whose id is in `tileIds()` by construction — so
@@ -78,20 +89,27 @@ export const useTileStore = createSharedRoot(() => {
     // kind dispatch below, which is a legitimate quiet branch for PR 2.
     if (!content) {
       console.error("useTileStore.setLayout: no tile for id", id);
-      return;
+      return NO_LAYOUT_SINK;
     }
-    if (content.kind !== "terminal") return;
-    persistCanvasLayout(content.terminalId, layout);
+    if (content.kind !== "terminal") return NO_LAYOUT_SINK;
+    const terminalId = content.terminalId;
+    return (layout) => persistCanvasLayout(terminalId, layout);
+  };
+
+  const setLayout = (id: TileId, layout: TileLayout): void => {
+    planSetLayout(id)(layout);
   };
 
   /** Explicit tile-identity landing: a top-level terminal tile denotes its main
-   *  pane, so no remembered split may override the id the caller supplied. */
+   *  pane, so no remembered split may override the id the caller supplied.
+   *  Published in both phases like the terminal store's landing verbs: `plan…`
+   *  does the reads and hands back the writes, so a canvas effect runs the plan
+   *  in its compute and the writes in its effect. */
+  const planActivate = (id: TileId | null): (() => void) =>
+    id === null ? store.planActivate(null) : store.planFocusMainTerminal(id);
+
   const activate = (id: TileId | null): void => {
-    if (id === null) {
-      store.activate(null);
-      return;
-    }
-    store.focusMainTerminal(id);
+    planActivate(id)();
   };
 
   return {
@@ -102,6 +120,7 @@ export const useTileStore = createSharedRoot(() => {
     // Layout — the registry hides the storage home (terminal metadata today).
     getLayout,
     setLayout,
+    planSetLayout,
     // Selection — re-exposed from view state (one source of truth). The
     // active TILE may be any content kind; a terminal-content consumer that
     // needs the active TERMINAL keeps reading `store.activeId()` (identical
@@ -113,8 +132,10 @@ export const useTileStore = createSharedRoot(() => {
     isFocused: store.isFocused,
     isActiveTile: store.isActiveTile,
     activate,
+    planActivate,
     /** Tile-level/system landing with no explicit pane target. */
     activateVisiblePane: store.activate,
+    planActivateVisiblePane: store.planActivate,
     setActiveSilently: store.setActiveSilently,
   };
 });

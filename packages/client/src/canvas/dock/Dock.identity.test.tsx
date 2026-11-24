@@ -58,14 +58,16 @@ vi.mock("./dockRowData", () => ({
 }));
 vi.mock("./useDockRowBag", () => ({
   useDockRowBag:
-    () => (props: { id: string; recencyAt: () => number | null }) => {
+    () => (props: { id: () => string; recencyAt: () => number | null }) => {
       fixture.builds++;
       const value = createMemo(() => {
         fixture.wakes++;
         return props.recencyAt();
       });
       return {
-        id: props.id,
+        get id() {
+          return props.id();
+        },
         get recency() {
           return value();
         },

@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
 import { render } from "@solidjs/web";
+import { onCleanup } from "solid-js";
 import { expect, it, vi } from "vitest";
 const camera = vi.hoisted(() => ({
   setPanX: vi.fn(),
@@ -41,19 +42,26 @@ it("waits for laid-out dimensions, uses them for centering and zoom, and release
   const host = document.createElement("div");
   document.body.append(host);
   const viewport = useCanvasViewport();
-  const dispose = render(
-    () => (
+  const dispose = render(() => {
+    // The attach lives in a ref callback, which may register no cleanup, so
+    // its release is registered on the component's own owner — exactly the
+    // pairing `TerminalCanvas` uses.
+    let containerEl: HTMLDivElement | undefined;
+    onCleanup(() => {
+      if (containerEl) viewport.releaseContainer(containerEl);
+    });
+    return (
       <div
-        ref={(el) =>
+        ref={(el) => {
+          containerEl = el;
           viewport.setContainerRef(el, {
             wheelTargetScrollsItself: () => false,
             covered: () => false,
-          })
-        }
+          });
+        }}
       />
-    ),
-    host,
-  );
+    );
+  }, host);
   try {
     // Insertion alone is not readiness: the split panels can still be sizing.
     expect(viewport.mounted()).toBe(false);

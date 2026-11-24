@@ -70,7 +70,11 @@ const VIEWPORT_PAD = 8;
 export function useAnchoredPopover(
   opts: UseAnchoredPopoverOpts,
 ): UseAnchoredPopover {
-  let panelEl: HTMLElement | undefined;
+  /** The panel element, as a SIGNAL: its ref callback may WRITE but may not
+   *  read (a ref runs inside a strict-read window), so the element becomes a
+   *  fact the positioning effect below depends on — which is also what makes
+   *  the first measure happen when the panel actually exists. */
+  const [panelEl, setPanelEl] = createSignal<HTMLElement | undefined>();
   const [pos, setPos] = createSignal<{
     top?: number;
     bottom?: number;
@@ -98,7 +102,10 @@ export function useAnchoredPopover(
     flip: opts.flip === true,
   });
   /** The placement inputs, APPLIED — measurement and the one write. */
-  const applyPos = ({ trigger, anchor, offset, minW, flip }: Placement) => {
+  const applyPos = (
+    { trigger, anchor, offset, minW, flip }: Placement,
+    panel: HTMLElement | undefined,
+  ) => {
     if (!trigger) return;
     const r = trigger.getBoundingClientRect();
     // Upward anchors set `bottom` in viewport coordinates so the panel's
@@ -121,11 +128,11 @@ export function useAnchoredPopover(
     const left = Math.max(VIEWPORT_PAD, Math.min(r.left, maxLeft));
     // Opt-in vertical flip: a `bottom-start` panel whose content is taller
     // than the room below the trigger flips to open upward when there's more
-    // room above. `panelEl` is measured (its height already capped by any
+    // room above. The panel is measured (its height already capped by any
     // `max-height`), so this reads the actual rendered extent rather than
     // guessing. Falls back to opening downward when neither side fits — the
     // panel's own `max-height` + scroll then keeps it on-screen.
-    const panelH = panelEl?.offsetHeight ?? 0;
+    const panelH = panel?.offsetHeight ?? 0;
     const roomBelow = window.innerHeight - r.bottom - offset - VIEWPORT_PAD;
     const roomAbove = r.top - offset - VIEWPORT_PAD;
     const flipUp =
@@ -139,7 +146,7 @@ export function useAnchoredPopover(
     }
     setPos({ top: r.bottom + offset, left });
   };
-  const updatePos = () => applyPos(placement());
+  const updatePos = () => applyPos(placement(), panelEl());
 
   // Document listeners exist only while the popover is open — passing
   // `undefined` as the target detaches them.
@@ -147,7 +154,7 @@ export function useAnchoredPopover(
   createEventListener(docTarget, "mousedown", (e) => {
     const node = e.target as Node;
     const t = opts.triggerRef();
-    if (panelEl?.contains(node) || t?.contains(node)) return;
+    if (panelEl()?.contains(node) || t?.contains(node)) return;
     if (opts.isInside?.(node)) return;
     opts.onDismiss();
   });
@@ -174,20 +181,19 @@ export function useAnchoredPopover(
   });
   createEventListener(winTarget, "resize", updatePos, { passive: true });
 
-  // Reposition when the placement inputs or the open state change — covers
-  // both first open and trigger remounts (e.g. a button that re-renders).
-  // The compute does the reading; the effect only measures and writes.
+  // Reposition when the placement inputs, the panel element or the open state
+  // change — covers first open (the ref lands the element), trigger remounts
+  // (e.g. a button that re-renders) and a panel swap. The compute does the
+  // reading; the effect only measures and writes.
   createEffect(
-    () => (opts.open() ? placement() : undefined),
-    (place) => {
-      if (place) applyPos(place);
+    () => (opts.open() ? { place: placement(), panel: panelEl() } : undefined),
+    (now) => {
+      if (now) applyPos(now.place, now.panel);
     },
   );
 
-  const panelRef = (el: HTMLElement) => {
-    panelEl = el;
-    updatePos();
-  };
+  // Writes only: the measure and the position write are the effect's above.
+  const panelRef = (el: HTMLElement) => setPanelEl(el);
 
   const panelStyle = (): JSX.CSSProperties => {
     const p = pos();

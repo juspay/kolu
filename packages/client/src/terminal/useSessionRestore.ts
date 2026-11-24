@@ -5,7 +5,13 @@ import { createMemo } from "solid-js";
 import { toError } from "@kolu/surface/run-stream";
 import { Effect } from "effect";
 import type { TerminalId } from "kolu-common/surface";
-import { createEffect, createSignal, onCleanup } from "solid-js";
+import {
+  createEffect,
+  createSignal,
+  onCleanup,
+  onSettled,
+  untrack,
+} from "solid-js";
 import { toast } from "solid-sonner";
 import { deepLinkFocusIntent } from "../deepLinkFocusIntent";
 import {
@@ -126,8 +132,10 @@ export function useSessionRestore(deps: { store: TerminalStore }) {
       }
     | {
         readonly kind: "seed";
-        readonly joined: HydrationEntry[];
-        readonly activeId: string | null;
+        /** The seeding WRITES, planned in this compute: hydration reads the
+         *  tiles' chrome, the deep-link intent and the landing's own facts,
+         *  and an effect callback is a strict-read window. */
+        readonly seed: () => void;
       };
   interface HydrationPlan {
     readonly latch: HostRestoreLatch;
@@ -224,10 +232,18 @@ export function useSessionRestore(deps: { store: TerminalStore }) {
         decide,
         step: {
           kind: "seed",
-          joined,
-          activeId: restored
-            ? restored.id
-            : (fromServer?.activeTerminalId ?? null),
+          // SAMPLED (untracked): the seed's own reads — each root tile's
+          // remembered tab, the deep-link intent, the landing's chrome — are
+          // the state as it stands when hydration fires, exactly as they were
+          // when they happened in the (untracked) effect phase. The list and
+          // the records are what wake this; a tab or an intent moving is not a
+          // reason to re-seed.
+          seed: untrack(() =>
+            planHydrationFromTerminals(
+              joined,
+              restored ? restored.id : (fromServer?.activeTerminalId ?? null),
+            ),
+          ),
         },
       };
     },
@@ -270,25 +286,20 @@ export function useSessionRestore(deps: { store: TerminalStore }) {
       }
       disarmDeadline();
       plan.latch.markSeeded();
-      hydrateFromTerminals(step.joined, step.activeId);
+      step.seed();
     },
   );
 
-  function hydrateFromTerminals(
+  /** READER HALF of the view seed: every fact hydration decides from — each
+   *  root tile's remembered tab, the deep-link intent, the landing's own panel
+   *  chrome — is read HERE, in the hydration compute, and the writes travel as
+   *  the returned function for the effect to run (an effect callback is a
+   *  strict-read window). Hoisting the reads changes no answer: a Solid 2 write
+   *  is staged, so none of these reads could have seen an earlier one anyway. */
+  function planHydrationFromTerminals(
     entries: HydrationEntry[],
     serverActiveId: string | null,
-  ) {
-    // Canvas layouts live on metadata — no client-side seeding needed, and
-    // since the split's saved state (collapsed + divider) moved onto the
-    // record too (`splitPanelState.ts`), neither does that: a tile reads both
-    // off the record, so there is no window in which it holds something else.
-    // The right panel's per-terminal record is read the same way; what is
-    // seeded here is only its in-memory NAVIGATION history, which no record
-    // carries.
-    for (const { t, m } of entries) {
-      if (m.rightPanel) rightPanel.seedHistory(t.id);
-    }
-
+  ): () => void {
     // Parent edge over the hydration census — shared by tab seeding, topIds,
     // and deep-link intent (canvas chrome keys on the root, not one-hop).
     const byId = new Map(entries.map((e) => [e.t.id, e]));
@@ -306,10 +317,11 @@ export function useSessionRestore(deps: { store: TerminalStore }) {
       entries.map(({ t }) => t.id),
       parentEdge,
     );
+    const tabs: { rootId: TerminalId; subId: TerminalId | null }[] = [];
     for (const [rootId, subIds] of byRoot) {
       const activeSubTab = subPanel.paneChrome(rootId).activeSubTab;
       if (!activeSubTab || !subIds.includes(activeSubTab)) {
-        subPanel.setActiveSubTab(rootId, subIds[0] ?? null);
+        tabs.push({ rootId, subId: subIds[0] ?? null });
       }
     }
 
@@ -338,18 +350,40 @@ export function useSessionRestore(deps: { store: TerminalStore }) {
         : serverActiveId && topIds.includes(serverActiveId as TerminalId)
           ? (serverActiveId as TerminalId)
           : (topIds[0] ?? null);
-    // Seed/reconcile the durable visit trail BEFORE activation. writeFocus
-    // noteVisit's the pick; if we seed after, a non-empty one-entry trail
-    // would skip multi-id restore order (Ctrl+Tab would only see the pick).
-    store.reconcileLiveIds(
-      picked ? [picked, ...topIds.filter((x) => x !== picked)] : topIds,
-    );
-
     // `setActiveSilently`: the canvas's first-mount fallback effect pans
     // the viewport to the picked active when restoring at default origin —
     // calling `activate` here would double-pan and racing the still-
     // assembling pendingLayouts.
-    store.setActiveSilently(picked);
+    const land = store.planSetActiveSilently(picked);
+    return () => {
+      // Canvas layouts live on metadata — no client-side seeding needed, and
+      // since the split's saved state (collapsed + divider) moved onto the
+      // record too (`splitPanelState.ts`), neither does that: a tile reads both
+      // off the record, so there is no window in which it holds something else.
+      // The right panel's per-terminal record is read the same way; what is
+      // seeded here is only its in-memory NAVIGATION history, which no record
+      // carries.
+      //
+      // From `onSettled`, because `seedHistory` READS the panel's own
+      // per-terminal state and this runs in an effect callback, which is a
+      // strict-read window (`onSettled` is not). Nothing here is ordered
+      // against it: the history is the panel's private navigation stack.
+      onSettled(() => {
+        for (const { t, m } of entries) {
+          if (m.rightPanel) rightPanel.seedHistory(t.id);
+        }
+      });
+      for (const { rootId, subId } of tabs) {
+        subPanel.setActiveSubTab(rootId, subId);
+      }
+      // Seed/reconcile the durable visit trail BEFORE activation. writeFocus
+      // noteVisit's the pick; if we seed after, a non-empty one-entry trail
+      // would skip multi-id restore order (Ctrl+Tab would only see the pick).
+      store.reconcileLiveIds(
+        picked ? [picked, ...topIds.filter((x) => x !== picked)] : topIds,
+      );
+      land();
+    };
   }
 
   function handleRestoreSession(

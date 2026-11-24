@@ -10,13 +10,21 @@
  *  already on, while looking at the conductor, is exactly how a person asks
  *  to go back to it. What stays guarded is the WRITE — re-writing `activeHost`
  *  with a new-reference-but-equal key would re-notify every
- *  `useEntry(activeHost)` consumer for nothing. */
+ *  `useEntry(activeHost)` consumer for nothing.
+ *
+ *  The guard is the SETTER's updater form, not a read of `activeHost`: this
+ *  verb is called from effect callbacks (`useDeepLinks`, `useAttention`'s
+ *  jump, the conductor's open-tile), and an effect callback is a strict-read
+ *  window — reading the signal here would report STRICT_READ_UNTRACKED at
+ *  every one of those call sites. An updater is handed the current value
+ *  without reading the signal, and returning that same value is an equal
+ *  write, which notifies nobody. */
 
 import { type HostKey, hostKeysEqual } from "kolu-common/hostKey";
 import { exitConductorMode } from "../conductor/useConductorMode";
-import { activeHost, setActiveHost } from "../wire";
+import { setActiveHost } from "../wire";
 
 export function selectHostTab(host: HostKey): void {
   exitConductorMode();
-  if (!hostKeysEqual(activeHost(), host)) setActiveHost(host);
+  setActiveHost((current) => (hostKeysEqual(current, host) ? current : host));
 }

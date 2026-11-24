@@ -162,7 +162,24 @@ interface XtermOwnProps {
   >;
   /** Keystrokes out (query-response filtering / sticky modifiers are policy). */
   onData: (data: string) => void;
-  /** The live handle, inside the reactive owner — wire policy here. */
+  /** The live handle — wire policy here.
+   *
+   *  WHICH OWNER this runs under, because Solid 2 makes the answer decide what
+   *  is legal inside it: THIS COMPONENT'S OWN OWNER, the one its body ran in.
+   *  Construction is asynchronous (the font is awaited before the terminal can
+   *  be measured), so the owner is captured before the await and re-entered
+   *  with `runWithOwner` after it — see `createXtermLifecycle`. It is NOT an
+   *  effect callback and not a `ref` callback, so `onCleanup`, `createEffect`,
+   *  `createMemo` and `onSettled` are all valid here and tear down with the
+   *  component; `onCleanup` in particular registers on a live owner rather
+   *  than warning NO_OWNER_CLEANUP or throwing CLEANUP_IN_FORBIDDEN_SCOPE.
+   *
+   *  What that owner also means: a reactive read here is UNTRACKED (the
+   *  re-entry restores the owner, not a tracking scope), so a value that must
+   *  follow its source is read inside an effect's compute, not here; and a
+   *  signal write here is a write in an owned scope, which dev REFUSES unless
+   *  the signal declares `ownedWrite` (the kit's two grid signals do, and say
+   *  why). */
   onReady: (handle: XtermHandle) => void;
   /** Touch tap resolver: return true if the tap was consumed (e.g. a ref was
    *  followed), else the soft keyboard is summoned. */
@@ -218,10 +235,20 @@ export const Xterm: Component<
   // Value-compared so a fit that lands on the same cols×rows doesn't notify —
   // consumers gate real work on this, and a re-fit that measured nothing new is
   // not an event.
+  //
+  // `ownedWrite`: both are this component's OWN internal signals, and the one
+  // path that seeds them runs inside this component's owner — the lifecycle
+  // re-enters it with `runWithOwner` after the font await, and the ready
+  // callback below takes the pane's first measurement and the terminal's birth
+  // size there, BEFORE handing the handle to the consumer (see `applyFit`'s
+  // call site). That in-scope write is the intent, not an accident: the
+  // alternative is a consumer that receives a handle whose grids are still
+  // empty and has to wait a flush to learn its own pane's size.
   const gridEquals = (a: TerminalGrid | null, b: TerminalGrid | null) =>
     a && b ? sameGrid(a, b) : a === b;
   const [wantedGrid, setWantedGrid] = createSignal<TerminalGrid | null>(null, {
     equals: gridEquals,
+    ownedWrite: true,
   });
   // Seeded with the constructor's invented 80×24 (`BIRTH_GRID`) and corrected
   // the moment a terminal exists — honest, because an unmeasured xterm really
@@ -230,7 +257,7 @@ export const Xterm: Component<
   // answer, and this is not it.
   const [termGrid, setTermGrid] = createSignal<TerminalGrid>(
     { ...BIRTH_GRID },
-    { equals: sameGrid },
+    { equals: sameGrid, ownedWrite: true },
   );
 
   /** Measure the container's current box and record what it could HOLD —

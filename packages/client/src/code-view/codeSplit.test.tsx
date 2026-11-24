@@ -39,6 +39,10 @@ const besideSplit = async () => {
   return createRoot(() => fresh.createCodeSplit(() => "beside"));
 };
 
+/** One microtask turn, so a staged setter's value is readable: a share the
+ *  drag reached is visible in `sizes()` on the flush after it is written. */
+const flush = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
+
 afterEach(() => {
   localStorage.clear();
   vi.restoreAllMocks();
@@ -71,11 +75,15 @@ describe("the side-by-side share", () => {
 
   it("is stored once, at the end of a pointer drag", async () => {
     const split = await besideSplit();
+    // Hand the sizes over first, as `<Resizable sizes={split.sizes()}>` does:
+    // a report is judged against what Corvu was last handed.
+    expect(split.sizes()[0]).toBe(0.3);
     split.onHandleDrag();
     split.onSizesChange([0.36, 0.64]);
     split.onSizesChange([0.4, 0.6]);
-    expect(split.sizes()[0]).toBe(0.4);
     expect(localStorage.getItem(KEY)).toBeNull();
+    await flush();
+    expect(split.sizes()[0]).toBe(0.4);
 
     split.onHandleDragEnd();
     expect(localStorage.getItem(KEY)).toBe("0.4");
@@ -84,6 +92,7 @@ describe("the side-by-side share", () => {
 
   it("is stored at once for a keyboard step", async () => {
     const split = await besideSplit();
+    expect(split.sizes()[0]).toBe(0.3);
     split.onSizesChange([0.35, 0.65]);
     expect(localStorage.getItem(KEY)).toBe("0.35");
   });

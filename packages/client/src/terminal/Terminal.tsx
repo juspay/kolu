@@ -107,7 +107,7 @@ import {
 } from "./reattachingStream";
 import ScrollToBottom from "./ScrollToBottom";
 import SearchBar from "./SearchBar";
-import { createShownPane } from "./shownPane";
+import { createShownPane, type ShownPaneFacts } from "./shownPane";
 import { applyStickyModifiers } from "./stickyModifiers";
 import { registerTerminalRefs, unregisterTerminalRefs } from "./terminalRefs";
 import { registerDiagnostics } from "./useTerminalDiagnostics";
@@ -207,6 +207,21 @@ const Terminal: Component<{
   let disposeDiagnostics: (() => void) | null = null;
   let webglTrackerId: number | null = null;
   const [handle, setHandle] = createSignal<XtermHandle | null>(null);
+  /** The live handle as a PLAIN reference — the imperative half's copy of the
+   *  signal above, set and cleared in the very same two places (`onReady`, the
+   *  consumer teardown). The SIGNAL is what the JSX reads; this is what the
+   *  attach loop, the focus verbs and the reset read, because they run from
+   *  effect callbacks and stream callbacks, where reading a signal is
+   *  STRICT_READ_UNTRACKED. */
+  let live: XtermHandle | null = null;
+  /** This pane's terminal id, read ONCE. A pane is created FOR an id and is
+   *  never re-pointed at another — the canvas and the tab strip key their
+   *  lists by it, so a different terminal is a different `<Terminal>` — and
+   *  the whole imperative half below (the attach loop, the publisher, the
+   *  refs, the diagnostics) holds it for the pane's lifetime. Read untracked
+   *  because a prop read in the component body is a strict-read warning, and
+   *  this one is a deliberate one-time snapshot of a value that cannot move. */
+  const terminalId = untrack(() => props.terminalId);
   const terminalStore = useTerminalStore();
 
   // Gate zoom on `focused`, not `visible`: a canvas shows many tiles at once,
@@ -218,7 +233,7 @@ const Terminal: Component<{
   // and the data-focused attribute the e2e harness reads, so the attribute is
   // provably equal to the gate it stands in for (no divergence on `undefined`).
   const isFocused = () => props.focused === true;
-  const fontSize = createZoom(props.terminalId, isFocused);
+  const fontSize = createZoom(terminalId, isFocused);
 
   /** Capability: a terminal may hold a WebGL context only when it's both
    *  rendering (`visible`) and within the WebGL budget — the most-recently-active
@@ -233,7 +248,7 @@ const Terminal: Component<{
    *  (zoom + `data-focused`): a budgeted tile holds WebGL even when it isn't
    *  the focused one. */
   const canUseWebgl = () =>
-    props.visible && terminalStore.holdsWebgl(props.terminalId);
+    props.visible && terminalStore.holdsWebgl(terminalId);
   /** Dispatch on user renderer policy:
    *  - `auto`: honor the capability gate (see `canUseWebgl`).
    *  - `webgl`: WebGL on every tile (opt-in; reintroduces #575 risk at scale).
@@ -250,19 +265,25 @@ const Terminal: Component<{
   // rise from an explicit tap (<Xterm>'s tap surface), never as a side-effect of
   // switching/revealing a tile. So this is a no-op on touch. Real taps still
   // call terminal.focus() directly.
-  function focusOnSelection() {
-    if (isTouch()) return;
-    handle()?.terminal?.focus();
+  //
+  // The pointer kind is a PARAMETER rather than a read: the three focus effects
+  // below call this from their effect phase, which may not read a signal
+  // (`isTouch` is a live media query), so each of them samples it in its
+  // compute. An event handler passes `isTouch()` straight in.
+  function focusOnSelection(touch: boolean) {
+    if (touch) return;
+    // The PLAIN reference, not the signal: same reason.
+    live?.terminal?.focus();
   }
 
   // Open a `path:line` reference in the Code tab. Shared by the hover link
   // provider (desktop mouse click) and the mobile tap handler — both resolve
   // the same ref against this terminal's repo and route through one front door.
   function activateFileRef(ref: LineRef) {
-    const meta = terminalStore.getMetadata(props.terminalId);
+    const meta = terminalStore.getMetadata(terminalId);
     if (!meta) return;
     openInCodeTab({
-      terminalId: props.terminalId,
+      terminalId,
       ref,
       cwd: meta?.cwd,
       targetMode: "browse",
@@ -310,13 +331,13 @@ const Terminal: Component<{
    *  ONE publisher per tile, built at component scope so the suppression latch
    *  lives exactly as long as the pane does. */
   const gridPublisher = createGridPublisher({
-    terminalId: props.terminalId,
+    terminalId: terminalId,
     hostState: hostEntryKind,
     ptyLive: () =>
-      activeArm(terminalStore.getMetadata(props.terminalId)) !== undefined,
+      activeArm(terminalStore.getMetadata(terminalId)) !== undefined,
     resize: (grid) =>
       activePadiRpc.lifecycle.resize({
-        id: props.terminalId,
+        id: terminalId,
         cols: grid.cols,
         rows: grid.rows,
       }),
@@ -329,7 +350,8 @@ const Terminal: Component<{
   // owner, so every listener / disposable registered here is cleaned up on
   // disposal alongside the terminal the kit owns.
   const onReady = (h: XtermHandle) => {
-    onCleanup(registerTerminalElement(props.terminalId, h.container));
+    onCleanup(registerTerminalElement(terminalId, h.container));
+    live = h;
     setHandle(h);
     const term = h.terminal;
 
@@ -342,7 +364,7 @@ const Terminal: Component<{
 
     // Index the loopback URLs this terminal prints, so its Ports section can
     // claim a server that detached from its process subtree (see printedPorts).
-    const printedPorts = trackPrintedPorts(term, props.terminalId);
+    const printedPorts = trackPrintedPorts(term, terminalId);
 
     // Consumer teardown registered HERE, inside onReady — NOT at the component
     // body top. `<Xterm>` is a plain JSX child (no own reactive owner), so a
@@ -361,7 +383,7 @@ const Terminal: Component<{
       // (`closeAttachStream`) — plus the publish the pane still owes nobody.
       closeAttachStream();
       gridPublisher.cancel();
-      unregisterTerminalRefs(props.terminalId);
+      unregisterTerminalRefs(terminalId);
       disposeDiagnostics?.();
       disposeDiagnostics = null;
       linkProviderDisposable?.dispose();
@@ -370,6 +392,7 @@ const Terminal: Component<{
       backfill?.dispose();
       backfill = null;
       (h.container as HTMLElement & { __xterm?: XTerm }).__xterm = undefined;
+      live = null;
       setHandle(null);
     });
 
@@ -383,7 +406,7 @@ const Terminal: Component<{
 
     // Production path for handlers that need live xterm/addon refs (e.g.
     // export-as-PDF reads the serialize addon; diagnostics read the probes).
-    registerTerminalRefs(props.terminalId, {
+    registerTerminalRefs(terminalId, {
       xterm: term,
       serialize: h.addons.serialize,
       probes: {
@@ -395,7 +418,7 @@ const Terminal: Component<{
     });
     // Diagnostics subscribes to hasWebgl via accessor — keeps it the single
     // source of truth, no imperative updater to forget.
-    disposeDiagnostics = registerDiagnostics(props.terminalId, {
+    disposeDiagnostics = registerDiagnostics(terminalId, {
       renderer: () => (h.webgl.hasWebgl() ? "webgl" : "dom"),
       // Both grids, from the kit's own two signals — the size the terminal IS
       // and the size this pane's box WANTS. They differ for a settle window
@@ -507,7 +530,7 @@ const Terminal: Component<{
       fetch: (before, max, epoch) =>
         runActionPromise(
           activePadiRpc.screen.history({
-            id: props.terminalId,
+            id: terminalId,
             before,
             max,
             // SPREAD, never `epoch` outright (#17): the field is
@@ -572,7 +595,7 @@ const Terminal: Component<{
     // instead (the open's `repaint`).
     const resetForFreshSnapshot = () => {
       clearForFreshSnapshot();
-      handle()?.terminal?.reset();
+      live?.terminal?.reset();
     };
     // The attach stream may open only while this pane is SHOWN — measured AND
     // visible — and it ENDS the moment the pane stops being either.
@@ -591,12 +614,12 @@ const Terminal: Component<{
     // whether it states a size (`shownPane.ts`).
     const viewShown = () => props.viewShown;
     const shownPane = createShownPane({
-      attach: () => {
+      attach: (facts) => {
         // Everything the pane still holds from the attach its last hide ended
         // has to go — but the SCREEN is not cleared, because the snapshot this
         // open is answered with carries its own reset (`repaint` below).
         clearForFreshSnapshot();
-        openAttachStream({ cause: "attach", repaint: true });
+        openAttachStream({ cause: "attach", repaint: true }, facts);
       },
       detach: closeAttachStream,
       publish: gridPublisher.publish,
@@ -615,13 +638,16 @@ const Terminal: Component<{
       restateOwed: gridPublisher.republishSuppressed,
     });
     // The facts come from the COMPUTE and travel as values: the effect phase is
-    // untracked, so a read down in the gate would see them without depending on
-    // them. What wakes the gate is named here, once.
+    // untracked, so a read down in the gate — or in the attach the gate opens —
+    // would see them without depending on them, and warn besides. What wakes
+    // the gate is named here, once. `wanted` rides along for the attach: it is
+    // already a dependency through `shown`, and the open needs the grid itself.
     createEffect(
       () => ({
         shown: shown(),
         viewShown: viewShown(),
         hostState: hostEntryKind(),
+        wanted: h.wantedGrid(),
       }),
       (facts) => shownPane.observe(facts),
     );
@@ -657,7 +683,7 @@ const Terminal: Component<{
     // binds and the re-attach.
     const foreignGrid = createForeignGridWatcher({
       served: () =>
-        activeArm(terminalStore.getMetadata(props.terminalId))?.grid,
+        activeArm(terminalStore.getMetadata(terminalId))?.grid,
       // The grid this pane WANTS, never the one its terminal currently has: the
       // terminal follows the pty by design now, so comparing the two served
       // facts would always agree and the watcher would never fire. Absent while
@@ -672,7 +698,7 @@ const Terminal: Component<{
     createEffect(
       () => {
         const served = activeArm(
-          terminalStore.getMetadata(props.terminalId),
+          terminalStore.getMetadata(terminalId),
         )?.grid;
         // The pane's own wanted grid is SAMPLED: this watcher is armed by the
         // RECORD moving (and by the view coming back in front), never by the
@@ -716,7 +742,7 @@ const Terminal: Component<{
     // ends, dies through the run edge (console + toast). Enrolling here instead
     // would flicker the fleet's health on every ordinary overflow re-attach and
     // still not answer "is THIS pane alive".
-    function openAttachStream(why: OpenReason) {
+    function openAttachStream(why: OpenReason, opened?: ShownPaneFacts) {
       // ALL of this attempt's state lives here, in its closure — never in a
       // binding a successor could overwrite. `attempt` decides whether this
       // loop's work still counts; `superseded` is this attempt's own teardown
@@ -733,6 +759,14 @@ const Terminal: Component<{
        *  transport blip reports the ordinary one. */
       let repaintOwed = why.repaint;
       let causeOwed: AttachCause | null = why.cause;
+      /** The pane as it stood when this attempt was OPENED, when the opener was
+       *  a Solid effect — the reveal. Spent on the FIRST subscribe below,
+       *  because that subscribe happens on the effect's own stack, where
+       *  reading `h.wantedGrid()` / `props.viewShown` would be
+       *  STRICT_READ_UNTRACKED. Every later entry of the thunk (the loop's own
+       *  re-attach) is off that stack and reads the pane as it is THEN, which
+       *  is the point of re-entering it. */
+      let openedWith: ShownPaneFacts | null = opened ?? null;
 
       /** Live = still the current attempt AND not torn down. `isCurrent()` alone
        *  stays true forever when no successor opens, so an unmounted pane's
@@ -866,10 +900,15 @@ const Terminal: Component<{
           // blanking the user's pane three times a second. This is the ONE throw
           // on the attach path that means it: the unreachable-by-construction
           // breach, with no repair to attempt.
-          const measured = h.wantedGrid();
+          // The opening facts, when the opener handed them over (the reveal's
+          // effect), else the pane as it is right now — the loop's own
+          // re-attach, which is exactly the open that must look again.
+          const facts = openedWith;
+          openedWith = null;
+          const measured = facts ? facts.wanted : h.wantedGrid();
           if (!measured) {
             throw new Error(
-              `terminal ${props.terminalId}: attach opened without a measured grid`,
+              `terminal ${terminalId}: attach opened without a measured grid`,
             );
           }
           // The reason this attempt opened, spent as it is sent: the loop's
@@ -879,10 +918,10 @@ const Terminal: Component<{
           const cause = causeOwed ?? "attach";
           causeOwed = null;
           sent = tileAttachInput({
-            id: props.terminalId,
+            id: terminalId,
             cause,
             wanted: measured,
-            viewShown: viewShown(),
+            viewShown: facts ? facts.viewShown : viewShown(),
           });
           return unenrolledStreamCall(
             activePadiStreams.terminalAttach.unenrolled,
@@ -893,7 +932,7 @@ const Terminal: Component<{
               // canvas of panes attaches the same member N times, and a
               // liveness table that could not tell them apart would name none
               // of them (kolu#2101 J2).
-              label: `terminalAttach[${props.terminalId}]`,
+              label: `terminalAttach[${terminalId}]`,
               // The attempt's lifetime IS its fiber — interrupting it tears the
               // subscription down through the stream's own finalizers, so there
               // is no signal to thread into the call (D10/#18). The hook stays
@@ -985,7 +1024,7 @@ const Terminal: Component<{
           // predicts, never after it.
           const body = addReset ? `${TERMINAL_RESET}${frame.data}` : frame.data;
           const data = commitSeed ? `${commitSeed.seam}${body}` : body;
-          if (handle()) {
+          if (live) {
             // The live-activity dot is no longer lit from this attach sink — it
             // mirrors padi's `activity` set (kaval's resize-excluded edge) off the
             // wire, so it works for background terminals and never flashes on a
@@ -1031,7 +1070,7 @@ const Terminal: Component<{
         // the loop logs AND keys the verdict's toast id, so an un-labelled one
         // would collapse a canvas of separately-wedged panes into a single
         // message naming none of them (kolu#2101 K1/K3-client).
-        `Terminal attach ${props.terminalId}`,
+        `Terminal attach ${terminalId}`,
         {
           // The tile's OWN exit fact, for classifying a CLEAN stream end
           // (kolu#2101): a clean end is a real PTY exit only if this tile knows
@@ -1047,7 +1086,7 @@ const Terminal: Component<{
           // RPC that padi answers `TerminalNotFound` (which ends the loop), a
           // wrong "exited" costs the blank pane this change exists to kill.
           hasExited: () => {
-            const meta = terminalStore.getMetadata(props.terminalId);
+            const meta = terminalStore.getMetadata(terminalId);
             return meta !== undefined && activeArm(meta) === undefined;
           },
         },
@@ -1094,7 +1133,7 @@ const Terminal: Component<{
     }
 
     // Initial focus, mirroring the old post-fit focus on first mount.
-    if (props.visible && props.focused !== false) focusOnSelection();
+    if (props.visible && props.focused !== false) focusOnSelection(isTouch());
 
     // Bridge browser clipboard images → PTY. Capture phase fires before xterm's
     // own paste handler on the textarea, letting us intercept images while text
@@ -1110,12 +1149,12 @@ const Terminal: Component<{
       base64: string,
     ): Effect.Effect<void, unknown> {
       return deliverScratchPaste({
-        terminalId: props.terminalId,
+        terminalId: terminalId,
         name,
         base64,
         scratchWrite: (args) => activePadiRpc.scratch.write(args),
         isActive: () =>
-          activeArm(terminalStore.getMetadata(props.terminalId)) !== undefined,
+          activeArm(terminalStore.getMetadata(terminalId)) !== undefined,
         sendInput: (args) => activePadiRpc.lifecycle.sendInput(args),
         wrapPath: wrapBracketedPaste,
       });
@@ -1134,7 +1173,7 @@ const Terminal: Component<{
         // drives is a person typing a path into it, so it is gated exactly
         // like a keystroke and nudges rather than quietly writing a scratch
         // file nothing will ever paste.
-        if (!personInput(props.terminalId)) return Effect.void;
+        if (!personInput(terminalId)) return Effect.void;
         return Effect.tryPromise(() => file.arrayBuffer()).pipe(
           Effect.flatMap((buf) =>
             writeScratchAndPaste(name, bufferToBase64(buf)),
@@ -1238,15 +1277,17 @@ const Terminal: Component<{
   // if it should have focus. The re-fit / scroll-to-bottom on visible is owned by
   // <Xterm>; this is the focus half. defer: true — onReady handles first focus.
   createEffect(
-    // `focused` is SAMPLED (untracked): only a visibility flip refocuses, and
-    // the focus-owning check is a read of how things stand when it does.
+    // `focused` and the pointer kind are SAMPLED (untracked): only a visibility
+    // flip refocuses, and the focus-owning check (and whether this pointer may
+    // raise a keyboard) is a read of how things stand when it does.
     () => ({
       visible: props.visible,
       focused: untrack(() => props.focused),
+      touch: untrack(isTouch),
     }),
-    ({ visible, focused }) => {
+    ({ visible, focused, touch }) => {
       if (!visible) return;
-      if (focused !== false) focusOnSelection();
+      if (focused !== false) focusOnSelection(touch);
     },
     { defer: true },
   );
@@ -1270,7 +1311,7 @@ const Terminal: Component<{
       // outside the effect window, so these are ordinary live reads.
       queueMicrotask(() => {
         if (props.focused && props.visible) {
-          focusOnSelection();
+          focusOnSelection(isTouch());
         }
       });
     },
@@ -1279,15 +1320,16 @@ const Terminal: Component<{
 
   // Refocus terminal when search bar closes — only if this terminal should have focus.
   createEffect(
-    // Visibility and focus ownership are SAMPLED: the find bar closing is the
-    // only thing that refocuses.
+    // Visibility, focus ownership and the pointer kind are SAMPLED: the find
+    // bar closing is the only thing that refocuses.
     () => ({
       open: props.searchOpen,
       visible: untrack(() => props.visible),
       focused: untrack(() => props.focused),
+      touch: untrack(isTouch),
     }),
-    ({ open, visible, focused }) => {
-      if (!open && visible && focused !== false) focusOnSelection();
+    ({ open, visible, focused, touch }) => {
+      if (!open && visible && focused !== false) focusOnSelection(touch);
     },
     { defer: true },
   );
@@ -1333,7 +1375,7 @@ const Terminal: Component<{
           // FAB to catch up on output must not summon the soft keyboard (only an
           // explicit tap on the terminal does). Desktop still refocuses so the
           // user can keep typing.
-          focusOnSelection();
+          focusOnSelection(isTouch());
         }}
       />
       <Xterm
@@ -1377,12 +1419,12 @@ const Terminal: Component<{
         // scrolling a mouse-tracking TUI), so it passes the gate unasked.
         onData={(data) => {
           if (isTerminalQueryResponse(data)) return;
-          if (!isReadingReport(data) && !personInput(props.terminalId)) return;
+          if (!isReadingReport(data) && !personInput(terminalId)) return;
           runAction(
             "send input",
             activePadiRpc.lifecycle
               .sendInput({
-                id: props.terminalId,
+                id: terminalId,
                 data: applyStickyModifiers(data),
               })
               // A keystroke has no UI to report to — the terminal is the
@@ -1395,11 +1437,11 @@ const Terminal: Component<{
         // Injected web-link seam — loopback URLs raise the join card; ⌘-click
         // and non-loopback keep a raw open. Lives beside fileRefLinkProvider.
         webLinkHandler={(event, uri) =>
-          handleWebLink(event, uri, props.terminalId)
+          handleWebLink(event, uri, terminalId)
         }
         webglHooks={{
           onCanvas: (c) => {
-            webglTrackerId = trackCreate(props.terminalId, c);
+            webglTrackerId = trackCreate(terminalId, c);
           },
           onBeforeRelease: () => {
             if (webglTrackerId !== null) trackLoseContextCalled(webglTrackerId);
@@ -1416,7 +1458,7 @@ const Terminal: Component<{
         // file drag is hovering — set/cleared by the dragover/drop/dragleave
         // listeners in onReady.
         class="w-full h-full overflow-hidden touch-manipulation data-[drop-target]:outline data-[drop-target]:outline-2 data-[drop-target]:-outline-offset-2 data-[drop-target]:outline-sky-400/70"
-        data-terminal-id={props.terminalId}
+        data-terminal-id={terminalId}
         data-visible={props.visible ? "" : undefined}
         data-focused={isFocused() ? "" : undefined}
         data-sub-terminal={props.isSub ? "" : undefined}
@@ -1431,10 +1473,10 @@ const Terminal: Component<{
        *  answers typing has to be where the typing went. Nothing is drawn
        *  for a terminal no work drives, which is every terminal outside a
        *  waterfall. */}
-      <WorkLock terminal={activeTerminalRef(props.terminalId)} />
+      <WorkLock terminal={activeTerminalRef(terminalId)} />
       {/* Join card for a printed loopback URL — only while this terminal owns the
        *  open card. Portal-rendered; lives here so App stays a thin shell. */}
-      <PrintedUrlCardMount terminalId={props.terminalId} />
+      <PrintedUrlCardMount terminalId={terminalId} />
     </div>
   );
 };

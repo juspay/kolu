@@ -29,7 +29,7 @@ import type {
   GitDiffOutput,
   GitStatusOutput,
 } from "kolu-git/schemas";
-import { type Accessor, createSignal, onCleanup } from "solid-js";
+import { type Accessor, createEffect, createSignal } from "solid-js";
 import { toast } from "solid-sonner";
 import {
   FILE_GONE,
@@ -93,11 +93,22 @@ export function createCodeLeases(): {
     readonly { shown: Accessor<boolean> }[]
   >([]);
   return {
+    // Called from a view's COMPONENT BODY, where writing a signal is
+    // REACTIVE_WRITE_IN_OWNED_SCOPE. So the lease is added in the EFFECT
+    // phase and dropped by the cleanup that effect returns, which runs on the
+    // leasing view's disposal — the lifetime the body-level `onCleanup` used
+    // to give it. The compute is a constant, so the effect runs exactly once
+    // per mounted view; the only change is that the set reports itself shown
+    // from the mounting flush on, rather than from the middle of the body.
     lease: (shown) => {
       const lease = { shown };
-      setLeases((previous) => [...previous, lease]);
-      onCleanup(() =>
-        setLeases((previous) => previous.filter((value) => value !== lease)),
+      createEffect(
+        () => lease,
+        (value) => {
+          setLeases((previous) => [...previous, value]);
+          return () =>
+            setLeases((previous) => previous.filter((v) => v !== value));
+        },
       );
     },
     shown: () => leases().some((lease) => lease.shown()),

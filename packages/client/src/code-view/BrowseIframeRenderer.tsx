@@ -17,13 +17,7 @@ import {
 import { pathFromPreviewPathname } from "@kolu/solid-browser";
 import { IframeRenderer } from "@kolu/solid-fileview/renderers/iframe";
 import { previewPathCodec } from "kolu-common/preview";
-import {
-  type Component,
-  createEffect,
-  createSignal,
-  onCleanup,
-  Show,
-} from "solid-js";
+import { type Component, createEffect, createSignal, Show } from "solid-js";
 import { CommentIframeSurface } from "../comments/CommentIframeSurface";
 
 export type BrowseIframeRendererProps = {

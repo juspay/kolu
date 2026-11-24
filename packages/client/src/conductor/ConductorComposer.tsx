@@ -27,6 +27,7 @@ import type {
 } from "kolu-common/conductor";
 import type { WorkId } from "kolu-work";
 import {
+  type Accessor,
   type Component,
   createEffect,
   createMemo,
@@ -244,12 +245,21 @@ const ConductorComposer: Component<{
   };
 
   /** Keep the highlighted row on screen — the menu scrolls at six or so rows,
-   *  and a selection you cannot see is a selection you cannot trust. */
-  const revealWhenSelected = (el: HTMLElement, mine: () => boolean): void => {
+   *  and a selection you cannot see is a selection you cannot trust.
+   *
+   *  Called from a ROW's own scope (a `<For>` item callback owns its
+   *  children), never from its `ref`: a ref callback may create no memo, no
+   *  effect and no root. The element reaches the effect the way everything
+   *  else does — through the compute — so the row's `ref` only writes the
+   *  signal. */
+  const revealWhenSelected = (
+    el: Accessor<HTMLElement | undefined>,
+    mine: () => boolean,
+  ): void => {
     createEffect(
-      () => mine(),
-      (isMine) => {
-        if (isMine) el.scrollIntoView({ block: "nearest" });
+      () => ({ node: el(), mine: mine() }),
+      ({ node, mine: isMine }) => {
+        if (isMine) node?.scrollIntoView({ block: "nearest" });
       },
     );
   };
@@ -424,36 +434,38 @@ const ConductorComposer: Component<{
               Works
             </div>
             <For each={workMatches()} keyed={(candidate) => candidate.work}>
-              {(candidate, index) => (
-                <button
-                  ref={(el) =>
-                    revealWhenSelected(el, () => index() === selected())
-                  }
-                  type="button"
-                  data-testid="conductor-mention-row"
-                  data-kind="work"
-                  data-work={candidate().work}
-                  data-selected={index() === selected() ? "" : undefined}
-                  class={[
-                    "w-full min-w-0 flex items-center gap-2 rounded-md px-2 py-1 text-left text-xs hover:bg-surface-2 cursor-pointer",
-                    { "bg-surface-2": index() === selected() },
-                  ]}
-                  onPointerEnter={() => setSelected(index())}
-                  onClick={() => accept(index())}
-                >
-                  {/* THE CHIP'S OWN FACE, drawn by the one component every
-                      chip of a work is drawn by — a face only: this row is
-                      the control. */}
-                  <WorkChipFace work={candidate().record} />
-                  <span
-                    data-testid="conductor-mention-detail"
+              {(candidate, index) => {
+                const [row, setRow] = createSignal<HTMLButtonElement>();
+                revealWhenSelected(row, () => index() === selected());
+                return (
+                  <button
+                    ref={setRow}
+                    type="button"
+                    data-testid="conductor-mention-row"
                     data-kind="work"
-                    class="min-w-0 truncate text-fg-2"
+                    data-work={candidate().work}
+                    data-selected={index() === selected() ? "" : undefined}
+                    class={[
+                      "w-full min-w-0 flex items-center gap-2 rounded-md px-2 py-1 text-left text-xs hover:bg-surface-2 cursor-pointer",
+                      { "bg-surface-2": index() === selected() },
+                    ]}
+                    onPointerEnter={() => setSelected(index())}
+                    onClick={() => accept(index())}
                   >
-                    {candidate().standing}
-                  </span>
-                </button>
-              )}
+                    {/* THE CHIP'S OWN FACE, drawn by the one component every
+                        chip of a work is drawn by — a face only: this row is
+                        the control. */}
+                    <WorkChipFace work={candidate().record} />
+                    <span
+                      data-testid="conductor-mention-detail"
+                      data-kind="work"
+                      class="min-w-0 truncate text-fg-2"
+                    >
+                      {candidate().standing}
+                    </span>
+                  </button>
+                );
+              }}
             </For>
           </Show>
           <Show when={terminalMatches().length > 0}>
@@ -480,11 +492,11 @@ const ConductorComposer: Component<{
                 /** Where this row sits in the FLAT list the keyboard moves
                  *  through: the works are above it. */
                 const at = () => workMatches().length + index();
+                const [row, setRow] = createSignal<HTMLButtonElement>();
+                revealWhenSelected(row, () => at() === selected());
                 return (
                   <button
-                    ref={(el) =>
-                      revealWhenSelected(el, () => at() === selected())
-                    }
+                    ref={setRow}
                     type="button"
                     data-testid="conductor-mention-row"
                     data-kind="terminal"
@@ -557,30 +569,32 @@ const ConductorComposer: Component<{
           class="absolute left-5 right-5 bottom-full mb-1 max-h-60 overflow-y-auto rounded-lg border border-edge-bright bg-surface-1 shadow-lg shadow-black/40 p-1.5"
         >
           <For each={commandMatches()}>
-            {(command, index) => (
-              <button
-                ref={(el) =>
-                  revealWhenSelected(el, () => index() === selected())
-                }
-                type="button"
-                data-testid="conductor-command-row"
-                data-command={command.name}
-                data-selected={index() === selected() ? "" : undefined}
-                class={[
-                  "w-full flex items-baseline gap-2 rounded-md px-2 py-1 text-left text-xs hover:bg-surface-2 cursor-pointer",
-                  { "bg-surface-2": index() === selected() },
-                ]}
-                onPointerEnter={() => setSelected(index())}
-                onClick={() => accept(index())}
-              >
-                <span class="font-mono font-semibold text-fg">
-                  /{command.name}
-                </span>
-                <Show when={command.description}>
-                  {(what) => <span class="truncate text-fg-3">{what()}</span>}
-                </Show>
-              </button>
-            )}
+            {(command, index) => {
+              const [row, setRow] = createSignal<HTMLButtonElement>();
+              revealWhenSelected(row, () => index() === selected());
+              return (
+                <button
+                  ref={setRow}
+                  type="button"
+                  data-testid="conductor-command-row"
+                  data-command={command.name}
+                  data-selected={index() === selected() ? "" : undefined}
+                  class={[
+                    "w-full flex items-baseline gap-2 rounded-md px-2 py-1 text-left text-xs hover:bg-surface-2 cursor-pointer",
+                    { "bg-surface-2": index() === selected() },
+                  ]}
+                  onPointerEnter={() => setSelected(index())}
+                  onClick={() => accept(index())}
+                >
+                  <span class="font-mono font-semibold text-fg">
+                    /{command.name}
+                  </span>
+                  <Show when={command.description}>
+                    {(what) => <span class="truncate text-fg-3">{what()}</span>}
+                  </Show>
+                </button>
+              );
+            }}
           </For>
         </div>
       </Show>

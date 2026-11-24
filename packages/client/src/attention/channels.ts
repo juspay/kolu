@@ -1,5 +1,5 @@
 /** THE PLATFORM CHANNELS an alert can reach a person through — a sound and an
- *  OS notification — and the master switch over both.
+ *  OS notification.
  *
  *  The ONLY file in the client that builds an `Audio` or calls the shared
  *  `notify` seam. `attention/attend.ts` owns WHEN and WHICH; this owns HOW,
@@ -9,11 +9,8 @@
 import { notify } from "../attentionNotify";
 import type { AttentionItem, AttendChannels } from "./attend";
 
-export function attentionChannels(
-  alertsEnabled: () => boolean,
-): AttendChannels {
+export function attentionChannels(): AttendChannels {
   return {
-    alertsEnabled,
     sound() {
       const audio = new Audio("/sounds/notification.mp3");
       audio.play().catch((err: unknown) => {

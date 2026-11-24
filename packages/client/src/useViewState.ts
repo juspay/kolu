@@ -60,12 +60,19 @@ export function useViewState() {
   const [centerActiveRequest, setCenterActiveRequest] =
     createSignal<TerminalId | null>(null, { equals: false });
 
-  /** Fire the "pan to the active tile" impulse for the CURRENT host without
-   *  touching the active selection or reporting to the server — the switch-in
-   *  center-on-active path (a local viewport command, never a wrong-host RPC). */
-  function requestCenterActive(): void {
-    const id = activeId();
-    if (id !== null) setCenterActiveRequest(id);
+  /** Fire the "pan to this tile" impulse for the CURRENT host without touching
+   *  the active selection or reporting to the server — the switch-in
+   *  center-on-active path (a local viewport command, never a wrong-host RPC).
+   *
+   *  The tile is NAMED by the caller instead of read from `activeId()` here.
+   *  Both kinds of caller need it that way: a store verb fires this in the same
+   *  synchronous step that writes the selection, where the selection signal
+   *  still reads its PRE-write value, and the canvas fires it from an effect,
+   *  which is not a window to read reactive state in. The caller always knows
+   *  the tile it means — the one it just activated, or the active tile its
+   *  compute resolved. */
+  function requestCenterActive(tileId: TerminalId): void {
+    setCenterActiveRequest(tileId);
   }
 
   const reconcileLiveIds = (liveIds: readonly TerminalId[]): void =>

@@ -54,7 +54,7 @@ const MODULE_STATE_RE =
 
 /** The sanctioned host-INDEPENDENT marker. State that deliberately stays outside
  *  the owner declares itself with this + a reason — the convention this test
- *  retires (e.g. `usePendingLayouts`'s `pending`/`nextDefaultSize`). */
+ *  retires (e.g. `usePendingLayouts`'s `pending` store). */
 const MARKER = "HOST-SCOPING: host-INDEPENDENT by design";
 
 /** Whether a `//` comment carrying {@link MARKER} sits immediately above line `i`

@@ -43,7 +43,6 @@ import {
 import { attachBackForwardMouse } from "@kolu/solid-browser";
 import { FileTree, rowPathsCss } from "@kolu/solid-pierre";
 import { toError } from "@kolu/surface/run-stream";
-import { makeEventListener } from "@solid-primitives/event-listener";
 import type { JSX } from "@solidjs/web";
 import { Effect } from "effect";
 import { encodeHostKey } from "kolu-common/hostKey";
@@ -56,7 +55,6 @@ import {
   createSignal,
   For,
   Match,
-  onCleanup,
   Show,
   Switch,
   untrack,
@@ -228,7 +226,11 @@ const CodeTab: Component<{
   const { themeTypeLiteral: diffTheme } = useColorScheme();
   const shown = useShown();
   // The query set is the view's for its whole life: it leases its visibility
-  // on it once, here, and reads every query off that same set.
+  // on it once, here, and reads every query off that same set. Read ONCE, as
+  // a snapshot (`untrack`), because that is what "for its whole life" means —
+  // every mounting place hands the same set over for as long as the view
+  // lives, so a body-level read of `props.queries` can never go stale, and
+  // reading it untracked keeps a component body free of a reactive read.
   const {
     localStatus,
     branchStatus,
@@ -239,22 +241,12 @@ const CodeTab: Component<{
     diff,
     fileContent,
     lease,
-  } = props.queries;
+  } = untrack(() => props.queries);
   lease(shown);
   // The tree's share is a preference per arrangement, not part of a view's
   // place.
   const split = createCodeSplit(() => props.arrangement);
   const terminalId = () => props.subject.terminalId;
-
-  // Coarse-pointer modality (`isTouch`, the input axis — not the `layoutMode`
-  // size/fork axis): roomier rows are a tap-target affordance, so a
-  // coarse-pointer device wants them in every layout (phone, compact, and a
-  // touch desktop). The DOM sizing reads it reactively (`(pointer: coarse)` can flip
-  // mid-mount — a 2-in-1 docking/undocking — and `data-touch` should follow),
-  // while Pierre's tree density snapshots it (below) because Pierre captures
-  // `density` once at construction (like `initialExpansion`), so a reactive
-  // accessor there would read as live when it isn't.
-  const treeDensity = isTouch() ? "relaxed" : undefined;
 
   // Read `codeMode` directly rather than projecting it from `activeTab`.
   // CodeTab now stays mounted across the Inspector tab toggle (#818); a
@@ -451,10 +443,11 @@ const CodeTab: Component<{
   // is now active. Draft body is lost, which matches every other
   // modal-on-navigate behavior in kolu.
   //
-  // Key on the VALUE string, not the raw signals: `on` fires on every
-  // INVALIDATION of its source, so an array source re-closes the composer on any
-  // incidental invalidation (a same-repo active-terminal *clock* tick
-  // re-evaluates `repoPath()` to the same string). A primitive-string memo (the
+  // Key on the VALUE string, not the raw signals: an effect re-runs on every
+  // INVALIDATION of what its compute read, so a compute returning an array
+  // (a fresh reference each run) re-closes the composer on any incidental
+  // invalidation (a same-repo active-terminal *clock* tick re-evaluates
+  // `repoPath()` to the same string). A primitive-string memo (the
   // `repoSlotKey` precedent above) notifies only on a real navigation. `terminalId`
   // is in the key because a comment saves against the subject's terminal:
   // switching to another terminal (or host — a terminal is host-bound) at the
@@ -525,11 +518,11 @@ const CodeTab: Component<{
   // filter, the reveal, the lazy folder levels and the tree's expansion are all
   // facts about the REPO, so moving focus between two panes of one repo keeps
   // them (and does not re-dispatch `fs.listAll`). `repoSlotKey` is memoized, so
-  // this fires only when the tuple genuinely changes — without the memo,
-  // `on(...)` would re-run its callback on every incidental tick of `repoPath()`
-  // (metadata cell) or `view()` (per-terminal in-memory store) and wipe
-  // the filter spuriously after #818 made CodeTab survive right-panel
-  // tab toggles.
+  // this fires only when the tuple genuinely changes — a compute that rebuilt
+  // the tuple inline would re-run this effect on every incidental tick of
+  // `repoPath()` (metadata cell) or `view()` (per-terminal in-memory store)
+  // and wipe the filter spuriously after #818 made CodeTab survive
+  // right-panel tab toggles.
   createEffect(
     repoSlotKey,
     (key, previous) => {
@@ -747,6 +740,7 @@ const CodeTab: Component<{
       paths: treePaths(),
       inventoryPending: treeInventory().pending,
       includeIgnored: showIgnoredFiles(),
+      lister: lister(),
     }),
     resolve: (request, paths) =>
       resolveRef({
@@ -759,19 +753,19 @@ const CodeTab: Component<{
         // directory match would wrongly reveal the folder and drop the line.
         hasLine: request.ref.startLine !== null,
       }),
-    readFresh: (request, includeIgnored) => {
-      // The request only reaches here while its scope is the one shown, so
-      // the shown root's lister is the request's.
-      const by = lister();
-      return by === null
+    readFresh: (request, from) =>
+      // Every fact comes from the snapshot: the read is issued in the effect
+      // phase, where reading `lister()` or the toggle would be a reactive read
+      // (STRICT_READ_UNTRACKED). The request only reaches here while its scope
+      // is the one shown, so that snapshot's lister is the request's.
+      from.lister === null
         ? Effect.fail(new Error("No repository to read"))
         : readFreshCodePaths(
             request.scope.host,
             request.scope.repoRoot,
-            by,
-            includeIgnored,
-          );
-    },
+            from.lister,
+            from.includeIgnored,
+          ),
     onResolved: finishOpenRequest,
     onNotFound: (request) => {
       toast.error(`File reference not found: ${request.ref.path}`);
@@ -992,9 +986,9 @@ const CodeTab: Component<{
       return {
         s,
         sk,
-        // Untracked, as the Solid 1 `on(...)` callback's read was: the mode a
-        // clear is addressed to is the one showing when the verdict lands, and
-        // a mode switch is not itself a reason to re-decide.
+        // Read once, without depending on it: the mode a clear is addressed
+        // to is the one showing when the verdict lands, and a mode switch is
+        // not itself a reason to re-decide.
         view: untrack(view),
         verdict: codeTabSelectionInventoryVerdict(
           s,
@@ -1104,10 +1098,17 @@ const CodeTab: Component<{
   //     preventDefault-on-both protocol so the buttons drive the Code tab, not
   //     the SPA.
   // Both bubble through Pierre's shadow root, so an event over a tree row or the
-  // preview reaches here. `makeEventListener` auto-cleans on unmount; the
-  // mouse binder's disposer is tied to the component owner via `onCleanup`.
-  const attachBackForwardInputs = (el: HTMLDivElement) => {
-    makeEventListener(el, "keydown", (e) => {
+  // preview reaches here.
+  //
+  // The ref only RECORDS the element; both channels are bound in the effect
+  // phase, which returns the one disposer that unbinds them. A `ref` callback
+  // can register no cleanup of its own (CLEANUP_IN_FORBIDDEN_SCOPE), and the
+  // disposer belongs to the element it was bound to, not to the whole
+  // component's life: a re-bound element unbinds the previous one.
+  const [navInputsEl, setNavInputsEl] = createSignal<HTMLDivElement>();
+  createEffect(navInputsEl, (el) => {
+    if (!el) return;
+    const onKeyDown = (e: KeyboardEvent) => {
       if (e.altKey && e.key === "ArrowLeft") {
         e.preventDefault();
         goBack();
@@ -1115,11 +1116,17 @@ const CodeTab: Component<{
         e.preventDefault();
         goForward();
       }
+    };
+    el.addEventListener("keydown", onKeyDown);
+    const detachMouse = attachBackForwardMouse(el, {
+      onBack: goBack,
+      onForward: goForward,
     });
-    onCleanup(
-      attachBackForwardMouse(el, { onBack: goBack, onForward: goForward }),
-    );
-  };
+    return () => {
+      el.removeEventListener("keydown", onKeyDown);
+      detachMouse();
+    };
+  });
 
   // The browse tree's own listing: git's, or the root level read from disk.
   const browseListing = () => (readsFromDisk() ? diskRootLevel : allPaths);
@@ -1249,7 +1256,7 @@ const CodeTab: Component<{
         <div
           class="flex flex-col h-full min-h-0 text-[11px]"
           data-testid="diff-tab"
-          ref={attachBackForwardInputs}
+          ref={setNavInputsEl}
         >
           {/* Toolbar grows roomier on a coarse pointer (back/fwd + each scope
            *  segment clear the WCAG 2.2 24px tap floor); `overflow-x-auto`
@@ -1419,6 +1426,22 @@ const CodeTab: Component<{
                             }
                           : previous,
                     );
+                    // The host element of this mode's tree, recorded by its
+                    // `ref` and driven from the effect phase below: the manual
+                    // touch-scroll driver hands its disposer back, and a `ref`
+                    // callback can neither register a cleanup nor read
+                    // `isDesktop()` (both are forbidden there). Reading the
+                    // modality in the compute also means a 2-in-1 that docks
+                    // mid-mount unwires the driver, and one that undocks wires
+                    // it, instead of both following whatever was true when the
+                    // tree first mounted.
+                    const [treeHost, setTreeHost] =
+                      createSignal<HTMLDivElement>();
+                    createEffect(
+                      () => ({ el: treeHost(), desktop: isDesktop() }),
+                      ({ el, desktop }) =>
+                        el && !desktop ? attachPierreTouchScroll(el) : undefined,
+                    );
                     return (
                       <Show when={frame()}>
                         {(current) => (
@@ -1433,9 +1456,7 @@ const CodeTab: Component<{
                             inert={
                               view() !== mode || !!treeError() || !treeReady()
                             }
-                            ref={(el) => {
-                              if (!isDesktop()) attachPierreTouchScroll(el);
-                            }}
+                            ref={setTreeHost}
                           >
                             <FileTree
                               paths={current().paths}
@@ -1463,7 +1484,21 @@ const CodeTab: Component<{
                                   `File tree render failed: ${err.message}`,
                                 )
                               }
-                              density={treeDensity}
+                              density={
+                                // Coarse-pointer modality (`isTouch`, the
+                                // input axis — not the `layoutMode` size/fork
+                                // axis): roomier rows are a tap-target
+                                // affordance, so a coarse-pointer device
+                                // wants them in every layout (phone, compact,
+                                // and a touch desktop). Read HERE, where it
+                                // is handed over: Pierre captures `density`
+                                // once at construction (like
+                                // `initialExpansion`), so this is a snapshot
+                                // however it is written — and reading it in
+                                // the component body would be a reactive read
+                                // there.
+                                isTouch() ? "relaxed" : undefined
+                              }
                               class="h-full w-full"
                               style={pierreTreesStyle}
                             />

@@ -19,7 +19,7 @@ import type { TranscriptHtmlMode } from "@kolu/padi-client/surface";
 import { toError } from "@kolu/surface/run-stream";
 import { Data, Effect } from "effect";
 import type { TerminalId } from "kolu-common/surface";
-import { createEffect, createRoot } from "solid-js";
+import { createEffect, createRoot, onSettled } from "solid-js";
 import { toast } from "solid-sonner";
 import AgentDistroLogo from "@kolu/agent-distro/solid";
 import { stackTitle } from "@kolu/agent-distro/landing";
@@ -40,7 +40,7 @@ import { writeTextToClipboard } from "@kolu/solid-logtail";
 import { activePadiRpc } from "../wire";
 import {
   createEvictionDedup,
-  evictTerminal,
+  planEviction,
   type TerminalEvictionPorts,
 } from "./useActiveReconcile";
 import { useSubPanel } from "./useSubPanel";
@@ -111,9 +111,9 @@ export const useTerminalCrud = createSharedRoot(() => {
 
   // The ONE cleanup body's side-effecting seams (see useActiveReconcile).
   // Wired once here; the imperative close path and the list-driven reconcile
-  // both drive `evictTerminal` through these ports, so they can't diverge.
+  // both drive `planEviction` through these ports, so they can't diverge.
   //
-  // The eviction ports are SYNCHRONOUS by contract (`evictTerminal` is a pure
+  // The eviction ports are SYNCHRONOUS by contract (`planEviction` is a pure
   // reordering of local state that happens to re-home sub-terminals server-side),
   // so this one runs its effect at the seam rather than pushing the Effect shape
   // through a port type whose every other member is `void`.
@@ -146,25 +146,47 @@ export const useTerminalCrud = createSharedRoot(() => {
    *  open/closed posture of the tile it left", and the ONE timing (before the
    *  write, so the promoted tile never paints with the new-terminal default).
    *  Both promotion paths call it: the eviction reconcile (through the
-   *  `promoteToTopLevel` port) and the dock's drag-to-unsplit. The caller names
-   *  `fromTile` because only it knows — the list-driven reconcile has its
+   *  `planPromoteToTopLevel` port) and the dock's drag-to-unsplit. The caller
+   *  names `fromTile` because only it knows — the list-driven reconcile has its
    *  pre-removal graph, the dock captured the tile at drop time — and it must
-   *  still hold that tile's panel record, since the read happens here. */
+   *  still hold that tile's panel record, since the READ happens here.
+   *
+   *  That read is why this comes in TWO phases and why the second one is
+   *  deferred. `rightPanel.adoptTileCollapsed(fromTile)` consults the LEAVING
+   *  tile's posture, so that half is the plan's — taken before any of this
+   *  eviction's writes, which is the "before the write" timing this function
+   *  has always promised. Its APPLIER reads too (the child's own panel state),
+   *  and the list-driven caller is a Solid effect, whose callback may not
+   *  read — so the apply rides `onSettled`, which is not a strict-read window.
+   *  The `setParent` RPC still goes out on this stack: a settle tick is far
+   *  inside the round trip, so the posture is in place long before the
+   *  metadata echo repaints the promoted tile. */
+  function planPromoteToTopLevel(
+    subId: TerminalId,
+    fromTile: TerminalId,
+    settled?: (applied: boolean) => void,
+  ): () => void {
+    const adopt = rightPanel.adoptTileCollapsed(fromTile);
+    return () => {
+      onSettled(() => adopt(subId));
+      setParent(subId, null, settled);
+    };
+  }
+
   function promoteToTopLevel(
     subId: TerminalId,
     fromTile: TerminalId,
     settled?: (applied: boolean) => void,
   ): void {
-    rightPanel.adoptTileCollapsed(fromTile)(subId);
-    setParent(subId, null, settled);
+    planPromoteToTopLevel(subId, fromTile, settled)();
   }
 
   const evictionPorts: TerminalEvictionPorts = {
     activeId: store.activeId,
     focusedTerminalId: store.focusedTerminalId,
-    activate: store.activate,
+    planActivate: store.planActivate,
     dropFromMru: (id) => store.forgetFromMru(id),
-    promoteToTopLevel,
+    planPromoteToTopLevel,
     rehomeUnder: (subId, newParentId) => setParent(subId, newParentId),
     subPanel,
     removeRightPanel: rightPanel.removePanel,
@@ -187,7 +209,7 @@ export const useTerminalCrud = createSharedRoot(() => {
 
   const eviction = createEvictionDedup(
     (id, parentId, topLevelBefore, departing, removal) =>
-      evictTerminal(
+      planEviction(
         evictionPorts,
         id,
         parentId,
@@ -739,9 +761,10 @@ export const useTerminalCrud = createSharedRoot(() => {
   return {
     setThemeName,
     removeAndAutoSwitch,
-    /** List-driven cleanup for a naturally-departed terminal (dedup-guarded).
-     *  Wired into the reconcile in useTerminals. */
-    evictDeparted: eviction.evictDeparted,
+    /** Reader half of the list-driven cleanup for a naturally-departed terminal
+     *  (dedup-guarded). Wired into the reconcile in useTerminals, which plans in
+     *  its compute and writes in its effect. */
+    planEvictDeparted: eviction.planEvictDeparted,
     handleCreate,
     handleCreateSubTerminal,
     /** Nest a terminal under a new parent, or hand it back its own tile

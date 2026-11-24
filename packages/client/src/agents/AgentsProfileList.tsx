@@ -42,13 +42,13 @@ import {
   profilesWithMoved,
   profilesWithRemoved,
 } from "@kolu/agent-distro/status";
-import { makeEventListener } from "@solid-primitives/event-listener";
 import {
   type Component,
   createEffect,
   createMemo,
   createSignal,
   For,
+  onCleanup,
   Show,
 } from "solid-js";
 import { Portal } from "@solidjs/web";
@@ -139,40 +139,44 @@ const AddField: Component<{
     flip: true,
   });
   const chrome = surface({ radius: "lg", shadow: "light", portalled: true });
+  // Native, so Escape can stop here: with the menu open it closes the menu,
+  // not Settings around it. The ref ATTACHES it (a key pressed before the
+  // next microtask must reach it) and this body takes it off: a ref callback
+  // may not register a cleanup, which is what `makeEventListener` does.
+  const onKeyDown = (e: KeyboardEvent) => {
+    switch (e.key) {
+      case "ArrowDown":
+      case "ArrowUp":
+        e.preventDefault();
+        if (!open()) show(false);
+        move(e.key === "ArrowDown" ? 1 : -1);
+        return;
+      case "Enter": {
+        e.preventDefault();
+        const at = active();
+        const row = at === undefined ? undefined : rows()[at];
+        add(open() && row !== undefined ? row.value : draft());
+        return;
+      }
+      case "Escape":
+        if (open()) {
+          e.stopPropagation();
+          close();
+        } else if (draft() !== "") {
+          e.stopPropagation();
+          setDraft("");
+        }
+        return;
+    }
+  };
+  onCleanup(() => input?.removeEventListener("keydown", onKeyDown));
 
   return (
     <div ref={field} class="relative min-w-0">
       <input
         ref={(el) => {
           input = el;
-          // Native, so Escape can stop here: with the menu open it closes the
-          // menu, not Settings around it.
-          makeEventListener(el, "keydown", (e) => {
-            switch (e.key) {
-              case "ArrowDown":
-              case "ArrowUp":
-                e.preventDefault();
-                if (!open()) show(false);
-                move(e.key === "ArrowDown" ? 1 : -1);
-                return;
-              case "Enter": {
-                e.preventDefault();
-                const at = active();
-                const row = at === undefined ? undefined : rows()[at];
-                add(open() && row !== undefined ? row.value : draft());
-                return;
-              }
-              case "Escape":
-                if (open()) {
-                  e.stopPropagation();
-                  close();
-                } else if (draft() !== "") {
-                  e.stopPropagation();
-                  setDraft("");
-                }
-                return;
-            }
-          });
+          el.addEventListener("keydown", onKeyDown);
         }}
         id="agents-profile-input"
         type="text"

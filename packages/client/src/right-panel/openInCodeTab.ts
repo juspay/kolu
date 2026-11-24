@@ -8,11 +8,11 @@
  *  effect-ordering invariant lives here, not at every call site.
  *
  *  Visibility (desktop uncollapse / mobile drawer open) is dispatched
- *  imperatively from here rather than via a deferred `createEffect(on(
- *  pendingOpen, ...))` subscriber. The deferred-effect shape worked in
- *  dev but lost subsequent fires under the production Solid build —
- *  even with `equals: false` on the signal — when the same `req` value
- *  flowed through twice with a manual collapse in between (the
+ *  imperatively from here rather than by a deferred subscriber over
+ *  `pendingOpen` (`createEffect(() => pendingOpen(), effect, { defer: true })`).
+ *  The deferred-effect shape worked in dev but lost subsequent fires under the
+ *  production Solid build — even with `equals: false` on the signal — when the
+ *  same `req` value flowed through twice with a manual collapse in between (the
  *  `file-ref-link.feature` "re-click after collapse" canary). Driving
  *  visibility from the producer call itself sidesteps that elision
  *  path entirely; the `pendingOpen` signal remains for the *content*
@@ -51,11 +51,19 @@ export const pendingOpen = pending;
  *  desktop or open the mobile drawer), and the producer signal fires
  *  (`setPending`).
  *
+ *  Every one of those writes NAMES the terminal it is about, and none of them
+ *  re-reads the focus this function has just moved: a write is STAGED, so
+ *  `focusedTerminalId()` / `activeId()` still answer with the pane and tile the
+ *  user was on for the rest of this synchronous run. Reading them back would
+ *  put the Code tab on the PREVIOUS pane and uncollapse the PREVIOUS tile — the
+ *  panel would then surface, showing the wrong terminal's place.
+ *
  *  The request is scoped to the issuing terminal ITSELF and its own
  *  `git.repoRoot` — no containing-tile indirection. The panel follows focus,
  *  so a `path:line` clicked in a split resolves against THAT split's repo and
  *  opens in THAT split's panel state; running it against the tile's main
- *  terminal would resolve the path in the wrong repository. */
+ *  terminal would resolve the path in the wrong repository. (Visibility is the
+ *  one tile-wide act: `reveal` is handed the same pane and resolves its tile.) */
 export function openInCodeTab(req: OpenInCodeTabInput): void {
   const rp = useRightPanel();
   const terminals = useTerminalStore();
@@ -81,8 +89,8 @@ export function openInCodeTab(req: OpenInCodeTabInput): void {
     },
   };
   terminals.focusTerminalSilently(req.terminalId);
-  rp.openCodeAt(request.scope.mode);
-  rp.reveal();
+  rp.openCodeAt(req.terminalId, request.scope.mode);
+  rp.reveal(req.terminalId);
   setPending(request);
 }
 

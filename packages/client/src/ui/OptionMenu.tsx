@@ -127,9 +127,12 @@ export const OptionMenu = <T extends string>(props: {
   // When truncation is on, cap the panel width too — an ellipsised label needs
   // a bound to ellipsise against, or the row would still stretch to its full
   // single-line width. The dock/minimap leave this off and stay auto-width.
-  const widthClass = props.truncate
-    ? "min-w-[180px] max-w-[min(420px,90vw)]"
-    : "min-w-[180px]";
+  // A derivation, not a body read: `props.truncate` is read where it is used,
+  // in the JSX below.
+  const widthClass = () =>
+    props.truncate
+      ? "min-w-[180px] max-w-[min(420px,90vw)]"
+      : "min-w-[180px]";
   return (
     <Show when={props.open()}>
       <Portal>
@@ -144,7 +147,7 @@ export const OptionMenu = <T extends string>(props: {
             );
           }}
           data-testid={`${props.testIdPrefix}-menu`}
-          class={`fixed z-50 flex flex-col ${chrome.class} p-1 ${widthClass} ${props.maxHeight !== undefined ? "overflow-y-auto" : ""}`}
+          class={`fixed z-50 flex flex-col ${chrome.class} p-1 ${widthClass()} ${props.maxHeight !== undefined ? "overflow-y-auto" : ""}`}
           style={{
             ...panelStyle(),
             ...chrome.style,

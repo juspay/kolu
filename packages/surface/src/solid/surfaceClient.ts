@@ -16,6 +16,7 @@
 import { Effect, Stream } from "effect";
 import {
   type Accessor,
+  createEffect,
   createMemo,
   createRoot,
   createSignal,
@@ -643,9 +644,12 @@ export interface SurfaceClient<S extends SurfaceSpec> {
    *  `unenrolledStreamCall`, this CANNOT bypass `health()`: it owns the `pending`/`error`
    *  signals, enrols them under `name`, runs the consume loop (self-clearing on
    *  each frame, recording on failure — the same edge `createSubscription` has),
-   *  and ties an `AbortController` to the owner. It THROWS if called outside a
-   *  reactive owner — the enrolment must auto-dispose, so a no-owner call is a
-   *  structural error (mirroring `createSubscription`'s `reduce`-without-`initial`
+   *  and ties the fiber to the owner. The loop is opened in the owner's EFFECT
+   *  PHASE, so a frame a fiber already has cannot land — through `onItem`, into
+   *  whatever store the caller keeps — inside the calling scope. It THROWS if
+   *  called outside a reactive owner — the enrolment must auto-dispose, so a
+   *  no-owner call is a structural error (mirroring `createSubscription`'s
+   *  `reduce`-without-`initial`
    *  throw), never a silent leak. Returns the same `{ pending, error }` it enrols,
    *  for the caller's own per-stream UI. The one way to drive a raw stream and
    *  still be in `health()`; the bare `unenrolledStreamCall`
@@ -1525,58 +1529,65 @@ export function buildSurfaceClient<const S extends SurfaceSpec>(
           "`unenrolledStreamCall` from `@kolu/surface/client` and enrol by hand.",
       );
     }
-    // `ownedWrite`: `rawStream` is REQUIRED to run under an owner (asserted above),
-    // and the stream loop below can deliver its first frames synchronously, inside
-    // that very scope. These two signals are the stream's own state, written from
-    // the wire and never by a component rendering itself.
-    const [pending, setPending] = createSignal(true, { ownedWrite: true });
-    const [error, setError] = createSignal<Error | undefined>(undefined, {
-      ownedWrite: true,
-    });
+    // Plain signals: the stream loop below is their only writer, and it is opened
+    // from the EFFECT PHASE (the `createEffect` at the end of this function), never
+    // from the component body that called `rawStream`. `Effect.runFork` runs a
+    // stream synchronously to its first async boundary, so an inline start would let
+    // a ready first frame write these — and whatever `opts.onItem` writes, typically
+    // a STORE — inside the caller's owned scope, which dev refuses.
+    const [pending, setPending] = createSignal(true);
+    const [error, setError] = createSignal<Error | undefined>(undefined);
     const source: HealthSource = { pending, error };
     // Owner asserted above, so this auto-drops when the owner unwinds.
     registry.enroll(name, source);
-    onCleanup(
-      runStreamScoped<O>(
-        unenrolledStreamCall(procedure, input, {
-          // The caller's enrolment name IS the label — one name for the health
-          // fact and the liveness registry (kolu#2101 J2).
-          label: name,
-          onRetry: () => {
-            // A reconnect: back to pending, drop the stale error, and let the
-            // caller clear any derived view before the fresh snapshot lands.
-            setPending(true);
-            setError(undefined);
-            opts.onRetry?.();
+    // The effect's RETURNED cleanup is the stopper, so the fiber still dies with the
+    // caller's owner exactly as the old `onCleanup(stop)` made it. A raw stream has
+    // no reactive input (the input is captured — see the streaming contract), so the
+    // compute has nothing to read: this effect exists to move the start off the
+    // creating scope.
+    createEffect(
+      () => undefined,
+      () =>
+        runStreamScoped<O>(
+          unenrolledStreamCall(procedure, input, {
+            // The caller's enrolment name IS the label — one name for the health
+            // fact and the liveness registry (kolu#2101 J2).
+            label: name,
+            onRetry: () => {
+              // A reconnect: back to pending, drop the stale error, and let the
+              // caller clear any derived view before the fresh snapshot lands.
+              setPending(true);
+              setError(undefined);
+              opts.onRetry?.();
+            },
+          }),
+          {
+            onFrame: (item) => {
+              // Self-clearing edge: each frame proves the stream is live, so a
+              // transient failure heals the instant it re-delivers (no latch).
+              // Unconditional: re-writing the value a signal already holds is a no-op
+              // under default equality, and a read-back here would see the pre-flush
+              // value anyway.
+              setPending(false);
+              setError(undefined);
+              opts.onItem(item);
+            },
+            // Clean completion (the server ended the stream): no longer pending.
+            // An interruption (the owner unwound) reports nothing — `runStreamScoped`
+            // holds that rule, so the old `ctl.signal.aborted` check is gone.
+            onEnd: () => setPending(false),
+            onFailure: (err) => {
+              // A deliberate teardown the CALLER classifies (xterm's
+              // `isExpectedCleanupError`) must not register as a health error. The
+              // owner's own teardown is already silent one layer down.
+              if (opts.isExpectedStop?.(err)) return;
+              // A real failure: clear pending so an errored-on-first-frame sub reads
+              // `degraded`, never a stuck `connecting`, then record the error.
+              setPending(false);
+              setError(err);
+            },
           },
-        }),
-        {
-          onFrame: (item) => {
-            // Self-clearing edge: each frame proves the stream is live, so a
-            // transient failure heals the instant it re-delivers (no latch).
-            // Unconditional: re-writing the value a signal already holds is a no-op
-            // under default equality, and a read-back here would see the pre-flush
-            // value anyway.
-            setPending(false);
-            setError(undefined);
-            opts.onItem(item);
-          },
-          // Clean completion (the server ended the stream): no longer pending.
-          // An interruption (the owner unwound) reports nothing — `runStreamScoped`
-          // holds that rule, so the old `ctl.signal.aborted` check is gone.
-          onEnd: () => setPending(false),
-          onFailure: (err) => {
-            // A deliberate teardown the CALLER classifies (xterm's
-            // `isExpectedCleanupError`) must not register as a health error. The
-            // owner's own teardown is already silent one layer down.
-            if (opts.isExpectedStop?.(err)) return;
-            // A real failure: clear pending so an errored-on-first-frame sub reads
-            // `degraded`, never a stuck `connecting`, then record the error.
-            setPending(false);
-            setError(err);
-          },
-        },
-      ),
+        ),
     );
     return source;
   }

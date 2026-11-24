@@ -22,7 +22,9 @@ function setupAdopt(init: {
 }) {
   const state = { activeSubTab: init.activeSubTab ?? {} };
   const calls = {
-    expandPanel: vi.fn<(parentId: TerminalId) => void>(),
+    planExpandPanel: vi.fn<(parentId: TerminalId) => () => void>(
+      () => () => {},
+    ),
     setActiveSubTab: vi.fn<(parentId: TerminalId, subId: TerminalId) => void>(),
     seedSplitTab: vi.fn<(subId: TerminalId, parentId: TerminalId) => void>(),
   };
@@ -44,10 +46,14 @@ function setupAdopt(init: {
     );
     const [host, setHost] = createSignal(init.host ?? "local");
     const ports: SplitAdoptPorts = {
-      expandPanel: calls.expandPanel,
+      planExpandPanel: calls.planExpandPanel,
       activeSubTab: (parentId) => state.activeSubTab[parentId] ?? null,
       setActiveSubTab: calls.setActiveSubTab,
-      seedSplitTab: calls.seedSplitTab,
+      // Curried on the parent, the way the right panel hands it over: the spy
+      // records (subId, parentId) when the SEED runs, so the assertions below
+      // are unchanged.
+      seedSplitTab: (parentId) => (subId) =>
+        calls.seedSplitTab(subId, parentId),
     };
     useAdoptNewSplit({
       rawList: rawIds,
@@ -76,13 +82,13 @@ describe("useAdoptNewSplit — adopt an externally-created split", () => {
     // Parent P exists (top-level), no splits yet.
     const h = setupAdopt({ rawIds: [T("P")], parents: { P: null } });
     await tick();
-    expect(h.calls.expandPanel).not.toHaveBeenCalled();
+    expect(h.calls.planExpandPanel).not.toHaveBeenCalled();
 
     // padi-tui creates a split under P — arrives on the list with parentId = P.
     h.setParents({ P: null, S: T("P") });
     h.setRawIds([T("P"), T("S")]);
 
-    expect(h.calls.expandPanel).toHaveBeenCalledWith(T("P"));
+    expect(h.calls.planExpandPanel).toHaveBeenCalledWith(T("P"));
     expect(h.calls.setActiveSubTab).toHaveBeenCalledWith(T("P"), T("S"));
     // The arrival also gets the parent's panel tab, so clicking into it does not
     // flip the panel from Inspector to Code.
@@ -103,7 +109,7 @@ describe("useAdoptNewSplit — adopt an externally-created split", () => {
     h.setParents({ P: null, S1: T("P"), S2: T("P") });
     h.setRawIds([T("P"), T("S1"), T("S2")]);
 
-    expect(h.calls.expandPanel).toHaveBeenCalledWith(T("P")); // still opens
+    expect(h.calls.planExpandPanel).toHaveBeenCalledWith(T("P")); // still opens
     expect(h.calls.setActiveSubTab).not.toHaveBeenCalled(); // but doesn't yank focus
     h.dispose();
   });
@@ -121,19 +127,19 @@ describe("useAdoptNewSplit — adopt an externally-created split", () => {
     // adopt hook must stay quiet (but record S1 as baseline).
     h.setParents({ P: null, S1: T("P") });
     h.setRawIds([T("P"), T("S1")]);
-    expect(h.calls.expandPanel).not.toHaveBeenCalled();
+    expect(h.calls.planExpandPanel).not.toHaveBeenCalled();
     expect(h.calls.setActiveSubTab).not.toHaveBeenCalled();
 
     // Session seeds. Flipping phase alone must NOT retroactively adopt S1 — it's
     // baseline, not an arrival (phase is sampled, so the effect doesn't even run).
     h.setPhase("seeded");
     await tick();
-    expect(h.calls.expandPanel).not.toHaveBeenCalled();
+    expect(h.calls.planExpandPanel).not.toHaveBeenCalled();
 
     // NOW a genuinely-new split S2 arrives live → adopted.
     h.setParents({ P: null, S1: T("P"), S2: T("P") });
     h.setRawIds([T("P"), T("S1"), T("S2")]);
-    expect(h.calls.expandPanel).toHaveBeenCalledWith(T("P"));
+    expect(h.calls.planExpandPanel).toHaveBeenCalledWith(T("P"));
     expect(h.calls.setActiveSubTab).toHaveBeenCalledWith(T("P"), T("S2"));
     // S1 was never adopted.
     expect(h.calls.setActiveSubTab).toHaveBeenCalledTimes(1);
@@ -157,7 +163,7 @@ describe("useAdoptNewSplit — adopt an externally-created split", () => {
       T("G"),
       T("S"),
     );
-    expect(h.calls.expandPanel).toHaveBeenCalledExactlyOnceWith(T("P"));
+    expect(h.calls.planExpandPanel).toHaveBeenCalledExactlyOnceWith(T("P"));
     h.dispose();
   });
 
@@ -169,7 +175,7 @@ describe("useAdoptNewSplit — adopt an externally-created split", () => {
     h.setParents({ P: null, Q: null });
     h.setRawIds([T("P"), T("Q")]);
 
-    expect(h.calls.expandPanel).not.toHaveBeenCalled();
+    expect(h.calls.planExpandPanel).not.toHaveBeenCalled();
     expect(h.calls.setActiveSubTab).not.toHaveBeenCalled();
     expect(h.calls.seedSplitTab).not.toHaveBeenCalled();
     h.dispose();
@@ -183,7 +189,7 @@ describe("useAdoptNewSplit — adopt an externally-created split", () => {
     });
     await tick();
 
-    expect(h.calls.expandPanel).not.toHaveBeenCalled();
+    expect(h.calls.planExpandPanel).not.toHaveBeenCalled();
     expect(h.calls.setActiveSubTab).not.toHaveBeenCalled();
     h.dispose();
   });
@@ -203,12 +209,12 @@ describe("useAdoptNewSplit — adopt an externally-created split", () => {
     h.setParents({ B1: null, B2: T("B1") });
     h.setRawIds([T("B1"), T("B2")]);
     h.setHost("remote:B");
-    expect(h.calls.expandPanel).not.toHaveBeenCalled();
+    expect(h.calls.planExpandPanel).not.toHaveBeenCalled();
 
     // A genuinely-new split on B (B3) THEN arrives → adopted (baseline advanced to B).
     h.setParents({ B1: null, B2: T("B1"), B3: T("B1") });
     h.setRawIds([T("B1"), T("B2"), T("B3")]);
-    expect(h.calls.expandPanel).toHaveBeenCalledWith(T("B1"));
+    expect(h.calls.planExpandPanel).toHaveBeenCalledWith(T("B1"));
     expect(h.calls.setActiveSubTab).toHaveBeenCalledWith(T("B1"), T("B3"));
     h.dispose();
   });
@@ -228,7 +234,9 @@ describe("useAdoptNewSplit — composed with hydration", () => {
   it("baselines a restored split on the seed-boundary flush, then adopts a later live split", async () => {
     const latch = { phase: "decided" as HydrationPhase };
     const calls = {
-      expandPanel: vi.fn<(parentId: TerminalId) => void>(),
+      planExpandPanel: vi.fn<(parentId: TerminalId) => () => void>(
+        () => () => {},
+      ),
       setActiveSubTab:
         vi.fn<(parentId: TerminalId, subId: TerminalId) => void>(),
       seedSplitTab: vi.fn<(subId: TerminalId, parentId: TerminalId) => void>(),
@@ -250,10 +258,11 @@ describe("useAdoptNewSplit — composed with hydration", () => {
         activeHostKey: () => "local",
         restorePhase: () => latch.phase,
         ports: {
-          expandPanel: calls.expandPanel,
+          planExpandPanel: calls.planExpandPanel,
           activeSubTab: () => null,
           setActiveSubTab: calls.setActiveSubTab,
-          seedSplitTab: calls.seedSplitTab,
+          seedSplitTab: (parentId) => (subId) =>
+            calls.seedSplitTab(subId, parentId),
         },
       });
       // Hydration stand-in: once the restored split S's metadata has arrived (the
@@ -284,13 +293,13 @@ describe("useAdoptNewSplit — composed with hydration", () => {
     // Seed-boundary flush: the restored split S arrives AND hydration seeds in the
     // same batch. S must be baselined, not adopted.
     handles.deliverSeedBoundary();
-    expect(calls.expandPanel).not.toHaveBeenCalled();
+    expect(calls.planExpandPanel).not.toHaveBeenCalled();
     expect(calls.setActiveSubTab).not.toHaveBeenCalled();
     expect(calls.seedSplitTab).not.toHaveBeenCalled();
 
     // Later, a genuinely-new split S2 arrives while seeded — the real feature.
     handles.deliverLiveSplit();
-    expect(calls.expandPanel).toHaveBeenCalledWith(T("P"));
+    expect(calls.planExpandPanel).toHaveBeenCalledWith(T("P"));
     expect(calls.setActiveSubTab).toHaveBeenCalledWith(T("P"), T("S2"));
     handles.dispose();
   });

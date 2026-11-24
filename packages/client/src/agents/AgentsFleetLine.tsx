@@ -64,31 +64,39 @@ const AgentsFleetLine: Component<{
                 <span>{group().lead}</span>
               </Show>
               <For each={group().hosts} keyed={(h) => encodeHostKey(h.host)}>
-                {(host, at) => (
-                  <>
-                    <Show when={at() > 0}>
-                      <span>and</span>
-                    </Show>
-                    <button
-                      ref={(el) =>
-                        onCleanup(() => releaseHostDiagnosticsAnchor(el))
-                      }
-                      type="button"
-                      data-testid="agents-fleet-host"
-                      data-host={host().label}
-                      title={`Agents on ${host().label} — open its host details`}
-                      class="cursor-pointer text-accent underline-offset-2 hover:underline"
-                      onClick={(e) =>
-                        openHostDiagnostics(
-                          encodeHostKey(host().host),
-                          e.currentTarget,
-                        )
-                      }
-                    >
-                      {host().label}
-                    </button>
-                  </>
-                )}
+                {(host, at) => {
+                  // The row's own owner releases the button it handed to the
+                  // details panel when the row goes — a ref callback may not
+                  // register a cleanup of its own.
+                  let anchor: HTMLElement | undefined;
+                  onCleanup(() => {
+                    if (anchor !== undefined)
+                      releaseHostDiagnosticsAnchor(anchor);
+                  });
+                  return (
+                    <>
+                      <Show when={at() > 0}>
+                        <span>and</span>
+                      </Show>
+                      <button
+                        ref={(el) => (anchor = el)}
+                        type="button"
+                        data-testid="agents-fleet-host"
+                        data-host={host().label}
+                        title={`Agents on ${host().label} — open its host details`}
+                        class="cursor-pointer text-accent underline-offset-2 hover:underline"
+                        onClick={(e) =>
+                          openHostDiagnostics(
+                            encodeHostKey(host().host),
+                            e.currentTarget,
+                          )
+                        }
+                      >
+                        {host().label}
+                      </button>
+                    </>
+                  );
+                }}
               </For>
               <Show when={group().trail !== ""}>
                 <span

@@ -49,16 +49,21 @@ beforeEach(() => {
 });
 
 it("lands an explicit parent dock row on the main pane", async () => {
+  // The host-map write lands BEFORE the root opens: a signal write inside a
+  // `createRoot` body is a write in an owned scope.
+  addHost(HOST);
+  await flush();
   await createRoot(async (dispose) => {
     const host = document.createElement("div");
     document.body.append(host);
     let disposeRows: (() => void) | undefined;
     try {
-      addHost(HOST);
-      await flush();
       const view = activeScope()?.view;
       if (!view) throw new Error("no active view for local host");
 
+      // Awaited out of the root's synchronous scope, so the panel write below
+      // is not an owned-scope write either.
+      await flush();
       useSubPanel().focusSubTab(PARENT, SPLIT);
       disposeRows = render(
         () => (

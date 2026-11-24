@@ -28,7 +28,7 @@ vi.mock("solid-sonner", () => ({
   toast: { error: vi.fn() },
 }));
 
-import { repairTileTabs, useSubPanel } from "./useSubPanel";
+import { planTileTabsRepair, useSubPanel } from "./useSubPanel";
 
 /** A `TerminalId` is a UUID-checked string, not a brand: the cast only names
  *  the type, and the repair never checks the shape — it only compares ids. */
@@ -306,34 +306,39 @@ describe("useSubPanel focus verbs", () => {
   });
 });
 
-/** The panel's seams `repairTileTabs` drives, as spies — the rule's own
+/** The panel's seams `planTileTabsRepair` drives, as spies — the rule's own
  *  vocabulary (`paneChrome` resolves the active tab), so nothing here can
- *  hand the repair a verb it is not allowed to call. */
+ *  hand the repair a verb it is not allowed to call. Each `plan…` spy records
+ *  its arguments at PLAN time and hands back a no-op actor, so the argument
+ *  assertions below read exactly as they did when the ports were writers. */
 function repairSpies(active: TerminalId | null) {
   return {
-    collapsePanel: vi.fn<(id: TerminalId) => void>(),
-    collapsePanelChrome: vi.fn<(id: TerminalId) => void>(),
+    planCollapsePanel: vi.fn<(id: TerminalId) => () => void>(() => () => {}),
+    planCollapsePanelChrome:
+      vi.fn<(id: TerminalId) => () => void>(() => () => {}),
     paneChrome: () => ({ activeSubTab: active }),
     setActiveSubTab: vi.fn<(id: TerminalId, sub: TerminalId | null) => void>(),
-    selectSubTab: vi.fn<(id: TerminalId, sub: TerminalId | null) => void>(),
+    planSelectSubTab: vi.fn<
+      (id: TerminalId, sub: TerminalId | null) => () => void
+    >(() => () => {}),
   };
 }
 
-describe("repairTileTabs", () => {
+describe("planTileTabsRepair", () => {
   it("leaves an active tab that is still a pane of the tile alone", () => {
     // The same-tile move (a split dropped on its own sibling) arrives here: the
     // moved terminal is STILL under the tile, so the strip needs nothing.
     const p = repairSpies(T("S1"));
-    repairTileTabs(p, T("P"), [T("S1"), T("S2")], false);
+    planTileTabsRepair(p, T("P"), [T("S1"), T("S2")], false)();
     expect(p.setActiveSubTab).not.toHaveBeenCalled();
-    expect(p.selectSubTab).not.toHaveBeenCalled();
-    expect(p.collapsePanel).not.toHaveBeenCalled();
-    expect(p.collapsePanelChrome).not.toHaveBeenCalled();
+    expect(p.planSelectSubTab).not.toHaveBeenCalled();
+    expect(p.planCollapsePanel).not.toHaveBeenCalled();
+    expect(p.planCollapsePanelChrome).not.toHaveBeenCalled();
   });
 
   it("leaves a null active tab null", () => {
     const p = repairSpies(null);
-    repairTileTabs(p, T("P"), [T("S1")], false);
+    planTileTabsRepair(p, T("P"), [T("S1")], false)();
     expect(p.setActiveSubTab).not.toHaveBeenCalled();
   });
 
@@ -343,22 +348,22 @@ describe("repairTileTabs", () => {
     // and leave the strip pointing at a terminal that is no longer under R —
     // the dangling state this repair exists to forbid.
     const p = repairSpies(T("G"));
-    repairTileTabs(p, T("R"), [T("S")], false);
+    planTileTabsRepair(p, T("R"), [T("S")], false)();
     expect(p.setActiveSubTab).toHaveBeenCalledExactlyOnceWith(T("R"), T("S"));
-    expect(p.selectSubTab).not.toHaveBeenCalled();
+    expect(p.planSelectSubTab).not.toHaveBeenCalled();
   });
 
   it("carries the focus fact when the departing pane had it", () => {
     const p = repairSpies(T("S1"));
-    repairTileTabs(p, T("P"), [T("S2")], true);
-    expect(p.selectSubTab).toHaveBeenCalledExactlyOnceWith(T("P"), T("S2"));
+    planTileTabsRepair(p, T("P"), [T("S2")], true)();
+    expect(p.planSelectSubTab).toHaveBeenCalledExactlyOnceWith(T("P"), T("S2"));
     expect(p.setActiveSubTab).not.toHaveBeenCalled();
   });
 
   it("collapses and clears the tab when no pane remains", () => {
     const p = repairSpies(T("S1"));
-    repairTileTabs(p, T("P"), [], false);
-    expect(p.collapsePanelChrome).toHaveBeenCalledExactlyOnceWith(T("P"));
+    planTileTabsRepair(p, T("P"), [], false)();
+    expect(p.planCollapsePanelChrome).toHaveBeenCalledExactlyOnceWith(T("P"));
     expect(p.setActiveSubTab).toHaveBeenCalledExactlyOnceWith(T("P"), null);
   });
 });

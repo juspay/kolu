@@ -78,17 +78,23 @@ export function useEvent<Name extends string, I, T>(
     onCleanup(stop);
   }
 
-  // Open the initial subscription synchronously so callers from async
-  // contexts (e.g. fire-and-forget after `await client.X.create`) don't
-  // race a not-yet-attached subscriber against the first server yield.
-  // `createEffect` with `defer` handles subsequent input changes only: the compute
-  // tracks `inputFn`, and the re-subscribe runs in the effect phase.
-  createEffect(
-    inputFn,
-    (input) => {
-      stop();
-      if (input !== null) start(input);
-    },
-    { defer: true },
-  );
+  // ONE effect opens every subscription, the first one included: the compute reads
+  // `inputFn` (so an input change re-runs it) and the effect phase does the
+  // imperative work — stop the previous fiber, open the next. NOT deferred: the
+  // first run IS the initial subscribe, so there is no second, body-level open to
+  // keep in step with this one (and no top-level `inputFn()` read in the caller's
+  // scope, which is a reactive read in a component body).
+  //
+  // The subscription therefore attaches on the first flush after this call rather
+  // than synchronously. That is the deliberate price of keeping delivery out of
+  // the creating scope: `handler` is consumer code that typically writes reactive
+  // state, and `Effect.runFork` runs a stream synchronously to its first async
+  // boundary, so an inline open would let an occurrence land in a component body.
+  // A caller that fired an event itself (the `await client.X.create` shape) is not
+  // racing the server: the member's own stream decides what a late subscriber
+  // sees, and an event stream promises nothing about occurrences before it.
+  createEffect(inputFn, (input) => {
+    stop();
+    if (input !== null) start(input);
+  });
 }

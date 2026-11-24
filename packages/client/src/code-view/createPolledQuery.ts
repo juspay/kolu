@@ -190,8 +190,8 @@ export function createPolledQuery<Input, PulseInput, Pulse, Result>(
   // (aborted by the cleanup this effect RETURNS, on re-run and on dispose).
 
   // The input's VALUE identity — a canonical primitive key over (input, host).
-  // `on` fires its callback on every INVALIDATION of its tracked source, not on a
-  // value change; the pre-fix deps `() => ({ i: input(), host })` returned a fresh
+  // An effect re-runs on every INVALIDATION of what its compute read, not on a
+  // value change; the pre-fix compute `() => ({ i: input(), host })` returned a fresh
   // object each eval, so ANY incidental invalidation of `input`'s dependencies
   // (e.g. an upstream metadata reference tick) re-ran the blank + pulse
   // re-subscribe below even when repoPath/host were unchanged — the header's
@@ -215,9 +215,9 @@ export function createPolledQuery<Input, PulseInput, Pulse, Result>(
     () => {
       const isActive = active();
       const { i, key } = inputState();
-      // Untracked, as the Solid 1 `on(...)` callback's reads were: the pulse
-      // stream and its input are resolved for THIS run, and neither is a
-      // reason to tear the poll down and re-subscribe.
+      // Read once, without depending on them: the pulse stream and its input
+      // are resolved for THIS run, and neither is a reason to tear the poll
+      // down and re-subscribe.
       return {
         isActive,
         i,

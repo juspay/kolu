@@ -159,10 +159,12 @@ const CanvasTile: Component<{
   });
   createEffect(
     // Mid-entrance loss of eligibility cancels CSS without animationend —
-    // spend so a later restore/wake never re-plays.
-    () =>
-      landing() &&
-      (props.sleeping || props.mode !== "tiled" || prefersReducedMotion()),
+    // spend so a later restore/wake never re-plays. The compute asks only
+    // about ELIGIBILITY, never about `landing()` itself: an effect whose
+    // compute reads the signal its effect phase writes would feed on its own
+    // write. Spending a cue that was never armed is an equal-value write, so
+    // the unguarded spend below costs nothing.
+    () => props.sleeping || props.mode !== "tiled" || prefersReducedMotion(),
     (lostEligibility) => {
       if (lostEligibility) spendLanding();
     },

@@ -36,7 +36,10 @@
  *  lost it or a child that died. The panel shows the sentence whoever found out
  *  wrote, verbatim, and offers no composer and no fallback path. */
 
-import { makeEventListener } from "@solid-primitives/event-listener";
+import {
+  createEventListener,
+  makeEventListener,
+} from "@solid-primitives/event-listener";
 import { type Component, createMemo, createSignal, Show } from "solid-js";
 import { useDialogStack } from "../ui/useDialogStack";
 import { attachDroppedFiles } from "./attachFiles";
@@ -176,38 +179,42 @@ const ConductorPane: Component<{
     (event.dataTransfer?.types.includes("Files") ?? false) &&
     absent() === undefined &&
     state().refusal === null;
-  /** Bind the three drag events to the pane itself.
+  /** The pane itself, once it exists. The three drag listeners below are
+   *  bound from the COMPONENT'S own scope against this element rather than
+   *  from inside the `ref` callback, which is no place to register a
+   *  cleanup — `createEventListener` attaches when the element arrives and
+   *  detaches with the pane.
    *
-   *  Imperative, from the ref, for the same reason the terminal's own drop
-   *  path is: this is a static section, not a control, and the alternative is
-   *  an `onDrop` on a `<section>` that a11y linting rightly objects to — the
-   *  honest fix is to attach the listener, not to give the element a role it
-   *  does not have. */
-  const bindDrop = (el: HTMLElement): void => {
-    makeEventListener(el, "dragover", (event: DragEvent) => {
-      if (!takesDrop(event)) return;
-      // Without the preventDefault the browser refuses the drop and then
-      // NAVIGATES to the file when it lands, taking the whole session with it
-      // — the one failure a file drop must never have.
-      event.preventDefault();
-      if (event.dataTransfer !== null) event.dataTransfer.dropEffect = "copy";
-      setDropping(true);
-    });
-    makeEventListener(el, "dragleave", (event: DragEvent) => {
-      // `dragleave` fires crossing every child boundary too; only a pointer
-      // that has actually left the pane ends the affordance, or it flickers
-      // its way down the transcript.
-      const next = event.relatedTarget as Node | null;
-      if (next !== null && el.contains(next)) return;
-      setDropping(false);
-    });
-    makeEventListener(el, "drop", (event: DragEvent) => {
-      if (!takesDrop(event)) return;
-      event.preventDefault();
-      setDropping(false);
-      attachDroppedFiles([...(event.dataTransfer?.files ?? [])]);
-    });
-  };
+   *  Imperative, rather than `onDrop` on the element, for the same reason the
+   *  terminal's own drop path is: this is a static section, not a control,
+   *  and an `onDrop` on a `<section>` is something a11y linting rightly
+   *  objects to — the honest fix is to attach the listener, not to give the
+   *  element a role it does not have. */
+  const [paneEl, setPaneEl] = createSignal<HTMLElement>();
+  createEventListener(paneEl, "dragover", (event: DragEvent) => {
+    if (!takesDrop(event)) return;
+    // Without the preventDefault the browser refuses the drop and then
+    // NAVIGATES to the file when it lands, taking the whole session with it
+    // — the one failure a file drop must never have.
+    event.preventDefault();
+    if (event.dataTransfer !== null) event.dataTransfer.dropEffect = "copy";
+    setDropping(true);
+  });
+  createEventListener(paneEl, "dragleave", (event: DragEvent) => {
+    // `dragleave` fires crossing every child boundary too; only a pointer
+    // that has actually left the pane ends the affordance, or it flickers
+    // its way down the transcript.
+    const next = event.relatedTarget as Node | null;
+    const el = paneEl();
+    if (next !== null && el !== undefined && el.contains(next)) return;
+    setDropping(false);
+  });
+  createEventListener(paneEl, "drop", (event: DragEvent) => {
+    if (!takesDrop(event)) return;
+    event.preventDefault();
+    setDropping(false);
+    attachDroppedFiles([...(event.dataTransfer?.files ?? [])]);
+  });
 
   /** IS A FILE OPEN. Everything the frame does differently while one is open
    *  follows from this one fact. */
@@ -242,7 +249,7 @@ const ConductorPane: Component<{
 
   return (
     <section
-      ref={bindDrop}
+      ref={setPaneEl}
       data-testid="conductor-pane"
       data-phase={state().phase}
       // NO positioning of its own. The caller supplies it — `absolute inset-0`

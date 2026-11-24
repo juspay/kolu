@@ -11,7 +11,7 @@
  *  never touched by the host we left. RED without the abort seam: both cases
  *  write host B's camera on the drained frame. */
 
-import { createRoot } from "solid-js";
+import { createRoot, onCleanup } from "solid-js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createCamera, type HostCamera } from "../../hostScope/createCamera";
 
@@ -87,15 +87,17 @@ const NO_GESTURES = {
 };
 
 describe("host-switch camera isolation", () => {
-  it("an in-flight pan animation started on host A never writes host B's camera after a switch", async () => {
-    await createRoot(async (dispose) => {
+  it("an in-flight pan animation started on host A never writes host B's camera after a switch", () => {
+    createRoot((dispose) => {
       try {
         const camA = createCamera();
         const camB = createCamera();
         const viewport = useCanvasViewport();
         const el = document.createElement("div");
+        // The attach's release is the owner's to register (a ref callback
+        // cannot), so this root holds it — disposal detaches the container.
         viewport.setContainerRef(el, NO_GESTURES);
-        await Promise.resolve();
+        onCleanup(() => viewport.releaseContainer(el));
         notifyResize(
           [
             {
@@ -145,6 +147,7 @@ describe("host-switch camera isolation", () => {
         const viewport = useCanvasViewport();
         const el = document.createElement("div");
         viewport.setContainerRef(el, NO_GESTURES);
+        onCleanup(() => viewport.releaseContainer(el));
 
         // Viewing A: a wheel event enqueues a per-frame gesture flush (rAF).
         activeCam = camA;

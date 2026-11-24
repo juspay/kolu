@@ -98,28 +98,33 @@ function drivenHost(encHost: string) {
 }
 
 /** Run the engine over the shown host `local`, with `focused` its focused
- *  pane, for the length of `body`. */
+ *  pane, for the length of `body`.
+ *
+ *  The owner holds the engine and NOTHING else: `body` runs outside it, so
+ *  the signals a case drives are written with no owner in scope, as the app
+ *  writes them (a write inside an owned scope is a Solid 2 error). */
 async function withAttention(
   focused: TerminalId | null,
   body: () => Promise<void>,
 ): Promise<void> {
   wire.arrived = () => true;
   wire.alerts = () => true;
-  await createRoot(async (dispose) => {
-    try {
-      useAttention({
-        activeId: () => focused,
-        focusedId: () => focused,
-        activate: () => {},
-        activeSubject: () => ({ title: "t", description: undefined }),
-        terminalIds: () => [],
-        activeAgentState: () => undefined,
-      });
-      await body();
-    } finally {
-      dispose();
-    }
+  const dispose = createRoot((disposeRoot) => {
+    useAttention({
+      activeId: () => focused,
+      focusedId: () => focused,
+      activate: () => {},
+      activeSubject: () => ({ title: "t", description: undefined }),
+      terminalIds: () => [],
+      activeAgentState: () => undefined,
+    });
+    return disposeRoot;
   });
+  try {
+    await body();
+  } finally {
+    dispose();
+  }
 }
 
 beforeEach(() => {
@@ -330,35 +335,38 @@ it("a resumed first frame raises no mark before the preferences have arrived, no
   const [alerts, setAlerts] = createSignal(true);
   wire.arrived = arrived;
   wire.alerts = alerts;
-  await createRoot(async (dispose) => {
-    try {
-      registerHostFacts("local", () => ({
-        reported: true,
-        live: true,
-        liveIds: [],
-        byClass: { asking: [], working: [], linger: [], finished: [A] },
-      }));
-      writeHostMarks("local", {});
-      useAttention({
-        activeId: () => null,
-        focusedId: () => null,
-        activate: () => {},
-        activeSubject: () => ({ title: "t", description: undefined }),
-        terminalIds: () => [A],
-        activeAgentState: () => undefined,
-      });
-      await flush();
-      // Defaults say alerts are on; that is not the user's answer yet.
-      expect(attentionRecordOf("local").isUnread(A)).toBe(false);
-      // The user's answer: off.
-      setAlerts(false);
-      setArrived(true);
-      await flush();
-      expect(attentionRecordOf("local").isUnread(A)).toBe(false);
-    } finally {
-      dispose();
-    }
+  // The host's facts and its membership are published OUTSIDE the owner: a
+  // store write inside an owned scope is a Solid 2 error.
+  registerHostFacts("local", () => ({
+    reported: true,
+    live: true,
+    liveIds: [],
+    byClass: { asking: [], working: [], linger: [], finished: [A] },
+  }));
+  writeHostMarks("local", {});
+  const dispose = createRoot((disposeRoot) => {
+    useAttention({
+      activeId: () => null,
+      focusedId: () => null,
+      activate: () => {},
+      activeSubject: () => ({ title: "t", description: undefined }),
+      terminalIds: () => [A],
+      activeAgentState: () => undefined,
+    });
+    return disposeRoot;
   });
+  try {
+    await flush();
+    // Defaults say alerts are on; that is not the user's answer yet.
+    expect(attentionRecordOf("local").isUnread(A)).toBe(false);
+    // The user's answer: off.
+    setAlerts(false);
+    setArrived(true);
+    await flush();
+    expect(attentionRecordOf("local").isUnread(A)).toBe(false);
+  } finally {
+    dispose();
+  }
 });
 
 it("a question asked while the Conductor is in front of you chimes and raises no desktop notification; with the window away it raises one", async () => {
@@ -374,35 +382,36 @@ it("a question asked while the Conductor is in front of you chimes and raises no
   const chimes = vi
     .spyOn(HTMLMediaElement.prototype, "play")
     .mockResolvedValue(undefined);
-  await createRoot(async (dispose) => {
-    try {
-      useAttention({
-        activeId: () => null,
-        focusedId: () => null,
-        activate: () => {},
-        activeSubject: () => ({ title: "t", description: undefined }),
-        terminalIds: () => [],
-        activeAgentState: () => undefined,
-      });
-      // The server's first word: nothing is being asked. The baseline.
-      setAsks({ ownAsks: [], workAsks: [] });
-      await flush();
-      // The window is away: the first question chimes and raises a popup.
-      setAsks({ ownAsks: ["c1"], workAsks: [] });
-      await flush();
-      expect(chimes).toHaveBeenCalledTimes(1);
-      expect(conductor.popups).toEqual(["conductor"]);
-      // Back in front of it. The question is answered, and a second is asked.
-      focused.mockReturnValue(true);
-      setAsks({ ownAsks: [], workAsks: [] });
-      await flush();
-      setAsks({ ownAsks: ["c2"], workAsks: [] });
-      await flush();
-      // One more chime for it, and no second popup.
-      expect(chimes).toHaveBeenCalledTimes(2);
-      expect(conductor.popups).toEqual(["conductor"]);
-    } finally {
-      dispose();
-    }
+  const dispose = createRoot((disposeRoot) => {
+    useAttention({
+      activeId: () => null,
+      focusedId: () => null,
+      activate: () => {},
+      activeSubject: () => ({ title: "t", description: undefined }),
+      terminalIds: () => [],
+      activeAgentState: () => undefined,
+    });
+    return disposeRoot;
   });
+  try {
+    // The server's first word: nothing is being asked. The baseline.
+    setAsks({ ownAsks: [], workAsks: [] });
+    await flush();
+    // The window is away: the first question chimes and raises a popup.
+    setAsks({ ownAsks: ["c1"], workAsks: [] });
+    await flush();
+    expect(chimes).toHaveBeenCalledTimes(1);
+    expect(conductor.popups).toEqual(["conductor"]);
+    // Back in front of it. The question is answered, and a second is asked.
+    focused.mockReturnValue(true);
+    setAsks({ ownAsks: [], workAsks: [] });
+    await flush();
+    setAsks({ ownAsks: ["c2"], workAsks: [] });
+    await flush();
+    // One more chime for it, and no second popup.
+    expect(chimes).toHaveBeenCalledTimes(2);
+    expect(conductor.popups).toEqual(["conductor"]);
+  } finally {
+    dispose();
+  }
 });

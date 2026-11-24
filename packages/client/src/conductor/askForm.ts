@@ -100,24 +100,31 @@ function seedAskDefault(
  *  is marked, so it seeds when they do.
  */
 export function seededChips(
-  ask: string,
-  field: string,
+  ask: () => string,
+  field: () => string,
   context: () => Option.Option<string>,
   options: () => ReadonlyArray<AskOption>,
   standing: () => Option.Option<Recalled>,
 ): Accessor<ReadonlyArray<AskOption>> {
+  // WHICH QUESTION THIS IS is read in the COMPUTE, with everything else the
+  // seeding needs: the callback writes the draft and reads nothing.
   createEffect(
-    () => ({
-      context: context(),
-      standing: standing(),
-      // READ ONCE, not depended on: the mark is this effect's own write, and
-      // depending on it would re-run the effect on the seeding it just did.
-      seeded: untrack(() => askDraft(ask, seededKey(field))[0]),
-    }),
-    ({ context: now, standing: last, seeded }) => {
+    () => {
+      const at = { ask: ask(), field: field() };
+      return {
+        ...at,
+        context: context(),
+        standing: standing(),
+        // READ ONCE, not depended on: the mark is this effect's own write,
+        // and depending on it would re-run the effect on the seeding it just
+        // did.
+        seeded: untrack(() => askDraft(at.ask, seededKey(at.field))[0]),
+      };
+    },
+    ({ ask: on, field: id, context: now, standing: last, seeded }) => {
       Option.match(now, {
         onNone: () => {},
-        onSome: (one) => seedAskDefault(ask, field, one, last, seeded),
+        onSome: (one) => seedAskDefault(on, id, one, last, seeded),
       });
     },
   );

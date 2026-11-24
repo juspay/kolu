@@ -27,7 +27,7 @@ import { Effect } from "effect";
 import { encodeHostKey, type HostKey } from "kolu-common/hostKey";
 import type { TerminalId } from "kolu-common/surface";
 import { fleetTerminalRef } from "kolu-mcp/fleetRef";
-import { type Component, createSignal, Show } from "solid-js";
+import { type Component, createSignal, Show, untrack } from "solid-js";
 import { toast } from "solid-sonner";
 import { persistedPref } from "../persistedPref";
 import { personInputAt } from "../conductor/personInput";
@@ -68,8 +68,15 @@ const ComposeSection: Component<{
   // no shape to validate and an empty string is the natural never-drafted
   // fallback. `persistedPref`'s `parse` can never throw here, so the fallback
   // is reached only on a genuinely empty store, not on corruption.
+  //
+  // The key is read ONCE, at mount, and deliberately does not follow the prop:
+  // `makePersisted` binds its storage name at creation, and this component is
+  // mounted PER TERMINAL by both of its parents (the Inspector's `<Show …
+  // keyed>` on the id, the Conductor's per-member row), so the id it is handed
+  // is fixed for the instance's lifetime. `untrack` states that contract
+  // instead of leaving a component-body read of a reactive prop.
   const [draft, setDraft] = persistedPref<string>({
-    name: `${DRAFT_STORAGE_PREFIX}${props.terminalId}`,
+    name: `${DRAFT_STORAGE_PREFIX}${untrack(() => props.terminalId)}`,
     fallback: "",
     parse: (raw) => raw,
   });

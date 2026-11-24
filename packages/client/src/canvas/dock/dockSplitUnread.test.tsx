@@ -49,16 +49,21 @@ beforeEach(() => {
 });
 
 it("clears a split's unread dock dot when its sub-entry lands", async () => {
+  // The host-map write lands BEFORE the root opens: a signal write inside a
+  // `createRoot` body is a write in an owned scope.
+  addHost(HOST);
+  await flush();
   await createRoot(async (dispose) => {
     const host = document.createElement("div");
     document.body.append(host);
     let disposeRow: (() => void) | undefined;
     try {
-      addHost(HOST);
-      await flush();
       const view = activeScope()?.view;
       if (!view) throw new Error("no active view for local host");
 
+      // Awaited out of the root's synchronous scope, so the unread write below
+      // is not an owned-scope write either.
+      await flush();
       attentionRecordOf("local").markUnread(SPLIT);
       disposeRow = render(
         () => (

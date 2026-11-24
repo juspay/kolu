@@ -83,9 +83,16 @@ const AgentDistroHostMark: Component<{
   const mark = createMemo(() => hostAgentMark(props.host));
   /** Who the words are about, named as the host tab names it. */
   const where = () => agentsWhere(props.host);
+  /** The buttons this mark has handed to the details panel to hang off. The
+   *  ref collects them and THIS BODY releases them when the mark goes: a ref
+   *  callback may not register a cleanup of its own. */
+  const anchors = new Set<HTMLElement>();
+  onCleanup(() => {
+    for (const el of anchors) releaseHostDiagnosticsAnchor(el);
+  });
   const box = () => (
     <button
-      ref={(el) => onCleanup(() => releaseHostDiagnosticsAnchor(el))}
+      ref={(el) => anchors.add(el)}
       type="button"
       data-testid={props.measuring ? undefined : "host-agents-mark"}
       data-state={mark().kind}

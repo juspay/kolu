@@ -184,29 +184,29 @@ export function useHighlightOverlay(opts: OverlayOptions): void {
       if (!target) return;
       const text = rootTextContent(root);
       const match = findQuote(text, target.locator);
-      if (!match) {
-        scroll.clear();
-        return;
-      }
-      // Wait for the next frame so Pierre's virtualizer has settled into
-      // the new file's layout — scrolling on the same tick as render
-      // sometimes lands on a stale node and the highlight ends up off-
-      // screen. The Range we resolved above will be invalidated by the
-      // virtualizer churn we're waiting through, so re-resolve inside
-      // the rAF body with the same offsets and bail silently if the
-      // anchor moved out of the DOM during virtualization.
+      // Both outcomes land — and RELEASE the request — one frame later. The
+      // wait is Pierre's virtualizer settling into the new file's layout:
+      // scrolling on the same tick as render sometimes lands on a stale node
+      // and the highlight ends up off-screen, and the Range resolved above is
+      // invalidated by the virtualizer churn we are waiting through, so it is
+      // re-resolved inside the rAF body with the same offsets (bail silently if
+      // the anchor moved out of the DOM during virtualization). Releasing the
+      // request from here rather than from the effect phase also keeps this
+      // effect from writing a source its own compute reads — it would re-run on
+      // its own write, and the released toggle (`BrowseFileDispatcher`'s forced
+      // mode) would land a flush later anyway.
       requestAnimationFrame(() => {
-        const fresh = rangeFromOffsets(root, match.start, match.end);
-        if (!fresh) {
-          scroll.clear();
-          return;
+        const fresh = match
+          ? rangeFromOffsets(root, match.start, match.end)
+          : null;
+        if (fresh) {
+          const startContainer = fresh.startContainer;
+          const el =
+            startContainer.nodeType === Node.ELEMENT_NODE
+              ? (startContainer as Element)
+              : startContainer.parentElement;
+          el?.scrollIntoView({ block: "center", behavior: "smooth" });
         }
-        const startContainer = fresh.startContainer;
-        const el =
-          startContainer.nodeType === Node.ELEMENT_NODE
-            ? (startContainer as Element)
-            : startContainer.parentElement;
-        el?.scrollIntoView({ block: "center", behavior: "smooth" });
         scroll.clear();
       });
     },

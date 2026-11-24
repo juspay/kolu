@@ -6,11 +6,14 @@
  * **The Effect↔Solid edge (PLAN D10).** This is a SANCTIONED `Effect.runFork`
  * boundary, and one of very few: SolidJS's reactive graph is push-based and
  * synchronous, so a stream has to be *run* somewhere for its frames to become
- * signal writes. The fiber is SCOPED — it is interrupted by the subscription's own
- * teardown (the caller's `onCleanup`, or an external `signal`), and interruption
- * propagates into the stream's finalizers, which is what closes the wire
- * subscription. There is no abort signal to thread and none to forget: cancellation
- * IS interruption.
+ * signal writes. It is run from the EFFECT PHASE of the owner that creates it (see
+ * {@link createStreamLifecycle}), so a fiber that already has frames before its
+ * first async boundary cannot write them into reactive state from the owned scope
+ * that built the view. The fiber is SCOPED — it is interrupted by the
+ * subscription's own teardown (that effect's returned cleanup, or an external
+ * `signal`), and interruption propagates into the stream's finalizers, which is
+ * what closes the wire subscription. There is no abort signal to thread and none
+ * to forget: cancellation IS interruption.
  *
  * The stream handed in is expected to already carry the framework's retry fence
  * (`unenrolledStreamCall` / the bound `.use()` hooks apply it), so a transport drop
@@ -28,7 +31,7 @@ import {
   createEffect,
   createSignal,
   createStore,
-  onCleanup,
+  getOwner,
 } from "solid-js";
 import { runStreamScoped } from "../runStream";
 import { writeWrappedValue } from "./writeValue";
@@ -125,8 +128,9 @@ export interface SubscriptionOptions<T, R = T> {
   initial?: R;
   /**
    * External abort signal for imperative lifecycle management.
-   * When provided, used instead of `onCleanup` — allows creating
-   * subscriptions outside a reactive owner (e.g. dynamic per-entity maps).
+   * When provided, it OWNS the lifetime instead of the creating owner — which is
+   * what allows a subscription outside a reactive owner (e.g. dynamic per-entity
+   * maps).
    *
    * An `AbortSignal` and not a fiber/scope because the CALLERS are non-Effect
    * (a Solid map keyed by entity id, a DOM lifecycle): it is the edge's own
@@ -454,6 +458,22 @@ export interface SubscriptionState {
  *  copies of that skeleton drift; they had already drifted the first day they
  *  existed.
  *
+ *  THE FIBER IS STARTED FROM THE EFFECT PHASE, never from the scope that calls this
+ *  function, and that is load-bearing rather than stylistic. `Effect.runFork` runs a
+ *  stream SYNCHRONOUSLY to its first async boundary, so a fiber whose opening frames
+ *  are already there (an in-process link, a replayed snapshot) delivers them before
+ *  `runStreamScoped` returns. Started inline, a view created in a component body
+ *  would therefore write its own three signals — and, for `createSubscription`, the
+ *  wrapped STORE — inside that owned scope, which Solid refuses in dev (a store
+ *  write there throws; a signal write there is a diagnostic no `ownedWrite` flag on
+ *  THIS side should be papering over, since the delivery, not the signal, is what is
+ *  misplaced). A `createEffect` whose effect half starts the fiber and RETURNS its
+ *  stopper runs unowned, after the creating scope has returned, so no frame is ever
+ *  written in an owned scope and the frame handler may write stores freely. The one
+ *  behavioural consequence: a synchronously-available first frame lands one flush
+ *  after creation rather than during it, which the view already reports honestly —
+ *  `pending()` is true until it arrives, exactly as for any async source.
+ *
  *  A frame is applied and `pending` cleared in ONE synchronous handler, so the
  *  writes share a flush: no consumer ever observes a frame applied while the view
  *  still reads pending, and a view that writes several signals per frame (a keyed
@@ -462,7 +482,9 @@ export interface SubscriptionState {
  *  `createReactiveSubscription` deliberately does NOT build on this: its lifecycle
  *  RE-ARMS on every input change (fresh fiber, signals reset, tracker reset), which
  *  is a different lifetime rather than a different frame handler — folding it in
- *  would put two lifetimes behind one door. */
+ *  would put two lifetimes behind one door. (It reaches the same effect-phase start
+ *  by its own route: its fiber is opened by the effect half of the effect that
+ *  tracks the input.) */
 export function createStreamLifecycle<T>(
   source: Stream.Stream<T, unknown>,
   options: {
@@ -473,59 +495,99 @@ export function createStreamLifecycle<T>(
     /** Per-consumer failure callback, wired through the same edge effect
      *  {@link wireSubscriptionError} owns, so it can never disagree with `error()`. */
     onError?: (err: Error) => void;
-    /** External abort signal, INSTEAD of `onCleanup` — never both, so there is no
-     *  dual lifecycle to braid. The signal arm is what lets a view be created
-     *  outside a reactive owner (a dynamic per-entity map). */
+    /** External abort signal, INSTEAD of the owner's teardown — never both, so there
+     *  is no dual lifecycle to braid. The signal arm is what lets a view be created
+     *  outside a reactive owner (a dynamic per-entity map); with no owner there is no
+     *  effect phase to start from — and equally no owned scope to write from — so
+     *  that case alone starts the fiber inline. */
     signal?: AbortSignal;
   },
 ): SubscriptionState {
-  // `ownedWrite`: the three lifecycle signals are written by the stream loop, and
-  // that loop can run SYNCHRONOUSLY inside the scope that created the subscription
-  // (a fiber whose first frames are already available emits before `runStreamScoped`
-  // returns). They are internal state driven from outside the graph, never a
-  // component writing its own render-time state.
-  const [error, setError] = createSignal<Error | undefined>(undefined, {
-    ownedWrite: true,
-  });
-  const [pending, setPending] = createSignal(true, { ownedWrite: true });
-  const [complete, setComplete] = createSignal(false, { ownedWrite: true });
+  const [error, setError] = createSignal<Error | undefined>(undefined);
+  const [pending, setPending] = createSignal(true);
+  const [complete, setComplete] = createSignal(false);
   const state: SubscriptionState = { error, pending, complete };
 
-  // `runStreamScoped` owns the "a disposed subscription reports nothing" rule, so
-  // nothing below re-checks an aborted flag.
-  const stop = runStreamScoped<T>(source, {
-    onFrame: (item) => {
-      options.onFrame(item);
-      // Unconditional: writing `false` over `false` is a no-op under the signal's
-      // default equality, so a read-then-write guard would only re-state that.
-      setPending(false);
-      // NOT "clear a stale error here". A failure is the FIBER'S EXIT, so no frame
-      // can follow one on the same subscription — an `error()` is terminal for this
-      // stream, and a clear-on-next-frame branch would be dead code implying a
-      // recovery that cannot happen. What actually keeps `error()` from LATCHING is
-      // one layer up: the retry fence re-subscribes transparently, so a transport
-      // drop never lands here at all. What DOES land is a declared (D4) failure,
-      // and terminal is the honest reading of it — the stream is over.
-    },
-    // A TYPED end (the server/map completed the stream), never an interruption.
-    // Clear any lingering `pending` and latch `complete` so the dedup cache can
-    // evict this slot and a re-added member never reuses an ended stream.
-    onEnd: () => {
-      setPending(false);
-      setComplete(true);
-      options.onComplete?.();
-    },
-    onFailure: (err) => {
-      setError(err);
-      setPending(false);
-    },
-  });
+  /** The running fiber's stopper, once {@link start} has run. */
+  let stop: (() => void) | undefined;
+  /** This view's lifetime is OVER — set by {@link end}, and read by {@link start} so
+   *  a lifetime that ended before the deferred start (an abort in the same tick as
+   *  the creation) never opens a fiber nobody will close. */
+  let ended = false;
+
+  /** Open the fiber. `runStreamScoped` owns the "a disposed subscription reports
+   *  nothing" rule, so nothing in the handlers re-checks an aborted flag. */
+  const start = (): void => {
+    if (ended) return;
+    stop = runStreamScoped<T>(source, {
+      onFrame: (item) => {
+        options.onFrame(item);
+        // Unconditional: writing `false` over `false` is a no-op under the signal's
+        // default equality, so a read-then-write guard would only re-state that.
+        setPending(false);
+        // NOT "clear a stale error here". A failure is the FIBER'S EXIT, so no frame
+        // can follow one on the same subscription — an `error()` is terminal for this
+        // stream, and a clear-on-next-frame branch would be dead code implying a
+        // recovery that cannot happen. What actually keeps `error()` from LATCHING is
+        // one layer up: the retry fence re-subscribes transparently, so a transport
+        // drop never lands here at all. What DOES land is a declared (D4) failure,
+        // and terminal is the honest reading of it — the stream is over.
+      },
+      // A TYPED end (the server/map completed the stream), never an interruption.
+      // Clear any lingering `pending` and latch `complete` so the dedup cache can
+      // evict this slot and a re-added member never reuses an ended stream.
+      onEnd: () => {
+        setPending(false);
+        setComplete(true);
+        options.onComplete?.();
+      },
+      onFailure: (err) => {
+        setError(err);
+        setPending(false);
+      },
+    });
+  };
+
+  /** End this view: interrupt the fiber (which runs the stream's finalizers — the
+   *  wire unsubscribe) and refuse any later start. */
+  const end = (): void => {
+    ended = true;
+    stop?.();
+    stop = undefined;
+  };
 
   if (options.signal) {
-    if (options.signal.aborted) stop();
-    else options.signal.addEventListener("abort", stop, { once: true });
+    // The signal OWNS the lifetime, so nothing here binds the fiber to the creating
+    // owner: the effect below starts it and returns no cleanup.
+    if (options.signal.aborted) ended = true;
+    else options.signal.addEventListener("abort", end, { once: true });
+    // Under an owner, the start still belongs in THAT owner's effect phase — the
+    // frames would otherwise be written in its scope, whoever ends the view. With
+    // no owner (the case this arm exists for) there is no effect phase to defer
+    // into and no owned scope to write from, so the inline start is the right one.
+    if (getOwner()) {
+      createEffect(
+        () => undefined,
+        () => {
+          start();
+        },
+      );
+    } else {
+      start();
+    }
   } else {
-    onCleanup(stop);
+    // The creating owner IS the lifetime: the effect's returned cleanup interrupts
+    // the fiber when that owner disposes, which is what the caller's `onCleanup`
+    // used to do — one teardown path, now the same one that opened the fiber.
+    // A static source has nothing reactive to read, so the compute returns a
+    // constant: this effect exists only to put the start in the effect phase.
+    createEffect(
+      () => undefined,
+      () => {
+        start();
+        return end;
+      },
+    );
   }
 
   if (options.onError) wireSubscriptionError(state, options.onError);
@@ -536,12 +598,14 @@ export function createStreamLifecycle<T>(
 /** Convert an Effect `Stream` into a SolidJS signal.
  *
  *  `source` is LAZY and is run on a scoped fiber owned by this subscription (see
- *  `./runStream`). Disposing the subscription — the caller's `onCleanup`, or the
- *  external `options.signal` — INTERRUPTS that fiber, and interruption runs the
- *  stream's own finalizers, which is what cancels the wire subscription. Without
- *  that, teardown would only stop READING the stream while the server-side
- *  subscription (and its bounded frame queue) stayed open until the stream happened
- *  to end on its own — forever, for a quiet cell that never publishes again.
+ *  `./runStream`), opened in the EFFECT PHASE of the creating owner so no frame is
+ *  ever written into the scope that built the view. Disposing the subscription —
+ *  that owner unwinding, or the external `options.signal` — INTERRUPTS that fiber,
+ *  and interruption runs the stream's own finalizers, which is what cancels the
+ *  wire subscription. Without that, teardown would only stop READING the stream
+ *  while the server-side subscription (and its bounded frame queue) stayed open
+ *  until the stream happened to end on its own — forever, for a quiet cell that
+ *  never publishes again.
  *
  *  Hand in a stream that already carries the retry fence
  *  (`unenrolledStreamCall`, or one of the bound `.use()` hooks): a transport drop

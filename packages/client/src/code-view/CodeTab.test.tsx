@@ -174,13 +174,19 @@ const show = (
 ): HTMLElement => {
   const host = document.createElement("div");
   document.body.append(host);
+  // The place and the query set are built ONCE, and handed over as they are:
+  // a `state={state(…)}` written inline compiles to a getter, so every read of
+  // `props.state` would build a fresh place (new signals, and a primitive
+  // created wherever the view happens to read it).
+  const place = state(mode, opts.browsing ?? "notes.txt");
+  const reads = queries(opts.file ?? TEXT);
   dispose = render(
     () => (
       <Shown value={() => true}>
         <CodeTab
           subject={subject}
-          state={state(mode, opts.browsing ?? "notes.txt")}
-          queries={queries(opts.file ?? TEXT)}
+          state={place}
+          queries={reads}
           door={door}
           arrangement={opts.arrangement?.() ?? "stacked"}
         />

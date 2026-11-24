@@ -37,6 +37,7 @@ import {
   createMemo,
   createSignal,
   Show,
+  untrack,
 } from "solid-js";
 import CodeTab from "../code-view/CodeTab";
 import { buildCodeQueries, createCodeLeases } from "../code-view/codeQueries";
@@ -54,8 +55,12 @@ const Read: Component<{
   id: WorkId;
   place: WorkPlace;
 }> = (props) => {
-  // The work is fixed for this mount: a card is one work's.
-  const owner = codeOwner("work", props.id);
+  // The work is fixed for this mount: a card is one work's. READ ONCE, so the
+  // body takes no reactive read of its own — the owner and the view state are
+  // built from this id and never re-made, and the effect below is what follows
+  // the pair if it ever did move.
+  const work = untrack(() => props.id);
+  const owner = codeOwner("work", work);
   const subject = createMemo(
     (): CodeSubject => ({
       owner,
@@ -68,7 +73,7 @@ const Read: Component<{
       terminalId: props.place.terminalId,
     }),
   );
-  const state = workCodeState(props.id, () => props.place.lister);
+  const state = workCodeState(work, () => props.place.lister);
   const leases = createCodeLeases();
   const queries = {
     ...buildCodeQueries({ subject, state, active: leases.shown }),

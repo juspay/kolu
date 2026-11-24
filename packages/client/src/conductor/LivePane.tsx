@@ -104,8 +104,14 @@ const LivePane: Component<{
   const [pad, setPad] = createSignal<PeekPad | null>(null);
   const [phase, setPhase] = createSignal<ScreenPhase>("reading");
   const [held, setHeld] = createSignal(false);
+  /** The screen's keyboard door, handed up by `PeekTerminal`'s `onReady`.
+   *  `ownedWrite`: this is the pane's OWN internal signal, and `onReady` runs
+   *  under the pane's owner (the kit re-enters it with `runWithOwner` once the
+   *  font has loaded, `xterm-kit/solid/xtermLifecycle.ts`) — so the one write
+   *  it ever takes is, by construction, a write in an owned scope. */
   const [handle, setHandle] = createSignal<PeekTerminalHandle | undefined>(
     undefined,
+    { ownedWrite: true },
   );
 
   /** TAKEN OVER, THE KEYBOARD GOES TO IT — the moment the terminal becomes
@@ -187,11 +193,19 @@ const LivePane: Component<{
     { equals: (a, b) => (a && b ? sameGrid(a, b) : a === b) },
   );
   const hostState = () => padiMap.entry(decodeHostKey(props.host)).state().kind;
+  /** THE HOST'S STATE AS THE PANE'S COMPUTE LAST READ IT. The publisher asks
+   *  for it where no reactive read may happen — from the pane's effect phase
+   *  (`republishSuppressed`, through `paneSize.observe`) and from the settle
+   *  timer, long after the pane left the call stack — so the compute below,
+   *  which depends on it, is the one reader and hands the word over here. It
+   *  cannot go stale: every change of it re-runs that effect, which writes
+   *  this before it lets the publisher do anything. */
+  let hostStateSeen = untrack(hostState);
   /** The pane's own publisher: the tile's settle and host-down latch, aimed at
    *  `lifecycle.resize` on the terminal's own host. */
   const publisher = createGridPublisher({
     terminalId: props.id,
-    hostState,
+    hostState: () => hostStateSeen,
     ptyLive: lookable,
     resize: (g) =>
       padiRpcOf(decodeHostKey(props.host)).lifecycle.resize({
@@ -219,7 +233,8 @@ const LivePane: Component<{
       // makes a suppressed publish worth restating.
       hostState: hostState(),
     }),
-    ({ connected, desktop, asked: grid }) => {
+    ({ connected, desktop, asked: grid, hostState: host }) => {
+      hostStateSeen = host;
       paneSize.observe({ connected, desktop, asked: grid });
     },
   );

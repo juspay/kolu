@@ -56,9 +56,11 @@ function asEffect<I, R>(
 
 /** A fake pulse source. `pulse()` fires one frame (→ one requery); `failPulse(err)`
  *  throws it into the pulse iterable (→ `surfaceError`); `live` is the transport-liveness
- *  accessor the primitive gates its reconnect-blip swallow on. */
-function fakeStream() {
-  const [live, setLive] = createSignal(true);
+ *  accessor the primitive gates its reconnect-blip swallow on — `liveAtFirst`
+ *  is where it starts, since a stream born mid-reconnect cannot be written
+ *  into that state from the owner that builds it. */
+function fakeStream(liveAtFirst = true) {
+  const [live] = createSignal(liveAtFirst);
   // A FACTORY now (the pulse follows the active host — `() => activePadiStreams.<pulse>.unenrolled`); the
   // mocked `unenrolledStreamCall` ignores the proc, so only the factory TYPE matters here.
   const pulseProc: () => StreamingProcedure<
@@ -73,7 +75,6 @@ function fakeStream() {
     live,
     pulseProc,
     pulse: () => pulseCtl.latest?.emit({ frame: true }),
-    setLive: (v: boolean) => setLive(v),
     failPulse: (err: Error) => pulseCtl.latest?.emit({ err }),
   };
 }
@@ -243,8 +244,9 @@ describe("createPolledQuery", () => {
     const seen: string[] = [];
     const errMsg = await new Promise<string | undefined>((resolve) => {
       createRoot(async (dispose) => {
-        const { live, pulseProc, pulse, setLive } = fakeStream();
-        setLive(false);
+        // Born mid-reconnect: the transport is not live before the query is
+        // built, so there is nothing to write from inside this owner.
+        const { live, pulseProc, pulse } = fakeStream(false);
         const q = createPolledQuery({
           input: () => ({ repoPath: "A" }),
           live,

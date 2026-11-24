@@ -58,34 +58,43 @@ export function WorkspaceTerminals(props: {
   const [destinations, setDestinations] = createStore<
     Record<string, Destination | undefined>
   >({});
-  const outlet = (id: TerminalId, placement: ShellPlacement) => (
-    <div
-      class="flex flex-col h-full w-full min-h-0"
-      ref={(el) => {
-        const destination: Destination = {
-          el,
-          seen: placement.seen,
-          viewShown: placement.viewShown,
-          boxDecided: placement.boxDecided ?? (() => true),
-        };
+  /** A shell's placement slot for one body. The ref only WRITES the
+   *  destination; the release is registered HERE, in the scope that asked for
+   *  the outlet (the shell's own render owner, which is exactly as long as the
+   *  slot lives) — `onCleanup` inside a ref callback has no legal home in
+   *  Solid 2 (CLEANUP_IN_FORBIDDEN_SCOPE). */
+  const outlet = (id: TerminalId, placement: ShellPlacement) => {
+    let mine: HTMLDivElement | undefined;
+    onCleanup(() => {
+      if (mine !== undefined && destinations[id]?.el === mine)
         setDestinations(
           produce((all) => {
-            const held = all[id];
-            if (held) Object.assign(held, destination);
-            else all[id] = destination;
+            delete all[id];
           }),
         );
-        onCleanup(() => {
-          if (destinations[id]?.el === el)
-            setDestinations(
-              produce((all) => {
-                delete all[id];
-              }),
-            );
-        });
-      }}
-    />
-  );
+    });
+    return (
+      <div
+        class="flex flex-col h-full w-full min-h-0"
+        ref={(el) => {
+          mine = el;
+          const destination: Destination = {
+            el,
+            seen: placement.seen,
+            viewShown: placement.viewShown,
+            boxDecided: placement.boxDecided ?? (() => true),
+          };
+          setDestinations(
+            produce((all) => {
+              const held = all[id];
+              if (held) Object.assign(held, destination);
+              else all[id] = destination;
+            }),
+          );
+        }}
+      />
+    );
+  };
   /** The body's live view of its CURRENT shell's answers. Read through the
    *  store (not captured), so a shell swap re-points them in place. A body with
    *  no destination is a body nobody is placing: not seen, not in front, and

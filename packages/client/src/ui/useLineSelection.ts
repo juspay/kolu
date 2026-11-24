@@ -12,7 +12,12 @@
  */
 
 import type { SelectedLineRange } from "@pierre/diffs";
-import { type Accessor, createEffect, createSignal } from "solid-js";
+import {
+  type Accessor,
+  createEffect,
+  createSignal,
+  untrack,
+} from "solid-js";
 import type { CodeContextMenuItem } from "./CodeContextMenu";
 import { CopyIcon, OpenIcon } from "./Icons";
 import { formatLineRef, type LineRef } from "./lineRef";
@@ -58,8 +63,13 @@ export function useLineSelection(
   scope: Accessor<string>,
   options: LineSelectionOptions = {},
 ): LineSelection {
+  // The INITIAL range, sampled once: this hook runs in a component body,
+  // where a live read is a strict-read warning, and every later change of
+  // `initialRange` is the deferred effect below's to apply — which is what
+  // makes this a deliberate one-time snapshot rather than a hidden
+  // dependency.
   const [range, setRange] = createSignal<SelectedLineRange | null>(
-    options.initialRange?.() ?? null,
+    untrack(() => options.initialRange?.() ?? null),
   );
   // The file a selection landed in, when it is not `scope` itself. Held
   // beside `range` and reset with it, so the anchor can't outlive the view.

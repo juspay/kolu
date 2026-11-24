@@ -159,9 +159,10 @@ const App: Component = () => {
 
   // `openInCodeTab` (in `right-panel/openInCodeTab.ts`) dispatches both
   // desktop uncollapse and mobile drawer-open imperatively from the
-  // producer call. There is no effect subscribing to `pendingOpen` here —
-  // the deferred-effect shape lost re-fires under the production Solid
-  // build (see `openInCodeTab.ts`'s header for the canary scenario).
+  // producer call. NOTHING here subscribes to `pendingOpen`: an effect
+  // watching it dropped re-opens of the same request (see `openInCodeTab.ts`'s
+  // header for the canary scenario), so the open is enacted where it is asked
+  // for, not observed from a shell-level effect.
 
   // Dock row order for Cmd+1..9 (active host). The switcher indexes the
   // fleet separately via useFleetTerminalIndex in createCommands.
@@ -705,6 +706,7 @@ const App: Component = () => {
                             tileIds={tileStore.tileIds()}
                             getLayout={tileStore.getLayout}
                             onLayoutChange={tileStore.setLayout}
+                            planLayoutChange={tileStore.planSetLayout}
                             onAutoArrange={arrange.handleCanvasAutoArrange}
                             onSelect={tileStore.setActiveSilently}
                             onClose={(id) => closeTerminal(id)}

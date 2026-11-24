@@ -67,6 +67,11 @@ function errMsg(err: unknown): string {
  *  normally, so it can never replay a grid the pane has already moved past. */
 export function publishGridAction(
   size: TerminalGrid,
+  /** The host entry's state KIND at the moment this publish fires. A VALUE,
+   *  not a read: a restatement is fired from a Solid effect, whose callback
+   *  may not read reactive state, so the one caller that is an effect takes
+   *  the word from its compute and the settle timer reads it at fire time. */
+  host: string,
   deps: PublishGridDeps,
   /** Told when the publish is dropped, so the caller can latch it. */
   onSuppressed?: (size: TerminalGrid) => void,
@@ -175,8 +180,10 @@ export interface GridPublisher {
   /** State the pane's measured grid: remembered now, published once the grid
    *  has held still for {@link GRID_SETTLE_MS}. */
   publish: (size: TerminalGrid) => void;
-  /** Restate the latched grid, if any. Safe to run on every host-state tick. */
-  republishSuppressed: () => void;
+  /** Restate the latched grid, if any. Safe to run on every host-state tick —
+   *  and the state is HANDED IN, because the caller is a Solid effect whose
+   *  callback may not read it. */
+  republishSuppressed: (hostState: string) => void;
   /** Drop a publish that has not landed yet — the pane's teardown, and the
    *  pane being HIDDEN (`shownPane.ts`). Both say the same thing: this
    *  measurement is no longer owed to the PTY. A tile torn down mid-drag must
@@ -210,14 +217,17 @@ export function createGridPublisher(deps: GridPublisherDeps): GridPublisher {
     pending = null;
   };
 
-  /** The publish, for real. */
-  const fire = (size: TerminalGrid): void => {
+  /** The publish, for real. `host` is the state the publish is JUDGED against,
+   *  passed in by whoever fires: the settle timer reads it off the deps as it
+   *  fires (no effect window to worry about), the restatement takes the word
+   *  its caller's compute already read. */
+  const fire = (size: TerminalGrid, host: string): void => {
     // This measurement supersedes whatever was owed — either it lands, and
     // nothing is owed, or it is suppressed and the callback below re-latches
     // it. Clearing FIRST is what keeps the latch one grid rather than a queue.
     owed = null;
     deps.run(
-      publishGridAction(size, deps, (dropped) => {
+      publishGridAction(size, host, deps, (dropped) => {
         owed = dropped;
       }),
     );
@@ -233,17 +243,19 @@ export function createGridPublisher(deps: GridPublisherDeps): GridPublisher {
       settle = null;
       const settled = pending;
       pending = null;
-      if (settled) fire(settled);
+      // Read HERE, off the timer, which is the moment the publish is judged —
+      // and off any effect's stack, so this read is an ordinary one.
+      if (settled) fire(settled, deps.hostState());
     }, GRID_SETTLE_MS);
   };
 
-  const republishSuppressed = (): void => {
+  const republishSuppressed = (hostState: string): void => {
     if (!owed) return;
-    if (deps.hostState() !== "connected") return;
+    if (hostState !== "connected") return;
     console.info(
       `terminal ${deps.terminalId}: host entry is connected again — restating the suppressed ${owed.cols}×${owed.rows} grid`,
     );
-    fire(owed);
+    fire(owed, hostState);
   };
 
   return { publish, republishSuppressed, cancel };

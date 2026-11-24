@@ -31,7 +31,7 @@ import type {
   EntryFailedCause,
   PadiEntryFailure,
 } from "kolu-common/surfacesWithPadi";
-import { createEffect, createMemo, createRoot } from "solid-js";
+import { createEffect, createMemo, createRoot, untrack } from "solid-js";
 import { toast } from "solid-sonner";
 import { createSharedRoot } from "../createSharedRoot";
 import { activeScope } from "../hostScope/hostScopes";
@@ -548,9 +548,15 @@ createRoot(() => {
           autoRecoveredAt: status.autoRecoveredAt,
           linkRestoredAt: status.linkRestoredAt,
         },
-        reattachMark: reattachAnnouncedAt()[host] ?? 0,
-        autoRecoveryMark: autoRecoveryAnnouncedAt()[host] ?? 0,
-        linkRestoredMark: linkRestoredAnnouncedAt()[host] ?? 0,
+        // The marks are this effect's OWN bookkeeping — the only writer is the
+        // effect half below, which commits a proven stamp before it toasts — so
+        // they are read once per run, untracked. Tracked, each commit re-ran
+        // this effect on its own write (it would settle twice for one toast,
+        // EFFECT_WRITES_OWN_SOURCE); a mark is never a REASON to re-announce,
+        // only a gate on the status read above, which is the trigger.
+        reattachMark: untrack(reattachAnnouncedAt)[host] ?? 0,
+        autoRecoveryMark: untrack(autoRecoveryAnnouncedAt)[host] ?? 0,
+        linkRestoredMark: untrack(linkRestoredAnnouncedAt)[host] ?? 0,
       };
     },
     ({ host, status, reattachMark, autoRecoveryMark, linkRestoredMark }) => {

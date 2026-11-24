@@ -175,7 +175,7 @@ function DockListRow(props: {
   recencyAt: number | null;
   onSelect: (id: TerminalId) => void;
 }) {
-  const combined = createDockRowData(props.id);
+  const combined = createDockRowData(() => props.id);
   const rowBag = useDockRowBag();
   return (
     <Show when={combined()}>
@@ -184,7 +184,7 @@ function DockListRow(props: {
         // memo, and a memo re-created on every prop read either accumulates on
         // this owner or freezes the row at first paint. See `useDockRowBag`.
         const bag = rowBag({
-          id: props.id,
+          id: () => props.id,
           combined: c,
           bucket: () => props.bucket,
           pipBucket: () => props.pip,

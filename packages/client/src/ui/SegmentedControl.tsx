@@ -30,6 +30,7 @@ import {
   onCleanup,
   onSettled,
   Show,
+  untrack,
 } from "solid-js";
 import { dynamic, type JSX } from "@solidjs/web";
 
@@ -150,13 +151,27 @@ export default function SegmentedControl<T extends string>(props: {
       pressed !== undefined && props.options.some((o) => o.value === pressed);
     return focused() !== undefined || !offered ? tabStop() : pressed;
   });
-  // A render effect, so the caller hears it before the first paint.
-  createRenderEffect(inView, (v) => props.onInViewChange?.(v));
-  const keep = (value: T) => (el: HTMLButtonElement) => {
-    buttons.set(value, el);
+  // A render effect, so the caller hears it before the first paint. The
+  // callback prop is read in the COMPUTE and untracked: an effect callback may
+  // not read, and a caller swapping its handler identity is not a reason to
+  // re-announce the view.
+  createRenderEffect(
+    () => ({ v: inView(), notify: untrack(() => props.onInViewChange) }),
+    ({ v, notify }) => notify?.(v),
+  );
+  /** Hand a button its slot in the map, and register the slot's release in the
+   *  scope that ASKED for the ref — the `<For>` item's own owner — rather than
+   *  inside the ref callback, where `onCleanup` has no legal home. */
+  const keep = (value: T) => {
+    let mine: HTMLButtonElement | undefined;
     onCleanup(() => {
-      if (buttons.get(value) === el) buttons.delete(value);
+      if (mine !== undefined && buttons.get(value) === mine)
+        buttons.delete(value);
     });
+    return (el: HTMLButtonElement) => {
+      mine = el;
+      buttons.set(value, el);
+    };
   };
   const onKeyDown = (value: T) => (e: KeyboardEvent) => {
     if (e.metaKey || e.ctrlKey || e.altKey || e.shiftKey) return;

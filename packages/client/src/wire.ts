@@ -66,6 +66,7 @@ import {
   createMemo,
   createRoot,
   createSignal,
+  untrack,
 } from "solid-js";
 import { Effect } from "effect";
 import { toast } from "solid-sonner";
@@ -504,18 +505,41 @@ const hostScoped = createRoot(() => {
   // bare `setActiveHost` in the add `.then` reads as a departed host to the reconcile below and
   // is bounced to local (adding an N+1th host always landed on local). Feeding the intent INTO
   // the one reconcile decision — rather than a second effect racing it — keeps a single
-  // `setActiveHost` writer here. `requestActivateOnJoin` (exported) is just this setter.
-  const [pendingJoin, setPendingJoin] = createSignal<HostKey | null>(null);
+  // `setActiveHost` writer here. `requestActivateOnJoin` (exported) raises one request.
+  //
+  // The request carries a SEQUENCE, and the reconcile records the one it enacted in a plain
+  // variable. Consuming the intent by clearing a signal (the old `setPendingJoin(null)`) made
+  // this effect write a source its own compute reads: it re-ran on its own write, took two
+  // flushes to settle, and Solid 2 reports it (EFFECT_WRITES_OWN_SOURCE). A served sequence
+  // number is the same one-shot with no feedback — the shape `canvas/useCanvasCenterOnSwitch`
+  // uses for its switch epoch. A repeat request for the SAME host is a new sequence, so
+  // re-adding a host the user has since switched away from still lands on it.
+  type JoinRequest = { host: HostKey; seq: number };
+  let joinSeq = 0;
+  const [joinRequest, setJoinRequest] = createSignal<JoinRequest | null>(null);
+  const requestActivateOnJoin = (host: HostKey): void => {
+    setJoinRequest({ host, seq: ++joinSeq });
+  };
+  let servedJoinSeq = 0;
   // THE ONE active-host effect — enacts `hostReconcileTarget` for BOTH the join-activation and
   // the departed-bounce (see its doc). One writer, one ordering to reason about.
   createEffect(
     () => {
-      const active = activeHost();
+      const request = joinRequest();
+      const pending = request !== null && request.seq > servedJoinSeq ? request : null;
+      // The active host is the SUBJECT of the decision, not a trigger for it: this reconcile
+      // answers to MEMBERSHIP (a host left, a requested host joined), and every seam that
+      // switches hosts picks from live membership. Tracked, it also fired on the switch this
+      // effect itself writes — the own-write re-run above. So it is read ONCE per pass,
+      // untracked, exactly as `untrack`'s doc prescribes for a current selection the
+      // surrounding computation must not depend on.
+      const active = untrack(activeHost);
       return {
+        request: pending,
         action: hostReconcileTarget(
           members.keys(),
           active,
-          pendingJoin(),
+          pending?.host ?? null,
           LOCAL_HOST,
         ),
         // The host we are leaving, read in the same pass that decided to leave
@@ -523,10 +547,12 @@ const hostScoped = createRoot(() => {
         departed: active,
       };
     },
-    ({ action, departed }) => {
+    ({ action, request, departed }) => {
       if (action === null) return;
       if (action.kind === "activate-joined") {
-        setPendingJoin(null); // consume the intent — the added host is now active
+        // Consume the intent — the added host is now active, and a later membership
+        // change must not yank the user back to it.
+        if (request !== null) servedJoinSeq = request.seq;
         setActiveHost(action.target);
         return;
       }
@@ -565,7 +591,7 @@ const hostScoped = createRoot(() => {
   return {
     connection,
     preferences,
-    requestActivateOnJoin: setPendingJoin,
+    requestActivateOnJoin,
     hostKeys,
     procedures: active.procedures,
     streams: active.streams,
@@ -574,7 +600,7 @@ const hostScoped = createRoot(() => {
 
 /** Register add-a-host intent: activate `host` as the active host once it appears in the pool
  *  membership — the race-free replacement for a bare `setActiveHost` in the add-host `.then`.
- *  Feeds the pending signal the ONE reconcile effect consumes (`hostReconcileTarget`'s
+ *  Raises the sequenced request the ONE reconcile effect enacts (`hostReconcileTarget`'s
  *  join-activation arm), so there is no second `setActiveHost` writer to reason about. */
 export const requestActivateOnJoin = hostScoped.requestActivateOnJoin;
 

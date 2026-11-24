@@ -30,14 +30,14 @@ const tick = () => Promise.resolve();
  *  way to state "this read fails" — with `Effect.tryPromise` turning it into the
  *  error channel the controller reads. */
 function asEffect<R>(
-  fn: (request: OpenInCodeTabRequest, includeIgnored: boolean) => Promise<R>,
+  fn: (request: OpenInCodeTabRequest, from: Snapshot) => Promise<R>,
 ): (
   request: OpenInCodeTabRequest,
-  includeIgnored: boolean,
+  from: Snapshot,
 ) => Effect.Effect<R, unknown> {
-  return (request, includeIgnored) =>
+  return (request, from) =>
     Effect.tryPromise({
-      try: () => fn(request, includeIgnored),
+      try: () => fn(request, from),
       // Pass the thrown value THROUGH: these fixtures state a failure by
       // throwing the exact error the assertion reads, and `tryPromise`'s default
       // wrap would hide it behind an `UnknownError`.
@@ -52,7 +52,7 @@ function createHarness(options?: {
   snapshot?: Partial<Snapshot>;
   readFresh?: (
     request: OpenInCodeTabRequest,
-    includeIgnored: boolean,
+    from: Snapshot,
   ) => Effect.Effect<Paths, unknown>;
 }) {
   const req = request("t1");
@@ -63,6 +63,7 @@ function createHarness(options?: {
     paths: [],
     inventoryPending: false,
     includeIgnored: false,
+    lister: "git",
     ...options?.snapshot,
   });
   const readFresh = vi.fn(options?.readFresh ?? asEffect(async () => []));
@@ -219,6 +220,7 @@ describe("createCodeTabOpenController", () => {
           paths: [],
           inventoryPending: false,
           includeIgnored: false,
+          lister: "git",
         }),
         resolve: (_request, paths) =>
           paths.includes("new.ts") ? "new.ts" : null,
@@ -261,13 +263,14 @@ describe("createCodeTabOpenController", () => {
           paths: [],
           inventoryPending: false,
           includeIgnored: includeIgnored(),
+          lister: "git",
         }),
         resolve: (_request, paths) =>
           paths.includes("new.ts") ? "new.ts" : null,
-        readFresh: (_request, policy) => {
+        readFresh: (_request, from) => {
           const gate = Deferred.makeUnsafe<readonly string[]>();
           reads.push({
-            includeIgnored: policy,
+            includeIgnored: from.includeIgnored,
             settle: (paths) => {
               Deferred.doneUnsafe(gate, Effect.succeed(paths));
             },

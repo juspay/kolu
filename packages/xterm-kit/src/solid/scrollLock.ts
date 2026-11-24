@@ -381,10 +381,17 @@ export function createScrollLock(
    *  no-ops and the `onScroll` closure + `termRef` leak the xterm Terminal
    *  across the component's lifetime (#591 heap-snapshot evidence).
    *
-   *  The handler body runs UNTRACKED. xterm fires its scroll event from
-   *  inside other people's calls — `terminal.reset()` among them — so a
-   *  tracked read here would subscribe whichever effect made that call to
-   *  the lock, and re-run it every time the lock engages. */
+   *  The handler body runs UNTRACKED, and that is about DEPENDENCIES, not
+   *  about quieting anything. xterm fires its scroll event from inside other
+   *  people's calls — `terminal.reset()` among them — and the handler reads
+   *  the lock's own state (`enabled()`, `lockState()`). An effect CALLBACK is
+   *  already untracked in Solid 2, so the case this still covers is a TRACKING
+   *  scope entering xterm's dispatch: a memo or a render effect's compute that
+   *  resets/resizes the terminal would otherwise subscribe to the lock and
+   *  re-run every time it engages. The reads themselves are an event
+   *  callback's imperative snapshot — nothing here is waiting to be re-run by
+   *  a later value — which is why they belong in the handler rather than being
+   *  hoisted into some compute. */
   function attachToTerminal(term: Terminal): void {
     termRef = term;
     const scrollDisposable = term.onScroll(() => untrack(() => onScroll(term)));

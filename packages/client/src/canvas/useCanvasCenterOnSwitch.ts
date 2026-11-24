@@ -17,6 +17,7 @@
  *  viewport / terminal store / active-host signal are read from their singletons /
  *  modules exactly as the inlined block did. */
 
+import type { TerminalId } from "kolu-common/surface";
 import { createEffect, createSignal } from "solid-js";
 import { activeScope } from "../hostScope/hostScopes";
 import { useTerminalStore } from "../terminal/useTerminalStore";
@@ -48,16 +49,25 @@ export function useCanvasCenterOnSwitch(
   });
   let servedEpoch = 0;
   createEffect(
-    (): { epoch: number; center: boolean } | null => {
+    (): {
+      epoch: number;
+      center: boolean;
+      tileId: TerminalId | null;
+    } | null => {
       const epoch = switchEpoch();
       if (epoch === servedEpoch || !viewport.mounted()) return null;
       const activeTile = activeTileLayout();
       if (!activeTile) return null; // mount race — wait for the tile to be measured
+      // The tile the centering impulse NAMES is resolved here, in the compute:
+      // `requestCenterActive` is an actor that takes the id, because the effect
+      // phase is not a window to read reactive state in.
+      const tileId = store.activeId();
       const camera = activeScope()?.camera;
-      if (!camera) return { epoch, center: false };
+      if (!camera) return { epoch, center: false, tileId };
       const { width, height } = viewport.viewportSize();
       return {
         epoch,
+        tileId,
         center: switchInNeedsCenter(
           camera.positioned() ? camera.snapshot() : null,
           activeTile,
@@ -69,7 +79,8 @@ export function useCanvasCenterOnSwitch(
     (verdict) => {
       if (!verdict) return;
       servedEpoch = verdict.epoch; // consume once resolved
-      if (verdict.center) store.requestCenterActive();
+      if (verdict.center && verdict.tileId !== null)
+        store.requestCenterActive(verdict.tileId);
     },
   );
 }

@@ -32,12 +32,10 @@ const FailureWords: Component<{
     props.words.by === undefined
       ? props.words.headline
       : `${props.words.by}: ${props.words.headline}`;
-  const lines = createMemo(
-    () => props.words.detail.map((line) => ({ line })),
-    undefined,
-    { equals: sameLines },
-  );
-  const log = createMemo(() => [{ line: cause() }, ...lines()], undefined, {
+  const lines = createMemo(() => props.words.detail.map((line) => ({ line })), {
+    equals: sameLines,
+  });
+  const log = createMemo(() => [{ line: cause() }, ...lines()], {
     equals: sameLines,
   });
   return (

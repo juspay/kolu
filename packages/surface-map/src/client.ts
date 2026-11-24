@@ -630,7 +630,13 @@ function makeReactiveEntry<
  *  the CURRENT key per call — so an imperative point-call through `useEntry` routes to
  *  the active host at call time. The `face` selector is the ONLY axis of variation
  *  between the two imperative subtrees; both are the same arbitrary-depth walk (rare for
- *  `.rpc`: procedures usually use the pure `entry()`, but this keeps the face total). */
+ *  `.rpc`: procedures usually use the pure `entry()`, but this keeps the face total).
+ *
+ *  The key is resolved with `untrack`: a call is a point-in-time act that goes to the
+ *  key active when it is made, never a dependency. A call made from a memo or an
+ *  effect's compute must not subscribe that computation to the active key, and a call
+ *  made from an effect callback (where reads are not tracked at all) is the same act —
+ *  so the resolution reads the key once, untracked, wherever the call comes from. */
 function faceDelegate<
   ES extends SurfaceSpec,
   K,
@@ -647,7 +653,7 @@ function faceDelegate<
       get: (_t, prop) => walk([...path, prop as string]),
       apply: (_t, _this, args) => {
         // biome-ignore lint/suspicious/noExplicitAny: walk the current entry's face by the accumulated path
-        let node: any = face(entryFor(keyAccessor()));
+        let node: any = untrack(() => face(entryFor(keyAccessor())));
         for (const p of path) node = node[p];
         return node(...args);
       },

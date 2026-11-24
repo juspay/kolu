@@ -59,7 +59,7 @@ import {
   SortableProvider,
   transformCss,
 } from "../dnd";
-import { makeEventListener } from "@solid-primitives/event-listener";
+import { createEventListener } from "@solid-primitives/event-listener";
 import { createMediaQuery } from "@solid-primitives/media";
 import { createResizeObserver } from "@solid-primitives/resize-observer";
 import {
@@ -192,16 +192,46 @@ const HostChip: Component<{
   const isOpen = useHostDiagnosticsSelector();
   const diagOpen = () => isOpen(encKey);
 
-  let chipEl: HTMLDivElement | undefined;
+  // The chip's element as a SIGNAL, not a plain variable: the click guard is
+  // bound from the component body (a `ref` callback may not register a
+  // cleanup, which is what `makeEventListener` did here), so the binder needs
+  // a reactive target to attach to the frame the ref lands. Writing it from
+  // the ref callback is the one write a ref callback is allowed.
+  const [chipEl, setChipEl] = createSignal<HTMLDivElement>();
   // The drag transform, straight onto the node (see the `drag` prop's doc):
-  // only the carried chip and the chips its preview shifts re-run this.
+  // only the carried chip and the chips its preview shifts re-run this. The
+  // element comes from the compute too — the effect phase reads nothing.
   createEffect(
-    () => props.drag?.transform(),
-    (transform) => {
-      if (!transform || !chipEl) return;
-      chipEl.style.transform = transformCss(transform);
+    () => ({ transform: props.drag?.transform(), el: chipEl() }),
+    ({ transform, el }) => {
+      if (!transform || el === undefined) return;
+      el.style.transform = transformCss(transform);
     },
   );
+  // A finished drag's trailing `click` can land on whichever of the chip's two
+  // buttons the gesture started on — switching host, or toggling diagnostics.
+  // Swallow it in the CAPTURE phase, before either button's (delegated)
+  // handler runs. The pinned chip passes no guard, so nothing is ever
+  // swallowed there. Bound here rather than in the ref: the binder's teardown
+  // is an effect's returned cleanup, which a ref callback cannot own.
+  createEventListener(
+    chipEl,
+    "click",
+    (e) => {
+      if (props.swallowClick?.() !== true) return;
+      e.stopPropagation();
+      e.preventDefault();
+    },
+    { capture: true },
+  );
+  // This chip owns the element it hands the panel: when it unmounts (overflow
+  // fit, the `md` row going away) the panel must not stay floating against a
+  // detached node. Registered on the component owner — the only scope that may
+  // hold a cleanup for a ref's element.
+  onCleanup(() => {
+    const el = chipEl();
+    if (el !== undefined) releaseHostDiagnosticsAnchor(el);
+  });
 
   // UNIFORM SHAPE: measurable SIZE never depends on `isActive()` — only
   // border/bg/text COLOR, and the drag transform is a translate, so a chip keeps
@@ -210,30 +240,11 @@ const HostChip: Component<{
   return (
     <div
       ref={(el) => {
-        chipEl = el;
+        setChipEl(el);
         // A re-orderable chip is the sortable AND its own drag handle: a
         // press anywhere on it picks it up. The pinned chip has no sortable.
         props.drag?.ref(el);
         props.drag?.handleRef(el);
-        // A finished drag's trailing `click` can land on whichever of the
-        // chip's two buttons the gesture started on — switching host, or
-        // toggling diagnostics. Swallow it in the CAPTURE phase, before either
-        // button's (delegated) handler runs. The pinned chip passes no guard,
-        // so nothing is ever swallowed there.
-        makeEventListener(
-          el,
-          "click",
-          (e) => {
-            if (props.swallowClick?.() !== true) return;
-            e.stopPropagation();
-            e.preventDefault();
-          },
-          { capture: true },
-        );
-        // This chip owns the element it hands the panel: when it unmounts
-        // (overflow fit, the `md` row going away) the panel must not stay
-        // floating against a detached node.
-        onCleanup(() => releaseHostDiagnosticsAnchor(el));
       }}
       class="group -mb-px flex items-center shrink-0 text-xs"
       data-testid="host-chip"
@@ -265,9 +276,10 @@ const HostChip: Component<{
             // The pip is INSIDE the chip, so the ref is set by the time it
             // can be clicked — fail loudly if that ever stops holding rather
             // than eating the click.
-            if (chipEl === undefined)
+            const el = chipEl();
+            if (el === undefined)
               throw new Error("host chip has no element to hang details off");
-            toggleHostDiagnostics(encKey, chipEl);
+            toggleHostDiagnostics(encKey, el);
           },
         }}
         select={{

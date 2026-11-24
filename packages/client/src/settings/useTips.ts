@@ -83,14 +83,29 @@ function whenPreferencesArrive(fn: () => void) {
   else awaitingPreferences.push(fn);
 }
 
-/** Show a contextual tip once. Marks it seen so it never reappears. Raised
- *  before the saved preferences arrive, it waits for them; if another tip is
- *  showing by then, it is dropped unmarked, so its next trigger shows it. */
+/** Raise a contextual tip: show it once, ever, and mark it seen.
+ *
+ *  Callable from ANYWHERE — a click handler, a settle, and (the common shape)
+ *  the effect function of an effect that watches for the moment worth
+ *  announcing. The decision below READS reactive state (does this surface show
+ *  tips, have the saved preferences arrived, was this tip already seen), and
+ *  the effect phase is not a window to read reactive state in — so raising a
+ *  tip only SCHEDULES it. The consult runs at the settle that follows, the
+ *  same window the pre-preferences queue drains in, where a tip reads the
+ *  current preferences as any command would. */
 function showTipOnce(tip: Tip) {
+  onSettled(() => resolveTipOnce(tip));
+}
+
+/** The contextual-tip decision itself — the reads {@link showTipOnce} defers.
+ *  Raised before the saved preferences arrive, it waits for them; if another
+ *  tip is showing by then, it is dropped unmarked, so its next trigger shows
+ *  it. Only ever called from a settle or the preferences drain. */
+function resolveTipOnce(tip: Tip) {
   if (!showsAmbientTips()) return;
   if (!preferencesArrived()) {
     whenPreferencesArrive(() => {
-      if (activeTip() === null) showTipOnce(tip);
+      if (activeTip() === null) resolveTipOnce(tip);
     });
     return;
   }

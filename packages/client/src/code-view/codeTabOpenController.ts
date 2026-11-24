@@ -3,8 +3,9 @@ import { Effect, type Fiber } from "effect";
 import { encodeHostKey, type HostKey } from "kolu-common/hostKey";
 import { createEffect, onCleanup } from "solid-js";
 import { match } from "ts-pattern";
-import { runOwnedAction } from "../runAction";
+import { runAction } from "../runAction";
 import type { LineRef } from "../ui/lineRef";
+import type { CodeLister } from "./codeLister";
 
 declare const codeOwnerBrand: unique symbol;
 
@@ -65,7 +66,10 @@ export interface OpenInCodeTabRequest {
   allowBasenameFallback?: boolean;
 }
 
-/** Current reactive facts used to decide whether and how a request may land. */
+/** Current reactive facts used to decide whether and how a request may land —
+ *  AND the facts a fresh read is issued with, since the effect phase that
+ *  issues it may read nothing reactive of its own
+ *  (STRICT_READ_UNTRACKED). Every field is produced by one compute. */
 export interface CodeTabOpenSnapshot<Paths> {
   request: OpenInCodeTabRequest | null;
   scope: CodeTabScope | null;
@@ -74,6 +78,10 @@ export interface CodeTabOpenSnapshot<Paths> {
   paths: Paths;
   inventoryPending: boolean;
   includeIgnored: boolean;
+  /** Who lists the shown root — git, the disk, or nothing to list at all.
+   *  A request only reaches the fresh read while its scope is the one shown,
+   *  so the shown root's lister is the request's. */
+  lister: CodeLister | null;
 }
 
 interface CodeTabOpenControllerOptions<Paths, Resolved> {
@@ -91,7 +99,7 @@ interface CodeTabOpenControllerOptions<Paths, Resolved> {
    *  result. */
   readFresh: (
     request: OpenInCodeTabRequest,
-    includeIgnored: boolean,
+    from: CodeTabOpenSnapshot<Paths>,
   ) => Effect.Effect<Paths, unknown>;
   onResolved: (
     request: OpenInCodeTabRequest,
@@ -278,9 +286,16 @@ export function createCodeTabOpenController<Paths, Resolved>(
     // The whole read AND its landing live on one fiber, so interrupting it stops
     // both. Recovered to a total program before the fork: the outcome is applied
     // by `complete`, which is this controller's one landing verb.
-    fiber.current = runOwnedAction(
+    //
+    // Forked with `runAction`, not `runOwnedAction`: this is the effect phase,
+    // where `onCleanup` — which is how `runOwnedAction` ties a fiber to an
+    // owner — is forbidden (CLEANUP_IN_FORBIDDEN_SCOPE). The fiber's
+    // interruption is owned here instead: `stopRefreshing` interrupts it when
+    // a newer attempt supersedes it, and the body's `onCleanup(retire)` when
+    // the view goes away.
+    fiber.current = runAction(
       "open in code tab",
-      options.readFresh(request, includeIgnored).pipe(
+      options.readFresh(request, current).pipe(
         Effect.map((paths) => () => {
           const freshResolved = options.resolve(request, paths);
           if (freshResolved === null) {

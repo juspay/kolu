@@ -34,7 +34,7 @@
  *  genuinely-new sub that appears WHILE seeded is adopted. */
 
 import type { TerminalId } from "kolu-common/surface";
-import { type Accessor, createEffect, untrack } from "solid-js";
+import { type Accessor, createEffect, onSettled, untrack } from "solid-js";
 import type { HydrationPhase } from "../hostScope/createSessionRestore";
 import { createHostScopedParentSnapshot } from "./parentSnapshot";
 import { containingTileOf, type ParentEdge } from "./terminalTree";
@@ -43,19 +43,23 @@ import { containingTileOf, type ParentEdge } from "./terminalTree";
  *  so the hook is a pure function of (ports, list, phase): unit-testable with
  *  plain spies, wired once in useTerminals. */
 export interface SplitAdoptPorts {
-  /** Expand the parent's sub-panel (idempotent) — run on every adopted split. */
-  expandPanel: (parentId: TerminalId) => void;
+  /** Reader half of "expand the parent's sub-panel" (idempotent) — run on every
+   *  adopted split. Two phases because the adoption is decided in an effect:
+   *  the plan reads the tile's saved split, the actor writes the new one. */
+  planExpandPanel: (parentId: TerminalId) => () => void;
   /** The parent's current active sub-tab (`null` when none is selected). Null-or-
    *  live by invariant — the reconcile clears it when the last split departs. */
   activeSubTab: (parentId: TerminalId) => TerminalId | null;
   /** Select a sub-tab — run only when the parent has no active split (don't steal
-   *  from a split you're already working in). */
+   *  from a split you're already working in). Writes only. */
   setActiveSubTab: (parentId: TerminalId, subId: TerminalId) => void;
   /** Give the new split the panel tab of the terminal it is a child of, so an
    *  externally-created split does not flip the panel from Code to Inspector when
    *  you click into it. A no-op when the split already carries panel state (the
-   *  browser create path seeds synchronously; a creator may have passed one). */
-  seedSplitTab: (subId: TerminalId, parentId: TerminalId) => void;
+   *  browser create path seeds synchronously; a creator may have passed one).
+   *  CURRIED on the parent — the right panel's own shape — so the read of the
+   *  source pane happens in the plan and the seeding write in the actor. */
+  seedSplitTab: (parentId: TerminalId) => (subId: TerminalId) => void;
 }
 
 export function useAdoptNewSplit(deps: {
@@ -94,12 +98,18 @@ export function useAdoptNewSplit(deps: {
     },
   );
 
-  /** One split to adopt, decided in the compute and acted on in the effect. */
+  /** One split to adopt, decided in the compute and acted on in the effect.
+   *  Every read the adoption needs — the root tile walk, the tile's active tab,
+   *  the tile's saved split, the source pane's panel record — happens in the
+   *  compute; what travels is the two WRITES, because an effect callback is a
+   *  strict-read window. */
   interface Adoption {
     readonly subId: TerminalId;
-    readonly parentId: TerminalId;
-    /** The ROOT tile whose chrome the sub belongs to. */
     readonly tileId: TerminalId;
+    /** Seed the arrival's panel tab from the pane it is a split of. */
+    readonly seed: (subId: TerminalId) => void;
+    /** Open the root tile's panel. */
+    readonly expand: () => void;
     readonly takeFocus: boolean;
   }
   interface AdoptPass {
@@ -142,8 +152,9 @@ export function useAdoptNewSplit(deps: {
             // working in.
             return {
               subId,
-              parentId,
               tileId,
+              seed: deps.ports.seedSplitTab(parentId),
+              expand: deps.ports.planExpandPanel(tileId),
               takeFocus: deps.ports.activeSubTab(tileId) === null,
             };
           }),
@@ -152,9 +163,14 @@ export function useAdoptNewSplit(deps: {
       return { snap: curr, adopt };
     },
     ({ adopt }) => {
-      for (const { subId, parentId, tileId, takeFocus } of adopt) {
-        deps.ports.seedSplitTab(subId, parentId);
-        deps.ports.expandPanel(tileId);
+      for (const { subId, tileId, seed, expand, takeFocus } of adopt) {
+        // The seed's APPLIER reads the panel's own per-terminal state, and
+        // this is an effect callback (a strict-read window), so it rides
+        // `onSettled` — which is not one. It is ordered against nothing here:
+        // the panel tab it seeds is a different store from the tile's split
+        // chrome the two writes below touch.
+        onSettled(() => seed(subId));
+        expand();
         if (takeFocus) deps.ports.setActiveSubTab(tileId, subId);
       }
     },

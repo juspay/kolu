@@ -13,8 +13,8 @@
  *  `Resizable` wired up in `App.tsx` — the outer horizontal split between
  *  the canvas and the panel. Both visibility seams — desktop uncollapse
  *  and touch-layout drawer-open — are dispatched imperatively from
- *  `openInCodeTab` itself; there is no `on(pendingOpen, ...)` subscriber
- *  here for the same reason.
+ *  `openInCodeTab` itself; no effect here subscribes to `pendingOpen`,
+ *  for the same reason.
  *
  *  Selection, mode, and tab kind share `useRightPanel` across hosts — and now
  *  across panes within a host: they belong to the FOCUSED PANE, so a phone

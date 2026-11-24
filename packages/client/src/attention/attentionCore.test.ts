@@ -9,6 +9,7 @@ import { drivenByConductor } from "../conductor/workReadings";
 import {
   type AttentionHooks,
   type AttentionMemory,
+  type AttentionView,
   createAttentionCore,
 } from "./attentionCore";
 import type { AttentionFrame } from "kolu-common/surface";
@@ -18,7 +19,18 @@ const u = (asking: string[] = [], finished: string[] = []): AttentionFrame => ({
   finished: finished as TerminalId[],
 });
 
-function harness(over: Partial<AttentionHooks> = {}) {
+/** What a case stages: the engine's hooks, plus the view facts the caller's
+ *  COMPUTE phase would have read for the host being fed. The view is
+ *  per-host, so the host-and-id shape is kept here and the harness narrows it
+ *  to the host each `observe` names. */
+type Stage = Partial<AttentionHooks> & {
+  alertsEnabled?: () => boolean;
+  isActiveHost?: () => boolean;
+  isWatched?: (encHost: string, id: TerminalId) => boolean;
+  isDriven?: (encHost: string, id: TerminalId) => boolean;
+};
+
+function harness(over: Stage = {}) {
   const delivered: Array<{ id: string; asking: boolean }> = [];
   /** The deliveries that made NO sound and no OS popup — only the marks. */
   const quiet: string[] = [];
@@ -28,22 +40,31 @@ function harness(over: Partial<AttentionHooks> = {}) {
   /** What the engine handed back to be saved, per host, latest last. */
   const remembered: Array<{ host: string; memory: AttentionMemory }> = [];
   const hooks: AttentionHooks = {
-    alertsEnabled: () => true,
-    isActiveHost: () => true,
-    isWatched: () => false, // nothing watched by default (background)
-    isDriven: () => false,
-    deliver: (_h, id, asking, loud) => {
-      delivered.push({ id, asking });
-      if (!loud) quiet.push(id);
-    },
     writeMark: (host, count) => marks.push({ host, count }),
     clearUnread: (host, id) => cleared.push({ host, id }),
     resume: () => null, // a browser that has saved nothing
     remember: (host, memory) => remembered.push({ host, memory }),
     ...over,
   };
+  /** The caller's part: the facts read for ONE host, as of this frame. */
+  const view = (encHost: string): AttentionView => ({
+    alertsEnabled: over.alertsEnabled?.() ?? true,
+    isActiveHost: over.isActiveHost?.() ?? true,
+    // nothing watched by default (background), nothing driven
+    isWatched: (id) => over.isWatched?.(encHost, id) ?? false,
+    isDriven: (id) => over.isDriven?.(encHost, id) ?? false,
+    deliver: (id, asking, loud) => {
+      delivered.push({ id, asking });
+      if (!loud) quiet.push(id);
+    },
+  });
+  const core = createAttentionCore(hooks);
   return {
-    core: createAttentionCore(hooks),
+    core: {
+      ...core,
+      observe: (encHost: string, cur: AttentionFrame) =>
+        core.observe(encHost, cur, view(encHost)),
+    },
     delivered,
     quiet,
     cleared,
@@ -72,7 +93,7 @@ describe("attentionCore — a terminal the Conductor drives", () => {
   ]);
   /** A harness over its own copy of the index, whose drivers a case moves
    *  with `drive` — `null` takes the terminal out of every work. */
-  const harnessed = (over: Partial<AttentionHooks> = {}) => {
+  const harnessed = (over: Stage = {}) => {
     const index = new Map(membership);
     const drive = (id: string, driver: Driver | null): void => {
       if (driver === null) index.delete(`local/${id}`);

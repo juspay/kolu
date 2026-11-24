@@ -26,15 +26,22 @@ export const makeTickingClock = (
   createSharedRoot<Accessor<number>>(() => {
     const [now, setNow] = createSignal(read());
     let timer: ReturnType<typeof setInterval> | undefined;
+    const startTicking = () => {
+      timer = setInterval(() => setNow(read()), intervalMs);
+    };
+    // A reveal refreshes the clock at once and resumes the cadence; a hide
+    // stops it. Creation only STARTS the interval — the signal was seeded with
+    // the same read a line above, and a write here would be a write made in
+    // the scope that owns the signal.
     const sync = () => {
       clearInterval(timer);
       timer = undefined;
       if (document.hidden) return;
       setNow(read());
-      timer = setInterval(() => setNow(read()), intervalMs);
+      startTicking();
     };
     document.addEventListener("visibilitychange", sync);
-    sync();
+    if (!document.hidden) startTicking();
     return now;
   });
 

@@ -107,8 +107,15 @@ const PeekWindow: Component<{ target: PeekTarget }> = (props) => {
   );
   const [held, setHeld] = createSignal(false);
   const [focused, setFocused] = createSignal(false);
+  /** The screen's keyboard door, handed up by `PeekTerminal`'s `onReady`.
+   *  `ownedWrite`: this is the window's OWN internal signal, and `onReady`
+   *  runs under this component's owner (the kit re-enters it with
+   *  `runWithOwner` once the font has loaded,
+   *  `xterm-kit/solid/xtermLifecycle.ts`) — so the one write it ever takes
+   *  is, by construction, a write in an owned scope. */
   const [handle, setHandle] = createSignal<PeekTerminalHandle | undefined>(
     undefined,
+    { ownedWrite: true },
   );
   const membership = useMembership();
   const driver = () => membership().get(ref)?.driver ?? "nobody";

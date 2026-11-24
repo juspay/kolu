@@ -325,7 +325,43 @@ const CommandPalette: Component<{
   // keyboard highlight (open-under-cursor shimmer).
   const [mouseActive, setMouseActive] = createSignal(false);
   let lastPointerPos: PointerPos | null = null;
-  const [path, setPath] = createSignal<DrillableKind[]>([]);
+  /** The drill PATH — the segments the user drilled into, trimmed to what the
+   *  live command tree still resolves. A WRITABLE MEMO, not a plain signal: the
+   *  path FOLLOWS the tree (a host disconnects, a group hides, and the dead tail
+   *  goes) while drill-in, drill-out, deep-link and close still write it.
+   *  Deriving the repair is what keeps it out of an effect — one that corrected
+   *  the path would be writing the very signal its own compute reads, settling
+   *  twice for one repair.
+   *
+   *  `dropped` rides along so the repair's imperative half (the dead segments'
+   *  `onCancel`) knows what went away. A write clears it: a drill-out cancels
+   *  what it pops, and the close branch cancels what was open. The derivation
+   *  returns `prev` UNCHANGED when nothing was trimmed, so a tree that churns
+   *  without dropping a segment notifies nobody.
+   *
+   *  `resolveLivePath` is hoisted below — the derivation runs on read, never at
+   *  this line. */
+  type PathState = {
+    readonly segments: DrillableKind[];
+    readonly dropped: readonly DrillableKind[];
+  };
+  const NO_PATH: PathState = { segments: [], dropped: [] };
+  const [pathState, setPathState] = createSignal<PathState>(
+    (prev = NO_PATH): PathState => {
+      const { valid } = resolveLivePath(prev.segments);
+      if (valid.length === prev.segments.length) return prev;
+      return { segments: valid, dropped: prev.segments.slice(valid.length) };
+    },
+  );
+  const path = (): DrillableKind[] => pathState().segments;
+  const setPath = (
+    next: DrillableKind[] | ((prev: DrillableKind[]) => DrillableKind[]),
+  ): void => {
+    setPathState((prev) => ({
+      segments: typeof next === "function" ? next(prev.segments) : next,
+      dropped: [],
+    }));
+  };
 
   /** Walk `path` against the live command tree; return the live
    *  drillable segments that still resolve, in order. */
@@ -348,23 +384,15 @@ const CommandPalette: Component<{
     return { valid, level };
   }
 
-  /** If a path segment disappears (host disconnect, group hidden), pop
-   *  to the deepest still-valid segment — never keep showing children
-   *  from a stale path object. The compute decides WHETHER to pop (and
-   *  to where); the effect cancels the dropped segments and writes. */
+  /** The repair's IMPERATIVE half: a segment the live tree dropped (host
+   *  disconnect, group hidden) has its `onCancel` run, and the query that
+   *  filtered inside it goes with it. The popping itself is the derivation
+   *  above — nothing here writes the path. */
   createEffect(
-    () => {
-      if (!props.open) return null;
-      const p = path();
-      if (p.length === 0) return null;
-      const { valid } = resolveLivePath(p);
-      if (valid.length === p.length) return null;
-      return { valid, dropped: p.slice(valid.length) };
-    },
-    (trim) => {
-      if (!trim) return;
-      for (const g of trim.dropped) g.onCancel?.();
-      setPath(trim.valid);
+    () => pathState().dropped,
+    (dropped) => {
+      if (dropped.length === 0) return;
+      for (const g of dropped) g.onCancel?.();
       setQuery("");
     },
   );

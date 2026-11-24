@@ -45,10 +45,11 @@
 
 import type { TerminalGrid } from "@kolu/xterm-kit/solid";
 
-/** The two live facts the gate judges on, as they stand when it is called.
+/** The live facts the gate judges on, as they stand when it is called.
  *  PASSED IN rather than read: the caller is a Solid effect, whose compute is
  *  the one place a reactive read belongs — the effect phase this runs in is
- *  untracked, so a read here would see the facts without depending on them. */
+ *  untracked, so a read here would see the facts without depending on them,
+ *  and in dev it is a strict-read warning besides. */
 export interface ShownPaneFacts {
   /** Is this pane shown — MEASURED (it has a real grid, not xterm's invented
    *  80×24) and VISIBLE (a user could be reading it)? */
@@ -61,13 +62,32 @@ export interface ShownPaneFacts {
    *  size back. On the way back in front the pane's foreign-grid watcher
    *  (`foreignGrid.ts`) restates its size if the terminal no longer has it. */
   readonly viewShown: boolean;
+  /** The host entry's state KIND as the pane's host map paints it right now —
+   *  carried because the two things this gate drives on the way through need
+   *  it and may not read it themselves: the publisher's restatement (judged
+   *  against `"connected"`) and, through the attach, the grid the pane opens
+   *  at. */
+  readonly hostState: string;
+  /** The grid this pane has MEASURED, as the kit states it — non-null exactly
+   *  when `shown` is true, since that is what MEASURED means. The attach opens
+   *  at it (`resizeTo`), which is why it travels with the rest: the open is an
+   *  effect's act, and the measurement is a signal. */
+  readonly wanted: TerminalGrid | null;
 }
+
+/** The two VISIBILITY facts on their own — what a measurement is judged by.
+ *  A named slice of {@link ShownPaneFacts} so a caller that has no reason to
+ *  read the host's state (the measurement effect) does not have to. */
+export type ShownPaneVisibility = Pick<
+  ShownPaneFacts,
+  "shown" | "viewShown"
+>;
 
 export interface ShownPaneDeps {
   /** Open the attach stream at the pane's current grid. The screen is NOT
    *  cleared first: the fresh snapshot carries the reset that replaces the
    *  stale bytes, so the two land as one write. */
-  readonly attach: () => void;
+  readonly attach: (facts: ShownPaneFacts) => void;
   /** End the live attach: supersede the attempt, interrupt its fiber, cancel
    *  whatever reopen it had pending. Nothing may paint afterwards. */
   readonly detach: () => void;
@@ -82,7 +102,7 @@ export interface ShownPaneDeps {
    *  and so is the host check: with nothing owed or the host not connected it
    *  does nothing. What this gate adds is the VIEW: behind the Conductor the
    *  grid stays owed, and it is restated once the view is back in front. */
-  readonly restateOwed: () => void;
+  readonly restateOwed: (hostState: string) => void;
 }
 
 export interface ShownPane {
@@ -91,26 +111,28 @@ export interface ShownPane {
    *  the host's state. */
   observe(facts: ShownPaneFacts): void;
   /** The pane measured a new grid. Published only while the pane is shown
-   *  and its view is in front. */
-  measured(grid: TerminalGrid, facts: ShownPaneFacts): void;
+   *  and its view is in front — the two VISIBILITY facts, which is all this
+   *  one needs (its own grid is the argument). */
+  measured(grid: TerminalGrid, facts: ShownPaneVisibility): void;
 }
 
 export function createShownPane(deps: ShownPaneDeps): ShownPane {
   /** The last answer acted on — and therefore whether an attach is live. */
   let attached = false;
   return {
-    observe({ shown, viewShown }: ShownPaneFacts) {
-      if (viewShown) deps.restateOwed();
+    observe(facts: ShownPaneFacts) {
+      const { shown, viewShown, hostState } = facts;
+      if (viewShown) deps.restateOwed(hostState);
       else deps.cancelPublish();
       if (shown === attached) return;
       attached = shown;
-      if (shown) deps.attach();
+      if (shown) deps.attach(facts);
       else {
         deps.cancelPublish();
         deps.detach();
       }
     },
-    measured(grid: TerminalGrid, { shown, viewShown }: ShownPaneFacts) {
+    measured(grid: TerminalGrid, { shown, viewShown }: ShownPaneVisibility) {
       if (!shown || !viewShown) return;
       deps.publish(grid);
     },

@@ -118,7 +118,14 @@ export function createCodeHistories<K>(): CodeHistories<K> {
 
 /** The five history verbs of {@link CodeViewState}, over whichever stack is
  *  the place's NOW — `null` while there is no owner to have one (no pane),
- *  where every verb answers "nowhere to go". */
+ *  where every verb answers "nowhere to go".
+ *
+ *  `browser` MUST NOT read reactive state: `recordNavigation` is called from
+ *  the EFFECT PHASE (a Code view records the front-door open its resolution
+ *  landed), where a signal/store read is STRICT_READ_UNTRACKED. A home whose
+ *  stack is keyed on something reactive (which pane has focus) keeps that key
+ *  in a plain field of its own and looks the stack up with it here; the two
+ *  enablement accessors are read in JSX, so they stay as they are. */
 export function codeHistoryVerbs(
   browser: () => Browser<BrowserLocation> | null,
 ): Pick<
@@ -178,10 +185,18 @@ export interface CodeViewState {
   readonly setCodeMode: (mode: CodeTabView) => void;
   /** The file selected in `mode`, repo-relative, or `null`. */
   readonly selectedFile: (mode: CodeTabView) => string | null;
-  /** Select `path` in `mode`; `null` drops the mode's selection. */
+  /** Select `path` in `mode`; `null` drops the mode's selection.
+   *
+   *  Called from the EFFECT PHASE as well as from clicks — a view clears a
+   *  selection its tree no longer holds, and lands a front-door open, there.
+   *  So it may only WRITE: a read of a signal or a store property inside it
+   *  is STRICT_READ_UNTRACKED. A home that needs its current record to build
+   *  the next one keeps that record in a plain field it updates as it writes,
+   *  never by reading the reactive copy back. The same holds for
+   *  {@link recordNavigation}. */
   readonly setSelectedFile: (mode: CodeTabView, path: string | null) => void;
   /** Record a visit — idempotent on mode+path. Records only; the selected
-   *  file stays the render truth. */
+   *  file stays the render truth. Write-only, as {@link setSelectedFile} is. */
   readonly recordNavigation: (loc: BrowserLocation) => void;
   /** Step back / forward, returning the location to re-apply, or `null`. */
   readonly navigateBack: () => BrowserLocation | null;

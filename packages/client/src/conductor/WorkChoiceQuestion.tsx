@@ -330,8 +330,8 @@ const WorkChoiceQuestion: Component<{
   /** The options as they are drawn — the default first, and that default in
    *  the draft once the list it belongs to is known. */
   const chips = seededChips(
-    props.ask,
-    props.decision.id,
+    () => props.ask,
+    () => props.decision.id,
     () => Option.fromNullishOr(choices()?.context),
     () => choices()?.options ?? [],
     standing,

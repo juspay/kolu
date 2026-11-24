@@ -89,6 +89,7 @@ import {
   For,
   onSettled,
   Show,
+  untrack,
 } from "solid-js";
 import type { JSX } from "@solidjs/web";
 import { createSharedRoot } from "../../createSharedRoot";
@@ -230,7 +231,11 @@ const Dock: Component<{
   // would leave the host unmeasured and the cap silently inert.
   let asideEl!: HTMLElement;
   const [hostEl, setHostEl] = createSignal<HTMLElement | null>(null);
-  onSettled(() => setHostEl(asideEl.parentElement));
+  // A block body, not an expression: an `onSettled` callback's RETURN is its
+  // cleanup, and a setter's return value is not one.
+  onSettled(() => {
+    setHostEl(asideEl.parentElement);
+  });
 
   /** The one resizable dock surface: the maximized cards sidebar. Named once so
    *  the width computation and the resize-handle gate stay provably
@@ -554,7 +559,11 @@ const SortableSection: Component<{
   flatIndexOf: ReadonlyMap<TerminalId, number>;
   onClusterDrop: (labels: readonly string[]) => void;
 }> = (props) => {
-  const sortable = createSortable(props.group.name);
+  // The drag scope registers ONE id for this component's lifetime, so the
+  // section's name is read ONCE, deliberately: the sections are rendered from a
+  // `<For keyed={(group) => group.name}>`, so this instance IS that name and can
+  // never be handed another one.
+  const sortable = createSortable(untrack(() => props.group.name));
   return (
     // Each section ships its OWN inner drag scope for its clusters — giving
     // the nest two isolated levels: a cluster physically cannot land in
@@ -880,7 +889,10 @@ const SortableCluster: Component<{
   cluster: DockBranchCluster;
   flatIndexOf: ReadonlyMap<TerminalId, number>;
 }> = (props) => {
-  const sortable = createSortable(props.cluster.label);
+  // Read ONCE, for `SortableSection`'s reason: the clusters are rendered from a
+  // `<For keyed={(cluster) => cluster.label}>` and the drag scope registers one
+  // id per owner, so this instance IS that label for as long as it lives.
+  const sortable = createSortable(untrack(() => props.cluster.label));
   const focus = useDockFocus();
   return (
     <DockCluster
@@ -929,7 +941,10 @@ const DockSubRow: Component<{
   tileId: TerminalId;
   onSelect: (id: TerminalId) => void;
 }> = (props) => {
-  const drag = useDockRowDrag(props.row.id);
+  // Read ONCE: the drag scope registers this row's id for the component's
+  // lifetime, and the sub rows are rendered from a `<For keyed={(sub) =>
+  // sub.id}>`, so this instance IS that split.
+  const drag = useDockRowDrag(untrack(() => props.row.id));
   return (
     <SubTerminalRow
       row={props.row}
@@ -968,7 +983,7 @@ const DockRow: Component<{
   flatIndex: number;
 }> = (props) => {
   const tileStore = useTileStore();
-  const combined = createDockRowData(props.id);
+  const combined = createDockRowData(() => props.id);
   const modHeld = useModHeld();
   const rowBag = useDockRowBag();
   return (
@@ -978,7 +993,7 @@ const DockRow: Component<{
         // memo, and a memo re-created on every prop read either accumulates on
         // this owner or freezes the row at first paint. See `useDockRowBag`.
         const bag = rowBag({
-          id: props.id,
+          id: () => props.id,
           combined: c,
           bucket: () => props.bucket,
           pipBucket: () => props.pip,
@@ -986,8 +1001,11 @@ const DockRow: Component<{
         });
         // Registered HERE, inside the `<Show>`, and not in the component body:
         // the row's draggable and droppable then live exactly as long as the
-        // element they measure, and leave the drag scope with it.
-        const drag = useDockRowDrag(props.id);
+        // element they measure, and leave the drag scope with it. The id is
+        // read ONCE — the scope registers it for the row's lifetime, and rows
+        // come from a `<For keyed={(row) => row.id}>`, so this instance IS that
+        // terminal.
+        const drag = useDockRowDrag(untrack(() => props.id));
         return (
           <DockRowView
             {...bag}
@@ -1117,7 +1135,7 @@ const RailChip: Component<{
 }> = (props) => {
   const store = useTerminalStore();
   const tileStore = useTileStore();
-  const combined = createDockRowData(props.id);
+  const combined = createDockRowData(() => props.id);
   // The active highlight goes through the SAME fold every other dock row uses
   // (`isActiveRow`, which reads the tile registry, so a focused sleeping tile
   // reads as the active row); unread is terminal-attention, stays on the

@@ -170,10 +170,20 @@ export function createSurfaceHealthRegistry(
   >();
   // Bumped on every add/remove so `health` re-folds on membership change.
   // `equals: false` makes each bump a distinct notification even though the
-  // value is constant. `ownedWrite`: enrolment HAPPENS in an owned scope by
-  // design — every birth site calls `enroll` from a component body or a
-  // `createRoot` (that is what gives the registration an owner to be dropped
-  // by), so this internal bump intentionally accepts in-scope writes.
+  // value is constant.
+  //
+  // `ownedWrite`, DELIBERATELY and permanently — the guide's own case, "an
+  // internal signal that intentionally accepts in-scope writes". Enrolment is not
+  // a delivery that could be moved to the effect phase the way a stream's frames
+  // were: `enroll` registers in the CALLER's owned scope because that owner is
+  // what retracts it (the `onCleanup` below), so the registration and this
+  // notification are one act performed from a component body. Deferring the bump
+  // would make `health()` describe a roster one flush older than the components
+  // currently mounted — a gate that renders ready over a sub nobody has counted
+  // yet — and splitting the bump from the `entries.set` would let the two
+  // disagree. The counter is internal (no consumer can write it), carries no
+  // value, and the matching DROP is already exempt (a write during disposal is
+  // not an owned-scope write).
   const [membership, bumpMembership] = createSignal(0, {
     equals: false,
     ownedWrite: true,

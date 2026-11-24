@@ -6,10 +6,10 @@
  * source can be anything (a server stream wrapped in createSubscription,
  * a derivation from a list-of-records subscription, a static array). Per-key
  * subscriptions are managed via `mapArray` so SolidJS handles the lifecycle:
- * when a key leaves the set, its reactive owner is disposed, the per-key
- * subscription's `onCleanup` fires, the AbortController aborts, and the
- * server stream tears down. No manual Map / version signals / abort plumbing
- * required at the call site.
+ * when a key leaves the set, its reactive owner is disposed, the cleanup the
+ * per-key subscription's own effect returned interrupts its fiber, and the stream's
+ * finalizers tear the server subscription down. No manual Map / version signals /
+ * abort plumbing required at the call site.
  *
  * `valueSource` is a typed member ref (the collection's per-key `get`) plus a
  * `keyToInput` adapter — the input shape per key varies by member (some take
@@ -99,9 +99,10 @@ export function useCollection<Name extends string, K, T, I>(
 ): UseCollectionResult<K, T> {
   const keys = createMemo<K[]>(() => options.keys());
 
-  // mapArray creates a reactive owner per key. When a key leaves, its
-  // owner is disposed → the per-key sub's onCleanup → AbortController abort
-  // → server stream closes. No manual teardown.
+  // mapArray creates a reactive owner per key, and each per-key subscription opens
+  // its fiber in THAT owner's effect phase. When a key leaves, the owner is
+  // disposed → the effect's returned cleanup interrupts the fiber → the stream's
+  // finalizers close the server subscription. No manual teardown.
   const perKey = mapArray(keys, (key) => {
     const sub = createSubscription(
       unenrolledStreamCall(options.valueSource, options.keyToInput(key), {
@@ -351,11 +352,12 @@ export function useCollectionDeltas<Name extends string, K, T>(
   // Every read inside the frame loop goes through it: the loop is deciding what to
   // write, not rendering, so tracking there would be noise at best.
   const held = unwrap(dict);
-  // `ownedWrite`: the key list is written by the frame loop, which can run
-  // SYNCHRONOUSLY inside the scope that created the view (a fiber whose first frames
-  // are already available emits before `createStreamLifecycle` returns). It is
-  // internal state driven from the wire, never a component writing its own state.
-  const [order, setOrder] = createSignal<K[]>([], { ownedWrite: true });
+  // The arrival-order key list. A plain signal: the frame loop is the only writer,
+  // and `createStreamLifecycle` opens the fiber from the EFFECT PHASE, so no frame
+  // — not even one a fiber has ready before its first async boundary — is ever
+  // applied inside the scope that created this view. Nothing here writes reactive
+  // state in an owned scope, so no `ownedWrite` is needed on this or on the store.
+  const [order, setOrder] = createSignal<K[]>([]);
 
   const folds = new Set<FoldSlot<K, T>>();
   /** Whether a full-set frame has been applied — i.e. whether the held store is a

@@ -99,6 +99,7 @@ vi.mock("./useTerminalStore", () => {
       },
       focusedTerminalId: () => roots()[0] ?? null,
       activate: vi.fn(),
+      planActivate: vi.fn(() => () => {}),
       forgetFromMru: vi.fn(),
       reset: vi.fn(),
       setActiveSilently: vi.fn(),
@@ -112,12 +113,12 @@ vi.mock("./useSubPanel", async (importOriginal) => {
   const actual = await importOriginal<typeof import("./useSubPanel")>();
   return {
     ...actual,
-    // The REAL `repairTileTabs` stays — it is the eviction cleanup under test's
-    // own path; only the singleton it drives is stubbed.
+    // The REAL `planTileTabsRepair` stays — it is the eviction cleanup under
+    // test's own path; only the singleton it drives is stubbed.
     useSubPanel: () =>
       ({
-        collapsePanel: vi.fn(),
-        collapsePanelChrome: vi.fn(),
+        planCollapsePanel: vi.fn(() => () => {}),
+        planCollapsePanelChrome: vi.fn(() => () => {}),
         peekSubPanel: () => ({
           collapsed: false,
           panelSize: 0.3,
@@ -125,7 +126,7 @@ vi.mock("./useSubPanel", async (importOriginal) => {
           refocusNonce: 0,
         }),
         setActiveSubTab: vi.fn(),
-        selectSubTab: vi.fn(),
+        planSelectSubTab: vi.fn(() => () => {}),
         requestRefocus: vi.fn(),
         removePanel: vi.fn(),
         togglePanel: vi.fn(),

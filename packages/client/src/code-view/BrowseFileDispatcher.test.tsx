@@ -34,10 +34,14 @@ afterEach(() => {
 const show = (path: string, content: string): HTMLElement => {
   const host = document.createElement("div");
   document.body.append(host);
+  // Built once, here: written inline the comment view would be rebuilt on
+  // every read of the provider's `value` prop (a call expression compiles to
+  // a getter).
+  const comments = createCommentView();
   dispose = render(
     () => (
       // The viewer is drawn inside the view that holds its comment state.
-      <CommentView value={createCommentView()}>
+      <CommentView value={comments}>
         <BrowseFileDispatcher
           at={null}
           open={null}
@@ -92,11 +96,13 @@ describe("a drawn document, as the terminal it hangs on comes and goes", () => {
     const [at, setAt] = createSignal<FileAt>(null);
     const host = document.createElement("div");
     document.body.append(host);
+    // One comment view, handed over as it is — see `show`.
+    const comments = createCommentView();
     dispose = render(
       () => (
         // Commenting asks whether its pane is shown, as every pane does.
         <Shown value={() => true}>
-          <CommentView value={createCommentView()}>
+          <CommentView value={comments}>
             <BrowseFileDispatcher
               at={at()}
               open={null}

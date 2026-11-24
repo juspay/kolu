@@ -48,7 +48,13 @@ export function attachWebGL(
 ): WebglHandle {
   let webgl: WebglAddon | null = null;
   let webglCanvas: HTMLCanvasElement | null = null;
-  const [hasWebgl, setHasWebgl] = createSignal(false);
+  // `ownedWrite`: an internal signal whose writers are imperative by
+  // construction — the initial `load()` the caller drives at the bottom of this
+  // factory, which runs inside the caller's own owner (`<Xterm>`'s ready
+  // callback, re-entered with `runWithOwner`), plus xterm's context-loss
+  // listener and the disposal `unload`. The in-scope seed is the point: the
+  // handle this factory returns must already report the context it just took.
+  const [hasWebgl, setHasWebgl] = createSignal(false, { ownedWrite: true });
 
   function load() {
     if (webgl) return;

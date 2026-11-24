@@ -25,7 +25,13 @@ import { toError } from "@kolu/surface/run-stream";
 import { Effect } from "effect";
 import { DEFAULT_WORK_CODE_VIEW, type WorkCodeView } from "kolu-common/works";
 import type { WorkId } from "kolu-work";
-import { type Accessor, createEffect, createStore, produce } from "solid-js";
+import {
+  type Accessor,
+  createEffect,
+  createStore,
+  produce,
+  untrack,
+} from "solid-js";
 import { toast } from "solid-sonner";
 import { createSharedRoot } from "../createSharedRoot";
 import { type CodeLister, codeModeFor } from "../code-view/codeLister";
@@ -113,26 +119,61 @@ function write(work: WorkId, next: WorkCodeView): void {
   );
 }
 
+/** THE WORK'S VIEW AS PLAIN VALUES — a copy, never the store's own objects,
+ *  so whoever compares against it reads no store property. */
+function plainView(work: WorkId): WorkCodeView {
+  const now = viewOf(work);
+  return now.selectedFileByMode === undefined
+    ? { codeMode: now.codeMode }
+    : {
+        codeMode: now.codeMode,
+        selectedFileByMode: { ...now.selectedFileByMode },
+      };
+}
+
 /** A WORK'S CODE VIEW STATE — the interface the view reads, for `work`.
- *  `lister` is who lists the work's root, for the one browse-only rule. */
+ *  `lister` is who lists the work's root, for the one browse-only rule.
+ *
+ *  THE WRITERS READ NOTHING. `setSelectedFile` and `setCodeMode` are called
+ *  from the Code tab's EFFECT PHASE as well as from clicks (a view clears a
+ *  selection its tree no longer holds, and lands a front-door open, there),
+ *  where no reactive state may be read — so the record they build the next
+ *  one from is kept in a plain field here instead of read back out of the
+ *  store. It is seeded once, kept by the effect below (this browser's own
+ *  write, a frame from kolu-server, another face's write), and advanced by
+ *  each write as it goes: a store write is not visible to a read until the
+ *  next flush, so two writes in one frame would otherwise both build on the
+ *  same old record. */
 export function workCodeState(
   work: WorkId,
   lister: Accessor<CodeLister | null>,
 ): CodeViewState {
   forgetGoneWorks();
+  // READ ONCE: the record the writers start from. Every one after it arrives
+  // through the effect below or through a write of this face's own.
+  let standing = untrack(() => plainView(work));
+  createEffect(
+    () => plainView(work),
+    (now) => {
+      standing = now;
+    },
+  );
+  const record = (next: WorkCodeView): void => {
+    standing = next;
+    write(work, next);
+  };
   return {
     codeMode: () => codeModeFor(lister(), viewOf(work).codeMode),
     setCodeMode: (mode) => {
-      const cur = viewOf(work);
-      if (cur.codeMode !== mode) write(work, { ...cur, codeMode: mode });
+      if (standing.codeMode === mode) return;
+      record({ ...standing, codeMode: mode });
     },
     selectedFile: (mode) => viewOf(work).selectedFileByMode?.[mode] ?? null,
     setSelectedFile: (mode, path) => {
-      const cur = viewOf(work);
-      const next = selectionWith(cur.selectedFileByMode, mode, path);
+      const next = selectionWith(standing.selectedFileByMode, mode, path);
       if (next === "unchanged") return;
-      write(work, {
-        codeMode: cur.codeMode,
+      record({
+        codeMode: standing.codeMode,
         ...(next !== undefined && { selectedFileByMode: next }),
       });
     },

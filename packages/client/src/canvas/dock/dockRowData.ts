@@ -3,7 +3,7 @@
 import type { TerminalMetadata } from "@kolu/padi-client/surface";
 import { cwdBasename } from "@kolu/terminal-vocab/terminalKey";
 import type { TerminalId } from "kolu-common/surface";
-import { createMemo } from "solid-js";
+import { type Accessor, createMemo } from "solid-js";
 import { annotationLine } from "../../intent/text";
 import {
   pairDisplayRow,
@@ -12,13 +12,19 @@ import {
 import { useTerminalStore } from "../../terminal/useTerminalStore";
 
 /** Build the combined row value once per consumer, returning `null` until both
- * the display projection and metadata record are available. */
+ * the display projection and metadata record are available.
+ *
+ * The id arrives as an ACCESSOR: every caller holds it as a prop, and a prop
+ * read in a component body is an untracked read of reactive state. Reading it
+ * inside the memo is the honest shape as well — a needs-you entry keeps its
+ * identity while the TILE it hangs under changes (a blocked split can be
+ * re-homed), so the pairing follows the id instead of snapshotting it. */
 export function createDockRowData(
-  id: TerminalId,
+  id: Accessor<TerminalId>,
 ): () => { info: TerminalDisplayInfo; meta: TerminalMetadata } | null {
   const store = useTerminalStore();
   return createMemo(() =>
-    pairDisplayRow(store.getDisplayInfo(id), store.getMetadata(id)),
+    pairDisplayRow(store.getDisplayInfo(id()), store.getMetadata(id())),
   );
 }
 

@@ -104,12 +104,17 @@ type LinkHandlers = {
  *  a11y lint would expect a role for.
  *
  *  Stops the anchor/copy bubble so a nested control in a clickable host slot
- *  (dock card, switcher card) doesn't double-fire that slot's handler. The
- *  cleanup is owned by the calling reactive scope (Solid `onCleanup`). */
+ *  (dock card, switcher card) doesn't double-fire that slot's handler.
+ *
+ *  RETURNS its own unbinder instead of registering `onCleanup` itself. Every
+ *  caller binds from a `ref` callback — the only place the element exists —
+ *  and `onCleanup` there is CLEANUP_IN_FORBIDDEN_SCOPE in Solid 2 (it
+ *  throws). So the lifetime is handed back: the caller records the unbinder in
+ *  its component body and disposes it from an `onCleanup` registered there. */
 export function bindMarkdownLinks(
   el: HTMLElement,
   handlers: LinkHandlers,
-): void {
+): () => void {
   const onClick = (e: MouseEvent) => {
     const target = e.target as Element | null;
     if (!target) return;
@@ -213,16 +218,22 @@ export function bindMarkdownLinks(
     }
   };
   el.addEventListener("click", onClick);
-  onCleanup(() => el.removeEventListener("click", onClick));
+  return () => el.removeEventListener("click", onClick);
 }
 
 /** Handle interactive bits inside the rendered Markdown: the click-dispatch
  *  seam (`bindMarkdownLinks`) plus a `pointerdown` bubble-stop so a nested
  *  control in a clickable host slot (dock card, switcher card) doesn't
  *  double-fire that slot's handler on press. (The preview is read-only;
- *  task-list checkboxes render as presentational state.) */
-function bindInteractions(el: HTMLElement, handlers: LinkHandlers): void {
-  bindMarkdownLinks(el, handlers);
+ *  task-list checkboxes render as presentational state.)
+ *
+ *  Returns one unbinder for both bindings, for the same reason
+ *  `bindMarkdownLinks` does: this runs from the host's `ref` callback. */
+function bindInteractions(
+  el: HTMLElement,
+  handlers: LinkHandlers,
+): () => void {
+  const unbindLinks = bindMarkdownLinks(el, handlers);
   const onPointerDown = (e: Event) => {
     const target = e.target as Element | null;
     if (target?.closest?.("a, [data-md-copy], [data-md-code-action]")) {
@@ -230,7 +241,10 @@ function bindInteractions(el: HTMLElement, handlers: LinkHandlers): void {
     }
   };
   el.addEventListener("pointerdown", onPointerDown);
-  onCleanup(() => el.removeEventListener("pointerdown", onPointerDown));
+  return () => {
+    unbindLinks();
+    el.removeEventListener("pointerdown", onPointerDown);
+  };
 }
 
 export const Markdown: Component<{
@@ -383,11 +397,22 @@ export const Markdown: Component<{
     },
   );
 
+  // The interaction bindings' lifetime, owned HERE rather than in the `ref`
+  // callback below: `onCleanup` inside a ref callback is
+  // CLEANUP_IN_FORBIDDEN_SCOPE (Solid 2 throws), so the ref records the
+  // unbinder and the component body disposes it. `<Host>` swaps its tag when
+  // the variant changes, so a second ref call unbinds the element it replaces
+  // first — the discarded node's listeners die with it, but the record must
+  // not keep naming a node that is gone.
+  let unbindInteractions: (() => void) | undefined;
+  onCleanup(() => unbindInteractions?.());
+
   const Host = dynamic(() => (variant() === "inline" ? "span" : "div"));
   return (
     <Host
-      ref={(el: HTMLElement) =>
-        bindInteractions(el, {
+      ref={(el: HTMLElement) => {
+        unbindInteractions?.();
+        unbindInteractions = bindInteractions(el, {
           get onNavigateRelative() {
             return props.onNavigateRelative;
           },
@@ -400,8 +425,8 @@ export const Markdown: Component<{
           get onInlineCode() {
             return props.inlineCode?.onPress;
           },
-        })
-      }
+        });
+      }}
       class="kolu-md"
       data-md-variant={variant()}
       innerHTML={html()}

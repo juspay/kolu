@@ -71,7 +71,10 @@ export type SharedDockRowProps = Pick<
 /** Build the shared half of a row's props. Call from a component body; call the
  *  returned function ONCE per row, inside the `<Show>` that has the record. */
 export function useDockRowBag(): (input: {
-  id: TerminalId;
+  /** The row's terminal, as an accessor: the bag is built inside the row's
+   *  `<Show>`, and reading a prop there is an untracked read of reactive
+   *  state — so the id is read where it is used, like every other input. */
+  id: Accessor<TerminalId>;
   /** The live record and its slow display projection, already paired. */
   combined: Accessor<{ info: TerminalDisplayInfo; meta: TerminalMetadata }>;
   /** The ORDER bucket — `data-bucket`. */
@@ -87,9 +90,9 @@ export function useDockRowBag(): (input: {
     // ONE memo per row, created here in the row's own owner — see note 1.
     const pip = useStatePip(
       encActiveHost,
-      () => input.id,
+      input.id,
       () => input.combined().meta,
-      () => store.isUnread(input.id),
+      () => store.isUnread(input.id()),
       input.pipBucket,
     );
     // MEMOIZED, and this is the "once per row" case rather than the per-read one
@@ -116,7 +119,9 @@ export function useDockRowBag(): (input: {
       }),
     );
     return {
-      id: input.id,
+      get id() {
+        return input.id();
+      },
       get pip() {
         return pip();
       },
@@ -130,7 +135,7 @@ export function useDockRowBag(): (input: {
         return facts().model;
       },
       get active() {
-        return isActiveRow(input.id);
+        return isActiveRow(input.id());
       },
       get label() {
         const c = input.combined();
@@ -151,7 +156,7 @@ export function useDockRowBag(): (input: {
           <span data-testid="dock-row-name" class="min-w-0 truncate">
             {renderRowLabel(markdown)}
           </span>
-          <WorkMark terminal={fleetTerminalRef(encActiveHost(), input.id)} />
+          <WorkMark terminal={fleetTerminalRef(encActiveHost(), input.id())} />
         </span>
       ),
       get subline() {

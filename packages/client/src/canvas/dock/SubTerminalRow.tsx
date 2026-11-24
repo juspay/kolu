@@ -49,7 +49,7 @@ export const SubTerminalRow: Component<{
 }> = (props) => {
   const store = useTerminalStore();
   const rowRecency = useRowRecency();
-  const tile = createDockRowData(props.tileId);
+  const tile = createDockRowData(() => props.tileId);
   const meta = () => store.getMetadata(props.row.id);
   const unread = () => store.isUnread(props.row.id);
   return (

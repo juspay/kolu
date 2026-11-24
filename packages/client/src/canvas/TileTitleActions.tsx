@@ -181,9 +181,12 @@ const TileTitleActions: Component<{
                 // The agent indicator is an Inspector entry point — the agent's
                 // metadata lives on the Inspector tab. Select it explicitly
                 // before revealing, otherwise a fresh terminal (whose Code tab
-                // is the default surface) would open on Code instead.
-                rightPanel.showInspector();
-                rightPanel.reveal();
+                // is the default surface) would open on Code instead. Both
+                // calls NAME this tile: `setActiveSilently` above is staged, so
+                // a panel verb that read the focus itself would still act on
+                // the tile the click left.
+                rightPanel.showInspector(props.id);
+                rightPanel.reveal(props.id);
               })
             }
             title="Open inspector"

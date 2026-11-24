@@ -37,10 +37,13 @@ beforeEach(() => {
 });
 
 /** Count how many times a reactive read of `fn` re-runs, driving `steps`
- *  between counts. Returns the count after each step. */
+ *  between counts. Returns the count after each step.
+ *
+ *  The owner holds the reader and nothing else: the steps run outside it, as
+ *  the app's writes do (a write inside an owned scope is a Solid 2 error). */
 function countReruns(fn: () => unknown, steps: readonly (() => void)[]) {
-  return createRoot((dispose) => {
-    let runs = 0;
+  let runs = 0;
+  const dispose = createRoot((disposeRoot) => {
     createEffect(
       () => {
         fn();
@@ -48,14 +51,15 @@ function countReruns(fn: () => unknown, steps: readonly (() => void)[]) {
       },
       () => {},
     );
-    const after: number[] = [];
-    for (const step of steps) {
-      step();
-      after.push(runs);
-    }
-    dispose();
-    return after;
+    return disposeRoot;
   });
+  const after: number[] = [];
+  for (const step of steps) {
+    step();
+    after.push(runs);
+  }
+  dispose();
+  return after;
 }
 
 function fixture(initial: Partial<Omit<HostMarks, "unseenFinished">> = {}) {

@@ -4,8 +4,7 @@
  *  Consumers import only this module. The three internal modules
  *  (gestures, transforms, coordinates) are implementation details. */
 
-import { type Accessor, onCleanup, createSignal } from "solid-js";
-import { createResizeObserver } from "@solid-primitives/resize-observer";
+import { type Accessor, createSignal } from "solid-js";
 import { activeScope } from "../../hostScope/hostScopes";
 import type { TileLayout } from "../TileLayout";
 import { animatePan } from "./animatedPan";
@@ -58,6 +57,14 @@ const [observedSize, setObservedSize] = createSignal<{
   width: number;
   height: number;
 }>();
+/** Size observer for the current container — created in `setContainerRef`,
+ *  disconnected by `detachSizeObserver`. A bare observer rather than
+ *  `createResizeObserver`: the attach happens in a ref callback, which may
+ *  not register a cleanup or create a primitive. */
+let sizeObserver: ResizeObserver | null = null;
+/** Last delivered measurement at whole-pixel resolution — the dedupe that
+ *  keeps sub-pixel jitter from notifying every size reader. */
+let observedPx: { width: number; height: number } | null = null;
 /** Cleanup function for the current gesture listeners. */
 let cleanupGestures: (() => void) | null = null;
 /** In-flight pan animation (if any) — cancelled by any gesture or
@@ -156,9 +163,18 @@ export interface CanvasViewport {
   panX: Accessor<number>;
   panY: Accessor<number>;
   zoom: Accessor<number>;
-  /** Set container ref — installs gesture listeners. The caller answers the
-   *  two `GesturePolicy` facts the gesture layer can't see for itself. */
+  /** Set container ref — observes the element's size and installs gesture
+   *  listeners. The caller answers the two `GesturePolicy` facts the gesture
+   *  layer can't see for itself, and — because a `ref` callback may register
+   *  no cleanup — pairs this with `releaseContainer(el)` in its component
+   *  body's `onCleanup`. */
   setContainerRef: (el: HTMLDivElement, policy: GesturePolicy) => void;
+  /** Detach a container attached by `setContainerRef`: drops its size
+   *  observer and gesture listeners, aborts transient input, and forgets the
+   *  measurement (`mounted()` goes false). A no-op for an element that is no
+   *  longer the current container, so a late unmount can't tear down the
+   *  container that replaced it. */
+  releaseContainer: (el: HTMLDivElement) => void;
   /** Divide a screen-space delta by zoom for canvas-space positioning. */
   normalizeDelta: (dx: number, dy: number) => { dx: number; dy: number };
   /** Pan so a specific tile is centered. Animates over ~150ms. Cancels on
@@ -210,24 +226,37 @@ export interface CanvasViewport {
   cameraSettled: Accessor<boolean>;
 }
 
+/** Attach the canvas container: observe its size and install gestures.
+ *
+ *  Called from the canvas element's `ref`, which is a ref callback — a scope
+ *  that may neither register an `onCleanup` nor create a reactive primitive.
+ *  So the size is watched by a bare `ResizeObserver` this module owns (rather
+ *  than `createResizeObserver`, which registers its own cleanup and effect),
+ *  and the teardown is `releaseContainer`, which the canvas component body
+ *  registers against its own owner. */
 function setContainerRef(el: HTMLDivElement, policy: GesturePolicy) {
+  // A container SWAP drops the old element's listeners and queued delta but
+  // keeps the last measurement and any in-flight tween: the new element is
+  // measured a frame later, and `mounted()` must not blink false in between.
   cleanupGestures?.();
+  detachSizeObserver();
   discardPendingGesture();
   containerEl = el;
   // A mount-time read can still see Corvu's temporary equal-width panels.
   // The first observer delivery follows layout, so initial placement waits for
   // the same authoritative measurement used for every subsequent resize.
-  createResizeObserver(el, ({ width, height }) =>
-    setObservedSize({ width, height }),
-  );
-  onCleanup(() => {
-    if (containerEl !== el) return;
-    cleanupGestures?.();
-    cleanupGestures = null;
-    abortTransientInput();
-    containerEl = null;
-    setObservedSize(undefined);
+  sizeObserver = new ResizeObserver((entries) => {
+    const rect = entries[entries.length - 1]?.contentRect;
+    if (!rect) return;
+    // Only a measurement that differs at whole-pixel resolution is news —
+    // sub-pixel jitter would otherwise re-notify every reader of the size.
+    const width = Math.round(rect.width);
+    const height = Math.round(rect.height);
+    if (observedPx?.width === width && observedPx.height === height) return;
+    observedPx = { width, height };
+    setObservedSize({ width: rect.width, height: rect.height });
   });
+  sizeObserver.observe(el);
   cleanupGestures = installGestures(
     el,
     {
@@ -253,6 +282,26 @@ function setContainerRef(el: HTMLDivElement, policy: GesturePolicy) {
     },
     policy,
   );
+}
+
+function detachSizeObserver() {
+  sizeObserver?.disconnect();
+  sizeObserver = null;
+  observedPx = null;
+}
+
+/** Release the container `setContainerRef` attached — the canvas component
+ *  body's `onCleanup` half of that call, because a ref callback may register
+ *  no cleanup of its own. Guarded on identity: a late unmount of a REPLACED
+ *  element must not tear down the container that replaced it. */
+function releaseContainer(el: HTMLDivElement) {
+  if (containerEl !== el) return;
+  cleanupGestures?.();
+  cleanupGestures = null;
+  detachSizeObserver();
+  abortTransientInput();
+  containerEl = null;
+  setObservedSize(undefined);
 }
 
 function normalizeDelta(dx: number, dy: number) {
@@ -362,6 +411,7 @@ const viewport: CanvasViewport = {
   panY,
   zoom,
   setContainerRef,
+  releaseContainer,
   normalizeDelta,
   centerOnTile,
   panTo,

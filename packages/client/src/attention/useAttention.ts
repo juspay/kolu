@@ -8,8 +8,8 @@
  *  into one place that applies the SAME rules on EVERY host.
  *
  *  The old split was by an accidental axis: whether you were looking at the host.
- *  Here that axis enters in exactly one spot — the `watched` predicate (a tile you
- *  are staring at is "seen"). Everything else is host-agnostic.
+ *  Here that axis enters in exactly one spot — the view's `isWatched` reading
+ *  (a tile you are staring at is "seen"). Everything else is host-agnostic.
  *
  *  ── The rules ──────────────────────────────────────────────────────────────
  *  Two attention states, read cross-host off the per-host attention frame
@@ -64,7 +64,13 @@ import {
 import "kolu-common/test-hooks";
 import { fleetTerminalRef, splitFleetTerminalRef } from "kolu-mcp/fleetRef";
 import { Effect, Semaphore } from "effect";
-import { createEffect, mapArray, onCleanup, untrack } from "solid-js";
+import {
+  createEffect,
+  createMemo,
+  mapArray,
+  onCleanup,
+  untrack,
+} from "solid-js";
 import { match } from "ts-pattern";
 import { notify } from "../attentionNotify";
 import { hostLabel } from "../host/hostChipTone";
@@ -93,7 +99,7 @@ import {
   preferencesArrived,
   setActiveHost,
 } from "../wire";
-import { createAttentionCore } from "./attentionCore";
+import { type AttentionView, createAttentionCore } from "./attentionCore";
 import { createAttend } from "./attend";
 import {
   conversationItem,
@@ -113,10 +119,7 @@ import {
 } from "./attentionMarks";
 import { registerAttentionJump } from "./attentionNav";
 import { isInFront } from "./attentionWatched";
-import {
-  conductorScreenShowing,
-  conductorScreensShowing,
-} from "./conductorScreens";
+import { conductorScreensShowing } from "./conductorScreens";
 import { attentionRecordOf } from "./savedAttention";
 import { useAttentionFacts } from "./useAttentionFacts";
 
@@ -145,7 +148,7 @@ export function useAttention(deps: AttentionDeps): {
   simulateAlert: (options?: { target?: "active" | "inactive" }) => void;
 } {
   const alertsEnabled = (): boolean => preferences().attentionAlerts;
-  const attend = createAttend(attentionChannels(alertsEnabled));
+  const attend = createAttend(attentionChannels());
 
   // Ask for OS-notification permission REACTIVELY off the same pref that gates
   // delivery — so turning attention on later still prompts, and re-runs are cheap
@@ -156,83 +159,74 @@ export function useAttention(deps: AttentionDeps): {
 
   const isActiveHost = (host: HostKey): boolean => sameHost(host, activeHost());
 
-  // IN FRONT OF THE PERSON: the canvas on screen and the shown host's focused
-  // pane, or a screen of the terminal showing in the Conductor — Look, or a
-  // live pane (`./attentionWatched.ts`). Untracked: asked mid-frame, inside a
-  // host's own effect, which must not re-run because a view changed.
-  const inFront = (host: HostKey, id: TerminalId): boolean =>
-    untrack(() =>
-      isInFront({
-        canvasShown: !conductorMode(),
-        activeHost: isActiveHost(host),
-        id,
-        focusedId: deps.focusedId(),
-        screenShowing: conductorScreenShowing(
-          fleetTerminalRef(encodeHostKey(host), id),
-        ),
-      }),
-    );
-  // "Seen with your eyes": in front of you while kolu has focus.
-  const watched = (host: HostKey, id: TerminalId): boolean =>
-    inFront(host, id) && document.hasFocus();
-
   /** Actually reach the user for one terminal: hand the item to the one path
    *  when `loud`, plus its unread mark on its own host's record when it is not
    *  in front of you. The `WHEN` gate lives in the engine — including that a
    *  terminal the Conductor drives is never delivered — and this is the
    *  terminal's own reading of the one path, shared with the simulate hook.
    *
-   *  The FUNNEL GUARD: both emission paths (the engine's `hooks.deliver`, fired
-   *  from a per-host `createEffect`, and `simulateAlert`) run through here, and the
-   *  body calls a caller-supplied dep (`activeSubject`). A throw from it must
-   *  NOT escape — from the engine path it would kill that host's attention
-   *  effect for the rest of its life; from simulate it would throw out of a
-   *  command action. Surface it and move on. */
-  function deliver(
-    host: HostKey,
-    id: TerminalId,
-    asking: boolean,
-    loud: boolean,
-  ): void {
+   *  It READS NOTHING REACTIVE: every fact it acts on — the subject, whether
+   *  alerts are on, whether the terminal is in front of you — was taken by
+   *  the reading that decided to deliver ({@link readAttentionView}), because
+   *  delivery itself runs in an effect's imperative phase.
+   *
+   *  The FUNNEL GUARD: both emission paths (the engine's fold, fired from a
+   *  per-host `createEffect`, and `simulateAlert`) run through here, and it
+   *  touches the notification seam and this browser's saved record. A throw
+   *  must NOT escape — from the engine path it would kill that host's
+   *  attention effect for the rest of its life; from simulate it would throw
+   *  out of a command action. Surface it and move on. */
+  function deliver(at: {
+    readonly host: HostKey;
+    readonly id: TerminalId;
+    readonly asking: boolean;
+    readonly loud: boolean;
+    readonly alertsEnabled: boolean;
+    readonly subject: TerminalSubject | undefined;
+    readonly inFront: boolean;
+  }): void {
     try {
-      const encHost = encodeHostKey(host);
-      // Untracked AS A WHOLE: every reading here — the subject, the host's
-      // label, whether the alert is loud, whether the terminal is in front of
-      // you — is taken at the INSTANT of delivery. Delivery runs from an
-      // effect's imperative phase and from a command; neither follows them.
-      untrack(() => {
-        const rich = isActiveHost(host) ? deps.activeSubject(id) : undefined;
-        if (loud)
-          attend.raise([
+      const encHost = encodeHostKey(at.host);
+      if (at.loud)
+        attend.raise(
+          [
             terminalItem({
               encHost,
-              hostLabel: hostLabel(host),
-              id,
-              asking,
-              subject: rich,
+              hostLabel: hostLabel(at.host),
+              id: at.id,
+              asking: at.asking,
+              subject: at.subject,
             }),
-          ]);
-        // THE UNREAD MARK, on any host: a terminal that is not in front of you
-        // — on a host you are not on, behind the Conductor, or simply not the
-        // pane you are in. Raised on the host's record, not its view state:
-        // right after a page loads, padi's first frame can arrive before the
-        // host's view state exists, and that is the frame that carries a
-        // finish that happened while kolu was down.
-        if (!inFront(host, id)) attentionRecordOf(encHost).markUnread(id);
-      });
+          ],
+          at.alertsEnabled,
+        );
+      // THE UNREAD MARK, on any host: a terminal that is not in front of you
+      // — on a host you are not on, behind the Conductor, or simply not the
+      // pane you are in. Raised on the host's record, not its view state:
+      // right after a page loads, padi's first frame can arrive before the
+      // host's view state exists, and that is the frame that carries a
+      // finish that happened while kolu was down.
+      if (!at.inFront) attentionRecordOf(encHost).markUnread(at.id);
     } catch (err) {
       console.error("useAttention: attention delivery failed", err);
     }
   }
 
-  /** IS THE CONVERSATION IN FRONT OF THE HUMAN — its tab showing in a focused
-   *  kolu window. Untracked: it is read at the instant an alert is raised,
-   *  and a focus change must not re-run whatever reading raised it. */
-  const conductorInFront = (): boolean =>
-    untrack(conductorMode) && document.hasFocus();
-
   const workMap = useWorkMap();
   const needs = useNeedsYou();
+  /** WHAT THE BELL'S DELIVERY KNOWS ABOUT THE VIEW, taken with the reading
+   *  that may ring it: read in the feed's COMPUTE phase below and set just
+   *  before the fold. `observe` is synchronous, so a ring sees the facts its
+   *  own reading carried — and the delivery itself, which runs in the effect's
+   *  imperative phase, reads nothing reactive. */
+  let bellView: {
+    /** Is the conversation the view on screen? Whether the WINDOW has focus is
+     *  a DOM question, asked at the instant of the ring. */
+    readonly conductorShown: boolean;
+    /** The title of the work a typed reply belongs to, when it has one. */
+    readonly replyTitle: string | undefined;
+    readonly alertsEnabled: boolean;
+  } = { conductorShown: false, replyTitle: undefined, alertsEnabled: false };
   /** WHAT NEEDS YOU, handed to the one path.
    *
    *  A work waiting on you — a question, a green PR handed over — and a
@@ -244,21 +238,19 @@ export function useAttention(deps: AttentionDeps): {
    *  raises one. */
   const conductorBell = createConductorBell({
     deliver: ({ items, ownOpen, memory, reply }) => {
-      const inFront = conductorInFront();
-      attend.raise([
-        ...items.map((item) => workItem(item, inFront)),
-        ...(ownOpen === null ? [] : [conversationItem(ownOpen, inFront)]),
-        ...(memory === null ? [] : [memoryItem(memory, inFront)]),
-        ...(reply === null
-          ? []
-          : replyItems(
-              reply,
-              reply.work === null
-                ? undefined
-                : untrack(workMap).get(reply.work)?.title,
-              inFront,
-            )),
-      ]);
+      // IN FRONT OF THE HUMAN: the conversation on screen in a focused window.
+      const inFront = bellView.conductorShown && document.hasFocus();
+      attend.raise(
+        [
+          ...items.map((item) => workItem(item, inFront)),
+          ...(ownOpen === null ? [] : [conversationItem(ownOpen, inFront)]),
+          ...(memory === null ? [] : [memoryItem(memory, inFront)]),
+          ...(reply === null
+            ? []
+            : replyItems(reply, bellView.replyTitle, inFront)),
+        ],
+        bellView.alertsEnabled,
+      );
     },
   });
   const memoryNeed = useMemoryNeed();
@@ -268,25 +260,113 @@ export function useAttention(deps: AttentionDeps): {
       // Silence is not an empty list: before the server's first frame there is
       // nothing to compare against, and the real first frame is the baseline.
       if (asks === undefined) return null;
+      const works = workMap();
+      const reply = typedReply();
       return {
-        ...asks,
-        works: new Set(workMap().keys()),
-        needs: needs(),
-        memory: memoryNeed(),
-        reply: typedReply(),
+        reading: {
+          ...asks,
+          works: new Set(works.keys()),
+          needs: needs(),
+          memory: memoryNeed(),
+          reply,
+        },
+        // The view facts a ring would use, read HERE because the delivery runs
+        // in the imperative phase. Both are read UNTRACKED, as they always
+        // were at the instant of a ring: whether the conversation is on screen
+        // and whether alerts are on are not inputs of this feed — a view
+        // change or a flip of the switch must not re-fold a reading.
+        view: {
+          conductorShown: untrack(conductorMode),
+          replyTitle:
+            reply === null || reply === undefined || reply.work === null
+              ? undefined
+              : works.get(reply.work)?.title,
+          alertsEnabled: untrack(alertsEnabled),
+        },
       };
     },
     (frame) => {
       if (frame === null) return;
-      // The bell folds the frame it is handed; what it reads while doing so
+      bellView = frame.view;
+      // The bell folds the reading it is handed; what it reads while doing so
       // (what is already ringing) is not an input of this feed.
-      conductorBell.observe(frame);
+      conductorBell.observe(frame.reading);
     },
   );
 
   // WHO DRIVES EACH MEMBER TERMINAL — the one membership index the dock
   // mark, the tile's lock and the attention engine read, keyed by fleet ref.
   const membership = useMembership();
+
+  /** ONE HOST'S VIEW FACTS for the frame about to be folded — where the
+   *  person is looking, what the Conductor drives, whether alerts are on, and
+   *  the rich copy for the terminals this frame could deliver.
+   *
+   *  Called from a COMPUTE phase (or from a command), never from the fold
+   *  itself: the engine folds in an effect's imperative phase, where reading
+   *  reactive state is a strict-read defect, so every reading is taken here
+   *  and handed over as plain values.
+   *
+   *  UNTRACKED as a whole, exactly as these readings always were when the
+   *  fold asked for them mid-frame: a host's attention feed follows that
+   *  HOST'S FRAME. Which pane has focus, which host is on screen, who drives
+   *  what and whether alerts are on must not re-fold a frame that has not
+   *  moved. Whether the window has focus is a DOM question, not a reactive
+   *  one, and is still asked at the instant of the fold. */
+  const readAttentionView = (
+    encHost: string,
+    ids: readonly TerminalId[],
+  ): AttentionView =>
+    untrack(() => {
+      const host = decodeHostKey(encHost);
+      const active = isActiveHost(host);
+      const canvasShown = !conductorMode();
+      const focusedId = deps.focusedId();
+      const showing = new Set(conductorScreensShowing());
+      const driving = membership();
+      const alerts = alertsEnabled();
+      // The rich copy, for the active host's candidates only (a background
+      // host has none — see `AttentionDeps`). `activeSubject` is a
+      // caller-supplied dep that reads that host's terminal store: its throw
+      // costs one terminal its rich copy, never this host's whole feed.
+      const subjects = new Map<TerminalId, TerminalSubject>();
+      if (active)
+        for (const id of ids) {
+          try {
+            subjects.set(id, deps.activeSubject(id));
+          } catch (err) {
+            console.error("useAttention: reading a subject failed", err);
+          }
+        }
+      // IN FRONT OF THE PERSON: the canvas on screen and the shown host's
+      // focused pane, or a screen of the terminal showing in the Conductor —
+      // Look, or a live pane (`./attentionWatched.ts`).
+      const inFront = (id: TerminalId): boolean =>
+        isInFront({
+          canvasShown,
+          activeHost: active,
+          id,
+          focusedId,
+          screenShowing: showing.has(fleetTerminalRef(encHost, id)),
+        });
+      return {
+        alertsEnabled: alerts,
+        isActiveHost: active,
+        // "Seen with your eyes": in front of you while kolu has focus.
+        isWatched: (id) => inFront(id) && document.hasFocus(),
+        isDriven: (id) => drivenByConductor(driving, encHost, id),
+        deliver: (id, asking, loud) =>
+          deliver({
+            host,
+            id,
+            asking,
+            loud,
+            alertsEnabled: alerts,
+            subject: subjects.get(id),
+            inFront: inFront(id),
+          }),
+      };
+    });
 
   // The detect→fire ENGINE (`attentionCore`) — unit-tested off the wire. It owns
   // the per-host prev-frame, the fire-once latch, and the unseen-finished sets;
@@ -295,15 +375,6 @@ export function useAttention(deps: AttentionDeps): {
   // the dock marks are one saved record per host (`savedAttention`), so a page
   // loaded after a reload or a kolu restart carries on from the last one.
   const core = createAttentionCore({
-    alertsEnabled,
-    isActiveHost: (encHost) => isActiveHost(decodeHostKey(encHost)),
-    isWatched: (encHost, id) => watched(decodeHostKey(encHost), id),
-    // Untracked: asked mid-frame, inside a host's own effect, which must not
-    // re-run because some terminal's driver moved.
-    isDriven: (encHost, id) =>
-      drivenByConductor(untrack(membership), encHost, id),
-    deliver: (encHost, id, asking, loud) =>
-      deliver(decodeHostKey(encHost), id, asking, loud),
     writeMark: (encHost, unseenFinished) =>
       writeHostMarks(encHost, { unseenFinished }),
     // Host-addressed, through the host's record rather than its view state: a
@@ -334,27 +405,42 @@ export function useAttention(deps: AttentionDeps): {
   // so the FIRST frame is its baseline (no fire) and every later change diffs
   // and may fire.
   const observers = mapArray(markedHosts, (encHost) => {
+    // THE FRAME this host's engine is fed, or `null` for silence. A memo, so
+    // the fold below runs when the FRAME moves and not on any other tick of
+    // the store it is read from.
+    const feed = createMemo(() => {
+      const frame = hostFrame(encHost);
+      // Silence is not an empty frame — see `HostMarks.reported`.
+      if (!frame.reported) return null;
+      // Nor is a default an answer. A page resuming from what it saved can
+      // raise marks on its first frame, and whether it may is the user's
+      // **Attention alerts** setting — which reads the defaults (on) until
+      // the server's first preferences frame lands. Fed before then, a page
+      // would mark a user who had switched alerts off.
+      if (!preferencesArrived()) return null;
+      // The frame's own class map, handed straight over — the engine's type is
+      // a `Pick` of it, so there is no adapter object to mint per host per
+      // frame and no second name for the same two lists.
+      return frame.byClass;
+    });
     createEffect(
       () => {
-        const frame = hostFrame(encHost);
-        // Silence is not an empty frame — see `HostMarks.reported`.
-        if (!frame.reported) return null;
-        // Nor is a default an answer. A page resuming from what it saved can
-        // raise marks on its first frame, and whether it may is the user's
-        // **Attention alerts** setting — which reads the defaults (on) until
-        // the server's first preferences frame lands. Fed before then, a page
-        // would mark a user who had switched alerts off.
-        if (!preferencesArrived()) return null;
-        // The frame's own class map, handed straight over — the engine's type is
-        // a `Pick` of it, so there is no adapter object to mint per host per
-        // frame and no second name for the same two lists.
-        return frame.byClass;
+        const byClass = feed();
+        if (byClass === null) return null;
+        // The view this frame is folded against — read HERE, in the compute
+        // phase, for every terminal the frame could deliver (the two classes
+        // the engine fires on).
+        return {
+          byClass,
+          view: readAttentionView(encHost, [
+            ...byClass.asking,
+            ...byClass.finished,
+          ]),
+        };
       },
-      (byClass) => {
-        if (byClass === null) return;
-        // The engine's own reads (what is watched, what the Conductor drives,
-        // this host's saved memory) happen as it folds the frame it is handed.
-        core.observe(encHost, byClass);
+      (next) => {
+        if (next === null) return;
+        core.observe(encHost, next.byClass, next.view);
       },
     );
     onCleanup(() => core.forgetHost(encHost));
@@ -532,7 +618,13 @@ export function useAttention(deps: AttentionDeps): {
     if (pick === undefined) return;
     const state = deps.activeAgentState(pick);
     const asking = state !== undefined && agentBucket(state) === "awaiting";
-    deliver(activeHost(), pick, asking, true);
+    // A command reads freely; it takes the same view every fold does, for the
+    // one terminal it picked, and raises through the same path.
+    readAttentionView(encodeHostKey(activeHost()), [pick]).deliver(
+      pick,
+      asking,
+      true,
+    );
   };
   window.__koluSimulateAlert = simulateAlert;
 

@@ -110,14 +110,20 @@ export function useDeepLinks(): void {
   const store = useTerminalStore();
   const rightPanel = useRightPanel();
 
-  // The one terminal navigation the settle effect is watching (null = idle).
-  const [pending, setPending] = createSignal<TerminalRoute | null>(null);
-  // The SAME fact as a plain variable, for the imperative guards that run in
-  // the turn a write is made (a command's supersession check, the backstop's
-  // "is this still my route?"): a setter's value only lands on the next
-  // microtask, so `pending()` would answer about the previous state there.
-  // Every write of one writes the other, in `routeToTerminal`,
-  // `disarmInFlightRoute` and the settle gate's enact arm.
+  // The ARM the settle gate and the 8s backstop watch: the terminal route this
+  // router was last pointed at. Only ever SET (`routeToTerminal`) — a verdict
+  // records itself in `armedRoute` below instead of clearing this, because the
+  // gate's own compute reads it and an effect that writes a source it reads
+  // re-runs on its own write, settling twice for one verdict. A stale value
+  // only re-triggers a compute that answers `wait`.
+  const [routeArm, armRoute] = createSignal<TerminalRoute | null>(null);
+  // WHETHER THAT ARM IS STILL IN FLIGHT, as a plain variable: the authority for
+  // the imperative guards that run in the turn a write is made (a command's
+  // supersession check, the backstop's "is this still my route?") — a setter's
+  // value only lands on the next microtask, so a signal would answer about the
+  // previous state there — AND for the gate's own compute, which must see a
+  // resolution without this router writing what it reads. Null = idle. Written
+  // by `routeToTerminal`, `disarmInFlightRoute` and the settle gate's enact arm.
   let armedRoute: TerminalRoute | null = null;
 
   /** A LINK TO A WORK, until the works mirror has it. A work id that reads as
@@ -125,25 +131,53 @@ export function useDeepLinks(): void {
    *  it was never on this kolu — and a link that silently lands on nothing is
    *  the defect a terminal link's "gone" toast exists to prevent. The works
    *  arrive one record at a time, so absence is a verdict only after the same
-   *  bound a terminal route waits for its host. */
-  const [pendingWork, setPendingWork] = createSignal<WorkId | null>(null);
+   *  bound a terminal route waits for its host.
+   *
+   *  The link carries a SEQUENCE, and the two effects below record the link
+   *  they ANSWERED in a plain variable rather than clearing the signal. An
+   *  effect that cleared the signal its own compute reads would re-run on its
+   *  own write — two flushes for one verdict — which is exactly what the
+   *  `armedRoute` mirror above avoids for a terminal route. A re-click is a new
+   *  sequence, so the same work can be linked twice. */
+  type WorkLink = { work: WorkId; seq: number };
+  let workLinkSeq = 0;
+  const [workLink, setWorkLink] = createSignal<WorkLink | null>(null);
+  /** The newest work link already answered — it arrived, or its bound expired. */
+  let answeredWorkSeq = 0;
+  function routeToWork(work: WorkId): void {
+    setWorkLink({ work, seq: ++workLinkSeq });
+  }
   const workMap = useWorkMap();
+  // The link LANDED: its work reached the mirror, so the bound below has
+  // nothing left to answer.
   createEffect(
     () => {
-      const id = pendingWork();
-      return id !== null && workMap().has(id);
+      const link = workLink();
+      return link !== null &&
+        link.seq > answeredWorkSeq &&
+        workMap().has(link.work)
+        ? link.seq
+        : 0;
     },
     (arrived) => {
-      if (arrived) setPendingWork(null);
+      if (arrived > 0) answeredWorkSeq = arrived;
     },
   );
   createEffect(
-    () => pendingWork() !== null,
-    (armed) => {
-      if (!armed) return;
-      // Started once per link, not again with every record that arrives.
+    () => {
+      const link = workLink();
+      return link !== null && link.seq > answeredWorkSeq ? link : null;
+    },
+    (link) => {
+      if (link === null) return;
+      // Started once per link, not again with every record that arrives: this
+      // compute answers the LINK, which does not change while it waits.
       const timer = setTimeout(() => {
-        setPendingWork(null);
+        // The work may have landed since — the arrival above marks the link
+        // answered without disturbing this one's source, so check at expiry
+        // (the terminal backstop's `armedRoute !== route` guard, same reason).
+        if (link.seq <= answeredWorkSeq) return;
+        answeredWorkSeq = link.seq;
         toast.error(
           "That piece of work isn't in kolu — it may have finished and been let go.",
         );
@@ -157,13 +191,14 @@ export function useDeepLinks(): void {
    *  right-panel tab. Calls NO mutating verb.
    *
    *  `target` carries the TARGET terminal's own facts — a split addresses its OWN
-   *  panel content and resolves its path against its OWN repo. The panel follows
-   *  the focused pane, so no containing-tile indirection is needed or wanted: a
-   *  `code` route on a split opens the split's panel showing the split's repo.
-   *  (Revealing the panel stays a tile-wide act — `reveal` uncollapses the tile's
-   *  panel / opens the drawer — which is why focusing first matters.) A null
-   *  repoRoot at a `code` enact is an internal invariant break (crash loudly), not
-   *  a reachable "no repo" path (that toasts from the backstop). */
+   *  panel content and resolves its path against its OWN repo: a `code` route on
+   *  a split opens the split's panel showing the split's repo. Every panel verb
+   *  is NAMED with the route's terminal rather than left to read the focused
+   *  pane, because the focus written a line earlier is only visible on the next
+   *  flush. (Revealing stays a tile-wide act — `reveal` uncollapses the named
+   *  pane's tile panel / opens the drawer.) A null repoRoot at a `code` enact is
+   *  an internal invariant break (crash loudly), not a reachable "no repo" path
+   *  (that toasts from the backstop). */
   function enact(route: TerminalRoute, target: TargetFacts): void {
     const id = route.terminalId;
     store.focusTerminal(id);
@@ -172,9 +207,12 @@ export function useDeepLinks(): void {
       .with({ kind: "inspector" }, () => {
         // `showInspector` only selects the tab — `reveal` is the separate
         // visibility action, so a collapsed desktop panel / closed touch drawer
-        // needs both to actually surface the Inspector.
-        rightPanel.showInspector();
-        rightPanel.reveal();
+        // needs both to actually surface the Inspector. Both are given the
+        // route's terminal: the focus written a line above only lands on the
+        // next flush, so a verb left to read the focused pane would act on the
+        // pane the user was on before the link.
+        rightPanel.showInspector(id);
+        rightPanel.reveal(id);
       })
       .with({ kind: "code" }, (r) => {
         if (target.gitKind !== "repo")
@@ -197,7 +235,7 @@ export function useDeepLinks(): void {
   /** Switch to the link's host first (switch-then-focus — the id must route
    *  against ITS host, never whatever padi is active), then arm the settle
    *  effect — ATOMICALLY, so the effect never runs against a half-updated
-   *  (new pending, old host) state. The switch is `selectHostTab`, so a link
+   *  (new arm, old host) state. The switch is `selectHostTab`, so a link
    *  followed while the Conductor is on screen lands on the terminal rather
    *  than behind the conversation. Also record the target as the deep-link
    *  focus intent, so a COLD-BOOT session restore picks it as the active tile
@@ -207,7 +245,7 @@ export function useDeepLinks(): void {
     selectHostTab(decodeHostKey(route.host));
     setDeepLinkFocusIntent(route.terminalId);
     armedRoute = route;
-    setPending(route);
+    armRoute(route);
   }
 
   /** Disarm an IN-FLIGHT terminal route: the armed command AND its hydration
@@ -220,19 +258,18 @@ export function useDeepLinks(): void {
    *  the router gave up and toasted; a command declared failed must not be
    *  half-honored by a later hydration). An already-ENACTED intent
    *  deliberately survives (`armedRoute` is null then): hydration must keep
-   *  preferring the view the user actually reached. Clearing `pending` also
-   *  disposes the 8s backstop timer via its effect's returned cleanup.
+   *  preferring the view the user actually reached. The 8s backstop timer is
+   *  not cancelled here — its own "is this still my route?" guard answers for
+   *  a disarmed route when it expires, which is what lets this run from the
+   *  settle gate's effect phase without writing the arm the gate reads.
    *
-   *  The guard asks the PLAIN MIRROR, never `pending()`: this runs from
+   *  The guard asks the PLAIN MIRROR, never `routeArm()`: this runs from
    *  commands (navigate, the traversal gate) that may have armed the route in
    *  the same synchronous turn, and a setter's value is only visible on the
    *  next microtask — the signal would still read the previous state. */
   function disarmInFlightRoute(): void {
     if (armedRoute === null) return;
     armedRoute = null;
-    // Both writes land in one update: consecutive setter calls share the same
-    // microtask batch, so no observer ever sees a half-disarmed pair.
-    setPending(null);
     setDeepLinkFocusIntent(null);
   }
 
@@ -263,7 +300,7 @@ export function useDeepLinks(): void {
    *  or a second link). Its writes land together — consecutive setter calls
    *  share one microtask batch.
    *
-   *  A COMMAND, not a derivation: it writes reactive state (`setPending`) and
+   *  A COMMAND, not a derivation: it writes reactive state (the route arm) and
    *  decides from plain guards, so it must never run in a TRACKING scope —
    *  there, a read of the state it writes would subscribe the caller to the
    *  very signals navigate writes and the app would busy-loop re-routing after
@@ -288,7 +325,7 @@ export function useDeepLinks(): void {
       .with({ kind: "settings" }, () => openSettings())
       // A work: the ONE route to a work, which every other face takes.
       .with({ kind: "work" }, ({ work, ask }) => {
-        setPendingWork(work);
+        routeToWork(work);
         showWork(work, ask);
       })
       .with({ kind: "host" }, ({ host }) => selectHostTab(decodeHostKey(host)))
@@ -342,11 +379,14 @@ export function useDeepLinks(): void {
   // mid-cold-boot because the list is still `pending`.
   createEffect(
     (): SettleVerdict => {
-      const route = pending();
-      if (!route) return WAIT;
+      const route = routeArm();
+      // The arm is only ever set, so this answers for the route STILL in
+      // flight: a resolved or disarmed one is idle the instant `armedRoute`
+      // says so, without a write back into the source this compute reads.
+      if (!route || route !== armedRoute) return WAIT;
       // Only act while the ACTIVE host IS the route's host. `setActiveHost`
       // re-windows the list sub, so a mismatch means either the switch hasn't
-      // landed (never happens — `routeToTerminal` writes host+pending in one
+      // landed (never happens — `routeToTerminal` writes host+arm in one
       // update) or the user has since navigated AWAY (a manual host-chip
       // switch). That is a SUPERSESSION — the effect disarms the command AND its
       // hydration intent via the one named spelling, so neither the enact, the
@@ -425,20 +465,19 @@ export function useDeepLinks(): void {
           );
         })
         .with({ kind: "enact" }, ({ route, target }) => {
-          // The ONLY non-disarming clear: an ENACTED route's intent survives so
-          // cold-boot hydration keeps the reached view. Clear `pending` FIRST (so a
-          // throwing enact can't leave the gate armed into a retry loop), then
-          // enact, then stamp the entry consumed — but ONLY after enact RETURNS. If
-          // a view seam in enact throws, the entry is left UNSTAMPED and retryable
-          // on reload, never durably stamped-but-un-enacted (the exact state #1900
-          // R1 prevents). Never `disarmResolved` here — that would clear the
-          // surviving intent.
+          // The ONLY non-disarming resolution: an ENACTED route's intent survives
+          // so cold-boot hydration keeps the reached view. Mark the route no
+          // longer in flight FIRST (so a throwing enact can't leave the gate
+          // armed into a retry loop), then enact, then stamp the entry consumed
+          // — but ONLY after enact RETURNS. If a view seam in enact throws, the
+          // entry is left UNSTAMPED and retryable on reload, never durably
+          // stamped-but-un-enacted (the exact state #1900 R1 prevents). Never
+          // `disarmResolved` here — that would clear the surviving intent.
           //
           // The enact itself runs at the settle that follows: it drives view seams
           // (focus, panel reveal, the Code tab) that consult reactive state, which
           // an effect callback is the wrong scope to read in.
           armedRoute = null;
-          setPending(null);
           onSettled(() => {
             enact(route, target);
             stampEntryRouted();
@@ -458,9 +497,9 @@ export function useDeepLinks(): void {
   // gated on `route.kind === "code"` so a terminal/inspector route that timed
   // out via the membership path never masquerades as a "no git repo".
   createEffect(
-    () => pending(),
+    () => routeArm(),
     (route) => {
-      if (!route) return;
+      if (!route || route !== armedRoute) return;
       const timer = setTimeout(() => {
         if (armedRoute !== route) return;
         disarmResolved(); // fault verdict — disarm + intent + stamp together

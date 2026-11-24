@@ -20,7 +20,6 @@
 import AgentDistroLogo from "@kolu/agent-distro/solid";
 import { activeArm } from "@kolu/padi-client/surface";
 import type { TerminalId } from "kolu-common/surface";
-import { makeEventListener } from "@solid-primitives/event-listener";
 import { createResizeObserver } from "@solid-primitives/resize-observer";
 import {
   type Component,
@@ -28,6 +27,7 @@ import {
   createMemo,
   createSignal,
   For,
+  onCleanup,
   Show,
 } from "solid-js";
 import { showsAmbientTips } from "../capabilities";
@@ -121,7 +121,6 @@ const TileTip: Component<{ id: TerminalId }> = (props) => {
         skill: PLUGIN_SKILLS[0],
       });
     },
-    quiet("not computed yet"),
     { equals: (a, b) => tipKey(a) === tipKey(b) },
   );
 
@@ -164,6 +163,23 @@ const TileTip: Component<{ id: TerminalId }> = (props) => {
     }
   };
 
+  // The tip is chrome: a press on it neither selects nor drags the tile, and
+  // does not take focus from the terminal (the chip types into it). Native
+  // listeners, so the press stops here — Solid's delegated handlers run at the
+  // document, after the tile's own listeners. The ref ATTACHES them (the press
+  // must be stopped from the first one, not a microtask later) and this body
+  // takes them off: a ref callback may not register a cleanup, which is what
+  // `makeEventListener` does.
+  let slot: HTMLElement | undefined;
+  const stopPress = (e: Event) => e.stopPropagation();
+  const stopDrag = (e: Event) => {
+    e.preventDefault();
+    e.stopPropagation();
+  };
+  onCleanup(() => {
+    slot?.removeEventListener("pointerdown", stopPress);
+    slot?.removeEventListener("mousedown", stopDrag);
+  });
   return (
     <div
       data-testid="tile-tip-slot"
@@ -174,16 +190,10 @@ const TileTip: Component<{ id: TerminalId }> = (props) => {
       // Above the terminal (the tab hangs over its top edge), below the find
       // bar (`z-10` in the body).
       class="relative z-[5] shrink-0 select-none"
-      // The tip is chrome: a press on it neither selects nor drags the tile,
-      // and does not take focus from the terminal (the chip types into it).
-      // Native listeners, so the press stops here — Solid's delegated
-      // handlers run at the document, after the tile's own listeners.
       ref={(el) => {
-        makeEventListener(el, "pointerdown", (e) => e.stopPropagation());
-        makeEventListener(el, "mousedown", (e) => {
-          e.preventDefault();
-          e.stopPropagation();
-        });
+        slot = el;
+        el.addEventListener("pointerdown", stopPress);
+        el.addEventListener("mousedown", stopDrag);
       }}
     >
       <div
@@ -280,7 +290,10 @@ const ChipRow: Component<{
   let row: HTMLDivElement | undefined;
   let measure: HTMLDivElement | undefined;
   let more: HTMLButtonElement | undefined;
-  const [count, setCount] = createSignal(props.chips.length);
+  /** How many chips fit, `undefined` until the first measure — then every
+   *  chip shows. A count taken from the props in this body would be a read of
+   *  them outside a tracking scope. */
+  const [count, setCount] = createSignal<number | undefined>();
   const [menuOpen, setMenuOpen] = createSignal(false);
 
   // Measure every chip (and a `+N`) off-screen in the same box, and keep the
@@ -309,8 +322,8 @@ const ChipRow: Component<{
     () => fit(),
   );
 
-  const visible = () => props.chips.slice(0, count());
-  const hidden = () => props.chips.slice(count());
+  const visible = () => props.chips.slice(0, count() ?? props.chips.length);
+  const hidden = () => props.chips.slice(count() ?? props.chips.length);
 
   return (
     <div

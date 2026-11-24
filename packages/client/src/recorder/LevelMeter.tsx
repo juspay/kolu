@@ -18,8 +18,9 @@ const LevelMeter: Component<{
     <div class={`flex items-stretch gap-[2px] ${props.class ?? "h-1.5"}`}>
       <For each={Array.from({ length: SEGMENTS })}>
         {(_, i) => {
-          const threshold = (i() + 1) / SEGMENTS;
-          const lit = () => props.level >= threshold;
+          // The row index is reactive, so it is read where it is used (the
+          // top of an item callback is not a scope to read it in).
+          const lit = () => props.level >= (i() + 1) / SEGMENTS;
           const color = () => {
             if (i() >= SEGMENTS - 1) return "bg-danger";
             if (i() >= SEGMENTS - 3) return "bg-warning";

@@ -56,15 +56,49 @@ vi.mock("../wire", () => ({
 // live padi) must surface, not silently revert on reload — see `reportToServer`.
 vi.mock("solid-sonner", () => ({ toast: { error: h.toastError } }));
 
-vi.mock("../terminal/useTerminalStore", () => ({
-  useTerminalStore: () => ({
-    activeId: () => h.activeId,
-    // Falls back to the active tile (= its main pane) unless a test focuses a
-    // split — so every pre-split test keeps reading tile === pane.
-    focusedTerminalId: () => h.focusedId ?? h.activeId,
-    getMetadata: () => h.metadata,
-  }),
-}));
+// The two focus facts are SIGNALS, not plain fields: the panel mirrors the
+// focused pane into a plain field through a standing computation
+// (`focusedPlace`), which is what its write-only verbs (`setSelectedFile`,
+// `recordNavigation`) consult instead of reading the store from the effect
+// phase — and a plain field would never notify that computation. `h.activeId =
+// x` / `h.focusedId = x` stay the way a test says "focus is there now": the
+// setters write the signal and `flush()` it, so the mirror has caught up by the
+// next line exactly as it did when these were fields.
+vi.mock("../terminal/useTerminalStore", async () => {
+  // Imported HERE, not at the top: a `vi.mock` factory is hoisted above every
+  // static import in this file, so a top-level binding is in its TDZ when this
+  // runs (the same reason `hostCodeTab.test.ts` imports inside its factories).
+  const { createSignal, flush } = await import("solid-js");
+  const [activeId, setActiveId] = createSignal<string | null>(null);
+  const [focusedId, setFocusedId] = createSignal<string | null | undefined>(
+    undefined,
+  );
+  Object.defineProperty(h, "activeId", {
+    get: activeId,
+    set: (value: string | null) => {
+      setActiveId(() => value);
+      flush();
+    },
+    configurable: true,
+  });
+  Object.defineProperty(h, "focusedId", {
+    get: focusedId,
+    set: (value: string | null | undefined) => {
+      setFocusedId(() => value);
+      flush();
+    },
+    configurable: true,
+  });
+  return {
+    useTerminalStore: () => ({
+      activeId,
+      // Falls back to the active tile (= its main pane) unless a test focuses a
+      // split — so every pre-split test keeps reading tile === pane.
+      focusedTerminalId: () => focusedId() ?? activeId(),
+      getMetadata: () => h.metadata,
+    }),
+  };
+});
 
 vi.mock("../tile/useTileStore", () => ({
   useTileStore: () => ({ tileCount: () => (h.activeId ? 1 : 0) }),

@@ -198,8 +198,8 @@ const WorkQuestion: Component<{
       );
     };
     const chips = seededChips(
-      props.ask,
-      one.decision.id,
+      () => props.ask,
+      () => one.decision.id,
       () =>
         one.decision.topic === "setup" ? Option.some("offered") : Option.none(),
       () => one.decision.options.map(askOption),

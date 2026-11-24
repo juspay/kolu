@@ -77,20 +77,14 @@ const PortsSection: Component<{ terminalId: TerminalId }> = (props) => {
   // exactly where a long-running server goes. `HostTerminals.tilePorts` folds
   // them. `equals` keeps the memo's IDENTITY across a recompute that produced
   // the same ports, so an unrelated terminal tick does not re-run the join below.
-  const ports = createMemo(
-    () => terminals.tilePorts(props.terminalId),
-    undefined,
-    {
-      equals: samePortList,
-    },
-  );
+  const ports = createMemo(() => terminals.tilePorts(props.terminalId), {
+    equals: samePortList,
+  });
 
   /** The ports this tile's panes printed a loopback URL for. */
-  const printedHere = createMemo(
-    () => terminals.printedBy(props.terminalId),
-    undefined,
-    { equals: sameSet },
-  );
+  const printedHere = createMemo(() => terminals.printedBy(props.terminalId), {
+    equals: sameSet,
+  });
 
   /** Is the browser sitting at the machine this host IS? One fact about the
    *  PAGE, so it is derived once per host change rather than inside every row.

@@ -84,8 +84,14 @@ function fork<A>(label: string, action: UiAction<A>): Fiber.Fiber<A, never> {
  *  Returns the fiber, which almost every caller ignores. It exists for work
  *  whose lifetime is neither the click nor a reactive owner — the terminal
  *  attach loop, restarted from an xterm write callback where there is no owner
- *  to hang `onCleanup` on, and torn down by a handle the component holds. Reach
- *  for {@link runOwnedAction} whenever an owner IS in scope. */
+ *  to hang `onCleanup` on, and torn down by a handle the component holds.
+ *
+ *  This is ALSO the edge for an effect's effect function, whose lifetime IS
+ *  reactive but whose teardown is the effect's RETURNED cleanup, not
+ *  `onCleanup`: `const fiber = runAction("…", …); return () => { fiber.interruptUnsafe(); }`.
+ *  The effect phase runs with no ambient owner, so {@link runOwnedAction} is
+ *  not available there (it throws) — and `onCleanup` is forbidden there anyway.
+ *  Reach for {@link runOwnedAction} whenever an owner IS in scope. */
 export function runAction<A>(
   label: string,
   action: UiAction<A>,
@@ -96,11 +102,16 @@ export function runAction<A>(
 /** Run a UI action tied to the CURRENT Solid owner: the fiber is interrupted
  *  when the owner disposes.
  *
- *  This is the edge for work launched from an effect's effect function or a component
- *  body — work whose lifetime is the component's, so that unmounting actually
- *  STOPS it. Interruption runs the effect's finalizers, which is what closes a
- *  wire subscription or a poll loop; there is no `AbortSignal` to thread and
- *  none to forget.
+ *  This is the edge for work launched from an OWNED scope — a component or hook
+ *  body, a `createRoot`/`createSharedRoot` — work whose lifetime is that
+ *  scope's, so that unmounting actually STOPS it. Interruption runs the
+ *  effect's finalizers, which is what closes a wire subscription or a poll
+ *  loop; there is no `AbortSignal` to thread and none to forget.
+ *
+ *  NOT for the effect phase. An effect's effect function, an `onSettled`
+ *  callback and a `ref` callback all run with no owner to bind to (and Solid 2
+ *  forbids `onCleanup` in them outright): there, fork with {@link runAction}
+ *  and hand the interrupt back as the callback's RETURNED cleanup.
  *
  *  Returns the fiber so a caller that supersedes its own work (a latest-request-
  *  wins controller) can interrupt the previous one itself. Throws outside an
@@ -113,7 +124,10 @@ export function runOwnedAction<A>(
   if (!getOwner()) {
     throw new Error(
       `runOwnedAction("${label}"): no reactive owner — the fiber would outlive ` +
-        "everything that could stop it. Use runAction for a one-shot event edge.",
+        "everything that could stop it. Use runAction for a one-shot event edge, " +
+        "or — in an effect's effect function, an onSettled or a ref callback, which " +
+        "run with no owner — fork with runAction and return the interrupt as that " +
+        "callback's cleanup.",
     );
   }
   const fiber = fork(label, action);

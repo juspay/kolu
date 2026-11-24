@@ -17,11 +17,17 @@ const wire = vi.hoisted(() => ({
   host: { kind: "local" } as HostKey,
   writes: 0,
 }));
+// A stand-in for the real signal setter: `selectHostTab` guards the switch
+// with the UPDATER form (it must not read `activeHost`, which would be a
+// strict-read at its effect call sites), so the mock applies the updater and
+// counts only the writes that actually CHANGE the value — an equal write
+// notifies nobody, which is the guard the tests below pin.
 vi.mock("../wire", () => ({
-  activeHost: () => wire.host,
-  setActiveHost: (next: HostKey) => {
+  setActiveHost: (next: HostKey | ((prev: HostKey) => HostKey)) => {
+    const value = typeof next === "function" ? next(wire.host) : next;
+    if (value === wire.host) return;
     wire.writes += 1;
-    wire.host = next;
+    wire.host = value;
   },
 }));
 

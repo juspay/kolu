@@ -71,6 +71,12 @@ export function createXtermLifecycle(
    *  taken at call time (which the deferred live-update effects would then miss,
    *  having already fired-and-bailed while `core` was still null). */
   getOptions: () => XtermLifecycleOptions,
+  /** Called under the owner captured at line 1 of this function — the CALLER's
+   *  owner (a component body), re-entered with `runWithOwner` once the font has
+   *  loaded. Not an effect callback and not a `ref` callback: `onCleanup` and
+   *  the `create*` primitives are legal here. It is an OWNED scope, though, so
+   *  a signal written here must declare `ownedWrite` — dev throws
+   *  REACTIVE_WRITE_IN_OWNED_SCOPE otherwise — and reads here are untracked. */
   onReady: (core: XtermCore) => void,
 ): void {
   const owner = getOwner();

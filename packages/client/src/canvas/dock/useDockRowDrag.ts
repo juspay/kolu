@@ -90,7 +90,12 @@ export function useDockDropVerdict(
   });
 }
 
-/** One desktop dock row's drag sockets. */
+/** One desktop dock row's drag sockets.
+ *
+ *  `id` is a REGISTRATION id, not a reactive input: the drag scope registers it
+ *  for the calling owner's lifetime and a row cannot change which terminal it
+ *  is (every caller renders from a `<For>` keyed on that id), so callers read
+ *  it once rather than passing an accessor. */
 export function useDockRowDrag(id: TerminalId): DockRowDrag {
   const store = useTerminalStore();
   const draggable = createDraggable(rowDragId(id));

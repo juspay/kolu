@@ -178,6 +178,12 @@ export interface SplitPanelStore {
   /** State a NEW saved split — a user's gesture, and nothing else. Shows at
    *  once (the in-flight entry) and is persisted in the same breath. */
   readonly write: (id: TerminalId, next: SplitPanelState) => void;
+  /** Reader half of {@link write}, for a caller inside a Solid effect — where
+   *  a reactive read is a strict-read warning. It does the two reads the write
+   *  needs (the value already shown, the record this entry is measured from)
+   *  and hands back the writes; `useSubPanel`'s own `plan…` verbs are built on
+   *  it. A write of the value already shown plans NOTHING. */
+  readonly planWrite: (id: TerminalId, next: SplitPanelState) => () => void;
   /** Drop a departed tile's in-flight entry. */
   readonly forget: (id: TerminalId) => void;
 }
@@ -253,20 +259,27 @@ export const useSplitPanelState = createSharedRoot((): SplitPanelStore => {
   const state = (id: TerminalId): SplitPanelState =>
     savedSplitOf(savedOf(id), pending()[id]?.value);
 
-  return {
-    state,
-    write: (id, next) => {
-      // A REPORT OF THE VALUE ALREADY SHOWN IS NOT A CHANGE, and saying so
-      // here is what keeps a drag from eating itself. Corvu re-emits the
-      // controlled `sizes` it was just handed, so a drag's own echo comes back
-      // through `onSizesChange` while the gesture is still in progress. Writing
-      // that echo would touch this state (a fresh entry, one more owed write),
-      // which moves the controlled value, which re-emits — a cycle with no
-      // fixpoint, because an entry is a new object every time even when its
-      // value is not. The copy this module replaced was immune by accident:
-      // it wrote one NUMBER into a store, and solid-js drops a property write
-      // that equals what is there.
-      if (sameSplitPanelState(state(id), next)) return;
+  /** The reads a write needs, done once, with the writes handed back. The two
+   *  phases exist because the effect that drives a collapse (an eviction, a
+   *  dock re-home) may not read: a Solid 2 effect callback is a strict-read
+   *  window. Hoisting both reads out of the write changes no answer — a staged
+   *  write is not visible to a read on the same synchronous run anyway. */
+  const planWrite = (id: TerminalId, next: SplitPanelState): (() => void) => {
+    // A REPORT OF THE VALUE ALREADY SHOWN IS NOT A CHANGE, and saying so
+    // here is what keeps a drag from eating itself. Corvu re-emits the
+    // controlled `sizes` it was just handed, so a drag's own echo comes back
+    // through `onSizesChange` while the gesture is still in progress. Writing
+    // that echo would touch this state (a fresh entry, one more owed write),
+    // which moves the controlled value, which re-emits — a cycle with no
+    // fixpoint, because an entry is a new object every time even when its
+    // value is not. The copy this module replaced was immune by accident:
+    // it wrote one NUMBER into a store, and solid-js drops a property write
+    // that equals what is there.
+    if (sameSplitPanelState(state(id), next)) return () => {};
+    // Stamped from the record as it stands NOW, so this entry's "the record
+    // moved" is measured from the gesture, not from nothing.
+    const sawRecordNow = savedOf(id);
+    return () => {
       setPending((prev) => {
         const was = prev[id];
         return {
@@ -274,14 +287,20 @@ export const useSplitPanelState = createSharedRoot((): SplitPanelStore => {
           [id]: {
             value: next,
             inFlight: (was?.inFlight ?? 0) + 1,
-            // Stamped from the record as it stands NOW, so this entry's "the
-            // record moved" is measured from the gesture, not from nothing.
-            sawRecord: was?.sawRecord ?? savedOf(id),
+            sawRecord: was?.sawRecord ?? sawRecordNow,
           },
         };
       });
       persistSplitPanel(id, next, (ok) => settleWrite(id, ok));
+    };
+  };
+
+  return {
+    state,
+    write: (id, next) => {
+      planWrite(id, next)();
     },
+    planWrite,
     forget: (id) => {
       setPending((prev) => {
         if (!(id in prev)) return prev;

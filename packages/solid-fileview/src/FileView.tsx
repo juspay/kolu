@@ -137,7 +137,7 @@ function KeepAliveMode<TFile extends FileData>(props: {
 }): JSX.Element {
   // A one-way latch: stays false until the slot is first shown, then sticks
   // true (so the appliance mounts lazily on first view and is kept alive after).
-  const visited = createMemo<boolean>((was) => was || props.show, false);
+  const visited = createMemo<boolean>((was = false) => was || props.show);
   const heldFile = createMemo<TFile>((prev) =>
     props.show || prev === undefined ? props.file : prev,
   );

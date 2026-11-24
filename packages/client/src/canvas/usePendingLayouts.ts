@@ -19,13 +19,7 @@
  *  that reads a different key. */
 
 import type { TerminalId } from "kolu-common/surface";
-import {
-  createSignal,
-  createStore,
-  produce,
-  reconcile,
-  untrack,
-} from "solid-js";
+import { createStore, produce, reconcile } from "solid-js";
 import { layoutsEqual, type TileLayout } from "./TileLayout";
 
 // HOST-SCOPING: host-INDEPENDENT by design — keyed by globally-unique TerminalId
@@ -53,13 +47,14 @@ const [pending, setPending] = createStore<Record<string, TileLayout>>({});
 // the new tile's layout. Correctness depends only on that ordering
 // (armed before the server push, consumed when a new tile appears) — NOT
 // on the relative timing of `setActiveSilently` and the `tileIds` effect.
+// NOT reactive: nothing derives from the slot. It is written by the create
+// flow and read ONCE by the placement effect's imperative phase — which is not
+// a window to read reactive state in, so a signal here would have to be read
+// `untrack`ed, buying nothing over the plain variable.
 // HOST-SCOPING: host-INDEPENDENT by design — a transient write-once/read-once slot
 // scoped to a single create flow (also nulled by `clear()` on canvas unmount), not
 // durable per-host state.
-const [nextDefaultSize, setNextDefaultSize] = createSignal<{
-  w: number;
-  h: number;
-} | null>(null);
+let nextDefaultSize: { w: number; h: number } | null = null;
 
 // E2e test hook — bounded ring of recent `applyMany` calls. Use
 // instead of a snapshot getter on the live store: the snapshot races
@@ -179,19 +174,16 @@ export function usePendingLayouts(): {
       // canvas unmount wipes the keyed pending AND any size armed but not
       // yet consumed, so a remount can't have a stale create-time size
       // leak into the next new tile.
-      setNextDefaultSize(null);
+      nextDefaultSize = null;
     },
     setNextDefaultSize(size) {
-      // Not recursion: object method shorthand has no self-binding, so this
-      // resolves to the module-level Solid signal setter captured above.
-      setNextDefaultSize(size);
+      nextDefaultSize = size;
     },
     takeNextDefaultSize() {
-      // Untracked: a read-and-CLEAR of a one-shot slot. Its caller is an
-      // effect's imperative phase, which must not subscribe to the slot it is
-      // about to empty (and would re-read as a dependency on its own write).
-      const size = untrack(nextDefaultSize);
-      setNextDefaultSize(null);
+      // A read-and-CLEAR of the one-shot slot — a plain variable, so the
+      // effect phase that consumes it reads no reactive state.
+      const size = nextDefaultSize;
+      nextDefaultSize = null;
       return size;
     },
   };

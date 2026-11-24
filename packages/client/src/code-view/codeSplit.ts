@@ -20,7 +20,7 @@
  *  Corvu re-emits the sizes it was handed (on mount, and when they change); an
  *  emission equal to what it was handed is an echo and writes nothing. */
 
-import { type Accessor, createSignal, untrack } from "solid-js";
+import { type Accessor, createSignal } from "solid-js";
 import { defaultInvalidWarning, persistedPref } from "../persistedPref";
 import {
   MIN_CODE_PANE_SHARE,
@@ -82,42 +82,63 @@ const LAYOUT = {
 export function createCodeSplit(arrangement: Accessor<CodeArrangement>) {
   const rightPanel = useRightPanel();
   // A pointer drag in flight, beside: the share it has reached, not yet
-  // stored; null when no pointer is dragging.
+  // stored; null when no pointer is dragging. Kept TWICE on purpose — the
+  // signal is what the sizes below are derived from, and `dragging` is what
+  // the three callbacks decide on. A setter's value is only visible on the
+  // next microtask, and Corvu reports its new sizes within the very pointer
+  // event that opened the drag, so a read of the signal there would still
+  // answer "no drag" and store a share on every pointer move.
+  let dragging: number | null = null;
   const [dragShare, setDragShare] = createSignal<number | null>(null);
-  const share = () =>
-    arrangement() === "beside"
-      ? (dragShare() ?? besideShare())
-      : rightPanel.codeTabTreeSize();
+  const setDrag = (reached: number | null) => {
+    dragging = reached;
+    setDragShare(reached);
+  };
   const storeBeside = (n: number) => {
     if (inBand(n)) setBesideShare(n);
   };
-  const sizes = controlledSizes(() => [share(), 1 - share()]);
+  // What Corvu was last handed, recorded as it is derived: the memo's value
+  // IS what the caller passes to `<Resizable sizes=…>`. Corvu reports sizes
+  // back from inside its OWN effect callback, where reading a signal or a memo
+  // is STRICT_READ_UNTRACKED — so the report below is judged against these
+  // plain fields rather than against a share derived at report time.
+  let handed: { arrangement: CodeArrangement; share: number } | null = null;
+  const sizes = controlledSizes(() => {
+    const now = arrangement();
+    const share =
+      now === "beside"
+        ? (dragShare() ?? besideShare())
+        : rightPanel.codeTabTreeSize();
+    handed = { arrangement: now, share };
+    return [share, 1 - share];
+  });
   return {
     layout: () => LAYOUT[arrangement()],
     sizes,
-    // Corvu calls this from inside its own effect: read untracked, so the
-    // effect does not come to depend on the arrangement or the drag.
-    onSizesChange: (next: number[]) =>
-      untrack(() => {
-        const s = realSizes(next);
-        // Compare with what Corvu holds, not with a share derived now: when
-        // the arrangement changes inside an effect pass, Corvu emits its old
-        // sizes before it is handed the new ones.
-        if (!s || s[0] === sizes()[0]) return;
-        if (arrangement() === "stacked") rightPanel.setCodeTabTreeSize(s[0]);
-        else if (dragShare() !== null) setDragShare(s[0]);
-        else storeBeside(s[0]);
-      }),
+    onSizesChange: (next: number[]) => {
+      const held = handed;
+      // Nothing handed over yet: there is no layout of ours for this to be a
+      // report about.
+      if (held === null) return;
+      const s = realSizes(next);
+      // Compare with what Corvu holds, not with a share derived now: when
+      // the arrangement changes inside an effect pass, Corvu emits its old
+      // sizes before it is handed the new ones.
+      if (!s || s[0] === held.share) return;
+      if (held.arrangement === "stacked") rightPanel.setCodeTabTreeSize(s[0]);
+      else if (dragging !== null) setDrag(s[0]);
+      else storeBeside(s[0]);
+    },
     // Fires on each pointer move of a drag, before Corvu resizes, and never
     // for a key: the first one opens the drag at the share it starts from.
     onHandleDrag: () => {
-      if (arrangement() === "beside") setDragShare((d) => d ?? besideShare());
+      if (arrangement() === "beside" && dragging === null)
+        setDrag(besideShare());
     },
     onHandleDragEnd: () => {
-      const reached = dragShare();
-      if (reached === null) return;
-      storeBeside(reached);
-      setDragShare(null);
+      if (dragging === null) return;
+      storeBeside(dragging);
+      setDrag(null);
     },
   };
 }

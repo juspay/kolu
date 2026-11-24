@@ -15,6 +15,7 @@ import {
   createSignal,
   For,
   Match,
+  onSettled,
   Show,
   Switch,
 } from "solid-js";
@@ -26,7 +27,9 @@ import Section from "./ui/Section";
 import { activeHost, padiMap } from "./wire";
 
 export type PadiDiagnosticsFetch =
-  | { readonly kind: "loading"; readonly host: HostKey }
+  /** `host: null` is the moment before the first ask — the dialog is up and
+   *  the question has not been put yet. */
+  | { readonly kind: "loading"; readonly host: HostKey | null }
   | {
       readonly kind: "not-connected";
       readonly host: HostKey;
@@ -44,12 +47,19 @@ export interface PadiDiagnosticsFetcher {
   readonly refresh: () => void;
 }
 
-/** The dialog's one fetch of the active host's diagnostics: asked once now,
- *  and again on `refresh()`. A superseded answer is dropped. */
+/** The dialog's one fetch of the active host's diagnostics: asked once as the
+ *  dialog settles, and again on `refresh()`. A superseded answer is dropped.
+ *
+ *  The first ask is NOT made in this factory's body: `refresh` reads the
+ *  active host and the entry's connection and then writes this signal, and a
+ *  component body (which is where the dialog builds this) is neither a scope
+ *  to read reactive state in nor one to write it from. It runs at the settle
+ *  that follows the dialog's first render instead — one frame of "Asking
+ *  padi…", which is what the section paints while the ask is in flight too. */
 export function createPadiDiagnosticsFetch(): PadiDiagnosticsFetcher {
   const [state, setState] = createSignal<PadiDiagnosticsFetch>({
     kind: "loading",
-    host: activeHost(),
+    host: null,
   });
   let generation = 0;
   const refresh = (): void => {
@@ -78,7 +88,7 @@ export function createPadiDiagnosticsFetch(): PadiDiagnosticsFetcher {
       ),
     );
   };
-  refresh();
+  onSettled(refresh);
   return { state, refresh };
 }
 
