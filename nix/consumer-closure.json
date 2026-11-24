@@ -1,5 +1,168 @@
 {
   "members": {
+    "@corvu-next/dialog": {
+      "dir": "corvu-next/dialog",
+      "pin": {
+        "built": true,
+        "name": "corvu-next",
+        "revision": "56f63bdb61e2246a3c2e08686b338ccbb9375d6f",
+        "subdir": "packages/dialog"
+      },
+      "workspace": [
+        "@corvu-next/dismissible",
+        "@corvu-next/focus-trap",
+        "@corvu-next/presence",
+        "@corvu-next/prevent-scroll",
+        "@corvu-next/utils"
+      ],
+      "external": {
+        "@solidjs/web": "^2.0.0",
+        "solid-js": "^2.0.0"
+      }
+    },
+    "@corvu-next/dismissible": {
+      "dir": "corvu-next/dismissible",
+      "pin": {
+        "built": true,
+        "name": "corvu-next",
+        "revision": "56f63bdb61e2246a3c2e08686b338ccbb9375d6f",
+        "subdir": "packages/solid-dismissible"
+      },
+      "workspace": [
+        "@corvu-next/utils"
+      ],
+      "external": {
+        "solid-js": "^2.0.0"
+      }
+    },
+    "@corvu-next/drawer": {
+      "dir": "corvu-next/drawer",
+      "pin": {
+        "built": true,
+        "name": "corvu-next",
+        "revision": "56f63bdb61e2246a3c2e08686b338ccbb9375d6f",
+        "subdir": "packages/drawer"
+      },
+      "workspace": [
+        "@corvu-next/dialog",
+        "@corvu-next/transition-size",
+        "@corvu-next/utils"
+      ],
+      "external": {
+        "@solidjs/web": "^2.0.0",
+        "solid-js": "^2.0.0"
+      }
+    },
+    "@corvu-next/focus-trap": {
+      "dir": "corvu-next/focus-trap",
+      "pin": {
+        "built": true,
+        "name": "corvu-next",
+        "revision": "56f63bdb61e2246a3c2e08686b338ccbb9375d6f",
+        "subdir": "packages/solid-focus-trap"
+      },
+      "workspace": [
+        "@corvu-next/utils"
+      ],
+      "external": {
+        "solid-js": "^2.0.0"
+      }
+    },
+    "@corvu-next/presence": {
+      "dir": "corvu-next/presence",
+      "pin": {
+        "built": true,
+        "name": "corvu-next",
+        "revision": "56f63bdb61e2246a3c2e08686b338ccbb9375d6f",
+        "subdir": "packages/solid-presence"
+      },
+      "workspace": [
+        "@corvu-next/utils"
+      ],
+      "external": {
+        "solid-js": "^2.0.0"
+      }
+    },
+    "@corvu-next/prevent-scroll": {
+      "dir": "corvu-next/prevent-scroll",
+      "pin": {
+        "built": true,
+        "name": "corvu-next",
+        "revision": "56f63bdb61e2246a3c2e08686b338ccbb9375d6f",
+        "subdir": "packages/solid-prevent-scroll"
+      },
+      "workspace": [
+        "@corvu-next/utils"
+      ],
+      "external": {
+        "solid-js": "^2.0.0"
+      }
+    },
+    "@corvu-next/resizable": {
+      "dir": "corvu-next/resizable",
+      "pin": {
+        "built": true,
+        "name": "corvu-next",
+        "revision": "56f63bdb61e2246a3c2e08686b338ccbb9375d6f",
+        "subdir": "packages/resizable"
+      },
+      "workspace": [
+        "@corvu-next/utils"
+      ],
+      "external": {
+        "@solidjs/web": "^2.0.0",
+        "solid-js": "^2.0.0"
+      }
+    },
+    "@corvu-next/tooltip": {
+      "dir": "corvu-next/tooltip",
+      "pin": {
+        "built": true,
+        "name": "corvu-next",
+        "revision": "56f63bdb61e2246a3c2e08686b338ccbb9375d6f",
+        "subdir": "packages/tooltip"
+      },
+      "workspace": [
+        "@corvu-next/dismissible",
+        "@corvu-next/presence",
+        "@corvu-next/utils"
+      ],
+      "external": {
+        "@floating-ui/dom": "^1.7.3",
+        "@solidjs/web": "^2.0.0",
+        "solid-js": "^2.0.0"
+      }
+    },
+    "@corvu-next/transition-size": {
+      "dir": "corvu-next/transition-size",
+      "pin": {
+        "built": true,
+        "name": "corvu-next",
+        "revision": "56f63bdb61e2246a3c2e08686b338ccbb9375d6f",
+        "subdir": "packages/solid-transition-size"
+      },
+      "workspace": [
+        "@corvu-next/utils"
+      ],
+      "external": {
+        "solid-js": "^2.0.0"
+      }
+    },
+    "@corvu-next/utils": {
+      "dir": "corvu-next/utils",
+      "pin": {
+        "built": true,
+        "name": "corvu-next",
+        "revision": "56f63bdb61e2246a3c2e08686b338ccbb9375d6f",
+        "subdir": "packages/utils"
+      },
+      "workspace": [],
+      "external": {
+        "@floating-ui/dom": "^1.7.3",
+        "@solidjs/web": "^2.0.0",
+        "solid-js": "^2.0.0"
+      }
+    },
     "@juspay/agent-distro": {
       "dir": "juspay/agent-distro",
       "pin": {

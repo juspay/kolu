@@ -20,6 +20,20 @@ packages:
   # `agent-distro` pin by the same mechanism — `@kolu/agent-distro` imports the
   # updater's own due rule, history line and versions wording from it.
   - juspay/agent-distro
+  # corvu-next's dialog, drawer, resizable and tooltip and the six packages
+  # they depend on — GENERATED, never committed (`.gitignore`), grafted from a
+  # BUILD of the npins `corvu-next` pin (`builtPins` in `nix/workspace.nix`).
+  # Ten paths, not a glob, for the same reason as odu's.
+  - corvu-next/dialog
+  - corvu-next/drawer
+  - corvu-next/resizable
+  - corvu-next/tooltip
+  - corvu-next/utils
+  - corvu-next/presence
+  - corvu-next/dismissible
+  - corvu-next/focus-trap
+  - corvu-next/prevent-scroll
+  - corvu-next/transition-size
 
 # Effect 4 (stable). Every @effect/* package must resolve to the SAME version as
 # `effect` itself, so these are exact pins (no `^`) for kolu-private members.

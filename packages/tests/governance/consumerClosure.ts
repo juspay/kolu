@@ -44,6 +44,17 @@ import { vendorEntries } from "./vendorEntries";
 /** The file the emission lives in, repo-relative. */
 export const CONSUMER_CLOSURE_PATH = "nix/consumer-closure.json";
 
+/** Where a pinned member comes from: the npins pin, its revision, and the
+ *  subdirectory of that pin the member's directory is. `built` marks a member
+ *  taken from the pin's BUILD (`builtPins` in `nix/workspace.nix`) — the same
+ *  subdirectory of the build's output, not of the pin's source. */
+export type PinProvenance = {
+  name: string;
+  revision: string;
+  subdir: string;
+  built?: true;
+};
+
 /** One workspace member, as a consumer needs to see it. */
 export type ClosureMember = {
   /** Repo-relative directory (`packages/padi-client`). */
@@ -87,7 +98,7 @@ export type ClosureMember = {
    *  the tree for real — slipped through both, because the per-member branch
    *  never runs for a tracked member and the absent-check cannot see one that is
    *  present. "Both directions" was the claim; three is the number. */
-  pin?: { name: string; revision: string; subdir: string };
+  pin?: PinProvenance;
   /** VENDORED members are the ones kolu actually supports being consumed from
    *  outside — the declared entries in `vendorEntries.ts` and their closure.
    *
@@ -135,13 +146,11 @@ export type ConsumerClosure = {
  *  there is no reason for two mechanisms in one directory. */
 function declaredPinnedMembers(
   repoRoot: string,
-): Record<string, { name: string; revision: string; subdir: string }> {
+): Record<string, PinProvenance> {
   const expr = `
     let pkgs = ${nixpkgsPreamble(repoRoot)};
     in (import "${repoRoot}/nix/workspace.nix" { inherit pkgs; }).pinnedProvenance`;
-  return nixEvalJson<
-    Record<string, { name: string; revision: string; subdir: string }>
-  >(repoRoot, expr);
+  return nixEvalJson<Record<string, PinProvenance>>(repoRoot, expr);
 }
 
 /** The directories git actually carries — the set a consumer's `src` contains.

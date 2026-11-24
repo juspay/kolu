@@ -69,8 +69,37 @@ let
     # (`profile/reference`). `@kolu/agent-distro`, padi and kolu-server import
     # them rather than repeat them.
     "@juspay/agent-distro" = "agent-distro";
+    # corvu-next's dialog, drawer, resizable and tooltip, and the six helper
+    # packages they depend on — the Solid 2 port of corvu the client renders.
+    # These ten come from the pin's BUILD, not its source (`builtPins` below).
+    "@corvu-next/dialog" = "corvu-next";
+    "@corvu-next/drawer" = "corvu-next";
+    "@corvu-next/resizable" = "corvu-next";
+    "@corvu-next/tooltip" = "corvu-next";
+    "@corvu-next/utils" = "corvu-next";
+    "@corvu-next/presence" = "corvu-next";
+    "@corvu-next/dismissible" = "corvu-next";
+    "@corvu-next/focus-trap" = "corvu-next";
+    "@corvu-next/prevent-scroll" = "corvu-next";
+    "@corvu-next/transition-size" = "corvu-next";
   };
   pinnedNames = builtins.attrNames pinnedPins;
+
+  # The pins whose members are grafted from a BUILD of the pin rather than from
+  # its source tree: pin name → the derivation whose output holds them, laid
+  # out like the source (`$out/packages/<dir>`), so a member's `subdir` names
+  # the same place in both.
+  #
+  # corvu-next is the one: its packages are consumed through `dist/` (their
+  # `exports` point there, and their source imports through a per-package
+  # `@src/*` alias nothing outside the package can resolve). See
+  # nix/packages/corvu-next.nix. Exported, so `just install` grafts the SAME
+  # build this file does rather than a second one of its own.
+  builtPins = {
+    corvu-next = pkgs.corvu-next;
+  };
+  # Where a pin's members live: its build when it has one, else its source.
+  pinRoot = pin: "${builtPins.${pin} or sources.${pin}}";
 
   # WHICH pinned member lands WHERE in the build tree. A scoped member grafts
   # under its scope (`@odu/service-client` → `odu/service-client`), so one pin's
@@ -172,6 +201,18 @@ let
     "@odu/run-history" = sources.odu + "/packages/run-history";
     # The same, from the `agent-distro` pin: its runtime tree, `src/`.
     "@juspay/agent-distro" = sources.agent-distro + "/src";
+    # The same again, from the `corvu-next` pin's BUILD (`builtPins`): each
+    # package's built directory — manifest, `dist/`, licence.
+    "@corvu-next/dialog" = pinRoot "corvu-next" + "/packages/dialog";
+    "@corvu-next/drawer" = pinRoot "corvu-next" + "/packages/drawer";
+    "@corvu-next/resizable" = pinRoot "corvu-next" + "/packages/resizable";
+    "@corvu-next/tooltip" = pinRoot "corvu-next" + "/packages/tooltip";
+    "@corvu-next/utils" = pinRoot "corvu-next" + "/packages/utils";
+    "@corvu-next/presence" = pinRoot "corvu-next" + "/packages/solid-presence";
+    "@corvu-next/dismissible" = pinRoot "corvu-next" + "/packages/solid-dismissible";
+    "@corvu-next/focus-trap" = pinRoot "corvu-next" + "/packages/solid-focus-trap";
+    "@corvu-next/prevent-scroll" = pinRoot "corvu-next" + "/packages/solid-prevent-scroll";
+    "@corvu-next/transition-size" = pinRoot "corvu-next" + "/packages/solid-transition-size";
     "kolu-server" = ../packages/server;
     "kolu-client" = ../packages/client;
     "kolu-transcript-core" = ../packages/transcript-core;
@@ -186,7 +227,10 @@ let
     "@kolu/log" = ../packages/log;
     "@kolu/xterm-kit" = ../packages/xterm-kit;
   };
-  # member → { name = <npins pin>; revision; subdir } for every pinned member.
+  # member → { name = <npins pin>; revision; subdir; built? } for every pinned
+  # member. `built = true` marks a member taken from the pin's BUILD
+  # (`builtPins`): its `subdir` is the same path, but the bytes there are the
+  # build's output, so grafting the pin's source at that path is not it.
   #
   # WHY A CONSUMER NEEDS IT. A pinned member is absent from the archive a
   # consumer fetches, so the consumer grafts it from ITS OWN pin — and then
@@ -207,7 +251,7 @@ let
   pinnedProvenance = lib.mapAttrs
     (member: pin:
       let
-        root = "${sources.${pin}}";
+        root = pinRoot pin;
         dir = members.${member};
       in
       assert lib.assertMsg (lib.hasPrefix "${root}/" dir) ''
@@ -220,7 +264,7 @@ let
         name = pin;
         inherit (sources.${pin}) revision;
         subdir = lib.removePrefix "${root}/" dir;
-      })
+      } // lib.optionalAttrs (builtPins ? ${pin}) { built = true; })
     pinnedPins;
 
   # Only members that are paths in THIS repo can ride a repo-rooted fileset; the
@@ -248,13 +292,16 @@ let
   # The PIN-GRAFTED members, materialized from their npins pins — NEVER
   # committed.
   #
-  # TWO FAMILIES, one mechanism. `osfacts-client` is the standing case: the tool
+  # THREE FAMILIES, one mechanism. `osfacts-client` is the standing case: the tool
   # left the tree at OSF5 (juspay/osfacts) and its TypeScript client went with
   # it, but five kolu packages import it by name and a pnpm workspace member
   # must be a path inside the repo. The `@odu/*` trio is the same fact one
   # direction over: odu pins KOLU (it hydrates the `@kolu/surface*` stack out of
   # a content-addressed kolu pin — see its `bunfig.toml`), so kolu consuming
-  # odu's own libraries can never be an npm dependency of them.
+  # odu's own libraries can never be an npm dependency of them. `@corvu-next/*`
+  # is a third-party library whose Solid 2.0.x support lives in a commit no
+  # registry release carries; it is grafted from a BUILD of that commit
+  # (`builtPins`), because its packages are consumed through `dist/`.
   #
   # The two ways to close that without a second copy of the source both failed
   # on their own terms: a registry/tarball dependency needs a publish step
@@ -343,7 +390,7 @@ let
     pnpm = pkgs.pnpm-build;
     # Platform-independent. `just ci::pnpm-hash-fresh` forces this fetcher to
     # re-execute so a changed lockfile cannot ride a stale binary-cache result.
-    hash = "sha256-tyCQozXd5fgeP5bCmi1T7DbW7o4/h6KK01aFPglmXOU=";
+    hash = "sha256-vmSlF+K6LFuSaUAe69PJM9GXSIZQbMWXyLHmh3DUZJM=";
     fetcherVersion = 3;
   };
 in
@@ -383,4 +430,9 @@ in
   # members, is the concept multiplication this file's headers hunt everywhere
   # else. The name here says what it carries that the other one does not.
   inherit pinnedProvenance;
+
+  # The builds `pinnedProvenance` marks `built`, by pin name — what
+  # `just install`'s `_materialize-pinned-members` realises to graft a working
+  # tree from the same output this file grafts into the build tree.
+  inherit builtPins;
 }

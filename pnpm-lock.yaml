@@ -57,6 +57,138 @@ importers:
         specifier: ^5.0.3
         version: 5.1.1(@types/node@22.19.15)(happy-dom@21.0.4)(jsdom@30.0.1)(vite@8.3.8(@types/node@22.19.15)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.48.0)(tsx@4.23.15)(yaml@2.8.3))
 
+  corvu-next/dialog:
+    dependencies:
+      '@corvu-next/dismissible':
+        specifier: workspace:*
+        version: link:../dismissible
+      '@corvu-next/focus-trap':
+        specifier: workspace:*
+        version: link:../focus-trap
+      '@corvu-next/presence':
+        specifier: workspace:*
+        version: link:../presence
+      '@corvu-next/prevent-scroll':
+        specifier: workspace:*
+        version: link:../prevent-scroll
+      '@corvu-next/utils':
+        specifier: workspace:*
+        version: link:../utils
+      '@solidjs/web':
+        specifier: ^2.0.0
+        version: 2.0.3(solid-js@2.0.3)
+      solid-js:
+        specifier: ^2.0.0
+        version: 2.0.3
+
+  corvu-next/dismissible:
+    dependencies:
+      '@corvu-next/utils':
+        specifier: workspace:*
+        version: link:../utils
+      solid-js:
+        specifier: ^2.0.0
+        version: 2.0.3
+
+  corvu-next/drawer:
+    dependencies:
+      '@corvu-next/dialog':
+        specifier: workspace:*
+        version: link:../dialog
+      '@corvu-next/transition-size':
+        specifier: workspace:*
+        version: link:../transition-size
+      '@corvu-next/utils':
+        specifier: workspace:*
+        version: link:../utils
+      '@solidjs/web':
+        specifier: ^2.0.0
+        version: 2.0.3(solid-js@2.0.3)
+      solid-js:
+        specifier: ^2.0.0
+        version: 2.0.3
+
+  corvu-next/focus-trap:
+    dependencies:
+      '@corvu-next/utils':
+        specifier: workspace:*
+        version: link:../utils
+      solid-js:
+        specifier: ^2.0.0
+        version: 2.0.3
+
+  corvu-next/presence:
+    dependencies:
+      '@corvu-next/utils':
+        specifier: workspace:*
+        version: link:../utils
+      solid-js:
+        specifier: ^2.0.0
+        version: 2.0.3
+
+  corvu-next/prevent-scroll:
+    dependencies:
+      '@corvu-next/utils':
+        specifier: workspace:*
+        version: link:../utils
+      solid-js:
+        specifier: ^2.0.0
+        version: 2.0.3
+
+  corvu-next/resizable:
+    dependencies:
+      '@corvu-next/utils':
+        specifier: workspace:*
+        version: link:../utils
+      '@solidjs/web':
+        specifier: ^2.0.0
+        version: 2.0.3(solid-js@2.0.3)
+      solid-js:
+        specifier: ^2.0.0
+        version: 2.0.3
+
+  corvu-next/tooltip:
+    dependencies:
+      '@corvu-next/dismissible':
+        specifier: workspace:*
+        version: link:../dismissible
+      '@corvu-next/presence':
+        specifier: workspace:*
+        version: link:../presence
+      '@corvu-next/utils':
+        specifier: workspace:*
+        version: link:../utils
+      '@floating-ui/dom':
+        specifier: ^1.7.3
+        version: 1.7.6
+      '@solidjs/web':
+        specifier: ^2.0.0
+        version: 2.0.3(solid-js@2.0.3)
+      solid-js:
+        specifier: ^2.0.0
+        version: 2.0.3
+
+  corvu-next/transition-size:
+    dependencies:
+      '@corvu-next/utils':
+        specifier: workspace:*
+        version: link:../utils
+      solid-js:
+        specifier: ^2.0.0
+        version: 2.0.3
+
+  corvu-next/utils:
+    dependencies:
+      '@floating-ui/dom':
+        specifier: ^1.7.3
+        version: 1.7.6
+      '@solidjs/web':
+        specifier: ^2.0.0
+        version: 2.0.3(solid-js@2.0.3)
+      solid-js:
+        specifier: ^2.0.0
+        version: 2.0.3
+
   juspay/agent-distro: {}
 
   odu/run-client:
@@ -4198,6 +4330,16 @@ packages:
     peerDependencies:
       solid-js: '>=1.8.4'
 
+  '@solidjs/signals@2.0.3':
+    resolution: {integrity: sha512-M6+kiJflqSvJRHRcmdsdIXpPLPkQrY817zWKKfxZ3z3ZRE5eEtddtWPrDXY4IM1Wz3zAqG+3Fx/HQIkAtpRwnA==}
+    engines: {node: '>=22.12.0'}
+
+  '@solidjs/web@2.0.3':
+    resolution: {integrity: sha512-XYl9JGOtQ8yJSZRnd6uC+5gYXsYvnIRNxhn89m+F1v6D4d4ZFdTJY2Lq/8XJ3YcjckkCrK/mNfd3kIiqqgnG7w==}
+    engines: {node: '>=22.12.0'}
+    peerDependencies:
+      solid-js: ^2.0.3
+
   '@standard-schema/spec@1.1.0':
     resolution: {integrity: sha512-l2aFy5jALhniG5HgqrD6jXLi/rUWrKvqN/qJx6yoJsgKhblVd+iqqU4RCXavm/jPityDo5TCvKMnpjKnOriy0w==}
 
@@ -6151,6 +6293,10 @@ packages:
   solid-js@1.9.11:
     resolution: {integrity: sha512-WEJtcc5mkh/BnHA6Yrg4whlF8g6QwpmXXRg4P2ztPmcKeHHlH4+djYecBLhSpecZY2RRECXYUwIc/C2r3yzQ4Q==}
 
+  solid-js@2.0.3:
+    resolution: {integrity: sha512-XOHstv+GAJjfcSGZU9xfX5q6Mbqmv72IcdWh2JuMx3KvBbfpQPdy/Yl00A1ouk7A0etjqhNe799CPdr6i7koWg==}
+    engines: {node: '>=22.12.0'}
+
   solid-presence@0.2.0:
     resolution: {integrity: sha512-YM92o+jvpzX3XGaD4rLYmq/Kc2ZVh47GSCLEufHBFQQIurvZTs8SoGJxO8BJGNDxBKdcS8F3dYhW1SDXp4BNjA==}
     peerDependencies:
@@ -7882,6 +8028,15 @@ snapshots:
   '@solidjs/meta@0.29.4(solid-js@1.9.11)':
     dependencies:
       solid-js: 1.9.11
+
+  '@solidjs/signals@2.0.3': {}
+
+  '@solidjs/web@2.0.3(solid-js@2.0.3)':
+    dependencies:
+      csstype: 3.2.3
+      seroval: 1.7.6
+      seroval-plugins: 1.7.6(seroval@1.7.6)
+      solid-js: 2.0.3
 
   '@standard-schema/spec@1.1.0': {}
 
@@ -9836,6 +9991,12 @@ snapshots:
   solid-js@1.9.11:
     dependencies:
       csstype: 3.2.3
+      seroval: 1.7.6
+      seroval-plugins: 1.7.6(seroval@1.7.6)
+
+  solid-js@2.0.3:
+    dependencies:
+      '@solidjs/signals': 2.0.3
       seroval: 1.7.6
       seroval-plugins: 1.7.6(seroval@1.7.6)
 

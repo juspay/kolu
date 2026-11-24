@@ -16,12 +16,13 @@ cucumber_parallel := env('CUCUMBER_PARALLEL', '4')
 # The pinned workspace members are generated, never committed: kolu does not own
 # their source. `osfacts-client` lives in juspay/osfacts; the `@odu/*` trio in
 # juspay/odu (odu pins KOLU, so kolu consuming odu's libraries can only be a
-# graft — see nix/workspace.nix). Every `pnpm -r` here must skip them: their
-# tests and typecheck are their own repos' CI's job, and their fixtures resolve
-# against their own repo roots, not kolu's. The root package.json's `typecheck`
-# and `test:unit` scripts carry the same filters for callers that enter through
+# graft — see nix/workspace.nix); `@corvu-next/*` is a build of a pinned
+# corvu-next commit. Every `pnpm -r` here must skip them: their tests and
+# typecheck are their own repos' CI's job, and their fixtures resolve against
+# their own repo roots, not kolu's. The root package.json's `typecheck` and
+# `test:unit` scripts carry the same filters for callers that enter through
 # pnpm instead of just (the Nix typecheck derivation).
-pnpm_vendored_filter := '--filter=!osfacts-client --filter=!@odu/* --filter=!@juspay/*'
+pnpm_vendored_filter := '--filter=!osfacts-client --filter=!@odu/* --filter=!@juspay/* --filter=!@corvu-next/*'
 
 # SURFACE_AGENT_FLAKE_REF: the production koluBin wrapper bakes the exact agent
 # source tree so a remote dial can resolve padi for the host's arch. A run from
@@ -53,25 +54,36 @@ install: _materialize-pinned-members
 # Graft the PINNED workspace members into the tree from their npins pins.
 #
 # They are pnpm workspace members with no copy in this repo — the source lives
-# in juspay/osfacts and juspay/odu, and nothing here may duplicate it. Nix does
-# this graft for a build (nix/workspace.nix); this recipe is the working-tree
-# twin, so `just install`, `just dev`, and a bare vitest run all read the same
-# pinned bytes. Re-copied every time: the pin is the truth, the directory is a
-# cache of it, and a stale cache is the one failure this must not have.
+# in juspay/osfacts, juspay/odu and corvu-next, and nothing here may duplicate
+# it. Nix does this graft for a build (nix/workspace.nix); this recipe is the
+# working-tree twin, so `just install`, `just dev`, and a bare vitest run all
+# read the same pinned bytes. Re-copied every time: the pin is the truth, the
+# directory is a cache of it, and a stale cache is the one failure this must
+# not have.
 #
-# Each row is `member:dest:pin:subdir`, read from nix/consumer-closure.json —
+# Each row is `member:dest:pin:subdir:built`, read from nix/consumer-closure.json —
 # the committed artifact that already names every grafted member, its directory
-# and its pin. The grafted manifest's own `name` is checked against the member
-# the row claims, so a pin whose manifest was renamed fails here rather than as
-# a resolution error three commands later.
+# and its pin. A `built` member is copied out of the pin's BUILD — the very
+# derivation nix/workspace.nix grafts (`builtPins`), realised once per pin —
+# rather than out of its source. The grafted manifest's own `name` is checked
+# against the member the row claims, so a pin whose manifest was renamed fails
+# here rather than as a resolution error three commands later.
 [private]
 _materialize-pinned-members:
     #!/usr/bin/env bash
     set -euo pipefail
-    rows=($({{ nix_shell }} jq -r '.members | to_entries[] | select(.value.pin) | "\(.key):\(.value.dir):\(.value.pin.name):\(.value.pin.subdir)"' nix/consumer-closure.json))
+    rows=($({{ nix_shell }} jq -r '.members | to_entries[] | select(.value.pin) | "\(.key):\(.value.dir):\(.value.pin.name):\(.value.pin.subdir):\(.value.pin.built // false)"' nix/consumer-closure.json))
+    declare -A roots=()
     for row in "${rows[@]}"; do
-      IFS=: read -r member dest pin subdir <<<"$row"
-      src="$(nix eval --impure --raw --expr "toString ((import ./npins).${pin} + \"/${subdir}\")")"
+      IFS=: read -r member dest pin subdir built <<<"$row"
+      if [ -z "${roots[$pin]:-}" ]; then
+        if [ "$built" = true ]; then
+          roots[$pin]="$(nix build --no-link --print-out-paths --accept-flake-config --impure --expr "(import ./nix/workspace.nix { pkgs = import ./nix/nixpkgs.nix { system = builtins.currentSystem; }; }).builtPins.${pin}")"
+        else
+          roots[$pin]="$(nix eval --impure --raw --expr "toString (import ./npins).${pin}")"
+        fi
+      fi
+      src="${roots[$pin]}/${subdir}"
       rm -rf "$dest"
       mkdir -p "$(dirname "$dest")"
       cp -r "$src" "$dest"

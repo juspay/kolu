@@ -54,5 +54,9 @@ packages/surface/example/binary-cache.json
 # runtime tree, `src/`).
 /juspay/
 
+# corvu-next/* — the same, from a BUILD of the npins `corvu-next` pin
+# (`builtPins` in nix/workspace.nix).
+/corvu-next/
+
 # Python bytecode (the publish-closure action runs its script in place).
 __pycache__/
