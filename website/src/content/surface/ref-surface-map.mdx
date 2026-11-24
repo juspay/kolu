@@ -282,8 +282,9 @@ declared nested sibling (`entry.odu.…`, see
 
 - It re-keys its reactive subscription whenever the entry's
   `{encodedKey, membershipId}` identity changes.
-- An active-key switch (the encoded key changes) disposes the old key's
-  subscriptions, and the new key's populate synchronously.
+- An active-key switch (the encoded key changes) is one flush: the new key's
+  view is built and the old key's subscriptions are disposed in it, and the new
+  key's stream opens in that flush's effect phase.
 - A same-key membership re-add or authority restart (a new `membershipId` for the
   same encoded key) re-keys too.
 - It canonicalizes its accessor's key by its encoded string, so a same-key

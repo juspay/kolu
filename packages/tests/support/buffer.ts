@@ -40,7 +40,7 @@ type PerTerminalProbe = "cols" | "rows" | "fontSize";
  * scalar off each, keyed by id. The outer CanvasTile wrapper carries
  * `data-terminal-id` but no `data-font-size`, so it's filtered out (it also
  * never holds the `__xterm` ref). `cols` / `rows` read the live xterm grid via
- * the `__xterm` ref attached in Terminal.tsx's onMount; `fontSize` parses the
+ * the `__xterm` ref Terminal.tsx attaches at mount; `fontSize` parses the
  * `data-font-size` attribute. The probe is a serializable discriminant rather
  * than a live closure because the body runs inside `page.evaluate`.
  */

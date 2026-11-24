@@ -28,7 +28,10 @@ export const surface = defineSurface({
 // surface.group — one Rpc per member verb, tagged `surface/<member>/<verb>`.
 ```
 
-Part of the kolu monorepo — `"@kolu/surface": "workspace:*"`.
+Part of the kolu monorepo — `"@kolu/surface": "workspace:*"`. The SolidJS layer
+(`@kolu/surface/solid`) runs on Solid 2: `solid-js` 2 and `@solidjs/web` 2. Its
+`.use()` views open their stream on the flush after they are created, so a
+value reads `undefined` (and `pending()` reads `true`) until the first frame.
 
 ## Docs
 

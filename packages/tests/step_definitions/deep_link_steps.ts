@@ -43,7 +43,7 @@ When(
   },
 );
 
-/** Cold boot — set the hash, then reload so the boot parse (onMount) fires
+/** Cold boot — set the hash, then reload so the boot parse (at settle) fires
  *  against it, re-attaching to the still-live terminals as it settles. */
 When(
   "I open the deep link {string} on a cold boot",

@@ -101,11 +101,12 @@ const { link, client, readout, dispose } = await connectSurface({
 
 The client model (`<SurfaceAppProvider>` on `/solid`) requires one more answer
 the same way: `fault` — the markup an **uncaught render throw** is drawn with.
-The framework catches it, records it, and prints it (`thrownText`); you supply
-only the LOOK, so a composition root that compiles has been asked what a throw
-looks like instead of shipping a white tab.
+The framework catches it (an `Errored` boundary), records it, and prints it
+(`thrownText`); you supply only the LOOK, so a composition root that compiles
+has been asked what a throw looks like instead of shipping a white tab.
 
-Part of the kolu monorepo — `"@kolu/surface-app": "workspace:*"`.
+Part of the kolu monorepo — `"@kolu/surface-app": "workspace:*"`. `/solid` runs
+on Solid 2 (`solid-js` 2, `@solidjs/web` 2).
 
 ## Docs
 

@@ -581,7 +581,7 @@ The multi-surface seam. It takes the sibling map and an optional root, and is as
 | `client` / `clients` | The reactive surface client, or one scoped client per sibling. `clients` is one object for the connection's life, and a `redial` mutates it in place |
 | `core` | (multi only) The root surface's own client when `core` was passed, and typed `undefined` when it was not, so a siblings-only caller reads no optional it has to check |
 | `transport` | (multi only) The branded `LiveSignalHandle`. Pass it whole to `connectSurfaceMap(map, conn.transport)` |
-| `connectionEpoch` | (multi only) How many usable connections this wire has established, as a Solid accessor, so a `createResource` can key on it. See [below](#connconnectionepoch) |
+| `connectionEpoch` | (multi only) How many usable connections this wire has established, as a Solid accessor, so an async memo can depend on it. See [below](#connconnectionepoch) |
 | `readout` | The [readout](/surface/ref-surface#the-readout): the wire's own four states folded with the subscription-health fact into the five an indicator may report, memoized |
 | `health` | (multi only) The client bundle's own fact over every sibling, and the root under its `name`. It is live when their subs and the shared transport leg all are |
 | `redial` | (multi only) Async: take a new sibling roster in place. See [above](#connredialsurfaces) |
@@ -717,9 +717,10 @@ That is right for anything computed over the connection, and wrong for anything 
 
 ```ts
 // re-resolve who we are whenever a different socket is carrying the calls
-const [viewer] = createResource(conn.connectionEpoch, () =>
-  Effect.runPromise(conn.core.procedures.who.get({})),
-);
+const viewer = createMemo(() => {
+  conn.connectionEpoch();
+  return Effect.runPromise(conn.core.procedures.who.get({}));
+});
 ```
 
 It counts a usable connection being established, and only that:
@@ -862,7 +863,7 @@ The provider wraps its children in `SurfaceFaultBoundary`:
 
 It owns three verbs:
 
-- It catches, with an `ErrorBoundary` around the whole shell.
+- It catches, with an `Errored` boundary around the whole shell.
 - It records, with one `console.error` naming the moment. A boundary swallows, and Solid re-throws only when nothing catches, so without that line a faulted page fails a browser test as a bare timeout, with its "no page errors" assertion green.
 - It prints, with [`thrownText`](#throwntexterror), exported on `.`. The fault arrives as `unknown` (a string, an `undefined`, a `DOMException`), and the printer normalizes it, puts a Safari-lost message back on the front of its stack, and never returns the empty string.
 
