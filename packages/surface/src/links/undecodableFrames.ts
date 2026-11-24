@@ -84,31 +84,36 @@ export type UndecodableFrame =
   | { readonly kind: "unrecognized"; readonly read: FrameRead };
 
 /** Name what the parser refused, from the value it threw and the read it threw
- *  on. Pure: keys on Effect's own error classes, never on message text. */
+ *  on. Pure: keys on Effect's own error classes, never on message text. The
+ *  value is frozen, `read` included: it is recorded and handed to a host, and
+ *  neither may change it for the other. */
 export function classifyUndecodable(
   thrown: unknown,
   data: Uint8Array | string,
 ): UndecodableFrame {
-  const read: FrameRead =
+  const read: FrameRead = Object.freeze(
     typeof data === "string"
       ? { unit: "utf16", length: data.length }
-      : { unit: "bytes", length: data.byteLength };
+      : { unit: "bytes", length: data.byteLength },
+  );
   if (thrown instanceof RpcSerialization.NdjsonDecodeError) {
-    return {
+    return Object.freeze({
       kind: "invalidJson",
       parserMessage: messageOf(thrown.cause).slice(0, PARSER_MESSAGE_MAX_CHARS),
       read,
-    };
+    });
   }
   if (thrown instanceof RpcSerialization.MaxBufferSizeExceeded) {
-    return { kind: "overCap", cap: thrown.maxBufferSize, read };
+    return Object.freeze({ kind: "overCap", cap: thrown.maxBufferSize, read });
   }
-  return { kind: "unrecognized", read };
+  return Object.freeze({ kind: "unrecognized", read });
 }
 
 /** The ndjson serialization every leg's CLIENT protocol uses (the shared one),
  *  calling `onUndecodable` with what was refused before the parser's throw
- *  reaches Effect. The throw itself continues unchanged. */
+ *  reaches Effect. The throw itself continues unchanged, whatever the handler
+ *  does: a handler that throws is logged with `console.error` and stops
+ *  nothing, because the parser's error is the fact Effect acts on. */
 export function undecodableAware(
   onUndecodable: (frame: UndecodableFrame) => void,
 ): Layer.Layer<RpcSerialization.RpcSerialization> {
@@ -123,7 +128,14 @@ export function undecodableAware(
             try {
               return parser.decode(bytes);
             } catch (cause) {
-              onUndecodable(classifyUndecodable(cause, bytes));
+              try {
+                onUndecodable(classifyUndecodable(cause, bytes));
+              } catch (handlerError) {
+                console.error(
+                  "undecodableAware: the leg's handler threw; the parser's error still reaches Effect",
+                  handlerError,
+                );
+              }
               throw cause;
             }
           },

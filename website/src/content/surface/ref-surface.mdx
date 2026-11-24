@@ -1388,6 +1388,8 @@ Reaches a server over a WebSocket. This is the browser path.
 - A close someone else made is never reported: `forceReconnect`, `dispose`,
   the peer, or the network.
 - A reporter that throws is logged with `console.error` and stops nothing.
+- The `sever` value is frozen, down to its `read`. The host and the dial
+  history hold the same value, and neither can change it for the other.
 - The call that failed keeps its retryable `RpcClientError`. The report names
   the socket's end, not the call's failure.
 

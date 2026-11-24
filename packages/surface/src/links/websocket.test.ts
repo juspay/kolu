@@ -452,7 +452,8 @@ describe("websocketLink — the dial history (J1)", () => {
   });
 
   it("hands out a SNAPSHOT — a reader cannot mutate the link's own record", async () => {
-    const h = harness();
+    const handed: SelfSever[] = [];
+    const h = harness({ onSelfSever: (sever) => handed.push(sever) });
     const link = await h.link;
     const ws = await nthSocket(h.dialled, 1);
     ws.open();
@@ -466,6 +467,26 @@ describe("websocketLink — the dial history (J1)", () => {
     if (attempt === undefined) throw new Error("no dial recorded");
     attempt.classification = "tampered";
     expect(link.diagnostics.dialHistory()[0]?.classification).toBe("in-flight");
+
+    // The NESTED value too: the self-sever is the one record field that is
+    // an object, and the host is handed the same value the link records.
+    ws.receive("not a protocol frame\n");
+    const recorded = link.diagnostics.dialHistory()[0]?.selfSever;
+    if (recorded?.cause !== "undecodableFrame") {
+      throw new Error("no undecodable-frame sever recorded");
+    }
+    expect(Reflect.set(recorded, "cause", "tampered")).toBe(false);
+    expect(Reflect.set(recorded.frame, "kind", "tampered")).toBe(false);
+    expect(Reflect.set(recorded.frame.read, "length", 0)).toBe(false);
+    expect(Reflect.set(handed[0] ?? {}, "addedByHost", true)).toBe(false);
+    expect(link.diagnostics.dialHistory()[0]?.selfSever).toEqual({
+      cause: "undecodableFrame",
+      frame: {
+        kind: "invalidJson",
+        parserMessage: expect.any(String),
+        read: { unit: "utf16", length: 21 },
+      },
+    });
     await link.dispose();
   });
 });

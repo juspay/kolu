@@ -8,7 +8,7 @@
 
 import { Effect } from "effect";
 import { RpcSerialization } from "effect/rpc";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   classifyUndecodable,
   PARSER_MESSAGE_MAX_CHARS,
@@ -16,8 +16,9 @@ import {
   undecodableAware,
 } from "./undecodableFrames";
 
-/** A parser from `undecodableAware`'s layer, plus every frame it reported. */
-function awareParser(): {
+/** A parser from `undecodableAware`'s layer, plus every frame it reported.
+ *  `alsoThrow` makes the handler throw after recording. */
+function awareParser(alsoThrow?: Error): {
   parser: RpcSerialization.Parser;
   reported: UndecodableFrame[];
 } {
@@ -25,7 +26,14 @@ function awareParser(): {
   const serialization = Effect.runSync(
     Effect.gen(function* () {
       return yield* RpcSerialization.RpcSerialization;
-    }).pipe(Effect.provide(undecodableAware((frame) => reported.push(frame)))),
+    }).pipe(
+      Effect.provide(
+        undecodableAware((frame) => {
+          reported.push(frame);
+          if (alsoThrow !== undefined) throw alsoThrow;
+        }),
+      ),
+    ),
   );
   return { parser: serialization.makeUnsafe(), reported };
 }
@@ -55,6 +63,22 @@ describe("undecodableAware", () => {
     if (frame?.kind !== "invalidJson") return;
     expect(frame.parserMessage).not.toBe("");
     expect(frame.read).toEqual({ unit: "utf16", length: 9 });
+  });
+
+  it("a handler that throws stops nothing: the parser's own error still reaches Effect, and the throw is logged", () => {
+    const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const { parser, reported } = awareParser(
+        new Error("the leg's bookkeeping broke"),
+      );
+      const thrown = thrownBy(() => parser.decode("not json\n"));
+
+      expect(thrown).toBeInstanceOf(RpcSerialization.NdjsonDecodeError);
+      expect(reported).toHaveLength(1);
+      expect(logged).toHaveBeenCalledTimes(1);
+    } finally {
+      logged.mockRestore();
+    }
   });
 
   it("measures a binary read in bytes", () => {

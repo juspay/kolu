@@ -434,21 +434,28 @@ export async function websocketLink(
     }
   };
 
-  // The current dial, its socket and when it connected, for the two
-  // protocol-side moments that have no socket in hand. Both happen inside a run
-  // after its `onConnect` and before its `onDisconnect`, so a dial missing any
-  // of them is a broken assumption about Effect, said loudly rather than
-  // skipped.
-  const connectedDial = (
-    moment: string,
-  ): { own: Dial; ws: WebSocket; openedMono: number } => {
+  // The two protocol-side moments have no socket in hand, so they reach the
+  // current dial. Each asks only for what it uses. Both run inside a connected
+  // run on Effect 4.1.4, so a missing piece means an Effect assumption broke,
+  // and each path contains that differently:
+  //
+  //  - A bad frame needs the dial and its socket, nothing more: while the link
+  //    holds a socket, the frame cycles it. With no socket there is nothing to
+  //    cycle, and the handler throws. `undecodableAware` logs that with
+  //    `console.error`, and the parser's own error still reaches Effect.
+  //  - The keep-alive also needs when that socket connected. Missing any of
+  //    it, the hook throws. Effect contains a defect from `onPingTimeout` and
+  //    logs it through its own logger ("RpcClient onPingTimeout hook failed").
+  //    Effect has already released the socket and still fails the run, so the
+  //    redial happens; only the report and the record are lost.
+  const dialledSocket = (moment: string): { own: Dial; ws: WebSocket } => {
     const own = dial;
-    if (own?.socket === undefined || own.openedMono === undefined) {
+    if (own?.socket === undefined) {
       throw new Error(
-        `websocketLink: ${moment} with no connected dial current — Effect's socket protocol no longer runs it inside a connected run`,
+        `websocketLink: ${moment} with no dialled socket current — Effect's socket protocol no longer runs it inside a connected run`,
       );
     }
-    return { own, ws: own.socket, openedMono: own.openedMono };
+    return { own, ws: own.socket };
   };
 
   const protocol = Layer.effect(RpcClient.Protocol)(
@@ -475,11 +482,20 @@ export async function websocketLink(
       pingInterval: RPC_PING_INTERVAL_MS,
       pingTimeout: RPC_PING_TIMEOUT_MS,
       onPingTimeout: Effect.sync(() => {
-        const { own, ws, openedMono } = connectedDial("the keep-alive gave up");
-        severOnOwnJudgment(own, ws, {
-          cause: "keepAliveUnanswered",
-          silentMs: monotonicNow() - Math.max(openedMono, lastInbound),
-        });
+        const { own, ws } = dialledSocket("the keep-alive gave up");
+        if (own.openedMono === undefined) {
+          throw new Error(
+            "websocketLink: the keep-alive gave up on a dial that never connected — Effect's socket protocol no longer runs it only for a connected run",
+          );
+        }
+        severOnOwnJudgment(
+          own,
+          ws,
+          Object.freeze({
+            cause: "keepAliveUnanswered",
+            silentMs: monotonicNow() - Math.max(own.openedMono, lastInbound),
+          }),
+        );
       }),
     }),
   ).pipe(
@@ -492,8 +508,12 @@ export async function websocketLink(
       // reason; this leg's way of ending a socket is to redial it, and it
       // names that end to the host.
       undecodableAware((frame) => {
-        const { own, ws } = connectedDial("a frame failed to decode");
-        severOnOwnJudgment(own, ws, { cause: "undecodableFrame", frame });
+        const { own, ws } = dialledSocket("a frame failed to decode");
+        severOnOwnJudgment(
+          own,
+          ws,
+          Object.freeze({ cause: "undecodableFrame", frame }),
+        );
       }),
       connectionHooks,
     ]),
