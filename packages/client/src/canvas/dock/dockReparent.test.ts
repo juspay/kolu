@@ -150,15 +150,15 @@ function box(center: Point): Rectangle {
 
 /** What a drag scope resolves to: every droppable asked through the detector,
  *  the answers ranked the way dnd-kit ranks them. The pointer sits at the
- *  dragged element's centre. */
+ *  dragged element's centre unless `pointer` says otherwise. */
 function resolve(
-  dragged: { id: string; at: Point },
+  dragged: { id: string; at: Point; pointer?: Point },
   droppables: { id: string; at: Point }[],
 ): string | null {
   const dragOperation = {
     source: { id: dragged.id },
     shape: { current: box(dragged.at) },
-    position: { current: dragged.at },
+    position: { current: dragged.pointer ?? dragged.at },
   } as unknown as DetectorInput["dragOperation"];
   const [first] = droppables
     .map((d) =>
@@ -176,6 +176,24 @@ function resolve(
 }
 
 describe("dockCollisionDetector", () => {
+  it("resolves from the dragged element's centre, not from the pointer", () => {
+    // The grip sits at the row's right edge, so the pointer rides well to the
+    // right of the row it carries. The row nearest the CARRIED row wins, even
+    // when the pointer is over another one.
+    const chosen = resolve(
+      {
+        id: rowDragId("t1"),
+        at: { x: 0, y: 0 },
+        pointer: { x: 100, y: 0 },
+      },
+      [
+        { id: rowDragId("t2"), at: { x: 20, y: 0 } },
+        { id: rowDragId("t3"), at: { x: 100, y: 0 } },
+      ],
+    );
+    expect(chosen).toBe(rowDragId("t2"));
+  });
+
   it("ignores a nearer cluster droppable on a row drag", () => {
     const chosen = resolve({ id: rowDragId("t1"), at: { x: 0, y: 0 } }, [
       { id: "feat/x", at: { x: 0, y: 0 } },

@@ -6,7 +6,7 @@
  *  repo cards and each repo card's clusters are separate scopes, so a drag in
  *  one can never resolve against a target in another. */
 
-import { closestCenter, type CollisionDetector } from "@dnd-kit/collision";
+import type { CollisionDetector } from "@dnd-kit/collision";
 import {
   DragDropManager,
   type Droppable,
@@ -26,6 +26,7 @@ import {
   useContext,
 } from "solid-js";
 import { Portal } from "solid-js/web";
+import { nearestCenter } from "./collision";
 import { ReleasePoint } from "./releasePoint";
 import { DragTracker, type DragTrackerOptions } from "./tracker";
 
@@ -90,7 +91,7 @@ export function useDragDropScope(): DragDropScope | undefined {
 }
 
 export const DragDropProvider: Component<{
-  /** How a droppable answers a drag. dnd-kit's `closestCenter` by default. */
+  /** How a droppable answers a drag. {@link nearestCenter} by default. */
   collisionDetector?: CollisionDetector;
   onDragEnd: (event: DropEvent) => void;
   /** A ghost that rides under the pointer for the whole drag, portalled to
@@ -152,7 +153,7 @@ export const DragDropProvider: Component<{
   const scope: DragDropScope = {
     manager,
     collisionDetector: (input) =>
-      (props.collisionDetector ?? closestCenter)(input),
+      (props.collisionDetector ?? nearestCenter)(input),
     droppableElements,
     activeId,
     overId,

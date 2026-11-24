@@ -53,9 +53,10 @@ export async function dragFromCenter(
   );
 }
 
-/** The center-to-center case: a drop onto `toSelector` — the drag scopes'
- *  `closestCenter` collision answers first from the droppable under the
- *  pointer, so the pointer must settle inside the target's box. */
+/** The center-to-center case: a drop onto `toSelector` — the drag scopes
+ *  resolve to the droppable whose centre is nearest the dragged element's
+ *  centre, so pressing the source's centre and stepping to the target's
+ *  centre carries the one onto the other. */
 export async function dragCenterTo(
   world: KoluWorld,
   fromSelector: string,

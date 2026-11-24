@@ -13,7 +13,8 @@
  *  space could collide with a cluster label, and one collision is enough to
  *  turn a row drag into a cluster reorder. */
 
-import { closestCenter, type CollisionDetector } from "@dnd-kit/collision";
+import type { CollisionDetector } from "@dnd-kit/collision";
+import { nearestCenter } from "../../dnd/collision";
 import type { TerminalId } from "kolu-common/surface";
 import type { ParentEdge } from "../../terminal/terminalTree";
 
@@ -106,9 +107,9 @@ export function dropHighlightOf(
 }
 
 /** Answer only from the id space the ACTIVE drag lives in, and let
- *  `closestCenter` decide within it: a row drag resolves against rows + the
+ *  `nearestCenter` decide within it: a row drag resolves against rows + the
  *  header, a cluster drag against everything else. Without the split a cluster
- *  sitting nearest the pointer would win a row drop (silently turning it into a
+ *  sitting nearest the dragged row would win a row drop (silently turning it into a
  *  cluster reorder), and a row would win a cluster drag (resolving
  *  `reorderClusters` to a no-op). */
 export const dockCollisionDetector: CollisionDetector = (input) => {
@@ -117,5 +118,5 @@ export const dockCollisionDetector: CollisionDetector = (input) => {
   const isRowDrag = rowIdOfDragId(source.id) !== null;
   const { id } = input.droppable;
   const inRowSpace = rowIdOfDragId(id) !== null || id === HEADER_DROP_ID;
-  return inRowSpace === isRowDrag ? closestCenter(input) : null;
+  return inRowSpace === isRowDrag ? nearestCenter(input) : null;
 };
