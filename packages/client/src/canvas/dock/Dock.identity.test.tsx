@@ -90,15 +90,16 @@ vi.mock("@kolu/solid-dockrow", () => ({
     <span data-row={p.id}>{p.recency}</span>
   ),
 }));
-vi.mock("@thisbeyond/solid-dnd", () => ({
+vi.mock("../../dnd", () => ({
   DragDropProvider: (p: { children: JSX.Element }) => p.children,
   SortableProvider: (p: { children: JSX.Element }) => p.children,
-  DragDropSensors: () => null,
-  DragOverlay: () => null,
-  createSortable: () => ({ ref: () => {}, dragActivators: {} }),
-  createDroppable: () => ({ ref: () => {} }),
-  maybeTransformStyle: () => ({}),
-  closestCenter: () => null,
+  createSortable: () => ({
+    ref: () => {},
+    activators: {},
+    transform: () => ({ x: 0, y: 0 }),
+  }),
+  createDroppable: () => ({ ref: () => {}, isActiveDroppable: () => false }),
+  transformStyle: () => ({}),
 }));
 import Dock, { setDockMode } from "./Dock";
 import { DockList } from "./DockList";

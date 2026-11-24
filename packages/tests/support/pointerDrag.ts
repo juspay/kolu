@@ -2,9 +2,10 @@
  *  share: press the SOURCE's center, step the pointer to a target point,
  *  release.
  *
- *  Stepped so the pointermove listeners see real frames — solid-dnd's
- *  PointerSensor (250 ms / 10 px activation) needs the drag to live in the DOM
- *  the way a user's does. Both in-canvas gestures (resize, selection,
+ *  Stepped so the pointermove listeners see real frames — kolu's drag
+ *  scopes run dnd-kit's PointerSensor (10 px activation, moves applied once
+ *  per animation frame), which needs the drag to live in the DOM the way a
+ *  user's does. Both in-canvas gestures (resize, selection,
  *  rearrange) and the dock's gestures feed the same engine. The dock
  *  features (dock_arrange_steps, dock_steps's resize) and the Code view's
  *  split handles were migrated off hand-spelled frames onto this driver; the
@@ -52,9 +53,9 @@ export async function dragFromCenter(
   );
 }
 
-/** The center-to-center case: a drop onto `toSelector` — solid-dnd's
- *  closestCenter collision resolves the droppable from the point, so the
- *  pointer must settle inside the target's box. */
+/** The center-to-center case: a drop onto `toSelector` — the drag scopes'
+ *  `closestCenter` collision answers first from the droppable under the
+ *  pointer, so the pointer must settle inside the target's box. */
 export async function dragCenterTo(
   world: KoluWorld,
   fromSelector: string,

@@ -1,6 +1,6 @@
 /** Steps for the dock-arrange (#2247) surface: reading the arrangement
  *  (the cheap settle-check read of DOM order) and driving real sortable
- *  drags ontop of solid-dnd's PointerSensor activation. */
+ *  drags on top of the dock's drag scopes' pointer-sensor activation. */
 
 import * as assert from "node:assert";
 import { Then, When } from "@cucumber/cucumber";

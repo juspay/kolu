@@ -8,24 +8,18 @@
  *  and changes are reported via `onLayoutChange` — the caller owns the
  *  source of truth (today: server metadata via subscription).
  *
- *  Drag uses @thisbeyond/solid-dnd (same library as the sidebar) for
+ *  Drag runs in the canvas's own drag scope (`dnd/`, on dnd-kit) for
  *  gesture handling — decouples sensing from position application.
  *
  *  Pan/zoom viewport logic lives in viewport/ — decomposed by volatility
  *  axis (gestures, transforms, coordinates) per Lowy analysis. */
 
 import { sleepingArm } from "@kolu/padi-client/surface";
-import {
-  DragDropProvider,
-  DragDropSensors,
-  type DragEvent,
-} from "@thisbeyond/solid-dnd";
 import type { TerminalId } from "kolu-common/surface";
 import {
   type Component,
   createEffect,
   createMemo,
-  createSignal,
   For,
   type JSX,
   Match,
@@ -34,6 +28,7 @@ import {
   Show,
   Switch,
 } from "solid-js";
+import { DragDropProvider, type DropEvent } from "../dnd";
 import { savedSessionSub } from "../hostScope/activeWire";
 import { useStaleCheck } from "../terminal/staleness";
 import { useTerminalStore } from "../terminal/useTerminalStore";
@@ -260,37 +255,23 @@ const TerminalCanvas: Component<{
     ),
   );
 
-  // solid-dnd resets the draggable transform before onDragEnd fires,
-  // so we capture the last known delta during onDragMove.
-  const [dragDelta, setDragDelta] = createSignal({ x: 0, y: 0 });
-
-  function handleDragMove({ draggable }: DragEvent) {
-    if (draggable)
-      setDragDelta({ x: draggable.transform.x, y: draggable.transform.y });
-  }
-
-  /** Apply captured drag delta to the tile's persisted position.
-   *  Delta is in screen-space — normalize by zoom for canvas-space. */
-  function handleDragEnd({ draggable }: DragEvent) {
-    if (!draggable) return;
-    const id = draggable.id as string;
+  /** Apply the drag's offset to the tile's persisted position.
+   *  The offset is in screen-space — normalize by zoom for canvas-space. */
+  function handleDragEnd({ sourceId: id, transform }: DropEvent) {
     const l = layoutOf(id);
     if (!l) return;
-    const { x: sdx, y: sdy } = dragDelta();
-    if (sdx !== 0 || sdy !== 0) {
-      const { dx, dy } = viewport.normalizeDelta(sdx, sdy);
-      const next: TileLayout = {
-        ...l,
-        x: viewport.snapToGrid(l.x + dx),
-        y: viewport.snapToGrid(l.y + dy),
-      };
-      // Hold pending until metadata echo arrives — avoids a frame where
-      // solid-dnd's transform has reset to 0 but getLayout still returns
-      // the pre-drag position.
-      setPendingLayout(id, next);
-      props.onLayoutChange(id, next);
-    }
-    setDragDelta({ x: 0, y: 0 });
+    if (transform.x === 0 && transform.y === 0) return;
+    const { dx, dy } = viewport.normalizeDelta(transform.x, transform.y);
+    const next: TileLayout = {
+      ...l,
+      x: viewport.snapToGrid(l.x + dx),
+      y: viewport.snapToGrid(l.y + dy),
+    };
+    // Hold pending until metadata echo arrives — avoids a frame where the
+    // drag's transform has reset to 0 but getLayout still returns the
+    // pre-drag position.
+    setPendingLayout(id, next);
+    props.onLayoutChange(id, next);
   }
 
   /** Start resizing a tile from the given edge or corner.
@@ -488,8 +469,7 @@ const TerminalCanvas: Component<{
   }
 
   return (
-    <DragDropProvider onDragMove={handleDragMove} onDragEnd={handleDragEnd}>
-      <DragDropSensors />
+    <DragDropProvider onDragEnd={handleDragEnd}>
       {/* Outer flex container — single mount point for the activity
        *  dock. The dock owns its own posture-conditional positioning:
        *  in maximized mode it's `relative shrink-0` (real left-panel

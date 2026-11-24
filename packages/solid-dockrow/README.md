@@ -74,7 +74,7 @@ Part of the kolu monorepo — `"@kolu/solid-dockrow": "workspace:*"`.
 
   | prop | what it is |
   | --- | --- |
-  | `ref` | The row ROOT as a node (solid-dnd's `setNodeRef` — the droppable). Solid calls a `ref` function with the element. |
+  | `ref` | The row ROOT as a node for the consumer's drag library — what it measures as the draggable and the droppable. Solid calls a `ref` function with the element. |
   | `handle` | The consumer's activator dict (`DockDragHandlers`) for the row's own grip. **Supplying it renders the grip**; omitting it renders no grip at all, so a touch row or a row whose terminal is not live has nothing to re-home. |
   | `drop` | The drop verdict the drag library is holding over this row — `"over"` (valid re-home target) or `"invalid"` (would be refused). Stamps `data-drop`, which `dockrow.css` paints. |
 
@@ -96,7 +96,7 @@ Part of the kolu monorepo — `"@kolu/solid-dockrow": "workspace:*"`.
   fragment has no node a sortable can register; this is the element a drag
   gesture lands on. The package ships no drag lib of its own — `label` /
   `ref` / `style` / `handlers` are the sockets the consumer wires its own
-  library through (e.g. solid-dnd's `createSortable` triple), while the paint
+  library through (e.g. a sortable's ref, transform and activators), while the paint
   contract (the `.dock-cluster` scope the washes and dividers key on) stays in
   `dockrow.css`. `DockDragHandlers` is the narrow `Record<string, (e) => void>`
   shape `handlers` takes — just far enough from any one library's emit.

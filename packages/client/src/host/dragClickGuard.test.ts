@@ -1,11 +1,10 @@
 // @vitest-environment happy-dom
 /** Re-ordering a host tab must not also switch to it.
  *
- *  solid-dnd releases a drag on `pointerup` and the browser then fires `click`
- *  on the element the gesture started on — the host tab's own label or status
- *  button. Nothing in solid-dnd suppresses it, so the drag that moved a tab also
- *  ran `setActiveHost`, or opened the diagnostics popover when the drag started
- *  on the dot. This pins the latch that swallows that one click. */
+ *  A drag is released on `pointerup`, and a `click` can follow on the element
+ *  the gesture started on — the host tab's own label or status button — which
+ *  would run `setActiveHost`, or open the diagnostics popover when the drag
+ *  started on the dot. This pins the latch that swallows that one click. */
 
 import { createRoot, createSignal } from "solid-js";
 import { describe, expect, it } from "vitest";

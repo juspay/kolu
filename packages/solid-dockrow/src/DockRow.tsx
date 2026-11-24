@@ -131,12 +131,13 @@ export type DockRowProps = {
   /** A pointer-down trap. kolu's touch drawer stops propagation here so Corvu's
    *  drag-to-dismiss cannot claim the tap. */
   onPointerDown?: (event: PointerEvent) => void;
-  /** The row ROOT as a node for the consumer's drag library — solid-dnd's
-   *  `setNodeRef` (droppable target), same socket shape `DockSection` and
-   *  `DockCluster` carry. Solid calls a `ref` function with the element. */
+  /** The row ROOT as a node for the consumer's drag library — what it
+   *  measures as the draggable and the droppable, the same socket shape
+   *  `DockSection` and `DockCluster` carry. Solid calls a `ref` function with
+   *  the element. */
   ref?: (el: HTMLElement) => void;
-  /** The consumer's drag ACTIVATORS for the row's own grip (solid-dnd's
-   *  `dragActivators`, or any pointer-sensor's dict). Supplying it makes the
+  /** The consumer's drag ACTIVATORS for the row's own grip (any drag library's
+   *  handler dict, e.g. `{ onPointerDown }`). Supplying it makes the
    *  PACKAGE render the grip; omitting it renders no grip at all — a touch row
    *  has no mouse drag, and a row whose terminal is not live has nothing to
    *  re-home. */

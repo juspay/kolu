@@ -1,5 +1,5 @@
 /** Single tile on the canvas — separated so createDraggable gets its own
- *  reactive owner per tile (required by solid-dnd). Shell only: positioning,
+ *  reactive owner per tile. Shell only: positioning,
  *  title bar, resize handles. Content is injected via render props — the
  *  canvas module has no knowledge of what renders inside a tile.
  *
@@ -12,7 +12,6 @@
  *    disabled. The maximize signal lives in `TerminalCanvas`, exposed here
  *    so chrome reflects state and double-click toggles it. */
 
-import { createDraggable } from "@thisbeyond/solid-dnd";
 import {
   type Component,
   createEffect,
@@ -24,6 +23,7 @@ import {
   Show,
 } from "solid-js";
 import { match } from "ts-pattern";
+import { createDraggable } from "../dnd";
 import { CHROME_ICON_BUTTON_CLASS } from "../ui/chromeSpacing";
 import { MaximizeIcon, RestoreIcon } from "../ui/Icons";
 import {
@@ -309,8 +309,8 @@ const CanvasTile: Component<{
         props.panX(),
         props.panY(),
         props.zoom(),
-        draggable.transform.x,
-        draggable.transform.y,
+        draggable.transform().x,
+        draggable.transform().y,
       ),
     };
   };
@@ -481,15 +481,16 @@ const CanvasTile: Component<{
           }}
           // Non-interactive chrome: prevent the browser's default
           // mousedown focus shift so clicks on the title bar don't blur
-          // the xterm textarea. solid-dnd's drag uses pointerdown, not
+          // the xterm textarea. The drag starts on pointerdown, not
           // mousedown, so drag is unaffected; child buttons handle their
-          // own focus via stopPropagation on pointerdown.
+          // own focus — and stay out of the drag — via stopPropagation on
+          // pointerdown.
           onMouseDown={(e) => e.preventDefault()}
           onDblClick={(e) => {
             e.stopPropagation();
             props.onToggleMaximize();
           }}
-          {...(props.mode === "tiled" ? draggable.dragActivators : {})}
+          {...(props.mode === "tiled" ? draggable.activators : {})}
         >
           <div class="contents">{props.renderTitle()}</div>
           <div class="col-start-2 row-start-1 flex items-center gap-1 shrink-0">

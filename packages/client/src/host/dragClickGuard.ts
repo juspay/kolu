@@ -1,11 +1,12 @@
 /** dragClickGuard — swallow the ONE click a finished drag leaves behind.
  *
- *  A drag ends with `pointerup`, and the browser then fires `click` on whatever
- *  the gesture started on. For a sortable whose node FOLLOWS the pointer that is
- *  the same element `pointerdown` hit, so the click lands, and nothing in
- *  `@thisbeyond/solid-dnd@0.7.5` suppresses it (its `onPointerUp` only calls
- *  `dragEnd()`). On a host tab, whose whole body is two `<button>`s, that click
- *  switches host or toggles the diagnostics popover.
+ *  A drag ends with `pointerup`, and a `click` can follow on whatever the
+ *  gesture started on. For a sortable whose node FOLLOWS the pointer that is
+ *  the same element `pointerdown` hit. The drag scope's sensor holds pointer
+ *  capture on `document.body` for the drag and suppresses the click the browser
+ *  aims there, but the chip does not rely on where a browser lands it: on a
+ *  host tab, whose whole body is two `<button>`s, a click that does reach the
+ *  chip switches host or toggles the diagnostics popover.
  *
  *  So: latch when a drag ENDS, and consume the latch from a capture-phase
  *  `click` listener on the chip — before either button's own handler runs.
@@ -16,7 +17,7 @@
  *  click. (`dev/skills/kolu-client/SKILL.md` makes the same frame-not-microtask
  *  call for the controlled-component gesture token, for the same reason.)
  *
- *  A leaf: no DOM and no solid-dnd import, so `dragClickGuard.test.ts` can pin
+ *  A leaf: no DOM and no drag-scope import, so `dragClickGuard.test.ts` can pin
  *  the whole contract off a plain boolean signal. */
 
 import { type Accessor, createEffect, onCleanup } from "solid-js";

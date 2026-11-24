@@ -92,10 +92,10 @@ export const DockSection: Component<{
  *  furniture it carries), and a container that decided that for its consumer
  *  would be deciding a product question from inside a stylesheet. */
 
-/** Event-listener dict a consumer's drag library (solid-dnd's `dragActivators`,
- *  slots any pointer-sensor) spreads onto an element: keys are the sensor's
- *  event names (`onpointerdown`, …). The package invents no library of its
- *  own, so the socket is as narrow as "a dict of functions". */
+/** Event-listener dict a consumer's drag library spreads onto an element: keys
+ *  are Solid event props (`onPointerDown`, …), each starting the library's
+ *  pointer sensor. The package invents no library of its own, so the socket is
+ *  as narrow as "a dict of functions". */
 export type DockDragHandlers = Record<string, (event: Event) => void>;
 
 /** A first-class div for the branch/intent cluster — the sortable's boundary (kolu's #2247

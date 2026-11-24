@@ -74,16 +74,13 @@ import {
 } from "@kolu/solid-dockrow";
 import type { DockRowBucket } from "@kolu/solid-dockrow/rowValues";
 import {
-  closestCenter,
   createDroppable,
   createSortable,
   DragDropProvider,
-  DragDropSensors,
-  DragOverlay,
-  type DragEvent,
+  type DropEvent,
   SortableProvider,
-  maybeTransformStyle,
-} from "@thisbeyond/solid-dnd";
+  transformStyle,
+} from "../../dnd";
 import { AttentionTriplet } from "@kolu/solid-statepip";
 import type { TerminalId } from "kolu-common/surface";
 import {
@@ -248,7 +245,8 @@ const Dock: Component<{
   // canvas. Two drag idioms live in this dock, deliberately distinct:
   // *geometry* (resize — continuous, frame-by-frame) goes through that drag;
   // *rearrangement* (move a section / cluster — discrete, semantically
-  // versioned) goes through solid-dnd. The two never share a gesture.
+  // versioned) goes through the dock's drag scopes (`dnd/`). The two never
+  // share a gesture.
   const resize = createWidthDrag(DOCK_CARDS_WIDTH, hostEl);
 
   /** Rendered width: the drag's for the maximized cards sidebar, else the
@@ -356,11 +354,9 @@ const RailOrCards: Component<{
   // visible slot plus every still-pinned hidden one — the verbs in
   // `dockTree.ts` are the only mutation allowed on it, so the pinned
   // drop-site lands exactly where you let go.
-  const dropSection = ({ draggable, droppable }: DragEvent) => {
-    if (!droppable || draggable.id === droppable.id) return;
-    setDockOrder(
-      moveRepo(props.tree.order, String(draggable.id), String(droppable.id)),
-    );
+  const dropSection = ({ sourceId, targetId }: DropEvent) => {
+    if (targetId === null || sourceId === targetId) return;
+    setDockOrder(moveRepo(props.tree.order, sourceId, targetId));
   };
   return (
     <div class="flex flex-col w-full min-h-0">
@@ -388,17 +384,12 @@ const RailOrCards: Component<{
           classList={{ hidden: props.mode === "rail" }}
           inert={props.mode === "rail"}
         >
-          {/* The dock's OWN drag context, nested inside the canvas's:
-           *  a sortable here must never surface to a canvas listener —
-           *  sortables bind their drag to the NEAREST DragDropProvider,
-           *  so the nest is the isolation. Mode-level: only the cards
-           *  list is rearrangeable — rail rows are icon swatches, not
-           *  draggable units (#2247). */}
-          <DragDropProvider
-            collisionDetector={closestCenter}
-            onDragEnd={dropSection}
-          >
-            <DragDropSensors />
+          {/* The dock's OWN drag scope, nested inside the canvas's: a
+           *  sortable here must never surface to a canvas listener —
+           *  sortables join the NEAREST drag scope, so the nest is the
+           *  isolation. Mode-level: only the cards list is rearrangeable —
+           *  rail rows are icon swatches, not draggable units (#2247). */}
+          <DragDropProvider onDragEnd={dropSection}>
             <SortableProvider ids={props.tree.groups.map((g) => g.name)}>
               <div class="flex flex-col gap-2.5 p-2">
                 <Key each={props.tree.groups} by={"name"}>
@@ -545,8 +536,8 @@ const DockHeader: Component<{
 /** One repo section as ONE draggable unit — the whole card is the sortable:
  *  `createSortable`'s `ref` + `style` land on the DockSection ROOT through
  *  its own sockets (the package's answer, so a second consumer never re-spells
- *  the wrapper), and its `dragActivators` land inside the consumer-filled
- *  header slot — the identity chrome, never the attention capsules. */
+ *  the wrapper), and its `activators` land inside the consumer-filled header
+ *  slot — the identity chrome, never the attention capsules. */
 const SortableSection: Component<{
   group: DockGroup;
   flatIndexOf: ReadonlyMap<TerminalId, number>;
@@ -554,23 +545,22 @@ const SortableSection: Component<{
 }> = (props) => {
   const sortable = createSortable(props.group.name);
   return (
-    // Each section ships its OWN inner drag context for its clusters —
-    // giving the nest two isolated levels: a cluster physically cannot
-    // land in another repo: sortables bind their drag to the NEAREST
-    // DragDropProvider, so it's the nest, not any runtime check, that blocks
-    // the crossover.
+    // Each section ships its OWN inner drag scope for its clusters — giving
+    // the nest two isolated levels: a cluster physically cannot land in
+    // another repo: sortables join the NEAREST drag scope, so it's the nest,
+    // not any runtime check, that blocks the crossover.
     <RepoSection
       group={props.group}
       flatIndexOf={props.flatIndexOf}
       sectionRef={sortable.ref}
-      sectionStyle={maybeTransformStyle(sortable.transform)}
-      grip={sortable.dragActivators}
+      sectionStyle={transformStyle(sortable.transform())}
+      grip={sortable.activators}
       onClusterDrop={props.onClusterDrop}
     />
   );
 };
 
-/** The drop target a row drag resolved to, from the droppable id the library
+/** The drop target a row drag resolved to, from the droppable id the drag scope
  *  reports. The collision filter admits only row and header droppables to a row
  *  drag, so a third answer is a wiring bug and is said out loud rather than
  *  silently no-opping. */
@@ -608,7 +598,7 @@ const HeaderDropTarget: Component = () => {
   const draggedRowId = useDraggedRowId();
   const verdict = useDockDropVerdict(
     { kind: "header" },
-    () => droppable.isActiveDroppable,
+    droppable.isActiveDroppable,
   );
   const drop = (): "over" | "invalid" | "target" | undefined => {
     const dragged = draggedRowId();
@@ -644,8 +634,8 @@ const HeaderDropTarget: Component = () => {
  *  gesture's BODY. Without it the only in-flight cue was the target's ring,
  *  which says where a drop would land but never that you are carrying anything.
  *
- *  Row-shaped on purpose. The library sizes the overlay to the DRAGGABLE (the
- *  row) and centres it on the drag's own transform, so a row-shaped ghost sits
+ *  Row-shaped on purpose. The drag scope sizes the overlay to the DRAGGABLE
+ *  (the row) and centres it on the drag's own transform, so a row-shaped ghost sits
  *  exactly where the collision resolves from — what you see and where the drop
  *  would land are one place. A compact chip would have to be centred inside that
  *  box to keep them together, and would then read as trailing the cursor by half
@@ -738,11 +728,11 @@ const RepoSection: Component<{
   // full-label splice (a filter-hidden cluster keeps its pinned slot) is in
   // the VERB, `moveCluster`, inside `dockTree.ts` — not here: the component
   // is event plumbing only, exactly like `dropSection`.
-  const reorderClusters = ({ draggable, droppable }: DragEvent) => {
-    if (!droppable || draggable.id === droppable.id) return;
+  const reorderClusters = (sourceId: string, targetId: string | null) => {
+    if (targetId === null || sourceId === targetId) return;
     const visible = props.group.clusters.map((k) => k.label);
-    const from = visible.indexOf(String(draggable.id));
-    const to = visible.indexOf(String(droppable.id));
+    const from = visible.indexOf(sourceId);
+    const to = visible.indexOf(targetId);
     if (from === -1 || to === -1) return;
     props.onClusterDrop(arrayMove(visible, from, to));
   };
@@ -750,21 +740,21 @@ const RepoSection: Component<{
   /** This section's drag END, dispatched by which ID SPACE the drag lived in —
    *  the collision filter already partitions the candidates, and the event
    *  arrives with the same two ids, so the split is asked once more here. Every
-   *  draggable in this provider that is not a row is a branch-cluster sortable
-   *  (the section-level provider owns the cards). */
-  const onDragEnd = ({ draggable, droppable }: DragEvent) => {
-    const draggedId = rowIdOfDragId(draggable.id);
+   *  draggable in this scope that is not a row is a branch-cluster sortable
+   *  (the section-level scope owns the cards). */
+  const onDragEnd = ({ sourceId, targetId }: DropEvent) => {
+    const draggedId = rowIdOfDragId(sourceId);
     if (draggedId === null) {
-      reorderClusters({ draggable, droppable });
+      reorderClusters(sourceId, targetId);
       return;
     }
     // Released where no target answered: for a row drag the filter has already
     // excluded every cluster, so `null` means genuinely nothing was under it.
-    if (!droppable) return;
+    if (targetId === null) return;
     const drop = reparentDropOf(
       dockDropContext(store),
       draggedId,
-      dropTargetOf(String(droppable.id)),
+      dropTargetOf(targetId),
     );
     // Refused — the row itself, one of its descendants, its current parent, a
     // sleeping target, or the header for a row that is already its own tile.
@@ -773,28 +763,27 @@ const RepoSection: Component<{
     rehome(drop.id, drop.parentId);
   };
   return (
+    // The carried row rides in the scope's overlay. It is drawn for EVERY drag
+    // in this scope; a cluster drag renders nothing in it, and — because the
+    // scope has an overlay — the dragged cluster holds its preview slot rather
+    // than following the pointer.
+    //
+    // `z-40`: the overlay is portalled to `document.body`, and the dock it
+    // rides over is `z-30` — without a stacking order of its own the ghost
+    // would paint BEHIND the very panel the drag happens in. (The maximized
+    // tile is also `z-40`; the portal is appended last, so the ghost wins
+    // there, which is what a drag inside the dock wants.)
     <DragDropProvider
       collisionDetector={dockCollisionDetector}
       onDragEnd={onDragEnd}
-    >
-      <DragDropSensors />
-      {/* The carried row. Rendered for EVERY drag in this provider (the library
-       *  binds the overlay at drag start, before anything knows what is being
-       *  dragged); a cluster drag gets an empty overlay, which is invisible and
-       *  resolves collisions off the same transform the cluster drag used
-       *  before.
-       *
-       *  `z-40`: the overlay is portalled to `document.body`, and the dock it
-       *  rides over is `z-30` — without a stacking order of its own the ghost
-       *  would paint BEHIND the very panel the drag happens in. (The maximized
-       *  tile is also `z-40`; the portal is appended last, so the ghost wins
-       *  there, which is what a drag inside the dock wants.) */}
-      <DragOverlay class="z-40">
-        {(draggable) => {
-          const id = draggable ? rowIdOfDragId(draggable.id) : null;
+      overlay={{
+        class: "z-40",
+        render: (activeId) => {
+          const id = rowIdOfDragId(activeId);
           return id === null ? null : <RowDragGhost id={id} />;
-        }}
-      </DragOverlay>
+        },
+      }}
+    >
       <SortableProvider ids={props.group.clusters.map((c) => c.label)}>
         <DockSection
           surface="desktop"
@@ -882,8 +871,9 @@ const RepoSection: Component<{
  *  gesture settles on — the plain `div` the sortable registers and moves.
  *
  *  A cluster cannot be dropped in another repo: the SortableProvider is
- *  per-section (see `SortableSection`), and solid-dnd keys every sortable to
- *  its NEAREST SortableProvider — the nest is the isolation, no runtime check. */
+ *  per-section (see `SortableSection`), and every sortable joins its NEAREST
+ *  drag scope and SortableProvider — the nest is the isolation, no runtime
+ *  check. */
 const SortableCluster: Component<{
   cluster: DockBranchCluster;
   flatIndexOf: ReadonlyMap<TerminalId, number>;
@@ -894,8 +884,8 @@ const SortableCluster: Component<{
     <DockCluster
       label={props.cluster.label}
       ref={sortable.ref}
-      style={maybeTransformStyle(sortable.transform)}
-      handlers={sortable.dragActivators}
+      style={transformStyle(sortable.transform())}
+      handlers={sortable.activators}
     >
       <Key each={props.cluster.rows} by={"id"}>
         {(row) => (
@@ -990,11 +980,8 @@ const DockRow: Component<{
           recencyAt: () => props.recencyAt,
         });
         // Registered HERE, inside the `<Show>`, and not in the component body:
-        // `createDraggable`/`createDroppable` register the element they were
-        // handed at MOUNT, so a hook called before this row's element exists
-        // would register nothing and the grip would still render — a handle that
-        // silently does nothing. Bound to the Show callback, registration is
-        // tied to the element's own lifetime.
+        // the row's draggable and droppable then live exactly as long as the
+        // element they measure, and leave the drag scope with it.
         const drag = useDockRowDrag(props.id);
         return (
           <DockRowView

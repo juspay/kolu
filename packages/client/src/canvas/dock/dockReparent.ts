@@ -9,11 +9,11 @@
  *  write quietly no-ops.
  *
  *  The row id is prefixed (`row:<terminalId>`) because the sortables in the
- *  same DragDropProvider key branch clusters by LABEL — a raw terminal id in
- *  that space could collide with a cluster label, and one collision is enough
- *  to turn a row drag into a cluster reorder. */
+ *  same drag scope key branch clusters by LABEL — a raw terminal id in that
+ *  space could collide with a cluster label, and one collision is enough to
+ *  turn a row drag into a cluster reorder. */
 
-import { closestCenter, type CollisionDetector } from "@thisbeyond/solid-dnd";
+import { closestCenter, type CollisionDetector } from "@dnd-kit/collision";
 import type { TerminalId } from "kolu-common/surface";
 import type { ParentEdge } from "../../terminal/terminalTree";
 
@@ -105,22 +105,17 @@ export function dropHighlightOf(
   return reparentDropOf(ctx, draggedId, target) === null ? "invalid" : "over";
 }
 
-/** Partition the droppables by which id space the ACTIVE drag lives in, then
- *  let `closestCenter` pick within the half that can actually answer: a row
- *  drag resolves against rows + the header, a cluster drag against everything
- *  else. Without the split a cluster sitting nearest the pointer would win a
- *  row drop (silently turning it into a cluster reorder), and a row would win a
- *  cluster drag (resolving `reorderClusters` to a no-op). */
-export const dockCollisionDetector: CollisionDetector = (
-  draggable,
-  droppables,
-  context,
-) => {
-  const isRowDrag = rowIdOfDragId(draggable.id) !== null;
-  const candidates = droppables.filter((droppable) => {
-    const inRowSpace =
-      rowIdOfDragId(droppable.id) !== null || droppable.id === HEADER_DROP_ID;
-    return inRowSpace === isRowDrag;
-  });
-  return closestCenter(draggable, candidates, context);
+/** Answer only from the id space the ACTIVE drag lives in, and let
+ *  `closestCenter` decide within it: a row drag resolves against rows + the
+ *  header, a cluster drag against everything else. Without the split a cluster
+ *  sitting nearest the pointer would win a row drop (silently turning it into a
+ *  cluster reorder), and a row would win a cluster drag (resolving
+ *  `reorderClusters` to a no-op). */
+export const dockCollisionDetector: CollisionDetector = (input) => {
+  const source = input.dragOperation.source;
+  if (!source) return null;
+  const isRowDrag = rowIdOfDragId(source.id) !== null;
+  const { id } = input.droppable;
+  const inRowSpace = rowIdOfDragId(id) !== null || id === HEADER_DROP_ID;
+  return inRowSpace === isRowDrag ? closestCenter(input) : null;
 };
