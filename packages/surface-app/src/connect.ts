@@ -64,6 +64,7 @@ import type { WatchableWire } from "@kolu/surface/link";
 import {
   websocketLink,
   type WebsocketLink,
+  type WebsocketLinkOptions,
 } from "@kolu/surface/links/websocket";
 import { Effect } from "effect";
 import type { Rpc, RpcGroup } from "effect/rpc";
@@ -144,6 +145,10 @@ export interface SurfaceSocketOptions {
   /** The platform's WebSocket constructor. Omitted in a browser (the link uses
    *  `globalThis.WebSocket`); supplied by a Node host or a test that has none. */
   connect?: (url: string) => WebSocket;
+  /** Told once per socket the link ends on its own judgment (an unreadable
+   *  frame, an unanswered keep-alive), with that socket. Rides every later dial,
+   *  `conn.redial` included. See `websocketLink`. */
+  onSelfSever?: WebsocketLinkOptions["onSelfSever"];
 }
 
 /**
@@ -237,6 +242,7 @@ export async function createSurfaceSocket(
     url: () => echo.appendTo(resolveBase()),
     isTerminalClose: isStaleProcessClose,
     connect: opts.connect,
+    onSelfSever: opts.onSelfSever,
   });
   const identityTag = identityTagFor(opts.siblingKey);
   // Which OPEN a probe belongs to. A probe from a superseded open landing late
