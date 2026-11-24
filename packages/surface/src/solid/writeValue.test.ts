@@ -108,7 +108,10 @@ function harness<T>(): Harness<T> {
  *  COMPUTE reads a leaf inside each row, so each row's target carries a node and
  *  its identity is a thing the store preserves rather than a thing nobody can
  *  see. The effect phase does nothing; what the test needs is the subscription. */
-function watchEach<R>(read: () => readonly R[] | undefined, leaf: (row: R) => unknown): void {
+function watchEach<R>(
+  read: () => readonly R[] | undefined,
+  leaf: (row: R) => unknown,
+): void {
   createEffect(
     () => (read() ?? []).map(leaf).join("\u0000"),
     () => {},
@@ -137,7 +140,12 @@ function merge(frames: readonly Located[][]): {
   const first = frames[0];
   if (first === undefined) throw new Error("no first frame");
   h.write(first);
-  h.observe(() => watchEach(() => h.store.v, (r) => r.node.id));
+  h.observe(() =>
+    watchEach(
+      () => h.store.v,
+      (r) => r.node.id,
+    ),
+  );
   const steps: Seen[][] = [observe(h.store.v ?? [])];
   for (const frame of frames.slice(1)) {
     h.write(frame);
@@ -231,7 +239,12 @@ describe("the store merge never recycles a row across records", () => {
       { id: "1", label: "one" },
       { id: "2", label: "two" },
     ]);
-    h.observe(() => watchEach(() => h.store.v, (r) => r.id));
+    h.observe(() =>
+      watchEach(
+        () => h.store.v,
+        (r) => r.id,
+      ),
+    );
     // Eagerly, for the same reason as `observe` above: a recycled proxy reads the
     // record it was handed, so its `id` must be read now, not after the next write.
     const first = new Map((h.store.v ?? []).map((r) => [r, r.id] as const));
@@ -331,8 +344,14 @@ function replay(
   let track = -1;
   let leaf = -1;
   h.observe(() => {
-    watchEach(() => h.store.v?.rows, (r) => r.node.title);
-    watchEach(() => h.store.v?.names, (n) => n.title);
+    watchEach(
+      () => h.store.v?.rows,
+      (r) => r.node.title,
+    );
+    watchEach(
+      () => h.store.v?.names,
+      (n) => n.title,
+    );
     // Split effects: the compute does the tracked read, the effect phase counts it.
     // What the counts measure is the store's NOTIFICATIONS — a write the store
     // decided changed nothing never reaches the effect phase at all.
@@ -367,8 +386,14 @@ function steps(
   if (first === undefined) throw new Error("no first frame");
   h.write(first, arrayKey);
   h.observe(() => {
-    watchEach(() => h.store.v?.rows, (r) => r.node.title);
-    watchEach(() => h.store.v?.names, (n) => n.title);
+    watchEach(
+      () => h.store.v?.rows,
+      (r) => r.node.title,
+    );
+    watchEach(
+      () => h.store.v?.names,
+      (n) => n.title,
+    );
   });
   const rows: Row[][] = [[...(h.store.v?.rows ?? [])]];
   const names: Reading["names"][] = [[...(h.store.v?.names ?? [])]];
@@ -576,7 +601,12 @@ describe("the declared field must be required and non-nullable", () => {
     const first = frames[0];
     if (first === undefined) throw new Error("no first frame");
     h.write(first, "key");
-    h.observe(() => watchEach(() => h.store.v, (r) => r.n));
+    h.observe(() =>
+      watchEach(
+        () => h.store.v,
+        (r) => r.n,
+      ),
+    );
     const seen: Loose[][] = [[...(h.store.v ?? [])]];
     for (const frame of frames.slice(1)) {
       h.write(frame, "key");

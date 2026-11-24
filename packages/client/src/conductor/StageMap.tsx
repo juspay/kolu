@@ -564,7 +564,9 @@ const StageMap: Component<{
                         <button
                           type="button"
                           data-testid="stage-cell"
-                          aria-pressed={index().shown() === name() ? "true" : "false"}
+                          aria-pressed={
+                            index().shown() === name() ? "true" : "false"
+                          }
                           class={`${box(index().shown() === name())} cursor-pointer hover:brightness-125`}
                           onClick={() => index().show(name())}
                         >

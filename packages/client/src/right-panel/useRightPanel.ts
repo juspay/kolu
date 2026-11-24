@@ -212,13 +212,16 @@ interface PlaceMirror {
 const focusedPlace = createSharedRoot((): PlaceMirror => {
   const store = useTerminalStore();
   let place: PanePlace = { id: null, state: DEFAULT_RIGHT_PANEL_PER_TERMINAL };
-  createEffect((): void => {
-    const id = store.focusedTerminalId();
-    place = {
-      id,
-      state: id === null ? DEFAULT_RIGHT_PANEL_PER_TERMINAL : stateOf(id),
-    };
-  }, () => {});
+  createEffect(
+    (): void => {
+      const id = store.focusedTerminalId();
+      place = {
+        id,
+        state: id === null ? DEFAULT_RIGHT_PANEL_PER_TERMINAL : stateOf(id),
+      };
+    },
+    () => {},
+  );
   return {
     now: () => place,
     noteWrite: (id, state) => {
@@ -406,7 +409,8 @@ export function useRightPanel() {
    *  before it, since a focus write is staged and `store.activeId()` still
    *  answers with the old one for the rest of the synchronous run. */
   const setCollapsed = (tileId: TerminalId | null, next: boolean) => {
-    if (tileId !== null) mutatePanel(tileId, { collapsed: next }, activePadiRpc);
+    if (tileId !== null)
+      mutatePanel(tileId, { collapsed: next }, activePadiRpc);
   };
 
   /** Capture a panel patch NOW and apply it to the terminal's id when an async

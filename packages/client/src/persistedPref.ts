@@ -40,6 +40,7 @@ export interface PersistedPrefOptions<T> {
    *  fails `parse`. Never a FUNCTION: Solid 2 reads a function handed to
    *  `createSignal` as a derivation rather than a value, so a pref holding one
    *  would silently become a derived signal. A pref is data. */
+  // biome-ignore lint/complexity/noBannedTypes: the exact type of Solid 2's `createSignal` value parameter (`Exclude<T, Function>`), which this value is handed to; a narrower function type does not satisfy it
   fallback: Exclude<T, Function>;
   /** Validate a raw stored string into `T`. **Throw** when the stored value
    *  is unexpected — {@link readWithFallback} catches, substitutes `fallback`,

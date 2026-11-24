@@ -75,16 +75,12 @@ describe("publishGridAction", () => {
 
     runAction(
       "publish terminal grid",
-      publishGridAction(
-        { cols: 80, rows: 24 },
-        "warming",
-        {
-          terminalId: "t1",
-          hostState: () => "warming",
-          ptyLive: () => true,
-          resize,
-        },
-      ),
+      publishGridAction({ cols: 80, rows: 24 }, "warming", {
+        terminalId: "t1",
+        hostState: () => "warming",
+        ptyLive: () => true,
+        resize,
+      }),
     );
     await settle();
 
@@ -110,16 +106,12 @@ describe("publishGridAction", () => {
 
     runAction(
       "publish terminal grid",
-      publishGridAction(
-        { cols: 80, rows: 24 },
-        "connected",
-        {
-          terminalId: "t1",
-          hostState: () => "connected",
-          ptyLive: () => true,
-          resize,
-        },
-      ),
+      publishGridAction({ cols: 80, rows: 24 }, "connected", {
+        terminalId: "t1",
+        hostState: () => "connected",
+        ptyLive: () => true,
+        resize,
+      }),
     );
     await settle();
 
@@ -138,16 +130,12 @@ describe("publishGridAction", () => {
 
     runAction(
       "publish terminal grid",
-      publishGridAction(
-        { cols: 132, rows: 43 },
-        "connected",
-        {
-          terminalId: "t1",
-          hostState: () => "connected",
-          ptyLive: () => true,
-          resize,
-        },
-      ),
+      publishGridAction({ cols: 132, rows: 43 }, "connected", {
+        terminalId: "t1",
+        hostState: () => "connected",
+        ptyLive: () => true,
+        resize,
+      }),
     );
     await settle();
 
@@ -163,16 +151,12 @@ describe("publishGridAction", () => {
 
     runAction(
       "publish terminal grid",
-      publishGridAction(
-        { cols: 80, rows: 24 },
-        "connected",
-        {
-          terminalId: "t1",
-          hostState: () => "connected",
-          ptyLive: () => true,
-          resize,
-        },
-      ),
+      publishGridAction({ cols: 80, rows: 24 }, "connected", {
+        terminalId: "t1",
+        hostState: () => "connected",
+        ptyLive: () => true,
+        resize,
+      }),
     );
     await settle();
 
@@ -187,16 +171,12 @@ describe("publishGridAction", () => {
 
     runAction(
       "publish terminal grid",
-      publishGridAction(
-        { cols: 80, rows: 24 },
-        "connected",
-        {
-          terminalId: "t1",
-          hostState: () => "connected",
-          ptyLive: () => false,
-          resize,
-        },
-      ),
+      publishGridAction({ cols: 80, rows: 24 }, "connected", {
+        terminalId: "t1",
+        hostState: () => "connected",
+        ptyLive: () => false,
+        resize,
+      }),
     );
     await settle();
 

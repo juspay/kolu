@@ -314,8 +314,9 @@ describe("useSubPanel focus verbs", () => {
 function repairSpies(active: TerminalId | null) {
   return {
     planCollapsePanel: vi.fn<(id: TerminalId) => () => void>(() => () => {}),
-    planCollapsePanelChrome:
-      vi.fn<(id: TerminalId) => () => void>(() => () => {}),
+    planCollapsePanelChrome: vi.fn<(id: TerminalId) => () => void>(
+      () => () => {},
+    ),
     paneChrome: () => ({ activeSubTab: active }),
     setActiveSubTab: vi.fn<(id: TerminalId, sub: TerminalId | null) => void>(),
     planSelectSubTab: vi.fn<

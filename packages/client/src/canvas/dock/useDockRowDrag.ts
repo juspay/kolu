@@ -20,11 +20,7 @@ import { activeArm } from "@kolu/padi-client/surface";
 import type { TerminalMetadata } from "@kolu/padi-client/surface";
 import type { TerminalId } from "kolu-common/surface";
 import { type Accessor, createMemo } from "solid-js";
-import {
-  createDraggable,
-  createDroppable,
-  useDragDropScope,
-} from "../../dnd";
+import { createDraggable, createDroppable, useDragDropScope } from "../../dnd";
 import type { ParentEdge } from "../../terminal/terminalTree";
 import { useTerminalStore } from "../../terminal/useTerminalStore";
 import {

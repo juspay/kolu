@@ -206,7 +206,7 @@ const ConductorPane: Component<{
     // its way down the transcript.
     const next = event.relatedTarget as Node | null;
     const el = paneEl();
-    if (next !== null && el !== undefined && el.contains(next)) return;
+    if (next !== null && el?.contains(next)) return;
     setDropping(false);
   });
   createEventListener(paneEl, "drop", (event: DragEvent) => {

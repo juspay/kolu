@@ -136,8 +136,7 @@ function harness(init: { members: HostKey[]; active: HostKey }) {
       setMembers,
       setActiveHost,
       activeHost,
-      requestActivateOnJoin: (host) =>
-        setJoinRequest({ host, seq: ++joinSeq }),
+      requestActivateOnJoin: (host) => setJoinRequest({ host, seq: ++joinSeq }),
       dispose,
     };
   });

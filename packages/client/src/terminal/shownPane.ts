@@ -78,10 +78,7 @@ export interface ShownPaneFacts {
 /** The two VISIBILITY facts on their own — what a measurement is judged by.
  *  A named slice of {@link ShownPaneFacts} so a caller that has no reason to
  *  read the host's state (the measurement effect) does not have to. */
-export type ShownPaneVisibility = Pick<
-  ShownPaneFacts,
-  "shown" | "viewShown"
->;
+export type ShownPaneVisibility = Pick<ShownPaneFacts, "shown" | "viewShown">;
 
 export interface ShownPaneDeps {
   /** Open the attach stream at the pane's current grid. The screen is NOT

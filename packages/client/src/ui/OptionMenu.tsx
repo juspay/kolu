@@ -130,9 +130,7 @@ export const OptionMenu = <T extends string>(props: {
   // A derivation, not a body read: `props.truncate` is read where it is used,
   // in the JSX below.
   const widthClass = () =>
-    props.truncate
-      ? "min-w-[180px] max-w-[min(420px,90vw)]"
-      : "min-w-[180px]";
+    props.truncate ? "min-w-[180px] max-w-[min(420px,90vw)]" : "min-w-[180px]";
   return (
     <Show when={props.open()}>
       <Portal>
@@ -213,7 +211,9 @@ export const OptionMenu = <T extends string>(props: {
                   >
                     <button
                       role="menuitemradio"
-                      aria-checked={props.value === opt.value ? "true" : "false"}
+                      aria-checked={
+                        props.value === opt.value ? "true" : "false"
+                      }
                       {...item()}
                     >
                       {face()}

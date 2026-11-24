@@ -298,7 +298,7 @@ const ChipRow: Component<{
 
   // Measure every chip (and a `+N`) off-screen in the same box, and keep the
   // leading ones that fit the row's width.
-  const fit = () => {
+  const fitChips = () => {
     // A row with no width has not been laid out yet: nothing to decide.
     if (row === undefined || measure === undefined || row.clientWidth === 0)
       return;
@@ -316,10 +316,10 @@ const ChipRow: Component<{
     );
   };
   // The row's width moves with the tile; the measured chips' with the font.
-  createResizeObserver(() => [row, measure], fit);
+  createResizeObserver(() => [row, measure], fitChips);
   createEffect(
     () => props.chips,
-    () => fit(),
+    () => fitChips(),
   );
 
   const visible = () => props.chips.slice(0, count() ?? props.chips.length);

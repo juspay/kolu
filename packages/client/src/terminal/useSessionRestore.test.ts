@@ -549,7 +549,9 @@ describe("useSessionRestore — multi-terminal restore seeds the server-active t
     });
     /** The trail seed's READER half: it records the ids at plan time and hands
      *  back a no-op actor, so the argument assertion reads as it always did. */
-    const planReconcileLiveIds = vi.fn((_ids: readonly TerminalId[]) => () => {});
+    const planReconcileLiveIds = vi.fn(
+      (_ids: readonly TerminalId[]) => () => {},
+    );
     const listSub = Object.assign(() => opts.list, { pending: () => false });
     const store = {
       listSub,

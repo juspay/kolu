@@ -682,8 +682,7 @@ const Terminal: Component<{
     // to sit out) are `foreignGrid.ts`'s; what stays here is the live facts it
     // binds and the re-attach.
     const foreignGrid = createForeignGridWatcher({
-      served: () =>
-        activeArm(terminalStore.getMetadata(terminalId))?.grid,
+      served: () => activeArm(terminalStore.getMetadata(terminalId))?.grid,
       // The grid this pane WANTS, never the one its terminal currently has: the
       // terminal follows the pty by design now, so comparing the two served
       // facts would always agree and the watcher would never fire. Absent while
@@ -697,9 +696,7 @@ const Terminal: Component<{
     onCleanup(() => foreignGrid.dispose());
     createEffect(
       () => {
-        const served = activeArm(
-          terminalStore.getMetadata(terminalId),
-        )?.grid;
+        const served = activeArm(terminalStore.getMetadata(terminalId))?.grid;
         // The pane's own wanted grid is SAMPLED: this watcher is armed by the
         // RECORD moving (and by the view coming back in front), never by the
         // pane's own measurements, which would re-arm the settle window on
@@ -1436,9 +1433,7 @@ const Terminal: Component<{
         onTap={onTap}
         // Injected web-link seam — loopback URLs raise the join card; ⌘-click
         // and non-loopback keep a raw open. Lives beside fileRefLinkProvider.
-        webLinkHandler={(event, uri) =>
-          handleWebLink(event, uri, terminalId)
-        }
+        webLinkHandler={(event, uri) => handleWebLink(event, uri, terminalId)}
         webglHooks={{
           onCanvas: (c) => {
             webglTrackerId = trackCreate(terminalId, c);

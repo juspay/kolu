@@ -26,12 +26,7 @@
  *  that has NEVER been seen has nothing to hold — it is not attached, and no
  *  timer runs for it. */
 
-import {
-  type Accessor,
-  createEffect,
-  createSignal,
-  onCleanup,
-} from "solid-js";
+import { type Accessor, createEffect, createSignal, onCleanup } from "solid-js";
 import type { CanvasTileMode } from "./CanvasTile";
 
 /** How long a tile that has left the view keeps its attach.

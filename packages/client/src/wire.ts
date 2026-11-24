@@ -526,7 +526,8 @@ const hostScoped = createRoot(() => {
   createEffect(
     () => {
       const request = joinRequest();
-      const pending = request !== null && request.seq > servedJoinSeq ? request : null;
+      const pending =
+        request !== null && request.seq > servedJoinSeq ? request : null;
       // The active host is the SUBJECT of the decision, not a trigger for it: this reconcile
       // answers to MEMBERSHIP (a host left, a requested host joined), and every seam that
       // switches hosts picks from live membership. Tracked, it also fired on the switch this

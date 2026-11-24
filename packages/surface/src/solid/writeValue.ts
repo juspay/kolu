@@ -219,7 +219,10 @@ function frameMerge<T extends object>(
   const now = (next as Record<string, unknown>)[arrayKey];
   // `sameKey`'s rule (:3876), so this agrees with the check it is pre-empting:
   // identical, or both `NaN`.
-  if (was !== undefined && !(was === now || (was !== was && now !== now))) {
+  if (
+    was !== undefined &&
+    !(was === now || (Number.isNaN(was) && Number.isNaN(now)))
+  ) {
     return null;
   }
   return reconcile<T, object>(next, arrayKey);
@@ -236,7 +239,7 @@ function frameMerge<T extends object>(
 export function reconcileFrame<T extends object>(
   next: T,
   arrayKey?: string,
-): (state: T) => T | void {
+): (state: T) => T | undefined {
   return (state) => {
     const merge = frameMerge(state, next, arrayKey);
     // A setter callback that RETURNS a value replaces: every root key the frame

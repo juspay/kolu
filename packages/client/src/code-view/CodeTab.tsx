@@ -1441,7 +1441,9 @@ const CodeTab: Component<{
                     createEffect(
                       () => ({ el: treeHost(), desktop: isDesktop() }),
                       ({ el, desktop }) =>
-                        el && !desktop ? attachPierreTouchScroll(el) : undefined,
+                        el && !desktop
+                          ? attachPierreTouchScroll(el)
+                          : undefined,
                     );
                     return (
                       <Show when={frame()}>

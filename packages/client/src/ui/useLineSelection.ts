@@ -12,12 +12,7 @@
  */
 
 import type { SelectedLineRange } from "@pierre/diffs";
-import {
-  type Accessor,
-  createEffect,
-  createSignal,
-  untrack,
-} from "solid-js";
+import { type Accessor, createEffect, createSignal, untrack } from "solid-js";
 import type { CodeContextMenuItem } from "./CodeContextMenu";
 import { CopyIcon, OpenIcon } from "./Icons";
 import { formatLineRef, type LineRef } from "./lineRef";

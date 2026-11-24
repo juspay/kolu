@@ -60,9 +60,8 @@ function makePorts(over: {
     planCollapsePanelChrome: planSpy<[id: TerminalId]>(),
     setActiveSubTab:
       vi.fn<(parentId: TerminalId, subId: TerminalId | null) => void>(),
-    planSelectSubTab: planSpy<
-      [parentId: TerminalId, subId: TerminalId | null]
-    >(),
+    planSelectSubTab:
+      planSpy<[parentId: TerminalId, subId: TerminalId | null]>(),
     requestRefocus: vi.fn<(id: TerminalId) => void>(),
     removePanel: vi.fn<(id: TerminalId) => void>(),
     removeRightPanel: vi.fn<(id: TerminalId) => void>(),
