@@ -710,15 +710,31 @@ export interface HeartbeatableSocket {
  *  and clear their flag so the NEXT sweep can detect a miss. Sockets that aren't
  *  `OPEN` are skipped — a stale tab the gate closed (before the oRPC upgrade) is
  *  mid-close and is neither pinged nor terminated here. Pure over its injected
- *  deps (no timers, no server), so it's unit-testable without a real server. */
-export function heartbeatSweep(
-  clients: Iterable<HeartbeatableSocket>,
+ *  deps (no timers, no server), so it's unit-testable without a real server.
+ *
+ *  `onReaped` is told each socket this sweep terminated, AFTER its `terminate()`
+ *  — act first, report second: a reporter that throws is logged and the sweep
+ *  goes on to the next socket. The socket handed back is one from `clients`,
+ *  typed as the caller typed it. */
+export function heartbeatSweep<S extends HeartbeatableSocket>(
+  clients: Iterable<S>,
   alive: WeakSet<HeartbeatableSocket>,
+  onReaped?: (ws: S) => void,
 ): void {
   for (const ws of clients) {
     if (ws.readyState !== ws.OPEN) continue;
     if (!alive.has(ws)) {
       ws.terminate();
+      if (onReaped !== undefined) {
+        try {
+          onReaped(ws);
+        } catch (err) {
+          console.error(
+            "heartbeatSweep: onReaped reporter threw; the socket was still terminated",
+            err,
+          );
+        }
+      }
       continue;
     }
     alive.delete(ws);
@@ -752,22 +768,23 @@ export function heartbeatSweep(
  * Pass the server's accepted-socket population as `{ clients }` (a `ws`
  * `WebSocketServer` IS one structurally) so surface-app keeps its no-`ws`-dependency
  * stance. The interval is `unref`'d so the heartbeat never keeps the process alive
- * on its own. Returns `stop()` to clear the interval.
+ * on its own. Returns `stop()` to clear the interval. `onReaped` is
+ * {@link heartbeatSweep}'s, passed to every sweep.
  */
-export function startWsHeartbeat(
-  server: { clients: Iterable<HeartbeatableSocket> },
-  opts: { intervalMs?: number } = {},
-): { register: (ws: HeartbeatableSocket) => void; stop: () => void } {
+export function startWsHeartbeat<S extends HeartbeatableSocket>(
+  server: { clients: Iterable<S> },
+  opts: { intervalMs?: number; onReaped?: (ws: S) => void } = {},
+): { register: (ws: S) => void; stop: () => void } {
   const alive = new WeakSet<HeartbeatableSocket>();
   /** Call exactly once per accepted socket — it attaches a `pong` listener with
    *  no removal path (the listener dies with the socket); a second call would
    *  attach a duplicate handler. */
-  const register = (ws: HeartbeatableSocket): void => {
+  const register = (ws: S): void => {
     alive.add(ws);
     ws.on("pong", () => alive.add(ws));
   };
   const handle = setInterval(
-    () => heartbeatSweep(server.clients, alive),
+    () => heartbeatSweep(server.clients, alive, opts.onReaped),
     opts.intervalMs ?? DEFAULT_SERVER_HEARTBEAT_INTERVAL_MS,
   );
   handle.unref?.();
@@ -777,17 +794,15 @@ export function startWsHeartbeat(
 /** The single seam an accepted WS passes through: stale-tab gate → enrol in the
  *  liveness reaper → dispatch — in the one correct order, sequenced so an app
  *  CANNOT do any one without the others. `acceptSurfaceSocket` returns this. */
-export interface SurfaceSocketAcceptor {
+export interface SurfaceSocketAcceptor<
+  S extends HeartbeatableSocket = HeartbeatableSocket,
+> {
   /** Gate (stale-tab), then enrol the socket in the liveness reaper, then run
    *  `onAccepted` (the app's dispatch — `handler.upgrade(ws)`, possibly per-host).
    *  A stale tab is closed and `onAccepted` NEVER runs (a closing socket is never
    *  enrolled or dispatched). Call exactly once per socket the WS server accepts,
    *  inside the `handleUpgrade` callback. */
-  accept(
-    ws: GateableSocket & HeartbeatableSocket,
-    requestUrl: URL,
-    onAccepted: () => void,
-  ): void;
+  accept(ws: S & GateableSocket, requestUrl: URL, onAccepted: () => void): void;
   /** Stop the liveness heartbeat — call on server shutdown. */
   stop(): void;
 }
@@ -817,10 +832,11 @@ export interface SurfaceSocketAcceptor {
  * — supplied as the `onAccepted` closure. The stale-tab gate needs no id from the
  * caller: it compares against this process's own `surfaceProcessId()`.
  */
-export function acceptSurfaceSocket(opts: {
+export function acceptSurfaceSocket<S extends HeartbeatableSocket>(opts: {
   /** The WS server whose accepted-socket population the reaper sweeps (a `ws`
-   *  `WebSocketServer` IS this structurally). */
-  server: { clients: Iterable<HeartbeatableSocket> };
+   *  `WebSocketServer` IS this structurally). Its socket type is the one
+   *  `accept` takes and `onReaped` hands back. */
+  server: { clients: Iterable<S> };
   /** Heartbeat sweep cadence (defaults to `startWsHeartbeat`'s 30s). */
   intervalMs?: number;
   /** Standing transport-error handler installed on every accepted socket by the
@@ -832,9 +848,24 @@ export function acceptSurfaceSocket(opts: {
   /** Report a rejected stale tab (the claimed `pid` no longer matches). The
    *  upgrade `requestUrl` is passed alongside for the same per-host log context. */
   onReject?: (claimedPid: string, requestUrl: URL) => void;
-}): SurfaceSocketAcceptor {
+  /** The reaper terminated this socket: it answered no ping since the previous sweep.
+   *  Told for every socket this acceptor enrolled, after `terminate()` and before the
+   *  socket's own `close` is emitted. A socket in `clients` that never went through
+   *  `accept` is terminated too, but was never enrolled, so it is not reported. */
+  onReaped?: (ws: S, requestUrl: URL) => void;
+}): SurfaceSocketAcceptor<S> {
+  const { onReaped } = opts;
+  // The upgrade URL of each socket this acceptor enrolled, so a reap reports
+  // the same per-host context `onError` and `onReject` carry.
+  const enrolledAt = new WeakMap<S, URL>();
   const heartbeat = startWsHeartbeat(opts.server, {
     intervalMs: opts.intervalMs,
+    onReaped:
+      onReaped &&
+      ((ws) => {
+        const requestUrl = enrolledAt.get(ws);
+        if (requestUrl !== undefined) onReaped(ws, requestUrl);
+      }),
   });
   return {
     accept(ws, requestUrl, onAccepted) {
@@ -855,6 +886,7 @@ export function acceptSurfaceSocket(opts: {
       // `serveSurfaceSocket(...)` (below) in the app's closure: the seam keeps the
       // order, the app keeps the routing (`?host=`, an `__admin__` sentinel) and
       // the per-connection services.
+      if (onReaped !== undefined) enrolledAt.set(ws, requestUrl);
       heartbeat.register(ws);
       onAccepted();
     },

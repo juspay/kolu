@@ -1597,6 +1597,7 @@ export async function bootKoluWeb(flags: KoluBootFlags): Promise<void> {
                 ws: event.connection.id,
                 code: event.code,
                 ...(event.reason && { reason: event.reason }),
+                reaped: event.reaped,
                 remaining: --liveConnections,
               },
               "disconnected",

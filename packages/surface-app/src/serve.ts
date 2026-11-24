@@ -240,7 +240,7 @@ import {
   type HttpServerRequest,
   type HttpServerResponse,
 } from "effect/http";
-import { WebSocketServer } from "ws";
+import { type WebSocket, WebSocketServer } from "ws";
 import { SURFACE_WS_PATH } from "./index";
 import {
   checkUpgradeHeaders,
@@ -412,17 +412,21 @@ export type SurfaceAppEvent<H extends string = never> =
    *  increments and a consumer writes its `connected` line. */
   | { readonly _tag: "Connected"; readonly connection: SurfaceAppConnection<H> }
   /** That same connection hung up (peer, reaper, or our own teardown), with the
-   *  close frame's own account of why: a `1006` with no reason is an abrupt drop,
-   *  a `1009` is the frame cap (`FRAME_TOO_LARGE_CLOSE_CODE`), and a reaper's
-   *  terminate looks different again. Carried because an operator reading
-   *  "disconnected" needs the code to tell those apart — `reason` is decoded to a
-   *  string here (`ws` hands it over as a `Buffer`) and is `""` when the peer
-   *  sent none, which is the ordinary case. */
+   *  close code and reason the socket reported: a `1009` is the frame cap
+   *  (`FRAME_TOO_LARGE_CLOSE_CODE`), and a `1006` is a socket that ended with no
+   *  close frame. `reason` is decoded to a string here (`ws` hands it over as a
+   *  `Buffer`) and is `""` when the peer sent none, which is the ordinary case.
+   *
+   *  `reaped` is `true` when this listener's liveness reaper terminated the
+   *  socket for answering no ping since the previous sweep. A reaped socket
+   *  closes with the same `1006` as a network drop, so the code alone cannot
+   *  tell the two apart; this can. */
   | {
       readonly _tag: "Disconnected";
       readonly connection: SurfaceAppConnection<H>;
       readonly code: number;
       readonly reason: string;
+      readonly reaped: boolean;
     }
   /** A transport error on an accepted socket. */
   | { readonly _tag: "SocketError"; readonly error: Error; readonly url: URL }
@@ -742,11 +746,18 @@ export const serveSurfaceApp = <Svc = never, H extends string = never>(
     // (it must comfortably exceed `createHeartbeat`'s recovery so a reconnect
     // wins the race), which makes it the same class of number as the frame cap —
     // one a consumer who guesses turns into sockets reaped mid-revival, silently.
+    // The sockets the reaper terminated, read when each one's `close` arrives:
+    // the reaper reports after `terminate()`, and `ws` emits the `close` on a
+    // later tick.
+    const reaped = new WeakSet<WebSocket>();
     const acceptor = acceptSurfaceSocket({
       server: sockets,
       onError: (error, url) => report({ _tag: "SocketError", error, url }),
       onReject: (claimedPid, url) =>
         report({ _tag: "StaleTab", claimedPid, url }),
+      onReaped: (peer) => {
+        reaped.add(peer);
+      },
     });
 
     // The LIVE population of serving stacks — drained first in the finalizer.
@@ -876,6 +887,7 @@ export const serveSurfaceApp = <Svc = never, H extends string = never>(
               connection,
               code,
               reason: reason.toString(),
+              reaped: reaped.has(peer),
             }),
           );
           // A connection the app ended before its serving existed is not served:
