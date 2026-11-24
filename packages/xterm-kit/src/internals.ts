@@ -76,10 +76,15 @@ export function renderService(term: XTerm): RenderInternals | null {
  *  character size, and this runs on the divider-drag hot path.
  *
  *  Note what `resize` itself does, because the kit's ordering rests on it: it
- *  calls `WriteBuffer.flushSync()` FIRST, so bytes still queued are parsed at
- *  the OLD grid before the reflow. Writing a run and then resizing therefore
- *  lands those bytes at the width they were written for, with nothing to
- *  schedule or await (CONTRACT PIN in `internals.test.ts`). */
+ *  calls `WriteBuffer.flushSyncAttempt()` FIRST, so bytes still queued are
+ *  parsed at the OLD grid before the reflow. Writing a run and then resizing
+ *  therefore lands those bytes at the width they were written for, with
+ *  nothing to schedule or await. The one exception is a chunk whose ASYNC
+ *  parser handler is still pending — in this kit, an image `ImageAddon` is
+ *  still decoding: the flush stops there, and the rest of that chunk and
+ *  everything queued behind it parse after the reflow, at the NEW grid
+ *  (xtermjs/xterm.js#6327; before it, the resize threw and parsing stopped for
+ *  good). Both halves are CONTRACT PINS in `internals.test.ts`. */
 export function resizeTerminal(term: XTerm, cols: number, rows: number): void {
   if (term.cols === cols && term.rows === rows) return;
   renderService(term)?.clear?.();

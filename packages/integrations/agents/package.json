@@ -20,7 +20,7 @@
     "@kolu/acp": "workspace:*",
     "@kolu/acp-claude": "workspace:*",
     "anyagent": "workspace:*",
-    "effect": "4.1.4",
+    "effect": "4.1.5",
     "kolu-claude-code": "workspace:*",
     "kolu-codex": "workspace:*",
     "kolu-grok": "workspace:*",

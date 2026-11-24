@@ -1,15 +1,20 @@
 # The pnpm that every Nix BUILDER runs — exposed as `pkgs.pnpm-build` by
-# nix/overlay.nix, so a builder never names `pkgs.pnpm_10` directly.
+# nix/overlay.nix, so a builder never names `pkgs.pnpm_10_latest` directly.
 #
-# Identical to `pkgs.pnpm_10` except for one wrapped default: the reporter.
-# Wrapping the TOOL rather than each derivation's `env` is what makes the
-# setting unmissable — `pnpmConfigHook` ships no pnpm of its own ("'pnpm'
+# `pnpm_10_latest`, not `pnpm_10`: nixpkgs holds `pnpm_10` at 10.34.0 for
+# lockfiles that 10.34.1's stricter tarball-integrity checks would break, and
+# marks it insecure (CVE-2026-55487 and eight more). `pnpm_10_latest` is the
+# patched 10.x line, which this workspace and lockfile are on.
+#
+# Identical to `pkgs.pnpm_10_latest` except for one wrapped default: the
+# reporter. Wrapping the TOOL rather than each derivation's `env` is what makes
+# the setting unmissable — `pnpmConfigHook` ships no pnpm of its own ("'pnpm'
 # binary not found in PATH"), so whatever is on `nativeBuildInputs` IS the pnpm
 # that runs, at every site, including the `fetchPnpmDeps` fetchers that have no
 # `env` of their own to merge into.
 #
-# `shell.nix` deliberately keeps the UNWRAPPED `pkgs.pnpm_10`: a developer at a
-# TTY wants pnpm's live progress tree. This is build-only.
+# `shell.nix` deliberately keeps the UNWRAPPED `pkgs.pnpm_10_latest`: a
+# developer at a TTY wants pnpm's live progress tree. This is build-only.
 #
 # ── Why `npm_config_reporter` ────────────────────────────────────────────────
 # pnpm's default reporter draws a live progress TREE and redraws it with
@@ -29,21 +34,21 @@
 #
 # `--set-default`, not `--set`, so a caller that deliberately asks for another
 # reporter still wins.
-{ symlinkJoin, makeWrapper, pnpm_10 }:
+{ symlinkJoin, makeWrapper, pnpm_10_latest }:
 symlinkJoin {
-  name = "pnpm-build-${pnpm_10.version}";
-  paths = [ pnpm_10 ];
+  name = "pnpm-build-${pnpm_10_latest.version}";
+  paths = [ pnpm_10_latest ];
   nativeBuildInputs = [ makeWrapper ];
   postBuild = ''
     wrapProgram $out/bin/pnpm --set-default npm_config_reporter append-only
   '';
   # Forward the WHOLE passthru rather than the three attributes today's callers
   # happen to read (`fetchPnpmDeps` wants `version` + `nodejs`; the config hook
-  # wants `configHook`). Enumerating them made the "drop-in for `pnpm_10`" claim
+  # wants `configHook`). Enumerating them made the "drop-in for pnpm" claim
   # false the moment nixpkgs grew one we hadn't listed — `fetchDeps` was already
   # `false` here while `pnpm_10.fetchDeps` was `true`, so a future consumer
   # reaching for the package-level fetcher API would have silently got the wrong
   # answer. Forwarding wholesale keeps the wrapper attribute-compatible as
   # nixpkgs evolves; `symlinkJoin` does not carry `version`, so re-add it.
-  passthru = pnpm_10.passthru // { inherit (pnpm_10) version; };
+  passthru = pnpm_10_latest.passthru // { inherit (pnpm_10_latest) version; };
 }

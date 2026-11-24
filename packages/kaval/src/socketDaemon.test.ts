@@ -50,15 +50,6 @@ const TSX_LOADER = pathToFileURL(
   createRequire(import.meta.url).resolve("tsx"),
 ).href;
 
-// tsx's *CLI* (`tsx bin.ts`) — the launcher shape we DELIBERATELY do NOT ship:
-// the CLI forks a child that does NOT relay SIGTERM to the daemon, so it's
-// killed (143) with a leaked socket + gate. The launcher guard below spawns this
-// to pin that failure mode and justify the loader form in default.nix.
-// `dist/cli.mjs` is tsx's `bin`.
-const TSX_CLI = createRequire(import.meta.url)
-  .resolve("tsx/package.json")
-  .replace(/package\.json$/, "dist/cli.mjs");
-
 /** Spawn a TypeScript entry under tsx's in-process loader, as a real child. */
 function spawnTs(
   file: string,
@@ -68,17 +59,6 @@ function spawnTs(
   assertDaemonSpawnAllowed("a real kaval daemon (node --import loader bin.ts)");
   return spawn(process.execPath, ["--import", TSX_LOADER, file, ...args], {
     stdio: ["ignore", stdout, "ignore"],
-    env: process.env,
-  });
-}
-
-/** Spawn a TypeScript entry through tsx's CLI — the forking shape the flake
- *  does NOT ship — so the launcher guard can demonstrate its broken SIGTERM
- *  teardown against the working loader form. */
-function spawnTsCli(file: string, args: string[]): ChildProcess {
-  assertDaemonSpawnAllowed("a real kaval daemon (tsx CLI fork)");
-  return spawn(process.execPath, [TSX_CLI, file, ...args], {
-    stdio: ["ignore", "ignore", "ignore"],
     env: process.env,
   });
 }
@@ -110,9 +90,9 @@ interface Daemon {
 // test in the file, which killed the corpus daemon after its first test.)
 const trackedChildren: ChildProcess[] = [];
 // The rendezvous dirs of the daemon-only block's spawns — reaped BY GATE PID
-// after each of ITS tests (below). A child handle alone is not enough: the
-// tsx-CLI launcher guard forks a GRANDCHILD daemon, and SIGKILL-ing the tracked
-// wrapper never reaches the fork — only its gate pid does. (Same scoping as
+// after each of ITS tests (below). The gate names the pid that actually holds
+// the socket, which a tracked child handle does not reach when the daemon is
+// not that child (a launcher that forks or re-execs it). (Same scoping as
 // `trackedChildren`: the corpus daemon is not tracked here.)
 const trackedRendezvous: string[] = [];
 // EVERY rendezvous any spawn (corpus + daemon-only) ever claimed — never spliced,
@@ -293,7 +273,7 @@ async function reap(d: Daemon): Promise<void> {
 function runKavalTui(
   args: string[],
 ): Promise<{ code: number | null; stdout: string; stderr: string }> {
-  // The runtime leash at the fork site (per-call-site, like spawnTs/spawnTsCli above):
+  // The runtime leash at the fork site (per-call-site, like spawnTs above):
   // this re-execs a real kaval-tui, so a gate-off vitest must never reach it.
   assertDaemonSpawnAllowed("a real kaval-tui (node --import loader)");
   return new Promise((resolvePromise) => {
@@ -553,63 +533,22 @@ describeDaemon("kaval daemon — process-boundary behaviour", () => {
     expect(existsSync(d.gatePath)).toBe(false);
   }, 90_000);
 
-  it("SIGTERM teardown removes the socket and releases the gate", async () => {
+  it("SIGTERM teardown exits 0, removes the socket and releases the gate", async () => {
+    // This is the shipped launcher shape: the flake wrapper runs kaval as
+    // `node --import <tsx loader> bin.ts`, one process, so SIGTERM reaches the
+    // daemon's `waitForShutdown` itself. tsx's CLI (`tsx bin.ts`) forks a child
+    // instead, and before tsx 4.23.4 (privatenumber/tsx#827) that fork let the
+    // daemon be killed (143) mid-teardown, leaking both files. The wrapper keeps
+    // the loader form so teardown never depends on the CLI relaying the signal;
+    // the nixpkgs tsx it is built from predates the fix.
     const d = track(await startDaemon());
     expect(existsSync(d.socketPath)).toBe(true);
     expect(existsSync(d.gatePath)).toBe(true);
 
-    await reap(d);
+    d.child.kill("SIGTERM");
+    expect(await d.exited).toBe(0);
     expect(existsSync(d.socketPath)).toBe(false);
     expect(existsSync(d.gatePath)).toBe(false);
-  }, 30000);
-
-  it("the launcher choice is load-bearing: tsx's CLI fork swallows SIGTERM teardown; the loader form (the shipped wrapper) does not", async () => {
-    // The flake wrapper launches kaval as `node --import <tsx loader> bin.ts`,
-    // NOT `tsx bin.ts`. This pins WHY: tsx's CLI forks a child that does NOT
-    // relay SIGTERM to the daemon's `waitForShutdown`, so the daemon is killed
-    // (143) and LEAKS its socket + gate; the one-process loader form delivers
-    // the signal and the daemon tears itself down cleanly (exit 0, both gone).
-    // If someone "simplifies" the wrapper back to `tsx bin.ts`, this guard fires.
-    const startGet = (
-      spawnFn: (file: string, args: string[]) => ChildProcess,
-    ): Promise<{
-      code: number | null;
-      socketLeft: boolean;
-      gateLeft: boolean;
-    }> =>
-      (async () => {
-        const socketPath = socketIn();
-        const gatePath = join(dirname(socketPath), KAVAL_GATE_FILE);
-        // The tsx-CLI shape FORKS a grandchild daemon that outlives the tracked
-        // wrapper (the leak this guard demonstrates). Register the rendezvous so
-        // the afterEach reaps that fork BY GATE PID; the wrapper alone can't.
-        trackedRendezvous.push(rendezvousDir(socketPath));
-        allRendezvous.push(rendezvousDir(socketPath));
-        const child = track(spawnFn(KAVAL_BIN, ["--socket", socketPath]));
-        const exited = new Promise<number | null>((res) =>
-          child.on("exit", (code) => res(code)),
-        );
-        await waitForSocket(socketPath);
-        child.kill("SIGTERM");
-        const code = await exited;
-        return {
-          code,
-          socketLeft: existsSync(socketPath),
-          gateLeft: existsSync(gatePath),
-        };
-      })();
-
-    // The shipped shape: clean shutdown, exit 0, nothing left behind.
-    const loader = await startGet((f, a) => spawnTs(f, a, "ignore"));
-    expect(loader.code).toBe(0);
-    expect(loader.socketLeft).toBe(false);
-    expect(loader.gateLeft).toBe(false);
-
-    // The forking CLI shape: killed by the signal (143) with a leaked socket +
-    // gate — the failure mode that justifies the loader form in default.nix.
-    const cli = await startGet(spawnTsCli);
-    expect(cli.code).not.toBe(0);
-    expect(cli.socketLeft || cli.gateLeft).toBe(true);
   }, 30000);
 
   it("initFiles materialise under the daemon's rcDir across the process boundary, then are removed on exit", async () => {

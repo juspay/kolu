@@ -20,7 +20,7 @@
   "dependencies": {
     "@kolu/acp": "workspace:*",
     "@kolu/acp-client": "workspace:*",
-    "effect": "4.1.4"
+    "effect": "4.1.5"
   },
   "//devDependencies": "Nothing but the toolchain: the fixture agents this suite spawns are `@kolu/acp-client`'s, and the client is a runtime dependency above.",
   "devDependencies": {
