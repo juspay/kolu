@@ -59,6 +59,7 @@ import {
   SortableProvider,
   transformStyle,
 } from "../dnd";
+import { makeEventListener } from "@solid-primitives/event-listener";
 import { createMediaQuery } from "@solid-primitives/media";
 import { createResizeObserver } from "@solid-primitives/resize-observer";
 import {
@@ -210,6 +211,21 @@ const HostChip: Component<{
         chipEl = el;
         // The sortable's node, when this chip is re-orderable.
         props.drag?.ref(el);
+        // A finished drag's trailing `click` can land on whichever of the
+        // chip's two buttons the gesture started on — switching host, or
+        // toggling diagnostics. Swallow it in the CAPTURE phase, before either
+        // button's (delegated) handler runs. The pinned chip passes no guard,
+        // so nothing is ever swallowed there.
+        makeEventListener(
+          el,
+          "click",
+          (e) => {
+            if (props.swallowClick?.() !== true) return;
+            e.stopPropagation();
+            e.preventDefault();
+          },
+          { capture: true },
+        );
         // This chip owns the element it hands the panel: when it unmounts
         // (overflow fit, the `md` row going away) the panel must not stay
         // floating against a detached node.
@@ -219,19 +235,6 @@ const HostChip: Component<{
       // The whole chip starts a drag (a re-orderable one; the pinned chip has
       // no sortable, so no handler).
       onPointerDown={props.drag?.activators.onPointerDown}
-      // A finished drag's trailing `click` can land on whichever of the chip's two
-      // buttons the gesture started on — switching host, or toggling
-      // diagnostics. Swallow it in the CAPTURE phase, before either button's
-      // (delegated) handler runs. The pinned chip passes no guard, so nothing
-      // is ever swallowed there.
-      on:click={{
-        capture: true,
-        handleEvent: (e) => {
-          if (props.swallowClick?.() !== true) return;
-          e.stopPropagation();
-          e.preventDefault();
-        },
-      }}
       data-testid="host-chip"
       data-host={encKey}
       data-active={isActive() ? "" : undefined}
