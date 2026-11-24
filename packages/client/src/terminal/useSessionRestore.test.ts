@@ -161,7 +161,7 @@ function makeStore(): TerminalStore {
     getMetadata: () => undefined,
     setActiveSilently: () => {},
     activeId: () => null,
-    reconcileLiveIds: () => {},
+    planReconcileLiveIds: () => () => {},
   } as unknown as TerminalStore;
 }
 
@@ -547,7 +547,9 @@ describe("useSessionRestore — multi-terminal restore seeds the server-active t
     const setActiveSilently = vi.fn((id: string | null) => {
       active = id;
     });
-    const reconcileLiveIds = vi.fn();
+    /** The trail seed's READER half: it records the ids at plan time and hands
+     *  back a no-op actor, so the argument assertion reads as it always did. */
+    const planReconcileLiveIds = vi.fn((_ids: readonly TerminalId[]) => () => {});
     const listSub = Object.assign(() => opts.list, { pending: () => false });
     const store = {
       listSub,
@@ -555,9 +557,9 @@ describe("useSessionRestore — multi-terminal restore seeds the server-active t
       getMetadata: (id: TerminalId) => opts.meta[id],
       setActiveSilently,
       activeId: () => active,
-      reconcileLiveIds,
+      planReconcileLiveIds,
     } as unknown as TerminalStore;
-    return { store, setActiveSilently, reconcileLiveIds };
+    return { store, setActiveSilently, planReconcileLiveIds };
   }
 
   it("activates the server-active terminal (B), not the first-listed (A)", async () => {
@@ -570,7 +572,7 @@ describe("useSessionRestore — multi-terminal restore seeds the server-active t
       savedAt: 1,
       resumableIds: [],
     };
-    const { store, setActiveSilently, reconcileLiveIds } = makeMetaStore({
+    const { store, setActiveSilently, planReconcileLiveIds } = makeMetaStore({
       list: [{ id: "A" }, { id: "B" }] as TerminalInfo[],
       meta: { A: activeMeta(), B: activeMeta() },
     });
@@ -582,7 +584,7 @@ describe("useSessionRestore — multi-terminal restore seeds the server-active t
             useSessionRestore({ store });
             await new Promise((r) => setTimeout(r, 0));
             expect(setActiveSilently).toHaveBeenCalledWith("B");
-            expect(reconcileLiveIds).toHaveBeenCalledWith(["B", "A"]);
+            expect(planReconcileLiveIds).toHaveBeenCalledWith(["B", "A"]);
             dispose();
             resolve();
           } catch (err) {
@@ -661,7 +663,7 @@ describe("useSessionRestore — the restored active tile does NOT ride the sessi
               getMetadata: (id: TerminalId) => meta()[id],
               setActiveSilently,
               activeId: () => null,
-              reconcileLiveIds: () => {},
+              planReconcileLiveIds: () => () => {},
             } as unknown as TerminalStore;
 
             // Empty canvas + a saved session → the restore card.
@@ -752,7 +754,7 @@ describe("useSessionRestore — the seed WAITS for the answered tile to reach th
               getMetadata: (id: TerminalId) => meta()[id],
               setActiveSilently,
               activeId: () => null,
-              reconcileLiveIds: () => {},
+              planReconcileLiveIds: () => () => {},
             } as unknown as TerminalStore;
 
             const session = useSessionRestore({ store });
@@ -821,7 +823,7 @@ describe("useSessionRestore — that wait is BOUNDED (the answered tile never ar
       getMetadata: (id: TerminalId) => meta()[id],
       setActiveSilently,
       activeId: () => null,
-      reconcileLiveIds: () => {},
+      planReconcileLiveIds: () => () => {},
     } as unknown as TerminalStore;
     /** Deliver a restored tile's row AND its composed record together. */
     const deliver = (...ids: string[]) => {
@@ -980,7 +982,7 @@ describe("useSessionRestore — an in-session restore RE-SEEDS the view (viewSee
         active = id;
       },
       activeId: () => active,
-      reconcileLiveIds: () => {},
+      planReconcileLiveIds: () => () => {},
     } as unknown as TerminalStore;
     return { store, setList, setMeta };
   }

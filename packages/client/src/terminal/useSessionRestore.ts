@@ -350,6 +350,12 @@ export function useSessionRestore(deps: { store: TerminalStore }) {
         : serverActiveId && topIds.includes(serverActiveId as TerminalId)
           ? (serverActiveId as TerminalId)
           : (topIds[0] ?? null);
+    // The durable visit trail, planned here beside the landing: its reader half
+    // resolves the ACTIVE host's view scope, which is a reactive read, and this
+    // planner is the one phase allowed to make it.
+    const seedTrail = store.planReconcileLiveIds(
+      picked ? [picked, ...topIds.filter((x) => x !== picked)] : topIds,
+    );
     // `setActiveSilently`: the canvas's first-mount fallback effect pans
     // the viewport to the picked active when restoring at default origin —
     // calling `activate` here would double-pan and racing the still-
@@ -379,9 +385,7 @@ export function useSessionRestore(deps: { store: TerminalStore }) {
       // Seed/reconcile the durable visit trail BEFORE activation. writeFocus
       // noteVisit's the pick; if we seed after, a non-empty one-entry trail
       // would skip multi-id restore order (Ctrl+Tab would only see the pick).
-      store.reconcileLiveIds(
-        picked ? [picked, ...topIds.filter((x) => x !== picked)] : topIds,
-      );
+      seedTrail();
       land();
     };
   }

@@ -75,10 +75,33 @@ export function useViewState() {
     setCenterActiveRequest(tileId);
   }
 
-  const reconcileLiveIds = (liveIds: readonly TerminalId[]): void =>
-    view()?.reconcileLiveIds(liveIds);
+  /** THE VISIT-TRAIL VERBS ARE READER/ACTOR PAIRS, like the store's landing
+   *  verbs. Their one reactive read is the ACTIVE HOST's scope (`view()`); the
+   *  owner half behind it is pure writes (the visit trail's updater-form
+   *  setters). So the `plan…` half RESOLVES THE SCOPE — in a compute — and
+   *  hands back a write-only actor for the effect phase, where that read would
+   *  be STRICT_READ_UNTRACKED. An eager verb beside it is that plan, run, and
+   *  exists only where an event handler (which may read freely) calls it —
+   *  hence `forgetFromMru` has one and the trail seed, driven solely by the
+   *  hydration effect, does not.
+   *
+   *  Resolving the scope one phase earlier is the behaviour that is wanted:
+   *  the trail the effect writes is the one its compute saw, so a host switch
+   *  racing the write cannot land a departing host's cleanup on the new host's
+   *  trail. */
+  const planReconcileLiveIds = (
+    liveIds: readonly TerminalId[],
+  ): (() => void) => {
+    const scope = view();
+    return () => scope?.reconcileLiveIds(liveIds);
+  };
 
-  const forgetFromMru = (id: TerminalId): void => view()?.forgetFromMru(id);
+  const planForgetFromMru = (id: TerminalId): (() => void) => {
+    const scope = view();
+    return () => scope?.forgetFromMru(id);
+  };
+
+  const forgetFromMru = (id: TerminalId): void => planForgetFromMru(id)();
 
   function toggleCanvasMaximized() {
     view()?.setCanvasMaximized((prev) => !prev);
@@ -102,8 +125,9 @@ export function useViewState() {
     canvasMaximized,
     toggleCanvasMaximized,
     mruOrder,
-    reconcileLiveIds,
+    planReconcileLiveIds,
     forgetFromMru,
+    planForgetFromMru,
     centerActiveRequest,
     requestCenterActive,
     isUnread,

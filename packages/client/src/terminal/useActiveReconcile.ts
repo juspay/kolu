@@ -67,8 +67,9 @@ export interface TerminalEvictionPorts {
   focusedTerminalId: () => TerminalId | null;
   /** Reader half of "pan-and-activate a survivor (or `null`)". */
   planActivate: (id: TerminalId | null) => () => void;
-  /** Drop an id from the tile MRU. */
-  dropFromMru: (id: TerminalId) => void;
+  /** Reader half of "drop an id from the tile MRU": it resolves the ACTIVE
+   *  host's view scope (a reactive read) and hands back the trail write. */
+  planDropFromMru: (id: TerminalId) => () => void;
   /** Reader half of the promote: a sub-terminal takes its own tile (server
    *  `setParent(id, null)`), inheriting the panel posture of `fromTile` — the
    *  tile it is leaving, whose record the READ half consults. `fromTile` is
@@ -217,11 +218,12 @@ export function planEviction(
     if (departing.has(subId)) continue;
     writes.push(ports.planPromoteToTopLevel(subId, id));
   }
+  const dropFromMru = ports.planDropFromMru(id);
   writes.push(() => {
     ports.subPanel.removePanel(id);
     ports.removeRightPanel(id);
     ports.removeSearch(id);
-    ports.dropFromMru(id);
+    dropFromMru();
   });
   if (ports.activeId() === id) {
     // `activate` pans the canvas to the survivor — without it the viewport would

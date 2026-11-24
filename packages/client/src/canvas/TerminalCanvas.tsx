@@ -81,8 +81,14 @@ const TerminalCanvas: Component<{
    *  captures that bound result; the minimap doesn't know or care
    *  about the arrange policy. */
   onAutoArrange?: () => void;
-  /** Report a layout change (drag commit, resize commit, default assignment). */
+  /** Report a layout change (drag commit, resize commit) from a handler. */
   onLayoutChange: (id: TileId, layout: TileLayout) => void;
+  /** The same write in two phases, for the DEFAULT-placement assignment the
+   *  placement effect makes: the compute asks a tile for its layout writer
+   *  (the sink's own reads happen there) and the effect calls the writer with
+   *  the layout it just computed. An effect callback is a strict-read window,
+   *  so the one-shot `onLayoutChange` cannot be used from it. */
+  planLayoutChange: (id: TileId) => (layout: TileLayout) => void;
   onSelect: (id: TileId) => void;
   onClose: (id: TileId) => void;
   /** Invoked when the dock's search-icon button is clicked. Opens the
@@ -145,6 +151,14 @@ const TerminalCanvas: Component<{
   // stale entry whose echo arrived while the canvas was gone.
   onCleanup(() => pendingLayouts.clear());
 
+  // The viewport's container is attached from the canvas div's `ref` below,
+  // and a ref callback may register no cleanup — so its release is registered
+  // HERE, on the component's own owner, against the element that ref recorded.
+  let containerEl: HTMLDivElement | undefined;
+  onCleanup(() => {
+    if (containerEl) viewport.releaseContainer(containerEl);
+  });
+
   /** Effective layout for a tile (pending override wins over saved). */
   function layoutOf(id: string): TileLayout | undefined {
     return pendingLayouts.resolveLayout(id, props.getLayout(id));
@@ -197,9 +211,9 @@ const TerminalCanvas: Component<{
       // The two edges that may WAKE placement, and nothing else.
       void allRecordsSettled();
       void viewport.mounted();
-      // Everything below is a snapshot at that edge — untracked, exactly as the
-      // Solid 1 `on(...)` callback was: a camera pan or a metadata VALUE tick
-      // must not wake placement.
+      // Everything below is a SNAPSHOT taken at that edge: the compute reads it
+      // untracked so a camera pan or a metadata VALUE tick is not a dependency
+      // and cannot wake placement.
       return untrack(() => {
         // No viewport measurement yet — defer placement; the mounted edge
         // re-runs this effect once the observer has measured the laid-out canvas.
@@ -208,17 +222,32 @@ const TerminalCanvas: Component<{
         // collapse the center to the raw pan origin and place tiles top-left.
         const center = viewport.viewportCenter();
         if (!center) return null;
+        const activeId = tileStore.activeId();
+        const plan = planTilePlacements(ids, layoutOf, isMetadataRecordPresent);
         return {
           center,
-          plan: planTilePlacements(ids, layoutOf, isMetadataRecordPresent),
-          activeId: tileStore.activeId(),
-          onLayoutChange: props.onLayoutChange,
+          plan,
+          activeId,
+          // The landing is PLANNED here, where its reads (the tile's
+          // remembered pane, its split's state) belong; the effect below only
+          // runs the thunk, and only if the active tile is one it just placed.
+          landActive: activeId
+            ? tileStore.planActivateVisiblePane(activeId)
+            : null,
+          // One layout writer per tile this pass may STAMP a default on. The
+          // sink resolves the tile HERE, in the compute; the effect, which may
+          // read nothing, only calls the writer with the layout it computed.
+          writeLayout: new Map(
+            plan
+              .filter((p) => p.kind === "new")
+              .map((p) => [p.id, props.planLayoutChange(p.id)] as const),
+          ),
         };
       });
     },
     (work) => {
       if (!work) return;
-      const { plan, activeId, onLayoutChange } = work;
+      const { plan, activeId, landActive, writeLayout } = work;
       const { x: cx, y: cy } = work.center;
 
       // Consume the inherited size only when there are new tiles that need
@@ -253,7 +282,14 @@ const TerminalCanvas: Component<{
           h: inheritSize?.h ?? DEFAULT_TILE_H,
         };
         setPendingLayout(p.id, defaultLayout);
-        onLayoutChange(p.id, defaultLayout);
+        // Planned for every `new` tile in this very plan, so a missing writer
+        // is a broken invariant, not a tile to skip quietly.
+        const write = writeLayout.get(p.id);
+        if (write === undefined)
+          throw new Error(
+            `TerminalCanvas: no layout writer planned for ${p.id}`,
+          );
+        write(defaultLayout);
         placed.push({ id: p.id, layout: defaultLayout, isNew: true });
       }
       // Pan to the active newly-placed tile. This is a tile-level landing with
@@ -261,8 +297,12 @@ const TerminalCanvas: Component<{
       // the call's job is bumping the centering signal once the new tile's
       // pending layout exists. Same mechanism the `focus.request` effect below
       // uses for every other system-driven activation.
-      if (activeId && placed.some((p) => p.isNew && p.id === activeId)) {
-        tileStore.activateVisiblePane(activeId);
+      if (
+        landActive &&
+        activeId &&
+        placed.some((p) => p.isNew && p.id === activeId)
+      ) {
+        landActive();
       }
     },
   );
@@ -346,8 +386,8 @@ const TerminalCanvas: Component<{
   createEffect(
     () => {
       const id = focus.request();
-      // Untracked, as the Solid 1 `on(...)` callback's read was: the request is
-      // the edge, and a later layout change for that tile is not a second pan.
+      // The layout is read untracked: the REQUEST is the edge this effect
+      // follows, and a later layout change for that tile is not a second pan.
       return id ? untrack(() => layoutOf(id)) : undefined;
     },
     (layout) => {
@@ -518,12 +558,13 @@ const TerminalCanvas: Component<{
          *  buffer and every attach. */}
         <div class="flex-1 min-w-0 min-h-0 flex flex-col">
           <div
-            ref={(el) =>
+            ref={(el) => {
+              containerEl = el;
               viewport.setContainerRef(el, {
                 wheelTargetScrollsItself: isWheelTargetTerminal,
                 covered: () => posture.layout() !== "tiled",
-              })
-            }
+              });
+            }}
             data-testid="canvas-container"
             data-zoom={viewport.zoom()}
             data-viewport={viewport.canvasTransform()}

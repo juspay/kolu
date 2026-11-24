@@ -55,7 +55,7 @@ function makePorts(over: {
     planPromoteToTopLevel: planSpy<[id: TerminalId, fromTile: TerminalId]>(),
     rehomeUnder: vi.fn<(id: TerminalId, parent: TerminalId) => void>(),
     planActivate: planSpy<[id: TerminalId | null]>(),
-    dropFromMru: vi.fn<(id: TerminalId) => void>(),
+    planDropFromMru: planSpy<[id: TerminalId]>(),
     planCollapsePanel: planSpy<[id: TerminalId]>(),
     planCollapsePanelChrome: planSpy<[id: TerminalId]>(),
     setActiveSubTab:
@@ -72,7 +72,7 @@ function makePorts(over: {
     activeId: over.activeId ?? (() => null),
     focusedTerminalId: over.focusedTerminalId ?? (() => null),
     planActivate: calls.planActivate,
-    dropFromMru: calls.dropFromMru,
+    planDropFromMru: calls.planDropFromMru,
     planPromoteToTopLevel: calls.planPromoteToTopLevel,
     rehomeUnder: calls.rehomeUnder,
     subPanel: {
@@ -127,7 +127,7 @@ describe("planEviction — top-level branch", () => {
     expect(calls.removePanel).toHaveBeenCalledWith(T("P"));
     expect(calls.removeRightPanel).toHaveBeenCalledWith(T("P"));
     expect(calls.removeSearch).toHaveBeenCalledWith(T("P"));
-    expect(calls.dropFromMru).toHaveBeenCalledWith(T("P"));
+    expect(calls.planDropFromMru).toHaveBeenCalledWith(T("P"));
     // Removed at index 0 of [P, Q] → survivor Q.
     expect(calls.planActivate).toHaveBeenCalledWith(T("Q"));
   });
@@ -617,7 +617,7 @@ describe("useActiveReconcile — FULL cleanup driven off the list", () => {
     expect(h.calls.planPromoteToTopLevel).not.toHaveBeenCalled();
     expect(h.calls.removePanel).not.toHaveBeenCalled();
     expect(h.calls.removeRightPanel).not.toHaveBeenCalled();
-    expect(h.calls.dropFromMru).not.toHaveBeenCalled();
+    expect(h.calls.planDropFromMru).not.toHaveBeenCalled();
     expect(h.calls.planActivate).not.toHaveBeenCalled();
     h.dispose();
   });
@@ -759,13 +759,13 @@ describe("useActiveReconcile — FULL cleanup driven off the list", () => {
     h.setHost("remote:B");
 
     expect(h.calls.planPromoteToTopLevel).not.toHaveBeenCalled();
-    expect(h.calls.dropFromMru).not.toHaveBeenCalled();
+    expect(h.calls.planDropFromMru).not.toHaveBeenCalled();
     expect(h.calls.planActivate).not.toHaveBeenCalled();
 
     // And a REAL close on host B still reconciles normally (baseline advanced to B).
     h.setParents({ B1: null });
     h.setRawIds([T("B1")]);
-    expect(h.calls.dropFromMru).toHaveBeenCalledWith(T("B2"));
+    expect(h.calls.planDropFromMru).toHaveBeenCalledWith(T("B2"));
     h.dispose();
   });
 });

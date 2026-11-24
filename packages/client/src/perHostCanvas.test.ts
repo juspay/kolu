@@ -229,7 +229,7 @@ function mountTwoHostFixture() {
     setActiveSilently: (id: TerminalId | null) =>
       id === null ? subPanel.clearFocus() : subPanel.focusVisiblePane(id),
     activeId: view.activeId,
-    reconcileLiveIds: view.reconcileLiveIds,
+    planReconcileLiveIds: view.planReconcileLiveIds,
   } as unknown as TerminalStore;
 
   useSessionRestore({ store });
