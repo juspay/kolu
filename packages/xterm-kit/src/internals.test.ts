@@ -280,12 +280,17 @@ describe("clearWriteQueue", () => {
 });
 
 /**
- * CONTRACT PIN — xterm resize flushSync-parses the write queue at the *old*
- * cols before reflowing. applyFit's coalesce.flush() before fit() is only
- * correct because of this ordering: flush only term.write()s (async); if a
- * future @xterm/xterm beta dropped flushSync from resize, old-grid bytes would
- * parse after reflow and the multi-tile coalesce resize fix would silently
- * become a no-op. Name of the failure is the contract.
+ * CONTRACT PIN — xterm resize parses the write queue at the *old* cols before
+ * reflowing (`WriteBuffer.flushSyncAttempt()`). applyFit's coalesce.flush()
+ * before fit() is only correct because of this ordering: flush only
+ * term.write()s (async); if a future @xterm/xterm beta dropped the flush from
+ * resize, old-grid bytes would parse after reflow and the multi-tile coalesce
+ * resize fix would silently become a no-op. Name of the failure is the contract.
+ *
+ * The flush stops at a chunk whose async parser handler is pending (the
+ * client's ImageAddon decoding an image): what follows it parses after the
+ * reflow, and parsing must carry on. Before xtermjs/xterm.js#6327 the resize
+ * threw "improper continuation" there and the terminal stopped parsing for good.
  */
 describe("CONTRACT PIN — @xterm/xterm resize parses write queue at old cols before reflow", () => {
   function lineText(term: XTerm, row: number): string {
@@ -306,7 +311,7 @@ describe("CONTRACT PIN — @xterm/xterm resize parses write queue at old cols be
       .translateToString(true);
   }
 
-  it("drains a still-queued write at the pre-resize width (flushSync before reflow)", async () => {
+  it("drains a still-queued write at the pre-resize width (flush before reflow)", async () => {
     const { Terminal: XTermCtor } = await import("@xterm/xterm");
     const term = new XTermCtor({
       cols: 80,
@@ -319,7 +324,7 @@ describe("CONTRACT PIN — @xterm/xterm resize parses write queue at old cols be
       const payload = `${"A".repeat(80)}B`;
       let parsed = false;
       // Queue without awaiting — leave the chunk on WriteBuffer's async path so
-      // only resize's flushSync can land it before cols change.
+      // only resize's flush can land it before cols change.
       term.write(payload, () => {
         parsed = true;
       });
@@ -332,7 +337,7 @@ describe("CONTRACT PIN — @xterm/xterm resize parses write queue at old cols be
 
       expect(
         parsed,
-        "@xterm/xterm resize must flushSync-parse the write queue before reflow — " +
+        "@xterm/xterm resize must parse the write queue before reflow — " +
           "applyFit coalesce.flush()→term.write depends on this; without it, " +
           "old-grid unfocused bytes parse after cols change",
       ).toBe(true);
@@ -342,12 +347,47 @@ describe("CONTRACT PIN — @xterm/xterm resize parses write queue at old cols be
       // Parsed at cols=80 (pre-resize), not at 120: B is wrapped, not on line 0.
       expect(
         line0.length,
-        "queued payload must wrap at OLD cols=80 (flushSync before reflow). " +
+        "queued payload must wrap at OLD cols=80 (flush before reflow). " +
           "If this fails, @xterm/xterm likely stopped drain-before-reflow and " +
           "the applyFit coalesce.flush-before-fit fix is a silent no-op.",
       ).toBe(80);
       expect(line0).toBe("A".repeat(80));
       expect(line1).toContain("B");
+    } finally {
+      term.dispose();
+    }
+  });
+
+  it("keeps parsing after a resize that lands while an async parser handler is pending", async () => {
+    const { Terminal: XTermCtor } = await import("@xterm/xterm");
+    const term = new XTermCtor({
+      cols: 80,
+      rows: 10,
+      scrollback: 10,
+      allowProposedApi: true,
+    });
+    try {
+      // Stand-in for ImageAddon's async image decode: an OSC handler that
+      // holds the parser until the test releases it.
+      const decode = Promise.withResolvers<boolean>();
+      term.parser.registerOscHandler(1337, () => decode.promise);
+      const parsed: string[] = [];
+      term.write("\x1b]1337;File=inline=1:AAAA\x07", () =>
+        parsed.push("image"),
+      );
+      term.write("before", () => parsed.push("before"));
+
+      term.resize(40, 10);
+      term.write("after", () => parsed.push("after"));
+      decode.resolve(true);
+      await new Promise<void>((resolve) => term.write("", resolve));
+
+      expect(
+        parsed,
+        "every write after a resize during a pending async handler must still parse — " +
+          "on the beta before xtermjs/xterm.js#6327 the resize gave up parsing here",
+      ).toEqual(["image", "before", "after"]);
+      expect(lineText(term, 0)).toBe("beforeafter");
     } finally {
       term.dispose();
     }

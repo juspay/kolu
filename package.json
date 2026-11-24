@@ -53,9 +53,9 @@
       "@modelcontextprotocol/sdk": "^1.32.2",
       "@modelcontextprotocol/sdk>@hono/node-server": "^2.1.3",
       "@anthropic-ai/sdk": "^0.91.1",
-      "@xterm/xterm": "6.1.0-beta.337",
-      "@xterm/addon-webgl": "0.20.0-beta.330",
-      "@xterm/headless": "6.1.0-beta.335"
+      "@xterm/xterm": "6.1.0-beta.339",
+      "@xterm/addon-webgl": "0.20.0-beta.332",
+      "@xterm/headless": "6.1.0-beta.337"
     }
   }
 }
