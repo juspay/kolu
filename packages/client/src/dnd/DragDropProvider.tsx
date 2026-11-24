@@ -14,6 +14,7 @@ import {
   PreventSelection,
 } from "@dnd-kit/dom";
 import type { Rectangle } from "@dnd-kit/geometry";
+import { makeEventListener } from "@solid-primitives/event-listener";
 import {
   type Accessor,
   type Component,
@@ -161,6 +162,22 @@ export const DragDropProvider: Component<{
     stopDrop();
     manager.destroy();
   });
+  // During a held drag, Esc belongs to the drag: it cancels it and reaches
+  // nothing else. Capture phase on `window`, because a focused terminal stops
+  // the key at its own textarea, before dnd-kit's listener on `<body>` could
+  // hear it. Outside a held drag, Esc goes where it always did.
+  makeEventListener(
+    window,
+    "keydown",
+    (event) => {
+      if (event.key !== "Escape" || !manager.dragOperation.status.dragging)
+        return;
+      manager.actions.stop({ event, canceled: true });
+      event.preventDefault();
+      event.stopPropagation();
+    },
+    { capture: true },
+  );
 
   const scope: DragDropScope = {
     manager,
