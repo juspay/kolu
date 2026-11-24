@@ -58,10 +58,13 @@ export async function dragFromCenter(
   );
 }
 
-/** The center-to-center case: a drop onto `toSelector` — the drag scopes
- *  resolve to the droppable whose centre is nearest the dragged element's
- *  centre, so pressing the source's centre and stepping to the target's
- *  centre carries the one onto the other. */
+/** The center-to-center case: a drop onto `toSelector`. The pointer travels
+ *  from the centre of `fromSelector` to the centre of `toSelector`, and the
+ *  dragged element moves by exactly that delta. The drag scopes resolve to the
+ *  droppable whose centre is nearest the dragged element's centre, so when
+ *  `fromSelector` is a handle (a dock row's grip) rather than the dragged
+ *  element itself, the element lands offset from the target by the handle's
+ *  own offset — level with it in a vertical list of equal-width rows. */
 export async function dragCenterTo(
   world: KoluWorld,
   fromSelector: string,

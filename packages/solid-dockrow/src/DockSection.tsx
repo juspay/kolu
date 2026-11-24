@@ -55,10 +55,10 @@ export const DockSection: Component<{
   repo?: string;
   testId?: string;
   /** Consumer's sortable ref — the package's section-level drag socket is
-   *  `ref` + `styleProp` (no `handlers`: activators land inside the
-   *  consumer-filled HEADER slot, so the section's wrapper never carries
-   *  them). The repo hue ALWAYS lands on top of styleProp's spread — a
-   *  socket that costs the card its hue is a trap. */
+   *  `ref` + `styleProp`. The section's drag HANDLE is the consumer's own
+   *  element ref inside the HEADER slot, so the section's wrapper carries no
+   *  drag wiring of its own. The repo hue ALWAYS lands on top of styleProp's
+   *  spread — a socket that costs the card its hue is a trap. */
   ref?: HTMLElement | ((el: HTMLElement) => void);
   styleProp?: JSX.CSSProperties;
   children: JSX.Element;

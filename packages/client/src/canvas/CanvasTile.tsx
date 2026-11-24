@@ -452,9 +452,10 @@ const CanvasTile: Component<{
       {/* Clip shell — sole clip boundary for title/body (xterm, chrome). */}
       <div class="absolute inset-0 flex flex-col overflow-hidden rounded-[inherit]">
         {/* Title bar — uses tile foreground at low opacity for guaranteed
-         *  contrast against the tile background, regardless of theme. The
-         *  drag activators only attach when tiled — a maximized tile shouldn't
-         *  start a drag on grab. Double-click toggles maximize.
+         *  contrast against the tile background, regardless of theme. It is
+         *  the tile's drag handle, always bound; the draggable is disabled
+         *  unless the tile is tiled, so a maximized or covered tile starts no
+         *  drag on grab. Double-click toggles maximize.
          *
          *  Layout is a 2-column grid: `minmax(0,1fr)` for the identity block,
          *  `auto` for the action cluster. `items-start` hugs the actions to the
