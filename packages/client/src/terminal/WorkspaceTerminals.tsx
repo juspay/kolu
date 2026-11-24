@@ -110,14 +110,12 @@ export function WorkspaceTerminals(props: {
       <For each={props.ids}>
         {(id) => (
           // Non-keyed: a shell swap replaces the destination element within one
-          // update, so the condition stays truthy and the same body moves.
+          // update, so the condition stays truthy and the same body moves. The
+          // portal inserts the body straight into the outlet (Solid 2's
+          // `Portal` adds no wrapper element), so the outlet's own flex column
+          // is the box the body fills.
           <Show when={destinations[id]?.el}>
-            <Portal
-              mount={destinations[id]?.el}
-              ref={(el) => {
-                el.className = "flex flex-col h-full w-full min-h-0";
-              }}
-            >
+            <Portal mount={destinations[id]?.el}>
               {props.renderBody(id, placementOf(id))}
             </Portal>
           </Show>

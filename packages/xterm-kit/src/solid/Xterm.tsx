@@ -22,8 +22,8 @@ import {
   createEffect,
   createMemo,
   createSignal,
+  omit,
   onCleanup,
-  splitProps,
 } from "solid-js";
 import type { JSX } from "@solidjs/web";
 import { BIRTH_GRID } from "../birthGrid";
@@ -217,7 +217,9 @@ export const Xterm: Component<
   // shadows) spreads onto the div.
   XtermOwnProps & Omit<JSX.HTMLAttributes<HTMLDivElement>, keyof XtermOwnProps>
 > = (props) => {
-  const [own, rest] = splitProps(props, OWN_KEYS);
+  // The kit's own props are read off `props`; everything else is the host
+  // div's attribute bag.
+  const rest = omit(props, ...OWN_KEYS);
   let container!: HTMLDivElement;
   let fitRaf = 0;
 
@@ -282,7 +284,7 @@ export const Xterm: Component<
    *  which they do. kolu's canvas tiles render under a transform, so gating on
    *  a quantity the measurement never reads would let the guard and the
    *  measurement disagree. */
-  const applyFit = (decided: boolean = own.boxDecided) => {
+  const applyFit = (decided: boolean = props.boxDecided) => {
     if (!core) return;
     // The OWNER's gate, read first: a box its layout has not decided is a
     // stand-in, and a measurement of it is a size this pane would go on to
@@ -367,7 +369,12 @@ export const Xterm: Component<
   });
 
   // The scroll lock is solid-reactive, so it's created in the component owner.
-  const scrollLock = createScrollLock(own.scrollLockEnabled);
+  // The gate goes in as a THUNK over the prop, not the prop's own value: a
+  // component body is a strict-read window, so `props.scrollLockEnabled` is read
+  // where the lock calls it (an effect compute, a scroll handler) rather than
+  // here. Same shape as `fullRate` below, and it also means a host that swaps
+  // the accessor is followed instead of pinned to the one read at mount.
+  const scrollLock = createScrollLock(() => props.scrollLockEnabled());
 
   createXtermLifecycle(
     () => container,
@@ -375,20 +382,20 @@ export const Xterm: Component<
     // so a `theme`/`fontSize` that changed mid-load builds with the latest value.
     () => ({
       terminalOptions: {
-        ...(own.terminalOptions ?? {}),
-        theme: own.theme,
-        fontSize: own.fontSize,
-        fontFamily: own.fontFamily,
+        ...(props.terminalOptions ?? {}),
+        theme: props.theme,
+        fontSize: props.fontSize,
+        fontFamily: props.fontFamily,
       },
-      webLinkHandler: own.webLinkHandler,
+      webLinkHandler: props.webLinkHandler,
     }),
     (c: XtermCore) => {
       core = c;
       const term = c.terminal;
 
-      const webgl = attachWebGL(term, own.webgl, own.webglHooks);
+      const webgl = attachWebGL(term, props.webgl, props.webglHooks);
       clearAtlas = webgl.clearTextureAtlas;
-      const recovery = createRenderRecovery(term, () => own.visible);
+      const recovery = createRenderRecovery(term, () => props.visible);
       // App-switch return fires `focus` (not `visibilitychange`); force a sync
       // repaint so a parked-rAF frame doesn't stay frozen.
       makeEventListener(window, "focus", () => recovery.recover());
@@ -401,7 +408,7 @@ export const Xterm: Component<
       // Bytes and stream resizes BOTH go through it, in the order they arrived
       // — which is what makes a resize mean "the pty's mirror moved HERE"
       // rather than "the pty's mirror moved, roughly, around now".
-      const fullRate = () => own.fullRate();
+      const fullRate = () => props.fullRate();
       const outputCoalesce = createOutputCoalesce(fullRate, {
         write: (data, onParsed) => scrollLock.writeData(term, data, onParsed),
         resize: (cols, rows) => scrollLock.resizeInOrder(cols, rows),
@@ -433,7 +440,7 @@ export const Xterm: Component<
       const screen = enableSoftKeyboardInput(term);
       if (screen) {
         wireTouchTaps(screen, {
-          onTap: (...args) => own.onTap?.(...args),
+          onTap: (...args) => props.onTap?.(...args),
           onFocus: () => term.focus(),
         });
       }
@@ -451,8 +458,8 @@ export const Xterm: Component<
       );
 
       // Keystrokes out — the consumer's callback owns any filtering/rewriting.
-      term.onData((data) => own.onData(data));
-      // No `own.visible` gate: `applyFit` already declines an unmeasurable box
+      term.onData((data) => props.onData(data));
+      // No `props.visible` gate: `applyFit` already declines an unmeasurable box
       // (a detached or zero-size host cannot fit), so a second, weaker predicate
       // for the same question could only ever disagree with the real one.
       createResizeObserver(() => container, refit);
@@ -489,13 +496,13 @@ export const Xterm: Component<
       // later one with no ordering to get right.
       applyFit();
 
-      own.onReady(handle);
+      props.onReady(handle);
     },
   );
 
   // Live theme switching.
   createEffect(
-    () => own.theme,
+    () => props.theme,
     (theme) => {
       if (!core) return;
       core.terminal.options.theme = theme;
@@ -505,7 +512,7 @@ export const Xterm: Component<
   );
   // Live font-size: apply + refit + clear atlas.
   createEffect(
-    () => own.fontSize,
+    () => props.fontSize,
     (size) => {
       if (!core) return;
       core.terminal.options.fontSize = size;
@@ -516,7 +523,7 @@ export const Xterm: Component<
   );
   // Re-fit against current geometry on reveal without changing the user's scroll position.
   createEffect(
-    () => own.visible,
+    () => props.visible,
     (visible) => {
       if (!visible || !core) return;
       refit();
@@ -535,7 +542,7 @@ export const Xterm: Component<
   // frame in which the gate is open and the measurement is still the stand-in's
   // — exactly the window this gate exists to close.
   createEffect(
-    () => own.boxDecided,
+    () => props.boxDecided,
     (decided) => {
       if (!decided || !core) return;
       cancelAnimationFrame(fitRaf);
