@@ -114,12 +114,12 @@ export interface ReExecAsDetachedDaemonOptions {
 /** Re-exec THIS program as a detached, durable daemon: same runtime and entry
  *  (`execPath` + `execArgv` + `argv[1..]`), minus `stripArgs`, so the
  *  **single-process** `node --import <loader> bin.ts` form runs — NOT a
- *  `tsx bin.ts` CLI fork, whose wrapper process swallows `SIGTERM` and leaks the
- *  daemon's socket + gate. `detached` + `stdio: "ignore"` + `unref` decouple it
- *  from the parent (ssh) session, so it survives the SIGHUP that closing the
- *  link delivers; the inherited env carries the wrapper's identity/PATH. The
- *  daemon's own pid-gate makes a concurrent second launch a clean no-op (it
- *  yields, exits 0). */
+ *  `tsx bin.ts` CLI fork, whose wrapper process (before tsx 4.23.4) swallows
+ *  `SIGTERM` and leaks the daemon's socket + gate. `detached` +
+ *  `stdio: "ignore"` + `unref` decouple it from the parent (ssh) session, so it
+ *  survives the SIGHUP that closing the link delivers; the inherited env
+ *  carries the wrapper's identity/PATH. The daemon's own pid-gate makes a
+ *  concurrent second launch a clean no-op (it yields, exits 0). */
 export function reExecAsDetachedDaemon(
   opts: ReExecAsDetachedDaemonOptions = {},
 ): void {
