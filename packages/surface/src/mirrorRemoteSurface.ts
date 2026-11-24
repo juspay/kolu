@@ -871,7 +871,7 @@ function mirrorCollectionDeltas<K, V>(opts: {
  *  flake). A scoped child fiber cannot: its lifetime IS the scope's.
  *
  *  **A child fiber's FAILURE does not reach its parent, though** — measured against
- *  effect@4.1.4: a `forkChild`ed effect that fails leaves the parent
+ *  effect@4.1.5: a `forkChild`ed effect that fails leaves the parent
  *  running to a clean exit. So a per-key SINK failure is latched into a `Deferred`
  *  and the keys loop is RACED against awaiting it. Without that race the pump's
  *  failure would go nowhere and `done` would resolve on a broken local fold — the
@@ -879,7 +879,7 @@ function mirrorCollectionDeltas<K, V>(opts: {
  *  successor of the old `rejectSink` + `Promise.race` channel, and it is here for
  *  the same reason: a pump runs concurrently with the loop that spawned it.)
  *
- *  BETA-ASSUMPTION(4.1.4): a failed `Effect.forkChild` child does NOT fail its parent fiber.
+ *  BETA-ASSUMPTION(4.1.5): a failed `Effect.forkChild` child does NOT fail its parent fiber.
  *  Measured by mirrorRemoteSurface.test.ts; src/internal/effect.ts forkUnsafe
  *  registers the child for interruption, and a child's exit only removes it
  *  from its parent's children, without forwarding its failure.

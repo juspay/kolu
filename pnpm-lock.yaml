@@ -5,10 +5,10 @@ settings:
   excludeLinksFromLockfile: false
 
 overrides:
-  effect: 4.1.4
-  '@effect/platform-node': 4.1.4
-  '@effect/platform-browser': 4.1.4
-  '@effect/vitest': 4.1.4
+  effect: 4.1.5
+  '@effect/platform-node': 4.1.5
+  '@effect/platform-browser': 4.1.5
+  '@effect/vitest': 4.1.5
   '@babel/core': ^7.29.6
   esbuild: ^0.28.1
   serialize-javascript: ^7.0.3
@@ -51,8 +51,8 @@ importers:
   .:
     devDependencies:
       '@effect/vitest':
-        specifier: 4.1.4
-        version: 4.1.4(effect@4.1.4)(vitest@5.1.1(@types/node@22.19.15)(happy-dom@21.0.4)(jsdom@30.0.1)(vite@8.3.8(@types/node@22.19.15)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.48.0)(tsx@4.23.15)(yaml@2.8.3)))
+        specifier: 4.1.5
+        version: 4.1.5(effect@4.1.5)(vitest@5.1.1(@types/node@22.19.15)(happy-dom@21.0.4)(jsdom@30.0.1)(vite@8.3.8(@types/node@22.19.15)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.48.0)(tsx@4.23.15)(yaml@2.8.3)))
       vitest:
         specifier: ^5.0.3
         version: 5.1.1(@types/node@22.19.15)(happy-dom@21.0.4)(jsdom@30.0.1)(vite@8.3.8(@types/node@22.19.15)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.48.0)(tsx@4.23.15)(yaml@2.8.3))
@@ -65,8 +65,8 @@ importers:
         specifier: workspace:*
         version: link:../../packages/surface
       effect:
-        specifier: 4.1.4
-        version: 4.1.4
+        specifier: 4.1.5
+        version: 4.1.5
 
   odu/run-history:
     dependencies:
@@ -74,8 +74,8 @@ importers:
         specifier: workspace:*
         version: link:../run-client
       effect:
-        specifier: 4.1.4
-        version: 4.1.4
+        specifier: 4.1.5
+        version: 4.1.5
 
   odu/service-client:
     dependencies:
@@ -95,14 +95,14 @@ importers:
         specifier: workspace:*
         version: link:../run-history
       effect:
-        specifier: 4.1.4
-        version: 4.1.4
+        specifier: 4.1.5
+        version: 4.1.5
 
   osfacts-client:
     dependencies:
       effect:
-        specifier: 4.1.4
-        version: 4.1.4
+        specifier: 4.1.5
+        version: 4.1.5
     devDependencies:
       '@types/node':
         specifier: ^22.0.0
@@ -120,8 +120,8 @@ importers:
         specifier: 1.9.0
         version: 1.9.0(zod@4.6.7)
       effect:
-        specifier: 4.1.4
-        version: 4.1.4
+        specifier: 4.1.5
+        version: 4.1.5
     devDependencies:
       '@types/node':
         specifier: ^22.0.0
@@ -167,8 +167,8 @@ importers:
         specifier: workspace:*
         version: link:../child
       effect:
-        specifier: 4.1.4
-        version: 4.1.4
+        specifier: 4.1.5
+        version: 4.1.5
     devDependencies:
       '@types/node':
         specifier: ^22.0.0
@@ -189,8 +189,8 @@ importers:
         specifier: workspace:*
         version: link:../acp-client
       effect:
-        specifier: 4.1.4
-        version: 4.1.4
+        specifier: 4.1.5
+        version: 4.1.5
     devDependencies:
       '@types/node':
         specifier: ^22.0.0
@@ -208,8 +208,8 @@ importers:
         specifier: workspace:*
         version: link:../../juspay/agent-distro
       effect:
-        specifier: 4.1.4
-        version: 4.1.4
+        specifier: 4.1.5
+        version: 4.1.5
       solid-js:
         specifier: ^1.9.0
         version: 1.9.11
@@ -230,8 +230,8 @@ importers:
         specifier: workspace:*
         version: link:../solid-browser
       effect:
-        specifier: 4.1.4
-        version: 4.1.4
+        specifier: 4.1.5
+        version: 4.1.5
       esbuild:
         specifier: ^0.28.1
         version: 0.28.2
@@ -285,8 +285,8 @@ importers:
         specifier: ^0.2.2
         version: 0.2.2(solid-js@1.9.11)
       '@effect/platform-browser':
-        specifier: 4.1.4
-        version: 4.1.4(effect@4.1.4)
+        specifier: 4.1.5
+        version: 4.1.5(effect@4.1.5)
       '@kolu/acp':
         specifier: workspace:*
         version: link:../acp
@@ -408,8 +408,8 @@ importers:
         specifier: 6.1.0-beta.339
         version: 6.1.0-beta.339
       effect:
-        specifier: 4.1.4
-        version: 4.1.4
+        specifier: 4.1.5
+        version: 4.1.5
       fix-webm-duration:
         specifier: ^1.0.6
         version: 1.0.6
@@ -532,8 +532,8 @@ importers:
         specifier: workspace:*
         version: link:../integrations/anyforge
       effect:
-        specifier: 4.1.4
-        version: 4.1.4
+        specifier: 4.1.5
+        version: 4.1.5
       kolu-git:
         specifier: workspace:*
         version: link:../integrations/git
@@ -578,8 +578,8 @@ importers:
         specifier: workspace:*
         version: link:../terminal-vocab
       effect:
-        specifier: 4.1.4
-        version: 4.1.4
+        specifier: 4.1.5
+        version: 4.1.5
       kolu-agents:
         specifier: workspace:*
         version: link:../integrations/agents
@@ -612,8 +612,8 @@ importers:
         specifier: ^7.29.2
         version: 7.29.7
       effect:
-        specifier: 4.1.4
-        version: 4.1.4
+        specifier: 4.1.5
+        version: 4.1.5
     devDependencies:
       '@types/node':
         specifier: ^22.0.0
@@ -671,8 +671,8 @@ importers:
         specifier: workspace:*
         version: link:../anyagent
       effect:
-        specifier: 4.1.4
-        version: 4.1.4
+        specifier: 4.1.5
+        version: 4.1.5
       kolu-claude-code:
         specifier: workspace:*
         version: link:../claude-code
@@ -717,8 +717,8 @@ importers:
         specifier: workspace:*
         version: link:../../shell-quote
       effect:
-        specifier: 4.1.4
-        version: 4.1.4
+        specifier: 4.1.5
+        version: 4.1.5
       kolu-io:
         specifier: workspace:*
         version: link:../io
@@ -745,8 +745,8 @@ importers:
         specifier: workspace:*
         version: link:../../log
       effect:
-        specifier: 4.1.4
-        version: 4.1.4
+        specifier: 4.1.5
+        version: 4.1.5
       ts-pattern:
         specifier: ^5.9.0
         version: 5.9.2
@@ -770,8 +770,8 @@ importers:
         specifier: workspace:*
         version: link:../anyagent
       effect:
-        specifier: 4.1.4
-        version: 4.1.4
+        specifier: 4.1.5
+        version: 4.1.5
       kolu-io:
         specifier: workspace:*
         version: link:../io
@@ -807,8 +807,8 @@ importers:
         specifier: workspace:*
         version: link:../anyagent
       effect:
-        specifier: 4.1.4
-        version: 4.1.4
+        specifier: 4.1.5
+        version: 4.1.5
       kolu-shared:
         specifier: workspace:*
         version: link:../../shared
@@ -835,8 +835,8 @@ importers:
         specifier: ^2.5.1
         version: 2.6.0
       effect:
-        specifier: 4.1.4
-        version: 4.1.4
+        specifier: 4.1.5
+        version: 4.1.5
       kolu-io:
         specifier: workspace:*
         version: link:../io
@@ -872,8 +872,8 @@ importers:
         specifier: workspace:*
         version: link:../anyforge
       effect:
-        specifier: 4.1.4
-        version: 4.1.4
+        specifier: 4.1.5
+        version: 4.1.5
       kolu-shared:
         specifier: workspace:*
         version: link:../../shared
@@ -897,8 +897,8 @@ importers:
         specifier: workspace:*
         version: link:../anyagent
       effect:
-        specifier: 4.1.4
-        version: 4.1.4
+        specifier: 4.1.5
+        version: 4.1.5
       kolu-io:
         specifier: workspace:*
         version: link:../io
@@ -947,8 +947,8 @@ importers:
         specifier: workspace:*
         version: link:../anyagent
       effect:
-        specifier: 4.1.4
-        version: 4.1.4
+        specifier: 4.1.5
+        version: 4.1.5
       kolu-io:
         specifier: workspace:*
         version: link:../io
@@ -984,8 +984,8 @@ importers:
         specifier: workspace:*
         version: link:../anyagent
       effect:
-        specifier: 4.1.4
-        version: 4.1.4
+        specifier: 4.1.5
+        version: 4.1.5
       kolu-shared:
         specifier: workspace:*
         version: link:../../shared
@@ -1012,8 +1012,8 @@ importers:
         specifier: workspace:*
         version: link:../anyagent
       effect:
-        specifier: 4.1.4
-        version: 4.1.4
+        specifier: 4.1.5
+        version: 4.1.5
       kolu-io:
         specifier: workspace:*
         version: link:../io
@@ -1064,8 +1064,8 @@ importers:
         specifier: workspace:*
         version: link:../anyagent
       effect:
-        specifier: 4.1.4
-        version: 4.1.4
+        specifier: 4.1.5
+        version: 4.1.5
       kolu-io:
         specifier: workspace:*
         version: link:../io
@@ -1089,8 +1089,8 @@ importers:
   packages/kaval:
     dependencies:
       '@effect/platform-node':
-        specifier: 4.1.4
-        version: 4.1.4(effect@4.1.4)(redis@6.2.1)
+        specifier: 4.1.5
+        version: 4.1.5(effect@4.1.5)(redis@6.2.1)
       '@kolu/heap-diag':
         specifier: workspace:*
         version: link:../heap-diag
@@ -1119,8 +1119,8 @@ importers:
         specifier: 6.1.0-beta.337
         version: 6.1.0-beta.337
       effect:
-        specifier: 4.1.4
-        version: 4.1.4
+        specifier: 4.1.5
+        version: 4.1.5
       node-pty:
         specifier: github:juspay/node-pty#feat/foreground-pid-dist
         version: https://codeload.github.com/juspay/node-pty/tar.gz/999e2bdae2aeed45008bd34d8e886258f34eae8d
@@ -1159,8 +1159,8 @@ importers:
   packages/kaval-tui:
     dependencies:
       '@effect/platform-node':
-        specifier: 4.1.4
-        version: 4.1.4(effect@4.1.4)(redis@6.2.1)
+        specifier: 4.1.5
+        version: 4.1.5(effect@4.1.5)(redis@6.2.1)
       '@kolu/shell-quote':
         specifier: workspace:*
         version: link:../shell-quote
@@ -1180,8 +1180,8 @@ importers:
         specifier: ^1.6.0
         version: 1.6.0
       effect:
-        specifier: 4.1.4
-        version: 4.1.4
+        specifier: 4.1.5
+        version: 4.1.5
       kaval:
         specifier: workspace:*
         version: link:../kaval
@@ -1211,8 +1211,8 @@ importers:
   packages/kolu-cli:
     dependencies:
       '@effect/platform-node':
-        specifier: 4.1.4
-        version: 4.1.4(effect@4.1.4)(redis@6.2.1)
+        specifier: 4.1.5
+        version: 4.1.5(effect@4.1.5)(redis@6.2.1)
       '@kolu/padi':
         specifier: workspace:*
         version: link:../padi
@@ -1241,8 +1241,8 @@ importers:
         specifier: workspace:*
         version: link:../terminal-vocab
       effect:
-        specifier: 4.1.4
-        version: 4.1.4
+        specifier: 4.1.5
+        version: 4.1.5
       kolu-common:
         specifier: workspace:*
         version: link:../common
@@ -1284,8 +1284,8 @@ importers:
   packages/kolu-mcp:
     dependencies:
       '@effect/platform-node':
-        specifier: 4.1.4
-        version: 4.1.4(effect@4.1.4)(redis@6.2.1)
+        specifier: 4.1.5
+        version: 4.1.5(effect@4.1.5)(redis@6.2.1)
       '@kolu/agent-distro':
         specifier: workspace:*
         version: link:../agent-distro
@@ -1314,8 +1314,8 @@ importers:
         specifier: ^1.32.2
         version: 1.32.2(zod@4.6.7)
       effect:
-        specifier: 4.1.4
-        version: 4.1.4
+        specifier: 4.1.5
+        version: 4.1.5
       kolu-agents:
         specifier: workspace:*
         version: link:../integrations/agents
@@ -1370,8 +1370,8 @@ importers:
   packages/padi:
     dependencies:
       '@effect/platform-node':
-        specifier: 4.1.4
-        version: 4.1.4(effect@4.1.4)(redis@6.2.1)
+        specifier: 4.1.5
+        version: 4.1.5(effect@4.1.5)(redis@6.2.1)
       '@juspay/agent-distro':
         specifier: workspace:*
         version: link:../../juspay/agent-distro
@@ -1424,8 +1424,8 @@ importers:
         specifier: ^15.1.0
         version: 15.1.0
       effect:
-        specifier: 4.1.4
-        version: 4.1.4
+        specifier: 4.1.5
+        version: 4.1.5
       kaval:
         specifier: workspace:*
         version: link:../kaval
@@ -1530,8 +1530,8 @@ importers:
         specifier: workspace:*
         version: link:../integrations/anyforge
       effect:
-        specifier: 4.1.4
-        version: 4.1.4
+        specifier: 4.1.5
+        version: 4.1.5
       kolu-agents:
         specifier: workspace:*
         version: link:../integrations/agents
@@ -1561,8 +1561,8 @@ importers:
   packages/padi-tui:
     dependencies:
       '@effect/platform-node':
-        specifier: 4.1.4
-        version: 4.1.4(effect@4.1.4)(redis@6.2.1)
+        specifier: 4.1.5
+        version: 4.1.5(effect@4.1.5)(redis@6.2.1)
       '@kolu/padi':
         specifier: workspace:*
         version: link:../padi
@@ -1585,8 +1585,8 @@ importers:
         specifier: ^2.3.0
         version: 2.3.0
       effect:
-        specifier: 4.1.4
-        version: 4.1.4
+        specifier: 4.1.5
+        version: 4.1.5
       kolu-pty:
         specifier: workspace:*
         version: link:../integrations/pty
@@ -1625,8 +1625,8 @@ importers:
   packages/serve-dir:
     dependencies:
       effect:
-        specifier: 4.1.4
-        version: 4.1.4
+        specifier: 4.1.5
+        version: 4.1.5
       mrmime:
         specifier: ^2.0.1
         version: 2.0.1
@@ -1644,8 +1644,8 @@ importers:
   packages/server:
     dependencies:
       '@effect/platform-node':
-        specifier: 4.1.4
-        version: 4.1.4(effect@4.1.4)(redis@6.2.1)
+        specifier: 4.1.5
+        version: 4.1.5(effect@4.1.5)(redis@6.2.1)
       '@juspay/agent-distro':
         specifier: workspace:*
         version: link:../../juspay/agent-distro
@@ -1719,8 +1719,8 @@ importers:
         specifier: ^15.1.0
         version: 15.1.0
       effect:
-        specifier: 4.1.4
-        version: 4.1.4
+        specifier: 4.1.5
+        version: 4.1.5
       kaval:
         specifier: workspace:*
         version: link:../kaval
@@ -1929,8 +1929,8 @@ importers:
         specifier: workspace:*
         version: link:../theme
       effect:
-        specifier: 4.1.4
-        version: 4.1.4
+        specifier: 4.1.5
+        version: 4.1.5
       solid-js:
         specifier: ^1.9.0
         version: 1.9.11
@@ -2075,11 +2075,11 @@ importers:
   packages/surface:
     dependencies:
       '@effect/platform-browser':
-        specifier: 4.1.4
-        version: 4.1.4(effect@4.1.4)
+        specifier: 4.1.5
+        version: 4.1.5(effect@4.1.5)
       '@effect/platform-node':
-        specifier: 4.1.4
-        version: 4.1.4(effect@4.1.4)(redis@6.2.1)
+        specifier: 4.1.5
+        version: 4.1.5(effect@4.1.5)(redis@6.2.1)
       '@kolu/log':
         specifier: workspace:*
         version: link:../log
@@ -2090,8 +2090,8 @@ importers:
         specifier: ^1.5.3
         version: 1.5.3(solid-js@1.9.11)
       effect:
-        specifier: 4.1.4
-        version: 4.1.4
+        specifier: 4.1.5
+        version: 4.1.5
       solid-js:
         specifier: ^1.9.0
         version: 1.9.11
@@ -2121,8 +2121,8 @@ importers:
   packages/surface-app:
     dependencies:
       '@effect/platform-browser':
-        specifier: 4.1.4
-        version: 4.1.4(effect@4.1.4)
+        specifier: 4.1.5
+        version: 4.1.5(effect@4.1.5)
       '@kolu/surface':
         specifier: workspace:*
         version: link:../surface
@@ -2130,15 +2130,15 @@ importers:
         specifier: workspace:*
         version: link:../url-shape
       effect:
-        specifier: 4.1.4
-        version: 4.1.4
+        specifier: 4.1.5
+        version: 4.1.5
       solid-js:
         specifier: ^1.9.0
         version: 1.9.11
     devDependencies:
       '@effect/platform-node':
-        specifier: 4.1.4
-        version: 4.1.4(effect@4.1.4)(redis@6.2.1)
+        specifier: 4.1.5
+        version: 4.1.5(effect@4.1.5)(redis@6.2.1)
       '@types/node':
         specifier: ^22.0.0
         version: 22.19.15
@@ -2161,8 +2161,8 @@ importers:
   packages/surface-app/example:
     dependencies:
       '@effect/platform-node':
-        specifier: 4.1.4
-        version: 4.1.4(effect@4.1.4)(redis@6.2.1)
+        specifier: 4.1.5
+        version: 4.1.5(effect@4.1.5)(redis@6.2.1)
       '@kolu/surface':
         specifier: workspace:*
         version: link:../../surface
@@ -2170,8 +2170,8 @@ importers:
         specifier: workspace:*
         version: link:..
       effect:
-        specifier: 4.1.4
-        version: 4.1.4
+        specifier: 4.1.5
+        version: 4.1.5
       solid-js:
         specifier: ^1.9.0
         version: 1.9.11
@@ -2207,15 +2207,15 @@ importers:
         specifier: workspace:*
         version: link:../surface
       effect:
-        specifier: 4.1.4
-        version: 4.1.4
+        specifier: 4.1.5
+        version: 4.1.5
       ts-pattern:
         specifier: ^5.9.0
         version: 5.9.2
     devDependencies:
       '@effect/platform-node':
-        specifier: 4.1.4
-        version: 4.1.4(effect@4.1.4)(redis@6.2.1)
+        specifier: 4.1.5
+        version: 4.1.5(effect@4.1.5)(redis@6.2.1)
       '@kolu/log':
         specifier: workspace:*
         version: link:../log
@@ -2235,8 +2235,8 @@ importers:
   packages/surface-daemon:
     dependencies:
       '@effect/platform-node':
-        specifier: 4.1.4
-        version: 4.1.4(effect@4.1.4)(redis@6.2.1)
+        specifier: 4.1.5
+        version: 4.1.5(effect@4.1.5)(redis@6.2.1)
       '@kolu/log':
         specifier: workspace:*
         version: link:../log
@@ -2244,8 +2244,8 @@ importers:
         specifier: workspace:*
         version: link:../surface
       effect:
-        specifier: 4.1.4
-        version: 4.1.4
+        specifier: 4.1.5
+        version: 4.1.5
       ts-pattern:
         specifier: ^5.9.0
         version: 5.9.2
@@ -2269,8 +2269,8 @@ importers:
   packages/surface-daemon-supervisor:
     dependencies:
       '@effect/platform-node':
-        specifier: 4.1.4
-        version: 4.1.4(effect@4.1.4)(redis@6.2.1)
+        specifier: 4.1.5
+        version: 4.1.5(effect@4.1.5)(redis@6.2.1)
       '@kolu/surface':
         specifier: workspace:*
         version: link:../surface
@@ -2278,8 +2278,8 @@ importers:
         specifier: workspace:*
         version: link:../surface-daemon
       effect:
-        specifier: 4.1.4
-        version: 4.1.4
+        specifier: 4.1.5
+        version: 4.1.5
       osfacts-client:
         specifier: workspace:*
         version: link:../../osfacts-client
@@ -2318,8 +2318,8 @@ importers:
         specifier: ^2.0.3
         version: 2.0.3
       effect:
-        specifier: 4.1.4
-        version: 4.1.4
+        specifier: 4.1.5
+        version: 4.1.5
       solid-js:
         specifier: ^1.9.0
         version: 1.9.11
@@ -2349,8 +2349,8 @@ importers:
         specifier: ^1.32.2
         version: 1.32.2(zod@4.6.7)
       effect:
-        specifier: 4.1.4
-        version: 4.1.4
+        specifier: 4.1.5
+        version: 4.1.5
       ts-pattern:
         specifier: ^5.9.0
         version: 5.9.2
@@ -2371,8 +2371,8 @@ importers:
   packages/surface-remote:
     dependencies:
       '@effect/platform-node':
-        specifier: 4.1.4
-        version: 4.1.4(effect@4.1.4)(redis@6.2.1)
+        specifier: 4.1.5
+        version: 4.1.5(effect@4.1.5)(redis@6.2.1)
       '@kolu/byte-units':
         specifier: workspace:*
         version: link:../byte-units
@@ -2389,8 +2389,8 @@ importers:
         specifier: workspace:*
         version: link:../surface-map
       effect:
-        specifier: 4.1.4
-        version: 4.1.4
+        specifier: 4.1.5
+        version: 4.1.5
       neverthrow:
         specifier: ^8.2.0
         version: 8.2.0
@@ -2426,8 +2426,8 @@ importers:
   packages/surface/example:
     dependencies:
       '@effect/platform-node':
-        specifier: 4.1.4
-        version: 4.1.4(effect@4.1.4)(redis@6.2.1)
+        specifier: 4.1.5
+        version: 4.1.5(effect@4.1.5)(redis@6.2.1)
       '@kolu/surface':
         specifier: workspace:*
         version: link:..
@@ -2435,8 +2435,8 @@ importers:
         specifier: workspace:*
         version: link:../../surface-app
       effect:
-        specifier: 4.1.4
-        version: 4.1.4
+        specifier: 4.1.5
+        version: 4.1.5
       solid-js:
         specifier: ^1.9.0
         version: 1.9.11
@@ -2475,8 +2475,8 @@ importers:
   packages/surface/example/fleet-top/part-1:
     dependencies:
       '@effect/platform-node':
-        specifier: 4.1.4
-        version: 4.1.4(effect@4.1.4)(redis@6.2.1)
+        specifier: 4.1.5
+        version: 4.1.5(effect@4.1.5)(redis@6.2.1)
       '@kolu/surface':
         specifier: workspace:*
         version: link:../../..
@@ -2484,8 +2484,8 @@ importers:
         specifier: workspace:*
         version: link:../../../../surface-app
       effect:
-        specifier: 4.1.4
-        version: 4.1.4
+        specifier: 4.1.5
+        version: 4.1.5
       solid-js:
         specifier: ^1.9.0
         version: 1.9.11
@@ -2527,8 +2527,8 @@ importers:
         specifier: workspace:*
         version: link:../../../../surface-daemon-supervisor
       effect:
-        specifier: 4.1.4
-        version: 4.1.4
+        specifier: 4.1.5
+        version: 4.1.5
       osfacts-client:
         specifier: workspace:*
         version: link:../../../../../osfacts-client
@@ -2546,8 +2546,8 @@ importers:
   packages/surface/example/fleet-top/part-3:
     dependencies:
       '@effect/platform-node':
-        specifier: 4.1.4
-        version: 4.1.4(effect@4.1.4)(redis@6.2.1)
+        specifier: 4.1.5
+        version: 4.1.5(effect@4.1.5)(redis@6.2.1)
       '@kolu/surface':
         specifier: workspace:*
         version: link:../../..
@@ -2561,8 +2561,8 @@ importers:
         specifier: workspace:*
         version: link:../../../../surface-remote
       effect:
-        specifier: 4.1.4
-        version: 4.1.4
+        specifier: 4.1.5
+        version: 4.1.5
       solid-js:
         specifier: ^1.9.0
         version: 1.9.11
@@ -2604,8 +2604,8 @@ importers:
         specifier: workspace:*
         version: link:../../../surface-remote
       effect:
-        specifier: 4.1.4
-        version: 4.1.4
+        specifier: 4.1.5
+        version: 4.1.5
     devDependencies:
       '@types/node':
         specifier: ^22.0.0
@@ -2623,8 +2623,8 @@ importers:
   packages/surface/example/remote-process-monitor:
     dependencies:
       '@effect/platform-node':
-        specifier: 4.1.4
-        version: 4.1.4(effect@4.1.4)(redis@6.2.1)
+        specifier: 4.1.5
+        version: 4.1.5(effect@4.1.5)(redis@6.2.1)
       '@kolu/surface':
         specifier: workspace:*
         version: link:../..
@@ -2635,8 +2635,8 @@ importers:
         specifier: workspace:*
         version: link:../../../surface-remote
       effect:
-        specifier: 4.1.4
-        version: 4.1.4
+        specifier: 4.1.5
+        version: 4.1.5
       solid-js:
         specifier: ^1.9.0
         version: 1.9.11
@@ -2675,8 +2675,8 @@ importers:
   packages/surface/example/snippets:
     dependencies:
       '@effect/platform-node':
-        specifier: 4.1.4
-        version: 4.1.4(effect@4.1.4)(redis@6.2.1)
+        specifier: 4.1.5
+        version: 4.1.5(effect@4.1.5)(redis@6.2.1)
       '@kolu/surface':
         specifier: workspace:*
         version: link:../..
@@ -2702,8 +2702,8 @@ importers:
         specifier: workspace:*
         version: link:../../../surface-remote
       effect:
-        specifier: 4.1.4
-        version: 4.1.4
+        specifier: 4.1.5
+        version: 4.1.5
       solid-js:
         specifier: ^1.9.0
         version: 1.9.11
@@ -2786,8 +2786,8 @@ importers:
         specifier: workspace:*
         version: link:../integrations/anyforge
       effect:
-        specifier: 4.1.4
-        version: 4.1.4
+        specifier: 4.1.5
+        version: 4.1.5
       kolu-agents:
         specifier: workspace:*
         version: link:../integrations/agents
@@ -2847,8 +2847,8 @@ importers:
         specifier: workspace:*
         version: link:../surface-map
       effect:
-        specifier: 4.1.4
-        version: 4.1.4
+        specifier: 4.1.5
+        version: 4.1.5
       get-port:
         specifier: ^7.2.0
         version: 7.2.0
@@ -2879,8 +2879,8 @@ importers:
         specifier: workspace:*
         version: link:../log
       effect:
-        specifier: 4.1.4
-        version: 4.1.4
+        specifier: 4.1.5
+        version: 4.1.5
     devDependencies:
       '@types/node':
         specifier: ^22.0.0
@@ -2926,8 +2926,8 @@ importers:
         specifier: workspace:*
         version: link:../agent-distro
       effect:
-        specifier: 4.1.4
-        version: 4.1.4
+        specifier: 4.1.5
+        version: 4.1.5
     devDependencies:
       '@types/node':
         specifier: ^22.0.0
@@ -2975,8 +2975,8 @@ importers:
         specifier: 6.1.0-beta.339
         version: 6.1.0-beta.339
       effect:
-        specifier: 4.1.4
-        version: 4.1.4
+        specifier: 4.1.5
+        version: 4.1.5
     devDependencies:
       '@babel/parser':
         specifier: ^7.29.2
@@ -3371,28 +3371,28 @@ packages:
   '@cucumber/tag-expressions@9.1.0':
     resolution: {integrity: sha512-bvHjcRFZ+J1TqIa9eFNO1wGHqwx4V9ZKV3hYgkuK/VahHx73uiP4rKV3JVrvWSMrwrFvJG6C8aEwnCWSvbyFdQ==}
 
-  '@effect/platform-browser@4.1.4':
-    resolution: {integrity: sha512-oh6SxR62VaU8xzpVloHRJwK4ADBXCzlnjgcvV6zHc9h4PwmdhQvlfrXFu38tvqJTgK31Z1VnzbkLtymWHbEUSA==}
+  '@effect/platform-browser@4.1.5':
+    resolution: {integrity: sha512-48wRnowGMrUtcF8A0xlqPh6HY/01NTYoA9HNwqGRLNGUXbQHbN97zhr6+qvsxJ4seHipjLXazegSwMkUHarPdQ==}
     peerDependencies:
-      effect: 4.1.4
+      effect: 4.1.5
 
-  '@effect/platform-node-shared@4.1.4':
-    resolution: {integrity: sha512-DWdfphHGOFJNj/mYadgpT3jIm8aRXDcPrQiGXFBH4p2H4XmA7iYMrPsI8NxVgZ7kNX0q1+FGJZJama0tINHRAg==}
+  '@effect/platform-node-shared@4.1.5':
+    resolution: {integrity: sha512-JzlrYe4uKaBFTWihBRXo2pDjkUVB39kQpKdGfXdbp7Co5sKT8hbcjOmdB5pg/WOYESdGTddd3fxD4lwlZELbZQ==}
     engines: {node: '>=22.19.0'}
     peerDependencies:
-      effect: 4.1.4
+      effect: 4.1.5
 
-  '@effect/platform-node@4.1.4':
-    resolution: {integrity: sha512-h7QExTPq/RfYtHP/8tMlgfBvqYsuJKhxfkU6w0+NaF/ihqQ8Y3GH9t28ltupQjoqMM7P6W5gy8rOji7F0qVrmg==}
+  '@effect/platform-node@4.1.5':
+    resolution: {integrity: sha512-tFnRvxF9EKc3oU17sDHj1JeLP+TL/IkaOEl3IUk2EjgMS0x7AWs0ioUXjdNKLb3Z1LdjVfMf/DxsNh9PW5FFAg==}
     engines: {node: '>=22.19.0'}
     peerDependencies:
-      effect: 4.1.4
+      effect: 4.1.5
       redis: '>=5.1.0 <7.0.0'
 
-  '@effect/vitest@4.1.4':
-    resolution: {integrity: sha512-AKpZ6zKihCRhY7hDbiQ2yp/krw+afIkxDRjFMwwzMiyhd0iYk0WaHa9J6GGC7TUF/C7HP2dZyMVq5xC0Qm/2/g==}
+  '@effect/vitest@4.1.5':
+    resolution: {integrity: sha512-18u1013wkJtSelk1ZYLc/5aUnluTQyDfi2hAemkJW1GQ9qXw4mtPSiSf0AXZPhesmGCvG1Dk2C4JYD2sz+R72w==}
     peerDependencies:
-      effect: 4.1.4
+      effect: 4.1.5
       vitest: '>=5.0.0 <6.0.0'
 
   '@emnapi/core@2.0.0-beta.2':
@@ -5122,8 +5122,8 @@ packages:
   ee-first@1.1.1:
     resolution: {integrity: sha512-WMwm9LhRUo+WUaRN+vRuETqG89IgZphVSNkdFgeb6sS/E4OrDIN7t48CAewSHXc6C8lefD8KKfr5vY61brQlow==}
 
-  effect@4.1.4:
-    resolution: {integrity: sha512-Tgrv/9FN+TZYyOn8XSli+fVqAfwDrDAkiX5Uu9vztINb675VTQdhD0gWI5Kzvhlh9QqzjZvw72iugqw5pwoghQ==}
+  effect@4.1.5:
+    resolution: {integrity: sha512-xyR20KhQI0vg2gD8ILUSQRTTESEYJ0JKdP+QD8J37xbwPTqXRxFM/l0+vUVD9fuSvoYruoTqyt33C4FZv1s4TQ==}
 
   electron-to-chromium@1.5.451:
     resolution: {integrity: sha512-vUNKPrUzw8ByEMOxloq0a71iD/mPuPxVkbDm3G5YhnxTzOw/I6qAg2MUS0cYj/c267lWmw26yW4Vv7foxTxPLg==}
@@ -7175,32 +7175,32 @@ snapshots:
 
   '@cucumber/tag-expressions@9.1.0': {}
 
-  '@effect/platform-browser@4.1.4(effect@4.1.4)':
+  '@effect/platform-browser@4.1.5(effect@4.1.5)':
     dependencies:
-      effect: 4.1.4
+      effect: 4.1.5
 
-  '@effect/platform-node-shared@4.1.4(effect@4.1.4)':
+  '@effect/platform-node-shared@4.1.5(effect@4.1.5)':
     dependencies:
       '@types/ws': 8.18.2
-      effect: 4.1.4
+      effect: 4.1.5
       ws: 8.23.0
     transitivePeerDependencies:
       - bufferutil
       - utf-8-validate
 
-  '@effect/platform-node@4.1.4(effect@4.1.4)(redis@6.2.1)':
+  '@effect/platform-node@4.1.5(effect@4.1.5)(redis@6.2.1)':
     dependencies:
-      '@effect/platform-node-shared': 4.1.4(effect@4.1.4)
-      effect: 4.1.4
+      '@effect/platform-node-shared': 4.1.5(effect@4.1.5)
+      effect: 4.1.5
       redis: 6.2.1
       undici: 8.12.3
     transitivePeerDependencies:
       - bufferutil
       - utf-8-validate
 
-  '@effect/vitest@4.1.4(effect@4.1.4)(vitest@5.1.1(@types/node@22.19.15)(happy-dom@21.0.4)(jsdom@30.0.1)(vite@8.3.8(@types/node@22.19.15)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.48.0)(tsx@4.23.15)(yaml@2.8.3)))':
+  '@effect/vitest@4.1.5(effect@4.1.5)(vitest@5.1.1(@types/node@22.19.15)(happy-dom@21.0.4)(jsdom@30.0.1)(vite@8.3.8(@types/node@22.19.15)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.48.0)(tsx@4.23.15)(yaml@2.8.3)))':
     dependencies:
-      effect: 4.1.4
+      effect: 4.1.5
       vitest: 5.1.1(@types/node@22.19.15)(happy-dom@21.0.4)(jsdom@30.0.1)(vite@8.3.8(@types/node@22.19.15)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.48.0)(tsx@4.23.15)(yaml@2.8.3))
 
   '@emnapi/core@2.0.0-beta.2':
@@ -8747,7 +8747,7 @@ snapshots:
 
   ee-first@1.1.1: {}
 
-  effect@4.1.4: {}
+  effect@4.1.5: {}
 
   electron-to-chromium@1.5.451: {}
 

@@ -41,8 +41,8 @@
  * before them.
  * `stdioPingStall.test.ts` measures the whole of it.
  *
- * BETA-ASSUMPTION(4.1.4): the pinger ends a run at the first tick that finds its ping outstanding and no decoded frame for longer than `pingTimeout`.
- * In effect@4.1.4 `rpc/RpcClient.ts` `makePinger`, every decoded server frame
+ * BETA-ASSUMPTION(4.1.5): the pinger ends a run at the first tick that finds its ping outstanding and no decoded frame for longer than `pingTimeout`.
+ * In effect@4.1.5 `rpc/RpcClient.ts` `makePinger`, every decoded server frame
  * (not only `Pong`) refreshes `lastSeen` and clears `awaitingResponse`; each
  * tick either ends the run (ping outstanding, `now - lastSeen > pingTimeout`)
  * or writes a ping. {@link RPC_PING_FATAL_SILENCE_MS} is derived from exactly

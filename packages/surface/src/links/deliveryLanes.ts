@@ -4,7 +4,7 @@
  * not on ours. This header is the canonical account; everything else that
  * mentions the hazard points here.
  *
- * THE HAZARD (effect@4.1.4, `rpc/RpcClient.ts`). Every stream on a link shares
+ * THE HAZARD (Effect up to 4.1.4, `rpc/RpcClient.ts`). Every stream on a link shares
  * one socket reader. `makeProtocolSocket`'s read loop hands each decoded response
  * to the client strictly in sequence, and the client delivers a stream `Chunk`
  * with `Queue.offerAll` into that stream's BOUNDED queue (16) — then sends the
@@ -31,12 +31,19 @@
  * Only Effect's client can avoid the fiber (try the offer, fork only when the
  * queue is full).
  *
- * DELETE THIS MODULE when Effect's client stops delivering on its reader. Its
- * one call site is the protocol wrap in `openWireLink` (`./wire.ts`).
- * `streamConsumerStall.test.ts` is the measure either way.
+ * EFFECT 4.1.5 FIXED THE HAZARD UPSTREAM (Effect-TS/effect#10572). On a
+ * protocol with acks, `RpcClient.make`'s `run` handler now forks each `Chunk`
+ * delivery itself (`Effect.forkIn(deliver, scope, { startImmediately: true })`),
+ * so the reader no longer waits on a consumer. This module is now redundant: a
+ * lane is drained the moment it is filled, and each chunk pays for a second
+ * fiber that buys nothing. DELETE THIS MODULE in a change of its own. Its one
+ * call site is the protocol wrap in `openWireLink` (`./wire.ts`), and
+ * `streamConsumerStall.test.ts` (green at effect@4.1.5 with the wrap still in
+ * place) is the measure of the deletion.
  *
- * BETA-ASSUMPTION(4.1.4): a stream Chunk is the only response whose delivery waits on a consumer, a delivery fails only when interrupted, and a stream's own finaliser shuts its queue down.
- * In effect@4.1.4 `RpcClient.make`'s `write` offers a `Chunk` into the stream's
+ * BETA-ASSUMPTION(4.1.5): a stream Chunk is the only response whose delivery waits on a consumer, a delivery fails only when interrupted, and a stream's own finaliser shuts its queue down.
+ * In effect@4.1.5 `RpcClient.make`'s `run` handler forks a `Chunk`'s delivery
+ * on a protocol with acks, and its `write` offers the chunk into the stream's
  * bounded queue and Acks after (not when the offer was dropped); `Exit` ends a
  * queue or resumes a call; `Defect`/`ClientProtocolError` fail entries. The
  * `run` handler writes an undecodable chunk as its request's `Exit` and then
