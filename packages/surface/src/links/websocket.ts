@@ -414,13 +414,16 @@ export async function websocketLink(
   // (`forceReconnect`, `dispose`): record why on that socket's attempt, close
   // it, then tell the host — act first, report second, so a reporter that
   // throws cannot stop the redial. At most once per socket: the first judgment
-  // is the one recorded and reported.
+  // is the one recorded and reported. The ONE place a sever is stored and
+  // handed out, so it is frozen here: the record and the host share the value,
+  // and neither may change it for the other.
   const severOnOwnJudgment = (
     own: Dial,
     ws: WebSocket,
-    sever: SelfSever,
+    judged: SelfSever,
   ): void => {
     if (own.attempt.selfSever !== undefined) return;
+    const sever = Object.freeze(judged);
     own.attempt.selfSever = sever;
     if (ws.readyState <= 1) ws.close(FORCE_RECONNECT_CLOSE_CODE);
     if (opts.onSelfSever === undefined) return;
@@ -488,14 +491,10 @@ export async function websocketLink(
             "websocketLink: the keep-alive gave up on a dial that never connected — Effect's socket protocol no longer runs it only for a connected run",
           );
         }
-        severOnOwnJudgment(
-          own,
-          ws,
-          Object.freeze({
-            cause: "keepAliveUnanswered",
-            silentMs: monotonicNow() - Math.max(own.openedMono, lastInbound),
-          }),
-        );
+        severOnOwnJudgment(own, ws, {
+          cause: "keepAliveUnanswered",
+          silentMs: monotonicNow() - Math.max(own.openedMono, lastInbound),
+        });
       }),
     }),
   ).pipe(
@@ -509,11 +508,7 @@ export async function websocketLink(
       // names that end to the host.
       undecodableAware((frame) => {
         const { own, ws } = dialledSocket("a frame failed to decode");
-        severOnOwnJudgment(
-          own,
-          ws,
-          Object.freeze({ cause: "undecodableFrame", frame }),
-        );
+        severOnOwnJudgment(own, ws, { cause: "undecodableFrame", frame });
       }),
       connectionHooks,
     ]),
