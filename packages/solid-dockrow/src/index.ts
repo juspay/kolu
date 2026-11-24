@@ -7,7 +7,6 @@
 export { DockNeedsYouRow } from "./DockNeedsYouRow.tsx";
 export {
   DockCluster,
-  type DockDragHandlers,
   DockNeedsYouStrip,
   DockSection,
 } from "./DockSection.tsx";

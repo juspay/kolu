@@ -9,23 +9,21 @@
  *
  *  Two sockets, not one: the row element is BOTH the draggable (what the drag
  *  measures and the ghost is sized to) and the droppable (a row is a drop
- *  target in its own right). The GESTURE, though, is not on the row — kolu
- *  passes the activators to the package as `handle`, which renders the grip
- *  that carries them and stops them at the row's own boundary (see `DockRow`).
- *  A pointerdown on the row's body therefore still reaches the branch
- *  cluster's activator, which is the #2249 behaviour this feature must not
- *  break. */
+ *  target in its own right). The GESTURE, though, is not on the row — the row's
+ *  drag handle is the grip the package renders when kolu passes `handle`. A
+ *  pointerdown on the row's body therefore still reaches the branch cluster's
+ *  handle (the cluster element itself), which is the #2249 behaviour this
+ *  feature must not break; a pointerdown on the grip is claimed by the row's
+ *  sensor first, so the cluster leaves it alone. */
 
 import { activeArm } from "@kolu/padi-client/surface";
 import type { TerminalMetadata } from "@kolu/padi-client/surface";
-import type { DockDragHandlers } from "@kolu/solid-dockrow";
 import type { TerminalId } from "kolu-common/surface";
 import { type Accessor, createMemo } from "solid-js";
 import {
   createDraggable,
   createDroppable,
-  type DragDropScope,
-  useDragDropScope,
+  requireDragDropScope,
 } from "../../dnd";
 import type { ParentEdge } from "../../terminal/terminalTree";
 import { useTerminalStore } from "../../terminal/useTerminalStore";
@@ -43,26 +41,16 @@ import {
 export type DockRowDrag = {
   /** Registers the row ELEMENT as the draggable + droppable node. */
   ref: (el: HTMLElement) => void;
-  /** The grip's listeners — absent on a row that cannot be dragged right now. */
-  handle: DockDragHandlers | undefined;
+  /** The grip's ref — absent on a row that cannot be dragged right now. */
+  handle: ((el: HTMLElement) => void) | undefined;
   drop: "over" | "invalid" | undefined;
 };
-
-/** The nearest drag scope — the desktop dock's — or a loud failure. */
-function dockScope(caller: string, what: string): DragDropScope {
-  const scope = useDragDropScope();
-  if (!scope) throw new Error(`${caller}: no drag scope — ${what}`);
-  return scope;
-}
 
 /** The terminal id of the row being dragged, or `null` when the active drag is
  *  not a row drag — a branch cluster, or nothing at all. The one reader is the
  *  repo card's header, which is a drop target for ROW drags only. */
 export function useDraggedRowId(): Accessor<TerminalId | null> {
-  const scope = dockScope(
-    "useDraggedRowId",
-    "a dock drop target exists only inside the desktop dock's DragDropProvider",
-  );
+  const scope = requireDragDropScope("useDraggedRowId");
   return () => rowIdOfDragId(scope.activeId() ?? "");
 }
 
@@ -89,10 +77,7 @@ export function useDockDropVerdict(
   target: DockDropTarget,
   isActiveTarget: Accessor<boolean>,
 ): Accessor<"over" | "invalid" | undefined> {
-  const scope = dockScope(
-    "useDockDropVerdict",
-    "a dock drop target exists only inside the desktop dock's DragDropProvider",
-  );
+  const scope = requireDragDropScope("useDockDropVerdict");
   const store = useTerminalStore();
   const drop = dockDropContext(store);
   return createMemo(() => {
@@ -107,10 +92,6 @@ export function useDockDropVerdict(
 
 /** One desktop dock row's drag sockets. */
 export function useDockRowDrag(id: TerminalId): DockRowDrag {
-  dockScope(
-    "useDockRowDrag",
-    "dock rows are draggable in the desktop dock only",
-  );
   const store = useTerminalStore();
   const draggable = createDraggable(rowDragId(id));
   const droppable = createDroppable(rowDragId(id));
@@ -133,7 +114,7 @@ export function useDockRowDrag(id: TerminalId): DockRowDrag {
       droppable.ref(el);
     },
     get handle() {
-      return live() ? draggable.activators : undefined;
+      return live() ? draggable.handleRef : undefined;
     },
     get drop() {
       return drop();

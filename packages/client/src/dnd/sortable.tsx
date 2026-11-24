@@ -21,7 +21,7 @@ import { type DragTransform, NO_TRANSFORM } from "./DragDropProvider";
 import {
   createDraggable,
   createDroppable,
-  type DragActivators,
+  type DraggableHandle,
   requireDragDropScope,
 } from "./draggable";
 
@@ -57,7 +57,8 @@ export const SortableProvider: Component<{
 export type SortableHandle = {
   /** The item's element: dragged, and measured as a drop target. */
   ref: (el: HTMLElement) => void;
-  activators: DragActivators;
+  /** Where a press picks the item up — see {@link DraggableHandle.handleRef}. */
+  handleRef: (el: HTMLElement) => void;
   isActiveDraggable: Accessor<boolean>;
   isActiveDroppable: Accessor<boolean>;
   /** Where the item is drawn: following the pointer while it is dragged (unless
@@ -90,7 +91,7 @@ export function createSortable(id: string): SortableHandle {
       draggable.ref(el);
       droppable.ref(el);
     },
-    activators: draggable.activators,
+    handleRef: draggable.handleRef,
     isActiveDraggable: draggable.isActiveDraggable,
     isActiveDroppable: droppable.isActiveDroppable,
     transform: () =>

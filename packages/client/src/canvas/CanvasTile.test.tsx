@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 vi.mock("../dnd", () => ({
   createDraggable: () => ({
     ref: () => undefined,
-    activators: {},
+    handleRef: () => undefined,
     transform: () => ({ x: 0, y: 0 }),
   }),
 }));

@@ -130,7 +130,11 @@ const CanvasTile: Component<{
 }> = (props) => {
   const isMaximized = () => props.mode === "maximized";
   const isCovered = () => props.mode === "covered";
-  const draggable = createDraggable(props.id);
+  // Only a TILED tile moves: maximized and covered tiles keep their title bar
+  // but start no drag from it.
+  const draggable = createDraggable(props.id, {
+    disabled: () => props.mode !== "tiled",
+  });
   /** Where this tile is saved to be — undefined while a host switch-back's
    *  `canvasLayout` metadata is still in flight. */
   const placed = () => props.getLayout(props.id);
@@ -462,6 +466,7 @@ const CanvasTile: Component<{
          *  the span, the branch/PR row truncated early with dead space beneath
          *  a wide action cluster (agent status + theme + icons). */}
         <div
+          ref={draggable.handleRef}
           data-testid="canvas-tile-titlebar"
           class="grid [grid-template-columns:minmax(0,1fr)_auto] items-start gap-x-2 px-3 py-1.5 shrink-0 select-none border-l-4"
           classList={{
@@ -483,17 +488,19 @@ const CanvasTile: Component<{
           // mousedown focus shift so clicks on the title bar don't blur
           // the xterm textarea. The drag starts on pointerdown, not
           // mousedown, so drag is unaffected; child buttons handle their
-          // own focus — and stay out of the drag — via stopPropagation on
-          // pointerdown.
+          // own focus via stopPropagation on pointerdown, and stay out of the
+          // drag by carrying `data-no-drag` (see `dnd/`).
           onMouseDown={(e) => e.preventDefault()}
           onDblClick={(e) => {
             e.stopPropagation();
             props.onToggleMaximize();
           }}
-          {...(props.mode === "tiled" ? draggable.activators : {})}
         >
           <div class="contents">{props.renderTitle()}</div>
-          <div class="col-start-2 row-start-1 flex items-center gap-1 shrink-0">
+          <div
+            data-no-drag
+            class="col-start-2 row-start-1 flex items-center gap-1 shrink-0"
+          >
             {props.renderTitleActions?.()}
             <button
               type="button"

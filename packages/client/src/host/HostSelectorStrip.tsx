@@ -209,8 +209,10 @@ const HostChip: Component<{
     <div
       ref={(el) => {
         chipEl = el;
-        // The sortable's node, when this chip is re-orderable.
+        // A re-orderable chip is the sortable AND its own drag handle: a
+        // press anywhere on it picks it up. The pinned chip has no sortable.
         props.drag?.ref(el);
+        props.drag?.handleRef(el);
         // A finished drag's trailing `click` can land on whichever of the
         // chip's two buttons the gesture started on — switching host, or
         // toggling diagnostics. Swallow it in the CAPTURE phase, before either
@@ -232,9 +234,6 @@ const HostChip: Component<{
         onCleanup(() => releaseHostDiagnosticsAnchor(el));
       }}
       class="group -mb-px flex items-center shrink-0 text-xs"
-      // The whole chip starts a drag (a re-orderable one; the pinned chip has
-      // no sortable, so no handler).
-      onPointerDown={props.drag?.activators.onPointerDown}
       data-testid="host-chip"
       data-host={encKey}
       data-active={isActive() ? "" : undefined}

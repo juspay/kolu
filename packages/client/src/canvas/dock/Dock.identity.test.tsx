@@ -95,7 +95,7 @@ vi.mock("../../dnd", () => ({
   SortableProvider: (p: { children: JSX.Element }) => p.children,
   createSortable: () => ({
     ref: () => {},
-    activators: {},
+    handleRef: () => {},
     transform: () => ({ x: 0, y: 0 }),
   }),
   createDroppable: () => ({ ref: () => {}, isActiveDroppable: () => false }),

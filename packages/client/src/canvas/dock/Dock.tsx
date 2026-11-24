@@ -68,7 +68,6 @@ import { activeArm } from "@kolu/padi-client/surface";
 
 import {
   DockCluster,
-  type DockDragHandlers,
   DockRow as DockRowView,
   DockSection,
 } from "@kolu/solid-dockrow";
@@ -536,8 +535,8 @@ const DockHeader: Component<{
 /** One repo section as ONE draggable unit — the whole card is the sortable:
  *  `createSortable`'s `ref` + `style` land on the DockSection ROOT through
  *  its own sockets (the package's answer, so a second consumer never re-spells
- *  the wrapper), and its `activators` land inside the consumer-filled header
- *  slot — the identity chrome, never the attention capsules. */
+ *  the wrapper), and its drag handle is the consumer-filled header slot's
+ *  identity chrome — never the attention capsules. */
 const SortableSection: Component<{
   group: DockGroup;
   flatIndexOf: ReadonlyMap<TerminalId, number>;
@@ -554,7 +553,7 @@ const SortableSection: Component<{
       flatIndexOf={props.flatIndexOf}
       sectionRef={sortable.ref}
       sectionStyle={transformStyle(sortable.transform())}
-      grip={sortable.activators}
+      gripRef={sortable.handleRef}
       onClusterDrop={props.onClusterDrop}
     />
   );
@@ -583,8 +582,8 @@ function dropTargetOf(droppableId: string): DockDropTarget {
  *  follow-up that would let both drop paints live in `dockrow.css`).
  *  `inset-0` therefore covers exactly the band, and the whole header is the
  *  target rather than a chip beside the grip. `pointer-events: none` because a
- *  droppable is MEASURED, never clicked — the band's identity-grip activators
- *  keep working underneath.
+ *  droppable is MEASURED, never clicked — the band's identity grip keeps
+ *  working underneath.
  *
  *  It exists for ROW drags only (the collision filter keeps cluster drags away).
  *  Its resting state is the VERB'S answer, not a guess: a drag that could not
@@ -683,12 +682,11 @@ const RepoSection: Component<{
    *  package's own sockets — the package's layout, our drag. */
   sectionRef: HTMLElement | ((el: HTMLElement) => void);
   sectionStyle: JSX.CSSProperties;
-  /** Section-level drag activators from `createSortable(name)` — landed on
-   *  the header's identity chrome (monogram, name, tally: the touches that
-   *  have no click of their own; NEVER the attention capsules: a button has
-   *  its own pointerdown story and spreading activators there would fight
-   *  it). */
-  grip: DockDragHandlers;
+  /** Section-level drag handle from `createSortable(name)` — the header's
+   *  identity chrome (monogram, name, tally: the touches that have no click
+   *  of their own; NEVER the attention capsules: a button has its own
+   *  pointerdown story and a drag starting there would fight it). */
+  gripRef: (el: HTMLElement) => void;
   onClusterDrop: (labels: readonly string[]) => void;
 }> = (props) => {
   const store = useTerminalStore();
@@ -799,8 +797,8 @@ const RepoSection: Component<{
                *  its own tile back. Absolutely positioned so it costs the band
                *  no flex item and cannot push the monogram or the capsules
                *  around; `pointer-events: none` because a droppable is
-               *  MEASURED, never clicked, so the band's own identity-grip
-               *  activators keep working underneath it. */}
+               *  MEASURED, never clicked, so the band's own identity grip
+               *  keeps working underneath it. */}
               <HeaderDropTarget />
               {/* Sticky repo header — monogram + uppercase name + bare tally +
                *  attention triplet (styles in `@kolu/solid-dockrow/dockrow.css`). The tally
@@ -816,8 +814,8 @@ const RepoSection: Component<{
                *  and never a drag's. The card drags from its identity chrome,
                *  never its data. */}
               <span
+                ref={props.gripRef}
                 class="flex items-center gap-1.5 min-w-0 shrink cursor-grab"
-                {...props.grip}
               >
                 <RepoMonogram
                   group={props.group.name}
@@ -883,9 +881,12 @@ const SortableCluster: Component<{
   return (
     <DockCluster
       label={props.cluster.label}
-      ref={sortable.ref}
+      ref={(el) => {
+        // The whole cluster is both the sortable and its drag handle.
+        sortable.ref(el);
+        sortable.handleRef(el);
+      }}
       style={transformStyle(sortable.transform())}
-      handlers={sortable.activators}
     >
       <Key each={props.cluster.rows} by={"id"}>
         {(row) => (

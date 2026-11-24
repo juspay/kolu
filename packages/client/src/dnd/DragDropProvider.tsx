@@ -1,5 +1,5 @@
-/** A drag scope: one dnd-kit `DragDropManager`, its sensor and tracker, and the
- *  Solid state its draggables, droppables and sortables read.
+/** A drag scope: one dnd-kit `DragDropManager`, its pointer sensor and
+ *  plugins, and the Solid state its draggables, droppables and sortables read.
  *
  *  Scopes NEST, and every draggable or droppable joins the NEAREST one. That is
  *  how kolu isolates its drags: the canvas, the host strip, the dock's list of
@@ -10,6 +10,8 @@ import { closestCenter, type CollisionDetector } from "@dnd-kit/collision";
 import {
   DragDropManager,
   type Droppable,
+  PointerActivationConstraints,
+  PointerSensor,
   PreventSelection,
 } from "@dnd-kit/dom";
 import type { Rectangle } from "@dnd-kit/geometry";
@@ -24,8 +26,31 @@ import {
   useContext,
 } from "solid-js";
 import { Portal } from "solid-js/web";
-import { DelegatedPointerSensor } from "./sensor";
+import { ReleasePoint } from "./releasePoint";
 import { DragTracker, type DragTrackerOptions } from "./tracker";
+
+/** The attribute a control inside a drag handle carries — a title-bar button,
+ *  a link — so that a press on it stays the control's and starts no drag. */
+const NO_DRAG = "data-no-drag";
+
+/** Every scope's pointer sensor: dnd-kit's own, bound to each draggable's
+ *  handle. */
+const POINTER = PointerSensor.configure({
+  // The pointer must travel more than 10px; a press that never moves stays a
+  // click. A fresh constraint per press: a constraint holds the press's state.
+  activationConstraints: () => [
+    new PointerActivationConstraints.Distance({ value: 10 }),
+  ],
+  // Only the handle picks a draggable up — never the dragged element by
+  // default, so a row whose grip is not mounted cannot be lifted by its body.
+  activatorElements: (source) => [source.handle],
+  preventActivation: (event, source) => {
+    const { target } = event;
+    if (!(target instanceof Element)) return false;
+    const control = target.closest(`[${NO_DRAG}]`);
+    return control !== null && source.handle?.contains(control) === true;
+  },
+});
 
 export type DragTransform = { readonly x: number; readonly y: number };
 
@@ -41,7 +66,6 @@ export type DropEvent = {
 
 export type DragDropScope = {
   readonly manager: DragDropManager;
-  readonly sensor: DelegatedPointerSensor;
   /** Every droppable in this scope resolves through this. */
   readonly collisionDetector: CollisionDetector;
   /** The element each droppable is measured from when a drag starts. */
@@ -105,13 +129,10 @@ export const DragDropProvider: Component<{
     },
   };
   const manager = new DragDropManager({
-    plugins: [PreventSelection, DragTracker.configure(tracking)],
-    sensors: [DelegatedPointerSensor],
+    plugins: [PreventSelection, DragTracker.configure(tracking), ReleasePoint],
+    sensors: [POINTER],
     modifiers: [],
   });
-  const sensor = manager.registry.sensors.get(DelegatedPointerSensor);
-  if (!sensor)
-    throw new Error("DragDropProvider: the pointer sensor did not register");
   const stopDrop = manager.monitor.addEventListener(
     "dragend",
     ({ operation, canceled }) => {
@@ -130,7 +151,6 @@ export const DragDropProvider: Component<{
 
   const scope: DragDropScope = {
     manager,
-    sensor,
     collisionDetector: (input) =>
       (props.collisionDetector ?? closestCenter)(input),
     droppableElements,

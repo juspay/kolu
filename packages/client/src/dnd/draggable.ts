@@ -1,8 +1,8 @@
 /** Draggables and droppables: an id registered with the nearest drag scope for
- *  the lifetime of the calling owner, bound to its element through `ref`. */
+ *  the lifetime of the calling owner, bound to its elements through refs. */
 
 import { Draggable, Droppable } from "@dnd-kit/dom";
-import { type Accessor, type JSX, onCleanup } from "solid-js";
+import { type Accessor, createEffect, type JSX, onCleanup } from "solid-js";
 import {
   type DragDropScope,
   type DragTransform,
@@ -19,14 +19,13 @@ export function requireDragDropScope(caller: string): DragDropScope {
   return scope;
 }
 
-/** The handler that starts a drag, as a dict to spread on the element the
- *  gesture begins on (the element itself, or a handle inside it). */
-export type DragActivators = { onPointerDown: (event: Event) => void };
-
 export type DraggableHandle = {
   /** The dragged element: what the drag measures and the overlay is sized to. */
   ref: (el: HTMLElement) => void;
-  activators: DragActivators;
+  /** The element a press starts the drag on — the dragged element itself, or
+   *  a grip inside it. dnd-kit's pointer sensor binds it while it is mounted;
+   *  with no handle mounted, the draggable cannot be picked up. */
+  handleRef: (el: HTMLElement) => void;
   isActiveDraggable: Accessor<boolean>;
   /** The drag's offset while this one is dragged, else none. */
   transform: Accessor<DragTransform>;
@@ -38,22 +37,32 @@ export type DroppableHandle = {
   isActiveDroppable: Accessor<boolean>;
 };
 
-export function createDraggable(id: string): DraggableHandle {
+export function createDraggable(
+  id: string,
+  options?: {
+    /** While true, a press on the handle starts nothing. */
+    disabled?: Accessor<boolean>;
+  },
+): DraggableHandle {
   const scope = requireDragDropScope("createDraggable");
   const draggable = new Draggable({ id, register: false }, scope.manager);
   draggable.register();
   onCleanup(draggable.destroy);
+  const disabled = options?.disabled;
+  if (disabled)
+    createEffect(() => {
+      draggable.disabled = disabled();
+    });
   const isActiveDraggable = () => scope.activeId() === id;
   return {
     ref: (el) => {
       draggable.element = el;
     },
-    activators: {
-      onPointerDown: (event) => {
-        if (!(event instanceof PointerEvent))
-          throw new Error(`draggable ${id}: onPointerDown got a ${event.type}`);
-        scope.sensor.start(event, draggable);
-      },
+    handleRef: (el) => {
+      draggable.handle = el;
+      onCleanup(() => {
+        if (draggable.handle === el) draggable.handle = undefined;
+      });
     },
     isActiveDraggable,
     transform: () => (isActiveDraggable() ? scope.transform() : NO_TRANSFORM),
