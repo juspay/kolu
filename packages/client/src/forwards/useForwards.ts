@@ -13,9 +13,9 @@
 
 import { toError } from "@kolu/surface/run-stream";
 import { Effect } from "effect";
-import type { ForwardOrigin, Forwards } from "kolu-common/surface";
 import { encodeHostKey, type HostKey } from "kolu-common/hostKey";
-import { createMemo, createResource, createRoot, mapArray } from "solid-js";
+import type { ForwardOrigin, Forwards } from "kolu-common/surface";
+import { createMemo, createRoot, mapArray } from "solid-js";
 import { toast } from "solid-sonner";
 import { runActionPromise } from "../runAction";
 import { app, client, hostKeys } from "../wire";
@@ -102,33 +102,43 @@ export function cancelForward(key: string) {
  *  way of a third one.
  *
  *  A FAILED read lands on `null` rather than escaping. This is read during
- *  render — `PortsSection` calls it per port row inside a `<For>` child — and a
- *  Solid resource accessor RE-THROWS its fetcher's error instead of returning
- *  `undefined`, so without the catch a transient RPC failure would abort the
- *  render pass, with no `ErrorBoundary` anywhere in the client to catch it.
+ *  render — `PortsSection` calls it per port row inside a `<For>` child — and
+ *  an async memo THROWS its compute's rejection at whoever reads it, so
+ *  without the catch a transient RPC failure would abort the render pass, with
+ *  no `Errored` boundary anywhere in the client to catch it.
  *  `null` degrades to "keep offering the forward" for BOTH causes on purpose —
  *  the server's own honest "cannot tell" and a caught RPC failure both want the
  *  safe default, never a withheld feature — but the two are not the same fact,
  *  so a caught failure still gets its own toast (not just a console line, which
  *  is invisible outside DevTools) even though the render behaviour it feeds
- *  stays identical either way. */
+ *  stays identical either way.
+ *
+ *  THE PRE-ANSWER WINDOW IS `null` TOO, declared as the memo's loading value:
+ *  the one-shot is read bare during render by a section with no `Loading`
+ *  boundary over it, and "we cannot tell yet" is the same fact for the row as
+ *  "the server cannot tell" — the forward stays on offer, and the row settles
+ *  to the real answer when it lands. Nothing on screen is ever held waiting
+ *  for this read. */
 const viewerHostQuery = createRoot(() =>
-  createResource(() =>
-    runActionPromise(
-      client.hosts.viewer().pipe(
-        Effect.map((r): HostKey | null => r.host),
-        Effect.catch((err) =>
-          Effect.sync((): HostKey | null => {
-            toast.warning(`Viewer-host lookup failed: ${toError(err).message}`);
-            return null;
-          }),
+  createMemo<HostKey | null>(
+    () =>
+      runActionPromise(
+        client.hosts.viewer().pipe(
+          Effect.map((r): HostKey | null => r.host),
+          Effect.catch((err) =>
+            Effect.sync((): HostKey | null => {
+              toast.warning(
+                `Viewer-host lookup failed: ${toError(err).message}`,
+              );
+              return null;
+            }),
+          ),
         ),
       ),
-    ),
+    { loadingValue: null },
   ),
 );
 
 export function viewerHost(): HostKey | null {
-  const [data] = viewerHostQuery;
-  return data() ?? null;
+  return viewerHostQuery();
 }

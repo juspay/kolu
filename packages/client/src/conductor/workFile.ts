@@ -30,8 +30,8 @@ import {
 import type { PrResult, TerminalId } from "kolu-common/surface";
 import { listWorkFiles } from "kolu-common/workFiles";
 import type { GitInfo } from "kolu-git/schemas";
-import { keptOf, waterfallFileName, type Work, type WorkId } from "kolu-work";
-import { type Accessor, createMemo, createResource } from "solid-js";
+import { keptOf, type Work, type WorkId, waterfallFileName } from "kolu-work";
+import { type Accessor, createMemo, isPending } from "solid-js";
 import { type CodeLister, repoLister } from "../code-view/codeLister";
 import { noTerminalToFetch } from "../code-view/codeSubject";
 import { runActionPromise } from "../runAction";
@@ -196,24 +196,36 @@ export function workFileSource(
 /** THE WORK'S FILES AS ROWS, for a face that draws them — one derivation,
  *  used by the card's list and by the reader's tabs.
  *
- *  A failed read is read as the EMPTY list, never by touching the resource's
- *  value: a Solid resource RE-THROWS its failure at whoever reads it, and
- *  both faces read this inside their render — so a worktree kolu could not
- *  list used to take the whole page down ("kolu broke") instead of the one
- *  line the section already has for saying so. */
+ *  THE LISTING IS AN ASYNC MEMO with `null` declared as its loading value:
+ *  both faces read these rows bare, inside their own render, beside things
+ *  that must not wait for a worktree walk (the card's other sections, the
+ *  reader's open document). The declared value is what keeps them un-held —
+ *  the rows read empty and `pending` reads true until the first listing
+ *  lands, with no `Loading` boundary over either face.
+ *
+ *  A FAILED read is NOT swallowed here: an async memo throws its rejection at
+ *  whoever reads it, and each face catches it in an `Errored` boundary that
+ *  says so in a line (the card: "Could not read the worktree"; the reader: the
+ *  viewer's own error face) — one worktree kolu could not list never takes the
+ *  page down. */
 export function createWorkFiles(source: Accessor<WorkFileSource | null>): {
   readonly rows: Accessor<ReadonlyArray<WorkFileRow>>;
   readonly more: Accessor<boolean>;
-  readonly error: Accessor<Error | undefined>;
   readonly pending: Accessor<boolean>;
 } {
-  const [listed] = createResource(source, (one) => one.list());
-  const ok = () => (listed.error === undefined ? listed() : undefined);
+  const listed = createMemo<WorkFilesRead | null>(
+    () => {
+      const one = source();
+      return one === null ? null : one.list();
+    },
+    { loadingValue: null },
+  );
   return {
-    rows: createMemo(() => ok()?.rows ?? []),
-    more: () => ok()?.more ?? false,
-    error: () => listed.error as Error | undefined,
-    pending: () => listed.loading,
+    rows: createMemo(() => listed()?.rows ?? []),
+    more: () => listed()?.more ?? false,
+    // Not read yet (the declared `null`, or no source to read from), or being
+    // read again for a source that changed.
+    pending: () => listed() === null || isPending(listed),
   };
 }
 

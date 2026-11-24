@@ -4,15 +4,16 @@
  *
  * The answer is read during RENDER: `PortsSection` calls it twice per port row
  * inside a `<For>` child. That placement is what makes the failure mode sharp.
- * A Solid resource accessor RE-THROWS its fetcher's error rather than returning
- * `undefined`, so `data() ?? null` yields `null` only while loading — never on
- * failure — and a throw during render aborts the whole update. The client has no
- * `ErrorBoundary` anywhere, so one transient RPC failure at page load would take
- * out the Inspector rather than degrade.
+ * An async memo THROWS its compute's rejection at whoever reads it, and a read
+ * with no answer yet SUSPENDS to the nearest `Loading` boundary — and a throw
+ * during render aborts the whole update. The client has no `Errored` boundary
+ * anywhere and no `Loading` one over the Inspector, so either would take the
+ * section out rather than degrade.
  *
  * `null` already has an honest meaning here — "kolu cannot tell", which keeps
- * the forward on offer, and the forward always works. A failed read is exactly
- * that case, so it must LAND on `null`, not escape as an exception.
+ * the forward on offer, and the forward always works. So both windows LAND on
+ * `null`: the failed read is caught in the compute, and the pre-answer window
+ * is the memo's declared `loadingValue`.
  */
 
 import { Effect } from "effect";
@@ -28,6 +29,13 @@ const answers = (value: unknown): void => {
 };
 const refuses = (error: Error): void => {
   viewer.mockImplementation(() => Effect.fail(error));
+};
+/** A stub that answers only when the test says so — what the window before the
+ *  first answer is observed through. */
+const answersWhenReleased = (value: unknown): (() => void) => {
+  const { promise, resolve } = Promise.withResolvers<unknown>();
+  viewer.mockImplementation(() => Effect.promise(() => promise));
+  return () => resolve(value);
 };
 /** The forwards cell's current value, swappable per test. */
 const cell: { value: () => unknown[] } = { value: () => [] };
@@ -89,6 +97,23 @@ describe("viewerHost", () => {
     const viewerHost = await loadViewerHost();
     expect(() => viewerHost()).not.toThrow();
     expect(viewerHost()).toBeNull();
+  });
+
+  it("is `null` BEFORE the first answer lands — the declared loading value, not a suspended read", async () => {
+    // The other half of the load-bearing case: the Inspector reads this
+    // mid-render with no `Loading` boundary over it, so the pre-answer window
+    // must be a value, not a suspension. It means what a `null` always means
+    // here — kolu cannot tell, so keep offering the forward.
+    const release = answersWhenReleased({
+      host: { kind: "remote", target: "zest" },
+    });
+    const { viewerHost } = await import("./useForwards");
+    expect(() => viewerHost()).not.toThrow();
+    expect(viewerHost()).toBeNull();
+
+    release();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(viewerHost()).toEqual({ kind: "remote", target: "zest" });
   });
 });
 

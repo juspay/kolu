@@ -26,15 +26,16 @@
  *  (`mermaidSources`), so text that is still streaming in shows it as code
  *  and never as an error. */
 
+import { dynamic } from "@solidjs/web";
+import type { Highlighter } from "shiki";
 import {
   type Component,
+  createDeferred,
   createEffect,
   createMemo,
-  createResource,
   onCleanup,
   untrack,
 } from "solid-js";
-import { dynamic } from "@solidjs/web";
 import { type Diagram, diagrams as diagramCache } from "./diagram";
 import { highlightCode, loadHighlighter } from "./highlight";
 import { decorateInlineCode, type InlineCodeAction } from "./inlineCode";
@@ -49,9 +50,13 @@ export type MarkdownVariant = "inline" | "compact" | "document";
 
 const NO_SOURCES: readonly string[] = [];
 
+/** The map a document with no drawn diagram reads: the diagram node's loading
+ *  value, so the first paint is never held for a drawing. */
+const NO_DIAGRAMS: ReadonlyMap<string, Diagram> = new Map();
+
 /** Two diagram source lists are the same when they hold the same texts in the
- *  same order — what keeps the diagram resource from re-asking on every
- *  streamed piece. */
+ *  same order — what keeps the diagram node from re-asking on every streamed
+ *  piece. */
 function sameSources(a: readonly string[], b: readonly string[]): boolean {
   return a.length === b.length && a.every((source, i) => source === b[i]);
 }
@@ -229,10 +234,7 @@ export function bindMarkdownLinks(
  *
  *  Returns one unbinder for both bindings, for the same reason
  *  `bindMarkdownLinks` does: this runs from the host's `ref` callback. */
-function bindInteractions(
-  el: HTMLElement,
-  handlers: LinkHandlers,
-): () => void {
+function bindInteractions(el: HTMLElement, handlers: LinkHandlers): () => void {
   const unbindLinks = bindMarkdownLinks(el, handlers);
   const onPointerDown = (e: Event) => {
     const target = e.target as Element | null;
@@ -296,27 +298,33 @@ export const Markdown: Component<{
 
   // Lazily load the Shiki highlighter for the document preview; `highlighter()`
   // flips from undefined → ready, re-running the html memo so code re-paints.
+  // `loadingValue: undefined` is what keeps the preview un-held: the node
+  // never suspends, so the document paints at once with plain code and
+  // re-paints when the highlighter lands — no `<Loading>` boundary in the
+  // preview path, and nothing else on screen waits for a syntax theme.
   // Swallow a load failure (e.g. the lazy `shiki` chunk fails on a flaky
   // network — the very case this lazy-load tolerates) and resolve to null:
-  // reading an *errored* resource inside the `html` memo would re-throw and,
-  // with no ErrorBoundary in the preview path, blank the whole preview. Null
-  // keeps `highlighter() != null` false so code renders plain, matching
-  // highlight.ts's per-block fallback.
+  // an errored read inside the `html` memo would throw to the nearest
+  // `Errored` boundary and, with none in the preview path, blank the whole
+  // preview. Null keeps `highlighter() != null` false so code renders plain,
+  // matching highlight.ts's per-block fallback.
   // Only pay for Shiki when the document actually has a fenced code block — a
   // code-less README never triggers the dynamic `shiki` chunk + grammar load.
   // The predicate can't false-negative (every real fence opens a line with
   // ``` / ~~~); a rare false positive just warms an unused highlighter.
   const hasCodeFence = () => /^[ \t]{0,3}(?:```|~~~)/m.test(props.markdown);
-  const [highlighter] = createResource(
-    () => (isDocument() && hasCodeFence()) || undefined,
+  const highlighter = createDeferred<Highlighter | null | undefined>(
     () =>
-      loadHighlighter().catch((err) => {
-        console.warn(
-          "markdown: shiki highlighter failed to load; code renders plain",
-          err,
-        );
-        return null;
-      }),
+      isDocument() && hasCodeFence()
+        ? loadHighlighter().catch((err) => {
+            console.warn(
+              "markdown: shiki highlighter failed to load; code renders plain",
+              err,
+            );
+            return null;
+          })
+        : undefined,
+    { loadingValue: undefined },
   );
 
   // Diagrams: the finished ` ```mermaid ` blocks' sources, compared by
@@ -332,11 +340,14 @@ export const Markdown: Component<{
   // Source → drawn diagram (or why not) for the current blocks. When every one
   // was drawn earlier in this tab, the map is returned synchronously, so the
   // first paint already shows them. `load` never rejects, so neither can this
-  // resource; while it reloads it keeps answering with the previous map, so a
-  // drawn diagram stays drawn while the next block is being drawn.
-  const [diagrams] = createResource(
-    () => (sources().length > 0 ? sources() : false),
-    (list): Map<string, Diagram> | Promise<Map<string, Diagram>> => {
+  // node — nothing here ever reaches an `Errored` boundary. Deferred with an
+  // empty map as its loading value: the first paint draws the text with no
+  // diagrams rather than suspending, and a later block's draw holds nothing —
+  // the diagrams already drawn stay drawn while the next one is being drawn.
+  const diagrams = createDeferred<ReadonlyMap<string, Diagram>>(
+    () => {
+      const list = sources();
+      if (list.length === 0) return NO_DIAGRAMS;
       const known = list.map((s) => [s, diagramCache.peek(s)] as const);
       if (known.every(([, d]) => d !== undefined)) {
         return new Map(known as (readonly [string, Diagram])[]);
@@ -345,6 +356,7 @@ export const Markdown: Component<{
         list.map(async (s) => [s, await diagramCache.load(s)] as const),
       ).then((entries) => new Map(entries));
     },
+    { loadingValue: NO_DIAGRAMS },
   );
 
   const html = createMemo(() => {
@@ -373,7 +385,7 @@ export const Markdown: Component<{
         resolveImageSrc: props.resolveImageSrc,
         highlightCode:
           isDocument() && highlighter() != null ? highlightCode : undefined,
-        diagram: (source) => drawn?.get(source),
+        diagram: (source) => drawn.get(source),
       },
     );
     const inlineCode = props.inlineCode;

@@ -35,36 +35,40 @@
  *  in either place are seen by both. */
 
 import type { FileWithSource, FileWithUrl } from "@kolu/solid-fileview";
-import { type AnsweredFromFace, openAsks, type Work } from "kolu-work";
+import { toError } from "@kolu/surface/run-stream";
 import type { JSX } from "@solidjs/web";
+import { type AnsweredFromFace, openAsks, type Work } from "kolu-work";
 import {
   type Component,
   createMemo,
-  createResource,
+  Errored,
   For,
+  Loading,
   Show,
 } from "solid-js";
+import BrowseFileDispatcher from "../../code-view/BrowseFileDispatcher";
 import { CommentComposer } from "../../comments/CommentComposer";
 import { CommentView, createCommentView } from "../../comments/commentView";
 import { formatMarkdown } from "../../comments/formatMarkdown";
 import { commentsForTerminal } from "../../comments/useComments";
-import BrowseFileDispatcher from "../../code-view/BrowseFileDispatcher";
 import { rightPanelCodeDoor } from "../../right-panel/openInCodeTab";
 import { useColorScheme } from "../../settings/useColorScheme";
 import { useWorkMap, useWorkMembers } from "../useWorks";
 import WorkChip from "../WorkChip";
 import WorkChipFace from "../WorkChipFace";
-import WorkQuestion from "../WorkQuestion";
-import {
-  createWorkFiles,
-  workFileName,
-  type WorkFileSource,
-  workFileSource,
-} from "../workFile";
-import { readWorkFacts } from "../workFacts";
 import WorkFileList from "../WorkFileList";
+import WorkQuestion from "../WorkQuestion";
+import { readWorkFacts } from "../workFacts";
+import { createWorkFiles, workFileName, workFileSource } from "../workFile";
 import { membersIn } from "../workReadings";
 import type { ReaderTarget } from "./useReader";
+
+/** The vault a face with no listing to resolve against gets: no paths, and
+ *  nothing still coming. */
+const NO_VAULT: { paths: readonly string[]; pending: boolean } = {
+  paths: [],
+  pending: false,
+};
 
 const WorkReader: Component<{
   target: ReaderTarget;
@@ -130,15 +134,12 @@ const WorkReader: Component<{
 
   /** THE OPEN FILE'S BYTES, keyed on the path AND the source — so a tab press
    *  reads the new file, and a work that ends while the reader is open falls
-   *  back to the kept copy without the reader doing anything. */
-  const [bytes] = createResource(
-    (): { path: string; source: WorkFileSource } | null => {
-      const from = source();
-      return from === null ? null : { path: props.target.path, source: from };
-    },
-    (target): Promise<FileWithSource | FileWithUrl> =>
-      target.source.read(target.path),
-  );
+   *  back to the kept copy without the reader doing anything. `null` only for
+   *  a work this browser has no record of, whose document is never drawn. */
+  const bytes = createMemo<FileWithSource | FileWithUrl | null>(() => {
+    const from = source();
+    return from === null ? null : from.read(props.target.path);
+  });
 
   /** THE COMMENTS THAT WILL GO WITH AN ANSWER — the existing
    *  comments-on-files for this file, which are kept per terminal and reached
@@ -163,6 +164,26 @@ const WorkReader: Component<{
    *  beside it (the Right panel's Code view stays mounted under the
    *  Conductor). */
   const commentView = createCommentView();
+
+  /** THE DOCUMENT, in the one viewer every other file face uses — stated once
+   *  because the frame below draws it twice: with the bytes once they land,
+   *  and with the failure the read threw instead (the `Errored` fallback),
+   *  which is the viewer's own error face over no file. */
+  const Viewer: Component<{
+    file: FileWithSource | FileWithUrl | null;
+    error: Error | undefined;
+    vault: { paths: readonly string[]; pending: boolean };
+  }> = (shown) => (
+    <BrowseFileDispatcher
+      at={at()}
+      open={at() === null ? null : door.open}
+      filePath={props.target.path}
+      file={shown.file}
+      error={shown.error}
+      repoVault={shown.vault}
+      theme={theme()}
+    />
+  );
 
   return (
     <CommentView value={commentView}>
@@ -202,13 +223,29 @@ const WorkReader: Component<{
           in the same place as the plan, one press away — on a line of their
           own, under the title and the chrome. */}
           <div data-testid="reader-files" class="min-w-0 basis-full">
-            <WorkFileList
-              rows={files.rows()}
-              more={files.more()}
-              openTo={props.target.path}
-              layout="line"
-              onOpen={(path) => props.onOpen({ work: props.target.work, path })}
-            />
+            {/* A LISTING THAT FAILED is not a missing tab strip: the rows
+                throw their failure here, and the strip says so in its own
+                line — the open document below is drawn either way. */}
+            <Errored
+              fallback={(why) => (
+                <span
+                  data-testid="reader-files-unread"
+                  class="font-mono text-[0.62rem] text-fg-3"
+                >
+                  Could not read this work's files — {toError(why()).message}
+                </span>
+              )}
+            >
+              <WorkFileList
+                rows={files.rows()}
+                more={files.more()}
+                openTo={props.target.path}
+                layout="line"
+                onOpen={(path) =>
+                  props.onOpen({ work: props.target.work, path })
+                }
+              />
+            </Errored>
           </div>
         </header>
 
@@ -258,23 +295,43 @@ const WorkReader: Component<{
             data-testid="reader-doc"
             class="reader-doc flex min-h-0 flex-1 flex-col"
           >
-            <BrowseFileDispatcher
-              at={at()}
-              open={at() === null ? null : door.open}
-              filePath={props.target.path}
-              // A resource RE-THROWS its failure at its reader, and `error`
-              // beside it is how the viewer is told — so the value is only read
-              // when there is one.
-              file={bytes.error === undefined ? (bytes() ?? null) : null}
-              error={bytes.error}
-              // The work's OWN files are the vault a `[[wikilink]]` in a plan
-              // resolves against — the list a plan's links actually point into.
-              repoVault={{
-                paths: files.rows().map((file) => file.path),
-                pending: files.pending(),
-              }}
-              theme={theme()}
-            />
+            {/* THE BYTES THROW their failure at whoever reads them, as does
+                the vault listing beside them — a worktree kolu cannot read is
+                a worktree it cannot list — so the viewer's own error face is
+                this boundary's fallback. */}
+            <Errored
+              fallback={(why) => (
+                <Viewer file={null} error={toError(why())} vault={NO_VAULT} />
+              )}
+            >
+              {/* `on` THE OPEN PATH: a tab press changes what this frame is
+                  OF, and the file that was open must not sit under the new
+                  tab's name while the next one is read — so the waiting line
+                  comes back for it, and the tabs and the questions beside it
+                  are not held waiting for the read. A source that changes
+                  under the same path (a work ending while the reader is open)
+                  keeps the text on screen until the kept copy lands.
+
+                  The fallback is the viewer's own pre-bytes line, said here:
+                  a second dispatcher mounted to draw one line would build a
+                  wikilink menu and a footnote popover for a frame. */}
+              <Loading
+                on={props.target.path}
+                fallback={<div class="px-2 py-1 text-fg-3/50">Loading…</div>}
+              >
+                <Viewer
+                  file={bytes()}
+                  error={undefined}
+                  // The work's OWN files are the vault a `[[wikilink]]` in a
+                  // plan resolves against — the list a plan's links actually
+                  // point into.
+                  vault={{
+                    paths: files.rows().map((file) => file.path),
+                    pending: files.pending(),
+                  }}
+                />
+              </Loading>
+            </Errored>
           </div>
           {/* SELECTING TEXT TAKES A COMMENT, as on the Code tab — the pill is
           the surface's own, and this is the popover it opens. One per

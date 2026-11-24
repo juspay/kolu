@@ -36,9 +36,13 @@ import { Effect } from "effect";
 import type { HostKey } from "kolu-common/hostKey";
 import {
   type Component,
-  createResource,
+  createMemo,
   createSignal,
+  Errored,
   For,
+  isPending,
+  Loading,
+  refresh,
   Show,
 } from "solid-js";
 import { toast } from "solid-sonner";
@@ -48,8 +52,8 @@ import { runAction, runActionPromise, type UiAction } from "./runAction";
 import { formatTimeAgo } from "./terminal/staleness";
 import { createDisclosure } from "./ui/createDisclosure";
 import InlineConfirmButton from "./ui/InlineConfirmButton";
-import { formatSize } from "./ui/memory";
 import ModalDialog from "./ui/ModalDialog";
+import { formatSize } from "./ui/memory";
 import { surface } from "./ui/Surface";
 import { client, hostKeys, padiMap } from "./wire";
 
@@ -58,6 +62,9 @@ import { client, hostKeys, padiMap } from "./wire";
 export const stateBackupsDialog = createDisclosure();
 
 const chrome = surface({ portalled: true });
+
+/** What a dialog with no store picked lists: nothing, synchronously. */
+const NO_BACKUPS: ReadonlyArray<BackupRow> = [];
 
 /** A snapshot row, normalized across the two stores' wire shapes. */
 interface BackupRow {
@@ -86,7 +93,7 @@ type RestoreOutcome =
 
 /** The five things that differ between the two rings, spelled once per store. */
 interface StoreAdapter {
-  /** `For`-key and resource identity. */
+  /** `For`-key, and what the listing is of. */
   key: string;
   title: string;
   subtitle: string;
@@ -209,10 +216,15 @@ const StateBackupsDialog: Component = () => {
     const v = view();
     return v.kind === "stores" ? null : v.store;
   };
-  const [backups, { refetch }] = createResource(
-    () => (stateBackupsDialog.open() ? browsing() : null),
-    (store: StoreAdapter) => store.list(),
-  );
+  /** THE SELECTED RING'S SNAPSHOTS. Asked for the store being browsed, and
+   *  only while the dialog is open — a closed dialog lists nothing. A failed
+   *  listing is thrown at the reader and caught by the `Errored` boundary
+   *  below; the first read of a store is held by the `Loading` boundary
+   *  beside it. */
+  const backups = createMemo<ReadonlyArray<BackupRow>>(() => {
+    const store = stateBackupsDialog.open() ? browsing() : null;
+    return store === null ? NO_BACKUPS : store.list();
+  });
 
   const close = (open: boolean) => {
     stateBackupsDialog.onOpenChange(open);
@@ -240,7 +252,13 @@ const StateBackupsDialog: Component = () => {
                 id,
               });
             }
-            void refetch();
+            // A restore writes a snapshot of the state it replaced, so the
+            // list this dialog is showing is out of date the moment it lands:
+            // re-ask. No `affects` beside it — the re-ask is made AT the
+            // restore's end, so there is no window before it in which the
+            // rows must already read as pending; `isPending` over the list
+            // covers the re-ask itself.
+            void refresh(backups);
           }),
         ),
         Effect.catch((err) =>
@@ -300,64 +318,77 @@ const StateBackupsDialog: Component = () => {
           {(store) => (
             <div class="space-y-1.5">
               <div class="text-[11px] text-fg-3">{store().title}</div>
-              <Show when={backups.error}>
-                <div class="rounded-lg border border-danger/40 bg-danger/10 px-3 py-2 text-[11px] text-danger">
-                  Failed to list backups: {toError(backups.error).message}
-                </div>
-              </Show>
-              <Show when={backups.loading}>
-                <div class="px-1 text-[11px] text-fg-3">Loading…</div>
-              </Show>
-              <Show
-                when={
-                  !backups.loading &&
-                  (backups() ?? []).length === 0 &&
-                  !backups.error
-                }
-              >
-                <div class="px-1 text-[11px] text-fg-3">
-                  No backups yet — a snapshot is taken at every boot (and
-                  daily), once the store has content.
-                </div>
-              </Show>
-              <For each={backups() ?? []}>
-                {(row) => (
-                  <div class="rounded-lg border border-edge bg-surface-1 px-3 py-2">
-                    <div class="min-w-0">
-                      <div class="font-medium text-fg">
-                        {formatTimeAgo(row.savedAtMs) || "—"}
-                        <span class="ml-2 text-[11px] font-normal text-fg-3">
-                          {row.summary} · {formatSize(row.sizeBytes)}
-                        </span>
-                      </div>
-                      <div class="truncate font-mono text-[10px] text-fg-3">
-                        {row.file}
-                      </div>
-                    </div>
-                    {/* The repo's canonical destructive-action affordance: it
-                        owns the confirm step, the Cancel/confirm pair and the
-                        `data-testid` triplet every other confirm exposes. */}
-                    <Show when={row.restorable}>
-                      <div class="mt-2">
-                        <InlineConfirmButton
-                          label="Restore"
-                          inFlightLabel="Restoring…"
-                          tone="warning"
-                          confirmCopy={store().confirmCopy(row)}
-                          inFlight={view().kind === "restoring"}
-                          testid={`state-backup-restore-${row.file}`}
-                          onConfirm={() =>
-                            runAction(
-                              "restore state backup",
-                              restore(store(), row),
-                            )
-                          }
-                        />
-                      </div>
-                    </Show>
+              {/* A RING THAT COULD NOT BE LISTED says so in place of the
+                  list — the read throws it here. */}
+              <Errored
+                fallback={(why) => (
+                  <div class="rounded-lg border border-danger/40 bg-danger/10 px-3 py-2 text-[11px] text-danger">
+                    Failed to list backups: {toError(why()).message}
                   </div>
                 )}
-              </For>
+              >
+                {/* `on` THE STORE BEING BROWSED: picking a ring changes what
+                    this list is OF, and one ring's snapshots must never sit
+                    under another's title — so the first read of each store
+                    shows "Loading…" again. A re-ask for the SAME store (after
+                    a restore) keeps the rows on screen and dims them. */}
+                <Loading
+                  on={store()}
+                  fallback={
+                    <div class="px-1 text-[11px] text-fg-3">Loading…</div>
+                  }
+                >
+                  <div
+                    class={`space-y-1.5 ${isPending(backups) ? "opacity-60" : ""}`}
+                  >
+                    <Show when={backups().length === 0}>
+                      <div class="px-1 text-[11px] text-fg-3">
+                        No backups yet — a snapshot is taken at every boot (and
+                        daily), once the store has content.
+                      </div>
+                    </Show>
+                    <For each={backups()}>
+                      {(row) => (
+                        <div class="rounded-lg border border-edge bg-surface-1 px-3 py-2">
+                          <div class="min-w-0">
+                            <div class="font-medium text-fg">
+                              {formatTimeAgo(row.savedAtMs) || "—"}
+                              <span class="ml-2 text-[11px] font-normal text-fg-3">
+                                {row.summary} · {formatSize(row.sizeBytes)}
+                              </span>
+                            </div>
+                            <div class="truncate font-mono text-[10px] text-fg-3">
+                              {row.file}
+                            </div>
+                          </div>
+                          {/* The repo's canonical destructive-action
+                              affordance: it owns the confirm step, the
+                              Cancel/confirm pair and the `data-testid`
+                              triplet every other confirm exposes. */}
+                          <Show when={row.restorable}>
+                            <div class="mt-2">
+                              <InlineConfirmButton
+                                label="Restore"
+                                inFlightLabel="Restoring…"
+                                tone="warning"
+                                confirmCopy={store().confirmCopy(row)}
+                                inFlight={view().kind === "restoring"}
+                                testid={`state-backup-restore-${row.file}`}
+                                onConfirm={() =>
+                                  runAction(
+                                    "restore state backup",
+                                    restore(store(), row),
+                                  )
+                                }
+                              />
+                            </div>
+                          </Show>
+                        </div>
+                      )}
+                    </For>
+                  </div>
+                </Loading>
+              </Errored>
             </div>
           )}
         </Show>
