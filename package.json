@@ -15,7 +15,7 @@
     "onlyBuiltDependencies": [
       "@parcel/watcher",
       "esbuild",
-      "node-pty"
+      "node-pty@https://codeload.github.com/juspay/node-pty/tar.gz/999e2bdae2aeed45008bd34d8e886258f34eae8d"
     ],
     "overrides": {
       "effect": "4.1.5",
