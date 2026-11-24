@@ -6,7 +6,7 @@ import type { PaletteItem } from "./CommandPalette";
 
 // Keep the palette's real navigation, list rendering, and click dispatch;
 // replace surrounding app services and row decoration with inert surfaces.
-vi.mock("@corvu/dialog", () => ({
+vi.mock("@corvu-next/dialog", () => ({
   default: {
     Content: (props: { children: JSX.Element }) => <div>{props.children}</div>,
   },

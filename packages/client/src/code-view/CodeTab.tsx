@@ -34,7 +34,7 @@
 
 import { useShown } from "../ui/shown";
 
-import Resizable from "@corvu/resizable";
+import Resizable from "@corvu-next/resizable"
 import {
   CODE_TAB_VIEW_ORDER,
   type CodeTabView,
@@ -1487,7 +1487,7 @@ const CodeTab: Component<{
               // Disable startIntersection (the handle's leading end): Corvu's
               // registerHandle keeps a *module-level* handles[] and pairs
               // handles whose orientations differ and rects touch at the
-              // corner (see @corvu/resizable/dist/index.js:201–222). Without
+              // corner (see @corvu-next/resizable/dist/index.jsx:213–245). Without
               // this opt-out, a stacked view's left edge equals the outer
               // handle's (in `App.tsx`) right edge → the two are coupled,
               // and clicks on the outer handle near the file-tree row land

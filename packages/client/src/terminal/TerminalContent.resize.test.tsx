@@ -2,7 +2,7 @@
 
 /** DRAGGING THE DIVIDER RESIZES THE SPLIT.
  *
- *  The real `@corvu/resizable` root, the real handle, the real split store —
+ *  The real `@corvu-next/resizable` root, the real handle, the real split store —
  *  mocked only at the wire. Corvu's `sizes` are CONTROLLED here, so a drag only
  *  moves the divider if this component turns Corvu's report back into the value
  *  it hands Corvu. A test that mocks `Resizable` cannot see that loop at all,

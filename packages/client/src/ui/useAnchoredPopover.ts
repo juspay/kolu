@@ -171,7 +171,7 @@ export function useAnchoredPopover(
     // `pointer-events: auto` is mandatory, not cosmetic. Callers render the
     // panel via `<Portal>` to `document.body`, so when the trigger lives
     // inside a Corvu modal layer (the mobile right-panel `Drawer`, built on
-    // `@corvu/dialog` with `modal: true`), that layer sets
+    // `@corvu-next/dialog` with `modal: true`), that layer sets
     // `body { pointer-events: none }` and only re-enables it on its own
     // dialog content. A body-level portal would otherwise inherit `none` and
     // swallow every tap — the panel opens but its items do nothing. Re-enable

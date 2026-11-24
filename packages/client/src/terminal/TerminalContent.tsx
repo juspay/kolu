@@ -4,7 +4,7 @@
  *  Used by CanvasTile (desktop) and MobileTileView (mobile). Owns
  *  sub-panel state internally — callers provide only the shell. */
 
-import Resizable from "@corvu/resizable";
+import Resizable from "@corvu-next/resizable"
 import { sleepingArm } from "@kolu/padi-client/surface";
 import type { ITheme } from "@xterm/xterm";
 import { Effect } from "effect";

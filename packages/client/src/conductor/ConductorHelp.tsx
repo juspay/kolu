@@ -9,7 +9,7 @@
  *  on a phone the body scrolls inside the sheet rather than growing past the
  *  window. */
 
-import Dialog from "@corvu/dialog";
+import Dialog from "@corvu-next/dialog"
 import {
   type Component,
   createEffect,

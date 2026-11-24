@@ -10,7 +10,7 @@ import {
 // Keep the palette's real list rendering; replace surrounding app services
 // and row decoration with inert surfaces (same seam as
 // CommandPalette.render.test.tsx).
-vi.mock("@corvu/dialog", () => ({
+vi.mock("@corvu-next/dialog", () => ({
   default: {
     Content: (props: { children: JSX.Element }) => <div>{props.children}</div>,
   },

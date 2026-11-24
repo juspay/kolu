@@ -5,7 +5,7 @@
  *  refused whole with the reason. Importing is the human's own act: it needs
  *  no approval and rings nothing. */
 
-import Dialog from "@corvu/dialog";
+import Dialog from "@corvu-next/dialog"
 import {
   MemoryRefused,
   type MemoryText,

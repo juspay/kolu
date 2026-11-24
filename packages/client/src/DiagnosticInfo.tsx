@@ -6,7 +6,7 @@
 import { runAction, type UiAction } from "./runAction";
 import { toError } from "@kolu/surface/run-stream";
 import { Effect } from "effect";
-import Dialog from "@corvu/dialog";
+import Dialog from "@corvu-next/dialog"
 import { encodeHostKey } from "kolu-common/hostKey";
 import type { TerminalId } from "kolu-common/surface";
 import { type Component, createMemo, For, Show } from "solid-js";

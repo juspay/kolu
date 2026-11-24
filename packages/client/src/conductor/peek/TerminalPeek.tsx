@@ -1,5 +1,5 @@
 import { createWindowSize } from "@solid-primitives/resize-observer";
-import Dialog from "@corvu/dialog";
+import Dialog from "@corvu-next/dialog"
 import { fleetTerminalRef } from "kolu-mcp/fleetRef";
 import {
   type Component,

@@ -10,7 +10,7 @@ import { render } from "solid-js/web";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { MemorySheet } from "./MemorySheet";
 
-vi.mock("@corvu/dialog", () => ({
+vi.mock("@corvu-next/dialog", () => ({
   default: {
     Content: (props: { children: JSX.Element }) => <div>{props.children}</div>,
     Label: (props: { children: JSX.Element }) => <h2>{props.children}</h2>,

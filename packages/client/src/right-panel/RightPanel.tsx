@@ -10,9 +10,9 @@
  *  at, and prefixes the split's own name when the shown pane is a split.
  *
  *  Pure presenter — no shell positioning, no resize handle. The desktop
- *  host wraps this in a `@corvu/resizable` `Resizable` (in `App.tsx`)
+ *  host wraps this in a `@corvu-next/resizable` `Resizable` (in `App.tsx`)
  *  for the horizontal split + drag-to-resize; the mobile host wraps
- *  this in a `@corvu/drawer` (`RightPanelDrawer.tsx`). Both hosts thread
+ *  this in a `@corvu-next/drawer` (`RightPanelDrawer.tsx`). Both hosts thread
  *  the same `visible` accessor — desktop reads `collapsed()`, mobile
  *  reads `drawerOpen()` — so `inert` (and the `data-collapsed` marker)
  *  reflect actual visibility on both surfaces. `data-collapsed` is emitted

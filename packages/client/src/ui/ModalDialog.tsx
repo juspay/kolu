@@ -8,7 +8,7 @@
  * based on the open prop — forceMount only affects DOM presence.
  */
 
-import Dialog from "@corvu/dialog";
+import Dialog from "@corvu-next/dialog"
 import { type Component, createEffect, type JSX, onCleanup } from "solid-js";
 import {
   getActiveTerminalNode,

@@ -12,7 +12,7 @@
  *  chrome bar owns global controls.
  *
  *  Sheet machinery (open state, drag-to-dismiss, overlay, portal) is
- *  owned by `MobileTileView` via `@corvu/drawer`. This component only
+ *  owned by `MobileTileView` via `@corvu-next/drawer`. This component only
  *  renders the sheet's contents; `onClose` is called after a user
  *  action so the parent can close the drawer. */
 

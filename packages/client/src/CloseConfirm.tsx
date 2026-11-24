@@ -2,7 +2,7 @@
  *  Adapts its content for plain terminals, terminals with splits,
  *  and terminals that live in a git worktree. */
 
-import Dialog from "@corvu/dialog";
+import Dialog from "@corvu-next/dialog"
 import {
   activePr,
   sleepingArm,

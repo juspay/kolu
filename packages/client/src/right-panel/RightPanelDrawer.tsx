@@ -3,13 +3,13 @@
  *  `P.union("phone", "compact")` arm; only the desktop layout hosts the panel
  *  differently (see below).
  *
- *  On the touch layouts, the right panel hosts as a `@corvu/drawer
+ *  On the touch layouts, the right panel hosts as a `@corvu-next/drawer
  *  side="bottom"`. Visibility is the session-local `useRightPanel.drawerOpen()`
  *  signal — dismissing the drawer on a handheld is not the same volatility as
  *  toggling the desktop panel's per-terminal `collapsed` state (see
  *  `useRightPanel.ts`).
  *
- *  On desktop the right panel is hosted by a `@corvu/resizable`
+ *  On desktop the right panel is hosted by a `@corvu-next/resizable`
  *  `Resizable` wired up in `App.tsx` — the outer horizontal split between
  *  the canvas and the panel. Both visibility seams — desktop uncollapse
  *  and touch-layout drawer-open — are dispatched imperatively from
@@ -22,7 +22,7 @@
  *  selection; switch to the tile's main terminal and main's own selection
  *  returns. */
 
-import Drawer from "@corvu/drawer";
+import Drawer from "@corvu-next/drawer"
 import type { TerminalMetadata } from "@kolu/padi-client/surface";
 import type { TerminalId } from "kolu-common/surface";
 import type { Component, JSX } from "solid-js";

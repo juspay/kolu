@@ -10,7 +10,7 @@
  * internally with capture-phase listener to intercept before terminal.
  */
 
-import Dialog from "@corvu/dialog";
+import Dialog from "@corvu-next/dialog"
 import { makeEventListener } from "@solid-primitives/event-listener";
 import { encodeHostKey } from "kolu-common/hostKey";
 import {

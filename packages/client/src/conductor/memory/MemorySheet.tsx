@@ -5,7 +5,7 @@
  *  or a click outside closes it, and it closes when the pane goes behind a
  *  host tab. */
 
-import Dialog from "@corvu/dialog";
+import Dialog from "@corvu-next/dialog"
 import { writeTextToClipboard } from "@kolu/solid-logtail";
 import { Markdown } from "@kolu/solid-markdown";
 import { toError } from "@kolu/surface/run-stream";

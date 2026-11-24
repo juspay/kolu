@@ -101,7 +101,7 @@ vi.mock("../../ui/ModalDialog", () => ({
     </div>
   ),
 }));
-vi.mock("@corvu/dialog", () => ({
+vi.mock("@corvu-next/dialog", () => ({
   default: {
     Content: (props: Record<string, unknown>) => <div {...props} />,
   },

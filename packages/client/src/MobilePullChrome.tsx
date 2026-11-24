@@ -19,7 +19,7 @@
  *  host reads cleanly without a stale terminal title, and the conversation is
  *  never captioned with a terminal it is not showing. */
 
-import Drawer from "@corvu/drawer";
+import Drawer from "@corvu-next/drawer"
 import { type Component, Show } from "solid-js";
 import { useConductorBadge } from "./conductor/useConductorFacts";
 import { conductorMode } from "./conductor/useConductorMode";

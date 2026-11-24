@@ -16,7 +16,7 @@
  *  tooltip (Corvu), mounted only while open, so its lines are read only
  *  while someone looks at them. */
 
-import Tooltip from "@corvu/tooltip";
+import Tooltip from "@corvu-next/tooltip"
 import { dualPhrase } from "@kolu/terminal-vocab/duration";
 import { lifetime, type Work, type WorkId } from "kolu-work";
 import { type Component, For, Show } from "solid-js";

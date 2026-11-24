@@ -26,7 +26,7 @@ const h = vi.hoisted(() => ({
   focusVisibleSubPane: vi.fn(),
 }));
 
-vi.mock("@corvu/resizable", () => {
+vi.mock("@corvu-next/resizable", () => {
   type Bag = { children?: JSX.Element } & Record<string, unknown>;
   const Root: Component<Bag> = (props) => <div>{props.children}</div>;
   const Panel: Component<Bag> = (props) => {

@@ -3,7 +3,7 @@
  *  `Edit…` all open it; saving a proposal remembers what you wrote. Mounted
  *  once; {@link editMemory} says what it edits. */
 
-import Dialog from "@corvu/dialog";
+import Dialog from "@corvu-next/dialog"
 import {
   MEMORY_BODY_CAP,
   type MemoryEntry,

@@ -12,7 +12,7 @@
  *  agent indicator, screenshot, split toggle) lives on the tile title bar via
  *  `canvas/TileTitleActions`. The header is intentionally minimal. */
 
-import Resizable from "@corvu/resizable";
+import Resizable from "@corvu-next/resizable"
 import { activeArm, sleepingArm } from "@kolu/padi-client/surface";
 import { attachPageZoomGuard } from "@kolu/solid-browser";
 import { createPwaInstall } from "@kolu/solid-pwa-install";
@@ -645,7 +645,7 @@ const App: Component = () => {
                   </Match>
                   <Match when={isDesktop()}>
                     {/*
-                   Desktop host: horizontal `@corvu/resizable` split between
+                   Desktop host: horizontal `@corvu-next/resizable` split between
                    the canvas and the right panel. `sizes=[1, 0]` collapses
                    the panel to zero width while keeping it mounted — this
                    preserves `CodeTab`'s selectedPath signal and Pierre's
@@ -663,7 +663,7 @@ const App: Component = () => {
                   
                    `startIntersection={false}` on the handle opts out of
                    Corvu's module-level handle-pairing registry (see
-                   `@corvu/resizable/dist/index.js:201-222`). Without the
+                   `@corvu-next/resizable/dist/index.jsx:213-245`). Without the
                    opt-out, this outer horizontal handle pairs with
                    `CodeTab`'s inner vertical handle (their rects touch at
                    the corner) and clicks near the corner land on the

@@ -5,7 +5,7 @@ import { useAnchoredPopover } from "./useAnchoredPopover";
 describe("useAnchoredPopover", () => {
   // Regression for the mobile Code-tab mode picker: the popover panel is
   // rendered via `<Portal>` to `document.body`. On mobile the right panel
-  // lives inside a Corvu `Drawer` (`@corvu/dialog`, `modal: true`), which
+  // lives inside a Corvu `Drawer` (`@corvu-next/dialog`, `modal: true`), which
   // sets `body { pointer-events: none }` and only re-enables pointer events
   // on its own dialog content. A body-level portal therefore inherits `none`
   // unless the panel re-enables it — without this the dropdown opens but

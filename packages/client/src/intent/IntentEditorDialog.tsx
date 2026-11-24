@@ -9,7 +9,7 @@
 import { runAction, type UiAction } from "../runAction";
 import { toError } from "@kolu/surface/run-stream";
 import { Effect } from "effect";
-import Dialog from "@corvu/dialog";
+import Dialog from "@corvu-next/dialog"
 import {
   type Component,
   createEffect,

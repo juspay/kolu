@@ -30,7 +30,7 @@
  *  not offer an action the channel cannot carry out (the #1793 affordance
  *  axis, same rule as the palette's "Restart kaval"). */
 
-import Dialog from "@corvu/dialog";
+import Dialog from "@corvu-next/dialog"
 import { toError } from "@kolu/surface/run-stream";
 import { Effect } from "effect";
 import type { HostKey } from "kolu-common/hostKey";
