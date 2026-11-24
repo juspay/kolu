@@ -2,7 +2,13 @@
  *  the lifetime of the calling owner, bound to its elements through refs. */
 
 import { Draggable, Droppable } from "@dnd-kit/dom";
-import { type Accessor, createEffect, type JSX, onCleanup } from "solid-js";
+import {
+  type Accessor,
+  createEffect,
+  type JSX,
+  onCleanup,
+  onMount,
+} from "solid-js";
 import {
   type DragDropScope,
   type DragTransform,
@@ -77,9 +83,11 @@ export function createDroppable(id: string): DroppableHandle {
   );
   droppable.register();
   onCleanup(droppable.destroy);
+  // Mounted means in the document, so a drag already under way can measure it.
+  onMount(() => scope.measureArrival(droppable));
   return {
     ref: (el) => {
-      scope.droppableElements.set(droppable, el);
+      scope.attachDroppable(droppable, el);
     },
     isActiveDroppable: () => scope.overId() === id,
   };

@@ -8,7 +8,8 @@
  *  - When a drag starts, before anything has moved, it measures the source and
  *    every droppable ONCE. Droppables resolve against those rects for the whole
  *    drag, so a sortable's preview offsets (and a dragged item that follows the
- *    pointer) never move a target out from under the collision.
+ *    pointer) never move a target out from under the collision. A droppable
+ *    that mounts during the drag is measured once, when it mounts.
  *  - As the pointer moves, the operation's shape is the source's start rect
  *    shifted by the drag transform: where the dragged element is drawn.
  *
@@ -37,6 +38,18 @@ export type DragTrackerOptions = {
   ) => void;
 };
 
+/** Measure a droppable from its element and hand dnd-kit the result as its
+ *  shape. Droppables carry no dnd-kit element, so this is the only thing that
+ *  ever gives one a shape. */
+export function measureDroppable(
+  droppable: Droppable,
+  element: Element,
+): Rectangle {
+  const rect = Rectangle.from(element.getBoundingClientRect());
+  droppable.shape = rect;
+  return rect;
+}
+
 export class DragTracker extends Plugin<DragDropManager, DragTrackerOptions> {
   constructor(manager: DragDropManager, options?: DragTrackerOptions) {
     super(manager, options);
@@ -59,10 +72,7 @@ export class DragTracker extends Plugin<DragDropManager, DragTrackerOptions> {
         const droppables = new Map<UniqueIdentifier, Rectangle>();
         for (const droppable of manager.registry.droppables) {
           const at = elementOf(droppable);
-          if (!at) continue;
-          const rect = Rectangle.from(at.getBoundingClientRect());
-          droppable.shape = rect;
-          droppables.set(droppable.id, rect);
+          if (at) droppables.set(droppable.id, measureDroppable(droppable, at));
         }
         onStart(source, droppables);
       },

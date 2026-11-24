@@ -27,7 +27,11 @@ import {
 } from "solid-js";
 import { Portal } from "solid-js/web";
 import { nearestCenter } from "./collision";
-import { DragTracker, type DragTrackerOptions } from "./tracker";
+import {
+  DragTracker,
+  type DragTrackerOptions,
+  measureDroppable,
+} from "./tracker";
 
 /** The attribute a control inside a drag handle carries — a title-bar button,
  *  a link — so that a press on it stays the control's and starts no drag. */
@@ -68,8 +72,11 @@ export type DragDropScope = {
   readonly manager: DragDropManager;
   /** Every droppable in this scope resolves through this. */
   readonly collisionDetector: CollisionDetector;
-  /** The element each droppable is measured from when a drag starts. */
-  readonly droppableElements: WeakMap<Droppable, Element>;
+  /** Give a droppable the element it is measured from. */
+  readonly attachDroppable: (droppable: Droppable, el: Element) => void;
+  /** Measure a droppable that mounted while a drag is under way, so it can be
+   *  hit like the ones measured at the drag's start. A no-op between drags. */
+  readonly measureArrival: (droppable: Droppable) => void;
   /** The id being dragged, or `null`. */
   readonly activeId: Accessor<string | null>;
   /** The droppable the drag is over, or `null`. */
@@ -153,7 +160,16 @@ export const DragDropProvider: Component<{
     manager,
     collisionDetector: (input) =>
       (props.collisionDetector ?? nearestCenter)(input),
-    droppableElements,
+    attachDroppable: (droppable, el) => {
+      droppableElements.set(droppable, el);
+    },
+    measureArrival: (droppable) => {
+      if (!manager.dragOperation.status.initialized) return;
+      const el = droppableElements.get(droppable);
+      if (!el) return;
+      const rect = measureDroppable(droppable, el);
+      setStartRects((rects) => new Map(rects).set(String(droppable.id), rect));
+    },
     activeId,
     overId,
     transform,
