@@ -4201,10 +4201,11 @@ Then(
   },
 );
 
-/** THE MAP'S TEXT IS WHOLE, not cut: every stage name, every duration drawn
- *  in its box — the time in hand inside the ring too — and every doubt's
- *  time fits (`scrollWidth` against `clientWidth`, which is the browser's
- *  layout, not a class name). */
+/** THE MAP'S TEXT IS WHOLE, not cut: every stage name and every duration
+ *  drawn in its box — the time in hand inside the ring too — fits
+ *  (`scrollWidth` against `clientWidth`, which is the browser's layout, not
+ *  a class name). Each is a block in a box of fixed width, which is what
+ *  makes the two widths comparable. */
 Then(
   "every stage label and time should be whole",
   async function (this: KoluWorld) {
@@ -4215,7 +4216,7 @@ Then(
         map.evaluate((el) =>
           Array.from(
             el.querySelectorAll(
-              '[data-testid="stage-label"], [data-testid="stage-time"], [data-testid="stage-now"], [data-testid="stage-doubt-time"]',
+              '[data-testid="stage-label"], [data-testid="stage-time"], [data-testid="stage-now"]',
             ),
           ).map((one) => ({
             text: (one.textContent ?? "").trim(),
