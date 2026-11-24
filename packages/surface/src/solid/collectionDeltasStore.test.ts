@@ -38,7 +38,7 @@ const drive = (
 
 describe("the deltas store — a frame re-notifies only what it named", () => {
   it("a delta wakes the keys it upserts and nothing else; keys() stays quiet on a values-only tick", async () => {
-    await drive(async ({ view, push }) => {
+    await drive(async ({ view, push, observe }) => {
       push({
         kind: "snapshot",
         entries: [
@@ -50,26 +50,29 @@ describe("the deltas store — a frame re-notifies only what it named", () => {
 
       // One effect per key plus one on the key set. The compute does the tracked
       // read, the effect phase counts its own runs, so a frame's blast radius is a
-      // number, not an impression.
+      // number, not an impression. Built through `observe` — the root's owner is
+      // out of scope after the `await` above.
       const runs = { a: 0, b: 0, keys: 0 };
-      createEffect(
-        () => view.byKey("a")?.(),
-        () => {
-          runs.a++;
-        },
-      );
-      createEffect(
-        () => view.byKey("b")?.(),
-        () => {
-          runs.b++;
-        },
-      );
-      createEffect(
-        () => view.keys(),
-        () => {
-          runs.keys++;
-        },
-      );
+      observe(() => {
+        createEffect(
+          () => view.byKey("a")?.(),
+          () => {
+            runs.a++;
+          },
+        );
+        createEffect(
+          () => view.byKey("b")?.(),
+          () => {
+            runs.b++;
+          },
+        );
+        createEffect(
+          () => view.keys(),
+          () => {
+            runs.keys++;
+          },
+        );
+      });
       await settle();
       expect(runs).toEqual({ a: 1, b: 1, keys: 1 });
 
@@ -92,7 +95,7 @@ describe("the deltas store — a frame re-notifies only what it named", () => {
 
 describe("the deltas store — a reconnect snapshot is a visual no-op", () => {
   it("re-serialized-but-equal entries do not re-notify; only the entry that actually changed does", async () => {
-    await drive(async ({ view, push }) => {
+    await drive(async ({ view, push, observe }) => {
       push({
         kind: "snapshot",
         entries: [
@@ -102,25 +105,29 @@ describe("the deltas store — a reconnect snapshot is a visual no-op", () => {
       });
       await settle();
 
+      // Built through `observe`: the root's owner is out of scope after the
+      // `await` above, and an ownerless effect is never disposed.
       const runs = { a: 0, b: 0, keys: 0 };
-      createEffect(
-        () => view.byKey("a")?.(),
-        () => {
-          runs.a++;
-        },
-      );
-      createEffect(
-        () => view.byKey("b")?.(),
-        () => {
-          runs.b++;
-        },
-      );
-      createEffect(
-        () => view.keys(),
-        () => {
-          runs.keys++;
-        },
-      );
+      observe(() => {
+        createEffect(
+          () => view.byKey("a")?.(),
+          () => {
+            runs.a++;
+          },
+        );
+        createEffect(
+          () => view.byKey("b")?.(),
+          () => {
+            runs.b++;
+          },
+        );
+        createEffect(
+          () => view.keys(),
+          () => {
+            runs.keys++;
+          },
+        );
+      });
       await settle();
       expect(runs).toEqual({ a: 1, b: 1, keys: 1 });
 
@@ -152,7 +159,7 @@ describe("the deltas store — a reconnect snapshot is a visual no-op", () => {
   });
 
   it("a snapshot that drops a key removes it and wakes keys(), leaving survivors alone", async () => {
-    await drive(async ({ view, push }) => {
+    await drive(async ({ view, push, observe }) => {
       push({
         kind: "snapshot",
         entries: [
@@ -162,18 +169,20 @@ describe("the deltas store — a reconnect snapshot is a visual no-op", () => {
       });
       await settle();
       const runs = { a: 0, keys: 0 };
-      createEffect(
-        () => view.byKey("a")?.(),
-        () => {
-          runs.a++;
-        },
-      );
-      createEffect(
-        () => view.keys(),
-        () => {
-          runs.keys++;
-        },
-      );
+      observe(() => {
+        createEffect(
+          () => view.byKey("a")?.(),
+          () => {
+            runs.a++;
+          },
+        );
+        createEffect(
+          () => view.keys(),
+          () => {
+            runs.keys++;
+          },
+        );
+      });
       await settle();
 
       push({ kind: "snapshot", entries: [["a", { n: 1 }]] });

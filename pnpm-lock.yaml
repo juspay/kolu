@@ -585,6 +585,9 @@ importers:
         specifier: ^2.8.3
         version: 2.8.3
     devDependencies:
+      '@kolu/solid-test-setup':
+        specifier: workspace:*
+        version: link:../solid-test-setup
       '@kolu/surface-daemon-supervisor':
         specifier: workspace:*
         version: link:../surface-daemon-supervisor
@@ -2044,6 +2047,9 @@ importers:
       '@kolu/daemon-test-gate':
         specifier: workspace:*
         version: link:../daemon-test-gate
+      '@kolu/solid-test-setup':
+        specifier: workspace:*
+        version: link:../solid-test-setup
       '@solidjs/vite-plugin':
         specifier: ^3.0.1
         version: 3.0.1(@babel/core@7.29.7)(@solidjs/web@2.0.3(solid-js@2.0.3))(solid-js@2.0.3)(vite@8.3.8(@types/node@22.19.15)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.48.0)(tsx@4.23.15)(yaml@2.8.3))
@@ -2094,6 +2100,9 @@ importers:
         specifier: ^2.0.3
         version: 2.0.3
     devDependencies:
+      '@kolu/solid-test-setup':
+        specifier: workspace:*
+        version: link:../solid-test-setup
       '@solidjs/vite-plugin':
         specifier: ^3.0.1
         version: 3.0.1(@babel/core@7.29.7)(@solidjs/web@2.0.3(solid-js@2.0.3))(solid-js@2.0.3)(vite@8.3.8(@types/node@22.19.15)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.48.0)(tsx@4.23.15)(yaml@2.8.3))
@@ -2177,6 +2186,9 @@ importers:
         specifier: ^2.0.3
         version: 2.0.3
     devDependencies:
+      '@kolu/solid-test-setup':
+        specifier: workspace:*
+        version: link:../solid-test-setup
       '@solidjs/vite-plugin':
         specifier: ^3.0.1
         version: 3.0.1(@babel/core@7.29.7)(@solidjs/web@2.0.3(solid-js@2.0.3))(solid-js@2.0.3)(vite@8.3.8(@types/node@22.19.15)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.48.0)(tsx@4.23.15)(yaml@2.8.3))
@@ -2243,6 +2255,18 @@ importers:
         specifier: ^5.0.3
         version: 5.1.1(@types/node@22.19.15)(happy-dom@21.0.4)(jsdom@30.0.1)(vite@8.3.8(@types/node@22.19.15)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.48.0)(tsx@4.23.15)(yaml@2.8.3))
 
+  packages/solid-test-setup:
+    devDependencies:
+      solid-js:
+        specifier: ^2.0.3
+        version: 2.0.3
+      typescript:
+        specifier: ^7.0.2
+        version: 7.0.2
+      vitest:
+        specifier: ^5.0.3
+        version: 5.1.1(@types/node@22.19.15)(happy-dom@21.0.4)(jsdom@30.0.1)(vite@8.3.8(@types/node@22.19.15)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.48.0)(tsx@4.23.15)(yaml@2.8.3))
+
   packages/surface:
     dependencies:
       '@effect/platform-browser':
@@ -2273,6 +2297,9 @@ importers:
       '@kolu/daemon-test-gate':
         specifier: workspace:*
         version: link:../daemon-test-gate
+      '@kolu/solid-test-setup':
+        specifier: workspace:*
+        version: link:../solid-test-setup
       '@solidjs/vite-plugin':
         specifier: ^3.0.1
         version: 3.0.1(@babel/core@7.29.7)(@solidjs/web@2.0.3(solid-js@2.0.3))(solid-js@2.0.3)(vite@8.3.8(@types/node@22.19.15)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.48.0)(tsx@4.23.15)(yaml@2.8.3))
@@ -2316,6 +2343,9 @@ importers:
       '@effect/platform-node':
         specifier: 4.1.5
         version: 4.1.5(effect@4.1.5)(redis@6.2.1)
+      '@kolu/solid-test-setup':
+        specifier: workspace:*
+        version: link:../solid-test-setup
       '@solidjs/vite-plugin':
         specifier: ^3.0.1
         version: 3.0.1(@babel/core@7.29.7)(@solidjs/web@2.0.3(solid-js@2.0.3))(solid-js@2.0.3)(vite@8.3.8(@types/node@22.19.15)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.48.0)(tsx@4.23.15)(yaml@2.8.3))
@@ -2507,6 +2537,9 @@ importers:
         specifier: ^5.9.0
         version: 5.9.2
     devDependencies:
+      '@kolu/solid-test-setup':
+        specifier: workspace:*
+        version: link:../solid-test-setup
       '@solidjs/vite-plugin':
         specifier: ^3.0.1
         version: 3.0.1(@babel/core@7.29.7)(@solidjs/web@2.0.3(solid-js@2.0.3))(solid-js@2.0.3)(vite@8.3.8(@types/node@22.19.15)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.48.0)(tsx@4.23.15)(yaml@2.8.3))
@@ -3173,6 +3206,9 @@ importers:
       '@babel/parser':
         specifier: ^7.29.2
         version: 7.29.2
+      '@kolu/solid-test-setup':
+        specifier: workspace:*
+        version: link:../solid-test-setup
       '@solidjs/vite-plugin':
         specifier: ^3.0.1
         version: 3.0.1(@babel/core@7.29.7)(@solidjs/web@2.0.3(solid-js@2.0.3))(solid-js@2.0.3)(vite@8.3.8(@types/node@22.19.15)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.48.0)(tsx@4.23.15)(yaml@2.8.3))

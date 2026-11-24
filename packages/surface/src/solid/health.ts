@@ -41,7 +41,7 @@
  * a blessed escape hatch that owns no `Subscription`).
  */
 
-import { type Accessor, createSignal, onCleanup } from "solid-js";
+import { type Accessor, createSignal, getOwner, onCleanup } from "solid-js";
 
 /** One enrolled subscription's health, read straight off its own reactive,
  *  self-clearing accessors. */
@@ -201,9 +201,11 @@ export function createSurfaceHealthRegistry(
       entries.delete(id);
       bumpMembership(0);
     };
-    // Rides the consumer's reactive owner — a no-op (with a dev warning) outside
-    // one, which is why imperative callers also get the returned disposer.
-    onCleanup(dispose);
+    // Rides the consumer's reactive owner when there is one — that owner is what
+    // retracts the enrolment. An IMPERATIVE caller has none, and retracts through
+    // the returned disposer instead: a cleanup registered with no owner would
+    // never run, which Solid 2 reports (NO_OWNER_CLEANUP) rather than swallow.
+    if (getOwner()) onCleanup(dispose);
     return dispose;
   }
 
@@ -218,7 +220,7 @@ export function createSurfaceHealthRegistry(
       readiness.delete(id);
       bumpMembership(0);
     };
-    onCleanup(dispose);
+    if (getOwner()) onCleanup(dispose); // see `enroll`: an ownerless caller uses the disposer
     return dispose;
   }
 

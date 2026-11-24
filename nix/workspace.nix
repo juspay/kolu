@@ -148,6 +148,7 @@ let
     "@kolu/solid-statepip" = ../packages/solid-statepip;
     "@kolu/solid-dockrow" = ../packages/solid-dockrow;
     "@kolu/solid-logtail" = ../packages/solid-logtail;
+    "@kolu/solid-test-setup" = ../packages/solid-test-setup;
     "kolu-common" = ../packages/common;
     "@kolu/daemon-test-gate" = ../packages/daemon-test-gate;
     "anyagent" = ../packages/integrations/anyagent;

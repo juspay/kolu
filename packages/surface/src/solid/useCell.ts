@@ -260,14 +260,24 @@ function useCellLocal<Name extends string, T extends object, P>(
       arrayKey: cellDescriptor.arrayKey,
     },
   );
-  // The compute tracks the subscription's value; the seed itself is the effect
-  // phase's work (a store write, so it belongs there and nowhere else).
+  // The compute tracks the subscription's value and hands the effect a PLAIN
+  // snapshot of it; the seed itself is the effect phase's work (a store write, so
+  // it belongs there and nowhere else). The snapshot is not a formality: a
+  // subscription keeps its value in a STORE, and the merge below walks whatever
+  // it is handed — walking a store proxy from the effect phase is a strict read
+  // (`STRICT_READ_UNTRACKED`), and it would seed this store out of another
+  // store's child proxies. Guarded by `initialized`, so the copy is one walk,
+  // once, rather than one per server frame for a seed that already happened.
   createEffect(
-    () => sub(),
+    () => {
+      if (initialized) return undefined;
+      const server = sub();
+      return server === undefined ? undefined : (snapshot(server) as T);
+    },
     (server) => {
       if (server !== undefined && !initialized) {
         initialized = true;
-        setStore(reconcileFrame(server as T, cellDescriptor.arrayKey));
+        setStore(reconcileFrame(server, cellDescriptor.arrayKey));
       }
     },
   );

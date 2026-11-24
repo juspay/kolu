@@ -21,7 +21,8 @@
  * exactly what the change-iff-fired law below is written against.
  *
  * For mutations, call the server directly (a unary member call returns a Promise).
- * If you need loading/error tracking for a mutation, use SolidJS's `createResource`.
+ * If you need loading/error tracking for a mutation, read its Promise through an
+ * async `createMemo` under `<Loading>` / `<Errored>`.
  */
 
 import type { Stream } from "effect";
@@ -49,9 +50,8 @@ export interface CellChange<T> {
  * A SolidJS Accessor backed by a server stream.
  *
  * Extends `Accessor<T | undefined>` — calling it is a real SolidJS
- * reactive read, just like any signal from `createSignal`. Additional
- * properties for error and pending follow the same pattern as
- * SolidJS's `createResource`.
+ * reactive read, just like any signal from `createSignal`. `error` and
+ * `pending` are accessors beside it, read the same way.
  */
 export interface Subscription<T> extends Accessor<T | undefined> {
   /** Stream error (undefined when healthy). */
@@ -514,7 +514,7 @@ export function createStreamLifecycle<T>(
    *  nothing" rule, so nothing in the handlers re-checks an aborted flag. */
   const start = (): void => {
     if (ended) return;
-    stop = runStreamScoped<T>(source, {
+    const stopFiber = runStreamScoped<T>(source, {
       onFrame: (item) => {
         options.onFrame(item);
         // Unconditional: writing `false` over `false` is a no-op under the signal's
@@ -541,6 +541,13 @@ export function createStreamLifecycle<T>(
         setPending(false);
       },
     });
+    // The view can END from INSIDE the call above: a source whose first step
+    // aborts the external signal (an opening that cancels its own view) runs
+    // before the stopper exists, so that `end` found nothing to stop. Re-check
+    // here and stop it — the latch the stopper sets is what makes the failure
+    // racing the stop silent, so without this the dead view reports its exit.
+    if (ended) stopFiber();
+    else stop = stopFiber;
   };
 
   /** End this view: interrupt the fiber (which runs the stream's finalizers — the

@@ -21,6 +21,7 @@
   },
   "devDependencies": {
     "@kolu/daemon-test-gate": "workspace:*",
+    "@kolu/solid-test-setup": "workspace:*",
     "@solidjs/vite-plugin": "^3.0.1",
     "@types/node": "^22.0.0",
     "happy-dom": "^21.0.4",

@@ -28,9 +28,9 @@ import { FileTree } from "./FileTree";
 import {
   disposeAll,
   disposers,
-  flush,
   mountInto,
   paintedRows,
+  settle,
 } from "./FileTree.testlib.ts";
 
 afterEach(disposeAll);
@@ -92,7 +92,7 @@ describe("lazily-loaded directory rows (#2091)", () => {
     expect(onExpandLazyDirectory).not.toHaveBeenCalled();
 
     clickRow(root, "out/");
-    await flush();
+    await settle();
 
     expect(onExpandLazyDirectory).toHaveBeenCalledWith("out/");
   });
@@ -107,11 +107,11 @@ describe("lazily-loaded directory rows (#2091)", () => {
     );
 
     clickRow(root, "out/");
-    await flush();
+    await settle();
     expect(onExpandLazyDirectory).toHaveBeenCalledWith("out/");
 
     setPaths(["kept.md", "out/index.html", "out/style.css", "out/assets/"]);
-    await flush();
+    await settle();
 
     const rows = paintedRows(root);
     expect(rows).toContain("out/index.html");
@@ -133,7 +133,7 @@ describe("lazily-loaded directory rows (#2091)", () => {
     );
 
     clickRow(root, "src/");
-    await flush();
+    await settle();
 
     expect(onExpandLazyDirectory).not.toHaveBeenCalled();
   });
@@ -146,11 +146,11 @@ describe("lazily-loaded directory rows (#2091)", () => {
     const { root, onExpandLazyDirectory } = mountTree(["out/"], ["out/"]);
 
     clickRow(root, "out/"); // expand
-    await flush();
+    await settle();
     clickRow(root, "out/"); // collapse
-    await flush();
+    await settle();
     clickRow(root, "out/"); // expand again
-    await flush();
+    await settle();
 
     expect(onExpandLazyDirectory).toHaveBeenCalledTimes(2);
   });
@@ -183,7 +183,7 @@ describe("lazily-loaded directory rows (#2091)", () => {
     );
 
     clickRow(root, "out/");
-    await flush();
+    await settle();
     expect(onExpandLazyDirectory).toHaveBeenCalledTimes(1);
 
     const row = root.querySelector(
@@ -194,7 +194,7 @@ describe("lazily-loaded directory rows (#2091)", () => {
     // A click on an unrelated row is exactly the kind of store tick that used
     // to re-trigger the failed load.
     clickRow(root, "kept.md");
-    await flush();
+    await settle();
     expect(onExpandLazyDirectory).toHaveBeenCalledTimes(1);
   });
 
@@ -209,7 +209,7 @@ describe("lazily-loaded directory rows (#2091)", () => {
       ["out/"],
       "open",
     );
-    await flush();
+    await settle();
     expect(onExpandLazyDirectory).toHaveBeenCalledWith("out/");
   });
 
@@ -225,17 +225,17 @@ describe("lazily-loaded directory rows (#2091)", () => {
       ["out/"],
     );
     clickRow(root, "out/");
-    await flush();
+    await settle();
     expect(onExpandLazyDirectory).toHaveBeenCalledWith("out/");
     // The host answers by folding one level in, replacing the collapsed key.
     setPaths(["kept.md", "out/index.html", "out/style.css"]);
-    await flush();
+    await settle();
     expect(paintedRows(root)).toContain("out/index.html");
 
     setPaths(["kept.md"]); // a filter keystroke hides the subtree
-    await flush();
+    await settle();
     setPaths(["kept.md", "out/index.html", "out/style.css"]); // filter cleared
-    await flush();
+    await settle();
 
     // Still open: the children are painted rather than hidden behind a row the
     // user never closed. (Pierre paints only visible rows, so a collapsed
@@ -271,13 +271,13 @@ describe("lazily-loaded directory rows (#2091)", () => {
       host,
     );
     disposers.push(dispose, () => host.remove());
-    await flush();
+    await settle();
     expect(onExpandLazyDirectory).toHaveBeenCalledTimes(1);
 
     setLazy([]); // the overlay toggle goes off
-    await flush();
+    await settle();
     setLazy(["out/"]); // and back on
-    await flush();
+    await settle();
 
     expect(onExpandLazyDirectory).toHaveBeenCalledTimes(2);
   });
@@ -307,11 +307,11 @@ describe("lazily-loaded directory rows (#2091)", () => {
       host,
     );
     disposers.push(dispose, () => host.remove());
-    await flush();
+    await settle();
     expect(onExpandLazyDirectory).not.toHaveBeenCalled();
 
     setLazy(["out/"]);
-    await flush();
+    await settle();
 
     expect(onExpandLazyDirectory).toHaveBeenCalledWith("out/");
   });
@@ -339,14 +339,15 @@ function supersedingLoader() {
     calls.push({ dir, resolve, reject, done: false });
     return promise;
   };
-  /** Answer the newest read for `dir` the way the host does. */
-  const settle = (dir: string): void => {
+  /** Answer the newest read for `dir` the way the host does. Not `settle`: that
+   *  name belongs to the testlib's turn-yielding helper this file also uses. */
+  const answerRead = (dir: string): void => {
     const c = [...calls].reverse().find((p) => p.dir === dir && !p.done);
     if (!c) throw new Error(`no read of ${dir} in flight`);
     c.done = true;
     c.resolve();
   };
-  return { calls, load, settle };
+  return { calls, load, answerRead };
 }
 
 describe("a lazy directory under a host that rebuilds one props object", () => {
@@ -407,7 +408,7 @@ describe("a lazy directory under a host that rebuilds one props object", () => {
     // already-open folder as a fresh expansion, so the level was re-fetched on
     // every tick — and the re-fetch that the file click triggered superseded
     // (aborted, hence rejected) the one before it, which closed the row.
-    const { calls, load, settle } = supersedingLoader();
+    const { calls, load, answerRead } = supersedingLoader();
     const { root, setFrame, picked, frame } = mountFrameHost(
       {
         paths: ["kept.md", ".waterfall/"],
@@ -419,22 +420,22 @@ describe("a lazy directory under a host that rebuilds one props object", () => {
     );
 
     clickRow(root, ".waterfall/");
-    await flush();
+    await settle();
     expect(calls).toHaveLength(1);
 
     // The host answers by folding the level into `paths` — a fresh frame, same
     // epoch, a rebuilt (but equal) lazy list, exactly as the Code tab does.
-    settle(".waterfall/");
+    answerRead(".waterfall/");
     setFrame((f) => ({
       ...f,
       paths: ["kept.md", ".waterfall/brief.md", ".waterfall/notes.md"],
       lazy: [".waterfall/"],
     }));
-    await flush();
+    await settle();
     expect(paintedRows(root)).toContain(".waterfall/brief.md");
 
     clickRow(root, ".waterfall/brief.md");
-    await flush();
+    await settle();
 
     // The pick itself landed — without this the rest could pass on the frame
     // rebuild the load alone causes, with the click dropped (the provenance
@@ -483,11 +484,11 @@ describe("a superseded load owns no outcome", () => {
     );
 
     clickRow(root, "out/"); // expand — read 1
-    await flush();
+    await settle();
     clickRow(root, "out/"); // collapse
-    await flush();
+    await settle();
     clickRow(root, "out/"); // expand again — read 2 supersedes read 1
-    await flush();
+    await settle();
 
     expect(calls).toHaveLength(2);
     expect(rowOf(root, "out/").getAttribute("aria-expanded")).toBe("true");

@@ -992,9 +992,16 @@ export function connectSurfaceMap<
   // owner (client-lifetime, like the caches); compares RAW encoded strings, side-stepping
   // the object-identity trap `K` itself would set.
   build(() => {
-    let prevMembers: string[] = [];
+    let prevMembers: readonly string[] = [];
     createEffect(
-      () => rawEntries.use().keys(),
+      // MATERIALIZED here, in the tracked compute: `keys()` answers with the
+      // membership store's own array, and walking a store array is a reactive
+      // read per index — which in the untracked effect phase is a strict read
+      // that would never update, and which would leave `prevMembers` holding a
+      // LIVE view of the current keyset instead of the previous frame's (the
+      // `keyCache` prune below compares the two and would find them equal by
+      // construction). The copy is the frame.
+      () => [...rawEntries.use().keys()],
       (members) => {
         const present = new Set(members);
         for (const enc of [...clients.keys()]) {

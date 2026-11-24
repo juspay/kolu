@@ -44,20 +44,21 @@ export const RecencyCell: Component<{
       {/* The conditions read `mode` ONLY. Reading `text` here would drag the
        * caller's clock into the Switch's own condition memo — for a wait chip
        * that is a 1 s tick re-evaluating which branch to take, every second,
-       * for every blocked row. The text is read inside the branch that renders
-       * it, which is where the pre-extraction cell read it too. */}
+       * for every blocked row. The text is read in the CHILDREN of the branch
+       * that renders it, which is where the pre-extraction cell read it too —
+       * and children, not a `(value) => …` branch callback, because that
+       * callback body is untracked (`untrack(… , "<Match>")` in Solid's
+       * `Switch`): a `text` read there is a strict read that never updates. */}
       <Match when={props.recency.mode === "wait-chip"}>
-        {(_) => (
-          <NeedsYouCapsule
-            testid="dock-wait-chip"
-            title="How long this agent has been waiting on your input"
-          >
-            {props.recency.mode === "wait-chip" ? props.recency.text : ""}
-          </NeedsYouCapsule>
-        )}
+        <NeedsYouCapsule
+          testid="dock-wait-chip"
+          title="How long this agent has been waiting on your input"
+        >
+          {props.recency.mode === "wait-chip" ? props.recency.text : ""}
+        </NeedsYouCapsule>
       </Match>
       <Match when={props.recency.mode === "ago"}>
-        {(_) => (props.recency.mode === "ago" ? props.recency.text : "")}
+        {props.recency.mode === "ago" ? props.recency.text : ""}
       </Match>
     </Switch>
   </span>

@@ -10,7 +10,7 @@
  */
 
 import { Schema } from "effect";
-import { createRoot } from "solid-js";
+import { createRoot, getOwner, runWithOwner } from "solid-js";
 import type { CollectionDeltasMsg } from "../define";
 import { type Collection, collection } from "../index";
 import { controllableStream } from "./controllableStream.testlib";
@@ -39,6 +39,11 @@ export interface DeltasHarness<K, T> {
   fail(error: unknown): void;
   /** Errors the hook reported through `onError`, in order. */
   readonly errors: Error[];
+  /** Build reactive observers under the harness's ROOT. A body is async, and the
+   *  owner is no longer in scope after its first `await` — a `createEffect`
+   *  created there has no owner and is never disposed (NO_OWNER_EFFECT) — so an
+   *  observer a test adds between frames is built through here. */
+  observe(build: () => void): void;
 }
 
 /** Run `body` against `useCollectionDeltas` over a hand-pushed source, inside a
@@ -55,8 +60,14 @@ export async function driveDeltas<K, T>(
       source,
       onError: (err) => errors.push(err),
     });
+    // Captured while the root body is still synchronous — this is the owner the
+    // body's later observers are built under.
+    const owner = getOwner();
+    const observe = (build: () => void): void => {
+      runWithOwner(owner, build);
+    };
     try {
-      await body({ view, push, close, fail, errors });
+      await body({ view, push, close, fail, errors, observe });
     } finally {
       dispose();
     }

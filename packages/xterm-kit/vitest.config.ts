@@ -14,6 +14,8 @@ export default defineConfig({
     // `@solid-primitives/media` reads `matchMedia` at module load) and the
     // browser `@solidjs/web` build (`isServer === false`).
     environment: "happy-dom",
+    // Fails a test on any Solid dev diagnostic (`@kolu/solid-test-setup`).
+    setupFiles: ["@kolu/solid-test-setup/setup"],
     server: { deps: { inline: [/solid-js/, /@solidjs\//] } },
   },
 });

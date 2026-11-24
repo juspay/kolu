@@ -17,7 +17,7 @@
  * stand-in for the real fact.
  */
 
-import { createSignal } from "solid-js";
+import { createSignal, flush } from "solid-js";
 import { render } from "@solidjs/web";
 import { afterEach, describe, expect, it } from "vitest";
 import type { SurfaceHealth } from "./health";
@@ -134,8 +134,10 @@ describe("<SurfaceGate> — the rendered policy", () => {
     );
     expect(container.textContent).toContain("Internal server error");
     // The underlying health fact clears (the self-clearing error() the registry
-    // folds): the notice disappears, the children never flicker.
+    // folds): the notice disappears on that write's flush — the frame a user sees
+    // it in — and the children never flicker.
     setHealth(ready);
+    flush();
     expect(container.querySelector('[data-testid="body"]')?.textContent).toBe(
       "terminals",
     );
@@ -163,6 +165,7 @@ describe("<SurfaceGate> — the rendered policy", () => {
     // The underlying health fact clears. The OLD hand-latched fold would stay
     // stuck here; the gate does not — the un-latch the whole #1564 fix turns on.
     setHealth(ready);
+    flush();
     expect(container.querySelector('[data-testid="body"]')?.textContent).toBe(
       "terminals",
     );
@@ -188,12 +191,14 @@ describe("<SurfaceGate> — the rendered policy", () => {
     // notice (the transport analog of stale-while-degraded). The pre-latch
     // default hard-blanked here on every transient socket drop.
     setHealth(connectingDead);
+    flush();
     expect(container.querySelector('[data-testid="body"]')?.textContent).toBe(
       "terminals",
     );
     expect(container.textContent).toContain("Reconnecting");
     // And it recovers in place when the transport returns.
     setHealth(ready);
+    flush();
     expect(container.querySelector('[data-testid="body"]')?.textContent).toBe(
       "terminals",
     );
@@ -221,6 +226,7 @@ describe("<SurfaceGate> — the rendered policy", () => {
     expect(container.querySelector('[data-testid="body"]')).toBeNull();
     // clears → open.
     setHealth(ready);
+    flush();
     expect(container.querySelector('[data-testid="body"]')?.textContent).toBe(
       "terminals",
     );

@@ -1215,14 +1215,20 @@ describe("connectSurfaces — a ROSTER CHANGE moves the WIRE, not the connection
       // name to lose.
       createRoot(() => conn.clients.a.cells.conn.use());
       let runs = 0;
-      const folded = createMemo(() => {
-        runs += 1;
-        return conn.health();
+      // Under a ROOT of their own: the outer root's owner is gone after the
+      // `await` above, and a memo/effect created with no owner is never disposed
+      // (NO_OWNER_EFFECT) — it would outlive this connection.
+      const { folded, dropFold } = createRoot((dropFold) => {
+        const folded = createMemo(() => {
+          runs += 1;
+          return conn.health();
+        });
+        createEffect(
+          () => folded(),
+          () => {},
+        );
+        return { folded, dropFold };
       });
-      createEffect(
-        () => folded(),
-        () => {},
-      );
       await settle();
       const before = runs;
       expect(folded().subs.map((s) => s.name)).toContain("a/conn");
@@ -1240,6 +1246,7 @@ describe("connectSurfaces — a ROSTER CHANGE moves the WIRE, not the connection
       expect(names).toContain("b/queue");
       expect(names).not.toContain("a/conn");
 
+      dropFold();
       await conn.dispose();
       dispose();
     });

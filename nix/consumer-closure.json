@@ -472,6 +472,14 @@
         "solid-js": "^2.0.3"
       }
     },
+    "@kolu/solid-test-setup": {
+      "dir": "packages/solid-test-setup",
+      "workspace": [],
+      "external": {
+        "solid-js": "^2.0.3",
+        "vitest": "*"
+      }
+    },
     "@kolu/surface": {
       "dir": "packages/surface",
       "vendored": true,

@@ -24,6 +24,7 @@
  */
 
 import { Effect, Schema, Stream } from "effect";
+import { flush } from "solid-js";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { defineSurface, SURFACE_TAG_PREFIX, surfaceTag } from "../define";
 import {
@@ -155,6 +156,8 @@ describe("createLiveSignal — the unforgeable, watchdog-backed live signal", ()
       timeoutMs: 500,
     });
     f.open();
+    // The wire's status write is STAGED: a consumer reads it on the next flush.
+    flush();
     expect(handle.live()).toBe(true);
     expect(handle.status()).toBe("live");
     // Advance past one interval (the watchdog probes the owned dispatch) plus the
@@ -163,6 +166,7 @@ describe("createLiveSignal — the unforgeable, watchdog-backed live signal", ()
     // off an in-memory literal could never flip here, because it never touches the
     // transport.
     await vi.advanceTimersByTimeAsync(1600);
+    flush();
     expect(f.probes).toEqual([LIVE_TAG]);
     expect(f.forceReconnects()).toBe(1);
     expect(handle.live()).toBe(false);
@@ -177,8 +181,10 @@ describe("createLiveSignal — the unforgeable, watchdog-backed live signal", ()
     const f = silentTransport();
     const handle = createLiveSignal(f.transport, {});
     f.open();
+    flush(); // each wire-status write is read back after its own flush
     expect(handle.status()).toBe("live");
     f.retire();
+    flush();
     expect(handle.status()).toBe("retired");
     expect(handle.live()).toBe(false);
     handle.dispose();

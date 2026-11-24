@@ -20,6 +20,9 @@ export default defineConfig({
     // NOT `new URL(…, import.meta.url)`, which the happy-dom global `URL`
     // rejects.)
     environment: "happy-dom",
+    // Fails a test on any Solid dev diagnostic, and refuses a production
+    // Solid build (`@kolu/solid-test-setup`).
+    setupFiles: ["@kolu/solid-test-setup/setup"],
     // Inline Solid and its framework packages so they are transformed under the
     // posture above and resolve to the ONE browser-build core. Without this,
     // `@kolu/surface-map`'s `scopedByEntry` loads its own externalized

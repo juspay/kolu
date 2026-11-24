@@ -40,6 +40,7 @@
   },
   "devDependencies": {
     "@babel/parser": "^7.29.2",
+    "@kolu/solid-test-setup": "workspace:*",
     "@solidjs/vite-plugin": "^3.0.1",
     "@solidjs/web": "^2.0.3",
     "@types/node": "^22.0.0",

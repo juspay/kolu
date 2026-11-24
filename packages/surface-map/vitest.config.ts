@@ -14,6 +14,8 @@ export default defineConfig({
     // `mapHarness.testlib`, so a new test joins the DOM by existing. The one
     // pure test runs there too.
     environment: "happy-dom",
+    // Fails a test on any Solid dev diagnostic (`@kolu/solid-test-setup`).
+    setupFiles: ["@kolu/solid-test-setup/setup"],
     server: {
       deps: {
         // ONE browser-build core for every solid import — an externalized

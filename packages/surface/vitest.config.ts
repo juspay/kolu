@@ -27,7 +27,14 @@ export default defineConfig({
     projects: [
       {
         extends: true,
-        test: { name: "dom", environment: "happy-dom", include: DOM_TESTS },
+        test: {
+          name: "dom",
+          environment: "happy-dom",
+          include: DOM_TESTS,
+          // Joins the root `setupFiles` (`extends` concatenates the arrays):
+          // fails a test on any Solid dev diagnostic (`@kolu/solid-test-setup`).
+          setupFiles: ["@kolu/solid-test-setup/setup"],
+        },
       },
       {
         extends: true,

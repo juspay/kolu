@@ -32,6 +32,8 @@ export default defineConfig({
           name: "dom",
           environment: "happy-dom",
           include: ["src/**/*.test.tsx"],
+          // Fails a test on any Solid dev diagnostic (`@kolu/solid-test-setup`).
+          setupFiles: ["@kolu/solid-test-setup/setup"],
         },
       },
       {

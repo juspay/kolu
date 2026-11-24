@@ -1,5 +1,5 @@
 import type { Terminal } from "@xterm/xterm";
-import { createEffect, createRoot } from "solid-js";
+import { createEffect, createRoot, flush } from "solid-js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createScrollLock, SCROLL_INTENT_WINDOW_MS } from "./scrollLock";
 
@@ -253,6 +253,10 @@ describe("createScrollLock — user-intent latch (#1272)", () => {
     t.emitOutputAtBottom(100);
     t.lock.armUserScrollIntent("wheel");
     t.scrollUp(10);
+    // The flush is the assertion's subject: a stray subscription formed in the
+    // compute would re-run it HERE, on the lock's own write. Reading `runs`
+    // without it would pass whether or not one formed.
+    flush();
     expect({ runs, locked: t.lock.isLocked() }).toEqual({
       runs: 1,
       locked: true,

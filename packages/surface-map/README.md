@@ -25,6 +25,11 @@ export const hostMap = defineSurfaceMap({
 const { group, handlers, dispose } = serveSurfaceMap(hostMap, registry);
 ```
 
+Call `connectSurfaceMap` (the client half) under a reactive owner — an
+app-lifetime `createRoot` at module scope, or a component. It creates an effect
+that prunes cached per-key clients when a key leaves membership, and an effect
+created with no owner is never disposed.
+
 ## Nested siblings
 
 An entry may carry whole **sibling surfaces** beside the entry surface — a second

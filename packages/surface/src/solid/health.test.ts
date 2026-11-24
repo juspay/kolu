@@ -10,50 +10,59 @@
  * Plus `mergeSurfaceHealth` for the multi-surface (Leak D) shape.
  */
 
-import { createRoot, createSignal } from "solid-js";
+import { createRoot, createSignal, flush } from "solid-js";
 import { describe, expect, it } from "vitest";
 import { createSurfaceHealthRegistry, mergeSurfaceHealth } from "./health";
 
 describe("createSurfaceHealthRegistry", () => {
   it("folds an enrolled sub's self-clearing error/pending, then drops it on dispose", () => {
-    createRoot((dispose) => {
-      const [live, setLive] = createSignal(true);
+    const [live, setLive] = createSignal(true);
+    const [err, setErr] = createSignal<Error | undefined>(undefined);
+    const [pending, setPending] = createSignal(true);
+    // The registry and the enrolment live under a root — enrolment rides the
+    // consumer's owner, which is what retracts it. The sub's OWN signals are
+    // written from outside it, where a frame arriving writes them (a write under
+    // an owner is REACTIVE_WRITE_IN_OWNED_SCOPE), and each write is read back
+    // after its `flush()`, which is when a consumer would see it.
+    const { reg, drop, dispose } = createRoot((dispose) => {
       const reg = createSurfaceHealthRegistry(live);
       // Empty registry: vacuously live, no subs.
       expect(reg.health()).toEqual({ live: true, subs: [] });
-
-      const [err, setErr] = createSignal<Error | undefined>(undefined);
-      const [pending, setPending] = createSignal(true);
       const drop = reg.enroll("connection", { error: err, pending });
-
-      expect(reg.health().subs).toEqual([
-        { name: "connection", pending: true, error: undefined },
-      ]);
-
-      // A transient blip — the sub's own error() sets.
-      const e = new Error("Internal server error");
-      setErr(e);
-      setPending(false);
-      expect(reg.health().subs[0]).toEqual({
-        name: "connection",
-        pending: false,
-        error: e,
-      });
-
-      // SELF-HEAL: the sub's error() clears on the next good frame, so health()
-      // clears too — no latch. This is the property the whole proposal turns on.
-      setErr(undefined);
-      expect(reg.health().subs[0]?.error).toBeUndefined();
-
-      // Transport liveness flows through unchanged.
-      setLive(false);
-      expect(reg.health().live).toBe(false);
-
-      // Dispose drops the sub from the fact (the registry tracks what's live).
-      drop();
-      expect(reg.health().subs).toEqual([]);
-      dispose();
+      return { reg, drop, dispose };
     });
+
+    expect(reg.health().subs).toEqual([
+      { name: "connection", pending: true, error: undefined },
+    ]);
+
+    // A transient blip — the sub's own error() sets.
+    const e = new Error("Internal server error");
+    setErr(e);
+    setPending(false);
+    flush();
+    expect(reg.health().subs[0]).toEqual({
+      name: "connection",
+      pending: false,
+      error: e,
+    });
+
+    // SELF-HEAL: the sub's error() clears on the next good frame, so health()
+    // clears too — no latch. This is the property the whole proposal turns on.
+    setErr(undefined);
+    flush();
+    expect(reg.health().subs[0]?.error).toBeUndefined();
+
+    // Transport liveness flows through unchanged.
+    setLive(false);
+    flush();
+    expect(reg.health().live).toBe(false);
+
+    // Dispose drops the sub from the fact (the registry tracks what's live).
+    drop();
+    flush();
+    expect(reg.health().subs).toEqual([]);
+    dispose();
   });
 
   it("keeps two same-named subs distinct (id-keyed, not name-keyed)", () => {

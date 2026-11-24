@@ -247,26 +247,30 @@ export const DockRow: Component<DockRowProps> = (props) => {
        *  there is no grip in the DOM at all without a handle — touch rows and
        *  rows whose terminal is not live have nothing to re-home. */}
       <Show when={props.handle}>
-        {(h) => (
-          // A native button, not a `role="button"` span: the grip IS clickable
-          // (a tap on it must not fall through to the row's own activation), and
-          // a real button is the element that can carry a click AND a label
-          // without the row root's div+role dance. `tabindex={-1}` keeps it out
-          // of the tab order — a drag is a pointer gesture, and a focusable
-          // handle no keyboard can operate is worse than an honest mouse-only
-          // one. Nested in the row's `role="button"` div (never in a real
-          // button), so the HTML stays valid.
-          <button
-            type="button"
-            data-testid="dock-row-grip"
-            tabindex={-1}
-            aria-label="Drag to nest this terminal"
-            class="dock-row-grip"
-            ref={h()}
-            // A grip tap is not a row activation — the click must not select.
-            onClick={(e) => e.stopPropagation()}
-          />
-        )}
+        {/* A native button, not a `role="button"` span: the grip IS clickable (a
+         *  tap on it must not fall through to the row's own activation), and a
+         *  real button is the element that can carry a click AND a label without
+         *  the row root's div+role dance. `tabindex={-1}` keeps it out of the tab
+         *  order — a drag is a pointer gesture, and a focusable handle no
+         *  keyboard can operate is worse than an honest mouse-only one. Nested in
+         *  the row's `role="button"` div (never in a real button), so the HTML
+         *  stays valid.
+         *
+         *  Plain children, not a `(handle) => …` narrowing callback: that body is
+         *  untracked (`untrack(…, "<Show>")`), so calling the accessor there to
+         *  hand the ref over is a strict read that never updates. These children
+         *  are evaluated inside `<Show>`'s own tracked memo, so the ref reads the
+         *  prop itself — the same value the condition just proved present. */}
+        <button
+          type="button"
+          data-testid="dock-row-grip"
+          tabindex={-1}
+          aria-label="Drag to nest this terminal"
+          class="dock-row-grip"
+          ref={(el) => props.handle?.(el)}
+          // A grip tap is not a row activation — the click must not select.
+          onClick={(e) => e.stopPropagation()}
+        />
       </Show>
       {/* Identity status indicator — one binder shared with title/list. */}
       <span class="row-span-2 flex self-center">

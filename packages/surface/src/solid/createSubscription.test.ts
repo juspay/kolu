@@ -55,11 +55,9 @@ async function* fromArray<T>(items: T[], delayMs = 0): AsyncGenerator<T> {
  *  is not enough — two full macrotask turns cover the fiber's own scheduling plus
  *  the store write, with margin. Never fewer: an assertion is never relaxed to fit
  *  the timing, the flush is made longer. */
-async function flush(ticks = 2): Promise<void> {
-  for (let i = 0; i < ticks; i++) {
-    await new Promise<void>((r) => setTimeout(r, 0));
-  }
-}
+async function settle(ticks = 2): Promise<void> { for (let i = 0; i < ticks; i++) {
+  await new Promise<void>((r) => setTimeout(r, 0));
+} }
 
 describe("createSubscription", () => {
   describe("value replacement (no reducer)", () => {
@@ -85,7 +83,7 @@ describe("createSubscription", () => {
             const sub = createSubscription(stream.source);
 
             stream.push(42);
-            await flush();
+            await settle();
 
             resolve({ value: readSub(sub), pending: sub.pending() });
             stream.close();
@@ -106,15 +104,15 @@ describe("createSubscription", () => {
 
           const values: number[] = [];
           stream.push(1);
-          await flush();
+          await settle();
           values.push(readSub(sub));
 
           stream.push(2);
-          await flush();
+          await settle();
           values.push(readSub(sub));
 
           stream.push(3);
-          await flush();
+          await settle();
           values.push(readSub(sub));
 
           resolve(values);
@@ -132,7 +130,7 @@ describe("createSubscription", () => {
       const result = await new Promise<string>((resolve) => {
         createRoot(async (dispose) => {
           const sub = createSubscription(streamOf(fromArray(["hello"])));
-          await flush();
+          await settle();
           resolve(readSub(sub));
           dispose();
         });
@@ -145,7 +143,7 @@ describe("createSubscription", () => {
       const result = await new Promise<boolean>((resolve) => {
         createRoot(async (dispose) => {
           const sub = createSubscription(streamOf(fromArray([true])));
-          await flush();
+          await settle();
           resolve(readSub(sub));
           dispose();
         });
@@ -160,7 +158,7 @@ describe("createSubscription", () => {
           const sub = createSubscription(
             streamOf(fromArray([null as unknown as string])),
           );
-          await flush();
+          await settle();
           resolve(readSub(sub) as unknown as null);
           dispose();
         });
@@ -178,7 +176,7 @@ describe("createSubscription", () => {
           const sub = createSubscription(stream.source);
 
           stream.push({ a: 1, b: 2 });
-          await flush();
+          await settle();
           resolve(readSub(sub));
           stream.close();
           dispose();
@@ -189,49 +187,44 @@ describe("createSubscription", () => {
     });
 
     it("updates only changed fields via reconcile", async () => {
-      const result = await new Promise<{ tracked: boolean }>((resolve) => {
-        createRoot(async (dispose) => {
-          const stream = controllableStream<{ a: number; b: number }>();
-          const sub = createSubscription(stream.source);
-
-          stream.push({ a: 1, b: 2 });
-          await flush();
-
-          // Track whether reading `a` re-fires when only `b` changes
-          let aFired = false;
-          createEffect(
-            () => {
-              sub()?.a;
-              return sub.pending();
-            },
-            (pending) => {
-              if (!pending) aFired = true;
-            },
-          );
-
-          // An effect's first run is the flush's, not the call's: without this the
-          // reset below would land BEFORE that first run and the probe would be
-          // reading the effect being born rather than the frame re-firing it.
-          await flush();
-          aFired = false;
-          stream.push({ a: 1, b: 99 }); // only b changes
-          await flush();
-
-          resolve({ tracked: !aFired });
-          stream.close();
-          dispose();
-        });
+      const stream = controllableStream<{ a: number; b: number }>();
+      // The probe effect is created SYNCHRONOUSLY in the root body — an effect
+      // created after an `await` has no owner in scope (NO_OWNER_EFFECT: it would
+      // never be disposed) — and the stream is driven from outside, where a
+      // transport's frames come from.
+      let aFired = false;
+      const { dispose } = createRoot((dispose) => {
+        const sub = createSubscription(stream.source);
+        // Track whether reading `a` re-fires when only `b` changes.
+        createEffect(
+          () => {
+            sub()?.a;
+            return sub.pending();
+          },
+          (pending) => {
+            if (!pending) aFired = true;
+          },
+        );
+        return { dispose };
       });
 
-      // With reconcile, changing only `b` should not re-trigger an effect tracking `a`
-      expect(result.tracked).toBe(true);
+      stream.push({ a: 1, b: 2 });
+      await settle();
+      aFired = false;
+      stream.push({ a: 1, b: 99 }); // only b changes
+      await settle();
+
+      // With reconcile, changing only `b` does not re-trigger an effect tracking `a`.
+      expect(aFired).toBe(false);
+      stream.close();
+      dispose();
     });
 
     it("handles array values via reconcile", async () => {
       const result = await new Promise<number[]>((resolve) => {
         createRoot(async (dispose) => {
           const sub = createSubscription(streamOf(fromArray([[1, 2, 3]])));
-          await flush();
+          await settle();
           resolve([...(readSub(sub) as unknown as number[])]);
           dispose();
         });
@@ -254,11 +247,11 @@ describe("createSubscription", () => {
           expect(sub()).toEqual([]);
 
           stream.push(1);
-          await flush();
+          await settle();
           stream.push(2);
-          await flush();
+          await settle();
           stream.push(3);
-          await flush();
+          await settle();
 
           resolve([...(readSub(sub) as number[])]);
           stream.close();
@@ -311,7 +304,7 @@ describe("createSubscription", () => {
               ),
             );
 
-            await flush();
+            await settle();
 
             resolve({
               error: readSubError(sub).message,
@@ -337,7 +330,7 @@ describe("createSubscription", () => {
             ),
           );
 
-          await flush();
+          await settle();
           resolve(readSubError(sub).message);
           dispose();
         });
@@ -369,7 +362,7 @@ describe("createSubscription", () => {
             ),
           );
 
-          await flush();
+          await settle();
           const errorBefore = sub.error() !== undefined;
 
           resolve({
@@ -408,7 +401,7 @@ describe("createSubscription", () => {
             { signal: controller.signal },
           );
 
-          await flush();
+          await settle();
           resolve({ error: sub.error(), pending: sub.pending() });
           dispose();
         });
@@ -429,14 +422,14 @@ describe("createSubscription", () => {
           });
 
           stream.push(1);
-          await flush();
+          await settle();
           stream.push(2);
-          await flush();
+          await settle();
 
           controller.abort();
 
           stream.push(3); // should not be received
-          await flush();
+          await settle();
 
           resolve([readSub(sub)]);
           stream.close();
@@ -457,7 +450,7 @@ describe("createSubscription", () => {
           sub = createSubscription(stream.source);
 
           stream.push(1);
-          await flush();
+          await settle();
 
           resolve({ valueBefore: readSub(sub) });
           dispose(); // triggers onCleanup → abort
@@ -490,11 +483,11 @@ describe("createSubscription", () => {
           });
 
           stream.push(1);
-          await flush();
+          await settle();
           expect(sub.complete?.()).toBe(false);
 
           stream.close(); // the producer ENDS the stream — a typed end
-          await flush();
+          await settle();
 
           resolve({
             complete: sub.complete?.() ?? false,
@@ -525,10 +518,10 @@ describe("createSubscription", () => {
           });
 
           stream.push(1);
-          await flush();
+          await settle();
           controller.abort();
           stream.close(); // the end lands AFTER the abort — must stay silent
-          await flush();
+          await settle();
 
           resolve(sub.complete?.() ?? false);
           dispose();
@@ -551,7 +544,7 @@ describe("createSubscription", () => {
             const before = sub.pending();
 
             stream.push(1);
-            await flush();
+            await settle();
 
             resolve({ before, after: sub.pending() });
             stream.close();
@@ -575,7 +568,7 @@ describe("createSubscription", () => {
             ),
           );
 
-          await flush();
+          await settle();
           resolve(sub.pending());
           dispose();
         });
@@ -598,7 +591,7 @@ describe("createSubscription", () => {
               Stream.unwrap(Effect.fail(new Error("connection failed"))),
             );
 
-            await flush();
+            await settle();
             resolve({
               error: readSubError(sub).message,
               pending: sub.pending(),
@@ -622,7 +615,7 @@ describe("createSubscription", () => {
         sub.updated?.((c) => changes.push(c));
 
         stream.push(7);
-        await flush();
+        await settle();
         expect(readSub(sub)).toBe(7);
         expect(changes).toEqual([]); // first frame: silent
         dispose();
@@ -637,11 +630,11 @@ describe("createSubscription", () => {
         sub.updated?.((c) => changes.push(c));
 
         stream.push(1);
-        await flush();
+        await settle();
         stream.push(2);
-        await flush();
+        await settle();
         stream.push(5);
-        await flush();
+        await settle();
         expect(changes).toEqual([
           { prev: 1, next: 2 },
           { prev: 2, next: 5 },
@@ -658,16 +651,16 @@ describe("createSubscription", () => {
         sub.updated?.((c) => changes.push(c));
 
         stream.push({ ids: [1, 2] });
-        await flush();
+        await settle();
         // A link flap replays current truth as a byte-fresh object — value-equal
         // to the last-seen, so the law says: silent.
         stream.push({ ids: [1, 2] });
-        await flush();
+        await settle();
         expect(changes).toEqual([]);
 
         // A genuine change still fires, with the structurally-correct prev.
         stream.push({ ids: [1, 2, 3] });
-        await flush();
+        await settle();
         expect(changes).toEqual([
           { prev: { ids: [1, 2] }, next: { ids: [1, 2, 3] } },
         ]);
@@ -688,14 +681,14 @@ describe("createSubscription", () => {
         sub.updated?.((c) => seen.push(c));
 
         stream.push({ at: new Date(1000) });
-        await flush();
+        await settle();
         // Equal instant, fresh object — the law says silent.
         stream.push({ at: new Date(1000) });
-        await flush();
+        await settle();
         expect(seen).toEqual([]);
         // Different instant — a REAL change; must fire (the suppression bug).
         stream.push({ at: new Date(2000) });
-        await flush();
+        await settle();
         expect(seen).toHaveLength(1);
         expect(seen[0]?.prev.at.getTime()).toBe(1000);
         expect(seen[0]?.next.at.getTime()).toBe(2000);
@@ -824,15 +817,15 @@ describe("createSubscription", () => {
         const sub = createSubscription(stream.source);
 
         stream.push(1);
-        await flush();
+        await settle();
         stream.push(2);
-        await flush();
+        await settle();
 
         // Subscribe AFTER two frames — no replay of the missed change.
         const changes: Array<{ prev: number; next: number }> = [];
         sub.updated?.((c) => changes.push(c));
         stream.push(9);
-        await flush();
+        await settle();
         expect(changes).toEqual([{ prev: 2, next: 9 }]);
         dispose();
       });
@@ -846,12 +839,12 @@ describe("createSubscription", () => {
         const off = sub.updated?.((c) => changes.push(c.next));
 
         stream.push(1);
-        await flush();
+        await settle();
         stream.push(2);
-        await flush();
+        await settle();
         off?.();
         stream.push(3);
-        await flush();
+        await settle();
         expect(changes).toEqual([2]); // 3's change never reached the disposed handler
         dispose();
       });
@@ -871,11 +864,11 @@ describe("createSubscription", () => {
           sub.updated?.((c) => good.push(c.next));
 
           stream.push(1);
-          await flush();
+          await settle();
           stream.push(2); // the throwing handler runs first on THIS change…
-          await flush();
+          await settle();
           stream.push(3); // …and the stream keeps delivering after it
-          await flush();
+          await settle();
 
           expect(good).toEqual([2, 3]); // fanout continued past the thrower, both frames
           expect(sub.error()).toBeUndefined(); // a handler bug is NOT an upstream stream error
@@ -892,15 +885,15 @@ describe("createSubscription", () => {
         const sub = createSubscription(stream.source);
         // No handler yet — the hot path advances lastSeen in O(1) without compares.
         stream.push(1);
-        await flush();
+        await settle();
         stream.push(2);
-        await flush();
+        await settle();
         const changes: Array<{ prev: number; next: number }> = [];
         sub.updated?.((c) => changes.push(c));
         stream.push(2); // equal to the last-seen baseline (2) → silent
-        await flush();
+        await settle();
         stream.push(7); // a genuine change from the advanced baseline
-        await flush();
+        await settle();
         expect(changes).toEqual([{ prev: 2, next: 7 }]);
         dispose();
       });
@@ -927,12 +920,12 @@ describe("createSubscription", () => {
         sub.changed?.(() => count++);
 
         stream.push(1);
-        await flush();
+        await settle();
         expect(count).toBe(0); // a first frame is a value, not a change
         stream.push(2);
-        await flush();
+        await settle();
         stream.push(3);
-        await flush();
+        await settle();
         expect(count).toBe(2);
         dispose();
       });
@@ -951,9 +944,9 @@ describe("createSubscription", () => {
           sub.changed?.(() => count++);
 
           stream.push(pageOf(200, "a"));
-          await flush();
+          await settle();
           stream.push(pageOf(200, "b"));
-          await flush();
+          await settle();
           expect(count).toBe(1); // it did fire — this is not a vacuous zero
           expect(spy).not.toHaveBeenCalled();
           dispose();
@@ -978,9 +971,9 @@ describe("createSubscription", () => {
           sub.changed?.(() => count++);
 
           stream.push(pageOf(5, "a"));
-          await flush();
+          await settle();
           stream.push(pageOf(5, "b"));
-          await flush();
+          await settle();
           expect(changes).toHaveLength(1);
           expect(count).toBe(1);
           expect(spy).toHaveBeenCalledTimes(2); // prev + next, once
@@ -1002,12 +995,12 @@ describe("createSubscription", () => {
         sub.changed?.(() => count++);
 
         stream.push({ ids: [1, 2] });
-        await flush();
+        await settle();
         stream.push({ ids: [1, 2] }); // the reconnect replay
-        await flush();
+        await settle();
         expect(count).toBe(0);
         stream.push({ ids: [1, 2, 3] }); // a genuine change
-        await flush();
+        await settle();
         expect(count).toBe(1);
         dispose();
       });
@@ -1023,13 +1016,13 @@ describe("createSubscription", () => {
           const off = sub.changed?.(() => count++);
 
           stream.push(1);
-          await flush();
+          await settle();
           stream.push(2);
-          await flush();
+          await settle();
           expect(count).toBe(1);
           off?.();
           stream.push(3);
-          await flush();
+          await settle();
           expect(count).toBe(1);
           expect(spy).not.toHaveBeenCalled();
           dispose();
@@ -1052,11 +1045,11 @@ describe("createSubscription", () => {
           sub.changed?.(() => good.push(1));
 
           stream.push(1);
-          await flush();
+          await settle();
           stream.push(2);
-          await flush();
+          await settle();
           stream.push(3);
-          await flush();
+          await settle();
           expect(good).toEqual([1, 1]);
           expect(sub.error()).toBeUndefined();
           dispose();
@@ -1080,23 +1073,23 @@ describe("createSubscription", () => {
         });
         let count = 0;
         sub.changed?.(() => count++);
-        await flush();
+        await settle();
 
         streams.get(1)?.push(10);
-        await flush();
+        await settle();
         streams.get(1)?.push(11);
-        await flush();
+        await settle();
         expect(count).toBe(1);
 
         setWhich(2);
-        await flush();
+        await settle();
         // A fresh subscription: its first frame is a value, not a change — even
         // though it differs from what the previous input last said.
         streams.get(2)?.push(99);
-        await flush();
+        await settle();
         expect(count).toBe(1);
         streams.get(2)?.push(100);
-        await flush();
+        await settle();
         expect(count).toBe(2);
         dispose();
       });

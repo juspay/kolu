@@ -39,9 +39,9 @@ import type { GitStatusEntry } from "@pierre/trees";
 import { FileTree } from "./FileTree";
 import {
   disposeAll,
-  flush,
   mountInto,
   paintedRows,
+  settle,
 } from "./FileTree.testlib.ts";
 
 afterEach(disposeAll);
@@ -77,7 +77,7 @@ describe("mounted FileTree repaints on a live change (#1534)", () => {
     expect(paintedRows(root)).not.toContain("src/c.ts");
 
     setPaths(["src/a.ts", "src/b.ts", "src/c.ts"]);
-    await flush();
+    await settle();
 
     // The row must be in the DOM, not merely in Pierre's model — this is the
     // "value right, screen stale" failure the issue is about.
@@ -93,7 +93,7 @@ describe("mounted FileTree repaints on a live change (#1534)", () => {
     expect(paintedRows(root)).toContain("src/b.ts");
 
     setPaths(["src/a.ts"]);
-    await flush();
+    await settle();
 
     expect(paintedRows(root)).not.toContain("src/b.ts");
     expect(paintedRows(root)).toContain("src/a.ts");
@@ -105,7 +105,7 @@ describe("mounted FileTree repaints on a live change (#1534)", () => {
     const { setPaths, root } = mountTree(["src/a.ts", "src/b.ts"]);
 
     setPaths(["src/a.ts", "src/c.ts"]);
-    await flush();
+    await settle();
 
     const rows = paintedRows(root);
     expect(rows).toContain("src/c.ts");
@@ -121,7 +121,7 @@ describe("mounted FileTree repaints on a live change (#1534)", () => {
     expect(marked()).toHaveLength(0);
 
     setStatus([{ path: "src/a.ts", status: "modified" }]);
-    await flush();
+    await settle();
 
     // `src/` must now be tinted in the DOM without a remount.
     expect(marked()).toContain("src/");
@@ -146,13 +146,13 @@ it("applies a standing selection when its path arrives in the retained tree", as
     ),
   );
   setPaths(["src/a.ts", "src/b.ts"]);
-  await flush();
+  await settle();
   expect(
     root.querySelector('[data-item-path="src/a.ts"][aria-selected="true"]'),
   ).not.toBeNull();
   setPaths([]);
   setPaths(["src/a.ts", "src/b.ts"]);
-  await flush();
+  await settle();
   expect(
     root.querySelector('[data-item-path="src/a.ts"][aria-selected="true"]'),
   ).not.toBeNull();
@@ -185,7 +185,7 @@ it("applies a selection that arrives in the same update as its path", async () =
   // Consecutive writes already share one microtask batch in Solid 2.
   setSelected("docs/notes.txt");
   setPaths(["docs/notes.txt"]);
-  await flush();
+  await settle();
   expect(
     root.querySelector(
       '[data-item-path="docs/notes.txt"][aria-selected="true"]',

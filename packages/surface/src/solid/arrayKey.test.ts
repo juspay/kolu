@@ -75,11 +75,9 @@ const readingOf = (keys: readonly string[]): Reading => ({
 
 /** Frames wait on a real fiber, so a micro-flush is not enough — two macrotask
  *  turns, the same margin `createSubscription.test.ts` uses. */
-async function flush(ticks = 2): Promise<void> {
-  for (let i = 0; i < ticks; i++) {
-    await new Promise<void>((r) => setTimeout(r, 0));
-  }
-}
+async function settle(ticks = 2): Promise<void> { for (let i = 0; i < ticks; i++) {
+  await new Promise<void>((r) => setTimeout(r, 0));
+} }
 
 /** Observe every row of a member's value, the way a rendered list does. A merge
  *  preserves a row's STORE IDENTITY (its proxy — the raw is always the newest
@@ -149,16 +147,16 @@ describe("a declared arrayKey reaches the store it is declared for", () => {
     await createRoot(async (dispose) => {
       const app = surfaceClient(surface, dispatch);
       const boards = app.collections.boards.use();
-      await flush();
+      await settle();
       const value = boards.byKey("b1");
       if (value === undefined) throw new Error("no per-key subscription");
       feed("surface/boards/get").push(readingOf(["a", "b"]));
-      await flush();
+      await settle();
       const stop = watchRows(() => value() as Reading | undefined);
-      await flush();
+      await settle();
       const first = rowsOf(value());
       feed("surface/boards/get").push(readingOf(["a", "b"]));
-      await flush();
+      await settle();
       const second = rowsOf(value());
       expect(second[0]).toBe(first[0]);
       expect(second[1]).toBe(first[1]);
@@ -172,14 +170,14 @@ describe("a declared arrayKey reaches the store it is declared for", () => {
     await createRoot(async (dispose) => {
       const app = surfaceClient(surface, dispatch);
       const sub = app.streams.page.use(() => ({ file: "a.md" }));
-      await flush();
+      await settle();
       feed("surface/page/get").push(readingOf(["a", "b", "c"]));
-      await flush();
+      await settle();
       const stop = watchRows(() => sub() as Reading | undefined);
-      await flush();
+      await settle();
       const first = rowsOf(sub());
       feed("surface/page/get").push(readingOf(["a", "b", "c"]));
-      await flush();
+      await settle();
       const second = rowsOf(sub());
       expect(second[0]).toBe(first[0]);
       expect(second[1]).toBe(first[1]);
@@ -194,14 +192,14 @@ describe("a declared arrayKey reaches the store it is declared for", () => {
     await createRoot(async (dispose) => {
       const app = surfaceClient(surface, dispatch);
       const sub = app.streams.plainPage.use(() => ({ file: "a.md" }));
-      await flush();
+      await settle();
       feed("surface/plainPage/get").push(readingOf(["a", "b"]));
-      await flush();
+      await settle();
       const stop = watchRows(() => sub() as Reading | undefined);
-      await flush();
+      await settle();
       const first = rowsOf(sub());
       feed("surface/plainPage/get").push(readingOf(["a", "b"]));
-      await flush();
+      await settle();
       const second = rowsOf(sub());
       expect(second[0]).not.toBe(first[0]);
       expect(second[1]).not.toBe(first[1]);
@@ -216,18 +214,18 @@ describe("a declared arrayKey reaches the store it is declared for", () => {
       const app = surfaceClient(surface, dispatch);
       const shelf = app.cells.shelf.use();
       const plain = app.cells.plain.use();
-      await flush();
+      await settle();
       feed("surface/shelf/get").push(readingOf(["a", "b"]));
       feed("surface/plain/get").push(readingOf(["a", "b"]));
-      await flush();
+      await settle();
       const stopShelf = watchRows(() => shelf.value() as Reading | undefined);
       const stopPlain = watchRows(() => plain.value() as Reading | undefined);
-      await flush();
+      await settle();
       const shelfFirst = rowsOf(shelf.value());
       const plainFirst = rowsOf(plain.value());
       feed("surface/shelf/get").push(readingOf(["a", "b"]));
       feed("surface/plain/get").push(readingOf(["a", "b"]));
-      await flush();
+      await settle();
       const shelfSecond = rowsOf(shelf.value());
       const plainSecond = rowsOf(plain.value());
       expect(shelfSecond[0]).toBe(shelfFirst[0]);

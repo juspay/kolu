@@ -12,6 +12,8 @@ export default defineConfig({
     // DOM (`happy-dom`, as in the client). There is no pure test to give a Node
     // project; add one beside a `.test.ts` split when a pure test arrives.
     environment: "happy-dom",
+    // Fails a test on any Solid dev diagnostic (`@kolu/solid-test-setup`).
+    setupFiles: ["@kolu/solid-test-setup/setup"],
     server: { deps: { inline: [/solid-js/, /@solidjs\//] } },
   },
 });

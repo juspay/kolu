@@ -676,27 +676,35 @@ describe("surfaceClients builds a bundle ALL-OR-NOTHING", () => {
 
   it("releases the siblings it already built when a later one refuses", async () => {
     const torn: string[] = [];
+    let opened = 0;
     const f = feed<{ state: string }>();
     const dispatch = fakeDispatch({
-      // The FIRST sibling's eager readiness sub, with a finalizer that records the
-      // teardown. Its scoped tag carries the sibling key `surfaceClients` splices in.
-      "surface/first/connection/get": () =>
-        Stream.ensuring(
+      // The FIRST sibling's eager readiness sub. The handler counts the wire
+      // opens; the finalizer records the teardown. Its scoped tag carries the
+      // sibling key `surfaceClients` splices in.
+      "surface/first/connection/get": () => {
+        opened++;
+        return Stream.ensuring(
           f.stream(),
           Effect.sync(() => {
             torn.push("first");
           }),
-        ),
+        );
+      },
     });
     // The bundle throws — the second sibling's declared policy has nowhere to go.
     expect(() =>
       surfaceClients(dispatch, { first: mirrored, second: policied }),
     ).toThrow(/no `onClientError` interpreter was threaded/);
-    // …and the first sibling's subscription, opened before that throw, was closed
-    // on the way out. Without the unwind inside `surfaceClients` this stays empty
-    // and the stream runs for the life of the page.
+    // …and the first sibling's subscription is not left running. A subscription's
+    // fiber opens in the EFFECT PHASE of the owner that built it, so the sibling
+    // built before the throw has not reached the wire yet: the unwind inside
+    // `surfaceClients` disposes that owner and the open never happens. Without
+    // the unwind that owner survives the throw, its effect runs on the next
+    // flush, and the stream runs for the life of the page — which reads as
+    // `opened: 1` with nothing torn, never as this quiet zero.
     await settle();
-    expect(torn).toEqual(["first"]);
+    expect({ opened, torn }).toEqual({ opened: 0, torn: [] });
   });
 
   it("MOVES the roster in place: survivors keep their client, arrivals join, departures are retracted", async () => {

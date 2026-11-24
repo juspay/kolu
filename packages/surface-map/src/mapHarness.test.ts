@@ -17,7 +17,7 @@ import { directDispatch } from "@kolu/surface/links/direct";
 import { implementSurface, inMemoryStore } from "@kolu/surface/server";
 import { runStreamScoped } from "@kolu/surface/solid";
 import { Effect, Schema, Stream } from "effect";
-import { createEffect, createRoot, createSignal } from "solid-js";
+import { createEffect, createRoot, createSignal, flush } from "solid-js";
 import { describe, expect, it } from "vitest";
 import { connectSurfaceMap, type EntryState, floorOnLiveness } from "./client";
 import {
@@ -394,18 +394,24 @@ describe("surface-map mock-entry e2e harness", () => {
   });
 
   it("(7) entries is READ-ONLY — a client mutation is a TYPE error, not a runtime reject", () => {
-    const { client } = setup();
-    const e = client.entries;
-    // `entries` is the ONE membership authority, published by one writer; a consumer must
-    // not be able to even EXPRESS a mutation. `ReadOnlyBoundCollection` drops upsert/delete
-    // structurally, so these are compile errors (not the old rejects-at-runtime lie-shape).
-    // @ts-expect-error — upsert is structurally absent from ReadOnlyBoundCollection.
-    const _u: unknown = e.upsert;
-    // @ts-expect-error — delete is likewise absent.
-    const _d: unknown = e.delete;
-    void _u;
-    void _d;
-    expect(typeof e.use).toBe("function"); // the read path (keys/get) remains
+    // Under a ROOT: `connectSurfaceMap` installs its membership-pruning effect at
+    // construction, and an effect with no owner is never disposed
+    // (NO_OWNER_EFFECT) — it would outlive this test.
+    createRoot((dispose) => {
+      const { client } = setup();
+      const e = client.entries;
+      // `entries` is the ONE membership authority, published by one writer; a consumer must
+      // not be able to even EXPRESS a mutation. `ReadOnlyBoundCollection` drops upsert/delete
+      // structurally, so these are compile errors (not the old rejects-at-runtime lie-shape).
+      // @ts-expect-error — upsert is structurally absent from ReadOnlyBoundCollection.
+      const _u: unknown = e.upsert;
+      // @ts-expect-error — delete is likewise absent.
+      const _d: unknown = e.delete;
+      void _u;
+      void _d;
+      expect(typeof e.use).toBe("function"); // the read path (keys/get) remains
+      dispose();
+    });
   });
 
   it("(8) removal DURING the subscribe ends TYPED — no stale value for an absent member", async () => {
@@ -1092,9 +1098,13 @@ describe("membership is time — opaque membershipId (PR3)", () => {
 
     const readIdFromFreshServer = async (): Promise<string | undefined> => {
       const served = serveSurfaceMap(map, reg.registry);
-      const client = connectSurfaceMap(map, directDispatch(served));
       let id: string | undefined;
       await createRoot(async (dispose) => {
+        // The client is built INSIDE the root: `connectSurfaceMap` installs its
+        // membership-pruning effect at construction, and an effect with no owner
+        // is never disposed (NO_OWNER_EFFECT) — it would outlive this server and
+        // keep pruning against the next one.
+        const client = connectSurfaceMap(map, directDispatch(served));
         const idOf = idReader(client);
         await settle();
         id = idOf();
@@ -1648,9 +1658,12 @@ describe("useEntry key identity — encode-keyed, not object-reference-keyed", (
       expect(anotherA).not.toBe(active()); // a genuinely NEW reference
       setActive(anotherA);
 
-      // No `await settle()` — `createKeyedRoot`'s disposal is SYNCHRONOUS (an eager
-      // `createRenderEffect`), so a re-key would already have reset `pending`/the value
-      // here, before any microtask runs.
+      // The re-key, if there were one, would ride this write's FLUSH: that is
+      // where `createKeyedRoot` disposes the outgoing key's root and builds the
+      // incoming one. Flushing is what makes this evidence of "no re-key" rather
+      // than of "not yet" — the encode-keyed identity sees the SAME key, so
+      // nothing is torn down.
+      flush();
       expect(sub.pending()).toBe(false); // no flash to pending
       expect(sub()).toBe(9); // no stale-then-reset gap
 

@@ -385,9 +385,18 @@ export function createScrollLock(
   }
 
   /** Back at the bottom (user scrolled down, or our own snap-back re-entered
-   *  here) — flush anything held and release. */
+   *  here) — flush anything held and release.
+   *
+   *  A scroll that was never locked releases NOTHING, and returning early is not
+   *  a micro-optimisation: xterm fires this from inside whoever moved the
+   *  viewport — `terminal.reset()` in a consumer's effect among them — and a
+   *  write to reactive state from an owned scope is a dev diagnostic
+   *  (REACTIVE_WRITE_IN_OWNED_SCOPE). Re-stating `null` over `null` would raise
+   *  it for a scroll that changed nothing. Nothing is held while unlocked (the
+   *  write door only buffers under a lock), so there is nothing to flush either. */
   function flushAndRelease(): void {
-    if (isLocked()) flush();
+    if (!isLocked()) return;
+    flush();
     setLockState(null);
   }
 

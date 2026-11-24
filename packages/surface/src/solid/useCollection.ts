@@ -97,34 +97,19 @@ export function useCollection<Name extends string, K, T, I>(
 ): UseCollectionResult<K, T> {
   const keys = createMemo<K[]>(() => options.keys());
 
-  // mapArray creates a reactive owner per key, and each per-key subscription opens
-  // its fiber in THAT owner's effect phase. When a key leaves, the owner is
-  // disposed → the effect's returned cleanup interrupts the fiber → the stream's
-  // finalizers close the server subscription. No manual teardown.
-  const perKey = mapArray(keys, (key) => {
-    const sub = createSubscription(
-      unenrolledStreamCall(options.valueSource, options.keyToInput(key), {
-        // The `client.health()` per-key spelling (`<key>[<id>]`), reused rather
-        // than re-spelled, so the liveness registry and the health fact name one
-        // subscription one way (kolu#2101 J2).
-        label: `${collDescriptor.name}[${String(key)}]`,
-      }),
-      // The member's DECLARED array identity, off the descriptor — this path
-      // merges an entry's value through the same seam a cell's goes through, so
-      // it honours the declaration the same way. (The batched `deltas` path
-      // replaces leaves whole and has no merge to govern; see
-      // `CollectionSpec.arrayKey`.)
-      { onError: options.onError, arrayKey: collDescriptor.arrayKey },
-    );
-    // Enrol this per-key sub into the client health registry (when wired). Runs
-    // in the per-key owner, so the registry's `onCleanup` drop fires on the same
-    // disposal that tears the subscription down when this key leaves the set.
-    options.enroll?.(key, sub);
-    return { key, sub };
-  });
-
-  // Keep mapArray lazy until the first lookup, and give each requested key its
-  // own equality gate. Membership changes cannot wake unrelated key readers.
+  // Keep the per-key subscriptions out of existence until the first lookup, and
+  // give each requested key its own equality gate: membership changes cannot
+  // wake unrelated key readers.
+  //
+  // `mapArray` is BUILT on that first lookup rather than here, because a Solid 2
+  // computed is EAGER — `setupComputedNode` recomputes at creation unless it is
+  // declared lazy (`@solidjs/signals` 2.0.3 `dist/dev-shared.js`), and `mapArray`
+  // declares an ordinary one. Built at construction it would walk the key set and
+  // open one upstream subscription per key before any consumer named one, which
+  // is exactly the laziness this receptacle promises (a whole-collection view a
+  // component takes but never reads costs nothing). The view's owner is captured
+  // so the deferred build still lands HERE, not on whichever reactive scope
+  // happens to look up first.
   const owner = getOwner();
   const lookups = new Map<K, Accessor<Subscription<T> | undefined>>();
   let index: Accessor<Map<K, Subscription<T>>> | undefined;
@@ -132,13 +117,41 @@ export function useCollection<Name extends string, K, T, I>(
     let read = lookups.get(key);
     if (!read) {
       read = runWithOwner(owner, () => {
-        if (!index)
+        if (!index) {
+          // mapArray creates a reactive owner per key, and each per-key
+          // subscription opens its fiber in THAT owner's effect phase. When a key
+          // leaves, the owner is disposed → the effect's returned cleanup
+          // interrupts the fiber → the stream's finalizers close the server
+          // subscription. No manual teardown.
+          const perKey = mapArray(keys, (key) => {
+            const sub = createSubscription(
+              unenrolledStreamCall(options.valueSource, options.keyToInput(key), {
+                // The `client.health()` per-key spelling (`<key>[<id>]`), reused
+                // rather than re-spelled, so the liveness registry and the health
+                // fact name one subscription one way (kolu#2101 J2).
+                label: `${collDescriptor.name}[${String(key)}]`,
+              }),
+              // The member's DECLARED array identity, off the descriptor — this
+              // path merges an entry's value through the same seam a cell's goes
+              // through, so it honours the declaration the same way. (The batched
+              // `deltas` path replaces leaves whole and has no merge to govern;
+              // see `CollectionSpec.arrayKey`.)
+              { onError: options.onError, arrayKey: collDescriptor.arrayKey },
+            );
+            // Enrol this per-key sub into the client health registry (when
+            // wired). Runs in the per-key owner, so the registry's `onCleanup`
+            // drop fires on the same disposal that tears the subscription down
+            // when this key leaves the set.
+            options.enroll?.(key, sub);
+            return { key, sub };
+          });
           index = createMemo(() => {
             const table = new Map<K, Subscription<T>>();
             for (const entry of perKey())
               if (!table.has(entry.key)) table.set(entry.key, entry.sub);
             return table;
           });
+        }
         const table = index;
         return createMemo(() => table().get(key));
       });

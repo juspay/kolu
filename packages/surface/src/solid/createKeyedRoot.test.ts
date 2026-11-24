@@ -8,36 +8,42 @@
  * (making the re-key lazy-on-read) fails the first test.
  */
 
-import { createRoot, createSignal, onCleanup } from "solid-js";
+import { createRoot, createSignal, flush, onCleanup } from "solid-js";
 import { describe, expect, it } from "vitest";
 import { createKeyedRoot } from "./createKeyedRoot";
 
 describe("createKeyedRoot", () => {
   it("re-derives under a fresh root per key change, disposing the prior root on the key change's flush, before the next read", () => {
-    createRoot((dispose) => {
-      const opened: string[] = [];
-      const disposed: string[] = [];
-      const [key, setKey] = createSignal("a");
+    const opened: string[] = [];
+    const disposed: string[] = [];
+    const [key, setKey] = createSignal("a");
+    // The key is driven from OUTSIDE the root — where a switch comes from (a
+    // click, a route change), and the only place a signal write is legal: a write
+    // under an owner is REACTIVE_WRITE_IN_OWNED_SCOPE.
+    const { value, dispose } = createRoot((dispose) => {
       const value = createKeyedRoot(key, (k) => {
         opened.push(k);
         onCleanup(() => disposed.push(k));
         return `built:${k}`;
       });
-      // Eager: the value is built synchronously at creation, present on first read.
-      expect(opened).toEqual(["a"]);
-      expect(value()).toBe("built:a");
-
-      setKey("b");
-      // The re-key rides the key change's own flush: "a"'s root is disposed and "b"
-      // opened there — BEFORE anything reads value(). That is the switch-abort
-      // guarantee.
-      expect(disposed).toEqual(["a"]);
-      expect(opened).toEqual(["a", "b"]);
-      expect(value()).toBe("built:b");
-
-      dispose();
-      expect(disposed).toEqual(["a", "b"]); // the final key tears down with the owner
+      return { value, dispose };
     });
+    // Eager: the value is built synchronously at creation, present on first read.
+    expect(opened).toEqual(["a"]);
+    expect(value()).toBe("built:a");
+
+    setKey("b");
+    flush();
+    // The re-key rides the key change's own flush: "a"'s root is disposed and "b"
+    // opened there — BEFORE anything reads value(). That is the switch-abort
+    // guarantee, and it is why the flush above is the whole assertion's subject:
+    // a consumer reading on the next frame finds the swap already complete.
+    expect(disposed).toEqual(["a"]);
+    expect(opened).toEqual(["a", "b"]);
+    expect(value()).toBe("built:b");
+
+    dispose();
+    expect(disposed).toEqual(["a", "b"]); // the final key tears down with the owner
   });
 
   it("populates synchronously — the value is present on the FIRST read (no undefined-first-render)", () => {
@@ -55,27 +61,30 @@ describe("createKeyedRoot", () => {
   });
 
   it("re-runs the factory on a KEY change, NOT when an incidental signal the factory read changes (identity-keyed)", () => {
-    createRoot((dispose) => {
-      let builds = 0;
-      const [key, setKey] = createSignal("a");
-      const [tick, setTick] = createSignal(0);
+    let builds = 0;
+    const [key, setKey] = createSignal("a");
+    const [tick, setTick] = createSignal(0);
+    const { value, dispose } = createRoot((dispose) => {
       const value = createKeyedRoot(key, (k) => {
         builds++;
         return `${k}:${tick()}`;
       });
-      expect(builds).toBe(1);
-      expect(value()).toBe("a:0");
-
-      // A signal the factory read changing must NOT re-run the factory — the atom
-      // keys on `key`, and the factory runs untracked (mapArray's per-item root).
-      setTick(1);
-      expect(builds).toBe(1);
-
-      // A KEY change re-runs it, reading the current incidental value.
-      setKey("b");
-      expect(builds).toBe(2);
-      expect(value()).toBe("b:1");
-      dispose();
+      return { value, dispose };
     });
+    expect(builds).toBe(1);
+    expect(value()).toBe("a:0");
+
+    // A signal the factory read changing must NOT re-run the factory — the atom
+    // keys on `key`, and the factory runs untracked (mapArray's per-item root).
+    setTick(1);
+    flush();
+    expect(builds).toBe(1);
+
+    // A KEY change re-runs it, reading the current incidental value.
+    setKey("b");
+    flush();
+    expect(builds).toBe(2);
+    expect(value()).toBe("b:1");
+    dispose();
   });
 });
