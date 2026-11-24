@@ -1,5 +1,5 @@
-/** ONE KEY LIT AT A TIME, told to that key's readers only — what Solid 1's
- *  `createSelector` was for, spelled in Solid 2's one mechanism for it.
+/** ONE KEY LIT AT A TIME, told to that key's readers only — the selector shape
+ *  (`isSelected(key)`), spelled with Solid 2's mechanism for it, a projection.
  *
  *  A plain memo over "is MY key the chosen one?" would wake every row on every
  *  move of the selection: each row reads the same source. A PROJECTION is a

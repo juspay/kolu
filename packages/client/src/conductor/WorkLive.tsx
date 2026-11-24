@@ -85,7 +85,7 @@ const WorkLive: Component<{
             data-ref={ref}
             data-role={roleOf(ref)}
             data-active={ref === front() ? "" : undefined}
-            aria-pressed={ref === front()}
+            aria-pressed={ref === front() ? "true" : "false"}
             class={`flex h-7 shrink-0 cursor-pointer items-center gap-1.5 whitespace-nowrap rounded-t-lg px-2.5 text-[0.72rem] ${
               ref === front()
                 ? "border border-b-0 border-edge-bright bg-surface-1 font-semibold text-fg"

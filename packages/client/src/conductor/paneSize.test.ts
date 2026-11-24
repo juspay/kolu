@@ -25,7 +25,10 @@ function harness(init?: { desktop?: boolean }) {
       restates += 1;
     },
   });
-  const observe = () => pane.observe({ connected, desktop, asked });
+  // The gate hands the host's state to the publisher's latch; what the latch
+  // then does with it is `publishGrid.ts`'s own test. Here it is a constant.
+  const observe = () =>
+    pane.observe({ connected, desktop, asked, hostState: "connected" });
   return {
     /** The pane came on screen, or left it. */
     connect(next: boolean) {

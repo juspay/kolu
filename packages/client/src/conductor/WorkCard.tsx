@@ -311,7 +311,7 @@ const WorkCard: Component<{
             type="button"
             data-testid="work-view"
             data-view={one}
-            aria-pressed={shownView() === one}
+            aria-pressed={shownView() === one ? "true" : "false"}
             class={`cursor-pointer rounded px-2.5 py-0.5 text-[0.72rem] ${
               shownView() === one
                 ? "bg-surface-0 font-semibold text-fg shadow-sm"
@@ -404,7 +404,7 @@ const WorkCard: Component<{
     <button
       type="button"
       data-testid="work-card-head"
-      aria-expanded={isOpen()}
+      aria-expanded={isOpen() ? "true" : "false"}
       aria-label={props.work.title}
       class={`absolute inset-0 cursor-pointer ${flat() ? "" : "rounded-xl"}`}
       onClick={() => togglePick(props.id)}

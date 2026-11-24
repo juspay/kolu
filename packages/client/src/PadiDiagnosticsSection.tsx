@@ -183,7 +183,7 @@ const Answer: Component<{ answer: PadiDiagnostics }> = (props) => (
             each={props.answer.children.rows}
             fallback={
               <tr>
-                <td class="italic text-fg-3/60" colSpan={4}>
+                <td class="italic text-fg-3/60" colspan={4}>
                   none started
                 </td>
               </tr>
@@ -239,7 +239,7 @@ const Answer: Component<{ answer: PadiDiagnostics }> = (props) => (
             each={props.answer.calls.rows}
             fallback={
               <tr>
-                <td class="italic text-fg-3/60" colSpan={4}>
+                <td class="italic text-fg-3/60" colspan={4}>
                   no calls
                 </td>
               </tr>

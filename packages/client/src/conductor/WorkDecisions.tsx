@@ -98,7 +98,7 @@ const WorkDecisions: Component<{ work: Work }> = (props) => {
                   <button
                     type="button"
                     data-testid="work-decision-row"
-                    aria-expanded={opened().has(row.id)}
+                    aria-expanded={opened().has(row.id) ? "true" : "false"}
                     class="flex w-full min-w-0 cursor-pointer items-baseline gap-1 rounded-sm text-start hover:bg-surface-1"
                     onClick={() => toggle(row.id)}
                   >
@@ -140,7 +140,7 @@ const WorkDecisions: Component<{ work: Work }> = (props) => {
             <button
               type="button"
               data-testid="work-decisions-all"
-              aria-expanded={all()}
+              aria-expanded={all() ? "true" : "false"}
               class="mt-1 cursor-pointer text-[0.66rem] text-accent hover:underline"
               onClick={() => setAll((was) => !was)}
             >

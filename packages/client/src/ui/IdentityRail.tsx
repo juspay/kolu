@@ -75,7 +75,7 @@ const IdentityRail: Component<{ status: WsStatus }> = (props) => {
           onClick={() => setKoluDialogOpen((v) => !v)}
           class={koluIdentityBtnClass}
           aria-label={koluTip()}
-          aria-expanded={koluDialogOpen()}
+          aria-expanded={koluDialogOpen() ? "true" : "false"}
         >
           <IdentityMark logoSrc="/favicon.svg">
             <StatusDot

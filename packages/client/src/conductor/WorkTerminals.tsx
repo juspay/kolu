@@ -121,7 +121,7 @@ const MemberRow: Component<{
         <button
           type="button"
           data-testid="work-member-role"
-          aria-expanded={open()}
+          aria-expanded={open() ? "true" : "false"}
           aria-label={`${open() ? "Fold" : "Unfold"} ${ROLE_WORD[props.one.member.role]}`}
           class="col-start-1 flex cursor-pointer items-center gap-1 whitespace-nowrap text-start font-semibold text-fg hover:text-accent"
           onClick={() => toggleMember(ref())}

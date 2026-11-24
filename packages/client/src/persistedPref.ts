@@ -37,8 +37,10 @@ export interface PersistedPrefOptions<T> {
   /** `localStorage` key. */
   name: string;
   /** Value used before anything is stored, and whenever the stored value
-   *  fails `parse`. */
-  fallback: T;
+   *  fails `parse`. Never a FUNCTION: Solid 2 reads a function handed to
+   *  `createSignal` as a derivation rather than a value, so a pref holding one
+   *  would silently become a derived signal. A pref is data. */
+  fallback: Exclude<T, Function>;
   /** Validate a raw stored string into `T`. **Throw** when the stored value
    *  is unexpected — {@link readWithFallback} catches, substitutes `fallback`,
    *  and calls `onInvalid`. Returning is the *only* signal for "valid";

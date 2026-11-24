@@ -78,10 +78,9 @@ export function publishGridAction(
 ): UiAction<void> {
   const { cols, rows } = size;
   return Effect.suspend(() => {
-    // Read at RUN time, not at construction: the action is described from the
-    // effect phase that states the pane's size, and the host's state is a live
-    // signal.
-    const host = deps.hostState();
+    // The word is the one the caller was judged against at FIRE time — handed
+    // in rather than read here, because this action is described from an
+    // effect's imperative half, where a reactive read does not belong.
     if (host !== "connected") {
       console.info(
         `terminal ${deps.terminalId}: host entry is "${host}", not connected — suppressing the ${cols}×${rows} grid publish (restated on the flip back to connected)`,

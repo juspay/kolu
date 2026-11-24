@@ -190,7 +190,7 @@ const FoldLine: Component<{
       data-turn={props.turn.head}
       data-open={props.open ? "" : undefined}
       data-quiet={props.turn.says.kind === "prose" ? undefined : ""}
-      aria-expanded={props.open}
+      aria-expanded={props.open ? "true" : "false"}
       onClick={toggle}
       // A RUN OF FOLDED LINES IS A LIST, packed at the column's own gap; an
       // open turn keeps the clear gap between turns.

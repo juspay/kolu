@@ -135,7 +135,7 @@ const WorkDetails: Component<{
               <button
                 type="button"
                 data-testid="work-pr-failing"
-                aria-expanded={allFailing()}
+                aria-expanded={allFailing() ? "true" : "false"}
                 class={`m-0 block w-full cursor-pointer text-left text-[0.68rem] text-danger hover:underline ${
                   allFailing() ? "whitespace-normal" : "truncate"
                 }`}

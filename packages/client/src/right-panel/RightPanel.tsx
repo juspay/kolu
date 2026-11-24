@@ -235,7 +235,7 @@ const RightPanel: Component<{
                   "content-visibility": isActive() ? "visible" : "hidden",
                 }}
                 inert={!isActive()}
-                aria-hidden={!isActive()}
+                aria-hidden={!isActive() ? "true" : "false"}
               >
                 <Shown value={() => props.visible && isActive()}>
                   {match(kind)

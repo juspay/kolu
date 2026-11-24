@@ -357,7 +357,7 @@ const ChipRow: Component<{
           data-testid="tile-tip-more"
           aria-label={`${hidden().length} more`}
           aria-haspopup="menu"
-          aria-expanded={menuOpen()}
+          aria-expanded={menuOpen() ? "true" : "false"}
           class={CHIP_BUTTON}
           onClick={(e) => {
             e.stopPropagation();

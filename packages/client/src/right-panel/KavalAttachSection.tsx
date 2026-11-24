@@ -82,7 +82,7 @@ const SegButton: Component<{
 }> = (props) => (
   <button
     type="button"
-    aria-pressed={props.pressed}
+    aria-pressed={props.pressed ? "true" : "false"}
     data-testid={props.testId}
     title={props.title}
     onClick={props.onClick}

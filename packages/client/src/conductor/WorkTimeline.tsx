@@ -237,7 +237,7 @@ const WorkTimeline: Component<{
                       <button
                         type="button"
                         data-testid="work-event-more"
-                        aria-expanded={open()}
+                        aria-expanded={open() ? "true" : "false"}
                         class="shrink-0 cursor-pointer rounded-sm px-1 font-mono text-[0.58rem] text-accent hover:underline"
                         onClick={() => toggle(key())}
                       >
@@ -343,7 +343,7 @@ const WorkTimeline: Component<{
               <button
                 type="button"
                 data-testid="work-event-more"
-                aria-expanded={open()}
+                aria-expanded={open() ? "true" : "false"}
                 class="shrink-0 cursor-pointer rounded-sm px-1 font-mono text-[0.58rem] text-accent hover:underline"
                 onClick={() => toggle(rowKey(folder.row))}
               >
@@ -435,7 +435,7 @@ const WorkTimeline: Component<{
         <button
           type="button"
           data-testid="work-timeline-whole"
-          aria-expanded={shown().view.kind === "whole"}
+          aria-expanded={shown().view.kind === "whole" ? "true" : "false"}
           class="mt-1 cursor-pointer text-[0.66rem] text-accent hover:underline"
           onClick={() => props.onWhole()}
         >

@@ -359,7 +359,7 @@ const WorkColumn: Component = () => {
                     <button
                       type="button"
                       data-testid="work-finished-toggle"
-                      aria-expanded={isFinishedOpen()}
+                      aria-expanded={isFinishedOpen() ? "true" : "false"}
                       class="mb-1.5 w-full cursor-pointer text-start font-mono text-[0.58rem] uppercase tracking-[0.12em] text-fg-3 hover:text-fg-2"
                       onClick={toggleFinished}
                     >

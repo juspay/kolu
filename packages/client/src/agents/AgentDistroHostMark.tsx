@@ -98,7 +98,7 @@ const AgentDistroHostMark: Component<{
       data-state={mark().kind}
       data-update-failed={updateFailed(mark()) ? "" : undefined}
       aria-label={agentMarkLabel(mark(), where())}
-      tabIndex={props.measuring ? -1 : undefined}
+      tabindex={props.measuring ? -1 : undefined}
       onClick={(e) => {
         // The mark sits inside the tab: opening the details must not switch
         // host. The panel mounts at the shell and hangs off this mark.

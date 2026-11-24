@@ -102,7 +102,7 @@ const StageTrail: Component<{
                 <button
                   type="button"
                   data-testid="trail-visit-cell"
-                  aria-pressed={shown()}
+                  aria-pressed={shown() ? "true" : "false"}
                   aria-label={spokenOf(visit(), index)}
                   class={`block h-full w-full cursor-pointer rounded-sm hover:brightness-125 ${
                     STAGE_INK[visit().stage].fill

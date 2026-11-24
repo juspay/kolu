@@ -116,7 +116,7 @@ const ConductorSettings: Component<{
                                 : undefined
                             }
                             role="menuitemradio"
-                            aria-checked={choice.value === section.option.value}
+                            aria-checked={choice.value === section.option.value ? "true" : "false"}
                             class={[
                               "w-full flex flex-col gap-0.5 px-2 py-1 rounded-md text-left hover:bg-surface-2 cursor-pointer",
                               {

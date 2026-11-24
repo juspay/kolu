@@ -255,7 +255,7 @@ const MobileHostRow: Component<{ onSwitch: () => void }> = (props) => {
           data-testid="mobile-host-add-open"
           class="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-dashed border-edge text-lg text-fg-3 active:bg-surface-2"
           aria-label="Add a host"
-          aria-expanded={addOpen()}
+          aria-expanded={addOpen() ? "true" : "false"}
           // Sits OUTSIDE the chip scroller (so it stays reachable on overflow),
           // so it needs its OWN drag opt-out: stop the pointerdown before the
           // Corvu drawer reads a jittered tap as a drag-to-dismiss.

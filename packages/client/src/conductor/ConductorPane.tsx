@@ -318,7 +318,7 @@ const ConductorPane: Component<{
                       "content-visibility": reading() ? "hidden" : "visible",
                     }}
                     inert={reading()}
-                    aria-hidden={reading() || undefined}
+                    aria-hidden={reading() ? "true" : undefined}
                     class={`flex min-h-0 min-w-0 flex-col overflow-hidden ${
                       reading() ? "w-0" : ""
                     }`}
@@ -373,7 +373,7 @@ const ConductorPane: Component<{
                     "content-visibility": chatAside() ? "hidden" : "visible",
                   }}
                   inert={chatAside()}
-                  aria-hidden={chatAside() || undefined}
+                  aria-hidden={chatAside() ? "true" : undefined}
                   class={`flex min-h-0 w-full min-w-0 flex-col overflow-hidden ${
                     chatAside()
                       ? "order-first"

@@ -251,8 +251,8 @@ const PaletteRow: Component<{
   return (
     <div
       role="option"
-      tabIndex={-1}
-      aria-selected={props.selected}
+      tabindex={-1}
+      aria-selected={props.selected ? "true" : "false"}
       data-selected={props.selected || undefined}
       data-palette-kind={kind()}
       data-palette-name={props.cmd.name}

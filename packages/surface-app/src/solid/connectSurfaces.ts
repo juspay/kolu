@@ -378,7 +378,7 @@ export interface SurfacesConnection<
   transport: LiveSignalHandle;
   /** How many usable CONNECTIONS this connection's wire has established — 0
    *  before the first, monotonic for the connection's whole life, and a Solid
-   *  accessor so a `createMemo` / `createResource` can key on it directly.
+   *  accessor so a memo — an async one included — can key on it directly.
    *
    *  It is the one thing a roster move does NOT hide, and it exists because
    *  following the roster in place hid everything else. A subscription heals

@@ -40,7 +40,7 @@ export function realSizes(sizes: number[]): [number, number] | undefined {
  *
  *  Under Solid 1 that was a crash: resolving the pending read re-ran owners
  *  that were mid-disposal and `cleanNode` threw, so the helper kept a plain
- *  signal fed by a `createComputed` instead. Solid 2 closes that hole in the
+ *  signal written ahead of the render instead. Solid 2 closes that hole in the
  *  core — `updateIfNecessary` refuses to recompute a node carrying the
  *  DISPOSED flag ("it would come back alive"), `disposeChildren` returns at
  *  once on an already-disposed node, and `dispose` strips the observation

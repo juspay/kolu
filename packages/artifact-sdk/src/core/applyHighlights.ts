@@ -39,7 +39,7 @@ export interface HighlightInputComment {
 export function applyHighlights(
   win: Window,
   root: QuoteRoot,
-  comments: HighlightInputComment[],
+  comments: readonly HighlightInputComment[],
   name: string,
 ): void {
   const HighlightCtor = win.Highlight;

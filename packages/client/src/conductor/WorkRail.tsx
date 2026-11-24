@@ -229,7 +229,7 @@ const Group: Component<{
         <button
           type="button"
           data-testid="works-rail-finished-toggle"
-          aria-expanded={isFinishedOpen()}
+          aria-expanded={isFinishedOpen() ? "true" : "false"}
           class="mb-1 w-full cursor-pointer px-2 text-start font-mono text-[0.55rem] uppercase tracking-[0.12em] text-fg-3 hover:text-fg-2"
           onClick={toggleFinished}
         >
@@ -265,7 +265,9 @@ const WorkRail: Component<{ groups: RailGroups }> = (props) => {
   // read once it is in the page (a `ref` runs before it is inserted).
   let nav!: HTMLElement;
   const [host, setHost] = createSignal<HTMLElement | null>(null);
-  onSettled(() => setHost(nav.parentElement));
+  onSettled(() => {
+    setHost(nav.parentElement);
+  });
   const resize = createWidthDrag(SIDEBAR_WIDTH, host);
   return (
     <nav

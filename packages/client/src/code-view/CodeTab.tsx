@@ -174,7 +174,9 @@ const ToolbarIconButton: Component<{
     type="button"
     data-testid={props.testId}
     aria-label={props.label}
-    aria-pressed={props.pressed}
+    aria-pressed={
+      props.pressed === undefined ? undefined : props.pressed ? "true" : "false"
+    }
     title={props.title}
     disabled={props.disabled}
     onClick={props.onClick}
@@ -910,7 +912,6 @@ const CodeTab: Component<{
 
   const treeSearch = createMemo(
     () => projectFileTreeSearch(treePaths(), searchQuery()),
-    undefined,
     {
       // Equal inventories are not fresh reveal requests. A status refresh must
       // not reopen a folder the user collapsed while the filter stays active.

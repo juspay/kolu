@@ -39,8 +39,10 @@ export interface PaneSizeDeps {
   /** Restate a grid a not-connected window dropped, if one is still owed
    *  (`publishGrid.ts`'s latch, which also checks the host). The same publish
    *  landing late, not a new reason to speak — restated only while the pane
-   *  is on screen, as the tile restates behind its own gate (`shownPane.ts`). */
-  readonly restateOwed: () => void;
+   *  is on screen, as the tile restates behind its own gate (`shownPane.ts`).
+   *  The host's state is HANDED IN: the latch is judged against it, and the
+   *  caller is an effect whose callback may not read it. */
+  readonly restateOwed: (hostState: string) => void;
 }
 
 /** THE FACTS A TICK IS ABOUT, handed in rather than read: the caller is the
@@ -54,6 +56,10 @@ export interface PaneSizeNow {
   /** The grid the pane would ask for ({@link paneGrid}), `null` until it has
    *  measured. */
   readonly asked: TerminalGrid | null;
+  /** The host entry's state KIND as the pane's host map paints it right now —
+   *  carried because the restatement is judged against `"connected"` and the
+   *  effect that drives this tick may not read it itself. */
+  readonly hostState: string;
 }
 
 export interface PaneSize {
@@ -68,7 +74,7 @@ export function createPaneSize(deps: PaneSizeDeps): PaneSize {
   let stated: TerminalGrid | null = null;
   return {
     observe(now) {
-      if (now.connected) deps.restateOwed();
+      if (now.connected) deps.restateOwed(now.hostState);
       const grid = now.connected && now.desktop ? now.asked : null;
       if (!grid) {
         if (stated) deps.cancelPublish();

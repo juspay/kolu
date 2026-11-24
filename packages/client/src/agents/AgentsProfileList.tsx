@@ -181,7 +181,7 @@ const AddField: Component<{
         id="agents-profile-input"
         type="text"
         role="combobox"
-        aria-expanded={open()}
+        aria-expanded={open() ? "true" : "false"}
         aria-controls="agents-profile-options"
         aria-autocomplete="list"
         aria-label="Add a profile — a flake reference or a path"
@@ -208,9 +208,9 @@ const AddField: Component<{
           type="button"
           data-testid="agents-profile-chevron"
           aria-label="Show suggested profiles"
-          aria-expanded={open()}
+          aria-expanded={open() ? "true" : "false"}
           aria-controls="agents-profile-options"
-          tabIndex={-1}
+          tabindex={-1}
           class="absolute inset-y-0 right-0 flex w-8 cursor-pointer items-center justify-center rounded-r-lg text-fg-3 transition-colors hover:text-fg"
           // Keep the focus in the input: a blur there closes the menu.
           onMouseDown={(e) => e.preventDefault()}
@@ -241,10 +241,10 @@ const AddField: Component<{
               {(row, i) => (
                 <button
                   type="button"
-                  tabIndex={-1}
+                  tabindex={-1}
                   id={`agents-profile-option-${i()}`}
                   role="option"
-                  aria-selected={active() === i()}
+                  aria-selected={active() === i() ? "true" : "false"}
                   data-testid="agents-profile-option"
                   data-value={row.value}
                   data-active={active() === i() ? "" : undefined}

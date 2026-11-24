@@ -212,7 +212,7 @@ const PeekWindow: Component<{ target: PeekTarget }> = (props) => {
       ref={(el: HTMLDivElement) => {
         contentEl = el;
       }}
-      tabIndex={-1}
+      tabindex={-1}
       onKeyDown={onWindowKey}
       style={
         layoutMode() === "phone"

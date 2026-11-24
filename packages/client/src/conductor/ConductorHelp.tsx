@@ -85,7 +85,7 @@ export const ConductorHelpSheet: Component = () => {
         <div
           ref={setBody}
           data-testid="conductor-help-body"
-          tabIndex={-1}
+          tabindex={-1}
           class="max-h-[80vh] overflow-y-auto px-4 py-3 outline-none"
         >
           {/* Spacing GROUPS: sections stand clear of each other, a section's

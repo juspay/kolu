@@ -115,7 +115,9 @@ vi.mock("../code-view/CodeTab", async () => {
       h.tabs.push({ subject: () => props.subject, door: props.door });
       createRenderEffect(
         () => props.arrangement,
-        (arrangement) => h.arrangements.push(arrangement),
+        (arrangement) => {
+          h.arrangements.push(arrangement);
+        },
       );
       return (
         <div data-testid="code-tab">

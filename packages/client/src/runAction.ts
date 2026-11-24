@@ -139,14 +139,14 @@ export function runOwnedAction<A>(
 
 /** Run a program and hand back its VALUE as a `Promise` — the edge for the three
  *  seams whose contract is a Promise and is not this package's to change:
- *  Solid's own `createResource` fetcher, `@kolu/xterm-kit`'s backfill `fetch`
+ *  a Solid async memo's compute, `@kolu/xterm-kit`'s backfill `fetch`
  *  (the kit is deliberately outside Effect), and `@kolu/surface`'s
  *  `pollOnChange`, whose `(signal) => Promise<T>` read seam is DELIBERATELY
  *  Promise-shaped (locked decision 1; the surface wave's `connectPollNode`
  *  records why) so that its non-Effect consumers keep working.
  *
  *  Unlike {@link runAction} the action need NOT be total: those consumers own an
- *  error path (a resource's error state, the kit's `isTerminalGone`/`onError`,
+ *  error path (an async memo's `Errored` boundary, the kit's `isTerminalGone`/`onError`,
  *  the poll's `swallowError`) and a rejection is how they are told.
  *  `Effect.runPromise` rejects with the SQUASHED failure — the declared
  *  tagged-error instance itself, `_tag` and data intact — which is what keeps

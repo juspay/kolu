@@ -171,7 +171,7 @@ const PortsSection: Component<{ terminalId: TerminalId }> = (props) => {
                   "-mx-1 flex items-center gap-1 rounded px-1 py-0.5 text-left text-[10px] text-fg-3/70 transition-colors hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 motion-reduce:transition-none",
                   { "min-h-6": isTouch() },
                 ]}
-                aria-expanded={elsewhereOpen()}
+                aria-expanded={elsewhereOpen() ? "true" : "false"}
                 data-testid="inspector-ports-elsewhere-toggle"
                 onClick={() => setElsewhereOpen((open) => !open)}
               >

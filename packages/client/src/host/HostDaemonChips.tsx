@@ -282,7 +282,7 @@ const PadiSubChip: Component<{
           }}
           class={identityMarkBtnClass}
           aria-label={padiTip()}
-          aria-expanded={open()}
+          aria-expanded={open() ? "true" : "false"}
         >
           <PadiMark presence={presence()} />
         </button>
@@ -387,7 +387,7 @@ const KavalSubChip: Component<{
           }}
           class={identityMarkBtnClass}
           aria-label={kavalTip()}
-          aria-expanded={open()}
+          aria-expanded={open() ? "true" : "false"}
         >
           <KavalMark presence={presence()} attention={attention().kind} />
         </button>

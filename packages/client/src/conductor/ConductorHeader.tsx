@@ -213,7 +213,7 @@ const ConductorHeader: Component<{
           ref={menuRef}
           data-testid="conductor-menu"
           aria-haspopup="menu"
-          aria-expanded={menuOpen()}
+          aria-expanded={menuOpen() ? "true" : "false"}
           class="text-fg-3 hover:text-fg cursor-pointer px-1 text-base/4"
           onClick={() => setMenuOpen(!menuOpen())}
         >

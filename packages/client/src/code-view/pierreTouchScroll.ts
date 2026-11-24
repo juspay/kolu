@@ -146,14 +146,18 @@ export function attachPierreTouchScroll(container: HTMLElement): () => void {
   // `preventDefault` suppress iOS's native scroll. Plain listeners, removed by
   // the returned disposer: nothing here registers an `onCleanup`, so the
   // driver may be wired from a `ref` callback or an effect callback.
+  //
+  // The removals pass no options: a listener is keyed by type, callback and
+  // CAPTURE alone, and these are all bubble-phase — `passive` is a hint for
+  // the add, never part of the key.
   const move = { passive: false } as const;
   container.addEventListener("touchstart", onStart, move);
   container.addEventListener("touchmove", onMove, move);
   container.addEventListener("touchend", onEnd);
   container.addEventListener("touchcancel", onEnd);
   return () => {
-    container.removeEventListener("touchstart", onStart, move);
-    container.removeEventListener("touchmove", onMove, move);
+    container.removeEventListener("touchstart", onStart);
+    container.removeEventListener("touchmove", onMove);
     container.removeEventListener("touchend", onEnd);
     container.removeEventListener("touchcancel", onEnd);
   };

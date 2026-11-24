@@ -829,7 +829,7 @@ const App: Component = () => {
               "content-visibility": conductorMode() ? "visible" : "hidden",
             }}
             inert={!conductorMode()}
-            aria-hidden={!conductorMode()}
+            aria-hidden={!conductorMode() ? "true" : "false"}
           >
             <Shown value={conductorMode}>
               <ConductorPane class="absolute inset-0" />

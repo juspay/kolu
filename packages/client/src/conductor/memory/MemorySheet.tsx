@@ -149,7 +149,7 @@ const ExportMenu: Component = () => {
       <button
         type="button"
         data-testid="memory-export"
-        aria-expanded={open()}
+        aria-expanded={open() ? "true" : "false"}
         class={headButton}
         onClick={() => setOpen((was) => !was)}
       >

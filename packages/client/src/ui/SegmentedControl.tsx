@@ -229,8 +229,8 @@ export default function SegmentedControl<T extends string>(props: {
                 type="button"
                 ref={keep(opt().value)}
                 data-testid={`${props.testIdPrefix}-${opt().value}`}
-                aria-pressed={props.value === opt().value}
-                tabIndex={tabIndexOf(opt().value)}
+                aria-pressed={props.value === opt().value ? "true" : "false"}
+                tabindex={tabIndexOf(opt().value)}
                 onFocus={() => focusOn(opt().value)}
                 onFocusOut={onFocusOut}
                 onKeyDown={onKeyDown(opt().value)}
@@ -273,8 +273,8 @@ export default function SegmentedControl<T extends string>(props: {
                 type="button"
                 ref={keep(opt().value)}
                 data-testid={`${props.testIdPrefix}-${opt().value}`}
-                aria-pressed={props.value === opt().value}
-                tabIndex={tabIndexOf(opt().value)}
+                aria-pressed={props.value === opt().value ? "true" : "false"}
+                tabindex={tabIndexOf(opt().value)}
                 onFocus={() => focusOn(opt().value)}
                 onFocusOut={onFocusOut}
                 onKeyDown={onKeyDown(opt().value)}

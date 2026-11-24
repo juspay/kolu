@@ -108,7 +108,7 @@ const WorkFileList: Component<WorkFileListProps> = (props) => {
                 data-testid="work-folder"
                 data-path={one.folder}
                 data-count={one.files.length}
-                aria-expanded={unfolded(one.folder)}
+                aria-expanded={unfolded(one.folder) ? "true" : "false"}
                 onClick={() => toggle(one.folder)}
                 class={`${CHIP} border-dashed ${
                   unfolded(one.folder)

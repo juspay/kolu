@@ -285,12 +285,16 @@ const useFleetHosts = createSharedRoot(() => {
 
 /** App-lifetime fleet index — the switcher's ranked rows, over the shared
  *  per-host roots. */
-export const useFleetTerminalIndex = createSharedRoot(() => {
-  const hosts = useFleetHosts();
-  return createMemo((): FleetTerminalRow[] =>
-    rankFleetTerminalRows(hosts().flatMap((h) => h.rows())),
-  );
-});
+export const useFleetTerminalIndex = createSharedRoot(
+  // Handed out as a plain `Accessor`: a reader of the index ranks rows, it
+  // never refreshes the memo behind it.
+  (): Accessor<FleetTerminalRow[]> => {
+    const hosts = useFleetHosts();
+    return createMemo((): FleetTerminalRow[] =>
+      rankFleetTerminalRows(hosts().flatMap((h) => h.rows())),
+    );
+  },
+);
 
 /** Where the terminal `id` on `host` (an ENCODED host key, the host half of a
  *  fleet ref) stands right now — reactive, and read off the same per-host

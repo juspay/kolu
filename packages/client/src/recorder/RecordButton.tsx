@@ -190,7 +190,7 @@ const RecordButton: Component = () => {
                 runAction("toggle webcam", recorder.toggleWebcam())
               }
               aria-label={webcamLabel()}
-              aria-pressed={recorder.webcamEnabled()}
+              aria-pressed={recorder.webcamEnabled() ? "true" : "false"}
             >
               <WebcamIcon />
             </button>

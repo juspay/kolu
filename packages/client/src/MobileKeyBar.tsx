@@ -152,7 +152,7 @@ const MobileKeyBar: Component<{
           {(mod) => (
             <button
               type="button"
-              aria-pressed={mod.armed()}
+              aria-pressed={mod.armed() ? "true" : "false"}
               // preventDefault on pointerdown keeps xterm's hidden textarea
               // focused — otherwise iOS dismisses the soft keyboard on every tap.
               onPointerDown={(e) => {

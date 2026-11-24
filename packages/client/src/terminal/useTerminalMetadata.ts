@@ -354,7 +354,6 @@ export function useTerminalMetadata(deps: {
         // Root of its own tree, or no root at all (cycle / dangling) → tile.
         return root === id || root === null;
       }),
-    [],
     { equals: sameTerminalIdOrder },
   );
 

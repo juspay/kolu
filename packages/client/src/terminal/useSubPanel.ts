@@ -234,9 +234,12 @@ export function useSubPanel() {
     /** Focus a top-level tile's remembered pane. Both rememberedPane and the
      *  remembered tab are verb-only chrome: this verb resolves them immediately
      *  and writes the same one per-host focus fact as every other transition. */
-    focusVisiblePane,
-    /** Reader half of {@link focusVisiblePane}, for a caller inside an effect:
-     *  run it in the compute, run what it returns in the effect. */
+    focusVisiblePane(parentId: TerminalId) {
+      planFocusVisiblePane(parentId)();
+    },
+    /** Reader half of {@link planFocusVisiblePane}'s verb above, for a caller
+     *  inside an effect: run it in the compute, run what it returns in the
+     *  effect. */
     planFocusVisiblePane,
 
     /** Clear selection through the same narrow focus boundary. No pane chrome

@@ -40,7 +40,7 @@ const ConductorPhoneTabs: Component = () => {
             role="tab"
             data-testid="conductor-phone-tab"
             data-tab={tab.view}
-            aria-selected={phoneView() === tab.view}
+            aria-selected={phoneView() === tab.view ? "true" : "false"}
             class={`relative flex cursor-pointer items-center justify-center gap-1.5 py-3 text-sm font-semibold ${
               phoneView() === tab.view
                 ? "text-fg shadow-[inset_0_2px_0_0_var(--color-accent)]"

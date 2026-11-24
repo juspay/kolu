@@ -13,7 +13,7 @@ const Toggle: Component<{
   <button
     type="button"
     role="switch"
-    aria-checked={props.enabled}
+    aria-checked={props.enabled ? "true" : "false"}
     aria-label={props.label}
     data-testid={props.testId}
     data-enabled={props.enabled ? "" : undefined}

@@ -55,7 +55,7 @@ export const TerminalControls: Component<{
         <button
           type="button"
           data-testid={`${props.kind}-fit`}
-          aria-pressed={props.fit}
+          aria-pressed={props.fit ? "true" : "false"}
           class={
             props.fit
               ? "shrink-0 cursor-pointer rounded-md border border-accent/50 bg-accent/15 px-2 py-0.5 text-[0.7rem] text-accent"

@@ -39,10 +39,14 @@ function harness(init?: { grid?: TerminalGrid | null; visible?: boolean }) {
     },
     restateOwed: () => {},
   });
-  /** What `Terminal.tsx`'s effect compute hands the gate. */
+  /** What `Terminal.tsx`'s effect compute hands the gate. The host is up
+   *  throughout: what the publisher's latch does with that word is
+   *  `publishGrid.ts`'s own test. */
   const facts = () => ({
     shown: grid !== null && visible,
     viewShown: inFront,
+    hostState: "connected",
+    wanted: grid,
   });
   return {
     /** The pane measured its box (a first fit, a re-fit, a disposal). */
@@ -224,10 +228,16 @@ describe("a grid owed from a host outage, under the Conductor", () => {
       cancelPublish: publisher.cancel,
       restateOwed: publisher.republishSuppressed,
     });
-    const facts = () => ({ shown: true, viewShown: inFront });
+    const wanted = { cols: 120, rows: 40 };
+    const facts = () => ({
+      shown: true,
+      viewShown: inFront,
+      hostState: host,
+      wanted,
+    });
     pane.observe(facts());
     // Measured while the host was down: the publish is dropped and latched.
-    pane.measured({ cols: 120, rows: 40 }, facts());
+    pane.measured(wanted, facts());
     vi.advanceTimersByTime(GRID_SETTLE_MS);
     return {
       resized,

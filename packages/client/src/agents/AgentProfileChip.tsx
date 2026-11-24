@@ -95,7 +95,7 @@ const AgentProfileChip: Component<{
         data-restart={props.restart ? "" : undefined}
         data-armed={guard.armed() ? "" : undefined}
         disabled={guard.busy()}
-        aria-busy={guard.busy()}
+        aria-busy={guard.busy() ? "true" : "false"}
         class={[
           `${props.buttonClass} gap-1.5 px-2 text-xs`,
           {

@@ -95,8 +95,8 @@ declare global {
   /** xterm's per-container reference. `Terminal.tsx` attaches the xterm
    *  instance to the canvas tile's wrapping `<div>` so e2e tests can
    *  reach the terminal API without going through the SolidJS reactivity
-   *  layer. `__xterm` is `undefined` until the component's `onMount`
-   *  body runs and is cleared on cleanup (#591 leak fix). */
+   *  layer. `__xterm` is `undefined` until the component's mount-time
+   *  (`onSettled`) body runs and is cleared on cleanup (#591 leak fix). */
   interface HTMLDivElement {
     __xterm?: KoluXtermProbe;
   }

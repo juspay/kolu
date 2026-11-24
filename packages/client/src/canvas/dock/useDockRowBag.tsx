@@ -20,9 +20,9 @@
  *  2. **Every field is a GETTER, and the inputs arrive as accessors.** A plain
  *     object of VALUES read once is a snapshot: the wait chip stops counting,
  *     the pip stops repainting, `data-active` freezes on whichever tile was
- *     active at mount. Solid's `mergeProps` preserves property descriptors
- *     through a spread, so getters here stay reactive at the row's own prop
- *     reads — exactly as `pip()` in JSX used to be.
+ *     active at mount. A JSX spread preserves property descriptors, so
+ *     getters here stay reactive at the row's own prop reads — exactly as
+ *     `pip()` in JSX used to be.
  *
  *  What is assembled is what the two surfaces agree on. What stays at each call
  *  site is what they genuinely differ by: the surface token, the landing verb

@@ -1453,8 +1453,8 @@ describe("connectSurfaces — a ROSTER CHANGE moves the WIRE, not the connection
       expect(conn.readout().status).toBe("live");
       expect(conn.connectionEpoch()).toBe(3);
 
-      // Monotonic, and every step was OBSERVED by a tracking scope — a
-      // `createResource` keyed on it re-fetches on each.
+      // Monotonic, and every step was OBSERVED by a tracking scope — an async
+      // memo keyed on it re-fetches on each.
       expect(seen).toEqual([0, 1, 2, 3]);
 
       await conn.dispose();

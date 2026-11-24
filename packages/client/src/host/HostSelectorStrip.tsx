@@ -267,7 +267,7 @@ const HostChip: Component<{
         diagnostics={{
           "data-testid": "host-diagnostics-open",
           "aria-haspopup": "dialog",
-          "aria-expanded": diagOpen(),
+          "aria-expanded": diagOpen() ? "true" : "false",
           "aria-label": `Details for ${name()} — ${glance().title}${activeSuffix()}${forwardCount() > 0 ? `, ${forwardRingLabel(forwardCount())}` : ""}`,
           title: `${glance().title}${activeSuffix()} — click for details`,
           onClick: (e) => {
@@ -283,7 +283,7 @@ const HostChip: Component<{
         }}
         select={{
           role: "tab",
-          "aria-selected": isActive(),
+          "aria-selected": isActive() ? "true" : "false",
           "data-testid": "host-select",
           // Picking a host tab is also how you LEAVE the conductor, which
           // is why the already-active tab is not a no-op — see `selectHostTab`.
@@ -586,8 +586,8 @@ const HostDropdownSwitcher: Component<{ hosts: HostKey[] }> = (props) => {
         <button
           type="button"
           role="tab"
-          aria-selected={current()}
-          aria-expanded={open()}
+          aria-selected={current() ? "true" : "false"}
+          aria-expanded={open() ? "true" : "false"}
           ref={triggerEl}
           class={[
             "pointer-events-auto flex h-8 items-center gap-1.5 pl-2.5 pr-2 text-xs transition-colors focus-visible:outline-none cursor-pointer",
@@ -673,7 +673,7 @@ const AddHostAffordance: Component = () => {
         class="pointer-events-auto shrink-0 h-8 w-8 inline-flex items-center justify-center rounded-lg text-fg-3 transition-colors hover:bg-surface-1/60 hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 cursor-pointer"
         aria-label="Add a host"
         title="Add a host (ssh target)"
-        aria-expanded={open()}
+        aria-expanded={open() ? "true" : "false"}
         onClick={() => setOpen((v) => !v)}
       >
         +

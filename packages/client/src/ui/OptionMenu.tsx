@@ -213,7 +213,7 @@ export const OptionMenu = <T extends string>(props: {
                   >
                     <button
                       role="menuitemradio"
-                      aria-checked={props.value === opt.value}
+                      aria-checked={props.value === opt.value ? "true" : "false"}
                       {...item()}
                     >
                       {face()}

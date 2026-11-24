@@ -229,13 +229,13 @@ const LivePane: Component<{
       connected: onScreen(),
       desktop: isDesktop(),
       asked: asked(),
-      // A dep, not a fact the tick is about: the host coming back is what
-      // makes a suppressed publish worth restating.
+      // The host coming back is what makes a suppressed publish worth
+      // restating, and the gate is judged against this word.
       hostState: hostState(),
     }),
     ({ connected, desktop, asked: grid, hostState: host }) => {
       hostStateSeen = host;
-      paneSize.observe({ connected, desktop, asked: grid });
+      paneSize.observe({ connected, desktop, asked: grid, hostState: host });
     },
   );
   /** THE ONE PRESS (the head's readout, offered once the terminal has stayed

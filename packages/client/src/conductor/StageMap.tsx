@@ -253,7 +253,7 @@ const DoubtMark: Component<{
           data-doubt={props.doubt}
           title={spoken()}
           aria-label={spoken()}
-          aria-pressed={pick().shown}
+          aria-pressed={pick().shown ? "true" : "false"}
           class={`${ink} cursor-pointer hover:brightness-125 ${
             pick().shown ? STAGE_INK[props.doubt].tint : ""
           }`}
@@ -564,7 +564,7 @@ const StageMap: Component<{
                         <button
                           type="button"
                           data-testid="stage-cell"
-                          aria-pressed={index().shown() === name()}
+                          aria-pressed={index().shown() === name() ? "true" : "false"}
                           class={`${box(index().shown() === name())} cursor-pointer hover:brightness-125`}
                           onClick={() => index().show(name())}
                         >
