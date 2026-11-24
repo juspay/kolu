@@ -404,18 +404,15 @@ export const STAGES = [
 ] as const;
 export type StageName = (typeof STAGES)[number];
 
-/** A STRETCH KOLU CANNOT FILE IN ONE STAGE: who held the work was not
- *  recorded (a work saved before kolu kept hand-offs, up to the first
- *  hand-off after the upgrade), and the stage turns on it. Exactly two
- *  exist: a plan you answered was the plan again or the approval; after the
- *  implementor joined, the agents' time was the build or the review. */
-export type Doubt = "plan-or-approve" | "build-or-review";
-
-/** The two doubts, in the order a work meets them. */
-export const DOUBTS: ReadonlyArray<Doubt> = [
-  "plan-or-approve",
-  "build-or-review",
-];
+/** THE DOUBTS — stretches kolu cannot file in one stage: who held the work
+ *  was not recorded (a work saved before kolu kept hand-offs, up to the
+ *  first hand-off after the upgrade), and the stage turns on it. Exactly
+ *  two exist, in the order a work meets them: a plan you answered was the
+ *  plan again or the approval; after the implementor joined, the agents'
+ *  time was the build or the review. The one statement of them: the type,
+ *  {@link DOUBT_STAGES} and {@link isDoubt} are read off it. */
+export const DOUBTS = ["plan-or-approve", "build-or-review"] as const;
+export type Doubt = (typeof DOUBTS)[number];
 
 /** The two stages of each doubt: the one it is if the planner had the work,
  *  and the one it is otherwise. */
@@ -437,11 +434,26 @@ export type Filed = StageName | "setup" | Doubt;
 
 /** Whether a place is a doubt. */
 export const isDoubt = (place: Filed): place is Doubt =>
-  place === "plan-or-approve" || place === "build-or-review";
+  (DOUBTS as ReadonlyArray<Filed>).includes(place);
 
 /** Whether a place is one of the six stages. */
 const isStage = (place: Filed): place is StageName =>
   place !== "setup" && !isDoubt(place);
+
+/** THE DOUBT BETWEEN TWO STAGES — the planner's and the other's — read off
+ *  {@link DOUBT_STAGES}. Only the pairs it lists stand for a doubt; asking
+ *  for any other is a defect in the caller, and fails loudly. */
+const doubtBetween = (planners: StageName, others: StageName): Doubt =>
+  Option.getOrThrowWith(
+    Option.fromUndefinedOr(
+      DOUBTS.find(
+        (doubt) =>
+          DOUBT_STAGES[doubt].planners === planners &&
+          DOUBT_STAGES[doubt].others === others,
+      ),
+    ),
+    () => new Error(`no doubt stands between ${planners} and ${others}`),
+  );
 
 /** The stages a place can be, in the map's order: itself, a doubt's two,
  *  none for the setup. */
@@ -471,6 +483,10 @@ export interface Visit {
   readonly time: Readonly<Record<Waiter, number>>;
   readonly events: { readonly from: number; readonly until: number };
 }
+
+/** How long a visit took: its time, whoever the work waited on. */
+export const visitMs = (visit: Visit): number =>
+  visit.time.agent + visit.time.you + visit.time.ci;
 
 /** WHERE A STAGE STANDS, as a sum — each arm carries only what is true of it:
  *
@@ -590,8 +606,9 @@ const placeOf = (at: Running, who: Waiter, current: Filed): Filed => {
   const otherwise = agentsStage(false, the);
   if (!joinedAs(at.holding, "planner")) return otherwise;
   const ifPlanner = agentsStage(true, the);
-  if (ifPlanner === otherwise) return otherwise;
-  return implemented ? "build-or-review" : "plan-or-approve";
+  return ifPlanner === otherwise
+    ? otherwise
+    : doubtBetween(ifPlanner, otherwise);
 };
 
 /** ONE STRETCH OF THE WALK and where it was filed — or `done`, a stretch the
@@ -642,14 +659,12 @@ const placeStretches = (
  *  visit with the visit the next stretch is in, and one that leaves the work
  *  ended (or begins a stretch of it ended) where the work was last, in the
  *  visit the ending closed. An OPEN work's last visit is open and is where
- *  it is now (`current`), whatever its timeline's last `ended` said. */
+ *  it is now (`where` is `in` it), whatever its timeline's last `ended`
+ *  said; `eventCount` files that visit's events, none yet, at the end. */
 const visitsOf = (
   placed: ReadonlyArray<Placed>,
-  where: {
-    readonly open: boolean;
-    readonly current: Filed;
-    readonly eventCount: number;
-  },
+  where: Where,
+  eventCount: number,
 ): {
   readonly trail: ReadonlyArray<Visit>;
   readonly events: ReadonlyArray<Filed>;
@@ -712,18 +727,16 @@ const visitsOf = (
   const end = placed.at(-1);
   const clock = end === undefined ? 0 : end.from + end.length;
   const final = trail.at(-1);
-  if (
-    where.open &&
-    (final?.stage !== where.current || Option.isSome(final.until))
-  )
+  const open = where.kind === "in";
+  if (open && (final?.stage !== where.place || Option.isSome(final.until)))
     trail.push({
-      stage: where.current,
+      stage: where.place,
       from: clock,
       until: Option.none(),
       time: { agent: 0, you: 0, ci: 0 },
-      events: { from: where.eventCount, until: where.eventCount },
+      events: { from: eventCount, until: eventCount },
     });
-  else if (final !== undefined && !where.open) close(final, clock);
+  else if (final !== undefined && !open) close(final, clock);
   return {
     events,
     began,
@@ -856,11 +869,7 @@ export const stages = (work: Work, policy: Policy, now: string): Stages => {
   const where: Where = open
     ? { kind: "in", place: file(placeOf(last, nowWho, walked)) }
     : { kind: "ended-in", place: walked };
-  const { trail, events, began } = visitsOf(placed, {
-    open,
-    current: where.place,
-    eventCount: work.events.length,
-  });
+  const { trail, events, began } = visitsOf(placed, where, work.events.length);
   return {
     kind: "staged",
     events,
@@ -869,10 +878,6 @@ export const stages = (work: Work, policy: Policy, now: string): Stages => {
     stages: cellsOf(trail, began, { declared, where, nowWho }),
   };
 };
-
-/** How long a visit took. */
-const visitMs = (visit: Visit): number =>
-  visit.time.agent + visit.time.you + visit.time.ci;
 
 /** THE DOUBTS A WORK VISITED, in {@link DOUBTS}' order, each with its time
  *  over every visit — the time a doubt's two stages took together, which is
