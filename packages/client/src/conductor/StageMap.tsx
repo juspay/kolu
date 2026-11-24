@@ -6,50 +6,60 @@
  *  back and forth: Review and Build loop once per review round, Build and
  *  Checks once per CI run that sent it back, and Approve and Plan once per
  *  plan you asked to change. A loop that has been walked says how many times
- *  (`×6`), counted off the work's trail (`movesOf`) — never kept by hand.
+ *  (`×6`), counted off the work's trail (`movedTimes`) — never kept by hand.
+ *  A count a doubt may hide more of is a lower bound (`×6+`), or unknown
+ *  (`×?`).
  *
  *  Each stage carries its name and, once it has had any, its total time over
- *  every visit. A RING is on the stage the work is in, with how long it has
- *  been in it this time; on a finished work the stage it ended in is the
- *  emphasised one. A NARROW MAP (under 18rem of its own width, a container
- *  query) cannot fit five names beside four arrows, two of them counting a
- *  loop, so each name is its first letter — P, A, B, R, C, M are six
- *  different letters — and the ring drops its `now ·`; the whole name stays
- *  in the title and the spoken label.
- *  A Build or Review whose time nobody recorded (a work saved
- *  before kolu kept hand-offs) is HATCHED, as that stretch is on the trail.
- *  A stage the mode does not have, or the work went past, is DASHED; one not
- *  reached is FAINT. A colour names a stage — the same colour
- *  as on the trail (`STAGE_INK`) — and every stage also says, in its title
- *  and to a screen reader, its time, whose time it mostly was, where it
- *  stands and how many times the work was in it, so nothing is said by
- *  colour alone.
+ *  every visit. A RING is on where the work is: one box for a stage, both
+ *  for a doubt between two. Inside a ringed box, a third line says how long
+ *  this visit has been (`now 8m`) when that is not the whole of its time. A
+ *  finished work's last stage has a bold name and says so in its title. A
+ *  stage whose time was not recorded — a work saved before kolu kept
+ *  hand-offs, which a DOUBT between two stages may have been — is HATCHED,
+ *  its name on a plain plate; the doubt itself is a mark between its two
+ *  boxes, with the time the two took together (`▨ 1h 20m`). A stage the mode
+ *  does not have, or the work went past, is DASHED; one not reached is
+ *  FAINT. A colour names a stage — the same colour as on the trail
+ *  (`STAGE_INK`) — and every stage also says, in its title and to a screen
+ *  reader, its time, whose time it mostly was, where it stands and how many
+ *  times the work was in it, so nothing is said by colour alone.
+ *
+ *  A NARROW MAP (under 18rem of its own width, a container query) cannot fit
+ *  five names beside four arrows, two of them counting a loop, so each name
+ *  is its first letter — P, A, B, R, C, M are six different letters — and
+ *  the third line and a doubt's time are not drawn; the title has them.
  *
  *  ONE COMPONENT, TWO SIZES: `full` on a card, `mini` inside a work chip's
  *  hover card. On a card it is also an INDEX INTO THE TIMELINE: a stage that
- *  has happened is a button showing that stage's events, and the stage shown
- *  is pressed. A mode with no stages (a plain watch) draws no map; a work
- *  whose mode nobody has answered draws six faint stages until it is known.
+ *  has happened, and a doubt's mark, is a button showing its events, and the
+ *  one shown is filled with its colour at low strength — never ringed, so
+ *  the ring only ever means where the work is. A mode with no stages (a
+ *  plain watch) draws no map; a work whose mode nobody has answered draws
+ *  six faint stages until it is known.
  *
  *  `<Index>`, because a stage's POSITION is its identity — the six never
  *  move — and the fold mints fresh objects every tick of the clock. */
 
 import { compactPhrase, dualPhrase } from "@kolu/terminal-vocab/duration";
-import { Option } from "effect";
 import {
-  type Filed,
-  movesOf,
+  canBe,
+  type Count,
+  type Doubt,
+  doubtsOf,
+  movedTimes,
   STAGES,
   type Stage,
   stageMs,
   type StageName,
   type Stages,
   type StageState,
+  visitedTimes,
   type Waiter,
+  type Where,
 } from "kolu-work";
 import { type Component, createMemo, Index, Show } from "solid-js";
-import { visitMs } from "./trailView";
-import { NOW_RING, STAGE_INK, STAGE_LABEL } from "./workReadings";
+import { HATCH, NOW_RING, STAGE_INK, STAGE_LABEL } from "./workReadings";
 
 /** WHERE EACH STAGE SITS on the map's grid: five in a row, Review above
  *  Build. Columns alternate stage and arrow. */
@@ -79,18 +89,41 @@ const WHOSE: Record<Waiter, string> = {
   ci: "CI's time",
 };
 
-/** A box's look, by where its stage stands. The ring is the stage the work
- *  is in; hatched is a time nobody recorded (ringed, both of the two it may
- *  have been, while the work is in it); dashed did not happen; faint is not
- *  reached yet. */
+/** A COUNT AS AN ARROW WRITES IT, and as its data attributes carry it: `0`,
+ *  `2`, `2+` for at least two, `?` for at least none. An arrow draws no
+ *  count that is known to be none. */
+export const countText = (count: Count): string => {
+  if (count.kind === "exactly") return `${count.times}`;
+  return count.times === 0 ? "?" : `${count.times}+`;
+};
+
+/** Whether a count is known to be none. */
+const isNone = (count: Count): boolean =>
+  count.kind === "exactly" && count.times === 0;
+
+/** ... and as a stage's sentence says how many times the work was in it:
+ *  nothing for once or never, else `2 times`, `at least once`, `at least 2
+ *  times`, or `an unknown number of times`. */
+const countWords = (count: Count): ReadonlyArray<string> => {
+  if (count.kind === "exactly")
+    return count.times > 1 ? [`${count.times} times`] : [];
+  if (count.times === 0) return ["an unknown number of times"];
+  return [
+    count.times === 1 ? "at least once" : `at least ${count.times} times`,
+  ];
+};
+
+/** A box's look, by where its stage stands: hatched may have been a doubt's
+ *  time; dashed did not happen; faint is not reached yet. The ring and the
+ *  "shown" fill are where the work is and what the timeline shows, added on
+ *  top. */
 const boxInk = (name: StageName, state: StageState): string => {
   switch (state.kind) {
     case "now":
-      return `${STAGE_INK[name].edge} ${NOW_RING}`;
     case "done":
       return STAGE_INK[name].edge;
     case "unrecorded":
-      return `${STAGE_INK.unrecorded.edge} ${STAGE_INK.unrecorded.fill} ${state.now ? NOW_RING : ""}`;
+      return `${HATCH.edge} ${HATCH.fill}`;
     case "not-started":
       return "border-edge opacity-60";
     case "skipped":
@@ -108,14 +141,16 @@ const QUIET: ReadonlyArray<Stage> = STAGES.map((name) => ({
 
 /** What the map reads off one `Stages`: its cells, where the work is (or
  *  ended), how many times it moved each way, how many times it was in each
- *  stage, and how long it has been in the stage it is in now. */
+ *  stage, and the doubts it visited with their time. */
 interface MapReading {
   readonly cells: ReadonlyArray<Stage>;
-  readonly current: Filed | undefined;
-  readonly moved: (from: Filed, to: Filed) => number;
-  readonly visits: (stage: StageName) => number;
-  readonly hereFor: number | undefined;
+  readonly where: Where | undefined;
+  readonly moved: (from: StageName, to: StageName) => Count;
+  readonly visits: (stage: StageName) => Count;
+  readonly doubt: (doubt: Doubt) => number | undefined;
 }
+
+const NONE: Count = { kind: "exactly", times: 0 };
 
 const readingOf = (stages: Stages): MapReading | undefined => {
   switch (stages.kind) {
@@ -124,25 +159,19 @@ const readingOf = (stages: Stages): MapReading | undefined => {
     case "unset":
       return {
         cells: QUIET,
-        current: undefined,
-        moved: () => 0,
-        visits: () => 0,
-        hereFor: undefined,
+        where: undefined,
+        moved: () => NONE,
+        visits: () => NONE,
+        doubt: () => undefined,
       };
     case "staged": {
-      const moves = movesOf(stages.trail);
-      const last = stages.trail.at(-1);
+      const doubts = doubtsOf(stages.trail);
       return {
         cells: stages.stages,
-        current: stages.current,
-        moved: (from, to) =>
-          moves.find((one) => one.from === from && one.to === to)?.times ?? 0,
-        visits: (stage) =>
-          stages.trail.filter((one) => one.stage === stage).length,
-        hereFor:
-          last !== undefined && Option.isNone(last.until)
-            ? visitMs(last)
-            : undefined,
+        where: stages.where,
+        moved: (from, to) => movedTimes(stages.trail, from, to),
+        visits: (stage) => visitedTimes(stages.trail, stage),
+        doubt: (doubt) => doubts.find((one) => one.doubt === doubt)?.ms,
       };
     }
     default:
@@ -151,10 +180,11 @@ const readingOf = (stages: Stages): MapReading | undefined => {
 };
 
 /** ONE SENTENCE PER STAGE — its name and total time, whose time it mostly
- *  was, where it stands, and how many times the work was in it. It is both
+ *  was, where it stands, this visit's time when that is not the whole, that
+ *  the work ended there, and how many times the work was in it. It is both
  *  what a screen reader hears and the stage's title on hover, so the two
  *  cannot drift apart. */
-const spokenOf = (stage: Stage, visits: number): string => {
+const spokenOf = (stage: Stage, visits: Count, ended: boolean): string => {
   const state = stage.state;
   const had = state.kind === "done" || state.kind === "now";
   return [
@@ -163,39 +193,121 @@ const spokenOf = (stage: Stage, visits: number): string => {
       : STAGE_LABEL[stage.name],
     ...(had ? [WHOSE[state.who]] : []),
     STATE_WORD[state.kind],
-    ...(state.kind === "unrecorded" && state.now ? ["now"] : []),
-    ...(visits > 1 ? [`${visits} times`] : []),
+    ...(state.kind === "now" && state.here !== state.ms
+      ? [`${dualPhrase(state.here)} this time`]
+      : []),
+    ...(ended ? ["the work ended here"] : []),
+    ...countWords(visits),
   ].join(", ");
 };
 
+/** A DOUBT'S MARK, between its two boxes: a hatched swatch and the time the
+ *  two stages took together, which is known though the split is not. On a
+ *  card it is a button showing the doubt's events. Under 18rem the time is
+ *  not drawn; the title has it. */
+const DoubtMark: Component<{
+  doubt: Doubt;
+  ms: number;
+  pick?: { readonly shown: boolean; readonly show: () => void };
+}> = (props) => {
+  const spoken = () =>
+    `${STAGE_LABEL[props.doubt]}, ${dualPhrase(props.ms)}. kolu did not record which.`;
+  const face = () => (
+    <>
+      <span
+        aria-hidden="true"
+        class={`inline-block h-2 w-2 shrink-0 rounded-[2px] border ${HATCH.edge} ${HATCH.fill}`}
+      />
+      <span
+        data-testid="stage-doubt-time"
+        aria-hidden="true"
+        class="hidden whitespace-nowrap tabular-nums @min-[18rem]/map:inline"
+      >
+        {compactPhrase(props.ms)}
+      </span>
+    </>
+  );
+  const ink =
+    "inline-flex items-center gap-0.5 rounded-sm px-0.5 font-mono text-[0.5rem] leading-tight text-fg-2";
+  return (
+    <Show
+      when={props.pick}
+      fallback={
+        <span
+          data-testid="stage-doubt"
+          data-doubt={props.doubt}
+          title={spoken()}
+          class={ink}
+        >
+          {face()}
+          <span class="sr-only">{spoken()}</span>
+        </span>
+      }
+    >
+      {(pick) => (
+        <button
+          type="button"
+          data-testid="stage-doubt"
+          data-doubt={props.doubt}
+          title={spoken()}
+          aria-label={spoken()}
+          aria-pressed={pick().shown}
+          class={`${ink} cursor-pointer hover:brightness-125 ${
+            pick().shown ? STAGE_INK[props.doubt].tint : ""
+          }`}
+          onClick={() => pick().show()}
+        >
+          {face()}
+        </button>
+      )}
+    </Show>
+  );
+};
+
 /** AN ARROW between two places on the map. One that is half of a LOOP (it
- *  has a way back) says, once the work has gone back along it, how many
- *  times each way: `→×2` over `←×1`. Drawn, not spoken — each stage's own
- *  sentence says how many times the work was in it. */
+ *  has a way back) says, once the way back is not known to be none, how
+ *  many times each way: `→×2` over `←×1`. Drawn, not spoken — each stage's
+ *  own sentence says how many times the work was in it. The cell between
+ *  Plan and Approve also holds the plan-or-approve doubt's mark. */
 const Arrow: Component<{
   col: number;
   testId: string;
-  loop?: { readonly forward: number; readonly back: number };
+  loop?: { readonly forward: Count; readonly back: Count };
+  mark?: { readonly doubt: Doubt; readonly ms: number };
+  pick?: (
+    doubt: Doubt,
+  ) => { readonly shown: boolean; readonly show: () => void } | undefined;
 }> = (props) => (
   <li
-    aria-hidden="true"
+    aria-hidden={props.mark === undefined ? "true" : undefined}
     data-testid={props.testId}
-    data-forward={props.loop?.forward}
-    data-back={props.loop?.back}
+    data-forward={props.loop ? countText(props.loop.forward) : undefined}
+    data-back={props.loop ? countText(props.loop.back) : undefined}
     style={{ "grid-column": `${props.col}`, "grid-row": "3" }}
     class="flex flex-col items-center justify-center px-0.5 font-mono text-[0.5rem] leading-tight text-fg-3"
   >
     <Show
-      when={
-        props.loop !== undefined && props.loop.back > 0 ? props.loop : undefined
-      }
-      fallback={<span>→</span>}
+      when={props.loop && !isNone(props.loop.back) ? props.loop : undefined}
+      fallback={<span aria-hidden="true">→</span>}
     >
       {(loop) => (
         <>
-          <span class="whitespace-nowrap">→×{loop().forward}</span>
-          <span class="whitespace-nowrap">←×{loop().back}</span>
+          <span aria-hidden="true" class="whitespace-nowrap">
+            →×{countText(loop().forward)}
+          </span>
+          <span aria-hidden="true" class="whitespace-nowrap">
+            ←×{countText(loop().back)}
+          </span>
         </>
+      )}
+    </Show>
+    <Show when={props.mark}>
+      {(mark) => (
+        <DoubtMark
+          doubt={mark().doubt}
+          ms={mark().ms}
+          pick={props.pick?.(mark().doubt)}
+        />
       )}
     </Show>
   </li>
@@ -209,24 +321,37 @@ const StageMap: Component<{
    *  card — never one test id in two places on one screen. */
   testId: "stage-map" | "chip-stage-map";
   /** ON A CARD, THE MAP IS AN INDEX INTO THE TIMELINE: a stage that has
-   *  happened is a button showing that stage's events, and the one shown is
-   *  pressed. Absent in a chip's hover card, where the stages stay plain. */
+   *  happened, and a doubt's mark, is a button showing its events, and the
+   *  one shown is pressed. Absent in a chip's hover card, where they stay
+   *  plain. */
   index?: {
-    readonly shown: () => StageName | undefined;
-    readonly show: (stage: StageName) => void;
+    readonly shown: () => StageName | Doubt | undefined;
+    readonly show: (place: StageName | Doubt) => void;
   };
 }> = (props) => {
   const reading = createMemo(() => readingOf(props.stages));
   const full = () => props.size === "full";
-  /** THE STAGE THE EYE SHOULD LAND ON: the one the work is in, or the one a
-   *  finished work ended in. */
-  const emphasis = (): StageName | undefined => {
-    const current = reading()?.current;
-    return current === undefined ||
-      current === "setup" ||
-      current === "unrecorded"
+  /** The boxes where the work is: every stage its place can be. */
+  const ringed = (name: StageName): boolean => {
+    const where = reading()?.where;
+    return where?.kind === "in" && canBe(where.place).includes(name);
+  };
+  /** ... and, on a finished work, where it ended. */
+  const ended = (name: StageName): boolean => {
+    const where = reading()?.where;
+    return where?.kind === "ended-in" && canBe(where.place).includes(name);
+  };
+  /** A doubt's mark as a button, on a card. */
+  const pickOf = (doubt: Doubt) => {
+    const index = props.index;
+    return index === undefined
       ? undefined
-      : current;
+      : { shown: index.shown() === doubt, show: () => index.show(doubt) };
+  };
+  /** A doubt's mark, when the work visited it. */
+  const markOf = (doubt: Doubt) => {
+    const ms = reading()?.doubt(doubt);
+    return ms === undefined ? undefined : { doubt, ms };
   };
   return (
     <Show when={reading()}>
@@ -245,17 +370,33 @@ const StageMap: Component<{
                 const name = () => stage().name;
                 const had = () =>
                   state().kind === "done" || state().kind === "now";
-                const spoken = () => spokenOf(stage(), read().visits(name()));
+                const emphasis = () => ringed(name()) || ended(name());
+                const spoken = () =>
+                  spokenOf(stage(), read().visits(name()), ended(name()));
+                /** This visit's time, when it is not the whole of the
+                 *  stage's. */
+                const here = () => {
+                  const now = state();
+                  return now.kind === "now" && now.here !== now.ms
+                    ? now.here
+                    : undefined;
+                };
                 const face = () => (
                   <>
                     <span
                       data-testid="stage-label"
                       data-stage={name()}
-                      data-emphasis={emphasis() === name() ? "" : undefined}
+                      data-emphasis={emphasis() ? "" : undefined}
                       class={`block whitespace-nowrap font-mono leading-tight ${
                         full() ? "text-[0.55rem]" : "text-[0.5rem]"
                       } ${
-                        emphasis() === name()
+                        state().kind === "unrecorded"
+                          ? `mx-auto w-fit rounded-sm px-0.5 ${
+                              full() ? "bg-surface-0" : "bg-surface-2"
+                            }`
+                          : ""
+                      } ${
+                        emphasis()
                           ? "font-semibold text-fg"
                           : state().kind === "skipped"
                             ? "text-fg-3/60"
@@ -285,17 +426,31 @@ const StageMap: Component<{
                         </span>
                       )}
                     </Show>
+                    {/* THE TIME IN HAND, inside the ring, only when it is
+                        not the whole of the stage's: one visit says it
+                        once. */}
+                    <Show when={here()}>
+                      {(ms) => (
+                        <span
+                          data-testid="stage-now"
+                          data-stage={name()}
+                          class={`hidden whitespace-nowrap font-mono tabular-nums leading-tight text-fg @min-[18rem]/map:block ${
+                            full() ? "text-[0.5rem]" : "text-[0.46rem]"
+                          }`}
+                        >
+                          now {compactPhrase(ms())}
+                        </span>
+                      )}
+                    </Show>
                     <span class="sr-only">{spoken()}</span>
                   </>
                 );
-                const box = () =>
+                const box = (shown: boolean) =>
                   `relative block w-full min-w-0 rounded-md border px-0.5 text-center ${
                     full() ? "py-0.5" : "py-px"
                   } ${boxInk(name(), state())} ${
-                    emphasis() === name() && state().kind === "done"
-                      ? "border-2"
-                      : ""
-                  }`;
+                    ringed(name()) ? NOW_RING : ""
+                  } ${shown ? STAGE_INK[name()].tint : ""}`;
                 return (
                   <li
                     data-testid="stage"
@@ -310,46 +465,18 @@ const StageMap: Component<{
                   >
                     <Show
                       when={had() ? props.index : undefined}
-                      fallback={<span class={box()}>{face()}</span>}
+                      fallback={<span class={box(false)}>{face()}</span>}
                     >
                       {(index) => (
                         <button
                           type="button"
                           data-testid="stage-cell"
                           aria-pressed={index().shown() === name()}
-                          class={`${box()} cursor-pointer hover:brightness-125 ${
-                            index().shown() === name()
-                              ? "outline outline-1 outline-offset-1 outline-fg-2"
-                              : ""
-                          }`}
+                          class={`${box(index().shown() === name())} cursor-pointer hover:brightness-125`}
                           onClick={() => index().show(name())}
                         >
                           {face()}
                         </button>
-                      )}
-                    </Show>
-                    {/* HOW LONG IT HAS BEEN HERE THIS TIME — under the ring
-                        only, so the total above and the stretch in hand are
-                        never confused. */}
-                    <Show
-                      when={
-                        state().kind === "now" && read().hereFor !== undefined
-                          ? read().hereFor
-                          : undefined
-                      }
-                    >
-                      {(ms) => (
-                        <span
-                          data-testid="stage-now"
-                          class={`block whitespace-nowrap text-center font-mono tabular-nums leading-tight text-fg ${
-                            full() ? "text-[0.5rem]" : "text-[0.46rem]"
-                          }`}
-                        >
-                          <span class="hidden @min-[18rem]/map:inline">
-                            now ·{" "}
-                          </span>
-                          {compactPhrase(ms())}
-                        </span>
                       )}
                     </Show>
                   </li>
@@ -357,7 +484,8 @@ const StageMap: Component<{
               }}
             </Index>
             {/* THE ARROWS. Review sits over Build, so its loop runs up and
-                down between them and says how many rounds it has had. */}
+                down between them and says how many rounds it has had; the
+                build-or-review doubt's mark sits there too. */}
             <Arrow
               col={2}
               testId="stage-arrow-plan-approve"
@@ -365,18 +493,37 @@ const StageMap: Component<{
                 forward: read().moved("plan", "approve"),
                 back: read().moved("approve", "plan"),
               }}
+              mark={markOf("plan-or-approve")}
+              pick={pickOf}
             />
             <Arrow col={4} testId="stage-arrow-approve-build" />
             <li
-              aria-hidden="true"
+              aria-hidden={
+                markOf("build-or-review") === undefined ? "true" : undefined
+              }
               data-testid="stage-arrow-build-review"
-              data-rounds={read().moved("build", "review")}
+              data-rounds={countText(read().moved("build", "review"))}
               style={{ "grid-column": "5", "grid-row": "2" }}
               class="flex items-center justify-center gap-1 font-mono text-[0.5rem] leading-tight text-fg-3"
             >
-              <span>↑↓</span>
-              <Show when={read().moved("build", "review") > 0}>
-                <span>×{read().moved("build", "review")}</span>
+              <span aria-hidden="true">↑↓</span>
+              <Show
+                when={
+                  isNone(read().moved("build", "review"))
+                    ? undefined
+                    : countText(read().moved("build", "review"))
+                }
+              >
+                {(count) => <span aria-hidden="true">×{count()}</span>}
+              </Show>
+              <Show when={markOf("build-or-review")}>
+                {(mark) => (
+                  <DoubtMark
+                    doubt={mark().doubt}
+                    ms={mark().ms}
+                    pick={pickOf(mark().doubt)}
+                  />
+                )}
               </Show>
             </li>
             <Arrow

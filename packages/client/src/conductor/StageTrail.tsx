@@ -4,9 +4,10 @@
  *  Each visit is one segment, as wide as it was long (with a least width, so
  *  a short visit can still be seen and pressed), in the colour that names
  *  its stage — the same as on the map (`STAGE_INK`). The visit the work is
- *  in now is ringed. The stretch kolu could not vouch for — a work saved
- *  before it kept hand-offs, whose build and review were not recorded — is
- *  hatched and set apart from the stages.
+ *  in now is ringed. A doubt — a stretch of a work saved before kolu kept
+ *  hand-offs, which was one of two stages and nobody recorded which — is
+ *  hatched and set apart from the stages, and labelled with both their
+ *  names (`Build or Review 1h 20m`).
  *
  *  Under the segments, the labels (`./trailView.ts`): one per visit, except
  *  a run of review rounds, which is labelled once (`6 review rounds · 1h
@@ -14,14 +15,15 @@
  *  in its title and for a screen reader.
  *
  *  It is an INDEX INTO THE TIMELINE: pressing a segment shows that visit's
- *  events, and the visit shown is pressed.
+ *  events, and while one is shown the others dim — never a line around it,
+ *  so the only ring is where the work is.
  *
  *  `<Index>`, because a visit's POSITION is its identity — the trail only
  *  grows at its end — and the fold mints fresh objects every tick. */
 
 import { compactPhrase, dualPhrase } from "@kolu/terminal-vocab/duration";
 import { Option } from "effect";
-import type { Filed, Visit } from "kolu-work";
+import { type Filed, isDoubt, type Visit } from "kolu-work";
 import { type Component, createMemo, Index } from "solid-js";
 import { type TrailLabel, trailLabels, visitMs } from "./trailView";
 import { NOW_RING, STAGE_INK, STAGE_LABEL } from "./workReadings";
@@ -30,31 +32,24 @@ import { NOW_RING, STAGE_INK, STAGE_LABEL } from "./workReadings";
 const labelStage = (label: TrailLabel): Filed =>
   label.kind === "rounds" ? "review" : label.stage;
 
-/** What a stretch nobody recorded is, in words — the hatch says it to the
- *  eye. */
-const UNRECORDED_WORDS = "who held the work was not recorded for this stretch";
-
-/** A visit's name as a label and a title say it: `Build 15m`, or the
- *  sentence for a stretch nobody recorded. */
-const nameOf = (stage: Filed, ms: number): string =>
-  stage === "unrecorded"
-    ? `Not recorded ${compactPhrase(ms)}`
-    : `${STAGE_LABEL[stage]} ${compactPhrase(ms)}`;
+/** What a doubt is, in words — the hatch says it to the eye. */
+const DOUBT_WORDS = "who held the work was not recorded for this stretch";
 
 /** ONE SENTENCE PER VISIT — what a screen reader hears and the title says. */
 const spokenOf = (visit: Visit, index: number): string =>
   [
     `${index + 1}. ${STAGE_LABEL[visit.stage]} ${dualPhrase(visitMs(visit))}`,
-    ...(visit.stage === "unrecorded" ? [UNRECORDED_WORDS] : []),
+    ...(isDoubt(visit.stage) ? [DOUBT_WORDS] : []),
     ...(Option.isNone(visit.until) ? ["now"] : []),
   ].join(", ");
 
-/** A label's words under the trail. */
+/** A label's words under the trail: `Build 15m`, `Build or Review 1h 20m`,
+ *  or a run of rounds. */
 const labelWords = (label: TrailLabel): string => {
   const now = label.now ? " · now" : "";
   return label.kind === "rounds"
     ? `${label.rounds} review rounds · ${compactPhrase(label.ms)}${now}`
-    : `${nameOf(label.stage, label.ms)}${now}`;
+    : `${STAGE_LABEL[label.stage]} ${compactPhrase(label.ms)}${now}`;
 };
 
 const StageTrail: Component<{
@@ -73,9 +68,9 @@ const StageTrail: Component<{
         Trail
       </h4>
       {/* THE ROW SCROLLS SIDEWAYS, and a scrolling box clips both ways, so
-          it pads every side by more than the ring (2px and a 1px gap) and
-          the outline (1px off by 1px) reach past a segment. The ringed and
-          the pressed segment sit above their neighbours. */}
+          it pads every side by more than the ring (2px and a 1px gap)
+          reaches past a segment. The ringed segment sits above its
+          neighbours. */}
       <ol
         aria-label="Trail"
         class="m-0 flex h-6 list-none items-stretch gap-px overflow-x-auto p-1"
@@ -95,8 +90,12 @@ const StageTrail: Component<{
                   flex: `${visitMs(visit())} 1 0`,
                   "min-width": "0.6rem",
                 }}
-                class={`flex ${visit().stage === "unrecorded" ? "mx-1" : ""} ${
-                  open() || shown() ? "relative z-10" : ""
+                class={`flex ${isDoubt(visit().stage) ? "mx-1" : ""} ${
+                  open() ? "relative z-10" : ""
+                } ${
+                  props.index.shown() !== undefined && !shown()
+                    ? "opacity-40"
+                    : ""
                 }`}
               >
                 <button
@@ -106,11 +105,7 @@ const StageTrail: Component<{
                   aria-label={spokenOf(visit(), index)}
                   class={`block h-full w-full cursor-pointer rounded-sm hover:brightness-125 ${
                     STAGE_INK[visit().stage].fill
-                  } ${open() ? NOW_RING : ""} ${
-                    shown()
-                      ? "outline outline-1 outline-offset-1 outline-fg-2"
-                      : ""
-                  }`}
+                  } ${open() ? NOW_RING : ""}`}
                   onClick={() => props.index.show(index)}
                 />
               </li>

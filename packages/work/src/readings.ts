@@ -379,6 +379,15 @@ export const holderOf = (holding: Holding): Option.Option<WaterfallRole> =>
 export const joinedAs = (holding: Holding, role: WaterfallRole): boolean =>
   holding.joined.has(role);
 
+/** IS IT THE PLANNER'S TURN — the one thing the stage of the agents' time
+ *  asks of the hand-offs. Before an implementor joined, it is while
+ *  somebody holds the work (only the planner can); after, while the holder
+ *  is the planner. */
+export const plannersTurn = (holding: Holding): boolean =>
+  joinedAs(holding, "implementor")
+    ? Option.exists(holderOf(holding), (role) => role === "planner")
+    : !nobodyHolds(holding);
+
 /** The worktree-relative paths of every file kolu has seen appear. */
 export const filesSeen = (work: Work): ReadonlySet<string> =>
   new Set(

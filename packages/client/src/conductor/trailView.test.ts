@@ -98,19 +98,19 @@ describe("the trail's labels", () => {
     ]);
   });
 
-  it("keep a stretch nobody recorded as a label of its own", () => {
+  it("keep a doubt as a label of its own", () => {
     const trail = trailOf([
       ["plan", 20],
-      ["unrecorded", 90],
+      ["build-or-review", 90],
       ["checks", 10],
-      ["unrecorded", 5],
+      ["build-or-review", 5],
       ["review", 15],
     ]);
     expect(read(trail)).toEqual([
       "plan 20m",
-      "unrecorded 90m",
+      "build-or-review 90m",
       "checks 10m",
-      "unrecorded 5m",
+      "build-or-review 5m",
       "review 15m",
     ]);
   });

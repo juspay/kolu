@@ -6,12 +6,13 @@
  *
  *  Which stage and which visit an event is in is `kolu-work`'s own filing
  *  (`Stages`' `events` and each visit's `events`, from the walk that files
- *  the time), and which stage the work is in is its `current` — never a rule
+ *  the time), and which place the work is in is its `where` — never a rule
  *  of this face's. */
 
 import { Option } from "effect";
 import {
   childFolderOf,
+  type Doubt,
   type Filed,
   type StageName,
   type Stages,
@@ -24,16 +25,17 @@ import {
 export const WATCH_EVENTS_SHOWN = 5;
 
 /** WHAT A PERSON PRESSED to choose the part of the timeline shown: a stage
- *  on the map, or one visit on the trail, by its index into the trail. */
+ *  or a doubt's mark on the map, or one visit on the trail, by its index
+ *  into the trail. */
 export type TimelinePick =
-  | { readonly kind: "stage"; readonly stage: StageName }
+  | { readonly kind: "stage"; readonly stage: StageName | Doubt }
   | { readonly kind: "visit"; readonly visit: number };
 
 /** WHAT A PICKED WORK'S TIMELINE SHOWS:
  *
- *  - `stage` — one stage's events, across every visit to it: the one pressed
- *    on the map, else the stage the work is in (for a finished work, the
- *    stage it ended in);
+ *  - `stage` — one place's events, across every visit to it: the stage or
+ *    doubt pressed on the map, else where the work is (for a finished work,
+ *    where it ended);
  *  - `visit` — the events of one visit pressed on the trail: its index, its
  *    stage, and which of that stage's visits it is (`nth` of `of`);
  *  - `latest` — a work with no stages (a watch, or a mode not chosen yet):
@@ -185,7 +187,7 @@ const foldedPart = (
       ),
     };
   }
-  const stage = pressed?.kind === "stage" ? pressed.stage : stages.current;
+  const stage = pressed?.kind === "stage" ? pressed.stage : stages.where.place;
   return {
     folded: { kind: "stage", stage },
     rows: rowsOf(

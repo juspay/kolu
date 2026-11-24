@@ -42,6 +42,7 @@
 import { dualPhrase } from "@kolu/terminal-vocab/duration";
 import { DASH } from "kolu-common/surface";
 import {
+  type Doubt,
   lifetime,
   openAsks,
   type StageName,
@@ -243,15 +244,12 @@ const WorkCard: Component<{
   const view = createMemo(() =>
     timelineShown(props.work, read(), pressed(), whole()),
   );
-  /** The stage pressed on the map: the stage whose events the picked work
-   *  shows, none while it is not picked, a visit is shown or the whole
-   *  timeline is out. */
-  const shownStage = (): StageName | undefined => {
+  /** The stage, or doubt, pressed on the map: the place whose events the
+   *  picked work shows, none while it is not picked, a visit is shown or the
+   *  whole timeline is out. */
+  const shownStage = (): StageName | Doubt | undefined => {
     const shown = view().view;
-    return isOpen() &&
-      shown.kind === "stage" &&
-      shown.stage !== "setup" &&
-      shown.stage !== "unrecorded"
+    return isOpen() && shown.kind === "stage" && shown.stage !== "setup"
       ? shown.stage
       : undefined;
   };

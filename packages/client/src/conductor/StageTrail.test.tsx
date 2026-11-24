@@ -1,9 +1,9 @@
 // @vitest-environment happy-dom
 /**
  * The trail under a picked work: one segment per visit, as wide as it was
- * long, the open one ringed, a run of review rounds labelled once, the
- * stretch nobody recorded set apart — and each segment the button into that
- * visit's events.
+ * long, the open one ringed, a run of review rounds labelled once, a doubt
+ * set apart and named by both its stages — and each segment the button into
+ * that visit's events, the others dimming while it is shown.
  */
 
 import { Option } from "effect";
@@ -107,38 +107,45 @@ describe("the trail", () => {
     ]);
   });
 
-  it("sets apart a stretch nobody recorded, and says so", () => {
+  it("sets apart a doubt, names both its stages, and says who held it was not recorded", () => {
     const { el } = mount(
       trailOf(
         [
           ["plan", 20],
-          ["unrecorded", 90],
+          ["build-or-review", 90],
           ["checks", 10],
         ],
         false,
       ),
     );
-    const unrecorded = visits(el)[1];
-    expect(unrecorded?.dataset.stage).toBe("unrecorded");
-    expect(unrecorded?.className).toContain("mx-1");
-    expect(unrecorded?.title).toBe(
-      "2. Not recorded 1h 30m, who held the work was not recorded for this stretch",
+    const doubt = visits(el)[1];
+    expect(doubt?.dataset.stage).toBe("build-or-review");
+    expect(doubt?.className).toContain("mx-1");
+    expect(doubt?.title).toBe(
+      "2. Build or Review 1h 30m, who held the work was not recorded for this stretch",
     );
     expect(
       el.querySelectorAll('[data-testid="trail-label"]')[1]?.textContent,
-    ).toBe("Not recorded 1h");
+    ).toBe("Build or Review 1h");
   });
 
-  it("shows a visit's events when it is pressed", () => {
+  it("shows a visit's events when it is pressed, dimming the others rather than outlining it", () => {
     const { el, shown } = mount(REPORTED);
-    visits(el)[3]
-      ?.querySelector<HTMLButtonElement>('[data-testid="trail-visit-cell"]')
-      ?.click();
-    expect(shown()).toBe(3);
+    // Nothing shown: nothing dim.
     expect(
-      visits(el)[3]
-        ?.querySelector('[data-testid="trail-visit-cell"]')
-        ?.getAttribute("aria-pressed"),
-    ).toBe("true");
+      visits(el).filter((one) => one.className.includes("opacity-40")),
+    ).toEqual([]);
+    const cell = visits(el)[3]?.querySelector<HTMLButtonElement>(
+      '[data-testid="trail-visit-cell"]',
+    );
+    cell?.click();
+    expect(shown()).toBe(3);
+    expect(cell?.getAttribute("aria-pressed")).toBe("true");
+    expect(cell?.className).not.toContain("outline");
+    expect(
+      visits(el)
+        .filter((one) => !one.className.includes("opacity-40"))
+        .map((one) => one.dataset.visit),
+    ).toEqual(["3"]);
   });
 });

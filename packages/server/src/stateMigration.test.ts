@@ -2946,7 +2946,7 @@ describe("the 1.61.0 rung — a pull request says whether it opened as a draft",
     const read = stages(upgraded, policy, now);
     expect(read).toEqual(stages(asBefore, policy, now));
     if (read.kind !== "staged") throw new Error(read.kind);
-    expect(read.current).toBe("merge");
+    expect(read.where.place).toBe("merge");
     expect(Option.getOrThrow(prOf(upgraded)).merge).toEqual({ kind: "can" });
   });
 });
@@ -3410,7 +3410,7 @@ describe("the 1.67.0 rung — a saved work says its hand-offs were not recorded"
     expect(JSON.stringify(conf.get("works"))).toBe(once);
   });
 
-  it("lets the replay say the build was not recorded rather than guess it", () => {
+  it("lets the replay read a work no planner joined as the build, not guess at a review", () => {
     const conf = saved();
     handOffsKept_1_67_0(conf as never);
     const works = Schema.decodeUnknownSync(PersistedWorksSchema)(
@@ -3424,7 +3424,7 @@ describe("the 1.67.0 rung — a saved work says its hand-offs were not recorded"
       if (read.kind !== "staged") throw new Error(read.kind);
       return read.trail.map((visit) => visit.stage);
     };
-    expect(place(open)).toEqual(["plan", "unrecorded"]);
-    expect(place(done)).toEqual(["plan", "unrecorded"]);
+    expect(place(open)).toEqual(["plan", "build"]);
+    expect(place(done)).toEqual(["plan", "build"]);
   });
 });

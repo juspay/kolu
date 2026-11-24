@@ -663,6 +663,29 @@ describe("which events an open card shows", () => {
     });
   });
 
+  it("shows a doubt's events when its mark is pressed, under the doubt's name", () => {
+    // The same work saved before kolu kept hand-offs: no `told`, and the
+    // upgrade's marker at its last event.
+    const saved = work({
+      decisions: [mode("full")],
+      events: [
+        ...timeline.filter((one) => one.kind !== "told"),
+        event({ kind: "hand-offs-kept", at: minute(30) }),
+      ],
+    });
+    const read = stagesOf(saved, minute(40));
+    if (read.kind !== "staged") throw new Error(read.kind);
+    expect(read.trail.map((visit) => visit.stage)).toEqual([
+      "plan",
+      "build-or-review",
+    ]);
+    const doubt = { kind: "stage", stage: "build-or-review" } as const;
+    expect(timelineShown(saved, read, doubt, false)).toMatchObject({
+      view: doubt,
+      rows: rowsOfEvents([2, 3, 4, 5, 6]),
+    });
+  });
+
   it("shows a watch's latest few, a watch having no stages", () => {
     const watch = work({
       decisions: [mode("watch")],

@@ -94,12 +94,12 @@ export const WORK_DOT: Record<Waiter | "done", string> = {
   done: "bg-ok",
 };
 
-/** What each stage is called on the map and the trail — and what they call
- *  the setup and the stretch whose hand-offs nobody recorded, which no cell
- *  holds. */
+/** What each place is called on the map and the trail — the six stages, the
+ *  setup no cell holds, and the two doubts between a pair of stages. */
 export const STAGE_LABEL: Record<Filed, string> = {
   setup: "Setup",
-  unrecorded: "Not recorded",
+  "plan-or-approve": "Plan or Approve",
+  "build-or-review": "Build or Review",
   plan: "Plan",
   approve: "Approve",
   build: "Build",
@@ -108,29 +108,60 @@ export const STAGE_LABEL: Record<Filed, string> = {
   merge: "Merge",
 };
 
+/** THE HATCH — the one ink of a doubt, on the trail, on a map box that may
+ *  have been it, and on the doubt's own mark: kolu did not record which of
+ *  two stages that time was. */
+export const HATCH = {
+  fill: "bg-[repeating-linear-gradient(135deg,color-mix(in_oklch,var(--color-fg-3)_45%,transparent)_0_2px,transparent_2px_5px)]",
+  edge: "border-dashed border-fg-3",
+  tint: "bg-fg-3/20",
+} as const;
+
 /** THE COLOUR THAT NAMES A STAGE — the same on the map and on the trail, so a
  *  run of Review and Build visits reads as one at a glance. A stage's hue
  *  (`--color-stage-*`, `@kolu/theme`) says WHICH stage, never whose time it
  *  was: that stays in a stage's title and spoken label. The setup is a quiet
- *  grey, and the stretch nobody recorded is hatched — the one hatch, faint
- *  enough to read a map box's name over — so it is drawn apart from every
+ *  grey, and a doubt is the {@link HATCH}, so it is drawn apart from every
  *  stage. `fill` paints a trail segment (and the hatch a map box), `edge` a
- *  map box's border. */
+ *  map box's border, and `tint` a map box or doubt mark whose events the
+ *  timeline shows. */
 export const STAGE_INK: Record<
   Filed,
-  { readonly fill: string; readonly edge: string }
+  { readonly fill: string; readonly edge: string; readonly tint: string }
 > = {
-  setup: { fill: "bg-fg-3/40", edge: "border-fg-3" },
-  unrecorded: {
-    fill: "bg-[repeating-linear-gradient(135deg,color-mix(in_oklch,var(--color-fg-3)_45%,transparent)_0_2px,transparent_2px_5px)]",
-    edge: "border-dashed border-fg-3",
+  setup: { fill: "bg-fg-3/40", edge: "border-fg-3", tint: "bg-fg-3/20" },
+  "plan-or-approve": HATCH,
+  "build-or-review": HATCH,
+  plan: {
+    fill: "bg-stage-plan",
+    edge: "border-stage-plan",
+    tint: "bg-stage-plan/20",
   },
-  plan: { fill: "bg-stage-plan", edge: "border-stage-plan" },
-  approve: { fill: "bg-stage-approve", edge: "border-stage-approve" },
-  build: { fill: "bg-stage-build", edge: "border-stage-build" },
-  review: { fill: "bg-stage-review", edge: "border-stage-review" },
-  checks: { fill: "bg-stage-checks", edge: "border-stage-checks" },
-  merge: { fill: "bg-stage-merge", edge: "border-stage-merge" },
+  approve: {
+    fill: "bg-stage-approve",
+    edge: "border-stage-approve",
+    tint: "bg-stage-approve/20",
+  },
+  build: {
+    fill: "bg-stage-build",
+    edge: "border-stage-build",
+    tint: "bg-stage-build/20",
+  },
+  review: {
+    fill: "bg-stage-review",
+    edge: "border-stage-review",
+    tint: "bg-stage-review/20",
+  },
+  checks: {
+    fill: "bg-stage-checks",
+    edge: "border-stage-checks",
+    tint: "bg-stage-checks/20",
+  },
+  merge: {
+    fill: "bg-stage-merge",
+    edge: "border-stage-merge",
+    tint: "bg-stage-merge/20",
+  },
 };
 
 /** THE RING ON WHERE A WORK IS NOW — its stage on the map, its visit on the
