@@ -1,10 +1,10 @@
 // @vitest-environment happy-dom
-/** The snapshot list's boundary is KEYED ON THE STORE BEING BROWSED.
+/** A RING'S BOUNDARIES ARE BORN WITH IT.
  *
- *  Picking another ring changes what the list is of: the boundary is built
- *  again with the new store, so it has shown nothing yet and holds that
- *  store's first listing — "Loading…" comes back, while the dialog's own
- *  chrome keeps drawing. A second listing of the SAME store is not a new
+ *  Picking a ring mounts the snapshot list and leaving it unmounts it, so the
+ *  boundary is built again with the new ring: it has shown nothing yet and
+ *  holds that ring's first listing — "Loading…" comes back, while the dialog's
+ *  own chrome keeps drawing. A second listing of the SAME ring is not a new
  *  subject: the boundary is the same one, it has already shown rows, and they
  *  stay on screen (dimmed) until the new ones land. */
 

@@ -327,78 +327,73 @@ const StateBackupsDialog: Component = () => {
                   </div>
                 )}
               >
-                {/* KEYED ON THE STORE BEING BROWSED: picking a ring changes
-                    what this list is OF, and one ring's snapshots must never
-                    sit under another's title — so the list is built again for
-                    the new store, with a boundary born with it, and the first
-                    read of each store shows "Loading…" again. A boundary born
-                    with its subject has shown nothing yet, so the read that
-                    subject starts is its to hold whoever starts it — the one
-                    mechanism kolu arms these boundaries with
-                    (`WorkChoiceQuestion`, `conductor/reader/WorkReader`),
-                    where a re-arm (`on`) misses a subject settled by an
-                    effect's write in the same flush. A re-ask for the SAME
-                    store (after a restore) keeps the rows on screen and dims
-                    them. */}
-                <Show when={store()} keyed>
-                  {(ring) => (
-                    <Loading
-                      fallback={
-                        <div class="px-1 text-[11px] text-fg-3">Loading…</div>
-                      }
-                    >
-                      <div
-                        class={`space-y-1.5 ${isPending(backups) ? "opacity-60" : ""}`}
-                      >
-                        <Show when={backups().length === 0}>
-                          <div class="px-1 text-[11px] text-fg-3">
-                            No backups yet — a snapshot is taken at every boot
-                            (and daily), once the store has content.
-                          </div>
-                        </Show>
-                        <For each={backups()}>
-                          {(row) => (
-                            <div class="rounded-lg border border-edge bg-surface-1 px-3 py-2">
-                              <div class="min-w-0">
-                                <div class="font-medium text-fg">
-                                  {formatTimeAgo(row.savedAtMs) || "—"}
-                                  <span class="ml-2 text-[11px] font-normal text-fg-3">
-                                    {row.summary} · {formatSize(row.sizeBytes)}
-                                  </span>
-                                </div>
-                                <div class="truncate font-mono text-[10px] text-fg-3">
-                                  {row.file}
-                                </div>
-                              </div>
-                              {/* The repo's canonical destructive-action
-                              affordance: it owns the confirm step, the
-                              Cancel/confirm pair and the `data-testid`
-                              triplet every other confirm exposes. */}
-                              <Show when={row.restorable}>
-                                <div class="mt-2">
-                                  <InlineConfirmButton
-                                    label="Restore"
-                                    inFlightLabel="Restoring…"
-                                    tone="warning"
-                                    confirmCopy={ring.confirmCopy(row)}
-                                    inFlight={view().kind === "restoring"}
-                                    testid={`state-backup-restore-${row.file}`}
-                                    onConfirm={() =>
-                                      runAction(
-                                        "restore state backup",
-                                        restore(ring, row),
-                                      )
-                                    }
-                                  />
-                                </div>
-                              </Show>
-                            </div>
-                          )}
-                        </For>
+                {/* EACH RING'S BOUNDARIES ARE BORN WITH IT. Picking a ring
+                    mounts this list and leaving it unmounts it: the outer
+                    `<Show when={browsing()}>` holds the list, and every ring
+                    change goes through the store picker, which renders only
+                    while nothing is being browsed — so `browsing()` only ever
+                    moves ring → null → ring. This `Errored` and the `Loading`
+                    below are therefore built again for each ring, have shown
+                    nothing yet, and hold that ring's first listing ("Loading…"
+                    comes back per ring, and one ring's snapshots can never sit
+                    under another's title). A re-ask for the SAME ring (after a
+                    restore) is the same boundary, which has already shown rows:
+                    they stay on screen and dim. */}
+                <Loading
+                  fallback={
+                    <div class="px-1 text-[11px] text-fg-3">Loading…</div>
+                  }
+                >
+                  <div
+                    class={`space-y-1.5 ${isPending(backups) ? "opacity-60" : ""}`}
+                  >
+                    <Show when={backups().length === 0}>
+                      <div class="px-1 text-[11px] text-fg-3">
+                        No backups yet — a snapshot is taken at every boot (and
+                        daily), once the store has content.
                       </div>
-                    </Loading>
-                  )}
-                </Show>
+                    </Show>
+                    <For each={backups()}>
+                      {(row) => (
+                        <div class="rounded-lg border border-edge bg-surface-1 px-3 py-2">
+                          <div class="min-w-0">
+                            <div class="font-medium text-fg">
+                              {formatTimeAgo(row.savedAtMs) || "—"}
+                              <span class="ml-2 text-[11px] font-normal text-fg-3">
+                                {row.summary} · {formatSize(row.sizeBytes)}
+                              </span>
+                            </div>
+                            <div class="truncate font-mono text-[10px] text-fg-3">
+                              {row.file}
+                            </div>
+                          </div>
+                          {/* The repo's canonical destructive-action
+                          affordance: it owns the confirm step, the
+                          Cancel/confirm pair and the `data-testid`
+                          triplet every other confirm exposes. */}
+                          <Show when={row.restorable}>
+                            <div class="mt-2">
+                              <InlineConfirmButton
+                                label="Restore"
+                                inFlightLabel="Restoring…"
+                                tone="warning"
+                                confirmCopy={store().confirmCopy(row)}
+                                inFlight={view().kind === "restoring"}
+                                testid={`state-backup-restore-${row.file}`}
+                                onConfirm={() =>
+                                  runAction(
+                                    "restore state backup",
+                                    restore(store(), row),
+                                  )
+                                }
+                              />
+                            </div>
+                          </Show>
+                        </div>
+                      )}
+                    </For>
+                  </div>
+                </Loading>
               </Errored>
             </div>
           )}
