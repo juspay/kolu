@@ -35,6 +35,7 @@ import {
   _sharedHeadWatcherCount,
 } from "./head-watcher.ts";
 import type { BranchCheckout } from "./schemas.ts";
+import type { Logger } from "kolu-shared";
 import { testGit } from "./testGit.ts";
 
 let tmpDir: string;
@@ -174,16 +175,30 @@ describe.skipIf(SKIP_DARWIN_FSWATCH)(
       _resetSharedWorktreesWatchers();
     });
 
-    /** Every answer the subscription gave, in order. */
+    /** Every answer the subscription gave, in order — and every warning
+     *  it logged. */
     async function follow(dir: string, branch: string) {
       const answers: BranchCheckout[] = [];
-      const stop = subscribeBranchCheckout(dir, branch, "test", (answer) =>
-        answers.push(answer),
+      const warned: unknown[] = [];
+      const quiet = () => {};
+      const log = {
+        warn: (...args: unknown[]) => warned.push(args),
+        error: (...args: unknown[]) => warned.push(args),
+        info: quiet,
+        debug: quiet,
+        trace: quiet,
+      };
+      const stop = subscribeBranchCheckout(
+        dir,
+        branch,
+        "test",
+        (answer) => answers.push(answer),
+        log as unknown as Logger,
       );
       await waitFor(() => answers.length > 0);
       await _settledSharedWorktreesWatchers();
       await _settledSharedHeadWatchers();
-      return { answers, stop };
+      return { answers, warned, stop };
     }
 
     /** Wait until `predicate` holds, polling — the watch is real `fs.watch`
@@ -303,8 +318,11 @@ describe.skipIf(SKIP_DARWIN_FSWATCH)(
       const { dir } = await repo("shut-at-first/inner");
       fs.chmodSync(shut, 0o000);
       try {
-        const { answers, stop } = await follow(dir, "main");
+        const { answers, warned, stop } = await follow(dir, "main");
         expect(answers.map((one) => one.kind)).toEqual(["unavailable"]);
+        // Past one re-ask, still shut: the same answer is said once.
+        await new Promise((done) => setTimeout(done, 3_500));
+        expect(warned).toHaveLength(1);
         fs.chmodSync(shut, 0o755);
         await waitFor(() => answers.length === 2, 10_000);
         expect(answers[1]).toEqual(at(dir, dir));
@@ -312,6 +330,6 @@ describe.skipIf(SKIP_DARWIN_FSWATCH)(
       } finally {
         fs.chmodSync(shut, 0o755);
       }
-    }, 15_000);
+    }, 20_000);
   },
 );

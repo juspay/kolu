@@ -97,27 +97,14 @@ const NOT_A_REPOSITORY: Reading = {
   listed: Option.none(),
 };
 
-/** git's word as kolu stores it, unavailable — and logged. */
-const unavailable = (
-  message: string,
-  at: { readonly repoPath: string; readonly branch: string },
-  log?: Logger,
-): Reading => {
-  log?.warn(
-    { err: message, ...at },
-    "git: could not read where a branch is checked out",
-  );
-  return {
-    answer: { kind: "unavailable", reason: message.trim() },
-    listed: Option.none(),
-  };
-};
+/** git's word as kolu stores it, unavailable. Said in the log by the
+ *  subscription, once per change — not here, on every read. */
+const unavailable = (message: string): Reading => ({
+  answer: { kind: "unavailable", reason: message.trim() },
+  listed: Option.none(),
+});
 
-async function read(
-  repoPath: string,
-  branch: string,
-  log?: Logger,
-): Promise<Reading> {
+async function read(repoPath: string, branch: string): Promise<Reading> {
   // simple-git refuses a folder that does not exist before git is asked. A
   // path that is not there, or is no folder, is no repository; a path kolu
   // could not READ is git not answering.
@@ -128,7 +115,7 @@ async function read(
   if (folder.kind === "error") {
     if (folder.e.code === "ENOENT" || folder.e.code === "ENOTDIR")
       return NOT_A_REPOSITORY;
-    return unavailable(folder.e.message, { repoPath, branch }, log);
+    return unavailable(folder.e.message);
   }
   if (!folder.folder) return NOT_A_REPOSITORY;
   try {
@@ -152,7 +139,7 @@ async function read(
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);
     if (/not a git repository/i.test(message)) return NOT_A_REPOSITORY;
-    return unavailable(message, { repoPath, branch }, log);
+    return unavailable(message);
   }
 }
 
@@ -161,9 +148,8 @@ async function read(
 export async function branchCheckout(
   repoPath: string,
   branch: string,
-  log?: Logger,
 ): Promise<BranchCheckout> {
-  return (await read(repoPath, branch, log)).answer;
+  return (await read(repoPath, branch)).answer;
 }
 
 /** Two answers that say the same thing. */
@@ -259,8 +245,10 @@ export function subscribeBranchCheckout(
         break;
       case "unavailable":
         // Nothing on disk says when git answers again, so no watcher can
-        // be what asks: a spaced timer does, until an answer comes.
+        // be what asks: a spaced timer does, until an answer comes — and
+        // never one that keeps the process alive.
         reask = setTimeout(ask, UNAVAILABLE_REASK_MS);
+        reask.unref();
         break;
       default:
         reading.answer satisfies never;
@@ -275,12 +263,19 @@ export function subscribeBranchCheckout(
       return;
     }
     asking = true;
-    void read(repoPath, branch, log).then((reading) => {
+    void read(repoPath, branch).then((reading) => {
       asking = false;
       if (stopped) return;
       watch(reading);
       if (last === null || !branchCheckoutEqual(last, reading.answer)) {
         last = reading.answer;
+        // SAID ONCE PER CHANGE: a git that stays unavailable is asked again
+        // every few seconds, and the log hears about it when it starts.
+        if (reading.answer.kind === "unavailable")
+          log?.warn(
+            { err: reading.answer.reason, repoPath, branch },
+            "git: could not read where a branch is checked out",
+          );
         onAnswer(reading.answer);
       }
       if (again) {
