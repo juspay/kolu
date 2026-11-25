@@ -40,10 +40,20 @@ const WorkLive: Component<{
   const shown = useShown();
   const name = useMemberName();
   /** The terminals a pane can be drawn for — the ones this browser can
-   *  reach — by ref, in the order the waterfall runs them. */
-  const refs = createMemo(() =>
-    props.members.flatMap((one) => (one.split === null ? [] : [one.terminal])),
-  );
+   *  reach — by ref, in the order the waterfall runs them.
+   *
+   *  ONE PANE PER TERMINAL: a terminal is one screen, and two member rows
+   *  can name the same one (a membership read taken while the rows are being
+   *  rebuilt hands the ref over twice). A second pane over that ref would
+   *  attach the stream a second time and leave every readout matching two
+   *  elements, so the ref is kept once, where it first appears. */
+  const refs = createMemo(() => [
+    ...new Set(
+      props.members.flatMap((one) =>
+        one.split === null ? [] : [one.terminal],
+      ),
+    ),
+  ]);
   const roleOf = (ref: string): WorkRole | undefined =>
     props.members.find((one) => one.terminal === ref)?.member.role;
   const layout = () => paneLayout(refs().length, !atWide());
