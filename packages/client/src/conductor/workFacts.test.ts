@@ -40,7 +40,6 @@ const member = (role: WorkMember["role"]): WorkMember => ({
   work: "w",
   role,
   joinedAt: "2026-01-01T00:00:00Z",
-  worktree: { kind: "unread" },
 });
 
 const PLANNER = member("planner");
@@ -99,7 +98,6 @@ describe("one work's reading", () => {
     createRoot((dispose) => {
       const facts = readWorkFacts(() => []);
       expect(facts.members()).toEqual([]);
-      expect(facts.livePr()).toBeNull();
       dispose();
     });
   });

@@ -44,8 +44,9 @@ export type WorkRole = typeof WorkRoleSchema.Type;
 
 /** The roles a work may hold only ONE of — the waterfall's parts. A second
  *  `planner` is two agents planning one branch, which is the shape of the
- *  defect this round removes; `other` is uncapped (a watch may hold several
- *  terminals nobody has a part for). Enforced in {@link parseStore}. */
+ *  defect this round removes. `other` is uncapped on a BRANCH work (several
+ *  terminals nobody has a part for); a WATCH holds its own terminal alone.
+ *  Both enforced in {@link parseStore}. */
 export const UNIQUE_ROLES = ["planner", "implementor"] as const;
 /** A waterfall's part — the roles a work holds one of, and the two whose
  *  agent kolu starts from the work's own setup. */
@@ -115,6 +116,23 @@ export type OfferedSetupKey = typeof OfferedSetupKeySchema.Type;
 export const isKoluChoiceKey = (key: SetupKey): key is KoluChoiceKey =>
   (KOLU_CHOICE_KEYS as ReadonlyArray<string>).includes(key);
 
+/** WHO SAID WHAT A BRANCH KEY'S `repo` IS.
+ *
+ *  - `git`: `repo` is git's own root for the repository on the key's host, as
+ *    that host answered it when the key was parsed or re-keyed — so two
+ *    spellings of one repository are one key. The only arm a parsed key has.
+ *  - `as-written`: a key stored before kolu asked git; `repo` is what a
+ *    caller typed, and git has not been asked. Nothing new produces one.
+ *  - `held`: git answered `root`, but the id for that root belongs to
+ *    another work, so this one keeps its old key (and id) until the holder
+ *    leaves the list. Nothing new produces one either. */
+export const RepoBySchema = Schema.Union([
+  Schema.Struct({ kind: Schema.Literal("git") }),
+  Schema.Struct({ kind: Schema.Literal("as-written") }),
+  Schema.Struct({ kind: Schema.Literal("held"), root: Schema.NonEmptyString }),
+]);
+export type RepoBy = typeof RepoBySchema.Type;
+
 /** WHAT A PIECE OF WORK IS — a branch on a machine, or a terminal somebody
  *  asked kolu to keep an eye on.
  *
@@ -126,17 +144,50 @@ export const WorkKeySchema = Schema.Union([
     kind: Schema.Literal("branch"),
     /** The fleet host ref the work runs on (`local`, `remote:<target>`). */
     host: Schema.String.check(Schema.isMinLength(1)),
-    /** The repository's absolute path on that host. */
+    /** The repository on that host — git's root, unless `repoBy` says
+     *  otherwise. */
     repo: Schema.String.check(Schema.isMinLength(1)),
     branch: Schema.String.check(Schema.isMinLength(1)),
+    /** Who said what `repo` is ({@link RepoBySchema}). {@link workIdOf}
+     *  does not read it. */
+    repoBy: RepoBySchema,
   }),
   Schema.Struct({
     kind: Schema.Literal("watch"),
-    /** The fleet terminal ref (`<host>/<id>`) the watch is about. */
-    terminal: Schema.String.check(Schema.isMinLength(1)),
+    /** The fleet host ref the watched terminal is on. Its own field, so
+     *  nothing ever splits a string to find it — a host key may hold a `/`. */
+    host: Schema.String.check(Schema.isMinLength(1)),
+    /** The terminal's id on that host. */
+    id: Schema.String.check(Schema.isMinLength(1)),
   }),
 ]);
 export type WorkKey = typeof WorkKeySchema.Type;
+
+/** A branch key, by name. */
+export type BranchKey = Extract<WorkKey, { readonly kind: "branch" }>;
+
+/** A KEY THAT HAS BEEN PARSED — a watch of a terminal the host holds, or a
+ *  branch whose repository git named. What the store opens a work for: a
+ *  key a caller typed, unparsed, cannot reach it. */
+export type ParsedWorkKey =
+  | Extract<WorkKey, { readonly kind: "watch" }>
+  | (BranchKey & { readonly repoBy: { readonly kind: "git" } });
+
+/** THE REPOSITORY'S ROOT, as git said it for this key — `repo` for a `git`
+ *  key, the root it is held from for a `held` one, and none for an
+ *  `as-written` key, whose root git has not said. Total. */
+export const rootOf = (key: BranchKey): Option.Option<string> => {
+  switch (key.repoBy.kind) {
+    case "git":
+      return Option.some(key.repo);
+    case "held":
+      return Option.some(key.repoBy.root);
+    case "as-written":
+      return Option.none();
+    default:
+      return key.repoBy satisfies never;
+  }
+};
 
 /** A work's identity as ONE string — the key of the `works` map, of the wire
  *  collection, and of a member's `work` field. Always {@link workIdOf} of a
@@ -149,31 +200,62 @@ export type WorkId = string;
 const part = (text: string): string => encodeURIComponent(text);
 
 /** THE ONE STRING ENCODING OF A KEY. Injective and decodable
- *  ({@link workKeyOf}): two different keys never produce one id, so "one work
- *  per branch" is a property of the map rather than a rule somebody enforces.
- */
+ *  ({@link workIdParts}): two different keys never produce one id, so one
+ *  work per KEY is a property of the map. One open work per branch is not —
+ *  two keys can name one repository — and is the store's rule 5. A watch's
+ *  id is the terminal's fleet ref (`<host>/<id>`), encoded whole — the
+ *  bytes every stored watch id already is. */
 export const workIdOf = (key: WorkKey): WorkId =>
   key.kind === "branch"
     ? `branch:${part(key.host)}/${part(key.repo)}/${part(key.branch)}`
-    : `watch:${part(key.terminal)}`;
+    : `watch:${part(watchedRef(key))}`;
 
-const decodeWorkKey = Schema.decodeUnknownOption(WorkKeySchema);
+/** THE FLEET REF OF THE TERMINAL A WATCH KEY NAMES — `<host>/<id>`, the ref
+ *  that terminal's member row is filed under. */
+export const watchedRef = (key: {
+  readonly host: string;
+  readonly id: string;
+}): string => `${key.host}/${key.id}`;
+
+/** WHAT A WORK ID SAYS — the key's parts it encodes. Not a key: an id cannot
+ *  say who named a branch's repository (`repoBy`), so only the stored work
+ *  carries that. */
+export type WorkIdParts =
+  | {
+      readonly kind: "branch";
+      readonly host: string;
+      readonly repo: string;
+      readonly branch: string;
+    }
+  | { readonly kind: "watch"; readonly host: string; readonly id: string };
 
 /** ... and back. `none` for a string that is no work id — which is what an
  *  agent naming a work kolu never opened hands in, and what a pasted link
- *  with a broken `%`-escape is. The parts go through the key's own schema,
- *  so an empty one is refused by the rule that refuses it everywhere else. */
-export const workKeyOf = (id: WorkId): Option.Option<WorkKey> => {
+ *  with a broken `%`-escape is. Every part must be non-empty, the rule the
+ *  key's own schema holds. A watch's ref is split at its LAST `/`: a host key
+ *  may contain one, a terminal id never does. */
+export const workIdParts = (id: WorkId): Option.Option<WorkIdParts> => {
   const branch = /^branch:([^/]*)\/([^/]*)\/([^/]*)$/.exec(id);
   const watch = /^watch:(.*)$/.exec(id);
   try {
     if (branch !== null) {
-      const [host, repo, name] = branch.slice(1).map(decodeURIComponent);
-      return decodeWorkKey({ kind: "branch", host, repo, branch: name });
+      const [host = "", repo = "", name = ""] = branch
+        .slice(1)
+        .map(decodeURIComponent);
+      return host === "" || repo === "" || name === ""
+        ? Option.none()
+        : Option.some({ kind: "branch", host, repo, branch: name });
     }
     if (watch === null) return Option.none();
-    const [terminal] = watch.slice(1).map(decodeURIComponent);
-    return decodeWorkKey({ kind: "watch", terminal });
+    const ref = decodeURIComponent(watch[1] ?? "");
+    const cut = ref.lastIndexOf("/");
+    return cut <= 0 || cut === ref.length - 1
+      ? Option.none()
+      : Option.some({
+          kind: "watch",
+          host: ref.slice(0, cut),
+          id: ref.slice(cut + 1),
+        });
   } catch (cause) {
     // `decodeURIComponent` throws `URIError` on a malformed escape: that is
     // a string no `workIdOf` produced, so it names no work. Anything else is
@@ -200,16 +282,18 @@ export type KeptFile = typeof KeptFileSchema.Type;
 /** HOW A WORK ENDED — one sum, never a pair of nullable fields.
  *
  *  Three ways and no more: the forge says the PR merged, the forge says it
- *  was closed, or somebody STOPPED it (the person, from the card; or the
- *  Conductor, through `work_stop`). There is no `abandoned`: kolu failing to
- *  see a terminal is not an ending, and a work whose members have all gone is
- *  an open work with no terminals. */
+ *  was closed, or somebody STOPPED it (the person, from the card; the
+ *  Conductor, through `work_stop`; or kolu, for one reason only: a re-key
+ *  found a second open work on the same branch, `./store.ts`'s `rekeyed`).
+ *  There is no `abandoned`: kolu failing to see a terminal is not an ending,
+ *  and a work whose members have all gone is an open work with no terminals.
+ */
 export const OutcomeSchema = Schema.Union([
   Schema.Struct({ kind: Schema.Literal("merged"), pr: Schema.Int }),
   Schema.Struct({ kind: Schema.Literal("closed"), pr: Schema.Int }),
   Schema.Struct({
     kind: Schema.Literal("stopped"),
-    by: Schema.Literals(["you", "conductor"]),
+    by: Schema.Literals(["you", "conductor", "kolu"]),
   }),
 ]);
 export type Outcome = typeof OutcomeSchema.Type;
@@ -725,17 +809,18 @@ export const isAsked = (decision: Decision): decision is Asked =>
 export const isSettled = (decision: Decision): decision is Settled =>
   decision.kind === "settled";
 
-/** WHERE A WORK IS WORKING — the worktree its files are listed from and its
- *  code is browsed in, on its host. `unread` until a member's worktree has
- *  been read; `read` from then on, kept on the WORK so it outlives the
- *  terminals that told it (`record.ts`'s `settleWorktree` is the one rule
- *  that moves it). */
+/** WHERE A WORK IS WORKING — git's LAST ANSWER for the work's own key: the
+ *  folder its branch is checked out in on the key's host, which its files are
+ *  listed from and its code is browsed in. `unread` until git has been asked;
+ *  `absent` when the branch is checked out nowhere on its host; `at` the
+ *  folder. No host: it is always the key's. Kept on the WORK so it outlives
+ *  its terminals, and written by one rule (`record.ts`'s `recordWorktree`),
+ *  never off a member — a member may stand anywhere. */
 export const WorkWorktreeSchema = Schema.Union([
   Schema.Struct({ kind: Schema.Literal("unread") }),
+  Schema.Struct({ kind: Schema.Literal("absent") }),
   Schema.Struct({
-    kind: Schema.Literal("read"),
-    /** The ENCODED host key the worktree is on. */
-    host: Schema.NonEmptyString,
+    kind: Schema.Literal("at"),
     path: Schema.NonEmptyString,
   }),
 ]);
@@ -769,23 +854,9 @@ export const outcomeOf = (work: Work): Option.Option<Outcome> =>
 export const keptOf = (work: Work): Option.Option<ReadonlyArray<KeptFile>> =>
   work.state.kind === "ended" ? Option.some(work.state.kept) : Option.none();
 
-/** THE HOST a work runs on — read off its key, never off a decision. A watch
- *  takes its host from the terminal it watches (`<host>/<id>`): everything
- *  before the first `/`. */
-export const hostOf = (work: Pick<Work, "key">): string =>
-  work.key.kind === "branch"
-    ? work.key.host
-    : work.key.terminal.replace(/\/.*$/s, "");
-
-/** WHERE A MEMBER IS WORKING — not read off its terminal yet, or read. */
-export const WorktreeSchema = Schema.Union([
-  Schema.Struct({ kind: Schema.Literal("unread") }),
-  Schema.Struct({
-    kind: Schema.Literal("read"),
-    path: Schema.NonEmptyString,
-  }),
-]);
-export type Worktree = typeof WorktreeSchema.Type;
+/** THE HOST a work runs on — a field of its key, never a decision and never
+ *  a string split. */
+export const hostOf = (work: Pick<Work, "key">): string => work.key.host;
 
 /** ONE MEMBER TERMINAL — the whole of what kolu stores about a terminal's
  *  part in a work, in the ONE map keyed by terminal ref.
@@ -793,7 +864,9 @@ export type Worktree = typeof WorktreeSchema.Type;
  *  A terminal is in AT MOST ONE WORK by construction (one map, one key), and
  *  there is no bookkeeping without a member (the same row holds both). There
  *  is no `leftAt`: a member is in the map or it is not, and that it left is a
- *  `left` event on the work's timeline.
+ *  `left` event on the work's timeline. There is no folder either: where a
+ *  terminal stands is its own record's live fact, and nothing about the work
+ *  is read off it.
  *
  *  The host-side watch bookkeeping (what the terminal is called, what the
  *  conversation was told) rides in a `watch` field the HOST declares — see
@@ -805,16 +878,13 @@ export const WorkMemberSchema = Schema.Struct({
   work: Schema.String,
   role: WorkRoleSchema,
   joinedAt: Schema.String,
-  /** WHERE IT IS WORKING, as kolu first read it off the terminal's record —
-   *  the worktree a work's files are listed from and copied out of when it
-   *  ends. `unread` until a reading has said. */
-  worktree: WorktreeSchema,
 });
 export type WorkMember = typeof WorkMemberSchema.Type;
 
 /** The member schema a HOST persists: the model's own fields plus whatever
  *  that host remembers about the terminal. Parameterised rather than
  *  declared with a `watch: unknown`, so the host's own schema is the one that
- *  decodes it and this package still owns the four fields a member IS. */
+ *  decodes it and this package still owns the fields a member IS — its work,
+ *  its role and when it joined. */
 export const memberSchemaWith = <S extends Schema.Top>(watch: S) =>
   Schema.Struct({ ...WorkMemberSchema.fields, watch });

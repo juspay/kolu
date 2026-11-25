@@ -6,14 +6,11 @@
 import { createSignal } from "solid-js";
 import { render } from "solid-js/web";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import BrowseFileDispatcher, {
-  type BrowseFileDispatcherProps,
-} from "./BrowseFileDispatcher";
+import BrowseFileDispatcher from "./BrowseFileDispatcher";
 
 import { CommentView, createCommentView } from "../comments/commentView";
+import type { CommentQueue } from "../comments/types";
 import { Shown } from "../ui/shown";
-
-type FileAt = BrowseFileDispatcherProps["at"];
 
 // The source view is pierre's highlighter, which is not this test's subject:
 // what is pinned is WHICH view the dispatcher picks. Pierre itself loads a
@@ -40,6 +37,7 @@ const show = (path: string, content: string): HTMLElement => {
       <CommentView.Provider value={createCommentView()}>
         <BrowseFileDispatcher
           at={null}
+          comments={null}
           open={null}
           filePath={path}
           file={{ path, source: { content, truncated: false } }}
@@ -83,13 +81,13 @@ describe("a file read as text", () => {
   });
 });
 
-describe("a drawn document, as the terminal it hangs on comes and goes", () => {
-  // A reader can draw a work's file before it knows a terminal for it (a
-  // fresh pop-out window), and the terminal then arrives — or leaves. The
-  // document is mounted once: commenting turns on and off around it, and the
-  // one drawn document is never moved between two wrappers.
+describe("a drawn document, as its comment queue comes and goes", () => {
+  // A Code tab can draw a file before it has a terminal to file comments in,
+  // and the terminal then arrives — or leaves. The document is mounted once:
+  // commenting turns on and off around it, and the one drawn document is
+  // never moved between two wrappers.
   it("keeps the drawn document in the page exactly once, and throws nothing", () => {
-    const [at, setAt] = createSignal<FileAt>(null);
+    const [queue, setQueue] = createSignal<CommentQueue | null>(null);
     const host = document.createElement("div");
     document.body.append(host);
     dispose = render(
@@ -98,7 +96,8 @@ describe("a drawn document, as the terminal it hangs on comes and goes", () => {
         <Shown.Provider value={() => true}>
           <CommentView.Provider value={createCommentView()}>
             <BrowseFileDispatcher
-              at={at()}
+              at={null}
+              comments={queue()}
               open={null}
               filePath="plan.md"
               file={{
@@ -125,10 +124,10 @@ describe("a drawn document, as the terminal it hangs on comes and goes", () => {
     expect(drawn).toBeDefined();
     expect(documents()).toHaveLength(1);
 
-    expect(() => setAt({ host: "local", terminalId: "t-1" })).not.toThrow();
+    expect(() => setQueue({ kind: "terminal", id: "t-1" })).not.toThrow();
     expect(documents()).toEqual([drawn]);
 
-    expect(() => setAt(null)).not.toThrow();
+    expect(() => setQueue(null)).not.toThrow();
     expect(documents()).toEqual([drawn]);
   });
 });

@@ -205,6 +205,33 @@
       }
     },
     {
+      // A WORK'S READINGS READ THE WORK. `prReadings.ts` and `workReadings.ts`
+      // turn a work's own record (and its own `workPrs` entry) into what a
+      // card says; a terminal's record is a member's, and a card that read
+      // one drew another branch's pull request. The terminal records reach
+      // these two files through neither the fleet's terminal list nor padi's
+      // surface types — a per-terminal face reads them, outside this wall.
+      "includes": [
+        "packages/client/src/conductor/prReadings.ts",
+        "packages/client/src/conductor/workReadings.ts"
+      ],
+      "linter": {
+        "rules": {
+          "style": {
+            "noRestrictedImports": {
+              "level": "error",
+              "options": {
+                "paths": {
+                  "../palette/fleetTerminals": "A work's readings read the work, never a terminal's record — a member terminal's PR or folder is not the work's. Take the fact from the work (or its `workPrs` entry through `./workPr.ts`).",
+                  "@kolu/padi-client/surface": "A work's readings read the work, never a terminal's record — a member terminal's PR or folder is not the work's. Take the fact from the work (or its `workPrs` entry through `./workPr.ts`)."
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
       // `defineSurface`'s generic machinery is a library over *heterogeneous*
       // descriptor maps: `Record<string, CellSpec<any, any, TPolicy>>` and the
       // mapped types that walk it. `unknown` can't stand in — a concrete

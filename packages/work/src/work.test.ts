@@ -1,5 +1,6 @@
 import { Option, Schema } from "effect";
 import { describe, expect, it } from "vitest";
+import { seeded } from "./seeded.testlib.ts";
 import {
   ABOUT_WORK,
   aboutMember,
@@ -18,6 +19,7 @@ import {
   endWork,
   givenAnswersOf,
   handBack,
+  hostOf,
   harnessForModel,
   InvalidWorkStore,
   isAsked,
@@ -74,7 +76,7 @@ import {
   type WorkMember,
   WorkSchema,
   workIdOf,
-  workKeyOf,
+  workIdParts,
 } from "./index.ts";
 
 const T = (minute: number): string =>
@@ -84,11 +86,12 @@ const T = (minute: number): string =>
  *  nothing — what a test asserts on now that a lookup answers an `Option`. */
 const got = <A>(found: Option.Option<A>): A => Option.getOrThrow(found);
 
-const KEY: WorkKey = {
+const KEY: Extract<WorkKey, { kind: "branch" }> = {
   kind: "branch",
   host: "remote:naiveintent",
   repo: "/home/me/code/kolu",
   branch: "agent-distro-update-errors",
+  repoBy: { kind: "git" },
 };
 const ID = workIdOf(KEY);
 
@@ -167,16 +170,22 @@ const member = (over: Partial<WorkMember> = {}): WorkMember => ({
   work: ID,
   role: "planner",
   joinedAt: T(3),
-  worktree: { kind: "unread" },
   ...over,
 });
 
 describe("a work IS its key", () => {
+  /** A key's parts, as its id says them: everything but `repoBy`. */
+  const partsOf = (key: WorkKey) => {
+    if (key.kind === "watch") return key;
+    const { repoBy: _unsaid, ...parts } = key;
+    return parts;
+  };
+
   it("encodes and decodes a branch key, separators and all", () => {
     expect(ID).toBe(
       "branch:remote%3Anaiveintent/%2Fhome%2Fme%2Fcode%2Fkolu/agent-distro-update-errors",
     );
-    expect(got(workKeyOf(ID))).toEqual(KEY);
+    expect(got(workIdParts(ID))).toEqual(partsOf(KEY));
   });
 
   it("is injective — two keys never share an id", () => {
@@ -185,21 +194,70 @@ describe("a work IS its key", () => {
       host: "remote:naiveintent",
       repo: "/home/me/code",
       branch: "kolu/agent-distro-update-errors",
+      repoBy: { kind: "git" },
     };
     expect(workIdOf(sneaky)).not.toBe(ID);
-    expect(got(workKeyOf(workIdOf(sneaky)))).toEqual(sneaky);
+    expect(got(workIdParts(workIdOf(sneaky)))).toEqual(partsOf(sneaky));
   });
 
-  it("encodes and decodes a watch key", () => {
-    const key: WorkKey = { kind: "watch", terminal: "local/abc-123" };
-    expect(got(workKeyOf(workIdOf(key)))).toEqual(key);
+  it("does not read who named the repository", () => {
+    expect(workIdOf({ ...KEY, repoBy: { kind: "as-written" } })).toBe(ID);
+  });
+
+  it("encodes a watch as its terminal's ref — the bytes a stored one has", () => {
+    const key: WorkKey = { kind: "watch", host: "local", id: "abc-123" };
+    expect(workIdOf(key)).toBe("watch:local%2Fabc-123");
+    expect(got(workIdParts(workIdOf(key)))).toEqual(key);
+  });
+
+  it("gives back every key's parts, and its host, for hosts that hold a slash", () => {
+    const HOSTS = [
+      "local",
+      "remote:box",
+      "remote:ssh://box/3",
+      "remote:/run/sock/a",
+      "remote:a b/c%2F",
+    ];
+    for (let seed = 1; seed <= 300; seed += 1) {
+      const pick = seeded(seed);
+      const among = <T>(of: ReadonlyArray<T>): T =>
+        of[Math.floor(pick() * of.length)] as T;
+      const word = (): string =>
+        among(["a", "b/c", "%2F", " ", "kolu", "/", "é"]) +
+        among(["", "x", "/y", "%"]);
+      const host = among(HOSTS);
+      const key: WorkKey =
+        pick() < 0.5
+          ? {
+              kind: "watch",
+              host,
+              id: `${Math.floor(pick() * 1e9).toString(16)}-id`,
+            }
+          : {
+              kind: "branch",
+              host,
+              repo: `/${word()}`,
+              branch: word(),
+              repoBy: among([
+                { kind: "git" },
+                { kind: "as-written" },
+                { kind: "held", root: "/elsewhere" },
+              ] as const),
+            };
+      expect(got(workIdParts(workIdOf(key))), `seed ${seed}`).toEqual(
+        partsOf(key),
+      );
+      expect(hostOf({ key }), `seed ${seed}`).toBe(host);
+    }
   });
 
   it("answers nothing for a string that is no work id", () => {
-    expect(Option.isNone(workKeyOf("w1"))).toBe(true);
-    expect(Option.isNone(workKeyOf("branch:host//branch"))).toBe(true);
+    expect(Option.isNone(workIdParts("w1"))).toBe(true);
+    expect(Option.isNone(workIdParts("branch:host//branch"))).toBe(true);
+    expect(Option.isNone(workIdParts("watch:no-slash"))).toBe(true);
+    expect(Option.isNone(workIdParts("watch:local%2F"))).toBe(true);
     // A pasted link with a broken escape is refused, never thrown.
-    expect(Option.isNone(workKeyOf("branch:local/%E0%A4%A/b"))).toBe(true);
+    expect(Option.isNone(workIdParts("branch:local/%E0%A4%A/b"))).toBe(true);
   });
 
   it("reads the host off the key, with no decision involved", () => {
@@ -269,7 +327,7 @@ describe("parseStore — what the types cannot say", () => {
 
   it("refuses a member of a work that has ended", () => {
     const ended = endWork(opened(), {
-      outcome: { kind: "merged", pr: 181 },
+      outcome: { kind: "stopped", by: "you" },
       at: T(9),
     });
     expect(
@@ -1108,7 +1166,7 @@ describe("opening, ending, reopening", () => {
 
   it("opens off something else with no words, rather than empty ones", () => {
     const work = openWork({
-      key: { kind: "watch", terminal: "local/abc" },
+      key: { kind: "watch", host: "local", id: "abc" },
       title: "A terminal",
       at: T(0),
       request: { kind: "none" },
@@ -1121,13 +1179,13 @@ describe("opening, ending, reopening", () => {
 
   it("ends once, with the outcome on the timeline", () => {
     const ended = endWork(setUp(opened()), {
-      outcome: { kind: "merged", pr: 181 },
+      outcome: { kind: "stopped", by: "conductor" },
       at: T(9),
     });
     expect(ended.state).toMatchObject({ kind: "ended" });
     expect(ended.events.at(-1)).toMatchObject({
       kind: "ended",
-      outcome: { kind: "merged", pr: 181 },
+      outcome: { kind: "stopped", by: "conductor" },
     });
     expect(
       endWork(ended, { outcome: { kind: "stopped", by: "you" }, at: T(10) }),
@@ -1358,7 +1416,7 @@ describe("membership", () => {
 
   it("drops a member whose work has ended", () => {
     const ended = endWork(setUp(opened()), {
-      outcome: { kind: "merged", pr: 1 },
+      outcome: { kind: "stopped", by: "you" },
       at: T(9),
     });
     expect(
@@ -1512,7 +1570,10 @@ describe("the history cap", () => {
   it("keeps every open work and the newest finished ones", () => {
     const rows = [0, 1, 2].map((at): readonly [WorkId, Work] => [
       `branch:local/%2Frepo/b${at}`,
-      endWork(opened(), { outcome: { kind: "merged", pr: at }, at: T(at + 5) }),
+      endWork(opened(), {
+        outcome: { kind: "stopped", by: "you" },
+        at: T(at + 5),
+      }),
     ]);
     const open: readonly [WorkId, Work] = [ID, opened()];
     const capped = capFinished([open, ...rows], 2);

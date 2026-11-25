@@ -29,7 +29,7 @@ vi.mock("./workFacts", () => ({
           split: { host: "local", id: `t${i}` },
           standing: undefined,
         })),
-      livePr: () => null,
+      pr: () => Option.none(),
       checks: () => Option.none(),
       at: () => one()?.at,
     };
@@ -65,7 +65,7 @@ const row = (id: string, title: string): WorkRow =>
   [
     id as WorkId,
     {
-      key: { kind: "watch", terminal: "local/a" },
+      key: { kind: "watch", host: "local", id: "a" },
       title,
       events: [],
       decisions: [],

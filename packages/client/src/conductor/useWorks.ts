@@ -22,10 +22,12 @@
  *
  *  `memberReadings` carries the one thing a browser cannot read for itself: how
  *  each member terminal stands by kolu's own watch, which reads hosts no
- *  browser has opened. Everything else a card draws — the agent in a terminal,
- *  its screen, a PR's check runs — is read live from that host's own mirror,
- *  never from here. */
+ *  browser has opened. `workPrs` carries each work's own pull request, as that
+ *  watch read it for the work's branch (`./workPr.ts`). Everything else a card
+ *  draws about a terminal — the agent in it, its screen — is read live from
+ *  that host's own mirror, never from here. */
 
+import type { PrResult } from "kolu-common/surface";
 import type { MemberReading } from "kolu-common/works";
 import {
   finished,
@@ -124,6 +126,14 @@ export const useMembership = createSharedRoot<
 export const useSeen = createSharedRoot<
   Accessor<ReadonlyMap<string, MemberReading>>
 >(() => mapOf(app.collections.memberReadings.use()));
+
+/** EACH WORK'S OWN PULL REQUEST, by work id — the forge's last answer for the
+ *  work's branch, as kolu's watch read it. Absent while the work is not an
+ *  open branch work, or its branch has not been read in this process. Read
+ *  through `./workPr.ts` only. */
+export const useWorkPrs = createSharedRoot<
+  Accessor<ReadonlyMap<WorkId, PrResult>>
+>(() => mapOf(app.collections.workPrs.use()));
 
 /** WHAT NEEDS THE HUMAN, read once for the whole app — `kolu-work`'s one
  *  reading over the works mirror. The "Needs you" group, the bell, the tab's

@@ -47,10 +47,10 @@ thing that does it.
 | module | what moves it |
 | --- | --- |
 | `conductor.ts` | the CONVERSATION — the ACP child, the transcript, the restart fence, `publishState`, and the facade that returns `ConductorHost` |
-| `workStore.ts` | the works map KEYED BY `WorkId`, the single writer: idempotent `openFor` (an ended work reopens), join/leave/save, `stop`/`reopen`, ending (drop the members and the open questions in the same write → keep files → cap at `FINISHED_KEPT` → sweep), the driver lock, restore, and publish-what-moved (one helper, an equivalence per collection) |
+| `workStore.ts` | the works and their members as ONE value, assigned only through `kolu-work`'s `parseStore`, KEYED BY `WorkId`: idempotent `openFor` (an ended work reopens; an open work kept under its old key answers its branch), join/leave/save, `stop`/`reopen` (refused while another work runs the branch), `rekey` (`kolu-work`'s `rekeyed`, with the Code view, live PR and kept files carried along — never a removal), ending (drop the members and the open questions in the same write → keep files → cap at `FINISHED_KEPT` → sweep), the driver lock, restore, and publish-what-moved (one helper, an equivalence per collection) |
 | `memberStore.ts` | what kolu knows about each member terminal, by fleet ref — ONE location; the watch's six fields are listed at the write (`members.ts`'s `saved`), because the row carries the model's half too |
 | `members.ts` | pure: what a reading MEANS for a member (`MemberWatchSchema`, `observed`, `spokenTo`) |
-| `observation.ts` | the observation vocabulary alone (`WatchObservation`, `WatchGit`, `WatchPr`, `PrWatch`) — a leaf both rule modules read |
+| `observation.ts` | the observation vocabulary alone (`WatchObservation`, `WatchGit`, `WatchPr`, `BranchWatch`) — a leaf both rule modules read |
 | `readings.ts` | pure: a host's frames → one `WatchObservation` per member terminal |
 | `observing.ts` | pure `ringEvent` / `prEvents` / `fileEvents` / `toldEvents` + the ONE pass per reading that applies them |
 | `wakes.ts` | when news reaches a turn: the held queue (`@kolu/acp-harness`'s `holding`, the slot discipline both products share), the one-flight flush, the failure episode, the `told` write-back |
@@ -99,9 +99,15 @@ appending what it observes.
   whether anything has been said to the agent in it, and whether a command was
   ever seen running in it. Beside the works rather than inside them because it
   is a fact about a terminal rather than part of what a work is, it moves every
-  time a host is read, and a reader of the record is never handed it. WHERE a
-  member worked is the exception and lives on the record (`WorkMember.worktree`):
-  a work's files have to be findable after its terminals are gone.
+  time a host is read, and a reader of the record is never handed it. A
+  member lends its work NOTHING: where it stands is the terminal's, and the
+  work's folder (`Work.worktree`) is written by ONE door,
+  `observedCheckout` — git's answer, on the key's host, for where the key's
+  branch is checked out (a watch's, by the reading of its own terminal) — so
+  a work's files are findable after its terminals are gone and never read
+  from another branch's folder. A key git never named (`as-written`, or
+  `held` under an old key) is re-keyed on that same answer first
+  (`rekeyWork`, which carries the conversation's rows and held news too).
 - **The setup is DECISIONS.** `work_open` carries the questions; they are
   recorded on the work and said in the transcript as ONE row that NAMES it,
   and nothing waits on the answer — the Conductor's turn ends, and whoever
@@ -227,7 +233,7 @@ appending what it observes.
   two — merged or closed — and a **Stop** (the card's button, the Conductor's
   `work_stop`), which is the one a person or the Conductor chooses. Nothing
   kolu merely fails to see ends anything, and nothing the forge says brings a
-  work back: a finished work's branch is not watched at all (`prWatches` is
+  work back: a finished work's branch is not watched at all (`branchWatches` is
   the one statement of that scope), so **Reopen** on the card — or `work_open`
   on the same key — is the way back.
 - **The end** — the work's open questions are recorded as dropped and its

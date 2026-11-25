@@ -63,6 +63,9 @@ export interface Wakes {
   /** A PIECE OF WORK LOST ITS LAST TERMINAL. Held by the work, so it is said
    *  ONCE per emptying — and it is never an ending. */
   readonly noTerminals: (news: NoTerminalsNews) => void;
+  /** A RE-KEYED WORK: every held piece of news about `from` now says `to` —
+   *  an answer in its own slot, an emptying re-held under its new id. */
+  readonly workMoved: (from: string, to: string) => void;
   readonly withdraw: (ref: string) => boolean;
   readonly refs: () => ReadonlyArray<string>;
   /** Whether what is waiting about a terminal is a HAND-OVER rather than an
@@ -285,6 +288,16 @@ export const wakes = (deps: {
     },
     noTerminals: (news) => {
       emptied.hold(HERE, news.work, news, news.work);
+    },
+    workMoved: (from, to) => {
+      for (const slot of answers.waiting(HERE)) {
+        if (slot.value.work !== from) continue;
+        answers.hold(HERE, slot.from, { ...slot.value, work: to }, slot.from);
+      }
+      const emptiedNews = emptied.peek(HERE, from, from);
+      if (emptiedNews === undefined) return;
+      emptied.withdraw(HERE, from, from);
+      emptied.hold(HERE, to, { ...emptiedNews, work: to }, to);
     },
     withdraw: (ref) => held.withdraw(HERE, ref),
     refs: () => held.refs(HERE),

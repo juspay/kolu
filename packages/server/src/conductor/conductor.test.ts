@@ -56,6 +56,7 @@ import {
   frameBytesFor,
 } from "@kolu/surface/frame-chunking";
 import { exceedsFrameLimit } from "@kolu/surface/frame-limit";
+import type { BranchCheckout } from "@kolu/padi-client/surface";
 import type { CellStore } from "@kolu/surface/server";
 import type { PrResult } from "@kolu/terminal-vocab/schema";
 import { Server as McpServer } from "@modelcontextprotocol/sdk/server/index.js";
@@ -131,7 +132,7 @@ import {
   setupValue,
   type Work,
   type WorkId,
-  type WorkKey,
+  type ParsedWorkKey,
   WorkRefusal,
   type WorkRole,
   workIdOf,
@@ -458,6 +459,8 @@ interface FakeFiles {
   /** Every reconciliation the host asked for, as the work ids it said to
    *  KEEP — the one rule that deletes a kept-files directory. */
   readonly swept: () => ReadonlyArray<ReadonlyArray<string>>;
+  /** Every kept-files directory a re-key carried to a new id. */
+  readonly moved: () => ReadonlyArray<{ from: string; to: string }>;
 }
 
 function fakeFiles(): FakeFiles {
@@ -468,6 +471,7 @@ function fakeFiles(): FakeFiles {
   const listed: Array<{ host: string; worktree: string }> = [];
   const kept: Array<{ work: string; paths: ReadonlyArray<string> }> = [];
   const swept: Array<ReadonlyArray<string>> = [];
+  const moved: Array<{ from: string; to: string }> = [];
   return {
     port: {
       list: async (at) => {
@@ -487,6 +491,9 @@ function fakeFiles(): FakeFiles {
       sweep: async (keep) => {
         swept.push([...keep]);
       },
+      move: (from, to) => {
+        moved.push({ from, to });
+      },
     },
     holds: (paths, more = false) => {
       holding = paths;
@@ -501,6 +508,7 @@ function fakeFiles(): FakeFiles {
     listed: () => listed,
     kept: () => kept,
     swept: () => swept,
+    moved: () => moved,
   };
 }
 
@@ -720,6 +728,7 @@ function rig(over: Remembered = {}): Rig {
     publishReading: (terminal, reading) => {
       readingsPublished.push({ terminal, reading });
     },
+    publishPr: () => {},
     publishWorkCodeView: () => {},
     publishMemory: (view) => {
       memoryPublished.push(view);
@@ -1753,6 +1762,7 @@ describe("teardown (B2)", () => {
       publishWork: () => {},
       publishMember: () => {},
       publishReading: () => {},
+      publishPr: () => {},
       publishMemory: () => {},
       publishWorkCodeView: () => {},
       worksMoved: () => {},
@@ -1832,6 +1842,7 @@ describe("teardown (B2)", () => {
       publishWork: () => {},
       publishMember: () => {},
       publishReading: () => {},
+      publishPr: () => {},
       publishMemory: () => {},
       publishWorkCodeView: () => {},
       worksMoved: () => {},
@@ -2506,11 +2517,12 @@ const storedWatch = (over: Partial<MemberWatch> = {}): MemberWatch => ({
 
 /** THE KEY A WORK IS — a branch on a machine. The fixtures below open one
  *  branch unless they say otherwise. */
-const workKey = (branch = "fix-the-parser", host = "local"): WorkKey => ({
+const workKey = (branch = "fix-the-parser", host = "local"): ParsedWorkKey => ({
   kind: "branch",
   host,
   repo: "/srv/repo",
   branch,
+  repoBy: { kind: "git" },
 });
 
 /** A piece of work as a previous kolu-server left it on disk. */
@@ -2538,7 +2550,6 @@ const storedMembers = (
       Partial<MemberWatch> & {
         work?: WorkId;
         role?: WorkRole;
-        worktree?: string;
       }
     >
   >,
@@ -2546,17 +2557,13 @@ const storedMembers = (
 ): PersistedMembers =>
   Object.fromEntries(
     Object.entries(refs).map(([ref, over]) => {
-      const { work: at, role, worktree, ...watch } = over;
+      const { work: at, role, ...watch } = over;
       return [
         ref,
         {
           work: at ?? work,
           role: role ?? "implementor",
           joinedAt: T0,
-          worktree:
-            worktree === undefined
-              ? { kind: "unread" as const }
-              : { kind: "read" as const, path: worktree },
           watch: storedWatch(watch),
         },
       ];
@@ -2619,9 +2626,17 @@ const forgeSays = (over: {
 /** The commit a check reading is about. */
 const HEAD = "4f21a9c0d3e5b7a9c1d3e5f7a9b1c3d5e7f9a1b3";
 
-/** The worktree a member's record names, as a reading carries it. */
+/** The folder a member's record names, as a reading carries it — and, in the
+ *  tests below, the folder git answers for the work's own branch. */
 const inRepo: WatchGit = {
   worktree: "/srv/worktrees/fix-the-parser",
+};
+
+/** GIT'S ANSWER for the work's own branch: checked out at {@link inRepo}. */
+const checkedOut: BranchCheckout = {
+  kind: "repository",
+  root: "/srv/repo",
+  checkout: { kind: "at", path: inRepo.worktree },
 };
 
 /** A conversation that is WORKING, as the harness publishes one — the state
@@ -2664,7 +2679,7 @@ const idle = (agent: Spawned): void => {
 const watchWork = async (
   r: Rig,
   title = "fix the parser",
-  key: WorkKey = workKey(),
+  key: ParsedWorkKey = workKey(),
 ): Promise<WorkId> => {
   const opened = await r.host.openWork({
     key,
@@ -3410,7 +3425,7 @@ describe("opening a piece of work", () => {
     const work = await watchWork(r);
     r.host.stopWork(work, "you");
     expect(r.host.memberRefs()).toEqual([]);
-    expect(r.host.prWatches()).toEqual([]);
+    expect(r.host.branchWatches()).toEqual([]);
     const scopes = r.watchScopeMoved();
 
     r.host.reopenWork(work);
@@ -3418,7 +3433,7 @@ describe("opening a piece of work", () => {
     expect(theWork(r).state.kind).toBe("open");
     expect(r.watchScopeMoved()).toBeGreaterThan(scopes);
     // ... and what the watch would re-scope TO is this work's branch.
-    expect(r.host.prWatches().map((one) => one.work)).toEqual([work]);
+    expect(r.host.branchWatches().map((one) => one.work)).toEqual([work]);
   });
 
   it("... and when a work is OPENED, before any terminal has joined it", async () => {
@@ -3430,7 +3445,7 @@ describe("opening a piece of work", () => {
 
     expect(r.host.memberRefs()).toEqual([]);
     expect(r.watchScopeMoved()).toBeGreaterThan(scopes);
-    expect(r.host.prWatches().map((one) => one.work)).toEqual([work]);
+    expect(r.host.branchWatches().map((one) => one.work)).toEqual([work]);
   });
 
   it("refuses a second terminal in a role the work already has", async () => {
@@ -4562,45 +4577,54 @@ describe("the timeline a reading writes", () => {
     });
   });
 
-  it("keeps where it works on the WORK: the first reading sticks, and outlives the terminal", async () => {
+  it("keeps where it works on the WORK: git's answer for its key, never a member's, and it outlives the terminal", async () => {
     const r = rig();
-    await running(r);
+    const { work } = await running(r);
     expect(theWork(r).worktree).toEqual({ kind: "unread" });
 
+    // A member standing somewhere says nothing about the work's folder.
     r.host.observe([seeing(A, "working", { git: inRepo })]);
     await drained();
-    expect(theWork(r).worktree).toEqual({
-      kind: "read",
-      host: "local",
-      path: inRepo.worktree,
-    });
+    expect(theWork(r).worktree).toEqual({ kind: "unread" });
 
-    // A later reading from elsewhere in the worktree moves nothing.
+    // Git, asked by the work's own key, does.
+    r.host.observedCheckout(work, checkedOut);
+    await drained();
+    expect(theWork(r).worktree).toEqual({ kind: "at", path: inRepo.worktree });
+
+    // A member reading from another folder moves nothing.
     r.host.observe([
-      seeing(A, "stopped", { git: { worktree: `${inRepo.worktree}/sub` } }),
+      seeing(A, "stopped", { git: { worktree: "/srv/worktrees/elsewhere" } }),
     ]);
     await drained();
-    expect(theWork(r).worktree).toEqual({
-      kind: "read",
-      host: "local",
-      path: inRepo.worktree,
-    });
+    expect(theWork(r).worktree).toEqual({ kind: "at", path: inRepo.worktree });
+
+    // An answer that is no repository concludes nothing.
+    r.host.observedCheckout(work, { kind: "unavailable", reason: "git hung" });
+    await drained();
+    expect(theWork(r).worktree).toEqual({ kind: "at", path: inRepo.worktree });
 
     // The terminal goes; the work still knows where it works.
     r.host.observe([seeing(A, "gone")]);
     await drained();
     expect(r.host.memberRefs()).toEqual([]);
-    expect(theWork(r).worktree).toEqual({
-      kind: "read",
-      host: "local",
-      path: inRepo.worktree,
+    expect(theWork(r).worktree).toEqual({ kind: "at", path: inRepo.worktree });
+
+    // The branch checked out nowhere is said so.
+    r.host.observedCheckout(work, {
+      kind: "repository",
+      root: "/srv/repo",
+      checkout: { kind: "none" },
     });
+    await drained();
+    expect(theWork(r).worktree).toEqual({ kind: "absent" });
   });
 
   it("writes a `.waterfall/` file ONCE, however often the directory is listed", async () => {
     const r = rig();
     r.files.holds([".waterfall/plan.md"]);
-    await running(r);
+    const { work } = await running(r);
+    r.host.observedCheckout(work, checkedOut);
 
     // Off a LEVEL CHANGE rather than a timer: the moment an agent stops is the
     // moment its files have just changed.
@@ -4648,7 +4672,8 @@ describe("the timeline a reading writes", () => {
     const r = rig();
     r.files.listFails("the host is not answering");
     r.files.holds([".waterfall/plan.md"]);
-    await running(r);
+    const { work } = await running(r);
+    r.host.observedCheckout(work, checkedOut);
     r.host.observe([seeing(A, "stopped", { git: inRepo })]);
     await drained();
     expect(r.files.listed()).toHaveLength(1);
@@ -4730,7 +4755,7 @@ describe("the timeline a reading writes", () => {
     });
     // A work with no members is still watched: its branch is what kolu asks
     // about.
-    expect(r.host.prWatches()).toEqual([
+    expect(r.host.branchWatches()).toEqual([
       { work, host: "local", repo: "/srv/repo", branch: "fix-the-parser" },
     ]);
 
@@ -4742,7 +4767,7 @@ describe("the timeline a reading writes", () => {
       });
     });
     // ... and an ended work is no longer asked about.
-    expect(r.host.prWatches()).toEqual([]);
+    expect(r.host.branchWatches()).toEqual([]);
   });
 
   it("tracks the checks of a work that has no terminals at all", async () => {
@@ -4823,6 +4848,7 @@ describe("a work that has ended", () => {
     const work = await watchWork(r);
     r.host.joinWork(work, A, "implementor", "created");
     r.host.saidTo(A);
+    r.host.observedCheckout(work, checkedOut);
     r.host.observe([seeing(A, "stopped", { git: inRepo })]);
     await vi.waitFor(() => {
       expect(
@@ -4902,6 +4928,7 @@ describe("a work that has ended", () => {
     r.files.holds([".waterfall/plan.md"]);
     const work = await watchWork(r);
     r.host.joinWork(work, A, "implementor", "created");
+    r.host.observedCheckout(work, checkedOut);
     r.host.observe([seeing(A, "stopped", { git: inRepo })]);
     await vi.waitFor(() => {
       expect(
@@ -4927,6 +4954,7 @@ describe("a work that has ended", () => {
     const r = rig();
     const work = await watchWork(r);
     r.host.joinWork(work, A, "implementor", "created");
+    r.host.observedCheckout(work, checkedOut);
     r.host.observe([seeing(A, "stopped", { git: inRepo })]);
     // A folder, a cut listing, and one file too big to keep.
     r.files.holds(

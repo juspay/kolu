@@ -10,7 +10,6 @@ import type { WorkCodeView } from "kolu-common/works";
 import { type WorkId, WorkRefusal } from "kolu-work";
 import type { Logger } from "pino";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { memberStore } from "./memberStore.ts";
 import type { RecordWrites } from "./recordWrites.ts";
 import { workCodeViewStore } from "./workCodeViewStore.ts";
 import { FINISHED_KEPT, workStore } from "./workStore.ts";
@@ -50,22 +49,29 @@ function rig() {
       list: async () => ({ paths: [], more: false }),
       keep: async () => ({ kept: [], tooBig: [] }),
       sweep: async () => {},
+      move: () => {},
     },
     publishWork: () => {},
     publishMember: () => {},
     publishReading: () => {},
+    publishPr: () => {},
     worksMoved: () => {},
     watchScopeMoved: () => {},
     ended: () => {},
     noTerminals: () => {},
     records: records<"works" | "members">(),
-    members: memberStore(),
     views,
     log: { warn: () => {} } as unknown as Logger,
   });
   const open = (branch: string): WorkId =>
     works.openFor({
-      key: { kind: "branch", host: "local", repo: "/srv/code/kestrel", branch },
+      key: {
+        kind: "branch",
+        host: "local",
+        repo: "/srv/code/kestrel",
+        branch,
+        repoBy: { kind: "git" },
+      },
       title: branch,
       request: { kind: "none" },
     }).id;

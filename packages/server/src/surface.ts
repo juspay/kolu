@@ -75,6 +75,7 @@ import type {
   PadiLink,
   Preferences,
   ProcessStartedAt,
+  PrResult,
   ViewerMode,
 } from "kolu-common/surface";
 import {
@@ -573,6 +574,7 @@ export function implementKoluSurface(deps: KoluSurfaceDeps) {
       works: inMemoryCollection<string, Work>(),
       workMembers: inMemoryCollection<string, WorkMember>(),
       memberReadings: inMemoryCollection<string, MemberReading>(),
+      workPrs: inMemoryCollection<string, PrResult>(),
       workCodeViews: inMemoryCollection<string, WorkCodeView>(),
     },
     streams: {
@@ -864,6 +866,10 @@ export function implementKoluSurface(deps: KoluSurfaceDeps) {
           terminal,
           reading,
         );
+    },
+    pr: (id, pr) => {
+      if (pr === null) koluSurfaces.ctx.kolu.collections.workPrs.remove(id);
+      else koluSurfaces.ctx.kolu.collections.workPrs.upsert(id, pr);
     },
     codeView: (id, view) => {
       if (view === null)

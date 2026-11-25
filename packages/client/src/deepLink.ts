@@ -24,13 +24,13 @@
  *  and `<host>` is carried as its encoded string (decoded at route time, exactly
  *  as the notification path does), never a decoded `HostKey`. A `<workId>` is
  *  ONE path segment — the work's id percent-encoded whole ({@link workLink}),
- *  since the id itself carries `/` — and must decode to a work key
- *  (`kolu-work`'s `workKeyOf`), or the link is refused. */
+ *  since the id itself carries `/` — and must read as a work id
+ *  (`kolu-work`'s `workIdParts`), or the link is refused. */
 
 import { Option, Result, Schema } from "effect";
 import { isEncodedHostKey } from "kolu-common/hostKey";
 import { type TerminalId, TerminalIdSchema } from "kolu-common/surface";
-import { type WorkId, workKeyOf } from "kolu-work";
+import { type WorkId, workIdParts } from "kolu-work";
 import { hashSegments } from "./hashPath";
 
 /** zod's `safeParse` in Effect terms — a `Result`, so a bad id segment is a
@@ -70,7 +70,7 @@ export function workRouteOf(
   work: unknown,
   ask: unknown,
 ): Result.Result<WorkRoute, string> {
-  if (typeof work !== "string" || Option.isNone(workKeyOf(work)))
+  if (typeof work !== "string" || Option.isNone(workIdParts(work)))
     return Result.fail(`not a work id: ${String(work)}`);
   if (ask !== null && (typeof ask !== "string" || ask === ""))
     return Result.fail(`not a question id: ${String(ask)}`);

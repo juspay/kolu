@@ -46,7 +46,7 @@
  */
 
 import type { Dirent } from "node:fs";
-import { createWriteStream } from "node:fs";
+import { createWriteStream, renameSync } from "node:fs";
 import { mkdir, readdir, rm, stat } from "node:fs/promises";
 import { dirname, join, relative, resolve, sep } from "node:path";
 import { Readable, Transform } from "node:stream";
@@ -300,6 +300,19 @@ export function workFilesOverHosts(deps: {
           recursive: true,
           force: true,
         });
+      }
+    },
+
+    move: (from, to) => {
+      // A RE-KEY MOVED THE WORK: what it kept goes with it, renamed whole —
+      // synchronously, so the record is written in the same turn
+      // (`WorkFiles.move`). A work that never kept anything has no
+      // directory, and nothing moves.
+      try {
+        renameSync(workFilesDir(stateRoot, from), workFilesDir(stateRoot, to));
+      } catch (err) {
+        if ((err as NodeJS.ErrnoException).code === "ENOENT") return;
+        throw err;
       }
     },
   };

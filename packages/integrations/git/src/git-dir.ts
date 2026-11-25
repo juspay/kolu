@@ -36,6 +36,11 @@ export const WATCHER_DEBOUNCE_MS = 150;
  *  surfaces as "not resolvable" rather than hanging a watcher install. */
 export const GIT_QUERY_TIMEOUT_MS = 5_000;
 
+/** How long after an `unavailable` answer git is asked again. Nothing on
+ *  disk says when a git that timed out answers again, so a spaced re-ask is
+ *  the only trigger there is. */
+export const UNAVAILABLE_REASK_MS = 3_000;
+
 /** Resolve a `git rev-parse` git-dir flag to a canonical absolute path, or
  *  null when `cwd` isn't a repo (git fails or the bounded call is killed).
  *  Canonicalizes: macOS `/tmp` symlinks to `/private/tmp`, and `git

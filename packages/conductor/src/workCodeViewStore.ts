@@ -36,6 +36,9 @@ export interface WorkCodeViewStore {
   /** THE RULE: keep a view only for a work kolu holds. Every other entry
    *  goes, from the record and from every reader. */
   readonly keepOnly: (works: ReadonlySet<WorkId>) => void;
+  /** A RE-KEYED WORK'S VIEW, carried to its new id: published gone under
+   *  `from` and present under `to`. Nothing to carry is nothing done. */
+  readonly move: (from: WorkId, to: WorkId) => void;
 }
 
 export interface WorkCodeViewStoreDeps {
@@ -84,6 +87,15 @@ export const workCodeViewStore = (
         dropped = true;
       }
       if (dropped) deps.records.schedule("workCodeViews");
+    },
+    move: (from, to) => {
+      const view = views.get(from);
+      if (view === undefined) return;
+      views.delete(from);
+      views.set(to, view);
+      deps.publish(from, null);
+      deps.publish(to, view);
+      deps.records.schedule("workCodeViews");
     },
   };
 };

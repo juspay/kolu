@@ -44,7 +44,7 @@ import {
   unneededSetupQuestions,
   waitingOn,
 } from "./index.ts";
-import { seeded as random } from "../test/seeded.ts";
+import { seeded as random } from "./seeded.testlib.ts";
 
 const at = (step: number): string =>
   new Date(Date.UTC(2026, 10, 15, 9, 0, step)).toISOString();
@@ -107,7 +107,13 @@ const workOpen = (
   const was = Option.match(work, {
     onNone: () =>
       openWork({
-        key: { kind: "branch", host: "local", repo: "/r", branch: "b" },
+        key: {
+          kind: "branch",
+          host: "local",
+          repo: "/r",
+          branch: "b",
+          repoBy: { kind: "git" },
+        },
         title: "walk",
         at: at(step),
         request: { kind: "said", text: "waterfall it" },

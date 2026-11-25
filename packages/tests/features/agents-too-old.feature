@@ -17,7 +17,7 @@ Feature: Agents older than the kolu talking to them
     And this machine's agents are older than this kolu needs
     And the conductor is on a fresh conversation
     Then padi should say this machine's agents cannot be asked for models
-    When I send the conductor the prompt "open rewrite the parser"
+    When I send the conductor an open for the work "rewrite the parser"
     Then the conductor transcript should show a row of kind "agent" saying "nothing opened"
     And the conductor should say this machine's agents are older than this kolu needs
     And no setup question should be put to me

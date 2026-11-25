@@ -289,9 +289,9 @@ kolu-server stores: it is woken rather than waiting.
 
 | Tool | What it does |
 | --- | --- |
-| `work_open` | Open a work by its host, repo and branch, or by the terminal to watch, with its setup questions; kolu offers the harness and model. Opening one that exists returns it, reopened if it had ended. |
+| `work_open` | Open a work by host, repo (git names its root) and branch, with its setup questions, or by a terminal to watch. kolu offers harness and model. An existing one comes back. |
 | `work_ask` | Ask you about a work, under a two-or-three-word header, with options, a box of your own, and the `file` to read. It answers at once; kolu wakes the Conductor with your answer. |
-| `work_adopt` | Bring a terminal into a work by its `host/id` and role, including one that left. Answers the state it was found in, a baseline rather than news. Refused for a role another holds. |
+| `work_adopt` | Bring a terminal into a work by its `host/id` and role, including one that left. Answers the state it was found in. Refused for a role another holds, or a second one in a watch. |
 | `work_leave` | Take a terminal out of its work. One that closes leaves by itself. |
 | `work_stop` | End a work: its terminals stop being members and its open questions go. The record stays, and the card offers **Reopen**. |
 | `work_note` | Put a line of plain text on a work's timeline. |

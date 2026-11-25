@@ -34,7 +34,13 @@ const terminal = (
 
 const record = (title: string): Work =>
   openWork({
-    key: { kind: "branch", host: "local", repo: "/r", branch: title },
+    key: {
+      kind: "branch",
+      host: "local",
+      repo: "/r",
+      branch: title,
+      repoBy: { kind: "git" },
+    },
     title,
     at: "2026-11-16T12:00:00.000Z",
     request: { kind: "none" },

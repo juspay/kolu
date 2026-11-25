@@ -81,7 +81,13 @@ const workCodeViewsStore = confStore<PersistedWorkCodeViews>(
 /** A piece of work in today's shape — no members, because what these tests
  *  are about is the KEY, not what is inside it. */
 const work = (branch: string, title: string): Work => ({
-  key: { kind: "branch", host: "local", repo: "/srv/repo", branch },
+  key: {
+    kind: "branch",
+    host: "local",
+    repo: "/srv/repo",
+    branch,
+    repoBy: { kind: "git" },
+  },
   title,
   events: [],
   decisions: [],
@@ -112,6 +118,7 @@ function hostOver(): ConductorHost {
     publishWork: () => {},
     publishMember: () => {},
     publishReading: () => {},
+    publishPr: () => {},
     publishMemory: () => {},
     publishWorkCodeView: () => {},
     worksMoved: () => {},
@@ -129,6 +136,7 @@ function hostOver(): ConductorHost {
       list: async () => ({ paths: [], more: false }),
       keep: async () => ({ kept: [], tooBig: [] }),
       sweep: async () => {},
+      move: () => {},
     },
     spawn: async () => {
       throw new Error("these scenarios never reach an agent");

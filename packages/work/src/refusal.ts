@@ -42,6 +42,13 @@
  *   recorded, so a work never holds a setup it cannot start. The mode and
  *   what to do on green are refused the same way when the answer is not one
  *   of kolu's words for them.
+ * - `branch-open` — Reopen was asked of a work while ANOTHER work is open on
+ *   the same host, repository root and branch. One branch runs as one card;
+ *   the sentence names the open one.
+ * - `watch-one-terminal` — a setup given to a watch, or a terminal other than
+ *   the watched one (or the watched one in a role other than `other`)
+ *   adopted into a watch. A watch IS one terminal, the person's own, and
+ *   kolu runs nothing in it.
  * - `nothing-answered` — an answer that fills in no question of the ask. A
  *   question left blank stays asked, so an answer with every question blank
  *   would record nothing; it is refused rather than reported as settled.
@@ -67,6 +74,8 @@ export const WORK_REFUSALS = [
   "agents-not-ready",
   "not-offered",
   "nothing-answered",
+  "watch-one-terminal",
+  "branch-open",
 ] as const;
 
 /** Why a call about a work was refused. */

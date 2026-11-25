@@ -591,7 +591,7 @@ export function koluFleetTools(
     }
     table[name] = lifted(hosts, works, tool, lift);
   }
-  table.work_open = workOpenTool(works);
+  table.work_open = workOpenTool(hosts, works);
   table.work_ask = workAskTool(works);
   table.work_adopt = workAdoptTool(hosts, works);
   table.work_leave = workLeaveTool(works);

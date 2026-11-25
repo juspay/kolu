@@ -70,12 +70,14 @@ import type {
   FleetMemoryChange,
   FleetMemoryView,
 } from "./memory.ts";
-import type {
-  FleetWatchJoin,
-  FleetWorkMemberRow,
-  FleetWorkOpened,
-  FleetWorkRow,
-  FleetWorks,
+import {
+  type FleetWatchJoin,
+  type FleetWorkMemberRow,
+  type FleetWorkOpened,
+  type FleetWorkRow,
+  type FleetWorks,
+  parseWorkKey,
+  rekeyBeforeOpen,
 } from "./works.ts";
 
 const ALPHA_1 = "11111111-1111-4111-8111-111111111111" as TerminalId;
@@ -452,6 +454,18 @@ function fakePadi(host: string, seeded: readonly TerminalId[]): FakePadi {
     [at("terminalAttach", "get")]: () =>
       Stream.make({ kind: "snapshot", data: `screen of ${host}` }),
     [at("watchPulse", "get")]: () => pulse.stream(),
+    // WHERE A BRANCH IS CHECKED OUT, as git on this host would answer: every
+    // path under `/repo` is inside the one repository rooted there (its
+    // root, a linked worktree, a trailing slash); `/broken` is a git that
+    // would not answer; anything else is no repository.
+    [at("branchCheckout", "get")]: (input: { repoPath: string }) =>
+      Stream.make(
+        input.repoPath === "/repo" || input.repoPath.startsWith("/repo/")
+          ? { kind: "repository", root: "/repo", checkout: { kind: "none" } }
+          : input.repoPath === "/broken"
+            ? { kind: "unavailable", reason: "git hung" }
+            : { kind: "not-a-repository" },
+      ),
   } as unknown as SurfaceHandlers;
 
   // THE REAL FACE WALK — `padiClientOver`, the one kolu-server hands the fleet
@@ -684,6 +698,19 @@ function fakeWorks(): FleetWorks & {
     role: "planner" | "implementor",
     start: SetUpStart | WorkRefusal,
   ): void;
+  /** A stored work whose repository git has not named, as kolu-server would
+   *  answer `unrooted` for it — open unless said, and placed by its re-key
+   *  unless its re-key is `put-off` (a folder that would not move). */
+  unrootedAt(
+    work: string,
+    host: string,
+    repo: string,
+    branch: string,
+    open?: boolean,
+    rekeyed?: "placed" | "put-off",
+  ): void;
+  /** Every re-key and every open that reached the port, in order. */
+  readonly steps: string[];
 } {
   const works = new Map<string, FleetWorkRow>();
   const ended = new Map<string, string>();
@@ -700,10 +727,25 @@ function fakeWorks(): FleetWorks & {
   const moved = (): void => {
     for (const one of listeners) one();
   };
+  const unrooted: {
+    work: string;
+    host: string;
+    repo: string;
+    branch: string;
+    open: boolean;
+    rekeyed: "placed" | "put-off";
+  }[] = [];
+  const steps: string[] = [];
   const blank = (id: string, title: string): FleetWorkRow => ({
     id,
     title,
-    key: { kind: "branch", host: "local", repo: "/repo", branch: "work" },
+    key: {
+      kind: "branch",
+      host: "local",
+      repo: "/repo",
+      branch: "work",
+      repoBy: { kind: "git" },
+    },
     host: "local",
     mode: Option.some("full"),
     onGreen: Option.some("merge"),
@@ -731,6 +773,7 @@ function fakeWorks(): FleetWorks & {
       };
     },
     open: async (intent: Parameters<FleetWorks["open"]>[0]) => {
+      steps.push(`open ${intent.key.kind === "branch" ? intent.key.repo : ""}`);
       opened.push({
         title: intent.title,
         setup: intent.setup,
@@ -770,6 +813,30 @@ function fakeWorks(): FleetWorks & {
       };
       return answer;
     },
+    unrooted: (host: string, branch: string) =>
+      unrooted
+        .filter((one) => one.host === host && one.branch === branch)
+        .map(({ work, repo, open }) => ({ work, repo, open })),
+    rekey: async (work: string, root: string) => {
+      steps.push(`rekey ${work} ${root}`);
+      const at = unrooted.findIndex((one) => one.work === work);
+      // NOTHING TO RE-KEY (no such work) is placed: nothing is left unrooted.
+      if (at < 0) return "placed";
+      if (unrooted[at]?.rekeyed === "put-off") return "put-off";
+      unrooted.splice(at, 1);
+      return "placed";
+    },
+    unrootedAt(
+      work: string,
+      host: string,
+      repo: string,
+      branch: string,
+      open = true,
+      rekeyed: "placed" | "put-off" = "placed",
+    ) {
+      unrooted.push({ work, host, repo, branch, open, rekeyed });
+    },
+    steps,
     startOf: async (work: string, role: "planner" | "implementor") => {
       const one = works.get(work);
       const start = starts.get(`${work}#${role}`);
@@ -1638,6 +1705,150 @@ describe("the conductor's pieces of work", () => {
     ]);
   });
 
+  it("`work_open` re-keys the branch's earlier works to git's root BEFORE it opens", async () => {
+    // T16 at the door: a work kept from before keys were git's — opened on a
+    // linked worktree's path — is re-keyed to the root git names for that
+    // folder, and only then is the work opened; so the store answers the
+    // open with THAT work, moved to the root's id (the conductor's own
+    // re-key and `openFor` cases are that half). A folder that is no
+    // repository any more leaves its work as it was.
+    const { fleet } = twoHostFleet();
+    const works = fakeWorks();
+    works.unrootedAt("earlier", "local", "/repo/.worktrees/work", "work");
+    works.unrootedAt("gone", "local", "/deleted", "work");
+    works.unrootedAt("elsewhere", "local", "/repo/.worktrees/csv", "csv");
+    const mcp = await servedFleet(fleet.hosts, works);
+    const res = await mcp.callTool({
+      name: "work_open",
+      arguments: {
+        title: "carry on",
+        host: "local",
+        repo: "/repo",
+        branch: "work",
+        setup: SETUP,
+      },
+    });
+    expect(res.isError ?? false, JSON.stringify(res.content)).toBe(false);
+    expect(works.steps).toEqual(["rekey earlier /repo", "open /repo"]);
+  });
+
+  it("`work_open` is refused, with nothing opened, when git will not say where an earlier work in progress stands", async () => {
+    const { fleet } = twoHostFleet();
+    const works = fakeWorks();
+    works.unrootedAt("earlier", "local", "/broken", "work");
+    const mcp = await servedFleet(fleet.hosts, works);
+    const res = await mcp.callTool({
+      name: "work_open",
+      arguments: {
+        title: "carry on",
+        host: "local",
+        repo: "/repo",
+        branch: "work",
+        setup: SETUP,
+      },
+    });
+    expect(res.isError).toBe(true);
+    expect(JSON.stringify(res.content)).toMatch(/git hung/);
+    expect(works.steps).toEqual([]);
+  });
+
+  it("`work_open` opens beside a FINISHED earlier work git will not place", async () => {
+    // Nothing is at risk: the new work is legal beside a finished one, which
+    // is re-keyed whenever git does answer.
+    const { fleet } = twoHostFleet();
+    const works = fakeWorks();
+    works.unrootedAt("earlier", "local", "/broken", "work", false);
+    const mcp = await servedFleet(fleet.hosts, works);
+    const res = await mcp.callTool({
+      name: "work_open",
+      arguments: {
+        title: "carry on",
+        host: "local",
+        repo: "/repo",
+        branch: "work",
+        setup: SETUP,
+      },
+    });
+    expect(res.isError ?? false, JSON.stringify(res.content)).toBe(false);
+    expect(works.steps).toEqual(["open /repo"]);
+  });
+
+  it("`work_open` is refused, with nothing opened, when an earlier work in progress could not be moved to git's root", async () => {
+    // Git answered, the re-key was put off (its folder would not move): the
+    // earlier work is still under its old key, which rule 5 cannot see. An
+    // open beside it is the second card for one branch.
+    const { fleet } = twoHostFleet();
+    const works = fakeWorks();
+    works.unrootedAt(
+      "earlier",
+      "local",
+      "/repo/.worktrees/work",
+      "work",
+      true,
+      "put-off",
+    );
+    const mcp = await servedFleet(fleet.hosts, works);
+    const res = await mcp.callTool({
+      name: "work_open",
+      arguments: {
+        title: "carry on",
+        host: "local",
+        repo: "/repo",
+        branch: "work",
+        setup: SETUP,
+      },
+    });
+    expect(res.isError).toBe(true);
+    expect(JSON.stringify(res.content)).toMatch(/could not move/);
+    expect(works.steps).toEqual(["rekey earlier /repo"]);
+    // Its own kind: git answered, so it is not `git-unavailable`.
+    const refused = await Effect.runPromise(
+      Effect.match(
+        rekeyBeforeOpen(fleet.hosts, works, {
+          kind: "branch",
+          host: "local",
+          repo: "/repo",
+          branch: "work",
+          repoBy: { kind: "git" },
+        }),
+        { onSuccess: () => null, onFailure: (failure) => failure.detail },
+      ),
+    );
+    expect(refused).toEqual({
+      kind: "earlier-work-not-placed",
+      host: "local",
+      work: "earlier",
+      repo: "/repo/.worktrees/work",
+      root: "/repo",
+    });
+  });
+
+  it("`work_open` opens beside a FINISHED earlier work whose re-key was put off", async () => {
+    const { fleet } = twoHostFleet();
+    const works = fakeWorks();
+    works.unrootedAt(
+      "earlier",
+      "local",
+      "/repo/.worktrees/work",
+      "work",
+      false,
+      "put-off",
+    );
+    const mcp = await servedFleet(fleet.hosts, works);
+    const res = await mcp.callTool({
+      name: "work_open",
+      arguments: {
+        title: "carry on",
+        host: "local",
+        repo: "/repo",
+        branch: "work",
+        setup: SETUP,
+      },
+    });
+    expect(res.isError ?? false, JSON.stringify(res.content)).toBe(false);
+    expect(works.steps).toEqual(["rekey earlier /repo", "open /repo"]);
+  });
+
   it("a `given` answer reaches the record as the arm that says the request gave it", async () => {
     const { fleet } = twoHostFleet();
     const works = fakeWorks();
@@ -2368,6 +2579,7 @@ describe("the conductor's pieces of work", () => {
             host: "local",
             repo: "/repo",
             branch: "work",
+            repoBy: { kind: "git" },
           },
           host: "local",
           mode: { kind: "answered", value: "full" },
@@ -2827,5 +3039,114 @@ describe("the Conductor's memory, on the fleet face", () => {
     } finally {
       await close();
     }
+  });
+});
+
+describe("the key `work_open` names, parsed at the door", () => {
+  /** The key, or the refusal's detail — run the parse to its end. */
+  const parse = (
+    hosts: FleetHosts,
+    args: Parameters<typeof parseWorkKey>[1],
+  ): Promise<unknown> =>
+    Effect.runPromise(
+      Effect.match(parseWorkKey(hosts, args), {
+        onSuccess: (key) => ({ key }),
+        onFailure: (failure) => ({ refused: failure.detail }),
+      }),
+    );
+
+  it("names ONE work for the root, a linked worktree and a trailing slash", async () => {
+    const { fleet } = twoHostFleet();
+    const ids = new Set<string>();
+    for (const repo of ["/repo", "/repo/.worktrees/work", "/repo/"]) {
+      const parsed = await parse(fleet.hosts, {
+        title: "t",
+        host: "local",
+        repo,
+        branch: "work",
+      });
+      expect(parsed, repo).toEqual({
+        key: {
+          kind: "branch",
+          host: "local",
+          repo: "/repo",
+          branch: "work",
+          repoBy: { kind: "git" },
+        },
+      });
+      ids.add(JSON.stringify(parsed));
+    }
+    expect(ids.size).toBe(1);
+  });
+
+  it("refuses a path that is no repository, and says git's reason when git will not answer", async () => {
+    const { fleet } = twoHostFleet();
+    expect(
+      await parse(fleet.hosts, {
+        title: "t",
+        host: "local",
+        repo: "/elsewhere",
+        branch: "work",
+      }),
+    ).toEqual({
+      refused: { kind: "not-a-repository", host: "local", repo: "/elsewhere" },
+    });
+    expect(
+      await parse(fleet.hosts, {
+        title: "t",
+        host: "local",
+        repo: "/broken",
+        branch: "work",
+      }),
+    ).toMatchObject({
+      refused: { kind: "git-unavailable", reason: "git hung" },
+    });
+  });
+
+  it("refuses a host the fleet does not hold, or one that is not answering", async () => {
+    const alpha = fakePadi("local", [ALPHA_1]);
+    const fleet = fakeFleet([
+      { key: "local", display: "this machine", padi: alpha },
+      { key: "remote:box", display: "box", padi: null, state: "failed" },
+    ]);
+    expect(
+      await parse(fleet.hosts, {
+        title: "t",
+        host: "remote:nowhere",
+        repo: "/repo",
+        branch: "work",
+      }),
+    ).toMatchObject({ refused: { kind: "unknown-host" } });
+    expect(
+      await parse(fleet.hosts, {
+        title: "t",
+        host: "remote:box",
+        repo: "/repo",
+        branch: "work",
+      }),
+    ).toMatchObject({ refused: { kind: "host-not-connected" } });
+  });
+
+  it("parses a watch into its host and id, and refuses one that is no ref or names no terminal", async () => {
+    const { fleet } = twoHostFleet();
+    expect(
+      await parse(fleet.hosts, {
+        title: "t",
+        watch: `remote:box/${BETA_1}`,
+      }),
+    ).toEqual({ key: { kind: "watch", host: "remote:box", id: BETA_1 } });
+    expect(
+      await parse(fleet.hosts, { title: "t", watch: "no-ref" }),
+    ).toMatchObject({ refused: { kind: "not-a-fleet-ref" } });
+    expect(
+      await parse(fleet.hosts, { title: "t", watch: `local/${BETA_1}` }),
+    ).toMatchObject({ refused: { kind: "terminal-not-in-roster" } });
+  });
+
+  it("refuses a request that names no machine", async () => {
+    const { fleet } = twoHostFleet();
+    expect(
+      await parse(fleet.hosts, { title: "t", repo: "/repo", branch: "work" }),
+    ).toMatchObject({ refused: { kind: "missing-setup" } });
   });
 });

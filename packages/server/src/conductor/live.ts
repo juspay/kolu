@@ -27,6 +27,7 @@ import type {
   ConductorState,
 } from "kolu-common/conductor";
 import type { ConductorMemoryView } from "kolu-common/conductorMemory";
+import type { PrResult } from "kolu-common/surface";
 import type { MemberReading, WorkCodeView } from "kolu-common/works";
 import type { Work, WorkMember } from "kolu-work";
 import {
@@ -68,6 +69,8 @@ let writeMember:
 let writeReading:
   | ((terminal: string, reading: MemberReading | null) => void)
   | null = null;
+/** ...and the `workPrs` collection's: each work's live pull request. */
+let writePr: ((id: string, pr: PrResult | null) => void) | null = null;
 /** ...and the `workCodeViews` collection's. */
 let writeWorkCodeView:
   | ((id: string, view: WorkCodeView | null) => void)
@@ -144,11 +147,13 @@ export function setWorksCollectionWriters(writers: {
   work: (id: string, work: Work | null) => void;
   member: (terminal: string, member: WorkMember | null) => void;
   reading: (terminal: string, reading: MemberReading | null) => void;
+  pr: (id: string, pr: PrResult | null) => void;
   codeView: (id: string, view: WorkCodeView | null) => void;
 }): void {
   writeWork = writers.work;
   writeMember = writers.member;
   writeReading = writers.reading;
+  writePr = writers.pr;
   writeWorkCodeView = writers.codeView;
 }
 
@@ -291,6 +296,14 @@ export function liveServerConductor(): ConductorHost {
         );
       }
       writeReading(terminal, reading);
+    },
+    publishPr: (id, pr) => {
+      if (writePr === null) {
+        throw new Error(
+          "the conductor published a work's pull request before surface.ts registered the workPrs collection writer — implementKoluSurface must run before the first reader",
+        );
+      }
+      writePr(id, pr);
     },
     publishWorkCodeView: (id, view) => {
       if (writeWorkCodeView === null) {

@@ -1,18 +1,19 @@
 // @vitest-environment happy-dom
 /**
  * A WORK'S WORKTREE PART hands the Right panel's Work section the work's own
- * folder — and its live branch and PR only from a member terminal standing IN
- * that folder. A member in another checkout speaks for that checkout, never
- * for this work; with none in the folder, the facts are the work's key's.
+ * facts: the repository and branch from its key, the folder git last named
+ * for that key, whether that folder is a linked worktree (it is not the
+ * repository's root), and the work's own pull request. No member is asked:
+ * the part takes none.
  */
 
-import type { TerminalMetadata } from "@kolu/padi-client/surface";
-import { LOCAL_LOCATION } from "@kolu/padi-client/surface";
-import type { Work } from "kolu-work";
+import type { PrInfo } from "anyforge/schemas";
+import { Option } from "effect";
+import { ABOUT_WORK, type Work } from "kolu-work";
 import { render } from "solid-js/web";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { WorkSubject } from "../right-panel/WorkSection";
-import type { MemberLine } from "./workFacts";
+import { type WorkPr, workPrOf } from "./workPr";
 
 const handed = vi.hoisted(() => ({ subject: null as unknown }));
 
@@ -28,92 +29,106 @@ vi.mock("../right-panel/useOduLink", () => ({ useOduLink: () => undefined }));
 
 import WorkWorktree from "./WorkWorktree";
 
+const REPO = "/srv/code/tidepool";
 const WORKTREE = "/srv/code/tidepool/.worktrees/csv";
 
-const work: Work = {
+const work = (worktree: Work["worktree"]): Work => ({
   key: {
     kind: "branch",
     host: "local",
-    repo: "/srv/code/tidepool",
+    repo: REPO,
     branch: "feat/csv-export",
+    repoBy: { kind: "git" },
   },
   title: "Add CSV export",
   events: [],
   decisions: [],
   startedAt: "2026-01-01T09:00:00.000Z",
   state: { kind: "open" },
-  worktree: { kind: "read", host: "local", path: WORKTREE },
-};
-
-/** A member terminal on this host, standing in `repoRoot` on `branch`. */
-const memberIn = (repoRoot: string, branch: string): MemberLine => ({
-  terminal: `local/${branch}`,
-  member: {
-    work: "w",
-    role: "implementor",
-    joinedAt: "2026-01-01T00:00:00Z",
-  } as never,
-  split: { host: "local", id: branch },
-  standing: {
-    kind: "here",
-    meta: {
-      state: "active",
-      cwd: repoRoot,
-      git: {
-        kind: "repo",
-        info: {
-          repoRoot,
-          repoName: "tidepool",
-          worktreePath: repoRoot,
-          branch,
-          isWorktree: true,
-          mainRepoRoot: "/srv/code/tidepool",
-          remoteUrl: null,
-          isBare: false,
-        },
-      },
-      location: LOCAL_LOCATION,
-      pr: { kind: "absent" },
-      agent: null,
-      foreground: null,
-      ports: { status: "unknown" },
-      lastActivityAt: 0,
-      promptedAt: null,
-    } as TerminalMetadata,
-  },
+  worktree,
 });
 
+const INFO: PrInfo = {
+  number: 412,
+  title: "Add CSV export",
+  state: "open",
+  url: "https://example.test/pull/412",
+  checks: "pending",
+  checkRuns: [],
+  reviewDecision: null,
+  mergeStateStatus: "UNKNOWN",
+  headSha: null,
+  isDraft: false,
+};
+
+/** #412 as the work's own PR — its timeline names it. */
+const PR: WorkPr = Option.getOrThrow(
+  workPrOf(
+    {
+      ...work({ kind: "unread" }),
+      events: [
+        {
+          at: "2026-01-01T09:00:00.000Z",
+          by: "kolu",
+          kind: "pr-opened",
+          about: ABOUT_WORK,
+          pr: 412,
+          title: "Add CSV export",
+          url: { kind: "link", href: INFO.url },
+          draft: "ready",
+        },
+      ],
+    },
+    { kind: "ok", value: INFO },
+  ),
+);
+
 let dispose: (() => void) | undefined;
+let host: HTMLElement;
 afterEach(() => {
   dispose?.();
   handed.subject = null;
 });
 
-function subjectFor(members: ReadonlyArray<MemberLine>): WorkSubject {
-  dispose = render(
-    () => <WorkWorktree work={work} members={members} />,
-    document.createElement("div"),
-  );
+function mount(one: Work, pr: Option.Option<WorkPr>): WorkSubject {
+  host = document.createElement("div");
+  dispose = render(() => <WorkWorktree work={one} pr={pr} />, host);
   return handed.subject as WorkSubject;
 }
 
 describe("a work's worktree part", () => {
-  it("reads the live branch off a member standing in the work's folder", () => {
-    const subject = subjectFor([memberIn(WORKTREE, "feat/csv-export-live")]);
-    expect(subject.directory).toBe(WORKTREE);
-    expect(subject.git?.branch).toBe("feat/csv-export-live");
-    expect(subject.git?.isWorktree).toBe(true);
-  });
-
-  it("never takes another checkout's branch for the work's own", () => {
-    const subject = subjectFor([
-      memberIn("/srv/code/tidepool/.worktrees/other", "fix-other"),
-    ]);
+  it("draws the key's branch in the folder git named, a linked worktree when it is not the root", () => {
+    const subject = mount(work({ kind: "at", path: WORKTREE }), Option.none());
     expect(subject.directory).toBe(WORKTREE);
     expect(subject.git?.branch).toBe("feat/csv-export");
+    expect(subject.git?.mainRepoRoot).toBe(REPO);
+    expect(subject.git?.isWorktree).toBe(true);
     expect(subject.pr).toBeNull();
-    // No git reading of THIS folder: whether it is a linked worktree is not
-    // claimed.
-    expect(subject.git?.isWorktree).toBeNull();
+  });
+
+  it("says the main checkout is not a linked worktree", () => {
+    const subject = mount(work({ kind: "at", path: REPO }), Option.none());
+    expect(subject.git?.isWorktree).toBe(false);
+  });
+
+  it("hands over the work's own PR", () => {
+    const subject = mount(
+      work({ kind: "at", path: WORKTREE }),
+      Option.some(PR),
+    );
+    expect(subject.pr).toEqual({ kind: "ok", value: PR });
+  });
+
+  it("says so when the branch is checked out nowhere, and when git has not been asked", () => {
+    mount(work({ kind: "absent" }), Option.none());
+    expect(
+      host.querySelector('[data-testid="work-worktree-absent"]'),
+    ).not.toBeNull();
+    expect(handed.subject).toBeNull();
+    dispose?.();
+    mount(work({ kind: "unread" }), Option.none());
+    expect(
+      host.querySelector('[data-testid="work-worktree-unread"]'),
+    ).not.toBeNull();
   });
 });

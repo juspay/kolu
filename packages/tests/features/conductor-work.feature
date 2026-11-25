@@ -130,6 +130,25 @@ Feature: A piece of work is a stored thing
     And the notification sound should have played 1 time
     And there should be no page errors
 
+  Scenario: A planner standing on another branch lends the card nothing
+    # A WORK'S PR IS ITS OWN BRANCH'S. The planner is started in another
+    # repository, on a branch whose pull request has merged; the card read
+    # that terminal's PR as the work's once. Its own terminal shows #5 — so
+    # there is a PR to lend — its row says it stands elsewhere, and the
+    # card's mark is the work's own draft #7.
+    Given a repo for the work
+    And another repo whose pull request is merged #5 "Someone else's change"
+    When I ask the conductor to open the work "lend nothing"
+    And I answer the work's question with "hand-over" in the chat
+    And I ask the conductor to run the planner in the other repo
+    Then the work's planner row should say it stands elsewhere
+    And the planner's own terminal should show its pull request "#5"
+    When the work's pull request opens as draft #7 "Lend nothing"
+    Then the work's timeline should show a "pr-opened" event saying "#7"
+    And the work card's pull request mark should link "#7"
+    And the work card should say its pull request is a draft
+    And there should be no page errors
+
   Scenario: A trivial work's map with a draft pull request
     # A trivial work has no review: its agents' time is the build. Its CI is
     # the checks, a draft or not, and a red check sends it back to the
@@ -151,7 +170,11 @@ Feature: A piece of work is a stored thing
     # to a member — a real `agent_say` — so each hand-off is on the record:
     # to the planner is the review, back to the implementor is the build. The
     # PR stays a draft throughout, which no longer holds the work in the
-    # build. The map counts the rounds, and the trail shows every visit.
+    # build. The map counts the rounds, and the trail shows every visit. The
+    # hand-off back to the planner comes after kolu has SEEN both agents
+    # stop, as a real Conductor's does: it hands over on that news, never
+    # ahead of it — a word to a planner kolu still sees holding hands
+    # nothing over.
     Given a repo for the work
     When I ask the conductor to open the work "review the parser twice"
     And I answer the work's question with "hand-over" in the chat
@@ -171,6 +194,7 @@ Feature: A piece of work is a stored thing
     And the work's stage map should be at "build"
     When the implementor's agent starts working
     And the implementor's agent stops
+    Then the work's timeline should show 2 "stopped" events
     And I ask the conductor to tell the planner "look again"
     Then the work's timeline should show 3 "told" events
     And the work's stage map should be at "review"

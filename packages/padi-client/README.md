@@ -237,6 +237,20 @@ empty lists as "nobody needs you". `urgencyEqual` compares `settled`, so a quiet
 host still publishes the moment it has looked. A frame without the key (a 7.11
 padi) decodes as settled.
 
+## A branch's two streams — `pullRequest` and `branchCheckout`
+
+Two stream members are about a BRANCH, not a terminal: they take
+`{ repoPath, branch }` and need no terminal to exist, which is how kolu's
+Conductor reads a piece of work's facts from the work's own key.
+
+- `pullRequest` — the branch's pull request, snapshot then changes.
+- `branchCheckout` (since 7.13) — what git on the host says about the
+  branch: `repository` with the repository's `root` and where the branch is
+  checked out (`at` a folder, or `none`), `not-a-repository`, or
+  `unavailable` with git's reason. The last two conclude nothing about the
+  branch. A worktree cut or removed, or a branch switched in one, is a new
+  frame.
+
 ## Docs
 
 - The daemon, whole — [`packages/padi/README.md`](../padi/README.md)
