@@ -677,7 +677,7 @@ export function useCollectionDeltas<Name extends string, K, T>(
       );
     }
     // ONE holder for the accumulator: `acc` below IS it, and the accessor reads it
-    // through a revision signal. `undefined` reads as "there is no valid
+    // through a pulse signal. `undefined` reads as "there is no valid
     // accumulator" and means nothing else, so a second seeded/unseeded flag beside
     // it would be a duplicate that could disagree with what the consumer sees.
     //
@@ -687,14 +687,16 @@ export function useCollectionDeltas<Name extends string, K, T>(
     // first frame replaced; and registration seeds from the CALLING scope, where a
     // signal write would be a write inside an owned scope.
     //
-    // `equals: false` on the revision: the framework cannot know whether `A` is a
-    // value or an accumulator the consumer mutates and returns, so it must never
-    // decide that a frame changed nothing. A spurious wake is harmless; a swallowed
-    // update is the bug.
+    // The pulse carries no value — `equals: false` is the whole of it: the
+    // framework cannot know whether `A` is a value or an accumulator the consumer
+    // mutates and returns, so it must never decide that a frame changed nothing. A
+    // spurious wake is harmless; a swallowed update is the bug.
     let acc: { value: A } | undefined;
-    const [revision, bumpRevision] = createSignal(0, { equals: false });
+    const [pulse, firePulse] = createSignal<undefined>(undefined, {
+      equals: false,
+    });
     const value: Accessor<A | undefined> = () => {
-      revision();
+      pulse();
       return acc?.value;
     };
     // A throwing `init`/`step` is contained PER FOLD and reported loudly — it must
@@ -716,7 +718,7 @@ export function useCollectionDeltas<Name extends string, K, T>(
     /** Rebuild AND notify — the frame loop's entry point. */
     const guard = (what: string, compute: () => A): void => {
       rebuild(what, compute);
-      bumpRevision(0);
+      firePulse(undefined);
     };
     const slot: FoldSlot<K, T> = {
       seed: (entries) => guard("init", () => foldOptions.init(entries)),
