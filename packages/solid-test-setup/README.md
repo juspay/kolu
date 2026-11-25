@@ -20,9 +20,7 @@ test: {
 ```
 
 The single entry is `./setup` (`src/setup.ts`). It is a dev dependency of every
-package with Solid DOM tests: `kolu-client`, `@kolu/surface`,
-`@kolu/surface-app`, `@kolu/surface-map`, `@kolu/solid-dockrow`,
-`@kolu/solid-logtail`, `@kolu/solid-pierre` and `@kolu/xterm-kit`.
+package with Solid DOM tests.
 
 The running app gets the same check from the e2e lane `ci::e2e-solid-dev`
 (see `packages/tests/support/solidDevBuild.ts`).
