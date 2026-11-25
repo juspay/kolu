@@ -9,7 +9,7 @@ import { sleepingArm } from "@kolu/padi-client/surface";
 import type { ITheme } from "@xterm/xterm";
 import { Effect } from "effect";
 import type { TerminalId } from "kolu-common/surface";
-import { type Component, For, onSettled, Show } from "solid-js";
+import { type Component, For, Show } from "solid-js";
 import type { JSX } from "@solidjs/web";
 import { runAction } from "../runAction";
 import { controlledSizes, realSizes } from "../ui/corvuResizable";
@@ -178,13 +178,7 @@ const TerminalContent: Component<{
     // still latched, below: that is one report, not a stream of them.
     const s = realSizes(sizes);
     if (s && s[1] > 0.02) {
-      const size = s[1];
-      // Corvu reports its sizes from inside an effect, and the save MERGES
-      // into the split it reads (`planSaveSplit`) — an effect callback is a
-      // strict-read window, so the save rides `onSettled`, which is not one.
-      onSettled(() => {
-        subPanel.setPanelSize(props.terminalId, size);
-      });
+      subPanel.setPanelSize(props.terminalId, s[1]);
     }
   }
 
