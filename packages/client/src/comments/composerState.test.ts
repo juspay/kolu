@@ -28,7 +28,9 @@ describe("a view's comment composer", () => {
       const composer = createComposer();
       createEffect(
         () => shown(),
-        () => composer.close(),
+        () => {
+          composer.close();
+        },
         { defer: true },
       );
       return { composer, setShown, dispose };

@@ -1544,8 +1544,10 @@ export function buildSurfaceClient<const S extends SurfaceSpec>(
     // exists to move the start off the creating scope.
     createEffect(
       () => undefined,
-      () =>
-        runStreamScoped<O>(
+      () => {
+        // A cleanup ON PURPOSE: the scoped run's stopper, so the fiber dies
+        // with the caller's owner.
+        return runStreamScoped<O>(
           unenrolledStreamCall(procedure, input, {
             // The caller's enrolment name IS the label — one name for the health
             // fact and the liveness registry (kolu#2101 J2).
@@ -1584,7 +1586,8 @@ export function buildSurfaceClient<const S extends SurfaceSpec>(
               setError(err);
             },
           },
-        ),
+        );
+      },
     );
     return source;
   }

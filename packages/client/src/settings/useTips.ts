@@ -104,7 +104,9 @@ function whenPreferencesArrive(fn: () => void) {
  *  same window the pre-preferences queue drains in, where a tip reads the
  *  current preferences as any command would. */
 function showTipOnce(tip: Tip) {
-  onSettled(() => resolveTipOnce(tip));
+  onSettled(() => {
+    resolveTipOnce(tip);
+  });
 }
 
 /** The contextual-tip decision itself — the reads {@link showTipOnce} defers.

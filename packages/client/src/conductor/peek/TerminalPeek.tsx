@@ -156,7 +156,9 @@ const PeekWindow: Component<{ target: PeekTarget }> = (props) => {
     },
   );
   let contentEl: HTMLDivElement | undefined;
-  onSettled(() => contentEl?.focus());
+  onSettled(() => {
+    contentEl?.focus();
+  });
   const blurTerminal = () => contentEl?.focus();
   const onWindowKey = (e: KeyboardEvent): void => {
     const target = e.target instanceof Element ? e.target : null;

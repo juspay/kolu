@@ -353,7 +353,9 @@ const ConductorTranscript: Component<{
   // first run, which is what a conversation that mounts with rows already in
   // hand goes through — and both land on the same remembered place, so the
   // two are idempotent with each other.
-  onSettled(() => applyTranscriptScroll(scroller, transcriptPlace(shownDoc())));
+  onSettled(() => {
+    applyTranscriptScroll(scroller, transcriptPlace(shownDoc()));
+  });
 
   /** New rows arrived while the reader was away from the end — what makes the
    *  pill's ring, so it says "there is something new down there" rather than

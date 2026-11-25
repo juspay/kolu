@@ -649,7 +649,9 @@ const Terminal: Component<{
         hostState: hostEntryKind(),
         wanted: h.wantedGrid(),
       }),
-      (facts) => shownPane.observe(facts),
+      (facts) => {
+        shownPane.observe(facts);
+      },
     );
 
     // The ONE publisher of this pane's WANTED grid → the PTY. (The attach's own
@@ -704,7 +706,9 @@ const Terminal: Component<{
         const mine = viewShown() ? untrack(h.wantedGrid) : null;
         return gridHeldByAnother(served, mine);
       },
-      (held) => foreignGrid.observe(held),
+      (held) => {
+        foreignGrid.observe(held);
+      },
     );
 
     // Supersession for restartable attach loops: every attempt holds its OWN

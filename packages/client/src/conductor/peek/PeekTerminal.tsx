@@ -71,7 +71,11 @@ const PeekTerminal: Component<{
   // is in front of the person (`attention/conductorScreens.ts`).
   createEffect(
     () => shown(),
-    (isShown) => (isShown ? holdConductorScreen(ref) : undefined),
+    (isShown) => {
+      // A cleanup ON PURPOSE: the hold's release, which Solid calls before the
+      // next run and at dispose — that is what ends the screen's hold.
+      return isShown ? holdConductorScreen(ref) : undefined;
+    },
   );
   const [tabVisible, setTabVisible] = createSignal(
     document.visibilityState === "visible",

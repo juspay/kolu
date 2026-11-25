@@ -112,28 +112,29 @@ export function registerDiagnostics(
   // be a stale read). A grid or snapshot is merged into the one it replaces,
   // so a reader of one field is not woken by another's write.
   const disposeRoot = createRoot((dispose) => {
-    createEffect(renderer, (next) =>
+    createEffect(renderer, (next) => {
       write((entry) => {
         entry.renderer = next;
-      }),
-    );
-    createEffect(term, (next) =>
+      });
+    });
+    createEffect(term, (next) => {
       write((entry) => {
         Object.assign(entry.term, next);
-      }),
-    );
-    createEffect(wanted, (next) =>
+      });
+    });
+    createEffect(wanted, (next) => {
       write((entry) => {
         if (entry.wanted && next) Object.assign(entry.wanted, next);
         else entry.wanted = next;
-      }),
-    );
+      });
+    });
     createEffect(
       () => scrollLockSnapshot(scrollLock),
-      (next) =>
+      (next) => {
         write((entry) => {
           Object.assign(entry.scrollLock, next);
-        }),
+        });
+      },
     );
     return dispose;
   });

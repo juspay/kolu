@@ -467,7 +467,13 @@ const CodeTab: Component<{
     () =>
       `${terminalId() ?? ""}\0${selectedPath() ?? ""}\0${view()}\0${repoPath() ?? ""}`,
   );
-  createEffect(composerAnchor, () => composer.close(), { defer: true });
+  createEffect(
+    composerAnchor,
+    () => {
+      composer.close();
+    },
+    { defer: true },
+  );
 
   // Filename filter — drives Pierre's tree filter externally. Reset on
   // mode switch so a stale needle doesn't hide the wrong file set.
@@ -1441,10 +1447,14 @@ const CodeTab: Component<{
                       createSignal<HTMLDivElement>();
                     createEffect(
                       () => ({ el: treeHost(), desktop: isDesktop() }),
-                      ({ el, desktop }) =>
-                        el && !desktop
+                      ({ el, desktop }) => {
+                        // A cleanup ON PURPOSE: the detach the touch-scroll
+                        // driver hands back, which Solid calls before the next
+                        // run and at dispose.
+                        return el && !desktop
                           ? attachPierreTouchScroll(el)
-                          : undefined,
+                          : undefined;
+                      },
                     );
                     return (
                       <Show when={frame()}>

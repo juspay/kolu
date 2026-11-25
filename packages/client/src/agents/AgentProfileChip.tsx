@@ -62,7 +62,9 @@ const AgentProfileChip: Component<{
   restart?: ChipRestart;
 }> = (props) => {
   const { showTipOnce } = useTips();
-  onSettled(() => showTipOnce(CONTEXTUAL_TIPS.agents));
+  onSettled(() => {
+    showTipOnce(CONTEXTUAL_TIPS.agents);
+  });
   const stale = () =>
     props.staleness?.kind === "stale" ? props.staleness : undefined;
   let lastClick: MouseEvent | undefined;

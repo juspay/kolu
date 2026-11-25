@@ -447,7 +447,9 @@ export function useAttention(deps: AttentionDeps): {
   // accompanying cell change still needs this to clear the mark.
   createEffect(
     () => encodeHostKey(activeHost()),
-    (encHost) => core.markHostSeen(encHost),
+    (encHost) => {
+      core.markHostSeen(encHost);
+    },
   );
 
   /** RUN `onEntered` ONCE PER REF THAT JOINS `refs`, and forget the ones that

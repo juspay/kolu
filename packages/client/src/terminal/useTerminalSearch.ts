@@ -38,7 +38,9 @@ export const useTerminalSearch = createSharedRoot(() => {
   // sticky per-terminal preference that reappears on return.
   createEffect(
     () => store.activeId(),
-    () => setState(clearAll),
+    () => {
+      setState(clearAll);
+    },
     { defer: true },
   );
 

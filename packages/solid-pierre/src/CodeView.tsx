@@ -255,7 +255,7 @@ export const CodeView: Component<CodeViewProps> = (props) => {
       options: untrack(buildOptions),
       onError: untrack(() => props.onError),
     }),
-    ({ items, options, onError }) =>
+    ({ items, options, onError }) => {
       safeApply(() => {
         if (!instance) return;
         instance.setItems(versionedItems(items));
@@ -267,7 +267,8 @@ export const CodeView: Component<CodeViewProps> = (props) => {
         // renderOptionsRevision, which is the forceRender the reused
         // element path needs.
         instance.setOptions(options);
-      }, onError),
+      }, onError);
+    },
     { defer: true },
   );
 
@@ -276,11 +277,12 @@ export const CodeView: Component<CodeViewProps> = (props) => {
       selected: props.selectedLines,
       onError: untrack(() => props.onError),
     }),
-    ({ selected, onError }) =>
+    ({ selected, onError }) => {
       safeApply(() => {
         instance?.setSelectedLines(selected ?? null);
         scrollToSelection(selected, "nearest");
-      }, onError),
+      }, onError);
+    },
     { defer: true },
   );
 
@@ -293,7 +295,9 @@ export const CodeView: Component<CodeViewProps> = (props) => {
   // idempotent on identical input, so any incidental re-fire is harmless.
   createEffect(
     () => ({ opts: buildOptions(), onError: untrack(() => props.onError) }),
-    ({ opts, onError }) => safeApply(() => instance?.setOptions(opts), onError),
+    ({ opts, onError }) => {
+      safeApply(() => instance?.setOptions(opts), onError);
+    },
     { defer: true },
   );
 

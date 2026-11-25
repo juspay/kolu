@@ -147,7 +147,9 @@ const TerminalCanvas: Component<{
   // fine-grained tracking re-runs the effect when either input shifts.
   createEffect(
     () => pendingLayouts.evictedIds(new Set(props.tileIds), props.getLayout),
-    (evicted) => pendingLayouts.dropIds(evicted),
+    (evicted) => {
+      pendingLayouts.dropIds(evicted);
+    },
   );
 
   // Pending lives at module scope (singleton, shared with useCanvasArrange).

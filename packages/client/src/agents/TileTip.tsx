@@ -319,7 +319,9 @@ const ChipRow: Component<{
   createResizeObserver(() => [row, measure], fitChips);
   createEffect(
     () => props.chips,
-    () => fitChips(),
+    () => {
+      fitChips();
+    },
   );
 
   const visible = () => props.chips.slice(0, count() ?? props.chips.length);
