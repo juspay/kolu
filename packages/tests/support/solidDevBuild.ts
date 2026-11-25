@@ -17,17 +17,34 @@
  *     resolves the `development` condition under vitest), `ci::dev-smoke`'s
  *     dev server, and this lane's build.
  *   - The ATTRIBUTION tier's 19 codes — `EFFECT_WRITES_OWN_SOURCE`,
- *     `EFFECT_RELAY_TEAR`, `UNSTABLE_MEMO_OUTPUT`, the hold and waterfall
- *     family — come from `@solidjs/signals/attribution`, an engine the
- *     development runtime ships beside itself and installs only when something
- *     calls `attribution.enable()`. One caller per lane: the Vite plugin's
- *     performance-tracks module, which applies to `vite serve` alone
+ *     `EFFECT_RELAY_TEAR`, `IMMUTABLE_UPDATE_IN_STORE`, the hold and
+ *     waterfall family — come from `@solidjs/signals/attribution`, an engine
+ *     the development runtime ships beside itself and installs only when
+ *     something calls `attribution.enable()`. One caller per lane: the Vite
+ *     plugin's performance-tracks module, which applies to `vite serve` alone
  *     (`ci::dev-smoke`); `@kolu/solid-test-setup`'s setup file (`ci::unit`);
  *     and the client's own `solidDiagnosticsExpose.ts` under the `solid-dev`
- *     build mode (this lane). Each enables it with the dev server's options,
- *     `{ log: false, checks: false }`, and `default.nix`'s `mkClientDist`
- *     greps the dev-mode dist for one of the engine's codes, so a build that
- *     stopped carrying it fails there rather than reporting nothing here.
+ *     build mode (this lane).
+ *
+ *     THE JUDGED SET IS ONE CONSTANT, `SOLID_ATTRIBUTION_OPTIONS`
+ *     (`@kolu/solid-test-setup/attribution`), which the setup file and the
+ *     `solid-dev` build both enable with, so a finding is never red in a unit
+ *     test and silent here. Judged: `EFFECT_WRITES_OWN_SOURCE`,
+ *     `EFFECT_RELAY_TEAR`, `IMMUTABLE_UPDATE_IN_STORE`,
+ *     `UNSTABLE_LIST_IDENTITY`, `UNTRACKED_ASYNC_HANDLER`, `FALLBACK_FLASH`
+ *     and `OPTIMISTIC_REVERTED`. Folded off: the six cost checks
+ *     (`HOT_SCOPE_RERUNS`, `HOT_SCOPE_TIME`, `WIDE_SCOPE_DEPS`,
+ *     `UNSTABLE_MEMO_OUTPUT`, `HOT_SCOPE_FANOUT`, `WASTED_RECOMPUTE`) and the
+ *     six wall-clock ones (`SILENT_HOLD`, `LONG_HOLD`, `ASYNC_WATERFALL`,
+ *     `GRAPH_GROWTH`, `ABANDONED_FLIGHTS`, `STACKED_HOLDS`) — on this lane
+ *     every one of those times a daemon answering a real scenario, so they
+ *     would judge the machine rather than the code.
+ *
+ *     `default.nix`'s `mkClientDist` greps the dev-mode dist for one of the
+ *     engine's codes, so a build that stopped carrying it fails there rather
+ *     than reporting nothing here; and it greps the shipped dist for that
+ *     code AND for an option name only this `enable()` call contributes, so
+ *     the call cannot escape its build-time branch into a user's browser.
  *
  * WHAT THE CHECK KEYS ON IS SERVED, NOT TYPED HERE. The dev-mode client dist
  * carries `solid-dev.json` at its root — `{ marker, warnings }`,

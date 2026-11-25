@@ -9,10 +9,12 @@
   ],
   "exports": {
     "./setup": "./src/setup.ts",
-    "./vitest": "./src/vitest.ts"
+    "./vitest": "./src/vitest.ts",
+    "./attribution": "./src/attribution.ts"
   },
   "scripts": {
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test:unit": "vitest run"
   },
   "devDependencies": {
     "solid-js": "^2.0.4",
