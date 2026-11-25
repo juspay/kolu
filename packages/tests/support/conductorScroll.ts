@@ -35,7 +35,7 @@ interface ScrollSample {
   /** Rows between the top of the view and the bottom of the buffer. */
   rowsBack: number | null;
   phase: string | null;
-  /** The head's status words, as the page renders them. */
+  /** The head's STATE words alone (see {@link stateWords}), as rendered. */
   status: string | null;
 }
 
@@ -51,11 +51,26 @@ const NO_SCREEN_WORDS = [
   "terminal gone",
 ] as const;
 
-/** Which of {@link NO_SCREEN_WORDS} the head is saying, or `null` while it
- *  speaks for a terminal the index vouches for. */
+/** THE STATE WORDS ALONE, inside the head's status line. The line holds more
+ *  than the state: `TerminalHead.tsx:161-181` draws the state
+ *  (`StateFor.tsx:37`, the first span), then the elapsed time, the task
+ *  progress, and last the AGENT'S OWN `doing` SUMMARY — free text. Reading
+ *  the whole line would let a summary that merely mentions "terminal gone"
+ *  turn a legitimate hold red, so only the first span is read. */
+const stateWords = (at: ConductorScreen): string => `${at.status} > span`;
+
+/** Which of {@link NO_SCREEN_WORDS} the head's STATE is, or `null` while it
+ *  speaks for a terminal the index vouches for. The state span carries the
+ *  words alone, except that the elapsed time is appended inside it as
+ *  `" for 4m"` when kolu's watch agrees with the state (`StateFor.tsx:45`),
+ *  so that suffix is allowed and nothing else is. */
 export function maskedStatus(text: string | null): string | null {
   if (text === null) return null;
-  return NO_SCREEN_WORDS.find((words) => text.includes(words)) ?? null;
+  return (
+    NO_SCREEN_WORDS.find(
+      (words) => text === words || text.startsWith(`${words} for `),
+    ) ?? null
+  );
 }
 
 /** The screen's container, as the page holds it: the bridged terminal, and
@@ -95,7 +110,7 @@ async function sample(
       page.locator(at.readout).getAttribute("data-phase", { timeout: 500 }),
     ),
     status: await failed.orNull(() =>
-      page.locator(at.status).textContent({ timeout: 500 }),
+      page.locator(stateWords(at)).textContent({ timeout: 500 }),
     ),
   };
 }
@@ -130,8 +145,15 @@ async function markMove(page: Page, at: ConductorScreen): Promise<void> {
   if (!armed) throw new Error(`${at.label} has no terminal to move`);
 }
 
-/** What the last move did, in words for a failure. */
-async function moveStory(page: Page, at: ConductorScreen): Promise<string> {
+/** What the last move did, in words for a failure: whether it ever left the
+ *  bottom, AND where the view sits now. "It was thrown to the bottom" is only
+ *  true when the view IS at the bottom — a view that left and is still rows
+ *  back was not thrown anywhere, and saying so sent review 27 looking for a
+ *  snap-back that had not happened. */
+export async function moveStory(
+  page: Page,
+  at: ConductorScreen,
+): Promise<string> {
   const left = await page.evaluate(
     (sel) => document.querySelector<ScreenEl>(sel)?.__leftBottom?.left,
     at.screen,
