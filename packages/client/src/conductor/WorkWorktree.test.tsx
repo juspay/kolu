@@ -8,6 +8,7 @@
 
 import type { TerminalMetadata } from "@kolu/padi-client/surface";
 import { LOCAL_LOCATION } from "@kolu/padi-client/surface";
+import { Option } from "effect";
 import type { Work } from "kolu-work";
 import { render } from "solid-js/web";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -91,7 +92,7 @@ afterEach(() => {
 
 function subjectFor(members: ReadonlyArray<MemberLine>): WorkSubject {
   dispose = render(
-    () => <WorkWorktree work={work} members={members} />,
+    () => <WorkWorktree work={work} members={members} pr={Option.none()} />,
     document.createElement("div"),
   );
   return handed.subject as WorkSubject;

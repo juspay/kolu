@@ -34,13 +34,9 @@ import {
   type WorkMember,
   type WorkMode,
 } from "kolu-work";
-import type { PrInfo } from "anyforge/schemas";
-import {
-  LOCAL_LOCATION,
-  type TerminalMetadata,
-} from "@kolu/padi-client/surface";
 import { describe, expect, it } from "vitest";
-import { checksTally, failingLine, livePrOf, prSection } from "./prReadings";
+import { checksTally, failingLine, prSection } from "./prReadings";
+import { workPrOf } from "./workPr";
 import { timelineShown } from "./timelineView";
 import {
   answerWords,
@@ -387,51 +383,6 @@ describe("where a work runs", () => {
         }),
       ),
     ).toEqual(Option.none());
-  });
-});
-
-describe("the live PR a card reads", () => {
-  const pr = (number: number): PrInfo => ({
-    number,
-    title: "Slim it",
-    url: `https://github.com/o/r/pull/${number}`,
-    state: "open",
-    checks: "pending",
-    checkRuns: [],
-    reviewDecision: null,
-    mergeStateStatus: null,
-    headSha: null,
-    isDraft: false,
-  });
-  const here = (result: TerminalMetadata["pr"]) => ({
-    standing: {
-      kind: "here" as const,
-      meta: {
-        state: "active",
-        cwd: "/tmp/work",
-        git: { kind: "none" },
-        location: LOCAL_LOCATION,
-        pr: result,
-        agent: null,
-        foreground: null,
-        ports: { status: "unknown" },
-        lastActivityAt: 1,
-        promptedAt: null,
-      } satisfies TerminalMetadata,
-    },
-  });
-
-  it("takes the first member that reports one, past those that cannot", () => {
-    expect(
-      livePrOf([
-        { standing: undefined },
-        { standing: { kind: "gone" } },
-        here({ kind: "absent" }),
-        here({ kind: "ok", value: pr(12) }),
-        here({ kind: "ok", value: pr(13) }),
-      ])?.number,
-    ).toBe(12);
-    expect(livePrOf([here({ kind: "pending" })])).toBeNull();
   });
 });
 
@@ -1285,22 +1236,34 @@ describe("the tab's one number", () => {
 
 describe("a PR's checks", () => {
   it("says nothing at all when no checks are configured", () => {
-    expect(
-      checksTally(
-        Option.some({
-          number: 1,
+    const opened = work({
+      events: [
+        event({
+          kind: "pr-opened",
+          pr: 1,
           title: "t",
-          url: "u",
-          state: "open",
-          checks: null,
-          checkRuns: [],
-          reviewDecision: null,
-          mergeStateStatus: "UNKNOWN",
-          headSha: null,
-          isDraft: false,
+          url: { kind: "link", href: "u" },
+          draft: "ready",
         }),
-      ),
-    ).toEqual(Option.none());
+      ],
+    });
+    const pr = workPrOf(opened, {
+      kind: "ok",
+      value: {
+        number: 1,
+        title: "t",
+        url: "u",
+        state: "open",
+        checks: null,
+        checkRuns: [],
+        reviewDecision: null,
+        mergeStateStatus: "UNKNOWN",
+        headSha: null,
+        isDraft: false,
+      },
+    });
+    expect(pr._tag).toBe("Some");
+    expect(checksTally(pr)).toEqual(Option.none());
     expect(checksTally(Option.none())).toEqual(Option.none());
   });
 });

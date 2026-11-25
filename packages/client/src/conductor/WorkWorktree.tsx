@@ -5,20 +5,24 @@
  *  It is the Right panel's section, not a copy: the section takes what it is
  *  about (`WorkSubject`), and this hands over the work's.
  *
+ *  - The pull request is the WORK'S own (`./workPr.ts`), whoever stands in
+ *    the folder: no member's record is asked for it. With no live reading,
+ *    the line under the title and the Pull request part say the one the
+ *    timeline recorded.
  *  - With a member terminal up IN that worktree (on its host, its own git
- *    reading naming the same top folder), the git facts and the pull request
- *    are LIVE, off that terminal's record. A member standing in another
- *    checkout speaks for that checkout, never for this work.
+ *    reading naming the same top folder), the git facts are LIVE, off that
+ *    terminal's record. A member standing in another checkout speaks for
+ *    that checkout, never for this work.
  *  - With none, they are what the record holds: the repository and branch
- *    from the work's key, and no live pull request — the line under the
- *    title and the Pull request part say the one the timeline recorded.
- *    Whether the folder is a linked worktree is not claimed. The directory
- *    and odu need only a host and a path, so they stay.
+ *    from the work's key. Whether the folder is a linked worktree is not
+ *    claimed. The directory and odu need only a host and a path, so they
+ *    stay.
  *  - A work kolu has not read a worktree for yet says so, in one line.
  *
  *  Drawn only for a work in progress: a finished one reads the copies kolu
  *  kept, and has no worktree to describe. */
 
+import { Option } from "effect";
 import { decodeHostKey } from "kolu-common/hostKey";
 import type { Work } from "kolu-work";
 import { type Component, createMemo, Show } from "solid-js";
@@ -26,6 +30,7 @@ import { useOduLink } from "../right-panel/useOduLink";
 import WorkSection, { type WorkSubject } from "../right-panel/WorkSection";
 import type { MemberLine } from "./workFacts";
 import { memberInWorktree, WORKTREE_UNREAD } from "./workFile";
+import type { WorkPr } from "./workPr";
 import { repoName } from "./workReadings";
 
 /** The read worktree, as the section's subject. */
@@ -34,13 +39,14 @@ const Read: Component<{
   host: string;
   path: string;
   members: ReadonlyArray<MemberLine>;
+  pr: Option.Option<WorkPr>;
 }> = (props) => {
   const hostKey = createMemo(() => decodeHostKey(props.host));
   const odu = useOduLink(hostKey);
   /** The member standing IN THE WORK'S WORKTREE, by the one rule
-   *  (`memberInWorktree`): the one whose record the live facts are read off.
-   *  A member standing in another checkout speaks for that checkout, not for
-   *  this work. */
+   *  (`memberInWorktree`): the one whose git reading the live facts are read
+   *  off. A member standing in another checkout speaks for that checkout, not
+   *  for this work. */
   const live = createMemo(() =>
     memberInWorktree(props.host, props.path, props.members),
   );
@@ -63,7 +69,10 @@ const Read: Component<{
                 mainRepoRoot: key.repo,
               }
             : null,
-      pr: fact?.pr ?? null,
+      pr: Option.match(props.pr, {
+        onNone: () => null,
+        onSome: (value) => ({ kind: "ok" as const, value }),
+      }),
       checkout: props.path,
       directory: props.path,
     };
@@ -74,6 +83,8 @@ const Read: Component<{
 const WorkWorktree: Component<{
   work: Work;
   members: ReadonlyArray<MemberLine>;
+  /** The work's own PR, live (`useWorkPr`). */
+  pr: Option.Option<WorkPr>;
 }> = (props) => (
   <Show when={props.work.state.kind === "open"}>
     <section data-testid="work-worktree" class="mb-2">
@@ -96,6 +107,7 @@ const WorkWorktree: Component<{
             host={at().host}
             path={at().path}
             members={props.members}
+            pr={props.pr}
           />
         )}
       </Show>

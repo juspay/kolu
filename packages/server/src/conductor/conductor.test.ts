@@ -720,6 +720,7 @@ function rig(over: Remembered = {}): Rig {
     publishReading: (terminal, reading) => {
       readingsPublished.push({ terminal, reading });
     },
+    publishPr: () => {},
     publishWorkCodeView: () => {},
     publishMemory: (view) => {
       memoryPublished.push(view);
@@ -1753,6 +1754,7 @@ describe("teardown (B2)", () => {
       publishWork: () => {},
       publishMember: () => {},
       publishReading: () => {},
+      publishPr: () => {},
       publishMemory: () => {},
       publishWorkCodeView: () => {},
       worksMoved: () => {},
@@ -1832,6 +1834,7 @@ describe("teardown (B2)", () => {
       publishWork: () => {},
       publishMember: () => {},
       publishReading: () => {},
+      publishPr: () => {},
       publishMemory: () => {},
       publishWorkCodeView: () => {},
       worksMoved: () => {},

@@ -74,7 +74,7 @@ function initialsOf(title: string): string {
 
 const Line: Component<{ id: WorkId; work: Work }> = (props) => {
   const now = useShownClock();
-  const { members, livePr, at } = createWorkFacts(
+  const { members, pr, at } = createWorkFacts(
     () => props.id,
     () => props.work,
   );
@@ -167,10 +167,10 @@ const Line: Component<{ id: WorkId; work: Work }> = (props) => {
           </div>
           <div class="flex min-w-0 items-center gap-1">
             <MemberMarks members={members()} />
-            <Show when={livePr()}>
-              {(pr) => (
+            <Show when={Option.getOrUndefined(pr())}>
+              {(one) => (
                 <span class="pointer-events-auto relative flex">
-                  <PrPip pr={pr()} />
+                  <PrPip pr={one()} />
                 </span>
               )}
             </Show>

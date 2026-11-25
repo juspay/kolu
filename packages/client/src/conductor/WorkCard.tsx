@@ -148,9 +148,9 @@ const WorkCard: Component<{
   // The column's clock, stopped while nobody is looking at the pane: every
   // duration on this card ticks from it, and a hidden pane ticks for nobody.
   const now = useShownClock();
-  /** Its members, its live PR and checks, and where it stands — the one
+  /** Its members, its own PR and checks, and where it stands — the one
    *  reading the work's line in the sidebar and its chip read too. */
-  const { members, livePr, checks, at } = createWorkFacts(
+  const { members, pr, checks, at } = createWorkFacts(
     () => props.id,
     () => props.work,
   );
@@ -332,7 +332,7 @@ const WorkCard: Component<{
   );
   const subtitle = () => (
     <p class="m-0 mt-0.5 flex min-w-0 items-center gap-2 font-mono text-[0.62rem] text-fg-3">
-      <WorkSubtitle work={props.work} livePr={livePr()} />
+      <WorkSubtitle work={props.work} pr={pr()} />
       {/* HOW LONG IT HAS WAITED ON YOU, all told — from a whole second, so a
           setup answered in a blink does not read "you 0s". */}
       <Show when={onYou() >= 1000}>
@@ -591,7 +591,7 @@ const WorkCard: Component<{
                   />
                 </div>
               </Show>
-              <WorkWorktree work={props.work} members={members()} />
+              <WorkWorktree work={props.work} members={members()} pr={pr()} />
               <WorkDetails
                 id={props.id}
                 work={props.work}

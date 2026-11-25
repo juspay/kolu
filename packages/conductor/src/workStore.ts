@@ -30,7 +30,7 @@
  * A work sits where it was opened, so a card keeps its place for as long as
  * it is in progress.
  */
-
+import { type PrResult, PrResultSchema } from "@kolu/terminal-vocab/schema";
 import { Option, Schema } from "effect";
 import { notKeptWhy } from "kolu-common/workFiles";
 import { type MemberReading, MemberReadingSchema } from "kolu-common/works";
@@ -202,6 +202,10 @@ export interface WorkStore {
   readonly publishWorks: () => void;
   /** ... and the same for how the member terminals stand, on its own clock. */
   readonly publishReadings: () => void;
+  /** WHAT THE WORK'S OWN PR WATCH READ, kept live and published — the
+   *  `workPrs` collection. Held only while the work is an open branch work;
+   *  anything else is dropped by the same pass that publishes the works. */
+  readonly prRead: (id: WorkId, reading: PrResult) => void;
   /** What the `works` key holds. */
   readonly persisted: () => PersistedWorks;
   /** PUT A WORK'S CODE VIEW WHERE A PERSON LEFT IT — refused for a work kolu
@@ -256,6 +260,9 @@ export interface WorkStoreDeps {
     terminal: string,
     reading: MemberReading | null,
   ) => void;
+  /** ... and ONE WORK'S LIVE PULL REQUEST — `null` once its work ended or
+   *  went. */
+  readonly publishPr: (id: WorkId, pr: PrResult | null) => void;
   /** A WORK, A MEMBER ROW OR A READING MOVED — every reader of the `works`
    *  resource is owed a redraw. */
   readonly worksMoved: () => void;
@@ -289,9 +296,25 @@ export const workStore = (deps: WorkStoreDeps): WorkStore => {
   const publishedMembers = new Map<string, WorkMember>();
   const publishedReadings = new Map<string, MemberReading>();
   const sameReading = Schema.toEquivalence(MemberReadingSchema);
+  /** EACH OPEN BRANCH WORK'S PR, as its watch last read it — the forge's
+   *  answer for the work's own key, never a member's. */
+  const livePrs = new Map<WorkId, PrResult>();
+  const publishedPrs = new Map<WorkId, PrResult>();
+  const samePr = Schema.toEquivalence(PrResultSchema);
   const nowIso = (): string => new Date().toISOString();
 
   const everyWork = (): ReadonlyArray<readonly [WorkId, Work]> => [...works];
+
+  /** THE LIVE PRs, PUBLISHED — after dropping every one whose work is no
+   *  longer an open branch work, so an ended work's mark goes with it. */
+  const publishPrs = (): void => {
+    for (const id of [...livePrs.keys()]) {
+      const work = works.get(id);
+      if (work?.state.kind !== "open" || work.key.kind !== "branch")
+        livePrs.delete(id);
+    }
+    publishMoved(publishedPrs, livePrs, samePr, deps.publishPr);
+  };
 
   const publishWorks = (): void => {
     publishMoved(
@@ -320,6 +343,7 @@ export const workStore = (deps: WorkStoreDeps): WorkStore => {
         was.worktree === now.worktree,
       deps.publishMember,
     );
+    publishPrs();
   };
   const publishReadings = (): void => {
     publishMoved(
@@ -570,6 +594,12 @@ export const workStore = (deps: WorkStoreDeps): WorkStore => {
     changed,
     publishWorks,
     publishReadings,
+    prRead: (id, reading) => {
+      const work = works.get(id);
+      if (work?.state.kind !== "open" || work.key.kind !== "branch") return;
+      livePrs.set(id, reading);
+      publishPrs();
+    },
     setCodeView: (id, view) => {
       if (!works.has(id)) {
         throw new WorkRefusal(

@@ -54,6 +54,7 @@ function rig() {
     publishWork: () => {},
     publishMember: () => {},
     publishReading: () => {},
+    publishPr: () => {},
     worksMoved: () => {},
     watchScopeMoved: () => {},
     ended: () => {},

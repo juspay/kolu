@@ -29,7 +29,7 @@ vi.mock("./workFacts", () => ({
           split: { host: "local", id: `t${i}` },
           standing: undefined,
         })),
-      livePr: () => null,
+      pr: () => Option.none(),
       checks: () => Option.none(),
       at: () => one()?.at,
     };

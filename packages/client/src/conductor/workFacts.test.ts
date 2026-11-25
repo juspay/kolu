@@ -99,7 +99,6 @@ describe("one work's reading", () => {
     createRoot((dispose) => {
       const facts = readWorkFacts(() => []);
       expect(facts.members()).toEqual([]);
-      expect(facts.livePr()).toBeNull();
       dispose();
     });
   });

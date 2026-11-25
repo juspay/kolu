@@ -531,6 +531,12 @@ export const observing = (deps: {
       deps.flush();
     },
     observedPr: (id, reading) => {
+      // THE LIVE PR, published FIRST and whatever it says: the card's mark
+      // and its check count move with every reading, including the ones
+      // that record nothing on the timeline below (the same word, more
+      // checks landed). It is the work's own branch's answer — the one
+      // source of a work's live PR.
+      deps.store.prRead(id, reading);
       // WHAT THE FORGE SAID, or nothing. Every arm but `ok` is "kolu does not
       // know" — a resolve in flight, a remote no adapter serves, a `gh` that
       // would not answer — and a work must never learn its PR closed because

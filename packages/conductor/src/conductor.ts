@@ -895,6 +895,10 @@ export interface ConductorDeps {
     terminal: string,
     reading: MemberReading | null,
   ) => void;
+  /** ... and ONE WORK'S PULL REQUEST, LIVE — the `workPrs` collection,
+   *  keyed by work id: the forge's last answer for the work's own branch,
+   *  as its watch read it. `null` REMOVES it (the work ended or went). */
+  readonly publishPr: (id: WorkId, pr: PrResult | null) => void;
   /** THE MEMORY MOVED — the `conductorMemory` cell's writer. */
   readonly publishMemory: (memory: ConductorMemoryView) => void;
   /** ... and WHERE ONE WORK'S CODE VIEW STANDS — the `workCodeViews`
@@ -1059,6 +1063,7 @@ export function startConductorHost(deps: ConductorDeps): ConductorHost {
     publish,
     publishWork,
     publishReading,
+    publishPr,
     publishMember,
     publishWorkCodeView,
     worksMoved,
@@ -1317,6 +1322,7 @@ export function startConductorHost(deps: ConductorDeps): ConductorHost {
     publishWork,
     publishMember,
     publishReading,
+    publishPr,
     worksMoved,
     watchScopeMoved,
     // A WORK THAT ENDED TOOK ITS QUESTIONS WITH IT — the store recorded them

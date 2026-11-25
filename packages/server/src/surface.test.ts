@@ -51,7 +51,8 @@ describe("surfaces map — two siblings (the W1 padi seam)", () => {
     // its own terminals; what it drives is terminals, but the member is a
     // conversation this process owns). Its COLLECTIONS ride with it — `works`,
     // `workMembers` and `memberReadings`, the pieces of work that conversation
-    // is running and what kolu has read off each member terminal, and
+    // is running and what kolu has read off each member terminal, `workPrs`,
+    // each work's own pull request as its branch's watch read it, and
     // `workCodeViews`, where a person left each work's Code view: facts about
     // a WORK rather than about a terminal, published per key because a reader
     // of one has no business re-receiving the others. No events; the one
@@ -76,6 +77,7 @@ describe("surfaces map — two siblings (the W1 padi seam)", () => {
       "memberReadings",
       "workCodeViews",
       "workMembers",
+      "workPrs",
       "works",
     ]);
     expect(spec.events).toBeUndefined();

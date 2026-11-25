@@ -27,7 +27,7 @@ import {
   encodePreviewPath,
   isBinaryPreviewable,
 } from "kolu-common/preview";
-import type { PrResult, TerminalId } from "kolu-common/surface";
+import type { TerminalId } from "kolu-common/surface";
 import { listWorkFiles } from "kolu-common/workFiles";
 import type { GitInfo } from "kolu-git/schemas";
 import { keptOf, waterfallFileName, type Work, type WorkId } from "kolu-work";
@@ -94,7 +94,6 @@ export const workFileName = waterfallFileName;
 export interface WorktreeMember {
   readonly terminalId: TerminalId;
   readonly git: GitInfo;
-  readonly pr: PrResult | null;
 }
 
 /** THE ONE ANSWER to "which member terminal speaks for this worktree".
@@ -103,9 +102,8 @@ export interface WorktreeMember {
  *  path under that terminal's CURRENT repo root, and its live git facts are
  *  about where it stands now. A member that changed directory into another
  *  checkout speaks for that checkout — borrowed, it would fetch a work's
- *  picture out of the other repository and paint the other branch's pull
- *  request on this work. So the member must stand IN the worktree: its own
- *  git reading names the same top folder. */
+ *  picture out of the other repository. So the member must stand IN the
+ *  worktree: its own git reading names the same top folder. */
 export function memberInWorktree(
   host: string,
   path: string,
@@ -117,7 +115,7 @@ export function memberInWorktree(
     if (standing?.kind !== "here") continue;
     const arm = activeArm(standing.meta);
     if (arm?.git.kind === "repo" && arm.git.info.repoRoot === path)
-      return { terminalId: one.split.id, git: arm.git.info, pr: arm.pr };
+      return { terminalId: one.split.id, git: arm.git.info };
   }
   return null;
 }

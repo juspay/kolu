@@ -112,6 +112,7 @@ function hostOver(): ConductorHost {
     publishWork: () => {},
     publishMember: () => {},
     publishReading: () => {},
+    publishPr: () => {},
     publishMemory: () => {},
     publishWorkCodeView: () => {},
     worksMoved: () => {},
