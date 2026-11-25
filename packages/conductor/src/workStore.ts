@@ -52,9 +52,9 @@ import {
   openAsks,
   openWork,
   parseStore,
+  hostOf,
   reopenWork,
   type RequestWords,
-  settleWorktree,
   takeOver as takeOverRecord,
   type Work,
   type WorkId,
@@ -67,7 +67,6 @@ import {
   workKeyOf,
 } from "kolu-work";
 import type { Logger } from "pino";
-import { splitFleetTerminalRef } from "kolu-mcp/fleetRef";
 import { dropOpenAsks, type SettledAsk } from "./askNews.ts";
 import type { WatchJoin } from "./members.ts";
 import {
@@ -77,7 +76,7 @@ import {
   memberView,
   restoredAll,
 } from "./memberStore.ts";
-import type { PrWatch } from "./observation.ts";
+import type { BranchWatch } from "./observation.ts";
 import type {
   PersistedMembers,
   PersistedWorkCodeViews,
@@ -162,10 +161,6 @@ export interface WorkStore {
   }) => Opened;
   /** Write a work back. */
   readonly save: (id: WorkId, work: Work) => void;
-  /** A MEMBER'S WORKTREE WAS FIRST READ: the work takes the rule's answer
-   *  (`settleWorktree`). Answers whether the work moved, for the caller's
-   *  publish. */
-  readonly worktreeRead: (id: WorkId) => boolean;
   /** STOP a work — the one ending nobody observed. */
   readonly stop: (id: WorkId, by: "you" | "conductor") => Work;
   /** ... and bring one back. */
@@ -222,7 +217,7 @@ export interface WorkStore {
   /** THE PULL-REQUEST WATCH'S SCOPE — every work IN PROGRESS that is a branch
    *  on a machine. Read off the works' own keys, so there is no second list
    *  that can disagree with the cards. */
-  readonly prWatches: () => ReadonlyArray<PrWatch>;
+  readonly branchWatches: () => ReadonlyArray<BranchWatch>;
 }
 
 /** The sentence behind a thrown thing — the harness's refusals and the wire
@@ -368,19 +363,13 @@ export const workStore = (deps: WorkStoreDeps): WorkStore => {
       new Map(
         [...members.all()].map(([ref, one]) => [
           ref,
-          {
-            work: one.work,
-            role: one.role,
-            joinedAt: one.joinedAt,
-            worktree: one.worktree,
-          },
+          { work: one.work, role: one.role, joinedAt: one.joinedAt },
         ]),
       ),
       (was, now) =>
         was.work === now.work &&
         was.role === now.role &&
-        was.joinedAt === now.joinedAt &&
-        was.worktree === now.worktree,
+        was.joinedAt === now.joinedAt,
       deps.publishMember,
     );
     publishPrs();
@@ -419,39 +408,13 @@ export const workStore = (deps: WorkStoreDeps): WorkStore => {
       });
   };
 
-  /** THE RULE: where the work's members say it works — the first member, in
-   *  the members record's own order, whose record named a worktree, host and
-   *  all. None while no member has had one read off its terminal. Its answer
-   *  is made to stick on the work by {@link settle}; nothing else reads it. */
-  const membersWorktree = (
-    id: WorkId,
-  ): Option.Option<{ host: string; path: string }> => {
-    for (const [ref, member] of members.ofWork(id)) {
-      const host = splitFleetTerminalRef(ref)?.host;
-      if (member.worktree.kind === "read" && host !== undefined)
-        return Option.some({ host, path: member.worktree.path });
-    }
-    return Option.none();
-  };
-
-  /** The work takes the rule's answer when it has one that differs. Answers
-   *  whether it moved. */
-  const settle = (id: WorkId): boolean => {
-    const work = value.works.get(id);
-    if (work === undefined || work.state.kind !== "open") return false;
-    const settled = settleWorktree(work, membersWorktree(id));
-    if (settled === work) return false;
-    setWork(id, settled);
-    return true;
-  };
-
-  /** WHERE A WORK'S FILES ARE — the worktree the work itself holds, which
-   *  outlives its terminals. */
+  /** WHERE A WORK'S FILES ARE — the folder git last named for the work's own
+   *  key, on the key's host, which outlives its terminals. */
   const worktreeOf = (
     work: Work,
   ): Option.Option<{ host: string; worktree: string }> =>
-    work.worktree.kind === "read"
-      ? Option.some({ host: work.worktree.host, worktree: work.worktree.path })
+    work.worktree.kind === "at"
+      ? Option.some({ host: hostOf(work), worktree: work.worktree.path })
       : Option.none();
 
   /** THE WORK IS OVER — keep its files, then cap the history. */
@@ -588,8 +551,8 @@ export const workStore = (deps: WorkStoreDeps): WorkStore => {
    *  The key IS the answer — it carries the host, the repository and the
    *  branch — so nothing here re-derives a work's identity from a member's
    *  record. */
-  const prWatches = (): ReadonlyArray<PrWatch> => {
-    const watches: PrWatch[] = [];
+  const branchWatches = (): ReadonlyArray<BranchWatch> => {
+    const watches: BranchWatch[] = [];
     for (const [id, work] of value.works) {
       if (work.state.kind !== "open") continue;
       const key = workKeyOf(id);
@@ -625,9 +588,6 @@ export const workStore = (deps: WorkStoreDeps): WorkStore => {
       return;
     }
     save(found.id, leaveWork(found.work, { terminal: ref, why, at: nowIso() }));
-    // The member that told the work where it works may be the one that left:
-    // the rule is asked again, and with no answer the work keeps its own.
-    settle(found.id);
     changed();
     emptied(found.id);
   };
@@ -640,7 +600,6 @@ export const workStore = (deps: WorkStoreDeps): WorkStore => {
     openAt,
     leave,
     save,
-    worktreeRead: settle,
     changed,
     publishWorks,
     publishReadings,
@@ -660,7 +619,7 @@ export const workStore = (deps: WorkStoreDeps): WorkStore => {
       deps.views.set(id, view);
     },
     memberRefs: activeRefs,
-    prWatches,
+    branchWatches,
     persisted: () => Object.fromEntries(value.works),
     read: () => [...inProgress(everyWork()), ...finished(everyWork())],
     openAsks: () =>
@@ -800,14 +759,7 @@ export const workStore = (deps: WorkStoreDeps): WorkStore => {
         id,
         joinWork(value.works.get(id) ?? work, { terminal: ref, role, at }),
       );
-      members.set(
-        ref,
-        joinedMember(
-          { work: id, role, joinedAt: at, worktree: { kind: "unread" } },
-          how,
-        ),
-      );
-      settle(id);
+      members.set(ref, joinedMember({ work: id, role, joinedAt: at }, how));
       changed();
       deps.records.schedule("members");
       deps.worksMoved();

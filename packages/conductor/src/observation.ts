@@ -30,10 +30,11 @@ import type { CheckHead, MergeState, WorkId } from "kolu-work";
  *  `./members.ts` ANSWERS with. */
 export type WatchLevel = ConductorReadingLevel;
 
-/** WHERE A MEMBER TERMINAL IS WORKING, off its padi record — the top folder
- *  of its worktree, which the work's files are listed from. `null` for a
- *  terminal whose record says it is in no repository (or one nobody has read
- *  yet). The branch and the repository are the work's key's, not this. */
+/** WHERE A MEMBER TERMINAL STANDS, off its padi record — the top folder of
+ *  the checkout it is in. `null` for a terminal whose record says it is in no
+ *  repository (or one nobody has read yet). Read for ONE work only: a watch,
+ *  whose key IS this terminal, takes its folder from it. A branch work's
+ *  folder is git's answer for its key, never a member's. */
 export interface WatchGit {
   readonly worktree: string;
 }
@@ -102,15 +103,16 @@ export type WatchReadiness =
   | { readonly kind: "draft" }
   | { readonly kind: "ready"; readonly merge: WatchMerge };
 
-/** A BRANCH WHOSE PULL REQUEST KOLU WATCHES — one per piece of work in
- *  progress that is keyed by a branch. The watch asks the host for the PR of
- *  that branch in that repository; no terminal is involved, so a work with no
- *  members is watched exactly like one with two.
+/** A BRANCH KOLU WATCHES — one per piece of work in progress that is keyed by
+ *  a branch. The watch asks the host two things about that branch in that
+ *  repository, by the work's own key: its pull request, and where it is
+ *  checked out. No terminal is involved, so a work with no members is
+ *  watched exactly like one with two.
  *
  *  The WORD lives here with the other three watch words; the LIST is derived
- *  off the works' own keys by `./workStore.ts`'s `prWatches`, whose doc is
- *  the one statement of which branches are in it. */
-export interface PrWatch {
+ *  off the works' own keys by `./workStore.ts`'s `branchWatches`, whose doc
+ *  is the one statement of which branches are in it. */
+export interface BranchWatch {
   readonly work: WorkId;
   /** The fleet host ref the repository is on. */
   readonly host: string;

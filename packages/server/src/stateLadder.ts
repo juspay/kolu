@@ -2353,6 +2353,57 @@ export function handOffsKept_1_67_0(store: Conf<PersistedState>): void {
   if (changed) store.set("works", next as unknown as PersistedState["works"]);
 }
 
+/** The 1.68.0 rung — A WORK'S FACTS ARE THE WORK'S. What a work stood on was
+ *  read off whichever member terminal was there first; it is now asked of
+ *  git, on the work's host, by the work's own key. A rung asks no host, so it
+ *  does only what the file alone allows:
+ *
+ *  1. every work's `worktree` becomes `unread` — the `read` a member lent it
+ *     carried a host of the member's choosing, and the new shape (`unread`,
+ *     `absent`, `at`) has no host at all. The watch re-reads it from git
+ *     seconds after boot;
+ *  2. every member's `worktree` is removed — a member no longer says where
+ *     the work is.
+ *
+ *  A value it does not know is walked past unchanged, and each key is
+ *  written only when something in it moved. Only `works` and `members` move;
+ *  the transcript file is untouched, so TRANSCRIPT_FILE_VERSION stays at
+ *  1.63.0. Exported for `stateMigration.test.ts`. */
+export function workFactsAreTheWorks_1_68_0(store: Conf<PersistedState>): void {
+  const works = recordOf(store.get("works"));
+  if (works !== null) {
+    let changed = false;
+    const next: Record<string, unknown> = {};
+    for (const [id, value] of Object.entries(works)) {
+      const work = recordOf(value);
+      if (work === null || recordOf(work.worktree)?.kind === "unread") {
+        next[id] = value;
+        continue;
+      }
+      changed = true;
+      next[id] = { ...work, worktree: { kind: "unread" } };
+    }
+    if (changed) store.set("works", next as unknown as PersistedState["works"]);
+  }
+  const members = recordOf(store.get("members"));
+  if (members !== null) {
+    let changed = false;
+    const next: Record<string, unknown> = {};
+    for (const [ref, value] of Object.entries(members)) {
+      const member = recordOf(value);
+      if (member === null || !("worktree" in member)) {
+        next[ref] = value;
+        continue;
+      }
+      const { worktree: _gone, ...kept } = member;
+      changed = true;
+      next[ref] = kept;
+    }
+    if (changed)
+      store.set("members", next as unknown as PersistedState["members"]);
+  }
+}
+
 /** The migration ladder — hoisted so {@link decodeStateBackup}'s scratch
  *  store walks the REAL ladder on a backup snapshot (which may predate any
  *  rung), never a parallel re-implementation of it. */
@@ -3134,4 +3185,9 @@ export const CONF_MIGRATIONS = {
   // review it cannot know were not recorded (`handOffsKept_1_67_0`). The
   // transcript file is untouched, so TRANSCRIPT_FILE_VERSION stays at 1.63.0.
   "1.67.0": handOffsKept_1_67_0,
+  // A WORK'S FACTS ARE THE WORK'S: its folder is git's answer for its key, so
+  // every saved work's is unread and no member carries one
+  // (`workFactsAreTheWorks_1_68_0` argues each step). The transcript file is
+  // untouched, so TRANSCRIPT_FILE_VERSION stays at 1.63.0.
+  "1.68.0": workFactsAreTheWorks_1_68_0,
 };

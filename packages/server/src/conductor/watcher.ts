@@ -26,8 +26,8 @@
  * Per host that holds at least one member OR one work's branch, over that
  * host's padi: its `urgency` fold, its `roster` (the standing AND the census
  * of ids, one cell), each member terminal's own record, and — per piece of
- * work in progress whose branch is on this host — padi's `pullRequest` stream
- * for that `(repo, branch)`. What
+ * work in progress whose branch is on this host — padi's `pullRequest` and
+ * `branchCheckout` streams for that `(repo, branch)`. What
  * each of them is WORTH is stated where they are read (`kolu-conductor`'s
  * `HostReading`, and its `prReading` for the forge). Nothing else: a screen is
  * read by the Conductor when it decides to look, and a wake carries how
@@ -72,6 +72,7 @@
 
 import type { PadiSurfaceClient } from "@kolu/padi-client/dial";
 import {
+  type BranchCheckout,
   type PadiRoster,
   type PadiTerminal,
   type PadiUrgency,
@@ -82,7 +83,7 @@ import { Cause, Effect, Fiber, Queue, Schedule, Stream } from "effect";
 import {
   type ConductorHost,
   type HostView,
-  type PrWatch,
+  type BranchWatch,
   readingsOf,
 } from "kolu-conductor";
 import type { WorkId } from "kolu-work";
@@ -121,15 +122,22 @@ type Frame =
     };
 
 /** EVERYTHING ONE LEG CARRIES — a host's own reading of its member terminals,
- *  or the forge's reading of one work's branch on that host. Two questions
- *  asked of one padi over one subscription generation, so they arrive as one
- *  stream and are told apart here rather than by two consumers. */
+ *  or one of the two answers about one work's branch on that host: the
+ *  forge's reading of its pull request, and git's answer for where it is
+ *  checked out. Asked of one padi over one subscription generation, so they
+ *  arrive as one stream and are told apart here rather than by three
+ *  consumers. */
 type WatchFrame =
   | { readonly kind: "view"; readonly view: HostView }
   | {
       readonly kind: "pr";
       readonly work: WorkId;
       readonly pr: PrResult;
+    }
+  | {
+      readonly kind: "checkout";
+      readonly work: WorkId;
+      readonly checkout: BranchCheckout;
     };
 
 /** Everything the fold needs, as the frames arrive — the two that are `null`
@@ -295,9 +303,9 @@ export function startConductorWatcher(deps: {
    *  the watch. A store kolu cannot decode means kolu does not know which
    *  branches have work in flight, which is a watch with nothing to ask about
    *  and nothing concluded about anybody's pull request. */
-  const prWatches = (): ReadonlyArray<PrWatch> => {
+  const branchWatches = (): ReadonlyArray<BranchWatch> => {
     try {
-      return conductor().prWatches();
+      return conductor().branchWatches();
     } catch {
       // Said once, above, by the read that runs beside this one in the same
       // generation — a second sentence about one unreadable store is noise.
@@ -316,7 +324,7 @@ export function startConductorWatcher(deps: {
   const scopeOf = (): string =>
     JSON.stringify([
       memberRefs(),
-      prWatches().map((one) => [one.host, one.repo, one.branch]),
+      branchWatches().map((one) => [one.host, one.repo, one.branch]),
     ]);
 
   /** The moves that are actually a different watch. The FIRST one always
@@ -386,7 +394,7 @@ export function startConductorWatcher(deps: {
       hosts,
       (host, padi) => {
         const watched = membersOn(host);
-        const branches = prWatches().filter((one) => one.host === host);
+        const branches = branchWatches().filter((one) => one.host === host);
         // A connected host with neither a member nor a work's branch on it
         // gets no leg at all.
         if (watched.length === 0 && branches.length === 0) return null;
@@ -408,8 +416,23 @@ export function startConductorWatcher(deps: {
             (pr): WatchFrame => ({ kind: "pr", work: one.work, pr }),
           ),
         );
+        // ... and where each work's branch is checked out, by the same key:
+        // the one source of a branch work's folder.
+        const branchCheckouts = branches.map((one) =>
+          Stream.map(
+            padi.surface.branchCheckout.get({
+              repoPath: one.repo,
+              branch: one.branch,
+            }),
+            (checkout): WatchFrame => ({
+              kind: "checkout",
+              work: one.work,
+              checkout,
+            }),
+          ),
+        );
         const leg = Stream.tapError(
-          Stream.mergeAll([views, ...branchPrs], {
+          Stream.mergeAll([views, ...branchPrs, ...branchCheckouts], {
             concurrency: "unbounded",
           }),
           (err) =>
@@ -457,6 +480,10 @@ export function startConductorWatcher(deps: {
         Effect.sync(() => {
           if (frame.kind === "pr") {
             conductor().observedPr(frame.work, frame.pr);
+            return;
+          }
+          if (frame.kind === "checkout") {
+            conductor().observedCheckout(frame.work, frame.checkout);
             return;
           }
           const seen = readingsOf(frame.view);

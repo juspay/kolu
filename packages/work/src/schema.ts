@@ -725,17 +725,18 @@ export const isAsked = (decision: Decision): decision is Asked =>
 export const isSettled = (decision: Decision): decision is Settled =>
   decision.kind === "settled";
 
-/** WHERE A WORK IS WORKING — the worktree its files are listed from and its
- *  code is browsed in, on its host. `unread` until a member's worktree has
- *  been read; `read` from then on, kept on the WORK so it outlives the
- *  terminals that told it (`record.ts`'s `settleWorktree` is the one rule
- *  that moves it). */
+/** WHERE A WORK IS WORKING — git's LAST ANSWER for the work's own key: the
+ *  folder its branch is checked out in on the key's host, which its files are
+ *  listed from and its code is browsed in. `unread` until git has been asked;
+ *  `absent` when the branch is checked out nowhere on its host; `at` the
+ *  folder. No host: it is always the key's. Kept on the WORK so it outlives
+ *  its terminals, and written by one rule (`record.ts`'s `recordWorktree`),
+ *  never off a member — a member may stand anywhere. */
 export const WorkWorktreeSchema = Schema.Union([
   Schema.Struct({ kind: Schema.Literal("unread") }),
+  Schema.Struct({ kind: Schema.Literal("absent") }),
   Schema.Struct({
-    kind: Schema.Literal("read"),
-    /** The ENCODED host key the worktree is on. */
-    host: Schema.NonEmptyString,
+    kind: Schema.Literal("at"),
     path: Schema.NonEmptyString,
   }),
 ]);
@@ -777,23 +778,15 @@ export const hostOf = (work: Pick<Work, "key">): string =>
     ? work.key.host
     : work.key.terminal.replace(/\/.*$/s, "");
 
-/** WHERE A MEMBER IS WORKING — not read off its terminal yet, or read. */
-export const WorktreeSchema = Schema.Union([
-  Schema.Struct({ kind: Schema.Literal("unread") }),
-  Schema.Struct({
-    kind: Schema.Literal("read"),
-    path: Schema.NonEmptyString,
-  }),
-]);
-export type Worktree = typeof WorktreeSchema.Type;
-
 /** ONE MEMBER TERMINAL — the whole of what kolu stores about a terminal's
  *  part in a work, in the ONE map keyed by terminal ref.
  *
  *  A terminal is in AT MOST ONE WORK by construction (one map, one key), and
  *  there is no bookkeeping without a member (the same row holds both). There
  *  is no `leftAt`: a member is in the map or it is not, and that it left is a
- *  `left` event on the work's timeline.
+ *  `left` event on the work's timeline. There is no folder either: where a
+ *  terminal stands is its own record's live fact, and nothing about the work
+ *  is read off it.
  *
  *  The host-side watch bookkeeping (what the terminal is called, what the
  *  conversation was told) rides in a `watch` field the HOST declares — see
@@ -805,10 +798,6 @@ export const WorkMemberSchema = Schema.Struct({
   work: Schema.String,
   role: WorkRoleSchema,
   joinedAt: Schema.String,
-  /** WHERE IT IS WORKING, as kolu first read it off the terminal's record —
-   *  the worktree a work's files are listed from and copied out of when it
-   *  ends. `unread` until a reading has said. */
-  worktree: WorktreeSchema,
 });
 export type WorkMember = typeof WorkMemberSchema.Type;
 

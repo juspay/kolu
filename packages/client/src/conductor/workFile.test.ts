@@ -27,7 +27,7 @@ const work: Work = {
   decisions: [],
   startedAt: "2026-01-01T09:00:00.000Z",
   state: { kind: "open" },
-  worktree: { kind: "read", host: "local", path: WORKTREE },
+  worktree: { kind: "at", path: WORKTREE },
 };
 
 /** A member terminal here on the work's host, standing in `repoRoot`. */

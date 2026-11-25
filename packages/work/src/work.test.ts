@@ -167,7 +167,6 @@ const member = (over: Partial<WorkMember> = {}): WorkMember => ({
   work: ID,
   role: "planner",
   joinedAt: T(3),
-  worktree: { kind: "unread" },
   ...over,
 });
 

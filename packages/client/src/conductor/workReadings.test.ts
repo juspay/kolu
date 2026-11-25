@@ -204,12 +204,7 @@ const members = (
   role: WorkMember["role"] = "planner",
   terminal = "local/a",
 ): ReadonlyMap<string, WorkMember> =>
-  new Map([
-    [
-      terminal,
-      { work: WORK, role, joinedAt: AT, worktree: { kind: "unread" } },
-    ],
-  ]);
+  new Map([[terminal, { work: WORK, role, joinedAt: AT }]]);
 
 const event = (over: Partial<WorkEvent> & Pick<WorkEvent, "kind">): WorkEvent =>
   ({
@@ -782,23 +777,15 @@ describe("where it stands", () => {
 
 describe("the members of one work", () => {
   it("reads them out of the ONE map, in the order a waterfall runs them", () => {
-    const unread = { kind: "unread" } as const;
     const map = new Map<string, WorkMember>([
-      [
-        "local/b",
-        { work: WORK, role: "implementor", joinedAt: AT, worktree: unread },
-      ],
-      [
-        "local/a",
-        { work: WORK, role: "planner", joinedAt: AT, worktree: unread },
-      ],
+      ["local/b", { work: WORK, role: "implementor", joinedAt: AT }],
+      ["local/a", { work: WORK, role: "planner", joinedAt: AT }],
       [
         "local/c",
         {
           work: "branch:local/x/y",
           role: "other",
           joinedAt: AT,
-          worktree: unread,
         },
       ],
     ]);

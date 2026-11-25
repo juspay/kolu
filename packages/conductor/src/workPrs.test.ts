@@ -9,70 +9,18 @@
 
 import type { PrResult } from "@kolu/terminal-vocab/schema";
 import { Option } from "effect";
-import type { WorkId } from "kolu-work";
-import type { Logger } from "pino";
 import { describe, expect, it } from "vitest";
-import { observing } from "./observing.ts";
-import type { RecordWrites } from "./recordWrites.ts";
-import { workCodeViewStore } from "./workCodeViewStore.ts";
-import { workStore } from "./workStore.ts";
+import { workRig } from "./workRig.testlib.ts";
 
-const records = <K extends string>(): RecordWrites<K> => ({
-  schedule: () => {},
-  now: () => {},
-  flush: () => {},
-});
-
-/** A work store and its observer, every side stubbed but the PR's. */
+/** The rig, with one branch work open. */
 function rig() {
-  const published: Array<{ id: WorkId; pr: PrResult | null }> = [];
-  const log = { warn: () => {}, error: () => {} } as unknown as Logger;
-  const works = workStore({
-    workFiles: {
-      list: async () => ({ paths: [], more: false }),
-      keep: async () => ({ kept: [], tooBig: [] }),
-      sweep: async () => {},
-    },
-    publishWork: () => {},
-    publishMember: () => {},
-    publishReading: () => {},
-    publishPr: (id, pr) => published.push({ id, pr }),
-    worksMoved: () => {},
-    watchScopeMoved: () => {},
-    ended: () => {},
-    noTerminals: () => {},
-    records: records<"works" | "members">(),
-    views: workCodeViewStore({
-      records: records<"workCodeViews">(),
-      publish: () => {},
-    }),
-    log,
-  });
-  const watch = observing({
-    store: works,
-    members: works.members,
-    workFiles: {
-      list: async () => ({ paths: [], more: false }),
-      keep: async () => ({ kept: [], tooBig: [] }),
-      sweep: async () => {},
-    },
-    records: records<"works" | "members">(),
-    ring: () => {},
-    withdraw: () => false,
-    handoverHeld: () => false,
-    hostNamed: () => {},
-    publishState: () => false,
-    worksMoved: () => {},
-    watchScopeMoved: () => {},
-    flush: () => {},
-    log,
-  });
-  const id = works.openFor({
+  const r = workRig();
+  const id = r.works.openFor({
     key: { kind: "branch", host: "local", repo: "/repo", branch: "csv" },
     title: "csv",
     request: { kind: "none" },
   }).id;
-  return { works, watch, published, id };
+  return { ...r, id };
 }
 
 /** The forge's answer for the branch: PR #7, open, with `landed` of three

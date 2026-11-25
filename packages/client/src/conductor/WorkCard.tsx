@@ -591,7 +591,7 @@ const WorkCard: Component<{
                   />
                 </div>
               </Show>
-              <WorkWorktree work={props.work} members={members()} pr={pr()} />
+              <WorkWorktree work={props.work} pr={pr()} />
               <WorkDetails
                 id={props.id}
                 work={props.work}

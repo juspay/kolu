@@ -21,13 +21,11 @@ const planner: WorkMember = {
   work: "w1",
   role: "planner",
   joinedAt: "2026-01-01T00:00:00.000Z",
-  worktree: { kind: "unread" } as WorkMember["worktree"],
 };
 const implementor: WorkMember = {
   work: "w1",
   role: "implementor",
   joinedAt: "2026-01-01T00:00:00.000Z",
-  worktree: { kind: "unread" } as WorkMember["worktree"],
 };
 
 afterEach(() => {

@@ -146,7 +146,6 @@ function storedMembers(branch: string, name: string): PersistedMembers {
       }),
       role: "implementor",
       joinedAt: AT,
-      worktree: { kind: "unread" },
       watch: {
         name,
         agent: null,

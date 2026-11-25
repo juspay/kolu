@@ -471,7 +471,7 @@ describe("the PR the work's own watch reads", () => {
 
   it("NEVER brings a work back: the forge can end one, not reopen it", () => {
     // The scope of PR observation is the works IN PROGRESS
-    // (`workStore.prWatches`), so a finished work's branch is not asked about
+    // (`workStore.branchWatches`), so a finished work's branch is not asked about
     // at all. Even handed the reading directly, nothing here undoes an
     // ending — Reopen on the card, or `work_open` on the same key, is the one
     // way back.

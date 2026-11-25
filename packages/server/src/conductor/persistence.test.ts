@@ -158,9 +158,10 @@ const OTHER_KEY = {
  * and lets a row be a memory proposal; 1.64.0 gives each work the worktree
  * it keeps when its terminals go; 1.65.0 gives `config.json` the record
  * of where each work's Code view stands; 1.66.0 gives the preferences
- * where the Conductor compacts its conversation; and 1.67.0 records who
- * holds each work from then on. */
-const STATE_SCHEMA_VERSION = "1.67.0";
+ * where the Conductor compacts its conversation; 1.67.0 records who
+ * holds each work from then on; and 1.68.0 takes a work's facts off its
+ * members. */
+const STATE_SCHEMA_VERSION = "1.68.0";
 
 const log = {
   debug() {},
@@ -289,7 +290,6 @@ function stored(
           work: id,
           role: one.role,
           joinedAt: at,
-          worktree: { kind: "unread" as const },
           watch: one.watch,
         },
       ]),
@@ -1331,8 +1331,8 @@ describe("the human's real store, one observation later", () => {
       expect(over.host.memberRefs()).toEqual([]);
       // It is WATCHED all the same: the work is a branch on a machine, and
       // that is what kolu asks about.
-      expect(over.host.prWatches()).toHaveLength(1);
-      expect(over.host.prWatches()[0]?.work).toBe(id);
+      expect(over.host.branchWatches()).toHaveLength(1);
+      expect(over.host.branchWatches()[0]?.work).toBe(id);
 
       // ONE observation, with a forge that says what the real one says.
       over.host.observedPr(id, {
@@ -1359,7 +1359,7 @@ describe("the human's real store, one observation later", () => {
         });
       });
       // ... and it is no longer asked about.
-      expect(over.host.prWatches()).toEqual([]);
+      expect(over.host.branchWatches()).toEqual([]);
     } finally {
       await over.host.dispose();
     }

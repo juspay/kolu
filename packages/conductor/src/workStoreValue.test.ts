@@ -19,63 +19,9 @@ import {
   WorkRefusal,
 } from "kolu-work";
 import { seeded } from "kolu-work/seeded";
-import type { Logger } from "pino";
 import { describe, expect, it } from "vitest";
 import { joined } from "./memberStore.ts";
-import { observing } from "./observing.ts";
-import type { RecordWrites } from "./recordWrites.ts";
-import { workCodeViewStore } from "./workCodeViewStore.ts";
-import { workStore } from "./workStore.ts";
-
-const records = <K extends string>(): RecordWrites<K> => ({
-  schedule: () => {},
-  now: () => {},
-  flush: () => {},
-});
-
-const FILES = {
-  list: async () => ({ paths: [], more: false }),
-  keep: async () => ({ kept: [], tooBig: [] }),
-  sweep: async () => {},
-};
-
-/** A work store and its observer, with every outside side stubbed. */
-function rig() {
-  const log = { warn: () => {}, error: () => {} } as unknown as Logger;
-  const works = workStore({
-    workFiles: FILES,
-    publishWork: () => {},
-    publishMember: () => {},
-    publishReading: () => {},
-    publishPr: () => {},
-    worksMoved: () => {},
-    watchScopeMoved: () => {},
-    ended: () => {},
-    noTerminals: () => {},
-    records: records<"works" | "members">(),
-    views: workCodeViewStore({
-      records: records<"workCodeViews">(),
-      publish: () => {},
-    }),
-    log,
-  });
-  const watch = observing({
-    store: works,
-    members: works.members,
-    workFiles: FILES,
-    records: records<"works" | "members">(),
-    ring: () => {},
-    withdraw: () => false,
-    handoverHeld: () => false,
-    hostNamed: () => {},
-    publishState: () => false,
-    worksMoved: () => {},
-    watchScopeMoved: () => {},
-    flush: () => {},
-    log,
-  });
-  return { works, watch };
-}
+import { workRig as rig } from "./workRig.testlib.ts";
 
 /** The forge's answer for a branch. */
 const forge = (number: number, state: "open" | "merged" | "closed") =>
@@ -176,7 +122,6 @@ describe("the works and their members, as one value", () => {
             work: csv,
             role: "planner",
             joinedAt: "2026-01-01T00:00:00.000Z",
-            worktree: { kind: "unread" },
           },
           "asked",
         ),
@@ -191,7 +136,6 @@ describe("the works and their members, as one value", () => {
             work: "branch:local/%2Frepo/nowhere",
             role: "other",
             joinedAt: "2026-01-01T00:00:00.000Z",
-            worktree: { kind: "unread" },
           },
           "asked",
         ),

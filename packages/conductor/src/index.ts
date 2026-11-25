@@ -71,7 +71,7 @@ export {
   type WatchJoin,
 } from "./members.ts";
 export type {
-  PrWatch,
+  BranchWatch,
   WatchGit,
   WatchLevel,
   WatchObservation,

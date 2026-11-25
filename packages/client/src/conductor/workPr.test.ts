@@ -153,7 +153,6 @@ const member = (role: WorkMember["role"]): WorkMember => ({
   work: ID,
   role,
   joinedAt: AT,
-  worktree: { kind: "unread" },
 });
 
 /** The card's reading of {@link WORK}, as `createWorkFacts` makes it. */

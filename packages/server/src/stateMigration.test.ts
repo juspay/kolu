@@ -564,32 +564,21 @@ describe("the 1.52.0 rung — a store this branch wrote before the member bookke
     const work = Object.values(decoded.works)[0];
     expect(work).toBeDefined();
     expect(work?.state.kind).toBe("open");
-    // The members are the ONE map now, each row carrying where it worked AND
-    // the bookkeeping that used to sit beside it.
+    // The members are the ONE map now, each row carrying its part AND the
+    // bookkeeping that used to sit beside it — and, since 1.68.0, no folder:
+    // where a work stands is git's answer for its key, not a member's.
     expect(
       Object.entries(decoded.members).map(([ref, one]) => [
         ref,
         one.role,
-        one.worktree,
+        "worktree" in one,
       ]),
     ).toEqual([
-      [
-        PLANNER,
-        "planner",
-        {
-          kind: "read",
-          path: "/home/person/code/odu/.worktrees/docs-human-reading",
-        },
-      ],
-      [
-        IMPL,
-        "implementor",
-        {
-          kind: "read",
-          path: "/home/person/code/odu/.worktrees/docs-human-reading",
-        },
-      ],
+      [PLANNER, "planner", false],
+      [IMPL, "implementor", false],
     ]);
+    // ... and the work's own folder waits for git (1.68.0).
+    expect(work?.worktree).toEqual({ kind: "unread" });
     expect(decoded.members[PLANNER]?.watch).toEqual({
       name: "Planner: odu docs for human reading",
       agent: "omp",
@@ -806,11 +795,9 @@ describe("what an EARLIER COMMIT of this branch wrote, read by head", () => {
     // … and left everything the commit DID write exactly as it was.
     expect(work?.decisions[0]?.question).toBe("How should this run?");
     // … and 1.53.0 moved the membership into the one map, where the watch
-    // bookkeeping already was.
-    expect(decoded.members[REF]?.worktree).toEqual({
-      kind: "read",
-      path: "/home/person/code/odu",
-    });
+    // bookkeeping already was; 1.68.0 took the folder off it.
+    expect(decoded.members[REF]?.role).toBeDefined();
+    expect("worktree" in (decoded.members[REF] ?? {})).toBe(false);
     expect(decoded.members[REF]?.watch.name).toBe("Planner: odu docs");
     // The 1.51.0 sweep read the old detail grammar as "names no commit", so
     // the two failures collapse to the first and the running one stands —
@@ -1887,7 +1874,7 @@ describe("the 1.55.0 rung — no hole in the work model", () => {
     expect(events[6]?.kind).toBe("answered-part");
   });
 
-  it("says whether a member's worktree has been read", () => {
+  it("walks a member's nullable worktree to head, where no member carries one", () => {
     const { state } = walk({
       works: workWith([]),
       members: {
@@ -1922,11 +1909,12 @@ describe("the 1.55.0 rung — no hole in the work model", () => {
       },
     });
     const members = state.members as Record<string, Record<string, unknown>>;
-    expect(members[REF]?.worktree).toEqual({ kind: "unread" });
-    expect(members["local/bbbb"]?.worktree).toEqual({
-      kind: "read",
-      path: "/repo",
-    });
+    // 1.55.0 turned the nullable string into a sum; 1.68.0 took the field
+    // off every member, since a work's folder is git's answer for its key.
+    for (const ref of [REF, "local/bbbb"]) {
+      expect(members[ref], ref).toBeDefined();
+      expect(Object.keys(members[ref] ?? {}), ref).not.toContain("worktree");
+    }
   });
 
   it("takes a work-ask row's outcome to a standing, and leaves a plain ask row alone", () => {
@@ -3240,8 +3228,9 @@ describe("the 1.64.0 rung — a work keeps its worktree", () => {
     );
     const works = Object.values(decoded.works);
     expect(works.length).toBeGreaterThan(0);
-    for (const one of works)
-      expect(["read", "unread"]).toContain(one.worktree.kind);
+    // 1.64.0 gave each one; 1.68.0 sets every one back to `unread`, for the
+    // watch to ask git.
+    for (const one of works) expect(one.worktree).toEqual({ kind: "unread" });
   });
 });
 

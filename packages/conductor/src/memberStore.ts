@@ -59,17 +59,16 @@ export interface MemberStore {
   readonly saved: () => PersistedMembers;
 }
 
-/** The member a restart restores: the model's four fields as the file holds
+/** The member a restart restores: the model's three fields as the file holds
  *  them, and the watch's half with its two runtime fields empty. */
 export const restored = (member: PersistedMember): Member => ({
   work: member.work,
   role: member.role,
   joinedAt: member.joinedAt,
-  worktree: member.worktree,
   ...restoredMember(member.watch),
 });
 
-/** A member as it joins: the model's four fields, and a watch that knows
+/** A member as it joins: the model's three fields, and a watch that knows
  *  nothing about the terminal yet. */
 export const joined = (
   member: WorkMember,
@@ -125,7 +124,6 @@ export const memberView = (
           work: member.work,
           role: member.role,
           joinedAt: member.joinedAt,
-          worktree: member.worktree,
           watch: saved(member),
         };
       return written;

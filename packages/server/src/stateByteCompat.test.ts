@@ -169,8 +169,9 @@ describe("the persisted state file — aggregate bytes", () => {
         decisions: [],
         events: [],
         state: { kind: "open" },
-        // Where it works, on its own record since 1.64.0.
-        worktree: { kind: "read", host: "local", path: "/srv/repo" },
+        // Where it works, on its own record: git's last answer for its key
+        // (1.68.0), with no host of its own.
+        worktree: { kind: "at", path: "/srv/repo" },
       },
     });
     store.set("members", {
@@ -178,7 +179,6 @@ describe("the persisted state file — aggregate bytes", () => {
         work: "branch:local/%2Fsrv%2Frepo/fix-the-parser",
         role: "implementor",
         joinedAt: "2026-01-01T00:00:00.000Z",
-        worktree: { kind: "unread" },
         watch: {
           name: "fix the parser",
           agent: "claude-code",
@@ -227,7 +227,7 @@ describe("the persisted state file — aggregate bytes", () => {
       '{"local/11111111-1111-4111-8111-111111111111":' +
         '{"work":"branch:local/%2Fsrv%2Frepo/fix-the-parser",' +
         '"role":"implementor","joinedAt":"2026-01-01T00:00:00.000Z",' +
-        '"worktree":{"kind":"unread"},"watch":{"name":"fix the parser",' +
+        '"watch":{"name":"fix the parser",' +
         '"agent":"claude-code","told":"stopped","joined":"created-run",' +
         '"spoken":true,"ran":true}}}',
     );

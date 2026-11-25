@@ -109,6 +109,7 @@ import {
   type HttpServer,
 } from "@kolu/acp-harness";
 import type { CellStore } from "@kolu/surface/server";
+import type { BranchCheckout } from "@kolu/padi-client/surface";
 import type { PrResult } from "@kolu/terminal-vocab/schema";
 import { Option, Schema } from "effect";
 import {
@@ -210,7 +211,7 @@ import { asking } from "./asking.ts";
 import { attachments } from "./attachments.ts";
 import { Fleet, koluCallOf, refineKoluCall } from "./kolu.ts";
 import type { WatchJoin } from "./members.ts";
-import type { PrWatch, WatchObservation } from "./observation.ts";
+import type { BranchWatch, WatchObservation } from "./observation.ts";
 import { observing } from "./observing.ts";
 import {
   type PersistedConductor,
@@ -710,13 +711,14 @@ export interface ConductorHost {
    * departure is ordinary.
    */
   readonly observe: (seen: ReadonlyArray<WatchObservation>) => void;
-  /** THE PULL-REQUEST WATCH'S SCOPE — every piece of work in progress that is
-   *  a BRANCH on a machine, with the host, repository and branch kolu asks
-   *  that host about. Beside {@link ConductorHost.memberRefs} and not folded
-   *  into it: a work's pull request is watched whether or not a terminal is
-   *  left, which is the whole of why a work the Conductor merged and then
-   *  closed the terminals of now ends ({@link ConductorHost.observedPr}). */
-  readonly prWatches: () => ReadonlyArray<PrWatch>;
+  /** THE BRANCH WATCH'S SCOPE — every piece of work in progress that is a
+   *  BRANCH on a machine, with the host, repository and branch kolu asks that
+   *  host about: its pull request and where it is checked out. Beside
+   *  {@link ConductorHost.memberRefs} and not folded into it: a work's branch
+   *  is watched whether or not a terminal is left, which is the whole of why
+   *  a work the Conductor merged and then closed the terminals of now ends
+   *  ({@link ConductorHost.observedPr}). */
+  readonly branchWatches: () => ReadonlyArray<BranchWatch>;
   /**
    * WHAT THE WORK'S OWN PULL-REQUEST WATCH READ — one reading of one work's
    * branch, off the host it is on.
@@ -728,6 +730,11 @@ export interface ConductorHost {
    * calls this not at all — nothing is concluded from silence.
    */
   readonly observedPr: (work: WorkId, pr: PrResult) => void;
+  /** WHAT THE WORK'S OWN CHECKOUT WATCH READ — git's answer, off the host the
+   *  work is on, for where its branch is checked out. The one writer of a
+   *  branch work's folder; an answer that is not a repository concludes
+   *  nothing. */
+  readonly observedCheckout: (work: WorkId, checkout: BranchCheckout) => void;
   /** ONE CHUNK of a file on its way up, ahead of the prompt that names it.
    *
    *  The first call for an id creates the file, each later one passes back
@@ -2209,6 +2216,7 @@ export function startConductorHost(deps: ConductorDeps): ConductorHost {
     state: frameNow,
     observe: observer.observe,
     observedPr: observer.observedPr,
+    observedCheckout: observer.observedCheckout,
     watch: (sink) => {
       // Opening the transcript IS looking at the conversation: it is the edge
       // that reads the remembered record AND the edge that brings the agent
@@ -2305,12 +2313,12 @@ export function startConductorHost(deps: ConductorDeps): ConductorHost {
       remembered();
       return works.memberRefs();
     },
-    prWatches: () => {
+    branchWatches: () => {
       // The same boot read `memberRefs` makes, and for the same reason: the
       // watch asks at boot, and a conversation spawned to answer "which
       // branches have work in flight" is a subprocess nobody asked for.
       remembered();
-      return works.prWatches();
+      return works.branchWatches();
     },
     membersDetail: () => {
       remembered();

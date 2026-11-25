@@ -11,8 +11,10 @@
  * ## One pass per reading
  *
  * {@link Observing.observe} walks a frame's readings ONCE, and each reading
- * moves one work value through every arm in turn: the ring event, the PR, the
- * departure, the worktree, the files.
+ * moves one work value through every arm in turn: the ring event, a watch's
+ * own folder, the departure, the files. A branch work's PR and folder are not
+ * among them: the work's own watch reads both by its key
+ * ({@link Observing.observedPr}, {@link Observing.observedCheckout}).
  *
  * ## What is pure, and why it matters
  *
@@ -29,6 +31,7 @@
  * the work stays open with no terminals, and the card says exactly that.
  */
 
+import type { BranchCheckout } from "@kolu/padi-client/surface";
 import type { PrResult } from "@kolu/terminal-vocab/schema";
 import { Option, Schema } from "effect";
 import {
@@ -41,15 +44,16 @@ import {
   filesSeen,
   holdingOf,
   handsOver,
+  hostOf,
   type MergeState,
   prOf,
   type PrReading,
   recordEvent,
+  recordWorktree,
   sameHead,
   type Work,
   type WorkEvent,
   type WorkId,
-  type Worktree,
 } from "kolu-work";
 import type { ConductorWakeEvent } from "kolu-common/conductor";
 import type { Logger } from "pino";
@@ -182,7 +186,7 @@ const sameMerge = (a: MergeState, b: MergeState): boolean => {
  *  the work with the ending; nothing is killed).
  *
  *  IT NEVER BRINGS ONE BACK. A reading moves a work IN PROGRESS, which is the
- *  whole of what is watched (`./workStore.ts`'s `prWatches` states the scope):
+ *  whole of what is watched (`./workStore.ts`'s `branchWatches` states the scope):
  *  once a work has ended, kolu stops asking its branch, so a PR that is open
  *  again on the forge says nothing here. Reopen on the card, or `work_open`
  *  on the same key, is the way back. */
@@ -345,6 +349,12 @@ export interface Observing {
    *  arrives for works with no members at all, and it is what ends a work the
    *  Conductor merged seconds before closing its terminals. */
   readonly observedPr: (work: WorkId, pr: PrResult) => void;
+  /** WHAT THE WORK'S OWN CHECKOUT WATCH READ — git's answer for where the
+   *  work's branch is checked out on its host. The one writer of a branch
+   *  work's folder: `repository` is recorded (the folder, or `absent`); a
+   *  path that is no repository, and a git that would not answer, conclude
+   *  nothing. */
+  readonly observedCheckout: (work: WorkId, checkout: BranchCheckout) => void;
   /** The Conductor just spoke to the agent in this terminal. */
   readonly saidTo: (ref: string) => void;
   /** ... and just closed it. */
@@ -386,25 +396,27 @@ export const observing = (deps: {
 }): Observing => {
   const nowIso = (): string => new Date().toISOString();
 
-  /** The member terminals whose `.waterfall/` is being listed RIGHT NOW. One
-   *  listing per terminal at a time. */
-  const listing = new Set<string>();
+  /** The works whose `.waterfall/` is being listed RIGHT NOW. One listing per
+   *  work at a time: the place listed is the work's, whoever asked. */
+  const listing = new Set<WorkId>();
 
-  /** A MEMBER'S `.waterfall/`, LISTED — and every path kolu has not seen
-   *  before put on the timeline. */
-  const listFiles = (
-    id: string,
-    ref: string,
-    at: { host: string; worktree: string },
-  ): void => {
-    if (listing.has(ref)) return;
-    listing.add(ref);
+  /** A WORK'S `.waterfall/`, LISTED — in the work's own folder on the key's
+   *  host, never a member's — and every path kolu has not seen before put on
+   *  the timeline, about the member whose moment asked for it. A work whose
+   *  folder git has not answered with lists nothing. */
+  const listFiles = (id: WorkId, ref: string): void => {
+    const found = deps.store.get(id);
+    if (Option.isNone(found)) return;
+    const held = found.value;
+    if (held.state.kind !== "open" || held.worktree.kind !== "at") return;
+    if (listing.has(id)) return;
+    listing.add(id);
     void deps.workFiles
-      .list(at)
+      .list({ host: hostOf(held), worktree: held.worktree.path })
       .then(({ paths }) => {
-        const found = deps.store.get(id);
-        if (Option.isNone(found) || found.value.state.kind !== "open") return;
-        const work = found.value;
+        const now = deps.store.get(id);
+        if (Option.isNone(now) || now.value.state.kind !== "open") return;
+        const work = now.value;
         const next = fileEvents(work, ref, paths, nowIso());
         if (next === work) return;
         deps.store.save(id, next);
@@ -412,12 +424,12 @@ export const observing = (deps: {
       })
       .catch((err: unknown) => {
         deps.log.warn(
-          { err, ref },
+          { err, work: id },
           "kolu-server: the conductor could not list a work's files",
         );
       })
       .finally(() => {
-        listing.delete(ref);
+        listing.delete(id);
       });
   };
 
@@ -436,30 +448,11 @@ export const observing = (deps: {
         // frame in flight across a departure is ordinary rather than a fault.
         if (found === undefined) continue;
         const was = found.member;
-        // WHERE IT IS WORKING, kept on the MEMBER the first time a record
-        // says it: a work's files outlive the terminal that wrote them, and
-        // the member row is where the path belongs now that membership is a
-        // map of its own. The first answer sticks — an `unread` member takes
-        // the path this reading has, and nothing moves it afterwards.
-        const learnt =
-          was.worktree.kind === "unread" && one.git !== null
-            ? Option.some<Worktree>({
-                kind: "read",
-                path: one.git.worktree,
-              })
-            : Option.none<Worktree>();
         // ONE ROW IN, ONE ROW OUT — `observed` carries the whole member, so
         // the model's half is never re-attached by hand here (a field added
         // to it would have been silently dropped on the next host read).
-        const sighting = observed(
-          Option.match(learnt, {
-            onNone: () => was,
-            onSome: (worktree) => ({ ...was, worktree }),
-          }),
-          one,
-        );
+        const sighting = observed(was, one);
         deps.members.set(one.ref, sighting.member);
-        if (Option.isSome(learnt)) watched = true;
         // THE LEVEL CHANGED, as THIS PROCESS saw it.
         const changed = was.last?.level !== one.level;
         if (changed) read = true;
@@ -487,14 +480,20 @@ export const observing = (deps: {
         // THE PULL REQUEST IS NOT READ HERE. It belongs to the work's branch
         // and the work's own watch reads it ({@link Observing.observedPr}) —
         // a member terminal's record is no longer a door onto the timeline.
+        // NOR IS A BRANCH WORK'S FOLDER: git answers that by the work's key
+        // ({@link Observing.observedCheckout}). A WATCH is the one work whose
+        // folder is a terminal's — its key IS that terminal — so the reading
+        // of the key's own terminal, and no other member, writes it.
+        if (
+          work.key.kind === "watch" &&
+          work.key.terminal === one.ref &&
+          one.git !== null
+        )
+          work = recordWorktree(work, { kind: "at", path: one.git.worktree });
         if (work !== found.work) {
           deps.store.save(found.id, work);
           moved = true;
         }
-        // ITS WORKTREE, FIRST READ: the work takes the rule's answer, so it
-        // keeps where it works after its terminals have gone.
-        if (Option.isSome(learnt) && deps.store.worktreeRead(found.id))
-          moved = true;
         // A TERMINAL THAT WENT AWAY LEAVES — and the work does not end for
         // it. `leave` writes the departure, drops the member row and wakes
         // the Conductor ONCE if that was the last one.
@@ -503,14 +502,9 @@ export const observing = (deps: {
           membership = true;
         }
         // THE FILES, off a level change: the moment an agent stops, asks or
-        // comes up is the moment its `.waterfall/` has just changed, and a
-        // member that has gone has no worktree left to read.
-        const where = sighting.member.worktree;
-        if (changed && !sighting.drop && where.kind === "read")
-          listFiles(found.id, one.ref, {
-            host: one.host,
-            worktree: where.path,
-          });
+        // comes up is the moment the work's `.waterfall/` may have just
+        // changed. Listed in the WORK's folder, wherever this member stands.
+        if (changed && !sighting.drop) listFiles(found.id, one.ref);
         if (sighting.ring !== null) {
           deps.ring(sighting.member, one, sighting.ring);
           saidSomethingNew = true;
@@ -563,6 +557,24 @@ export const observing = (deps: {
       deps.store.save(id, next);
       deps.store.changed();
       if (deps.publishState()) deps.flush();
+    },
+    observedCheckout: (id, reading) => {
+      // GIT'S ANSWER, or nothing: a path that is no repository and a git that
+      // would not answer say nothing about where the branch is.
+      if (reading.kind !== "repository") return;
+      const found = deps.store.get(id);
+      if (Option.isNone(found)) return;
+      const work = found.value;
+      if (work.state.kind !== "open" || work.key.kind !== "branch") return;
+      const next = recordWorktree(
+        work,
+        reading.checkout.kind === "at"
+          ? { kind: "at", path: reading.checkout.path }
+          : { kind: "absent" },
+      );
+      if (next === work) return;
+      deps.store.save(id, next);
+      deps.store.changed();
     },
     saidTo: (ref) => {
       const found = deps.store.at(ref);

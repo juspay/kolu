@@ -147,8 +147,7 @@ const workOn = (worktree: Work["worktree"]): Work => ({
   worktree,
 });
 const readWork = workOn({
-  kind: "read",
-  host: "remote:build-box",
+  kind: "at",
   path: WORKTREE,
 });
 

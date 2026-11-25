@@ -78,7 +78,12 @@ import { attentionRecordOf } from "../attention/savedAttention";
 import WorkTerminals from "./WorkTerminals";
 import { inspectMember, unpickWork } from "./workListing";
 
-const WORK = {} as Work;
+/** A watch: these rows are about the terminal, not where it stands. */
+const WORK = { key: { kind: "watch", terminal: "local/x" } } as Work;
+/** A branch work, for the one case about where a terminal stands. */
+const BRANCH_WORK = {
+  key: { kind: "branch", host: "local", repo: "/srv/repo", branch: "fix" },
+} as Work;
 
 const thinking: FleetTerminalStanding = {
   kind: "here",
@@ -172,13 +177,13 @@ const NOW = Date.parse("2026-01-01T00:10:00Z");
  *  terminal's record under a mounted list. */
 let setLines: (lines: MemberLine[]) => void = () => {};
 
-function mount(members: MemberLine[]): HTMLElement {
+function mount(members: MemberLine[], work: Work = WORK): HTMLElement {
   const [lines, set] = createSignal(members);
   setLines = set;
   root = document.createElement("div");
   document.body.append(root);
   dispose = render(
-    () => <WorkTerminals work={WORK} members={lines()} now={NOW} />,
+    () => <WorkTerminals work={work} members={lines()} now={NOW} />,
     root,
   );
   return root;
@@ -207,6 +212,48 @@ describe("a work's terminal row", () => {
     const status = part(one, "work-member-status")?.textContent ?? "";
     expect(status).toContain("Thinking for 3m");
     expect(status).toContain("writing the plan");
+  });
+
+  it("says so when it stands on another branch, and nothing in the work's own", () => {
+    const on = (branch: string): FleetTerminalStanding => ({
+      kind: "here",
+      meta: {
+        state: "active",
+        agent: null,
+        foreground: null,
+        git: {
+          kind: "repo",
+          info: {
+            repoRoot: `/srv/repo/.worktrees/${branch}`,
+            repoName: "repo",
+            worktreePath: `/srv/repo/.worktrees/${branch}`,
+            branch,
+            isWorktree: true,
+            mainRepoRoot: "/srv/repo",
+            remoteUrl: null,
+            isBare: false,
+          },
+        },
+      } as never,
+    });
+    const el = mount(
+      [
+        line(LOCAL_REF, "planner", on("main")),
+        line(REMOTE_REF, "implementor", on("fix")),
+      ],
+      BRANCH_WORK,
+    );
+    expect(part(row(el, LOCAL_REF), "work-member-elsewhere")?.textContent).toBe(
+      "elsewhere · repo · main",
+    );
+    // The remote terminal is on the branch but not on the key's host.
+    expect(
+      part(row(el, REMOTE_REF), "work-member-elsewhere")?.textContent,
+    ).toBe("elsewhere · repo · fix");
+    dispose?.();
+    root?.remove();
+    const home = mount([line(LOCAL_REF, "planner", on("fix"))], BRANCH_WORK);
+    expect(part(row(home, LOCAL_REF), "work-member-elsewhere")).toBeNull();
   });
 
   it("names its host when kolu has no name, and shows no id anywhere", () => {

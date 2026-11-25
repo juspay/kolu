@@ -20,7 +20,11 @@
  *
  *  A terminal with no name kolu can read shows its HOST, never an id
  *  (`memberNames.ts`). A sleeping or gone terminal has no Look — there is no
- *  screen to look at — and a terminal nobody drives has no lock button. */
+ *  screen to look at — and a terminal nobody drives has no lock button.
+ *
+ *  A terminal standing anywhere but the work's own checkout says so beside
+ *  its name ("elsewhere · repo · branch", `memberPlace.ts`): it lends the
+ *  work nothing, and the row is where a person sees why. */
 
 import type { Work } from "kolu-work";
 import { Key } from "@solid-primitives/keyed";
@@ -40,6 +44,7 @@ import {
   toggleMember,
 } from "./workListing";
 import { type MemberLine, memberRuns } from "./workFacts";
+import { memberPlace, placeWords } from "./memberPlace";
 import { type Lock, ROLE_WORD } from "./workReadings";
 
 /** "thinking" → "Thinking": the state starts the status, as a sentence. */
@@ -64,6 +69,16 @@ const MemberRow: Component<{
   const here = () =>
     props.one.standing?.kind === "here" ? props.one.split : null;
   const runs = () => memberRuns(props.work, props.one);
+  /** WHERE IT STANDS against the work's key, in words — only when it is
+   *  somewhere else. */
+  const elsewhere = () =>
+    placeWords(
+      memberPlace(
+        props.work.key,
+        props.one.split?.host ?? "",
+        props.one.standing,
+      ),
+    );
   /** Its standing and the words for it, read together, or `null` for a
    *  terminal this browser cannot read. */
   const status = createMemo(() => {
@@ -168,6 +183,16 @@ const MemberRow: Component<{
           >
             {runs()}
           </span>
+        </Show>
+        <Show when={elsewhere()}>
+          {(words) => (
+            <span
+              data-testid="work-member-elsewhere"
+              class="min-w-0 shrink-[999] truncate font-mono text-[0.6rem] text-warning"
+            >
+              {words()}
+            </span>
+          )}
         </Show>
       </span>
       <span

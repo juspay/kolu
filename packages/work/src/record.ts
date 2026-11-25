@@ -50,6 +50,7 @@ import {
   type Work,
   type WorkEvent,
   type WorkRole,
+  type WorkWorktree,
 } from "./schema.ts";
 
 /** HOW A TERMINAL'S AGENT STANDS, as events — what a work produces over and
@@ -257,30 +258,23 @@ export const openWork = (opened: {
     },
   ],
   state: { kind: "open" },
-  // No member has said where it works yet.
+  // Git has not been asked where its branch is checked out yet.
   worktree: { kind: "unread" },
 });
 
-/** WHERE THE WORK IS WORKING, MADE TO STICK. `answer` is the rule's answer
- *  right now — the first member whose own record named a worktree, host and
- *  all — or none when no member has one. An answer that differs from what the
- *  work holds replaces it; no answer keeps what the work had, so a work whose
- *  terminals have all gone still knows its worktree. The one writer calls
- *  this at each moment the answer can move: a member's worktree first read, a
- *  member joining, a member leaving. Unchanged, it hands the same work back. */
-export const settleWorktree = (
-  work: Work,
-  answer: Option.Option<{ readonly host: string; readonly path: string }>,
-): Work =>
-  Option.match(answer, {
-    onNone: () => work,
-    onSome: ({ host, path }) =>
-      work.worktree.kind === "read" &&
-      work.worktree.host === host &&
-      work.worktree.path === path
-        ? work
-        : { ...work, worktree: { kind: "read", host, path } },
-  });
+/** WHERE THE WORK IS WORKING, as git last answered it for the work's own key
+ *  — the one writer's step. An answer equal to what the work holds hands the
+ *  same work back. For a branch work the answer is git's, asked by the key
+ *  (the branch's checkout, or none); for a watch, it is the watched terminal's
+ *  own folder. Never a member's: a member may stand anywhere. */
+export const recordWorktree = (work: Work, worktree: WorkWorktree): Work => {
+  const held = work.worktree;
+  if (held.kind === worktree.kind) {
+    if (held.kind !== "at") return work;
+    if (worktree.kind === "at" && worktree.path === held.path) return work;
+  }
+  return { ...work, worktree };
+};
 
 /** WHAT THE REQUEST ALREADY SAID for a setup question — nothing, so the human
  *  is asked, or the value they gave, recorded as answered from the request
