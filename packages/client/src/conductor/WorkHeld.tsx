@@ -8,7 +8,7 @@ import { Option } from "effect";
 import type { Work } from "kolu-work";
 import type { Component } from "solid-js";
 import { Show } from "solid-js";
-import { heldWords } from "./heldKey";
+import { heldWords } from "./workReadings";
 import { useWorkMap } from "./useWorks";
 
 const WorkHeld: Component<{ readonly work: Work }> = (props) => {

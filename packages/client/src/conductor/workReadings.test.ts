@@ -13,6 +13,7 @@ import { Option } from "effect";
 import {
   ABOUT_WORK,
   aboutMember,
+  type BranchKey,
   type AnswerFrom,
   type Asked,
   type Decision,
@@ -22,6 +23,7 @@ import {
   membershipOf,
   needsYou,
   needsYouOf,
+  openWork,
   ON_GREEN,
   type OnGreen,
   type Said,
@@ -31,8 +33,10 @@ import {
   WORK_MODES,
   type Work,
   type WorkEvent,
+  type WorkId,
   type WorkMember,
   type WorkMode,
+  workIdOf,
 } from "kolu-work";
 import { describe, expect, it } from "vitest";
 import { checksTally, failingLine, prSection } from "./prReadings";
@@ -43,6 +47,7 @@ import {
   decisionLabel,
   decisionRows,
   eventReader,
+  heldWords,
   inputAllowed,
   LINE_LIMIT,
   lockCardWords,
@@ -1295,5 +1300,50 @@ describe("a finished card has nothing to draw terminals or questions from", () =
       "Stopped by you",
       "Opened again",
     ]);
+  });
+});
+
+describe("the card's line for a work kept under its old key (T30)", () => {
+  // By title while kolu still has the holder, "another work" once it dropped
+  // off the finished list; gone once the key is git's or never said.
+  const keyAt = (repo: string, repoBy: BranchKey["repoBy"]): BranchKey => ({
+    kind: "branch",
+    host: "local",
+    repo,
+    branch: "csv",
+    repoBy,
+  });
+  const work = (key: BranchKey, title: string): Work =>
+    openWork({
+      key,
+      title,
+      at: "2026-11-24T19:00:00.000Z",
+      request: { kind: "none" },
+    });
+  const mapOf = (...works: Work[]): ReadonlyMap<WorkId, Work> =>
+    new Map(works.map((one) => [workIdOf(one.key), one]));
+  const held = work(
+    keyAt("/repo/.worktrees/csv", { kind: "held", root: "/repo" }),
+    "old",
+  );
+
+  it("names the work holding the branch", () => {
+    const holder = work(keyAt("/repo", { kind: "git" }), "holder");
+    expect(heldWords(held, mapOf(held, holder))).toEqual(
+      Option.some("Kept under its old key: «holder» holds csv in repo"),
+    );
+  });
+
+  it("says another work once the holder is gone", () => {
+    expect(heldWords(held, mapOf(held))).toEqual(
+      Option.some("Kept under its old key: another work holds csv in repo"),
+    );
+  });
+
+  it("is absent for a key that is git's or not said", () => {
+    const moved = work(keyAt("/repo", { kind: "git" }), "old");
+    expect(heldWords(moved, mapOf(moved))).toEqual(Option.none());
+    const written = work(keyAt("/repo/sub", { kind: "as-written" }), "old");
+    expect(heldWords(written, mapOf(written))).toEqual(Option.none());
   });
 });
