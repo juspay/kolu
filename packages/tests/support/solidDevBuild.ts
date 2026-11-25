@@ -7,11 +7,10 @@
  * component tests already fail on any diagnostic; this covers the paths only
  * the e2e suite reaches.
  *
- * Two facts, both keyed on one string: the base URL of Solid's diagnostics
- * docs, which the dev runtime prints after a diagnostic (`GUIDE_URL` in
- * `@solidjs/signals` 2.0.3 `dist/dev-shared.js`, the footer `solid-js` installs
- * in `dist/solid.dev.js`'s `installConsoleFooter`) and which the production
- * runtime does not carry at all.
+ * Two facts, both keyed on one string: the footer Solid's development runtime
+ * prints after the first diagnostic of each code (`[CODE] what it means and how
+ * to fix it: <docs link>`, from `installConsoleFooter` in `solid-js` 2.0.3
+ * `dist/solid.dev.js`), which the production runtime does not carry at all.
  *
  *   - A console message carrying it IS a Solid diagnostic, whatever its code,
  *     so the check needs no hand-kept list of codes. The runtime prints the
@@ -24,14 +23,7 @@
 
 /** The marker — see the module note. Kept in step with `solidDevMarker` in
  *  default.nix. */
-export const SOLID_DIAGNOSTIC_URL =
-  "https://docs.solidjs.com/reference/solid-js/diagnostics/";
-
-/** {@link SOLID_DIAGNOSTIC_URL}, as the pattern the text is searched with. The
- *  text is a console line or a script body, never a URL being vetted, so this
- *  is a plain substring search with every character literal. */
-const SOLID_DIAGNOSTIC_MARKER =
-  /https:\/\/docs\.solidjs\.com\/reference\/solid-js\/diagnostics\//;
+export const SOLID_DIAGNOSTIC_MARKER = "what it means and how to fix it:";
 
 /** Is this run the Solid-diagnostics lane? `KOLU_E2E_SOLID_DEV=1` is set by
  *  `ci::e2e-solid-dev` beside the dev-mode `KOLU_SERVER`; any other value is a
@@ -47,7 +39,7 @@ export const SOLID_DEV_LANE = ((): boolean => {
 
 /** Does this text (a console message, or a served script) carry the marker? */
 export function isSolidDiagnostic(text: string): boolean {
-  return SOLID_DIAGNOSTIC_MARKER.test(text);
+  return text.includes(SOLID_DIAGNOSTIC_MARKER);
 }
 
 /** Fail unless the server at `baseUrl` serves a client built on Solid's
@@ -74,7 +66,7 @@ export async function assertServesSolidDevBuild(
   }
   throw new Error(
     `Solid-diagnostics lane: the server at ${baseUrl} serves a client without ` +
-      `Solid's development runtime (no script carries ${SOLID_DIAGNOSTIC_URL}). ` +
+      `Solid's development runtime (no script carries "${SOLID_DIAGNOSTIC_MARKER}"). ` +
       `KOLU_SERVER must be the dev-mode build (.#koluBin-solid-dev).`,
   );
 }

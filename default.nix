@@ -664,14 +664,14 @@ let
     pnpm --filter kolu-client build ${viteArgs}
   '';
 
-  # A string ONLY Solid's development runtime carries: the base URL its console
-  # prints after every diagnostic (`GUIDE_URL` in `@solidjs/signals`
-  # `dist/dev-shared.js`; absent from `dist/prod/`). Each client dist below is
-  # checked for it, so a production bundle that picked up the dev runtime — or
-  # a dev-mode bundle that silently fell back to production — fails its build.
-  # The e2e harness checks the served page for the same string
-  # (packages/tests/support/solidDevBuild.ts).
-  solidDevMarker = "docs.solidjs.com/reference/solid-js/diagnostics/";
+  # A string ONLY Solid's development runtime carries: the footer its console
+  # prints after the first diagnostic of each code (`installConsoleFooter` in
+  # `solid-js` `dist/solid.dev.js`; absent from `dist/solid.js`). Each client
+  # dist below is checked for it, so a production bundle that picked up the dev
+  # runtime — or a dev-mode bundle that silently fell back to production — fails
+  # its build. The e2e harness checks the served page and the console for the
+  # same string (packages/tests/support/solidDevBuild.ts).
+  solidDevMarker = "what it means and how to fix it:";
 
   # The source tree, runnable — the fileset plus a node_modules that POINTS AT
   # the deps derivations rather than containing them. A commit's worth of
