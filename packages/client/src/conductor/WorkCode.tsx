@@ -6,10 +6,11 @@
  *
  *  - **What it is about**, from the one reading of a work's worktree
  *    (`workPlaceOf`): its host and path; who lists the root, from the git
- *    reading of a member standing in it (git with none); the terminal the
- *    one rule borrows, or none. With none, the tree, the diffs and text still
- *    draw; commenting is off, and a picture or a download says in a line why
- *    it cannot be fetched. Its place is the WORK's, whichever terminal is up.
+ *    reading of a member standing in it (git with none); the terminal a
+ *    picture's or a download's bytes are fetched through, or none. With none,
+ *    the tree, the diffs, text and comments still work, and a picture or a
+ *    download says in a line why it cannot be fetched. Its place and its
+ *    comments are the WORK's, whichever terminal is up.
  *  - **Where its place is kept**: kolu-server, per work
  *    (`workCodeView.ts`), so the mode and the open file come back after a
  *    reload and in another browser.
@@ -25,8 +26,9 @@
  *    box has been measured once, so it is built in the arrangement its width
  *    calls for; after that a change of width turns it and never rebuilds it.
  *
- *  An open work whose worktree kolu has not read yet says so in one line, the
- *  Worktree part's own. A finished work has no switch, so no Code view. */
+ *  An open work whose worktree kolu has not read yet, or whose branch git
+ *  says is checked out nowhere, says so in one line, the Worktree part's
+ *  own. A finished work has no switch, so no Code view. */
 
 import { decodeHostKey } from "kolu-common/hostKey";
 import type { Work, WorkId } from "kolu-work";
@@ -36,7 +38,9 @@ import {
   createEffect,
   createMemo,
   createSignal,
+  Match,
   Show,
+  Switch,
   untrack,
 } from "solid-js";
 import CodeTab from "../code-view/CodeTab";
@@ -48,7 +52,12 @@ import { createCodeDoor } from "../code-view/codeDoor";
 import { paneHeight } from "./livePanes";
 import { syncWorkCodeRoot, workCodeState } from "./workCodeView";
 import type { MemberLine } from "./workFacts";
-import { type WorkPlace, WORKTREE_UNREAD, workPlaceOf } from "./workFile";
+import {
+  type WorkPlace,
+  WORKTREE_ABSENT,
+  WORKTREE_UNREAD,
+  workPlaceOf,
+} from "./workFile";
 
 /** The view, over a worktree kolu has read. */
 const Read: Component<{
@@ -71,6 +80,8 @@ const Read: Component<{
         lister: props.place.lister,
       },
       terminalId: props.place.terminalId,
+      // A WORK'S COMMENTS ARE THE WORK'S: whichever member is up, or none.
+      comments: { kind: "work", id: props.id },
     }),
   );
   const state = workCodeState(work, () => props.place.lister);
@@ -128,20 +139,25 @@ const WorkCode: Component<{
   members: ReadonlyArray<MemberLine>;
 }> = (props) => {
   const place = createMemo(() => workPlaceOf(props.work, props.members));
+  const line = (testid: string, words: string) => (
+    <p data-testid={testid} class="m-0 font-mono text-[0.62rem] text-fg-3">
+      {words}
+    </p>
+  );
+  // ONE ARM PER ANSWER git gave for the work's folder, as the Worktree part
+  // draws them: never "not read yet" for a branch git placed nowhere.
   return (
-    <Show
-      when={place()}
-      fallback={
-        <p
-          data-testid="work-code-unread"
-          class="m-0 font-mono text-[0.62rem] text-fg-3"
-        >
-          {WORKTREE_UNREAD}
-        </p>
-      }
-    >
-      {(at) => <Read id={props.id} place={at()} />}
-    </Show>
+    <Switch>
+      <Match when={props.work.worktree.kind === "unread"}>
+        {line("work-code-unread", WORKTREE_UNREAD)}
+      </Match>
+      <Match when={props.work.worktree.kind === "absent"}>
+        {line("work-code-absent", WORKTREE_ABSENT)}
+      </Match>
+      <Match when={place()}>
+        {(at) => <Read id={props.id} place={at()} />}
+      </Match>
+    </Switch>
   );
 };
 

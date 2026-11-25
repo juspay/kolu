@@ -50,7 +50,7 @@ import BrowseFileDispatcher from "../../code-view/BrowseFileDispatcher";
 import { CommentComposer } from "../../comments/CommentComposer";
 import { CommentView, createCommentView } from "../../comments/commentView";
 import { formatMarkdown } from "../../comments/formatMarkdown";
-import { commentsForTerminal } from "../../comments/useComments";
+import { commentsFor } from "../../comments/useComments";
 import { rightPanelCodeDoor } from "../../right-panel/openInCodeTab";
 import { useColorScheme } from "../../settings/useColorScheme";
 import { useWorkMap, useWorkMembers } from "../useWorks";
@@ -118,9 +118,9 @@ const WorkReader: Component<{
     return workFileSource(props.target.work, one, members());
   });
 
-  /** The terminal a comment is anchored against, and whose host serves the
-   *  bytes. A kept file has none: kolu holds the bytes, not the tree they
-   *  were written in. */
+  /** Where the bytes are served from: the work's worktree on its host, and
+   *  the terminal a picture is fetched through, if any. A kept file has
+   *  none: kolu holds the bytes, not the tree they were written in. */
   const at = createMemo(() => source()?.at ?? null);
 
   /** Where a link in the document opens: the Right panel's Code tab, through
@@ -141,14 +141,15 @@ const WorkReader: Component<{
     return from === null ? null : from.read(props.target.path);
   });
 
-  /** THE COMMENTS THAT WILL GO WITH AN ANSWER — the existing
-   *  comments-on-files for this file, which are kept per terminal and reached
-   *  through the receptacle built for a terminal that MOVES. A kept file has
-   *  none: there is nothing to anchor a comment to once the worktree is
-   *  gone. */
-  const commentsAt = commentsForTerminal(() => at()?.terminalId ?? "");
-  const comments = createMemo(() =>
-    at() === null ? [] : commentsAt().commentsForPath(props.target.path),
+  /** WHOSE COMMENTS this file's are: the work's own queue for its live
+   *  folder, whichever member is up — or none for a kept file, which has
+   *  nothing to anchor a comment to once the worktree is gone. */
+  const queue = createMemo(() => source()?.comments ?? null);
+  /** THE COMMENTS THAT WILL GO WITH AN ANSWER — the ones on this file in
+   *  that queue, and none without one. */
+  const commentsAt = commentsFor(queue);
+  const comments = createMemo(
+    () => commentsAt()?.commentsForPath(props.target.path) ?? [],
   );
 
   /** THE OPEN QUESTIONS ABOUT THIS WORK — every ask the record still has
@@ -176,6 +177,7 @@ const WorkReader: Component<{
   }> = (shown) => (
     <BrowseFileDispatcher
       at={at()}
+      comments={queue()}
       open={at() === null ? null : door.open}
       filePath={props.target.path}
       file={shown.file}
@@ -339,10 +341,9 @@ const WorkReader: Component<{
           reader, portalled, exactly as the Code tab mounts one per tab: a
           surface that could capture a selection with nowhere to write it
           would offer to comment and then swallow the comment. A kept file
-          has no terminal to anchor one against, so it has no composer
-          either. */}
-          <Show when={at()}>
-            {(spot) => <CommentComposer terminalId={spot().terminalId} />}
+          has no queue to file one in, so it has no composer either. */}
+          <Show when={queue()}>
+            {(one) => <CommentComposer queue={one()} />}
           </Show>
         </Show>
       </section>

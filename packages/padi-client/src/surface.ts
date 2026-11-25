@@ -91,6 +91,7 @@ import {
 import { oduServiceSurface } from "@odu/service-client/surface";
 import { Effect, Schema } from "effect";
 import {
+  BranchCheckoutSchema,
   FsListAllInputSchema,
   FsListAllOutputSchema,
   FsListDirectoryInputSchema,
@@ -189,6 +190,9 @@ export * from "./diagnostics.ts";
 // importing `kolu-common` (the seal forbids that arrow); `kolu-common/surface`
 // re-exports it for `koluSurface` and the client. See `./clientPolicy.ts`.
 export type { ClientErrorPolicy, ToastOnlyPolicy } from "./clientPolicy.ts";
+// The `branchCheckout` stream's answer is kolu-git's own shape, named where a
+// consumer reaches the member that carries it.
+export type { BranchCheckout } from "kolu-git/schemas";
 // The DECLARED error vocabulary (PLAN D4) rides the same entry: the classes are
 // both the wire schema this surface declares and the value a client narrows on,
 // so a consumer reaches them where it reaches the members that raise them.
@@ -850,8 +854,20 @@ export * from "./transcriptSchema.ts";
  *  fact dropped every unread mark and then rang for every idle agent after a
  *  redeploy. It rides the value, not the `roster` cell beside it, because two
  *  members arrive apart. A decoding default of `true`: a frame from a 7.11
- *  padi, which omits the key, reads as it always did. */
-export const PADI_SURFACE_VERSION = "7.12";
+ *  padi, which omits the key, reads as it always did.
+ *
+ *  7.13 (additive · minor) — WHERE A BRANCH IS CHECKED OUT. A new STREAM,
+ *  `branchCheckout` (`{ repoPath, branch }` → {@link BranchCheckoutSchema}),
+ *  snapshot-then-changes: the repository's root, by the rule the record's
+ *  `git.mainRepoRoot` is read by, and the folder git says the branch is
+ *  checked out in, or none — re-asked when a worktree is added or removed
+ *  and when any checkout's HEAD moves. It exists for the reason `pullRequest`
+ *  did in 7.4: a work's folder belongs to its BRANCH, not to a terminal.
+ *  kolu's Conductor read a work's folder off the first member terminal that
+ *  was in any repository, so a terminal standing in another worktree lent
+ *  the work that worktree's files. No terminal has to exist for this one. A
+ *  member added, the `pullRequest` class: a minor. */
+export const PADI_SURFACE_VERSION = "7.13";
 
 /** The `version` cell payload — padi's self-declared surface contract version. */
 export const PadiVersionSchema = Schema.Struct({
@@ -2667,6 +2683,21 @@ export const padiSurface = defineSurfaceWithPolicy<ClientErrorPolicy>()({
       }),
       outputSchema: PrResultSchema,
     },
+    /** WHERE A BRANCH IS CHECKED OUT on this host — git's answer for
+     *  `branch` in the repository at `repoPath` (any path inside it):
+     *  `repository` with the repository's root and the branch's folder, or
+     *  none; `not-a-repository`; or `unavailable` with git's reason.
+     *  Snapshot-then-changes: the first frame is the answer as it stands,
+     *  every later frame an answer that CHANGED (a worktree cut or removed, a
+     *  switch to or from the branch in any checkout). VALUE-forwarded: each
+     *  frame is the whole answer, so a rebind replays it. */
+    branchCheckout: {
+      inputSchema: Schema.Struct({
+        repoPath: Schema.String,
+        branch: Schema.String,
+      }),
+      outputSchema: BranchCheckoutSchema,
+    },
     /** The per-subscriber terminal byte stream — snapshot (serialized screen)
      *  as the first frame, then live output, 1:1 through each hop. DELTA/
      *  fail-through: the scrollback snapshot is ONLY ever the first frame of a
@@ -3068,6 +3099,8 @@ export const PADI_FORWARDING_POLICY = {
   // A branch's PR reading is a VALUE: every frame is the whole current reading,
   // so a rebind replaying the last one tells the truth rather than a stale half.
   pullRequest: "value",
+  // ... and so is a branch's checkout: every frame is the whole answer.
+  branchCheckout: "value",
   // events
   terminalExit: "value",
   // procedure namespaces

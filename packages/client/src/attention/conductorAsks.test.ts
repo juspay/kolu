@@ -14,6 +14,7 @@ import {
   type Question,
   recordEvent,
   type Work,
+  type RecordableEvent,
   type WorkEvent,
   workIdOf,
 } from "kolu-work";
@@ -225,6 +226,7 @@ describe("the Conductor's bell, over real work records", () => {
     host: "local",
     repo: "/code/olai",
     branch: "chat-in-a-pane",
+    repoBy: { kind: "git" },
   } as const;
   const ID = workIdOf(KEY);
   const AT = (minute: number): string =>
@@ -278,8 +280,13 @@ describe("the Conductor's bell, over real work records", () => {
     });
   };
   const HEAD = { kind: "commit", sha: "c88e0a1" } as const;
-  const forge = (minute: number, event: Partial<WorkEvent>): WorkEvent =>
-    ({ at: AT(minute), by: "kolu", about: ABOUT_WORK, ...event }) as WorkEvent;
+  const forge = (minute: number, event: Partial<WorkEvent>): RecordableEvent =>
+    ({
+      at: AT(minute),
+      by: "kolu",
+      about: ABOUT_WORK,
+      ...event,
+    }) as RecordableEvent;
 
   it("never rings for a green draft, and rings once when it is marked ready", () => {
     const { bell, rang } = harness();

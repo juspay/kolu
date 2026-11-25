@@ -13,6 +13,7 @@ import { Option } from "effect";
 import {
   ABOUT_WORK,
   aboutMember,
+  type BranchKey,
   type AnswerFrom,
   type Asked,
   type Decision,
@@ -22,6 +23,7 @@ import {
   membershipOf,
   needsYou,
   needsYouOf,
+  openWork,
   ON_GREEN,
   type OnGreen,
   type Said,
@@ -31,22 +33,21 @@ import {
   WORK_MODES,
   type Work,
   type WorkEvent,
+  type WorkId,
   type WorkMember,
   type WorkMode,
+  workIdOf,
 } from "kolu-work";
-import type { PrInfo } from "anyforge/schemas";
-import {
-  LOCAL_LOCATION,
-  type TerminalMetadata,
-} from "@kolu/padi-client/surface";
 import { describe, expect, it } from "vitest";
-import { checksTally, failingLine, livePrOf, prSection } from "./prReadings";
+import { checksTally, failingLine, prSection } from "./prReadings";
+import { workPrOf } from "./workPr";
 import { timelineShown } from "./timelineView";
 import {
   answerWords,
   decisionLabel,
   decisionRows,
   eventReader,
+  heldWords,
   inputAllowed,
   LINE_LIMIT,
   lockCardWords,
@@ -192,6 +193,7 @@ const work = (over: Partial<Work> = {}): Work => ({
     host: "local",
     repo: "/home/srid/code/kolu",
     branch: "update-errors",
+    repoBy: { kind: "git" },
   },
   title: "Show agent-distro update errors",
   events: [],
@@ -208,12 +210,7 @@ const members = (
   role: WorkMember["role"] = "planner",
   terminal = "local/a",
 ): ReadonlyMap<string, WorkMember> =>
-  new Map([
-    [
-      terminal,
-      { work: WORK, role, joinedAt: AT, worktree: { kind: "unread" } },
-    ],
-  ]);
+  new Map([[terminal, { work: WORK, role, joinedAt: AT }]]);
 
 const event = (over: Partial<WorkEvent> & Pick<WorkEvent, "kind">): WorkEvent =>
   ({
@@ -288,7 +285,7 @@ describe("what a card's head says", () => {
   it("says a watch is a watch, which has no repo to name", () => {
     expect(
       workSubtitle(
-        work({ key: { kind: "watch", terminal: "local/a" } }),
+        work({ key: { kind: "watch", host: "local", id: "a" } }),
         Option.some("naiveintent"),
       ),
     ).toEqual(["watching", "naiveintent"]);
@@ -383,55 +380,16 @@ describe("where a work runs", () => {
     expect(
       workHost(
         work({
-          key: { kind: "branch", host: "", repo: "/r", branch: "b" },
+          key: {
+            kind: "branch",
+            host: "",
+            repo: "/r",
+            branch: "b",
+            repoBy: { kind: "git" },
+          },
         }),
       ),
     ).toEqual(Option.none());
-  });
-});
-
-describe("the live PR a card reads", () => {
-  const pr = (number: number): PrInfo => ({
-    number,
-    title: "Slim it",
-    url: `https://github.com/o/r/pull/${number}`,
-    state: "open",
-    checks: "pending",
-    checkRuns: [],
-    reviewDecision: null,
-    mergeStateStatus: null,
-    headSha: null,
-    isDraft: false,
-  });
-  const here = (result: TerminalMetadata["pr"]) => ({
-    standing: {
-      kind: "here" as const,
-      meta: {
-        state: "active",
-        cwd: "/tmp/work",
-        git: { kind: "none" },
-        location: LOCAL_LOCATION,
-        pr: result,
-        agent: null,
-        foreground: null,
-        ports: { status: "unknown" },
-        lastActivityAt: 1,
-        promptedAt: null,
-      } satisfies TerminalMetadata,
-    },
-  });
-
-  it("takes the first member that reports one, past those that cannot", () => {
-    expect(
-      livePrOf([
-        { standing: undefined },
-        { standing: { kind: "gone" } },
-        here({ kind: "absent" }),
-        here({ kind: "ok", value: pr(12) }),
-        here({ kind: "ok", value: pr(13) }),
-      ])?.number,
-    ).toBe(12);
-    expect(livePrOf([here({ kind: "pending" })])).toBeNull();
   });
 });
 
@@ -831,23 +789,15 @@ describe("where it stands", () => {
 
 describe("the members of one work", () => {
   it("reads them out of the ONE map, in the order a waterfall runs them", () => {
-    const unread = { kind: "unread" } as const;
     const map = new Map<string, WorkMember>([
-      [
-        "local/b",
-        { work: WORK, role: "implementor", joinedAt: AT, worktree: unread },
-      ],
-      [
-        "local/a",
-        { work: WORK, role: "planner", joinedAt: AT, worktree: unread },
-      ],
+      ["local/b", { work: WORK, role: "implementor", joinedAt: AT }],
+      ["local/a", { work: WORK, role: "planner", joinedAt: AT }],
       [
         "local/c",
         {
           work: "branch:local/x/y",
           role: "other",
           joinedAt: AT,
-          worktree: unread,
         },
       ],
     ]);
@@ -1285,22 +1235,34 @@ describe("the tab's one number", () => {
 
 describe("a PR's checks", () => {
   it("says nothing at all when no checks are configured", () => {
-    expect(
-      checksTally(
-        Option.some({
-          number: 1,
+    const opened = work({
+      events: [
+        event({
+          kind: "pr-opened",
+          pr: 1,
           title: "t",
-          url: "u",
-          state: "open",
-          checks: null,
-          checkRuns: [],
-          reviewDecision: null,
-          mergeStateStatus: "UNKNOWN",
-          headSha: null,
-          isDraft: false,
+          url: { kind: "link", href: "u" },
+          draft: "ready",
         }),
-      ),
-    ).toEqual(Option.none());
+      ],
+    });
+    const pr = workPrOf(opened, {
+      kind: "ok",
+      value: {
+        number: 1,
+        title: "t",
+        url: "u",
+        state: "open",
+        checks: null,
+        checkRuns: [],
+        reviewDecision: null,
+        mergeStateStatus: "UNKNOWN",
+        headSha: null,
+        isDraft: false,
+      },
+    });
+    expect(pr._tag).toBe("Some");
+    expect(checksTally(pr)).toEqual(Option.none());
     expect(checksTally(Option.none())).toEqual(Option.none());
   });
 });
@@ -1338,5 +1300,50 @@ describe("a finished card has nothing to draw terminals or questions from", () =
       "Stopped by you",
       "Opened again",
     ]);
+  });
+});
+
+describe("the card's line for a work kept under its old key (T30)", () => {
+  // By title while kolu still has the holder, "another work" once it dropped
+  // off the finished list; gone once the key is git's or never said.
+  const keyAt = (repo: string, repoBy: BranchKey["repoBy"]): BranchKey => ({
+    kind: "branch",
+    host: "local",
+    repo,
+    branch: "csv",
+    repoBy,
+  });
+  const work = (key: BranchKey, title: string): Work =>
+    openWork({
+      key,
+      title,
+      at: "2026-11-24T19:00:00.000Z",
+      request: { kind: "none" },
+    });
+  const mapOf = (...works: Work[]): ReadonlyMap<WorkId, Work> =>
+    new Map(works.map((one) => [workIdOf(one.key), one]));
+  const held = work(
+    keyAt("/repo/.worktrees/csv", { kind: "held", root: "/repo" }),
+    "old",
+  );
+
+  it("names the work holding the branch", () => {
+    const holder = work(keyAt("/repo", { kind: "git" }), "holder");
+    expect(heldWords(held, mapOf(held, holder))).toEqual(
+      Option.some("Kept under its old key: «holder» holds csv in repo"),
+    );
+  });
+
+  it("says another work once the holder is gone", () => {
+    expect(heldWords(held, mapOf(held))).toEqual(
+      Option.some("Kept under its old key: another work holds csv in repo"),
+    );
+  });
+
+  it("is absent for a key that is git's or not said", () => {
+    const moved = work(keyAt("/repo", { kind: "git" }), "old");
+    expect(heldWords(moved, mapOf(moved))).toEqual(Option.none());
+    const written = work(keyAt("/repo/sub", { kind: "as-written" }), "old");
+    expect(heldWords(written, mapOf(written))).toEqual(Option.none());
   });
 });

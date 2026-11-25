@@ -24,8 +24,10 @@ transcript, records every piece of work it opens, and serves the whole of it
 as `koluSurface` members: the `conductor` cell, the `works` collection (keyed
 by work id) beside the `memberReadings` collection (keyed by terminal ref — how
 each member terminal stands), so what goes on the wire is the one work or the
-one reading that moved, the `workCodeViews` collection (keyed by work id —
-where each work's Code view was left), the `conductorMemory` cell (what the
+one reading that moved, the `workPrs` collection (keyed by work id — the
+forge's last answer for the work's own branch, runtime only), the
+`workCodeViews` collection (keyed by work id — where each work's Code view
+was left), the `conductorMemory` cell (what the
 human approved, and the proposals waiting on them), the `conductorTranscript`
 stream
 and the `conductor` procedure namespace. The conversation is
@@ -102,7 +104,11 @@ it subscribes that host's padi `urgency` fold, its `terminals` keys and each
 member terminal's own record — and hands the frames to `kolu-conductor`'s
 `readings.ts`, which says what they mean. The readings go to the conversation
 (`observe`), which decides what is news, holds it while a turn runs, and sends
-everything waiting as ONE wake when the turn ends.
+everything waiting as ONE wake when the turn ends. Beside those, each branch
+work in progress gets two legs keyed by the work's own key, never a member:
+padi's `pullRequest` for the branch (the card's live PR, and the timeline's
+PR facts) and `branchCheckout` (where git says the branch is checked out,
+the one writer of the work's folder).
 
 Following the hosts themselves is not written here either: `kolu-mcp`'s
 `overConnectedHosts` is the one implementation of "a leg per connected host,
@@ -111,10 +117,9 @@ whose stream ends on its own is re-opened after a few seconds, alone — its
 siblings never notice.
 
 **What a reading carries** is how the terminal stands — working, asking,
-stopped, a shell, asleep, gone — plus the agent in it, whether padi's
-foreground is the terminal's own shell, and the git and PR facts the record
-already holds (the worktree a work's files are listed from, the PR whose
-checks become its timeline). It no longer walks ANCESTORS: a piece of work
+stopped, a shell, asleep, gone — plus the agent in it and whether padi's
+foreground is the terminal's own shell. A member's git and PR facts say where
+THAT TERMINAL stands and nothing about its work. It no longer walks ANCESTORS: a piece of work
 used to be guessed from which watched terminals shared a top-level parent, and
 membership is stated now — the Conductor names the work and the role in the
 same call that creates or adopts the terminal — so there is nothing above a

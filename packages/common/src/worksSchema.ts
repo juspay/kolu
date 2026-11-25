@@ -1,6 +1,7 @@
 /**
  * THE WORKS, as a browser is told about them — the `works`, `memberReadings`
- * and `workCodeViews` COLLECTIONS of `koluSurface`.
+ * and `workCodeViews` COLLECTIONS of `koluSurface` — and what `workPrs`, the
+ * fourth, carries.
  *
  * The record itself is `kolu-work`'s ({@link WorkSchema}): what the Conductor
  * stated, what the human decided, what kolu observed. It rides the `works`
@@ -18,6 +19,12 @@
  * A member's per-terminal wake bookkeeping (what the Conductor was told, whether
  * it was spoken to) never crosses this wire: that is the watch's working
  * memory, and nothing outside it can act on it.
+ *
+ * Nor does the PR a member terminal carries: a terminal may stand on any
+ * branch. Each work's own PR — the forge's last answer for the work's
+ * `(repo, branch)`, runtime only — rides the `workPrs` collection keyed by
+ * work id, in the terminal vocabulary's `PrResult` shape, so no schema of its
+ * own is declared here.
  *
  * And one thing a PERSON sets: where each work's Code view stands — its mode
  * and the file open in each mode ({@link WorkCodeViewSchema}), a collection

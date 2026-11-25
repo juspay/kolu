@@ -11,8 +11,10 @@
  * ## One pass per reading
  *
  * {@link Observing.observe} walks a frame's readings ONCE, and each reading
- * moves one work value through every arm in turn: the ring event, the PR, the
- * departure, the worktree, the files.
+ * moves one work value through every arm in turn: the ring event, a watch's
+ * own folder, the departure, the files. A branch work's PR and folder are not
+ * among them: the work's own watch reads both by its key
+ * ({@link Observing.observedPr}, {@link Observing.observedCheckout}).
  *
  * ## What is pure, and why it matters
  *
@@ -29,6 +31,7 @@
  * the work stays open with no terminals, and the card says exactly that.
  */
 
+import type { BranchCheckout } from "@kolu/padi-client/surface";
 import type { PrResult } from "@kolu/terminal-vocab/schema";
 import { Option, Schema } from "effect";
 import {
@@ -36,20 +39,23 @@ import {
   aboutMember,
   CHECK_STEP,
   type CheckHead,
-  endWork,
   linkPr,
   filesSeen,
   holdingOf,
   handsOver,
+  hostOf,
   type MergeState,
+  prEnded,
   prOf,
   type PrReading,
+  type RecordableEvent,
   recordEvent,
+  recordWorktree,
   sameHead,
   type Work,
   type WorkEvent,
   type WorkId,
-  type Worktree,
+  type WorkWorktree,
 } from "kolu-work";
 import type { ConductorWakeEvent } from "kolu-common/conductor";
 import type { Logger } from "pino";
@@ -59,7 +65,7 @@ import type { WatchObservation, WatchPr } from "./observation.ts";
 import { prReading } from "./readings.ts";
 import type { RecordWrites } from "./recordWrites.ts";
 import type { WorkFiles } from "./workFiles.ts";
-import type { WorkStore } from "./workStore.ts";
+import { type RekeyDone, rekeyedTo, type WorkStore } from "./workStore.ts";
 
 /** Two members' WRITTEN halves, compared by what they say — derived from the
  *  schema, so a field the watch grows is compared without an edit here. What
@@ -76,7 +82,7 @@ export const ringEvent = (
   ref: string,
   level: ConductorWakeEvent["level"],
   at: string,
-): Option.Option<WorkEvent> => {
+): Option.Option<RecordableEvent> => {
   switch (level) {
     case "ready":
     case "stopped":
@@ -182,7 +188,7 @@ const sameMerge = (a: MergeState, b: MergeState): boolean => {
  *  the work with the ending; nothing is killed).
  *
  *  IT NEVER BRINGS ONE BACK. A reading moves a work IN PROGRESS, which is the
- *  whole of what is watched (`./workStore.ts`'s `prWatches` states the scope):
+ *  whole of what is watched (`./workStore.ts`'s `branchWatches` states the scope):
  *  once a work has ended, kolu stops asking its branch, so a PR that is open
  *  again on the forge says nothing here. Reopen on the card, or `work_open`
  *  on the same key, is the way back. */
@@ -285,32 +291,18 @@ export const prEvents = (work: Work, pr: WatchPr, at: string): Work => {
       });
     }
   }
+  // THE FORGE SAYS IT MERGED, OR WAS CLOSED: the event and the ending in one
+  // step (`prEnded`), naming the number the timeline reads.
   if (
     pr.state === "merged" &&
     !Option.exists(prOf(next), (one) => one.state === "merged")
-  ) {
-    next = recordEvent(next, {
-      at,
-      by: "kolu",
-      kind: "merged",
-      about: ABOUT_WORK,
-      pr: pr.number,
-    });
-    next = endWork(next, { outcome: { kind: "merged", pr: pr.number }, at });
-  }
+  )
+    next = prEnded(next, "merged", at);
   if (
     pr.state === "closed" &&
     !Option.exists(prOf(next), (one) => one.state === "closed")
-  ) {
-    next = recordEvent(next, {
-      at,
-      by: "kolu",
-      kind: "pr-closed",
-      about: ABOUT_WORK,
-      pr: pr.number,
-    });
-    next = endWork(next, { outcome: { kind: "closed", pr: pr.number }, at });
-  }
+  )
+    next = prEnded(next, "closed", at);
   return next;
 };
 
@@ -345,6 +337,12 @@ export interface Observing {
    *  arrives for works with no members at all, and it is what ends a work the
    *  Conductor merged seconds before closing its terminals. */
   readonly observedPr: (work: WorkId, pr: PrResult) => void;
+  /** WHAT THE WORK'S OWN CHECKOUT WATCH READ — git's answer for where the
+   *  work's branch is checked out on its host. The one writer of a branch
+   *  work's folder: `repository` is recorded (the folder, or `absent`); a
+   *  path that is no repository, and a git that would not answer, conclude
+   *  nothing. */
+  readonly observedCheckout: (work: WorkId, checkout: BranchCheckout) => void;
   /** The Conductor just spoke to the agent in this terminal. */
   readonly saidTo: (ref: string) => void;
   /** ... and just closed it. */
@@ -374,6 +372,10 @@ export const observing = (deps: {
   /** Publish the conversation's own frame; answers whether anybody would see
    *  something different. */
   readonly publishState: () => boolean;
+  /** RE-KEY A BRANCH WORK TO THE ROOT GIT NAMED — the work store's re-key,
+   *  and everything in the conversation that names the work carried along
+   *  with it (`./rekeyWork.ts`, the host's {@link ConductorHost.rekeyWork}). */
+  readonly rekey: (id: WorkId, root: string) => Promise<RekeyDone>;
   /** A work, a member row or a reading moved — every reader of the `works`
    *  resource is owed a redraw. */
   readonly worksMoved: () => void;
@@ -386,25 +388,38 @@ export const observing = (deps: {
 }): Observing => {
   const nowIso = (): string => new Date().toISOString();
 
-  /** The member terminals whose `.waterfall/` is being listed RIGHT NOW. One
-   *  listing per terminal at a time. */
-  const listing = new Set<string>();
+  /** The works whose `.waterfall/` is being listed RIGHT NOW. One listing per
+   *  work at a time: the place listed is the work's, whoever asked. */
+  const listing = new Set<WorkId>();
 
-  /** A MEMBER'S `.waterfall/`, LISTED — and every path kolu has not seen
-   *  before put on the timeline. */
-  const listFiles = (
-    id: string,
-    ref: string,
-    at: { host: string; worktree: string },
-  ): void => {
-    if (listing.has(ref)) return;
-    listing.add(ref);
+  /** GIT'S ANSWER FOR A WORK'S FOLDER, written on the work at `id` — the one
+   *  writer of a branch work's `worktree` — while that work is open. */
+  const recordFolder = (id: WorkId, folder: WorkWorktree): void => {
+    const now = deps.store.get(id);
+    if (Option.isNone(now) || now.value.state.kind !== "open") return;
+    const next = recordWorktree(now.value, folder);
+    if (next === now.value) return;
+    deps.store.save(id, next);
+    deps.store.changed();
+  };
+
+  /** A WORK'S `.waterfall/`, LISTED — in the work's own folder on the key's
+   *  host, never a member's — and every path kolu has not seen before put on
+   *  the timeline, about the member whose moment asked for it. A work whose
+   *  folder git has not answered with lists nothing. */
+  const listFiles = (id: WorkId, ref: string): void => {
+    const found = deps.store.get(id);
+    if (Option.isNone(found)) return;
+    const held = found.value;
+    if (held.state.kind !== "open" || held.worktree.kind !== "at") return;
+    if (listing.has(id)) return;
+    listing.add(id);
     void deps.workFiles
-      .list(at)
+      .list({ host: hostOf(held), worktree: held.worktree.path })
       .then(({ paths }) => {
-        const found = deps.store.get(id);
-        if (Option.isNone(found) || found.value.state.kind !== "open") return;
-        const work = found.value;
+        const now = deps.store.get(id);
+        if (Option.isNone(now) || now.value.state.kind !== "open") return;
+        const work = now.value;
         const next = fileEvents(work, ref, paths, nowIso());
         if (next === work) return;
         deps.store.save(id, next);
@@ -412,12 +427,12 @@ export const observing = (deps: {
       })
       .catch((err: unknown) => {
         deps.log.warn(
-          { err, ref },
+          { err, work: id },
           "kolu-server: the conductor could not list a work's files",
         );
       })
       .finally(() => {
-        listing.delete(ref);
+        listing.delete(id);
       });
   };
 
@@ -436,30 +451,11 @@ export const observing = (deps: {
         // frame in flight across a departure is ordinary rather than a fault.
         if (found === undefined) continue;
         const was = found.member;
-        // WHERE IT IS WORKING, kept on the MEMBER the first time a record
-        // says it: a work's files outlive the terminal that wrote them, and
-        // the member row is where the path belongs now that membership is a
-        // map of its own. The first answer sticks — an `unread` member takes
-        // the path this reading has, and nothing moves it afterwards.
-        const learnt =
-          was.worktree.kind === "unread" && one.git !== null
-            ? Option.some<Worktree>({
-                kind: "read",
-                path: one.git.worktree,
-              })
-            : Option.none<Worktree>();
         // ONE ROW IN, ONE ROW OUT — `observed` carries the whole member, so
         // the model's half is never re-attached by hand here (a field added
         // to it would have been silently dropped on the next host read).
-        const sighting = observed(
-          Option.match(learnt, {
-            onNone: () => was,
-            onSome: (worktree) => ({ ...was, worktree }),
-          }),
-          one,
-        );
+        const sighting = observed(was, one);
         deps.members.set(one.ref, sighting.member);
-        if (Option.isSome(learnt)) watched = true;
         // THE LEVEL CHANGED, as THIS PROCESS saw it.
         const changed = was.last?.level !== one.level;
         if (changed) read = true;
@@ -487,14 +483,21 @@ export const observing = (deps: {
         // THE PULL REQUEST IS NOT READ HERE. It belongs to the work's branch
         // and the work's own watch reads it ({@link Observing.observedPr}) —
         // a member terminal's record is no longer a door onto the timeline.
+        // NOR IS A BRANCH WORK'S FOLDER: git answers that by the work's key
+        // ({@link Observing.observedCheckout}). A WATCH is the one work whose
+        // folder is a terminal's — its key IS that terminal — so the reading
+        // of the key's own terminal, and no other member, writes it.
+        if (
+          work.key.kind === "watch" &&
+          work.key.host === one.host &&
+          work.key.id === one.terminalId &&
+          one.git !== null
+        )
+          work = recordWorktree(work, { kind: "at", path: one.git.worktree });
         if (work !== found.work) {
           deps.store.save(found.id, work);
           moved = true;
         }
-        // ITS WORKTREE, FIRST READ: the work takes the rule's answer, so it
-        // keeps where it works after its terminals have gone.
-        if (Option.isSome(learnt) && deps.store.worktreeRead(found.id))
-          moved = true;
         // A TERMINAL THAT WENT AWAY LEAVES — and the work does not end for
         // it. `leave` writes the departure, drops the member row and wakes
         // the Conductor ONCE if that was the last one.
@@ -503,14 +506,9 @@ export const observing = (deps: {
           membership = true;
         }
         // THE FILES, off a level change: the moment an agent stops, asks or
-        // comes up is the moment its `.waterfall/` has just changed, and a
-        // member that has gone has no worktree left to read.
-        const where = sighting.member.worktree;
-        if (changed && !sighting.drop && where.kind === "read")
-          listFiles(found.id, one.ref, {
-            host: one.host,
-            worktree: where.path,
-          });
+        // comes up is the moment the work's `.waterfall/` may have just
+        // changed. Listed in the WORK's folder, wherever this member stands.
+        if (changed && !sighting.drop) listFiles(found.id, one.ref);
         if (sighting.ring !== null) {
           deps.ring(sighting.member, one, sighting.ring);
           saidSomethingNew = true;
@@ -531,6 +529,12 @@ export const observing = (deps: {
       deps.flush();
     },
     observedPr: (id, reading) => {
+      // THE LIVE PR, published FIRST and whatever it says: the card's mark
+      // and its check count move with every reading, including the ones
+      // that record nothing on the timeline below (the same word, more
+      // checks landed). It is the work's own branch's answer — the one
+      // source of a work's live PR.
+      deps.store.prRead(id, reading);
       // WHAT THE FORGE SAID, or nothing. Every arm but `ok` is "kolu does not
       // know" — a resolve in flight, a remote no adapter serves, a `gh` that
       // would not answer — and a work must never learn its PR closed because
@@ -557,6 +561,42 @@ export const observing = (deps: {
       deps.store.save(id, next);
       deps.store.changed();
       if (deps.publishState()) deps.flush();
+    },
+    observedCheckout: (watched, reading) => {
+      // GIT'S ANSWER, or nothing: a path that is no repository and a git that
+      // would not answer say nothing about where the branch is.
+      if (reading.kind !== "repository") return;
+      const found = deps.store.get(watched);
+      if (Option.isNone(found)) return;
+      if (found.value.state.kind !== "open") return;
+      if (found.value.key.kind !== "branch") return;
+      // A KEY GIT HAS NOT NAMED YET IS RE-KEYED FIRST — to the root this
+      // answer names, so a work kept from before the key was git's (or held
+      // under its old key) becomes the work of that root and branch — and the
+      // folder is recorded on whatever the work is now.
+      const folder: WorkWorktree =
+        reading.checkout.kind === "at"
+          ? { kind: "at", path: reading.checkout.path }
+          : { kind: "absent" };
+      if (found.value.key.repoBy.kind === "git") {
+        recordFolder(watched, folder);
+        return;
+      }
+      // The folder is recorded where the work is now: under its new id, its
+      // old one, or nowhere when the re-key ended it.
+      deps.rekey(watched, reading.root).then(
+        (done) =>
+          Option.match(rekeyedTo(done, watched), {
+            onNone: () => {},
+            onSome: (id) => recordFolder(id, folder),
+          }),
+        (err: unknown) => {
+          deps.log.error(
+            { err, work: watched },
+            "kolu-server: the conductor could not re-key a work to the root git named",
+          );
+        },
+      );
     },
     saidTo: (ref) => {
       const found = deps.store.at(ref);

@@ -4,10 +4,11 @@
  *  branch, painted in the colours the Dock and the Inspector give the same
  *  two words: `identityColor` is a function of the word alone, so the same
  *  repository and branch wear the same hue wherever kolu draws them. Then the
- *  host, the mode and the PR as words (`workSubtitleParts`), and, while a
- *  member's record carries the PR live, the Dock's PR pip — its state, its
- *  checks dot, and a tooltip naming every check. One pip per work: the PR is
- *  the work's, not any one terminal's.
+ *  host, the mode and the PR as words (`workSubtitleParts`), and, while the
+ *  work's own PR reading carries the PR live (`./workPr.ts`), the Dock's PR
+ *  pip — its state, its checks dot, and a tooltip naming every check. The pip
+ *  can only be the work's: it takes a {@link WorkPr}, which nothing but the
+ *  work's own reading makes, and its number is the one the words name.
  *
  *  It is drawn inside faces whose own press is a button laid under the text,
  *  so the two links on it (the PR number and the pip) take their presses and
@@ -15,17 +16,18 @@
 
 import { PrPip } from "@kolu/solid-dockrow";
 import { identityColor } from "@kolu/solid-dockrow/rowValues";
-import type { PrInfo } from "anyforge/schemas";
+import { Option } from "effect";
 import type { Work } from "kolu-work";
 import { type Component, createMemo, Show } from "solid-js";
 import RepoMonogram from "../ui/RepoMonogram";
 import PrText from "./PrText";
+import type { WorkPr } from "./workPr";
 import { workHost, workSubtitleParts } from "./workReadings";
 
 const WorkSubtitle: Component<{
   work: Work;
-  /** The work's PR as a member's record carries it right now, or `null`. */
-  livePr: PrInfo | null;
+  /** The work's own PR, live (`useWorkPr`). */
+  pr: Option.Option<WorkPr>;
 }> = (props) => {
   const parts = createMemo(() =>
     workSubtitleParts(props.work, workHost(props.work)),
@@ -69,7 +71,7 @@ const WorkSubtitle: Component<{
           <PrText work={props.work} text={parts().rest.join(" · ")} />
         </Show>
       </span>
-      <Show when={props.livePr}>
+      <Show when={Option.getOrUndefined(props.pr)}>
         {(pr) => (
           <span class="pointer-events-auto relative flex">
             <PrPip pr={pr()} />

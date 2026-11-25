@@ -26,6 +26,7 @@
 
 import { type PadiSurfaceClient, padiClientOver } from "@kolu/padi-client/dial";
 import {
+  type BranchCheckout,
   type PadiRoster,
   type PadiTerminal,
   type PadiUrgency,
@@ -40,7 +41,11 @@ import { directDispatch } from "@kolu/surface/links/direct";
 import type { SurfaceHandlers } from "@kolu/surface/server";
 import type { PrResult } from "@kolu/terminal-vocab/schema";
 import { Effect, Queue, Stream } from "effect";
-import type { ConductorHost, PrWatch, WatchObservation } from "kolu-conductor";
+import type {
+  BranchWatch,
+  ConductorHost,
+  WatchObservation,
+} from "kolu-conductor";
 import type { FleetHosts } from "kolu-mcp";
 import type { WorkId } from "kolu-work";
 import type { Logger } from "pino";
@@ -137,6 +142,9 @@ interface FakePadi {
    *  stream, one cell for however many branches the test asks about (no test
    *  here asks about two). */
   readonly pr: Cell<PrResult>;
+  /** Where this host says the branch it is asked about is checked out — the
+   *  `branchCheckout` stream, one cell like `pr`. */
+  readonly checkout: Cell<BranchCheckout>;
   /** Every `(repoPath, branch)` a leg asked this host about. */
   prAsked(): ReadonlyArray<{ repoPath: string; branch: string }>;
   /** How many times anything asked the `terminals` collection for its KEYS.
@@ -175,6 +183,7 @@ function fakePadi(
   );
   let keysRead = 0;
   const pr = cell<PrResult>({ kind: "pending" });
+  const checkout = cell<BranchCheckout>({ kind: "not-a-repository" });
   const prAsked: Array<{ repoPath: string; branch: string }> = [];
   const at = (member: string, verb: string): string =>
     surfaceTag(padiSurfaceSibling.tagPrefix, member, verb);
@@ -201,18 +210,23 @@ function fakePadi(
       prAsked.push(input);
       return pr.stream();
     },
+    // ... and where that branch is checked out: asked beside the PR, by the
+    // same key.
+    [at("branchCheckout", "get")]: () => checkout.stream(),
   } as unknown as SurfaceHandlers;
   return {
     client: padiClientOver(directDispatch({ handlers })).padi,
     urgency,
     roster,
     pr,
+    checkout,
     prAsked: () => prAsked,
     keysRead: () => keysRead,
     held: () =>
       urgency.held() +
       roster.held() +
       pr.held() +
+      checkout.held() +
       [...records.values()].reduce((sum, one) => sum + one.held(), 0),
   };
 }
@@ -254,34 +268,41 @@ function fakeConductor(
   refuse?: () => never,
   /** The works in progress whose branches are watched — the PR watch's scope,
    *  which is NOT derived from the members: a work with none is watched. */
-  initial: ReadonlyArray<PrWatch> = [],
+  initial: ReadonlyArray<BranchWatch> = [],
 ): {
   host: () => ConductorHost;
   readonly seen: WatchObservation[];
   /** Every work-level pull-request reading the watch handed over. */
   readonly readings: Array<{ work: WorkId; pr: PrResult }>;
+  /** Every answer about where a work's branch is checked out. */
+  readonly checkouts: Array<{ work: WorkId; checkout: BranchCheckout }>;
   /** Move the scope, the way a work opening or coming back does. The watch is
    *  told separately (`scopeMoved`), because it RE-READS the scope rather
    *  than being handed the new list. */
-  setWatches(next: ReadonlyArray<PrWatch>): void;
+  setWatches(next: ReadonlyArray<BranchWatch>): void;
 } {
   const seen: WatchObservation[] = [];
   const readings: Array<{ work: WorkId; pr: PrResult }> = [];
+  const checkouts: Array<{ work: WorkId; checkout: BranchCheckout }> = [];
   let watches = initial;
   const host = {
     memberRefs: () => (refuse === undefined ? members : refuse()),
-    prWatches: () => (refuse === undefined ? watches : refuse()),
+    branchWatches: () => (refuse === undefined ? watches : refuse()),
     observe: (next: ReadonlyArray<WatchObservation>) => {
       seen.push(...next);
     },
     observedPr: (work: WorkId, pr: PrResult) => {
       readings.push({ work, pr });
     },
+    observedCheckout: (work: WorkId, checkout: BranchCheckout) => {
+      checkouts.push({ work, checkout });
+    },
   } as unknown as ConductorHost;
   return {
     host: () => host,
     seen,
     readings,
+    checkouts,
     setWatches: (next) => {
       watches = next;
     },
@@ -621,6 +642,37 @@ describe("the conductor's watch, as wiring", () => {
     });
   });
 
+  it("hands where a work's branch is checked out to the conversation, under the work's id", async () => {
+    // The checkout leg rides beside the PR leg, by the same key: git's
+    // answer is the one source of the work's folder, so it must arrive
+    // filed under the work it was asked for.
+    const local = fakePadi({});
+    const fleet = fakeHosts({ [LOCAL]: local.client });
+    const work = "branch:local/%2Fsrv%2Frepo/fix-the-parser" as WorkId;
+    const conductor = fakeConductor([], undefined, [
+      { work, host: LOCAL, repo: "/srv/repo", branch: "fix-the-parser" },
+    ]);
+    const watcher = startConductorWatcher({
+      hosts: fleet.hosts,
+      conductor: conductor.host,
+      log,
+    });
+    const at: BranchCheckout = {
+      kind: "repository",
+      root: "/srv/repo",
+      checkout: { kind: "at", path: "/srv/repo/.worktrees/fix-the-parser" },
+    };
+    try {
+      local.checkout.set(at);
+      await vi.waitFor(() => {
+        expect(conductor.checkouts.at(-1)).toEqual({ work, checkout: at });
+      });
+      expect(conductor.seen).toEqual([]);
+    } finally {
+      await watcher.dispose();
+    }
+  });
+
   it("concludes NOTHING about the pull request of a work on an unreachable host", async () => {
     // A machine kolu cannot reach is not a machine whose pull request is
     // closed. No leg, no frame, nothing handed over — and the moment it comes
@@ -629,13 +681,13 @@ describe("the conductor's watch, as wiring", () => {
     const local = fakePadi({});
     const box = fakePadi({});
     const fleet = fakeHosts({ [LOCAL]: local.client, [BOX]: null });
-    const here: PrWatch = {
+    const here: BranchWatch = {
       work: "branch:local/%2Fsrv%2Frepo/here" as WorkId,
       host: LOCAL,
       repo: "/srv/repo",
       branch: "here",
     };
-    const away: PrWatch = {
+    const away: BranchWatch = {
       work: "branch:remote%3Abox/%2Fsrv%2Frepo/away" as WorkId,
       host: BOX,
       repo: "/srv/repo",
@@ -689,7 +741,7 @@ describe("the conductor's watch, as wiring", () => {
       conductor: conductor.host,
       log,
     });
-    const back: PrWatch = {
+    const back: BranchWatch = {
       work: "branch:local/%2Fsrv%2Frepo/fix-the-parser" as WorkId,
       host: LOCAL,
       repo: "/srv/repo",

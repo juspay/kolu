@@ -13,22 +13,23 @@ import { type Component, For, Show } from "solid-js";
 import { toast } from "solid-sonner";
 import { writeTextToClipboard } from "@kolu/solid-logtail";
 import { formatMarkdown } from "./formatMarkdown";
-import type { Comment } from "./types";
-import { commentsForTerminal } from "./useComments";
+import type { Comment, CommentQueue } from "./types";
+import { commentsFor } from "./useComments";
 
 export type CommentsTrayProps = {
-  terminalId: string;
+  /** Whose comments the tray lists and flushes. */
+  queue: CommentQueue;
   /** Click a tray item to jump to its file (and trigger scroll-to-quote
    *  via the highlight overlay's resolved Range on the destination). */
   onJumpTo?: (comment: Comment) => void;
 };
 
 export const CommentsTray: Component<CommentsTrayProps> = (props) => {
-  // `createMemo` re-derives the store when `props.terminalId` changes —
-  // switching to a different terminal swaps the visible queue, and any
-  // race between meta resolution and mount can't lock the tray onto a
+  // `commentsFor` re-derives the store when `props.queue` changes —
+  // switching to a different terminal or work swaps the visible queue, and
+  // any race between meta resolution and mount can't lock the tray onto a
   // stale key (the same trap the previous `const store = ...` form had).
-  const store = commentsForTerminal(() => props.terminalId);
+  const store = commentsFor(() => props.queue);
 
   const copy = (): UiAction =>
     Effect.suspend(() => {

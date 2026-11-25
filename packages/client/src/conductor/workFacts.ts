@@ -1,7 +1,11 @@
-/** A WORK'S LIVE FACTS — its member terminals, each with its standing read once;
- *  the PR one of their records carries; that PR's checks counted; and where the
- *  work stands. Read for every face that draws a work's terminals: its card,
- *  its line in the sidebar, and a chip's hover card while it is open.
+/** A WORK'S LIVE FACTS — its member terminals, each with its standing read
+ *  once; the work's own PR (`./workPr.ts`) and its checks counted; and where
+ *  the work stands. Read for every face that draws a work's terminals: its
+ *  card, its line in the sidebar, and a chip's hover card while it is open.
+ *
+ *  The PR is the WORK'S, looked up by its id: no member is asked for it. A
+ *  member may stand on another branch, and what its record carries is that
+ *  branch's.
  *
  *  The members map is one value for the whole fleet, so it is split by work
  *  once, for the whole app (`useMembersByWork`): a membership change anywhere
@@ -14,7 +18,6 @@
  *  moment while the mirror is without it (the picked work). */
 
 import { activeArm } from "@kolu/padi-client/surface";
-import type { PrInfo } from "anyforge/schemas";
 import { Option } from "effect";
 import type { Work, WorkId } from "kolu-work";
 import { type Accessor, createMemo } from "solid-js";
@@ -25,8 +28,9 @@ import {
 } from "../palette/fleetTerminals";
 import { agentName } from "../ui/agentDisplay";
 import { type MemberRef, splitMemberRef } from "./memberRef";
-import { type ChecksTally, checksTally, livePrOf } from "./prReadings";
+import { type ChecksTally, checksTally } from "./prReadings";
 import { useWorkMembers } from "./useWorks";
+import { useWorkPr, type WorkPr } from "./workPr";
 import {
   membersByWork,
   roleRuns,
@@ -64,10 +68,10 @@ export function memberRuns(work: Work, one: MemberLine): string {
 
 export interface WorkFacts {
   /** The members, in the order a waterfall runs them — none once the work
-   *  is over (the members map holds open works only). */
+   *  is over. */
   readonly members: Accessor<ReadonlyArray<MemberLine>>;
-  /** The work's PR as a member's record carries it right now. */
-  readonly livePr: Accessor<PrInfo | null>;
+  /** The work's own PR, as its branch's watch read it right now. */
+  readonly pr: Accessor<Option.Option<WorkPr>>;
   readonly checks: Accessor<Option.Option<ChecksTally>>;
   /** Where the work stands, with the live checks folded in. */
   readonly at: Accessor<StandingLine>;
@@ -81,10 +85,11 @@ const useMembersByWork = createSharedRoot(() => {
   return createMemo(() => membersByWork(all()));
 });
 
-/** One work's reading of its members: everything but `at`. */
-export type MemberFacts = Omit<WorkFacts, "at">;
+/** One work's reading of its members, and nothing else: no fact about the
+ *  work is read off a member. */
+export type MemberFacts = Pick<WorkFacts, "members">;
 
-/** ONE WORK'S READING, from its members' rows.
+/** ONE WORK'S READING OF ITS MEMBERS, from their rows.
  *
  *  Each member's standing is read ONCE here: the agent's name, the clock and
  *  whether there is anywhere to go all want it.
@@ -119,23 +124,26 @@ export function readWorkFacts(
         : next;
     },
   );
-  const livePr = createMemo(() => livePrOf(members()));
-  const checks = createMemo(() => checksTally(Option.fromNullishOr(livePr())));
-  return { members, livePr, checks };
+  return { members };
 }
 
 /** A face's reading of its work. Call from a component body: it lives as long
- *  as the face, and follows the face's id. */
+ *  as the face, and follows the face's id.
+ *
+ *  A work that is not open has no members here, whatever the members map
+ *  says in the frame where the two collections disagree. */
 export function createWorkFacts(
   id: Accessor<WorkId>,
   work: Accessor<Work>,
 ): WorkFacts {
   const byWork = useMembersByWork();
-  const { members, livePr, checks } = readWorkFacts(
-    () => byWork().get(id()) ?? NONE,
+  const { members } = readWorkFacts(() =>
+    work().state.kind === "open" ? (byWork().get(id()) ?? NONE) : NONE,
   );
+  const pr = useWorkPr(id, work);
+  const checks = createMemo(() => checksTally(pr()));
   const at = createMemo(() => standingLine(work(), checks()));
-  return { members, livePr, checks, at };
+  return { members, pr, checks, at };
 }
 
 /** The same standing: the same answer, and for a terminal that is here, the

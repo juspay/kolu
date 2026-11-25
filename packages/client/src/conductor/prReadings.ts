@@ -1,12 +1,10 @@
 /** WHAT A CARD SAYS ABOUT A WORK'S PULL REQUEST — its checks (the live count
- *  while a member's record carries one, else the last result the timeline
- *  kept), whether GitHub would merge it and why not, and the Pull request
- *  section those make. One thing, apart from the rest of the card's words:
- *  it moves when the forge's vocabulary does (a new merge state, a new check
- *  outcome), not when the card's layout does. */
+ *  while the work's own PR reading carries one, else the last result the
+ *  timeline kept), whether GitHub would merge it and why not, and the Pull
+ *  request section those make. One thing, apart from the rest of the card's
+ *  words: it moves when the forge's vocabulary does (a new merge state, a new
+ *  check outcome), not when the card's layout does. */
 
-import { activeArm } from "@kolu/padi-client/surface";
-import { type PrInfo, prValue } from "anyforge/schemas";
 import { Option } from "effect";
 import {
   type CheckKind,
@@ -16,12 +14,12 @@ import {
   prOf,
   type Work,
 } from "kolu-work";
-import type { FleetTerminalStanding } from "../palette/fleetTerminals";
+import type { WorkPr } from "./workPr";
 
 /** A PR's checks, counted — the one LIVE fact the column mixes into a stored
- *  record. It arrives from the member terminal's own record (the fleet index),
- *  never from the timeline: the timeline says checks are running, and how many
- *  of them have landed is only true for the instant it is read. */
+ *  record. It arrives from the work's own PR reading (`./workPr.ts`), never
+ *  from the timeline: the timeline says checks are running, and how many of
+ *  them have landed is only true for the instant it is read. */
 export interface ChecksTally {
   readonly pass: number;
   readonly pending: number;
@@ -30,7 +28,7 @@ export interface ChecksTally {
 }
 
 export function checksTally(
-  pr: Option.Option<PrInfo>,
+  pr: Option.Option<WorkPr>,
 ): Option.Option<ChecksTally> {
   return Option.flatMap(pr, (one) => {
     if (one.checkRuns.length === 0) return Option.none<ChecksTally>();
@@ -84,10 +82,11 @@ export const mergeReason = (merge: MergeKnown): string =>
  *  check result the timeline recorded, and — while it is open — whether GitHub
  *  would merge it.
  *
- *  The LIVE tally is not here: while a member's record carries one, the Work
- *  section above says it (with odu's lanes beside it). The recorded result,
- *  with the gates that were red, is said only while there is no live one —
- *  it is all a finished work, or one with nothing running, still knows. */
+ *  The LIVE tally is not here: while the work's own PR reading carries one,
+ *  the Work section above says it (with odu's lanes beside it). The recorded
+ *  result, with the gates that were red, is said only while there is no live
+ *  one — it is all a finished work, or one with nothing running, still knows.
+ */
 export interface PrSection {
   readonly number: number;
   readonly state: "open" | "merged" | "closed";
@@ -155,22 +154,4 @@ export function prSection(
             }),
     };
   });
-}
-
-/** THE PR, LIVE — off whichever member terminal's record carries one. The
- *  timeline says the checks are running; how many have landed is only true
- *  for the instant it is read, so it is never stored. Each member's standing
- *  is read once by the caller and handed in. */
-export function livePrOf(
-  members: ReadonlyArray<{
-    readonly standing: FleetTerminalStanding | undefined;
-  }>,
-): PrInfo | null {
-  for (const one of members) {
-    const meta = one.standing?.kind === "here" ? one.standing.meta : undefined;
-    const arm = meta === undefined ? undefined : activeArm(meta);
-    const pr = arm === undefined ? null : prValue(arm.pr);
-    if (pr !== null) return pr;
-  }
-  return null;
 }

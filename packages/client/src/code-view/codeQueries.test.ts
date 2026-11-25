@@ -92,6 +92,7 @@ describe("a Code view's query set", () => {
           host: elsewhere,
           git: { kind: "repo", root: "/srv/code/kestrel", lister: "git" },
           terminalId: null,
+          comments: null,
         }),
         state: { codeMode: () => "browse", selectedFile: () => null },
         active: () => true,

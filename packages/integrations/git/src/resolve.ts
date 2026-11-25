@@ -65,6 +65,44 @@ export function hasGitDir(cwd: string): boolean {
   }
 }
 
+/** THE REPOSITORY'S ROOT, by kolu's one rule — the folder the shared git
+ *  dir (`--git-common-dir`) belongs to, symlinks resolved. For a checkout or
+ *  any of its linked worktrees that is the main checkout's folder; for a bare
+ *  repository it is the repository itself (`/foo.git`), or the folder holding
+ *  a bare `.git`. What `resolveGitInfo` calls `mainRepoRoot`, and what a
+ *  branch's checkout is answered against ({@link branchCheckout}), so two
+ *  spellings of one repository name one root. Throws what git throws. */
+export async function repositoryRootOf(
+  git: SimpleGit,
+  cwd: string,
+): Promise<{
+  readonly root: string;
+  readonly bare: boolean;
+  readonly commonDir: string;
+}> {
+  const bare =
+    (await git.raw(["rev-parse", "--is-bare-repository"])).trim() === "true";
+  // Relative to cwd (where simple-git runs), not to any root; realpath so
+  // `/tmp` and `/private/tmp` are one folder.
+  const commonDir = await fs.promises.realpath(
+    path.resolve(
+      cwd,
+      (await git.raw(["rev-parse", "--git-common-dir"])).trim(),
+    ),
+  );
+  if (!bare) return { root: path.dirname(commonDir), bare, commonDir };
+  // Three shapes of a bare repository:
+  //   /proj/.git        → root /proj
+  //   /foo.git          → root /foo.git
+  //   /foo (bare dir)   → root /foo
+  return {
+    root:
+      path.basename(commonDir) === ".git" ? path.dirname(commonDir) : commonDir,
+    bare,
+    commonDir,
+  };
+}
+
 /** Resolve git context for a directory. Returns an error result if not in a
  *  git repo or if the git command fails. */
 export async function resolveGitInfo(
@@ -77,28 +115,19 @@ export async function resolveGitInfo(
     // throws on them. Detect up front and return a GitInfo rooted at the
     // bare repo's own location — the palette consumer treats the result as
     // "a repo you can spawn a worktree from," which is exactly right.
-    const isBare =
-      (await git.raw(["rev-parse", "--is-bare-repository"])).trim() === "true";
-    if (isBare) {
-      // Derive the repo location from `--git-dir`, not cwd. For a canonical
-      // bare repo (`/tmp/foo` bare, cwd == bare dir) the two coincide. For
-      // project layouts where a bare `.git` sits inside a working dir
-      // (`/home/user/proj/.git` with sibling `proj/.worktrees/`), cwd can be
-      // anywhere around `.git` — falling back to `basename(cwd)` would
-      // report the wrong name (e.g. `.worktrees`).
-      const gitDirAbs = await fs.promises.realpath(
-        path.resolve(cwd, (await git.raw(["rev-parse", "--git-dir"])).trim()),
-      );
-      const gitDirBase = path.basename(gitDirAbs);
-      // Three shapes:
-      //   /proj/.git        → root /proj,        name proj
-      //   /foo.git          → root /foo.git,     name foo
-      //   /foo (bare dir)   → root /foo,         name foo
-      const isDotGit = gitDirBase === ".git";
-      const repoRoot = isDotGit ? path.dirname(gitDirAbs) : gitDirAbs;
-      const repoName = isDotGit
-        ? path.basename(repoRoot)
-        : gitDirBase.replace(/\.git$/, "");
+    const { root, bare, commonDir } = await repositoryRootOf(git, cwd);
+    if (bare) {
+      // The location comes from the git dir, not cwd: for project layouts
+      // where a bare `.git` sits inside a working dir (`/home/user/proj/.git`
+      // with sibling `proj/.worktrees/`), cwd can be anywhere around `.git` —
+      // falling back to `basename(cwd)` would report the wrong name (e.g.
+      // `.worktrees`).
+      const repoRoot = root;
+      const gitDirBase = path.basename(commonDir);
+      const repoName =
+        gitDirBase === ".git"
+          ? path.basename(repoRoot)
+          : gitDirBase.replace(/\.git$/, "");
       let branch: string;
       try {
         branch = (await git.raw(["symbolic-ref", "--short", "HEAD"])).trim();
@@ -124,17 +153,9 @@ export async function resolveGitInfo(
     } catch {
       branch = (await git.revparse(["--abbrev-ref", "HEAD"])).trim();
     }
-    // --git-common-dir returns the shared .git dir; for worktrees it points
-    // back to the main repo's .git, letting us derive the real repo name.
-    // The path is relative to cwd (where simple-git runs), not repoRoot.
-    // realpath normalizes symlinks (e.g. /tmp → /private/tmp on macOS)
-    // so the comparison with repoRoot (which git already resolved) is
-    // reliable. Async (`fs.promises`) so the symlink walk never blocks the
-    // event loop on a slow/hung mount — this runs on every GitInfo resolve.
-    const gitCommonDir = (await git.revparse(["--git-common-dir"])).trim();
-    const mainRepoRoot = path.dirname(
-      await fs.promises.realpath(path.resolve(cwd, gitCommonDir)),
-    );
+    // The repository's root by the one rule: for a linked worktree it is the
+    // main checkout, which is also where the real repo name is read from.
+    const mainRepoRoot = root;
     const isWorktree = mainRepoRoot !== repoRoot;
     return ok({
       repoRoot,

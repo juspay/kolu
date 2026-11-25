@@ -43,7 +43,13 @@ const SINCE = "2026-01-01T00:00:00.000Z";
 const work = (branch: string, title: string): WorkRow => [
   `branch:local/%2Fcode%2Fkolu/${branch}`,
   {
-    key: { kind: "branch", host: "local", repo: "/code/kolu", branch },
+    key: {
+      kind: "branch",
+      host: "local",
+      repo: "/code/kolu",
+      branch,
+      repoBy: { kind: "git" },
+    },
     title,
     events: [],
     decisions: [],

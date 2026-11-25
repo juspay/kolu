@@ -52,7 +52,7 @@
  *   work in flight   — two calls that settle, then a third held RUNNING for a
  *                      few seconds before it settles and the agent speaks:
  *                      the turn the chat folds while it is still working
- *   open <title>     — a REAL `work_open` (mode `full`, repo /tmp/kolu-e2e)
+ *   open <title> in <repo> — a REAL `work_open` (mode `full`, in <repo>)
  *                      that leaves the on-green question for the human: says
  *                      `opening: <title>` and `opened: <id>` in the SAME
  *                      turn, because asking never waits — whatever they
@@ -79,9 +79,9 @@
  *                      question NAMES A FILE (`.waterfall/plan.md`): what
  *                      makes every face of it offer to open the reader
  *   note <text>      — a REAL `work_note` on the last work opened
- *   watch <id>       — a plain watch: a REAL `work_open` in mode `watch`
- *                      (host and mode given, nothing asked), then `work_adopt`
- *                      of `local/<id>` with role `other`
+ *   watch <id>       — a plain watch: a REAL `work_open` of `watch` alone
+ *                      (a watch takes no setup, nothing asked), then
+ *                      `work_adopt` of `local/<id>` with role `other`
  *   run an agent in <cwd>
  *                    — a REAL `work_open` (mode `trivial`, nothing asked,
  *                      keyed by that directory) then a REAL
@@ -144,9 +144,10 @@
  */
 
 import { randomUUID } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { FIXTURE_HARNESS } from "./agentDistroFixture.ts";
+import { workBranchOf } from "./workBranch.ts";
 
 /** The model every work this fixture opens runs its implementor on. A word,
  *  not an id: the floor's one harness lists no models (`FIXTURE_MODELS`), so
@@ -599,20 +600,14 @@ const setupFor = (
   return setup;
 };
 
-/** Open a piece of work and remember it. Answers the work's id — the call
- *  comes back AT ONCE, whether or not a setup question went to the human:
- *  what they say arrives later, as a wake. */
-const slug = (title: string): string =>
-  title
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-|-$/g, "");
-
 /** WHAT THE LAST `work_open` ANSWERED, kept whole — a refusal's own sentence
  *  is all a person gets when no work was opened, so the turn says it rather
  *  than reporting the absence of an id. */
 let lastOpenSaid = "";
 
+/** Open a piece of work and remember it. Answers the work's id — the call
+ *  comes back AT ONCE, whether or not a setup question went to the human:
+ *  what they say arrives later, as a wake. */
 const openWork = async (
   title: string,
   mode: "full" | "trivial" | "watch",
@@ -628,24 +623,41 @@ const openWork = async (
   // in one worker are two pieces of work — and opening the SAME title twice
   // is the idempotent case: the same key, the same work, no second card.
   //
-  // THE REPOSITORY HAS TO BE THERE: kolu asks the work's host which models
-  // the chosen harness offers, and it asks IN the work's repository (the
-  // profiles a terminal there would get). A placeholder path nobody made is a
-  // directory that command cannot run in, so the open would be refused for a
-  // reason that has nothing to do with the scenario.
-  const repo = over.repo ?? "/tmp/kolu-e2e";
-  if (over.watch === undefined) mkdirSync(repo, { recursive: true });
+  // THE REPOSITORY IS THE HARNESS'S: it makes one per scenario and names it
+  // in the prompt. This stand-in opens what it is given and makes nothing,
+  // so a scenario that names no repository fails here, loudly.
+  const repo = over.repo;
+  if (over.watch === undefined && repo === undefined)
+    throw new Error(
+      `work_open "${title}": the prompt named no repository to open it in`,
+    );
   const answer = await callTool("work_open", {
     title,
+    // A WATCH IS ITS KEY ALONE: one terminal, no setup — kolu refuses one.
     ...(over.watch === undefined
-      ? { host: over.host ?? "local", repo, branch: slug(title) }
+      ? {
+          host: over.host ?? "local",
+          repo,
+          branch: workBranchOf(title),
+          setup: setupFor(mode, over),
+        }
       : { watch: over.watch }),
-    setup: setupFor(mode, over),
   });
   const work = /"work"\s*:\s*"([^"]+)"/.exec(answer)?.[1] ?? null;
   lastOpenSaid = answer;
   lastWork = work;
   return work;
+};
+
+/** A prompt's `<title> in <repo>`, split at the last ` in /`; no repository
+ *  when it names none, which `openWork` refuses. */
+const titleIn = (
+  said: string,
+): { readonly title: string; readonly repo: string | undefined } => {
+  const at = said.lastIndexOf(" in /");
+  return at === -1
+    ? { title: said, repo: undefined }
+    : { title: said.slice(0, at).trim(), repo: said.slice(at + 4).trim() };
 };
 
 const turn = async (
@@ -680,9 +692,7 @@ const turn = async (
     // A TRIVIAL WORK NOTHING IS ASKED ABOUT: what a scenario about a trivial
     // work's strip needs, with an implementor it can run straight away.
     const said = text.slice("open trivially ".length).trim();
-    const at = said.lastIndexOf(" in /");
-    const title = at === -1 ? said : said.slice(0, at).trim();
-    const repo = at === -1 ? "/tmp/kolu-e2e" : said.slice(at + 4).trim();
+    const { title, repo } = titleIn(said);
     say(`opening: ${title}`);
     const work = await openWork(title, "trivial", { repo });
     say(work === null ? `nothing opened: ${lastOpenSaid}` : `opened: ${work}`);
@@ -694,9 +704,7 @@ const turn = async (
     // given, so the form is the one model question — what a person sees on a
     // host that could not list its models.
     const said = text.slice("open the model by hand ".length).trim();
-    const at = said.lastIndexOf(" in /");
-    const title = at === -1 ? said : said.slice(0, at).trim();
-    const repo = at === -1 ? "/tmp/kolu-e2e" : said.slice(at + 4).trim();
+    const { title, repo } = titleIn(said);
     say(`opening: ${title}`);
     const work = await openWork(title, "trivial", { repo, askModel: true });
     say(work === null ? `nothing opened: ${lastOpenSaid}` : `opened: ${work}`);
@@ -709,14 +717,10 @@ const turn = async (
     // and the call ANSWERS AT ONCE: nothing here waits on a person, and the
     // answer reaches this fixture as a wake.
     // A WORK IS A BRANCH IN A REPOSITORY, and kolu asks THAT repository about
-    // the branch's pull request — so when the scenario made a repo of its own
-    // it says which (`open <title> in <dir>`), and the work is keyed by it.
-    // A title with no `in` keeps the placeholder path: those scenarios are
-    // about cards and questions, not about a forge.
+    // the branch's pull request and where the branch is checked out — so the
+    // prompt says which (`open <title> in <dir>`), and the work is keyed by it.
     const said = text.slice("open ".length).trim();
-    const at = said.lastIndexOf(" in /");
-    const title = at === -1 ? said : said.slice(0, at).trim();
-    const repo = at === -1 ? "/tmp/kolu-e2e" : said.slice(at + 4).trim();
+    const { title, repo } = titleIn(said);
     say(`opening: ${title}`);
     const work = await openWork(title, "full", {
       repo,
@@ -873,8 +877,8 @@ const turn = async (
     return;
   }
   if (text.startsWith("watch ")) {
-    // A PLAIN WATCH the human asked for: a piece of work in `watch` mode,
-    // then the terminal they pointed at adopted into it as `other`.
+    // A PLAIN WATCH the human asked for: a piece of work keyed by that one
+    // terminal, then the terminal adopted into it as `other`.
     const terminalId = text.slice("watch ".length).trim();
     const work = await openWork(`watch ${terminalId}`, "watch", {
       watch: `local/${terminalId}`,

@@ -76,6 +76,7 @@ import { createStateWatchHub } from "./attention/stateWatch.ts";
 import { stateWatchSource } from "./attention/stateWatchStream.ts";
 import { createWatchRegistry } from "./attention/watchRegistry.ts";
 import { specOf, watchFilterOf, watchSpecOf } from "./attention/watchSpec.ts";
+import { branchCheckoutStream } from "./branchCheckout.ts";
 import { branchPrStream } from "./branchPr.ts";
 import type {
   EndpointGrid,
@@ -759,6 +760,14 @@ export function buildPadiSurfaceDeps(deps: {
       pullRequest: {
         source: ({ repoPath, branch }) =>
           branchPrStream({ repoPath, branch }, log),
+      },
+      // WHERE A BRANCH IS CHECKED OUT (7.13) — git's answer for a repository
+      // and a branch, followed as worktrees come and go and checkouts switch.
+      // How a Conductor work learns its folder by its own key: see
+      // `./branchCheckout.ts`.
+      branchCheckout: {
+        source: ({ repoPath, branch }) =>
+          branchCheckoutStream({ repoPath, branch }, log),
       },
       // The per-subscriber terminal byte stream — snapshot-first frame, then
       // live output, with the shipped overflow re-attach (#1591) riding on

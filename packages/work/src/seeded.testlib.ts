@@ -1,5 +1,6 @@
-/** A SMALL DETERMINISTIC GENERATOR for this package's property tests —
- *  mulberry32, seeded, so a failing walk names the seed that replays it. */
+/** A SMALL DETERMINISTIC GENERATOR for property tests — mulberry32, seeded,
+ *  so a failing walk names the seed that replays it. Exported as
+ *  `kolu-work/testlib` for the suites of packages that read works. */
 export const seeded = (seed: number): (() => number) => {
   let state = seed >>> 0;
   return (): number => {

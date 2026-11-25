@@ -55,7 +55,7 @@ export {
   startConductorHost,
   type WaterfallStart,
 } from "./conductor.ts";
-export { type MemberStore, memberStore } from "./memberStore.ts";
+export type { MemberStore } from "./memberStore.ts";
 export {
   joinedMember,
   joinedWatch,
@@ -71,7 +71,7 @@ export {
   type WatchJoin,
 } from "./members.ts";
 export type {
-  PrWatch,
+  BranchWatch,
   WatchGit,
   WatchLevel,
   WatchObservation,
@@ -133,6 +133,7 @@ export {
   FINISHED_KEPT,
   type MemberAt,
   type MemberDetail,
+  placement,
   type WorkStore,
   workStore,
 } from "./workStore.ts";

@@ -16,7 +16,7 @@
  */
 
 import { workDirOf } from "kolu-conductor";
-import { workIdOf } from "kolu-work";
+import { type WorkKey, workIdOf } from "kolu-work";
 import { describe, expect, it } from "vitest";
 import {
   type WorkKey_1_53_0,
@@ -42,9 +42,24 @@ const KEYS: ReadonlyArray<WorkKey_1_53_0> = [
   { kind: "watch", terminal: "pu/term with space" },
 ];
 
+/** The same key in today's shape: a branch key also says who named its
+ *  repository (which the id never reads), and a watch holds its terminal's
+ *  host and id as two fields, split at the ref's LAST `/`. The bytes of the
+ *  id are the same — that is what this pins. */
+const liveKey = (key: WorkKey_1_53_0): WorkKey => {
+  if (key.kind === "branch") return { ...key, repoBy: { kind: "as-written" } };
+  const cut = key.terminal.lastIndexOf("/");
+  return {
+    kind: "watch",
+    host: key.terminal.slice(0, cut),
+    id: key.terminal.slice(cut + 1),
+  };
+};
+
 describe("the 1.53.0 rung's frozen encodings", () => {
   it("writes the ids kolu-work writes", () => {
-    for (const key of KEYS) expect(workIdOf_1_53_0(key)).toBe(workIdOf(key));
+    for (const key of KEYS)
+      expect(workIdOf_1_53_0(key)).toBe(workIdOf(liveKey(key)));
   });
 
   it("names the kept-file directories kolu-work names", () => {

@@ -3,17 +3,14 @@
  *  document — or, for content that is not text at all (a NUL in it, git's
  *  own test), the no-preview line rather than a screen of garbage. */
 
-import { createSignal } from "solid-js";
+import { createSignal, flush } from "solid-js";
 import { render } from "@solidjs/web";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import BrowseFileDispatcher, {
-  type BrowseFileDispatcherProps,
-} from "./BrowseFileDispatcher";
+import BrowseFileDispatcher from "./BrowseFileDispatcher";
 
 import { CommentView, createCommentView } from "../comments/commentView";
+import type { CommentQueue } from "../comments/types";
 import { Shown } from "../ui/shown";
-
-type FileAt = BrowseFileDispatcherProps["at"];
 
 // The source view is pierre's highlighter, which is not this test's subject:
 // what is pinned is WHICH view the dispatcher picks. Pierre itself loads a
@@ -44,6 +41,7 @@ const show = (path: string, content: string): HTMLElement => {
       <CommentView value={comments}>
         <BrowseFileDispatcher
           at={null}
+          comments={null}
           open={null}
           filePath={path}
           file={{ path, source: { content, truncated: false } }}
@@ -87,13 +85,13 @@ describe("a file read as text", () => {
   });
 });
 
-describe("a drawn document, as the terminal it hangs on comes and goes", () => {
-  // A reader can draw a work's file before it knows a terminal for it (a
-  // fresh pop-out window), and the terminal then arrives — or leaves. The
-  // document is mounted once: commenting turns on and off around it, and the
-  // one drawn document is never moved between two wrappers.
+describe("a drawn document, as its comment queue comes and goes", () => {
+  // A Code tab can draw a file before it has a terminal to file comments in,
+  // and the terminal then arrives — or leaves. The document is mounted once:
+  // commenting turns on and off around it, and the one drawn document is
+  // never moved between two wrappers.
   it("keeps the drawn document in the page exactly once, and throws nothing", () => {
-    const [at, setAt] = createSignal<FileAt>(null);
+    const [queue, setQueue] = createSignal<CommentQueue | null>(null);
     const host = document.createElement("div");
     document.body.append(host);
     // One comment view, handed over as it is — see `show`.
@@ -104,7 +102,8 @@ describe("a drawn document, as the terminal it hangs on comes and goes", () => {
         <Shown value={() => true}>
           <CommentView value={comments}>
             <BrowseFileDispatcher
-              at={at()}
+              at={null}
+              comments={queue()}
               open={null}
               filePath="plan.md"
               file={{
@@ -131,10 +130,19 @@ describe("a drawn document, as the terminal it hangs on comes and goes", () => {
     expect(drawn).toBeDefined();
     expect(documents()).toHaveLength(1);
 
-    expect(() => setAt({ host: "local", terminalId: "t-1" })).not.toThrow();
+    // The write is flushed before the page is read: the wrapper around the
+    // document is rebuilt on the flush, and what is pinned is that the one
+    // drawn document survives it.
+    expect(() => {
+      setQueue({ kind: "terminal", id: "t-1" });
+      flush();
+    }).not.toThrow();
     expect(documents()).toEqual([drawn]);
 
-    expect(() => setAt(null)).not.toThrow();
+    expect(() => {
+      setQueue(null);
+      flush();
+    }).not.toThrow();
     expect(documents()).toEqual([drawn]);
   });
 });

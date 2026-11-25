@@ -451,8 +451,9 @@ export interface WorkSubject {
     readonly repoRoot: string;
     readonly mainRepoRoot: string;
   } | null;
-  /** The pull request as a live terminal's record reads it — `null` where
-   *  there is no live reading (a sleeping terminal resolves no PR). */
+  /** The pull request, as the subject's reader has it — a pane's from its
+   *  live terminal record (a sleeping terminal resolves none), a work's from
+   *  the work's own (`conductor/workPr.ts`) — or `null` where it has none. */
   readonly pr: PrResult | null;
   /** The checkout odu is asked about, or `null` to ask nothing. */
   readonly checkout: string | null;

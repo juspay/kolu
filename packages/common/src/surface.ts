@@ -65,6 +65,7 @@ import {
 import {
   type ProcessRss,
   ProcessRssSchema,
+  PrResultSchema,
   TcpPortSchema,
 } from "@kolu/terminal-vocab/schema";
 import type { TaskProgressSchema } from "anyagent/schemas";
@@ -1270,6 +1271,20 @@ export const koluSurface = defineSurfaceWithPolicy<ToastOnlyPolicy>()({
     memberReadings: {
       keySchema: Schema.String,
       schema: MemberReadingSchema,
+      verbs: ["keys", "get"],
+      client: { onError: { kind: "toast", label: "Works" } },
+    },
+    /** EACH WORK'S PULL REQUEST, LIVE — the forge's last answer for the
+     *  work's own `(repo, branch)`, keyed by work id: what the card's PR
+     *  mark, its link and the check count beside "CI running" are drawn
+     *  from. Runtime only and never stored. A key is present exactly while
+     *  its work is an open branch work and the work's own watch has read its
+     *  branch in this process. Written only by the work's PR watch
+     *  (`observedPr`), never off a member terminal's record: a terminal may
+     *  stand on any branch, and a work's PR is its branch's. */
+    workPrs: {
+      keySchema: Schema.String,
+      schema: PrResultSchema,
       verbs: ["keys", "get"],
       client: { onError: { kind: "toast", label: "Works" } },
     },

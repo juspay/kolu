@@ -65,7 +65,7 @@ vi.mock("../workFacts", () => ({
 vi.mock("../workReadings", () => ({ membersIn: () => [] }));
 vi.mock("kolu-work", () => ({ openAsks: () => [] }));
 vi.mock("../../comments/useComments", () => ({
-  commentsForTerminal: () => () => ({ commentsForPath: () => [] }),
+  commentsFor: () => () => ({ commentsForPath: () => [] }),
 }));
 vi.mock("../../comments/commentView", () => ({
   CommentView: (props: { children: unknown }) => props.children,

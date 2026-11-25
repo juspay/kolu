@@ -361,6 +361,7 @@ describe("a file the Conductor names", () => {
       host: "local",
       repo: "/src/app",
       branch: title.replaceAll(" ", "-"),
+      repoBy: { kind: "git" },
     },
     title,
     startedAt: AT,

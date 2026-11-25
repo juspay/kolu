@@ -26,6 +26,7 @@ import {
   isCheckEvent,
   letsGo,
   NOBODY_HOLDS,
+  prOf,
   sameHead,
 } from "./readings.ts";
 import {
@@ -50,6 +51,7 @@ import {
   type Work,
   type WorkEvent,
   type WorkRole,
+  type WorkWorktree,
 } from "./schema.ts";
 
 /** HOW A TERMINAL'S AGENT STANDS, as events — what a work produces over and
@@ -257,30 +259,23 @@ export const openWork = (opened: {
     },
   ],
   state: { kind: "open" },
-  // No member has said where it works yet.
+  // Git has not been asked where its branch is checked out yet.
   worktree: { kind: "unread" },
 });
 
-/** WHERE THE WORK IS WORKING, MADE TO STICK. `answer` is the rule's answer
- *  right now — the first member whose own record named a worktree, host and
- *  all — or none when no member has one. An answer that differs from what the
- *  work holds replaces it; no answer keeps what the work had, so a work whose
- *  terminals have all gone still knows its worktree. The one writer calls
- *  this at each moment the answer can move: a member's worktree first read, a
- *  member joining, a member leaving. Unchanged, it hands the same work back. */
-export const settleWorktree = (
-  work: Work,
-  answer: Option.Option<{ readonly host: string; readonly path: string }>,
-): Work =>
-  Option.match(answer, {
-    onNone: () => work,
-    onSome: ({ host, path }) =>
-      work.worktree.kind === "read" &&
-      work.worktree.host === host &&
-      work.worktree.path === path
-        ? work
-        : { ...work, worktree: { kind: "read", host, path } },
-  });
+/** WHERE THE WORK IS WORKING, as git last answered it for the work's own key
+ *  — the one writer's step. An answer equal to what the work holds hands the
+ *  same work back. For a branch work the answer is git's, asked by the key
+ *  (the branch's checkout, or none); for a watch, it is the watched terminal's
+ *  own folder. Never a member's: a member may stand anywhere. */
+export const recordWorktree = (work: Work, worktree: WorkWorktree): Work => {
+  const held = work.worktree;
+  if (held.kind === worktree.kind) {
+    if (held.kind !== "at") return work;
+    if (worktree.kind === "at" && worktree.path === held.path) return work;
+  }
+  return { ...work, worktree };
+};
 
 /** WHAT THE REQUEST ALREADY SAID for a setup question — nothing, so the human
  *  is asked, or the value they gave, recorded as answered from the request
@@ -668,9 +663,69 @@ export const leaveWork = (
     why: left.why,
   });
 
+/** THE EVENTS THAT ARE ONLY OBSERVATIONS — every kind but the ones a
+ *  transition of its own appends: an ending ({@link endWork}, {@link prEnded}),
+ *  a reopening, a member joining or leaving, files kept or not kept, a take
+ *  over or a hand back, a fold, the request. Appending one of those bare would
+ *  record a move the work did not make. */
+export type RecordableEvent = Exclude<
+  WorkEvent,
+  {
+    readonly kind:
+      | "ended"
+      | "reopened"
+      | "joined"
+      | "left"
+      | "kept"
+      | "keep-failed"
+      | "taken-over"
+      | "handed-back"
+      | "folded"
+      | "hand-offs-kept"
+      | "requested"
+      | "merged"
+      | "pr-closed";
+  }
+>;
+
 /** Append one observation. */
-export const recordEvent = (work: Work, event: WorkEvent): Work =>
+export const recordEvent = (work: Work, event: RecordableEvent): Work =>
   append(work, event);
+
+/** THE FORGE SAYS THE WORK'S PR MERGED, OR WAS CLOSED — the event on the
+ *  timeline and the ending, in one step, both naming the number the timeline
+ *  reads ({@link prOf}): the outcome's PR cannot differ from the timeline's.
+ *  A work with no PR on its timeline is returned unchanged. */
+export const prEnded = (
+  work: Work,
+  how: "merged" | "closed",
+  at: string,
+): Work =>
+  Option.match(prOf(work), {
+    onNone: () => work,
+    onSome: (pr) =>
+      ended(
+        append(
+          work,
+          how === "merged"
+            ? {
+                at,
+                by: "kolu",
+                kind: "merged",
+                about: ABOUT_WORK,
+                pr: pr.number,
+              }
+            : {
+                at,
+                by: "kolu",
+                kind: "pr-closed",
+                about: ABOUT_WORK,
+                pr: pr.number,
+              },
+        ),
+        { outcome: { kind: how, pr: pr.number }, at },
+      ),
+  });
 
 /** A PR'S ADDRESS, LEARNED LATE: a `pr-opened` recorded before kolu kept the
  *  address (the 1.57.0 rung's `unrecorded`) takes the one the forge now gives.
@@ -710,28 +765,40 @@ export const handBack = (work: Work, terminal: string, at: string): Work =>
     about: aboutMember(terminal),
   });
 
-/** THE WORK ENDS — the forge said its PR merged or closed, or somebody
- *  stopped it. Ending an ended work changes nothing.
+/** HOW A WORK IS STOPPED — the one ending a person, the Conductor or kolu
+ *  writes. A merge or a close is the forge's, and goes through
+ *  {@link prEnded}, which names the timeline's own PR. */
+export type Stopped = Extract<Outcome, { readonly kind: "stopped" }>;
+
+/** THE WORK IS STOPPED — by you, the Conductor, or kolu. Ending an ended
+ *  work changes nothing.
  *
  *  The caller removes its members in the same step: there is no arm of this
  *  function that leaves a finished work with terminals, because there is
  *  nowhere in the record for them to be. */
 export const endWork = (
   work: Work,
-  ended: { readonly outcome: Outcome; readonly at: string },
+  stopped: { readonly outcome: Stopped; readonly at: string },
+): Work => ended(work, stopped);
+
+/** THE ENDING ITSELF, any outcome — reached only through {@link endWork}
+ *  and {@link prEnded}. */
+const ended = (
+  work: Work,
+  end: { readonly outcome: Outcome; readonly at: string },
 ): Work => {
   if (work.state.kind === "ended") return work;
   return append(
     {
       ...work,
-      state: { kind: "ended", at: ended.at, outcome: ended.outcome, kept: [] },
+      state: { kind: "ended", at: end.at, outcome: end.outcome, kept: [] },
     },
     {
-      at: ended.at,
+      at: end.at,
       by: "kolu",
       kind: "ended",
       about: ABOUT_WORK,
-      outcome: ended.outcome,
+      outcome: end.outcome,
     },
   );
 };

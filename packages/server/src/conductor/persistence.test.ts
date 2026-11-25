@@ -96,6 +96,7 @@ import {
   prFactsOnTheTimeline_1_57_0,
   prOpenedSaysDraft_1_61_0,
   workArmsNotNulls_1_55_0,
+  workFactsAreTheWorks_1_68_0,
   workKeepsItsWorktree_1_64_0,
 } from "../stateLadder.ts";
 import { TRANSCRIPT_FILE_VERSION } from "../stateShape.ts";
@@ -124,12 +125,14 @@ const KEY = {
   host: "local",
   repo: "/srv/repo",
   branch: "fix-the-parser",
+  repoBy: { kind: "git" },
 } as const satisfies WorkKey;
 const OTHER_KEY = {
   kind: "branch",
   host: "remote:prod",
   repo: "/srv/repo",
   branch: "last-week",
+  repoBy: { kind: "git" },
 } as const satisfies WorkKey;
 
 /** The version this file's ladder pin names. A literal, deliberately: a pin
@@ -158,9 +161,10 @@ const OTHER_KEY = {
  * and lets a row be a memory proposal; 1.64.0 gives each work the worktree
  * it keeps when its terminals go; 1.65.0 gives `config.json` the record
  * of where each work's Code view stands; 1.66.0 gives the preferences
- * where the Conductor compacts its conversation; and 1.67.0 records who
- * holds each work from then on. */
-const STATE_SCHEMA_VERSION = "1.67.0";
+ * where the Conductor compacts its conversation; 1.67.0 records who
+ * holds each work from then on; and 1.68.0 takes a work's facts off its
+ * members. */
+const STATE_SCHEMA_VERSION = "1.68.0";
 
 const log = {
   debug() {},
@@ -227,6 +231,7 @@ const recordDeps = () => ({
   publishWork: () => {},
   publishMember: () => {},
   publishReading: () => {},
+  publishPr: () => {},
   publishMemory: () => {},
   publishWorkCodeView: () => {},
   worksMoved: () => {},
@@ -235,6 +240,7 @@ const recordDeps = () => ({
     list: async () => ({ paths: [], more: false }),
     keep: async () => ({ kept: [], tooBig: [] }),
     sweep: async () => {},
+    move: () => {},
   },
 });
 
@@ -288,7 +294,6 @@ function stored(
           work: id,
           role: one.role,
           joinedAt: at,
-          worktree: { kind: "unread" as const },
           watch: one.watch,
         },
       ]),
@@ -801,7 +806,7 @@ describe("the conductor's rungs", () => {
     );
   });
 
-  it("lose no terminal off a watch list a pre-release build stamped 1.46.0", () => {
+  it("lose no terminal off a watch list a pre-release build stamped 1.46.0: the second becomes a watch of its own", () => {
     // A file the watch list's own earlier builds wrote: its first entry
     // predates `joined`/`spoken`/`ran`, `root` and `since`. TWO rungs run
     // over it — 1.49.0 completes each entry, 1.50.0 turns them into works —
@@ -833,23 +838,29 @@ describe("the conductor's rungs", () => {
       fileAt("1.46.0", { conductor: held }),
       "1.46-pre-release",
     );
-    // ONE work — the second entry's `root` names the first — holding both
-    // terminals as members, with each entry's own wake bookkeeping carried
-    // onto its member verbatim.
+    // The group — the second entry's `root` names the first — becomes a
+    // watch keyed by the first terminal. A watch IS its own terminal
+    // (1.68.0), so the second is not dropped: it is a WATCH OF ITS OWN,
+    // keyed by itself. Both terminals are members still, each with its own
+    // wake bookkeeping carried on verbatim.
+    const OTHER_WATCH = workIdOf({
+      kind: "watch",
+      host: "remote:prod",
+      id: "22222222-2222-4222-8222-222222222222",
+    });
     const ids = Object.keys(migrated.works);
-    expect(ids.length).toBe(1);
+    expect(ids.length).toBe(2);
     const id = ids[0] ?? "";
+    expect(ids[1]).toBe(OTHER_WATCH);
     const work = migrated.works[id];
     if (work === undefined) throw new Error("the watch list lost its work");
     expect(work.title).toBe("build");
-    // ... and both terminals are members of it, in the ONE members map keyed
-    // by ref, with each entry's own wake bookkeeping carried on verbatim.
+    expect(migrated.works[OTHER_WATCH]?.title).toBe("build");
     const watched = migrated.members;
-    expect(
-      Object.entries(watched)
-        .filter(([, one]) => one.work === id)
-        .map(([ref]) => ref),
-    ).toEqual([FLEET_REF, OTHER_REF]);
+    expect([watched[FLEET_REF]?.work, watched[OTHER_REF]?.work]).toEqual([
+      id,
+      OTHER_WATCH,
+    ]);
     expect([
       watched[FLEET_REF]?.watch.told,
       watched[OTHER_REF]?.watch.told,
@@ -872,7 +883,7 @@ describe("the conductor's rungs", () => {
     expectStampedAtBoot(work.startedAt, before);
   });
 
-  it("turn a MASTER-SHAPED 1.49.0 file into works without losing a terminal", () => {
+  it("turn a MASTER-SHAPED 1.49.0 file into works without losing a terminal: each is a watch of its own", () => {
     // THE NUMBER A RUNNING INSTALL SITS ON, with everything 1.49.0
     // guarantees: rows in the store and a complete watch list beside them —
     // two terminals grouped as one piece of work, and a third on its own.
@@ -930,13 +941,28 @@ describe("the conductor's rungs", () => {
       fleet: [FLEET_REF],
       taught: false,
     });
-    // ...and the watch list left it too, as two works: the waterfall its two
-    // terminals were drawn as, and the plain watch on its own. A work with no
+    // ...and the watch list left it too, as works: the group its two
+    // terminals were drawn as became a watch keyed by its first, and a watch
+    // IS its own terminal (1.68.0) — so the second is a WATCH OF ITS OWN,
+    // after the two the earlier rungs made, never dropped. A work with no
     // branch IS the terminal somebody asked kolu to watch, so that is its key.
     const ids = Object.keys(migrated.works);
     expect(ids).toEqual([
-      workIdOf({ kind: "watch", terminal: FLEET_REF }),
-      workIdOf({ kind: "watch", terminal: THIRD_REF }),
+      workIdOf({
+        kind: "watch",
+        host: "local",
+        id: "11111111-1111-4111-8111-111111111111",
+      }),
+      workIdOf({
+        kind: "watch",
+        host: "remote:box",
+        id: "33333333-3333-4333-8333-333333333333",
+      }),
+      workIdOf({
+        kind: "watch",
+        host: "remote:prod",
+        id: "22222222-2222-4222-8222-222222222222",
+      }),
     ]);
     const all = Object.values(migrated.works);
     const memberRefs = (id: string) =>
@@ -946,24 +972,36 @@ describe("the conductor's rungs", () => {
     expect(
       all.map((one, at) => [one.title, memberRefs(ids[at] ?? "")]),
     ).toEqual([
-      ["plan the cutover", [FLEET_REF, OTHER_REF]],
+      ["plan the cutover", [FLEET_REF]],
       ["a plain watch", [THIRD_REF]],
+      ["the implementor", [OTHER_REF]],
     ]);
     // NOT A TERMINAL LOST, and each age is the one the person was already
-    // being shown — the earliest join in its group, never this boot.
+    // being shown — the earliest join in its group, or the terminal's own
+    // join for the one split off — never this boot.
     expect(all.map((one) => one.startedAt)).toEqual([
       "2026-01-01T00:00:00.000Z",
       "2026-01-01T00:20:00.000Z",
+      "2026-01-01T00:10:00.000Z",
     ]);
-    // The mode is a DECISION, so a card reads it the same way it reads an
-    // answer a person gave; the HOST is the key's own, never a decision.
+    // A watch's mode is its key's; the HOST is the key's own, never a
+    // decision.
     expect(all.map((one) => modeOf(one))).toEqual([
       Option.some("watch"),
       Option.some("watch"),
+      Option.some("watch"),
     ]);
-    expect(all.map((one) => hostOf(one))).toEqual(["local", "remote:box"]);
-    // ...and the timeline opens with the carry-over rather than with nothing.
-    expect(all[0]?.events[0]?.kind).toBe("carried-over");
+    expect(all.map((one) => hostOf(one))).toEqual([
+      "local",
+      "remote:box",
+      "remote:prod",
+    ]);
+    // ...and each timeline opens with the carry-over rather than with nothing.
+    expect(all.map((one) => one.events[0]?.kind)).toEqual([
+      "carried-over",
+      "carried-over",
+      "carried-over",
+    ]);
   });
 
   it("re-point a remembered attachment at the corner its bytes moved to", () => {
@@ -1319,6 +1357,9 @@ describe("the human's real store, one observation later", () => {
     prFactsOnTheTimeline_1_57_0(store);
     prOpenedSaysDraft_1_61_0(store);
     workKeepsItsWorktree_1_64_0(store);
+    // The live schema says who named a key's repo (1.68.0): the store must
+    // have walked that rung to be one this build reads.
+    workFactsAreTheWorks_1_68_0(store);
     const id = Object.keys(folded.works)[0] ?? "";
 
     const over = hostOver();
@@ -1330,8 +1371,8 @@ describe("the human's real store, one observation later", () => {
       expect(over.host.memberRefs()).toEqual([]);
       // It is WATCHED all the same: the work is a branch on a machine, and
       // that is what kolu asks about.
-      expect(over.host.prWatches()).toHaveLength(1);
-      expect(over.host.prWatches()[0]?.work).toBe(id);
+      expect(over.host.branchWatches()).toHaveLength(1);
+      expect(over.host.branchWatches()[0]?.work).toBe(id);
 
       // ONE observation, with a forge that says what the real one says.
       over.host.observedPr(id, {
@@ -1358,7 +1399,7 @@ describe("the human's real store, one observation later", () => {
         });
       });
       // ... and it is no longer asked about.
-      expect(over.host.prWatches()).toEqual([]);
+      expect(over.host.branchWatches()).toEqual([]);
     } finally {
       await over.host.dispose();
     }

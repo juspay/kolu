@@ -104,9 +104,10 @@ export {
  *    question). A waterfall mode needs the
  *    implementor's harness and model and what to do when the PR is green; `full`
  *    needs the planner's two as well.
- *  - `driven` — whether kolu types into its member terminals. A `watch` is the
- *    person's own terminal and kolu never drives it, so nothing there is ever
- *    locked.
+ *  - `driven` — whether kolu types into its member terminals. A `watch` is
+ *    the person's own terminal and kolu never drives it: a watch KEY runs
+ *    this row whatever its decisions say ({@link runOf}), so nothing there is
+ *    ever locked.
  *  - `stages` — the stages a work in this mode HAS, in order: the only ones
  *    its time is ever filed under (`./folds.ts`'s `stages`). `full` has all
  *    six; `trivial` has nobody to plan, approve or review, so Build, Checks
@@ -368,9 +369,25 @@ export interface Recalled {
   readonly chosen: Chosen;
 }
 
-/** The mode, or none until answered. */
+/** HOW THIS WORK IS RUN — its mode and that mode's {@link MODE_RUNS} row,
+ *  read off the KEY first: a watch is a watch whatever its decisions say (a
+ *  `full` answer stored on one runs nothing), and a branch work runs the
+ *  mode its setup answered — none until then. {@link modeOf},
+ *  {@link policyOf}, {@link driverOf} and every {@link rolesOf} of a work
+ *  read through this. */
+export const runOf = (
+  work: Work,
+): Option.Option<{ readonly mode: WorkMode } & (typeof MODE_RUNS)[WorkMode]> =>
+  Option.map(
+    work.key.kind === "watch"
+      ? Option.some<WorkMode>("watch")
+      : setupValue(work, "mode"),
+    (mode) => ({ mode, ...MODE_RUNS[mode] }),
+  );
+
+/** The mode, or none until a branch work's is answered ({@link runOf}). */
 export const modeOf = (work: Work): Option.Option<WorkMode> =>
-  setupValue(work, "mode");
+  Option.map(runOf(work), (run) => run.mode);
 
 /** What to do when the PR is green (GitHub would merge it, and no check is running or failing) — the one place it is written. */
 export const onGreenOf = (work: Work): Option.Option<OnGreen> =>
@@ -386,12 +403,12 @@ export const onGreenOf = (work: Work): Option.Option<OnGreen> =>
  *  nothing yet for a work whose mode nobody has answered. */
 export const policyOf = (work: Work): Policy => ({
   handOver: Option.contains(onGreenOf(work), "hand-over"),
-  run: Option.match(modeOf(work), {
+  run: Option.match(runOf(work), {
     onNone: (): Run => ({ kind: "unset" }),
-    onSome: (mode): Run => ({
+    onSome: (run): Run => ({
       kind: "set",
-      driven: MODE_RUNS[mode].driven,
-      stages: MODE_RUNS[mode].stages,
+      driven: run.driven,
+      stages: run.stages,
     }),
   }),
 });
@@ -414,8 +431,8 @@ export const driverOf = (
   member: Option.Option<{ readonly work: string; readonly role: WorkRole }>,
 ): Driver => {
   if (work.state.kind !== "open") return "nobody";
-  const mode = modeOf(work);
-  if (Option.isNone(mode) || !MODE_RUNS[mode.value].driven) return "nobody";
+  const run = runOf(work);
+  if (Option.isNone(run) || !run.value.driven) return "nobody";
   if (Option.isNone(member)) return "nobody";
   for (let at = work.events.length - 1; at >= 0; at -= 1) {
     const event = work.events[at];

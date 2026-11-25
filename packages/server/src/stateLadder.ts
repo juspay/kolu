@@ -2353,6 +2353,321 @@ export function handOffsKept_1_67_0(store: Conf<PersistedState>): void {
   if (changed) store.set("works", next as unknown as PersistedState["works"]);
 }
 
+/** A watch's stored `terminal`, split at its LAST `/` into the host and the
+ *  id the 1.68.0 key holds — the fleet ref grammar's rule, frozen here: a host
+ *  key may contain a `/`, a terminal id never does. `null` for a string that
+ *  names no terminal (no `/`, or nothing on one side of it). */
+const splitWatch_1_68_0 = (
+  terminal: string,
+): { readonly host: string; readonly id: string } | null => {
+  const cut = terminal.lastIndexOf("/");
+  return cut <= 0 || cut === terminal.length - 1
+    ? null
+    : { host: terminal.slice(0, cut), id: terminal.slice(cut + 1) };
+};
+
+/** THE MOVE TIME — one millisecond after the latest of the times given, as
+ *  ISO-8601 strings compare. Strictly after, so the `joined` it stamps is
+ *  the newest about the terminal even where the latest time is the
+ *  terminal's own `joined` on the watch it leaves: a tie would leave which
+ *  watch a reader names to the order of a map. */
+const movedAt_1_68_0 = (times: ReadonlyArray<string>): string => {
+  const latest = times.reduce((late, one) => (one > late ? one : late));
+  const ms = Date.parse(latest);
+  if (Number.isNaN(ms))
+    throw new Error(`1.68.0: ${latest} is no time to move a terminal at`);
+  return new Date(ms + 1).toISOString();
+};
+
+/** A timeline's last time, or `undefined` for an empty one; `null` when the
+ *  timeline cannot be read — not a list, or a last event with no time. */
+const lastAt_1_68_0 = (events: unknown): string | undefined | null => {
+  if (!Array.isArray(events)) return null;
+  if (events.length === 0) return undefined;
+  const at = recordOf(events.at(-1))?.at;
+  return typeof at === "string" ? at : null;
+};
+
+/** STEPS 4 AND 5's ONE MOVE — terminal `ref`, a member of watch `from` that
+ *  cannot keep it (another terminal's watch, or a nameless one step 4
+ *  removes), given a watch of its own in `works`. Answers the id it is now a
+ *  member of.
+ *
+ *  ONE MOVE TIME, from the file and never a clock: a millisecond after the
+ *  latest of the terminal's own join, the last time on the watch it leaves
+ *  and the last time on the watch it joins ({@link movedAt_1_68_0}). A
+ *  watch that stays says `left` (`released`, the live store's word for a
+ *  terminal leaving one work for another) at that time; the watch it joins
+ *  says `joined` at that time — reopened first, at that time, when it had
+ *  finished — so the newest `joined` about the terminal is always on the
+ *  watch its member row names, and every timeline stays in time order. A
+ *  NEW watch is titled by the terminal's name (the old watch's title when
+ *  it has none), starts and opens `carried-over` at the terminal's own join
+ *  — the age a person was shown — and is joined at the move time.
+ *
+ *  A value it must read and cannot fails the rung loudly, before anything
+ *  is written. Frozen history: the id spelling is 1.68.0's `workIdOf` for a
+ *  watch, written out. */
+const moveToOwnWatch_1_68_0 = (
+  ref: string,
+  member: Record<string, unknown>,
+  from: {
+    readonly id: string;
+    readonly work: Record<string, unknown> | null;
+    readonly stays: boolean;
+  },
+  works: Record<string, unknown>,
+): string => {
+  const split = splitWatch_1_68_0(ref);
+  if (split === null)
+    throw new Error(
+      `1.68.0: watch ${from.id} holds ${ref}, which names no terminal to give a watch of its own`,
+    );
+  const joinedAt = member.joinedAt;
+  if (typeof joinedAt !== "string")
+    throw new Error(
+      `1.68.0: ${ref} in watch ${from.id} has no join time to move it by`,
+    );
+  const id = `watch:${encodeURIComponent(ref)}`;
+  const leaving = lastAt_1_68_0(from.work?.events);
+  if (from.stays && (from.work === null || leaving === null))
+    throw new Error(
+      `1.68.0: watch ${from.id} has no timeline to say ${ref} left on`,
+    );
+  const target = recordOf(works[id]);
+  const joining = target === null ? undefined : lastAt_1_68_0(target.events);
+  if (joining === null)
+    throw new Error(
+      `1.68.0: the watch ${id} that ${ref} joins has no timeline to say so on`,
+    );
+  const at = movedAt_1_68_0(
+    [joinedAt, leaving, joining].filter(
+      (one): one is string => typeof one === "string",
+    ),
+  );
+  const joined = {
+    at,
+    by: "kolu",
+    about: { kind: "member", terminal: ref },
+    kind: "joined",
+    role: "other",
+  };
+  let next: Record<string, unknown>;
+  if (target !== null) {
+    // A WATCH OF THIS TERMINAL IS ALREADY KEPT: it is the one it joins.
+    const events = target.events as ReadonlyArray<unknown>;
+    const open = recordOf(target.state)?.kind === "open";
+    next = {
+      ...target,
+      state: { kind: "open" },
+      events: [
+        ...events,
+        ...(open
+          ? []
+          : [{ at, by: "kolu", about: { kind: "work" }, kind: "reopened" }]),
+        joined,
+      ],
+    };
+  } else {
+    const name = recordOf(member.watch)?.name;
+    const title =
+      typeof name === "string" && name !== "" ? name : from.work?.title;
+    if (typeof title !== "string")
+      throw new Error(
+        `1.68.0: ${ref} in watch ${from.id} has no title to give its own watch`,
+      );
+    next = {
+      key: { kind: "watch", host: split.host, id: split.id },
+      title,
+      startedAt: joinedAt,
+      decisions: [],
+      events: [
+        {
+          at: joinedAt,
+          by: "kolu",
+          about: { kind: "work" },
+          kind: "carried-over",
+        },
+        joined,
+      ],
+      state: { kind: "open" },
+      worktree: { kind: "unread" },
+    };
+  }
+  if (from.stays && from.work !== null)
+    works[from.id] = {
+      ...from.work,
+      events: [
+        ...(from.work.events as ReadonlyArray<unknown>),
+        {
+          at,
+          by: "kolu",
+          kind: "left",
+          about: { kind: "member", terminal: ref },
+          why: "released",
+        },
+      ],
+    };
+  works[id] = next;
+  return id;
+};
+
+/** The 1.68.0 rung — A WORK'S FACTS ARE THE WORK'S. What a work stood on was
+ *  read off whichever member terminal was there first, and its identity was
+ *  strings a caller typed; it is now asked of git, on the work's host, by a
+ *  key that was parsed. A rung asks no host, so it does only what the file
+ *  alone allows:
+ *
+ *  1. every work's `worktree` becomes `unread` — the `read` a member lent it
+ *     carried a host of the member's choosing, and the new shape (`unread`,
+ *     `absent`, `at`) has no host at all. The watch re-reads it from git
+ *     seconds after boot;
+ *  2. every member's `worktree` is removed — a member no longer says where
+ *     the work is;
+ *  3. every watch's `key.terminal` is split at its LAST `/` into `host` and
+ *     `id` ({@link splitWatch_1_68_0}). The map key does not change: the id
+ *     a watch is filed under encodes the same ref, so its kept files
+ *     (`workDirOf(id)`) still match;
+ *  4. a watch whose `terminal` cannot be split never named a terminal: it is
+ *     removed, with its Code view — and NO TERMINAL IN IT IS DROPPED: each
+ *     member becomes a watch of its own, by step 5's move;
+ *  5. every watch keeps its own terminal alone, as `other`, and NO WATCHED
+ *     TERMINAL IS DROPPED: each other member becomes a watch of its own —
+ *     keyed by itself, filed under the id a watch of that terminal has
+ *     (`watch:<encoded ref>`), its member row and bookkeeping kept whole —
+ *     the old watch saying it `left` (`released`) and the new one that it
+ *     `joined`, at one move time ({@link moveToOwnWatch_1_68_0}). A watch of
+ *     that terminal already filed is the one it joins — reopened when it had
+ *     finished. A watch IS that one terminal, and the store now refuses
+ *     anything else in one;
+ *  6. every branch key gains `repoBy: { kind: "as-written" }` — its `repo` is
+ *     what a caller typed, and the host's first answer re-keys it to git's
+ *     root.
+ *
+ *  A value it does not know is walked past unchanged, and each key is
+ *  written only when something in it moved. `works`, `members` and
+ *  `workCodeViews` move; the transcript file is untouched, so
+ *  TRANSCRIPT_FILE_VERSION stays at 1.63.0. Exported for
+ *  `stateMigration.test.ts`. */
+export function workFactsAreTheWorks_1_68_0(store: Conf<PersistedState>): void {
+  /** The works step 4 removed — their members and views go with them. */
+  const gone = new Set<string>();
+  /** Each watch's own terminal, by the id the watch is filed under. */
+  const watched = new Map<string, string>();
+  const works = recordOf(store.get("works"));
+  let worksChanged = false;
+  const nextWorks: Record<string, unknown> = {};
+  if (works !== null) {
+    for (const [id, value] of Object.entries(works)) {
+      const work = recordOf(value);
+      const key = recordOf(work?.key);
+      if (work === null || key === null) {
+        nextWorks[id] = value;
+        continue;
+      }
+      let nextKey: unknown = work.key;
+      if (key.kind === "watch" && typeof key.terminal === "string") {
+        const split = splitWatch_1_68_0(key.terminal);
+        if (split === null) {
+          gone.add(id);
+          worksChanged = true;
+          continue;
+        }
+        nextKey = { kind: "watch", host: split.host, id: split.id };
+      } else if (key.kind === "branch" && !("repoBy" in key)) {
+        nextKey = { ...key, repoBy: { kind: "as-written" } };
+      }
+      const keyNow = recordOf(nextKey);
+      if (
+        keyNow?.kind === "watch" &&
+        typeof keyNow.host === "string" &&
+        typeof keyNow.id === "string"
+      )
+        watched.set(id, `${keyNow.host}/${keyNow.id}`);
+      if (nextKey === work.key && recordOf(work.worktree)?.kind === "unread") {
+        nextWorks[id] = value;
+        continue;
+      }
+      worksChanged = true;
+      nextWorks[id] = { ...work, key: nextKey, worktree: { kind: "unread" } };
+    }
+  }
+  /** The original works, for the title and timeline of a watch step 4
+   *  removed. */
+  const before = works ?? {};
+  /** The members as this rung leaves them — written after every check. */
+  let nextMembers: Record<string, unknown> | null = null;
+  const members = recordOf(store.get("members"));
+  if (members !== null) {
+    let changed = false;
+    const next: Record<string, unknown> = {};
+    for (const [ref, value] of Object.entries(members)) {
+      const member = recordOf(value);
+      const work = typeof member?.work === "string" ? member.work : null;
+      if (member !== null && work !== null && gone.has(work)) {
+        // A NAMELESS WATCH'S TERMINAL: the watch goes, the terminal stays
+        // watched, in a watch of its own.
+        const { worktree: _gone, ...kept } = member;
+        next[ref] = {
+          ...kept,
+          work: moveToOwnWatch_1_68_0(
+            ref,
+            member,
+            { id: work, work: recordOf(before[work]), stays: false },
+            nextWorks,
+          ),
+          role: "other",
+        };
+        worksChanged = true;
+        changed = true;
+        continue;
+      }
+      const own = work === null ? undefined : watched.get(work);
+      if (member === null) {
+        next[ref] = value;
+        continue;
+      }
+      const { worktree: _gone, ...kept } = member;
+      if (work !== null && own !== undefined && ref !== own) {
+        // ANOTHER TERMINAL IN A WATCH: it becomes a watch of its own.
+        next[ref] = {
+          ...kept,
+          work: moveToOwnWatch_1_68_0(
+            ref,
+            member,
+            { id: work, work: recordOf(nextWorks[work]), stays: true },
+            nextWorks,
+          ),
+          role: "other",
+        };
+        worksChanged = true;
+        changed = true;
+        continue;
+      }
+      const role = own !== undefined ? "other" : member.role;
+      if (!("worktree" in member) && role === member.role) {
+        next[ref] = value;
+        continue;
+      }
+      changed = true;
+      next[ref] = { ...kept, role };
+    }
+    if (changed) nextMembers = next;
+  }
+  if (nextMembers !== null)
+    store.set("members", nextMembers as unknown as PersistedState["members"]);
+  if (worksChanged)
+    store.set("works", nextWorks as unknown as PersistedState["works"]);
+  const views = recordOf(store.get("workCodeViews"));
+  if (views !== null && Object.keys(views).some((id) => gone.has(id)))
+    store.set(
+      "workCodeViews",
+      Object.fromEntries(
+        Object.entries(views).filter(([id]) => !gone.has(id)),
+      ) as unknown as PersistedState["workCodeViews"],
+    );
+}
+
 /** The migration ladder — hoisted so {@link decodeStateBackup}'s scratch
  *  store walks the REAL ladder on a backup snapshot (which may predate any
  *  rung), never a parallel re-implementation of it. */
@@ -3134,4 +3449,9 @@ export const CONF_MIGRATIONS = {
   // review it cannot know were not recorded (`handOffsKept_1_67_0`). The
   // transcript file is untouched, so TRANSCRIPT_FILE_VERSION stays at 1.63.0.
   "1.67.0": handOffsKept_1_67_0,
+  // A WORK'S FACTS ARE THE WORK'S: its folder is git's answer for its key, so
+  // every saved work's is unread and no member carries one
+  // (`workFactsAreTheWorks_1_68_0` argues each step). The transcript file is
+  // untouched, so TRANSCRIPT_FILE_VERSION stays at 1.63.0.
+  "1.68.0": workFactsAreTheWorks_1_68_0,
 };

@@ -27,36 +27,46 @@ import {
   encodePreviewPath,
   isBinaryPreviewable,
 } from "kolu-common/preview";
-import type { PrResult, TerminalId } from "kolu-common/surface";
+import type { TerminalId } from "kolu-common/surface";
 import { listWorkFiles } from "kolu-common/workFiles";
-import type { GitInfo } from "kolu-git/schemas";
-import { keptOf, type Work, type WorkId, waterfallFileName } from "kolu-work";
+import {
+  hostOf,
+  keptOf,
+  waterfallFileName,
+  type Work,
+  type WorkId,
+} from "kolu-work";
 import { type Accessor, createMemo, isPending } from "solid-js";
 import { type CodeLister, repoLister } from "../code-view/codeLister";
 import { noTerminalToFetch } from "../code-view/codeSubject";
+import type { CommentQueue } from "../comments/types";
 import { runActionPromise } from "../runAction";
 import { padiMap } from "../wire";
 import type { MemberLine } from "./workFacts";
 
-/** WHERE a work's files are read from while it is in progress: the worktree
- *  the work itself keeps (`Work.worktree`), on its host — and the member
- *  terminal standing in it ({@link memberInWorktree}) whose address a picture
- *  is fetched from and whose comments a file carries, or `null` while none
- *  is. */
+/** WHERE a work's files are read from while it is in progress: the folder git
+ *  last named for the work's own key (`Work.worktree`), on the key's host —
+ *  and a terminal serving that folder ({@link terminalServing}), whose address
+ *  a picture is fetched from, or `null` while none is. */
 export interface WorkPlace {
   readonly host: string;
   readonly repoPath: string;
   readonly terminalId: TerminalId | null;
-  /** Who lists the worktree's root — the member's own git reading says
-   *  whether it is a folder git cannot list; with no member standing in it,
-   *  git, which says so loudly in the tree's banner if it cannot. */
+  /** Who lists the folder's root — a serving terminal's own git reading says
+   *  whether it is a folder git cannot list; with none, git, which says so
+   *  loudly in the tree's banner if it cannot. */
   readonly lister: CodeLister;
 }
 
-/** The one line for an open work whose worktree kolu has not read yet — what
- *  the Worktree part and the Code view both say. */
+/** The one line for an open work whose folder git has not been asked about
+ *  yet — what the Worktree part and the Code view both say. */
 export const WORKTREE_UNREAD =
   "kolu has not read where this work is working yet.";
+
+/** ... and the one line for a work whose branch git says is checked out
+ *  nowhere on its host — what the Worktree part and the Code view both say. */
+export const WORKTREE_ABSENT =
+  "This work's branch is not checked out anywhere on its host.";
 
 /** ONE ROW of a work's file list: the path as the record holds it, and — for
  *  a file kolu kept — how many bytes it kept. */
@@ -74,12 +84,15 @@ export interface WorkFilesRead {
 
 /** WHERE A WORK'S FILES COME FROM — the live worktree, or kolu's own copy.
  *
- *  `at` is the terminal the bytes (and the comments on them) belong to, and
- *  `null` is the whole of "these are the files kolu kept": a kept file has no
- *  tree to anchor a comment to, and every face reads that one flag rather
- *  than re-deciding what a `null` place means. */
+ *  `at` is the terminal the bytes are fetched through, `null` when no
+ *  terminal serves them (a kept copy, or a live folder nobody stands in).
+ *  `comments` is whose comments they are: the work's own queue for the live
+ *  folder, `null` for a kept copy, which has no tree to anchor a comment to.
+ *  Two facts, because they are: a work's comments never depend on which
+ *  terminal is up. */
 export interface WorkFileSource {
   readonly at: { host: string; terminalId: TerminalId } | null;
+  readonly comments: CommentQueue | null;
   readonly list: () => Promise<WorkFilesRead>;
   readonly read: (path: string) => Promise<FileWithSource | FileWithUrl>;
 }
@@ -88,44 +101,39 @@ export interface WorkFileSource {
  *  waterfall writes into is where kolu looks, not a thing a person reads. */
 export const workFileName = waterfallFileName;
 
-/** A MEMBER STANDING IN THE WORKTREE: a member terminal on the worktree's
- *  host, here, whose own git reading names the worktree's top folder — with
- *  that reading. */
-export interface WorktreeMember {
+/** A TERMINAL SERVING A FOLDER: its id, the address a picture in the folder is
+ *  fetched through, and who lists the folder's root. */
+export interface ServingTerminal {
   readonly terminalId: TerminalId;
-  readonly git: GitInfo;
-  readonly pr: PrResult | null;
+  readonly lister: CodeLister;
 }
 
-/** THE ONE ANSWER to "which member terminal speaks for this worktree".
- *
- *  Being on the same host is not enough: a terminal's file route serves a
- *  path under that terminal's CURRENT repo root, and its live git facts are
- *  about where it stands now. A member that changed directory into another
- *  checkout speaks for that checkout — borrowed, it would fetch a work's
- *  picture out of the other repository and paint the other branch's pull
- *  request on this work. So the member must stand IN the worktree: its own
- *  git reading names the same top folder. */
-export function memberInWorktree(
+/** A TERMINAL THROUGH WHICH A FOLDER'S BYTES CAN BE FETCHED — the file route's
+ *  own precondition, and nothing about the work. A terminal's file route
+ *  serves a path under that terminal's CURRENT repo root, so the terminal
+ *  must be here, on the folder's host, with its own git reading naming the
+ *  same top folder. Which work it is in, and what it carries, is not asked. */
+export function terminalServing(
   host: string,
   path: string,
   members: ReadonlyArray<MemberLine>,
-): WorktreeMember | null {
+): ServingTerminal | null {
   for (const one of members) {
     if (one.split?.host !== host) continue;
     const standing = one.standing;
     if (standing?.kind !== "here") continue;
     const arm = activeArm(standing.meta);
     if (arm?.git.kind === "repo" && arm.git.info.repoRoot === path)
-      return { terminalId: one.split.id, git: arm.git.info, pr: arm.pr };
+      return { terminalId: one.split.id, lister: repoLister(arm.git.info) };
   }
   return null;
 }
 
-/** WHERE A WORK'S LIVE FILES ARE — the ONE reading of a work's worktree in
- *  the browser: the worktree the work keeps on its own record, which
- *  outlives its terminals, and none for a work kolu has not read one for yet.
- *  The files, the Worktree part and the Code view all read this.
+/** WHERE A WORK'S LIVE FILES ARE — the ONE reading of a work's folder in the
+ *  browser: the folder git last named for the work's own key, on the key's
+ *  host, kept on the work's own record so it outlives its terminals; none
+ *  for a work whose folder git has not named. The files, the Worktree part
+ *  and the Code view all read this.
  *
  *  A work that has ENDED reads the copies kolu kept instead, so this answers
  *  `null` for one. */
@@ -133,16 +141,16 @@ export function workPlaceOf(
   work: Work,
   members: ReadonlyArray<MemberLine>,
 ): WorkPlace | null {
-  if (work.state.kind !== "open" || work.worktree.kind !== "read") return null;
-  const { host, path } = work.worktree;
-  // The terminal a picture's address and a comment hang on: a member
-  // standing in the worktree, by the one rule above.
-  const member = memberInWorktree(host, path, members);
+  if (work.state.kind !== "open" || work.worktree.kind !== "at") return null;
+  const host = hostOf(work);
+  const path = work.worktree.path;
+  // The terminal a picture's address hangs on: one serving the folder.
+  const serving = terminalServing(host, path, members);
   return {
     host,
     repoPath: path,
-    terminalId: member?.terminalId ?? null,
-    lister: member === null ? "git" : repoLister(member.git),
+    terminalId: serving?.terminalId ?? null,
+    lister: serving?.lister ?? "git",
   };
 }
 
@@ -179,6 +187,9 @@ export function workFileSource(
     });
     return {
       at: null,
+      // A kept copy has nothing to anchor a comment to once its worktree is
+      // gone.
+      comments: null,
       list: () => Promise.resolve({ rows, more: false }),
       read: (path) => readKeptFile(id, path),
     };
@@ -188,6 +199,9 @@ export function workFileSource(
       place.terminalId === null
         ? null
         : { host: place.host, terminalId: place.terminalId },
+    // THE WORK'S OWN QUEUE: which member serves the bytes, or whether any
+    // does, has nothing to do with whose comments these are.
+    comments: { kind: "work", id },
     list: () => listLiveFiles(place),
     read: (path) => readWorkFile(place, path),
   };

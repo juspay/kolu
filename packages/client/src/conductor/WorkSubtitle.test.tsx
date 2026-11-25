@@ -2,18 +2,19 @@
 /**
  * The line under a work's title wears the Dock's identity colours — the same
  * hue for the same repository and branch as the Dock's own display projection
- * gives a terminal there — and carries the Dock's PR pip only while a member's
- * record has the PR live.
+ * gives a terminal there — and carries the Dock's PR pip only while the work's
+ * own PR reading has its PR live.
  */
 
 import { LOCAL_LOCATION } from "@kolu/padi-client/surface";
 import type { TerminalMetadata } from "@kolu/padi-client/surface";
 import type { PrInfo } from "anyforge/schemas";
-import type { TerminalId } from "kolu-common/surface";
-import type { Work } from "kolu-work";
+import type { PrResult, TerminalId } from "kolu-common/surface";
+import { ABOUT_WORK, type Work } from "kolu-work";
 import { render } from "@solidjs/web";
 import { afterEach, describe, expect, it } from "vitest";
 import { buildTerminalDisplayInfos } from "../terminal/terminalDisplay";
+import { workPrOf } from "./workPr";
 import WorkSubtitle from "./WorkSubtitle";
 
 const work = (key: Work["key"]): Work => ({
@@ -31,7 +32,25 @@ const BRANCH_WORK = work({
   host: "local",
   repo: "/srv/code/tidepool",
   branch: "feat/csv-export",
+  repoBy: { kind: "git" },
 });
+
+/** The same work, with #412 on its timeline. */
+const OPENED: Work = {
+  ...BRANCH_WORK,
+  events: [
+    {
+      at: "2026-01-01T09:00:00.000Z",
+      by: "kolu",
+      kind: "pr-opened",
+      about: ABOUT_WORK,
+      pr: 412,
+      title: "Add CSV export",
+      url: { kind: "link", href: "https://example.test/pull/412" },
+      draft: "ready",
+    },
+  ],
+};
 
 const PR: PrInfo = {
   number: 412,
@@ -75,9 +94,13 @@ const DOCK_TERMINAL: TerminalMetadata = {
 let dispose: (() => void) | undefined;
 afterEach(() => dispose?.());
 
-function mount(one: Work, livePr: PrInfo | null): HTMLElement {
+/** Mount the line for a work, with the reading filed under its id. */
+function mount(one: Work, reading: PrResult | undefined): HTMLElement {
   const host = document.createElement("div");
-  dispose = render(() => <WorkSubtitle work={one} livePr={livePr} />, host);
+  dispose = render(
+    () => <WorkSubtitle work={one} pr={workPrOf(one, reading)} />,
+    host,
+  );
   return host;
 }
 
@@ -92,7 +115,7 @@ describe("the line under a work's title", () => {
       () => DOCK_TERMINAL,
       () => [id],
     ).get(id);
-    const el = mount(BRANCH_WORK, null);
+    const el = mount(BRANCH_WORK, undefined);
     expect(part(el, "work-branch")?.textContent).toBe("feat/csv-export");
     expect(
       part(el, "work-branch")?.style.getPropertyValue("--annotation-color"),
@@ -102,15 +125,21 @@ describe("the line under a work's title", () => {
     ).toBe(dock?.repoColor);
   });
 
-  it("carries the PR pip only while the PR is live", () => {
-    expect(part(mount(BRANCH_WORK, null), "dock-row-pr-pip")).toBeNull();
+  it("carries the PR pip only while the work's own PR is live", () => {
+    expect(part(mount(OPENED, undefined), "dock-row-pr-pip")).toBeNull();
     dispose?.();
-    const pip = part(mount(BRANCH_WORK, PR), "dock-row-pr-pip");
+    const pip = part(
+      mount(OPENED, { kind: "ok", value: PR }),
+      "dock-row-pr-pip",
+    );
     expect(pip?.getAttribute("href")).toBe("https://example.test/pull/412");
   });
 
   it("says a watch is a watch, with no repository to paint", () => {
-    const el = mount(work({ kind: "watch", terminal: "local/a" }), null);
+    const el = mount(
+      work({ kind: "watch", host: "local", id: "a" }),
+      undefined,
+    );
     expect(part(el, "work-repo-monogram")).toBeNull();
     expect(part(el, "work-branch")).toBeNull();
     expect(part(el, "work-subtitle")?.textContent).toContain("watching");

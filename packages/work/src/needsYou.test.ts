@@ -33,6 +33,7 @@ const ID = workIdOf({
   host: "local",
   repo: "/home/me/code/kolu",
   branch: "agents-closure-in-cache",
+  repoBy: { kind: "git" },
 });
 
 /** A full waterfall set up with `on-green` answered as given. */
@@ -61,6 +62,7 @@ const setUp = (onGreen: "merge" | "hand-over"): Work => {
       host: "local",
       repo: "/home/me/code/kolu",
       branch: "agents-closure-in-cache",
+      repoBy: { kind: "git" },
     },
     title: "Published agents fetchable by any host",
     at: at(0),

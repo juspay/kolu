@@ -1620,16 +1620,16 @@ const CodeTab: Component<{
                             // raw hunk string so the highlight overlay re-anchors
                             // when a live edit re-diffs the file.
                             //
-                            // The terminal is read through `terminalId()` INSIDE
+                            // The queue is read through `props.subject` INSIDE
                             // the JSX — this `Match` callback only runs on a
-                            // falsy→truthy entry, and a terminal switch between
-                            // two terminals showing the same file never re-enters
-                            // it (the diff query key carries no terminal id), so a
-                            // snapshot here would leave the surface wired to the
-                            // previous terminal. With none, the same drawn diff
+                            // falsy→truthy entry, and a subject switch between
+                            // two showing the same file never re-enters it (the
+                            // diff query key carries no queue), so a snapshot
+                            // here would leave the surface wired to the
+                            // previous queue. With none, the same drawn diff
                             // stays, with commenting off.
                             <CommentTextSurface
-                              terminalId={terminalId()}
+                              queue={props.subject.comments}
                               path={path}
                               contentTick={d().hunks[0] ?? ""}
                               class="h-full w-full"
@@ -1656,6 +1656,7 @@ const CodeTab: Component<{
                         when this branch was entered. */}
                       <BrowseFileDispatcher
                         at={fileAt()}
+                        comments={props.subject.comments}
                         open={props.door.open}
                         filePath={path}
                         file={browseFile()}
@@ -1719,13 +1720,13 @@ const CodeTab: Component<{
               </Show>
             </Resizable.Panel>
           </Resizable>
-          {/* Commenting needs a terminal to hang the comments on: with none, the
+          {/* Commenting needs a queue to file the comments in: with none, the
             tray and the composer are absent. */}
-          <Show when={terminalId()}>
-            {(present) => (
+          <Show when={props.subject.comments}>
+            {(queue) => (
               <>
                 <CommentsTray
-                  terminalId={present()}
+                  queue={queue()}
                   onJumpTo={(comment) => {
                     // Two complementary highlights on land:
                     //   1. Pierre's blue line bar (full-row selection)
@@ -1773,7 +1774,7 @@ const CodeTab: Component<{
                     });
                   }}
                 />
-                <CommentComposer terminalId={present()} />
+                <CommentComposer queue={queue()} />
               </>
             )}
           </Show>

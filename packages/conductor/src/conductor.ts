@@ -109,6 +109,7 @@ import {
   type HttpServer,
 } from "@kolu/acp-harness";
 import type { CellStore } from "@kolu/surface/server";
+import type { BranchCheckout } from "@kolu/padi-client/surface";
 import type { PrResult } from "@kolu/terminal-vocab/schema";
 import { Option, Schema } from "effect";
 import {
@@ -197,9 +198,8 @@ import {
   type WaterfallRole,
   type Work,
   type WorkId,
-  type WorkKey,
+  type ParsedWorkKey,
   type WorkMember,
-  workIdOf,
   WorkRefusal,
   type WorkRole,
 } from "kolu-work";
@@ -209,9 +209,8 @@ import { aboutBlock } from "./aboutBlock.ts";
 import { asking } from "./asking.ts";
 import { attachments } from "./attachments.ts";
 import { Fleet, koluCallOf, refineKoluCall } from "./kolu.ts";
-import { memberStore } from "./memberStore.ts";
 import type { WatchJoin } from "./members.ts";
-import type { PrWatch, WatchObservation } from "./observation.ts";
+import type { BranchWatch, WatchObservation } from "./observation.ts";
 import { observing } from "./observing.ts";
 import {
   type PersistedConductor,
@@ -238,11 +237,12 @@ import {
 } from "./memoryStore.ts";
 import { bringOverMessage, memoryBlock } from "./memoryBlock.ts";
 import { recordWrites } from "./recordWrites.ts";
+import { rekeyWork } from "./rekeyWork.ts";
 import { teaching } from "./teaching.ts";
 import { wakes } from "./wakes.ts";
 import type { WorkFiles } from "./workFiles.ts";
 import { workCodeViewStore } from "./workCodeViewStore.ts";
-import { type MemberDetail, workStore } from "./workStore.ts";
+import { type MemberDetail, type RekeyDone, workStore } from "./workStore.ts";
 
 /** What a reader of the transcript stream is handed, in order: one snapshot,
  *  then deltas, for as long as it is subscribed. */
@@ -495,7 +495,7 @@ export interface ConductorHost {
    * kolu WAKES it with what they said. Nothing here waits on a person.
    */
   readonly openWork: (intent: {
-    readonly key: WorkKey;
+    readonly key: ParsedWorkKey;
     readonly title: string;
     readonly setup: ReadonlyArray<SetupAsk>;
   }) => Promise<{
@@ -513,8 +513,27 @@ export interface ConductorHost {
    *  card's button (after its confirm), `conductor` is `work_stop`. Its
    *  members leave in the same step and its open questions are dropped. */
   readonly stopWork: (work: WorkId, by: "you" | "conductor") => void;
-  /** ... and bring one back: Ended → Open, decisions and timeline kept. */
+  /** ... and bring one back: Ended → Open, decisions and timeline kept —
+   *  refused (`branch-open`) while another work is open on its branch. */
   readonly reopenWork: (work: WorkId) => void;
+  /** RE-KEY A BRANCH WORK TO THE ROOT GIT NAMED, and carry everything that
+   *  names it along: the work store's re-key (members, Code view, live PR,
+   *  kept files), the conversation's rows that name the work, and the news
+   *  held about it. A `given:<id>` ask id is a name, not a pointer, and is
+   *  left as it was. Nothing is removed. Answers once the re-key has run, in
+   *  the kept-files queue; `deferred` is one left for the next answer. */
+  readonly rekeyWork: (work: WorkId, root: string) => Promise<RekeyDone>;
+  /** The stored branch works on `host` and `branch` whose repository git has
+   *  not named yet, ended ones included and each saying whether it is open —
+   *  what `work_open` re-keys before it opens anything. */
+  readonly unrootedWorks: (
+    host: string,
+    branch: string,
+  ) => ReadonlyArray<{
+    readonly id: WorkId;
+    readonly repo: string;
+    readonly open: boolean;
+  }>;
   /** A QUESTION ABOUT A WORK, put to the human as one ask the work knows about
    *  — so the answer is a decision kept with the work, and the card, the chat
    *  and the reader all draw and answer the one decision.
@@ -711,13 +730,14 @@ export interface ConductorHost {
    * departure is ordinary.
    */
   readonly observe: (seen: ReadonlyArray<WatchObservation>) => void;
-  /** THE PULL-REQUEST WATCH'S SCOPE — every piece of work in progress that is
-   *  a BRANCH on a machine, with the host, repository and branch kolu asks
-   *  that host about. Beside {@link ConductorHost.memberRefs} and not folded
-   *  into it: a work's pull request is watched whether or not a terminal is
-   *  left, which is the whole of why a work the Conductor merged and then
-   *  closed the terminals of now ends ({@link ConductorHost.observedPr}). */
-  readonly prWatches: () => ReadonlyArray<PrWatch>;
+  /** THE BRANCH WATCH'S SCOPE — every piece of work in progress that is a
+   *  BRANCH on a machine, with the host, repository and branch kolu asks that
+   *  host about: its pull request and where it is checked out. Beside
+   *  {@link ConductorHost.memberRefs} and not folded into it: a work's branch
+   *  is watched whether or not a terminal is left, which is the whole of why
+   *  a work the Conductor merged and then closed the terminals of now ends
+   *  ({@link ConductorHost.observedPr}). */
+  readonly branchWatches: () => ReadonlyArray<BranchWatch>;
   /**
    * WHAT THE WORK'S OWN PULL-REQUEST WATCH READ — one reading of one work's
    * branch, off the host it is on.
@@ -729,6 +749,11 @@ export interface ConductorHost {
    * calls this not at all — nothing is concluded from silence.
    */
   readonly observedPr: (work: WorkId, pr: PrResult) => void;
+  /** WHAT THE WORK'S OWN CHECKOUT WATCH READ — git's answer, off the host the
+   *  work is on, for where its branch is checked out. The one writer of a
+   *  branch work's folder; an answer that is not a repository concludes
+   *  nothing. */
+  readonly observedCheckout: (work: WorkId, checkout: BranchCheckout) => void;
   /** ONE CHUNK of a file on its way up, ahead of the prompt that names it.
    *
    *  The first call for an id creates the file, each later one passes back
@@ -895,6 +920,10 @@ export interface ConductorDeps {
     terminal: string,
     reading: MemberReading | null,
   ) => void;
+  /** ... and ONE WORK'S PULL REQUEST, LIVE — the `workPrs` collection,
+   *  keyed by work id: the forge's last answer for the work's own branch,
+   *  as its watch read it. `null` REMOVES it (the work ended or went). */
+  readonly publishPr: (id: WorkId, pr: PrResult | null) => void;
   /** THE MEMORY MOVED — the `conductorMemory` cell's writer. */
   readonly publishMemory: (memory: ConductorMemoryView) => void;
   /** ... and WHERE ONE WORK'S CODE VIEW STANDS — the `workCodeViews`
@@ -1059,6 +1088,7 @@ export function startConductorHost(deps: ConductorDeps): ConductorHost {
     publish,
     publishWork,
     publishReading,
+    publishPr,
     publishMember,
     publishWorkCodeView,
     worksMoved,
@@ -1305,8 +1335,6 @@ export function startConductorHost(deps: ConductorDeps): ConductorHost {
 
   // ── the hands ──────────────────────────────────────────────────────────
 
-  const members = memberStore();
-
   const codeViews = workCodeViewStore({
     records,
     publish: publishWorkCodeView,
@@ -1317,6 +1345,7 @@ export function startConductorHost(deps: ConductorDeps): ConductorHost {
     publishWork,
     publishMember,
     publishReading,
+    publishPr,
     worksMoved,
     watchScopeMoved,
     // A WORK THAT ENDED TOOK ITS QUESTIONS WITH IT — the store recorded them
@@ -1339,10 +1368,11 @@ export function startConductorHost(deps: ConductorDeps): ConductorHost {
       void wake.flush();
     },
     records,
-    members,
     views: codeViews,
     log,
   });
+  /** The members, as the other half of the works' one value. */
+  const members = works.members;
 
   const spool = attachments({
     stateRoot,
@@ -1477,6 +1507,7 @@ export function startConductorHost(deps: ConductorDeps): ConductorHost {
       hostNames.set(host, name);
     },
     publishState,
+    rekey: (id, root) => rekey(id, root),
     worksMoved,
     watchScopeMoved,
     flush: () => {
@@ -1861,6 +1892,22 @@ export function startConductorHost(deps: ConductorDeps): ConductorHost {
     });
   };
 
+  /** A WORK RE-KEYED TO THE ROOT GIT NAMED — `./rekeyWork.ts`'s one
+   *  composition, handed this host's rows and held news. */
+  const rekey = (id: WorkId, root: string): Promise<RekeyDone> =>
+    rekeyWork(
+      {
+        works,
+        rows,
+        upsertRows: (upserts) =>
+          applyRows({ upserts, removes: [], appends: [] }),
+        news: wake,
+        publishState,
+      },
+      id,
+      root,
+    );
+
   /** Bring the conversation up, once, and hand back the same promise to every
    *  caller that arrives while it is in flight — so two readers opening at the
    *  same instant cannot spawn two adapters. */
@@ -2205,6 +2252,7 @@ export function startConductorHost(deps: ConductorDeps): ConductorHost {
     state: frameNow,
     observe: observer.observe,
     observedPr: observer.observedPr,
+    observedCheckout: observer.observedCheckout,
     watch: (sink) => {
       // Opening the transcript IS looking at the conversation: it is the edge
       // that reads the remembered record AND the edge that brings the agent
@@ -2301,12 +2349,12 @@ export function startConductorHost(deps: ConductorDeps): ConductorHost {
       remembered();
       return works.memberRefs();
     },
-    prWatches: () => {
+    branchWatches: () => {
       // The same boot read `memberRefs` makes, and for the same reason: the
       // watch asks at boot, and a conversation spawned to answer "which
       // branches have work in flight" is a subprocess nobody asked for.
       remembered();
-      return works.prWatches();
+      return works.branchWatches();
     },
     membersDetail: () => {
       remembered();
@@ -2314,6 +2362,29 @@ export function startConductorHost(deps: ConductorDeps): ConductorHost {
     },
     openWork: async (intent) => {
       remembered();
+      // A WATCH IS ITS KEY: one terminal, the person's own, run by nobody. It
+      // has no mode to choose and no role to fill, so a setup on one is
+      // refused rather than stored for a reader to obey.
+      if (intent.key.kind === "watch") {
+        if (intent.setup.length > 0)
+          throw new WorkRefusal(
+            "watch-one-terminal",
+            `«${intent.title}» is a watch of one terminal, and a watch takes no setup: open it with \`watch\` alone. Nothing was created.`,
+          );
+        const watched = works.openFor({
+          key: intent.key,
+          title: intent.title,
+          request: newestRequest(),
+        });
+        return {
+          work: watched.id,
+          setup: setupOf(watched.work),
+          ask: `given:${watched.id}`,
+          asked: false,
+          created: watched.created,
+          reopened: watched.reopened,
+        };
+      }
       const offer = deps.offer();
       // NO HARNESS QUESTION FOR A HOST WITH NOTHING TO RUN: a setup that asks
       // which harness runs a role is refused, naming the host and what to do,
@@ -2351,7 +2422,7 @@ export function startConductorHost(deps: ConductorDeps): ConductorHost {
       // longer stands in the question's own words (only keys with no answer
       // are asked otherwise, so a role whose saved answer cannot start would
       // never be asked again). Both against ONE reading of the host.
-      const before = works.get(workIdOf(intent.key));
+      const before = Option.map(works.forKey(intent.key), ([, work]) => work);
       const given = givenAnswersOf(
         intent.setup.flatMap((one) =>
           isKoluChoiceKey(one.key) && one.given.kind === "given"
@@ -2656,6 +2727,14 @@ export function startConductorHost(deps: ConductorDeps): ConductorHost {
       remembered();
       works.reopen(id);
       publishState();
+    },
+    rekeyWork: (id, root) => {
+      remembered();
+      return rekey(id, root);
+    },
+    unrootedWorks: (host, branch) => {
+      remembered();
+      return works.unrooted(host, branch);
     },
     joinWork: (id, ref, role, joined) => {
       remembered();

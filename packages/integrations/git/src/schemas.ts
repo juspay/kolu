@@ -30,6 +30,34 @@ export const GitInfoSchema = Schema.Struct({
   ),
 });
 
+/** WHERE A BRANCH IS CHECKED OUT in the repository at a path, as git answers
+ *  it on this host — the repository's root (by the rule `resolveGitInfo`
+ *  uses for `mainRepoRoot`), and the folder the branch is checked out in, or
+ *  none.
+ *
+ *  `not-a-repository` is git saying the path is no repository;
+ *  `unavailable` is git not answering, with its reason. Neither concludes
+ *  anything about the branch. */
+export const BranchCheckoutSchema = Schema.Union([
+  Schema.Struct({ kind: Schema.Literal("not-a-repository") }),
+  Schema.Struct({
+    kind: Schema.Literal("unavailable"),
+    reason: Schema.String,
+  }),
+  Schema.Struct({
+    kind: Schema.Literal("repository"),
+    root: Schema.NonEmptyString,
+    checkout: Schema.Union([
+      Schema.Struct({ kind: Schema.Literal("none") }),
+      Schema.Struct({
+        kind: Schema.Literal("at"),
+        path: Schema.NonEmptyString,
+      }),
+    ]),
+  }),
+]);
+export type BranchCheckout = typeof BranchCheckoutSchema.Type;
+
 // --- Git worktree operations ---
 
 /** The worktree-name rule as a bare predicate. Catches the common ref-name

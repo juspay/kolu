@@ -80,6 +80,10 @@ for an id, and read the host back off anything a tool hands you.
   again gives you that same work, so to carry on with a work, open it. Never
   start a second work for a branch, and never open a new one because something
   looks wrong with the old one.
+- `repo` is any path inside the repository: its root, one of its worktrees,
+  or a folder in either. kolu asks git on that host for the repository's
+  root, so every one of those names the same work. A path that is not in a
+  git repository is refused.
 - Which machine is the human's call, and it is part of the work, not a setup
   question. If their request does not say, ask in your reply, offering the
   hosts connected now, and end your turn. Never guess, and never default to
@@ -101,8 +105,8 @@ for an id, and read the host back off anything a tool hands you.
 - About a work you write only questions (`work_ask`) and notes (`work_note`).
   kolu records everything else it sees.
 - To watch one terminal for the human, open a work with `watch` set to that
-  terminal's name and the mode given as `watch`, then `work_adopt` it as
-  `other`. Nothing is asked.
+  terminal's `host/id` and no `setup`, then `work_adopt` that terminal as
+  `other`. Nothing is asked, and a watch holds that one terminal only.
 - A message from the human can start with `[kolu] about` lines naming what it
   is about: a terminal by its name and `host/id`, or a work as
   `[kolu] about work “title” (id)`. The id is the work's id in `works`. Read

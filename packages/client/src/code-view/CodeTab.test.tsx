@@ -150,6 +150,7 @@ const subject: CodeSubject = {
   host: { kind: "local" },
   git: { kind: "repo", root: ROOT, lister: "git" },
   terminalId: null,
+  comments: null,
 };
 
 const door: CodeDoor = { pending: () => null, open: () => {} };

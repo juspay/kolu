@@ -67,6 +67,7 @@ import {
   WORK_ROLES,
   type WorkRole,
   waterfallFileName,
+  workIdOf,
 } from "kolu-work";
 import { type NonEmpty, nonEmpty } from "nonempty";
 import { hostLabel } from "../host/hostChipTone";
@@ -437,11 +438,13 @@ export function workSubtitleParts(
   hostName: Option.Option<string>,
 ): { readonly where: WorkWhere; readonly rest: ReadonlyArray<string> } {
   const setup = setupOf(work);
+  const where = workWhere(work);
   return {
-    where: workWhere(work),
+    where,
     rest: [
       ...Option.toArray(hostName),
-      ...Option.toArray(setup.mode),
+      // A watch's mode is its key: the lead already says "watching".
+      ...(where.kind === "watch" ? [] : Option.toArray(setup.mode)),
       ...Option.toArray(
         Option.map(
           prOf(work),
@@ -476,11 +479,37 @@ export function outcomeWords(outcome: Outcome): string {
     case "closed":
       return `Closed #${outcome.pr}`;
     case "stopped":
-      return outcome.by === "you"
-        ? "Stopped by you"
-        : "Stopped by the Conductor";
+      switch (outcome.by) {
+        case "you":
+          return "Stopped by you";
+        case "conductor":
+          return "Stopped by the Conductor";
+        case "kolu":
+          return "Stopped by kolu: its branch runs as another work";
+        default:
+          return outcome.by satisfies never;
+      }
   }
 }
+
+/** WHY A WORK IS STILL UNDER ITS OLD KEY — the card's line. A work whose
+ *  root's key already belonged to another work when git first answered for
+ *  it keeps its old key, `held`; the line names the work holding the branch
+ *  now — by its title, or "another work" once that one has dropped off the
+ *  finished list. A key that is not held reads none. */
+export const heldWords = (
+  work: Work,
+  works: ReadonlyMap<WorkId, Work>,
+): Option.Option<string> => {
+  const key = work.key;
+  if (key.kind !== "branch" || key.repoBy.kind !== "held") return Option.none();
+  const root = key.repoBy.root;
+  const holder = works.get(workIdOf({ ...key, repo: root }));
+  const who = holder === undefined ? "another work" : `«${holder.title}»`;
+  return Option.some(
+    `Kept under its old key: ${who} holds ${key.branch} in ${repoName(root)}`,
+  );
+};
 
 /** WHERE IT STANDS, in the words the card draws: a lead that names the waiter
  *  and the detail after it.
