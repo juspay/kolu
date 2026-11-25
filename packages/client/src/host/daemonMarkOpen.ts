@@ -54,20 +54,16 @@ export function useDaemonMarkOpen(host: HostKey): DaemonMarkOpen {
   // last saw shown over an active canvas.
   let minted = 0;
   const [request, setRequest] = createSignal(0);
-  const shown = createMemo<{ token: number; show: boolean }>(
-    (prev) => {
-      const token = request();
-      if (token === 0) return { token, show: false };
-      const active = sameHost(activeHost(), host);
-      // A fresh click shows over the host it just switched to; a standing
-      // request only survives while the canvas stays on `host`.
-      return {
-        token,
-        show: token !== prev.token ? active : prev.show && active,
-      };
-    },
-    { token: 0, show: false },
-  );
+  const shown = createMemo<{ token: number; show: boolean }>((prev) => {
+    const token = request();
+    if (token === 0) return { token, show: false };
+    const active = sameHost(activeHost(), host);
+    // A fresh click shows over the host it just switched to; a standing
+    // request only survives while the canvas stays on `host`.
+    if (prev === undefined || prev.token !== token)
+      return { token, show: active };
+    return { token, show: prev.show && active };
+  });
   const open = (): boolean => shown().show;
   const write = (next: boolean): void => {
     setRequest(next ? ++minted : 0);
