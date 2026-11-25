@@ -17,7 +17,12 @@
  *  (`rowRecencyAt`). Parked (activity-window) rows are dropped the same way
  *  the Dock drops them. */
 
-import { rosterHolds, type TerminalMetadata } from "@kolu/padi-client/surface";
+import {
+  type PadiRoster,
+  type PadiTerminal,
+  rosterHolds,
+  type TerminalMetadata,
+} from "@kolu/padi-client/surface";
 import { unenrolledStreamCall } from "@kolu/surface/client";
 import {
   createReactiveSubscription,
@@ -168,6 +173,37 @@ const GONE: FleetTerminalStanding = { kind: "gone" };
 const LOADING: FleetTerminalStanding = { kind: "loading" };
 const UNREACHABLE: FleetTerminalStanding = { kind: "unreachable" };
 
+/** HOW ONE TERMINAL STANDS, from the four reads that decide it — the rule
+ *  itself, so it can be driven over a real collection view without a host map
+ *  (`fleetStanding.test.ts`).
+ *
+ *  `census` is the host's own roster standing, which rides the same frame as
+ *  the list it qualifies. A padi still adopting (a fresh daemon, a kaval
+ *  recycle) has no census, and reading its silence as a death is what
+ *  recorded live terminals as gone on every redeploy (#2376) — as was reading
+ *  the `terminals` collection beside the standing, since the two are separate
+ *  members and this browser reads them through kolu-server's per-host mirror,
+ *  which can have folded one and not the other. */
+export function terminalStandingFrom(args: {
+  readonly id: TerminalId;
+  readonly connected: boolean;
+  /** The host entry's own word while it is not connected. */
+  readonly warming: boolean;
+  readonly census: PadiRoster | undefined;
+  /** The terminal's record, READ ONLY once the census says the host holds it:
+   *  a record this host does not hold is not a dependency of its standing. */
+  readonly record: () => PadiTerminal | undefined;
+}): FleetTerminalStanding {
+  if (!args.connected) return args.warming ? LOADING : UNREACHABLE;
+  if (args.census === undefined) return LOADING;
+  const held = rosterHolds(args.census, args.id);
+  if (held === null) return LOADING;
+  if (!held) return GONE;
+  const record = args.record();
+  if (record === undefined) return LOADING;
+  return isParked(record) ? GONE : { kind: "here", meta: record };
+}
+
 /** Per-host activity-window threshold for the fleet index — THIS host's
  *  preference. Prefer the live HostScope when born; otherwise the canonical
  *  non-reactive reader in createHostPrefs (same key + parse). */
@@ -249,27 +285,16 @@ const useFleetHosts = createSharedRoot(() => {
         return out;
       });
 
-      const standing = (id: TerminalId): FleetTerminalStanding => {
-        if (!connected()) {
-          return entry.state().kind === "warming" ? LOADING : UNREACHABLE;
-        }
-        // IS IT THERE? asked of the host's own CENSUS, which rides the same
-        // frame as the standing that says whether there is one. A padi still
-        // adopting (a fresh daemon, a kaval recycle) has no census, and
-        // reading its silence as a death is what recorded live terminals as
-        // gone on every redeploy (#2376) — as was reading the `terminals`
-        // collection beside the standing, since the two are separate members
-        // and this browser reads them through kolu-server's per-host mirror,
-        // which can have folded one and not the other.
-        const census = roster.value();
-        if (census === undefined) return LOADING;
-        const held = rosterHolds(census, id);
-        if (held === null) return LOADING;
-        if (!held) return GONE;
-        const record = terminals.byKey(id)?.();
-        if (record === undefined) return LOADING;
-        return isParked(record) ? GONE : { kind: "here", meta: record };
-      };
+      const standing = (id: TerminalId): FleetTerminalStanding =>
+        terminalStandingFrom({
+          id,
+          connected: connected(),
+          warming: entry.state().kind === "warming",
+          // READ TOGETHER, in the one frame: the host's census and the record
+          // it qualifies (`terminalStandingFrom`).
+          census: roster.value(),
+          record: () => terminals.byKey(id)?.(),
+        });
 
       return { encHost, rows, standing };
     },
