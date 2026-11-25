@@ -183,7 +183,7 @@ const WorkChoiceQuestion: Component<{
   /** WHAT THIS QUESTION IS BEING ASKED OF — the harness and the checkout, or
    *  nothing to ask of and why. Compared by value for the same reason as
    *  {@link harness}, and ONE value rather than a nullable because it is what
-   *  the boundary below is armed on and all its content reads. */
+   *  the model read below is made from and what all its content reads. */
   const subject = createMemo<Subject>(
     () => {
       const one = Option.getOrUndefined(harness());
@@ -304,10 +304,10 @@ const WorkChoiceQuestion: Component<{
 
   /** THE QUESTION AS IT IS DRAWN, for ONE offer — the three states a person
    *  must tell apart, each with its own face. The offer is a prop because the
-   *  boundaries' own offers are drawn by the same face: what is still being
-   *  asked (the `Loading` fallback) and what could not be asked (the
-   *  `Errored` one) are offers like any other, and the chips, the box and the
-   *  seeding behave the same under each. */
+   *  same face draws every one of them: what is still being asked (the
+   *  pending model read, {@link asking}) and what could not be asked (the
+   *  `Errored` fallback's offer, {@link unread}) are offers like any other,
+   *  and the chips, the box and the seeding behave the same under each. */
   const Offered: Component<{ readonly offer: Offer }> = (shown) => {
     const waiting = () => (shown.offer.kind === "waiting" ? shown.offer : null);
     const failed = () => (shown.offer.kind === "failed" ? shown.offer : null);
