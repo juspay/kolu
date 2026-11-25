@@ -66,6 +66,18 @@ describe("dragging a sidebar's edge", () => {
     expect(localStorage.getItem(NAME)).toBe("320");
   });
 
+  it("stores the width when the move and the release land in one frame", () => {
+    const { width, handle } = mount();
+    fire(handle, pointer("pointerdown", 100));
+    // No flush between these two: a synthesized gesture (the e2e's, a
+    // trackpad's two events in one task) delivers them in ONE synchronous
+    // run, where the move's staged signal write is not yet readable.
+    window.dispatchEvent(pointer("pointermove", 150));
+    window.dispatchEvent(pointer("pointerup", 150));
+    flush();
+    expect(width.stored()).toBe(290);
+  });
+
   it("clamps the drag into the sidebar's bounds", () => {
     const { handle, rendered } = mount();
     fire(handle, pointer("pointerdown", 100));
