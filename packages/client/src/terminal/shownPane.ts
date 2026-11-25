@@ -63,10 +63,9 @@ export interface ShownPaneFacts {
    *  (`foreignGrid.ts`) restates its size if the terminal no longer has it. */
   readonly viewShown: boolean;
   /** The host entry's state KIND as the pane's host map paints it right now —
-   *  carried because the two things this gate drives on the way through need
-   *  it and may not read it themselves: the publisher's restatement (judged
-   *  against `"connected"`) and, through the attach, the grid the pane opens
-   *  at. */
+   *  carried because the thing this gate drives on the way through needs it
+   *  and may not read it itself: the publisher's restatement, judged against
+   *  `"connected"`. */
   readonly hostState: string;
   /** The grid this pane has MEASURED, as the kit states it — non-null exactly
    *  when `shown` is true, since that is what MEASURED means. The attach opens
