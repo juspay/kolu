@@ -26,8 +26,10 @@
  *     halted-reactivity messages print through plain console calls, outside the
  *     diagnostics channel, so they carry no footer.
  *
- * Every extraction failure is fatal: an empty list or a missing footer means the
- * runtime moved and the lane would otherwise pass for having nothing to report.
+ * Every extraction failure is fatal, and each scanned dist must contribute at
+ * least one prefix of its own: a missing footer, or one package that went
+ * silent while the others still speak, means the runtime moved and the lane
+ * would otherwise pass for having nothing to report.
  */
 
 import { readdirSync, readFileSync, writeFileSync } from "node:fs";
@@ -80,14 +82,24 @@ const signalsDist = distDirOf(
   "@solidjs/signals",
 );
 
-const sources = [
-  join(solidDist, "solid.dev.js"),
-  join(webDist, "web.dev.js"),
-  ...readdirSync(signalsDist)
-    .filter((name) => name.startsWith("dev") && name.endsWith(".js"))
-    .sort()
-    .map((name) => join(signalsDist, name)),
+/** The scanned dists, each named by the package it belongs to. A dist is a
+ *  group because a package may split its development build over several files
+ *  (`@solidjs/signals` has `dev.js`, `dev-shared.js` and `dev.attribution.js`,
+ *  and only some carry warnings) while the package as a whole must contribute
+ *  at least one prefix. */
+const dists = [
+  { name: "solid-js", files: [join(solidDist, "solid.dev.js")] },
+  { name: "@solidjs/web", files: [join(webDist, "web.dev.js")] },
+  {
+    name: "@solidjs/signals",
+    files: readdirSync(signalsDist)
+      .filter((name) => name.startsWith("dev") && name.endsWith(".js"))
+      .sort()
+      .map((name) => join(signalsDist, name)),
+  },
 ];
+
+const sources = dists.flatMap((dist) => dist.files);
 
 const sourceText = new Map();
 for (const file of sources) {
@@ -150,11 +162,13 @@ function leadingLiteral(source, index) {
   return undefined;
 }
 
-/** Every `console.warn` / `console.error` whose first argument starts with a
- *  literal, as that literal's leading text. */
-function extractWarnings() {
+/** The prefixes one dist contributes: every `console.warn` / `console.error`
+ *  in its files whose first argument starts with a literal, as that literal's
+ *  leading text. */
+function warningsOf(dist) {
   const prefixes = new Set();
-  for (const source of sourceText.values()) {
+  for (const file of dist.files) {
+    const source = sourceText.get(file);
     for (const call of source.matchAll(/console\.(?:warn|error)\(\s*/g)) {
       const text = leadingLiteral(source, call.index + call[0].length);
       if (text === undefined) continue;
@@ -162,17 +176,27 @@ function extractWarnings() {
       if (prefix.length >= MIN_WARNING_LENGTH) prefixes.add(prefix);
     }
   }
-  return [...prefixes].sort();
+  return prefixes;
 }
 
 const marker = extractMarker();
-const warnings = extractWarnings();
-if (warnings.length === 0) {
-  fail(
-    `no console.warn/console.error literal found in ${sources.join(", ")} — ` +
-      `the development runtime moved its warnings`,
-  );
+// EACH DIST MUST STILL SPEAK. A non-empty total is not enough: `@solidjs/web`
+// contributes most of the prefixes, so a release that moved another package's
+// warnings behind a helper would leave the list long and the lane blind to
+// that package. Fail naming the dist that stopped.
+const prefixes = new Set();
+for (const dist of dists) {
+  const own = warningsOf(dist);
+  if (own.size === 0) {
+    fail(
+      `${dist.name} contributes no console.warn/console.error literal ` +
+        `(${dist.files.join(", ")}) — its development runtime moved its ` +
+        `warnings, and the lane would stop seeing them`,
+    );
+  }
+  for (const prefix of own) prefixes.add(prefix);
 }
+const warnings = [...prefixes].sort();
 
 writeFileSync(outFile, `${JSON.stringify({ marker, warnings }, null, 2)}\n`);
 console.log(

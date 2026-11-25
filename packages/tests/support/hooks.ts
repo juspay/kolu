@@ -1660,7 +1660,7 @@ Before(
 // Solid dev diagnostic fails, naming each. Defined BEFORE the main After hook
 // because Cucumber runs After hooks in reverse definition order, so this runs
 // last — after the teardown and failure artifacts, which a throw here must not
-// skip. Off the lane it has nothing to look at.
+// skip. On a production server it has nothing to look at: nothing collected it.
 After(function (this: KoluWorld) {
   if (this.solidDiagnostics.length === 0) return;
   throw new Error(

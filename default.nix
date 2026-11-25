@@ -671,7 +671,8 @@ let
   # and `warnings` are the leading literals of `@solidjs/web`'s and
   # `@solidjs/signals`' plain `console.warn`/`console.error` calls, which print
   # outside the diagnostics channel and so carry no footer. The script fails the
-  # build if either comes back empty (scripts/solid-dev-manifest.mjs).
+  # build if the footer is missing or any one of the three scanned dists
+  # contributes no prefix (scripts/solid-dev-manifest.mjs).
   #
   # Its own derivation, not a step inside `koluClientSolidDevBuild`: BOTH client
   # dists are checked against the marker, and `koluClientDist` must not have to
@@ -863,9 +864,12 @@ let
         exit 1
       fi
       # The lane's own input: served at `/solid-dev.json`, and useless without
-      # the warning prefixes the harness matches console lines against.
-      if [ "$(jq -r '.warnings | length' "$out/solid-dev.json")" -lt 1 ]; then
-        echo "${label}: solid-dev.json carries no warning prefixes — the e2e lane would see only footered diagnostics." >&2
+      # the warning prefixes the harness matches console lines against. The
+      # script requires at least one from each of the three scanned dists
+      # (solid-js, @solidjs/web, @solidjs/signals) and fails naming the one
+      # that stopped; the dist checks the same floor on what it ships.
+      if [ "$(jq -r '.warnings | length' "$out/solid-dev.json")" -lt 3 ]; then
+        echo "${label}: solid-dev.json carries fewer warning prefixes than the three scanned Solid dists contribute — the e2e lane would see only footered diagnostics from the rest." >&2
         exit 1
       fi
     '' else ''

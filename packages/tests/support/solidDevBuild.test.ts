@@ -128,3 +128,10 @@ test("any other value of the flag is a caller bug", async () => {
     await assert.rejects(solidDevCheckFor(baseUrl), /must be "1"/);
   });
 });
+
+test("a bad flag fails even when the server serves a manifest", async () => {
+  await withLaneFlag("0", async () => {
+    const baseUrl = await serve(DEV_FILES);
+    await assert.rejects(solidDevCheckFor(baseUrl), /must be "1"/);
+  });
+});

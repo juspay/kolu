@@ -37,7 +37,9 @@
  *  `ci::e2e-solid-dev` beside the dev-mode `KOLU_SERVER`; any other value is a
  *  caller bug and fails rather than quietly running the ordinary suite. Read
  *  where it is used — the flag asserts a fact about the server this worker just
- *  started, so it is checked when that server is asked, not at import. */
+ *  started, so it is checked when that server is asked, not at import — and
+ *  read unconditionally, so a misspelt value fails whatever that server
+ *  serves. */
 function laneDemandsDevBuild(): boolean {
   const raw = process.env.KOLU_E2E_SOLID_DEV;
   if (raw === undefined) return false;
@@ -73,14 +75,16 @@ const MANIFEST_PATH = "/solid-dev.json";
  * a check on over a production bundle.
  *
  * On the lane (`KOLU_E2E_SOLID_DEV=1`) a server without the manifest is a
- * failure — that lane exists to run the dev-mode build.
+ * failure — that lane exists to run the dev-mode build. The flag itself is
+ * read first, so any other value fails before the server is asked anything.
  */
 export async function solidDevCheckFor(
   baseUrl: string,
 ): Promise<SolidDevCheck | undefined> {
+  const lane = laneDemandsDevBuild();
   const manifest = await fetchManifest(baseUrl);
   if (manifest === undefined) {
-    if (laneDemandsDevBuild()) {
+    if (lane) {
       throw new Error(
         `Solid-diagnostics lane: the server at ${baseUrl} serves no ${MANIFEST_PATH}, ` +
           `so its client is not built on Solid's development runtime. ` +
