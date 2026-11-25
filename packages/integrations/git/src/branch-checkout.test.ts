@@ -32,6 +32,7 @@ import { SKIP_DARWIN_FSWATCH } from "./fs-watch-delivery.testlib.ts";
 import {
   _resetSharedHeadWatchers,
   _settledSharedHeadWatchers,
+  _sharedHeadWatcherCount,
 } from "./head-watcher.ts";
 import type { BranchCheckout } from "./schemas.ts";
 import { testGit } from "./testGit.ts";
@@ -254,22 +255,31 @@ describe.skipIf(SKIP_DARWIN_FSWATCH)(
       stop();
     });
 
-    it("keeps watching through an answer that is no listing", async () => {
-      // git stops placing the repository for a moment — its HEAD is moved
-      // aside — and then does again. The HEAD watchers armed by the last
-      // listing stay, so the switch after it is still seen.
-      const { dir, git } = await repo("follow-through-an-error");
+    it("keeps every HEAD watcher through an answer git could not give", async () => {
+      // A switch written by hand while git cannot read its own config: the
+      // HEAD watcher asks, and git answers nothing it can list. The watchers
+      // the last LISTING armed stay — an error is not a listing.
+      const { dir } = await repo("follow-through-an-error");
+      const linked = path.join(dir, ".worktrees", "work");
+      await testGit(dir).raw(["worktree", "add", linked, "other"]);
       const { answers, stop } = await follow(dir, "feature");
-      const head = path.join(dir, ".git", "HEAD");
-      fs.renameSync(head, `${head}.aside`);
-      await waitFor(() => answers.length === 2);
-      expect(answers[1]).toEqual({ kind: "not-a-repository" });
-      fs.renameSync(`${head}.aside`, head);
-      await waitFor(() => answers.length === 3);
-      await git.checkout("feature");
-      await waitFor(() => answers.length === 4);
-      expect(answers[3]).toEqual(at(dir, dir));
-      stop();
+      // The main checkout and the linked one.
+      expect(_sharedHeadWatcherCount()).toBe(2);
+      const config = path.join(dir, ".git", "config");
+      const good = fs.readFileSync(config, "utf-8");
+      try {
+        fs.writeFileSync(config, "[core\n");
+        fs.writeFileSync(
+          path.join(dir, ".git", "HEAD"),
+          "ref: refs/heads/other\n",
+        );
+        await waitFor(() => answers.at(-1)?.kind === "unavailable");
+        await _settledSharedHeadWatchers();
+        expect(_sharedHeadWatcherCount()).toBe(2);
+      } finally {
+        fs.writeFileSync(config, good);
+        stop();
+      }
     });
 
     it("answers once a folder that was no repository becomes one", async () => {

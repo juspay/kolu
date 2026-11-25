@@ -214,6 +214,17 @@ describe("a picked work's Code view", () => {
     expect(h.tabs).toHaveLength(0);
   });
 
+  it("says in one line that the branch is checked out nowhere, never that it is unread", () => {
+    mount(() => (
+      <WorkCode id={ID} work={workOn({ kind: "absent" })} members={[]} />
+    ));
+    expect(
+      document.querySelector("[data-testid=work-code-absent]")?.textContent,
+    ).toBe("This work's branch is not checked out anywhere on its host.");
+    expect(document.querySelector("[data-testid=work-code-unread]")).toBeNull();
+    expect(h.tabs).toHaveLength(0);
+  });
+
   it("is about the worktree on the work's host, borrowing the member standing in it", () => {
     mount(() => <WorkCode id={ID} work={readWork} members={[inside]} />);
     expect(h.tabs[0]?.subject()).toEqual({
@@ -221,6 +232,7 @@ describe("a picked work's Code view", () => {
       host: { kind: "remote", target: "build-box" },
       git: { kind: "repo", root: WORKTREE, lister: "git" },
       terminalId: INSIDE,
+      comments: { kind: "work", id: ID },
     });
   });
 
@@ -231,6 +243,7 @@ describe("a picked work's Code view", () => {
       host: { kind: "remote", target: "build-box" },
       git: { kind: "repo", root: WORKTREE, lister: "git" },
       terminalId: null,
+      comments: { kind: "work", id: ID },
     });
   });
 
