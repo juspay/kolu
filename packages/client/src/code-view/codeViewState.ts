@@ -116,32 +116,28 @@ export function createCodeHistories<K>(): CodeHistories<K> {
   };
 }
 
-/** The five history verbs of {@link CodeViewState}, over whichever stack is
- *  the place's NOW — `null` while there is no owner to have one (no pane),
- *  where every verb answers "nowhere to go".
+/** The three history-WRITING verbs of {@link CodeViewState}, over whichever
+ *  stack is the place's NOW — `null` while there is no owner to have one (no
+ *  pane), where every verb answers "nowhere to go".
  *
  *  `browser` MUST NOT read reactive state: `recordNavigation` is called from
  *  the EFFECT PHASE (a Code view records the front-door open its resolution
  *  landed), where a signal/store read is STRICT_READ_UNTRACKED. A home whose
  *  stack is keyed on something reactive (which pane has focus) keeps that key
- *  in a plain field of its own and looks the stack up with it here; the two
- *  enablement accessors are read in JSX, so they stay as they are. */
+ *  in a plain field of its own and looks the stack up with it here. The two
+ *  ENABLEMENT accessors are NOT here: they are read in JSX, where this
+ *  write-phase key would answer about whichever pane was focused last, so each
+ *  home spells them on its own live focus. */
 export function codeHistoryVerbs(
   browser: () => Browser<BrowserLocation> | null,
 ): Pick<
   CodeViewState,
-  | "recordNavigation"
-  | "navigateBack"
-  | "navigateForward"
-  | "canNavigateBack"
-  | "canNavigateForward"
+  "recordNavigation" | "navigateBack" | "navigateForward"
 > {
   return {
     recordNavigation: (loc) => browser()?.navigate(loc),
     navigateBack: () => browser()?.back() ?? null,
     navigateForward: () => browser()?.forward() ?? null,
-    canNavigateBack: () => browser()?.canBack() ?? false,
-    canNavigateForward: () => browser()?.canForward() ?? false,
   };
 }
 

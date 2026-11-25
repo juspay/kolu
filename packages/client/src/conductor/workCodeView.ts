@@ -172,6 +172,8 @@ export function workCodeState(
       });
     },
     ...codeHistoryVerbs(() => histories.browserFor(work)),
+    canNavigateBack: () => histories.browserFor(work).canBack(),
+    canNavigateForward: () => histories.browserFor(work).canForward(),
   };
 }
 
