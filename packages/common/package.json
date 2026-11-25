@@ -19,7 +19,8 @@
     "./defaultPort": "./src/defaultPort.ts",
     "./test-hooks": "./src/test-hooks.ts",
     "./preview": "./src/preview.ts",
-    "./workFiles": "./src/workFiles.ts"
+    "./workFiles": "./src/workFiles.ts",
+    "./solidDiagnostics": "./src/solidDiagnostics.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
