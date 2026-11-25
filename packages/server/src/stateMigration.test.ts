@@ -2873,24 +2873,29 @@ describe("the 1.61.0 rung — a pull request says whether it opened as a draft",
       ]),
     );
     // The head's later rungs add to a work (1.64.0: its worktree; 1.67.0: a
-    // `hand-offs-kept` at its end); this rung is held to what IT moves.
+    // `hand-offs-kept` at its end; 1.68.0: who named its key's repo); this
+    // rung is held to what IT moves.
     expect(
       Object.fromEntries(
         Object.entries(
           state.works as Record<
             string,
-            { events: ReadonlyArray<{ kind: string }> } & Record<
-              string,
-              unknown
-            >
+            {
+              events: ReadonlyArray<{ kind: string }>;
+              key: Record<string, unknown>;
+            } & Record<string, unknown>
           >,
-        ).map(([id, { worktree: _later, events, ...rest }]) => [
-          id,
-          {
-            ...rest,
-            events: events.filter((event) => event.kind !== "hand-offs-kept"),
-          },
-        ]),
+        ).map(([id, { worktree: _later, events, key, ...rest }]) => {
+          const { repoBy: _named, ...written } = key;
+          return [
+            id,
+            {
+              ...rest,
+              key: written,
+              events: events.filter((event) => event.kind !== "hand-offs-kept"),
+            },
+          ];
+        }),
       ),
     ).toEqual(expected);
     expect(
@@ -3394,8 +3399,13 @@ describe("the 1.67.0 rung — a saved work says its hand-offs were not recorded"
       ended,
       kept(at(50)),
     ]);
+    // The live schema is the head's: the next rung (1.68.0) is what makes
+    // this work one it decodes, so it runs before the decode.
+    workFactsAreTheWorks_1_68_0(conf as never);
     expect(
-      Result.isSuccess(Schema.decodeUnknownResult(PersistedWorksSchema)(works)),
+      Result.isSuccess(
+        Schema.decodeUnknownResult(PersistedWorksSchema)(conf.get("works")),
+      ),
     ).toBe(true);
   });
 
@@ -3412,6 +3422,7 @@ describe("the 1.67.0 rung — a saved work says its hand-offs were not recorded"
   it("lets the replay read a work no planner joined as the build, not guess at a review", () => {
     const conf = saved();
     handOffsKept_1_67_0(conf as never);
+    workFactsAreTheWorks_1_68_0(conf as never);
     const works = Schema.decodeUnknownSync(PersistedWorksSchema)(
       conf.get("works"),
     );

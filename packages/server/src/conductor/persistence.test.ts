@@ -96,6 +96,7 @@ import {
   prFactsOnTheTimeline_1_57_0,
   prOpenedSaysDraft_1_61_0,
   workArmsNotNulls_1_55_0,
+  workFactsAreTheWorks_1_68_0,
   workKeepsItsWorktree_1_64_0,
 } from "../stateLadder.ts";
 import { TRANSCRIPT_FILE_VERSION } from "../stateShape.ts";
@@ -837,35 +838,32 @@ describe("the conductor's rungs", () => {
       fileAt("1.46.0", { conductor: held }),
       "1.46-pre-release",
     );
-    // ONE work — the second entry's `root` names the first — holding both
-    // terminals as members, with each entry's own wake bookkeeping carried
-    // onto its member verbatim.
+    // ONE work — the second entry's `root` names the first — keyed by the
+    // first terminal: a WATCH. A watch IS its own terminal (1.68.0), so that
+    // one stays its member with its wake bookkeeping carried on verbatim,
+    // and the second is not lost silently: it LEAVES, on the timeline.
     const ids = Object.keys(migrated.works);
     expect(ids.length).toBe(1);
     const id = ids[0] ?? "";
     const work = migrated.works[id];
     if (work === undefined) throw new Error("the watch list lost its work");
     expect(work.title).toBe("build");
-    // ... and both terminals are members of it, in the ONE members map keyed
-    // by ref, with each entry's own wake bookkeeping carried on verbatim.
     const watched = migrated.members;
     expect(
       Object.entries(watched)
         .filter(([, one]) => one.work === id)
         .map(([ref]) => ref),
-    ).toEqual([FLEET_REF, OTHER_REF]);
+    ).toEqual([FLEET_REF]);
+    expect(
+      work.events.flatMap((event) =>
+        event.kind === "left" ? [[event.about, event.why]] : [],
+      ),
+    ).toEqual([[{ kind: "member", terminal: OTHER_REF }, "released"]]);
     expect([
       watched[FLEET_REF]?.watch.told,
-      watched[OTHER_REF]?.watch.told,
-    ]).toEqual(["stopped", null]);
-    expect([
       watched[FLEET_REF]?.watch.joined,
-      watched[OTHER_REF]?.watch.joined,
-    ]).toEqual(["asked", "created-run"]);
-    expect([
       watched[FLEET_REF]?.watch.spoken,
-      watched[OTHER_REF]?.watch.spoken,
-    ]).toEqual([false, true]);
+    ]).toEqual(["stopped", "asked", false]);
     // Every member's role is `other`: roles arrived with works, and a watch
     // is exactly "keep an eye on this".
     expect(Object.values(watched).every((one) => one.role === "other")).toBe(
@@ -955,14 +953,22 @@ describe("the conductor's rungs", () => {
       Object.entries(migrated.members)
         .filter(([, one]) => one.work === id)
         .map(([ref]) => ref);
+    // A watch IS its own terminal (1.68.0): the group's second terminal is
+    // not a member of it any more, and it LEFT on the timeline rather than
+    // vanished.
     expect(
       all.map((one, at) => [one.title, memberRefs(ids[at] ?? "")]),
     ).toEqual([
-      ["plan the cutover", [FLEET_REF, OTHER_REF]],
+      ["plan the cutover", [FLEET_REF]],
       ["a plain watch", [THIRD_REF]],
     ]);
-    // NOT A TERMINAL LOST, and each age is the one the person was already
-    // being shown — the earliest join in its group, never this boot.
+    expect(
+      all[0]?.events.flatMap((event) =>
+        event.kind === "left" ? [[event.about, event.why]] : [],
+      ),
+    ).toEqual([[{ kind: "member", terminal: OTHER_REF }, "released"]]);
+    // NOT A TERMINAL LOST SILENTLY, and each age is the one the person was
+    // already being shown — the earliest join in its group, never this boot.
     expect(all.map((one) => one.startedAt)).toEqual([
       "2026-01-01T00:00:00.000Z",
       "2026-01-01T00:20:00.000Z",
@@ -1331,6 +1337,9 @@ describe("the human's real store, one observation later", () => {
     prFactsOnTheTimeline_1_57_0(store);
     prOpenedSaysDraft_1_61_0(store);
     workKeepsItsWorktree_1_64_0(store);
+    // The live schema says who named a key's repo (1.68.0): the store must
+    // have walked that rung to be one this build reads.
+    workFactsAreTheWorks_1_68_0(store);
     const id = Object.keys(folded.works)[0] ?? "";
 
     const over = hostOver();
