@@ -103,17 +103,16 @@ function defaultSerialize<T>(value: T): string {
 /** The {@link PersistedPrefOptions.sync} for a `localStorage` value every page
  *  of this ORIGIN shares: the browser's `storage` event, handed on without
  *  the writer's address. `makePersisted` drops a sync event whose `url` is not
- *  this page's own address — `@solid-primitives/storage` 5.0.0,
- *  `dist/persisted.js:88`:
- *  `!isServer && (data.url || globalThis.location.href) !== globalThis.location.href ||`
- *  — and `storageSync` hands the event on as it is, so a page opened from a
- *  kolu link, which keeps the link (`#/…`) in its address bar, never heard
- *  the other pages, nor they it. `localStorage` is one store per origin, and
- *  the address a page shows does not change what it reads.
+ *  this page's own address (`@solid-primitives/storage`'s sync handler
+ *  compares `data.url` with `location.href`), and `storageSync` hands the
+ *  event on as it is, so a page opened from a kolu link, which keeps the link
+ *  (`#/…`) in its address bar, never heard the other pages, nor they it.
+ *  `localStorage` is one store per origin, and the address a page shows does
+ *  not change what it reads.
  *
  *  WHY THIS STEPS AROUND THE LIBRARY instead of fixing it there: no released
- *  version removes that check (4.3.x and 4.4.0 carry it at `:46`, 5.0.0 at
- *  `:88`). Kept here by decision until a release drops it.
+ *  version removes that check (every release through 5.0.0 carries it). Kept
+ *  here by decision until a release drops it.
  *
  *  The subscribe half returns its unsubscribe, which `makePersisted` calls from
  *  the disposer it hands back (see {@link persistedPref}). */
