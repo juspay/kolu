@@ -52,14 +52,26 @@ export function useEvent<Name extends string, I, T>(
   // The stopper for the ACTIVE subscription. Undefined while the input is `null`
   // (paused) — there is no fiber to interrupt then.
   let stopActive: (() => void) | undefined;
+  /** This hook's lifetime is OVER — set by {@link end} and read by {@link start},
+   *  so a view whose lifetime ended cannot be left holding a fiber. */
+  let ended = false;
 
+  /** Interrupt the running fiber, leaving the hook able to open another: this is
+   *  also the input-change teardown, which is why it does NOT latch. */
   function stop(): void {
     stopActive?.();
     stopActive = undefined;
   }
 
+  /** End the hook for good — the owner disposed, or the signal aborted. */
+  function end(): void {
+    ended = true;
+    stop();
+  }
+
   function start(input: I): void {
-    stopActive = runStreamScoped<T>(
+    if (ended) return;
+    const stopFiber = runStreamScoped<T>(
       unenrolledStreamCall(source, input, { label: eventDescriptor.name }),
       {
         onFrame: handler,
@@ -69,6 +81,14 @@ export function useEvent<Name extends string, I, T>(
         onFailure: options.onError,
       },
     );
+    // The lifetime can END from INSIDE the call above: a handler that aborts the
+    // signal on the first occurrence, or a source whose first step does, runs
+    // before the stopper exists, so that `end` found nothing to stop. Re-check
+    // and stop it here — otherwise the fiber and the wire subscription behind it
+    // outlive the view with no handle left. (`createStreamLifecycle` carries the
+    // same latch for the same reason.)
+    if (ended) stopFiber();
+    else stopActive = stopFiber;
   }
 
   // Single cleanup path: external signal OR `onCleanup`. Never both — avoids dual
@@ -80,11 +100,11 @@ export function useEvent<Name extends string, I, T>(
   // every other view-opening primitive here.
   if (options.signal) {
     if (options.signal.aborted) return;
-    options.signal.addEventListener("abort", stop, { once: true });
+    options.signal.addEventListener("abort", end, { once: true });
   } else {
     if (!getOwner())
       throw noLifetimeRefusal({ name: "useEvent", acceptsSignal: true });
-    onCleanup(stop);
+    onCleanup(end);
   }
 
   // ONE effect opens every subscription, the first one included: the compute reads
