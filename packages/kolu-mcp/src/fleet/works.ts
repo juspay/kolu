@@ -37,7 +37,7 @@
 
 import type { AgentModelLaunch } from "@kolu/agent-distro/models";
 import type { PadiSurfaceClient } from "@kolu/padi-client/dial";
-import type { PadiTerminal } from "@kolu/padi-client/surface";
+import type { BranchCheckout, PadiTerminal } from "@kolu/padi-client/surface";
 import { activeAgent } from "@kolu/padi-client/terminalVocab";
 import { firstFrameOrThrow } from "@kolu/surface/first-frame";
 import { type BespokeTool, ToolFailure } from "@kolu/surface-mcp/tools";
@@ -655,6 +655,30 @@ export type WorkKeyRefusal =
       readonly reason: string;
     };
 
+/** WHAT GIT ON `host` SAYS ABOUT `branch` IN `repo`, AS ONE ANSWER — a host
+ *  that could not be asked is git not answering: `unavailable`, saying why.
+ *  Both readers below switch on the three arms and nothing else. */
+const checkoutOf = (
+  hosts: FleetHosts,
+  padi: PadiSurfaceClient,
+  host: string,
+  repo: string,
+  branch: string,
+): Effect.Effect<BranchCheckout> =>
+  Effect.match(
+    firstFrameOrThrow(
+      padi.surface.branchCheckout.get({ repoPath: repo, branch }),
+      `${host} answered nothing about ${repo}.`,
+    ),
+    {
+      onFailure: (cause): BranchCheckout => ({
+        kind: "unavailable",
+        reason: `could not ask ${hosts.display(host)}: ${String(cause)}`,
+      }),
+      onSuccess: (reading) => reading,
+    },
+  );
+
 /** THE KEY `work_open` NAMES, PARSED AT THE DOOR — a branch whose repository
  *  git on that host named, or a watch of a terminal its host holds. Nothing
  *  a caller typed reaches the store unparsed:
@@ -698,17 +722,7 @@ export function parseWorkKey(
     );
   return Effect.flatMap(requireHost(hosts, host), (padi) =>
     Effect.flatMap(
-      Effect.mapError(
-        firstFrameOrThrow(
-          padi.surface.branchCheckout.get({ repoPath: repo, branch }),
-          `${host} answered nothing about ${repo}.`,
-        ),
-        (cause) =>
-          new ToolFailure<WorkKeyRefusal>(
-            `could not ask ${hosts.display(host)} about ${repo}: ${String(cause)}. Nothing was created.`,
-            { kind: "git-unavailable", host, repo, reason: String(cause) },
-          ),
-      ),
+      checkoutOf(hosts, padi, host, repo, branch),
       (reading): Effect.Effect<ParsedWorkKey, ToolFailure> => {
         switch (reading.kind) {
           case "repository":
@@ -767,47 +781,36 @@ export function rekeyBeforeOpen(
   return Effect.flatMap(requireHost(hosts, host), (padi) =>
     Effect.forEach(
       pending,
-      ({ work, repo, open }) => {
-        /** Git did not place an earlier work: a refusal for an open one,
-         *  nothing for a finished one. */
-        const unplaced = (
-          why: string,
-          reason: string,
-        ): Effect.Effect<void, ToolFailure> =>
-          open
-            ? Effect.fail(
-                new ToolFailure<WorkKeyRefusal>(
-                  `${why} where the earlier work ${work}, still in progress on ${branch}, stands (${repo}): ${reason}. Nothing was created.`,
-                  { kind: "git-unavailable", host, repo, reason },
-                ),
-              )
-            : Effect.void;
-        return Effect.matchEffect(
-          firstFrameOrThrow(
-            padi.surface.branchCheckout.get({ repoPath: repo, branch }),
-            `${host} answered nothing about ${repo}.`,
-          ),
-          {
-            onFailure: (cause) =>
-              unplaced(`could not ask ${hosts.display(host)}`, String(cause)),
-            onSuccess: (reading): Effect.Effect<void, ToolFailure> => {
-              switch (reading.kind) {
-                case "repository":
-                  return Effect.promise(() => works.rekey(work, reading.root));
-                case "not-a-repository":
-                  return Effect.void;
-                case "unavailable":
-                  return unplaced(
-                    `git on ${hosts.display(host)} would not say`,
-                    reading.reason,
-                  );
-                default:
-                  return reading satisfies never;
-              }
-            },
+      ({ work, repo, open }) =>
+        Effect.flatMap(
+          checkoutOf(hosts, padi, host, repo, branch),
+          (reading): Effect.Effect<void, ToolFailure> => {
+            switch (reading.kind) {
+              case "repository":
+                return Effect.promise(() => works.rekey(work, reading.root));
+              case "not-a-repository":
+                return Effect.void;
+              case "unavailable":
+                // Git did not place an earlier work: a refusal for an open
+                // one, nothing for a finished one.
+                return open
+                  ? Effect.fail(
+                      new ToolFailure<WorkKeyRefusal>(
+                        `git on ${hosts.display(host)} would not say where the earlier work ${work}, still in progress on ${branch}, stands (${repo}): ${reading.reason}. Nothing was created.`,
+                        {
+                          kind: "git-unavailable",
+                          host,
+                          repo,
+                          reason: reading.reason,
+                        },
+                      ),
+                    )
+                  : Effect.void;
+              default:
+                return reading satisfies never;
+            }
           },
-        );
-      },
+        ),
       { discard: true },
     ),
   );
