@@ -21,77 +21,86 @@ const AUTH_COMMAND = "gh auth login -s repo,read:org";
 
 export const ProviderUnavailableContent: Component<{
   source: PrUnavailableSource;
-}> = (props) =>
-  match(props.source)
-    .with({ provider: "gh" }, ({ code }) => (
-      <GhUnavailableContent code={code} />
-    ))
-    .exhaustive();
+}> = (props) => (
+  // The dispatch runs in JSX, not as the component's expression body: a body
+  // is a strict-read window, and a match made there would freeze on the first
+  // unavailable reason the popover was handed.
+  <>
+    {match(props.source)
+      .with({ provider: "gh" }, ({ code }) => (
+        <GhUnavailableContent code={code} />
+      ))
+      .exhaustive()}
+  </>
+);
 
 const GhUnavailableContent: Component<{ code: GhUnavailableCode }> = (
   props,
-) => {
-  return match(props.code)
-    .with("not-authenticated", () => (
-      <>
-        <div class="font-medium text-fg">GitHub not authenticated</div>
-        <p class="text-fg-2 leading-relaxed">
-          Kolu reads PRs via <code class="font-mono">gh</code>. Run this once in
-          any terminal:
-        </p>
-        <CopyCommandButton
-          command={AUTH_COMMAND}
-          testId="pr-unavailable-copy"
-        />
-        <p class="text-fg-3 leading-relaxed">
-          Scopes <code class="font-mono">repo</code> and{" "}
-          <code class="font-mono">read:org</code> cover private repos and
-          org-owned PRs.
-        </p>
-      </>
-    ))
-    .with("not-installed", () => (
-      <>
-        <div class="font-medium text-fg">GitHub CLI not installed</div>
-        <p class="text-fg-2 leading-relaxed">
-          Kolu reads PRs via <code class="font-mono">gh</code>. Install it from{" "}
-          <a
-            href="https://cli.github.com"
-            target="_blank"
-            rel="noopener noreferrer"
-            class="text-accent hover:underline"
-          >
-            cli.github.com
-          </a>{" "}
-          and relaunch kolu.
-        </p>
-        <p class="text-fg-3 leading-relaxed">
-          Nix installs bundle <code class="font-mono">gh</code> automatically —
-          if you see this, the wrapper isn't in use.
-        </p>
-      </>
-    ))
-    .with("timed-out", () => (
-      <>
-        <div class="font-medium text-fg">GitHub timed out</div>
-        <p class="text-fg-2 leading-relaxed">
-          <code class="font-mono">gh pr view</code> took longer than 5s. Kolu
-          will retry on the next branch change or polling tick.
-        </p>
-      </>
-    ))
-    .with("unknown", () => (
-      <>
-        <div class="font-medium text-fg">GitHub lookup failed</div>
-        <p class="text-fg-2 leading-relaxed">
-          An unrecognized error from <code class="font-mono">gh</code>. Check
-          kolu server logs for details; kolu will retry on the next branch
-          change.
-        </p>
-      </>
-    ))
-    .exhaustive();
-};
+) => (
+  <>
+    {match(props.code)
+      .with("not-authenticated", () => (
+        <>
+          <div class="font-medium text-fg">GitHub not authenticated</div>
+          <p class="text-fg-2 leading-relaxed">
+            Kolu reads PRs via <code class="font-mono">gh</code>. Run this once
+            in any terminal:
+          </p>
+          <CopyCommandButton
+            command={AUTH_COMMAND}
+            testId="pr-unavailable-copy"
+          />
+          <p class="text-fg-3 leading-relaxed">
+            Scopes <code class="font-mono">repo</code> and{" "}
+            <code class="font-mono">read:org</code> cover private repos and
+            org-owned PRs.
+          </p>
+        </>
+      ))
+      .with("not-installed", () => (
+        <>
+          <div class="font-medium text-fg">GitHub CLI not installed</div>
+          <p class="text-fg-2 leading-relaxed">
+            Kolu reads PRs via <code class="font-mono">gh</code>. Install it
+            from{" "}
+            <a
+              href="https://cli.github.com"
+              target="_blank"
+              rel="noopener noreferrer"
+              class="text-accent hover:underline"
+            >
+              cli.github.com
+            </a>{" "}
+            and relaunch kolu.
+          </p>
+          <p class="text-fg-3 leading-relaxed">
+            Nix installs bundle <code class="font-mono">gh</code> automatically
+            — if you see this, the wrapper isn't in use.
+          </p>
+        </>
+      ))
+      .with("timed-out", () => (
+        <>
+          <div class="font-medium text-fg">GitHub timed out</div>
+          <p class="text-fg-2 leading-relaxed">
+            <code class="font-mono">gh pr view</code> took longer than 5s. Kolu
+            will retry on the next branch change or polling tick.
+          </p>
+        </>
+      ))
+      .with("unknown", () => (
+        <>
+          <div class="font-medium text-fg">GitHub lookup failed</div>
+          <p class="text-fg-2 leading-relaxed">
+            An unrecognized error from <code class="font-mono">gh</code>. Check
+            kolu server logs for details; kolu will retry on the next branch
+            change.
+          </p>
+        </>
+      ))
+      .exhaustive()}
+  </>
+);
 
 const PrUnavailablePopover: Component<{
   open: boolean;
