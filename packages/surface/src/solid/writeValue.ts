@@ -33,8 +33,7 @@
  *     adopts whatever proxy stands at that index (`applyAdopt` :6592, "keyless
  *     item: positional fallback");
  *   - `reconcile(v, null)` makes every element keyless: the whole array merges
- *     by position. This is Solid 1.9's `{ key, merge: true }`, NOT its
- *     `{ key: null }` — measured here on a 3→4 mid-insert, the proxy that was
+ *     by position — measured here on a 3→4 mid-insert, the proxy that was
  *     record `b` comes to hold record `mid` and the one that was `c` comes to
  *     hold `b`. Solid 2 has no spelling of "replace every element" among its
  *     three documented key forms; the one below is how this module asks for it.
@@ -45,7 +44,14 @@
  *   - at the ROOT, a key that reads different on the two frames is not a
  *     replacement but a THROW — "Cannot reconcile states with different
  *     identity" (`reconcileState` :6553). This module answers that case itself
- *     (see {@link frameMerge}) by replacing, which is what Solid 1.9 did.
+ *     (see {@link frameMerge}) by replacing, which is what a frame-by-frame
+ *     merge means: the member now holds a different entity.
+ *   - a value `reconcile` cannot reach at all — a `Date`, `Map`, `Set`, typed
+ *     array or class instance — is served RAW by the store (`isWrappable`
+ *     :1969; the draft get traps :5737, :5782 hand such a child back
+ *     unwrapped), so there is no proxy to merge into and `reconcileState`
+ *     :6556 throws "reconcile target is not a store proxy". {@link frameMerge}
+ *     answers that case too, on EITHER side, by replacing.
  *
  * A level nothing is observing is skipped: with a key, `descend` adopts only
  * where a node exists below (`:6837`), so an unread row is replaced whatever the
@@ -140,16 +146,16 @@
  * nested object that happens to carry it is merged in place while it reads the
  * same, and REPLACED WHOLE the moment it reads different. At the member's root
  * that same mismatch is Solid's "different identity" throw rather than a
- * replacement, so this module makes it a replacement — the Solid 1.9 behaviour
- * and the only one a frame-by-frame merge can mean.
+ * replacement, so this module makes it a replacement — the only reading a
+ * frame-by-frame merge admits.
  *
- * An undeclared member keeps the same replaced-never-recycled law it always had,
- * and the same suite pinning it; what changed underneath is that the objects it
- * protects are the store's proxies rather than the frame's rows, because Solid 2
- * never mutates a frame at all.
+ * An undeclared member is replaced-never-recycled, and the suite beside this
+ * file pins it. The objects that law protects are the store's PROXIES: a frame
+ * is adopted by pointer swap and never mutated, so a row's identity is the
+ * proxy standing at its slot, not the frame object behind it.
  */
 
-import { reconcile, type StoreSetter } from "solid-js";
+import { isWrappable, reconcile, type StoreSetter } from "solid-js";
 
 /** The key an INCOMING frame's array element answers under an undeclared
  *  member. Any defined value does: the previous frame's elements are not in the
@@ -195,23 +201,42 @@ function freshElementKey(next: object): (item: unknown) => unknown {
       : undefined;
 }
 
+/** Solid's own rule for "can a merge reach into this value?", imported rather
+ *  than restated so this module cannot drift from the check it is pre-empting:
+ *  a plain object, a null-prototype object or an array is WRAPPABLE; a `Date`,
+ *  `Map`, `Set`, typed array, `RegExp` or class instance is not
+ *  (`@solidjs/signals` 2.0.3 `dist/dev.js` `isWrappable` :1969). The store
+ *  serves an unwrappable child RAW (the draft get traps :5737, :5782), so there
+ *  is no store proxy at that slot for `reconcileState` :6556 to merge into.
+ *
+ *  The `typeof` half is the narrowing `isWrappable`'s own signature cannot give
+ *  from `unknown` — it is the same question asked twice, never a second rule. */
+function mergeable(value: unknown): value is object {
+  return typeof value === "object" && value !== null && isWrappable(value);
+}
+
 /** The merge to run for this frame, or `null` when `next` must REPLACE what
  *  stands there rather than merge into it.
  *
- *  Three cases replace. Nothing mergeable is there yet (the first frame, or a
- *  primitive where an object now arrives) — `reconcile` requires a wrapped
- *  object and throws on anything else. And, under a declared key, a root whose
+ *  Three cases replace. Either side is something a merge cannot reach
+ *  ({@link mergeable}): nothing mergeable stands there yet (the first frame, or
+ *  a primitive where an object now arrives), or one of the two frames is a
+ *  `Date`/`Map`/`Set`/class instance, which the store serves raw — merging
+ *  into one throws "reconcile target is not a store proxy" on the SECOND frame,
+ *  and merging one IN would leave a non-proxy as a container's backing. A
+ *  member whose value is such a thing is REPLACED whole, frame for frame, which
+ *  is the only merge its shape admits. And, under a declared key, a root whose
  *  key reads DIFFERENT from the incoming one: that is a different entity, which
- *  `reconcileState` :6553 answers with a throw rather than a replacement
- *  (replacement is what the member means, and what Solid 1.9 did). A root key
- *  that reads `undefined` on the standing value is no mismatch — the member's
- *  key simply does not describe the root — and merges. */
+ *  `reconcileState` :6553 answers with a throw rather than a replacement, while
+ *  a replacement is what the member means. A root key that reads `undefined` on
+ *  the standing value is no mismatch — the member's key simply does not
+ *  describe the root — and merges. */
 function frameMerge<T extends object>(
   prev: unknown,
   next: T,
   arrayKey: string | undefined,
 ): ((state: object) => unknown) | null {
-  if (prev === null || typeof prev !== "object") return null;
+  if (!mergeable(prev) || !mergeable(next)) return null;
   if (arrayKey === undefined) {
     return reconcile<T, object>(next, freshElementKey(next));
   }
@@ -269,7 +294,7 @@ export function writeWrappedValue<T>(
   setStore((draft) => {
     const prev: unknown = draft.v;
     const merge = frameMerge(prev, frame, arrayKey);
-    if (merge === null || prev === null || typeof prev !== "object") {
+    if (merge === null || !mergeable(prev)) {
       draft.v = next;
       return;
     }

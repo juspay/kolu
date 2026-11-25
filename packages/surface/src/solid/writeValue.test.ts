@@ -12,12 +12,11 @@
  * the defect, in one sentence, and it is one a consumer feels directly.
  *
  * The identity assertions below FAIL under `reconcile(next, null)` — Solid 2's
- * positional merge, which is Solid 1.9's `merge: true` and not its `{key:null}`
- * — and pass under the undeclared key this package passes instead. The value
- * assertions pass under both, and are kept, and said to be kept, so nobody
- * mistakes them for the reproduction: the two spellings agree on VALUES, and
- * differ only in which proxies survive and therefore which readers notify.
- * Pinning only values would be a vacuous suite for this change.
+ * positional merge — and pass under the undeclared key this package passes
+ * instead. The value assertions pass under both, and are kept, and said to be
+ * kept, so nobody mistakes them for the reproduction: the two spellings agree
+ * on VALUES, and differ only in which proxies survive and therefore which
+ * readers notify. Pinning only values would be a vacuous suite for this change.
  *
  * Identity only EXISTS where something is observing: with a key, a merge adopts
  * a child only where a node lives below it (`@solidjs/signals` 2.0.3
@@ -674,5 +673,53 @@ describe("the declared field must be required and non-nullable", () => {
     expect(after[0]?.key).toBeUndefined();
     expect(after[1]).not.toBe(before[0]);
     expect(after.map((r) => r.n)).toEqual([2, 1]);
+  });
+});
+
+describe("a frame a merge cannot reach is replaced, not merged into", () => {
+  /** `reconcile` requires a store PROXY at the slot it merges into, and the
+   *  store only wraps what Solid calls wrappable: a plain object, a
+   *  null-prototype object, an array (`@solidjs/signals` 2.0.3 `dist/dev.js`
+   *  `isWrappable` :1969). A `Date`, `Map`, `Set`, typed array or class
+   *  instance is served RAW, so a merge aimed at one throws "reconcile target
+   *  is not a store proxy" (:6556) — on the SECOND frame, because the first
+   *  had nothing to merge into and was written by assignment.
+   *
+   *  No kolu member's value is such a thing at its root today; the framework
+   *  serves arbitrary app payloads, the in-process link passes values through
+   *  WITHOUT serialization, and Effect Schema admits `Date`/`Map`/`Set`, so the
+   *  next member can be. Both directions are pinned: a non-plain value standing
+   *  in the store, and a non-plain value arriving over a plain one. */
+  it("a Date member survives its SECOND frame", () => {
+    const h = harness<Date>();
+    h.write(new Date("2024-01-01T00:00:00.000Z"));
+    expect(h.store.v).toEqual(new Date("2024-01-01T00:00:00.000Z"));
+    h.write(new Date("2024-06-01T00:00:00.000Z"));
+    expect(h.store.v).toEqual(new Date("2024-06-01T00:00:00.000Z"));
+    h.dispose();
+  });
+
+  it("a Date frame over a plain-object frame REPLACES the backing", () => {
+    const h = harness<Date | { at: string }>();
+    h.write({ at: "2024-01-01" });
+    expect(h.store.v).toEqual({ at: "2024-01-01" });
+    h.write(new Date("2024-06-01T00:00:00.000Z"));
+    // A `Date`, not a plain object left carrying a Date's enumerable keys (it
+    // has none) — the merge replaced rather than adopting it as a container.
+    expect(h.store.v).toBeInstanceOf(Date);
+    expect(h.store.v).toEqual(new Date("2024-06-01T00:00:00.000Z"));
+    // And the member keeps working afterwards: the next plain frame merges into
+    // nothing left over from the Date.
+    h.write({ at: "2024-07-01" });
+    expect(h.store.v).toEqual({ at: "2024-07-01" });
+    h.dispose();
+  });
+
+  it("a declared arrayKey does not change the answer for a Map member", () => {
+    const h = harness<Map<string, number>>();
+    h.write(new Map([["a", 1]]), "key");
+    h.write(new Map([["a", 2]]), "key");
+    expect(h.store.v).toEqual(new Map([["a", 2]]));
+    h.dispose();
   });
 });
