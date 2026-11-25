@@ -52,8 +52,9 @@ function laneDemandsDevBuild(): boolean {
 
 /** What the dev-mode client dist serves at `/solid-dev.json`. `dists` is each
  *  scanned Solid package's own prefix count, before the counts merge into the
- *  deduplicated `warnings` list; the dist derivation checks every one is at
- *  least 1, and the harness holds the shape to the same contract. */
+ *  deduplicated `warnings` list. The dist derivation requires exactly the three
+ *  scanned packages, each at least 1; the harness requires only that `dists` is
+ *  not empty and that every count it reports is at least 1. */
 interface SolidDevManifest {
   readonly marker: string;
   readonly warnings: readonly string[];
