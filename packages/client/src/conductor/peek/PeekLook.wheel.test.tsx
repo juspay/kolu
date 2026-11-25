@@ -18,14 +18,15 @@
 // head say `new output below`, and does the place the reader scrolled to survive
 // the output that arrives next?
 //
-// The window is opened BOTH WAYS, because corvu answers them differently.
-// Opened while the dialog is already mounted — the app's own path — corvu's
-// `createPresence` never reaches `present`, so its prevent-scroll puts NOTHING
-// on the document (see the second case for the proof, and the PR for the
-// report; this file does not pin that as desired behaviour). Mounted already
-// open, presence starts `present`, prevent-scroll arms, and its non-passive
-// document `wheel` listener is genuinely in the way of this gesture. The lock
-// must engage in both.
+// The window is opened BOTH WAYS, because the two paths reach corvu's
+// prevent-scroll at different times. Opened while the dialog is already
+// mounted — the app's own path — corvu's `createPresence` USED TO never reach
+// `present`, so prevent-scroll put NOTHING on the shared document; corvu-next
+// `e988d8b1` is exactly that fix, and at this pin both paths arm it. So both
+// cases assert the non-passive document `wheel` listener is there: measured on
+// the old pin `bfa68fea`, this file's first case saw 0 of them after opening a
+// mounted dialog. Mounted already open, presence starts `present`. The lock must
+// engage in both, with that listener in the way.
 //
 // The `vi.mock` factories import inside themselves because vitest hoists them
 // above this file's own imports (the same idiom as `PeekTerminal.test.tsx`).
@@ -359,6 +360,9 @@ describe("the Look window's wheel", () => {
       window: document.querySelector("[data-corvu-dialog-content]") !== null,
       live: liveWord(),
     }).toEqual({ window: true, live: { phase: "live", words: "live" } });
+    // Opening an already-mounted dialog reaches `present`, so prevent-scroll
+    // arms. Measured 0 here on corvu-next `bfa68fea`, before `e988d8b1`.
+    expect(documentWheel).toHaveLength(1);
 
     wheelBack(screen, term);
     await wait(20);
