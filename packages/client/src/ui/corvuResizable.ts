@@ -42,9 +42,12 @@ export function twoPanelSplit(
  *  torn down recomputes pull-style, or answers with its last committed value
  *  if it is itself disposed.
  *
- *  What the memo earns over an inline `sizes={…}` is the value equality:
- *  Corvu's controllable setter compares with `Object.is`, so a fresh array of
- *  the same two numbers would otherwise read as a change on every recompute. */
+ *  What the memo earns over an inline `sizes={…}` is the value equality: on
+ *  the controlled path the read IS this prop, and corvu's in-frame ledger
+ *  (`@corvu-next/utils`, `createControllableSignal`) compares the owner's
+ *  value with `Object.is` to decide whether the frame's staged write has
+ *  landed — so a fresh array of the same two numbers each recompute would
+ *  read as a change and defeat it. */
 export function controlledSizes(derive: () => number[]): Accessor<number[]> {
   return createMemo(derive, {
     equals: (a, b) => a.length === b.length && a.every((v, i) => v === b[i]),
