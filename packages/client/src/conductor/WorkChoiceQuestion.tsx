@@ -113,11 +113,18 @@ interface Where {
   readonly cwd: string;
 }
 
-/** ... and that, or nothing to ask of: a harness question, which is not a
- *  question OF anything, and a model question nobody has named a harness
- *  for. */
+/** ... and that, or nothing to ask of, WITH WHY: a harness question (and a
+ *  model question nobody has named a harness for) asks nothing because there
+ *  is no harness, and a watch asks nothing because there is no checkout to
+ *  ask it in. The reason travels in the subject so that everything under the
+ *  boundary can be said from the subject alone. */
 type Subject =
-  | { readonly kind: "unasked" }
+  | { readonly kind: "unasked"; readonly why: "no-harness" }
+  | {
+      readonly kind: "unasked";
+      readonly why: "no-checkout";
+      readonly harness: string;
+    }
   | { readonly kind: "asked"; readonly where: Where };
 
 const BOX_CLASS =
@@ -173,28 +180,28 @@ const WorkChoiceQuestion: Component<{
   );
 
   /** WHAT THIS QUESTION IS BEING ASKED OF — the harness and the checkout, or
-   *  nothing to ask of (a harness question, which is not of anything, and a
-   *  model question nobody has named a harness for). Compared by value for
-   *  the same reason as {@link harness}, and ONE value rather than a
-   *  nullable because the boundary below is keyed by it. */
+   *  nothing to ask of and why. Compared by value for the same reason as
+   *  {@link harness}, and ONE value rather than a nullable because it is what
+   *  the boundary below is armed on and all its content reads. */
   const subject = createMemo<Subject>(
-    () =>
-      Option.match(
-        Option.flatMap(harness(), (one) =>
-          Option.map(repo(), (cwd): Where => ({ harness: one, cwd })),
-        ),
-        {
-          onNone: (): Subject => ({ kind: "unasked" }),
-          onSome: (where): Subject => ({ kind: "asked", where }),
-        },
-      ),
+    () => {
+      const one = Option.getOrUndefined(harness());
+      if (one === undefined) return { kind: "unasked", why: "no-harness" };
+      const cwd = Option.getOrUndefined(repo());
+      if (cwd === undefined)
+        return { kind: "unasked", why: "no-checkout", harness: one };
+      return { kind: "asked", where: { harness: one, cwd } };
+    },
     {
       equals: (a, b) =>
-        a.kind === b.kind &&
-        (a.kind === "unasked" ||
-          (b.kind === "asked" &&
+        a.kind === "asked"
+          ? b.kind === "asked" &&
             a.where.harness === b.where.harness &&
-            a.where.cwd === b.where.cwd)),
+            a.where.cwd === b.where.cwd
+          : b.kind === "unasked" &&
+            a.why === b.why &&
+            (a.why === "no-harness" ||
+              (b.why === "no-checkout" && a.harness === b.harness)),
     },
   );
 
@@ -236,10 +243,12 @@ const WorkChoiceQuestion: Component<{
 
   /** WHAT A QUESTION STILL BEING ASKED SAYS — the `Loading` fallback's offer.
    *  A harness question never asks a host, so the only read that can be in
-   *  flight under that boundary is the model list. */
-  const asking = (): Offer => ({
+   *  flight under that boundary is the model list. The harness is handed in
+   *  rather than read, so that content under the boundary names it from the
+   *  subject it was armed on. */
+  const asking = (one: string | undefined): Offer => ({
     kind: "waiting",
-    words: `Asking what ${Option.getOrUndefined(harness()) ?? "this harness"} offers here…`,
+    words: `Asking what ${one ?? "this harness"} offers here…`,
   });
 
   /** THE HOST COULD NOT LIST — said in its own words, beside what a harness
@@ -506,34 +515,40 @@ const WorkChoiceQuestion: Component<{
           );
     });
 
+    /** Said from {@link Asked.subject} ALONE — never from `harness()` or
+     *  `repo()`, the memos it is derived from. A read of those under the
+     *  boundary is one hop closer to a write than the expression the boundary
+     *  is armed on, so a host read begun from it can go pending before the
+     *  boundary re-arms and be forwarded to the root. */
     const modelOffer = (): Offer => {
-      const one = Option.getOrUndefined(harness());
-      if (one === undefined)
-        return {
-          kind: "waiting",
-          words: "Choose the harness first — a model is a model of one.",
-        };
-      if (Option.isNone(repo()))
-        return {
-          kind: "failed",
-          words: `This work watches a terminal, so there is no checkout to ask ${one} what it offers in.`,
-        };
+      const one = shown.subject;
+      if (one.kind === "unasked")
+        return one.why === "no-harness"
+          ? {
+              kind: "waiting",
+              words: "Choose the harness first — a model is a model of one.",
+            }
+          : {
+              kind: "failed",
+              words: `This work watches a terminal, so there is no checkout to ask ${one.harness} what it offers in.`,
+            };
+      const named = one.where.harness;
       const answer = models();
-      if (answer === undefined) return asking();
+      if (answer === undefined) return asking(named);
       if (answer.models.kind === "unlisted")
         return {
           kind: "choices",
-          context: one,
-          options: usedBefore(one),
+          context: named,
+          options: usedBefore(named),
           offered: answer.models,
-          empty: `${one} cannot list its models — type the one to run.`,
+          empty: `${named} cannot list its models — type the one to run.`,
         };
       return {
         kind: "choices",
-        context: one,
+        context: named,
         options: answer.models.ids.map((id) => choiceOf(id, "picked")),
         offered: answer.models,
-        empty: `${one} lists no models on this host.`,
+        empty: `${named} lists no models on this host.`,
       };
     };
 
@@ -559,26 +574,23 @@ const WorkChoiceQuestion: Component<{
           outside it would hold the whole frame, so the fallback could never
           show (Solid warns LOADING_ON_OUTSIDE_HOLD).
 
-          KEYED on the subject rather than `<Loading on={subject()}>`, because
-          of a Solid defect: solidjs/solid#5203. The seeding of what this
-          person chose last time writes the subject from an effect in the
-          mount's own flush, and the question's content reads the signals the
-          subject is derived from, one hop closer to that write than `on`. Its
-          read goes pending before `on` re-arms the boundary and is forwarded
-          to the root (ASYNC_OUTSIDE_LOADING_BOUNDARY), so the whole page
-          would wait on the host. `WorkQuestion.test.tsx` fails 2 of 13 with
-          `on`. A boundary born with its subject has shown nothing, so it holds
-          that read. Switch to `on` once a Solid release fixes #5203.
+          ARMED ON the subject: `on` re-arms the boundary when the subject
+          changes, so the next harness's read is held here and the question
+          shows "asking" rather than the harness they left. That holds because
+          everything under it is said from the subject it was handed and
+          nothing reads `harness()` or `repo()` — a read of those is one hop
+          closer to the seeding write than `on`, and would go pending before
+          the boundary re-arms, to be forwarded to the root
+          (ASYNC_OUTSIDE_LOADING_BOUNDARY).
 
           The rest of the form stays unheld — the harness chip reads as
           pressed at once, rather than after a host answers. */}
-      <Show when={subject()} keyed>
-        {(one) => (
-          <Loading fallback={<Offered offer={asking()} />}>
-            <Asked subject={one} />
-          </Loading>
-        )}
-      </Show>
+      <Loading
+        on={subject()}
+        fallback={<Offered offer={asking(Option.getOrUndefined(harness()))} />}
+      >
+        <Asked subject={subject()} />
+      </Loading>
     </Errored>
   );
 };
