@@ -394,9 +394,7 @@ export const FileTree: Component<FileTreeProps> = (props) => {
   // every other effect here, so it has already run when they fire.
   let lazyKeys: readonly string[] = [];
   let onExpandLazy: ((path: string) => void | Promise<void>) | undefined;
-  let reportError: (err: Error) => void = (err) => {
-    console.error("FileTree error before the first effect flush:", err);
-  };
+  let reportError!: (err: Error) => void;
   createEffect(
     () => ({
       keys: propValue.lazyDirectories() ?? [],
