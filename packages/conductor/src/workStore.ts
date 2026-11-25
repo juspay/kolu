@@ -48,7 +48,6 @@ import {
   keepFailed,
   keepFiles,
   leaveWork,
-  type Outcome,
   openAsks,
   openWork,
   parseStore,
@@ -67,6 +66,7 @@ import {
   WorkRefusal,
   type WorkStoreValue,
   workIdOf,
+  watchedRef,
 } from "kolu-work";
 import type { Logger } from "pino";
 import { dropOpenAsks, type SettledAsk } from "./askNews.ts";
@@ -189,8 +189,6 @@ export interface WorkStore {
   /** ... and bring one back — refused (`branch-open`) while another work is
    *  open on the same host, repository root and branch. */
   readonly reopen: (id: WorkId) => Work;
-  /** THE FORGE SAID SO: merged, or closed. */
-  readonly endWith: (id: WorkId, outcome: Outcome) => void;
   /** A member leaves. The work stays as it is — losing terminals is not an
    *  ending — and the Conductor is woken once when the last one goes. */
   readonly leave: (ref: string, why: "closed" | "released" | "gone") => void;
@@ -808,12 +806,6 @@ export const workStore = (deps: WorkStoreDeps): WorkStore => {
       deps.watchScopeMoved();
       return again;
     },
-    endWith: (id, outcome) => {
-      const work = value.works.get(id);
-      if (work === undefined || work.state.kind !== "open") return;
-      save(id, endWork(work, { outcome, at: nowIso() }));
-      changed();
-    },
     declined: (id) => {
       const work = value.works.get(id);
       if (work === undefined) return false;
@@ -876,6 +868,20 @@ export const workStore = (deps: WorkStoreDeps): WorkStore => {
       // A TERMINAL ALREADY IN THIS WORK KEEPS THE ROLE IT WAS GIVEN FIRST, and
       // keeps what kolu already knows about it.
       if (already?.work === id) return;
+      // A WATCH IS ONE TERMINAL: its own, as `other`. Anything else would be
+      // a second terminal kolu counted as its to type into, or a role on a
+      // terminal nothing runs (`kolu-work`'s store rule 6).
+      if (
+        work.key.kind === "watch" &&
+        (ref !== watchedRef(work.key) || role !== "other")
+      ) {
+        throw new WorkRefusal(
+          "watch-one-terminal",
+          ref === watchedRef(work.key)
+            ? `«${work.title}» is a watch of ${ref}, and a watch runs nothing: adopt it as \`other\`.`
+            : `«${work.title}» is a watch of ${watchedRef(work.key)} alone — a watch is one terminal, the person's own. Open a piece of work for ${ref} instead, or watch it on its own.`,
+        );
+      }
       // ONE PLANNER, ONE IMPLEMENTOR. Refused rather than written: a store
       // with two is one `parseStore` would not read back, and the caller is
       // owed the sentence that says which terminal already has the part.

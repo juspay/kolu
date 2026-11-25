@@ -35,7 +35,15 @@ import {
   readPersistedTranscript,
   workDirOf,
 } from "kolu-conductor";
-import { MODE_RUNS, type Policy, prOf, stages, workIdOf } from "kolu-work";
+import {
+  MODE_RUNS,
+  type Policy,
+  prOf,
+  stages,
+  storeFault,
+  type WorkMember,
+  workIdOf,
+} from "kolu-work";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   transcriptFilePath,
@@ -71,6 +79,7 @@ import {
   worksFromWatched_1_50_0,
   workKeepsItsWorktree_1_64_0,
   workCodeViews_1_65_0,
+  workFactsAreTheWorks_1_68_0,
 } from "./stateLadder.ts";
 import {
   CONF_DEFAULTS,
@@ -3416,5 +3425,134 @@ describe("the 1.67.0 rung — a saved work says its hand-offs were not recorded"
     };
     expect(place(open)).toEqual(["plan", "build"]);
     expect(place(done)).toEqual(["plan", "build"]);
+  });
+});
+
+describe("the 1.68.0 rung — a work's facts are the work's (T24)", () => {
+  const at = (minute: number): string =>
+    new Date(Date.UTC(2026, 11, 8, 9, minute)).toISOString();
+  const BRANCH = "branch:local/%2Fsrv%2Frepo/csv";
+  /** A watch on a host whose key holds a `/`: split at the LAST one. */
+  const WATCHED = "remote:a/b/t-watched";
+  const WATCH = `watch:${encodeURIComponent(WATCHED)}`;
+  /** A watch whose terminal names no terminal at all. */
+  const BROKEN = "watch:nonsense";
+  const IMPLEMENTOR = "local/t-implementor";
+  const SECOND = "local/t-second";
+  const requested = {
+    at: at(0),
+    by: "you",
+    about: { kind: "work" },
+    kind: "requested",
+    request: { kind: "said", text: "export csv" },
+  };
+  const joined = (terminal: string, role: string, minute: number) => ({
+    at: at(minute),
+    by: "kolu",
+    about: { kind: "member", terminal },
+    kind: "joined",
+    role,
+  });
+  const work = (key: unknown, title: string, events: unknown[]) => ({
+    key,
+    title,
+    startedAt: at(0),
+    decisions: [],
+    events,
+    state: { kind: "open" },
+    worktree: { kind: "unread" },
+  });
+  const member = (id: string, role: string, worktree?: unknown) => ({
+    work: id,
+    role,
+    joinedAt: at(1),
+    ...(worktree === undefined ? {} : { worktree }),
+    watch: {},
+  });
+  const VIEW = { codeMode: "local", selectedFileByMode: { local: "a.ts" } };
+  const saved = () =>
+    makeStore({
+      works: {
+        [BRANCH]: {
+          ...work(
+            { kind: "branch", host: "local", repo: "/srv/repo", branch: "csv" },
+            "csv",
+            [requested, joined(IMPLEMENTOR, "implementor", 1)],
+          ),
+          // Lent by a member, on a host other than the key's.
+          worktree: {
+            kind: "read",
+            host: "remote:box",
+            path: "/srv/elsewhere",
+          },
+        },
+        [WATCH]: work({ kind: "watch", terminal: WATCHED }, "watched", [
+          joined(WATCHED, "implementor", 2),
+          joined(SECOND, "other", 3),
+        ]),
+        [BROKEN]: work({ kind: "watch", terminal: "nonsense" }, "broken", []),
+      },
+      members: {
+        [IMPLEMENTOR]: member(BRANCH, "implementor", {
+          kind: "read",
+          path: "/srv/elsewhere",
+        }),
+        [WATCHED]: member(WATCH, "implementor"),
+        [SECOND]: member(WATCH, "other"),
+        "local/t-broken": member(BROKEN, "other"),
+      },
+      workCodeViews: { [BRANCH]: VIEW, [BROKEN]: VIEW },
+    });
+
+  it("takes every step, and leaves a store kolu-work parses", () => {
+    const conf = saved();
+    workFactsAreTheWorks_1_68_0(conf as never);
+    const works = Schema.decodeUnknownSync(PersistedWorksSchema)(
+      conf.get("works"),
+    );
+    // 1, 6: the branch's folder waits for git, and its key says who named
+    // its repository — the caller, as written.
+    expect(works[BRANCH]?.worktree).toEqual({ kind: "unread" });
+    expect(works[BRANCH]?.key).toEqual({
+      kind: "branch",
+      host: "local",
+      repo: "/srv/repo",
+      branch: "csv",
+      repoBy: { kind: "as-written" },
+    });
+    // 3: split at the last `/`, filed under the same id.
+    expect(works[WATCH]?.key).toEqual({
+      kind: "watch",
+      host: "remote:a/b",
+      id: "t-watched",
+    });
+    // 5: the second terminal left, at the watch's last event time.
+    expect(works[WATCH]?.events.at(-1)).toEqual({
+      at: at(3),
+      by: "kolu",
+      about: { kind: "member", terminal: SECOND },
+      kind: "left",
+      why: "released",
+    });
+    // 4: the broken watch is gone, with its member and its view.
+    expect(Object.keys(works)).toEqual([BRANCH, WATCH]);
+    const members = conf.get("members") as Record<string, WorkMember>;
+    expect(Object.keys(members).sort()).toEqual([IMPLEMENTOR, WATCHED]);
+    expect(members[IMPLEMENTOR]).not.toHaveProperty("worktree");
+    expect(members[WATCHED]?.role).toBe("other");
+    expect(Object.keys(conf.get("workCodeViews") as object)).toEqual([BRANCH]);
+    expect(storeFault(new Map(Object.entries(works)), members)).toEqual(
+      Option.none(),
+    );
+  });
+
+  it("changes nothing when it runs again", () => {
+    const conf = saved();
+    workFactsAreTheWorks_1_68_0(conf as never);
+    const once = JSON.stringify(conf.store);
+    const set = vi.spyOn(conf, "set");
+    workFactsAreTheWorks_1_68_0(conf as never);
+    expect(set).not.toHaveBeenCalled();
+    expect(JSON.stringify(conf.store)).toBe(once);
   });
 });

@@ -408,7 +408,7 @@ const WorkOpenArgsSchema = Schema.Struct({
   watch: Schema.optionalKey(
     FleetTerminalRefSchema.annotate({
       description:
-        "A plain WATCH of one terminal somebody else started, by its `<host>/<id>` ref — instead of host/repo/branch. The work is keyed by that terminal, which must be in its host's roster.",
+        "A plain WATCH of one terminal somebody else started, by its `<host>/<id>` ref — instead of host/repo/branch. The work is keyed by that terminal, which must be in its host's roster. A watch takes NO `setup`: it is that one terminal, and kolu runs nothing in it.",
     }),
   ),
   // THE TWO QUESTIONS WHOSE ANSWERS ARE READ BACK AS VOCABULARY, typed as
@@ -417,38 +417,40 @@ const WorkOpenArgsSchema = Schema.Struct({
   // thing" would be answered, stored, and then read as NOTHING — a work with
   // no mode, and nobody able to say why. The decoder refuses it instead, with
   // the words in the message. The other four are KOLU'S to offer.
-  setup: Schema.Array(
-    Schema.Union([
-      Schema.Struct({
-        key: Schema.Literal("mode"),
-        question: Schema.String.check(Schema.isMinLength(1)),
-        options: Schema.Array(WorkModeSchema)
-          .check(Schema.isMinLength(1))
-          .annotate({
-            description:
-              "The modes to offer, best first. These are kolu's own words — `full`, `trivial`, `watch` — because the work's mode is READ back off the answer.",
-          }),
-        given: Schema.optionalKey(WorkModeSchema),
+  setup: Schema.optionalKey(
+    Schema.Array(
+      Schema.Union([
+        Schema.Struct({
+          key: Schema.Literal("mode"),
+          question: Schema.String.check(Schema.isMinLength(1)),
+          options: Schema.Array(WorkModeSchema)
+            .check(Schema.isMinLength(1))
+            .annotate({
+              description:
+                "The modes to offer, best first. These are kolu's own words — `full`, `trivial`, `watch` — because the work's mode is READ back off the answer.",
+            }),
+          given: Schema.optionalKey(WorkModeSchema),
+        }),
+        Schema.Struct({
+          key: Schema.Literal("on-green"),
+          question: Schema.String.check(Schema.isMinLength(1)),
+          options: Schema.Array(OnGreenSchema)
+            .check(Schema.isMinLength(1))
+            .annotate({
+              description:
+                "What to do when the PR is green — GitHub would merge it, and no check is running or failing — in kolu's own words: `merge` or `hand-over`. The card and the script both read this decision back, so the words are the vocabulary rather than a sentence.",
+            }),
+          given: Schema.optionalKey(OnGreenSchema),
+        }),
+        KoluChoiceSetupSchema,
+      ]),
+    )
+      .check(Schema.isMinLength(1))
+      .annotate({
+        description:
+          "Every setup question of a branch's work, in one form — required for a branch, refused for a `watch`. `mode` is always required; a mode that could be `full` or `trivial` also requires `implementor.harness`, `implementor.model` and `on-green`, and `full` requires `planner.harness` and `planner.model`. The host is not a question: it is part of what the work is, given as `host`.",
       }),
-      Schema.Struct({
-        key: Schema.Literal("on-green"),
-        question: Schema.String.check(Schema.isMinLength(1)),
-        options: Schema.Array(OnGreenSchema)
-          .check(Schema.isMinLength(1))
-          .annotate({
-            description:
-              "What to do when the PR is green — GitHub would merge it, and no check is running or failing — in kolu's own words: `merge` or `hand-over`. The card and the script both read this decision back, so the words are the vocabulary rather than a sentence.",
-          }),
-        given: Schema.optionalKey(OnGreenSchema),
-      }),
-      KoluChoiceSetupSchema,
-    ]),
-  )
-    .check(Schema.isMinLength(1))
-    .annotate({
-      description:
-        "Every setup question, in one form. `mode` is always required; a mode that could be `full` or `trivial` also requires `implementor.harness`, `implementor.model` and `on-green`, and `full` requires `planner.harness` and `planner.model`. The host is not a question: it is part of what the work is, given as `host`.",
-    }),
+  ),
 });
 type WorkOpenArgs = typeof WorkOpenArgsSchema.Type;
 
@@ -807,7 +809,7 @@ export function rekeyBeforeOpen(
  *  options and their words; kolu's own four carry nothing but what the
  *  request gave, because the options are kolu's. */
 const setupAsksOf = (args: WorkOpenArgs): ReadonlyArray<SetupAsk> =>
-  args.setup.map((one): SetupAsk => {
+  (args.setup ?? []).map((one): SetupAsk => {
     const given: Given<string> =
       one.given === undefined
         ? { kind: "ask" }
@@ -942,7 +944,7 @@ export function workAdoptTool(
     mutates: true,
     title: "Adopt a terminal into a piece of work",
     description:
-      "Bring a terminal that already exists into a piece of work, saying what it is there to do. From then on kolu wakes you when its agent stops, asks you something, or the terminal dies — so you end your turn instead of waiting on it. A terminal YOU create with `lifecycle_create` is a member already (it takes the same `work` and `role`); this is for one the human points you at. Refused if nothing by that name is there, or if the work is unknown or has ended. Answers the work's members AND the state the terminal was found in (`found`: the agent and its bucket, or `no-agent` / `asleep`) — that state is the BASELINE, so it will not be reported to you as news; anything after it will.",
+      "Bring a terminal that already exists into a piece of work, saying what it is there to do. From then on kolu wakes you when its agent stops, asks you something, or the terminal dies — so you end your turn instead of waiting on it. A terminal YOU create with `lifecycle_create` is a member already (it takes the same `work` and `role`); this is for one the human points you at. Refused if nothing by that name is there, or if the work is unknown or has ended — and for a watch, anything but its own terminal adopted as `other`. Answers the work's members AND the state the terminal was found in (`found`: the agent and its bucket, or `no-agent` / `asleep`) — that state is the BASELINE, so it will not be reported to you as news; anything after it will.",
     handler: (args, _bundle, _signal) => {
       const { id, work, role } = args as WorkAdoptArgs;
       const refused = works.check(work);

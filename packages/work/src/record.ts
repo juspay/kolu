@@ -26,6 +26,7 @@ import {
   isCheckEvent,
   letsGo,
   NOBODY_HOLDS,
+  prOf,
   sameHead,
 } from "./readings.ts";
 import {
@@ -662,9 +663,69 @@ export const leaveWork = (
     why: left.why,
   });
 
+/** THE EVENTS THAT ARE ONLY OBSERVATIONS — every kind but the ones a
+ *  transition of its own appends: an ending ({@link endWork}, {@link prEnded}),
+ *  a reopening, a member joining or leaving, files kept or not kept, a take
+ *  over or a hand back, a fold, the request. Appending one of those bare would
+ *  record a move the work did not make. */
+export type RecordableEvent = Exclude<
+  WorkEvent,
+  {
+    readonly kind:
+      | "ended"
+      | "reopened"
+      | "joined"
+      | "left"
+      | "kept"
+      | "keep-failed"
+      | "taken-over"
+      | "handed-back"
+      | "folded"
+      | "hand-offs-kept"
+      | "requested"
+      | "merged"
+      | "pr-closed";
+  }
+>;
+
 /** Append one observation. */
-export const recordEvent = (work: Work, event: WorkEvent): Work =>
+export const recordEvent = (work: Work, event: RecordableEvent): Work =>
   append(work, event);
+
+/** THE FORGE SAYS THE WORK'S PR MERGED, OR WAS CLOSED — the event on the
+ *  timeline and the ending, in one step, both naming the number the timeline
+ *  reads ({@link prOf}): the outcome's PR cannot differ from the timeline's.
+ *  A work with no PR on its timeline is returned unchanged. */
+export const prEnded = (
+  work: Work,
+  how: "merged" | "closed",
+  at: string,
+): Work =>
+  Option.match(prOf(work), {
+    onNone: () => work,
+    onSome: (pr) =>
+      endWork(
+        append(
+          work,
+          how === "merged"
+            ? {
+                at,
+                by: "kolu",
+                kind: "merged",
+                about: ABOUT_WORK,
+                pr: pr.number,
+              }
+            : {
+                at,
+                by: "kolu",
+                kind: "pr-closed",
+                about: ABOUT_WORK,
+                pr: pr.number,
+              },
+        ),
+        { outcome: { kind: how, pr: pr.number }, at },
+      ),
+  });
 
 /** A PR'S ADDRESS, LEARNED LATE: a `pr-opened` recorded before kolu kept the
  *  address (the 1.57.0 rung's `unrecorded`) takes the one the forge now gives.

@@ -19,7 +19,9 @@ import {
   joinWork,
   holdingOf,
   holds,
+  leaveWork,
   openWork,
+  reopenWork,
   outcomeOf,
   type PrReading,
   prLinks,
@@ -203,12 +205,13 @@ describe("what speaking to a member puts on the timeline", () => {
     // The planner joined and its stop was folded away before kolu kept
     // hand-offs, so its record alone reads as if it held the work.
     expect(holds(holdingOf(work()), B)).toBe(true);
-    const saved = recordEvent(work(), {
-      at: AT,
-      by: "kolu",
-      kind: "hand-offs-kept",
-      about: ABOUT_WORK,
-    });
+    const saved: Work = {
+      ...work(),
+      events: [
+        ...work().events,
+        { at: AT, by: "kolu", kind: "hand-offs-kept", about: ABOUT_WORK },
+      ],
+    };
     expect(toldEvents(saved, B, AT).events.at(-1)).toEqual({
       at: AT,
       by: "agent",
@@ -443,25 +446,24 @@ describe("the PR the work's own watch reads", () => {
     expect(outcomeOf(closed)).toEqual(Option.some({ kind: "closed", pr: 7 }));
   });
 
+  it("keeps a reopened work open while its PR reads merged (T18)", () => {
+    // A merge is final for its number: Reopen brings the work back, and the
+    // same merged reading on the next poll is no news — the same work value,
+    // still open, until the branch gets a PR of its own.
+    const merged = prEvents(work(), pr({ state: "merged" }), AT);
+    const again = reopenWork(merged, AT);
+    const next = prEvents(again, pr({ state: "merged" }), AT);
+    expect(next).toBe(again);
+    expect(next.state.kind).toBe("open");
+  });
+
   it("ends a MERGED work whose members are all gone, on the first look", () => {
     // The real sequence (#2376): the Conductor merged #181 and closed both
     // terminals fourteen seconds later, with no poll in between. The work is
     // open, has no members, and the next look is what ends it.
-    const abandoned = recordEvent(
-      recordEvent(work(), {
-        at: AT,
-        by: "kolu",
-        kind: "left",
-        about: aboutMember(A),
-        why: "closed",
-      }),
-      {
-        at: AT,
-        by: "kolu",
-        kind: "left",
-        about: aboutMember(B),
-        why: "closed",
-      },
+    const abandoned = leaveWork(
+      leaveWork(work(), { terminal: A, why: "closed", at: AT }),
+      { terminal: B, why: "closed", at: AT },
     );
     const ended = prEvents(abandoned, pr({ number: 181, state: "merged" }), AT);
     expect(outcomeOf(ended)).toEqual(Option.some({ kind: "merged", pr: 181 }));

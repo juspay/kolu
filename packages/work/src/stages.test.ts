@@ -22,6 +22,7 @@ import {
   answerAsk,
   askQuestions,
   endWork,
+  prEnded,
   joinWork,
   leaveWork,
   lifetime,
@@ -167,17 +168,9 @@ const mergeState = (
     merge,
   });
 
-const merged = (work: Work, minute: number, pr = 7): Work =>
-  endWork(
-    recordEvent(work, {
-      at: at(minute),
-      by: "kolu",
-      kind: "merged",
-      about: ABOUT_WORK,
-      pr,
-    }),
-    { outcome: { kind: "merged", pr }, at: at(minute) },
-  );
+/** The forge says the work's PR merged — `prEnded`, the one door. */
+const merged = (work: Work, minute: number): Work =>
+  prEnded(work, "merged", at(minute));
 
 /** The Conductor hands the work to a member (`agent_say`). */
 const told = (work: Work, terminal: string, minute: number): Work =>
@@ -203,14 +196,15 @@ const stop = (
     why: { kind: "none" },
   });
 
-/** What the upgrade writes on a work saved before kolu kept hand-offs. */
-const handOffsKept = (work: Work, minute: number): Work =>
-  recordEvent(work, {
-    at: at(minute),
-    by: "kolu",
-    kind: "hand-offs-kept",
-    about: ABOUT_WORK,
-  });
+/** What the upgrade writes on a work saved before kolu kept hand-offs — the
+ *  rung's own append, which no transition makes. */
+const handOffsKept = (work: Work, minute: number): Work => ({
+  ...work,
+  events: [
+    ...work.events,
+    { at: at(minute), by: "kolu", kind: "hand-offs-kept", about: ABOUT_WORK },
+  ],
+});
 
 const PLANNER = "local/planner";
 const IMPLEMENTOR = "local/implementor";
@@ -414,18 +408,9 @@ const chaotic = (seed: number, steps: number): Work => {
       // Marked ready, or turned back into a draft.
       work = draftState(work, pick() < 0.5 ? "draft" : "ready", when, pr);
     } else if (roll < 0.64 && live) {
-      work = merged(work, when, pr);
+      work = merged(work, when);
     } else if (roll < 0.68 && live) {
-      work = endWork(
-        recordEvent(work, {
-          at: at(when),
-          by: "kolu",
-          kind: "pr-closed",
-          about: ABOUT_WORK,
-          pr,
-        }),
-        { outcome: { kind: "closed", pr }, at: at(when) },
-      );
+      work = prEnded(work, "closed", at(when));
     } else if (roll < 0.72 && live) {
       work = endWork(work, {
         outcome: { kind: "stopped", by: "you" },
@@ -912,16 +897,7 @@ describe("where a work's stages stand", () => {
   it("is where its holder left it on a second attempt after the first PR was closed", () => {
     let work = join(opened(), "implementor", 0);
     work = prOpened(work, 10);
-    work = endWork(
-      recordEvent(work, {
-        at: at(20),
-        by: "kolu",
-        kind: "pr-closed",
-        about: ABOUT_WORK,
-        pr: 7,
-      }),
-      { outcome: { kind: "closed", pr: 7 }, at: at(20) },
-    );
+    work = prEnded(work, "closed", at(20));
     work = reopenWork(work, at(30));
     work = prOpened(work, 45, 8);
     // 20 before the close, 20 since the reopen; the ten it spent closed are
@@ -1176,7 +1152,7 @@ describe("the shapes of real works", () => {
     expect(standing(work, FULL).why).toBe("working");
     work = draftState(work, "ready", minute(ready), 2405);
     work = mergeState(work, { kind: "can" }, minute(ready), 2405, "h3");
-    work = merged(work, minute("2026-11-19T02:15:53.000Z"), 2405);
+    work = merged(work, minute("2026-11-19T02:15:53.000Z"));
     const read = waterfall(work, FULL, "2026-11-19T03:00:00.000Z");
     const named = byName(read.stages);
     expect(named.build).toEqual({

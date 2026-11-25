@@ -39,15 +39,16 @@ import {
   aboutMember,
   CHECK_STEP,
   type CheckHead,
-  endWork,
   linkPr,
   filesSeen,
   holdingOf,
   handsOver,
   hostOf,
   type MergeState,
+  prEnded,
   prOf,
   type PrReading,
+  type RecordableEvent,
   recordEvent,
   recordWorktree,
   sameHead,
@@ -81,7 +82,7 @@ export const ringEvent = (
   ref: string,
   level: ConductorWakeEvent["level"],
   at: string,
-): Option.Option<WorkEvent> => {
+): Option.Option<RecordableEvent> => {
   switch (level) {
     case "ready":
     case "stopped":
@@ -290,32 +291,18 @@ export const prEvents = (work: Work, pr: WatchPr, at: string): Work => {
       });
     }
   }
+  // THE FORGE SAYS IT MERGED, OR WAS CLOSED: the event and the ending in one
+  // step (`prEnded`), naming the number the timeline reads.
   if (
     pr.state === "merged" &&
     !Option.exists(prOf(next), (one) => one.state === "merged")
-  ) {
-    next = recordEvent(next, {
-      at,
-      by: "kolu",
-      kind: "merged",
-      about: ABOUT_WORK,
-      pr: pr.number,
-    });
-    next = endWork(next, { outcome: { kind: "merged", pr: pr.number }, at });
-  }
+  )
+    next = prEnded(next, "merged", at);
   if (
     pr.state === "closed" &&
     !Option.exists(prOf(next), (one) => one.state === "closed")
-  ) {
-    next = recordEvent(next, {
-      at,
-      by: "kolu",
-      kind: "pr-closed",
-      about: ABOUT_WORK,
-      pr: pr.number,
-    });
-    next = endWork(next, { outcome: { kind: "closed", pr: pr.number }, at });
-  }
+  )
+    next = prEnded(next, "closed", at);
   return next;
 };
 

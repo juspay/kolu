@@ -156,6 +156,10 @@ const stepPr = (
       draft: event.draft,
     });
   return Option.map(pr, (was): PrReading => {
+    // AN EVENT ABOUT ANOTHER PULL REQUEST says nothing of this one: a check,
+    // a merge answer, a draft flip, a merge or a close names the PR it is
+    // about, and only `pr-opened` moves the reading to a new number.
+    if ("pr" in event && event.pr !== was.number) return was;
     // A FACT ABOUT ANOTHER COMMIT makes the other one's stale: checks about a
     // new head say nothing of whether GitHub would merge it, and a merge
     // answer about a new head says nothing of the old head's checks.
@@ -211,20 +215,24 @@ const stepPr = (
           checks: "none",
           merge: { kind: "unknown" },
         };
-      // A person pressing Reopen, or `work_open` on the same key: the reading
-      // goes back to open and FORGETS what it said about the checks and the
-      // merge — they were true when the work stopped, maybe a week ago — so
-      // the next reading of the PR is news again and says how it stands now.
-      // Its draft word is kept: it is about the PR, not about a commit.
+      // A person pressing Reopen, or `work_open` on the same key: an OPEN
+      // PR's reading FORGETS what it said about the checks and the merge —
+      // they were true when the work stopped, maybe a week ago — so the next
+      // reading of the PR is news again and says how it stands now. A
+      // MERGED or CLOSED PR stays so: that is final for its number, and the
+      // reopened work shows it until the branch gets a new one (a new
+      // `pr-opened`). Its draft word is kept: it is about the PR, not about
+      // a commit.
       case "reopened":
-        return {
-          ...was,
-          state: "open",
-          checks: "none",
-          merge: { kind: "unknown" },
-          lastCheck: Option.none(),
-          lastMerge: Option.none(),
-        };
+        return was.state !== "open"
+          ? was
+          : {
+              ...was,
+              checks: "none",
+              merge: { kind: "unknown" },
+              lastCheck: Option.none(),
+              lastMerge: Option.none(),
+            };
       default:
         return was;
     }

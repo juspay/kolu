@@ -494,6 +494,8 @@ const faultClause = (fault: StoreFault): string => {
       return `«${fault.title}» has two terminals in the ${fault.role} role (${JSON.stringify(fault.held)} and ${JSON.stringify(fault.second)}) — a piece of work has one planner and one implementor`;
     case "branch-twice":
       return `«${fault.first}» and «${fault.second}» are both in progress on the branch ${JSON.stringify(fault.branch)} of the same repository — one branch runs as one piece of work`;
+    case "watch-member":
+      return `the watch «${fault.title}» holds ${JSON.stringify(fault.terminal)} in the ${fault.role} role — a watch is its own terminal alone, as \`other\``;
   }
 };
 

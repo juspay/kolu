@@ -2384,8 +2384,14 @@ const splitWatch_1_68_0 = (
  *     (`workDirOf(id)`) still match;
  *  4. a watch whose `terminal` cannot be split never named a terminal: it is
  *     removed, with its members and its Code view;
- *  6. every branch key gains `repoBy: { kind: "as-written" }` — its `repo` is what a
- *     caller typed, and the host's first answer re-keys it to git's root.
+ *  5. every watch keeps its own terminal alone, as `other`: any other member
+ *     leaves it, with a `left` (`released`) event stamped at the work's last
+ *     event time (its start, with none) — never a clock — and its own
+ *     terminal's role becomes `other`. A watch IS that one terminal, and the
+ *     store now refuses anything else in one;
+ *  6. every branch key gains `repoBy: { kind: "as-written" }` — its `repo` is
+ *     what a caller typed, and the host's first answer re-keys it to git's
+ *     root.
  *
  *  A value it does not know is walked past unchanged, and each key is
  *  written only when something in it moved. `works`, `members` and
@@ -2395,15 +2401,17 @@ const splitWatch_1_68_0 = (
 export function workFactsAreTheWorks_1_68_0(store: Conf<PersistedState>): void {
   /** The works step 4 removed — their members and views go with them. */
   const gone = new Set<string>();
+  /** Each watch's own terminal, by the id the watch is filed under. */
+  const watched = new Map<string, string>();
   const works = recordOf(store.get("works"));
+  let worksChanged = false;
+  const nextWorks: Record<string, unknown> = {};
   if (works !== null) {
-    let changed = false;
-    const next: Record<string, unknown> = {};
     for (const [id, value] of Object.entries(works)) {
       const work = recordOf(value);
       const key = recordOf(work?.key);
       if (work === null || key === null) {
-        next[id] = value;
+        nextWorks[id] = value;
         continue;
       }
       let nextKey: unknown = work.key;
@@ -2411,47 +2419,87 @@ export function workFactsAreTheWorks_1_68_0(store: Conf<PersistedState>): void {
         const split = splitWatch_1_68_0(key.terminal);
         if (split === null) {
           gone.add(id);
-          changed = true;
+          worksChanged = true;
           continue;
         }
         nextKey = { kind: "watch", host: split.host, id: split.id };
       } else if (key.kind === "branch" && !("repoBy" in key)) {
         nextKey = { ...key, repoBy: { kind: "as-written" } };
       }
+      const keyNow = recordOf(nextKey);
+      if (
+        keyNow?.kind === "watch" &&
+        typeof keyNow.host === "string" &&
+        typeof keyNow.id === "string"
+      )
+        watched.set(id, `${keyNow.host}/${keyNow.id}`);
       if (nextKey === work.key && recordOf(work.worktree)?.kind === "unread") {
-        next[id] = value;
+        nextWorks[id] = value;
         continue;
       }
-      changed = true;
-      next[id] = { ...work, key: nextKey, worktree: { kind: "unread" } };
+      worksChanged = true;
+      nextWorks[id] = { ...work, key: nextKey, worktree: { kind: "unread" } };
     }
-    if (changed) store.set("works", next as unknown as PersistedState["works"]);
   }
+  /** Step 5's leavers, by the watch they leave. */
+  const released = new Map<string, string[]>();
   const members = recordOf(store.get("members"));
   if (members !== null) {
     let changed = false;
     const next: Record<string, unknown> = {};
     for (const [ref, value] of Object.entries(members)) {
       const member = recordOf(value);
-      if (
-        member !== null &&
-        typeof member.work === "string" &&
-        gone.has(member.work)
-      ) {
+      const work = typeof member?.work === "string" ? member.work : null;
+      if (work !== null && gone.has(work)) {
         changed = true;
         continue;
       }
-      if (member === null || !("worktree" in member)) {
+      const own = work === null ? undefined : watched.get(work);
+      if (work !== null && own !== undefined && ref !== own) {
+        released.set(work, [...(released.get(work) ?? []), ref]);
+        changed = true;
+        continue;
+      }
+      if (member === null) {
         next[ref] = value;
         continue;
       }
       const { worktree: _gone, ...kept } = member;
+      const role = own !== undefined ? "other" : member.role;
+      if (!("worktree" in member) && role === member.role) {
+        next[ref] = value;
+        continue;
+      }
       changed = true;
-      next[ref] = kept;
+      next[ref] = { ...kept, role };
     }
     if (changed)
       store.set("members", next as unknown as PersistedState["members"]);
   }
+  for (const [id, refs] of released) {
+    const work = recordOf(nextWorks[id]);
+    const events = Array.isArray(work?.events) ? work.events : null;
+    if (work === null || events === null) continue;
+    const last = recordOf(events.at(-1));
+    const at = last !== null ? last.at : work.startedAt;
+    if (typeof at !== "string") continue;
+    worksChanged = true;
+    nextWorks[id] = {
+      ...work,
+      events: [
+        ...events,
+        ...refs.map((terminal) => ({
+          at,
+          by: "kolu",
+          kind: "left",
+          about: { kind: "member", terminal },
+          why: "released",
+        })),
+      ],
+    };
+  }
+  if (worksChanged)
+    store.set("works", nextWorks as unknown as PersistedState["works"]);
   const views = recordOf(store.get("workCodeViews"));
   if (views !== null && Object.keys(views).some((id) => gone.has(id)))
     store.set(

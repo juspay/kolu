@@ -437,11 +437,13 @@ export function workSubtitleParts(
   hostName: Option.Option<string>,
 ): { readonly where: WorkWhere; readonly rest: ReadonlyArray<string> } {
   const setup = setupOf(work);
+  const where = workWhere(work);
   return {
-    where: workWhere(work),
+    where,
     rest: [
       ...Option.toArray(hostName),
-      ...Option.toArray(setup.mode),
+      // A watch's mode is its key: the lead already says "watching".
+      ...(where.kind === "watch" ? [] : Option.toArray(setup.mode)),
       ...Option.toArray(
         Option.map(
           prOf(work),

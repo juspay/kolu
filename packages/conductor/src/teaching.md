@@ -105,8 +105,8 @@ for an id, and read the host back off anything a tool hands you.
 - About a work you write only questions (`work_ask`) and notes (`work_note`).
   kolu records everything else it sees.
 - To watch one terminal for the human, open a work with `watch` set to that
-  terminal's name and the mode given as `watch`, then `work_adopt` it as
-  `other`. Nothing is asked.
+  terminal's `host/id` and no `setup`, then `work_adopt` that terminal as
+  `other`. Nothing is asked, and a watch holds that one terminal only.
 - A message from the human can start with `[kolu] about` lines naming what it
   is about: a terminal by its name and `host/id`, or a work as
   `[kolu] about work “title” (id)`. The id is the work's id in `works`. Read

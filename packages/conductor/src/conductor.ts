@@ -2356,6 +2356,29 @@ export function startConductorHost(deps: ConductorDeps): ConductorHost {
     },
     openWork: async (intent) => {
       remembered();
+      // A WATCH IS ITS KEY: one terminal, the person's own, run by nobody. It
+      // has no mode to choose and no role to fill, so a setup on one is
+      // refused rather than stored for a reader to obey.
+      if (intent.key.kind === "watch") {
+        if (intent.setup.length > 0)
+          throw new WorkRefusal(
+            "watch-one-terminal",
+            `«${intent.title}» is a watch of one terminal, and a watch takes no setup: open it with \`watch\` alone. Nothing was created.`,
+          );
+        const watched = works.openFor({
+          key: intent.key,
+          title: intent.title,
+          request: newestRequest(),
+        });
+        return {
+          work: watched.id,
+          setup: setupOf(watched.work),
+          ask: `given:${watched.id}`,
+          asked: false,
+          created: watched.created,
+          reopened: watched.reopened,
+        };
+      }
       const offer = deps.offer();
       // NO HARNESS QUESTION FOR A HOST WITH NOTHING TO RUN: a setup that asks
       // which harness runs a role is refused, naming the host and what to do,

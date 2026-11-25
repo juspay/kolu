@@ -649,10 +649,15 @@ const openWork = async (
   }
   const answer = await callTool("work_open", {
     title,
+    // A WATCH IS ITS KEY ALONE: one terminal, no setup — kolu refuses one.
     ...(over.watch === undefined
-      ? { host: over.host ?? "local", repo, branch: slug(title) }
+      ? {
+          host: over.host ?? "local",
+          repo,
+          branch: slug(title),
+          setup: setupFor(mode, over),
+        }
       : { watch: over.watch }),
-    setup: setupFor(mode, over),
   });
   const work = /"work"\s*:\s*"([^"]+)"/.exec(answer)?.[1] ?? null;
   lastOpenSaid = answer;

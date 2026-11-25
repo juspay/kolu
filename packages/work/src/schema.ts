@@ -206,7 +206,14 @@ const part = (text: string): string => encodeURIComponent(text);
 export const workIdOf = (key: WorkKey): WorkId =>
   key.kind === "branch"
     ? `branch:${part(key.host)}/${part(key.repo)}/${part(key.branch)}`
-    : `watch:${part(`${key.host}/${key.id}`)}`;
+    : `watch:${part(watchedRef(key))}`;
+
+/** THE FLEET REF OF THE TERMINAL A WATCH KEY NAMES — `<host>/<id>`, the ref
+ *  that terminal's member row is filed under. */
+export const watchedRef = (key: {
+  readonly host: string;
+  readonly id: string;
+}): string => `${key.host}/${key.id}`;
 
 /** WHAT A WORK ID SAYS — the key's parts it encodes. Not a key: an id cannot
  *  say who named a branch's repository (`repoBy`), so only the stored work

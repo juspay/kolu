@@ -9,7 +9,7 @@
  * and no `endedAt` without an outcome (one sum), no check event without a PR
  * (a required field), no "answered with nothing" (a sum).
  *
- * What is left is what JSON cannot say, and it is exactly five sentences:
+ * What is left is what JSON cannot say, and it is exactly six sentences:
  *
  *  1. the record's key is the work's own id;
  *  2. every member's work exists;
@@ -18,10 +18,12 @@
  *  4. a work holds at most one `planner` and at most one `implementor`;
  *  5. no two OPEN works share a host, a repository root and a branch, where
  *     git has said the root ({@link rootOf}) — one branch runs as one card.
- *     A key whose root git has not said (`as-written`) is outside it.
+ *     A key whose root git has not said (`as-written`) is outside it;
+ *  6. a watch's members are at most its own terminal, in the role `other` —
+ *     a watch IS that one terminal, and kolu runs nothing in it.
  *
  * PARSE, DO NOT VALIDATE: the DECODER goes through here, so a store on disk
- * that breaks one of the four fails to decode with the fault that names it —
+ * that breaks one of the six fails to decode with the fault that names it —
  * a VALUE, because the SENTENCE belongs to whichever face shows it — the same
  * rule a refusal follows (`./refusal.ts`) — and the recovery screen offers
  * the way back. The single writer goes through here too, so a
@@ -40,9 +42,10 @@ import {
   type WorkMember,
   type WorkRole,
   workIdOf,
+  watchedRef,
 } from "./schema.ts";
 
-/** WHICH OF THE FIVE RULES A STORE BREAKS, and the rows that break it.
+/** WHICH OF THE SIX RULES A STORE BREAKS, and the rows that break it.
  *
  *  A value, not a sentence: this package holds no English a person reads
  *  ({@link WorkRefusal}'s doc states the rule), so the one face that shows a
@@ -76,9 +79,17 @@ export type StoreFault =
       readonly first: string;
       readonly second: string;
       readonly branch: string;
+    }
+  | {
+      readonly kind: "watch-member";
+      /** The watch, by title, and the member that is not its own terminal
+       *  in the role `other`. */
+      readonly title: string;
+      readonly terminal: string;
+      readonly role: WorkRole;
     };
 
-/** A store that breaks one of the five rules — the {@link StoreFault} saying
+/** A store that breaks one of the six rules — the {@link StoreFault} saying
  *  which, thrown. The `message` is the kind, for a stack trace and nothing
  *  else; what a person is shown is the face's. */
 export class InvalidWorkStore extends Error {
@@ -140,6 +151,16 @@ export const storeFault = <M extends WorkMember>(
       });
     if (work.state.kind !== "open")
       return Option.some({ kind: "work-ended", terminal, title: work.title });
+    if (
+      work.key.kind === "watch" &&
+      (terminal !== watchedRef(work.key) || member.role !== "other")
+    )
+      return Option.some({
+        kind: "watch-member",
+        title: work.title,
+        terminal,
+        role: member.role,
+      });
     const roles = byWork.get(member.work) ?? new Map<string, string>();
     const taken = roles.get(member.role);
     if (taken !== undefined && isWaterfallRole(member.role)) {
