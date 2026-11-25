@@ -34,6 +34,13 @@
  * report.
  */
 
+// WHERE A PAGE REACHES SOLID'S DIAGNOSTICS CHANNEL — the name the client
+// writes and this script owns, from the one module that holds it, so neither
+// side can drift from the other. The client assigns it as it boots
+// (`packages/client/src/solidDiagnosticsExpose.ts`, on a development
+// runtime); production never writes it, and nothing there reads it.
+import { SOLID_OBSERVE_GLOBAL as OBSERVE_GLOBAL } from "kolu-common/solidDiagnostics";
+
 /** Is this run the Solid-diagnostics lane? `KOLU_E2E_SOLID_DEV=1` is set by
  *  `ci::e2e-solid-dev` beside the dev-mode `KOLU_SERVER`; any other value is a
  *  caller bug and fails rather than quietly running the ordinary suite. Read
@@ -64,17 +71,13 @@ interface SolidDevManifest {
 export interface SolidDevCheck {
   /** Is this console message a Solid dev diagnostic or warning? */
   isDiagnostic(text: string): boolean;
+  /** Is it a diagnostic's console FOOTER — the "what it means and how to fix
+   *  it" line Solid prints once per code? The channel reports the finding
+   *  itself, so counting the footer too would count it twice. */
+  isFooter(text: string): boolean;
 }
 
 const MANIFEST_PATH = "/solid-dev.json";
-
-/** WHERE A PAGE REACHES SOLID'S DIAGNOSTICS CHANNEL. `solid-js` exports
- *  `OBSERVE` in its development runtime only, and nothing in a built bundle
- *  hands it to a page script — so the dev-mode client assigns it to this
- *  global as it boots (`packages/client/src/index.tsx`, under
- *  `import.meta.env.MODE === "solid-dev"`, which only the dev-mode build
- *  sets). Production never writes it, and nothing there reads it. */
-const OBSERVE_GLOBAL = "__SOLID_OBSERVE__";
 
 /** The Playwright binding {@link solidObserveInitScript} calls with each
  *  event. Exposed on the context, so a window the page opens reports too. */
@@ -139,29 +142,127 @@ export function solidDiagnosticWords(event: PageDiagnostic): string {
   return `${code}${where}${path}${said}`;
 }
 
+/** One diagnostic with the scenario and step that were running when it
+ *  arrived — the e2e suite's `BeforeStep` hook records them on the world, and
+ *  the binding stamps each event with them. A scenario's own name is not
+ *  enough: four workers interleave, and what a failure needs is the step that
+ *  raised the finding. */
+export interface StampedDiagnostic extends PageDiagnostic {
+  scenario?: string;
+  step?: string;
+}
+
+/** Stamp an event with where the run was when it arrived. A field the hook
+ *  has not recorded yet (an event raised at page load, before the first step)
+ *  is left off rather than stamped `undefined`. */
+export function stampDiagnostic(
+  event: PageDiagnostic,
+  at: { scenario?: string; step?: string },
+): StampedDiagnostic {
+  return {
+    ...event,
+    ...(at.scenario === undefined ? {} : { scenario: at.scenario }),
+    ...(at.step === undefined ? {} : { step: at.step }),
+  };
+}
+
+/** Identical findings, as one entry carrying the FIRST occurrence (with its
+ *  scenario and step) and how many there were. */
+export interface FoldedDiagnostic {
+  readonly event: StampedDiagnostic;
+  count: number;
+}
+
+/** Fold by `(code, loc, ownerPath)`: one site raising on every keystroke is
+ *  one line with a count, not a wall. The first occurrence is kept, because
+ *  its scenario and step are the ones a reader can reproduce from. */
+export function foldDiagnostics(
+  events: readonly StampedDiagnostic[],
+): FoldedDiagnostic[] {
+  const byKey = new Map<string, FoldedDiagnostic>();
+  for (const event of events) {
+    const key = JSON.stringify([
+      event.code ?? null,
+      event.loc ?? null,
+      event.ownerPath ?? null,
+    ]);
+    const seen = byKey.get(key);
+    if (seen) seen.count += 1;
+    else byKey.set(key, { event, count: 1 });
+  }
+  return [...byKey.values()];
+}
+
+/** A folded group in one line: how many there were, what it was, and where
+ *  the run was the first time. */
+function foldedWords(folded: FoldedDiagnostic): string {
+  const many = folded.count > 1 ? `×${folded.count} ` : "";
+  const { scenario, step } = folded.event;
+  const first =
+    scenario === undefined && step === undefined
+      ? ""
+      : ` [first in "${scenario ?? "(no scenario)"}" at step "${step ?? "(before the first step)"}"]`;
+  return `${many}${solidDiagnosticWords(folded.event)}${first}`;
+}
+
 /** THE LANE'S VERDICT, or `undefined` when the scenario raised nothing.
  *
  * The diagnostics the channel named and the console lines are both reported:
  * a console line with no event behind it is a plain Solid warning, and an
  * event with no readable console line is exactly what this channel exists
  * for. The page's thrown errors ride along, because a diagnostic that threw
- * is also the throw the page reports. */
+ * is also the throw the page reports.
+ *
+ * THE HEADLINE COUNTS EACH FINDING ONCE. An error-severity diagnostic reaches
+ * the console as a footer line AND the channel as an event, so footers are
+ * reported apart from the count — they name nothing the events do not. */
 export function solidDiagnosticVerdict(found: {
-  events: readonly PageDiagnostic[];
+  events: readonly StampedDiagnostic[];
   lines: readonly string[];
+  footers?: readonly string[];
   pageErrors: readonly string[];
 }): string | undefined {
   const total = found.events.length + found.lines.length;
   if (total === 0) return undefined;
   const parts = [`Solid dev diagnostics (${total}):`];
-  for (const event of found.events)
-    parts.push(`  ${solidDiagnosticWords(event)}`);
+  for (const folded of foldDiagnostics(found.events))
+    parts.push(`  ${foldedWords(folded)}`);
   for (const line of found.lines) parts.push(`  ${line}`);
+  const footers = found.footers ?? [];
+  if (footers.length > 0) {
+    parts.push(
+      `the console footers behind them (${footers.length}), each already named as an event above:`,
+    );
+    for (const footer of footers) parts.push(`  ${footer}`);
+  }
   if (found.pageErrors.length > 0) {
     parts.push(`the pages threw (${found.pageErrors.length}):`);
     for (const error of found.pageErrors) parts.push(`  ${error}`);
   }
   return parts.join("\n");
+}
+
+/** WHAT A DEV-SERVER BOOT FAILS ON (`packages/tests/devSmoke.ts`), as one
+ *  pure list so it can be tested without a browser.
+ *
+ *  Console errors are the module-load crash class that check exists for. A
+ *  Solid dev diagnostic is a failure too: the Vite dev server serves the SAME
+ *  development runtime the diagnostics lane builds, so a boot that raises one
+ *  is the cheapest answer to "is this finding a boot fact?" — and `ci::dev-
+ *  smoke` was green while every e2e scenario raised two, because it looked at
+ *  the console alone. Page errors ride along: a diagnostic that throws reaches
+ *  the page as a throw. */
+export function devSmokeFailures(saw: {
+  consoleErrors: readonly string[];
+  pageErrors: readonly string[];
+  diagnostics: readonly StampedDiagnostic[];
+}): string[] {
+  const failures: string[] = [];
+  for (const text of saw.consoleErrors) failures.push(`console.error: ${text}`);
+  for (const message of saw.pageErrors) failures.push(`uncaught: ${message}`);
+  for (const folded of foldDiagnostics(saw.diagnostics))
+    failures.push(`solid diagnostic: ${foldedWords(folded)}`);
+  return failures;
 }
 
 /**
@@ -197,6 +298,7 @@ export async function solidDevCheckFor(
     isDiagnostic: (text) =>
       text.includes(manifest.marker) ||
       manifest.warnings.some((prefix) => text.startsWith(prefix)),
+    isFooter: (text) => text.includes(manifest.marker),
   };
 }
 

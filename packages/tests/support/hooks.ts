@@ -15,7 +15,14 @@ import * as fs from "node:fs";
 import * as http from "node:http";
 import * as os from "node:os";
 import * as path from "node:path";
-import { After, AfterAll, Before, BeforeAll, Status } from "@cucumber/cucumber";
+import {
+  After,
+  AfterAll,
+  Before,
+  BeforeAll,
+  BeforeStep,
+  Status,
+} from "@cucumber/cucumber";
 import type { AgentDistroSetting } from "@kolu/agent-distro/schema";
 import { padiKavalSocketPath } from "@kolu/padi/stateRoot";
 import { padiClientOver } from "@kolu/padi-client/dial";
@@ -62,6 +69,7 @@ import {
   solidDevCheckFor,
   solidDiagnosticVerdict,
   solidObserveInitScript,
+  stampDiagnostic,
 } from "./solidDevBuild.ts";
 import { type KoluWorld, STEP_GUARD, STEP_TIMEOUT } from "./world.ts";
 
@@ -675,6 +683,11 @@ async function newScenarioPage(
   vp: { width: number; height: number } = X11_VIEWPORT,
   touchViewport: { width: number; height: number } = PHONE_VIEWPORT,
   deviceScaleFactor?: number,
+  /** Everything that must be on the CONTEXT before a document exists —
+   *  bindings, init scripts, the `page` listener. Run before `newPage()`, so
+   *  nothing can navigate unwatched. The app-mode branch has no such moment:
+   *  Chrome opens its window at launch, so there it runs as early as it can. */
+  prepare: (context: BrowserContext) => Promise<void> = async () => {},
 ): Promise<{ context: BrowserContext; page: Page }> {
   // KOLU_X11CAP app-mode: a frameless `--app=` window (the installed-PWA look)
   // needs its own persistent context — Playwright drives the page Chrome opens
@@ -695,6 +708,7 @@ async function newScenarioPage(
       permissions: ["clipboard-write", "clipboard-read"],
       slowMo: X11_SLOWMO,
     });
+    await prepare(context);
     const page = context.pages()[0] ?? (await context.waitForEvent("page"));
     return { context, page };
   }
@@ -738,6 +752,7 @@ async function newScenarioPage(
         : {}),
     });
     previousContext = context;
+    await prepare(context);
     const page = await context.newPage();
     previousContext = undefined;
     return { context, page };
@@ -1514,15 +1529,70 @@ Before(
     const vp = rec?.viewport ?? X11_VIEWPORT;
 
     this.browser = browser;
+    this.errors = [];
+    this.solidDiagnostics = [];
+    this.solidDiagnosticFooters = [];
+    this.solidDiagnosticEvents = [];
+    const check = solidDevCheck;
+    // What one document reports, labelled by where it came from:
+    //   - everything it throws, and
+    //   - ON A DEV-RUNTIME SERVER, every console line that is a Solid dev
+    //     diagnostic or warning, matched against the strings that server's own
+    //     bundle was built from; the last After hook fails the scenario on the
+    //     first. A diagnostic's FOOTER is kept apart from a plain warning: the
+    //     channel already reports the finding behind it, so the verdict would
+    //     otherwise count it twice.
+    const watch = (target: Page, where: () => string) => {
+      target.on("pageerror", (err) => this.errors.push(where() + err.message));
+      if (check) {
+        target.on("console", (message) => {
+          const text = message.text();
+          if (check.isFooter(text))
+            this.solidDiagnosticFooters.push(where() + text);
+          else if (check.isDiagnostic(text))
+            this.solidDiagnostics.push(where() + text);
+        });
+      }
+    };
+    // WHAT THE CONSOLE CANNOT SAY, FROM THE CHANNEL ITSELF, INSTALLED BEFORE
+    // THE PAGE EXISTS. On a dev-runtime server the client hands its `OBSERVE`
+    // to the page (`client/src/solidDiagnosticsExpose.ts`, development
+    // runtimes only); this init script subscribes to the diagnostics channel
+    // and reports each event's code, location and owner path through a binding
+    // — the fields a diagnostic whose call site throws never reaches the
+    // console with. On the CONTEXT, so a window the page opens is subscribed
+    // too, and before `newPage()`, so no document can load unwatched. Each
+    // event is stamped with the step the run was on when it arrived.
     const created = await newScenarioPage(
       isMobile,
       chrome,
       vp,
       touchViewport,
       deviceScaleFactor,
+      async (context) => {
+        // A WINDOW THE PAGE OPENS (the reader popped out) is a document of its
+        // own, and what it reports is this scenario's too — named by where it
+        // came from, so it reads apart from the main page's.
+        context.on("page", (opened) =>
+          watch(opened, () => `${opened.url()}: `),
+        );
+        if (!check) return;
+        await context.exposeBinding(
+          SOLID_DIAGNOSTIC_BINDING,
+          (_source, event: PageDiagnostic) =>
+            void this.solidDiagnosticEvents.push(
+              stampDiagnostic(event, {
+                scenario: this.currentScenario,
+                step: this.currentStep,
+              }),
+            ),
+        );
+        await context.addInitScript(solidObserveInitScript());
+      },
     );
     this.context = created.context;
     this.page = created.page;
+    watch(this.page, () => "");
     // Disable CSS transitions/animations so Corvu dialogs open/close instantly.
     // prefers-reduced-motion tells well-behaved libraries to skip animations;
     // the style override catches anything that ignores the media query. SKIPPED
@@ -1609,48 +1679,6 @@ Before(
       } catch (e) {}
     `);
     }
-    this.errors = [];
-    this.solidDiagnostics = [];
-    this.solidDiagnosticEvents = [];
-    const check = solidDevCheck;
-    // What one document reports, labelled by where it came from:
-    //   - everything it throws, and
-    //   - ON A DEV-RUNTIME SERVER, every console line that is a Solid dev
-    //     diagnostic or warning, matched against the strings that server's own
-    //     bundle was built from; the last After hook fails the scenario on the
-    //     first.
-    const watch = (target: Page, where: () => string) => {
-      target.on("pageerror", (err) => this.errors.push(where() + err.message));
-      if (check) {
-        target.on("console", (message) => {
-          const text = message.text();
-          if (check.isDiagnostic(text)) {
-            this.solidDiagnostics.push(where() + text);
-          }
-        });
-      }
-    };
-    watch(this.page, () => "");
-    // A WINDOW THE PAGE OPENS (the reader popped out) is a document of its
-    // own, and what it reports is this scenario's too — named by where it came
-    // from, so it reads apart from the main page's.
-    this.context.on("page", (opened) =>
-      watch(opened, () => `${opened.url()}: `),
-    );
-    // WHAT THE CONSOLE CANNOT SAY, FROM THE CHANNEL ITSELF. On a dev-runtime
-    // server the client hands its `OBSERVE` to the page (`client/src/index.tsx`,
-    // `solid-dev` mode only); this init script subscribes to the diagnostics
-    // channel and reports each event's code, location and owner path through a
-    // binding — the fields a diagnostic whose call site throws never reaches the
-    // console with. On the context, so a window the page opens is subscribed too.
-    if (check) {
-      await this.context.exposeBinding(
-        SOLID_DIAGNOSTIC_BINDING,
-        (_source, event: PageDiagnostic) =>
-          void this.solidDiagnosticEvents.push(event),
-      );
-      await this.context.addInitScript(solidObserveInitScript());
-    }
 
     // KOLU_X11CAP: start grabbing the Xvfb framebuffer now. x11grab runs off its
     // own 30 fps clock independent of Chrome's paint speed, so the recording is
@@ -1678,6 +1706,16 @@ Before(
   },
 );
 
+// WHERE THE RUN IS, for anything that arrives between steps. A diagnostic
+// reaches the binding with no notion of what provoked it; the scenario name
+// alone cannot say, because four workers interleave and one scenario runs
+// dozens of steps. So the step text is recorded as each step starts, and each
+// event is stamped with it as it arrives.
+BeforeStep(function (this: KoluWorld, { pickle, pickleStep }) {
+  this.currentScenario = pickle.name;
+  this.currentStep = pickleStep.text;
+});
+
 // THE SOLID-DIAGNOSTICS LANE'S VERDICT: a scenario whose pages raised any Solid
 // dev diagnostic fails, naming each — what the diagnostics channel handed over
 // (code, location, owner path) and what reached the console, plus everything
@@ -1690,6 +1728,7 @@ After(function (this: KoluWorld) {
   const verdict = solidDiagnosticVerdict({
     events: this.solidDiagnosticEvents,
     lines: this.solidDiagnostics,
+    footers: this.solidDiagnosticFooters,
     pageErrors: this.errors,
   });
   if (verdict === undefined) return;

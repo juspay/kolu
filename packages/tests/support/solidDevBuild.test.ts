@@ -3,11 +3,14 @@ import { createServer, type RequestListener, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { after, test } from "node:test";
 import {
+  devSmokeFailures,
+  foldDiagnostics,
   type PageDiagnostic,
   SOLID_DIAGNOSTIC_BINDING,
   solidDevCheckFor,
   solidDiagnosticVerdict,
   solidObserveInitScript,
+  stampDiagnostic,
 } from "./solidDevBuild.ts";
 
 const MARKER = "what it means and how to fix it:";
@@ -220,5 +223,126 @@ test("a scenario that raised nothing has no verdict, whatever it threw", () => {
       pageErrors: ["TypeError: x is not a function"],
     }),
     undefined,
+  );
+});
+
+test("an event is stamped with the scenario and step that were running", () => {
+  assert.deepEqual(
+    stampDiagnostic(
+      { code: "REACTIVE_WRITE_IN_OWNED_SCOPE" },
+      { scenario: "the palette opens", step: "I press the palette key" },
+    ),
+    {
+      code: "REACTIVE_WRITE_IN_OWNED_SCOPE",
+      scenario: "the palette opens",
+      step: "I press the palette key",
+    },
+  );
+  // Before the first step there is nothing to stamp, and `undefined` would
+  // read as "stamped, with nothing" in the verdict.
+  assert.deepEqual(stampDiagnostic({ code: "NO_OWNER_EFFECT" }, {}), {
+    code: "NO_OWNER_EFFECT",
+  });
+});
+
+test("identical findings fold into one, keeping the first occurrence", () => {
+  const at = (scenario: string, step: string) => ({
+    code: "REACTIVE_WRITE_IN_OWNED_SCOPE",
+    loc: "src/palette/CommandPalette.tsx:88:3",
+    ownerPath: ["<App>", "<CommandPalette>"],
+    scenario,
+    step,
+  });
+  const folded = foldDiagnostics([
+    at("the palette opens", "I press the palette key"),
+    at("the palette opens", 'I type "term"'),
+    // Same site, a different scenario: still the same finding.
+    at("the palette filters", 'I type "x"'),
+    // A different location is a different finding, however alike the code.
+    { ...at("the palette opens", "I press the palette key"), loc: "x.tsx:1:1" },
+  ]);
+  assert.deepEqual(
+    folded.map((f) => [f.count, f.event.loc, f.event.step]),
+    [
+      [3, "src/palette/CommandPalette.tsx:88:3", "I press the palette key"],
+      [1, "x.tsx:1:1", "I press the palette key"],
+    ],
+  );
+});
+
+test("the verdict folds repeats into one line, naming where the first was", () => {
+  const raised = {
+    code: "REACTIVE_WRITE_IN_OWNED_SCOPE",
+    loc: "src/palette/CommandPalette.tsx:88:3",
+    ownerPath: ["<App>", "<CommandPalette>"],
+    message: "a signal was written in an owned scope",
+  };
+  assert.equal(
+    solidDiagnosticVerdict({
+      events: [
+        {
+          ...raised,
+          scenario: "the palette opens",
+          step: "I press the palette key",
+        },
+        { ...raised, scenario: "the palette opens", step: 'I type "term"' },
+      ],
+      lines: [],
+      pageErrors: [],
+    }),
+    [
+      "Solid dev diagnostics (2):",
+      '  ×2 REACTIVE_WRITE_IN_OWNED_SCOPE at src/palette/CommandPalette.tsx:88:3 in <App> > <CommandPalette>: a signal was written in an owned scope [first in "the palette opens" at step "I press the palette key"]',
+    ].join("\n"),
+  );
+});
+
+test("the headline counts a finding once, not as event AND footer", () => {
+  const verdict = solidDiagnosticVerdict({
+    events: [{ code: "REACTIVE_WRITE_IN_OWNED_SCOPE" }],
+    lines: [],
+    // The console footer of that same finding: Solid prints one per code.
+    footers: ["what it means and how to fix it: https://…"],
+    pageErrors: [],
+  });
+  assert.equal(
+    verdict,
+    [
+      "Solid dev diagnostics (1):",
+      "  REACTIVE_WRITE_IN_OWNED_SCOPE",
+      "the console footers behind them (1), each already named as an event above:",
+      "  what it means and how to fix it: https://…",
+    ].join("\n"),
+  );
+});
+
+test("a dev-runtime server tells a footer from a plain warning", async () => {
+  const baseUrl = await serve(DEV_FILES);
+  const check = await solidDevCheckFor(baseUrl);
+  assert.ok(check);
+  assert.equal(check.isFooter(`[solid] ${MARKER} https://…`), true);
+  assert.equal(check.isFooter(`${WARNING}data-x"`), false);
+  assert.equal(check.isDiagnostic(`${WARNING}data-x"`), true);
+});
+
+test("dev-smoke fails on a Solid diagnostic, not only on a console error", () => {
+  assert.deepEqual(
+    devSmokeFailures({
+      consoleErrors: [],
+      pageErrors: [],
+      diagnostics: [
+        { code: "REACTIVE_WRITE_IN_OWNED_SCOPE", loc: "src/App.tsx:3:1" },
+        { code: "REACTIVE_WRITE_IN_OWNED_SCOPE", loc: "src/App.tsx:3:1" },
+      ],
+    }),
+    ["solid diagnostic: ×2 REACTIVE_WRITE_IN_OWNED_SCOPE at src/App.tsx:3:1"],
+  );
+  assert.deepEqual(
+    devSmokeFailures({
+      consoleErrors: ["boom"],
+      pageErrors: ["TypeError: x is not a function"],
+      diagnostics: [],
+    }),
+    ["console.error: boom", "uncaught: TypeError: x is not a function"],
   );
 });
