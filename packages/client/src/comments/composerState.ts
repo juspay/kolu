@@ -61,7 +61,15 @@ export function createComposer(): Composer {
       if (target() !== null) return;
       setTarget(t);
     },
-    close: () => setTarget(null),
+    // BRACES, NOT A CONCISE BODY: `close` is called from a view's
+    // close-on-navigate EFFECT (`code-view/CodeTab.tsx`), and what an effect
+    // callback returns is its CLEANUP — Solid 2 refuses anything that is not a
+    // function or `undefined`. A Solid 2 setter answers with the value it set,
+    // so `() => setTarget(null)` hands the effect a `null` and the view's
+    // reactivity halts on the first navigation.
+    close: () => {
+      setTarget(null);
+    },
     isComposing: () => target() !== null,
   };
 }
