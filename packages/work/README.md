@@ -9,12 +9,15 @@ ACP, MCP, padi or the browser: a terminal is a string (`host/id`), a question
 is its words and its options.
 
 ```ts
-WorkKey = { kind: "branch", host, repo, branch }   // a work IS its branch…
-        | { kind: "watch",  terminal }             // …or the terminal you asked kolu to watch
-WorkId  = workIdOf(key)                            // "branch:<host>/<repo>/<branch>" | "watch:<terminal>"
+WorkKey = { kind: "branch", host, repo, branch, repoBy }  // a work IS its branch…
+        | { kind: "watch",  host, id }                     // …or the terminal you asked kolu to watch
+RepoBy  = { kind: "git" }            // `repo` is the root git named
+        | { kind: "as-written" }     // kept from before: the root git has not been asked
+        | { kind: "held", root }     // git named `root`, whose key another work holds
+WorkId  = workIdOf(key)              // "branch:<host>/<repo>/<branch>" | "watch:<host>/<id>"
 
-works   : Record<WorkId, Work>          // one work per key, by construction
-members : Record<TerminalRef, Member>   // a terminal is in at most one work, by construction
+works   : Map<WorkId, Work>          // one work per key, by construction
+members : Map<TerminalRef, Member>   // a terminal is in at most one work, by construction
 
 Work {
   key, title, startedAt
@@ -22,16 +25,18 @@ Work {
   events:    WorkEvent[]  // append-only, each kind with its own typed payload
   state:     { kind: "open" }
            | { kind: "ended", at, outcome, kept: KeptFile[] }
+  worktree:  { kind: "unread" } | { kind: "absent" } | { kind: "at", path }
+             // where git says the key's branch is checked out, on the key's host
 }
 
 Outcome = { kind: "merged", pr } | { kind: "closed", pr }
-        | { kind: "stopped", by: "you" | "conductor" }
+        | { kind: "stopped", by: "you" | "conductor" | "kolu" }
 
 Answer  = { how: "answered", at, from, value | said }   // always WITH its value
         | { how: "declined", at, from }
         | { how: "dropped", at }
 
-Member { work: WorkId, role, joinedAt, worktree: { kind: "unread" } | { kind: "read", path } }
+Member { work: WorkId, role, joinedAt }   // where it stands is the terminal's, never the work's
 ```
 
 **The illegal states are unwritable.** A work has no id of its own, so no
@@ -39,9 +44,12 @@ caller can open a second one for a branch. There is no `abandoned` outcome:
 nothing kolu merely fails to see ends a work, and an open work with no members
 is an open work with no terminals. A finished work has nowhere to put a
 terminal, a lock or an open question — one `state` sum, and the members go
-with the ending. `workIdOf` is injective and `workKeyOf` reads the key back,
-so the host is read off the key (`hostOf`) rather than stored twice, and the
-repository and branch are read by matching on `key.kind` — a watch has none.
+with the ending. `workIdOf` is injective and `workIdParts` reads an id's parts
+back, so the host is read off the key (`hostOf`) rather than stored twice, and
+the repository and branch are read by matching on `key.kind` — a watch has
+none. A work's facts are its key's: its PR is its branch's, its folder is
+where git says that branch is checked out, and no member terminal lends it
+either.
 
 **Nothing in it is a hole.** Anything that may be absent is an arm of a tagged
 sum saying what the absence means — an event about the work or about a
@@ -104,23 +112,33 @@ conversation — a model is that role's own last one with that harness first.
 
 | module | what |
 | --- | --- |
-| `schema.ts` | the KEY (`WorkKey`, `workIdOf`, `workKeyOf`), the record, the `state`/`outcome` sums and their readings (`isOpen`, `endedAt`, `outcomeOf`, `keptOf`), the `Asked \| Settled` decision sum (each arm split by topic: `mode`, `on-green`, a kolu choice, or a question about the work) and its answer sums, the event union typed by kind with its `about` / `why` / `head` / `request` arms (`told` is the Conductor handing the work to a member; `hand-offs-kept` is the upgrade's word that a saved work's hand-offs were not recorded), the PR's draft word (`PR_DRAFT`, which `pr-opened` widens with `unrecorded` and `draft-state` moves), and the waterfall's WORDS (`WORK_ROLES`, `WORK_MODES`, `ON_GREEN`, `SETUP_KEYS`, `KOLU_CHOICE_KEYS`, `OFFERED_SETUP_KEYS`) — declared here because the record's schema embeds them |
-| `store.ts` | the ONE smart constructor over works + members: `parseStore` (what the decoder and the single writer both go through), `storeFault` and the `InvalidWorkStore` carrying the `StoreFault` that names the rule that broke and the rows that break it — a VALUE, because the sentence belongs to the face that shows it |
-| `record.ts` | the transitions: `openWork`, `askQuestions`, `answerAsk` (a blank question stays asked; `answered` or `answered-part` on the timeline), `answeredWith`, `dropAsk`, `dropQuestions`, `joinWork`, `leaveWork`, `recordEvent`, `linkPr` (a PR recorded before kolu kept addresses learns its own, by AMENDING its `pr-opened`), `takeOver`/`handBack`, `endWork`, `reopenWork`, `keepFiles`/`keepFailed` — the record only grows, except for the bounds below and that amend; `openAsks`/`hasOpenAsk` derive what is still waiting on a person |
+| `schema.ts` | the KEY (`WorkKey` with its `RepoBy`, `ParsedWorkKey`, `workIdOf`, `workIdParts`, `rootOf`, `watchedRef`), the record, the `state`/`outcome` sums and their readings (`isOpen`, `endedAt`, `outcomeOf`, `keptOf`), the `Asked \| Settled` decision sum (each arm split by topic: `mode`, `on-green`, a kolu choice, or a question about the work) and its answer sums, the event union typed by kind with its `about` / `why` / `head` / `request` arms (`told` is the Conductor handing the work to a member; `hand-offs-kept` is the upgrade's word that a saved work's hand-offs were not recorded), the PR's draft word (`PR_DRAFT`, which `pr-opened` widens with `unrecorded` and `draft-state` moves), and the waterfall's WORDS (`WORK_ROLES`, `WORK_MODES`, `ON_GREEN`, `SETUP_KEYS`, `KOLU_CHOICE_KEYS`, `OFFERED_SETUP_KEYS`) — declared here because the record's schema embeds them |
+| `store.ts` | the ONE smart constructor over works + members: `parseStore` (what the decoder and the single writer both go through), `storeFault` and the `InvalidWorkStore` carrying the `StoreFault` that names the rule that broke and the rows that break it — a VALUE, because the sentence belongs to the face that shows it — and `rekeyed`, the one re-key transition |
+| `record.ts` | the transitions: `openWork`, `askQuestions`, `answerAsk` (a blank question stays asked; `answered` or `answered-part` on the timeline), `answeredWith`, `dropAsk`, `dropQuestions`, `joinWork`, `leaveWork`, `recordWorktree`, `recordEvent` (observations only: its type excludes every kind a transition of its own appends), `prEnded` (a merge or close and the ending, naming the timeline's PR), `linkPr` (a PR recorded before kolu kept addresses learns its own, by AMENDING its `pr-opened`), `takeOver`/`handBack`, `endWork`, `reopenWork`, `keepFiles`/`keepFailed` — the record only grows, except for the bounds below and that amend; `openAsks`/`hasOpenAsk` derive what is still waiting on a person |
 | `readings.ts` | the MECHANISM of a reading: the decisions of one ask, the PR as the timeline last said it (`prStep`, the ONE statement of the PR-fact rule, and `prOf` over it: its state, its recorded link, whether it is a draft, the last check event and the last merge answer — what the observer compares a reading with, so it records only a CHANGE for that PR at that commit, and what the folds carry to tell green) with the one check table (`CHECK_STEP`), `sameHead` (two facts about one commit, by kind and sha), WHO HOLDS THE WORK (`holdStep`, the ONE statement of the hand-off rule, and `holdingOf`, `holds`, `nobodyHolds`, `holderOf`, `handsOver`, `letsGo`, `joinedAs` and `plannersTurn` — the one question the stage of the agents' time asks — over it, read by the folds, by the agent-state bound and by the Conductor's observer), `prLinks` (each PR number the timeline opened, to the URL recorded with it), the files seen, and why the latest ending did not keep some (`notKeptOf`) |
 | `folds.ts` | `waitingOn`, `standing` (a sum: a question with its `ask` and its words, a merge with the `GreenPr` it waits on — number, head and link — when the timeline knows one, CI, the agents, or done), `timeSpent`, `stages` (a `Stages` sum: `unset` none yet, `none` for a mode that declares none, `staged` the six cells with every event filed, `where` the work is or ended and the `trail` of `Visit`s, each cell a `StageState` sum, each place a `Filed`: a stage, the setup or a `Doubt` — `DOUBTS` the one list of them, `DOUBT_STAGES` their two stages — with `canBe` its stages), `visitMs` (a visit's time), `doubtsOf` (each doubt the trail visited, with its time), `movedTimes`/`visitedTimes` (the map's loop counts and a stage's visits, each a `Count`: `exactly`, or `at-least` where a doubt may hide more), `took`, `lifetime`, `inProgress`/`finished` over `WorkRow`, `capFinished` — each taking a `Policy` (`handOver`, and how the work is `run`: `unset`, or `set` with whether it is driven and the stages its mode declares) rather than reading the setup itself |
 | `needsYou.ts` | WHAT NEEDS THE HUMAN, `standing` and `WAITER_OF` read as a list: `needsYou` over the rows, `needsYouOf` for one, the `NeedsYou` item (its work and title, the `question` or `merge` arm, `since`, the `wanted` words and the item's `key` — the work, the reason and the ask or the green commit, so a merge answer flickering on one commit is ONE item), and `wantedWords`, the one phrase every face says |
-| `waterfall.ts` | the WORDS and every rule over them: `MODE_RUNS` (what each mode runs, needs and drives, and the stages it HAS), `rolesOf`, `setupKeyOf`, `roleOfKey`, `roleRank`, the one setup reading (`setupStanding`, `setupValue`, `modeOf`/`onGreenOf`/`setupOf`/`roleSetupOf`, `keysToAsk`, `openSetupQuestions`, `startBlockers`), `missingSetup` + `foreignSetupWords`, the kolu-choice rules (`harnessForModel`, `askedAnswersOf`/`givenAnswersOf`/`savedAnswersOf`, `modelHarnessesOf`, `modelNotOffered`, `unofferedAnswers`, `koluKeysOf`, `unofferedWhy`/`unofferedWords`, `setupMemory`), `driverOf`, `membershipOf`, `policyOf`, where a work's files live (`WATERFALL_DIR`, `waterfallFileName`), and a flat list of them read as a tree, the same for a live listing and a kept copy (`waterfallLevel`, `childFolderOf`, `compareWaterfallPaths`, `waterfallBytes`) |
+| `waterfall.ts` | the WORDS and every rule over them: `MODE_RUNS` (what each mode runs, needs and drives, and the stages it HAS), `runOf` (a watch key runs the watch row whatever its decisions say), `rolesOf`, `setupKeyOf`, `roleOfKey`, `roleRank`, the one setup reading (`setupStanding`, `setupValue`, `modeOf`/`onGreenOf`/`setupOf`/`roleSetupOf`, `keysToAsk`, `openSetupQuestions`, `startBlockers`), `missingSetup` + `foreignSetupWords`, the kolu-choice rules (`harnessForModel`, `askedAnswersOf`/`givenAnswersOf`/`savedAnswersOf`, `modelHarnessesOf`, `modelNotOffered`, `unofferedAnswers`, `koluKeysOf`, `unofferedWhy`/`unofferedWords`, `setupMemory`), `driverOf`, `membershipOf`, `policyOf`, where a work's files live (`WATERFALL_DIR`, `waterfallFileName`), and a flat list of them read as a tree, the same for a live listing and a kept copy (`waterfallLevel`, `childFolderOf`, `compareWaterfallPaths`, `waterfallBytes`) |
 | `refusal.ts` | why a call about a work is refused — `WORK_REFUSALS` and the `WorkRefusal` every face `instanceof`s |
 
-**Four rules JSON cannot state, in one constructor.** Everything else is the
-types' job, so `parseStore(works, members)` is left with exactly four
+**Six rules JSON cannot state, in one constructor.** Everything else is the
+types' job, so `parseStore(works, members)` is left with exactly six
 sentences: the record's key is the work's own id; every member's work exists;
-that work is open (so an ended work has no members); and a work holds at most
-one `planner` and at most one `implementor`. Parse, do not validate — the
+that work is open (so an ended work has no members); a work holds at most one
+`planner` and at most one `implementor`; no two OPEN works share a host, a
+repository root and a branch where git has said the root (`rootOf`); and a
+watch holds only its own terminal, as `other`. Parse, do not validate — the
 decoder goes through it, so a store on disk that breaks one fails to decode
-with the sentence naming it, and the single writer goes through it too, so a
-transition that would break one cannot be saved.
+with the sentence naming it, and `kolu-conductor`'s one writer assigns its
+value only through it, so a transition that would break one throws before it
+is saved.
+
+**A re-key never removes anything.** `rekeyed(store, id, root, at)` moves a
+branch work kept under a key git never named to the key of `root`: stamped
+`git` where that is its own id, moved there in its place when the id is free,
+or kept under its old key as `held` when another work holds it — and ended
+`stopped by kolu` only when both are open, because one branch runs as one
+card. Every other work is the same value it was.
 
 **The mechanism does not read the vocabulary.** `schema.ts`, `record.ts`,
 `folds.ts` and `readings.ts` import nothing from `waterfall.ts`; the rules that

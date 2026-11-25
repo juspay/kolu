@@ -79,9 +79,9 @@
  *                      question NAMES A FILE (`.waterfall/plan.md`): what
  *                      makes every face of it offer to open the reader
  *   note <text>      — a REAL `work_note` on the last work opened
- *   watch <id>       — a plain watch: a REAL `work_open` in mode `watch`
- *                      (host and mode given, nothing asked), then `work_adopt`
- *                      of `local/<id>` with role `other`
+ *   watch <id>       — a plain watch: a REAL `work_open` of `watch` alone
+ *                      (a watch takes no setup, nothing asked), then
+ *                      `work_adopt` of `local/<id>` with role `other`
  *   run an agent in <cwd>
  *                    — a REAL `work_open` (mode `trivial`, nothing asked,
  *                      keyed by that directory) then a REAL
@@ -148,6 +148,7 @@ import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { FIXTURE_HARNESS } from "./agentDistroFixture.ts";
+import { workBranchOf } from "./workBranch.ts";
 
 /** The model every work this fixture opens runs its implementor on. A word,
  *  not an id: the floor's one harness lists no models (`FIXTURE_MODELS`), so
@@ -600,20 +601,14 @@ const setupFor = (
   return setup;
 };
 
-/** Open a piece of work and remember it. Answers the work's id — the call
- *  comes back AT ONCE, whether or not a setup question went to the human:
- *  what they say arrives later, as a wake. */
-const slug = (title: string): string =>
-  title
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-|-$/g, "");
-
 /** WHAT THE LAST `work_open` ANSWERED, kept whole — a refusal's own sentence
  *  is all a person gets when no work was opened, so the turn says it rather
  *  than reporting the absence of an id. */
 let lastOpenSaid = "";
 
+/** Open a piece of work and remember it. Answers the work's id — the call
+ *  comes back AT ONCE, whether or not a setup question went to the human:
+ *  what they say arrives later, as a wake. */
 const openWork = async (
   title: string,
   mode: "full" | "trivial" | "watch",
@@ -654,7 +649,7 @@ const openWork = async (
       ? {
           host: over.host ?? "local",
           repo,
-          branch: slug(title),
+          branch: workBranchOf(title),
           setup: setupFor(mode, over),
         }
       : { watch: over.watch }),
@@ -890,8 +885,8 @@ const turn = async (
     return;
   }
   if (text.startsWith("watch ")) {
-    // A PLAIN WATCH the human asked for: a piece of work in `watch` mode,
-    // then the terminal they pointed at adopted into it as `other`.
+    // A PLAIN WATCH the human asked for: a piece of work keyed by that one
+    // terminal, then the terminal adopted into it as `other`.
     const terminalId = text.slice("watch ".length).trim();
     const work = await openWork(`watch ${terminalId}`, "watch", {
       watch: `local/${terminalId}`,

@@ -104,9 +104,10 @@ export {
  *    question). A waterfall mode needs the
  *    implementor's harness and model and what to do when the PR is green; `full`
  *    needs the planner's two as well.
- *  - `driven` — whether kolu types into its member terminals. A `watch` is the
- *    person's own terminal and kolu never drives it, so nothing there is ever
- *    locked.
+ *  - `driven` — whether kolu types into its member terminals. A `watch` is
+ *    the person's own terminal and kolu never drives it: a watch KEY runs
+ *    this row whatever its decisions say ({@link runOf}), so nothing there is
+ *    ever locked.
  *  - `stages` — the stages a work in this mode HAS, in order: the only ones
  *    its time is ever filed under (`./folds.ts`'s `stages`). `full` has all
  *    six; `trivial` has nobody to plan, approve or review, so Build, Checks

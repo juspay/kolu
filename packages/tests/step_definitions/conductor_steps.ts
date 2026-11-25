@@ -31,6 +31,7 @@ import {
 } from "../support/agentDistroFixture.ts";
 import { readBufferText } from "../support/buffer.ts";
 import { type PrFixture, statePullRequest } from "../support/fake-gh.ts";
+import { workBranchOf } from "../support/workBranch.ts";
 import {
   expectNoDiagramError,
   waitForPaintedDiagram,
@@ -3082,9 +3083,6 @@ const agentSessions = new Map<
   AgentRole,
   { transcriptPath: string; sessionId: string }
 >();
-/** How many times the repo's branch has been moved to hurry the PR sensor —
- *  each move needs a name no earlier one used. */
-let branchBumps = 0;
 /** The pull request the scenario has stated so far, so a step that changes one
  *  thing about it (its checks, its state) restates the rest unchanged. */
 let statedPr: PrFixture | null = null;
@@ -3095,7 +3093,7 @@ After(() => {
   }
   workRepos.length = 0;
   agentSessions.clear();
-  branchBumps = 0;
+  otherRepoDir = null;
   statedPr = null;
 });
 
@@ -3119,11 +3117,11 @@ function run(command: string, args: string[], cwd: string): void {
   execFileSync(command, args, { cwd, stdio: "ignore" });
 }
 
-/** A REAL REPOSITORY for the work: a branch to be on, a commit to be at, and
- *  an `origin` on `github.com` — which is the fact `detectForge` routes on, so
- *  the PR sensor reaches the gh adapter at all. The remote is never dialled:
- *  the suite's `gh` answers from the repo's own fixture file. */
-Given("a repo for the work", async function (this: KoluWorld) {
+/** A REAL REPOSITORY: a commit to be at, and an `origin` on `github.com` —
+ *  which is the fact `detectForge` routes on, so the PR sensor reaches the gh
+ *  adapter at all. The remote is never dialled: the suite's `gh` answers from
+ *  the repo's own fixture file. */
+function makeRepo(name: string): string {
   const dir = fs.mkdtempSync(
     path.join(os.tmpdir(), `kolu-work-repo-${process.pid}-`),
   );
@@ -3131,7 +3129,7 @@ Given("a repo for the work", async function (this: KoluWorld) {
   run("git", ["init", "-b", "main", "."], dir);
   run(
     "git",
-    ["remote", "add", "origin", "https://github.com/kolu-e2e/parser.git"],
+    ["remote", "add", "origin", `https://github.com/kolu-e2e/${name}.git`],
     dir,
   );
   fs.writeFileSync(
@@ -3140,9 +3138,29 @@ Given("a repo for the work", async function (this: KoluWorld) {
   );
   run("git", ["add", "-A"], dir);
   run("git", ["commit", "-m", "init"], dir);
-  run("git", ["checkout", "-b", "rewrite-the-parser"], dir);
-  this.workRepoDir = dir;
+  return dir;
+}
+
+/** THE WORK'S REPOSITORY. The work's branch is checked out in it when the
+ *  work is opened ({@link openWorkSaying}), as a person's checkout would be:
+ *  kolu asks git where the work's branch is checked out, and that folder —
+ *  this repository — is the work's. */
+Given("a repo for the work", async function (this: KoluWorld) {
+  this.workRepoDir = makeRepo("parser");
 });
+
+/** ANOTHER REPOSITORY, on a branch of its own, whose pull request has
+ *  merged — somewhere a terminal can stand that is not the work's. */
+let otherRepoDir: string | null = null;
+Given(
+  "another repo whose pull request is merged #{int} {string}",
+  async function (this: KoluWorld, number: number, title: string) {
+    const dir = makeRepo("elsewhere");
+    run("git", ["checkout", "-b", "someone-elses-change"], dir);
+    statePullRequest(dir, { number, title, state: "merged", checks: [] });
+    otherRepoDir = dir;
+  },
+);
 
 /** OPEN THE WORK. The fixture's `open <title>` is a real `work_open` on the
  *  fleet face with the setup all given except what to do on green — so the
@@ -3194,6 +3212,11 @@ async function openWorkSaying(
   title: string,
   prompt: string,
 ): Promise<void> {
+  // THE WORK'S BRANCH, CHECKED OUT in the scenario's repo — the folder git
+  // names for the work's key.
+  const repo = world.workRepoDir;
+  if (repo !== undefined)
+    run("git", ["checkout", "-B", workBranchOf(title)], repo);
   await enterConductor(world);
   world.workTitle = title;
   await sendPrompt(world, prompt);
@@ -3508,39 +3531,54 @@ When(
 
 /** THE PLANNER, the same way: a real `lifecycle_create` with the planner's
  *  role, running its own omp stand-in with a session file of its own beside
- *  the implementor's — two agents in one worktree are two omp sessions. */
+ *  the implementor's — two agents in one worktree are two omp sessions —
+ *  started in `repo`. */
+async function runPlannerIn(world: KoluWorld, repo: string): Promise<void> {
+  const bin = process.env.KOLU_FAKE_OMP_BIN;
+  if (!bin) throw new Error("KOLU_FAKE_OMP_BIN must be set");
+  const ompDir = process.env.KOLU_OMP_DIR;
+  if (!ompDir) throw new Error("KOLU_OMP_DIR must be set");
+  const beside = ompTranscriptPath({ ompDir, cwd: repo });
+  const fixture = {
+    transcriptPath: path.join(
+      path.dirname(beside.transcriptPath),
+      "2026-09-14T17-07-13-000Z_planner.jsonl",
+    ),
+    sessionId: beside.sessionId,
+  };
+  agentSessions.set("planner", fixture);
+  const program = path.join(
+    path.dirname(fixtureClaudeRelay()),
+    "omp-planner-stand-in.sh",
+  );
+  fs.writeFileSync(
+    program,
+    ompMockPayload({
+      breadcrumbDir: path.join(ompDir, "terminal-sessions"),
+      transcriptPath: fixture.transcriptPath,
+      stagePath: path.join(
+        os.tmpdir(),
+        `kolu-work-stage-planner-${process.pid}`,
+      ),
+    }),
+  );
+  await runMember(world, "planner", `${bin} ${program}`, repo);
+}
+
 When(
   "I ask the conductor to run the planner in the work's repo",
   async function (this: KoluWorld) {
-    const bin = process.env.KOLU_FAKE_OMP_BIN;
-    if (!bin) throw new Error("KOLU_FAKE_OMP_BIN must be set");
-    const ompDir = process.env.KOLU_OMP_DIR;
-    if (!ompDir) throw new Error("KOLU_OMP_DIR must be set");
-    const beside = ompTranscriptPath({ ompDir, cwd: workRepo(this) });
-    const fixture = {
-      transcriptPath: path.join(
-        path.dirname(beside.transcriptPath),
-        "2026-09-14T17-07-13-000Z_planner.jsonl",
-      ),
-      sessionId: beside.sessionId,
-    };
-    agentSessions.set("planner", fixture);
-    const program = path.join(
-      path.dirname(fixtureClaudeRelay()),
-      "omp-planner-stand-in.sh",
-    );
-    fs.writeFileSync(
-      program,
-      ompMockPayload({
-        breadcrumbDir: path.join(ompDir, "terminal-sessions"),
-        transcriptPath: fixture.transcriptPath,
-        stagePath: path.join(
-          os.tmpdir(),
-          `kolu-work-stage-planner-${process.pid}`,
-        ),
-      }),
-    );
-    await runMember(this, "planner", `${bin} ${program}`);
+    await runPlannerIn(this, workRepo(this));
+  },
+);
+
+/** ... or in ANOTHER repository: a member may stand anywhere, and lends the
+ *  work nothing from there. */
+When(
+  "I ask the conductor to run the planner in the other repo",
+  async function (this: KoluWorld) {
+    assert.ok(otherRepoDir, "this scenario never made another repo");
+    await runPlannerIn(this, otherRepoDir);
   },
 );
 
@@ -3559,15 +3597,15 @@ export async function runImplementor(
   return said;
 }
 
-/** THE CONDUCTOR RUNS ONE OF THE WORK'S MEMBERS, in the work's repo, and
- *  answers the terminal it made — the `ran:` this prompt was answered with,
- *  not an earlier one's. */
+/** THE CONDUCTOR RUNS ONE OF THE WORK'S MEMBERS, in `repo` (the work's own,
+ *  unless a scenario says), and answers the terminal it made — the `ran:`
+ *  this prompt was answered with, not an earlier one's. */
 async function runMember(
   world: KoluWorld,
   role: AgentRole,
   relay: string,
+  repo: string = workRepo(world),
 ): Promise<string> {
-  const repo = workRepo(world);
   fs.writeFileSync(fixtureClaudeRelay(), relay);
   await enterConductor(world);
   const ran = async (): Promise<ReadonlyArray<string>> => {
@@ -3664,16 +3702,17 @@ When(
 );
 
 /** STATE THE PULL REQUEST, and hurry the sensor honestly. padi re-resolves a
- *  PR on a 30-second poll OR the moment the terminal's git context changes;
+ *  work's PR on a 30-second poll OR the moment its repository changes;
  *  waiting out the poll would cost half a minute per step, so each statement
- *  moves the branch — a real git change the repo's own watcher reports, after
- *  which gh is asked again and answers what the scenario just wrote. */
+ *  commits — a real git change the repo's own watcher reports, after which gh
+ *  is asked again and answers what the scenario just wrote. A commit, not a
+ *  branch switch: the work's branch stays checked out, so its folder stays
+ *  the work's. */
 function restatePullRequest(world: KoluWorld, pr: PrFixture): void {
   const repo = workRepo(world);
   statedPr = pr;
   statePullRequest(repo, pr);
-  branchBumps += 1;
-  run("git", ["checkout", "-b", `rewrite-the-parser-${branchBumps}`], repo);
+  run("git", ["commit", "--allow-empty", "-q", "-m", "restate the PR"], repo);
 }
 
 function statedPullRequest(): PrFixture {
@@ -4344,6 +4383,47 @@ Then(
           `after ${ms}ms the map counts ${JSON.stringify(last)} review rounds, not ${rounds}`,
         ),
     });
+  },
+);
+
+/** THE CARD'S PR MARK — the pip beside the work's subtitle — is the work's
+ *  own pull request: its link goes to that number, whatever any member
+ *  terminal's own branch has. */
+Then(
+  "the work card's pull request mark should link {string}",
+  async function (this: KoluWorld, pr: string) {
+    const want = `/pull/${pr.replace("#", "")}`;
+    const putBack = await pickToRead(this);
+    const pip = workCard(this)
+      .locator('[data-testid="work-subtitle"] [data-testid="dock-row-pr-pip"]')
+      .first();
+    await pollFor({
+      observe: () =>
+        pip.getAttribute("href", { timeout: 500 }).catch(() => null),
+      isDone: (href) => href?.endsWith(want) === true,
+      timeoutMs: POLL_TIMEOUT,
+      onTimeout: (last, ms) =>
+        new Error(
+          `after ${ms}ms the card's PR mark links ${JSON.stringify(last)}, not ${want}`,
+        ),
+    });
+    await putBack();
+  },
+);
+
+/** A MEMBER STANDING ELSEWHERE says so on its row — where it stands is
+ *  about the terminal, and lends the work nothing. */
+Then(
+  "the work's {word} row should say it stands elsewhere",
+  async function (this: KoluWorld, role: string) {
+    const putBack = await pickToRead(this);
+    await workCard(this)
+      .locator(
+        `[data-testid="work-member"][data-role="${role}"] [data-testid="work-member-elsewhere"]`,
+      )
+      .first()
+      .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    await putBack();
   },
 );
 

@@ -130,6 +130,23 @@ Feature: A piece of work is a stored thing
     And the notification sound should have played 1 time
     And there should be no page errors
 
+  Scenario: A planner standing on another branch lends the card nothing
+    # A WORK'S PR IS ITS OWN BRANCH'S. The planner is started in another
+    # repository, on a branch whose pull request has merged; the card read
+    # that terminal's PR as the work's once. Now its row says it stands
+    # elsewhere, and the card's mark is the work's own draft #7.
+    Given a repo for the work
+    And another repo whose pull request is merged #5 "Someone else's change"
+    When I ask the conductor to open the work "lend nothing"
+    And I answer the work's question with "hand-over" in the chat
+    And I ask the conductor to run the planner in the other repo
+    Then the work's planner row should say it stands elsewhere
+    When the work's pull request opens as draft #7 "Lend nothing"
+    Then the work's timeline should show a "pr-opened" event saying "#7"
+    And the work card's pull request mark should link "#7"
+    And the work card should say its pull request is a draft
+    And there should be no page errors
+
   Scenario: A trivial work's map with a draft pull request
     # A trivial work has no review: its agents' time is the build. Its CI is
     # the checks, a draft or not, and a red check sends it back to the

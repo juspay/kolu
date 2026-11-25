@@ -25,7 +25,8 @@ Functions accept `log?: Logger` (from `anyagent`). Pass a pino child logger in p
 | Module         | Exports                                                                           | Purpose                                                                  |
 | -------------- | --------------------------------------------------------------------------------- | ------------------------------------------------------------------------ |
 | `schemas.ts`   | `GitInfoSchema`, `GitDiffOutputSchema`, etc.                                      | Effect Schema definitions (re-exported by `kolu-common`)                 |
-| `resolve.ts`   | `resolveGitInfo`, `watchGitHead`, `gitInfoEqual`, `hasGitDir`, `subscribeGitInfo` | Repo context resolution (`GitInfo.isBare` says the root has no working tree) + `.git/HEAD` watching + combined subscribe loop |
+| `resolve.ts`   | `resolveGitInfo`, `repositoryRootOf`, `watchGitHead`, `gitInfoEqual`, `hasGitDir`, `subscribeGitInfo` | Repo context resolution (`GitInfo.isBare` says the root has no working tree) + `.git/HEAD` watching + combined subscribe loop |
+| `branch-checkout.ts` | `branchCheckout`, `subscribeBranchCheckout`, `parseWorktreeList`, `branchCheckoutEqual` | Where a BRANCH is checked out: the repository's root and the worktree holding it (or none), re-read when HEAD moves in any checkout or a worktree is cut or removed |
 | `worktree.ts`  | `worktreeCreate`, `worktreeRemove`, `detectDefaultBranch`                         | Worktree lifecycle                                                       |
 | `review.ts`    | `getStatus`, `getDiff`, `parseNameStatus`                                         | Diff review (local + branch modes)                                       |
 | `browse.ts`    | `listAll`, `listIgnored`, `listDirectory`, `readFile`, `filePreviewTag`           | Code-tab listings + file reads (`listDirectory` opens a collapsed ignored dir, and every folder of a bare repo's folder) |

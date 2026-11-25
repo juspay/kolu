@@ -283,13 +283,20 @@ terminal's agent stops, asks or dies. The two waits that survive are both
 submit keys, and the few seconds it watches afterwards to say whether the words
 took.
 
-**The pieces of work, and who is in one.** `work_open { title, repo, branch,
-setup }` creates the work and carries the **setup questions** with it — kolu
-puts the ones the request has not already answered to the human as ONE ask
-linked to that work, records the answers as decisions, and answers `{ work,
-host, mode, roles, onGreen, declined }`, all of it READ back off those
-decisions. The setup keys it must cover are validated BEFORE anything is
-asked, so a missing one is a refusal naming it rather than a half-opened work.
+**The pieces of work, and who is in one.** `work_open { title, host, repo,
+branch, setup }` — or `{ title, watch }` for a watch of one terminal, which
+takes no setup — creates the work and carries the **setup questions** with it.
+The key is PARSED at the door (`parseWorkKey`): `host` must be a fleet host
+that answers, `repo` any path git there places in a repository (its ROOT
+becomes the key, so a linked worktree and a trailing slash name one work),
+`watch` a terminal ref in its host's roster. Before it opens anything, the
+branch's stored works whose key git never named are re-keyed to that root
+(`rekeyBeforeOpen`). kolu puts the questions the request has not already
+answered to the human as ONE ask linked to that work, records the answers as
+decisions, and answers `{ work, host, mode, roles, onGreen, declined }`, all
+of it READ back off those decisions. The setup keys it must cover are
+validated BEFORE anything is asked, so a missing one is a refusal naming it
+rather than a half-opened work.
 A role's **harness and model are kolu's to offer**: their setup entries are
 `{ key, given? }`, and an `options` or `question` there is refused by the
 schema, not ignored (`Schema.Never`). kolu-server refuses the whole call when

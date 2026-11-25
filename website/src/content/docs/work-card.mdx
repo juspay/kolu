@@ -9,7 +9,7 @@ Every piece of work the [Conductor](/conductor) runs has a card or a row. Shut, 
 
 ## Where the cards are
 
-The works take the wide side of the Conductor, and the chat is a panel on the right. While a file is open, [the reader](/read-a-plan) takes the works' place, and **← Work** brings them back as they were. The works scroll by themselves.
+The works take the wide side of the Conductor, and the chat is a panel on the right. While a file is open, [the reader](/read-a-plan) takes the works' place, and **← Work** brings them back as they were.
 
 On a phone the works are the **Work** tab, beside **Chat**. The tab shows how many works need you. The status line's **N pieces of work** opens it, and so does tapping a work chip in the chat.
 
@@ -22,11 +22,11 @@ The works come in four groups:
 | **Watching · N** | Terminals you asked the Conductor to watch, one row each. |
 | **Finished** | Works that ended, collapsed until you click it, one line each: title and repository, how it ended, how long it ran, and when. |
 
-A row puts the title, the stage map, the terminals and the age side by side. When the works column is narrower than about 830px, its terminals drop under its title. On a phone every work in progress is a card. With nothing in progress the list says **Nothing in progress.**
+When the works column is narrower than about 830px, a row's terminals drop under its title. On a phone every work in progress is a card. With nothing in progress the list says **Nothing in progress.**
 
 ## The works sidebar
 
-A sidebar beside the works lists every work, one entry each, whether a work is picked or not. It stays in place and scrolls by itself. A phone has no sidebar.
+A sidebar beside the works lists every work, one entry each, whether a work is picked or not. A phone has no sidebar.
 
 | Part | What it shows |
 | --- | --- |
@@ -50,6 +50,8 @@ In a window under 1280px wide the sidebar is a strip of initials. A work that ne
 | Stage map | Its six stages and the loops it has gone round, below. |
 | Terminals | One row each: its [dock](/dock) status mark, its role, its name (click it to go to the tile), what it runs, how it stands and for how long, **Look** (a [live window](/tiles#look-from-the-conductor)), and **Take over** or **Hand back**. |
 | The question waiting for you | Its form, to answer without picking the work. The same decision the chat and the reader show: answering it in any of them answers it. |
+
+The PR and its mark are the work's own branch's; a terminal elsewhere says so on its row, as **elsewhere · kolu · main**.
 
 A PR recorded before kolu kept PR addresses shows its number as plain text. A work still in progress gets the link the next time kolu reads its PR.
 
@@ -116,9 +118,8 @@ On a work saved before kolu kept hand-offs, time that could have been either of 
 - A dashed stage did not happen: its mode has none, or the work went past it. A faint one is not reached.
 - A hatched stage may have had a doubt's time.
 - A doubt's mark, **▨ 1h 20m**, sits between its two stages: their time together. Both are ringed while the work is in it.
-- A colour names a stage, the same on [the trail](#the-trail).
 
-On a narrow card a stage shows its first letter; hover for its name. Before the mode is chosen, all six are faint. Clicking a stage that happened, or a doubt's mark, opens its events.
+Clicking a stage that happened, or a doubt's mark, opens its events.
 
 ### Which stage the work is in
 
@@ -176,8 +177,8 @@ Code shows less in two cases:
 
 | Case | What you see |
 | --- | --- |
-| kolu has not read the work's folder yet | One line saying so, the same as the Worktree part. |
-| No terminal of the work stands in its folder | The tree, the changes and the files still show. Comments are off, and a picture or a download says in one line why it cannot be fetched. |
+| kolu has not read the work's folder, or its branch is checked out nowhere | One line saying so, the same as the Worktree part. |
+| No terminal of the work stands in its folder | The tree, the changes, the files and comments still work. A picture or a download says in one line why it cannot be fetched. |
 
 ### A terminal's size in its pane
 
@@ -195,7 +196,7 @@ Below the rows:
 
 | Part | What you get |
 | --- | --- |
-| Worktree | Once for a work in progress: its branch and repository, the PR and checks, odu's CI, and the folder, as the [Right panel](/right-panel) shows them. It stays after the terminals end. |
+| Worktree | Once for a work in progress: its branch and repository, the PR and checks, odu's CI, and the folder its branch is checked out in, as the [Right panel](/right-panel) shows them. It stays after the terminals end. |
 | Files | The worktree's `.waterfall/` files, at any depth, and the copies kolu kept. A folder is one chip with its file count, such as `mockup/ · 49`. Click it to unfold it. Click a file to open it in [the reader](/read-a-plan). |
 | Pull request | Its number as a link: open, merged or closed, and **draft** while it is one. The last check result, failed ones in one line (`7 failing: ci::nix, ci::unit, +5`) to click. While open, whether GitHub would merge it. |
 | Setup | One line: the mode, each role's harness and model, and what happens on green. |
@@ -205,13 +206,13 @@ Below the rows:
 
 The timeline shows the stage the work is in, or a finished work's last stage, until you click a stage, a doubt or a visit. **whole timeline · N events** unfolds it all in place. A watch, which has no stages, shows its latest five events.
 
-A line runs through the event dots. The gap between two events grows with the wait, up to about four rows, and a wait near that maximum prints its time on the line, such as **3h**.
+The gap between two events grows with the wait, up to about four rows.
 
 A question reads **Asked:** and your answer **You:**. A run of files one agent wrote into a folder is one row, such as **Wrote mockup/ · 49 files**. A line too long for the row is cut, and a folder's row lists its files, with **more** beside it.
 
 ### The trail
 
-Each visit is one segment above the timeline, as wide as it was long, in its stage's colour. Clicking one, however short, shows its events.
+Each visit is one segment above the timeline. Clicking one, however short, shows its events.
 
 - The visit the work is in is ringed and labelled **now**.
 - A run of review rounds is labelled once, as in **6 review rounds · 1h 10m**; every other visit by itself, as in **Checks 12m**.
@@ -235,3 +236,5 @@ A work ends three ways: the forge merges or closes its pull request, you click *
 An ended card's line says how it ended, such as **Merged #181 · 1d ago**. Open, it shows where the time went, the kept files, the decisions and the timeline, where the merge and the end it caused are one row. It never shows terminals, a lock or a question, and it offers **Reopen**.
 
 kolu copies the work's `.waterfall/` files when it ends, up to 50 MiB per work. Under **Files (kept)**, a line starting **Not kept:** names what was left out and why: a file past that size, a listing that stopped at 200 files and folders, or a copy that failed.
+
+Reopening keeps a merged PR merged and is refused while another work runs the branch. A work saved before kolu keyed works by repository root moves to that key. If another work holds it, the card says **Kept under its old key: «title» holds csv in kolu**, and kolu stops it when both are open.

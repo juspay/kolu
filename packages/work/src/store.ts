@@ -26,9 +26,10 @@
  * that breaks one of the six fails to decode with the fault that names it —
  * a VALUE, because the SENTENCE belongs to whichever face shows it — the same
  * rule a refusal follows (`./refusal.ts`) — and the recovery screen offers
- * the way back. The single writer goes through here too, so a
- * transition that would break one cannot be saved. There is no third path
- * that "already knows" its values are good.
+ * the way back. The single writer goes through here too — `kolu-conductor`'s
+ * work store assigns its one value only through `parseStore` — so a
+ * transition that would break one throws before it is saved. There is no
+ * third path that "already knows" its values are good.
  */
 
 import { Option } from "effect";
