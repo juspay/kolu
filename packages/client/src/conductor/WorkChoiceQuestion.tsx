@@ -576,12 +576,16 @@ const WorkChoiceQuestion: Component<{
 
           ARMED ON the subject: `on` re-arms the boundary when the subject
           changes, so the next harness's read is held here and the question
-          shows "asking" rather than the harness they left. That holds because
-          everything under it is said from the subject it was handed and
-          nothing reads `harness()` or `repo()` — a read of those is one hop
-          closer to the seeding write than `on`, and would go pending before
-          the boundary re-arms, to be forwarded to the root
-          (ASYNC_OUTSIDE_LOADING_BOUNDARY).
+          shows "asking" rather than the harness they left. That holds
+          because no ASYNC read under it starts from `harness()` or `repo()`:
+          the one host read, `Asked.models`, is said from the subject the
+          boundary is armed on, and so is every offer that decides what is
+          asked. A read of `harness()` or `repo()` is one hop closer to the
+          seeding write than `on`, so a host read begun from one would go
+          pending before the boundary re-arms and be forwarded to the root
+          (ASYNC_OUTSIDE_LOADING_BOUNDARY). `Offered` does read `harness()`
+          (:322, :389), but only to recall what this person answered before
+          — local memory, nothing in flight.
 
           The rest of the form stays unheld — the harness chip reads as
           pressed at once, rather than after a host answers. */}
