@@ -25,7 +25,7 @@ const FileSearchInput: Component<{
       placeholder="filter files…"
       class="flex-1 min-w-0 bg-transparent outline-none border-0 placeholder:text-fg-3/40 text-fg"
       data-testid="diff-filter-search"
-      spellcheck={false}
+      spellcheck="false"
       autocomplete="off"
     />
     <Show when={props.value.length > 0}>

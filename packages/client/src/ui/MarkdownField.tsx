@@ -24,7 +24,7 @@ const MarkdownField: Component<{
       onInput={(e) => props.onInput(e.currentTarget.value)}
       class="w-full min-h-32 resize-y rounded-md border border-edge bg-surface-0 px-3 py-2 font-mono text-[0.78rem] leading-relaxed text-fg outline-none placeholder:text-fg-3/60 focus:border-accent/70 focus:ring-2 focus:ring-accent/25"
       placeholder={props.placeholder}
-      spellcheck={false}
+      spellcheck="false"
       onKeyDown={(e) => {
         // `data-kolu-modal="true"` on the dialog makes `useShortcuts.ts` bail
         // before a global binding sees this; the stop is for any other

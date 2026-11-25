@@ -109,7 +109,7 @@ const CompactsAtRow: Component = () => {
             <input
               type="text"
               inputmode="numeric"
-              spellcheck={false}
+              spellcheck="false"
               autocomplete="off"
               aria-label="Compact the Conductor's conversation at, in thousands of tokens"
               data-testid="conductor-compacts-at-field"
