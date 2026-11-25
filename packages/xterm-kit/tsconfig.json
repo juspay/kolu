@@ -3,8 +3,6 @@
   "compilerOptions": {
     "rootDir": "src",
     "outDir": "dist",
-    "jsx": "preserve",
-    "jsxImportSource": "@solidjs/web",
     "types": ["node"]
   },
   "include": ["src"]

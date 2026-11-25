@@ -2,8 +2,6 @@
   "extends": "../../../../tsconfig.base.json",
   "compilerOptions": {
     "rootDir": "src",
-    "jsx": "preserve",
-    "jsxImportSource": "@solidjs/web",
     "lib": ["ES2022", "DOM", "DOM.Iterable"],
     "types": ["node"]
   },

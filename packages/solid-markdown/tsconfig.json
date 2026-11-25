@@ -2,9 +2,7 @@
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
     "rootDir": "src",
-    "outDir": "dist",
-    "jsx": "preserve",
-    "jsxImportSource": "@solidjs/web"
+    "outDir": "dist"
   },
   "include": ["src"]
 }
