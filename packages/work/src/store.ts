@@ -235,8 +235,17 @@ export type Rekey =
 
 /** A BRANCH WORK RE-KEYED TO GIT'S ROOT — the one transition, pure. With `W`
  *  the work at `id`, `N` the id of `W`'s key with `repo` set to `root`, and
- *  RUNNING the open work other than `W` on that host, root and branch, if
- *  any ({@link runningOn}, rule 5's own test):
+ *  RUNNING the open work other than `W` that runs that host, root and
+ *  branch:
+ *
+ *  - the work at `N`, when it is open — its `repo` is, letter for letter,
+ *    the root git just named, whatever its `repoBy` says, so it is the one
+ *    card the branch runs as;
+ *  - else the open work rule 5 counts on that root ({@link runningOn}), if
+ *    any.
+ *
+ *  The work at `N` is asked first so that WHICH of two open works is stopped
+ *  never depends on whose answer arrives first: it is never the one at `N`.
  *
  *  - `N` is `W`'s own id: the key is stamped `git`. Nothing moves.
  *  - `N` is free and nothing else runs the branch: `W` moves to `N` AT THE
@@ -264,11 +273,15 @@ export const rekeyed = <M extends WorkMember>(
     throw new Error(`rekeyed: ${id} is no branch work in the store`);
   const key: BranchKey = work.key;
   const target = workIdOf({ ...key, repo: root });
-  const running = runningOn(
-    store.works,
-    { host: key.host, root, branch: key.branch },
-    id,
-  );
+  const holder = target === id ? undefined : store.works.get(target);
+  const running: Option.Option<readonly [WorkId, Work]> =
+    holder !== undefined && holder.state.kind === "open"
+      ? Option.some([target, holder])
+      : runningOn(
+          store.works,
+          { host: key.host, root, branch: key.branch },
+          id,
+        );
   const ended = work.state.kind === "open" && Option.isSome(running);
   /** `W` written back under its own id as `next`, ended when it must be. */
   const kept = (next: Work): WorkStoreValue<M> => ({
@@ -289,7 +302,6 @@ export const rekeyed = <M extends WorkMember>(
       value: kept({ ...work, key: { ...key, repoBy: { kind: "git" } } }),
       rekey: { kind: "stamped", ended },
     };
-  const holder = store.works.get(target);
   if (holder === undefined && Option.isNone(running))
     return {
       value: {

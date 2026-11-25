@@ -238,6 +238,40 @@ describe("re-keying a work to git's root", () => {
     expect(value.works.has(workIdOf(late.key))).toBe(true);
     expect(storeFault(value.works, value.members)).toEqual(Option.none());
   });
+
+  it("leaves the work at the root's id open, in whatever order git answers", () => {
+    // An OPEN holder at the root's own id, still as written, and open
+    // old-key works on its branch under other spellings. Each is re-keyed
+    // once, in every order: the work that sits where git says is the one
+    // card, and every old-key work is stopped, kept under its old key.
+    const HOLDER = branchKey("/repo", "csv", AS_WRITTEN);
+    const OLD = [WORKTREE, "/repo/sub", "/repo/other"].map((repo) =>
+      branchKey(repo, "csv", AS_WRITTEN),
+    );
+    const ids = [HOLDER, ...OLD].map(workIdOf);
+    const orders = (left: ReadonlyArray<WorkId>): WorkId[][] =>
+      left.length === 0
+        ? [[]]
+        : left.flatMap((one) =>
+            orders(left.filter((other) => other !== one)).map((rest) => [
+              one,
+              ...rest,
+            ]),
+          );
+    for (const order of orders(ids)) {
+      let store = storeOf([HOLDER, ...OLD].map((key) => opened(key)));
+      for (const id of order) {
+        store = rekeyed(store, id, "/repo", AT).value;
+        expect(storeFault(store.works, store.members), order.join(" ")).toEqual(
+          Option.none(),
+        );
+      }
+      const open = [...store.works]
+        .filter(([, one]) => one.state.kind === "open")
+        .map(([id]) => id);
+      expect(open, order.join(" ")).toEqual([workIdOf(HOLDER)]);
+    }
+  });
 });
 
 describe("one open work per branch, where git has said the root", () => {
