@@ -78,6 +78,12 @@ export function WorkspaceTerminals(props: {
         });
       },
       (el) => {
+        // The destination is deleted only while it is still THIS slot's. A
+        // shell swap registers the arriving slot first, and that write is in
+        // the store before this read — so the release sees the new element
+        // and leaves the body where it was just placed (pinned by
+        // "keeps the body when the new shell's slot is placed before the old
+        // is released").
         if (destinations[id]?.el === el)
           setDestinations((all) => {
             delete all[id];

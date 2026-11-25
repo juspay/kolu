@@ -1,4 +1,11 @@
-import { createSignal, createStore, flush, For, Show } from "solid-js";
+import {
+  createSignal,
+  createStore,
+  flush,
+  For,
+  onCleanup,
+  Show,
+} from "solid-js";
 import { render } from "@solidjs/web";
 import { expect, it } from "vitest";
 import { WorkspaceTerminals } from "./WorkspaceTerminals";
@@ -160,6 +167,67 @@ it("asks the shell that is placing the body whether it can be seen", () => {
     setDesktop(true);
     flush();
     expect(seen()).toBe(false);
+    expect(mounts).toBe(1);
+  } finally {
+    dispose();
+    host.remove();
+  }
+});
+
+it("keeps the body when the new shell's slot is placed before the old is released", () => {
+  const host = document.createElement("div");
+  document.body.append(host);
+  // The two shells are siblings, so the swap ARRIVES before it DEPARTS: the
+  // incoming slot's ref runs first, and the outgoing slot is released after.
+  // The release must see that the destination is no longer its own element.
+  const [desktop, setDesktop] = createSignal(true);
+  // The slot's ref and its release run in these same two places (a child ref,
+  // and the branch owner's cleanup), so they pin WHICH way round the swap
+  // happened.
+  const order: string[] = [];
+  let mounts = 0;
+  const dispose = render(
+    () => (
+      <WorkspaceTerminals
+        ids={["tile"]}
+        renderBody={() => {
+          mounts++;
+          return <textarea data-terminal="" />;
+        }}
+      >
+        {(outlet) => {
+          const Desktop = () => {
+            onCleanup(() => order.push("desktop out"));
+            return (
+              <main data-desktop="" ref={() => order.push("desktop in")}>
+                {outlet("tile", ALWAYS)}
+              </main>
+            );
+          };
+          return (
+            <>
+              <Show when={!desktop()}>
+                <section data-touch="" ref={() => order.push("touch in")}>
+                  {outlet("tile", ALWAYS)}
+                </section>
+              </Show>
+              <Show when={desktop()}>
+                <Desktop />
+              </Show>
+            </>
+          );
+        }}
+      </WorkspaceTerminals>
+    ),
+    host,
+  );
+  try {
+    const terminal = host.querySelector("textarea")!;
+    setDesktop(false);
+    flush();
+    // The hazard is real only if the arrival ran first.
+    expect(order).toEqual(["desktop in", "touch in", "desktop out"]);
+    expect(host.querySelector("[data-touch] textarea")).toBe(terminal);
     expect(mounts).toBe(1);
   } finally {
     dispose();
