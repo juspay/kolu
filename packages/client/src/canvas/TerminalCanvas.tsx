@@ -39,7 +39,8 @@ import { useShown } from "../ui/shown";
 import CanvasMinimap from "./CanvasMinimap";
 import CanvasTile, { type CanvasTileMode } from "./CanvasTile";
 import Dock from "./dock/Dock";
-import { applyResize, type ResizeDirection } from "./resizeGeometry";
+import type { ResizeDirection } from "./resizeGeometry";
+import { startTileResize, type TileResizePorts } from "./resizeGesture";
 import type { TileLayout } from "./TileLayout";
 import {
   DEFAULT_TILE_H,
@@ -53,7 +54,6 @@ import { usePendingLayouts } from "./usePendingLayouts";
 import { useTileAura } from "./useTileAura";
 import { useTileTheme } from "./useTileTheme";
 import { useViewPosture } from "./useViewPosture";
-import { capturePointerGesture } from "./viewport/capturePointerGesture";
 import {
   createContainerSizeObserver,
   useCanvasViewport,
@@ -334,55 +334,31 @@ const TerminalCanvas: Component<{
     props.onLayoutChange(id, next);
   }
 
-  /** Start resizing a tile from the given edge or corner.
-   *  Pointer deltas are in screen-space — normalize by zoom. */
+  /** Start resizing a tile from the given edge or corner. The gesture is
+   *  `resizeGesture.ts`'s; the canvas answers what it alone knows — the live
+   *  layout, the zoom the pointer delta is normalized by, the grid, and where
+   *  a committed layout goes. */
   let abortResize: AbortController | null = null;
+  const resizePorts: TileResizePorts = {
+    limits: { minW: MIN_W, minH: MIN_H },
+    layoutOf,
+    normalizeDelta: viewport.normalizeDelta,
+    snapToGrid: viewport.snapToGrid,
+    hasPending: (id) => pendingLayouts.pending[id] !== undefined,
+    setPending: setPendingLayout,
+    commit: (id, layout) => {
+      setPendingLayout(id, layout);
+      props.onLayoutChange(id as TileId, layout);
+    },
+  };
   function startResize(
     id: string,
     direction: ResizeDirection,
     e: PointerEvent,
   ) {
-    e.preventDefault();
-    e.stopPropagation();
-    const origin = layoutOf(id);
-    if (!origin) return;
-    const startX = e.clientX;
-    const startY = e.clientY;
-    const limits = { minW: MIN_W, minH: MIN_H };
-
-    abortResize?.abort();
-    abortResize = new AbortController();
-    capturePointerGesture(
-      {
-        onMove: (ev) => {
-          const { dx, dy } = viewport.normalizeDelta(
-            ev.clientX - startX,
-            ev.clientY - startY,
-          );
-          setPendingLayout(id, applyResize(origin, direction, dx, dy, limits));
-        },
-        onEnd: (ev) => {
-          abortResize = null;
-          // No motion — skip commit so a bare click doesn't round-trip the server.
-          if (!pendingLayouts.pending[id]) return;
-          const { dx, dy } = viewport.normalizeDelta(
-            ev.clientX - startX,
-            ev.clientY - startY,
-          );
-          const snapped = applyResize(
-            origin,
-            direction,
-            dx,
-            dy,
-            limits,
-            viewport.snapToGrid,
-          );
-          setPendingLayout(id, snapped);
-          props.onLayoutChange(id, snapped);
-        },
-      },
-      abortResize,
-    );
+    abortResize =
+      startTileResize(e, id, direction, abortResize, resizePorts) ??
+      abortResize;
   }
 
   // No `defer: true`: the cascade effect bumps the signal during canvas
