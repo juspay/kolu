@@ -1,5 +1,11 @@
 import { type HostKey, hostKeysEqual as sameHost } from "kolu-common/hostKey";
-import { type Accessor, createMemo, createSignal, type Setter } from "solid-js";
+import {
+  type Accessor,
+  createMemo,
+  createSignal,
+  type Setter,
+  untrack,
+} from "solid-js";
 import { activeHost, setActiveHost } from "../wire";
 
 /** A daemon mark's panel state: whether the panel SHOWS, the setter the
@@ -20,9 +26,9 @@ export type DaemonMarkOpen = {
  *  Its own module, not a helper inside the component file, so the rule is
  *  unit-drivable (`daemonMarkOpen.test.ts`) without mounting two dialogs. */
 export function useDaemonMarkOpen(host: HostKey): DaemonMarkOpen {
-  // `requested` is what the USER asked for — the click opened the panel, a
-  // dismiss closed it. Whether the panel SHOWS is a standing rule over that
-  // and the canvas: an open panel describes the ACTIVE host.
+  // `request` is what the USER asked for — a click raises one, a dismiss drops
+  // it. Whether the panel SHOWS is a standing rule over that request and the
+  // canvas: an open panel describes the ACTIVE host.
   //
   // The dialog's active-host-scoped rows (memory, running-daemon inventory,
   // convergence, kaval restart) ride the switch-first contract: opening
@@ -36,15 +42,48 @@ export function useDaemonMarkOpen(host: HostKey): DaemonMarkOpen {
   //
   // So it is a DERIVATION, not a correction: the panel stops showing in the
   // same flush the canvas moves, with no frame of the stale mix in between and
-  // no effect writing the flag it reads. The request survives the switch —
-  // switching back to `host` shows the panel the user opened, which is the same
-  // rule read the other way round.
-  const [requested, setRequested] = createSignal(false);
-  const open = createMemo(() => requested() && sameHost(activeHost(), host));
-  const openForHost = (): void => {
-    const alreadyActive = sameHost(activeHost(), host);
-    if (!alreadyActive) setActiveHost(host);
-    setRequested((v) => (alreadyActive ? !v : true));
+  // no effect writing the flag it reads. And the request is SPENT by the
+  // switch: once the canvas has moved off `host` the panel stays shut, as
+  // master's `setOpen(false)` left it — coming back to `host` (a notification
+  // jump away and a deep link back) must not reopen a panel the user never
+  // re-asked for. Only a fresh click mints a new request.
+  //
+  // The latch lives in the memo's own `prev`, so the spending is part of the
+  // derivation rather than an effect writing the source it reads: a request is
+  // a TOKEN, and a shown panel is one whose token is still the one the memo
+  // last saw shown over an active canvas.
+  let minted = 0;
+  const [request, setRequest] = createSignal(0);
+  const shown = createMemo<{ token: number; show: boolean }>(
+    (prev) => {
+      const token = request();
+      if (token === 0) return { token, show: false };
+      const active = sameHost(activeHost(), host);
+      // A fresh click shows over the host it just switched to; a standing
+      // request only survives while the canvas stays on `host`.
+      return {
+        token,
+        show: token !== prev.token ? active : prev.show && active,
+      };
+    },
+    { token: 0, show: false },
+  );
+  const open = (): boolean => shown().show;
+  const write = (next: boolean): void => {
+    setRequest(next ? ++minted : 0);
   };
-  return { open, setOpen: setRequested, openForHost };
+  const openForHost = (): void => {
+    const alreadyActive = sameHost(untrack(activeHost), host);
+    if (!alreadyActive) setActiveHost(host);
+    write(!(alreadyActive && untrack(open)));
+  };
+  const setOpen = ((value: boolean | ((prev: boolean) => boolean)) => {
+    const next = typeof value === "function" ? value(untrack(open)) : value;
+    write(next);
+    return next;
+    // `Setter<boolean>`'s overload set (a value, an updater, and the arms a
+    // non-nullable signal cannot take) is not expressible in one implementation
+    // signature; the two arms above are its whole surface here.
+  }) as Setter<boolean>;
+  return { open, setOpen, openForHost };
 }

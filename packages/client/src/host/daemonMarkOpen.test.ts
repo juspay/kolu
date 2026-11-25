@@ -79,9 +79,28 @@ describe("useDaemonMarkOpen", () => {
     flush();
     expect(mark.open()).toBe(false);
 
-    // Switching back shows the panel the user opened: the same standing rule.
+    // The switch SPENDS the request, as master's `setOpen(false)` did: coming
+    // back to this host (a notification jump away, a deep link back) must not
+    // reopen a panel the user never re-asked for.
     bag.setActiveHost(ZEST);
     flush();
+    expect(mark.open()).toBe(false);
+    mark.dispose();
+  });
+
+  it("a fresh click after a switch away reopens the panel", () => {
+    bag.setActiveHost(ZEST);
+    const mark = mount(ZEST);
+    mark.openForHost();
+    flush();
+    bag.setActiveHost(LOCAL_HOST);
+    flush();
+    expect(mark.open()).toBe(false);
+
+    // A new click mints a new request, and switches the canvas back first.
+    mark.openForHost();
+    flush();
+    expect(bag.activeHost()).toEqual(ZEST);
     expect(mark.open()).toBe(true);
     mark.dispose();
   });
