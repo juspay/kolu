@@ -696,6 +696,20 @@ let
     node ${./scripts/solid-dev-manifest.mjs} tree/packages/client $out
   '';
 
+  # THE DIAGNOSTICS-CHANNEL GLOBAL, READ OUT OF THE MODULE THAT OWNS IT so the
+  # dist checks below cannot drift from the client and the harness. Renaming or
+  # moving `SOLID_OBSERVE_GLOBAL` fails evaluation here instead of leaving a
+  # grep that can no longer match anything.
+  solidObserveGlobal =
+    let
+      source = builtins.readFile ./packages/common/src/solidDiagnostics.ts;
+      found = builtins.match ''.*SOLID_OBSERVE_GLOBAL = "([^"]+)";.*'' source;
+    in
+    if found == null then
+      throw "default.nix: no `SOLID_OBSERVE_GLOBAL = \"…\"` in packages/common/src/solidDiagnostics.ts — the client's diagnostics-channel global moved."
+    else
+      builtins.head found;
+
   # The source tree, runnable — the fileset plus a node_modules that POINTS AT
   # the deps derivations rather than containing them. A commit's worth of
   # difference is now a few megabytes of source and a tree of symlinks.
@@ -834,6 +848,19 @@ let
   # installed runtime, so nothing here restates it: the production dist must not
   # carry the development runtime, and the dev-mode dist must, and must ship the
   # manifest itself at its root for the e2e harness to read.
+  #
+  # The other half of that pair is the window the dev lane reaches the runtime
+  # through: the global `packages/client/src/solidDiagnosticsExpose.ts` assigns
+  # `OBSERVE` to, read out of the module that owns it as `solidObserveGlobal`.
+  # The dev-mode dist must carry it — otherwise the e2e harness's init script
+  # subscribes to a global nothing ever writes, and the lane reports no
+  # diagnostics for having no channel — and the production dist must not: the
+  # handover sits behind build-time `import.meta.env` literals, so a hit there
+  # means it survived into a shipped bundle.
+  #
+  # A compressed `.gz` / `.br` sibling cannot hide a match: the compression
+  # plugin writes them beside the originals it compresses, which is what these
+  # greps read.
   mkClientDist = { name, label, build, solidRuntime }:
     pkgs.runCommand name { nativeBuildInputs = [ pkgs.jq ]; } (''
       # Only index.html changes with the commit. Link the content-hashed assets
@@ -866,6 +893,10 @@ let
         echo "${label}: no asset carries Solid's development runtime ('$solidDevMarker') — the solid-dev build fell back to production." >&2
         exit 1
       fi
+      if ! grep -RqF '${solidObserveGlobal}' "$out/assets"; then
+        echo "${label}: no asset writes '${solidObserveGlobal}' — the dev lane's diagnostics channel is never handed to the page (packages/client/src/solidDiagnosticsExpose.ts)." >&2
+        exit 1
+      fi
     '' else ''
       if [ -e "$out/solid-dev.json" ]; then
         echo "${label}: the Solid-diagnostics manifest reached the production dist — the e2e harness would turn its console check on against a production server." >&2
@@ -879,6 +910,17 @@ let
         grepStatus=$?
         if [ "$grepStatus" -ne 1 ]; then
           echo "${label}: failed to inspect hashed assets for '$solidDevMarker'." >&2
+          exit "$grepStatus"
+        fi
+      fi
+      if observeMatches=$(grep -RlF '${solidObserveGlobal}' "$out/assets"); then
+        echo "${label}: '${solidObserveGlobal}' reached the production bundle — the diagnostics-channel handover must be dropped with its build-time branch." >&2
+        echo "$observeMatches" >&2
+        exit 1
+      else
+        grepStatus=$?
+        if [ "$grepStatus" -ne 1 ]; then
+          echo "${label}: failed to inspect hashed assets for '${solidObserveGlobal}'." >&2
           exit "$grepStatus"
         fi
       fi
