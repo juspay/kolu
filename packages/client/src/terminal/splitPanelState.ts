@@ -140,6 +140,22 @@ export function savedSplitOf(
   return pending ?? saved ?? DEFAULT_SPLIT_PANEL_STATE;
 }
 
+/** Take a value and do nothing with it. A store leaf is tracked by being READ,
+ *  and a read whose value is discarded is otherwise an expression statement
+ *  with no effect; this says the subscription is the point. */
+function touch(_value: unknown): void {}
+
+/** The watermark {@link SplitPending.sawRecord} holds — the record's leaves
+ *  COPIED out, never the record's own object. The collection MERGES a frame
+ *  into the record standing at a key, so what `savedOf` hands back is the LIVE
+ *  value: held as-is, "the record moved" would compare the record against
+ *  itself and a foreign write could never be seen. */
+function stampRecord(
+  saved: SplitPanelState | undefined,
+): SplitPanelState | undefined {
+  return saved && { collapsed: saved.collapsed, panelSize: saved.panelSize };
+}
+
 /** Persist a split's state on the server — the ONE `chrome.setSubPanel` call
  *  site in the client, so "who writes this" has a single answer to audit.
  *  `onSettled` runs exactly once per call, with whether the server took it. */
@@ -197,17 +213,27 @@ export const useSplitPanelState = createSharedRoot((): SplitPanelStore => {
     return record && "subPanel" in record ? record.subPanel : undefined;
   };
 
-  /** Read every live record, for the SUBSCRIPTION alone. The settle rule
-   *  below is a writable derivation, and a writable derivation does not
-   *  re-derive on its own writes: its dependencies are the ones its last run
-   *  read. An entry armed by a gesture after that run would therefore watch
-   *  nothing — its own record included — and never settle. Reading the whole
-   *  list once per run makes "a record moved" wake the rule whatever the
-   *  entries were when it last looked. */
+  /** Read every live record's COMPARED LEAVES, for the SUBSCRIPTION alone. The
+   *  settle rule below is a writable derivation, and a writable derivation does
+   *  not re-derive on its own writes: its dependencies are the ones its last
+   *  run read. An entry armed by a gesture after that run would therefore watch
+   *  nothing — its own record included — and never settle.
+   *
+   *  The leaves, not the record object: the `terminals` collection is served
+   *  per key and merged leaf by leaf, so a `subPanel` written elsewhere (a
+   *  second browser, an agent over MCP) keeps the record's identity and
+   *  notifies `subPanel.collapsed`/`.panelSize` alone. Reading exactly what
+   *  {@link settleSplitPending} compares makes "a record moved" wake the rule
+   *  whatever the entries were when it last looked. */
   const watchRecords = (): void => {
     const wire = activeScope()?.wire;
     if (!wire) return;
-    for (const id of wire.terminalKeys() ?? []) wire.terminals?.byKey(id)?.();
+    for (const id of wire.terminalKeys() ?? []) {
+      const saved = savedOf(id);
+      if (!saved) continue;
+      touch(saved.collapsed);
+      touch(saved.panelSize);
+    }
   };
 
   /** The live entries, and the settle rule that ends them — one writable
@@ -235,7 +261,7 @@ export const useSplitPanelState = createSharedRoot((): SplitPanelStore => {
       const next: Record<TerminalId, SplitPending> = {};
       for (const { id, entry, record, verdict } of acts) {
         if (verdict !== "keep") continue;
-        next[id] = { ...entry, sawRecord: record };
+        next[id] = { ...entry, sawRecord: stampRecord(record) };
       }
       return next;
     },
@@ -283,7 +309,7 @@ export const useSplitPanelState = createSharedRoot((): SplitPanelStore => {
     if (sameSplitPanelState(state(id), next)) return () => {};
     // Stamped from the record as it stands NOW, so this entry's "the record
     // moved" is measured from the gesture, not from nothing.
-    const sawRecordNow = savedOf(id);
+    const sawRecordNow = stampRecord(savedOf(id));
     return () => {
       setPending((prev: Record<TerminalId, SplitPending> = {}) => {
         const was = prev[id];

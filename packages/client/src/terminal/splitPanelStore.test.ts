@@ -9,9 +9,10 @@
  *  record moving — and not a value.
  */
 
+import { writeWrappedValue } from "@kolu/surface/solid";
 import { Deferred, Effect } from "effect";
 import type { TerminalId } from "kolu-common/surface";
-import { createRoot, createSignal, flush } from "solid-js";
+import { createRoot, createStore, flush } from "solid-js";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const h = vi.hoisted(() => ({
@@ -28,11 +29,25 @@ h.setSubPanel.mockImplementation(() => {
   return Deferred.await(gate);
 });
 
+/** The record as the per-key `terminals` collection holds it: ONE store the
+ *  server's frames are MERGED into (`@kolu/surface`'s `writeWrappedValue`, the
+ *  seam `createSubscription` writes every subscription value through), not a
+ *  signal each frame replaces. The grain is the whole point here — a `subPanel`
+ *  that moved keeps the record's identity and notifies
+ *  `subPanel.collapsed`/`.panelSize` alone, so a settle rule that subscribed to
+ *  the record OBJECT would never hear a foreign write. */
 const record = createRoot(() => {
-  const [value, setValue] = createSignal<
-    { subPanel?: { collapsed: boolean; panelSize: number } } | undefined
-  >(undefined);
-  return { value, setValue };
+  const [store, setStore] = createStore<{
+    v: { subPanel?: { collapsed: boolean; panelSize: number } } | undefined;
+  }>({ v: undefined });
+  return {
+    value: () => store.v,
+    setValue: (
+      next:
+        | { subPanel?: { collapsed: boolean; panelSize: number } }
+        | undefined,
+    ) => writeWrappedValue(setStore, next),
+  };
 });
 
 // The host wire as `createHostWire` builds it: `terminals.byKey(id)` is the
