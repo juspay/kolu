@@ -74,7 +74,6 @@ import {
   createSignal,
   createStore,
   For,
-  onCleanup,
   Show,
 } from "solid-js";
 import { Portal } from "@solidjs/web";
@@ -914,21 +913,21 @@ const HostSelectorStrip: Component = () => {
         <For each={hostKeys()}>
           {(host) => {
             const key = encodeHostKey(host);
-            onCleanup(() =>
-              setMeasureRefs((refs) => {
-                delete refs[key];
-              }),
+            // This twin's slot in the width table is its own: the item's
+            // render owner hands it back when the twin goes, so a departed
+            // host leaves no element for the measuring observer to hold.
+            const measureRef = refWithRelease<HTMLDivElement>(
+              (el) =>
+                setMeasureRefs((refs) => {
+                  refs[key] = el;
+                }),
+              () =>
+                setMeasureRefs((refs) => {
+                  delete refs[key];
+                }),
             );
             return (
-              <div
-                ref={(el) =>
-                  setMeasureRefs((refs) => {
-                    refs[key] = el;
-                  })
-                }
-                data-host-key={key}
-                class="shrink-0"
-              >
+              <div ref={measureRef} data-host-key={key} class="shrink-0">
                 <div class="group -mb-px flex items-center shrink-0 text-xs">
                   <HostChipShell
                     host={host}
