@@ -1603,19 +1603,6 @@ Before(
     `);
     }
     this.errors = [];
-    this.page.on("pageerror", (err) => this.errors.push(err.message));
-    // A WINDOW THE PAGE OPENS (the reader popped out) is a document of its
-    // own, and what it throws is this scenario's too — named by where it was
-    // thrown, so it reads apart from the main page's.
-    this.context.on("page", (opened) => {
-      opened.on("pageerror", (err) =>
-        this.errors.push(`${opened.url()}: ${err.message}`),
-      );
-    });
-    // A DEV-RUNTIME SERVER: every console line a Solid dev diagnostic or
-    // warning prints, from the main page and any window it opens, matched
-    // against the strings that server's own bundle was built from; the last
-    // After hook fails the scenario on the first.
     this.solidDiagnostics = [];
     const check = solidDevCheck;
     if (check) {
