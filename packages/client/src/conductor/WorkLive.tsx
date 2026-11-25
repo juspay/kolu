@@ -13,7 +13,15 @@
 
 import { createMediaQuery } from "@solid-primitives/media";
 import type { WorkRole } from "kolu-work";
-import { type Component, createMemo, createSignal, For, Show } from "solid-js";
+import type { JSX } from "@solidjs/web";
+import {
+  type Accessor,
+  type Component,
+  createMemo,
+  createSignal,
+  For,
+  Show,
+} from "solid-js";
 import { useShown } from "../ui/shown";
 import LivePane from "./LivePane";
 import MemberPip from "./MemberPip";
@@ -56,13 +64,23 @@ const WorkLive: Component<{
   );
   const height = () => paneHeight(layout(), refs().length);
 
-  /** One pane, for the terminal at `ref`. */
-  const pane = (ref: string, at: MemberRef, withTabs: boolean) => (
+  /** One pane, for the terminal at `ref`.
+   *
+   *  The split ref is an ACCESSOR, not a value: this is called from a flow
+   *  child, which is a strict-read window — a read made there is frozen at
+   *  the value it had when the child was built, so the pane would keep
+   *  pointing at the terminal it was first drawn for. The reads happen in
+   *  the JSX below, where they track. */
+  const pane = (
+    ref: string,
+    at: Accessor<MemberRef>,
+    withTabs: boolean,
+  ): JSX.Element => (
     <Show when={roleOf(ref)}>
       {(role) => (
         <LivePane
-          host={at.host}
-          id={at.id}
+          host={at().host}
+          id={at().id}
           role={role()}
           connected={connected().has(ref)}
           height={height()}
@@ -130,7 +148,7 @@ const WorkLive: Component<{
             <For each={refs()}>
               {(ref) => (
                 <Show when={splitMemberRef(ref)}>
-                  {(at) => pane(ref, at(), false)}
+                  {(at) => pane(ref, at, false)}
                 </Show>
               )}
             </For>
@@ -142,7 +160,7 @@ const WorkLive: Component<{
           <Show when={front()} keyed>
             {(ref) => (
               <Show when={splitMemberRef(ref)}>
-                {(at) => pane(ref, at(), true)}
+                {(at) => pane(ref, at, true)}
               </Show>
             )}
           </Show>
