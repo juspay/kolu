@@ -1,3 +1,4 @@
+import { SOLID_INLINE_DEPS_SCHEDULED } from "@kolu/solid-test-setup/vitest";
 import solid from "@solidjs/vite-plugin";
 import { defineConfig } from "vitest/config";
 
@@ -38,11 +39,10 @@ export default defineConfig({
     ],
     server: {
       deps: {
-        // Pull Solid THROUGH Vitest's transform so every solid import lands on
-        // ONE browser-build core (an externalized copy loads its own core whose
-        // reactive graph never shares the test's). Same fix the `@kolu/surface`
-        // and kolu-client test configs carry.
-        inline: [/solid-js/, /@solidjs\//, "@solid-primitives/scheduled"],
+        // An externalized copy loads its own core whose reactive graph never
+        // shares the test's. Same fix the `@kolu/surface` and kolu-client test
+        // configs carry.
+        inline: [...SOLID_INLINE_DEPS_SCHEDULED],
       },
     },
   },

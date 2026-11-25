@@ -1,3 +1,4 @@
+import { SOLID_INLINE_DEPS_SCHEDULED } from "@kolu/solid-test-setup/vitest";
 import solid from "@solidjs/vite-plugin";
 import { defineConfig } from "vitest/config";
 
@@ -48,14 +49,11 @@ export default defineConfig({
     ],
     server: {
       deps: {
-        // Pull Solid, its framework packages and `@solid-primitives/scheduled`
-        // THROUGH Vitest's transform so every solid import lands on ONE
-        // browser-build core. Load-bearing for the reactive tests: an
-        // externalized copy loads its OWN core whose stores never share the
-        // test's reactive graph, so a store update never re-runs an observing
-        // effect/memo (a `mapArray` keyed off a subscription's value would never
-        // fan out).
-        inline: [/solid-js/, /@solidjs\//, "@solid-primitives/scheduled"],
+        // Load-bearing for the reactive tests: an externalized copy loads its
+        // OWN core whose stores never share the test's reactive graph, so a
+        // store update never re-runs an observing effect/memo (a `mapArray`
+        // keyed off a subscription's value would never fan out).
+        inline: [...SOLID_INLINE_DEPS_SCHEDULED],
       },
     },
   },

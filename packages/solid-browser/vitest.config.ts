@@ -1,3 +1,4 @@
+import { SOLID_INLINE_DEPS } from "@kolu/solid-test-setup/vitest";
 import solid from "@solidjs/vite-plugin";
 import { defineConfig } from "vitest/config";
 
@@ -16,6 +17,6 @@ export default defineConfig({
     // Fails a test on any Solid dev diagnostic (`@kolu/solid-test-setup`).
     setupFiles: ["@kolu/solid-test-setup/setup"],
     // One solid core for the whole run, through Vitest's transform.
-    server: { deps: { inline: [/solid-js/, /@solidjs\//] } },
+    server: { deps: { inline: [...SOLID_INLINE_DEPS] } },
   },
 });

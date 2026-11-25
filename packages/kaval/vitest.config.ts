@@ -1,3 +1,4 @@
+import { SOLID_INLINE_DEPS } from "@kolu/solid-test-setup/vitest";
 import solid from "@solidjs/vite-plugin";
 import { defineConfig } from "vitest/config";
 
@@ -42,8 +43,7 @@ export default defineConfig({
         },
       },
     ],
-    // Pull Solid and its framework packages THROUGH Vitest's transform so every
-    // solid import in the `dom` project lands on ONE browser-build core.
-    server: { deps: { inline: [/solid-js/, /@solidjs\//] } },
+    // One browser-build core for every solid import in the `dom` project.
+    server: { deps: { inline: [...SOLID_INLINE_DEPS] } },
   },
 });

@@ -1,3 +1,4 @@
+import { SOLID_INLINE_DEPS } from "@kolu/solid-test-setup/vitest";
 import solid from "@solidjs/vite-plugin";
 import { defineConfig } from "vitest/config";
 
@@ -23,12 +24,11 @@ export default defineConfig({
     // Fails a test on any Solid dev diagnostic, and refuses a production
     // Solid build (`@kolu/solid-test-setup`).
     setupFiles: ["@kolu/solid-test-setup/setup"],
-    // Inline Solid and its framework packages so they are transformed under the
-    // posture above and resolve to the ONE browser-build core. Without this,
-    // `@kolu/surface-map`'s `scopedByEntry` loads its own externalized
-    // `solid-js` whose reactive graph never connects to the client's signals (a
-    // cross-instance split — membership updates silently never re-run the
-    // owner's memos).
-    server: { deps: { inline: [/solid-js/, /@solidjs\//] } },
+    // Inline Solid so it is transformed under the posture above and resolves to
+    // the ONE browser-build core. Without this, `@kolu/surface-map`'s
+    // `scopedByEntry` loads its own externalized `solid-js` whose reactive graph
+    // never connects to the client's signals (a cross-instance split —
+    // membership updates silently never re-run the owner's memos).
+    server: { deps: { inline: [...SOLID_INLINE_DEPS] } },
   },
 });

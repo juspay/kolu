@@ -8,7 +8,8 @@
     "./src/setup.ts"
   ],
   "exports": {
-    "./setup": "./src/setup.ts"
+    "./setup": "./src/setup.ts",
+    "./vitest": "./src/vitest.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit"

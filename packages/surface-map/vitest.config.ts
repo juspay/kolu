@@ -1,3 +1,4 @@
+import { SOLID_INLINE_DEPS_SCHEDULED } from "@kolu/solid-test-setup/vitest";
 import solid from "@solidjs/vite-plugin";
 import { defineConfig } from "vitest/config";
 
@@ -18,11 +19,10 @@ export default defineConfig({
     setupFiles: ["@kolu/solid-test-setup/setup"],
     server: {
       deps: {
-        // ONE browser-build core for every solid import — an externalized
-        // store loads its own core copy whose updates never re-run an observing
-        // effect/memo, so a `mapArray` keyed off a subscription would never fan
-        // out. See `@kolu/surface/vitest.config.ts`.
-        inline: [/solid-js/, /@solidjs\//, "@solid-primitives/scheduled"],
+        // An externalized store loads its own core copy whose updates never
+        // re-run an observing effect/memo, so a `mapArray` keyed off a
+        // subscription would never fan out.
+        inline: [...SOLID_INLINE_DEPS_SCHEDULED],
       },
     },
   },
