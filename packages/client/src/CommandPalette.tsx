@@ -325,32 +325,80 @@ const CommandPalette: Component<{
   // keyboard highlight (open-under-cursor shimmer).
   const [mouseActive, setMouseActive] = createSignal(false);
   let lastPointerPos: PointerPos | null = null;
-  /** The drill PATH — the segments the user drilled into, trimmed to what the
-   *  live command tree still resolves. A WRITABLE MEMO, not a plain signal: the
-   *  path FOLLOWS the tree (a host disconnects, a group hides, and the dead tail
-   *  goes) while drill-in, drill-out, deep-link and close still write it.
-   *  Deriving the repair is what keeps it out of an effect — one that corrected
-   *  the path would be writing the very signal its own compute reads, settling
-   *  twice for one repair.
+  /** The drill PATH — the segments the user drilled into, derived from the
+   *  OPEN EDGE and trimmed to what the live command tree still resolves. A
+   *  WRITABLE MEMO, not a plain signal: the path FOLLOWS `props.open` and the
+   *  tree (the palette closes, a host disconnects, a group hides, and the dead
+   *  tail goes) while drill-in and drill-out still write it.
    *
-   *  `dropped` rides along so the repair's imperative half (the dead segments'
-   *  `onCancel`) knows what went away. A write clears it: a drill-out cancels
-   *  what it pops, and the close branch cancels what was open. The derivation
-   *  returns `prev` UNCHANGED when nothing was trimmed, so a tree that churns
-   *  without dropping a segment notifies nobody.
+   *  Deriving is what keeps the path out of an effect. An effect that reset it
+   *  on `props.open` would RELAY the open: everything reading both the open and
+   *  the path (the default-highlight rule, the level memo, the breadcrumb) runs
+   *  once in the flush where `open` changed — against the STALE path — and
+   *  again after the effect's write lands, so every open paints one torn frame.
+   *  As a derivation the new path arrives in the SAME flush as the open.
    *
-   *  `resolveLivePath` is hoisted below — the derivation runs on read, never at
-   *  this line. */
+   *  So an open edge is where a deep link resolves (exactly, against the tree
+   *  as it stands at the open), and a close edge is where the path empties.
+   *  `open` and `link` ride along as the edge's memory: the derivation sees
+   *  only `prev`, and these are what tell a NEW open or a NEW deep link from a
+   *  tree tick while the palette stays open.
+   *
+   *  `dropped` rides along so the imperative half (the departed segments'
+   *  `onCancel`) knows what went away: the live-tree trim hands it to the
+   *  effect below, the close edge hands it to the open/close lifecycle — which
+   *  alone knows whether the close completed a selection and so must NOT
+   *  cancel. A drill write clears it: a drill-out cancels what it pops itself.
+   *  The derivation returns `prev` UNCHANGED when nothing was trimmed, so a
+   *  tree that churns without dropping a segment notifies nobody.
+   *
+   *  `resolveLivePath` and `resolveInitialPath` are hoisted below — the
+   *  derivation runs on read, never at this line. */
   type PathState = {
+    /** `props.open` as of the derivation that produced this state. */
+    readonly open: boolean;
+    /** `props.initialPath`, joined, as of the last resolution. */
+    readonly link: string;
     readonly segments: DrillableKind[];
     readonly dropped: readonly DrillableKind[];
   };
-  const NO_PATH: PathState = { segments: [], dropped: [] };
+  const NO_SEGMENTS: readonly DrillableKind[] = [];
+  const NO_PATH: PathState = {
+    open: false,
+    link: "",
+    segments: [],
+    dropped: [],
+  };
+  /** `props.initialPath` as one comparable value — the deep link's identity. */
+  const linkKey = (): string => props.initialPath?.join("\0") ?? "";
   const [pathState, setPathState] = createSignal<PathState>(
     (prev = NO_PATH): PathState => {
+      const open = props.open;
+      const link = linkKey();
+      // Closed: no drill path. What it abandons travels as `dropped`, for the
+      // lifecycle effect to cancel.
+      if (!open)
+        return prev.open
+          ? { open: false, link, segments: [], dropped: prev.segments }
+          : prev;
+      // The open edge — and a NEW deep link handed in while it stays open: the
+      // path IS the resolved link. Exact resolution only, no prefix fallback (a
+      // missing host must not open the broader Terminals list as if the
+      // deep-link succeeded); a rejected link leaves the root list showing.
+      if (!prev.open || link !== prev.link)
+        return {
+          open: true,
+          link,
+          segments: resolveInitialPath(props.initialPath ?? []) ?? [],
+          dropped: [],
+        };
       const { valid } = resolveLivePath(prev.segments);
       if (valid.length === prev.segments.length) return prev;
-      return { segments: valid, dropped: prev.segments.slice(valid.length) };
+      return {
+        ...prev,
+        segments: valid,
+        dropped: prev.segments.slice(valid.length),
+      };
     },
   );
   const path = (): DrillableKind[] => pathState().segments;
@@ -358,6 +406,7 @@ const CommandPalette: Component<{
     next: DrillableKind[] | ((prev: DrillableKind[]) => DrillableKind[]),
   ): void => {
     setPathState((prev) => ({
+      ...prev,
       segments: typeof next === "function" ? next(prev.segments) : next,
       dropped: [],
     }));
@@ -384,12 +433,19 @@ const CommandPalette: Component<{
     return { valid, level };
   }
 
-  /** The repair's IMPERATIVE half: a segment the live tree dropped (host
+  /** The TRIM's imperative half: a segment the live tree dropped (host
    *  disconnect, group hidden) has its `onCancel` run, and the query that
    *  filtered inside it goes with it. The popping itself is the derivation
-   *  above — nothing here writes the path. */
+   *  above — nothing here writes the path.
+   *
+   *  A trim of an OPEN palette only: a close drops its segments too, and those
+   *  belong to the open/close lifecycle below, which alone knows whether the
+   *  close completed a selection. */
   createEffect(
-    () => pathState().dropped,
+    () => {
+      const state = pathState();
+      return state.open ? state.dropped : NO_SEGMENTS;
+    },
     (dropped) => {
       if (dropped.length === 0) return;
       for (const g of dropped) g.onCancel?.();
@@ -786,19 +842,6 @@ const CommandPalette: Component<{
     return built;
   }
 
-  /** Drill to a resolved initial path — the write half of
-   *  {@link resolveInitialPath}. Answers whether it took the focus. */
-  function applyInitialPath(built: DrillableKind[] | null): boolean {
-    if (!built) return false;
-    setPath(built);
-    setQuery("");
-    const leaf = built.at(-1);
-    requestAnimationFrame(() =>
-      leaf?.kind === "value" ? inputRef.select() : inputRef.focus(),
-    );
-    return true;
-  }
-
   // Selection-initiated close: signals the close-effect to skip
   // path.onCancel propagation. External closes (Escape, backdrop click,
   // parent toggle via setPaletteOpen) leave this false so onCancel fires.
@@ -891,60 +934,65 @@ const CommandPalette: Component<{
   // Capture phase: intercept before terminal's keydown handler
   makeEventListener(window, "keydown", handleKeyDown, { capture: true });
 
-  // Open/close lifecycle — one effect so the read of `path()` for
-  // `onCancel` propagation is ordered explicitly before the path
-  // reset. Splitting open-vs-initialPath into two effects raced when
-  // both depended on `props.open` (the path-reset effect could fire
-  // first, clearing the segments the close branch was about to walk
-  // for cancellation).
+  // Open/close lifecycle — the IMPERATIVE half of an edge: the focus, the
+  // one-shot ambient tip, and the cancellation of what a close abandoned. The
+  // path itself is derived (see `pathState`), so nothing here writes it and no
+  // reader of `props.open` sees a stale path first.
   createEffect(
-    () => ({
-      isOpen: props.open,
-      // A dep, so a NEW initialPath while the palette stays open re-runs this.
-      pathKey: props.initialPath?.join("\0") ?? "",
-      // Snapshots, deliberately NOT dependencies — each is what the palette
-      // acts on AT the open/close edge:
-      // the resolved initial path (an exact walk of the tree as it stands at
-      // the open), a peeked ambient tip (a random pick that must not re-roll on
-      // every tree tick), and the close branch's two facts (the segments to
-      // cancel, and whether the close completed a selection).
-      resolved: untrack(() => resolveInitialPath(props.initialPath ?? [])),
-      ambientTip: untrack(peekAmbientTipText),
-      openSegments: untrack(path),
-      closedBySelection: untrack(closingForSelection),
-    }),
-    ({ isOpen, resolved, ambientTip, openSegments, closedBySelection }) => {
+    () => {
+      const isOpen = props.open;
+      // The path this edge SETTLED at. Read untracked — a drill while the
+      // palette stays open must not re-run the edge — and read AFTER
+      // `props.open`, so the derivation has already resolved the deep link
+      // (open) or emptied the path (close) for this very flush.
+      const settled = untrack(pathState);
+      return {
+        isOpen,
+        // A dep, so a NEW initialPath while the palette stays open re-runs this
+        // — the derivation re-resolved it; this half takes the focus.
+        link: linkKey(),
+        segments: settled.segments,
+        // On a close, the segments the emptied path abandoned.
+        abandoned: settled.dropped,
+        // Snapshots, deliberately NOT dependencies: a peeked ambient tip (a
+        // random pick that must not re-roll on every tree tick), and the close
+        // branch's other fact (whether the close completed a selection).
+        ambientTip: untrack(peekAmbientTipText),
+        closedBySelection: untrack(closingForSelection),
+      };
+    },
+    ({ isOpen, segments, abandoned, ambientTip, closedBySelection }) => {
       if (isOpen) {
         setQuery("");
         setAmbientTip(ambientTip);
         setMouseActive(false);
         lastPointerPos = null;
         setClosingForSelection(false);
-        setPath([]);
-        // Exact path only — no prefix fallback (a missing host must not
-        // open the broader Terminals list as if the deep-link succeeded).
-        // A rejected path leaves the root list showing; the highlight
-        // effect below lands on whichever path this run settles at.
-        if (!applyInitialPath(resolved)) {
+        const leaf = segments.at(-1);
+        if (leaf) {
+          // A resolved deep link is the sole focus owner — the double-rAF
+          // below would race this one, and for a value-kind leaf its
+          // unconditional .focus() would clobber .select().
+          requestAnimationFrame(() =>
+            leaf.kind === "value" ? inputRef.select() : inputRef.focus(),
+          );
+        } else {
           // forceMount keeps the dialog in the DOM, so Corvu's initialFocusEl
-          // only fires on first mount. Re-focus explicitly on every root open.
-          // When a path is set, applyInitialPath is the sole focus owner —
-          // its rAF would otherwise race this double-rAF, and for a value-kind
-          // leaf the unconditional .focus() would clobber .select().
+          // only fires on first mount. Re-focus explicitly on every root open —
+          // a rejected deep link included, since that lands on the root list.
           requestAnimationFrame(() =>
             requestAnimationFrame(() => inputRef.focus()),
           );
         }
       } else {
         if (!closedBySelection) {
-          for (const g of openSegments) g.onCancel?.();
+          for (const g of abandoned) g.onCancel?.();
         }
         // Always clear leaf highlight lifecycle (theme preview, etc.) —
         // path onCancel only covers drill segments.
         lastHighlight?.onCancel?.();
         lastHighlight = undefined;
         setClosingForSelection(false);
-        setPath([]);
       }
     },
   );
@@ -955,8 +1003,9 @@ const CommandPalette: Component<{
   // future `setPath` cannot forget to follow it up, and the index is derived in
   // one place rather than by read-after-write ordering at eight hand-held sites.
   //
-  // Registered AFTER the open/close lifecycle effect above so it observes the
-  // FINAL `path` of an `applyInitialPath` run, not the intermediate one.
+  // The open/close lifecycle effect above no longer writes the path — the
+  // derivation settles it, deep link included, in the flush `open` changed —
+  // so this rule reads the FINAL path whichever order the two run in.
   //
   // `currentSelection` is a COMPUTE dep, not just an effect-phase read: the
   // "current" row CAN move while the palette stays open — Ctrl+Tab reaches the
@@ -1087,7 +1136,13 @@ const CommandPalette: Component<{
             >
               Commands
             </button>
-            <For each={breadcrumbSegments()}>
+            {/* The chips are POSITIONAL — chip n is path depth n, and a drill
+                that swaps the group at a depth relabels that chip rather than
+                replacing it. `breadcrumbSegments` rebuilds its objects on every
+                recomputation, so identity keying would dispose and recreate the
+                whole strip for labels that did not move; index keying updates
+                them in place. */}
+            <For each={breadcrumbSegments()} keyed={false}>
               {(segment, i) => (
                 <>
                   <span class="text-fg-3/50">›</span>
@@ -1102,9 +1157,9 @@ const CommandPalette: Component<{
                           i() !== breadcrumbSegments().length - 1,
                       },
                     ]}
-                    onClick={() => navigateTo(segment.depth)}
+                    onClick={() => navigateTo(segment().depth)}
                   >
-                    {segment.name}
+                    {segment().name}
                   </button>
                 </>
               )}
