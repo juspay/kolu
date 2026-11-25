@@ -19,9 +19,12 @@
  * `<CommandPalette> › <ModalDialog> › <Dialog> › … › <Dialog.Content> ›
  * <Dismissible> › … › <For> › <Show> › value › <PaletteRow> › <Show> ›
  * value` — the lane's string under its `<SurfaceAppProvider> › … › <App>`
- * prefix — and it raises NO second diagnostic. The REACTIVE_WRITE_IN_OWNED_
- * SCOPE that run printed beside it, as a footer with no message, owner or
- * location, does not come from this chain.
+ * prefix — and it raises NO second diagnostic. So the
+ * REACTIVE_WRITE_IN_OWNED_SCOPE that run printed beside it, as a footer with
+ * no message, owner or location, does not come from THE LINKS THIS MOUNTS.
+ * It says nothing about the rest of the palette: the ten collaborators below
+ * are mocked away, and one of them — `useAttentionFacts` — is an owned scope
+ * of its own, so the real one could raise it and this test stay green.
  */
 
 import { LOCAL_LOCATION } from "@kolu/padi-client/surface";
