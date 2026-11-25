@@ -216,8 +216,11 @@ export interface FleetWorks {
   }>;
   /** RE-KEY that work to the repository root git named — moved to the
    *  root's id when it is free, kept under its old key (`held`) when another
-   *  work holds it. Nothing is removed. Settles once the re-key has run. */
-  rekey(work: string, root: string): Promise<void>;
+   *  work holds it. Nothing is removed. Settles once the re-key has run,
+   *  saying whether the work was PLACED (under a key whose root git named,
+   *  or there was nothing to re-key) or PUT OFF to git's next answer, still
+   *  under the key git has not named — its folder would not move. */
+  rekey(work: string, root: string): Promise<"placed" | "put-off">;
   /** WHAT A PLANNER OR IMPLEMENTOR OF THIS WORK STARTS — the harness and model
    *  its setup recorded, on the work's host, judged again against what kolu
    *  offers there now, and how that host's harness takes a model. The one
@@ -653,6 +656,15 @@ export type WorkKeyRefusal =
       readonly host: string;
       readonly repo: string;
       readonly reason: string;
+    }
+  /** Git named the root, and kolu could not move an earlier work in
+   *  progress there: its key is still one rule 5 cannot see. */
+  | {
+      readonly kind: "earlier-work-not-placed";
+      readonly host: string;
+      readonly work: string;
+      readonly repo: string;
+      readonly root: string;
     };
 
 /** WHAT GIT ON `host` SAYS ABOUT `branch` IN `repo`, AS ONE ANSWER — a host
@@ -764,11 +776,12 @@ export function parseWorkKey(
  *  before `work_open` opens anything — each one's folder asked of git on the
  *  key's host, and re-keyed to the root git names. A folder that is no
  *  repository any more (a worktree deleted after its merge) leaves its work
- *  as it is. A git that does not answer for an OPEN earlier work refuses
- *  the open: opening beside a work in progress kolu could not place is the
+ *  as it is. An OPEN earlier work kolu could not place — git would not
+ *  answer, or it answered and the re-key was put off — refuses the open:
+ *  opening beside a work in progress under a key git has not named is the
  *  second card for one branch this exists to prevent. For a FINISHED one it
  *  refuses nothing — the new work is legal beside it, and it is re-keyed
- *  whenever git does answer. Nothing is removed. */
+ *  whenever git next answers. Nothing is removed. */
 export function rekeyBeforeOpen(
   hosts: FleetHosts,
   works: FleetWorks,
@@ -787,7 +800,24 @@ export function rekeyBeforeOpen(
           (reading): Effect.Effect<void, ToolFailure> => {
             switch (reading.kind) {
               case "repository":
-                return Effect.promise(() => works.rekey(work, reading.root));
+                return Effect.flatMap(
+                  Effect.promise(() => works.rekey(work, reading.root)),
+                  (placed): Effect.Effect<void, ToolFailure> =>
+                    open && placed === "put-off"
+                      ? Effect.fail(
+                          new ToolFailure<WorkKeyRefusal>(
+                            `kolu could not move the earlier work ${work}, still in progress on ${branch}, to the repository root git named (${reading.root}); it stays under its old key (${repo}) until git's next answer. Nothing was created.`,
+                            {
+                              kind: "earlier-work-not-placed",
+                              host,
+                              work,
+                              repo,
+                              root: reading.root,
+                            },
+                          ),
+                        )
+                      : Effect.void,
+                );
               case "not-a-repository":
                 return Effect.void;
               case "unavailable":

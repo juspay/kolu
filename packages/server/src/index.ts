@@ -58,6 +58,7 @@ import {
   policyOf,
   standing,
 } from "kolu-work";
+import { placement } from "kolu-conductor";
 import { dirname } from "node:path";
 import type { KoluBootFlags } from "./bootFlags.ts";
 import { koluOfferOver } from "./conductor/koluOffer.ts";
@@ -765,9 +766,8 @@ export async function bootKoluWeb(flags: KoluBootFlags): Promise<void> {
       liveServerConductor()
         .unrootedWorks(host, branch)
         .map(({ id, repo, open }) => ({ work: id, repo, open })),
-    rekey: async (work, root) => {
-      await liveServerConductor().rekeyWork(work, root);
-    },
+    rekey: async (work, root) =>
+      placement(await liveServerConductor().rekeyWork(work, root)),
     // WHAT A PLANNER OR IMPLEMENTOR STARTS, read off the work's own answers
     // and judged again — the face builds the command from this, so there is
     // one source for it.

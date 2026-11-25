@@ -42,7 +42,7 @@ import { rekeyWork } from "./rekeyWork.ts";
 import { wakes } from "./wakes.ts";
 import { workDirOf } from "./workFiles.ts";
 import { type WorkRig, workRig } from "./workRig.testlib.ts";
-import { FINISHED_KEPT } from "./workStore.ts";
+import { FINISHED_KEPT, placement } from "./workStore.ts";
 
 const AT = "2026-11-24T19:00:00.000Z";
 const ROOT = "/repo";
@@ -392,5 +392,30 @@ describe("a re-key whose root another work holds", () => {
     });
     expect(await r.works.rekey(OLD, ROOT)).toEqual({ kind: "moved", to: NEW });
     expect(workOf(r, NEW).key).toEqual(GIT_KEY);
+  });
+});
+
+describe("the re-key `work_open` runs before it opens", () => {
+  it("says an open earlier work whose folder would not move was not placed", async () => {
+    // The door's own steps, at the store: the branch's unrooted works, each
+    // re-keyed, then the answer the port gives. The earlier work is still
+    // under its old key and open — the door must refuse rather than open a
+    // second card beside it.
+    const r = rigWith(opened(OLD_KEY, "csv export"));
+    r.files.failMoves = true;
+    const earlier = { id: OLD, repo: WORKTREE, open: true };
+    expect(r.works.unrooted("local", "csv")).toEqual([earlier]);
+    expect(placement(await r.works.rekey(OLD, ROOT))).toBe("put-off");
+    expect(r.works.unrooted("local", "csv")).toEqual([earlier]);
+    expect(r.works.get(NEW)).toEqual(Option.none());
+  });
+
+  it("says placed when there was nothing to re-key: the work is gone, or git named its key already", async () => {
+    const r = rigWith(opened(GIT_KEY, "csv export"));
+    for (const id of [NEW, OLD]) {
+      const done = await r.works.rekey(id, ROOT);
+      expect(done, id).toEqual({ kind: "nothing" });
+      expect(placement(done), id).toBe("placed");
+    }
   });
 });

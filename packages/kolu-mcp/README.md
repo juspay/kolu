@@ -291,12 +291,16 @@ that answers, `repo` any path git there places in a repository (its ROOT
 becomes the key, so a linked worktree and a trailing slash name one work),
 `watch` a terminal ref in its host's roster. Before it opens anything, the
 branch's stored works whose key git never named are re-keyed to that root
-(`rekeyBeforeOpen`). kolu puts the questions the request has not already
-answered to the human as ONE ask linked to that work, records the answers as
-decisions, and answers `{ work, host, mode, roles, onGreen, declined }`, all
-of it READ back off those decisions. The setup keys it must cover are
-validated BEFORE anything is asked, so a missing one is a refusal naming it
-rather than a half-opened work.
+(`rekeyBeforeOpen`); an earlier work STILL IN PROGRESS that kolu could not
+place there refuses the open, with nothing created — `git-unavailable` when
+git would not answer for its folder, `earlier-work-not-placed` when git
+answered and its re-key was put off (its kept-files folder would not move).
+A finished earlier work refuses nothing. kolu puts the questions the request
+has not already answered to the human as ONE ask linked to that work, records
+the answers as decisions, and answers `{ work, host, mode, roles, onGreen,
+declined }`, all of it READ back off those decisions. The setup keys it must
+cover are validated BEFORE anything is asked, so a missing one is a refusal
+naming it rather than a half-opened work.
 A role's **harness and model are kolu's to offer**: their setup entries are
 `{ key, given? }`, and an `options` or `question` there is refused by the
 schema, not ignored (`Schema.Never`). kolu-server refuses the whole call when

@@ -133,6 +133,7 @@ export {
   FINISHED_KEPT,
   type MemberAt,
   type MemberDetail,
+  placement,
   type WorkStore,
   workStore,
 } from "./workStore.ts";

@@ -77,6 +77,7 @@ import {
   type FleetWorkRow,
   type FleetWorks,
   parseWorkKey,
+  rekeyBeforeOpen,
 } from "./works.ts";
 
 const ALPHA_1 = "11111111-1111-4111-8111-111111111111" as TerminalId;
@@ -698,13 +699,15 @@ function fakeWorks(): FleetWorks & {
     start: SetUpStart | WorkRefusal,
   ): void;
   /** A stored work whose repository git has not named, as kolu-server would
-   *  answer `unrooted` for it — open unless said. */
+   *  answer `unrooted` for it — open unless said, and placed by its re-key
+   *  unless its re-key is `put-off` (a folder that would not move). */
   unrootedAt(
     work: string,
     host: string,
     repo: string,
     branch: string,
     open?: boolean,
+    rekeyed?: "placed" | "put-off",
   ): void;
   /** Every re-key and every open that reached the port, in order. */
   readonly steps: string[];
@@ -730,6 +733,7 @@ function fakeWorks(): FleetWorks & {
     repo: string;
     branch: string;
     open: boolean;
+    rekeyed: "placed" | "put-off";
   }[] = [];
   const steps: string[] = [];
   const blank = (id: string, title: string): FleetWorkRow => ({
@@ -816,7 +820,11 @@ function fakeWorks(): FleetWorks & {
     rekey: async (work: string, root: string) => {
       steps.push(`rekey ${work} ${root}`);
       const at = unrooted.findIndex((one) => one.work === work);
-      if (at >= 0) unrooted.splice(at, 1);
+      // NOTHING TO RE-KEY (no such work) is placed: nothing is left unrooted.
+      if (at < 0) return "placed";
+      if (unrooted[at]?.rekeyed === "put-off") return "put-off";
+      unrooted.splice(at, 1);
+      return "placed";
     },
     unrootedAt(
       work: string,
@@ -824,8 +832,9 @@ function fakeWorks(): FleetWorks & {
       repo: string,
       branch: string,
       open = true,
+      rekeyed: "placed" | "put-off" = "placed",
     ) {
-      unrooted.push({ work, host, repo, branch, open });
+      unrooted.push({ work, host, repo, branch, open, rekeyed });
     },
     steps,
     startOf: async (work: string, role: "planner" | "implementor") => {
@@ -1762,6 +1771,82 @@ describe("the conductor's pieces of work", () => {
     });
     expect(res.isError ?? false, JSON.stringify(res.content)).toBe(false);
     expect(works.steps).toEqual(["open /repo"]);
+  });
+
+  it("`work_open` is refused, with nothing opened, when an earlier work in progress could not be moved to git's root", async () => {
+    // Git answered, the re-key was put off (its folder would not move): the
+    // earlier work is still under its old key, which rule 5 cannot see. An
+    // open beside it is the second card for one branch.
+    const { fleet } = twoHostFleet();
+    const works = fakeWorks();
+    works.unrootedAt(
+      "earlier",
+      "local",
+      "/repo/.worktrees/work",
+      "work",
+      true,
+      "put-off",
+    );
+    const mcp = await servedFleet(fleet.hosts, works);
+    const res = await mcp.callTool({
+      name: "work_open",
+      arguments: {
+        title: "carry on",
+        host: "local",
+        repo: "/repo",
+        branch: "work",
+        setup: SETUP,
+      },
+    });
+    expect(res.isError).toBe(true);
+    expect(JSON.stringify(res.content)).toMatch(/could not move/);
+    expect(works.steps).toEqual(["rekey earlier /repo"]);
+    // Its own kind: git answered, so it is not `git-unavailable`.
+    const refused = await Effect.runPromise(
+      Effect.match(
+        rekeyBeforeOpen(fleet.hosts, works, {
+          kind: "branch",
+          host: "local",
+          repo: "/repo",
+          branch: "work",
+          repoBy: { kind: "git" },
+        }),
+        { onSuccess: () => null, onFailure: (failure) => failure.detail },
+      ),
+    );
+    expect(refused).toEqual({
+      kind: "earlier-work-not-placed",
+      host: "local",
+      work: "earlier",
+      repo: "/repo/.worktrees/work",
+      root: "/repo",
+    });
+  });
+
+  it("`work_open` opens beside a FINISHED earlier work whose re-key was put off", async () => {
+    const { fleet } = twoHostFleet();
+    const works = fakeWorks();
+    works.unrootedAt(
+      "earlier",
+      "local",
+      "/repo/.worktrees/work",
+      "work",
+      false,
+      "put-off",
+    );
+    const mcp = await servedFleet(fleet.hosts, works);
+    const res = await mcp.callTool({
+      name: "work_open",
+      arguments: {
+        title: "carry on",
+        host: "local",
+        repo: "/repo",
+        branch: "work",
+        setup: SETUP,
+      },
+    });
+    expect(res.isError ?? false, JSON.stringify(res.content)).toBe(false);
+    expect(works.steps).toEqual(["rekey earlier /repo", "open /repo"]);
   });
 
   it("a `given` answer reaches the record as the arm that says the request gave it", async () => {

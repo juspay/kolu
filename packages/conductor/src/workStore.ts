@@ -125,10 +125,20 @@ export interface Opened {
   readonly reopened: boolean;
 }
 
-/** What a re-key came to — `kolu-work`'s {@link Rekey}, or left for the next
- *  answer (the work's files are being kept, its folder could not be moved,
- *  or it is no longer a key git has not named). */
-export type RekeyDone = Rekey | { readonly kind: "deferred" };
+/** What a re-key came to — `kolu-work`'s {@link Rekey}, or one of two things
+ *  by meaning: NOTHING to re-key (the work is gone, or git has named its key
+ *  already), or PUT OFF to the next answer (its files are being kept, or its
+ *  folder could not be moved) with the work still under its old key. */
+export type RekeyDone =
+  | Rekey
+  | { readonly kind: "nothing" }
+  | { readonly kind: "deferred" };
+
+/** WHETHER A RE-KEY PLACED THE WORK — every answer but a put-off one leaves
+ *  nothing under a key git has not named. What `work_open` is told before it
+ *  opens: an open earlier work that was not placed refuses the open. */
+export const placement = (done: RekeyDone): "placed" | "put-off" =>
+  done.kind === "deferred" ? "put-off" : "placed";
 
 /** WHERE THE WORK RE-KEYED AT `id` IS NOW — its new id when it moved, `id`
  *  when it stayed, none when the re-key ended it. */
@@ -139,6 +149,7 @@ export const rekeyedTo = (
   switch (done.kind) {
     case "moved":
       return Option.some(done.to);
+    case "nothing":
     case "deferred":
       return Option.some(id);
     case "stamped":
@@ -198,9 +209,9 @@ export interface WorkStore {
    *  the work's kept files FIRST, then its record, members, Code view and
    *  live PR to the new id; a work ended because its branch already runs as
    *  another open work ends the ordinary way (questions dropped, files kept)
-   *  with no cap. Nothing is ever removed. `deferred` is a re-key left for
-   *  the next answer. A `held` work whose root is unchanged is not
-   *  rewritten. */
+   *  with no cap. Nothing is ever removed. `nothing` is a re-key with nothing
+   *  to do; `deferred` one left for the next answer. A `held` work whose
+   *  root is unchanged is not rewritten. */
   readonly rekey: (id: WorkId, root: string) => Promise<RekeyDone>;
   /** The stored branch works on `host` and `branch` whose repository git has
    *  not named yet — `as-written` or `held` — ended ones included, each
@@ -710,7 +721,7 @@ export const workStore = (deps: WorkStoreDeps): WorkStore => {
       before.key.kind !== "branch" ||
       before.key.repoBy.kind === "git"
     )
-      return { kind: "deferred" };
+      return { kind: "nothing" };
     if (closing.has(id)) return { kind: "deferred" };
     const first = rekeyed(value, id, root, nowIso());
     const rekey = first.rekey;
