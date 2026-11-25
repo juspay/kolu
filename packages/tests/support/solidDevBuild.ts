@@ -153,7 +153,23 @@ export function solidObserveInitScript(): string {
  *  owners. A field the event did not carry is left out rather than printed as
  *  `undefined` — `ownerPath` is absent for an unowned primitive, which is
  *  usually the finding itself, and `loc` for anything compiled without
- *  locations. */
+ *  locations.
+ *
+ *  A NAMELESS FINDING IS THE PAYLOAD, NOT A DROPPED FIELD. A strict read in
+ *  an effect's APPLY arm carries neither `loc` nor `ownerPath`, by
+ *  construction: `emitDiagnostic` fills both from its subject, which defaults
+ *  to the current reactive `context` (`@solidjs/signals` 2.0.4
+ *  `dev-shared.js:853-871`), and an apply arm has none — `runEffect` sets the
+ *  strict-read label and calls the callback without entering an owner
+ *  (`dev.js:1586-1654`), and `context` is assigned only by a compute pass
+ *  (`dev-shared.js:5895`) and by `runWithOwner` (`dev-shared.js:7497`). The
+ *  warning sites pass no location either, only the names they hold: the
+ *  value's own `_name` for a signal or memo read (`dev.js:591-596`) and the
+ *  key for a store read, which fires only with no observer at all
+ *  (`dev.js:5676-5688`). So `ci::dev-smoke`'s two `STRICT_READ_UNTRACKED` on
+ *  a store's `length`, arriving with no `loc` and no `ownerPath`, are the
+ *  channel saying everything it knows; the name quoted in the message is the
+ *  whole locator, and the scenario and step stamped below are what place it. */
 export function solidDiagnosticWords(event: PageDiagnostic): string {
   const code = typeof event.code === "string" ? event.code : "(no code)";
   const where = typeof event.loc === "string" ? ` at ${event.loc}` : "";
