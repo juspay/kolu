@@ -54,7 +54,11 @@ const shard = process.env.CUCUMBER_SHARD || "";
 
 export const ui = {
   ...(!cliHasFeatureArgs && { paths: ["features/**/*.feature"] }),
-  import: ["step_definitions/**/*.ts", "support/**/*.ts"],
+  // `support/*.test.ts` are the harness's own unit tests (`test:unit`), not
+  // support code: loading one here runs it inside every cucumber process, and
+  // one that opens its own support library (`supportCodeLibraryBuilder.reset`)
+  // wipes every step registered before it.
+  import: ["step_definitions/**/*.ts", "support/**/!(*.test).ts"],
   tags,
   // progress-bar (stdout): % completion; pretty (stderr): inline failures as they happen
   format: [
