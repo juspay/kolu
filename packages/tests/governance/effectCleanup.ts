@@ -43,6 +43,23 @@
  * becomes something a reader (and a reviewer) can see. Three sites in the tree
  * legitimately return one and all three are written that way.
  *
+ * **`async` is a hit whatever the body.** `createEffect(dep, async (v) => {
+ * … })` and `onSettled(async () => { … })` answer with a Promise, braces or
+ * not, so the block cannot save them: start the promise inside the body and
+ * answer with nothing. An async COMPUTE arm is legitimate — Solid awaits it —
+ * and the compute arm is not a position.
+ *
+ * **The `{ effect, error }` bundle.** `createEffect` and `createReaction` also
+ * take a bundle instead of a bare function (`EffectBundle` in
+ * `@solidjs/signals`'s `signals.d.ts`), and the runtime then reads
+ * `effectFn.effect || effectFn`, so the `effect:` value is the apply arm with
+ * the trap intact. The `error:` value is held to the same rule: its return is
+ * discarded today, but it runs on the same queue in the same phase, an `async`
+ * one detaches its own throw from the escalation path, and one rule for both
+ * arms is what keeps the bundle from becoming the hole the rule is read
+ * around. A method shorthand (`effect(v) { … }`) is already a block, and
+ * passes unless it is async.
+ *
  * **Matching the IMPORT, not the name.** Only names this file imports from
  * `solid-js` (or `@solidjs/signals` directly) are positions. `onSettled` in
  * particular is an ordinary English word already used as a callback PARAMETER in
@@ -53,8 +70,15 @@
  *
  * **Residual risk.** An apply arm passed as a named reference
  * (`createEffect(dep, applyIt)`) is not inspected, and neither is one reached
- * through a re-export under a different module specifier. Both are outside what
- * a lexical scan can know; the shapes that actually shipped are inside it.
+ * through a re-export under a different module specifier. Three more shapes
+ * walk past: a namespace import (`import * as solid`, then
+ * `solid.createEffect(…)`), which this scan reads as a method call on an
+ * object of its own; an arrow wrapped in parentheses or an `as` cast
+ * (`createEffect(dep, ((v) => apply(v)) as Apply)`), whose `=>` is no longer
+ * top-level in the argument; and a bundle arm written as a shorthand property
+ * (`{ effect }`), which is a named reference under another spelling. All of
+ * them are outside what a lexical scan can know; the shapes that actually
+ * shipped are inside it.
  */
 
 import { readdirSync, readFileSync, statSync } from "node:fs";
@@ -121,8 +145,9 @@ function solidLocals(code: string): Map<string, string> {
   return locals;
 }
 
-/** The top-level arguments of the call whose `(` is at `open`, as
- *  `[start, end)` spans into `code`. `null` when the parens never close. */
+/** The top-level, comma-separated members of the bracketed group opening at
+ *  `open` — a call's arguments, or an object literal's properties — as
+ *  `[start, end)` spans into `code`. `null` when the bracket never closes. */
 function argumentSpans(
   code: string,
   open: number,
@@ -166,9 +191,99 @@ function arrowBodyStart(
   return null;
 }
 
-/** Every expression-bodied apply arm in `source`, with 1-based line numbers.
- *  Comments and string literals are blanked first — this ban is NAMED in prose
- *  in several files, including this one and its test. */
+/** The index of the `(` that calls the name ending at `after`, or `null` when
+ *  the name is not called there. An explicit type-argument list
+ *  (`createEffect<number>(…)`, `createEffect<A, B>(…)`) is stepped over; the
+ *  `>` of an arrow type inside it is not read as the list's end, and a
+ *  statement boundary abandons the search, so a bare `a < b` cannot be taken
+ *  for a call. */
+function callOpenParen(code: string, after: number): number | null {
+  let i = after;
+  while (/\s/.test(code[i] ?? "")) i += 1;
+  if (code[i] === "<") {
+    let depth = 0;
+    for (; i < code.length; i += 1) {
+      const ch = code[i] ?? "";
+      if (ch === "<") depth += 1;
+      else if (ch === ">" && code[i - 1] !== "=") {
+        depth -= 1;
+        if (depth === 0) {
+          i += 1;
+          break;
+        }
+      } else if (ch === ";" || ch === "{" || ch === "}") return null;
+    }
+    if (depth !== 0) return null;
+    while (/\s/.test(code[i] ?? "")) i += 1;
+  }
+  return code[i] === "(" ? i : null;
+}
+
+/** An offending arm: the index to report it at, and its text. */
+interface ArmHit {
+  readonly index: number;
+  readonly text: string;
+}
+
+/** `async` as the arm's own modifier, rather than the head of a name. */
+const ASYNC_ARM = /^async(?:[\s(<]|$)/;
+
+/** The arm spanning `[start, end)`, inspected. `null` when it cannot hand back
+ *  a value by accident: a synchronous braced body, a named reference, anything
+ *  that is not a function literal at all. */
+function armHit(code: string, start: number, end: number): ArmHit | null {
+  const whole = code.slice(start, end);
+  const text = whole.trim();
+  const body = arrowBodyStart(code, start, end);
+  const isFunction = body !== null || /^async\s+function\b/.test(text);
+  if (ASYNC_ARM.test(text) && isFunction)
+    return {
+      index: start + whole.length - whole.trimStart().length,
+      text: oneLine(whole),
+    };
+  if (body === null) return null;
+  if (code.slice(body, end).trimStart().startsWith("{")) return null;
+  return { index: body, text: oneLine(whole) };
+}
+
+/** A bundle property that runs in the effect phase: `effect: value`,
+ *  `error(e) { … }` and their `async` spellings. */
+const BUNDLE_ARM = /^\s*(?:(async)\s+)?(?:effect|error)\s*([:(])/;
+
+/** Every offending arm of the apply position spanning `[start, end)`: the arm
+ *  itself, or — when the position holds an `{ effect, error }` bundle — each of
+ *  its two values. */
+function applyArmHits(code: string, start: number, end: number): ArmHit[] {
+  const brace = code.indexOf("{", start);
+  if (brace === -1 || brace >= end || code.slice(start, brace).trim() !== "") {
+    const hit = armHit(code, start, end);
+    return hit === null ? [] : [hit];
+  }
+  const hits: ArmHit[] = [];
+  for (const [from, to] of argumentSpans(code, brace) ?? []) {
+    const property = code.slice(from, to);
+    const match = BUNDLE_ARM.exec(property);
+    if (match === null) continue;
+    const text = oneLine(property);
+    if (match[2] === "(") {
+      // A method shorthand is a block body; only its `async` spelling answers
+      // with a Promise.
+      if (match[1] === undefined) continue;
+      hits.push({
+        index: from + property.length - property.trimStart().length,
+        text,
+      });
+      continue;
+    }
+    const hit = armHit(code, from + match[0].length, to);
+    if (hit !== null) hits.push({ index: hit.index, text });
+  }
+  return hits;
+}
+
+/** Every offending apply arm in `source`, with 1-based line numbers. Comments
+ *  and string literals are blanked first — this ban is NAMED in prose in
+ *  several files, including this one and its test. */
 export function findEffectCleanupHits(source: string): EffectCleanupHit[] {
   const code = blankNonCode(source);
   // The import clause is read from the view that KEPT string literals: the
@@ -177,23 +292,20 @@ export function findEffectCleanupHits(source: string): EffectCleanupHit[] {
   if (locals.size === 0) return [];
   const hits: EffectCleanupHit[] = [];
   for (const [local, exported] of locals) {
-    const call = new RegExp(`(^|[^.\\w$])(${local})\\s*\\(`, "g");
+    const call = new RegExp(`(^|[^.\\w$])${local}(?![\\w$])`, "g");
     for (const match of code.matchAll(call)) {
-      const open = match.index + match[0].length - 1;
+      const open = callOpenParen(code, match.index + match[0].length);
+      if (open === null) continue;
       const spans = argumentSpans(code, open);
       const span = spans?.[POSITIONS.get(exported) ?? 0];
       if (span === undefined) continue;
-      const [start, end] = span;
-      const body = arrowBodyStart(code, start, end);
-      if (body === null) continue;
-      const rest = code.slice(body, end).trimStart();
-      if (rest.startsWith("{")) continue;
-      hits.push({
-        path: "",
-        line: lineOf(code, body),
-        call: exported,
-        text: oneLine(code.slice(start, end)),
-      });
+      for (const hit of applyArmHits(code, span[0], span[1]))
+        hits.push({
+          path: "",
+          line: lineOf(code, hit.index),
+          call: exported,
+          text: hit.text,
+        });
     }
   }
   return hits.sort((a, b) => a.line - b.line);

@@ -216,6 +216,133 @@ test("reports the 1-based line of the arrow and names the call in the failure", 
   );
 });
 
+test("flags an `async` apply arm whatever its body", () => {
+  // A block body changes nothing: `async` makes the arm answer with a Promise,
+  // which the scheduler stores and calls as the next run's cleanup.
+  const found = hits(
+    withImport("createEffect(dep, async (v) => {\n  await go(v);\n});"),
+  );
+  assert.equal(found.length, 1);
+  assert.equal(found[0]?.call, "createEffect");
+  assert.equal(found[0]?.line, 2);
+  assert.equal(
+    hits(withImport("onSettled(async () => {\n  await settle();\n});")).length,
+    1,
+  );
+  // The `async function` expression is the same shape under another spelling.
+  assert.equal(
+    hits(
+      withImport("createEffect(dep, async function (v) {\n  await go(v);\n});"),
+    ).length,
+    1,
+  );
+  // The sanctioned spelling: the promise is started INSIDE the block, so the
+  // arm itself answers with nothing.
+  assert.equal(
+    hits(withImport("createEffect(dep, (v) => {\n  void go(v);\n});")).length,
+    0,
+  );
+  // An `async` COMPUTE arm is legitimate — Solid awaits it — and the compute
+  // arm is not a position.
+  assert.equal(
+    hits(
+      withImport("createEffect(async () => await load(), (v) => { use(v); });"),
+    ).length,
+    0,
+  );
+  // Nor is a named reference whose name merely begins with `async`.
+  assert.equal(hits(withImport("createEffect(dep, asyncApply);")).length, 0);
+});
+
+test("inspects the values of an `{ effect, error }` bundle", () => {
+  // Solid 2's other apply spelling (`EffectBundle`). The runtime takes
+  // `effectFn.effect || effectFn`, so this arrow's value IS the cleanup.
+  const found = hits(
+    withImport(
+      "createEffect(dep, { effect: (v) => apply(v), error: (e) => { log(e); } });",
+    ),
+  );
+  assert.equal(found.length, 1);
+  assert.match(found[0]?.text ?? "", /effect: \(v\) => apply\(v\)/);
+  // The `error` arm is read by the same rule.
+  assert.equal(
+    hits(
+      withImport(
+        [
+          "createEffect(dep, {",
+          "  effect: (v) => { apply(v); },",
+          "  error: (e) => report(e),",
+          "});",
+        ].join("\n"),
+      ),
+    ).length,
+    1,
+  );
+  // An `async` value is a hit in a bundle too.
+  assert.equal(
+    hits(
+      withImport(
+        "createEffect(dep, { effect: async (v) => { await go(v); } });",
+      ),
+    ).length,
+    1,
+  );
+  // A method shorthand is a block, and passes...
+  assert.equal(
+    hits(
+      withImport(
+        [
+          "createEffect(dep, {",
+          "  effect(v) { apply(v); },",
+          "  error(e) { log(e); },",
+          "});",
+        ].join("\n"),
+      ),
+    ).length,
+    0,
+  );
+  // ...unless it is async.
+  assert.equal(
+    hits(
+      withImport(
+        "createEffect(dep, {\n  async effect(v) { await go(v); },\n});",
+      ),
+    ).length,
+    1,
+  );
+  // The options object is not a bundle, and a braced value passes.
+  assert.equal(
+    hits(
+      withImport(
+        "createEffect(dep, { effect: (v) => { apply(v); } }, { defer: true });",
+      ),
+    ).length,
+    0,
+  );
+});
+
+test("reads a call with explicit type arguments", () => {
+  assert.equal(
+    hits(withImport("createEffect<number>(dep, (v) => apply(v));")).length,
+    1,
+  );
+  assert.equal(
+    hits(withImport("createEffect<Held, Held>(dep, (v) => apply(v));")).length,
+    1,
+  );
+  // A `>` closing an arrow type inside the list is not its end.
+  assert.equal(
+    hits(withImport("createEffect<() => void>(dep, (v) => apply(v));")).length,
+    1,
+  );
+  // The braced body still passes, type arguments or not.
+  assert.equal(
+    hits(withImport("createEffect<number>(dep, (v) => {\n  apply(v);\n});"))
+      .length,
+    0,
+  );
+});
+
 test("the real tree is clean", () => {
   // The scan over `packages/` and `website/` as they stand: every apply arm is
   // braced, and the three that return a cleanup say `return`.
