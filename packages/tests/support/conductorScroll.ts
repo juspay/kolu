@@ -107,6 +107,43 @@ async function moveStory(page: Page, at: ConductorScreen): Promise<string> {
     : "it never scrolled";
 }
 
+/** WHAT THE PAGE HOLDS RIGHT NOW, by the two selectors the sample reads. A
+ *  readout that is missing (`0`) and one the selector matches TWICE (`2` — a
+ *  Playwright locator refuses a strict read of either) fail the same way from
+ *  outside, and a failure that does not count them cannot tell a pane that
+ *  went away from a pane that was drawn twice. */
+async function pageHolds(page: Page, at: ConductorScreen): Promise<string> {
+  const [screens, readouts] = await Promise.all([
+    page.locator(at.screen).count(),
+    page.locator(at.readout).count(),
+  ]);
+  return `the page holds ${screens} screen(s) and ${readouts} readout(s)`;
+}
+
+/** The sample's own error, kept for the failure. A sample that throws reads
+ *  as {@link NOT_YET} — "not drawn yet" — and WHY it threw is the whole
+ *  difference between a screen that is not there, a readout the selector
+ *  matches twice, and a page that would not answer at all. */
+function lastReadFailure(): {
+  keep: (e: unknown) => ScrollSample;
+  words: () => string;
+} {
+  let last: unknown;
+  return {
+    keep: (e) => {
+      last = e;
+      return NOT_YET;
+    },
+    words: () =>
+      last === undefined
+        ? ""
+        : `; the last read failed: ${String((last as Error).message ?? last)
+            .split("\n")
+            .slice(0, 3)
+            .join(" / ")}`,
+  };
+}
+
 /** A real mouse wheel over the middle of the screen. */
 export async function wheelOver(
   page: Page,
@@ -140,9 +177,10 @@ export async function expectStaysScrolledBack(
   page: Page,
   at: ConductorScreen,
 ): Promise<void> {
+  const failed = lastReadFailure();
   try {
     await pollFor({
-      observe: () => sample(page, at).catch(() => NOT_YET),
+      observe: () => sample(page, at).catch(failed.keep),
       isDone: scrolledBack,
       timeoutMs: POLL_TIMEOUT,
       intervalMs: STAYS_SAMPLE_MS,
@@ -152,7 +190,9 @@ export async function expectStaysScrolledBack(
         ),
     });
   } catch (e) {
-    throw new Error(`${(e as Error).message} — ${await moveStory(page, at)}`);
+    throw new Error(
+      `${(e as Error).message} — ${await pageHolds(page, at)}; ${await moveStory(page, at)}${failed.words()}`,
+    );
   }
   const held = Date.now();
   while (Date.now() - held < STAYS_WINDOW_MS) {
@@ -172,13 +212,20 @@ export async function expectLiveAtBottom(
   page: Page,
   at: ConductorScreen,
 ): Promise<void> {
-  await pollFor({
-    observe: () => sample(page, at).catch(() => NOT_YET),
-    isDone: (s) => s.rowsBack === 0 && s.phase === "live",
-    timeoutMs: POLL_TIMEOUT,
-    onTimeout: (last, ms) =>
-      new Error(
-        `${at.label} never came back to live at the bottom: after ${ms}ms it reads ${JSON.stringify(last)}`,
-      ),
-  });
+  const failed = lastReadFailure();
+  try {
+    await pollFor({
+      observe: () => sample(page, at).catch(failed.keep),
+      isDone: (s) => s.rowsBack === 0 && s.phase === "live",
+      timeoutMs: POLL_TIMEOUT,
+      onTimeout: (last, ms) =>
+        new Error(
+          `${at.label} never came back to live at the bottom: after ${ms}ms it reads ${JSON.stringify(last)}`,
+        ),
+    });
+  } catch (e) {
+    throw new Error(
+      `${(e as Error).message} — ${await pageHolds(page, at)}${failed.words()}`,
+    );
+  }
 }
