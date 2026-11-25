@@ -2353,35 +2353,77 @@ export function handOffsKept_1_67_0(store: Conf<PersistedState>): void {
   if (changed) store.set("works", next as unknown as PersistedState["works"]);
 }
 
+/** A watch's stored `terminal`, split at its LAST `/` into the host and the
+ *  id the 1.68.0 key holds — the fleet ref grammar's rule, frozen here: a host
+ *  key may contain a `/`, a terminal id never does. `null` for a string that
+ *  names no terminal (no `/`, or nothing on one side of it). */
+const splitWatch_1_68_0 = (
+  terminal: string,
+): { readonly host: string; readonly id: string } | null => {
+  const cut = terminal.lastIndexOf("/");
+  return cut <= 0 || cut === terminal.length - 1
+    ? null
+    : { host: terminal.slice(0, cut), id: terminal.slice(cut + 1) };
+};
+
 /** The 1.68.0 rung — A WORK'S FACTS ARE THE WORK'S. What a work stood on was
- *  read off whichever member terminal was there first; it is now asked of
- *  git, on the work's host, by the work's own key. A rung asks no host, so it
- *  does only what the file alone allows:
+ *  read off whichever member terminal was there first, and its identity was
+ *  strings a caller typed; it is now asked of git, on the work's host, by a
+ *  key that was parsed. A rung asks no host, so it does only what the file
+ *  alone allows:
  *
  *  1. every work's `worktree` becomes `unread` — the `read` a member lent it
  *     carried a host of the member's choosing, and the new shape (`unread`,
  *     `absent`, `at`) has no host at all. The watch re-reads it from git
  *     seconds after boot;
  *  2. every member's `worktree` is removed — a member no longer says where
- *     the work is.
+ *     the work is;
+ *  3. every watch's `key.terminal` is split at its LAST `/` into `host` and
+ *     `id` ({@link splitWatch_1_68_0}). The map key does not change: the id
+ *     a watch is filed under encodes the same ref, so its kept files
+ *     (`workDirOf(id)`) still match;
+ *  4. a watch whose `terminal` cannot be split never named a terminal: it is
+ *     removed, with its members and its Code view;
+ *  6. every branch key gains `repoBy: "as-written"` — its `repo` is what a
+ *     caller typed, and the host's first answer re-keys it to git's root.
  *
  *  A value it does not know is walked past unchanged, and each key is
- *  written only when something in it moved. Only `works` and `members` move;
- *  the transcript file is untouched, so TRANSCRIPT_FILE_VERSION stays at
- *  1.63.0. Exported for `stateMigration.test.ts`. */
+ *  written only when something in it moved. `works`, `members` and
+ *  `workCodeViews` move; the transcript file is untouched, so
+ *  TRANSCRIPT_FILE_VERSION stays at 1.63.0. Exported for
+ *  `stateMigration.test.ts`. */
 export function workFactsAreTheWorks_1_68_0(store: Conf<PersistedState>): void {
+  /** The works step 4 removed — their members and views go with them. */
+  const gone = new Set<string>();
   const works = recordOf(store.get("works"));
   if (works !== null) {
     let changed = false;
     const next: Record<string, unknown> = {};
     for (const [id, value] of Object.entries(works)) {
       const work = recordOf(value);
-      if (work === null || recordOf(work.worktree)?.kind === "unread") {
+      const key = recordOf(work?.key);
+      if (work === null || key === null) {
+        next[id] = value;
+        continue;
+      }
+      let nextKey: unknown = work.key;
+      if (key.kind === "watch" && typeof key.terminal === "string") {
+        const split = splitWatch_1_68_0(key.terminal);
+        if (split === null) {
+          gone.add(id);
+          changed = true;
+          continue;
+        }
+        nextKey = { kind: "watch", host: split.host, id: split.id };
+      } else if (key.kind === "branch" && !("repoBy" in key)) {
+        nextKey = { ...key, repoBy: "as-written" };
+      }
+      if (nextKey === work.key && recordOf(work.worktree)?.kind === "unread") {
         next[id] = value;
         continue;
       }
       changed = true;
-      next[id] = { ...work, worktree: { kind: "unread" } };
+      next[id] = { ...work, key: nextKey, worktree: { kind: "unread" } };
     }
     if (changed) store.set("works", next as unknown as PersistedState["works"]);
   }
@@ -2391,6 +2433,14 @@ export function workFactsAreTheWorks_1_68_0(store: Conf<PersistedState>): void {
     const next: Record<string, unknown> = {};
     for (const [ref, value] of Object.entries(members)) {
       const member = recordOf(value);
+      if (
+        member !== null &&
+        typeof member.work === "string" &&
+        gone.has(member.work)
+      ) {
+        changed = true;
+        continue;
+      }
       if (member === null || !("worktree" in member)) {
         next[ref] = value;
         continue;
@@ -2402,6 +2452,14 @@ export function workFactsAreTheWorks_1_68_0(store: Conf<PersistedState>): void {
     if (changed)
       store.set("members", next as unknown as PersistedState["members"]);
   }
+  const views = recordOf(store.get("workCodeViews"));
+  if (views !== null && Object.keys(views).some((id) => gone.has(id)))
+    store.set(
+      "workCodeViews",
+      Object.fromEntries(
+        Object.entries(views).filter(([id]) => !gone.has(id)),
+      ) as unknown as PersistedState["workCodeViews"],
+    );
 }
 
 /** The migration ladder — hoisted so {@link decodeStateBackup}'s scratch

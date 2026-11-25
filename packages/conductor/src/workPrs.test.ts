@@ -16,7 +16,13 @@ import { workRig } from "./workRig.testlib.ts";
 function rig() {
   const r = workRig();
   const id = r.works.openFor({
-    key: { kind: "branch", host: "local", repo: "/repo", branch: "csv" },
+    key: {
+      kind: "branch",
+      host: "local",
+      repo: "/repo",
+      branch: "csv",
+      repoBy: "git",
+    },
     title: "csv",
     request: { kind: "none" },
   }).id;

@@ -163,6 +163,7 @@ describe("the persisted state file — aggregate bytes", () => {
           host: "local",
           repo: "/srv/repo",
           branch: "fix-the-parser",
+          repoBy: "git",
         },
         title: "fix the parser",
         startedAt: "2026-01-01T00:00:00.000Z",

@@ -72,7 +72,13 @@ describe("mentionDetail", () => {
 
 const work = (title: string, at: string): Work =>
   openWork({
-    key: { kind: "branch", host: "local", repo: "/r", branch: title },
+    key: {
+      kind: "branch",
+      host: "local",
+      repo: "/r",
+      branch: title,
+      repoBy: "git",
+    },
     title,
     at,
     request: { kind: "none" },

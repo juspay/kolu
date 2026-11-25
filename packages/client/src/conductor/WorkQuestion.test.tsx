@@ -187,7 +187,7 @@ const modeAnswered = (id: string, value: WorkMode, at = AT): Decision => ({
 });
 
 const workOf = (branch: string, decisions: readonly Decision[]): Work => ({
-  key: { kind: "branch", host: "local", repo: REPO, branch },
+  key: { kind: "branch", host: "local", repo: REPO, branch, repoBy: "git" },
   title: `work on ${branch}`,
   startedAt: AT,
   decisions,

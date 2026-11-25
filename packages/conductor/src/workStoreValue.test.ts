@@ -64,6 +64,7 @@ describe("the works and their members, as one value", () => {
                 host: "local",
                 repo: "/repo",
                 branch: among(BRANCHES),
+                repoBy: "git",
               },
               title: "t",
               request: { kind: "none" },
@@ -105,7 +106,13 @@ describe("the works and their members, as one value", () => {
   it("throws a write that breaks a rule before anything is assigned", () => {
     const r = rig();
     const csv = r.works.openFor({
-      key: { kind: "branch", host: "local", repo: "/repo", branch: "csv" },
+      key: {
+        kind: "branch",
+        host: "local",
+        repo: "/repo",
+        branch: "csv",
+        repoBy: "git",
+      },
       title: "csv",
       request: { kind: "none" },
     }).id;

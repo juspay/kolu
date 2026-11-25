@@ -59,6 +59,7 @@ import {
   type WorkMode,
   WorkModeSchema,
   type Outcome,
+  type ParsedWorkKey,
   WorkRefusal,
   type WorkKey,
   type WorkRefusalKind,
@@ -66,8 +67,8 @@ import {
   WorkRoleSchema,
 } from "kolu-work";
 import type { FleetHostState, FleetWatchJoinSchema } from "./fleetSurface.ts";
-import { type FleetHosts, requireTerminal } from "./hosts.ts";
-import { FleetTerminalRefSchema } from "./refSchema.ts";
+import { type FleetHosts, requireHost, requireTerminal } from "./hosts.ts";
+import { FleetHostKeySchema, FleetTerminalRefSchema } from "./refSchema.ts";
 import { rosterStandingOf, stillSettling } from "../rosterEvidence.ts";
 
 /** HOW a terminal came to be a member of a work — the fact the server's
@@ -148,7 +149,7 @@ export interface FleetWorksRows {
  *  harness and model questions are NAMED, never offered: kolu draws their
  *  options ({@link SetupAsk}). */
 export interface FleetWorkIntent {
-  readonly key: WorkKey;
+  readonly key: ParsedWorkKey;
   readonly title: string;
   readonly setup: ReadonlyArray<SetupAsk>;
 }
@@ -367,7 +368,7 @@ const WorkOpenArgsSchema = Schema.Struct({
   // and a thing that identifies a work cannot be a question that may go
   // unanswered. Opening the same key twice is the SAME work, carried on with.
   host: Schema.optionalKey(
-    Schema.String.check(Schema.isMinLength(1)).annotate({
+    FleetHostKeySchema.annotate({
       description:
         "WHICH MACHINE, as a fleet host ref (`local`, `remote:<target>`) — required unless `watch` is given. If the human's request does not say which machine, ASK THEM IN YOUR REPLY and end your turn; open the work when they answer. Never guess.",
     }),
@@ -375,7 +376,7 @@ const WorkOpenArgsSchema = Schema.Struct({
   repo: Schema.optionalKey(
     Schema.String.check(Schema.isMinLength(1)).annotate({
       description:
-        "The repository's absolute path on that host. Required unless `watch` is given.",
+        "Any path inside the repository on that host — its root, a linked worktree, or a folder in either: kolu asks git for the repository's root, so every spelling of one repository names one work. Refused if it is no git repository. Required unless `watch` is given.",
     }),
   ),
   branch: Schema.optionalKey(
@@ -385,9 +386,9 @@ const WorkOpenArgsSchema = Schema.Struct({
     }),
   ),
   watch: Schema.optionalKey(
-    Schema.String.check(Schema.isMinLength(1)).annotate({
+    FleetTerminalRefSchema.annotate({
       description:
-        "A plain WATCH of one terminal somebody else started, by its `<host>/<id>` ref — instead of host/repo/branch. The work is keyed by that terminal.",
+        "A plain WATCH of one terminal somebody else started, by its `<host>/<id>` ref — instead of host/repo/branch. The work is keyed by that terminal, which must be in its host's roster.",
     }),
   ),
   // THE TWO QUESTIONS WHOSE ANSWERS ARE READ BACK AS VOCABULARY, typed as
@@ -514,6 +515,13 @@ export type WorkMemberFound =
   | { readonly kind: "no-agent" }
   | { readonly kind: "agent"; readonly agent: string; readonly bucket: string };
 
+/** A terminal the host holds: its host key, its id, and the host's client. */
+interface HeldTerminal {
+  readonly host: string;
+  readonly id: string;
+  readonly padi: PadiSurfaceClient;
+}
+
 /** Refuse unless the host's roster actually holds this terminal RIGHT NOW.
  *
  *  The roster, not a record read: a `get` on an unknown key is a declared
@@ -532,8 +540,8 @@ export type WorkMemberFound =
 function requireInRoster(
   hosts: FleetHosts,
   ref: string,
-): Effect.Effect<{ id: string; padi: PadiSurfaceClient }, ToolFailure> {
-  return Effect.flatMap(requireTerminal(hosts, ref), ({ id, padi }) =>
+): Effect.Effect<HeldTerminal, ToolFailure> {
+  return Effect.flatMap(requireTerminal(hosts, ref), ({ host, id, padi }) =>
     Effect.flatMap(
       Effect.mapError(
         rosterStandingOf(padi, id, ref),
@@ -543,11 +551,9 @@ function requireInRoster(
             { kind: "terminal-not-in-roster", id: ref },
           ),
       ),
-      (
-        standing,
-      ): Effect.Effect<{ id: string; padi: PadiSurfaceClient }, ToolFailure> =>
+      (standing): Effect.Effect<HeldTerminal, ToolFailure> =>
         standing === "held"
-          ? Effect.succeed({ id, padi })
+          ? Effect.succeed({ host, id, padi })
           : // ABSENT FROM A LIST THAT MAY NOT BE A CENSUS. A padi that has not
             // finished adopting its terminals has no census to be absent from,
             // so an absence is only an absence once the roster is ESTABLISHED.
@@ -607,29 +613,111 @@ function foundState(
 const ASKED_SAID =
   "Asked. The question is in front of the human now and NOTHING is waiting on them: say what you asked, END YOUR TURN, and kolu will wake you with their answer — who answered, from where, and what they said. Never poll the `works` resource for it, and never ask the same question again because no answer came back: it is already on the card, and asking twice puts two forms in front of them.";
 
-/** THE KEY `work_open` NAMES — a branch on a machine, or the terminal to
- *  watch. Refused here rather than halfway in: a work with no machine is a
- *  work with no identity, and the Conductor is owed the sentence that says to
+/** Why the key `work_open` names was refused — beyond the host and terminal
+ *  refusals `hosts.ts` raises, which pass through verbatim. */
+export type WorkKeyRefusal =
+  | {
+      readonly kind: "not-a-repository";
+      readonly host: string;
+      readonly repo: string;
+    }
+  | {
+      readonly kind: "git-unavailable";
+      readonly host: string;
+      readonly repo: string;
+      readonly reason: string;
+    };
+
+/** THE KEY `work_open` NAMES, PARSED AT THE DOOR — a branch whose repository
+ *  git on that host named, or a watch of a terminal its host holds. Nothing
+ *  a caller typed reaches the store unparsed:
+ *
+ *  - `watch` is a fleet terminal ref (the decoder already refused one that is
+ *    not), and the terminal must be in its host's roster right now;
+ *  - `host`, `repo` and `branch` name a branch: the host must be one the fleet
+ *    holds and be answering, and git there must say `repo` is inside a
+ *    repository — its ROOT becomes the key's `repo`, so the root, a linked
+ *    worktree and a trailing slash are one key. The branch need not exist
+ *    yet: a work is opened before its worktree is cut.
+ *
+ *  A request that names no machine is refused with the sentence that says to
  *  ask the human which one. */
-const workKeyOfArgs = (args: WorkOpenArgs): WorkKey => {
-  if (args.watch !== undefined) return { kind: "watch", terminal: args.watch };
-  if (
-    args.host === undefined ||
-    args.repo === undefined ||
-    args.branch === undefined
-  ) {
-    throw new WorkRefusal(
-      "missing-setup",
-      `«${args.title}» cannot be opened: a piece of work IS a branch on a machine, so \`work_open\` needs \`host\` (a fleet host ref), \`repo\` and \`branch\` — or \`watch\` for a plain watch of one terminal. If the human's request does not say which machine, ask them in your reply and END YOUR TURN; open the work when they answer. Nothing was created.`,
+export function parseWorkKey(
+  hosts: FleetHosts,
+  args: {
+    readonly title: string;
+    readonly host?: string;
+    readonly repo?: string;
+    readonly branch?: string;
+    readonly watch?: string;
+  },
+): Effect.Effect<ParsedWorkKey, ToolFailure> {
+  const watched = args.watch;
+  if (watched !== undefined)
+    return Effect.map(
+      requireInRoster(hosts, watched),
+      ({ host, id }): ParsedWorkKey => ({ kind: "watch", host, id }),
     );
-  }
-  return {
-    kind: "branch",
-    host: args.host,
-    repo: args.repo,
-    branch: args.branch,
-  };
-};
+  const { host, repo, branch } = args;
+  if (host === undefined || repo === undefined || branch === undefined)
+    return Effect.fail(
+      refusalFailure(
+        new WorkRefusal(
+          "missing-setup",
+          `«${args.title}» cannot be opened: a piece of work IS a branch on a machine, so \`work_open\` needs \`host\` (a fleet host ref), \`repo\` and \`branch\` — or \`watch\` for a plain watch of one terminal. If the human's request does not say which machine, ask them in your reply and END YOUR TURN; open the work when they answer. Nothing was created.`,
+        ),
+        args.title,
+      ),
+    );
+  return Effect.flatMap(requireHost(hosts, host), (padi) =>
+    Effect.flatMap(
+      Effect.mapError(
+        firstFrameOrThrow(
+          padi.surface.branchCheckout.get({ repoPath: repo, branch }),
+          `${host} answered nothing about ${repo}.`,
+        ),
+        (cause) =>
+          new ToolFailure<WorkKeyRefusal>(
+            `could not ask ${hosts.display(host)} about ${repo}: ${String(cause)}. Nothing was created.`,
+            { kind: "git-unavailable", host, repo, reason: String(cause) },
+          ),
+      ),
+      (reading): Effect.Effect<ParsedWorkKey, ToolFailure> => {
+        switch (reading.kind) {
+          case "repository":
+            return Effect.succeed({
+              kind: "branch",
+              host,
+              repo: reading.root,
+              branch,
+              repoBy: "git",
+            });
+          case "not-a-repository":
+            return Effect.fail(
+              new ToolFailure<WorkKeyRefusal>(
+                `${repo} on ${hosts.display(host)} is not a git repository — a piece of work is a branch in one. Give a path inside the repository. Nothing was created.`,
+                { kind: "not-a-repository", host, repo },
+              ),
+            );
+          case "unavailable":
+            return Effect.fail(
+              new ToolFailure<WorkKeyRefusal>(
+                `git on ${hosts.display(host)} would not say what ${repo} is: ${reading.reason}. Nothing was created.`,
+                {
+                  kind: "git-unavailable",
+                  host,
+                  repo,
+                  reason: reading.reason,
+                },
+              ),
+            );
+          default:
+            return reading satisfies never;
+        }
+      },
+    ),
+  );
+}
 
 /** The setup the tool was called with, as the record's own asks — THE EDGE
  *  where the wire's optional `given` becomes an arm. A model writes JSON and
@@ -687,7 +775,10 @@ const setupSaid = (setup: SetupReading): SetupSaid => ({
 });
 
 /** `work_open` — state a piece of work, and ask its setup in one form. */
-export function workOpenTool(works: FleetWorks): BespokeTool {
+export function workOpenTool(
+  hosts: FleetHosts,
+  works: FleetWorks,
+): BespokeTool {
   return {
     input: WorkOpenArgsSchema,
     mutates: true,
@@ -696,25 +787,27 @@ export function workOpenTool(works: FleetWorks): BespokeTool {
       'Open a piece of work — a branch on a machine (`host`, `repo`, `branch`), or `watch` for one terminal — and ask the human its setup in ONE form, the whole of it: which mode, which harness and model per role, and what to do when the PR is green (GitHub would merge it, and no check is running or failing). kolu OFFERS the harness and model questions itself — the harnesses installed, the models the chosen harness offers on that host, the human\'s last answers already selected — so you name those four keys and offer nothing for them. Opening a host, repo and branch that already has a work returns THAT work (reopening it if it had ended) and asks only what is still unanswered — and again any saved harness or model kolu no longer offers, which is the way out when `lifecycle_create` refuses to start a planner or implementor on one. kolu puts the questions to the human, records every one as a DECISION on this work, and ANSWERS YOU AT ONCE: nothing in kolu\'s tools ever waits for a person. The answer carries the work\'s id and `setup`, as kolu reads it back RIGHT NOW: `host`, and `mode` and `onGreen` as `{kind: "answered", value}` or `{kind: "unanswered"}` while their question is still open, and `roles` — each role\'s setup as `{kind: "not-chosen"}`, `{kind: "harness", harness}` or `{kind: "harness-and-model", harness, model}`, so a role is startable exactly when it reads `harness-and-model`. `asked: true` means a form went to them. Use `given` for anything the human\'s request already said — it is recorded as their answer without asking, and reads back immediately. Refused, with nothing created, when the setup does not carry a question the mode needs, when the host\'s coding agents are not ready (the refusal says why and what the human must do — tell them, and end your turn), or when a `given` harness or model is not one kolu offers. When `asked` is true, say what you asked and END YOUR TURN: kolu wakes you with every answer. A setup they decline for a work nothing has happened in removes the work, and you are told the same way. Everything after this names the work it answers with: `lifecycle_create`, `work_adopt`, `work_ask`, `work_note`, `work_stop`.',
     handler: (args, _bundle, _signal) => {
       const intent = args as WorkOpenArgs;
-      return Effect.tryPromise({
-        try: async () => {
-          const opened = await works.open({
-            key: workKeyOfArgs(intent),
-            title: intent.title,
-            setup: setupAsksOf(intent),
-          });
-          const answer = {
-            work: opened.work,
-            setup: setupSaid(opened.setup),
-            ask: opened.ask,
-            asked: opened.asked,
-            created: opened.created,
-            reopened: opened.reopened,
-          };
-          return opened.asked ? { ...answer, said: ASKED_SAID } : answer;
-        },
-        catch: (err: unknown) => refusalFailure(err, intent.title),
-      });
+      return Effect.flatMap(parseWorkKey(hosts, intent), (key) =>
+        Effect.tryPromise({
+          try: async () => {
+            const opened = await works.open({
+              key,
+              title: intent.title,
+              setup: setupAsksOf(intent),
+            });
+            const answer = {
+              work: opened.work,
+              setup: setupSaid(opened.setup),
+              ask: opened.ask,
+              asked: opened.asked,
+              created: opened.created,
+              reopened: opened.reopened,
+            };
+            return opened.asked ? { ...answer, said: ASKED_SAID } : answer;
+          },
+          catch: (err: unknown) => refusalFailure(err, intent.title),
+        }),
+      );
     },
   };
 }

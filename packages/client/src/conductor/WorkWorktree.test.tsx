@@ -33,7 +33,13 @@ const REPO = "/srv/code/tidepool";
 const WORKTREE = "/srv/code/tidepool/.worktrees/csv";
 
 const work = (worktree: Work["worktree"]): Work => ({
-  key: { kind: "branch", host: "local", repo: REPO, branch: "feat/csv-export" },
+  key: {
+    kind: "branch",
+    host: "local",
+    repo: REPO,
+    branch: "feat/csv-export",
+    repoBy: "git",
+  },
   title: "Add CSV export",
   events: [],
   decisions: [],

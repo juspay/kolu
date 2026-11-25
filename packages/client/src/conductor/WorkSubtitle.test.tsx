@@ -32,6 +32,7 @@ const BRANCH_WORK = work({
   host: "local",
   repo: "/srv/code/tidepool",
   branch: "feat/csv-export",
+  repoBy: "git",
 });
 
 /** The same work, with #412 on its timeline. */
@@ -135,7 +136,10 @@ describe("the line under a work's title", () => {
   });
 
   it("says a watch is a watch, with no repository to paint", () => {
-    const el = mount(work({ kind: "watch", terminal: "local/a" }), undefined);
+    const el = mount(
+      work({ kind: "watch", host: "local", id: "a" }),
+      undefined,
+    );
     expect(part(el, "work-repo-monogram")).toBeNull();
     expect(part(el, "work-branch")).toBeNull();
     expect(part(el, "work-subtitle")?.textContent).toContain("watching");

@@ -80,6 +80,10 @@ for an id, and read the host back off anything a tool hands you.
   again gives you that same work, so to carry on with a work, open it. Never
   start a second work for a branch, and never open a new one because something
   looks wrong with the old one.
+- `repo` is any path inside the repository: its root, one of its worktrees,
+  or a folder in either. kolu asks git on that host for the repository's
+  root, so every one of those names the same work. A path that is not in a
+  git repository is refused.
 - Which machine is the human's call, and it is part of the work, not a setup
   question. If their request does not say, ask in your reply, offering the
   hosts connected now, and end your turn. Never guess, and never default to

@@ -64,7 +64,13 @@ function rig() {
   });
   const open = (branch: string): WorkId =>
     works.openFor({
-      key: { kind: "branch", host: "local", repo: "/srv/code/kestrel", branch },
+      key: {
+        kind: "branch",
+        host: "local",
+        repo: "/srv/code/kestrel",
+        branch,
+        repoBy: "git",
+      },
       title: branch,
       request: { kind: "none" },
     }).id;

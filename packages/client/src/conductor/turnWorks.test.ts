@@ -27,7 +27,7 @@ const work = (
     (one, [terminal, minute]) =>
       joinWork(one, { terminal, role: "planner", at: at(minute) }),
     openWork({
-      key: { kind: "branch", host: "local", repo: "/r", branch },
+      key: { kind: "branch", host: "local", repo: "/r", branch, repoBy: "git" },
       title: branch,
       at: at(0),
       request: { kind: "none" },

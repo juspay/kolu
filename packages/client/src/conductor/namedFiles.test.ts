@@ -22,6 +22,7 @@ const work = (
     host: "local",
     repo: "/src/app",
     branch: title.replaceAll(" ", "-"),
+    repoBy: "git",
   },
   title,
   startedAt: AT,

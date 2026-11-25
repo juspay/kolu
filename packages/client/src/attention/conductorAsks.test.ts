@@ -210,6 +210,7 @@ describe("the Conductor's bell, over real work records", () => {
     host: "local",
     repo: "/code/olai",
     branch: "chat-in-a-pane",
+    repoBy: "git",
   } as const;
   const ID = workIdOf(KEY);
   const AT = (minute: number): string =>

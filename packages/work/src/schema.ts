@@ -126,17 +126,36 @@ export const WorkKeySchema = Schema.Union([
     kind: Schema.Literal("branch"),
     /** The fleet host ref the work runs on (`local`, `remote:<target>`). */
     host: Schema.String.check(Schema.isMinLength(1)),
-    /** The repository's absolute path on that host. */
+    /** The repository's root on that host — `repoBy` says who named it. */
     repo: Schema.String.check(Schema.isMinLength(1)),
     branch: Schema.String.check(Schema.isMinLength(1)),
+    /** WHO SAID `repo` IS THE ROOT. `git`: it is git's own root for the
+     *  repository on `host`, as that host answered it when the key was
+     *  parsed or re-keyed — so two spellings of one repository are one key.
+     *  `as-written`: a key stored before kolu asked git, whose `repo` is what
+     *  a caller typed; nothing new produces one, and the host's first answer
+     *  turns it into `git`. {@link workIdOf} does not read it. */
+    repoBy: Schema.Literals(["git", "as-written"]),
   }),
   Schema.Struct({
     kind: Schema.Literal("watch"),
-    /** The fleet terminal ref (`<host>/<id>`) the watch is about. */
-    terminal: Schema.String.check(Schema.isMinLength(1)),
+    /** The fleet host ref the watched terminal is on. Its own field, so
+     *  nothing ever splits a string to find it — a host key may hold a `/`. */
+    host: Schema.String.check(Schema.isMinLength(1)),
+    /** The terminal's id on that host. */
+    id: Schema.String.check(Schema.isMinLength(1)),
   }),
 ]);
 export type WorkKey = typeof WorkKeySchema.Type;
+
+/** A KEY THAT HAS BEEN PARSED — a watch of a terminal the host holds, or a
+ *  branch whose repository git named. What the store opens a work for: a
+ *  key a caller typed, unparsed, cannot reach it. */
+export type ParsedWorkKey =
+  | Extract<WorkKey, { readonly kind: "watch" }>
+  | (Extract<WorkKey, { readonly kind: "branch" }> & {
+      readonly repoBy: "git";
+    });
 
 /** A work's identity as ONE string — the key of the `works` map, of the wire
  *  collection, and of a member's `work` field. Always {@link workIdOf} of a
@@ -149,31 +168,54 @@ export type WorkId = string;
 const part = (text: string): string => encodeURIComponent(text);
 
 /** THE ONE STRING ENCODING OF A KEY. Injective and decodable
- *  ({@link workKeyOf}): two different keys never produce one id, so "one work
- *  per branch" is a property of the map rather than a rule somebody enforces.
- */
+ *  ({@link workIdParts}): two different keys never produce one id, so "one
+ *  work per branch" is a property of the map rather than a rule somebody
+ *  enforces. A watch's id is the terminal's fleet ref (`<host>/<id>`),
+ *  encoded whole — the bytes every stored watch id already is. */
 export const workIdOf = (key: WorkKey): WorkId =>
   key.kind === "branch"
     ? `branch:${part(key.host)}/${part(key.repo)}/${part(key.branch)}`
-    : `watch:${part(key.terminal)}`;
+    : `watch:${part(`${key.host}/${key.id}`)}`;
 
-const decodeWorkKey = Schema.decodeUnknownOption(WorkKeySchema);
+/** WHAT A WORK ID SAYS — the key's parts it encodes. Not a key: an id cannot
+ *  say who named a branch's repository (`repoBy`), so only the stored work
+ *  carries that. */
+export type WorkIdParts =
+  | {
+      readonly kind: "branch";
+      readonly host: string;
+      readonly repo: string;
+      readonly branch: string;
+    }
+  | { readonly kind: "watch"; readonly host: string; readonly id: string };
 
 /** ... and back. `none` for a string that is no work id — which is what an
  *  agent naming a work kolu never opened hands in, and what a pasted link
- *  with a broken `%`-escape is. The parts go through the key's own schema,
- *  so an empty one is refused by the rule that refuses it everywhere else. */
-export const workKeyOf = (id: WorkId): Option.Option<WorkKey> => {
+ *  with a broken `%`-escape is. Every part must be non-empty, the rule the
+ *  key's own schema holds. A watch's ref is split at its LAST `/`: a host key
+ *  may contain one, a terminal id never does. */
+export const workIdParts = (id: WorkId): Option.Option<WorkIdParts> => {
   const branch = /^branch:([^/]*)\/([^/]*)\/([^/]*)$/.exec(id);
   const watch = /^watch:(.*)$/.exec(id);
   try {
     if (branch !== null) {
-      const [host, repo, name] = branch.slice(1).map(decodeURIComponent);
-      return decodeWorkKey({ kind: "branch", host, repo, branch: name });
+      const [host = "", repo = "", name = ""] = branch
+        .slice(1)
+        .map(decodeURIComponent);
+      return host === "" || repo === "" || name === ""
+        ? Option.none()
+        : Option.some({ kind: "branch", host, repo, branch: name });
     }
     if (watch === null) return Option.none();
-    const [terminal] = watch.slice(1).map(decodeURIComponent);
-    return decodeWorkKey({ kind: "watch", terminal });
+    const ref = decodeURIComponent(watch[1] ?? "");
+    const cut = ref.lastIndexOf("/");
+    return cut <= 0 || cut === ref.length - 1
+      ? Option.none()
+      : Option.some({
+          kind: "watch",
+          host: ref.slice(0, cut),
+          id: ref.slice(cut + 1),
+        });
   } catch (cause) {
     // `decodeURIComponent` throws `URIError` on a malformed escape: that is
     // a string no `workIdOf` produced, so it names no work. Anything else is
@@ -770,13 +812,9 @@ export const outcomeOf = (work: Work): Option.Option<Outcome> =>
 export const keptOf = (work: Work): Option.Option<ReadonlyArray<KeptFile>> =>
   work.state.kind === "ended" ? Option.some(work.state.kept) : Option.none();
 
-/** THE HOST a work runs on — read off its key, never off a decision. A watch
- *  takes its host from the terminal it watches (`<host>/<id>`): everything
- *  before the first `/`. */
-export const hostOf = (work: Pick<Work, "key">): string =>
-  work.key.kind === "branch"
-    ? work.key.host
-    : work.key.terminal.replace(/\/.*$/s, "");
+/** THE HOST a work runs on — a field of its key, never a decision and never
+ *  a string split. */
+export const hostOf = (work: Pick<Work, "key">): string => work.key.host;
 
 /** ONE MEMBER TERMINAL — the whole of what kolu stores about a terminal's
  *  part in a work, in the ONE map keyed by terminal ref.

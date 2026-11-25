@@ -38,7 +38,13 @@ const MIN = 60_000;
 /** A work whose timeline has a minute's wait and then a three-hour one. */
 const staged = (): Work => {
   const opened = openWork({
-    key: { kind: "branch", host: "local", repo: "/r", branch: "waits" },
+    key: {
+      kind: "branch",
+      host: "local",
+      repo: "/r",
+      branch: "waits",
+      repoBy: "git",
+    },
     title: "A work that waited",
     at: at(0),
     request: { kind: "none" },

@@ -188,6 +188,7 @@ const work = (over: Partial<Work> = {}): Work => ({
     host: "local",
     repo: "/home/srid/code/kolu",
     branch: "update-errors",
+    repoBy: "git",
   },
   title: "Show agent-distro update errors",
   events: [],
@@ -279,7 +280,7 @@ describe("what a card's head says", () => {
   it("says a watch is a watch, which has no repo to name", () => {
     expect(
       workSubtitle(
-        work({ key: { kind: "watch", terminal: "local/a" } }),
+        work({ key: { kind: "watch", host: "local", id: "a" } }),
         Option.some("naiveintent"),
       ),
     ).toEqual(["watching", "naiveintent"]);
@@ -374,7 +375,13 @@ describe("where a work runs", () => {
     expect(
       workHost(
         work({
-          key: { kind: "branch", host: "", repo: "/r", branch: "b" },
+          key: {
+            kind: "branch",
+            host: "",
+            repo: "/r",
+            branch: "b",
+            repoBy: "git",
+          },
         }),
       ),
     ).toEqual(Option.none());

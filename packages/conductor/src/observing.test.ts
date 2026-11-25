@@ -52,6 +52,7 @@ const work = (): Work =>
           host: "local",
           repo: "/srv/repo",
           branch: "fix-the-parser",
+          repoBy: "git",
         },
         title: "fix the parser",
         at: AT,

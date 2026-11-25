@@ -124,12 +124,14 @@ const KEY = {
   host: "local",
   repo: "/srv/repo",
   branch: "fix-the-parser",
+  repoBy: "git",
 } as const satisfies WorkKey;
 const OTHER_KEY = {
   kind: "branch",
   host: "remote:prod",
   repo: "/srv/repo",
   branch: "last-week",
+  repoBy: "git",
 } as const satisfies WorkKey;
 
 /** The version this file's ladder pin names. A literal, deliberately: a pin
@@ -936,8 +938,16 @@ describe("the conductor's rungs", () => {
     // branch IS the terminal somebody asked kolu to watch, so that is its key.
     const ids = Object.keys(migrated.works);
     expect(ids).toEqual([
-      workIdOf({ kind: "watch", terminal: FLEET_REF }),
-      workIdOf({ kind: "watch", terminal: THIRD_REF }),
+      workIdOf({
+        kind: "watch",
+        host: "local",
+        id: "11111111-1111-4111-8111-111111111111",
+      }),
+      workIdOf({
+        kind: "watch",
+        host: "remote:box",
+        id: "33333333-3333-4333-8333-333333333333",
+      }),
     ]);
     const all = Object.values(migrated.works);
     const memberRefs = (id: string) =>

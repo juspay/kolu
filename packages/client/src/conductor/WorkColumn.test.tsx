@@ -48,7 +48,13 @@ vi.mock("./WorkRail", () => ({
 const WORK: WorkId = "branch:local/%2Fr/welcome" as WorkId;
 const opened = (): Work =>
   openWork({
-    key: { kind: "branch", host: "local", repo: "/r", branch: "welcome" },
+    key: {
+      kind: "branch",
+      host: "local",
+      repo: "/r",
+      branch: "welcome",
+      repoBy: "git",
+    },
     title: "Something in flight",
     at: "2026-11-16T01:00:00.000Z",
     request: { kind: "none" },

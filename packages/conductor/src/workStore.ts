@@ -58,13 +58,12 @@ import {
   takeOver as takeOverRecord,
   type Work,
   type WorkId,
-  type WorkKey,
+  type ParsedWorkKey,
   type WorkMember,
   type WorkRole,
   WorkRefusal,
   type WorkStoreValue,
   workIdOf,
-  workKeyOf,
 } from "kolu-work";
 import type { Logger } from "pino";
 import { dropOpenAsks, type SettledAsk } from "./askNews.ts";
@@ -153,9 +152,10 @@ export interface WorkStore {
   readonly openAt: (id: WorkId) => Work;
   /** OPEN THE WORK FOR THIS KEY — idempotent. A key kolu already holds
    *  answers that work (brought back to Open if it had ended); a key it does
-   *  not holds a new one. */
+   *  not holds a new one. Only a PARSED key reaches here: a branch whose
+   *  repository git named, or a watch of a terminal its host holds. */
   readonly openFor: (opened: {
-    readonly key: WorkKey;
+    readonly key: ParsedWorkKey;
     readonly title: string;
     readonly request: RequestWords;
   }) => Opened;
@@ -555,15 +555,14 @@ export const workStore = (deps: WorkStoreDeps): WorkStore => {
     const watches: BranchWatch[] = [];
     for (const [id, work] of value.works) {
       if (work.state.kind !== "open") continue;
-      const key = workKeyOf(id);
-      // An id that is no work key at all cannot be watched, and neither can a
-      // WATCH: a pull request is a fact about a branch.
-      if (Option.isNone(key) || key.value.kind !== "branch") continue;
+      // A WATCH is not watched: a pull request and a checkout are facts about
+      // a branch.
+      if (work.key.kind !== "branch") continue;
       watches.push({
         work: id,
-        host: key.value.host,
-        repo: key.value.repo,
-        branch: key.value.branch,
+        host: work.key.host,
+        repo: work.key.repo,
+        branch: work.key.branch,
       });
     }
     return watches;

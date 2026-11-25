@@ -70,12 +70,13 @@ import type {
   FleetMemoryChange,
   FleetMemoryView,
 } from "./memory.ts";
-import type {
-  FleetWatchJoin,
-  FleetWorkMemberRow,
-  FleetWorkOpened,
-  FleetWorkRow,
-  FleetWorks,
+import {
+  type FleetWatchJoin,
+  type FleetWorkMemberRow,
+  type FleetWorkOpened,
+  type FleetWorkRow,
+  type FleetWorks,
+  parseWorkKey,
 } from "./works.ts";
 
 const ALPHA_1 = "11111111-1111-4111-8111-111111111111" as TerminalId;
@@ -452,6 +453,18 @@ function fakePadi(host: string, seeded: readonly TerminalId[]): FakePadi {
     [at("terminalAttach", "get")]: () =>
       Stream.make({ kind: "snapshot", data: `screen of ${host}` }),
     [at("watchPulse", "get")]: () => pulse.stream(),
+    // WHERE A BRANCH IS CHECKED OUT, as git on this host would answer: every
+    // path under `/repo` is inside the one repository rooted there (its
+    // root, a linked worktree, a trailing slash); `/broken` is a git that
+    // would not answer; anything else is no repository.
+    [at("branchCheckout", "get")]: (input: { repoPath: string }) =>
+      Stream.make(
+        input.repoPath === "/repo" || input.repoPath.startsWith("/repo/")
+          ? { kind: "repository", root: "/repo", checkout: { kind: "none" } }
+          : input.repoPath === "/broken"
+            ? { kind: "unavailable", reason: "git hung" }
+            : { kind: "not-a-repository" },
+      ),
   } as unknown as SurfaceHandlers;
 
   // THE REAL FACE WALK — `padiClientOver`, the one kolu-server hands the fleet
@@ -703,7 +716,13 @@ function fakeWorks(): FleetWorks & {
   const blank = (id: string, title: string): FleetWorkRow => ({
     id,
     title,
-    key: { kind: "branch", host: "local", repo: "/repo", branch: "work" },
+    key: {
+      kind: "branch",
+      host: "local",
+      repo: "/repo",
+      branch: "work",
+      repoBy: "git",
+    },
     host: "local",
     mode: Option.some("full"),
     onGreen: Option.some("merge"),
@@ -2368,6 +2387,7 @@ describe("the conductor's pieces of work", () => {
             host: "local",
             repo: "/repo",
             branch: "work",
+            repoBy: "git",
           },
           host: "local",
           mode: { kind: "answered", value: "full" },
@@ -2827,5 +2847,114 @@ describe("the Conductor's memory, on the fleet face", () => {
     } finally {
       await close();
     }
+  });
+});
+
+describe("the key `work_open` names, parsed at the door", () => {
+  /** The key, or the refusal's detail — run the parse to its end. */
+  const parse = (
+    hosts: FleetHosts,
+    args: Parameters<typeof parseWorkKey>[1],
+  ): Promise<unknown> =>
+    Effect.runPromise(
+      Effect.match(parseWorkKey(hosts, args), {
+        onSuccess: (key) => ({ key }),
+        onFailure: (failure) => ({ refused: failure.detail }),
+      }),
+    );
+
+  it("names ONE work for the root, a linked worktree and a trailing slash", async () => {
+    const { fleet } = twoHostFleet();
+    const ids = new Set<string>();
+    for (const repo of ["/repo", "/repo/.worktrees/work", "/repo/"]) {
+      const parsed = await parse(fleet.hosts, {
+        title: "t",
+        host: "local",
+        repo,
+        branch: "work",
+      });
+      expect(parsed, repo).toEqual({
+        key: {
+          kind: "branch",
+          host: "local",
+          repo: "/repo",
+          branch: "work",
+          repoBy: "git",
+        },
+      });
+      ids.add(JSON.stringify(parsed));
+    }
+    expect(ids.size).toBe(1);
+  });
+
+  it("refuses a path that is no repository, and says git's reason when git will not answer", async () => {
+    const { fleet } = twoHostFleet();
+    expect(
+      await parse(fleet.hosts, {
+        title: "t",
+        host: "local",
+        repo: "/elsewhere",
+        branch: "work",
+      }),
+    ).toEqual({
+      refused: { kind: "not-a-repository", host: "local", repo: "/elsewhere" },
+    });
+    expect(
+      await parse(fleet.hosts, {
+        title: "t",
+        host: "local",
+        repo: "/broken",
+        branch: "work",
+      }),
+    ).toMatchObject({
+      refused: { kind: "git-unavailable", reason: "git hung" },
+    });
+  });
+
+  it("refuses a host the fleet does not hold, or one that is not answering", async () => {
+    const alpha = fakePadi("local", [ALPHA_1]);
+    const fleet = fakeFleet([
+      { key: "local", display: "this machine", padi: alpha },
+      { key: "remote:box", display: "box", padi: null, state: "failed" },
+    ]);
+    expect(
+      await parse(fleet.hosts, {
+        title: "t",
+        host: "remote:nowhere",
+        repo: "/repo",
+        branch: "work",
+      }),
+    ).toMatchObject({ refused: { kind: "unknown-host" } });
+    expect(
+      await parse(fleet.hosts, {
+        title: "t",
+        host: "remote:box",
+        repo: "/repo",
+        branch: "work",
+      }),
+    ).toMatchObject({ refused: { kind: "host-not-connected" } });
+  });
+
+  it("parses a watch into its host and id, and refuses one that is no ref or names no terminal", async () => {
+    const { fleet } = twoHostFleet();
+    expect(
+      await parse(fleet.hosts, {
+        title: "t",
+        watch: `remote:box/${BETA_1}`,
+      }),
+    ).toEqual({ key: { kind: "watch", host: "remote:box", id: BETA_1 } });
+    expect(
+      await parse(fleet.hosts, { title: "t", watch: "no-ref" }),
+    ).toMatchObject({ refused: { kind: "not-a-fleet-ref" } });
+    expect(
+      await parse(fleet.hosts, { title: "t", watch: `local/${BETA_1}` }),
+    ).toMatchObject({ refused: { kind: "terminal-not-in-roster" } });
+  });
+
+  it("refuses a request that names no machine", async () => {
+    const { fleet } = twoHostFleet();
+    expect(
+      await parse(fleet.hosts, { title: "t", repo: "/repo", branch: "work" }),
+    ).toMatchObject({ refused: { kind: "missing-setup" } });
   });
 });

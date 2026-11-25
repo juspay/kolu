@@ -12,6 +12,7 @@ const KEY: WorkKey = {
   host: "remote:naiveintent",
   repo: "/home/me/code/kolu",
   branch: "agent-distro-update-errors",
+  repoBy: "git",
 };
 const ID = workIdOf(KEY);
 

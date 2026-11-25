@@ -79,10 +79,16 @@ import WorkTerminals from "./WorkTerminals";
 import { inspectMember, unpickWork } from "./workListing";
 
 /** A watch: these rows are about the terminal, not where it stands. */
-const WORK = { key: { kind: "watch", terminal: "local/x" } } as Work;
+const WORK = { key: { kind: "watch", host: "local", id: "x" } } as Work;
 /** A branch work, for the one case about where a terminal stands. */
 const BRANCH_WORK = {
-  key: { kind: "branch", host: "local", repo: "/srv/repo", branch: "fix" },
+  key: {
+    kind: "branch",
+    host: "local",
+    repo: "/srv/repo",
+    branch: "fix",
+    repoBy: "git",
+  },
 } as Work;
 
 const thinking: FleetTerminalStanding = {

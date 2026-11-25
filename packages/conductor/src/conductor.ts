@@ -198,7 +198,7 @@ import {
   type WaterfallRole,
   type Work,
   type WorkId,
-  type WorkKey,
+  type ParsedWorkKey,
   type WorkMember,
   workIdOf,
   WorkRefusal,
@@ -495,7 +495,7 @@ export interface ConductorHost {
    * kolu WAKES it with what they said. Nothing here waits on a person.
    */
   readonly openWork: (intent: {
-    readonly key: WorkKey;
+    readonly key: ParsedWorkKey;
     readonly title: string;
     readonly setup: ReadonlyArray<SetupAsk>;
   }) => Promise<{

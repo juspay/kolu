@@ -81,7 +81,13 @@ const workCodeViewsStore = confStore<PersistedWorkCodeViews>(
 /** A piece of work in today's shape — no members, because what these tests
  *  are about is the KEY, not what is inside it. */
 const work = (branch: string, title: string): Work => ({
-  key: { kind: "branch", host: "local", repo: "/srv/repo", branch },
+  key: {
+    kind: "branch",
+    host: "local",
+    repo: "/srv/repo",
+    branch,
+    repoBy: "git",
+  },
   title,
   events: [],
   decisions: [],

@@ -61,7 +61,13 @@ const at = (minute: number): string =>
 
 const opened = (): Work =>
   openWork({
-    key: { kind: "branch", host: "local", repo: "/r", branch: "b" },
+    key: {
+      kind: "branch",
+      host: "local",
+      repo: "/r",
+      branch: "b",
+      repoBy: "git",
+    },
     title: "stages",
     at: at(0),
     request: { kind: "said", text: "waterfall it" },
@@ -975,7 +981,13 @@ describe("the shapes of real works", () => {
     // The human's record, second by second: the PR was there before the
     // implementor, so it ends no build, and nobody reviews a trivial work.
     let work = openWork({
-      key: { kind: "branch", host: "local", repo: "/r", branch: "dependabot" },
+      key: {
+        kind: "branch",
+        host: "local",
+        repo: "/r",
+        branch: "dependabot",
+        repoBy: "git",
+      },
       title: "land the dependabot PR",
       at: second(0),
       request: { kind: "said", text: "land it" },
@@ -1129,7 +1141,13 @@ describe("the shapes of real works", () => {
     const started = "2026-11-18T00:56:41.000Z";
     const ready = "2026-11-19T02:15:49.000Z";
     let work = openWork({
-      key: { kind: "branch", host: "local", repo: "/r", branch: "acp-runner" },
+      key: {
+        kind: "branch",
+        host: "local",
+        repo: "/r",
+        branch: "acp-runner",
+        repoBy: "git",
+      },
       title: "One ACP runner for kolu and olai",
       at: started,
       request: { kind: "said", text: "waterfall it" },

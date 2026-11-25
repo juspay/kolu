@@ -55,6 +55,7 @@ const KEY = {
   host: "local",
   repo: "/repo",
   branch: "solid-2-switch",
+  repoBy: "git",
 } as const;
 const ID = workIdOf(KEY);
 
@@ -306,7 +307,7 @@ describe("when a reading is the work's PR", () => {
   it("is none for a watch", () => {
     const watch: Work = {
       ...WORK,
-      key: { kind: "watch", terminal: "local/a" },
+      key: { kind: "watch", host: "local", id: "a" },
     };
     expect(workPrOf(watch, OK)).toEqual(Option.none());
   });

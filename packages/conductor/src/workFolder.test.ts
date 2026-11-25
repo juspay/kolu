@@ -22,6 +22,7 @@ const KEY = {
   host: "local",
   repo: "/repo",
   branch: "csv",
+  repoBy: "git",
 } as const;
 
 /** One reading of a member terminal, standing in `folder` (or nowhere). */

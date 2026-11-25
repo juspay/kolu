@@ -105,6 +105,7 @@ function storedWork(branch: string, name: string): PersistedWorks {
     host: "local",
     repo: "/srv/repo",
     branch,
+    repoBy: "git",
   } as const;
   return {
     [workIdOf(key)]: {
@@ -143,6 +144,7 @@ function storedMembers(branch: string, name: string): PersistedMembers {
         host: "local",
         repo: "/srv/repo",
         branch,
+        repoBy: "git",
       }),
       role: "implementor",
       joinedAt: AT,

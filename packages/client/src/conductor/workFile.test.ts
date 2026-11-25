@@ -21,6 +21,7 @@ const work: Work = {
     host: "local",
     repo: "/srv/code/kestrel",
     branch: "feat/export",
+    repoBy: "git",
   },
   title: "Export the ledger",
   events: [],

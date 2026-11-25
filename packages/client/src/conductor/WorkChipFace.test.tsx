@@ -41,6 +41,7 @@ describe("a work's chip", () => {
           host: "local",
           repo: "/srv/code/tidepool/",
           branch: "feat/csv-export",
+          repoBy: "git",
         },
         "Add CSV export",
       ),
@@ -53,7 +54,7 @@ describe("a work's chip", () => {
 
   it("names no repository for a watch", () => {
     const el = mount(
-      work({ kind: "watch", terminal: "local/a" }, "Keep an eye on it"),
+      work({ kind: "watch", host: "local", id: "a" }, "Keep an eye on it"),
     );
     expect(part(el, "work-chip-repo")).toBeNull();
     expect(part(el, "work-chip-face")?.textContent).toBe("Keep an eye on it");

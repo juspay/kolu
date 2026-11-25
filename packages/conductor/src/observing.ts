@@ -486,7 +486,8 @@ export const observing = (deps: {
         // of the key's own terminal, and no other member, writes it.
         if (
           work.key.kind === "watch" &&
-          work.key.terminal === one.ref &&
+          work.key.host === one.host &&
+          work.key.id === one.terminalId &&
           one.git !== null
         )
           work = recordWorktree(work, { kind: "at", path: one.git.worktree });

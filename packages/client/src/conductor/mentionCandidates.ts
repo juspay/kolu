@@ -34,7 +34,7 @@ import {
   type Work,
   type WorkId,
   type WorkRow,
-  workKeyOf,
+  workIdParts,
 } from "kolu-work";
 import {
   type FleetTerminalRow,
@@ -88,10 +88,10 @@ export function memberDetail(at: Membership): MentionDetail {
 /** WHAT TELLS A WORK FROM ANOTHER OF THE SAME TITLE — its branch (unique in
  *  its repo), or for a watch the terminal it watches. */
 const distinctPart = (id: WorkId): string =>
-  Option.match(workKeyOf(id), {
+  Option.match(workIdParts(id), {
     onNone: () => "work",
     onSome: (key) =>
-      workSlug(key.kind === "branch" ? key.branch : key.terminal.slice(-8)),
+      workSlug(key.kind === "branch" ? key.branch : key.id.slice(-8)),
   });
 
 /** EVERY WORK'S OWN WORD after `@`, in the order given. A work is its title's

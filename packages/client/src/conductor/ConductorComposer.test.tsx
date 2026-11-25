@@ -127,7 +127,7 @@ const ALPHA_REF = "local/aaaaaaaa-0000-4000-8000-000000000001";
 
 const opened = (title: string, branch: string): Work =>
   openWork({
-    key: { kind: "branch", host: "local", repo: "/r", branch },
+    key: { kind: "branch", host: "local", repo: "/r", branch, repoBy: "git" },
     title,
     at: "2026-11-16T01:00:00.000Z",
     request: { kind: "none" },

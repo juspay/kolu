@@ -143,6 +143,7 @@
  * on disk because a restart of kolu-server is a NEW process of this agent.
  */
 
+import { execFileSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -628,13 +629,24 @@ const openWork = async (
   // in one worker are two pieces of work — and opening the SAME title twice
   // is the idempotent case: the same key, the same work, no second card.
   //
-  // THE REPOSITORY HAS TO BE THERE: kolu asks the work's host which models
-  // the chosen harness offers, and it asks IN the work's repository (the
-  // profiles a terminal there would get). A placeholder path nobody made is a
-  // directory that command cannot run in, so the open would be refused for a
-  // reason that has nothing to do with the scenario.
+  // THE REPOSITORY HAS TO BE THERE, AND BE ONE: kolu asks the work's host
+  // which models the chosen harness offers IN the work's repository (the
+  // profiles a terminal there would get), and `work_open` asks git there
+  // for the repository's root — a folder git does not know is refused. So a
+  // folder that is not inside a repository yet is made one here, as a
+  // person's checkout would be.
   const repo = over.repo ?? "/tmp/kolu-e2e";
-  if (over.watch === undefined) mkdirSync(repo, { recursive: true });
+  if (over.watch === undefined) {
+    mkdirSync(repo, { recursive: true });
+    try {
+      execFileSync("git", ["rev-parse", "--git-dir"], {
+        cwd: repo,
+        stdio: "ignore",
+      });
+    } catch {
+      execFileSync("git", ["init", "-q"], { cwd: repo, stdio: "ignore" });
+    }
+  }
   const answer = await callTool("work_open", {
     title,
     ...(over.watch === undefined

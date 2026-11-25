@@ -65,7 +65,7 @@ const row = (id: string, title: string): WorkRow =>
   [
     id as WorkId,
     {
-      key: { kind: "watch", terminal: "local/a" },
+      key: { kind: "watch", host: "local", id: "a" },
       title,
       events: [],
       decisions: [],

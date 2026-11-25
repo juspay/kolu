@@ -18,6 +18,7 @@ const KEY: WorkKey = {
   host: "local",
   repo: "/repo",
   branch: "solid-2-switch",
+  repoBy: "git",
 };
 
 const standingIn = (
@@ -102,7 +103,7 @@ describe("where a member stands", () => {
     ).toBe("unknown");
     expect(
       memberPlace(
-        { kind: "watch", terminal: "local/a" },
+        { kind: "watch", host: "local", id: "a" },
         "local",
         repo("/repo", "solid-2-switch"),
       ).kind,

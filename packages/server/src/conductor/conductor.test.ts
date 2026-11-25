@@ -132,7 +132,7 @@ import {
   setupValue,
   type Work,
   type WorkId,
-  type WorkKey,
+  type ParsedWorkKey,
   WorkRefusal,
   type WorkRole,
   workIdOf,
@@ -2510,11 +2510,12 @@ const storedWatch = (over: Partial<MemberWatch> = {}): MemberWatch => ({
 
 /** THE KEY A WORK IS — a branch on a machine. The fixtures below open one
  *  branch unless they say otherwise. */
-const workKey = (branch = "fix-the-parser", host = "local"): WorkKey => ({
+const workKey = (branch = "fix-the-parser", host = "local"): ParsedWorkKey => ({
   kind: "branch",
   host,
   repo: "/srv/repo",
   branch,
+  repoBy: "git",
 });
 
 /** A piece of work as a previous kolu-server left it on disk. */
@@ -2671,7 +2672,7 @@ const idle = (agent: Spawned): void => {
 const watchWork = async (
   r: Rig,
   title = "fix the parser",
-  key: WorkKey = workKey(),
+  key: ParsedWorkKey = workKey(),
 ): Promise<WorkId> => {
   const opened = await r.host.openWork({
     key,

@@ -107,7 +107,13 @@ const workOpen = (
   const was = Option.match(work, {
     onNone: () =>
       openWork({
-        key: { kind: "branch", host: "local", repo: "/r", branch: "b" },
+        key: {
+          kind: "branch",
+          host: "local",
+          repo: "/r",
+          branch: "b",
+          repoBy: "git",
+        },
         title: "walk",
         at: at(step),
         request: { kind: "said", text: "waterfall it" },
