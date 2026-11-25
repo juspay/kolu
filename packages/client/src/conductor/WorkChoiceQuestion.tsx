@@ -519,8 +519,7 @@ const WorkChoiceQuestion: Component<{
           words: `This work watches a terminal, so there is no checkout to ask ${one} what it offers in.`,
         };
       const answer = models();
-      if (answer === undefined)
-        return { kind: "waiting", words: `Asking what ${one} offers here…` };
+      if (answer === undefined) return asking();
       if (answer.models.kind === "unlisted")
         return {
           kind: "choices",
