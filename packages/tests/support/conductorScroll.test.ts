@@ -39,34 +39,73 @@ interface StubReads {
   rowsBack: number;
   /** The readout's `data-phase`, or an error it throws instead. */
   phase: () => string;
-  /** The head's STATE words — the first span of the status line. */
+  /** The head's STATE word — the status line's first span. */
   state: () => string;
-  /** The REST of the status line, after the state: the agent's own `doing`
-   *  summary, free text a person wrote. The page puts it inside the status
-   *  element, so a harness that reads the whole element reads it too. */
+  /** How long the watch has had the terminal at this state, which the head
+   *  draws in a SIBLING span beside the word (`StateFor.tsx:38-48`). */
+  since?: string;
+  /** The task progress, the status line's other span
+   *  (`TerminalHead.tsx:171-180`). */
+  progress?: string;
+  /** The REST of the status line, after the spans: the agent's own `doing`
+   *  summary, free text a person wrote, drawn as bare text inside the status
+   *  element. */
   doing?: string;
   /** What the move record on the screen says, for {@link moveStory}. */
   leftBottom?: boolean;
+  /** How many times the pane is drawn — its screen, readout and head each.
+   *  Defaults to once. */
+  panes?: () => number;
 }
 
 /** A page that answers the reads a sample makes, with the status line split
- *  the way the page draws it, and counts elements the way Playwright's
- *  locators do. */
+ *  into the spans the head draws, and that reads them the way a Playwright
+ *  locator does: a read is strict, so a selector matching none or more than
+ *  one element throws instead of answering. */
 function stubPage(reads: StubReads): Page {
+  const panes = () => reads.panes?.() ?? 1;
+  /** The status line's direct span children, in the head's order. */
+  const spans = (): (() => string)[] => [
+    reads.state,
+    ...(reads.since === undefined ? [] : [() => ` for ${reads.since}`]),
+    ...(reads.progress === undefined ? [] : [() => ` · ${reads.progress}`]),
+  ];
+  const matches = (sel: string): number => {
+    if (sel === AT.screen || sel === AT.readout || sel === AT.status)
+      return panes();
+    if (sel === `${AT.status} > span:first-child`) return panes();
+    if (sel === `${AT.status} > span`) return panes() * spans().length;
+    throw new Error(`unexpected selector ${sel}`);
+  };
+  const textOf = (sel: string): (() => string) => {
+    if (sel === `${AT.status} > span:first-child`) return reads.state;
+    if (sel === `${AT.status} > span`) return () => spans()[0]?.() ?? "";
+    if (sel === AT.status)
+      return () =>
+        spans()
+          .map((part) => part())
+          .join("") + (reads.doing === undefined ? "" : ` · ${reads.doing}`);
+    throw new Error(`unexpected selector ${sel}`);
+  };
+  /** Playwright's strict read: the selector must match exactly one element,
+   *  or the read throws rather than guessing which one was meant. */
+  const strict = <T>(sel: string, read: () => T): T => {
+    const n = matches(sel);
+    if (n === 0)
+      throw new Error(`Timeout 500ms exceeded: waiting for locator("${sel}")`);
+    if (n > 1)
+      throw new Error(
+        `strict mode violation: locator("${sel}") resolved to ${n} elements`,
+      );
+    return read();
+  };
   const locator = (sel: string) => ({
     getAttribute: async () => {
       if (sel !== AT.readout) throw new Error(`unexpected getAttribute ${sel}`);
-      return reads.phase();
+      return strict(sel, reads.phase);
     },
-    textContent: async () => {
-      if (sel === `${AT.status} > span`) return reads.state();
-      if (sel === AT.status)
-        return reads.doing === undefined
-          ? reads.state()
-          : `${reads.state()} · ${reads.doing}`;
-      throw new Error(`unexpected textContent ${sel}`);
-    },
-    count: async () => 1,
+    textContent: async () => strict(sel, textOf(sel)),
+    count: async () => matches(sel),
   });
   return {
     // The page functions run in the browser; this stub answers by which read
@@ -104,7 +143,10 @@ test("a hold over a terminal the client cannot find fails", async () => {
   assert.ok(message !== null, "the hold passed while the terminal was unfound");
   assert.match(message, /does not vouch for/);
   assert.match(message, /finding the terminal…/);
-  assert.match(message, /the page holds 1 screen\(s\) and 1 readout\(s\)/);
+  assert.match(
+    message,
+    /the page holds 1 screen\(s\), 1 readout\(s\) and 1 state word\(s\)/,
+  );
 });
 
 test("a hold on a host that is not connected fails", async () => {
@@ -117,12 +159,32 @@ test("a hold on a host that is not connected fails", async () => {
   assert.match(message, /its host is not connected/);
 });
 
+test("a gone terminal is named while the head also says how long and what it is doing", async () => {
+  // The head of a gone terminal the watch agrees about draws three spans: the
+  // word, the elapsed time beside it, and the task progress. A read of every
+  // span is strict-mode-refused and reads `null`, which would let the hold
+  // pass; the word span alone answers.
+  const message = await holdFailure({
+    rowsBack: 3,
+    phase: () => "held",
+    state: () => "terminal gone",
+    since: "4m",
+    progress: "2/5",
+    doing: "packing up",
+  });
+  assert.ok(message !== null, "the hold passed on a gone terminal");
+  assert.match(message, /does not vouch for/);
+  assert.match(message, /the head says "terminal gone"/);
+  assert.match(message, /"status":"terminal gone"/);
+});
+
 test("a hold the client vouches for is still a hold", async () => {
   assert.equal(
     await holdFailure({
       rowsBack: 3,
       phase: () => "held",
-      state: () => "thinking for 2m",
+      state: () => "thinking",
+      since: "2m",
     }),
     null,
   );
@@ -134,29 +196,55 @@ test("a readout that stops answering keeps the rows it did read", async () => {
     rowsBack: 3,
     phase: () => {
       // The reach half reads it; the hold window's first look does not.
-      if (++reads > 1) throw new Error("strict mode violation: 2 elements");
+      if (++reads > 1) throw new Error("the readout went away");
       return "held";
     },
-    state: () => "thinking for 2m",
+    state: () => "thinking",
+    since: "2m",
   });
   assert.ok(message !== null, "a dead readout passed the hold window");
   // The buffer answered 3 — a sample that threw the whole look away would say
   // `"rowsBack":null` and name a pane that went away rather than one drawn
   // twice.
   assert.match(message, /"rowsBack":3/);
-  assert.match(message, /the page holds 1 screen\(s\) and 1 readout\(s\)/);
+  assert.match(
+    message,
+    /the page holds 1 screen\(s\), 1 readout\(s\) and 1 state word\(s\)/,
+  );
+  assert.match(message, /the last read failed: the readout went away/);
+});
+
+test("a head drawn twice is counted, not swallowed", async () => {
+  let panes = 1;
+  const message = await holdFailure({
+    rowsBack: 3,
+    // The second pane lands after the view has scrolled back: the reach half
+    // reads one head, the hold window two.
+    phase: () => {
+      panes = 2;
+      return "held";
+    },
+    state: () => "thinking",
+    panes: () => panes,
+  });
+  assert.ok(message !== null, "a doubled pane passed the hold window");
+  assert.match(
+    message,
+    /the page holds 2 screen\(s\), 2 readout\(s\) and 2 state word\(s\)/,
+  );
   assert.match(message, /the last read failed: strict mode violation/);
 });
 
 test("a summary that says one of the phrases is still a hold", async () => {
   // The agent's own `doing` summary is free text inside the same status
   // element. Reading the whole element would call this hold a failure and
-  // waste the run; only the STATE part is read.
+  // waste the run; only the STATE word is read.
   assert.equal(
     await holdFailure({
       rowsBack: 3,
       phase: () => "held",
-      state: () => "thinking for 2m",
+      state: () => "thinking",
+      since: "2m",
       doing: "working out why the e2e says terminal gone",
     }),
     null,
@@ -168,7 +256,7 @@ test("the move's story reads where the view sits, not just that it left", async 
     stubPage({
       rowsBack: 3,
       phase: () => "live",
-      state: () => "thinking for 2m",
+      state: () => "thinking",
       leftBottom: true,
     }),
     AT,
@@ -183,7 +271,7 @@ test("the move's story reads where the view sits, not just that it left", async 
     stubPage({
       rowsBack: 0,
       phase: () => "live",
-      state: () => "thinking for 2m",
+      state: () => "thinking",
       leftBottom: true,
     }),
     AT,
@@ -195,7 +283,7 @@ test("the move's story reads where the view sits, not just that it left", async 
       stubPage({
         rowsBack: 0,
         phase: () => "live",
-        state: () => "thinking for 2m",
+        state: () => "thinking",
         leftBottom: false,
       }),
       AT,
@@ -204,17 +292,36 @@ test("the move's story reads where the view sits, not just that it left", async 
   );
 });
 
+test("the move's story says when its own read failed", async () => {
+  // The story samples the page itself. A head that will not answer leaves the
+  // story's phase `null`, which reads like a head that said nothing at all
+  // unless the story says the read threw.
+  const story = await moveStory(
+    stubPage({
+      rowsBack: 3,
+      phase: () => {
+        throw new Error("the readout went away");
+      },
+      state: () => "thinking",
+      leftBottom: true,
+    }),
+    AT,
+  );
+  assert.match(story, /still 3 row\(s\) off the bottom/);
+  assert.match(story, /the story's read failed: the readout went away/);
+});
+
 test("maskedStatus names only the standings with no screen behind them", () => {
   assert.equal(maskedStatus(null), null);
-  assert.equal(maskedStatus("thinking for 2m"), null);
+  assert.equal(maskedStatus("thinking"), null);
   assert.equal(maskedStatus("asleep"), null);
-  // A state that merely contains a phrase is not one of them — only the
-  // phrase itself, with the elapsed time the state span carries.
+  // A state that merely contains a phrase is not one of them — only the word
+  // the state span carries, exactly.
   assert.equal(maskedStatus("waiting on terminal gone cleanup"), null);
   assert.equal(maskedStatus("finding the terminal…"), "finding the terminal…");
   assert.equal(
     maskedStatus("its host is not connected"),
     "its host is not connected",
   );
-  assert.equal(maskedStatus("terminal gone for 4m"), "terminal gone");
+  assert.equal(maskedStatus("terminal gone"), "terminal gone");
 });

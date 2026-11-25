@@ -51,26 +51,26 @@ const NO_SCREEN_WORDS = [
   "terminal gone",
 ] as const;
 
-/** THE STATE WORDS ALONE, inside the head's status line. The line holds more
- *  than the state: `TerminalHead.tsx:161-181` draws the state
- *  (`StateFor.tsx:37`, the first span), then the elapsed time, the task
- *  progress, and last the AGENT'S OWN `doing` SUMMARY — free text. Reading
+/** THE STATE WORD ALONE — the first span of the head's status line. That
+ *  line holds more than the state: `TerminalHead.tsx:160-181` draws the
+ *  state word (`StateFor.tsx:37`, the first span), then a SIBLING span with
+ *  the elapsed time (`StateFor.tsx:38-48`) whenever kolu's watch agrees with
+ *  the state, then a span with the task progress, and last the AGENT'S OWN
+ *  `doing` SUMMARY — free text. So `${at.status} > span` matches up to three
+ *  elements, which a strict Playwright read refuses outright, and reading
  *  the whole line would let a summary that merely mentions "terminal gone"
- *  turn a legitimate hold red, so only the first span is read. */
-const stateWords = (at: ConductorScreen): string => `${at.status} > span`;
+ *  turn a legitimate hold red. The word span carries no test id of its own,
+ *  so it is named by its place: the status element's first child. */
+const stateWords = (at: ConductorScreen): string =>
+  `${at.status} > span:first-child`;
 
 /** Which of {@link NO_SCREEN_WORDS} the head's STATE is, or `null` while it
- *  speaks for a terminal the index vouches for. The state span carries the
- *  words alone, except that the elapsed time is appended inside it as
- *  `" for 4m"` when kolu's watch agrees with the state (`StateFor.tsx:45`),
- *  so that suffix is allowed and nothing else is. */
+ *  speaks for a terminal the index vouches for. {@link stateWords} reads the
+ *  word span alone, and the elapsed time is a sibling span rather than part
+ *  of that word (`StateFor.tsx:38-48`), so the match is exact. */
 export function maskedStatus(text: string | null): string | null {
   if (text === null) return null;
-  return (
-    NO_SCREEN_WORDS.find(
-      (words) => text === words || text.startsWith(`${words} for `),
-    ) ?? null
-  );
+  return NO_SCREEN_WORDS.find((words) => text === words) ?? null;
 }
 
 /** The screen's container, as the page holds it: the bridged terminal, and
@@ -160,28 +160,33 @@ export async function moveStory(
   );
   if (left === undefined) return "no move was recorded";
   if (!left) return "it never scrolled";
-  const now = await sample(page, at, lastReadFailure());
+  const failed = lastReadFailure();
+  const now = await sample(page, at, failed);
+  // A read that failed here is the story's own, and the caller's message may
+  // already carry another one, so it is named apart from that.
+  const said = failed.words("the story's read");
   if (now.rowsBack === null)
-    return "it scrolled back, and the screen cannot be read now";
+    return `it scrolled back, and the screen cannot be read now${said}`;
   if (now.rowsBack === 0)
-    return "it scrolled back and was thrown to the bottom";
+    return `it scrolled back and was thrown to the bottom${said}`;
   return (
     `it scrolled back and is still ${now.rowsBack} row(s) off the bottom, ` +
-    `with the head saying ${JSON.stringify(now.phase)}`
+    `with the head saying ${JSON.stringify(now.phase)}${said}`
   );
 }
 
-/** WHAT THE PAGE HOLDS RIGHT NOW, by the two selectors the sample reads. A
- *  readout that is missing (`0`) and one the selector matches TWICE (`2` — a
- *  Playwright locator refuses a strict read of either) fail the same way from
- *  outside, and a failure that does not count them cannot tell a pane that
- *  went away from a pane that was drawn twice. */
+/** WHAT THE PAGE HOLDS RIGHT NOW, by the three selectors the sample reads. A
+ *  readout or state word that is missing (`0`) and one the selector matches
+ *  TWICE (`2` — a Playwright locator refuses a strict read of either) fail
+ *  the same way from outside, and a failure that does not count them cannot
+ *  tell a pane that went away from a pane that was drawn twice. */
 async function pageHolds(page: Page, at: ConductorScreen): Promise<string> {
-  const [screens, readouts] = await Promise.all([
+  const [screens, readouts, words] = await Promise.all([
     page.locator(at.screen).count(),
     page.locator(at.readout).count(),
+    page.locator(stateWords(at)).count(),
   ]);
-  return `the page holds ${screens} screen(s) and ${readouts} readout(s)`;
+  return `the page holds ${screens} screen(s), ${readouts} readout(s) and ${words} state word(s)`;
 }
 
 /** The sample's own read failures, kept for the failure message. A read that
@@ -195,8 +200,9 @@ interface ReadFailure {
   /** Keep the error and answer `null` for this field alone, so a sample's
    *  other fields survive a head that will not answer. */
   orNull(read: () => Promise<string | null>): Promise<string | null>;
-  /** The failure's words for the last error kept, or `""`. */
-  words(): string;
+  /** The failure's words for the last error kept, or `""`. `what` names the
+   *  read, for a message that carries more than one failure's words. */
+  words(what?: string): string;
 }
 
 function lastReadFailure(): ReadFailure {
@@ -214,10 +220,12 @@ function lastReadFailure(): ReadFailure {
         return null;
       }
     },
-    words: () =>
+    words: (what) =>
       last === undefined
         ? ""
-        : `; the last read failed: ${String((last as Error).message ?? last)
+        : `; ${what ?? "the last read"} failed: ${String(
+            (last as Error).message ?? last,
+          )
             .split("\n")
             .slice(0, 3)
             .join(" / ")}`,
