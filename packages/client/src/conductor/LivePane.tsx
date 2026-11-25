@@ -315,6 +315,7 @@ const LivePane: Component<{
       </div>
       <TerminalStatusLine
         kind="live"
+        lookable={lookable()}
         host={props.host}
         id={props.id}
         terminal={ref()}

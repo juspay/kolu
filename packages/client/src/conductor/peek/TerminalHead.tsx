@@ -26,7 +26,6 @@ import DriveButton from "../DriveButton";
 import MemberPip from "../MemberPip";
 import StateFor from "../StateFor";
 import { liveArm, terminalStatus } from "../terminalStatus";
-import { createLookable } from "./lookable";
 import { useSeen } from "../useWorks";
 import type { Lock } from "../workReadings";
 
@@ -92,6 +91,10 @@ export const TerminalControls: Component<{
  *  agent. Look's window is not sized from its body and keeps the old shape. */
 export const TerminalStatusLine: Component<{
   kind: HeadKind;
+  /** IS THERE A SCREEN UNDER THIS HEAD — the ONE gate, computed by the view
+   *  that owns the screen (`peek/lookable.ts`) and handed down, so a head and
+   *  its pane can never disagree about whether there is a screen to read out. */
+  lookable: boolean;
   host: string;
   id: TerminalId;
   /** The terminal's member ref, which the lock is kept under. */
@@ -126,7 +129,6 @@ export const TerminalStatusLine: Component<{
     const tokens = agent()?.contextTokens;
     return tokens == null ? null : { value: tokens };
   };
-  const lookable = createLookable(standing);
   const offersResize = () =>
     props.kind === "live" && props.resize?.offered === true;
   const readout = (g: TerminalGrid): JSX.Element => (
@@ -178,7 +180,7 @@ export const TerminalStatusLine: Component<{
           </Show>
           <Show when={status().doing}>{(doing) => <> · {doing()}</>}</Show>
         </span>
-        <Show when={lookable() ? lock() : undefined}>
+        <Show when={props.lookable ? lock() : undefined}>
           {(who) => (
             <span
               data-testid={`${props.kind}-lock`}
@@ -205,7 +207,7 @@ export const TerminalStatusLine: Component<{
             </span>
           )}
         </Show>
-        <Show when={lookable() && props.grid}>
+        <Show when={props.lookable && props.grid}>
           {(g) => (
             <Show when={offersResize()} fallback={readout(g())}>
               {/* Text-sized, with no padding or border, so offering it
@@ -221,7 +223,7 @@ export const TerminalStatusLine: Component<{
             </Show>
           )}
         </Show>
-        <Show when={lookable()}>
+        <Show when={props.lookable}>
           <span
             data-testid={`${props.kind}-live`}
             data-phase={props.held ? "held" : props.phase}

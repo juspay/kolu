@@ -324,6 +324,7 @@ const PeekWindow: Component<{ target: PeekTarget }> = (props) => {
       </div>
       <TerminalStatusLine
         kind="peek"
+        lookable={lookable()}
         host={props.target.host}
         id={props.target.id}
         terminal={ref}
