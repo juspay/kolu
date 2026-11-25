@@ -4,6 +4,7 @@
 import { Draggable, Droppable } from "@dnd-kit/dom";
 import { type Accessor, createEffect, onCleanup, onSettled } from "solid-js";
 import type { JSX } from "@solidjs/web";
+import { refWithRelease } from "../ui/refWithRelease";
 import { nearestCenter } from "./collision";
 import {
   type DragTransform,
@@ -40,14 +41,16 @@ export function createDraggable(
   const draggable = new Draggable({ id, register: false }, scope.manager);
   draggable.register();
   onCleanup(draggable.destroy);
-  // The handle is bound from a `ref` callback, which is not a scope a cleanup
-  // can be registered in — so the factory body (the owner this draggable
-  // already lives in) owns the unbinding, through the element the last
-  // `handleRef` recorded.
-  let handleEl: HTMLElement | undefined;
-  onCleanup(() => {
-    if (draggable.handle === handleEl) draggable.handle = undefined;
-  });
+  // The factory body (the owner this draggable already lives in) owns the
+  // unbinding of the handle the ref recorded.
+  const handleRef = refWithRelease<HTMLElement>(
+    (el) => {
+      draggable.handle = el;
+    },
+    (el) => {
+      if (draggable.handle === el) draggable.handle = undefined;
+    },
+  );
   const disabled = options?.disabled;
   if (disabled)
     createEffect(
@@ -61,10 +64,7 @@ export function createDraggable(
     ref: (el) => {
       draggable.element = el;
     },
-    handleRef: (el) => {
-      handleEl = el;
-      draggable.handle = el;
-    },
+    handleRef,
     isActiveDraggable,
     transform: () => (isActiveDraggable() ? scope.transform() : NO_TRANSFORM),
   };

@@ -27,12 +27,12 @@ import {
   createRenderEffect,
   createSignal,
   For,
-  onCleanup,
   onSettled,
   Show,
   untrack,
 } from "solid-js";
 import { dynamic, type JSX } from "@solidjs/web";
+import { refWithRelease } from "./refWithRelease";
 
 export interface SegmentedControlOption<T extends string> {
   value: T;
@@ -163,20 +163,15 @@ export default function SegmentedControl<T extends string>(props: {
       notify?.(v);
     },
   );
-  /** Hand a button its slot in the map, and register the slot's release in the
-   *  scope that ASKED for the ref — the `<For>` item's own owner — rather than
-   *  inside the ref callback, where `onCleanup` has no legal home. */
-  const keep = (value: T) => {
-    let mine: HTMLButtonElement | undefined;
-    onCleanup(() => {
-      if (mine !== undefined && buttons.get(value) === mine)
-        buttons.delete(value);
-    });
-    return (el: HTMLButtonElement) => {
-      mine = el;
-      buttons.set(value, el);
-    };
-  };
+  /** Hand a button its slot in the map, and release the slot when the `<For>`
+   *  item that asked for the ref goes. */
+  const keep = (value: T) =>
+    refWithRelease<HTMLButtonElement>(
+      (el) => buttons.set(value, el),
+      (el) => {
+        if (buttons.get(value) === el) buttons.delete(value);
+      },
+    );
   const onKeyDown = (value: T) => (e: KeyboardEvent) => {
     if (e.metaKey || e.ctrlKey || e.altKey || e.shiftKey) return;
     // Enter / Space pick the focused option HERE, with the browser's own

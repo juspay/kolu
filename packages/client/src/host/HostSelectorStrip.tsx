@@ -82,6 +82,7 @@ import { AttentionTriplet } from "@kolu/solid-statepip";
 import { hostMarks } from "../attention/attentionMarks";
 import { jumpToAsking } from "../attention/attentionNav";
 import DocLink from "../ui/DocLink";
+import { refWithRelease } from "../ui/refWithRelease";
 import { surface } from "../ui/Surface";
 import { forwardsForHost } from "../forwards/useForwards";
 import { type AnchorSide, useAnchoredPopover } from "../ui/useAnchoredPopover";
@@ -225,12 +226,14 @@ const HostChip: Component<{
   );
   // This chip owns the element it hands the panel: when it unmounts (overflow
   // fit, the `md` row going away) the panel must not stay floating against a
-  // detached node. Registered on the component owner — the only scope that may
-  // hold a cleanup for a ref's element.
-  onCleanup(() => {
-    const el = chipEl();
-    if (el !== undefined) releaseHostDiagnosticsAnchor(el);
-  });
+  // detached node.
+  const chipRef = refWithRelease<HTMLDivElement>((el) => {
+    setChipEl(el);
+    // A re-orderable chip is the sortable AND its own drag handle: a
+    // press anywhere on it picks it up. The pinned chip has no sortable.
+    props.drag?.ref(el);
+    props.drag?.handleRef(el);
+  }, releaseHostDiagnosticsAnchor);
 
   // UNIFORM SHAPE: measurable SIZE never depends on `isActive()` — only
   // border/bg/text COLOR, and the drag transform is a translate, so a chip keeps
@@ -238,13 +241,7 @@ const HostChip: Component<{
   // diagnostics.
   return (
     <div
-      ref={(el) => {
-        setChipEl(el);
-        // A re-orderable chip is the sortable AND its own drag handle: a
-        // press anywhere on it picks it up. The pinned chip has no sortable.
-        props.drag?.ref(el);
-        props.drag?.handleRef(el);
-      }}
+      ref={chipRef}
       class="group -mb-px flex items-center shrink-0 text-xs"
       data-testid="host-chip"
       data-host={encKey}

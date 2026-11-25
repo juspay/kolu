@@ -20,8 +20,9 @@
  *  it stays attached but states no size. Each shell answers from the same
  *  `Shown` accessor it is drawn in (`ui/shown.ts`). */
 import type { TerminalId } from "kolu-common/surface";
-import { createStore, For, onCleanup, Show, untrack } from "solid-js";
+import { createStore, For, Show, untrack } from "solid-js";
 import { Portal, type JSX } from "@solidjs/web";
+import { refWithRelease } from "../ui/refWithRelease";
 
 /** What the shell that places a body says about it — one record, so two
  *  facts of one type can never be passed in each other's place. */
@@ -58,38 +59,32 @@ export function WorkspaceTerminals(props: {
   const [destinations, setDestinations] = createStore<
     Record<string, Destination | undefined>
   >({});
-  /** A shell's placement slot for one body. The ref only WRITES the
-   *  destination; the release is registered HERE, in the scope that asked for
-   *  the outlet (the shell's own render owner, which is exactly as long as the
-   *  slot lives) — `onCleanup` inside a ref callback has no legal home in
-   *  Solid 2 (CLEANUP_IN_FORBIDDEN_SCOPE). */
+  /** A shell's placement slot for one body. The destination is released by
+   *  the scope that asked for the outlet (the shell's own render owner, which
+   *  is exactly as long as the slot lives). */
   const outlet = (id: TerminalId, placement: ShellPlacement) => {
-    let mine: HTMLDivElement | undefined;
-    onCleanup(() => {
-      if (mine !== undefined && destinations[id]?.el === mine)
+    const slotRef = refWithRelease<HTMLDivElement>(
+      (el) => {
+        const destination: Destination = {
+          el,
+          seen: placement.seen,
+          viewShown: placement.viewShown,
+          boxDecided: placement.boxDecided ?? (() => true),
+        };
         setDestinations((all) => {
-          delete all[id];
+          const held = all[id];
+          if (held) Object.assign(held, destination);
+          else all[id] = destination;
         });
-    });
-    return (
-      <div
-        class="flex flex-col h-full w-full min-h-0"
-        ref={(el) => {
-          mine = el;
-          const destination: Destination = {
-            el,
-            seen: placement.seen,
-            viewShown: placement.viewShown,
-            boxDecided: placement.boxDecided ?? (() => true),
-          };
+      },
+      (el) => {
+        if (destinations[id]?.el === el)
           setDestinations((all) => {
-            const held = all[id];
-            if (held) Object.assign(held, destination);
-            else all[id] = destination;
+            delete all[id];
           });
-        }}
-      />
+      },
     );
+    return <div class="flex flex-col h-full w-full min-h-0" ref={slotRef} />;
   };
   /** The body's live view of its CURRENT shell's answers. Read through the
    *  store (not captured), so a shell swap re-points them in place. A body with
