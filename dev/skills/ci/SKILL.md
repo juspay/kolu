@@ -60,7 +60,8 @@ run). Capture the stage's stderr:
 truth: the run ledger `.ci/<sha7>/runs/<seq>.json` for each `ci::e2e@<platform>`
 and `ci::e2e-solid-dev@<platform>` node's recipe-wall `durationMs` and host
 (never Cucumber's internal timer; the second lane is the same suite against the
-client built on Solid's dev runtime, failing on any Solid diagnostic), and
+client built on Solid's dev runtime, failing on any Solid diagnostic or warning
+— it is `[linux]`, so it has a Linux row only), and
 the LAST `^e2e: workers=` line in that node's own log (an unsharded lane's is
 `.ci/<sha7>/<platform>/ci::e2e.log`) for resolved parallelism. Maintain
 **one** comment keyed by the

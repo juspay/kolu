@@ -55,11 +55,7 @@ import {
 } from "./scenarioSetupRetry.ts";
 import { retireWorldScrollFifo } from "./scrollFifo.ts";
 import { padiBuildEnv, type ServerBuild } from "./serverBuild.ts";
-import {
-  assertServesSolidDevBuild,
-  isSolidDiagnostic,
-  SOLID_DEV_LANE,
-} from "./solidDevBuild.ts";
+import { type SolidDevCheck, solidDevCheckFor } from "./solidDevBuild.ts";
 import { type KoluWorld, STEP_GUARD, STEP_TIMEOUT } from "./world.ts";
 
 const workerId = parseInt(process.env.CUCUMBER_WORKER_ID || "0", 10);
@@ -564,6 +560,10 @@ let x11Stem: string | undefined;
 let baseUrl: string;
 let browser: Browser;
 let serverProcess: ChildProcess | undefined;
+/** Set once per worker in BeforeAll: the Solid dev-diagnostics console check,
+ *  present exactly when the server under test serves the dev-runtime client
+ *  (`support/solidDevBuild.ts`), absent for a production one. */
+let solidDevCheck: SolidDevCheck | undefined;
 
 // Reuse TCP connections across scenarios to avoid TIME_WAIT socket
 // accumulation on macOS (see #334).
@@ -1335,9 +1335,10 @@ BeforeAll(async () => {
   } else {
     await startServerChild(koluServer); // waits for a live bound padi internally
   }
-  // The Solid-diagnostics lane must be RUNNING the dev-mode client, or it
-  // would pass for having nothing to report.
-  if (SOLID_DEV_LANE) await assertServesSolidDevBuild(baseUrl);
+  // Does this server serve the dev-runtime client? Asking it is what turns the
+  // console check on — and on the Solid-diagnostics lane, a server that does
+  // not fails here rather than passing for having nothing to report.
+  solidDevCheck = await solidDevCheckFor(baseUrl);
 
   // Launch browser — always use CI args for consistency and performance.
   // KOLU_X11CAP: go HEADFUL at 2× inside Xvfb so x11grab captures real physical
@@ -1611,13 +1612,15 @@ Before(
         this.errors.push(`${opened.url()}: ${err.message}`),
       );
     });
-    // THE SOLID-DIAGNOSTICS LANE: every console line a Solid dev diagnostic
-    // prints, from the main page and any window it opens; the last After hook
-    // fails the scenario on the first.
+    // A DEV-RUNTIME SERVER: every console line a Solid dev diagnostic or
+    // warning prints, from the main page and any window it opens, matched
+    // against the strings that server's own bundle was built from; the last
+    // After hook fails the scenario on the first.
     this.solidDiagnostics = [];
-    if (SOLID_DEV_LANE) {
+    const check = solidDevCheck;
+    if (check) {
       const collect = (where: string, text: string) => {
-        if (isSolidDiagnostic(text)) this.solidDiagnostics.push(where + text);
+        if (check.isDiagnostic(text)) this.solidDiagnostics.push(where + text);
       };
       this.page.on("console", (message) => collect("", message.text()));
       this.context.on("page", (opened) => {

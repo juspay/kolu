@@ -113,9 +113,9 @@ export class KoluWorld extends World {
   context!: BrowserContext;
   page!: Page;
   errors: string[] = [];
-  /** Solid dev diagnostics the pages printed — collected only on the
-   *  Solid-diagnostics lane (`support/solidDevBuild.ts`), where any one fails
-   *  the scenario. */
+  /** Solid dev diagnostics and warnings the pages printed — collected whenever
+   *  the server under test serves the dev-runtime client
+   *  (`support/solidDevBuild.ts`), where any one fails the scenario. */
   solidDiagnostics: string[] = [];
 
   // Stashed state for comparison across steps

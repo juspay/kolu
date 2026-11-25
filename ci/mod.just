@@ -289,18 +289,28 @@ e2e: install nix
 # THE SOLID-DIAGNOSTICS LANE: the same full suite, sharded the same way, run
 # against a server whose client is built on Solid's DEVELOPMENT runtime
 # (`.#koluBin-solid-dev`, default.nix `koluBinSolidDev`), and failing any
-# scenario whose pages print a Solid dev diagnostic
+# scenario whose pages print a Solid dev diagnostic or warning
 # (packages/tests/support/solidDevBuild.ts). Unit and component tests already
 # fail on any diagnostic; this lane covers what only the running app reaches.
 # A deploy mid-scenario lands on the dev-mode client too
-# (`.#koluBin-solid-dev-next-padi-build`). Permanent, so later code stays free
-# of diagnostics.
+# (`.#koluBin-solid-dev-next-padi-build`).
+#
+# `[linux]` per this file's platform rule (:12-15): the brief scopes the lane to
+# x86_64-linux, and darwin's single host would otherwise run a second full,
+# unsharded e2e suite.
+#
+# Permanent, so later code stays free of diagnostics.
+[linux]
 [metadata("odu:shard=4")]
 e2e-solid-dev: install nix
     #!/usr/bin/env bash
     set -euo pipefail
     export KOLU_SERVER="$(nix build .#koluBin-solid-dev --no-link --print-out-paths)/bin/kolu"
     export KOLU_SERVER_NEXT_BUILD="$(nix build .#koluBin-solid-dev-next-padi-build --no-link --print-out-paths)/bin/kolu"
+    # The harness turns the console check on from what the server SERVES
+    # (`/solid-dev.json`, shipped by the dev-mode dist). This flag is this
+    # lane's assertion that it must be there: a run handed a production server
+    # fails in BeforeAll instead of passing with the check off.
     export KOLU_E2E_SOLID_DEV=1
     just --no-deps ci::_e2e-suite
 

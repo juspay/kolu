@@ -664,14 +664,33 @@ let
     pnpm --filter kolu-client build ${viteArgs}
   '';
 
-  # A string ONLY Solid's development runtime carries: the footer its console
-  # prints after the first diagnostic of each code (`installConsoleFooter` in
-  # `solid-js` `dist/solid.dev.js`; absent from `dist/solid.js`). Each client
-  # dist below is checked for it, so a production bundle that picked up the dev
-  # runtime — or a dev-mode bundle that silently fell back to production — fails
-  # its build. The e2e harness checks the served page and the console for the
-  # same string (packages/tests/support/solidDevBuild.ts).
-  solidDevMarker = "what it means and how to fix it:";
+  # THE ONE SOURCE for every string the Solid-diagnostics lane keys on,
+  # extracted from the INSTALLED development runtime rather than typed anywhere:
+  # `{ marker, warnings }`, where `marker` is the console footer only the dev
+  # runtime prints (`installConsoleFooter` in `solid-js` `dist/solid.dev.js`)
+  # and `warnings` are the leading literals of `@solidjs/web`'s and
+  # `@solidjs/signals`' plain `console.warn`/`console.error` calls, which print
+  # outside the diagnostics channel and so carry no footer. The script fails the
+  # build if either comes back empty (scripts/solid-dev-manifest.mjs).
+  #
+  # Its own derivation, not a step inside `koluClientSolidDevBuild`: BOTH client
+  # dists are checked against the marker, and `koluClientDist` must not have to
+  # build the dev-mode client to learn a string. It needs no source tree and no
+  # vite — only the client's own dependency farm, replayed at the workspace
+  # depth its `../../../` hops are written for (`copyMemberFarms` does the same
+  # for a real build tree) — so it is a node run over three files.
+  #
+  # The dev-mode dist ships it at its root, so the server under test serves it
+  # at `/solid-dev.json` and the e2e harness turns its console check on from the
+  # very strings the bundle was built from
+  # (packages/tests/support/solidDevBuild.ts).
+  solidDevManifest = pkgs.runCommand "solid-dev-manifest.json"
+    { nativeBuildInputs = [ pkgs.nodejs ]; } ''
+    mkdir -p tree/packages/client
+    ln -s ${koluDeps}/node_modules tree/node_modules
+    cp -a ${koluDeps}/workspaces/packages/client/node_modules tree/packages/client/node_modules
+    node ${./scripts/solid-dev-manifest.mjs} tree/packages/client $out
+  '';
 
   # The source tree, runnable — the fileset plus a node_modules that POINTS AT
   # the deps derivations rather than containing them. A commit's worth of
@@ -780,6 +799,10 @@ let
     installPhase = ''
       runHook preInstall
       cp -r packages/client/dist $out
+      # The lane's manifest at the dist ROOT, where the server serves it as
+      # `/solid-dev.json` — the one fact that tells the e2e harness it is
+      # looking at a dev-runtime server and which strings to fail on.
+      cp ${solidDevManifest} $out/solid-dev.json
       runHook postInstall
     '';
   };
@@ -802,11 +825,13 @@ let
   # The asset checks read with `grep -R`: the assets are SYMLINKS into the
   # build, and `grep -r` skips a symlink it meets while recursing.
   #
-  # `solidRuntime` is which Solid runtime the bundle must carry, checked
-  # against `solidDevMarker`: the production dist must not carry the
-  # development runtime, and the dev-mode dist must.
+  # `solidRuntime` is which Solid runtime the bundle must carry, checked against
+  # the marker read out of `solidDevManifest` — the string extracted from the
+  # installed runtime, so nothing here restates it: the production dist must not
+  # carry the development runtime, and the dev-mode dist must, and must ship the
+  # manifest itself at its root for the e2e harness to read.
   mkClientDist = { name, label, build, solidRuntime }:
-    pkgs.runCommand name { } (''
+    pkgs.runCommand name { nativeBuildInputs = [ pkgs.jq ]; } (''
       # Only index.html changes with the commit. Link the content-hashed assets
       # and other static files back to the cache-stable build instead of copying
       # the entire runtime workspace into a second store path.
@@ -831,20 +856,31 @@ let
           exit "$grepStatus"
         fi
       fi
+      solidDevMarker=$(jq -er .marker ${solidDevManifest})
     '' + (if solidRuntime == "development" then ''
-      if ! grep -RqF '${solidDevMarker}' "$out/assets"; then
-        echo "${label}: no asset carries Solid's development runtime ('${solidDevMarker}') — the solid-dev build fell back to production." >&2
+      if ! grep -RqF "$solidDevMarker" "$out/assets"; then
+        echo "${label}: no asset carries Solid's development runtime ('$solidDevMarker') — the solid-dev build fell back to production." >&2
+        exit 1
+      fi
+      # The lane's own input: served at `/solid-dev.json`, and useless without
+      # the warning prefixes the harness matches console lines against.
+      if [ "$(jq -r '.warnings | length' "$out/solid-dev.json")" -lt 1 ]; then
+        echo "${label}: solid-dev.json carries no warning prefixes — the e2e lane would see only footered diagnostics." >&2
         exit 1
       fi
     '' else ''
-      if devMatches=$(grep -RlF '${solidDevMarker}' "$out/assets"); then
-        echo "${label}: Solid's development runtime ('${solidDevMarker}') reached the production bundle." >&2
+      if [ -e "$out/solid-dev.json" ]; then
+        echo "${label}: the Solid-diagnostics manifest reached the production dist — the e2e harness would turn its console check on against a production server." >&2
+        exit 1
+      fi
+      if devMatches=$(grep -RlF "$solidDevMarker" "$out/assets"); then
+        echo "${label}: Solid's development runtime ('$solidDevMarker') reached the production bundle." >&2
         echo "$devMatches" >&2
         exit 1
       else
         grepStatus=$?
         if [ "$grepStatus" -ne 1 ]; then
-          echo "${label}: failed to inspect hashed assets for '${solidDevMarker}'." >&2
+          echo "${label}: failed to inspect hashed assets for '$solidDevMarker'." >&2
           exit "$grepStatus"
         fi
       fi
@@ -933,8 +969,10 @@ let
   #
   # `clientDist` is the client it serves: `koluClientDist` for `koluBin`, and
   # the dev-mode `koluClientSolidDevDist` for `koluBinSolidDev`, the server the
-  # Solid-diagnostics e2e lane runs (`ci::e2e-solid-dev`). Nothing else differs.
-  mkKoluBin = clientDist: pkgs.runCommand "kolu-bin"
+  # Solid-diagnostics e2e lane runs (`ci::e2e-solid-dev`). Nothing else differs
+  # — which is why `name` is an argument too: two wrappers sharing one store
+  # path name left a lane log unable to say which binary it booted.
+  mkKoluBin = { name, clientDist }: pkgs.runCommand name
     {
       nativeBuildInputs = [ pkgs.makeWrapper ];
       meta.mainProgram = "kolu";
@@ -957,8 +995,11 @@ let
       ${hostNixFirstArg} \
       --run ${pkgs.lib.escapeShellArg (diagRunHook "")}
   '';
-  koluBin = mkKoluBin koluClientDist;
-  koluBinSolidDev = mkKoluBin koluClientSolidDevDist;
+  koluBin = mkKoluBin { name = "kolu-bin"; clientDist = koluClientDist; };
+  koluBinSolidDev = mkKoluBin {
+    name = "kolu-bin-solid-dev";
+    clientDist = koluClientSolidDevDist;
+  };
 
   # One shell snippet both production wrappers use for KOLU_PADI_STATE_DIR
   # (juspay/kolu#1334): code never silently defaults the state-root; wrappers
