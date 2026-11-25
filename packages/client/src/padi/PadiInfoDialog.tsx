@@ -133,7 +133,9 @@ function buildIdLabel(
 /** A STANDING degraded-bind banner — so a convergence anomaly the (remote) binder hit is a
  *  VISIBLE state in the dialog, never swallowed into server logs (the whole point of the
  *  dialog). Shows typed evidence from the anomaly arms (never parses `detail`). */
-const ConvergenceBanner: Component<{ conv: PadiConvergence }> = (props) => {
+export const ConvergenceBanner: Component<{ conv: PadiConvergence }> = (
+  props,
+) => {
   const p = (): { title: string; tone: "warn" | "down" } =>
     CONVERGENCE_PRESENTATION[props.conv.kind];
   return (
