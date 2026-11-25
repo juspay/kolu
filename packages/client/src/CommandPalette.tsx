@@ -903,7 +903,7 @@ const CommandPalette: Component<{
       // A dep, so a NEW initialPath while the palette stays open re-runs this.
       pathKey: props.initialPath?.join("\0") ?? "",
       // Snapshots, deliberately NOT dependencies — each is what the palette
-      // acts on AT the open/close edge, as the old untracked callback read it:
+      // acts on AT the open/close edge:
       // the resolved initial path (an exact walk of the tree as it stands at
       // the open), a peeked ambient tip (a random pick that must not re-roll on
       // every tree tick), and the close branch's two facts (the segments to
