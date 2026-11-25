@@ -27,6 +27,12 @@
 export const SOLID_DIAGNOSTIC_URL =
   "https://docs.solidjs.com/reference/solid-js/diagnostics/";
 
+/** {@link SOLID_DIAGNOSTIC_URL}, as the pattern the text is searched with. The
+ *  text is a console line or a script body, never a URL being vetted, so this
+ *  is a plain substring search with every character literal. */
+const SOLID_DIAGNOSTIC_MARKER =
+  /https:\/\/docs\.solidjs\.com\/reference\/solid-js\/diagnostics\//;
+
 /** Is this run the Solid-diagnostics lane? `KOLU_E2E_SOLID_DEV=1` is set by
  *  `ci::e2e-solid-dev` beside the dev-mode `KOLU_SERVER`; any other value is a
  *  caller bug and fails rather than quietly running the ordinary suite. */
@@ -41,7 +47,7 @@ export const SOLID_DEV_LANE = ((): boolean => {
 
 /** Does this text (a console message, or a served script) carry the marker? */
 export function isSolidDiagnostic(text: string): boolean {
-  return text.includes(SOLID_DIAGNOSTIC_URL);
+  return SOLID_DIAGNOSTIC_MARKER.test(text);
 }
 
 /** Fail unless the server at `baseUrl` serves a client built on Solid's
