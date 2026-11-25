@@ -397,6 +397,25 @@ describe("TerminalPeek", () => {
     expect(screen()).toBeNull();
   });
 
+  it("takes its screen down, with its host's words, when the host is not connected", () => {
+    openPeek({ host: "remote:nix@example", id: ID });
+    mount();
+    expect(
+      document.querySelector('[data-testid="peek-screen"]'),
+    ).not.toBeNull();
+
+    // AN ANSWER, not a silence: the client's own host map says the host is
+    // down, and it stays down for the length of the outage. Master said so
+    // and dropped the readouts rather than leaving a dead xterm up.
+    setStanding({ kind: "unreachable" });
+    flush();
+    const empty = document.querySelector('[data-testid="peek-empty"]');
+    expect(empty?.getAttribute("data-standing")).toBe("unreachable");
+    expect(empty?.textContent).toContain("its host is not connected");
+    expect(document.querySelector('[data-testid="peek-screen"]')).toBeNull();
+    expect(document.querySelector('[data-testid="peek-live"]')).toBeNull();
+  });
+
   it("offers Take over while the Conductor drives, and is read-only", () => {
     const ref = `remote:nix@example/${ID}`;
     seam.allowed = false;

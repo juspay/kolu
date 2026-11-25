@@ -259,8 +259,8 @@ describe("the screen the pane holds", () => {
     expect(wasReadout).not.toBeNull();
 
     // ONE FRAME IN WHICH THE INDEX CANNOT VOUCH — a per-key view that has
-    // not had its first frame, a host still adopting, a dropped socket. It
-    // is not an answer that there is no screen, and the reader's place must
+    // not had its first frame, or a host still adopting its census. It is
+    // not an answer that there is no screen, and the reader's place must
     // survive it: the SAME xterm, under the same head.
     setStanding({ kind: "loading" });
     flush();
@@ -284,5 +284,27 @@ describe("the screen the pane holds", () => {
     flush();
     expect(el.querySelector('[data-testid="live-screen"]')).toBeNull();
     expect(el.querySelector('[data-testid="live-live"]')).toBeNull();
+  });
+
+  it("tears the screen down, with its host's words, when the host is not connected", () => {
+    seam.drawn = OLD;
+    setStanding(recordAt(OLD));
+    const el = mount();
+    flush();
+    expect(el.querySelector('[data-testid="live-screen"]')).not.toBeNull();
+
+    // AN ANSWER, not a silence: the client's own host map says this host is
+    // down, and it stays down for as long as the outage. Master tore the
+    // screen down and said so, and the head dropped its readouts; keeping a
+    // dead xterm up would leave the key bar sending keys to a host that is
+    // gone.
+    setStanding({ kind: "unreachable" });
+    flush();
+    expect(el.querySelector('[data-testid="live-screen"]')).toBeNull();
+    expect(el.querySelector('[data-testid="live-live"]')).toBeNull();
+    expect(el.querySelector('[data-testid="live-grid"]')).toBeNull();
+    expect(el.textContent).toContain("its host is not connected");
+    expect(el.textContent).toContain("There is no screen to show.");
+    expect(el.querySelector("[data-connected]")).toBeNull();
   });
 });
