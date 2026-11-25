@@ -27,7 +27,6 @@ import type {
 } from "kolu-common/conductor";
 import type { WorkId } from "kolu-work";
 import {
-  type Accessor,
   type Component,
   createEffect,
   createMemo,
@@ -245,7 +244,8 @@ const ConductorComposer: Component<{
   };
 
   /** Keep the highlighted row on screen — the menu scrolls at six or so rows,
-   *  and a selection you cannot see is a selection you cannot trust.
+   *  and a selection you cannot see is a selection you cannot trust. Hands
+   *  back the `ref` the row writes its element to.
    *
    *  Called from a ROW's own scope (a `<For>` item callback owns its
    *  children), never from its `ref`: a ref callback may create no memo, no
@@ -253,15 +253,16 @@ const ConductorComposer: Component<{
    *  else does — through the compute — so the row's `ref` only writes the
    *  signal. */
   const revealWhenSelected = (
-    el: Accessor<HTMLElement | undefined>,
     mine: () => boolean,
-  ): void => {
+  ): ((el: HTMLElement) => void) => {
+    const [row, setRow] = createSignal<HTMLElement>();
     createEffect(
-      () => ({ node: el(), mine: mine() }),
+      () => ({ node: row(), mine: mine() }),
       ({ node, mine: isMine }) => {
         if (isMine) node?.scrollIntoView({ block: "nearest" });
       },
     );
+    return setRow;
   };
 
   /** A send already on the wire. The box never locks — you may keep typing —
@@ -435,11 +436,10 @@ const ConductorComposer: Component<{
             </div>
             <For each={workMatches()} keyed={(candidate) => candidate.work}>
               {(candidate, index) => {
-                const [row, setRow] = createSignal<HTMLButtonElement>();
-                revealWhenSelected(row, () => index() === selected());
+                const reveal = revealWhenSelected(() => index() === selected());
                 return (
                   <button
-                    ref={setRow}
+                    ref={reveal}
                     type="button"
                     data-testid="conductor-mention-row"
                     data-kind="work"
@@ -492,11 +492,10 @@ const ConductorComposer: Component<{
                 /** Where this row sits in the FLAT list the keyboard moves
                  *  through: the works are above it. */
                 const at = () => workMatches().length + index();
-                const [row, setRow] = createSignal<HTMLButtonElement>();
-                revealWhenSelected(row, () => at() === selected());
+                const reveal = revealWhenSelected(() => at() === selected());
                 return (
                   <button
-                    ref={setRow}
+                    ref={reveal}
                     type="button"
                     data-testid="conductor-mention-row"
                     data-kind="terminal"
@@ -570,11 +569,10 @@ const ConductorComposer: Component<{
         >
           <For each={commandMatches()}>
             {(command, index) => {
-              const [row, setRow] = createSignal<HTMLButtonElement>();
-              revealWhenSelected(row, () => index() === selected());
+              const reveal = revealWhenSelected(() => index() === selected());
               return (
                 <button
-                  ref={setRow}
+                  ref={reveal}
                   type="button"
                   data-testid="conductor-command-row"
                   data-command={command.name}
