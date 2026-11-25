@@ -47,7 +47,11 @@ const DEV_FILES = {
   ],
   "/solid-dev.json": [
     "application/json; charset=utf-8",
-    JSON.stringify({ marker: MARKER, warnings: [WARNING] }),
+    JSON.stringify({
+      marker: MARKER,
+      warnings: [WARNING],
+      dists: { "solid-js": 1, "@solidjs/web": 1, "@solidjs/signals": 1 },
+    }),
   ],
 } satisfies Record<string, [string, string]>;
 
