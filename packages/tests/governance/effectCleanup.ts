@@ -76,9 +76,14 @@
  * object of its own; an arrow wrapped in parentheses or an `as` cast
  * (`createEffect(dep, ((v) => apply(v)) as Apply)`), whose `=>` is no longer
  * top-level in the argument; and a bundle arm written as a shorthand property
- * (`{ effect }`), which is a named reference under another spelling. All of
- * them are outside what a lexical scan can know; the shapes that actually
- * shipped are inside it.
+ * (`{ effect }`), which is a named reference under another spelling. Two more
+ * pass because the type-argument reading is shallow: an object or mapped type
+ * in the type arguments (`createEffect<{ a: number }>(…)`), since the call's
+ * opening parenthesis is not looked for past a `{`; and a comma inside an
+ * argument's own type arguments (`dep as Map<string, number>`,
+ * `<T,>(v: T) => …`), since arguments are split without counting `<`/`>`.
+ * All of them are outside what a lexical scan can know; the shapes that
+ * actually shipped are inside it.
  */
 
 import { readdirSync, readFileSync, statSync } from "node:fs";

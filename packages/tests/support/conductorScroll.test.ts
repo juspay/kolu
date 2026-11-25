@@ -160,8 +160,8 @@ test("a hold on a host that is not connected fails", async () => {
 });
 
 test("a gone terminal is named while the head also says how long and what it is doing", async () => {
-  // The head of a gone terminal the watch agrees about draws three spans: the
-  // word, the elapsed time beside it, and the task progress. A read of every
+  // A head draws up to three spans: the word, the elapsed time beside it, and
+  // the task progress. This fixture drives that worst case. A read of every
   // span is strict-mode-refused and reads `null`, which would let the hold
   // pass; the word span alone answers.
   const message = await holdFailure({
