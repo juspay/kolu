@@ -35,7 +35,12 @@ import {
 } from "kolu-common/conductor";
 import { type Component, createMemo, For, Match, Show, Switch } from "solid-js";
 import { askLead, askQuestions, askRecord } from "./askRecord";
-import { askDraft, forgetAskDraft, setAskDraft } from "./drafts";
+import {
+  askDraft,
+  forgetAskDraft,
+  setAskDraft,
+  toggleAskDraft,
+} from "./drafts";
 import { useConductor } from "./useConductor";
 
 /** One option chip. The SELECTED state is layered on through the `class`
@@ -105,15 +110,8 @@ const ConductorAsk: Component<{
   /** An option pressed. A single-answer question keeps the one pressed last
    *  and empties its "Other" box; a `choices` question toggles. */
   const pick = (field: AskField, value: string): void => {
-    const current = askDraft(props.row.id, field.key);
     if (!singleAnswer(field)) {
-      setAskDraft(
-        props.row.id,
-        field.key,
-        current.includes(value)
-          ? current.filter((v) => v !== value)
-          : [...current, value],
-      );
+      toggleAskDraft(props.row.id, field.key, value);
       return;
     }
     const other = otherFor(field.key);

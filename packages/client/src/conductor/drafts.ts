@@ -182,13 +182,17 @@ export function armComposerMention(name: string): void {
  *  Keyed by ask id because two questions can be open at once, and answering the
  *  second must not disturb the first. */
 const [askDrafts, setAskDrafts] = createStore<
-  Record<string, Record<string, readonly string[]>>
+  Record<string, Record<string, string[]>>
 >({});
 
 export function askDraft(askId: string, field: string): readonly string[] {
   return askDrafts[askId]?.[field] ?? [];
 }
 
+/** One question's values, replaced wholesale — a single-answer pick, a box
+ *  emptied, a seeding. The array is COPIED IN: what the store holds is the
+ *  store's own to mutate ({@link toggleAskDraft}), never one the caller still
+ *  has a hand on. */
 export function setAskDraft(
   askId: string,
   field: string,
@@ -196,8 +200,36 @@ export function setAskDraft(
 ): void {
   setAskDrafts((drafts) => {
     const form = drafts[askId];
-    if (form) form[field] = values;
-    else drafts[askId] = { [field]: values };
+    if (form) form[field] = [...values];
+    else drafts[askId] = { [field]: [...values] };
+  });
+}
+
+/** ONE VALUE ON OR OFF a multi-answer question — the whole of what pressing
+ *  one of its chips does, written as the store can follow it: the value is
+ *  pushed onto the draft's own array or spliced out of it, so only the index
+ *  that moved notifies. Handing back a spread or filtered copy would replace
+ *  the array under every reader of the question for the one chip pressed
+ *  (Solid 2's IMMUTABLE_UPDATE_IN_STORE). */
+export function toggleAskDraft(
+  askId: string,
+  field: string,
+  value: string,
+): void {
+  setAskDrafts((drafts) => {
+    const form = drafts[askId];
+    if (form === undefined) {
+      drafts[askId] = { [field]: [value] };
+      return;
+    }
+    const values = form[field];
+    if (values === undefined) {
+      form[field] = [value];
+      return;
+    }
+    const at = values.indexOf(value);
+    if (at === -1) values.push(value);
+    else values.splice(at, 1);
   });
 }
 

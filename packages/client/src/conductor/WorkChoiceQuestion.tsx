@@ -35,6 +35,7 @@
  *  the pair out of the draft).
  */
 
+import type { AgentModels } from "@kolu/agent-distro/models";
 import { toError } from "@kolu/surface/run-stream";
 import { Option } from "effect";
 import { decodeHostKey } from "kolu-common/hostKey";
@@ -56,7 +57,7 @@ import {
   type Component,
   createMemo,
   Errored,
-  Loading,
+  isPending,
   Match,
   Show,
   Switch,
@@ -116,8 +117,8 @@ interface Where {
 /** ... and that, or nothing to ask of, WITH WHY: a harness question (and a
  *  model question nobody has named a harness for) asks nothing because there
  *  is no harness, and a watch asks nothing because there is no checkout to
- *  ask it in. The reason travels in the subject so that everything under the
- *  boundary can be said from the subject alone. */
+ *  ask it in. The reason travels in the subject so that the host read and
+ *  every word drawn beside it are said from one value. */
 type Subject =
   | { readonly kind: "unasked"; readonly why: "no-harness" }
   | {
@@ -241,14 +242,16 @@ const WorkChoiceQuestion: Component<{
       .modelsUsed(harness)
       .map((one) => choiceOf(one.value, one.chosen));
 
-  /** WHAT A QUESTION STILL BEING ASKED SAYS — the `Loading` fallback's offer.
-   *  A harness question never asks a host, so the only read that can be in
-   *  flight under that boundary is the model list. The harness is handed in
-   *  rather than read, so that content under the boundary names it from the
-   *  subject it was armed on. */
-  const asking = (one: string | undefined): Offer => ({
+  /** WHAT A QUESTION STILL BEING ASKED SAYS — one of the three offers this
+   *  question is drawn from, not a boundary's fallback: the host read answers
+   *  `undefined` while it is in flight rather than holding anything, so this
+   *  is ordinary content and the question is never torn out and rebuilt for a
+   *  list that lands in a few milliseconds. The harness is handed in by the
+   *  subject the read was said from, so these words never name a harness the
+   *  answer on screen is not of. */
+  const asking = (one: string): Offer => ({
     kind: "waiting",
-    words: `Asking what ${one ?? "this harness"} offers here…`,
+    words: `Asking what ${one} offers here…`,
   });
 
   /** THE HOST COULD NOT LIST — said in its own words, beside what a harness
@@ -491,21 +494,27 @@ const WorkChoiceQuestion: Component<{
     );
   };
 
-  /** THE QUESTION AS THE HOST ANSWERS IT — drawn under the boundary that
-   *  holds the asking, and the reason this is a component rather than a memo
-   *  in the body: the read is CREATED here, inside the `Loading`, so a read
-   *  that goes pending after the question has already been drawn (the
-   *  harness seeded a frame after the form opens) is the boundary's to hold.
-   *  A read created outside it reaches the root first and the page waits on
-   *  it instead, with nothing on the question to say so. */
-  const Asked: Component<{ readonly subject: Subject }> = (shown) => {
-    /** What the host says that harness offers. A question with no harness
-     *  named yet asks nothing at all. The read is held by the `Loading`
-     *  boundary over it and a failure thrown at the `Errored` one beside it
-     *  — the two faces of "still asking" and "could not ask" are drawn
-     *  there, each as its own offer. */
-    const models = createMemo(() => {
-      const one = shown.subject;
+  /** WHAT THE HOST SAYS THAT HARNESS OFFERS. A question with no harness
+   *  named yet asks nothing at all.
+   *
+   *  AN ASYNC MEMO WITH `undefined` DECLARED AS ITS LOADING VALUE — the one
+   *  thing that keeps this question un-held. A read that can be not-ready
+   *  needs a `Loading` boundary over it, and a boundary over a question whose
+   *  host answers in a few milliseconds (every local host) does the one thing
+   *  a boundary must not do: it rips the whole question out, draws a line of
+   *  text and puts the question back a frame later — a spinner that appeared
+   *  and vanished (Solid 2's FALLBACK_FLASH, and nothing kolu can preload its
+   *  way out of, because the list is the host's to answer and is never
+   *  stored). Declared, the read is never pending to a reader: the question
+   *  is drawn once, says it is asking in its own words ({@link asking}, as
+   *  Solid 1's `models.loading` did), and gains the list in place.
+   *
+   *  A FAILED read is NOT swallowed: an async memo throws its rejection at
+   *  whoever reads it, and the `Errored` boundary below catches it and draws
+   *  the question again around what can still be chosen ({@link unread}). */
+  const models = createMemo<AgentModels | undefined>(
+    () => {
+      const one = subject();
       return one.kind === "unasked"
         ? undefined
         : runActionPromise(
@@ -513,88 +522,61 @@ const WorkChoiceQuestion: Component<{
               one.where,
             ),
           );
-    });
+    },
+    { loadingValue: undefined },
+  );
 
-    /** Said from {@link Asked.subject} ALONE — never from `harness()` or
-     *  `repo()`, the memos it is derived from. A read of those under the
-     *  boundary is one hop closer to a write than the expression the boundary
-     *  is armed on, so a host read begun from it can go pending before the
-     *  boundary re-arms and be forwarded to the root. */
-    const modelOffer = (): Offer => {
-      const one = shown.subject;
-      if (one.kind === "unasked")
-        return one.why === "no-harness"
-          ? {
-              kind: "waiting",
-              words: "Choose the harness first — a model is a model of one.",
-            }
-          : {
-              kind: "failed",
-              words: `This work watches a terminal, so there is no checkout to ask ${one.harness} what it offers in.`,
-            };
-      const named = one.where.harness;
-      const answer = models();
-      if (answer === undefined) return asking(named);
-      if (answer.models.kind === "unlisted")
-        return {
-          kind: "choices",
-          context: named,
-          options: usedBefore(named),
-          offered: answer.models,
-          empty: `${named} cannot list its models — type the one to run.`,
-        };
+  /** Said from {@link subject} ALONE — one value, so that the words on screen
+   *  and the answer they are about can never be of two different harnesses.
+   *  A read still in flight is `asking`, not the harness they left: the memo
+   *  keeps the last answer while the next one is out, so `isPending` is what
+   *  tells the two apart (Solid 1 read `models.loading` for this). */
+  const modelOffer = (): Offer => {
+    const one = subject();
+    if (one.kind === "unasked")
+      return one.why === "no-harness"
+        ? {
+            kind: "waiting",
+            words: "Choose the harness first — a model is a model of one.",
+          }
+        : {
+            kind: "failed",
+            words: `This work watches a terminal, so there is no checkout to ask ${one.harness} what it offers in.`,
+          };
+    const named = one.where.harness;
+    if (isPending(models)) return asking(named);
+    const answer = models();
+    if (answer === undefined) return asking(named);
+    if (answer.models.kind === "unlisted")
       return {
         kind: "choices",
         context: named,
-        options: answer.models.ids.map((id) => choiceOf(id, "picked")),
+        options: usedBefore(named),
         offered: answer.models,
-        empty: `${named} lists no models on this host.`,
+        empty: `${named} cannot list its models — type the one to run.`,
       };
+    return {
+      kind: "choices",
+      context: named,
+      options: answer.models.ids.map((id) => choiceOf(id, "picked")),
+      offered: answer.models,
+      empty: `${named} lists no models on this host.`,
     };
-
-    /** Read by the branches below and by the seeding, so it is a memo. */
-    const offer = createMemo(() =>
-      what() === "harness" ? harnessOffer() : modelOffer(),
-    );
-
-    return <Offered offer={offer()} />;
   };
+
+  /** Read by the branches below and by the seeding, so it is a memo. */
+  const offer = createMemo(() =>
+    what() === "harness" ? harnessOffer() : modelOffer(),
+  );
 
   return (
     // THE HOST'S FAILURE IS AN OFFER, not a dead question: the model read
-    // throws it here, and the question is drawn again around what can still
-    // be chosen.
+    // throws it at this reader, inside the boundary, and the question is
+    // drawn again around what can still be chosen.
     <Errored
       fallback={(why) => <Offered offer={unread(toError(why()).message)} />}
     >
-      {/* A NEW SUBJECT IS A NEW QUESTION: the harness picked in the same
-          form changes what this question is OF, so the models of the harness
-          they left must never sit under the new one's name. The host read
-          lives in `Asked`, under this boundary: a read of the same data
-          outside it would hold the whole frame, so the fallback could never
-          show (Solid warns LOADING_ON_OUTSIDE_HOLD).
-
-          ARMED ON the subject: `on` re-arms the boundary when the subject
-          changes, so the next harness's read is held here and the question
-          shows "asking" rather than the harness they left. That holds
-          because no ASYNC read under it starts from `harness()` or `repo()`:
-          the one host read, `Asked.models`, is said from the subject the
-          boundary is armed on, and so is every offer that decides what is
-          asked. A read of `harness()` or `repo()` is one hop closer to the
-          seeding write than `on`, so a host read begun from one would go
-          pending before the boundary re-arms and be forwarded to the root
-          (ASYNC_OUTSIDE_LOADING_BOUNDARY). `Offered` does read `harness()`
-          (:322, :389), but only to recall what this person answered before
-          — local memory, nothing in flight.
-
-          The rest of the form stays unheld — the harness chip reads as
-          pressed at once, rather than after a host answers. */}
-      <Loading
-        on={subject()}
-        fallback={<Offered offer={asking(Option.getOrUndefined(harness()))} />}
-      >
-        <Asked subject={subject()} />
-      </Loading>
+      <Offered offer={offer()} />
     </Errored>
   );
 };

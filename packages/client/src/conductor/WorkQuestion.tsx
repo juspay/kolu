@@ -80,7 +80,12 @@ import {
   typedKey,
   typeOnly,
 } from "./askForm";
-import { askDraft, forgetAskDraft, setAskDraft } from "./drafts";
+import {
+  askDraft,
+  forgetAskDraft,
+  setAskDraft,
+  toggleAskDraft,
+} from "./drafts";
 import { openReader } from "./reader/useReader";
 import { useConductor } from "./useConductor";
 import { useWorkMap } from "./useWorks";
@@ -157,15 +162,8 @@ const WorkQuestion: Component<{
   /** An option pressed. A single-answer question keeps the one pressed last
    *  and empties its box; a `multiple` question toggles. */
   const pick = (decision: Offered, value: string): void => {
-    const current = askDraft(props.ask, decision.id);
     if (takesSeveral(decision)) {
-      setAskDraft(
-        props.ask,
-        decision.id,
-        current.includes(value)
-          ? current.filter((one) => one !== value)
-          : [...current, value],
-      );
+      toggleAskDraft(props.ask, decision.id, value);
       return;
     }
     pickOnly(props.ask, decision.id, value);
