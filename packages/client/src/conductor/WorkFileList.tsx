@@ -121,7 +121,7 @@ const WorkFileList: Component<WorkFileListProps> = (props) => {
                   {" · "}
                   {one.files.length}
                   <Show when={Option.getOrUndefined(waterfallBytes(one.files))}>
-                    {(bytes) => ` · ${formatBytes(bytes())}`}
+                    {(bytes) => <> · {formatBytes(bytes())}</>}
                   </Show>
                 </span>
               </button>
