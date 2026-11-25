@@ -133,19 +133,18 @@ export function useDeepLinks(): void {
    *  arrive one record at a time, so absence is a verdict only after the same
    *  bound a terminal route waits for its host.
    *
-   *  The link carries a SEQUENCE, and the two effects below record the link
+   *  Each raise mints a FRESH LINK, and the two effects below record the link
    *  they ANSWERED in a plain variable rather than clearing the signal. An
    *  effect that cleared the signal its own compute reads would re-run on its
    *  own write — two flushes for one verdict — which is exactly what the
    *  `armedRoute` mirror above avoids for a terminal route. A re-click is a new
-   *  sequence, so the same work can be linked twice. */
-  type WorkLink = { work: WorkId; seq: number };
-  let workLinkSeq = 0;
+   *  link, so the same work can be linked twice. */
+  type WorkLink = { work: WorkId };
   const [workLink, setWorkLink] = createSignal<WorkLink | null>(null);
-  /** The newest work link already answered — it arrived, or its bound expired. */
-  let answeredWorkSeq = 0;
+  /** The work link already answered — it arrived, or its bound expired. */
+  let answeredWork: WorkLink | null = null;
   function routeToWork(work: WorkId): void {
-    setWorkLink({ work, seq: ++workLinkSeq });
+    setWorkLink({ work });
   }
   const workMap = useWorkMap();
   // The link LANDED: its work reached the mirror, so the bound below has
@@ -153,20 +152,18 @@ export function useDeepLinks(): void {
   createEffect(
     () => {
       const link = workLink();
-      return link !== null &&
-        link.seq > answeredWorkSeq &&
-        workMap().has(link.work)
-        ? link.seq
-        : 0;
+      return link !== null && link !== answeredWork && workMap().has(link.work)
+        ? link
+        : null;
     },
     (arrived) => {
-      if (arrived > 0) answeredWorkSeq = arrived;
+      if (arrived !== null) answeredWork = arrived;
     },
   );
   createEffect(
     () => {
       const link = workLink();
-      return link !== null && link.seq > answeredWorkSeq ? link : null;
+      return link !== null && link !== answeredWork ? link : null;
     },
     (link) => {
       if (link === null) return;
@@ -176,8 +173,8 @@ export function useDeepLinks(): void {
         // The work may have landed since — the arrival above marks the link
         // answered without disturbing this one's source, so check at expiry
         // (the terminal backstop's `armedRoute !== route` guard, same reason).
-        if (link.seq <= answeredWorkSeq) return;
-        answeredWorkSeq = link.seq;
+        if (answeredWork === link) return;
+        answeredWork = link;
         toast.error(
           "That piece of work isn't in kolu — it may have finished and been let go.",
         );
