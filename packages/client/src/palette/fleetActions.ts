@@ -21,6 +21,7 @@ import type {
 } from "../CommandPalette";
 import { workspaceSearchText } from "../canvas/dockModel";
 import { hostLabel } from "../host/hostChipTone";
+import { landHostSwitch } from "../host/selectHostTab";
 import { assignColors } from "../terminal/terminalDisplay";
 import { useVisitRecency, visitedAtOf } from "../terminal/visitRecency";
 import { padiMap } from "../wire";
@@ -31,7 +32,12 @@ import {
 } from "./fleetTerminals";
 
 /** Switch host when the row is foreign, then activate. Pure sequencing
- *  extracted so unit tests can spy without mounting the palette. */
+ *  extracted so unit tests can spy without mounting the palette.
+ *
+ *  The switch is LANDED before the activation: `activate` resolves the ACTIVE
+ *  host's scope, and a staged switch would have it write this row's id into
+ *  the host being left (see `landHostSwitch`). Both callers — the palette's
+ *  fleet rows and the host popover's forward rows — run this from a click. */
 export function selectFleetTerminal(
   rowHost: HostKey,
   rowId: TerminalId,
@@ -39,7 +45,10 @@ export function selectFleetTerminal(
   switchHost: (host: HostKey) => void,
   activate: (id: TerminalId) => void,
 ): void {
-  if (!sameHost(rowHost, active)) switchHost(rowHost);
+  if (!sameHost(rowHost, active)) {
+    switchHost(rowHost);
+    landHostSwitch();
+  }
   activate(rowId);
 }
 

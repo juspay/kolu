@@ -75,7 +75,7 @@ import {
 import { match } from "ts-pattern";
 import { notify } from "../attentionNotify";
 import { hostLabel } from "../host/hostChipTone";
-import { selectHostTab } from "../host/selectHostTab";
+import { landHostSwitch, selectHostTab } from "../host/selectHostTab";
 import {
   conductorAsks,
   useConductorBadge,
@@ -557,6 +557,11 @@ export function useAttention(deps: AttentionDeps): {
       const ids = hostAskingIds(encHost);
       if (ids.length === 0) return;
       setActiveHost(decodeHostKey(encHost));
+      // LAND the switch before anything reads the active host's scope: both
+      // the cycle anchor (`activeId`, the target host's selected tile) and the
+      // landing itself are that host's facts, and a staged switch would give
+      // the departing host's. Every capsule calls `jumpToAsking` from a click.
+      landHostSwitch();
       const next = nextAfter(ids, deps.activeId());
       if (next !== undefined) deps.activate(next);
     }),
@@ -565,16 +570,21 @@ export function useAttention(deps: AttentionDeps): {
   // The SINGLE notification-click router: switch to the originating host's tab
   // first (a notification outlives the active-host selection, and the person
   // may be reading the Conductor), then focus. Both the current `terminal`
-  // shape and any stale `host` shape route the same way.
+  // shape and any stale `host` shape route the same way. The switch is LANDED
+  // between the two, so the focus resolves the host the notification came from
+  // rather than the one on screen — an OS notification click is an imperative
+  // boundary, so the flush is legal here.
   onCleanup(
     notify.onClick((data) =>
       match(data)
         .with({ kind: "terminal" }, ({ host, terminalId }) => {
           selectHostTab(decodeHostKey(host));
+          landHostSwitch();
           deps.activate(terminalId);
         })
         .with({ kind: "host" }, ({ host, id }) => {
           selectHostTab(decodeHostKey(host));
+          landHostSwitch();
           deps.activate(id);
         })
         .with({ kind: "conductor" }, () => {

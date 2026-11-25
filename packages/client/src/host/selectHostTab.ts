@@ -33,10 +33,35 @@
  *     tell in the first place. */
 
 import { type HostKey, hostKeysEqual } from "kolu-common/hostKey";
+import { flush } from "solid-js";
 import { exitConductorMode } from "../conductor/useConductorMode";
 import { setActiveHost } from "../wire";
 
 export function selectHostTab(host: HostKey): void {
   exitConductorMode();
   setActiveHost((current) => (hostKeysEqual(current, host) ? current : host));
+}
+
+/** LAND the host switch just made, for a handler that switches and then runs a
+ *  verb which resolves the ACTIVE host's scope in the same step (a palette
+ *  fleet row, the Conductor's open-tile, the attention jump, the
+ *  notification-click router).
+ *
+ *  A Solid 2 write is STAGED until the next flush, and outside a flush every
+ *  reader — memos included — is served the committed value. The active-host
+ *  scope is a chain of those (`activeHost → activated → index → activeScope`,
+ *  `surface-map`'s `scopedByEntry`), so a landing verb in the same handler
+ *  resolves the host being LEFT: `store.activate` writes the foreign id into
+ *  the departing host's focus, visit trail and `chrome.setActive` report, and a
+ *  metadata-gated landing (`useDockFocus`) cannot find the id at all and toasts
+ *  "Terminal no longer exists". On Solid 1 that chain recomputed before the
+ *  setter returned, which is the behaviour this restores.
+ *
+ *  Call it ONLY from an imperative boundary (a DOM event handler, an OS
+ *  notification click): `flush()` throws inside an action or a tracked-effect
+ *  callback. A caller that switches from an EFFECT must instead act on the
+ *  settle, the way `useDeepLinks` gates on "the active host IS the route's
+ *  host". */
+export function landHostSwitch(): void {
+  flush();
 }
