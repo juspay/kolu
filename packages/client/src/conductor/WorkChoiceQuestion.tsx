@@ -552,22 +552,26 @@ const WorkChoiceQuestion: Component<{
     <Errored
       fallback={(why) => <Offered offer={unread(toError(why()).message)} />}
     >
-      {/* A NEW SUBJECT IS A NEW QUESTION, and a new boundary with it: the
-          harness picked in the same form changes what this question is OF,
-          so the models of the harness they left must never sit under the new
-          one's name — the question is built again and says it is asking.
+      {/* A NEW SUBJECT IS A NEW QUESTION: the harness picked in the same
+          form changes what this question is OF, so the models of the harness
+          they left must never sit under the new one's name. The host read
+          lives in `Asked`, under this boundary: a read of the same data
+          outside it would hold the whole frame, so the fallback could never
+          show (Solid warns LOADING_ON_OUTSIDE_HOLD).
 
-          KEYED on the subject, as `WorkReader`'s frame is. A boundary BORN
-          with its subject has shown nothing yet, so the first read that
-          subject starts is its to hold, whoever starts it — including the
-          seeding of what this person chose last time, an effect's write in
-          the mount's own flush. The host read itself lives in `Asked`, under
-          this boundary: a read of the same data outside it would hold the
-          whole frame, so the fallback could never show (Solid warns
-          LOADING_ON_OUTSIDE_HOLD).
+          KEYED on the subject rather than `<Loading on={subject()}>`, because
+          of a Solid defect: solidjs/solid#5203. The seeding of what this
+          person chose last time writes the subject from an effect in the
+          mount's own flush, and the question's content reads the signals the
+          subject is derived from, one hop closer to that write than `on`. Its
+          read goes pending before `on` re-arms the boundary and is forwarded
+          to the root (ASYNC_OUTSIDE_LOADING_BOUNDARY), so the whole page
+          would wait on the host. `WorkQuestion.test.tsx` fails 2 of 13 with
+          `on`. A boundary born with its subject has shown nothing, so it holds
+          that read. Switch to `on` once a Solid release fixes #5203.
 
-          The rest of the form stays unheld either way — the harness chip
-          reads as pressed at once, rather than after a host answers. */}
+          The rest of the form stays unheld — the harness chip reads as
+          pressed at once, rather than after a host answers. */}
       <Show when={subject()} keyed>
         {(one) => (
           <Loading fallback={<Offered offer={asking()} />}>
