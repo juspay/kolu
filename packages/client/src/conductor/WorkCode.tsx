@@ -55,10 +55,10 @@ const Read: Component<{
   id: WorkId;
   place: WorkPlace;
 }> = (props) => {
-  // The work is fixed for this mount: a card is one work's. READ ONCE, so the
-  // body takes no reactive read of its own — the owner and the view state are
-  // built from this id and never re-made, and the effect below is what follows
-  // the pair if it ever did move.
+  // The work is fixed for this mount: a card is one work's, and every card is
+  // built keyed by that id (`WorkColumn.tsx`). READ ONCE, so the body takes no
+  // reactive read of its own — the owner and the view state are built from
+  // this id and never re-made.
   const work = untrack(() => props.id);
   const owner = codeOwner("work", work);
   const subject = createMemo(
@@ -85,12 +85,11 @@ const Read: Component<{
     repoRoot: props.place.repoPath,
     mode,
   }));
-  // The work's back/forward follows its root, handed over with the work it
-  // belongs to as one pair.
+  // The work's back/forward follows its root.
   createEffect(
-    () => ({ id: props.id, root: props.place.repoPath }),
-    ({ id, root }) => {
-      syncWorkCodeRoot(id, root);
+    () => props.place.repoPath,
+    (root) => {
+      syncWorkCodeRoot(work, root);
     },
   );
   const [box, setBox] = createSignal<HTMLDivElement>();
