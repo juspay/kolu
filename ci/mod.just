@@ -27,9 +27,10 @@
 # ci/protect never grows a shard name. Our darwin pool is a single host, so
 # nothing is ever free to borrow there and every darwin lane resolves to TOTAL=1.
 #
-# Two leaves are sharded today: `e2e` (cucumber owns the split) and `daemon`
-# (vitest `--shard`, which is what makes a leaf whose wall time is a handful of
-# expensive files — not one long suite — divide at all). Each owns its own
+# Three leaves are sharded today: `e2e` and `e2e-solid-dev` (cucumber owns the
+# split, and they share one translation in `_e2e-suite`) and `daemon` (vitest
+# `--shard`, which is what makes a leaf whose wall time is a handful of
+# expensive files — not one long suite — divide at all). `daemon` owns its own
 # translation of the zero-based `ODU_SHARD_*` pair; see the recipes below.
 
 # Submodule recipes default to running from the submodule's directory (`ci/`),
@@ -329,7 +330,7 @@ _e2e-suite:
       if [[ ! "${ODU_SHARD_INDEX:-}" =~ ^(0|[1-9][0-9]*)$ ]] \
         || [[ ! "${ODU_SHARD_TOTAL:-}" =~ ^[1-9][0-9]*$ ]] \
         || ((ODU_SHARD_INDEX >= ODU_SHARD_TOTAL)); then
-        echo "ci::e2e: invalid shard pair ODU_SHARD_INDEX='${ODU_SHARD_INDEX:-}' ODU_SHARD_TOTAL='${ODU_SHARD_TOTAL:-}'" >&2
+        echo "ci::_e2e-suite: invalid shard pair ODU_SHARD_INDEX='${ODU_SHARD_INDEX:-}' ODU_SHARD_TOTAL='${ODU_SHARD_TOTAL:-}'" >&2
         exit 2
       fi
       export CUCUMBER_SHARD="$((ODU_SHARD_INDEX + 1))/$ODU_SHARD_TOTAL"
