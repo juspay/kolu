@@ -1,7 +1,7 @@
 import type { CodeTabView } from "@kolu/padi-client/surface";
 import { Effect, type Fiber } from "effect";
 import { encodeHostKey, type HostKey } from "kolu-common/hostKey";
-import { createEffect, onCleanup } from "solid-js";
+import { createEffect, onCleanup, untrack } from "solid-js";
 import { match } from "ts-pattern";
 import { runAction } from "../runAction";
 import type { LineRef } from "../ui/lineRef";
@@ -212,7 +212,14 @@ export function createCodeTabOpenController<Paths, Resolved>(
     ) {
       return false;
     }
-    const current = options.snapshot();
+    // A POINT-IN-TIME read, deliberately `untrack`ed: this runs on the read's
+    // fiber, asking what is true at the moment the answer landed. A read that
+    // needs no suspension lands inside the effect phase that forked it — a
+    // strict-read window — so a tracked read would raise STRICT_READ_UNTRACKED
+    // and claim a dependency for a computation that has already finished. The
+    // effect's own compute (`createEffect(options.snapshot, …)` below) is where
+    // this snapshot is subscribed to; the landing only tests it.
+    const current = untrack(options.snapshot);
     return (
       current.request === request &&
       current.scope !== null &&
