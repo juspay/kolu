@@ -88,7 +88,7 @@ export const useTileStore = createSharedRoot(() => {
     // fast; don't let a write silently collapse to a no-op). Distinct from the
     // kind dispatch below, which is a legitimate quiet branch for PR 2.
     if (!content) {
-      console.error("useTileStore.setLayout: no tile for id", id);
+      console.error("useTileStore.planSetLayout: no tile for id", id);
       return NO_LAYOUT_SINK;
     }
     if (content.kind !== "terminal") return NO_LAYOUT_SINK;
