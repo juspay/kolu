@@ -35,9 +35,9 @@
       },
       "branch": "main",
       "submodules": false,
-      "revision": "5d630cc03c7fa45fcebab0a39fee9ec17802e0bb",
-      "url": "https://github.com/opencenter-cloud/corvu-next/archive/5d630cc03c7fa45fcebab0a39fee9ec17802e0bb.tar.gz",
-      "hash": "sha256-2gGBKAWg6FVy3WgXl0/jxhjYHd4M2dYOtsRPE0X2Bjo=",
+      "revision": "5c3a5476fd6e6e0e943f2dc4fae971e74217042f",
+      "url": "https://github.com/opencenter-cloud/corvu-next/archive/5c3a5476fd6e6e0e943f2dc4fae971e74217042f.tar.gz",
+      "hash": "sha256-xkNvIL61b/med3rpAUhzMa8SWJtEm0u1p3dLlHUf4hs=",
       "frozen": true
     },
     "iTerm2-Color-Schemes": {
