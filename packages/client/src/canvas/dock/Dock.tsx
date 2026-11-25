@@ -89,7 +89,6 @@ import {
   For,
   onSettled,
   Show,
-  untrack,
 } from "solid-js";
 import type { JSX } from "@solidjs/web";
 import { createSharedRoot } from "../../createSharedRoot";
@@ -559,11 +558,7 @@ const SortableSection: Component<{
   flatIndexOf: ReadonlyMap<TerminalId, number>;
   onClusterDrop: (labels: readonly string[]) => void;
 }> = (props) => {
-  // The drag scope registers ONE id for this component's lifetime, so the
-  // section's name is read ONCE, deliberately: the sections are rendered from a
-  // `<For keyed={(group) => group.name}>`, so this instance IS that name and can
-  // never be handed another one.
-  const sortable = createSortable(untrack(() => props.group.name));
+  const sortable = createSortable(() => props.group.name);
   return (
     // Each section ships its OWN inner drag scope for its clusters — giving
     // the nest two isolated levels: a cluster physically cannot land in
@@ -603,7 +598,7 @@ const HeaderDropTarget: Component = () => {
   const droppable = createDroppable(HEADER_DROP_ID);
   const draggedRowId = useDraggedRowId();
   const verdict = useDockDropVerdict(
-    { kind: "header" },
+    () => ({ kind: "header" }),
     droppable.isActiveDroppable,
   );
   const drop = (): "over" | "invalid" | "target" | undefined => {
@@ -889,10 +884,7 @@ const SortableCluster: Component<{
   cluster: DockBranchCluster;
   flatIndexOf: ReadonlyMap<TerminalId, number>;
 }> = (props) => {
-  // Read ONCE, for `SortableSection`'s reason: the clusters are rendered from a
-  // `<For keyed={(cluster) => cluster.label}>` and the drag scope registers one
-  // id per owner, so this instance IS that label for as long as it lives.
-  const sortable = createSortable(untrack(() => props.cluster.label));
+  const sortable = createSortable(() => props.cluster.label);
   const focus = useDockFocus();
   return (
     <DockCluster
@@ -941,10 +933,7 @@ const DockSubRow: Component<{
   tileId: TerminalId;
   onSelect: (id: TerminalId) => void;
 }> = (props) => {
-  // Read ONCE: the drag scope registers this row's id for the component's
-  // lifetime, and the sub rows are rendered from a `<For keyed={(sub) =>
-  // sub.id}>`, so this instance IS that split.
-  const drag = useDockRowDrag(untrack(() => props.row.id));
+  const drag = useDockRowDrag(() => props.row.id);
   return (
     <SubTerminalRow
       row={props.row}
@@ -1001,11 +990,8 @@ const DockRow: Component<{
         });
         // Registered HERE, inside the `<Show>`, and not in the component body:
         // the row's draggable and droppable then live exactly as long as the
-        // element they measure, and leave the drag scope with it. The id is
-        // read ONCE — the scope registers it for the row's lifetime, and rows
-        // come from a `<For keyed={(row) => row.id}>`, so this instance IS that
-        // terminal.
-        const drag = useDockRowDrag(untrack(() => props.id));
+        // element they measure, and leave the drag scope with it.
+        const drag = useDockRowDrag(() => props.id);
         return (
           <DockRowView
             {...bag}

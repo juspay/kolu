@@ -14,6 +14,7 @@ import {
   type Component,
   createContext,
   createMemo,
+  untrack,
   useContext,
 } from "solid-js";
 import type { JSX } from "@solidjs/web";
@@ -69,20 +70,28 @@ export type SortableHandle = {
   transform: Accessor<DragTransform>;
 };
 
-export function createSortable(id: string): SortableHandle {
+/** `id` is an ACCESSOR, read inside this hook's own derivations (the preview
+ *  slot below), so a caller hands the item's id straight through without
+ *  reading it in its component body. The dnd-kit registration cannot follow
+ *  it — a registered draggable keeps the id it was created with for this
+ *  owner's lifetime — so that one samples the accessor, which is exact: every
+ *  caller renders one sortable per keyed list item, so an instance IS its id. */
+export function createSortable(id: Accessor<string>): SortableHandle {
   const scope = useDragDropScope();
   // `SortableContext` has no default: a sortable outside a list throws
   // (`ContextNotFoundError`).
   const list = useContext(SortableContext);
-  const draggable = createDraggable(id);
-  const droppable = createDroppable(id);
+  const registered = untrack(id);
+  const draggable = createDraggable(registered);
+  const droppable = createDroppable(registered);
   // The offset from this item's own start rect to the rect of the slot the
   // preview order puts it in.
   const slotOffset = (): DragTransform => {
-    const slot = list.sortedIds().indexOf(id);
-    const home = list.ids().indexOf(id);
+    const self = id();
+    const slot = list.sortedIds().indexOf(self);
+    const home = list.ids().indexOf(self);
     if (slot === -1 || slot === home) return NO_TRANSFORM;
-    const from = scope.startRect(id);
+    const from = scope.startRect(self);
     const to = scope.startRect(list.ids()[slot] ?? "");
     if (!from || !to) return NO_TRANSFORM;
     return { x: to.left - from.left, y: to.top - from.top };

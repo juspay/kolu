@@ -19,7 +19,7 @@
 import { activeArm } from "@kolu/padi-client/surface";
 import type { TerminalMetadata } from "@kolu/padi-client/surface";
 import type { TerminalId } from "kolu-common/surface";
-import { type Accessor, createMemo } from "solid-js";
+import { type Accessor, createMemo, untrack } from "solid-js";
 import { createDraggable, createDroppable, useDragDropScope } from "../../dnd";
 import type { ParentEdge } from "../../terminal/terminalTree";
 import { useTerminalStore } from "../../terminal/useTerminalStore";
@@ -70,7 +70,7 @@ export function dockDropContext(store: {
  *  themselves and the repo card's header — so "would this drop be accepted" is
  *  asked once and painted identically wherever it is asked. */
 export function useDockDropVerdict(
-  target: DockDropTarget,
+  target: Accessor<DockDropTarget>,
   isActiveTarget: Accessor<boolean>,
 ): Accessor<"over" | "invalid" | undefined> {
   const scope = useDragDropScope();
@@ -82,22 +82,26 @@ export function useDockDropVerdict(
     // A cluster drag hovering this target is not this target's business: the
     // verdict is about ROW drops.
     if (dragged === null) return undefined;
-    return dropHighlightOf(drop, dragged, target);
+    return dropHighlightOf(drop, dragged, target());
   });
 }
 
 /** One desktop dock row's drag sockets.
  *
- *  `id` is a REGISTRATION id, not a reactive input: the drag scope registers it
- *  for the calling owner's lifetime and a row cannot change which terminal it
- *  is (every caller renders from a `<For>` keyed on that id), so callers read
- *  it once rather than passing an accessor. */
-export function useDockRowDrag(id: TerminalId): DockRowDrag {
+ *  `id` is an ACCESSOR, read inside this hook's own derivations: the hover
+ *  verdict and the live gate below follow it, so a caller hands the row's id
+ *  straight through without reading it in its component body. The one read
+ *  that cannot follow is the dnd-kit registration — a registered draggable
+ *  keeps the id it was created with for this owner's lifetime — so that one
+ *  samples the accessor, which is exact: every caller renders from a `<For>`
+ *  keyed on this id, so an instance IS its terminal. */
+export function useDockRowDrag(id: Accessor<TerminalId>): DockRowDrag {
   const store = useTerminalStore();
-  const draggable = createDraggable(rowDragId(id));
-  const droppable = createDroppable(rowDragId(id));
+  const dragId = rowDragId(untrack(id));
+  const draggable = createDraggable(dragId);
+  const droppable = createDroppable(dragId);
   const drop = useDockDropVerdict(
-    { kind: "row", id },
+    () => ({ kind: "row", id: id() }),
     droppable.isActiveDroppable,
   );
   // A row whose terminal is SLEEPING is neither draggable nor a drop target:
@@ -115,7 +119,7 @@ export function useDockRowDrag(id: TerminalId): DockRowDrag {
       droppable.ref(el);
     },
     get handle() {
-      return isLive(id) ? draggable.handleRef : undefined;
+      return isLive(id()) ? draggable.handleRef : undefined;
     },
     get drop() {
       return drop();

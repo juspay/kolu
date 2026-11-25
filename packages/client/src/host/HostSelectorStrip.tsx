@@ -329,7 +329,7 @@ const HostChip: Component<{
  *  first, is not draggable, and — not being a droppable — nothing can land
  *  before it. */
 const SortableHostChip: Component<{ hostKey: string }> = (props) => {
-  const sortable = createSortable(props.hostKey);
+  const sortable = createSortable(() => props.hostKey);
   // `props.hostKey` is this chip's identity for its whole lifetime (the row's
   // `<For>` is keyed by the encoded string), so the host decodes exactly once —
   // the referential stability `HostChip`'s per-host lenses rest on.
