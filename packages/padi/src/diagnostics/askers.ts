@@ -5,7 +5,8 @@
  *
  * A Conductor work is named by its BRANCH: padi cannot see a work id (it stops
  * at kolu-server), and a work is keyed `(host, repo, branch)`, so the
- * `pullRequest` stream's branch identifies it without widening the wire.
+ * `pullRequest` and `branchCheckout` streams' branch identifies it without
+ * widening the wire.
  */
 
 export const askerLabel = {
@@ -19,4 +20,7 @@ export const askerLabel = {
   /** A branch's pull-request watch — how a Conductor work follows its PR. */
   pullRequestStream: (branch: string): string =>
     `stream pullRequest (branch ${branch})`,
+  /** A branch's checkout watch — how a Conductor work follows its folder. */
+  branchCheckoutStream: (branch: string): string =>
+    `stream branchCheckout (branch ${branch})`,
 } as const;

@@ -185,7 +185,9 @@ describe("padiSurface contract", () => {
     // emitted value: a minor.
     // 7.12 ADDS `settled` to the `urgency` value, decoding to `true` when an
     // older padi omits it — a field on an emitted value: a minor.
-    expect(PADI_SURFACE_VERSION).toBe("7.12");
+    // 7.13 ADDS the `branchCheckout` stream — where a branch is checked out,
+    // asked by repository and branch: a member added, a minor.
+    expect(PADI_SURFACE_VERSION).toBe("7.13");
     expect(DEFAULT_PADI_VERSION.contractVersion).toBe(PADI_SURFACE_VERSION);
     expect(
       Schema.decodeUnknownSync(PadiVersionSchema)(DEFAULT_PADI_VERSION),
@@ -265,6 +267,8 @@ describe("padiSurface contract", () => {
       "subscribeFileChange",
       // 7.4: the pull request of a BRANCH, for the work that is that branch.
       "pullRequest",
+      // 7.13: where a BRANCH is checked out, for the work that is that branch.
+      "branchCheckout",
       "terminalAttach",
     ]);
     expect(Object.keys(spec.events ?? {})).toEqual(["terminalExit"]);
@@ -471,6 +475,8 @@ describe("padiSurface contract", () => {
     // every frame is the WHOLE current reading of one branch's pull request, so
     // a rebind that replays the last one is telling the truth.
     expect(PADI_FORWARDING_POLICY.pullRequest).toBe("value");
+    // The 7.13 `branchCheckout` stream is value for the same reason.
+    expect(PADI_FORWARDING_POLICY.branchCheckout).toBe("value");
   });
 
   it("the terminals value carries the active | sleeping | parked union", () => {

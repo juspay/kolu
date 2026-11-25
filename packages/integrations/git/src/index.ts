@@ -5,6 +5,12 @@
 
 // Name generation
 export { randomName } from "memorable-names";
+// Where a branch is checked out — asked once, or followed
+export {
+  branchCheckout,
+  branchCheckoutEqual,
+  subscribeBranchCheckout,
+} from "./branch-checkout.ts";
 // File tree browsing
 export {
   listAll,
@@ -42,6 +48,7 @@ export { subscribeFileChange, subscribeRepoChange } from "./repo-change.ts";
 export {
   gitInfoEqual,
   hasGitDir,
+  repositoryRootOf,
   resolveGitInfo,
   subscribeGitInfo,
 } from "./resolve.ts";
@@ -59,6 +66,8 @@ export {
 // git operation). The `FsReadFileOutput` schema it feeds stays below.
 // Schemas
 export {
+  type BranchCheckout,
+  BranchCheckoutSchema,
   FsListAllInputSchema,
   type FsListAllOutput,
   FsListAllOutputSchema,
