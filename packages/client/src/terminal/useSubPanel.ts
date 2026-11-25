@@ -184,6 +184,15 @@ export function useSubPanel() {
     };
   }
 
+  /** Reader half of `expandPanel` — the tile's current saved split is the
+   *  read, so a split ARRIVING on the metadata stream (an effect) can open
+   *  the tile. */
+  const planExpandPanel = (parentId: TerminalId): (() => void) =>
+    planSaveSplit(parentId, { collapsed: false });
+
+  const planCollapsePanelChrome = (parentId: TerminalId): (() => void) =>
+    planSaveSplit(parentId, { collapsed: true });
+
   function planSelectSubTab(
     parentId: TerminalId,
     subId: TerminalId | null,
@@ -263,14 +272,9 @@ export function useSubPanel() {
      *  opens to show it — a real change of what the user is looking at, so it
      *  is saved. It takes no focus; `expandAndFocusPanel` is the gesture. */
     expandPanel(parentId: TerminalId) {
-      saveSplit(parentId, { collapsed: false });
+      planExpandPanel(parentId)();
     },
-    /** Reader half of `expandPanel` — the tile's current saved split is the
-     *  read, so a split ARRIVING on the metadata stream (an effect) can open
-     *  the tile. */
-    planExpandPanel(parentId: TerminalId) {
-      return planSaveSplit(parentId, { collapsed: false });
-    },
+    planExpandPanel,
 
     /** User-driven expansion: open the split and focus its visible active
      *  split. External split adoption uses the chrome-only `expandPanel` so an
@@ -282,11 +286,9 @@ export function useSubPanel() {
 
     /** Collapse with no focus move — the tab strip's own shut button. */
     collapsePanelChrome(parentId: TerminalId) {
-      saveSplit(parentId, { collapsed: true });
+      planCollapsePanelChrome(parentId)();
     },
-    planCollapsePanelChrome(parentId: TerminalId) {
-      return planSaveSplit(parentId, { collapsed: true });
-    },
+    planCollapsePanelChrome,
 
     collapsePanel(parentId: TerminalId) {
       planCollapsePanel(parentId)();
