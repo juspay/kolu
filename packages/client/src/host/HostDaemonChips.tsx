@@ -9,11 +9,11 @@
  *  memory, and update detail live in the Tip / dialogs. */
 
 import type { EntryState } from "@kolu/surface-map";
-import { type HostKey, hostKeysEqual as sameHost } from "kolu-common/hostKey";
+import type { HostKey } from "kolu-common/hostKey";
 import type { PadiLink, ProcessRss } from "kolu-common/surface";
 import type { SkewVersionPair } from "kolu-common/surfacesWithPadi";
-import type { Component, Setter } from "solid-js";
-import { createEffect, createMemo, createSignal, Show } from "solid-js";
+import type { Component } from "solid-js";
+import { createMemo, Show } from "solid-js";
 import { match, P } from "ts-pattern";
 import {
   DAEMON_UNKNOWN_LABEL,
@@ -47,7 +47,8 @@ import {
 import { joinTip } from "../ui/joinTip";
 import { formatMiB } from "@kolu/byte-units";
 import Tip from "../ui/Tip";
-import { activeHost, padiMap, setActiveHost } from "../wire";
+import { padiMap } from "../wire";
+import { useDaemonMarkOpen } from "./daemonMarkOpen.ts";
 import { hostGlance, hostLabel, KAVAL_CHAIN_UNKNOWN } from "./hostChipTone";
 import { useHostKaval } from "./useHostKaval";
 
@@ -171,47 +172,6 @@ const KavalMark: Component<{
     </Show>
   </IdentityMark>
 );
-
-/** The ONE open/switch seam for a daemon mark: opens the info panel for this
- *  host, switching the canvas to it first when it isn't already active (a
- *  no-op-close toggle only when it already is). Both sub-chips share this so the
- *  switch-first rule — opening an inactive host's panel makes the dialog's
- *  active-host-scoped detail rows describe that host — lives in exactly one
- *  documented place, not duplicated verbatim per mark. */
-function useDaemonMarkOpen(host: HostKey): {
-  open: () => boolean;
-  setOpen: Setter<boolean>;
-  openForHost: () => void;
-} {
-  const [open, setOpen] = createSignal(false);
-  const openForHost = (): void => {
-    const alreadyActive = sameHost(activeHost(), host);
-    if (!alreadyActive) setActiveHost(host);
-    setOpen((v) => (alreadyActive ? !v : true));
-  };
-  // The dialog's active-host-scoped rows (memory, running-daemon inventory,
-  // convergence, kaval restart) ride the switch-first contract: opening SWITCHES
-  // the canvas to `host`, so those rows describe it. But the active host can
-  // later move OFF `host` while the panel stays open WITHOUT an outside click —
-  // wire.ts's `hostReconcileTarget` auto-switches to LOCAL when `host` silently
-  // departs the pool, and that path never triggers useAnchoredPopover's
-  // outside-click/Escape dismiss. Left open, the panel would blend this host's
-  // props-scoped status with another host's active-host rows (and restart would
-  // recycle the newly-active host). Close it, so a shown panel always describes
-  // the current active host — never a stale cross-host mix.
-  // The rule is a STANDING one — an open panel describes the active host — so
-  // the compute reads BOTH facts and the effect fires on either moving. The
-  // write stays in the apply arm, where a write belongs; it converges in one
-  // extra run, because closing makes the compute false. Closing an
-  // already-closed panel is an equal-value write, which notifies nobody.
-  createEffect(
-    () => open() && !sameHost(activeHost(), host),
-    (stale) => {
-      if (stale) setOpen(false);
-    },
-  );
-  return { open, setOpen, openForHost };
-}
 
 /** The Padi sub-chip for one host — icon + that host's entry-state dot.
  *  Click switches to that host, then opens the complete info panel. */
