@@ -193,19 +193,11 @@ const LivePane: Component<{
     { equals: (a, b) => (a && b ? sameGrid(a, b) : a === b) },
   );
   const hostState = () => padiMap.entry(decodeHostKey(props.host)).state().kind;
-  /** THE HOST'S STATE AS THE PANE'S COMPUTE LAST READ IT. The publisher asks
-   *  for it where no reactive read may happen — from the pane's effect phase
-   *  (`republishSuppressed`, through `paneSize.observe`) and from the settle
-   *  timer, long after the pane left the call stack — so the compute below,
-   *  which depends on it, is the one reader and hands the word over here. It
-   *  cannot go stale: every change of it re-runs that effect, which writes
-   *  this before it lets the publisher do anything. */
-  let hostStateSeen = untrack(hostState);
   /** The pane's own publisher: the tile's settle and host-down latch, aimed at
    *  `lifecycle.resize` on the terminal's own host. */
   const publisher = createGridPublisher({
     terminalId: props.id,
-    hostState: () => hostStateSeen,
+    hostState,
     ptyLive: lookable,
     resize: (g) =>
       padiRpcOf(decodeHostKey(props.host)).lifecycle.resize({
@@ -234,7 +226,6 @@ const LivePane: Component<{
       hostState: hostState(),
     }),
     ({ connected, desktop, asked: grid, hostState: host }) => {
-      hostStateSeen = host;
       paneSize.observe({ connected, desktop, asked: grid, hostState: host });
     },
   );
