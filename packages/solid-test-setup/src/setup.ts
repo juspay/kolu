@@ -16,9 +16,27 @@
  *      a write in an owned scope, a cleanup in a forbidden scope, any code —
  *      is collected, and the test's `afterEach` throws with all of them. The
  *      check names no codes, so a new one is covered the day Solid adds it.
+ *   3. **The attribution tier is switched on too.** 19 of Solid's codes — the
+ *      feedback family, `EFFECT_WRITES_OWN_SOURCE` among them — are raised by
+ *      the attribution ENGINE, which the plain development build leaves
+ *      uninstalled: without `attribution.enable()` those codes cannot fire at
+ *      all, whatever the test does. A dev server installs it through
+ *      `@solidjs/web`'s performance tracks
+ *      (`enablePerformanceTracks` → `attribution.enable({ log: false,
+ *      checks: false })`), and `@solidjs/vite-plugin` injects that only for
+ *      `vite serve` — so under vitest the engine is this file's to hold open.
+ *      Enabled with the dev server's OWN options, and for the whole worker:
+ *      no per-run console log, and the six cost checks (`hotRuns`, `hotTime`,
+ *      `wideDeps`, `unstableMemos`, `fanOut`, `wastedRecompute`) off, since
+ *      their thresholds judge a running app's timings and would fail tests on
+ *      the machine's speed. The feedback checks — own-source writes, relay
+ *      tears, cycles — are not cost checks and stay on. Its diagnostics reach
+ *      the collector below unchanged: the engine emits on the SAME
+ *      `OBSERVE.diagnostics` channel.
  */
 
 import { type DiagnosticEvent, OBSERVE } from "solid-js";
+import { attribution } from "solid-js/attribution";
 import { afterEach } from "vitest";
 
 if (OBSERVE === undefined) {
@@ -28,6 +46,11 @@ if (OBSERVE === undefined) {
       "load @solidjs/vite-plugin in this vitest config and give the project a DOM environment.",
   );
 }
+
+// Held for the lifetime of the test worker — every test in the file gets the
+// attribution tier, and nothing has to remember to enable it. The release
+// handle is deliberately dropped: the worker exits with the engine installed.
+attribution.enable({ log: false, checks: false });
 
 /** One diagnostic, with the stack at the moment Solid raised it: `ownerPath`
  *  names the owner, the stack names the line in the code under test. */
