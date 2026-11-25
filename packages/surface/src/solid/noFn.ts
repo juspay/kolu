@@ -12,7 +12,9 @@
  * 2.0.3 type entry forwards `NotWrappable`, `Store`, `StoreSetter` and the rest
  * of the store types from `@solidjs/signals`, but not `NoFn`, and
  * `@solidjs/signals` is not a direct dependency of any kolu package — the whole
- * repo reaches Solid through `solid-js`.
+ * repo reaches Solid through `solid-js`. solidjs/solid#5199 exports it from
+ * `solid-js`; once a release carries it, this alias and its suppression go and
+ * the consumers import Solid's own.
  *
  * ONE definition, in the lowest package that both halves of the repo already
  * depend on: `@kolu/surface` (every Solid consumer, `kolu-client` included,
