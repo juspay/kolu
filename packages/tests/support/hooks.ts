@@ -1605,17 +1605,30 @@ Before(
     this.errors = [];
     this.solidDiagnostics = [];
     const check = solidDevCheck;
-    if (check) {
-      const collect = (where: string, text: string) => {
-        if (check.isDiagnostic(text)) this.solidDiagnostics.push(where + text);
-      };
-      this.page.on("console", (message) => collect("", message.text()));
-      this.context.on("page", (opened) => {
-        opened.on("console", (message) =>
-          collect(`${opened.url()}: `, message.text()),
-        );
-      });
-    }
+    // What one document reports, labelled by where it came from:
+    //   - everything it throws, and
+    //   - ON A DEV-RUNTIME SERVER, every console line that is a Solid dev
+    //     diagnostic or warning, matched against the strings that server's own
+    //     bundle was built from; the last After hook fails the scenario on the
+    //     first.
+    const watch = (target: Page, where: () => string) => {
+      target.on("pageerror", (err) => this.errors.push(where() + err.message));
+      if (check) {
+        target.on("console", (message) => {
+          const text = message.text();
+          if (check.isDiagnostic(text)) {
+            this.solidDiagnostics.push(where() + text);
+          }
+        });
+      }
+    };
+    watch(this.page, () => "");
+    // A WINDOW THE PAGE OPENS (the reader popped out) is a document of its
+    // own, and what it reports is this scenario's too — named by where it came
+    // from, so it reads apart from the main page's.
+    this.context.on("page", (opened) =>
+      watch(opened, () => `${opened.url()}: `),
+    );
 
     // KOLU_X11CAP: start grabbing the Xvfb framebuffer now. x11grab runs off its
     // own 30 fps clock independent of Chrome's paint speed, so the recording is
