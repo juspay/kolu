@@ -21,7 +21,7 @@ function rig() {
       host: "local",
       repo: "/repo",
       branch: "csv",
-      repoBy: "git",
+      repoBy: { kind: "git" },
     },
     title: "csv",
     request: { kind: "none" },

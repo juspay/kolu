@@ -55,7 +55,7 @@ const KEY = {
   host: "local",
   repo: "/repo",
   branch: "solid-2-switch",
-  repoBy: "git",
+  repoBy: { kind: "git" },
 } as const;
 const ID = workIdOf(KEY);
 

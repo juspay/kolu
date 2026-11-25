@@ -690,7 +690,7 @@ export function parseWorkKey(
               host,
               repo: reading.root,
               branch,
-              repoBy: "git",
+              repoBy: { kind: "git" },
             });
           case "not-a-repository":
             return Effect.fail(

@@ -115,6 +115,23 @@ export type OfferedSetupKey = typeof OfferedSetupKeySchema.Type;
 export const isKoluChoiceKey = (key: SetupKey): key is KoluChoiceKey =>
   (KOLU_CHOICE_KEYS as ReadonlyArray<string>).includes(key);
 
+/** WHO SAID WHAT A BRANCH KEY'S `repo` IS.
+ *
+ *  - `git`: `repo` is git's own root for the repository on the key's host, as
+ *    that host answered it when the key was parsed or re-keyed — so two
+ *    spellings of one repository are one key. The only arm a parsed key has.
+ *  - `as-written`: a key stored before kolu asked git; `repo` is what a
+ *    caller typed, and git has not been asked. Nothing new produces one.
+ *  - `held`: git answered `root`, but the id for that root belongs to
+ *    another work, so this one keeps its old key (and id) until the holder
+ *    leaves the list. Nothing new produces one either. */
+export const RepoBySchema = Schema.Union([
+  Schema.Struct({ kind: Schema.Literal("git") }),
+  Schema.Struct({ kind: Schema.Literal("as-written") }),
+  Schema.Struct({ kind: Schema.Literal("held"), root: Schema.NonEmptyString }),
+]);
+export type RepoBy = typeof RepoBySchema.Type;
+
 /** WHAT A PIECE OF WORK IS — a branch on a machine, or a terminal somebody
  *  asked kolu to keep an eye on.
  *
@@ -126,16 +143,13 @@ export const WorkKeySchema = Schema.Union([
     kind: Schema.Literal("branch"),
     /** The fleet host ref the work runs on (`local`, `remote:<target>`). */
     host: Schema.String.check(Schema.isMinLength(1)),
-    /** The repository's root on that host — `repoBy` says who named it. */
+    /** The repository on that host — git's root, unless `repoBy` says
+     *  otherwise. */
     repo: Schema.String.check(Schema.isMinLength(1)),
     branch: Schema.String.check(Schema.isMinLength(1)),
-    /** WHO SAID `repo` IS THE ROOT. `git`: it is git's own root for the
-     *  repository on `host`, as that host answered it when the key was
-     *  parsed or re-keyed — so two spellings of one repository are one key.
-     *  `as-written`: a key stored before kolu asked git, whose `repo` is what
-     *  a caller typed; nothing new produces one, and the host's first answer
-     *  turns it into `git`. {@link workIdOf} does not read it. */
-    repoBy: Schema.Literals(["git", "as-written"]),
+    /** Who said what `repo` is ({@link RepoBySchema}). {@link workIdOf}
+     *  does not read it. */
+    repoBy: RepoBySchema,
   }),
   Schema.Struct({
     kind: Schema.Literal("watch"),
@@ -148,14 +162,31 @@ export const WorkKeySchema = Schema.Union([
 ]);
 export type WorkKey = typeof WorkKeySchema.Type;
 
+/** A branch key, by name. */
+export type BranchKey = Extract<WorkKey, { readonly kind: "branch" }>;
+
 /** A KEY THAT HAS BEEN PARSED — a watch of a terminal the host holds, or a
  *  branch whose repository git named. What the store opens a work for: a
  *  key a caller typed, unparsed, cannot reach it. */
 export type ParsedWorkKey =
   | Extract<WorkKey, { readonly kind: "watch" }>
-  | (Extract<WorkKey, { readonly kind: "branch" }> & {
-      readonly repoBy: "git";
-    });
+  | (BranchKey & { readonly repoBy: { readonly kind: "git" } });
+
+/** THE REPOSITORY'S ROOT, as git said it for this key — `repo` for a `git`
+ *  key, the root it is held from for a `held` one, and none for an
+ *  `as-written` key, whose root git has not said. Total. */
+export const rootOf = (key: BranchKey): Option.Option<string> => {
+  switch (key.repoBy.kind) {
+    case "git":
+      return Option.some(key.repo);
+    case "held":
+      return Option.some(key.repoBy.root);
+    case "as-written":
+      return Option.none();
+    default:
+      return key.repoBy satisfies never;
+  }
+};
 
 /** A work's identity as ONE string — the key of the `works` map, of the wire
  *  collection, and of a member's `work` field. Always {@link workIdOf} of a

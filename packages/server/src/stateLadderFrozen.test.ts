@@ -47,7 +47,7 @@ const KEYS: ReadonlyArray<WorkKey_1_53_0> = [
  *  host and id as two fields, split at the ref's LAST `/`. The bytes of the
  *  id are the same — that is what this pins. */
 const liveKey = (key: WorkKey_1_53_0): WorkKey => {
-  if (key.kind === "branch") return { ...key, repoBy: "as-written" };
+  if (key.kind === "branch") return { ...key, repoBy: { kind: "as-written" } };
   const cut = key.terminal.lastIndexOf("/");
   return {
     kind: "watch",

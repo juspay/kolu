@@ -41,7 +41,7 @@ describe("a work's chip", () => {
           host: "local",
           repo: "/srv/code/tidepool/",
           branch: "feat/csv-export",
-          repoBy: "git",
+          repoBy: { kind: "git" },
         },
         "Add CSV export",
       ),

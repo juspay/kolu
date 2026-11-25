@@ -91,7 +91,7 @@ const KEY: Extract<WorkKey, { kind: "branch" }> = {
   host: "remote:naiveintent",
   repo: "/home/me/code/kolu",
   branch: "agent-distro-update-errors",
-  repoBy: "git",
+  repoBy: { kind: "git" },
 };
 const ID = workIdOf(KEY);
 
@@ -194,14 +194,14 @@ describe("a work IS its key", () => {
       host: "remote:naiveintent",
       repo: "/home/me/code",
       branch: "kolu/agent-distro-update-errors",
-      repoBy: "git",
+      repoBy: { kind: "git" },
     };
     expect(workIdOf(sneaky)).not.toBe(ID);
     expect(got(workIdParts(workIdOf(sneaky)))).toEqual(partsOf(sneaky));
   });
 
   it("does not read who named the repository", () => {
-    expect(workIdOf({ ...KEY, repoBy: "as-written" })).toBe(ID);
+    expect(workIdOf({ ...KEY, repoBy: { kind: "as-written" } })).toBe(ID);
   });
 
   it("encodes a watch as its terminal's ref — the bytes a stored one has", () => {
@@ -238,7 +238,11 @@ describe("a work IS its key", () => {
               host,
               repo: `/${word()}`,
               branch: word(),
-              repoBy: among(["git", "as-written"] as const),
+              repoBy: among([
+                { kind: "git" },
+                { kind: "as-written" },
+                { kind: "held", root: "/elsewhere" },
+              ] as const),
             };
       expect(got(workIdParts(workIdOf(key))), `seed ${seed}`).toEqual(
         partsOf(key),

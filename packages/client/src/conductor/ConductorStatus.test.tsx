@@ -47,7 +47,7 @@ const work = (branch: string, title: string): WorkRow => [
       host: "local",
       repo: "/code/kolu",
       branch,
-      repoBy: "git",
+      repoBy: { kind: "git" },
     },
     title,
     events: [],

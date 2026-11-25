@@ -18,7 +18,7 @@ const KEY: WorkKey = {
   host: "local",
   repo: "/repo",
   branch: "solid-2-switch",
-  repoBy: "git",
+  repoBy: { kind: "git" },
 };
 
 const standingIn = (

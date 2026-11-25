@@ -112,7 +112,7 @@ const workOpen = (
           host: "local",
           repo: "/r",
           branch: "b",
-          repoBy: "git",
+          repoBy: { kind: "git" },
         },
         title: "walk",
         at: at(step),

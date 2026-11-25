@@ -124,14 +124,14 @@ const KEY = {
   host: "local",
   repo: "/srv/repo",
   branch: "fix-the-parser",
-  repoBy: "git",
+  repoBy: { kind: "git" },
 } as const satisfies WorkKey;
 const OTHER_KEY = {
   kind: "branch",
   host: "remote:prod",
   repo: "/srv/repo",
   branch: "last-week",
-  repoBy: "git",
+  repoBy: { kind: "git" },
 } as const satisfies WorkKey;
 
 /** The version this file's ladder pin names. A literal, deliberately: a pin

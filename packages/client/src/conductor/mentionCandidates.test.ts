@@ -77,7 +77,7 @@ const work = (title: string, at: string): Work =>
       host: "local",
       repo: "/r",
       branch: title,
-      repoBy: "git",
+      repoBy: { kind: "git" },
     },
     title,
     at,

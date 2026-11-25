@@ -86,7 +86,7 @@ const work = (branch: string, title: string): Work => ({
     host: "local",
     repo: "/srv/repo",
     branch,
-    repoBy: "git",
+    repoBy: { kind: "git" },
   },
   title,
   events: [],

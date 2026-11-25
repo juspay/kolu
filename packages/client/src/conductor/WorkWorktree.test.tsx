@@ -38,7 +38,7 @@ const work = (worktree: Work["worktree"]): Work => ({
     host: "local",
     repo: REPO,
     branch: "feat/csv-export",
-    repoBy: "git",
+    repoBy: { kind: "git" },
   },
   title: "Add CSV export",
   events: [],

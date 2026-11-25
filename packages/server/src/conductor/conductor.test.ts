@@ -2515,7 +2515,7 @@ const workKey = (branch = "fix-the-parser", host = "local"): ParsedWorkKey => ({
   host,
   repo: "/srv/repo",
   branch,
-  repoBy: "git",
+  repoBy: { kind: "git" },
 });
 
 /** A piece of work as a previous kolu-server left it on disk. */

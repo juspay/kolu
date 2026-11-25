@@ -39,7 +39,7 @@ const record = (title: string): Work =>
       host: "local",
       repo: "/r",
       branch: title,
-      repoBy: "git",
+      repoBy: { kind: "git" },
     },
     title,
     at: "2026-11-16T12:00:00.000Z",

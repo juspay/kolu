@@ -43,7 +43,7 @@ const staged = (): Work => {
       host: "local",
       repo: "/r",
       branch: "waits",
-      repoBy: "git",
+      repoBy: { kind: "git" },
     },
     title: "A work that waited",
     at: at(0),

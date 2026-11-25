@@ -2384,7 +2384,7 @@ const splitWatch_1_68_0 = (
  *     (`workDirOf(id)`) still match;
  *  4. a watch whose `terminal` cannot be split never named a terminal: it is
  *     removed, with its members and its Code view;
- *  6. every branch key gains `repoBy: "as-written"` — its `repo` is what a
+ *  6. every branch key gains `repoBy: { kind: "as-written" }` — its `repo` is what a
  *     caller typed, and the host's first answer re-keys it to git's root.
  *
  *  A value it does not know is walked past unchanged, and each key is
@@ -2416,7 +2416,7 @@ export function workFactsAreTheWorks_1_68_0(store: Conf<PersistedState>): void {
         }
         nextKey = { kind: "watch", host: split.host, id: split.id };
       } else if (key.kind === "branch" && !("repoBy" in key)) {
-        nextKey = { ...key, repoBy: "as-written" };
+        nextKey = { ...key, repoBy: { kind: "as-written" } };
       }
       if (nextKey === work.key && recordOf(work.worktree)?.kind === "unread") {
         next[id] = value;

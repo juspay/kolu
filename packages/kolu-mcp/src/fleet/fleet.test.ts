@@ -721,7 +721,7 @@ function fakeWorks(): FleetWorks & {
       host: "local",
       repo: "/repo",
       branch: "work",
-      repoBy: "git",
+      repoBy: { kind: "git" },
     },
     host: "local",
     mode: Option.some("full"),
@@ -2387,7 +2387,7 @@ describe("the conductor's pieces of work", () => {
             host: "local",
             repo: "/repo",
             branch: "work",
-            repoBy: "git",
+            repoBy: { kind: "git" },
           },
           host: "local",
           mode: { kind: "answered", value: "full" },
@@ -2879,7 +2879,7 @@ describe("the key `work_open` names, parsed at the door", () => {
           host: "local",
           repo: "/repo",
           branch: "work",
-          repoBy: "git",
+          repoBy: { kind: "git" },
         },
       });
       ids.add(JSON.stringify(parsed));

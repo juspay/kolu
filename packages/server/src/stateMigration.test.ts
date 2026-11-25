@@ -981,7 +981,7 @@ describe("the 1.53.0 rung — three cards for one branch become one piece of wor
         host: "remote:host-d",
         repo: "/home/person/code/odu",
         branch: "docs-human-reading",
-        repoBy: "git",
+        repoBy: { kind: "git" },
       }),
     );
     const work = works[id] as Record<string, unknown>;

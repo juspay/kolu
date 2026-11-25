@@ -29,7 +29,7 @@ const KEY = {
   host: "local",
   repo: "/srv/repo",
   branch: "fix-the-parser",
-  repoBy: "git",
+  repoBy: { kind: "git" },
 } as const;
 const ID: WorkId = workIdOf(KEY);
 

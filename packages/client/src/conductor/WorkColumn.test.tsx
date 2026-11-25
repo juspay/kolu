@@ -53,7 +53,7 @@ const opened = (): Work =>
       host: "local",
       repo: "/r",
       branch: "welcome",
-      repoBy: "git",
+      repoBy: { kind: "git" },
     },
     title: "Something in flight",
     at: "2026-11-16T01:00:00.000Z",

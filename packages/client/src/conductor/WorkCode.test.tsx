@@ -138,7 +138,7 @@ const workOn = (worktree: Work["worktree"]): Work => ({
     host: "remote:build-box",
     repo: "/srv/code/kestrel",
     branch: "feat/export",
-    repoBy: "git",
+    repoBy: { kind: "git" },
   },
   title: "Export the ledger",
   events: [],

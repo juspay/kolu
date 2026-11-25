@@ -69,7 +69,7 @@ function rig() {
         host: "local",
         repo: "/srv/code/kestrel",
         branch,
-        repoBy: "git",
+        repoBy: { kind: "git" },
       },
       title: branch,
       request: { kind: "none" },

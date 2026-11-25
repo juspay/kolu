@@ -32,7 +32,7 @@ const BRANCH_WORK = work({
   host: "local",
   repo: "/srv/code/tidepool",
   branch: "feat/csv-export",
-  repoBy: "git",
+  repoBy: { kind: "git" },
 });
 
 /** The same work, with #412 on its timeline. */

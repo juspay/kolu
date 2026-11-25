@@ -87,7 +87,7 @@ const BRANCH_WORK = {
     host: "local",
     repo: "/srv/repo",
     branch: "fix",
-    repoBy: "git",
+    repoBy: { kind: "git" },
   },
 } as Work;
 
