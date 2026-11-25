@@ -45,6 +45,7 @@ import { agentDistroFixtureEnv } from "./agentDistroFixture.ts";
 import { AGENT_DIR_VARS, FAKE_BIN_NAMES } from "./agentHarnessLists.ts";
 import { stageFakeGh } from "./fake-gh.ts";
 import { waitForPadiCell } from "./padiCellWait.ts";
+import { watchContextPages } from "./pageWatch.ts";
 import { pollFor } from "./poll.ts";
 import { stageRenamedBash } from "./renamed-bash.ts";
 import {
@@ -1534,26 +1535,6 @@ Before(
     this.solidDiagnosticFooters = [];
     this.solidDiagnosticEvents = [];
     const check = solidDevCheck;
-    // What one document reports, labelled by where it came from:
-    //   - everything it throws, and
-    //   - ON A DEV-RUNTIME SERVER, every console line that is a Solid dev
-    //     diagnostic or warning, matched against the strings that server's own
-    //     bundle was built from; the last After hook fails the scenario on the
-    //     first. A diagnostic's FOOTER is kept apart from a plain warning: the
-    //     channel already reports the finding behind it, so the verdict would
-    //     otherwise count it twice.
-    const watch = (target: Page, where: () => string) => {
-      target.on("pageerror", (err) => this.errors.push(where() + err.message));
-      if (check) {
-        target.on("console", (message) => {
-          const text = message.text();
-          if (check.isFooter(text))
-            this.solidDiagnosticFooters.push(where() + text);
-          else if (check.isDiagnostic(text))
-            this.solidDiagnostics.push(where() + text);
-        });
-      }
-    };
     // WHAT THE CONSOLE CANNOT SAY, FROM THE CHANNEL ITSELF, INSTALLED BEFORE
     // THE PAGE EXISTS. On a dev-runtime server the client hands its `OBSERVE`
     // to the page (`client/src/solidDiagnosticsExpose.ts`, development
@@ -1570,12 +1551,22 @@ Before(
       touchViewport,
       deviceScaleFactor,
       async (context) => {
-        // A WINDOW THE PAGE OPENS (the reader popped out) is a document of its
-        // own, and what it reports is this scenario's too — named by where it
-        // came from, so it reads apart from the main page's.
-        context.on("page", (opened) =>
-          watch(opened, () => `${opened.url()}: `),
-        );
+        // Everything any document of this scenario throws, and on a
+        // dev-runtime server every console line that is a Solid dev
+        // diagnostic or warning. ONE subscription for all of them — the
+        // scenario's own page included, since Playwright emits `page` for
+        // `newPage()` too — each line named by where it came from
+        // (see `pageWatch.ts`).
+        watchContextPages({
+          context,
+          scenarioPage: () => this.page,
+          check,
+          reports: {
+            errors: this.errors,
+            diagnostics: this.solidDiagnostics,
+            footers: this.solidDiagnosticFooters,
+          },
+        });
         if (!check) return;
         await context.exposeBinding(
           SOLID_DIAGNOSTIC_BINDING,
@@ -1592,7 +1583,6 @@ Before(
     );
     this.context = created.context;
     this.page = created.page;
-    watch(this.page, () => "");
     // Disable CSS transitions/animations so Corvu dialogs open/close instantly.
     // prefers-reduced-motion tells well-behaved libraries to skip animations;
     // the style override catches anything that ignores the media query. SKIPPED
