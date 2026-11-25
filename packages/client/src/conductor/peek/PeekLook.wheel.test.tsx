@@ -19,14 +19,12 @@
 // the output that arrives next?
 //
 // The window is opened BOTH WAYS, because the two paths reach corvu's
-// prevent-scroll at different times. Opened while the dialog is already
-// mounted — the app's own path — corvu's `createPresence` USED TO never reach
-// `present`, so prevent-scroll put NOTHING on the shared document; corvu-next
-// `e988d8b1` is exactly that fix, and at this pin both paths arm it. So both
-// cases assert the non-passive document `wheel` listener is there: measured on
-// the old pin `bfa68fea`, this file's first case saw 0 of them after opening a
-// mounted dialog. Mounted already open, presence starts `present`. The lock must
-// engage in both, with that listener in the way.
+// prevent-scroll at different times: opened while the dialog is already
+// mounted (the app's own path), presence must catch the show edge to reach
+// `present`; mounted already open, it starts `present`. Both cases assert the
+// non-passive document `wheel` listener is there, so a presence that misses the
+// edge (prevent-scroll arming nothing on the document) fails the first case.
+// The lock must engage in both, with that listener in the way.
 //
 // The `vi.mock` factories import inside themselves because vitest hoists them
 // above this file's own imports (the same idiom as `PeekTerminal.test.tsx`).
