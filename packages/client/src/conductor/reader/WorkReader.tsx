@@ -311,10 +311,9 @@ const WorkReader: Component<{
                   the waiting line comes back for it. A boundary born with its
                   subject has shown nothing yet, so the read that subject
                   starts is its to hold whoever starts it — the one mechanism
-                  kolu arms these boundaries with (`WorkChoiceQuestion`),
-                  where a re-arm (`on`) misses a subject settled by an
-                  effect's write in the same flush. The tabs and the questions
-                  beside it are not held waiting for the read.
+                  kolu arms these boundaries with (`WorkChoiceQuestion`). The
+                  tabs and the questions beside it are not held waiting for the
+                  read.
                   A source that changes under the SAME path (a work ending
                   while the reader is open) keeps the text on screen until the
                   kept copy lands.

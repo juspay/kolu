@@ -557,23 +557,14 @@ const WorkChoiceQuestion: Component<{
           so the models of the harness they left must never sit under the new
           one's name — the question is built again and says it is asking.
 
-          KEYED on the subject, which is how both of kolu's "a new subject
-          must not hold the page" boundaries are armed (`WorkReader`). A
-          boundary BORN with its subject has shown nothing yet, so the first
-          read that subject starts is its to hold, whoever starts it. A
-          boundary re-armed with `on` only covers the
-          subject changes that reach it before the read does: here the
-          subject is settled by the seeding of what this person chose last
-          time, which is an EFFECT's write in the mount's own flush — by then
-          this boundary has already shown the "choose the harness first" line,
-          so it is no longer collecting and forwards the host read to the
-          root — the runtime says so itself with
-          ASYNC_OUTSIDE_LOADING_BOUNDARY, "the root mount will be deferred".
-          That is where the runtime differs from the documented contract for
-          `Loading`'s `on` (`solid-js`, `types/client/flow.d.ts`), which reads
-          as if re-arming on a changed `on` value covered the next read. The
-          whole page would wait on the host with nothing on the question to
-          say so.
+          KEYED on the subject, as `WorkReader`'s frame is. A boundary BORN
+          with its subject has shown nothing yet, so the first read that
+          subject starts is its to hold, whoever starts it — including the
+          seeding of what this person chose last time, an effect's write in
+          the mount's own flush. The host read itself lives in `Asked`, under
+          this boundary: a read of the same data outside it would hold the
+          whole frame, so the fallback could never show (Solid warns
+          LOADING_ON_OUTSIDE_HOLD).
 
           The rest of the form stays unheld either way — the harness chip
           reads as pressed at once, rather than after a host answers. */}
