@@ -50,7 +50,6 @@ const DEV_FILES = {
     JSON.stringify({
       marker: MARKER,
       warnings: [WARNING],
-      dists: { "solid-js": 1, "@solidjs/web": 1, "@solidjs/signals": 1 },
     }),
   ],
 } satisfies Record<string, [string, string]>;

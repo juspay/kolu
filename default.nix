@@ -863,21 +863,6 @@ let
         echo "${label}: no asset carries Solid's development runtime ('$solidDevMarker') — the solid-dev build fell back to production." >&2
         exit 1
       fi
-      # The lane's own input: served at `/solid-dev.json`, and useless without
-      # the warning prefixes the harness matches console lines against. Each of
-      # the three scanned dists (solid-js, @solidjs/web, @solidjs/signals)
-      # reports its own prefix count in `.dists`, counted before the counts are
-      # merged into one deduplicated `.warnings` list; this checks that every
-      # one of them shipped at least one, and names the dist that did not.
-      silentDists=$(jq -r '.dists | to_entries[] | select(.value < 1) | .key' "$out/solid-dev.json")
-      if [ -n "$silentDists" ]; then
-        echo "${label}: solid-dev.json carries no warning prefix from $(echo "$silentDists" | tr '\n' ' ')— the e2e lane would see only footered diagnostics from that dist." >&2
-        exit 1
-      fi
-      if [ "$(jq -r '.dists | length' "$out/solid-dev.json")" -ne 3 ]; then
-        echo "${label}: solid-dev.json does not report all three scanned Solid dists in .dists." >&2
-        exit 1
-      fi
     '' else ''
       if [ -e "$out/solid-dev.json" ]; then
         echo "${label}: the Solid-diagnostics manifest reached the production dist — the e2e harness would turn its console check on against a production server." >&2

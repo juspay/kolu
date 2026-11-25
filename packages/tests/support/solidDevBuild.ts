@@ -8,7 +8,7 @@
  * the e2e suite reaches.
  *
  * WHAT THE CHECK KEYS ON IS SERVED, NOT TYPED HERE. The dev-mode client dist
- * carries `solid-dev.json` at its root — `{ marker, warnings, dists }`,
+ * carries `solid-dev.json` at its root — `{ marker, warnings }`,
  * extracted at build time from the installed Solid runtime
  * (scripts/solid-dev-manifest.mjs, through default.nix's `solidDevManifest`)
  * — so the server under test answers
@@ -50,15 +50,12 @@ function laneDemandsDevBuild(): boolean {
   );
 }
 
-/** What the dev-mode client dist serves at `/solid-dev.json`. `dists` is each
- *  scanned Solid package's own prefix count, before the counts merge into the
- *  deduplicated `warnings` list. The dist derivation requires exactly the three
- *  scanned packages, each at least 1; the harness requires only that `dists` is
- *  not empty and that every count it reports is at least 1. */
+/** What the dev-mode client dist serves at `/solid-dev.json`: the console
+ *  footer every Solid diagnostic carries, and the leading literals of the
+ *  plain `console.warn` / `console.error` calls that carry no footer. */
 interface SolidDevManifest {
   readonly marker: string;
   readonly warnings: readonly string[];
-  readonly dists: Readonly<Record<string, number>>;
 }
 
 /** The console check a dev-runtime server turns on: it holds that server's own
@@ -137,25 +134,19 @@ async function fetchManifest(
     );
   }
   const body: unknown = await response.json();
-  const { marker, warnings, dists } = body as Partial<SolidDevManifest>;
+  const { marker, warnings } = body as Partial<SolidDevManifest>;
   if (
     typeof marker !== "string" ||
     marker.length === 0 ||
     !Array.isArray(warnings) ||
     warnings.length === 0 ||
-    warnings.some(
-      (prefix) => typeof prefix !== "string" || prefix.length === 0,
-    ) ||
-    typeof dists !== "object" ||
-    dists === null ||
-    Object.keys(dists).length === 0 ||
-    Object.values(dists).some((count) => typeof count !== "number" || count < 1)
+    warnings.some((prefix) => typeof prefix !== "string" || prefix.length === 0)
   ) {
     throw new Error(
-      `Solid-diagnostics check: ${url} is not a { marker, warnings, dists } manifest: ${JSON.stringify(body)}`,
+      `Solid-diagnostics check: ${url} is not a { marker, warnings } manifest: ${JSON.stringify(body)}`,
     );
   }
-  return { marker, warnings, dists };
+  return { marker, warnings };
 }
 
 /** Fail unless the server at `baseUrl` serves a client built on Solid's

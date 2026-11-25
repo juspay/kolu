@@ -9,8 +9,7 @@
  *
  *     {
  *       "marker": "<console footer text>",
- *       "warnings": ["<prefix>", …],
- *       "dists": { "<package>": <how many prefixes it contributes>, … }
+ *       "warnings": ["<prefix>", …]
  *     }
  *
  * which `default.nix` checks both client dists against (`mkClientDist`) and
@@ -191,7 +190,9 @@ const marker = extractMarker();
 const prefixes = new Set();
 /** How many prefixes each dist contributes, counted BEFORE deduplication
  *  against the other dists — a dist's own figure, so one package losing its
- *  warnings shows up here even when another still carries the same string. */
+ *  warnings shows up here even when another still carries the same string.
+ *  Reported in the build log; the manifest itself carries only the merged
+ *  `warnings` list. */
 const distCounts = {};
 for (const dist of dists) {
   const own = warningsOf(dist);
@@ -207,10 +208,7 @@ for (const dist of dists) {
 }
 const warnings = [...prefixes].sort();
 
-writeFileSync(
-  outFile,
-  `${JSON.stringify({ marker, warnings, dists: distCounts }, null, 2)}\n`,
-);
+writeFileSync(outFile, `${JSON.stringify({ marker, warnings }, null, 2)}\n`);
 console.log(
   `solid-dev-manifest: marker ${JSON.stringify(marker)}, ${warnings.length} warning prefixes ` +
     `(${Object.entries(distCounts)
