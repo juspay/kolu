@@ -154,10 +154,17 @@ const LivePane: Component<{
       ? peekPans(peekNatural(g, c, p).width, availWidth())
       : false;
   };
-  const fontSize = () => {
+  /** THE FONT THE SCREEN DRAWS AT, FOR A GIVEN PAD — Fit width's answer at the
+   *  pane's base cell, else the base font.
+   *
+   *  The pad is an ARGUMENT, not a read: `onCell` below judges this with the
+   *  pad it has just been handed, and a Solid 2 signal write is staged until
+   *  the flush, so reading `pad()` there would answer with the pad BEFORE the
+   *  report — latching the base cell against a measurement it was not taken
+   *  at. */
+  const fontSizeFor = (p: PeekPad | null): number => {
     const g = grid();
     const c = baseCell();
-    const p = pad();
     return fitWidth() && g && c && p && availWidth() > 0
       ? fitFontSize({
           cols: g.cols,
@@ -168,6 +175,7 @@ const LivePane: Component<{
         })
       : DEFAULT_FONT_SIZE;
   };
+  const fontSize = () => fontSizeFor(pad());
   const background = () => {
     const s = standing();
     return (
@@ -343,7 +351,7 @@ const LivePane: Component<{
                 onCell={(c, p) => {
                   setCell(c);
                   setPad(p);
-                  if (fontSize() === DEFAULT_FONT_SIZE) setBaseCell(c);
+                  if (fontSizeFor(p) === DEFAULT_FONT_SIZE) setBaseCell(c);
                 }}
                 onPhase={setPhase}
                 onHeld={setHeld}

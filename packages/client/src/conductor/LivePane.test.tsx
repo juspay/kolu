@@ -22,12 +22,21 @@ import { render } from "@solidjs/web";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { FleetTerminalStanding } from "../palette/fleetTerminals";
 import { Shown } from "../ui/shown";
+import { DEFAULT_FONT_SIZE } from "terminal-themes";
+import { fitFontSize } from "./peek/peekSize";
 
 const ID = "11111111-1111-4111-8111-111111111111" as TerminalId;
 
 const seam = vi.hoisted(() => ({
   /** The size the stand-in screen says it is drawn at. */
   drawn: { cols: 80, rows: 24 } as { cols: number; rows: number },
+  /** Report another cell measurement, as the screen does on every render. */
+  report: undefined as
+    | ((
+        c: { width: number; height: number },
+        p: { x: number; y: number },
+      ) => void)
+    | undefined,
 }));
 
 const [standing, setStanding] = createSignal<FleetTerminalStanding>({
@@ -50,6 +59,7 @@ vi.mock("./peek/PeekTerminal", async () => {
   const { onSettled } = await import("solid-js");
   return {
     default: (props: {
+      fontSize: number;
       onGrid: (g: TerminalGrid) => void;
       onCell: (
         c: { width: number; height: number },
@@ -57,12 +67,14 @@ vi.mock("./peek/PeekTerminal", async () => {
       ) => void;
       onPhase: (p: "live") => void;
     }) => {
+      seam.report = (c, p) => props.onCell(c, p);
       onSettled(() => {
         props.onCell({ width: 8.4, height: 17 }, { x: 26, y: 12 });
         props.onGrid(seam.drawn);
         props.onPhase("live");
       });
-      return <div data-testid="live-screen" />;
+      // The font the pane hands the screen, where a test can read it back.
+      return <div data-testid="live-screen" data-font={props.fontSize} />;
     },
   };
 });
@@ -160,5 +172,39 @@ describe("the Resize to fit offer", () => {
     vi.advanceTimersByTime(SETTLE * 2);
     flush();
     expect(press(el)).not.toBeNull();
+  });
+});
+
+/** The font the pane handed its screen, as the stand-in drew it. */
+const fontOf = (el: HTMLElement): string | null =>
+  el.querySelector('[data-testid="live-screen"]')?.getAttribute("data-font") ??
+  null;
+
+describe("the base cell the pane sizes from", () => {
+  it("keeps the base cell when a report is drawn at a shrunken font", () => {
+    seam.drawn = OLD;
+    setStanding(recordAt(OLD));
+    const el = mount();
+    flush();
+    // The first report is the base one: nothing is shrinking 80 columns of
+    // an 8.4px cell inside 1374px of body.
+    expect(fontOf(el)).toBe(String(DEFAULT_FONT_SIZE));
+
+    // The screen reports a smaller cell inside far more padding. At THAT pad
+    // Fit width is drawing below the base font, so the cell is not the base
+    // one and must not be latched as it — the pane keeps sizing from 8.4.
+    seam.report?.({ width: 7, height: 14 }, { x: 1000, y: 12 });
+    flush();
+    expect(fontOf(el)).toBe(
+      String(
+        fitFontSize({
+          cols: OLD.cols,
+          cellWidth: 8.4,
+          fontSize: DEFAULT_FONT_SIZE,
+          availWidth: 1374,
+          padX: 1000,
+        }),
+      ),
+    );
   });
 });
