@@ -12,7 +12,6 @@ import { Option } from "effect";
 import type { WorkId } from "kolu-work";
 import type { Logger } from "pino";
 import { describe, expect, it } from "vitest";
-import { memberStore } from "./memberStore.ts";
 import { observing } from "./observing.ts";
 import type { RecordWrites } from "./recordWrites.ts";
 import { workCodeViewStore } from "./workCodeViewStore.ts";
@@ -28,7 +27,6 @@ const records = <K extends string>(): RecordWrites<K> => ({
 function rig() {
   const published: Array<{ id: WorkId; pr: PrResult | null }> = [];
   const log = { warn: () => {}, error: () => {} } as unknown as Logger;
-  const members = memberStore();
   const works = workStore({
     workFiles: {
       list: async () => ({ paths: [], more: false }),
@@ -44,7 +42,6 @@ function rig() {
     ended: () => {},
     noTerminals: () => {},
     records: records<"works" | "members">(),
-    members,
     views: workCodeViewStore({
       records: records<"workCodeViews">(),
       publish: () => {},
@@ -53,7 +50,7 @@ function rig() {
   });
   const watch = observing({
     store: works,
-    members,
+    members: works.members,
     workFiles: {
       list: async () => ({ paths: [], more: false }),
       keep: async () => ({ kept: [], tooBig: [] }),

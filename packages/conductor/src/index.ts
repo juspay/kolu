@@ -55,7 +55,7 @@ export {
   startConductorHost,
   type WaterfallStart,
 } from "./conductor.ts";
-export { type MemberStore, memberStore } from "./memberStore.ts";
+export type { MemberStore } from "./memberStore.ts";
 export {
   joinedMember,
   joinedWatch,

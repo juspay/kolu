@@ -51,6 +51,7 @@ import {
   type Outcome,
   openAsks,
   openWork,
+  parseStore,
   reopenWork,
   type RequestWords,
   settleWorktree,
@@ -61,6 +62,7 @@ import {
   type WorkMember,
   type WorkRole,
   WorkRefusal,
+  type WorkStoreValue,
   workIdOf,
   workKeyOf,
 } from "kolu-work";
@@ -72,6 +74,8 @@ import {
   joined as joinedMember,
   type Member,
   type MemberStore,
+  memberView,
+  restoredAll,
 } from "./memberStore.ts";
 import type { PrWatch } from "./observation.ts";
 import type {
@@ -120,6 +124,9 @@ export interface Opened {
 }
 
 export interface WorkStore {
+  /** THE MEMBERS, as the other half of the store's one value: read here,
+   *  and every write parsed with the works before it is assigned. */
+  readonly members: MemberStore;
   /** The boot read: the remembered works, the members that go with them, and
    *  where each work's Code view stood. */
   readonly load: (
@@ -283,7 +290,6 @@ export interface WorkStoreDeps {
    *  Conductor is told (never "gone, so I ended it"). */
   readonly noTerminals: (id: WorkId, work: Work) => void;
   readonly records: RecordWrites<"works" | "members">;
-  readonly members: MemberStore;
   /** Where each work's Code view stands — kept exactly as long as its work,
    *  by the store's one rule for a work going (`forgetGone`). */
   readonly views: WorkCodeViewStore;
@@ -291,7 +297,39 @@ export interface WorkStoreDeps {
 }
 
 export const workStore = (deps: WorkStoreDeps): WorkStore => {
-  const works = new Map<WorkId, Work>();
+  /** THE WORKS AND THEIR MEMBERS, AS ONE VALUE — replaced whole, and only by
+   *  {@link commit}, which parses it first. A next value that breaks one of
+   *  the store's rules (`kolu-work`'s `parseStore`) is a thrown defect and is
+   *  never assigned: a transition that forgets an ordering is found at the
+   *  write that made it, not at the next boot's recovery screen. */
+  let value: WorkStoreValue<Member> = parseStore(new Map(), new Map());
+  const commit = (
+    works: ReadonlyMap<WorkId, Work>,
+    members: ReadonlyMap<string, Member>,
+  ): void => {
+    value = parseStore(works, members);
+  };
+  /** One work written back, the members as they stand. */
+  const setWork = (id: WorkId, work: Work): void => {
+    const next = new Map(value.works);
+    next.set(id, work);
+    commit(next, value.members);
+  };
+  /** The works as they are, minus `gone`, and every member of each with
+   *  them — in the one commit, so no member outlives its work. */
+  const dropWorks = (gone: ReadonlyArray<WorkId>): void => {
+    if (gone.length === 0) return;
+    const dropped = new Set(gone);
+    commit(
+      new Map([...value.works].filter(([id]) => !dropped.has(id))),
+      new Map([...value.members].filter(([, one]) => !dropped.has(one.work))),
+    );
+  };
+  /** The members' face onto the same value. */
+  const members = memberView(
+    () => value.members,
+    (next) => commit(value.works, next),
+  );
   const publishedWorks = new Map<WorkId, Work>();
   const publishedMembers = new Map<string, WorkMember>();
   const publishedReadings = new Map<string, MemberReading>();
@@ -303,13 +341,15 @@ export const workStore = (deps: WorkStoreDeps): WorkStore => {
   const samePr = Schema.toEquivalence(PrResultSchema);
   const nowIso = (): string => new Date().toISOString();
 
-  const everyWork = (): ReadonlyArray<readonly [WorkId, Work]> => [...works];
+  const everyWork = (): ReadonlyArray<readonly [WorkId, Work]> => [
+    ...value.works,
+  ];
 
   /** THE LIVE PRs, PUBLISHED — after dropping every one whose work is no
    *  longer an open branch work, so an ended work's mark goes with it. */
   const publishPrs = (): void => {
     for (const id of [...livePrs.keys()]) {
-      const work = works.get(id);
+      const work = value.works.get(id);
       if (work?.state.kind !== "open" || work.key.kind !== "branch")
         livePrs.delete(id);
     }
@@ -319,14 +359,14 @@ export const workStore = (deps: WorkStoreDeps): WorkStore => {
   const publishWorks = (): void => {
     publishMoved(
       publishedWorks,
-      works,
+      value.works,
       (was, now) => was === now,
       deps.publishWork,
     );
     publishMoved(
       publishedMembers,
       new Map(
-        [...deps.members.all()].map(([ref, one]) => [
+        [...members.all()].map(([ref, one]) => [
           ref,
           {
             work: one.work,
@@ -348,7 +388,7 @@ export const workStore = (deps: WorkStoreDeps): WorkStore => {
   const publishReadings = (): void => {
     publishMoved(
       publishedReadings,
-      deps.members.readings(),
+      members.readings(),
       sameReading,
       deps.publishReading,
     );
@@ -361,7 +401,7 @@ export const workStore = (deps: WorkStoreDeps): WorkStore => {
   /** NO VIEW WITHOUT ITS WORK — the half of the rule that lets a view go.
    *  Every place the works are replaced or lose one asks it. */
   const viewsKeepTheirWorks = (): void =>
-    deps.views.keepOnly(new Set(works.keys()));
+    deps.views.keepOnly(new Set(value.works.keys()));
 
   /** THE RULE FOR EVERY WAY A WORK GOES — the finished cap, a declined card,
    *  a restored backup that lacks it: what it left behind goes too. Its kept
@@ -370,7 +410,7 @@ export const workStore = (deps: WorkStoreDeps): WorkStore => {
   const forgetGone = (): void => {
     viewsKeepTheirWorks();
     void deps.workFiles
-      .sweep([...works.keys()].map(workDirOf))
+      .sweep([...value.works.keys()].map(workDirOf))
       .catch((err: unknown) => {
         deps.log.warn(
           { err },
@@ -386,7 +426,7 @@ export const workStore = (deps: WorkStoreDeps): WorkStore => {
   const membersWorktree = (
     id: WorkId,
   ): Option.Option<{ host: string; path: string }> => {
-    for (const [ref, member] of deps.members.ofWork(id)) {
+    for (const [ref, member] of members.ofWork(id)) {
       const host = splitFleetTerminalRef(ref)?.host;
       if (member.worktree.kind === "read" && host !== undefined)
         return Option.some({ host, path: member.worktree.path });
@@ -397,11 +437,11 @@ export const workStore = (deps: WorkStoreDeps): WorkStore => {
   /** The work takes the rule's answer when it has one that differs. Answers
    *  whether it moved. */
   const settle = (id: WorkId): boolean => {
-    const work = works.get(id);
+    const work = value.works.get(id);
     if (work === undefined || work.state.kind !== "open") return false;
     const settled = settleWorktree(work, membersWorktree(id));
     if (settled === work) return false;
-    works.set(id, settled);
+    setWork(id, settled);
     return true;
   };
 
@@ -419,7 +459,7 @@ export const workStore = (deps: WorkStoreDeps): WorkStore => {
     id: WorkId,
     at: Option.Option<{ host: string; worktree: string }>,
   ): Promise<void> => {
-    const ending = works.get(id);
+    const ending = value.works.get(id);
     if (ending === undefined || ending.state.kind !== "ended") return;
     const paths = new Set(filesSeen(ending));
     let more = false;
@@ -435,7 +475,7 @@ export const workStore = (deps: WorkStoreDeps): WorkStore => {
         );
       }
     }
-    const ended = works.get(id);
+    const ended = value.works.get(id);
     if (ended !== undefined && Option.isSome(at) && paths.size > 0) {
       try {
         const done = await deps.workFiles.keep({
@@ -444,7 +484,7 @@ export const workStore = (deps: WorkStoreDeps): WorkStore => {
           paths: [...paths],
         });
         const kept = keepFiles(ended, { files: done.kept, at: nowIso() });
-        works.set(
+        setWork(
           id,
           Option.match(notKeptWhy({ tooBig: done.tooBig, more }), {
             onNone: () => kept,
@@ -452,34 +492,43 @@ export const workStore = (deps: WorkStoreDeps): WorkStore => {
           }),
         );
       } catch (err) {
-        works.set(id, keepFailed(ended, sentenceOf(err), nowIso()));
+        setWork(id, keepFailed(ended, sentenceOf(err), nowIso()));
       }
     }
-    for (const [dropped] of capFinished(everyWork(), FINISHED_KEPT).dropped)
-      works.delete(dropped);
+    dropWorks(
+      capFinished(everyWork(), FINISHED_KEPT).dropped.map(
+        ([dropped]) => dropped,
+      ),
+    );
     forgetGone();
     changed();
     deps.records.now("works");
   };
 
   /** WRITE A WORK BACK — and close it out when this is the change that ended
-   *  it. The members go WITH the ending, in this one step: that is what makes
-   *  "a finished work has no terminals" true rather than checked. */
+   *  it. The members go WITH the ending, in this one commit: that is what
+   *  makes "a finished work has no terminals" true rather than checked. */
   const save = (id: WorkId, work: Work): void => {
-    const before = works.get(id);
-    works.set(id, work);
-    if (before === undefined || before.state.kind !== "open") return;
-    if (work.state.kind !== "ended") return;
+    const before = value.works.get(id);
+    if (before?.state.kind !== "open" || work.state.kind !== "ended") {
+      setWork(id, work);
+      return;
+    }
     const at = worktreeOf(work);
-    const dropped = deps.members.dropWork(id);
     // THE QUESTIONS GO WITH IT — the one edge where a question stops being
     // answerable, because the work it is about is over. Recorded HERE rather
-    // than handed back to the module that asks: the ending and the dropping
-    // are one write by the one writer, so nothing re-enters this function
-    // while the work is half-ended.
+    // than handed back to the module that asks: the ending, the dropping and
+    // the members leaving are one write by the one writer, so nothing
+    // re-enters this function while the work is half-ended.
     const asks = dropOpenAsks(id, work, nowIso());
+    const nextWorks = new Map(value.works);
+    nextWorks.set(id, asks.work);
+    const nextMembers = new Map(
+      [...value.members].filter(([, one]) => one.work !== id),
+    );
+    const dropped = value.members.size - nextMembers.size;
+    commit(nextWorks, nextMembers);
     if (asks.settled.length > 0) {
-      works.set(id, asks.work);
       changed();
       deps.ended(asks.settled);
     }
@@ -488,7 +537,7 @@ export const workStore = (deps: WorkStoreDeps): WorkStore => {
     // left with the ending. Said whether or not there were any to lose:
     // a work whose PR was merged after its terminals were already closed is
     // the case this round exists for, and the scope moved all the same.
-    if (dropped.length > 0) deps.records.schedule("members");
+    if (dropped > 0) deps.records.schedule("members");
     deps.worksMoved();
     deps.watchScopeMoved();
     void closeOut(id, at);
@@ -496,15 +545,15 @@ export const workStore = (deps: WorkStoreDeps): WorkStore => {
 
   /** The work a terminal is a member of, if it is one. */
   const at = (ref: string): MemberAt | undefined => {
-    const member = deps.members.at(ref);
+    const member = members.at(ref);
     if (member === undefined) return undefined;
-    const work = works.get(member.work);
+    const work = value.works.get(member.work);
     if (work === undefined || work.state.kind !== "open") return undefined;
     return { id: member.work, work, member };
   };
 
   const openAt = (id: WorkId): Work => {
-    const work = works.get(id);
+    const work = value.works.get(id);
     if (work === undefined) {
       throw new WorkRefusal(
         "unknown-work",
@@ -521,8 +570,8 @@ export const workStore = (deps: WorkStoreDeps): WorkStore => {
   };
 
   const activeRefs = (): ReadonlyArray<string> =>
-    [...deps.members.all()]
-      .filter(([, one]) => works.get(one.work)?.state.kind === "open")
+    [...members.all()]
+      .filter(([, one]) => value.works.get(one.work)?.state.kind === "open")
       .map(([ref]) => ref);
 
   /** THE SCOPE OF PR OBSERVATION, and the only statement of it: the branches
@@ -541,7 +590,7 @@ export const workStore = (deps: WorkStoreDeps): WorkStore => {
    *  record. */
   const prWatches = (): ReadonlyArray<PrWatch> => {
     const watches: PrWatch[] = [];
-    for (const [id, work] of works) {
+    for (const [id, work] of value.works) {
       if (work.state.kind !== "open") continue;
       const key = workKeyOf(id);
       // An id that is no work key at all cannot be watched, and neither can a
@@ -559,15 +608,15 @@ export const workStore = (deps: WorkStoreDeps): WorkStore => {
 
   /** THE LAST TERMINAL WENT — said once, and never as an ending. */
   const emptied = (id: WorkId): void => {
-    const work = works.get(id);
+    const work = value.works.get(id);
     if (work === undefined || work.state.kind !== "open") return;
-    if (deps.members.ofWork(id).length > 0) return;
+    if (members.ofWork(id).length > 0) return;
     deps.noTerminals(id, work);
   };
 
   const leave = (ref: string, why: "closed" | "released" | "gone"): void => {
     const found = at(ref);
-    deps.members.forget(ref);
+    members.forget(ref);
     deps.records.schedule("members");
     deps.worksMoved();
     deps.watchScopeMoved();
@@ -584,8 +633,9 @@ export const workStore = (deps: WorkStoreDeps): WorkStore => {
   };
 
   return {
+    members,
     all: everyWork,
-    get: (id) => Option.fromUndefinedOr(works.get(id)),
+    get: (id) => Option.fromUndefinedOr(value.works.get(id)),
     at,
     openAt,
     leave,
@@ -595,13 +645,13 @@ export const workStore = (deps: WorkStoreDeps): WorkStore => {
     publishWorks,
     publishReadings,
     prRead: (id, reading) => {
-      const work = works.get(id);
+      const work = value.works.get(id);
       if (work?.state.kind !== "open" || work.key.kind !== "branch") return;
       livePrs.set(id, reading);
       publishPrs();
     },
     setCodeView: (id, view) => {
-      if (!works.has(id)) {
+      if (!value.works.has(id)) {
         throw new WorkRefusal(
           "unknown-work",
           `kolu holds no piece of work called ${JSON.stringify(id)}, so there is no Code view of it to keep — it may have ended and dropped off the finished list, or been declined.`,
@@ -611,13 +661,13 @@ export const workStore = (deps: WorkStoreDeps): WorkStore => {
     },
     memberRefs: activeRefs,
     prWatches,
-    persisted: () => Object.fromEntries(works),
+    persisted: () => Object.fromEntries(value.works),
     read: () => [...inProgress(everyWork()), ...finished(everyWork())],
     openAsks: () =>
       inProgress(everyWork()).flatMap(([, work]) => openAsks(work)),
     openFor: ({ key, title, request }) => {
       const id = workIdOf(key);
-      const held = works.get(id);
+      const held = value.works.get(id);
       if (held !== undefined) {
         // THE SAME WORK, AS IT STANDS. An ended one comes back open, decisions
         // and timeline whole; an open one is handed back untouched, and the
@@ -625,7 +675,7 @@ export const workStore = (deps: WorkStoreDeps): WorkStore => {
         if (held.state.kind === "open")
           return { id, work: held, created: false, reopened: false };
         const again = reopenWork(held, nowIso());
-        works.set(id, again);
+        setWork(id, again);
         changed();
         // A WORK IN PROGRESS AGAIN: it has no members (the ending took them),
         // and its branch's pull request is watched from now on — so the watch
@@ -635,7 +685,7 @@ export const workStore = (deps: WorkStoreDeps): WorkStore => {
         return { id, work: again, created: false, reopened: true };
       }
       const work = openWork({ key, title, at: nowIso(), request });
-      works.set(id, work);
+      setWork(id, work);
       changed();
       // ... and the same for a work that has just come into being: it has no
       // members yet, and its PR is watched before it ever gets one.
@@ -654,23 +704,23 @@ export const workStore = (deps: WorkStoreDeps): WorkStore => {
       return stopped;
     },
     reopen: (id) => {
-      const work = works.get(id);
+      const work = value.works.get(id);
       if (work === undefined) return openAt(id);
       const again = reopenWork(work, nowIso());
-      works.set(id, again);
+      setWork(id, again);
       changed();
       deps.worksMoved();
       deps.watchScopeMoved();
       return again;
     },
     endWith: (id, outcome) => {
-      const work = works.get(id);
+      const work = value.works.get(id);
       if (work === undefined || work.state.kind !== "open") return;
       save(id, endWork(work, { outcome, at: nowIso() }));
       changed();
     },
     declined: (id) => {
-      const work = works.get(id);
+      const work = value.works.get(id);
       if (work === undefined) return false;
       // NOTHING HAS HAPPENED IN IT: no terminal ever joined, and no pull
       // request was ever seen. A work like that is not an ENDING anybody
@@ -679,8 +729,7 @@ export const workStore = (deps: WorkStoreDeps): WorkStore => {
         (one) => one.kind === "joined" || one.kind === "pr-opened",
       );
       if (happened) return false;
-      works.delete(id);
-      deps.members.dropWork(id);
+      dropWorks([id]);
       changed();
       forgetGone();
       deps.records.now("works");
@@ -689,18 +738,15 @@ export const workStore = (deps: WorkStoreDeps): WorkStore => {
       deps.watchScopeMoved();
       return true;
     },
-    load: (kept, members, views) => {
-      for (const [id, work] of Object.entries(kept)) works.set(id, work);
-      deps.members.load(members);
+    load: (kept, held, views) => {
+      commit(new Map(Object.entries(kept)), restoredAll(held));
       deps.views.load(views);
       // A view whose work the file no longer holds has nothing to stand in.
       viewsKeepTheirWorks();
     },
-    restore: (kept, members, views) => {
-      const before = [...deps.members.all().keys()];
-      works.clear();
-      for (const [id, work] of Object.entries(kept)) works.set(id, work);
-      deps.members.load(members);
+    restore: (kept, held, views) => {
+      const before = [...members.all().keys()];
+      commit(new Map(Object.entries(kept)), restoredAll(held));
       deps.views.restore(views);
       publishWorks();
       publishReadings();
@@ -719,8 +765,8 @@ export const workStore = (deps: WorkStoreDeps): WorkStore => {
       return before.filter((ref) => !still.has(ref));
     },
     membersDetail: () =>
-      [...deps.members.all()]
-        .filter(([, one]) => works.get(one.work)?.state.kind === "open")
+      [...members.all()]
+        .filter(([, one]) => value.works.get(one.work)?.state.kind === "open")
         .map(([ref, one]) => ({
           ref,
           work: one.work,
@@ -731,14 +777,14 @@ export const workStore = (deps: WorkStoreDeps): WorkStore => {
         })),
     join: (id, ref, role, how) => {
       const work = openAt(id);
-      const already = deps.members.at(ref);
+      const already = members.at(ref);
       // A TERMINAL ALREADY IN THIS WORK KEEPS THE ROLE IT WAS GIVEN FIRST, and
       // keeps what kolu already knows about it.
       if (already?.work === id) return;
       // ONE PLANNER, ONE IMPLEMENTOR. Refused rather than written: a store
       // with two is one `parseStore` would not read back, and the caller is
       // owed the sentence that says which terminal already has the part.
-      const taken = deps.members.inRole(id, role);
+      const taken = members.inRole(id, role);
       if (taken !== undefined && role !== "other") {
         throw new WorkRefusal(
           "role-taken",
@@ -750,8 +796,11 @@ export const workStore = (deps: WorkStoreDeps): WorkStore => {
       // claiming the same agent.
       if (already !== undefined) leave(ref, "released");
       const at = nowIso();
-      save(id, joinWork(works.get(id) ?? work, { terminal: ref, role, at }));
-      deps.members.set(
+      save(
+        id,
+        joinWork(value.works.get(id) ?? work, { terminal: ref, role, at }),
+      );
+      members.set(
         ref,
         joinedMember(
           { work: id, role, joinedAt: at, worktree: { kind: "unread" } },

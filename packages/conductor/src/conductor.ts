@@ -209,7 +209,6 @@ import { aboutBlock } from "./aboutBlock.ts";
 import { asking } from "./asking.ts";
 import { attachments } from "./attachments.ts";
 import { Fleet, koluCallOf, refineKoluCall } from "./kolu.ts";
-import { memberStore } from "./memberStore.ts";
 import type { WatchJoin } from "./members.ts";
 import type { PrWatch, WatchObservation } from "./observation.ts";
 import { observing } from "./observing.ts";
@@ -1310,8 +1309,6 @@ export function startConductorHost(deps: ConductorDeps): ConductorHost {
 
   // ── the hands ──────────────────────────────────────────────────────────
 
-  const members = memberStore();
-
   const codeViews = workCodeViewStore({
     records,
     publish: publishWorkCodeView,
@@ -1345,10 +1342,11 @@ export function startConductorHost(deps: ConductorDeps): ConductorHost {
       void wake.flush();
     },
     records,
-    members,
     views: codeViews,
     log,
   });
+  /** The members, as the other half of the works' one value. */
+  const members = works.members;
 
   const spool = attachments({
     stateRoot,
