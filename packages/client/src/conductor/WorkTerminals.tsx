@@ -70,15 +70,14 @@ const MemberRow: Component<{
     props.one.standing?.kind === "here" ? props.one.split : null;
   const runs = () => memberRuns(props.work, props.one);
   /** WHERE IT STANDS against the work's key, in words — only when it is
-   *  somewhere else. */
-  const elsewhere = () =>
-    placeWords(
-      memberPlace(
-        props.work.key,
-        props.one.split?.host ?? "",
-        props.one.standing,
-      ),
-    );
+   *  somewhere else. A terminal this browser cannot read stands nowhere it
+   *  can say. */
+  const elsewhere = () => {
+    const split = props.one.split;
+    return split === null
+      ? null
+      : placeWords(memberPlace(props.work.key, split.host, props.one.standing));
+  };
   /** Its standing and the words for it, read together, or `null` for a
    *  terminal this browser cannot read. */
   const status = createMemo(() => {

@@ -48,7 +48,6 @@ import { CommentComposer } from "../../comments/CommentComposer";
 import { CommentView, createCommentView } from "../../comments/commentView";
 import { formatMarkdown } from "../../comments/formatMarkdown";
 import { commentsFor } from "../../comments/useComments";
-import type { CommentQueue } from "../../comments/types";
 import BrowseFileDispatcher from "../../code-view/BrowseFileDispatcher";
 import { rightPanelCodeDoor } from "../../right-panel/openInCodeTab";
 import { useColorScheme } from "../../settings/useColorScheme";
@@ -115,9 +114,9 @@ const WorkReader: Component<{
     return workFileSource(props.target.work, one, members());
   });
 
-  /** The terminal a comment is anchored against, and whose host serves the
-   *  bytes. A kept file has none: kolu holds the bytes, not the tree they
-   *  were written in. */
+  /** Where the bytes are served from: the work's worktree on its host, and
+   *  the terminal a picture is fetched through, if any. A kept file has
+   *  none: kolu holds the bytes, not the tree they were written in. */
   const at = createMemo(() => source()?.at ?? null);
 
   /** Where a link in the document opens: the Right panel's Code tab, through
@@ -146,12 +145,10 @@ const WorkReader: Component<{
    *  nothing to anchor a comment to once the worktree is gone. */
   const queue = createMemo(() => source()?.comments ?? null);
   /** THE COMMENTS THAT WILL GO WITH AN ANSWER — the ones on this file in
-   *  that queue. */
-  const commentsAt = commentsFor(
-    (): CommentQueue => ({ kind: "work", id: props.target.work }),
-  );
-  const comments = createMemo(() =>
-    queue() === null ? [] : commentsAt().commentsForPath(props.target.path),
+   *  that queue, and none without one. */
+  const commentsAt = commentsFor(queue);
+  const comments = createMemo(
+    () => commentsAt()?.commentsForPath(props.target.path) ?? [],
   );
 
   /** THE OPEN QUESTIONS ABOUT THIS WORK — every ask the record still has

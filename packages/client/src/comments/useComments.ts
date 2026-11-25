@@ -97,20 +97,6 @@ function storeFor(queue: CommentQueue) {
   return wrapped;
 }
 
-/** Drop the in-memory store wrapper for a queue whose owner has gone. The
- *  `makePersisted` storage entry stays — comments survive the owner coming
- *  back under the same id (e.g. session restore). Bounds the in-memory Map;
- *  without it, every `useComments(queue)` call leaves a Map entry that lives
- *  for the page session.
- *
- *  NOTE: not yet wired to terminal deletion — the comments feature
- *  doesn't own the terminal lifecycle. The Map entries are tiny (a few
- *  function closures each) and the realistic upper bound is the number of
- *  queues opened in one session, which is small. */
-export function releaseQueue(queue: CommentQueue): void {
-  storesByKey.delete(commentStorageName(queue));
-}
-
 /** API the rest of the client uses. Pass the queue at the consumer site —
  *  there's no global ambient context. */
 export function useComments(queue: CommentQueue) {
@@ -140,11 +126,24 @@ export function useComments(queue: CommentQueue) {
   };
 }
 
-/** Initialize on identity changes before exposing a read-only reactive lookup. */
-export function commentsFor(queue: Accessor<CommentQueue>) {
+type Comments = ReturnType<typeof useComments>;
+
+/** Initialize on identity changes before exposing a read-only reactive
+ *  lookup. A queue that may be none (a kept file has nothing to anchor a
+ *  comment to) reads as none. */
+export function commentsFor(queue: Accessor<CommentQueue>): () => Comments;
+export function commentsFor(
+  queue: Accessor<CommentQueue | null>,
+): () => Comments | null;
+export function commentsFor(
+  queue: Accessor<CommentQueue | null>,
+): () => Comments | null {
   createComputed(() => {
     const one = queue();
-    untrack(() => storeFor(one));
+    if (one !== null) untrack(() => storeFor(one));
   });
-  return () => useComments(queue());
+  return () => {
+    const one = queue();
+    return one === null ? null : useComments(one);
+  };
 }

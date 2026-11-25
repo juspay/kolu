@@ -64,7 +64,7 @@ export const WORKTREE_UNREAD =
   "kolu has not read where this work is working yet.";
 
 /** ... and the one line for a work whose branch git says is checked out
- *  nowhere on its host. */
+ *  nowhere on its host — what the Worktree part and the Code view both say. */
 export const WORKTREE_ABSENT =
   "This work's branch is not checked out anywhere on its host.";
 
