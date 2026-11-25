@@ -31,7 +31,7 @@ vi.mock("@kolu/surface/client", async () => {
   };
 });
 
-async function flush(ticks = 4): Promise<void> {
+async function settle(ticks = 4): Promise<void> {
   for (let i = 0; i < ticks; i++) {
     await new Promise<void>((r) => setTimeout(r, 0));
   }
@@ -96,9 +96,9 @@ describe("createPolledQuery", () => {
               return "x";
             }),
           });
-          await flush();
+          await settle();
           pulse(); // no subscription installed while idle — a no-op
-          await flush();
+          await settle();
           resolve({ v: q(), pending: q.pending() });
           dispose();
         });
@@ -125,9 +125,9 @@ describe("createPolledQuery", () => {
               return `${i.repoPath}#${calls}`;
             }),
           });
-          await flush();
+          await settle();
           pulse(); // initial snapshot frame
-          await flush();
+          await settle();
           resolve({ v: q(), calls, p: q.pending() });
           dispose();
         });
@@ -154,11 +154,11 @@ describe("createPolledQuery", () => {
               return `${i.repoPath}#${calls}`;
             }),
           });
-          await flush();
+          await settle();
           pulse(); // initial
-          await flush();
+          await settle();
           pulse(); // an on-disk change (or a reconnect's fresh frame)
-          await flush();
+          await settle();
           resolve({ v: q(), calls, p: q.pending() });
           dispose();
         });
@@ -190,15 +190,15 @@ describe("createPolledQuery", () => {
             return `${i.repoPath}#${calls}`;
           }),
         });
-        await flush();
+        await settle();
         pulse();
-        await flush();
+        await settle();
         const before = q();
 
         setRepo("B");
-        await flush();
+        await settle();
         pulse(); // the re-subscribed pulse's first frame, now keyed on B
-        await flush();
+        await settle();
         const after = q();
 
         resolve({ before, after, calls });
@@ -225,9 +225,9 @@ describe("createPolledQuery", () => {
           }),
           onError: (err) => seen.push(err.message),
         });
-        await flush();
+        await settle();
         pulse();
-        await flush();
+        await settle();
         resolve(q.error()?.message ?? "");
         dispose();
       });
@@ -257,9 +257,9 @@ describe("createPolledQuery", () => {
           }),
           onError: (err) => seen.push(err.message),
         });
-        await flush();
+        await settle();
         pulse();
-        await flush();
+        await settle();
         resolve(q.error()?.message);
         dispose();
       });
@@ -288,9 +288,9 @@ describe("createPolledQuery", () => {
           query: asEffect(async () => "unused"), // no frame fires; pending stays true until the pulse errors
           onError: (err) => seen.push(err.message),
         });
-        await flush();
+        await settle();
         failPulse(new Error("ENOSPC")); // the watcher install fails after subscribe
-        await flush();
+        await settle();
         resolve({ err: q.error()?.message, pending: q.pending() });
         dispose();
       });
@@ -327,11 +327,11 @@ describe("createPolledQuery", () => {
           onError: (err) => seen.push(err.message),
           swallowError: (err) => /NOT_FOUND/.test(err.message),
         });
-        await flush();
+        await settle();
         pulse(); // first read → "content"
-        await flush();
+        await settle();
         pulse(); // file deleted → requery throws NOT_FOUND → swallowed
-        await flush();
+        await settle();
         resolve({ err: q.error()?.message, v: q(), seen });
         dispose();
       });
@@ -374,13 +374,13 @@ describe("createPolledQuery", () => {
             return `${i.repoPath}#${calls}`;
           }),
         });
-        await flush();
+        await settle();
         pulse(); // initial snapshot → "A#1"
-        await flush();
+        await settle();
 
         // An upstream reference tick: `input()` re-evals to a NEW object, same value.
         setTick(1);
-        await flush();
+        await settle();
         resolve({ v: q(), calls, pending: q.pending() });
         dispose();
       });
@@ -416,16 +416,16 @@ describe("createPolledQuery", () => {
             return `${i.repoPath}#${calls}`;
           }),
         });
-        await flush();
+        await settle();
         pulse();
-        await flush();
+        await settle();
         const before = q();
 
         setHost("host-2");
-        await flush();
+        await settle();
         const afterSwitch = { v: q(), pending: q.pending() };
         pulse(); // the re-subscribed pulse's first frame, now keyed on host-2
-        await flush();
+        await settle();
         const after = q();
 
         resolve({ before, afterSwitch, after, calls });
@@ -466,26 +466,26 @@ describe("createPolledQuery", () => {
           }),
           active,
         });
-        await flush();
+        await settle();
         pulse();
-        await flush();
+        await settle();
         const shown = q(); // "A#1"
 
         // PAUSE (host backgrounded): value held, pulse torn down. A pulse frame while
         // paused hits the aborted stream and must NOT requery.
         setActive(false);
-        await flush();
+        await settle();
         pulse();
-        await flush();
+        await settle();
         const whilePaused = { v: q(), pending: q.pending(), calls };
 
         // RESUME (switch-BACK) with unchanged input: NO blank (value held), then the
         // re-subscribed pulse's first frame refreshes it immediately.
         setActive(true);
-        await flush();
+        await settle();
         const onResume = { v: q(), pending: q.pending() };
         pulse();
-        await flush();
+        await settle();
         const afterResume = q(); // "A#2"
 
         resolve({ shown, whilePaused, onResume, afterResume });
@@ -532,25 +532,25 @@ describe("createPolledQuery", () => {
           }),
           active,
         });
-        await flush();
+        await settle();
         pulse();
-        await flush();
+        await settle();
         const shownA = q(); // "A#1"
 
         // Pause, then change the input WHILE paused (the effect no-ops while inactive,
         // so the held value stays put — it does not blank yet).
         setActive(false);
-        await flush();
+        await settle();
         setInput({ repoPath: "B" });
-        await flush();
+        await settle();
         const whilePaused = { v: q(), pending: q.pending() };
 
         // Resume: the key changed (B ≠ the shown A), so it blanks + re-queries.
         setActive(true);
-        await flush();
+        await settle();
         const onResume = { v: q(), pending: q.pending() };
         pulse();
-        await flush();
+        await settle();
         const afterResume = q(); // "B#2"
 
         resolve({ shownA, whilePaused, onResume, afterResume });
@@ -601,20 +601,20 @@ describe("createPolledQuery", () => {
           }),
           active,
         });
-        await flush();
+        await settle();
         pulse(); // query#1 → "A#1"
-        await flush();
+        await settle();
 
         pulse(); // query#2 starts, then blocks on the deferred
-        await flush();
+        await settle();
         // Pause BEFORE query#2 resolves — it must be aborted, not left running.
         setActive(false);
-        await flush();
+        await settle();
         const paused = q();
 
         // Let the in-flight query resolve; it lands AFTER the pause.
         deferred.release?.();
-        await flush();
+        await settle();
         const afterLateResolve = q();
 
         resolve({ paused, afterLateResolve });
