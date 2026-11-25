@@ -245,7 +245,13 @@ export type Rekey =
  *    any.
  *
  *  The work at `N` is asked first so that WHICH of two open works is stopped
- *  never depends on whose answer arrives first: it is never the one at `N`.
+ *  never depends on whose answer arrives first: an old-key `W` re-keyed
+ *  beside an open work at `N` is the one stopped. The work at `N` is stopped
+ *  in one case only — it is `W` itself, its key stamped, while another
+ *  open work already runs the branch: a finished work at `N` whose root
+ *  git had not said was reopened while a held work ran the branch. Rule 5
+ *  cannot see an as-written key, so the Reopen was not refused; this is
+ *  that refusal, one answer late.
  *
  *  - `N` is `W`'s own id: the key is stamped `git`. Nothing moves.
  *  - `N` is free and nothing else runs the branch: `W` moves to `N` AT THE

@@ -21,6 +21,7 @@ import {
   InvalidWorkStore,
   openWork,
   parseStore,
+  reopenWork,
   rekeyed,
   rootOf,
   storeFault,
@@ -271,6 +272,33 @@ describe("re-keying a work to git's root", () => {
         .map(([id]) => id);
       expect(open, order.join(" ")).toEqual([workIdOf(HOLDER)]);
     }
+  });
+
+  it("stops a work reopened at the root's id while a held work runs its branch", () => {
+    // The one arm where the work stopped IS the one at the root's id. A
+    // finished work at `/repo`, still as written, held a branch another work
+    // was re-keyed to — so that work is `held` and open. Reopen is not
+    // refused (rule 5 cannot see an as-written key), and git's first answer
+    // for the reopened work stops it: the Reopen refusal, one answer late.
+    const atRoot = branchKey("/repo", "csv", AS_WRITTEN);
+    const held = opened(
+      branchKey(WORKTREE, "csv", { kind: "held", root: "/repo" }),
+      "held",
+    );
+    const reopened = reopenWork(finished(atRoot, "at the root"), AT);
+    const { value, rekey } = rekeyed(
+      storeOf([reopened, held]),
+      workIdOf(atRoot),
+      "/repo",
+      AT,
+    );
+    expect(rekey).toEqual({ kind: "stamped", ended: true });
+    expect(value.works.get(workIdOf(atRoot))?.state).toMatchObject({
+      kind: "ended",
+      outcome: { kind: "stopped", by: "kolu" },
+    });
+    expect(value.works.get(workIdOf(held.key))).toBe(held);
+    expect(storeFault(value.works, value.members)).toEqual(Option.none());
   });
 });
 
