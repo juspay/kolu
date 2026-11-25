@@ -99,6 +99,11 @@ export {
 // re-probe). Exported so `@kolu/surface-app`'s `createServerLifecycle` wires the
 // same fast resume path over its own watchdog; a no-op off-DOM.
 export { onWake } from "./onWake";
+// Solid 2's VALUE constraint (`Exclude<T, Function>`), defined once for the repo
+// because `solid-js` does not re-export `@solidjs/signals`' own `NoFn`. Any option
+// a caller hands to `createSignal` / `createStore` as a value is typed with it —
+// `useCell`'s `initial` here, the client's `persistedPref` fallback.
+export type { NoFn } from "./noFn";
 // NOTE: `SurfaceGate` (a JSX `.tsx` component) is intentionally NOT re-exported
 // here. This barrel must stay free of JSX so a consumer that imports
 // `@kolu/surface/solid` for the hooks/registry (e.g. `@kolu/surface-app`, drishti)

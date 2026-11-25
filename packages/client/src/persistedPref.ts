@@ -20,6 +20,7 @@
  *  is unchanged from the hand-rolled sites, so values already in
  *  `localStorage` keep loading. */
 
+import type { NoFn } from "@kolu/surface/solid";
 import {
   makePersisted,
   type PersistenceSyncAPI,
@@ -39,9 +40,9 @@ export interface PersistedPrefOptions<T> {
   /** Value used before anything is stored, and whenever the stored value
    *  fails `parse`. Never a FUNCTION: Solid 2 reads a function handed to
    *  `createSignal` as a derivation rather than a value, so a pref holding one
-   *  would silently become a derived signal. A pref is data. */
-  // biome-ignore lint/complexity/noBannedTypes: the exact type of Solid 2's `createSignal` value parameter (`Exclude<T, Function>`), which this value is handed to; a narrower function type does not satisfy it
-  fallback: Exclude<T, Function>;
+   *  would silently become a derived signal. A pref is data. {@link NoFn} is
+   *  that constraint, defined once in `@kolu/surface/solid`. */
+  fallback: NoFn<T>;
   /** Validate a raw stored string into `T`. **Throw** when the stored value
    *  is unexpected — {@link readWithFallback} catches, substitutes `fallback`,
    *  and calls `onInvalid`. Returning is the *only* signal for "valid";

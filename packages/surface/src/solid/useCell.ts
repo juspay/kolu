@@ -44,6 +44,7 @@ import {
 import type { Cell } from "../index";
 import { runDetached } from "../runStream";
 import { createSubscription, type Subscription } from "./createSubscription";
+import type { NoFn } from "./noFn";
 import { reconcileFrame } from "./writeValue";
 
 export type Authority = "server" | "local";
@@ -69,8 +70,12 @@ export interface UseCellServerOptions<T, P = T> {
 export interface UseCellLocalOptions<T extends object, P = T> {
   source: StreamingProcedure<undefined, T>;
   authority: "local";
-  /** Default value for the local store; used until the first server yield. */
-  initial: T;
+  /** Default value for the local store; used until the first server yield.
+   *  Never a FUNCTION — Solid 2 reads one handed to `createStore` as the
+   *  DERIVED-store form rather than as the value ({@link NoFn}). A cell's value
+   *  is wire data (schema-decoded), so the requirement costs a real call site
+   *  nothing; stating it here is what lets the store take it directly. */
+  initial: NoFn<T>;
   mutate: CellMutate<P>;
   /** Pure merge: returns the next value. Used when the patch shape `P`
    *  differs from `T` (otherwise `set` semantics suffice). */
@@ -235,13 +240,10 @@ function useCellLocal<Name extends string, T extends object, P>(
   cellDescriptor: Cell<Name, T>,
   options: UseCellLocalOptions<T, P>,
 ): UseCellLocalResult<T, P> {
-  // The value form of `createStore` refuses a FUNCTION initial value — that
-  // spelling is the derived-store form — and its parameter type says so with a
-  // conditional no `T extends object` parameter can satisfy, since a type
-  // parameter could always be instantiated with a function type. A cell's value
-  // is wire data (schema-decoded), so it never is one: asserted once here, where
-  // the schema is what makes it true, rather than at every read of the store.
-  const [store, setStore] = createStore<T>(options.initial as never);
+  // `createStore`'s value form takes `NoFn<T>` — a FUNCTION there is the
+  // derived-store spelling, not a value — and `initial` is declared with that
+  // same constraint, so the option arrives already proved and goes straight in.
+  const [store, setStore] = createStore<T>(options.initial);
   // Mutable guard: once any server value arrives, seed the local store
   // from it and never overwrite again. Server echoes after init must not
   // stomp local mutations whose RPC hasn't round-tripped — the local

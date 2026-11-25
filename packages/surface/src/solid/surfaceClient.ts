@@ -77,6 +77,7 @@ import {
   stableOptsKey,
 } from "./keyedSubscriptionCache";
 import { isLiveSignalHandle, type LiveSignalHandle } from "./liveSignal";
+import type { NoFn } from "./noFn";
 import { type UseCellResult, useCell } from "./useCell";
 import {
   type CollectionFold,
@@ -179,7 +180,7 @@ export type BoundCellOptions<T, P = T> = T extends object
       | { authority?: "server"; onError?: (err: Error) => void }
       | {
           authority: "local";
-          initial: T;
+          initial: NoFn<T>;
           applyPatch?: (current: T, patch: P) => T;
           mergeIntoStore?: (setStore: StoreSetter<T>, patch: P) => void;
           coalesceMs?: number;
