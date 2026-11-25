@@ -298,7 +298,8 @@ sensor's own watcher. `branchCheckout` (`src/branchCheckout.ts`) is kolu-git's
 `subscribeBranchCheckout`: the repository's root and where the branch is
 checked out, re-read when HEAD moves in any checkout, a worktree is cut or
 removed, or the path becomes a repository. An answer git could not give
-leaves every watcher in place. Neither keeps state of its own.
+leaves every watcher in place, and git is asked again every few seconds
+until it answers. Neither keeps state of its own.
 
 ## Diagnostics — `diagnostics.read`, padi says why it is slow
 

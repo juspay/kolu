@@ -22,10 +22,13 @@
  *    worktree. Every checkout the last LISTING named is watched, the main
  *    one included. Only a listing re-arms them: an answer that is not one
  *    (`unavailable`, or a path git no longer places) leaves every watcher
- *    where it was, so a git that timed out once is asked again at the next
- *    switch;
+ *    where it was;
  *  - the `.git` entry of the path itself, while git says it is no
  *    repository: a `git init` there is a repository to answer for.
+ *
+ * And one thing rewrites nothing on disk: git answering again after an
+ * `unavailable` answer (a timeout under load). While that is the last
+ * answer, a spaced timer asks again until another comes.
  *
  * A re-ask that finds the same answer says nothing. git lists checkouts by
  * their symlink-resolved paths, as the root is read, so a repository reached
@@ -200,6 +203,10 @@ const worktreesWatcher = createDirFilenameWatcher({
 export const _settledSharedWorktreesWatchers = worktreesWatcher._whenSettled;
 export const _resetSharedWorktreesWatchers = worktreesWatcher._reset;
 
+/** How long after an `unavailable` answer git is asked again — the same
+ *  spacing the Conductor's watcher reopens a leg at. */
+const UNAVAILABLE_REASK_MS = 3_000;
+
 /** WHERE `branch` IS CHECKED OUT, for as long as the caller listens: the
  *  answer as it stands, then every answer that differs from the last. One
  *  question in flight at a time; a trigger during one asks once more after
@@ -221,6 +228,8 @@ export function subscribeBranchCheckout(
   let worktrees: (() => void) | null = null;
   /** The path's own `.git` entry, while git says it is no repository. */
   let gitDir: (() => void) | null = null;
+  /** The next ask, while git's last answer is `unavailable`. */
+  let reask: ReturnType<typeof setTimeout> | undefined;
 
   const rearm = (listed: ReadonlyArray<string>): void => {
     const want = new Set(listed);
@@ -237,6 +246,8 @@ export function subscribeBranchCheckout(
 
   /** What re-asks, after an answer. */
   const watch = (reading: Reading): void => {
+    clearTimeout(reask);
+    reask = undefined;
     switch (reading.answer.kind) {
       case "repository":
         gitDir?.();
@@ -247,9 +258,9 @@ export function subscribeBranchCheckout(
         gitDir ??= watchCwdForGitDir(repoPath, asker, ask, log);
         break;
       case "unavailable":
-        // Nothing listed to watch yet: the path's own HEAD, so the next
-        // switch there asks again.
-        if (heads.size === 0) rearm([repoPath]);
+        // Nothing on disk says when git answers again, so no watcher can
+        // be what asks: a spaced timer does, until an answer comes.
+        reask = setTimeout(ask, UNAVAILABLE_REASK_MS);
         break;
       default:
         reading.answer satisfies never;
@@ -282,6 +293,7 @@ export function subscribeBranchCheckout(
   ask();
   return () => {
     stopped = true;
+    clearTimeout(reask);
     worktrees?.();
     gitDir?.();
     for (const stop of heads.values()) stop();

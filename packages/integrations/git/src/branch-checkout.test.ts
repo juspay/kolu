@@ -282,5 +282,26 @@ describe.skipIf(SKIP_DARWIN_FSWATCH)(
       expect(answers[1]?.kind).toBe("repository");
       stop();
     });
+
+    it("asks again, on its own, while git's last answer is unavailable (N3)", async () => {
+      // Root reads every folder, so the case is not one it can be in.
+      if (process.getuid?.() === 0) return;
+      // A repository kolu cannot read yet — its parent shut — answers
+      // `unavailable`. Opening the parent touches nothing in the repository,
+      // so no watcher can be what asks again: the spaced re-ask is.
+      const shut = path.join(tmpDir, "shut-at-first");
+      const { dir } = await repo("shut-at-first/inner");
+      fs.chmodSync(shut, 0o000);
+      try {
+        const { answers, stop } = await follow(dir, "main");
+        expect(answers.map((one) => one.kind)).toEqual(["unavailable"]);
+        fs.chmodSync(shut, 0o755);
+        await waitFor(() => answers.length === 2, 10_000);
+        expect(answers[1]).toEqual(at(dir, dir));
+        stop();
+      } finally {
+        fs.chmodSync(shut, 0o755);
+      }
+    }, 15_000);
   },
 );
