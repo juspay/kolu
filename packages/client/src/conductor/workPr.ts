@@ -48,11 +48,7 @@ export function useWorkPr(
   work: Accessor<Work>,
 ): Accessor<Option.Option<WorkPr>> {
   const prs = useWorkPrs();
-  // The same PR object is the same answer: a reading that did not move keeps
-  // its object in the mirror, so another work's PR moving redraws nothing here.
-  return createMemo(
-    () => workPrOf(work(), prs().get(id())),
-    Option.none<WorkPr>(),
-    { equals: (a, b) => Option.getOrNull(a) === Option.getOrNull(b) },
-  );
+  // No custom equality: the mirror reconciles a reading IN PLACE, so one
+  // object can carry new fields, and every new answer must reach the card.
+  return createMemo(() => workPrOf(work(), prs().get(id())));
 }

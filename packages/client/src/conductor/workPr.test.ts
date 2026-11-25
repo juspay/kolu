@@ -284,6 +284,29 @@ describe("a work's PR and checks, whatever its members carry", () => {
   });
 });
 
+describe("a work's PR as the mirror moves it", () => {
+  it("moves the check tally when the same reading's runs change in place", () => {
+    // The mirror reconciles a row IN PLACE: the reading is the same object,
+    // its fields are new, and the map around it is a new map.
+    const value = pr(2438, "open", 3, true);
+    const reading: PrResult = { kind: "ok", value };
+    setPrs(new Map([[ID, reading]]));
+    createRoot((dispose) => {
+      const facts = createWorkFacts(
+        () => ID,
+        () => WORK,
+      );
+      expect(facts.checks()).toEqual(checksTally(workPrOf(WORK, reading)));
+      const before = facts.checks();
+      Object.assign(value, { checkRuns: pr(2438, "open", 9, true).checkRuns });
+      setPrs(new Map([[ID, reading]]));
+      expect(facts.checks()).not.toEqual(before);
+      expect(facts.checks()).toEqual(checksTally(workPrOf(WORK, reading)));
+      dispose();
+    });
+  });
+});
+
 describe("when a reading is the work's PR", () => {
   const OK: PrResult = { kind: "ok", value: pr(2438, "open", 3, true) };
 
