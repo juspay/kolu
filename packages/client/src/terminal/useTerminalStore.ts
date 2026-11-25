@@ -298,8 +298,8 @@ export const useTerminalStore = createSharedRoot(() => {
     ...metadata,
     // Public top-level selection resolves remembered pane chrome before writing
     // the one focus fact; the raw view writers stay internal to this composer.
-    // Each landing verb is published with its `plan…` reader half, for the
-    // callers that drive it from a Solid effect (see the pairs above).
+    // A landing verb's `plan…` reader half is published where a caller drives
+    // it from a Solid effect (see the pairs above).
     activate,
     planActivate,
     setActiveSilently,
@@ -309,9 +309,7 @@ export const useTerminalStore = createSharedRoot(() => {
     // Landing verbs for either a top-level terminal or a split: touch-safe
     // without panning, or desktop with a centering request.
     focusTerminalSilently,
-    planFocusTerminalSilently,
     focusTerminal,
-    planFocusTerminal,
     focusMainTerminal,
     planFocusMainTerminal,
     // WebGL budget: whether a terminal should hold a WebGL renderer (#1403).
