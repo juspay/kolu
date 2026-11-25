@@ -16,7 +16,7 @@ import { Schema } from "effect";
 import type { TerminalId } from "kolu-common/surface";
 import type { WorkMember } from "kolu-work";
 import { createEffect, createRoot, createSignal, flush } from "solid-js";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { FleetTerminalStanding } from "../palette/fleetTerminals";
 import type { MemberLine } from "./workFacts";
 import type { WorkMemberRow } from "./workReadings";
@@ -34,6 +34,14 @@ const [records, setRecords] = createSignal<
 let fromStore:
   | ((host: string, id: string) => FleetTerminalStanding | undefined)
   | undefined;
+
+// The seam is a module-level mock and the store-backed answer is preferred over
+// the hand-written map, so it is cleared after the one test that installs it: a
+// `view` from a disposed root would otherwise answer every later test's
+// standing reads in file order.
+afterEach(() => {
+  fromStore = undefined;
+});
 
 vi.mock("../palette/fleetTerminals", () => ({
   fleetTerminalStanding: (host: string, id: string) =>
