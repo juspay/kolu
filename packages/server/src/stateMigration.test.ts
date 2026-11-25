@@ -44,6 +44,7 @@ import {
   type WorkMember,
   workIdOf,
 } from "kolu-work";
+import { seeded } from "kolu-work/testlib";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   transcriptFilePath,
@@ -3452,6 +3453,26 @@ describe("the 1.68.0 rung — a work's facts are the work's (T24)", () => {
   const SECOND = "local/t-second";
   /** The watch the second terminal is given — keyed, and filed, by itself. */
   const SECOND_WATCH = `watch:${encodeURIComponent(SECOND)}`;
+  /** The nameless watch's terminal, and the watch it is given. */
+  const NAMELESS_MEMBER = "local/t-broken";
+  const NAMELESS_OWN = `watch:${encodeURIComponent(NAMELESS_MEMBER)}`;
+  /** A move's time: a millisecond after the latest time the file holds for
+   *  it. */
+  const moved = (minute: number): string =>
+    new Date(Date.parse(at(minute)) + 1).toISOString();
+  const left = (terminal: string, when: string) => ({
+    at: when,
+    by: "kolu",
+    kind: "left",
+    about: { kind: "member", terminal },
+    why: "released",
+  });
+  const carriedOver = (when: string) => ({
+    at: when,
+    by: "kolu",
+    about: { kind: "work" },
+    kind: "carried-over",
+  });
   const requested = {
     at: at(0),
     by: "you",
@@ -3512,7 +3533,7 @@ describe("the 1.68.0 rung — a work's facts are the work's (T24)", () => {
         }),
         [WATCHED]: member(WATCH, "implementor"),
         [SECOND]: member(WATCH, "other"),
-        "local/t-broken": member(BROKEN, "other"),
+        [NAMELESS_MEMBER]: member(BROKEN, "other"),
       },
       workCodeViews: { [BRANCH]: VIEW, [BROKEN]: VIEW },
     });
@@ -3540,11 +3561,13 @@ describe("the 1.68.0 rung — a work's facts are the work's (T24)", () => {
       id: "t-watched",
     });
     // 5: the watch keeps its own terminal alone; the second terminal is not
-    // dropped — it is a watch of its own, keyed by itself, its member row
-    // kept, its timeline opening with the carry-over and its join.
+    // dropped — it LEFT this watch and JOINED a watch of its own, at one
+    // move time after everything the file says about it; its own watch
+    // starts, and opens with the carry-over, at its original join.
     expect(works[WATCH]?.events).toEqual([
       joined(WATCHED, "implementor", 2),
       joined(SECOND, "other", 3),
+      left(SECOND, moved(3)),
     ]);
     expect(works[SECOND_WATCH]).toEqual({
       key: { kind: "watch", host: "local", id: "t-second" },
@@ -3552,24 +3575,43 @@ describe("the 1.68.0 rung — a work's facts are the work's (T24)", () => {
       startedAt: at(1),
       decisions: [],
       events: [
-        {
-          at: at(1),
-          by: "kolu",
-          about: { kind: "work" },
-          kind: "carried-over",
-        },
-        joined(SECOND, "other", 1),
+        carriedOver(at(1)),
+        { ...joined(SECOND, "other", 1), at: moved(3) },
       ],
       state: { kind: "open" },
       worktree: { kind: "unread" },
     });
-    // 4: the broken watch is gone, with its member and its view.
-    expect(Object.keys(works)).toEqual([BRANCH, WATCH, SECOND_WATCH]);
+    // 4: the nameless watch is gone, with its view — and its terminal is a
+    // watch of its own, titled by the watch it was in.
+    expect(works[NAMELESS_OWN]).toEqual({
+      key: { kind: "watch", host: "local", id: "t-broken" },
+      title: "broken",
+      startedAt: at(1),
+      decisions: [],
+      events: [
+        carriedOver(at(1)),
+        { ...joined(NAMELESS_MEMBER, "other", 1), at: moved(1) },
+      ],
+      state: { kind: "open" },
+      worktree: { kind: "unread" },
+    });
+    expect(Object.keys(works)).toEqual([
+      BRANCH,
+      WATCH,
+      SECOND_WATCH,
+      NAMELESS_OWN,
+    ]);
     const members = conf.get("members") as Record<string, WorkMember>;
-    expect(Object.keys(members).sort()).toEqual([IMPLEMENTOR, SECOND, WATCHED]);
+    expect(Object.keys(members).sort()).toEqual([
+      NAMELESS_MEMBER,
+      IMPLEMENTOR,
+      SECOND,
+      WATCHED,
+    ]);
     expect(members[IMPLEMENTOR]).not.toHaveProperty("worktree");
     expect(members[WATCHED]?.role).toBe("other");
     expect(members[SECOND]).toEqual(member(SECOND_WATCH, "other"));
+    expect(members[NAMELESS_MEMBER]).toEqual(member(NAMELESS_OWN, "other"));
     expect(Object.keys(conf.get("workCodeViews") as object)).toEqual([BRANCH]);
     expect(storeFault(new Map(Object.entries(works)), members)).toEqual(
       Option.none(),
@@ -3586,11 +3628,10 @@ describe("the 1.68.0 rung — a work's facts are the work's (T24)", () => {
     expect(JSON.stringify(conf.store)).toBe(once);
   });
 
-  it("gives a terminal the watch of it already kept, reopening a finished one", () => {
-    // A watch of the second terminal was kept before it was put in another
-    // watch, and it had finished: that watch is the one it is now, open
-    // again, its timeline saying so at its own last time.
-    const conf = makeStore({
+  /** A store whose watch holds its own terminal and the second one, beside
+   *  a watch of the second terminal kept already, in `state`. */
+  const besideKept = (state: unknown) =>
+    makeStore({
       works: {
         [WATCH]: work({ kind: "watch", terminal: WATCHED }, "watched", [
           joined(WATCHED, "implementor", 2),
@@ -3598,18 +3639,25 @@ describe("the 1.68.0 rung — a work's facts are the work's (T24)", () => {
         ]),
         [SECOND_WATCH]: {
           ...work({ kind: "watch", terminal: SECOND }, "second", [requested]),
-          state: {
-            kind: "ended",
-            at: at(0),
-            outcome: { kind: "stopped", by: "you" },
-            kept: [],
-          },
+          state,
         },
       },
       members: {
         [WATCHED]: member(WATCH, "implementor"),
         [SECOND]: member(WATCH, "other"),
       },
+    });
+
+  it("gives a terminal the watch of it already kept, reopening a finished one", () => {
+    // A watch of the second terminal was kept before it was put in another
+    // watch, and it had finished: that watch is the one it is now, open
+    // again — reopened and joined at the move time, after the old watch's
+    // last line, which says it left.
+    const conf = besideKept({
+      kind: "ended",
+      at: at(0),
+      outcome: { kind: "stopped", by: "you" },
+      kept: [],
     });
     workFactsAreTheWorks_1_68_0(conf as never);
     const works = Schema.decodeUnknownSync(PersistedWorksSchema)(
@@ -3619,9 +3667,15 @@ describe("the 1.68.0 rung — a work's facts are the work's (T24)", () => {
     expect(works[SECOND_WATCH]?.state).toEqual({ kind: "open" });
     expect(works[SECOND_WATCH]?.events).toEqual([
       requested,
-      { at: at(0), by: "kolu", about: { kind: "work" }, kind: "reopened" },
-      joined(SECOND, "other", 0),
+      {
+        at: moved(3),
+        by: "kolu",
+        about: { kind: "work" },
+        kind: "reopened",
+      },
+      { ...joined(SECOND, "other", 3), at: moved(3) },
     ]);
+    expect(works[WATCH]?.events.at(-1)).toEqual(left(SECOND, moved(3)));
     const members = conf.get("members") as Record<string, WorkMember>;
     expect(members[SECOND]?.work).toBe(SECOND_WATCH);
     expect(storeFault(new Map(Object.entries(works)), members)).toEqual(
@@ -3629,28 +3683,216 @@ describe("the 1.68.0 rung — a work's facts are the work's (T24)", () => {
     );
   });
 
-  it("throws, and writes nothing, for a terminal it cannot give a watch of its own", () => {
+  it("joins a watch of that terminal still open with no reopened line", () => {
+    const conf = besideKept({ kind: "open" });
+    workFactsAreTheWorks_1_68_0(conf as never);
+    const works = Schema.decodeUnknownSync(PersistedWorksSchema)(
+      conf.get("works"),
+    );
+    expect(works[SECOND_WATCH]?.events).toEqual([
+      requested,
+      { ...joined(SECOND, "other", 3), at: moved(3) },
+    ]);
+    expect(works[WATCH]?.events.at(-1)).toEqual(left(SECOND, moved(3)));
+    const members = conf.get("members") as Record<string, WorkMember>;
+    expect(storeFault(new Map(Object.entries(works)), members)).toEqual(
+      Option.none(),
+    );
+  });
+
+  it("gives every terminal of a nameless watch a watch of its own, and drops none", () => {
+    // The watch was keyed by a name — "build" — the way the Conductor's
+    // instructions once said to open one, and then a real terminal adopted
+    // into it. The nameless watch goes; each terminal in it is watched
+    // still, by its own name or, with none, the watch's title.
+    const A = "local/t-a";
+    const B = "remote:box/t-b";
+    const conf = makeStore({
+      works: {
+        "watch:build": work({ kind: "watch", terminal: "build" }, "build it", [
+          joined(A, "other", 4),
+          joined(B, "other", 6),
+        ]),
+      },
+      members: {
+        [A]: {
+          ...member("watch:build", "other"),
+          watch: { name: "the builder" },
+        },
+        [B]: member("watch:build", "other"),
+      },
+      workCodeViews: { "watch:build": VIEW },
+    });
+    workFactsAreTheWorks_1_68_0(conf as never);
+    const works = Schema.decodeUnknownSync(PersistedWorksSchema)(
+      conf.get("works"),
+    );
+    const OWN_A = `watch:${encodeURIComponent(A)}`;
+    const OWN_B = `watch:${encodeURIComponent(B)}`;
+    expect(Object.keys(works)).toEqual([OWN_A, OWN_B]);
+    expect([works[OWN_A]?.title, works[OWN_B]?.title]).toEqual([
+      "the builder",
+      "build it",
+    ]);
+    expect(works[OWN_B]?.key).toEqual({
+      kind: "watch",
+      host: "remote:box",
+      id: "t-b",
+    });
+    // The move time is after the removed watch's last line.
+    expect(works[OWN_A]?.events.at(-1)).toEqual({
+      ...joined(A, "other", 6),
+      at: moved(6),
+    });
+    const members = conf.get("members") as Record<string, WorkMember>;
+    expect([members[A]?.work, members[B]?.work]).toEqual([OWN_A, OWN_B]);
+    expect(conf.get("workCodeViews")).toEqual({});
+    expect(storeFault(new Map(Object.entries(works)), members)).toEqual(
+      Option.none(),
+    );
+  });
+
+  it("throws, and writes nothing, for a terminal it cannot move", () => {
     const { joinedAt: _never, ...noTime } = member(WATCH, "other");
-    for (const [ref, extra] of [
-      [SECOND, noTime],
-      ["nonsense", member(WATCH, "other")],
-    ] as const) {
+    const cases: ReadonlyArray<{
+      readonly why: string;
+      readonly events: unknown;
+      readonly ref: string;
+      readonly extra: unknown;
+    }> = [
+      {
+        why: "no join time",
+        events: [joined(WATCHED, "implementor", 2)],
+        ref: SECOND,
+        extra: noTime,
+      },
+      {
+        why: "a ref that names no terminal",
+        events: [joined(WATCHED, "implementor", 2)],
+        ref: "nonsense",
+        extra: member(WATCH, "other"),
+      },
+      {
+        why: "a watch whose timeline it cannot add to",
+        events: "not a list",
+        ref: SECOND,
+        extra: member(WATCH, "other"),
+      },
+    ];
+    for (const one of cases) {
       const conf = makeStore({
         works: {
-          [WATCH]: work({ kind: "watch", terminal: WATCHED }, "watched", [
-            joined(WATCHED, "implementor", 2),
-          ]),
+          [WATCH]: {
+            ...work({ kind: "watch", terminal: WATCHED }, "watched", []),
+            events: one.events,
+          },
         },
         members: {
           [WATCHED]: member(WATCH, "implementor"),
-          [ref]: extra,
+          [one.ref]: one.extra,
         },
       });
       const before = JSON.stringify(conf.store);
-      expect(() => workFactsAreTheWorks_1_68_0(conf as never), ref).toThrow(
-        ref,
+      expect(() => workFactsAreTheWorks_1_68_0(conf as never), one.why).toThrow(
+        "1.68.0",
       );
-      expect(JSON.stringify(conf.store), ref).toBe(before);
+      expect(JSON.stringify(conf.store), one.why).toBe(before);
     }
+  });
+
+  it("leaves each terminal's newest join on the watch it is in, every timeline in order (property)", () => {
+    // Any store of watches — some keyed by a terminal, open or finished, one
+    // maybe nameless — and terminals each in at most one open watch, joined
+    // after it began. After the rung: the store is legal, every timeline is
+    // in time order, and for every terminal the newest `joined` about it,
+    // across every timeline, is on the one watch its member row names.
+    const POOL = [0, 1, 2, 3, 4, 5].map((n) => `local/t-${n}`);
+    let tried = 0;
+    for (let seed = 1; tried < 200 && seed < 2000; seed += 1) {
+      const pick = seeded(seed);
+      const among = <T>(of: ReadonlyArray<T>): T =>
+        of[Math.floor(pick() * of.length)] as T;
+      const works: Record<string, Record<string, unknown>> = {};
+      /** Each watch's last minute, so every timeline is written in order. */
+      const lastMinute = new Map<string, number>();
+      const open: string[] = [];
+      const keyed = [
+        ...POOL.filter(() => pick() < 0.5),
+        ...(pick() < 0.4 ? ["nameless"] : []),
+      ];
+      for (const ref of keyed) {
+        const id = `watch:${encodeURIComponent(ref)}`;
+        const start = Math.floor(pick() * 20);
+        const ended = ref !== "nameless" && pick() < 0.4;
+        works[id] = {
+          ...work({ kind: "watch", terminal: ref }, `watch ${ref}`, [
+            { ...requested, at: at(start) },
+          ]),
+          startedAt: at(start),
+          ...(ended
+            ? {
+                state: {
+                  kind: "ended",
+                  at: at(start),
+                  outcome: { kind: "stopped", by: "you" },
+                  kept: [],
+                },
+              }
+            : {}),
+        };
+        lastMinute.set(id, start);
+        if (!ended) open.push(id);
+      }
+      if (open.length === 0) continue;
+      const members: Record<string, unknown> = {};
+      for (const ref of POOL) {
+        if (pick() < 0.3) continue;
+        const id = among(open);
+        const minute = (lastMinute.get(id) ?? 0) + Math.floor(pick() * 5);
+        lastMinute.set(id, minute);
+        (works[id]?.events as unknown[]).push(joined(ref, "other", minute));
+        members[ref] = {
+          work: id,
+          role: "other",
+          joinedAt: at(minute),
+          watch: {},
+        };
+      }
+      tried += 1;
+      const conf = makeStore({ works, members });
+      workFactsAreTheWorks_1_68_0(conf as never);
+      const after = Schema.decodeUnknownSync(PersistedWorksSchema)(
+        conf.get("works"),
+      );
+      const rows = conf.get("members") as Record<string, WorkMember>;
+      const where = `seed ${seed}`;
+      expect(storeFault(new Map(Object.entries(after)), rows), where).toEqual(
+        Option.none(),
+      );
+      for (const [id, one] of Object.entries(after)) {
+        const times = one.events.map((event) => event.at);
+        expect(times, `${where} ${id}`).toEqual([...times].sort());
+      }
+      for (const [ref, row] of Object.entries(rows)) {
+        const joins = Object.entries(after).flatMap(([id, one]) =>
+          one.events.flatMap((event) =>
+            event.kind === "joined" &&
+            event.about.kind === "member" &&
+            event.about.terminal === ref
+              ? [{ id, at: event.at }]
+              : [],
+          ),
+        );
+        const newest = joins.reduce(
+          (late, one) => (one.at > late ? one.at : late),
+          "",
+        );
+        expect(
+          joins.filter((one) => one.at === newest).map((one) => one.id),
+          `${where} ${ref}`,
+        ).toEqual([row.work]);
+      }
+    }
+    expect(tried).toBe(200);
   });
 });
