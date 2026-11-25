@@ -352,6 +352,8 @@ export const FileTree: Component<FileTreeProps> = (props) => {
     lazyDirectories: createMemo(() => props.lazyDirectories),
     shadowCss: createMemo(() => props.shadowCss),
     lazyEpoch: createMemo(() => props.lazyEpoch),
+    onExpandLazyDirectory: createMemo(() => props.onExpandLazyDirectory),
+    onError: createMemo(() => props.onError),
   };
 
   // Pierre fires `onSelectionChange` for directory clicks too, which would
@@ -398,8 +400,8 @@ export const FileTree: Component<FileTreeProps> = (props) => {
   createEffect(
     () => ({
       keys: propValue.lazyDirectories() ?? [],
-      onExpand: props.onExpandLazyDirectory,
-      onError: props.onError,
+      onExpand: propValue.onExpandLazyDirectory(),
+      onError: propValue.onError(),
     }),
     ({ keys, onExpand, onError }) => {
       lazyKeys = keys;
