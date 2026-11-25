@@ -131,6 +131,9 @@ let
       ./default.nix
       ./nix
       ./npins
+      # The client dists check their Solid runtime against the manifest this
+      # script extracts, and padi-agent reaches the production dist.
+      ./scripts/solid-dev-manifest.mjs
       # padi-agent bakes kolu's agent plugin (packages/agent-distro), so the
       # tree a remote resolves padi-agent from must carry it.
       agentPluginFileset
