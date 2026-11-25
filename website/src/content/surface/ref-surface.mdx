@@ -130,12 +130,17 @@ standing at its index.
   descriptor, so no `.use()` call site can spell it, override it, or disagree
   with another call site about it.
 
-Which of a collection's two deliveries applies the `arrayKey` is decided per call
-site. The per-key path (`.use({ keys })`, and any collection whose verbs omit
-`deltas`) merges an entry's value through the same seam a cell's goes through, so
-it honours the declaration. The batched `deltas` path replaces each named leaf
-whole rather than merging, since a `fold` consumer may be holding that very
-object, so there is no merge there for a key to govern.
+Both of a collection's deliveries apply the `arrayKey`. The per-key path
+(`.use({ keys })`, and any collection whose verbs omit `deltas`) merges an
+entry's value through the same seam a cell's goes through. The batched `deltas`
+path merges each entry a frame names through that seam too, so a delta that
+moves one field wakes that field's readers and leaves the entry's other leaves
+alone.
+
+A `fold` consumer holding an earlier entry keeps it unchanged. The merge adopts
+the incoming frame: at every level it reaches, the store's backing becomes the
+new object by an internal pointer swap, and nothing already in the store is
+written to.
 
 Arrays whose elements do not carry the field are merged by position: that is the
 declared reach of the key, not a fallback around it, and it too is silent on a
@@ -1103,8 +1108,7 @@ The member pays for that safety or opts out of it:
 
 - Replacement is total. A frame that merely repeats what the store holds still replaces every element and notifies every reader of every array under it. A keyed `<For>` tears its DOM down on every frame, and every per-row binding re-runs for every row for a one-character change in one row.
 - A cell or stream that declares [`arrayKey`](#declaring-array-identity--arraykey) is merged by that field instead: a repeated frame notifies nothing, and a reorder moves the rows a keyed view is following.
-- A `deltas` collection's keyed dictionary is not merged here at all. Its hook owns a store and writes the keys a frame names, replacing each leaf whole, so an entry a `fold` consumer is holding never mutates under it.
-- A collection's per-key delivery does come through this merge, and honours the same declaration.
+- Both of a collection's deliveries come through this merge and honour the same declaration. The batched `deltas` path merges one entry at a time: its hook owns a store and merges each entry a frame names, so only the leaves that moved notify. An entry a `fold` consumer holds is never written to, since the merge swaps the new object in as the backing.
 
 #### Wire links must carry a watchdog
 
@@ -1258,7 +1262,7 @@ framework never sees inside the accumulator.
 
 #### What a fold may hold, and what fails it
 
-- The store adopts a value by replacement and neither side ever mutates one. A fold that keeps what `init` gave it holds the very objects `byKey` serves, not a second copy of them.
+- The store adopts a value by pointer swap and neither side ever mutates one. A fold that keeps what `init` gave it holds the very objects `byKey` serves, not a second copy of them.
 - On a collection-wide error, fold accessors keep their last value, frozen, exactly as `byKey` does, and the failure surfaces through the shared `error()` / `onError` / health enrolment.
 - A throwing `init` / `step` is reported loudly, never killing the stream, the store or another fold, and it invalidates that fold's accumulator. Later deltas have no valid base to land on, so the accessor returns to `undefined` rather than reading live while frozen forever.
 - Called ownerless, `fold()` throws rather than minting an accumulator nothing can drop.
