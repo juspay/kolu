@@ -81,8 +81,6 @@ const ModalDialog: Component<{
   transparentOverlay?: boolean;
   /** Element to receive focus when the dialog opens (passed to Corvu's focus trap). */
   initialFocusEl?: HTMLElement;
-  /** Disable Corvu's built-in focus trapping (for custom keyboard navigation). */
-  trapFocus?: boolean;
   /** Refocus the active terminal when the dialog closes. Off by default — the
    *  command palette runs its own guarded refocus, and CloseConfirm / the
    *  intent editor manage focus themselves. The simple dialogs (About, Welcome,
@@ -140,7 +138,11 @@ const ModalDialog: Component<{
       closeOnOutsideFocus={false}
       closeOnOutsidePointer={props.dismissible ?? true}
       initialFocusEl={props.initialFocusEl}
-      trapFocus={props.trapFocus}
+      // `trapFocus` is Corvu's own `true` and is left unsaid: Solid 2's `merge`
+      // takes the LAST source that carries a key, `undefined` included, so a
+      // forwarded `trapFocus={undefined}` would read as "no trap" and leave
+      // focus wherever it was — on the terminal, which eats the Escape that
+      // should close this dialog.
       closeOnEscapeKeyDown={
         (props.escapeCloses ?? true) && (props.dismissible ?? true)
       }

@@ -70,6 +70,37 @@ async function pressEscape(escapeCloses: boolean) {
   return { changes, behind };
 }
 
+/** Open a dialog that names its own `initialFocusEl`, with the page's focus
+ *  starting OUTSIDE it — the shape every editor dialog has (`IntentEditorDialog`
+ *  hands Corvu its textarea while the terminal holds focus). Answers where
+ *  focus ended up once Corvu's trap has had its two frames. */
+async function openAndSettleFocus() {
+  root = document.createElement("div");
+  document.body.append(root);
+  const outside = document.createElement("button");
+  document.body.append(outside);
+  outside.focus();
+  const [fieldRef, setFieldRef] = createSignal<HTMLTextAreaElement>();
+  dispose = render(
+    () => (
+      <ModalDialog open onOpenChange={() => {}} initialFocusEl={fieldRef()}>
+        <Dialog.Content data-testid="content">
+          <textarea ref={setFieldRef} data-testid="field" />
+        </Dialog.Content>
+      </ModalDialog>
+    ),
+    root,
+  );
+  // `afterPaint` is two `requestAnimationFrame`s deep inside Corvu's trap.
+  for (let frame = 0; frame < 20; frame++) {
+    await new Promise((done) => setTimeout(done, 16));
+    if (document.activeElement?.getAttribute("data-testid") === "field") break;
+  }
+  const landed = document.activeElement;
+  outside.remove();
+  return landed;
+}
+
 describe("ModalDialog", () => {
   it("marks the Esc that closes it as handled, so nothing behind it takes the same press", async () => {
     const { changes, behind } = await pressEscape(true);
@@ -81,5 +112,10 @@ describe("ModalDialog", () => {
     const { changes, behind } = await pressEscape(false);
     expect(changes).toEqual([]);
     expect(behind).toEqual([{ handled: false, dialogs: 1 }]);
+  });
+
+  it("takes focus off the page and onto the element the dialog names", async () => {
+    const landed = await openAndSettleFocus();
+    expect(landed?.getAttribute("data-testid")).toBe("field");
   });
 });
