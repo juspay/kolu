@@ -180,10 +180,6 @@ export function useCell<Name extends string, T, P = T>(
   // spelling rather than from `createSubscription`'s: the seam underneath is
   // shared and does take a `signal`, so its own wording would name a primitive
   // this caller never called and offer an option this hook has no way to accept.
-  // Refused at the hook rather than by threading a `caller` down, because
-  // `caller` is `createStreamLifecycle`'s internal seam and `SubscriptionOptions`
-  // is the public option bag — a public `caller` would let any call site rename
-  // the framework's refusal.
   if (!getOwner())
     throw noLifetimeRefusal({
       name: "`.cells.X.use()` (useCell)",

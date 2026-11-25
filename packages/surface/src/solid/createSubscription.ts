@@ -509,12 +509,6 @@ export function noLifetimeRefusal(caller: {
 export function createStreamLifecycle<T>(
   source: Stream.Stream<T, unknown>,
   options: {
-    /** WHO is refusing, when this view turns out to have no lifetime at all. The
-     *  message names this primitive and words its advice from what THIS caller
-     *  accepts — the collection path reaches the same refusal and exposes no
-     *  `signal`, so telling its caller to pass one would name an option it has
-     *  no way to spell. */
-    caller: { name: string; acceptsSignal: boolean };
     /** One stream frame. Runs before `pending` clears, in the same flush. */
     onFrame: (item: T) => void;
     /** The stream ENDED NORMALLY (a typed end), never on abort. */
@@ -627,7 +621,11 @@ export function createStreamLifecycle<T>(
     // no handle left to stop it. That is the silent leak this package refuses by
     // construction everywhere else it can (`createKeyedRoot`, `fold`,
     // `client.rawStream`).
-    if (!getOwner()) throw noLifetimeRefusal(options.caller);
+    if (!getOwner())
+      throw noLifetimeRefusal({
+        name: "createSubscription",
+        acceptsSignal: true,
+      });
     createEffect(
       () => undefined,
       () => {
@@ -702,7 +700,6 @@ export function createSubscription<T, R = T>(
   // shared seam; the ONE thing this primitive contributes is what a frame does —
   // reduce it, tell the tracker, write it into the wrapped store.
   const state = createStreamLifecycle<T>(source, {
-    caller: { name: "createSubscription", acceptsSignal: true },
     onFrame: (item) => {
       acc = reduce ? reduce(acc as T | R, item) : (item as T | R);
       tracker.noteFrame(acc); // fire `updated` on a genuine change, before the write

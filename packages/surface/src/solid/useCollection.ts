@@ -116,11 +116,9 @@ export function useCollection<Name extends string, K, T, I>(
   // is opened under it and dies with it, and this hook exposes no `signal`, so
   // an ownerless call is refused at birth — in the consumer's own spelling, not
   // the shared seam's, which names a primitive this caller never called and
-  // offers a `signal` it has no way to pass. (The refusal is worded at the hook
-  // rather than threaded into `createSubscription` as a `caller`, because that
-  // option bag is public: a public `caller` would let any call site rename the
-  // framework's refusal.) Refusing here rather than at the first `byKey` also
-  // keeps the deferral honest — a view nobody looks up still has no lifetime.
+  // offers a `signal` it has no way to pass. Refusing here rather than at the
+  // first `byKey` also keeps the deferral honest — a view nobody looks up still
+  // has no lifetime.
   const owner = getOwner();
   if (!owner)
     throw noLifetimeRefusal({
@@ -373,6 +371,17 @@ export function useCollectionDeltas<Name extends string, K, T>(
     enroll?: (state: SubscriptionState) => void;
   },
 ): UseCollectionDeltasResult<K, T> {
+  // This view's whole lifetime is the caller's owner: the batched fiber is opened
+  // under it and dies with it, and this hook exposes no `signal`, so an ownerless
+  // call has no lifetime at all and is refused at birth — before a store, a fold
+  // registry or an effect exists. Worded in the consumer's own spelling, not the
+  // shared seam's, which names a primitive this caller never called and offers a
+  // `signal` it has no way to pass.
+  if (!getOwner())
+    throw noLifetimeRefusal({
+      name: "`.collections.X.use()` (useCollectionDeltas)",
+      acceptsSignal: false,
+    });
   // THE store, owned here rather than reached through `createSubscription`'s generic
   // reduce: a frame NAMES the keys it touches, and the whole point of this path is to
   // write exactly those. Routing through the reduce path meant a fresh accumulator per
@@ -612,13 +621,6 @@ export function useCollectionDeltas<Name extends string, K, T>(
   const state = createStreamLifecycle<CollectionDeltasMsg<K, T>>(
     options.source,
     {
-      // This path's consumer spelling is `.collections.X.use({ keys, onError })`
-      // (and `useCollectionDeltas` under it): no `signal` option, so the
-      // no-lifetime refusal must not offer one.
-      caller: {
-        name: "`.collections.X.use()` (useCollectionDeltas)",
-        acceptsSignal: false,
-      },
       // Assert keys → apply to the store → notify the folds, the last of them
       // inside the frame's own store transaction. No reader ever observes a
       // half-applied frame: the write is ONE staged transaction that lands
