@@ -1,13 +1,12 @@
 // @vitest-environment happy-dom
-/** The reader's document boundary is KEYED ON THE OPEN PATH.
+/** A NEW PATH WAITS; THE SAME PATH KEEPS ITS DOCUMENT.
  *
- *  A tab press changes what the frame is of: the boundary is built again with
- *  the new path, so it has shown nothing yet and holds the read that path
- *  starts — the waiting line comes back, while the header and the tabs beside
- *  it keep drawing. A second read of the SAME path (the work ends while the
- *  reader is open and the source becomes kolu's kept copy) is not a new
- *  subject: the boundary is the same one, it has already shown the document,
- *  and the text stays on screen until the new bytes land. */
+ *  A tab press changes what the reader shows: the old file leaves, and the
+ *  waiting line stands under the new tab's name until the new file's bytes
+ *  land, while the header and the tabs beside it keep drawing. A second read
+ *  of the SAME path (the work ends while the reader is open and the source
+ *  becomes kolu's kept copy) is not a new document: the text stays on screen
+ *  until the new bytes land. */
 
 import { createSignal, flush } from "solid-js";
 import { render } from "@solidjs/web";
@@ -100,7 +99,7 @@ afterEach(() => {
   fixture.reads.clear();
 });
 
-/** Let the resolved read reach the boundary. */
+/** Let the resolved read reach the document. */
 async function settle(): Promise<void> {
   for (let i = 0; i < 4; i++) await Promise.resolve();
   flush();
@@ -113,7 +112,7 @@ function text(testid: string): string | null {
   return host.querySelector(`[data-testid='${testid}']`)?.textContent ?? null;
 }
 
-it("holds a new path in its own boundary and keeps the document on a re-read", async () => {
+it("waits under a new path's name and keeps the document on a re-read of the same path", async () => {
   const [path, setPath] = createSignal("plan.md");
   const [revision, setRevision] = createSignal(0);
   fixture.revision = revision;
@@ -133,8 +132,8 @@ it("holds a new path in its own boundary and keeps the document on a re-read", a
   );
   await settle();
 
-  // The first read is held by the boundary born with the path — and the
-  // header beside it draws, so the page is not waiting on the document.
+  // The first read shows the waiting line — and the header beside it draws,
+  // so the page is not waiting on the document.
   expect(text("doc")).toBeNull();
   expect(text("reader-doc")).toContain("Loading…");
   expect(text("reader-head")).toContain("plan.md");
@@ -155,8 +154,8 @@ it("holds a new path in its own boundary and keeps the document on a re-read", a
   await settle();
   expect(text("doc")).toBe("the notes");
 
-  // THE SAME SUBJECT, read again (the source changed under it): the boundary
-  // has already shown this path's document, so the text stays up.
+  // THE SAME PATH, read again (the source changed under it): the document is
+  // already on screen, so the text stays up.
   setRevision(revision() + 1);
   await settle();
   expect(text("doc")).toBe("the notes");
