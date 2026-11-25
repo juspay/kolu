@@ -10,6 +10,7 @@ import type { TerminalMetadata } from "@kolu/padi-client/surface";
 import { LOCAL_LOCATION } from "@kolu/padi-client/surface";
 import { endWork, type Work, type WorkId } from "kolu-work";
 import { seeded } from "kolu-work/testlib";
+import { flush } from "solid-js";
 import { describe, expect, it } from "vitest";
 import { useComments } from "../comments/useComments";
 import type { MemberLine } from "./workFacts";
@@ -90,6 +91,8 @@ describe("a work's comments", () => {
       locator: { quote: "the plan", prefix: "", suffix: "" },
       body: "Say why",
     });
+    // Solid 2 stages the write until the next flush.
+    flush();
     for (let seed = 1; seed <= 100; seed += 1) {
       const pick = seeded(seed);
       const members = POOL.filter(() => pick() < 0.5).sort(() => pick() - 0.5);
