@@ -210,6 +210,14 @@ describe("the rows", () => {
 });
 
 describe("adding", () => {
+  it('writes spellcheck="false" on the add field', () => {
+    // `spellcheck` is an ENUMERATED attribute: the word `"false"` turns the
+    // checker off, and a missing attribute means "inherit". Solid 2 removes
+    // an attribute given `false`, so the word has to be written.
+    const f = mount([]);
+    expect(f.input()?.getAttribute("spellcheck")).toBe("false");
+  });
+
   it("focusing the field opens its suggestions, Juspay's first", () => {
     const f = mount([]);
     const input = f.input();
