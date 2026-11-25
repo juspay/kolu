@@ -30,7 +30,15 @@
  *  landing, a link appearing or the reader moving — so the fold must be
  *  re-applied, and the lists it must watch may be new ones), and the open
  *  state of the lists `applyProseListFold` touches (somebody pressed "and N
- *  more"). */
+ *  more").
+ *
+ *  TWO, and the row RECORD is not a third: the transcript hands a fresh row
+ *  object down for every chunk, with the same id. An effect that tracked the
+ *  record would fold once in the flush the text changed — over DOM the
+ *  rewrite is about to throw away — and again when `onRendered` reports the
+ *  DOM that replaced it: the same pass twice per chunk, the first of them on
+ *  prose no reader ever sees. So the id is read through `rowId` below, which
+ *  stops at the string. */
 
 import { type InlineCodeAction, Markdown } from "@kolu/solid-markdown";
 import type { Work, WorkId } from "kolu-work";
@@ -176,11 +184,16 @@ const ConductorProse: Component<{
 
   const [rewrites, setRewrites] = createSignal(0);
 
+  /** THE ROW'S ID, BY VALUE — a memo so that the record carrying it, replaced
+   *  on every chunk, is not a dependency of the fold effect below. See the
+   *  head of this file. */
+  const rowId = createMemo(() => props.rowId);
+
   createEffect(
     () => ({
       rewrites: rewrites(),
-      rowId: props.rowId,
-      open: proseListFoldOpen(props.rowId),
+      rowId: rowId(),
+      open: proseListFoldOpen(rowId()),
     }),
     ({ rowId, open }) => {
       applyProseListFold(host, rowId, open);
