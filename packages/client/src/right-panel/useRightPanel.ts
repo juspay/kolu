@@ -86,12 +86,11 @@ const MIN_PANEL_SIZE = 0.05;
  *  every writer of a tree share accepts, and each pane's Corvu `minSize`.
  *  Mirrors `MIN_PANEL_SIZE`'s role for the Right panel's own split. */
 export const MIN_CODE_PANE_SHARE = 0.1;
-/** Drop a size write when it matches the stored value. Corvu's `Resizable`
- *  runs `createEffect(() => ({ sizes: sizes(), onChange: props.onSizesChange }),
- *  ({ sizes, onChange }) => onChange?.(sizes))`, so it re-emits the *current*
- *  `sizes` prop on every reactive invalidation of that compute — and
- *  re-registers panels (re-emitting again) on every mount during restart churn.
- *  Those re-emits carry the value we already hold; persisting them is pure noise
+/** Drop a size write when it matches the stored value. A controlled Corvu
+ *  `Resizable` ECHOES: it reports back the `sizes` it was given, on its own
+ *  reactive invalidations and again on every panel re-registration during
+ *  restart churn (`ui/corvuResizable.ts` holds the corvu-read lore). Those
+ *  reports carry the value we already hold; persisting them is pure noise
  *  (#1041). Corvu rounds sizes to 6 decimals, so a tolerance below that
  *  catches the echo without dropping a real one-pixel drag step. */
 const SIZE_EPSILON = 1e-6;

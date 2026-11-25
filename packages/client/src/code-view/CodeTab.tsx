@@ -1520,12 +1520,11 @@ const CodeTab: Component<{
               // Disable startIntersection (the handle's leading end): Corvu's
               // registerHandle keeps a *module-level* handles[] and pairs
               // handles whose orientations differ and rects touch at the
-              // corner (see @corvu-next/resizable/dist/index.jsx:213–245). Without
-              // this opt-out, a stacked view's left edge equals the outer
-              // handle's (in `App.tsx`) right edge → the two are coupled,
-              // and clicks on the outer handle near the file-tree row land
-              // on the inner handle instead. The outer handle carries the
-              // symmetric `startIntersection={false}` so both sides are
+              // corner. Without this opt-out, a stacked view's left edge
+              // equals the outer handle's (in `App.tsx`) right edge → the two
+              // are coupled, and clicks on the outer handle near the file-tree
+              // row land on the inner handle instead. The outer handle carries
+              // the symmetric `startIntersection={false}` so both sides are
               // defended.
               startIntersection={false}
               onHandleDrag={split.onHandleDrag}

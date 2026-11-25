@@ -663,8 +663,8 @@ const App: Component = () => {
                    pixel value or a host-published CSS custom property.
                   
                    `startIntersection={false}` on the handle opts out of
-                   Corvu's module-level handle-pairing registry (see
-                   `@corvu-next/resizable/dist/index.jsx:213-245`). Without the
+                   Corvu's module-level handle-pairing registry, which pairs
+                   handles of differing orientation whose rects touch. Without the
                    opt-out, this outer horizontal handle pairs with
                    `CodeTab`'s inner vertical handle (their rects touch at
                    the corner) and clicks near the corner land on the
