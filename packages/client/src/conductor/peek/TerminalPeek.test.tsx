@@ -7,6 +7,8 @@ import type { FleetTerminalStanding } from "../../palette/fleetTerminals";
 import { Shown } from "../../ui/shown";
 import { closePeek, openPeek, peekTarget, peekTyping } from "./usePeek";
 import { setFitWidth } from "../fitWidth";
+import { DEFAULT_FONT_SIZE } from "terminal-themes";
+import { fitFontSize } from "./peekSize";
 
 const ID = "11111111-1111-4111-8111-111111111111" as TerminalId;
 
@@ -330,6 +332,45 @@ describe("TerminalPeek", () => {
     expect(fit?.getAttribute("aria-pressed")).toBe("false");
     expect(seam.props?.fontSize).toBe(14);
     setFitWidth(true);
+  });
+
+  it("judges the report against the grid and the pad the same dispatch reported", () => {
+    setFitWidth(true);
+    openPeek({ host: "remote:nix@example", id: ID });
+    mount();
+    const onGrid = seam.props?.onGrid as (g: {
+      cols: number;
+      rows: number;
+    }) => void;
+    const onCell = seam.props?.onCell as (
+      c: { width: number; height: number },
+      p: { x: number; y: number },
+    ) => void;
+    // The window opens on a terminal that fits: this cell IS the base one.
+    onGrid({ cols: 80, rows: 24 });
+    onCell({ width: 8.4, height: 17 }, { x: 26, y: 12 });
+    flush();
+    expect(seam.props?.fontSize).toBe(DEFAULT_FONT_SIZE);
+
+    // ONE DISPATCH, as the screen makes it: the stream states a far wider
+    // grid, and the render that follows reports the cell and the padding it
+    // was drawn at. Both are judged as reported — a Solid 2 write is staged
+    // until the flush, so reading either signal back here would answer with
+    // the value BEFORE this report and latch a shrunken cell as the base
+    // one.
+    onGrid({ cols: 212, rows: 52 });
+    onCell({ width: 7, height: 14 }, { x: 300, y: 12 });
+    flush();
+    expect(seam.props?.fontSize).toBe(
+      fitFontSize({
+        cols: 212,
+        cellWidth: 8.4,
+        fontSize: DEFAULT_FONT_SIZE,
+        // The window is 1280 wide, less the border it draws.
+        availWidth: 1278,
+        padX: 300,
+      }),
+    );
   });
 
   it("offers Take over while the Conductor drives, and is read-only", () => {

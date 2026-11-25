@@ -94,11 +94,19 @@ const LivePane: Component<{
   const driver = () => membership().get(ref())?.driver ?? "nobody";
   const mayType = () => inputAllowedAt(ref());
 
+  const openingGrid = untrack(() => liveArm(standing())?.grid ?? null);
   const [grid, setGrid] = createSignal<TerminalGrid | null>(
     // READ ONCE: the pane opens on the size the terminal has now, and every
     // size after this one arrives through `onGrid`.
-    untrack(() => liveArm(standing())?.grid ?? null),
+    openingGrid,
   );
+  /** THE SIZE THE SCREEN WAS LAST STATED AT — `grid()`'s plain mirror, written
+   *  by `onGrid` in the dispatch the report arrives in. `onCell` below is the
+   *  sibling of that callback (`PeekTerminal.tsx`'s `screen.resize`), and a
+   *  Solid 2 signal write is staged until the flush: reading `grid()` there
+   *  would answer with the size BEFORE the resize, and the columns dominate
+   *  the gate. */
+  let statedGrid: TerminalGrid | null = openingGrid;
   const [cell, setCell] = createSignal<PeekCell | null>(null);
   const [baseCell, setBaseCell] = createSignal<PeekCell | null>(null);
   const [pad, setPad] = createSignal<PeekPad | null>(null);
@@ -154,16 +162,16 @@ const LivePane: Component<{
       ? peekPans(peekNatural(g, c, p).width, availWidth())
       : false;
   };
-  /** THE FONT THE SCREEN DRAWS AT, FOR A GIVEN PAD — Fit width's answer at the
-   *  pane's base cell, else the base font.
+  /** THE FONT THE SCREEN DRAWS AT, FOR A GIVEN SIZE AND PAD — Fit width's
+   *  answer at the pane's base cell, else the base font.
    *
-   *  The pad is an ARGUMENT, not a read: `onCell` below judges this with the
-   *  pad it has just been handed, and a Solid 2 signal write is staged until
-   *  the flush, so reading `pad()` there would answer with the pad BEFORE the
-   *  report — latching the base cell against a measurement it was not taken
-   *  at. */
-  const fontSizeFor = (p: PeekPad | null): number => {
-    const g = grid();
+   *  The grid and the pad are ARGUMENTS, not reads: `onCell` below judges
+   *  this with the measurement it has just been handed, beside the size
+   *  `onGrid` was handed in the same dispatch, and a Solid 2 signal write is
+   *  staged until the flush — so reading either signal there would answer
+   *  with the value BEFORE the report, latching the base cell against a
+   *  screen it was never drawn at. */
+  const fontSizeFor = (g: TerminalGrid | null, p: PeekPad | null): number => {
     const c = baseCell();
     return fitWidth() && g && c && p && availWidth() > 0
       ? fitFontSize({
@@ -175,7 +183,7 @@ const LivePane: Component<{
         })
       : DEFAULT_FONT_SIZE;
   };
-  const fontSize = () => fontSizeFor(pad());
+  const fontSize = () => fontSizeFor(grid(), pad());
   const background = () => {
     const s = standing();
     return (
@@ -347,11 +355,15 @@ const LivePane: Component<{
                 id={props.id}
                 fontSize={fontSize()}
                 mayType={mayType}
-                onGrid={setGrid}
+                onGrid={(g) => {
+                  statedGrid = g;
+                  setGrid(g);
+                }}
                 onCell={(c, p) => {
                   setCell(c);
                   setPad(p);
-                  if (fontSizeFor(p) === DEFAULT_FONT_SIZE) setBaseCell(c);
+                  if (fontSizeFor(statedGrid, p) === DEFAULT_FONT_SIZE)
+                    setBaseCell(c);
                 }}
                 onPhase={setPhase}
                 onHeld={setHeld}

@@ -37,6 +37,11 @@ const seam = vi.hoisted(() => ({
         p: { x: number; y: number },
       ) => void)
     | undefined,
+  /** Report another drawn size, as the screen does when the stream resizes
+   *  it — the sibling of `report` in the SAME dispatch. */
+  reportGrid: undefined as
+    | ((g: { cols: number; rows: number }) => void)
+    | undefined,
 }));
 
 const [standing, setStanding] = createSignal<FleetTerminalStanding>({
@@ -68,6 +73,7 @@ vi.mock("./peek/PeekTerminal", async () => {
       onPhase: (p: "live") => void;
     }) => {
       seam.report = (c, p) => props.onCell(c, p);
+      seam.reportGrid = (g) => props.onGrid(g);
       onSettled(() => {
         props.onCell({ width: 8.4, height: 17 }, { x: 26, y: 12 });
         props.onGrid(seam.drawn);
@@ -116,6 +122,8 @@ import LivePane from "./LivePane";
 const SETTLE = 750;
 const ASKED = { cols: 160, rows: 52 };
 const OLD = { cols: 80, rows: 24 };
+/** Wider than the pane's body can draw at the base font. */
+const WIDE = { cols: 212, rows: 52 };
 
 let dispose: (() => void) | undefined;
 /** The member's part in the work — the pane's `role` prop, not an ARIA one. */
@@ -203,6 +211,34 @@ describe("the base cell the pane sizes from", () => {
           fontSize: DEFAULT_FONT_SIZE,
           availWidth: 1374,
           padX: 1000,
+        }),
+      ),
+    );
+  });
+
+  it("judges the report against the grid the same dispatch reported", () => {
+    seam.drawn = OLD;
+    setStanding(recordAt(OLD));
+    const el = mount();
+    flush();
+    expect(fontOf(el)).toBe(String(DEFAULT_FONT_SIZE));
+
+    // ONE DISPATCH, as the screen makes it: the stream states a far wider
+    // grid, and the render that follows reports the cell it was drawn at.
+    // At 212 columns of 8.4px the pane is already drawing below the base
+    // font, so the 7px cell is NOT the base one — judged against the grid
+    // just reported, not the one before it, which is still staged.
+    seam.reportGrid?.(WIDE);
+    seam.report?.({ width: 7, height: 14 }, { x: 300, y: 12 });
+    flush();
+    expect(fontOf(el)).toBe(
+      String(
+        fitFontSize({
+          cols: WIDE.cols,
+          cellWidth: 8.4,
+          fontSize: DEFAULT_FONT_SIZE,
+          availWidth: 1374,
+          padX: 300,
         }),
       ),
     );
