@@ -160,7 +160,7 @@ export const DockRow: Component<DockRowProps> = (props) => {
   const s = () => DOCK_ROW_SURFACE[props.surface];
   return (
     // biome-ignore lint/a11y/useSemanticElements: native button would nest invalid interactive HTML — see the module header
-    // biome-ignore lint/a11y/useFocusableInteractive: the row IS focusable — Solid 2's JSX types spell the attribute `tabindex` (lowercase, see `tabindex={0}` below), which this rule only recognises as React's `tabIndex`. No upstream fix is filed yet: the rule would need to follow the JSX framework (lowercase for Solid, camelCase for React).
+    // biome-ignore lint/a11y/useFocusableInteractive: the row IS focusable — Solid 2's JSX types spell the attribute `tabindex` (lowercase, see `tabindex={0}` below), which this rule only recognises as React's `tabIndex`. Delete this line once the rule follows the JSX framework in use: biomejs/biome#13421.
     <div
       role="button"
       tabindex={0}
