@@ -27,6 +27,13 @@ const [activeTipSignal, setActiveTip] = createSignal<Tip | null>(null);
 /** Reactive accessor for the tip currently displayed by `<TipBanner />`. */
 export const activeTip: Accessor<Tip | null> = activeTipSignal;
 
+/** WHICH TIP HAS THE BANNER, answered in the frame it was taken. The signal
+ *  above is the rendering mirror: a write to it is staged, so a reader in the
+ *  same frame — the pre-preferences queue drains in ONE synchronous loop — is
+ *  served the committed value and every queued tip would believe the banner
+ *  free. This plain variable is the authority those decisions read. */
+let bannerHolder: Tip | null = null;
+
 /** How long a tip stays on screen before the banner auto-dismisses it.
  *  Owned here (not in the banner) so the state module fully controls
  *  "how a tip is displayed and for how long" — the banner is just the
@@ -43,9 +50,11 @@ function cancelAutoDismiss() {
 
 function present(tip: Tip) {
   cancelAutoDismiss();
+  bannerHolder = tip;
   setActiveTip(tip);
   autoDismissTimer = window.setTimeout(() => {
     autoDismissTimer = null;
+    bannerHolder = null;
     setActiveTip(null);
   }, TIP_DURATION_MS);
 }
@@ -53,6 +62,7 @@ function present(tip: Tip) {
 /** Hide the active tip (banner slides away). */
 export const dismissTip = () => {
   cancelAutoDismiss();
+  bannerHolder = null;
   setActiveTip(null);
 };
 
@@ -105,7 +115,7 @@ function resolveTipOnce(tip: Tip) {
   if (!showsAmbientTips()) return;
   if (!preferencesArrived()) {
     whenPreferencesArrive(() => {
-      if (activeTip() === null) resolveTipOnce(tip);
+      if (bannerHolder === null) resolveTipOnce(tip);
     });
     return;
   }
@@ -147,7 +157,7 @@ function showStartupTip() {
     whenPreferencesArrive(showStartupTip);
     return;
   }
-  if (activeTip() !== null) return;
+  if (bannerHolder !== null) return;
   if (preferences().startupTips) showAmbientTip();
 }
 
