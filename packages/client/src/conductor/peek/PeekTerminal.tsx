@@ -168,16 +168,22 @@ const PeekTerminal: Component<{
         shown: shown(),
         tabVisible: tabVisible(),
         // READ ONCE, not depended on: the attach is restarted by `shown` and
-        // `tabVisible` and by NOTHING else — the terminal this screen is of,
-        // the host's stream door and the callbacks the phases leave through
-        // are the pane's fixed wiring, and the effect's phase may read no
-        // reactive state at all. A single-phase effect here re-attached on
-        // every scroll-lock change, which threw a scrolled-back view to the
-        // bottom.
+        // `tabVisible` and by NOTHING else — the terminal this screen is of
+        // and the callbacks the phases leave through are the pane's fixed
+        // wiring, and the effect's phase may read no reactive state at all.
+        // A single-phase effect here re-attaches on every scroll-lock change,
+        // which throws a scrolled-back view to the bottom.
         id: untrack(() => props.id),
         host: untrack(() => props.host),
         onPhase: untrack(() => props.onPhase),
-        attach: untrack(() => entry.streams.terminalAttach.unenrolled),
+        // The door, read plainly: walking `streams.<member>.<verb>` on a
+        // surface-map entry reads nothing reactive — it hands back a call
+        // that resolves this host's CURRENT per-key client when it is MADE
+        // (`surface-map/src/client.ts:548-557`, `:1049-1060`). So a host
+        // re-added under this pane is attached through the new membership
+        // without this effect re-running, and there is nothing here that can
+        // go stale.
+        attach: entry.streams.terminalAttach.unenrolled,
       }),
       ({
         shown: isShown,
