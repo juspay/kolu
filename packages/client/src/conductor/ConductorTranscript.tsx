@@ -344,6 +344,10 @@ const ConductorTranscript: Component<{
     );
   };
 
+  /** The document the scroller's place belongs to: a scoped chat's own, or
+   *  the whole conversation under its own name. */
+  const shownDoc = (): string => chatScope()?.id ?? WHOLE_TRANSCRIPT;
+
   // The mount's own restore, once the first stable render has put the rows in
   // the column. The follow effect below places the container too — on its
   // first run, which is what a conversation that mounts with rows already in
@@ -428,7 +432,7 @@ const ConductorTranscript: Component<{
     // remembered offset alone, and coming back re-runs this with the column
     // laid out again.
     () => {
-      const doc = chatScope()?.id ?? WHOLE_TRANSCRIPT;
+      const doc = shownDoc();
       return [
         signature(),
         redraws(),
