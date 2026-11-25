@@ -844,7 +844,16 @@ const WorkSection: Component<{
                     aria-hidden="true"
                     class="relative col-start-4 h-3 text-[10px] text-fg-3"
                   >
-                    <For each={timelineTicks(ci().run, now())}>
+                    {/* KEYED BY THE TICK'S OWN POSITION. The marks are minted
+                     *  fresh on every clock tick — four new objects a second,
+                     *  saying the same thing about a settled run — so identity
+                     *  keying would tear the axis down and rebuild it once a
+                     *  second for the life of the panel. A tick IS its
+                     *  position; the number over it is what moves. */}
+                    <For
+                      each={timelineTicks(ci().run, now())}
+                      keyed={(tick) => tick.at}
+                    >
                       {(tick) => (
                         <span
                           class={[
@@ -856,37 +865,43 @@ const WorkSection: Component<{
                               // this file holding an opinion about how many marks
                               // odu mints.
                               "-translate-x-full border-l-0 border-r pr-0.5 pl-0":
-                                tick.at === 1,
+                                tick().at === 1,
                             },
                           ]}
-                          style={{ left: `${tick.at * 100}%` }}
+                          style={{ left: `${tick().at * 100}%` }}
                         >
                           {/* kolu's OWN ladder, the one every duration in this
                            *  section already prints — odu's tick carries a
                            *  position and a number, never a spelling, so an
                            *  axis never reads `55.4s` over a cell that reads
                            *  `55s`. */}
-                          {tick.at === 0 || tick.at === 1
-                            ? compactPhrase(tick.ms)
+                          {tick().at === 0 || tick().at === 1
+                            ? compactPhrase(tick().ms)
                             : ""}
                         </span>
                       )}
                     </For>
                   </li>
-                  <For each={ci().lanes}>
+                  {/* KEYED BY THE LANE'S OWN NAME, for the reason the axis is
+                   *  keyed by position: odu pushes a WHOLE frame whenever any
+                   *  one lane moves, so every row here is a fresh object for a
+                   *  record that mostly did not change. Keyed by identity, one
+                   *  lane's duration landing would rebuild every other lane's
+                   *  row — and the link a reader is hovering with it. */}
+                  <For each={ci().lanes} keyed={(lane) => lane.id}>
                     {(lane) => (
                       <li class={ROW}>
                         <OduLink
-                          act={() => props.odu?.act(laneHash(ci().run, lane))}
+                          act={() => props.odu?.act(laneHash(ci().run, lane()))}
                           onOpen={() =>
-                            props.odu?.open(laneHash(ci().run, lane))
+                            props.odu?.open(laneHash(ci().run, lane()))
                           }
                           testid="inspector-odu-lane-link"
                           class={ROW}
                         >
                           <LaneRow
-                            lane={lane}
-                            span={laneSpan(lane, ci().run, now())}
+                            lane={lane()}
+                            span={laneSpan(lane(), ci().run, now())}
                           />
                         </OduLink>
                       </li>
@@ -896,20 +911,23 @@ const WorkSection: Component<{
               </Show>
               <div class={SUBHEAD}>Recent runs</div>
               <ul data-testid="inspector-odu-recent" class={RECENT_GRID}>
-                <For each={ci().recent}>
+                {/* KEYED BY THE RUN'S OWN ID: the recent list is re-sent whole
+                 *  with every frame, and a run that has not moved must keep
+                 *  the row it already has. */}
+                <For each={ci().recent} keyed={(run) => run.runId}>
                   {(run, index) => (
                     <li class={ROW}>
                       <OduLink
-                        act={() => props.odu?.act(runHash(run.runId))}
-                        onOpen={() => props.odu?.open(runHash(run.runId))}
+                        act={() => props.odu?.act(runHash(run().runId))}
+                        onOpen={() => props.odu?.open(runHash(run().runId))}
                         testid="inspector-odu-run-link"
                         class={ROW}
                       >
                         <span class="min-w-0 truncate font-mono group-hover/lane:underline">
-                          {oduRef(run)}
+                          {oduRef(run())}
                         </span>
-                        <span class={ODU_HUE[runStatus(run).hue].text}>
-                          {runStatus(run).label}
+                        <span class={ODU_HUE[runStatus(run()).hue].text}>
+                          {runStatus(run()).label}
                         </span>
                         {/* How long the run TOOK — odu's own rule, which stops
                          *  at the run's verdict, so a settled row holds still
@@ -918,7 +936,7 @@ const WorkSection: Component<{
                           data-testid="inspector-odu-run-took"
                           class="text-right tabular-nums text-fg-3"
                         >
-                          {compactPhrase(runElapsedMs(run, now()))}
+                          {compactPhrase(runElapsedMs(run(), now()))}
                         </span>
                         {/* The same compact qualifier the summary carries, and
                          *  only when the run was scoped: a row whose run covered
@@ -927,9 +945,9 @@ const WorkSection: Component<{
                          *  are measured down the whole list. */}
                         <span
                           class="min-w-0 truncate text-fg-3"
-                          title={scopeSuffix(run.scope) ?? undefined}
+                          title={scopeSuffix(run().scope) ?? undefined}
                         >
-                          {scopeSuffix(run.scope) ?? ""}
+                          {scopeSuffix(run().scope) ?? ""}
                         </span>
                         {/* The head of this list IS the run the chip above is
                          *  about — said, rather than left to be inferred from an
@@ -938,7 +956,7 @@ const WorkSection: Component<{
                           {index() === 0 ? "current" : ""}
                         </span>
                         <span class="text-right text-fg-3">
-                          {agoPhrase(run.createdAt, now())}
+                          {agoPhrase(run().createdAt, now())}
                         </span>
                       </OduLink>
                     </li>
