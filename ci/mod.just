@@ -143,6 +143,15 @@ nix:
 # that file's expose/prove note). This recipe is therefore the ONLY gate on the
 # exposed attrs. Delete it and a fileset gap that reaches `default` or the TUIs
 # surfaces at dial time on a user's box.
+#
+# AND IT IS THE PURITY GATE. `--option allow-import-from-derivation false` is
+# the whole claim of this lane's eval: a binder resolves
+# `<baked-source>#packages.<system>.padi-agent.drvPath` with whatever store it
+# has — on a fresh host that is the shipped closure and nothing else — so an
+# eval that must first REALISE something (a workspace member read out of a
+# build; see `pinSource` in nix/workspace.nix) goes off to compile stdenv on
+# the user's machine, offline, and provisioning never ships an agent at all.
+# Here the same eval fails loudly instead, naming the derivation it wanted.
 agent-flake-nix: nix
     #!/usr/bin/env bash
     set -euo pipefail
@@ -153,7 +162,7 @@ agent-flake-nix: nix
     agent_packages="$({{ nix_shell }} jq -r '.expose[]' nix/agent-packages.json)"
     [[ -n "$agent_packages" ]]
     while IFS= read -r package; do
-      drv="$(nix eval --accept-flake-config --raw "$agent_flake_ref#packages.$system.$package.drvPath")"
+      drv="$(nix eval --accept-flake-config --option allow-import-from-derivation false --raw "$agent_flake_ref#packages.$system.$package.drvPath")"
       case "$drv" in
         *.drv) ;;
         *) echo "$package resolved to '$drv', not a derivation path" >&2; exit 1 ;;

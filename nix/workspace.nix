@@ -71,7 +71,8 @@ let
     "@juspay/agent-distro" = "agent-distro";
     # corvu-next's dialog, drawer, resizable and tooltip, and the six helper
     # packages they depend on — the Solid 2 port of corvu the client renders.
-    # These ten come from the pin's BUILD, not its source (`builtPins` below).
+    # These ten are GRAFTED from the pin's BUILD rather than its source
+    # (`builtPins` below); the pin's source is still where eval reads them.
     "@corvu-next/dialog" = "corvu-next";
     "@corvu-next/drawer" = "corvu-next";
     "@corvu-next/resizable" = "corvu-next";
@@ -85,10 +86,10 @@ let
   };
   pinnedNames = builtins.attrNames pinnedPins;
 
-  # The pins whose members are grafted from a BUILD of the pin rather than from
-  # its source tree: pin name → the derivation whose output holds them, laid
-  # out like the source (`$out/packages/<dir>`), so a member's `subdir` names
-  # the same place in both.
+  # The pins whose members' BYTES are grafted from a BUILD of the pin rather
+  # than from its source tree: pin name → the derivation whose output holds
+  # them, laid out like the source (`$out/packages/<dir>`), so a member's
+  # `subdir` names the same place in both.
   #
   # corvu-next is the one: its packages are consumed through `dist/` (their
   # `exports` point there, and their source imports through a per-package
@@ -98,8 +99,34 @@ let
   builtPins = {
     corvu-next = pkgs.corvu-next;
   };
-  # Where a pin's members live: its build when it has one, else its source.
-  pinRoot = pin: "${builtPins.${pin} or sources.${pin}}";
+
+  # A MEMBER'S DIRECTORY IS READ AT EVAL TIME, SO IT IS ALWAYS THE PIN'S
+  # SOURCE — never a path inside `builtPins`'s output.
+  #
+  # `mkWorkspaceClosure` reads every member's `package.json` while it checks
+  # the map and again while it walks dependency edges. A member pointed inside
+  # a derivation makes that read an IMPORT FROM DERIVATION: `nix eval` of ANY
+  # attr of this tree — `.#padi.drvPath` included — must first REALISE that
+  # build. The machine that pays for it is the one that can least afford to:
+  # `@kolu/surface-remote`'s `resolveAgentDrv` evaluates
+  # `<baked-source>#packages.<system>.padi-agent.drvPath` on the BINDER to
+  # learn which closure to ship, and a binder with no cache and no corvu-next
+  # in its store (it is a build input of the client, in no runtime closure)
+  # went off to compile corvu-next, stdenv and the bootstrap tools from source
+  # — offline, so the eval failed and provisioning never shipped anything
+  # (`nix/home/example/adoption/offline-provision.nix`). Resolving an agent
+  # must stay a pure evaluation; `ci::agent-flake-nix` evaluates the exposed
+  # attrs with import-from-derivation DISABLED so this cannot come back.
+  #
+  # The source answers both eval-time questions exactly as the build would:
+  # the built manifest IS the source manifest minus `devDependencies` and
+  # `scripts` (nix/packages/corvu-next.nix), and the walk reads `name` and
+  # `dependencies`. The build is still what the GRAFT copies — `graftRoot`
+  # below — so what pnpm installs and what kolu compiles are unchanged.
+  pinSource = pin: "${sources.${pin}}";
+  # Where a pin's member BYTES come from: its build when it has one, else its
+  # source. Read only inside the graft derivations, never at eval.
+  graftRoot = pin: "${builtPins.${pin} or sources.${pin}}";
 
   # WHICH pinned member lands WHERE in the build tree. A scoped member grafts
   # under its scope (`@odu/service-client` → `odu/service-client`), so one pin's
@@ -202,18 +229,19 @@ let
     "@odu/run-history" = sources.odu + "/packages/run-history";
     # The same, from the `agent-distro` pin: its runtime tree, `src/`.
     "@juspay/agent-distro" = sources.agent-distro + "/src";
-    # The same again, from the `corvu-next` pin's BUILD (`builtPins`): each
-    # package's built directory — manifest, `dist/`, licence.
-    "@corvu-next/dialog" = pinRoot "corvu-next" + "/packages/dialog";
-    "@corvu-next/drawer" = pinRoot "corvu-next" + "/packages/drawer";
-    "@corvu-next/resizable" = pinRoot "corvu-next" + "/packages/resizable";
-    "@corvu-next/tooltip" = pinRoot "corvu-next" + "/packages/tooltip";
-    "@corvu-next/utils" = pinRoot "corvu-next" + "/packages/utils";
-    "@corvu-next/presence" = pinRoot "corvu-next" + "/packages/solid-presence";
-    "@corvu-next/dismissible" = pinRoot "corvu-next" + "/packages/solid-dismissible";
-    "@corvu-next/focus-trap" = pinRoot "corvu-next" + "/packages/solid-focus-trap";
-    "@corvu-next/prevent-scroll" = pinRoot "corvu-next" + "/packages/solid-prevent-scroll";
-    "@corvu-next/transition-size" = pinRoot "corvu-next" + "/packages/solid-transition-size";
+    # The same again, from the `corvu-next` pin: each package's directory. The
+    # BYTES kolu compiles come from the pin's BUILD, but a member's dir is the
+    # SOURCE one — see `pinSource` — and the graft swaps in the build.
+    "@corvu-next/dialog" = pinSource "corvu-next" + "/packages/dialog";
+    "@corvu-next/drawer" = pinSource "corvu-next" + "/packages/drawer";
+    "@corvu-next/resizable" = pinSource "corvu-next" + "/packages/resizable";
+    "@corvu-next/tooltip" = pinSource "corvu-next" + "/packages/tooltip";
+    "@corvu-next/utils" = pinSource "corvu-next" + "/packages/utils";
+    "@corvu-next/presence" = pinSource "corvu-next" + "/packages/solid-presence";
+    "@corvu-next/dismissible" = pinSource "corvu-next" + "/packages/solid-dismissible";
+    "@corvu-next/focus-trap" = pinSource "corvu-next" + "/packages/solid-focus-trap";
+    "@corvu-next/prevent-scroll" = pinSource "corvu-next" + "/packages/solid-prevent-scroll";
+    "@corvu-next/transition-size" = pinSource "corvu-next" + "/packages/solid-transition-size";
     "kolu-server" = ../packages/server;
     "kolu-client" = ../packages/client;
     "kolu-transcript-core" = ../packages/transcript-core;
@@ -252,7 +280,7 @@ let
   pinnedProvenance = lib.mapAttrs
     (member: pin:
       let
-        root = pinRoot pin;
+        root = pinSource pin;
         dir = members.${member};
       in
       assert lib.assertMsg (lib.hasPrefix "${root}/" dir) ''
@@ -319,12 +347,18 @@ let
   # both paths read the same pinned bytes and neither has a checked-in copy to
   # drift from.
   #
-  # Read back out of `members` rather than re-spelling each pin subpath: the
-  # graft and the identity's `pinnedSources` must name the SAME bytes, and one
-  # binding is how that stays true.
+  # Read back out of `pinnedProvenance` rather than re-spelling each pin
+  # subpath: the graft and the provenance a consumer is checked against must
+  # name the same member directory, and one binding is how that stays true.
+  # The ROOT, though, is `graftRoot` — the pin's build when it has one — so
+  # what lands in the tree is the bytes kolu compiles, while the eval-time
+  # `members` dir stays inside the pin's source (see `pinSource`).
   graftedMembers = lib.mapAttrsToList
-    (member: _: { dest = graftPath member; src = members.${member}; })
-    pinnedPins;
+    (member: prov: {
+      dest = graftPath member;
+      src = "${graftRoot prov.name}/${prov.subdir}";
+    })
+    pinnedProvenance;
   src = pkgs.runCommand "kolu-source" { } (
     ''
       cp -r ${treeSrc} $out
