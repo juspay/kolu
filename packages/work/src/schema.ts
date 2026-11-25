@@ -199,10 +199,11 @@ export type WorkId = string;
 const part = (text: string): string => encodeURIComponent(text);
 
 /** THE ONE STRING ENCODING OF A KEY. Injective and decodable
- *  ({@link workIdParts}): two different keys never produce one id, so "one
- *  work per branch" is a property of the map rather than a rule somebody
- *  enforces. A watch's id is the terminal's fleet ref (`<host>/<id>`),
- *  encoded whole — the bytes every stored watch id already is. */
+ *  ({@link workIdParts}): two different keys never produce one id, so one
+ *  work per KEY is a property of the map. One open work per branch is not —
+ *  two keys can name one repository — and is the store's rule 5. A watch's
+ *  id is the terminal's fleet ref (`<host>/<id>`), encoded whole — the
+ *  bytes every stored watch id already is. */
 export const workIdOf = (key: WorkKey): WorkId =>
   key.kind === "branch"
     ? `branch:${part(key.host)}/${part(key.repo)}/${part(key.branch)}`
@@ -882,6 +883,7 @@ export type WorkMember = typeof WorkMemberSchema.Type;
 /** The member schema a HOST persists: the model's own fields plus whatever
  *  that host remembers about the terminal. Parameterised rather than
  *  declared with a `watch: unknown`, so the host's own schema is the one that
- *  decodes it and this package still owns the four fields a member IS. */
+ *  decodes it and this package still owns the fields a member IS — its work,
+ *  its role and when it joined. */
 export const memberSchemaWith = <S extends Schema.Top>(watch: S) =>
   Schema.Struct({ ...WorkMemberSchema.fields, watch });

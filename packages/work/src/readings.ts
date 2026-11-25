@@ -168,9 +168,8 @@ const stepPr = (
         ...was,
         checks: CHECKS_READ_BACK[event.kind],
         lastCheck: Option.some(event),
-        merge: Option.exists(
-          was.lastMerge,
-          (last) => last.pr === event.pr && sameHead(last.head, event.head),
+        merge: Option.exists(was.lastMerge, (last) =>
+          sameHead(last.head, event.head),
         )
           ? was.merge
           : { kind: "unknown" },
@@ -181,9 +180,8 @@ const stepPr = (
           ...was,
           merge: event.merge,
           lastMerge: Option.some(event),
-          checks: Option.exists(
-            was.lastCheck,
-            (last) => last.pr === event.pr && sameHead(last.head, event.head),
+          checks: Option.exists(was.lastCheck, (last) =>
+            sameHead(last.head, event.head),
           )
             ? was.checks
             : "none",

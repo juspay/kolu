@@ -3,11 +3,13 @@
  * value naming which rule the two of them break and the rows that break it.
  *
  * Most of what "a legal store" means is already the TYPES' job and needs no
- * check at all: one work per branch (a map keyed by {@link workIdOf}), a
+ * check at all: one work per key (a map keyed by {@link workIdOf}), a
  * terminal in at most one work (one map keyed by terminal), no bookkeeping
  * without a member (one row holds both), no kept files on a work in progress
  * and no `endedAt` without an outcome (one sum), no check event without a PR
- * (a required field), no "answered with nothing" (a sum).
+ * (a required field), no "answered with nothing" (a sum). One branch, one
+ * open work, is not a property of the map — two keys can name one branch —
+ * and is rule 5 below.
  *
  * What is left is what JSON cannot say, and it is exactly six sentences:
  *
