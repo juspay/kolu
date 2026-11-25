@@ -373,6 +373,30 @@ describe("TerminalPeek", () => {
     );
   });
 
+  it("keeps its screen while the index cannot vouch for the terminal", () => {
+    openPeek({ host: "remote:nix@example", id: ID });
+    mount();
+    const screen = () => document.querySelector('[data-testid="peek-screen"]');
+    const was = screen();
+    expect(was).not.toBeNull();
+
+    // One frame in which the index cannot say — not an answer that there is
+    // no screen. The window keeps the one it has, and the reader's place
+    // with it.
+    setStanding({ kind: "loading" });
+    flush();
+    expect(screen()).toBe(was);
+
+    setStanding(live());
+    flush();
+    expect(screen()).toBe(was);
+
+    // A terminal that is answered for and gone takes its screen with it.
+    setStanding({ kind: "gone" });
+    flush();
+    expect(screen()).toBeNull();
+  });
+
   it("offers Take over while the Conductor drives, and is read-only", () => {
     const ref = `remote:nix@example/${ID}`;
     seam.allowed = false;

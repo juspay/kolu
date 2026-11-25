@@ -26,6 +26,7 @@ import WorkLock from "../WorkLock";
 import { ROLE_WORD } from "../workReadings";
 import { useMembership, useWorkMembers } from "../useWorks";
 import { liveArm, terminalStatus } from "../terminalStatus";
+import { createLookable } from "./lookable";
 import PeekTerminal, { type PeekTerminalHandle } from "./PeekTerminal";
 import { TerminalControls, TerminalStatusLine } from "./TerminalHead";
 import {
@@ -92,7 +93,7 @@ const PeekWindow: Component<{ target: PeekTarget }> = (props) => {
     fleetTerminalStanding(props.target.host, props.target.id),
   );
   const status = createMemo(() => terminalStatus(standing()));
-  const lookable = () => liveArm(standing()) !== undefined;
+  const lookable = createLookable(standing);
   const openTileAt = useOpenTile();
   const openingGrid = untrack(() => liveArm(standing())?.grid ?? null);
   const [grid, setGrid] = createSignal<TerminalGrid | null>(

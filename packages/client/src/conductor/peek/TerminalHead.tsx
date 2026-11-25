@@ -26,6 +26,7 @@ import DriveButton from "../DriveButton";
 import MemberPip from "../MemberPip";
 import StateFor from "../StateFor";
 import { liveArm, terminalStatus } from "../terminalStatus";
+import { createLookable } from "./lookable";
 import { useSeen } from "../useWorks";
 import type { Lock } from "../workReadings";
 
@@ -125,7 +126,7 @@ export const TerminalStatusLine: Component<{
     const tokens = agent()?.contextTokens;
     return tokens == null ? null : { value: tokens };
   };
-  const lookable = () => liveArm(standing()) !== undefined;
+  const lookable = createLookable(standing);
   const offersResize = () =>
     props.kind === "live" && props.resize?.offered === true;
   const readout = (g: TerminalGrid): JSX.Element => (

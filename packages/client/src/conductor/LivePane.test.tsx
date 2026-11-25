@@ -244,3 +244,45 @@ describe("the base cell the pane sizes from", () => {
     );
   });
 });
+
+describe("the screen the pane holds", () => {
+  it("keeps its screen and its readout while the index cannot vouch for the terminal", () => {
+    seam.drawn = OLD;
+    setStanding(recordAt(OLD));
+    const el = mount();
+    flush();
+    const screen = () => el.querySelector('[data-testid="live-screen"]');
+    const readout = () => el.querySelector('[data-testid="live-live"]');
+    const wasScreen = screen();
+    const wasReadout = readout();
+    expect(wasScreen).not.toBeNull();
+    expect(wasReadout).not.toBeNull();
+
+    // ONE FRAME IN WHICH THE INDEX CANNOT VOUCH — a per-key view that has
+    // not had its first frame, a host still adopting, a dropped socket. It
+    // is not an answer that there is no screen, and the reader's place must
+    // survive it: the SAME xterm, under the same head.
+    setStanding({ kind: "loading" });
+    flush();
+    expect(screen()).toBe(wasScreen);
+    expect(readout()).toBe(wasReadout);
+
+    setStanding(recordAt(OLD));
+    flush();
+    expect(screen()).toBe(wasScreen);
+    expect(readout()).toBe(wasReadout);
+  });
+
+  it("drops the screen when the terminal is answered for and gone", () => {
+    seam.drawn = OLD;
+    setStanding(recordAt(OLD));
+    const el = mount();
+    flush();
+    expect(el.querySelector('[data-testid="live-screen"]')).not.toBeNull();
+
+    setStanding({ kind: "gone" });
+    flush();
+    expect(el.querySelector('[data-testid="live-screen"]')).toBeNull();
+    expect(el.querySelector('[data-testid="live-live"]')).toBeNull();
+  });
+});

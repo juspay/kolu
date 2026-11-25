@@ -67,6 +67,7 @@ import {
 import { peekTarget } from "./peek/usePeek";
 import { inspectMember } from "./workListing";
 import { liveArm, terminalStatus } from "./terminalStatus";
+import { createLookable } from "./peek/lookable";
 import { useOpenTile } from "./useOpenTile";
 import { useMembership } from "./useWorks";
 import WorkLock from "./WorkLock";
@@ -90,7 +91,7 @@ const LivePane: Component<{
   const standing = createMemo(() =>
     fleetTerminalStanding(props.host, props.id),
   );
-  const lookable = () => liveArm(standing()) !== undefined;
+  const lookable = createLookable(standing);
   const driver = () => membership().get(ref())?.driver ?? "nobody";
   const mayType = () => inputAllowedAt(ref());
 
