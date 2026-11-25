@@ -461,7 +461,7 @@ const TerminalCanvas: Component<{
    *  sleeping arm renders a frozen body off the same `tileId` with no terminal. */
   function renderTerminalTile(
     tileId: TileId,
-    terminalId: TerminalId,
+    terminalId: () => TerminalId,
   ): JSX.Element {
     const active = () => tileStore.isActiveTile(tileId);
     const mode = (): CanvasTileMode =>
@@ -471,15 +471,19 @@ const TerminalCanvas: Component<{
           ? "maximized"
           : "covered";
     return (
-      <Show when={store.getDisplayInfo(terminalId)}>
+      <Show when={store.getDisplayInfo(terminalId())}>
         {(info) => (
           <CanvasTile
             id={tileId}
             active={active()}
             mode={mode()}
-            dimmed={isStale(store.getMetadata(terminalId)?.lastActivityAt ?? 0)}
-            sleeping={sleepingArm(store.getMetadata(terminalId)) !== undefined}
-            theme={tileTheme(terminalId)}
+            dimmed={isStale(
+              store.getMetadata(terminalId())?.lastActivityAt ?? 0,
+            )}
+            sleeping={
+              sleepingArm(store.getMetadata(terminalId())) !== undefined
+            }
+            theme={tileTheme(terminalId())}
             repoColor={info().repoColor}
             onSelect={() => props.onSelect(tileId)}
             onClose={() => props.onClose(tileId)}
@@ -508,7 +512,7 @@ const TerminalCanvas: Component<{
             }
             viewShown={canvasShown}
             cameraSettled={viewport.cameraSettled}
-            auraTier={() => tileAuraOf(terminalId)}
+            auraTier={() => tileAuraOf(terminalId())}
           />
         )}
       </Show>
@@ -591,7 +595,7 @@ const TerminalCanvas: Component<{
                       <Switch>
                         <Match when={c().kind === "terminal" && c()}>
                           {(terminal) =>
-                            renderTerminalTile(id, terminal().terminalId)
+                            renderTerminalTile(id, () => terminal().terminalId)
                           }
                         </Match>
                       </Switch>
