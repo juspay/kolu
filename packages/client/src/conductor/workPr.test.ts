@@ -22,7 +22,7 @@ import {
   type WorkMember,
   workIdOf,
 } from "kolu-work";
-import { seeded } from "kolu-work/seeded";
+import { seeded } from "kolu-work/testlib";
 import { createRoot, createSignal } from "solid-js";
 import { describe, expect, it, vi } from "vitest";
 import type { FleetTerminalStanding } from "../palette/fleetTerminals";

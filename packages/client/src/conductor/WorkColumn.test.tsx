@@ -64,7 +64,7 @@ const FINISHED: ReadonlyArray<WorkRow> = [
   [
     WORK,
     endWork(opened(), {
-      outcome: { kind: "merged", pr: 7 },
+      outcome: { kind: "stopped", by: "you" },
       at: "2026-11-16T02:00:00.000Z",
     }),
   ],

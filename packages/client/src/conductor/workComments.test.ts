@@ -9,7 +9,7 @@
 import type { TerminalMetadata } from "@kolu/padi-client/surface";
 import { LOCAL_LOCATION } from "@kolu/padi-client/surface";
 import { endWork, type Work, type WorkId } from "kolu-work";
-import { seeded } from "kolu-work/seeded";
+import { seeded } from "kolu-work/testlib";
 import { describe, expect, it } from "vitest";
 import { useComments } from "../comments/useComments";
 import type { MemberLine } from "./workFacts";
@@ -107,7 +107,7 @@ describe("a work's comments", () => {
 
   it("are none for a finished work's kept copy", () => {
     const ended = endWork(work, {
-      outcome: { kind: "merged", pr: 1 },
+      outcome: { kind: "stopped", by: "you" },
       at: "2026-01-02T00:00:00.000Z",
     });
     expect(workFileSource(ID, ended, POOL).comments).toBeNull();

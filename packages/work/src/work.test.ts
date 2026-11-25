@@ -1,6 +1,6 @@
 import { Option, Schema } from "effect";
 import { describe, expect, it } from "vitest";
-import { seeded } from "../test/seeded.ts";
+import { seeded } from "./seeded.testlib.ts";
 import {
   ABOUT_WORK,
   aboutMember,
@@ -327,7 +327,7 @@ describe("parseStore — what the types cannot say", () => {
 
   it("refuses a member of a work that has ended", () => {
     const ended = endWork(opened(), {
-      outcome: { kind: "merged", pr: 181 },
+      outcome: { kind: "stopped", by: "you" },
       at: T(9),
     });
     expect(
@@ -1179,13 +1179,13 @@ describe("opening, ending, reopening", () => {
 
   it("ends once, with the outcome on the timeline", () => {
     const ended = endWork(setUp(opened()), {
-      outcome: { kind: "merged", pr: 181 },
+      outcome: { kind: "stopped", by: "conductor" },
       at: T(9),
     });
     expect(ended.state).toMatchObject({ kind: "ended" });
     expect(ended.events.at(-1)).toMatchObject({
       kind: "ended",
-      outcome: { kind: "merged", pr: 181 },
+      outcome: { kind: "stopped", by: "conductor" },
     });
     expect(
       endWork(ended, { outcome: { kind: "stopped", by: "you" }, at: T(10) }),
@@ -1416,7 +1416,7 @@ describe("membership", () => {
 
   it("drops a member whose work has ended", () => {
     const ended = endWork(setUp(opened()), {
-      outcome: { kind: "merged", pr: 1 },
+      outcome: { kind: "stopped", by: "you" },
       at: T(9),
     });
     expect(
@@ -1570,7 +1570,10 @@ describe("the history cap", () => {
   it("keeps every open work and the newest finished ones", () => {
     const rows = [0, 1, 2].map((at): readonly [WorkId, Work] => [
       `branch:local/%2Frepo/b${at}`,
-      endWork(opened(), { outcome: { kind: "merged", pr: at }, at: T(at + 5) }),
+      endWork(opened(), {
+        outcome: { kind: "stopped", by: "you" },
+        at: T(at + 5),
+      }),
     ]);
     const open: readonly [WorkId, Work] = [ID, opened()];
     const capped = capFinished([open, ...rows], 2);

@@ -704,7 +704,7 @@ export const prEnded = (
   Option.match(prOf(work), {
     onNone: () => work,
     onSome: (pr) =>
-      endWork(
+      ended(
         append(
           work,
           how === "merged"
@@ -765,28 +765,40 @@ export const handBack = (work: Work, terminal: string, at: string): Work =>
     about: aboutMember(terminal),
   });
 
-/** THE WORK ENDS — the forge said its PR merged or closed, or somebody
- *  stopped it. Ending an ended work changes nothing.
+/** HOW A WORK IS STOPPED — the one ending a person, the Conductor or kolu
+ *  writes. A merge or a close is the forge's, and goes through
+ *  {@link prEnded}, which names the timeline's own PR. */
+export type Stopped = Extract<Outcome, { readonly kind: "stopped" }>;
+
+/** THE WORK IS STOPPED — by you, the Conductor, or kolu. Ending an ended
+ *  work changes nothing.
  *
  *  The caller removes its members in the same step: there is no arm of this
  *  function that leaves a finished work with terminals, because there is
  *  nowhere in the record for them to be. */
 export const endWork = (
   work: Work,
-  ended: { readonly outcome: Outcome; readonly at: string },
+  stopped: { readonly outcome: Stopped; readonly at: string },
+): Work => ended(work, stopped);
+
+/** THE ENDING ITSELF, any outcome — reached only through {@link endWork}
+ *  and {@link prEnded}. */
+const ended = (
+  work: Work,
+  end: { readonly outcome: Outcome; readonly at: string },
 ): Work => {
   if (work.state.kind === "ended") return work;
   return append(
     {
       ...work,
-      state: { kind: "ended", at: ended.at, outcome: ended.outcome, kept: [] },
+      state: { kind: "ended", at: end.at, outcome: end.outcome, kept: [] },
     },
     {
-      at: ended.at,
+      at: end.at,
       by: "kolu",
       kind: "ended",
       about: ABOUT_WORK,
-      outcome: ended.outcome,
+      outcome: end.outcome,
     },
   );
 };

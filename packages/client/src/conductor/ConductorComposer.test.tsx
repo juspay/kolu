@@ -21,12 +21,14 @@ import type { ConductorMention, ConductorState } from "kolu-common/conductor";
 import type { TerminalId } from "kolu-common/surface";
 import { Option } from "effect";
 import {
+  ABOUT_WORK,
   askQuestions,
-  endWork,
   type Membership,
   type NeedsYou,
   needsYou,
   openWork,
+  prEnded,
+  recordEvent,
   type Work,
   type WorkId,
   type WorkRow,
@@ -167,10 +169,21 @@ const WORKS: WorkRow[] = [
   ],
   [
     FOLDERS,
-    endWork(opened("Folders inside a work's files", "folders"), {
-      outcome: { kind: "merged", pr: 2401 },
-      at: "2026-11-16T03:25:00.000Z",
-    }),
+    // MERGED THE ONE WAY A WORK IS: its PR opened, then the forge's merge.
+    prEnded(
+      recordEvent(opened("Folders inside a work's files", "folders"), {
+        at: "2026-11-16T03:00:00.000Z",
+        by: "kolu",
+        kind: "pr-opened",
+        about: ABOUT_WORK,
+        pr: 2401,
+        title: "Folders inside a work's files",
+        url: { kind: "link", href: "https://github.com/o/r/pull/2401" },
+        draft: "ready",
+      }),
+      "merged",
+      "2026-11-16T03:25:00.000Z",
+    ),
   ],
 ];
 /** The one reading of what needs the human, over those records. */

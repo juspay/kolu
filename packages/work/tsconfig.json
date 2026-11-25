@@ -5,5 +5,5 @@
     "outDir": "dist",
     "types": ["node"]
   },
-  "include": ["src", "test"]
+  "include": ["src"]
 }

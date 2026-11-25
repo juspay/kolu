@@ -205,7 +205,7 @@ describe("the works of a chat turn", () => {
     if (one !== undefined)
       ended.set(
         A,
-        endWork(one, { outcome: { kind: "merged", pr: 1 }, at: at(4) }),
+        endWork(one, { outcome: { kind: "stopped", by: "you" }, at: at(4) }),
       );
     expect(read([wake("w", 9, PLANNER)], ended).get("w")).toEqual([A]);
   });

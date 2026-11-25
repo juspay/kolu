@@ -16,7 +16,7 @@
 
 import { Option } from "effect";
 import { describe, expect, it } from "vitest";
-import { seeded } from "../test/seeded.ts";
+import { seeded } from "./seeded.testlib.ts";
 import {
   ABOUT_WORK,
   answerAsk,

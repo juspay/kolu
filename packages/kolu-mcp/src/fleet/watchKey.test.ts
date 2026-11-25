@@ -10,7 +10,7 @@
 
 import { Option } from "effect";
 import { workIdOf, workIdParts } from "kolu-work";
-import { seeded } from "kolu-work/seeded";
+import { seeded } from "kolu-work/testlib";
 import { describe, expect, it } from "vitest";
 import { fleetTerminalRef, splitFleetTerminalRef } from "./ref.ts";
 

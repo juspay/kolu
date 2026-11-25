@@ -24,7 +24,7 @@ import {
   type WorkRole,
   WorkRefusal,
 } from "kolu-work";
-import { seeded } from "kolu-work/seeded";
+import { seeded } from "kolu-work/testlib";
 import { describe, expect, it } from "vitest";
 import { joined } from "./memberStore.ts";
 import { workRig as rig } from "./workRig.testlib.ts";

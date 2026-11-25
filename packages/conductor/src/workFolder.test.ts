@@ -12,7 +12,7 @@ import { setImmediate as settle } from "node:timers/promises";
 import type { BranchCheckout } from "@kolu/padi-client/surface";
 import { Option } from "effect";
 import type { Work, WorkId, WorkWorktree } from "kolu-work";
-import { seeded } from "kolu-work/seeded";
+import { seeded } from "kolu-work/testlib";
 import { describe, expect, it } from "vitest";
 import type { WatchObservation } from "./observation.ts";
 import { type WorkRig, workRig } from "./workRig.testlib.ts";

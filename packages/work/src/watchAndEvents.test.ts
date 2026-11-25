@@ -12,6 +12,7 @@ import { describe, expect, it } from "vitest";
 import {
   ABOUT_WORK,
   askQuestions,
+  endWork,
   InvalidWorkStore,
   MODE_RUNS,
   openWork,
@@ -69,6 +70,12 @@ describe("recording an event", () => {
       kind: "merged",
       about: ABOUT_WORK,
       pr: 7,
+    });
+    // A merge with no PR on the timeline: `endWork` takes only a stop.
+    endWork(work, {
+      // @ts-expect-error — the forge's endings go through `prEnded`.
+      outcome: { kind: "merged", pr: 181 },
+      at: AT,
     });
     expect(prEnded(work, "merged", AT)).toBe(work);
     expect(prEnded(work, "closed", AT)).toBe(work);

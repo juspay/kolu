@@ -14,7 +14,7 @@
 
 import { Option } from "effect";
 import { describe, expect, it } from "vitest";
-import { seeded } from "../test/seeded.ts";
+import { seeded } from "./seeded.testlib.ts";
 import {
   type BranchKey,
   endWork,
@@ -44,7 +44,7 @@ const opened = (key: BranchKey, title = "t"): Work =>
 
 const finished = (key: BranchKey, title = "t"): Work => {
   const work = endWork(opened(key, title), {
-    outcome: { kind: "merged", pr: 1 },
+    outcome: { kind: "stopped", by: "you" },
     at: AT,
   });
   return work.state.kind === "ended"
