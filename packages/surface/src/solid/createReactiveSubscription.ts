@@ -59,9 +59,11 @@ export function createReactiveSubscription<I, T>(
   // disposes (Solid names it `NO_OWNER_EFFECT` and warns) over a fiber nothing
   // can interrupt — the wire subscription stays open for the life of the page.
   // Refused rather than leaked, like `createSubscription`'s own no-lifetime
-  // case and `client.rawStream`'s — and in those same words, through the one
-  // helper, so the framework has ONE refusal with one wording. `useStream` and
-  // the bound `.use()` hooks reach this primitive and carry the requirement
+  // case — and in those same words, through the one helper shared with
+  // `createSubscription`, `useCell`, `useCollection` and `useEvent`.
+  // (`client.rawStream` refuses too, in its own words: its advice names the
+  // un-enrolled escape hatch this primitive has no equivalent of.) `useStream`
+  // and the bound `.use()` hooks reach this primitive and carry the requirement
   // with it; none of them exposes a `signal`, so the advice offers none.
   if (!getOwner())
     throw noLifetimeRefusal({
