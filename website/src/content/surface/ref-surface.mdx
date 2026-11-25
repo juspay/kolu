@@ -1021,6 +1021,7 @@ one client per surface, and one fold face for a delta stream.
 | [`fold`](#fold-on-a-deltas-collection) | `/solid` | Folds a `deltas` collection's whole frames into your own accumulator. |
 | [`useCollectionDeltas`](#usecollectiondeltas) | `/solid` | The delta hook `.use()` drives, for an un-enrolled stream. |
 | [`NoFn<T>`](#nofnt) | `/solid` | Solid 2's value constraint, for an option handed to Solid as a value. |
+| [The suite harness](#the-suite-harness-kolusurfacesolidtestlib) | `/solid/testlib` | The hand-driven source and the deltas harness a consumer's own suite drives a view through. |
 
 ### `surfaceClient(surface, transport, onClientError?)`
 
@@ -1291,6 +1292,23 @@ The hook `.use()` drives for a `deltas` collection, exported from
 - A consumer that takes `.unenrolledDeltas` (the [#1591](https://github.com/juspay/kolu/issues/1591) health carve-out) hands the raw stream to it as `source` and gets the same store and the same `fold`, instead of hand-rolling a second one.
 - Its result carries one member the bound `.use()` does not: `.stream`, the single batched stream's own `error()` / `pending()` / `complete()`.
 - That reach has no `client.health()` fact to join its feed to, so a dead feed surfaces there or nowhere. Under the enrolled `.use()` the health fact owns that, and a parallel accessor would be one more thing to remember to read.
+
+### The suite harness (`@kolu/surface/solid/testlib`)
+
+What another package's suite needs to drive a `.use()` view: one reactive root,
+one hand-pushed source, and the wait that lets a pushed frame land. It is off
+the `/solid` door so no product runtime imports a test helper.
+
+| Export | What it is |
+| --- | --- |
+| `controllableStream<T>()` | A lazy `Stream` with all three terminations: `push`, `close` (a typed end) and `fail`. |
+| `driveDeltas(descriptor, body)` | Runs `body` against `useCollectionDeltas` over that source, inside a root disposed however the body ends. |
+| `DeltasHarness<K, T>` | What `body` is handed: `view`, `push` / `close` / `fail`, the `errors` the hook reported, and `observe(build)` for an observer added after an `await`. |
+| `settle()` | Two macrotask turns — a pushed frame crosses the stream fiber, lands in the store, and the effects that watch it flush. |
+| `numberRows` / `NumberRow` | The one-number fixture collection, so an assertion is about WHEN a frame lands and on WHICH key. |
+
+- An observer built in a `body` after its first `await` has no owner and is never disposed, so `observe` is how a suite adds one between frames.
+- `settle` is the shared wait on purpose: a timing fix made here is made for every suite, instead of one copy quietly keeping the old timing.
 
 ## The dispatch seam — `@kolu/surface/link`
 

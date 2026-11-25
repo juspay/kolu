@@ -46,3 +46,7 @@ Parameterized snapshot/delta streams also expose
 view shared by equal static inputs and released with its last Solid owner.
 It uses the existing delta fold, retry fence, subscription cache and health
 registry; ordinary accessor-input `.use()` remains per consumer.
+
+A suite in another package drives a view through `@kolu/surface/solid/testlib`
+— the hand-driven source, the deltas harness and its `settle` — rather than
+re-writing them, and no product runtime imports that door.

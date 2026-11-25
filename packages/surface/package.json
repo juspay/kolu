@@ -7,6 +7,7 @@
   "sideEffects": false,
   "main": "./src/index.ts",
   "types": "./src/index.ts",
+  "//exports": "`./solid/testlib` is what another package's suite needs to drive a `.use()` view — the hand-driven source and the deltas harness — kept off `./solid` so no product's runtime imports a test helper (the same split as `kolu-work/testlib`). It adds no runtime edge: its deps are this package's own, so `nix/consumer-closure.json` is unchanged.",
   "exports": {
     ".": "./src/index.ts",
     "./channel-names": "./src/channelNames.ts",
@@ -39,6 +40,7 @@
     "./time": "./src/time.ts",
     "./ws-origin": "./src/wsOrigin.ts",
     "./solid": "./src/solid/index.ts",
+    "./solid/testlib": "./src/solid/testlib.ts",
     "./solid/SurfaceGate": "./src/solid/SurfaceGate.tsx",
     "./solid/HostStatusPip": "./src/solid/HostStatusPip.tsx",
     "./links/following": "./src/links/following.ts",
