@@ -1,6 +1,6 @@
 /**
  * Dev-mode smoke: boot `just dev`, load Kolu in a real browser, fail on any
- * console error.
+ * console error, uncaught throw or Solid dev diagnostic.
  *
  * WHY THIS EXISTS SEPARATELY FROM THE CUCUMBER SUITE
  *
@@ -33,6 +33,12 @@ import { type ChildProcess, spawn } from "node:child_process";
 import { setTimeout as sleep } from "node:timers/promises";
 import getPort from "get-port";
 import { chromium, type ConsoleMessage } from "playwright";
+import {
+  devSmokeFailures,
+  type PageDiagnostic,
+  SOLID_DIAGNOSTIC_BINDING,
+  solidObserveInitScript,
+} from "./support/solidDevBuild.ts";
 
 const REPO_ROOT = new URL("../..", import.meta.url).pathname;
 
@@ -114,7 +120,9 @@ function stopDevServer(proc: ChildProcess) {
 
 /** A console message worth failing on. `error` is the module-load crash class
  *  this exists for. `warning` is deliberately NOT included: Vite dev emits
- *  routine warnings (pre-bundle reloads, HMR notices) that are not defects. */
+ *  routine warnings (pre-bundle reloads, HMR notices) that are not defects.
+ *  Solid's own diagnostics do not come through here — they come through the
+ *  channel, which names what the console cannot. */
 function isFailure(msg: ConsoleMessage): boolean {
   return msg.type() === "error";
 }
@@ -130,7 +138,13 @@ async function main() {
   dev.stdout?.on("data", (d) => devLog.push(String(d)));
   dev.stderr?.on("data", (d) => devLog.push(String(d)));
 
-  const failures: string[] = [];
+  // What the browser said, kept apart by kind so `devSmokeFailures` can fold
+  // and label them in one place. `probeFailures` is this harness's own verdict
+  // (the app never mounted), not something the page said.
+  const probeFailures: string[] = [];
+  const consoleErrors: string[] = [];
+  const pageErrors: string[] = [];
+  const diagnostics: PageDiagnostic[] = [];
   let browser: Awaited<ReturnType<typeof chromium.launch>> | undefined;
 
   try {
@@ -145,13 +159,26 @@ async function main() {
     );
 
     browser = await chromium.launch();
-    const page = await browser.newPage();
+    // A CONTEXT, SUBSCRIBED BEFORE ANY DOCUMENT EXISTS. The Vite dev server
+    // serves Solid's DEVELOPMENT runtime, so the client hands `OBSERVE` over
+    // (`client/src/solidDiagnosticsExpose.ts`) and this boot can say whether a
+    // finding the e2e lane sees is raised on boot alone — the question that
+    // lane cannot answer, and the reason this check watches more than the
+    // console. The binding and init script go on the context before
+    // `newPage()`, so nothing loads unwatched.
+    const context = await browser.newContext();
+    await context.exposeBinding(
+      SOLID_DIAGNOSTIC_BINDING,
+      (_source, event: PageDiagnostic) => void diagnostics.push(event),
+    );
+    await context.addInitScript(solidObserveInitScript());
+    const page = await context.newPage();
 
     page.on("console", (msg) => {
-      if (isFailure(msg)) failures.push(`console.error: ${msg.text()}`);
+      if (isFailure(msg)) consoleErrors.push(msg.text());
     });
     // A module-load crash arrives as an uncaught exception, not a console call.
-    page.on("pageerror", (err) => failures.push(`uncaught: ${err.message}`));
+    page.on("pageerror", (err) => pageErrors.push(err.message));
 
     await page.goto(clientUrl, { waitUntil: "domcontentloaded" });
 
@@ -175,7 +202,7 @@ async function main() {
       // surfaces slightly after first paint, and this is what catches it.
       await sleep(SETTLE_MS);
     } catch {
-      failures.push(
+      probeFailures.push(
         `app never mounted: no [data-ws-status] within ${APP_MOUNT_TIMEOUT_MS}ms`,
       );
     }
@@ -190,6 +217,12 @@ async function main() {
     stopDevServer(dev);
   }
 
+  // One verdict from everything the page said: console errors, uncaught
+  // throws, and every Solid dev diagnostic the channel named, folded.
+  const failures = [
+    ...probeFailures,
+    ...devSmokeFailures({ consoleErrors, pageErrors, diagnostics }),
+  ];
   if (failures.length > 0) {
     console.error(`\ndev-smoke: FAIL — ${failures.length} browser error(s):\n`);
     for (const f of failures) console.error(`  ${f}`);
@@ -205,7 +238,9 @@ async function main() {
     return;
   }
 
-  console.log("dev-smoke: PASS — Kolu loaded with a clean browser console");
+  console.log(
+    "dev-smoke: PASS — Kolu loaded with a clean console, nothing thrown and no Solid dev diagnostic",
+  );
 }
 
 await main();
