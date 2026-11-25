@@ -22,16 +22,15 @@ export function createAttentionIndex(
     return next;
   });
   // The live set, indexed the same way: a frame that starts or stops one
-  // terminal's bytes wakes that terminal's readers and nobody else. The ids
-  // that were live last run are remembered so the ones that left can be
-  // cleared — a projection draft keeps what the previous run wrote.
-  let held: ReadonlySet<TerminalId> = new Set<TerminalId>();
-  const live = createProjection<Record<string, boolean>>((draft) => {
-    const next = new Set(liveIds());
-    for (const id of held) if (!next.has(id)) delete draft[id];
-    for (const id of next) draft[id] = true;
-    held = next;
-  }, {});
+  // terminal's bytes wakes that terminal's readers and nobody else. The
+  // record answers which ids are live NOW; the commit's reconcile channel
+  // derives the rest — a key this run left out reads `undefined` and wakes
+  // only the readers of that key.
+  const live = createProjection<Record<string, boolean>>(() => {
+    const next: Record<string, boolean> = {};
+    for (const id of liveIds()) next[id] = true;
+    return next;
+  });
   return {
     classOf: (id) => classes[id] ?? "idle",
     isLive: (id) => live[id] === true,
