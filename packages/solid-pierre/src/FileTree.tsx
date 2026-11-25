@@ -655,7 +655,7 @@ export const FileTree: Component<FileTreeProps> = (props) => {
         tree.subscribe(() => safeApply(reportLazyExpansions, reportError)),
       );
       reportLazyExpansions();
-    }, props.onError);
+    }, reportError);
     // Deliberately do NOT clear the request here: it stays standing so this
     // exact application repeats on every remount (the host clears it on a real
     // navigation). That re-application is what keeps the reveal alive across an
