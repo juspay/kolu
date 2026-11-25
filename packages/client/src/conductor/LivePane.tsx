@@ -215,7 +215,12 @@ const LivePane: Component<{
   const publisher = createGridPublisher({
     terminalId: props.id,
     hostState,
-    ptyLive: lookable,
+    // THE INSTANTANEOUS ARM, never the held gate: this guard exists for the
+    // exit race (`publishGrid.ts`) — a `loading` frame between the record
+    // leaving and the roster folding — and a gate that holds through
+    // `loading` would vouch for a PTY that has gone, raising the false
+    // resize toast the guard is there to suppress.
+    ptyLive: () => liveArm(standing()) !== undefined,
     resize: (g) =>
       padiRpcOf(decodeHostKey(props.host)).lifecycle.resize({
         id: props.id,

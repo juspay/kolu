@@ -28,6 +28,8 @@ import { fitFontSize } from "./peek/peekSize";
 const ID = "11111111-1111-4111-8111-111111111111" as TerminalId;
 
 const seam = vi.hoisted(() => ({
+  /** Whether the host's `lifecycle.resize` refuses the publish. */
+  resizeFails: false,
   /** The size the stand-in screen says it is drawn at. */
   drawn: { cols: 80, rows: 24 } as { cols: number; rows: number },
   /** Report another cell measurement, as the screen does on every render. */
@@ -84,11 +86,28 @@ vi.mock("./peek/PeekTerminal", async () => {
     },
   };
 });
+const toastSpy = { error: vi.fn() };
+vi.mock("solid-sonner", () => ({
+  toast: Object.assign(() => {}, {
+    loading: () => 0,
+    success: () => {},
+    error: (...a: unknown[]) => toastSpy.error(...a),
+    warning: () => {},
+    info: () => {},
+  }),
+}));
 vi.mock("../wire", async () => {
   const { Effect } = await import("effect");
   return {
     padiMap: { entry: () => ({ state: () => ({ kind: "connected" }) }) },
-    padiRpcOf: () => ({ lifecycle: { resize: () => Effect.void } }),
+    padiRpcOf: () => ({
+      lifecycle: {
+        resize: () =>
+          seam.resizeFails
+            ? Effect.fail(new Error("the PTY is gone"))
+            : Effect.void,
+      },
+    }),
   };
 });
 // A phone's pane, so the pane itself never publishes and only the offer
@@ -306,5 +325,57 @@ describe("the screen the pane holds", () => {
     expect(el.textContent).toContain("its host is not connected");
     expect(el.textContent).toContain("There is no screen to show.");
     expect(el.querySelector("[data-connected]")).toBeNull();
+  });
+});
+
+describe("the grid publish's liveness guard", () => {
+  /** Offer the one press, then take it: the pane publishes the size it would
+   *  ask for, and the stand-in host refuses it. */
+  const pressResize = (el: HTMLElement) => {
+    vi.advanceTimersByTime(SETTLE * 2);
+    flush();
+    const button = el.querySelector<HTMLButtonElement>(
+      '[data-testid="live-resize"]',
+    );
+    expect(button).not.toBeNull();
+    button?.click();
+    flush();
+  };
+
+  it("raises no resize toast for a terminal whose record has left, though the pane still holds its screen", async () => {
+    toastSpy.error.mockReset();
+    seam.drawn = OLD;
+    seam.resizeFails = true;
+    setStanding(recordAt(OLD));
+    const el = mount();
+    flush();
+    pressResize(el);
+
+    // THE EXIT RACE (`publishGrid.ts`): the record has left and the roster
+    // has not folded yet, so the index cannot say — and the PTY this publish
+    // is aimed at is already gone. The held gate still draws the screen; the
+    // publish's guard must read the INSTANTANEOUS arm, or the failure the
+    // exit itself caused becomes a red toast master never raised.
+    setStanding({ kind: "loading" });
+    flush();
+    vi.advanceTimersByTime(SETTLE);
+    await Promise.resolve();
+    expect(el.querySelector('[data-testid="live-screen"]')).not.toBeNull();
+    expect(toastSpy.error).not.toHaveBeenCalled();
+    seam.resizeFails = false;
+  });
+
+  it("raises the resize toast while the terminal is there", async () => {
+    toastSpy.error.mockReset();
+    seam.drawn = OLD;
+    seam.resizeFails = true;
+    setStanding(recordAt(OLD));
+    const el = mount();
+    flush();
+    pressResize(el);
+    vi.advanceTimersByTime(SETTLE);
+    await Promise.resolve();
+    expect(toastSpy.error).toHaveBeenCalledTimes(1);
+    seam.resizeFails = false;
   });
 });
