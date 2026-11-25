@@ -88,7 +88,10 @@ function compactRecency(ts: number | null | undefined): string {
 }
 
 const KindTag: Component<{ kind: ResultKind }> = (props) => {
-  const label =
+  // Read in JSX, never here: a component body is a strict-read window, so a
+  // word computed up here would freeze at the first kind while `data-kind`
+  // below followed.
+  const label = (): string =>
     props.kind === "terminal" ? "term" : props.kind === "host" ? "host" : "cmd";
   return (
     <span
@@ -96,7 +99,7 @@ const KindTag: Component<{ kind: ResultKind }> = (props) => {
       data-kind={props.kind}
       class="shrink-0 font-mono text-[0.6rem] tracking-[0.08em] uppercase text-fg-3 border border-edge/80 rounded-full px-1.5 py-px"
     >
-      {label}
+      {label()}
     </span>
   );
 };

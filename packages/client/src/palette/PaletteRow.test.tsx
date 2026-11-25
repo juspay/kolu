@@ -34,7 +34,7 @@ vi.mock("../host/HostIdentityLabel", () => ({
 }));
 
 import { attentionRecordOf } from "../attention/savedAttention";
-import PaletteRow from "./PaletteRow";
+import PaletteRow, { type PaletteRowMeta } from "./PaletteRow";
 
 const ID = "11111111-1111-4111-8111-111111111111" as TerminalId;
 const REMOTE: HostKey = { kind: "remote", target: "box-1" };
@@ -146,5 +146,51 @@ describe("a row's keybind rail", () => {
     expect(caps()).toEqual([
       formatKeybind({ key: "j", modifier: "cmdOrCtrl", shift: true }),
     ]);
+  });
+});
+
+/** THE KIND TAG'S WORD follows the row's kind. The word used to be computed in
+ *  the component BODY, which Solid runs untracked: it froze at the first kind
+ *  while `data-kind` beside it followed, and `command_palette_steps.ts` matches
+ *  the tag BY TEXT. */
+describe("a row's kind tag", () => {
+  it("repaints its word when the row's kind changes", () => {
+    const [row, setRow] = createSignal<PaletteRowMeta | undefined>(undefined);
+    const host = document.createElement("div");
+    dispose = render(
+      () => (
+        <PaletteRow
+          cmd={{
+            kind: "label",
+            name: "tidepool",
+            get row() {
+              return row();
+            },
+          }}
+          selected={false}
+          query=""
+          showKindTag={true}
+          drillable={false}
+          onSelect={() => {}}
+          onHover={() => {}}
+        />
+      ),
+      host,
+    );
+    const tag = () =>
+      host.querySelector<HTMLElement>('[data-testid="palette-kind-tag"]');
+
+    expect(tag()?.dataset.kind).toBe("command");
+    expect(tag()?.textContent).toBe("cmd");
+
+    setRow({
+      kind: "terminal",
+      terminalId: ID,
+      terminalMeta: META,
+      hostKey: { kind: "local" },
+    });
+    flush();
+    expect(tag()?.dataset.kind).toBe("terminal");
+    expect(tag()?.textContent).toBe("term");
   });
 });
