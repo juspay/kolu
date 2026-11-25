@@ -861,6 +861,18 @@ let
   # with those 19 codes unraisable, and reports no finding for having no engine
   # — and the production dist must not.
   #
+  # TWO STRINGS, BECAUSE THEY PROVE DIFFERENT THINGS. One of the engine's own
+  # codes proves which ENGINE DIST was bundled: the development one carries
+  # the code strings, the production twin is inert and carries none. An option
+  # name that `solidDiagnosticsExpose.ts` hands `attribution.enable()` proves
+  # the CALL survived: a bundler keeps the keys of an object literal passed to
+  # another package's function, so minification cannot rename it, and the
+  # production tier of Solid carries no such string. So the production dist is
+  # held to both — the code string, so the development engine never ships, and
+  # the option name, so the enable call never escapes its build-time branch
+  # (on the code string alone that half asserted nothing: deleting the
+  # `MODE === "solid-dev"` gate would still have passed).
+  #
   # The other half of that pair is the window the dev lane reaches the runtime
   # through: the global `packages/client/src/solidDiagnosticsExpose.ts` assigns
   # `OBSERVE` to, read out of the module that owns it as `solidObserveGlobal`.
@@ -927,6 +939,21 @@ let
         echo "${label}: '$attributionMarker' is no longer unique to the attribution engine — the base development runtime carries it too, so its presence in a bundle proves nothing." >&2
         exit 1
       fi
+      # THE ENABLE CALL'S OWN FINGERPRINT: one option name that
+      # `solidDiagnosticsExpose.ts` passes to `attribution.enable()`
+      # (`SOLID_ATTRIBUTION_OPTIONS`, @kolu/solid-test-setup). Checked against
+      # the installed runtime the same way: the engine must still know the
+      # option, and the production tier must not carry the string, so a hit in
+      # a shipped bundle can only have come from that call.
+      attributionEnableMarker=stackedHolds
+      if ! grep -qF "$attributionEnableMarker" "$signalsDist/dev.attribution.js"; then
+        echo "${label}: '$attributionEnableMarker' is not an option of $signalsDist/dev.attribution.js — Solid renamed the option the production check keys on." >&2
+        exit 1
+      fi
+      if grep -rqF "$attributionEnableMarker" "$signalsDist/prod"; then
+        echo "${label}: '$attributionEnableMarker' is carried by Solid's production tier too, so its presence in a shipped bundle no longer proves the solid-dev enable call escaped." >&2
+        exit 1
+      fi
     '' + (if solidRuntime == "development" then ''
       if ! grep -RqF "$solidDevMarker" "$out/assets"; then
         echo "${label}: no asset carries Solid's development runtime ('$solidDevMarker') — the solid-dev build fell back to production." >&2
@@ -968,13 +995,24 @@ let
         fi
       fi
       if attributionMatches=$(grep -RlF "$attributionMarker" "$out/assets"); then
-        echo "${label}: Solid's attribution engine ('$attributionMarker') reached the production bundle — it must stay behind the solid-dev build-time branch." >&2
+        echo "${label}: Solid's DEVELOPMENT attribution engine ('$attributionMarker' is one of its code strings; the production twin carries none) reached the production bundle — the shipped client must resolve solid-js/attribution to the inert tier." >&2
         echo "$attributionMatches" >&2
         exit 1
       else
         grepStatus=$?
         if [ "$grepStatus" -ne 1 ]; then
           echo "${label}: failed to inspect hashed assets for '$attributionMarker'." >&2
+          exit "$grepStatus"
+        fi
+      fi
+      if enableMatches=$(grep -RlF "$attributionEnableMarker" "$out/assets"); then
+        echo "${label}: solidDiagnosticsExpose.ts's attribution.enable() options ('$attributionEnableMarker') reached the production bundle — the engine would be installed in a shipped client, and its wall-clock checks would run against real users." >&2
+        echo "$enableMatches" >&2
+        exit 1
+      else
+        grepStatus=$?
+        if [ "$grepStatus" -ne 1 ]; then
+          echo "${label}: failed to inspect hashed assets for '$attributionEnableMarker'." >&2
           exit "$grepStatus"
         fi
       fi
