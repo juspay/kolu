@@ -558,11 +558,11 @@ const WorkChoiceQuestion: Component<{
           so the models of the harness they left must never sit under the new
           one's name — the question is built again and says it is asking.
 
-          KEYED on the subject, which is how all three of kolu's "a new
-          subject must not hold the page" boundaries are armed (`WorkReader`,
-          `StateBackupsDialog`). A boundary BORN with its subject has shown
-          nothing yet, so the first read that subject starts is its to hold,
-          whoever starts it. A boundary re-armed with `on` only covers the
+          KEYED on the subject, which is how both of kolu's "a new subject
+          must not hold the page" boundaries are armed (`WorkReader`). A
+          boundary BORN with its subject has shown nothing yet, so the first
+          read that subject starts is its to hold, whoever starts it. A
+          boundary re-armed with `on` only covers the
           subject changes that reach it before the read does: here the
           subject is settled by the seeding of what this person chose last
           time, which is an EFFECT's write in the mount's own flush — by then
