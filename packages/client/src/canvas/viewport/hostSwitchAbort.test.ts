@@ -23,7 +23,10 @@ vi.mock("../../hostScope/hostScopes", () => ({
   activeScope: () => (activeCam ? { camera: activeCam } : undefined),
 }));
 
-import { useCanvasViewport } from "./useCanvasViewport";
+import {
+  createContainerSizeObserver,
+  useCanvasViewport,
+} from "./useCanvasViewport";
 
 // Deterministic rAF + clock: capture frame callbacks so a test drives them by
 // hand (real rAF never fires under vitest's headless clock).
@@ -100,11 +103,15 @@ describe("host-switch camera isolation", () => {
       camA = createCamera();
       camB = createCamera();
       const viewport = useCanvasViewport();
-      // The attach's release is the owner's to register (a ref callback
-      // cannot), so this root holds it — disposal detaches the container.
-      viewport.setContainerRef(el, NO_GESTURES);
+      // The measuring and the attach's release are the owner's (a ref
+      // callback may neither create a primitive nor register a cleanup), so
+      // this root holds both — disposal detaches the container.
+      createContainerSizeObserver();
       onCleanup(() => viewport.releaseContainer(el));
     });
+    // The attach itself is what the ref does: from outside the owner's body,
+    // which is where its signal write belongs.
+    useCanvasViewport().setContainerRef(el, NO_GESTURES);
     return { camA, camB, viewport: useCanvasViewport(), dispose };
   }
 

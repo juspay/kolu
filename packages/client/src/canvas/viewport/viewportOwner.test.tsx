@@ -13,7 +13,10 @@ vi.mock("../../hostScope/hostScopes", () => ({
   }),
 }));
 vi.mock("./gestures", () => ({ installGestures: () => () => {} }));
-import { useCanvasViewport } from "./useCanvasViewport";
+import {
+  createContainerSizeObserver,
+  useCanvasViewport,
+} from "./useCanvasViewport";
 it("waits for laid-out dimensions, uses them for centering and zoom, and releases the observer", () => {
   let width = 600;
   let disconnected = 0;
@@ -43,9 +46,11 @@ it("waits for laid-out dimensions, uses them for centering and zoom, and release
   document.body.append(host);
   const viewport = useCanvasViewport();
   const dispose = render(() => {
-    // The attach lives in a ref callback, which may register no cleanup, so
-    // its release is registered on the component's own owner — exactly the
-    // pairing `TerminalCanvas` uses.
+    // The attach lives in a ref callback, which may neither create a
+    // primitive nor register a cleanup, so the measuring and the release are
+    // both the component's own owner's — exactly the pairing `TerminalCanvas`
+    // uses.
+    createContainerSizeObserver();
     let containerEl: HTMLDivElement | undefined;
     onCleanup(() => {
       if (containerEl) viewport.releaseContainer(containerEl);

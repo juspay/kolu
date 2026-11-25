@@ -54,7 +54,10 @@ import { useTileAura } from "./useTileAura";
 import { useTileTheme } from "./useTileTheme";
 import { useViewPosture } from "./useViewPosture";
 import { capturePointerGesture } from "./viewport/capturePointerGesture";
-import { useCanvasViewport } from "./viewport/useCanvasViewport";
+import {
+  createContainerSizeObserver,
+  useCanvasViewport,
+} from "./viewport/useCanvasViewport";
 import type { TilePlacement } from "../terminal/WorkspaceTerminals";
 
 const MIN_W = 300;
@@ -153,7 +156,7 @@ const TerminalCanvas: Component<{
   onCleanup(() => pendingLayouts.clear());
 
   // The viewport's container is attached from the canvas div's `ref` below;
-  // this component's owner hands it back.
+  // this component's owner measures it and hands it back.
   const containerRef = refWithRelease<HTMLDivElement>(
     (el) =>
       viewport.setContainerRef(el, {
@@ -162,6 +165,7 @@ const TerminalCanvas: Component<{
       }),
     (el) => viewport.releaseContainer(el),
   );
+  createContainerSizeObserver();
 
   /** Effective layout for a tile (pending override wins over saved). */
   function layoutOf(id: string): TileLayout | undefined {
