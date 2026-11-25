@@ -55,7 +55,14 @@ import {
 } from "./scenarioSetupRetry.ts";
 import { retireWorldScrollFifo } from "./scrollFifo.ts";
 import { padiBuildEnv, type ServerBuild } from "./serverBuild.ts";
-import { type SolidDevCheck, solidDevCheckFor } from "./solidDevBuild.ts";
+import {
+  type PageDiagnostic,
+  SOLID_DIAGNOSTIC_BINDING,
+  type SolidDevCheck,
+  solidDevCheckFor,
+  solidDiagnosticVerdict,
+  solidObserveInitScript,
+} from "./solidDevBuild.ts";
 import { type KoluWorld, STEP_GUARD, STEP_TIMEOUT } from "./world.ts";
 
 const workerId = parseInt(process.env.CUCUMBER_WORKER_ID || "0", 10);
@@ -1604,6 +1611,7 @@ Before(
     }
     this.errors = [];
     this.solidDiagnostics = [];
+    this.solidDiagnosticEvents = [];
     const check = solidDevCheck;
     // What one document reports, labelled by where it came from:
     //   - everything it throws, and
@@ -1629,6 +1637,20 @@ Before(
     this.context.on("page", (opened) =>
       watch(opened, () => `${opened.url()}: `),
     );
+    // WHAT THE CONSOLE CANNOT SAY, FROM THE CHANNEL ITSELF. On a dev-runtime
+    // server the client hands its `OBSERVE` to the page (`client/src/index.tsx`,
+    // `solid-dev` mode only); this init script subscribes to the diagnostics
+    // channel and reports each event's code, location and owner path through a
+    // binding — the fields a diagnostic whose call site throws never reaches the
+    // console with. On the context, so a window the page opens is subscribed too.
+    if (check) {
+      await this.context.exposeBinding(
+        SOLID_DIAGNOSTIC_BINDING,
+        (_source, event: PageDiagnostic) =>
+          void this.solidDiagnosticEvents.push(event),
+      );
+      await this.context.addInitScript(solidObserveInitScript());
+    }
 
     // KOLU_X11CAP: start grabbing the Xvfb framebuffer now. x11grab runs off its
     // own 30 fps clock independent of Chrome's paint speed, so the recording is
@@ -1656,16 +1678,22 @@ Before(
   },
 );
 
-// THE SOLID-DIAGNOSTICS LANE'S VERDICT: a scenario whose pages printed any
-// Solid dev diagnostic fails, naming each. Defined BEFORE the main After hook
-// because Cucumber runs After hooks in reverse definition order, so this runs
-// last — after the teardown and failure artifacts, which a throw here must not
-// skip. On a production server it has nothing to look at: nothing collected it.
+// THE SOLID-DIAGNOSTICS LANE'S VERDICT: a scenario whose pages raised any Solid
+// dev diagnostic fails, naming each — what the diagnostics channel handed over
+// (code, location, owner path) and what reached the console, plus everything
+// the pages threw, since a diagnostic that throws is also a page error.
+// Defined BEFORE the main After hook because Cucumber runs After hooks in
+// reverse definition order, so this runs last — after the teardown and failure
+// artifacts, which a throw here must not skip. On a production server it has
+// nothing to look at: nothing collected it.
 After(function (this: KoluWorld) {
-  if (this.solidDiagnostics.length === 0) return;
-  throw new Error(
-    `Solid dev diagnostics (${this.solidDiagnostics.length}):\n  ${this.solidDiagnostics.join("\n  ")}`,
-  );
+  const verdict = solidDiagnosticVerdict({
+    events: this.solidDiagnosticEvents,
+    lines: this.solidDiagnostics,
+    pageErrors: this.errors,
+  });
+  if (verdict === undefined) return;
+  throw new Error(verdict);
 });
 
 // Generous timeout: under KOLU_X11CAP this hook transcodes the raw grab (mp4 +

@@ -2,7 +2,13 @@ import assert from "node:assert/strict";
 import { createServer, type RequestListener, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { after, test } from "node:test";
-import { solidDevCheckFor } from "./solidDevBuild.ts";
+import {
+  type PageDiagnostic,
+  SOLID_DIAGNOSTIC_BINDING,
+  solidDevCheckFor,
+  solidDiagnosticVerdict,
+  solidObserveInitScript,
+} from "./solidDevBuild.ts";
 
 const MARKER = "what it means and how to fix it:";
 const WARNING = 'useHead: ignoring invalid attribute name "';

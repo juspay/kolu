@@ -15,6 +15,7 @@ import type {
   Locator,
   Page,
 } from "playwright";
+import type { PageDiagnostic } from "./solidDevBuild.ts";
 // Side-effect import: pulls in the `Window`/`HTMLDivElement`/`Navigator`
 // augmentations every step definition needs (window.__readXtermBuffer,
 // `__xterm` on tile divs, the Badging API stubs, …) so tests can read
@@ -117,6 +118,10 @@ export class KoluWorld extends World {
    *  the server under test serves the dev-runtime client
    *  (`support/solidDevBuild.ts`), where any one fails the scenario. */
   solidDiagnostics: string[] = [];
+  /** The same findings as the diagnostics channel itself hands them over, with
+   *  each one's code, location and owner path — the fields a diagnostic whose
+   *  call site throws never reaches the console with. */
+  solidDiagnosticEvents: PageDiagnostic[] = [];
 
   // Stashed state for comparison across steps
   savedSessionTerminalCount?: number;

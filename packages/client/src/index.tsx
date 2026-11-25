@@ -6,7 +6,7 @@ import {
 } from "@kolu/surface-app/lifecycle";
 import { SurfaceAppProvider } from "@kolu/surface-app/solid";
 import { koluBuildInfo } from "kolu-common/surface";
-import { Show } from "solid-js";
+import { OBSERVE, Show } from "solid-js";
 import { render } from "@solidjs/web";
 import { toast } from "solid-sonner";
 import App from "./App";
@@ -37,6 +37,19 @@ void registerOrRetireServiceWorker();
 // the same diagnostic probes DiagnosticInfo renders. See debug/consoleHooks.ts.
 if (import.meta.env.DEV) {
   void import("./debug/consoleHooks").then((m) => m.installDebugHooks());
+}
+
+// THE SOLID-DIAGNOSTICS LANE'S WINDOW ONTO THE RUNTIME. `OBSERVE` is Solid's
+// diagnostics channel, present only in its development runtime — which only
+// the `solid-dev` Vite mode builds against (`vite.config.ts`'s
+// `SOLID_DEV_MODE`, the dist the `ci::e2e-solid-dev` lane serves). The e2e
+// harness subscribes from an init script to get each finding's code, owner
+// path and location, which the console cannot carry for a diagnostic whose
+// call site throws; nothing in a built bundle would otherwise hand it the
+// module's export. `import.meta.env.MODE` is a build-time literal, so every
+// other build drops this — and there `OBSERVE` is `undefined` anyway.
+if (import.meta.env.MODE === "solid-dev") {
+  (window as unknown as Record<string, unknown>).__SOLID_OBSERVE__ = OBSERVE;
 }
 
 render(

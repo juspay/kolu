@@ -68,6 +68,102 @@ export interface SolidDevCheck {
 
 const MANIFEST_PATH = "/solid-dev.json";
 
+/** WHERE A PAGE REACHES SOLID'S DIAGNOSTICS CHANNEL. `solid-js` exports
+ *  `OBSERVE` in its development runtime only, and nothing in a built bundle
+ *  hands it to a page script — so the dev-mode client assigns it to this
+ *  global as it boots (`packages/client/src/index.tsx`, under
+ *  `import.meta.env.MODE === "solid-dev"`, which only the dev-mode build
+ *  sets). Production never writes it, and nothing there reads it. */
+const OBSERVE_GLOBAL = "__SOLID_OBSERVE__";
+
+/** The Playwright binding {@link solidObserveInitScript} calls with each
+ *  event. Exposed on the context, so a window the page opens reports too. */
+export const SOLID_DIAGNOSTIC_BINDING = "__koluSolidDiagnostic";
+
+/** One diagnostic as the page hands it over — the serialisable part of
+ *  Solid's `DiagnosticEvent`. */
+export interface PageDiagnostic {
+  code?: unknown;
+  loc?: unknown;
+  ownerPath?: unknown;
+  message?: unknown;
+}
+
+/**
+ * THE INIT SCRIPT THAT NAMES WHAT THE CONSOLE CANNOT.
+ *
+ * A diagnostic whose call site throws (every `error` severity one) reaches the
+ * console as its footer line alone — no code, no message, no owner, no
+ * location (`@solidjs/signals` 2.0.3 `dev-shared.js:883-889`). Subscribing to
+ * the channel itself gets the whole event, whatever the console did with it.
+ *
+ * It runs before any page script, so it cannot read a global the client has
+ * not written yet: it OWNS the global instead, and subscribes the moment the
+ * client assigns it. Written as source text, never a compiled function — tsx's
+ * esbuild would wrap a named function in a `__name(…)` the page does not have.
+ */
+export function solidObserveInitScript(): string {
+  return `(function () {
+  var subscribe = function (observe) {
+    if (!observe || !observe.diagnostics) return;
+    observe.diagnostics.subscribe(function (event) {
+      window[${JSON.stringify(SOLID_DIAGNOSTIC_BINDING)}]({
+        code: event.code,
+        loc: event.loc,
+        ownerPath: event.ownerPath,
+        message: event.message,
+      });
+    });
+  };
+  var held;
+  Object.defineProperty(window, ${JSON.stringify(OBSERVE_GLOBAL)}, {
+    configurable: true,
+    get: function () { return held; },
+    set: function (value) { held = value; subscribe(value); },
+  });
+})();`;
+}
+
+/** One diagnostic in a failure's words: what it was, where, and under which
+ *  owners. A field the event did not carry is left out rather than printed as
+ *  `undefined` — `ownerPath` is absent for an unowned primitive, which is
+ *  usually the finding itself, and `loc` for anything compiled without
+ *  locations. */
+export function solidDiagnosticWords(event: PageDiagnostic): string {
+  const code = typeof event.code === "string" ? event.code : "(no code)";
+  const where = typeof event.loc === "string" ? ` at ${event.loc}` : "";
+  const path = Array.isArray(event.ownerPath)
+    ? ` in ${event.ownerPath.join(" > ")}`
+    : "";
+  const said = typeof event.message === "string" ? `: ${event.message}` : "";
+  return `${code}${where}${path}${said}`;
+}
+
+/** THE LANE'S VERDICT, or `undefined` when the scenario raised nothing.
+ *
+ * The diagnostics the channel named and the console lines are both reported:
+ * a console line with no event behind it is a plain Solid warning, and an
+ * event with no readable console line is exactly what this channel exists
+ * for. The page's thrown errors ride along, because a diagnostic that threw
+ * is also the throw the page reports. */
+export function solidDiagnosticVerdict(found: {
+  events: readonly PageDiagnostic[];
+  lines: readonly string[];
+  pageErrors: readonly string[];
+}): string | undefined {
+  const total = found.events.length + found.lines.length;
+  if (total === 0) return undefined;
+  const parts = [`Solid dev diagnostics (${total}):`];
+  for (const event of found.events)
+    parts.push(`  ${solidDiagnosticWords(event)}`);
+  for (const line of found.lines) parts.push(`  ${line}`);
+  if (found.pageErrors.length > 0) {
+    parts.push(`the pages threw (${found.pageErrors.length}):`);
+    for (const error of found.pageErrors) parts.push(`  ${error}`);
+  }
+  return parts.join("\n");
+}
+
 /**
  * The check for the server at `baseUrl`, or `undefined` when it serves a
  * production client.
