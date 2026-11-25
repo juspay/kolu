@@ -127,7 +127,8 @@ export function createCodeHistories<K>(): CodeHistories<K> {
  *  in a plain field of its own and looks the stack up with it here. The two
  *  ENABLEMENT accessors are NOT here: they are read in JSX, where this
  *  write-phase key would answer about whichever pane was focused last, so each
- *  home spells them on its own live focus. */
+ *  home spells them itself — on its own live focus where the stack is keyed on
+ *  focus, on its fixed work where it is not (`conductor/workCodeView.ts`). */
 export function codeHistoryVerbs(
   browser: () => Browser<BrowserLocation> | null,
 ): Pick<

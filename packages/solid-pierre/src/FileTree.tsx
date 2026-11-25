@@ -650,7 +650,8 @@ export const FileTree: Component<FileTreeProps> = (props) => {
       // Guarded like every other entry into wrapper code: a throw here — from
       // `getItem`, or from the host's `onExpandLazyDirectory` — would otherwise
       // escape into Pierre's own emit loop, taking every other subscriber of
-      // that store tick with it and never reaching `props.onError`.
+      // that store tick with it and never reaching `reportError`, the mirrored
+      // error channel this file reports through (see below).
       disposers.push(
         tree.subscribe(() => safeApply(reportLazyExpansions, reportError)),
       );

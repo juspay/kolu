@@ -298,8 +298,8 @@ export const useTerminalStore = createSharedRoot(() => {
     ...metadata,
     // Public top-level selection resolves remembered pane chrome before writing
     // the one focus fact; the raw view writers stay internal to this composer.
-    // A landing verb's `plan…` reader half is published where a caller drives
-    // it from a Solid effect (see the pairs above).
+    // A landing verb's `plan…` reader half is published where a caller outside
+    // this composer needs the two phases (see the pairs above).
     activate,
     planActivate,
     setActiveSilently,

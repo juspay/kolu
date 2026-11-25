@@ -423,13 +423,13 @@ export function useCollectionDeltas<Name extends string, K, T>(
     setOrder(next);
   };
   /** The key set, as every consumer and every fold reads it: SUBSCRIBE to the
-   *  mirror, ANSWER from the authority — the pair's rule everywhere in this PR
-   *  (`scrollLock`'s lock, `connectSurfaces`'s connection state). Both are moved
-   *  by `writeOrder` alone and the signal is handed the very array `heldOrder`
-   *  holds, so the two can differ only in WHEN: between a frame and its flush the
-   *  signal still reads the previous list, and a reader inside that window — a
-   *  fold `step`, which the frame loop calls there — would otherwise be told the
-   *  set from before the frame it is being handed. */
+   *  mirror, ANSWER from the authority — the rule for every plain-authority +
+   *  reactive-mirror pair (`scrollLock`'s lock, `connectSurfaces`'s connection
+   *  state). Both are moved by `writeOrder` alone and the signal is handed the
+   *  very array `heldOrder` holds, so the two can differ only in WHEN: between a
+   *  frame and its flush the signal still reads the previous list, and a reader
+   *  inside that window — a fold `step`, which the frame loop calls there —
+   *  would otherwise be told the set from before the frame it is being handed. */
   const keys: Accessor<K[]> = () => {
     order();
     return heldOrder;
