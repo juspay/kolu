@@ -222,9 +222,11 @@ describe("dock rows in one repository stay independent", () => {
     // MERGED into the record standing there, the way production delivers a whole
     // server record: `useTerminalMetadata`'s per-id projection commits the
     // reprojected record through Solid's reconcile channel (`createProjection(…,
-    // { key: null })`), and the collection store under it merges each named entry
-    // (`@kolu/surface`'s `writeEntryValue`). Neither ever hands a record's `git`
-    // (or any other container) a fresh object for a field that did not move — an
+    // { key: null })`, `useTerminalMetadata.ts:263`), and the collection store
+    // under it merges each per-key subscription's value the same way
+    // (`@kolu/surface`'s `writeWrappedValue`, which `terminals` reaches because
+    // it is served per key). Neither ever hands a record's `git` (or any other
+    // container) a fresh object for a field that did not move — an
     // `Object.assign` of a freshly built record does exactly that, and would make
     // this fixture test a write shape the app cannot produce.
     const aliceMeta = metaWith(

@@ -143,8 +143,9 @@ describe("a declared arrayKey reaches the store it is declared for", () => {
   it("governs a COLLECTION's PER-KEY merge — the seam a cell's value goes through", async () => {
     // The path lowy's review found the first cut had foreclosed: an entry's value
     // is merged by `createSubscription`/`writeWrappedValue`, exactly as a cell's
-    // is, so the same declaration governs it. (The batched `deltas` path replaces
-    // leaves whole and has no merge to govern — see `CollectionSpec.arrayKey`.)
+    // is, so the same declaration governs it. (The batched `deltas` path merges
+    // each named entry through `writeEntryValue` under the same declaration —
+    // see `CollectionSpec.arrayKey`.)
     const { dispatch, feed } = stubDispatch();
     await createRoot(async (dispose) => {
       const app = surfaceClient(surface, dispatch);
