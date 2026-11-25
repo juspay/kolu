@@ -394,14 +394,13 @@ export const workStore = (deps: WorkStoreDeps): WorkStore => {
     ...value.works,
   ];
 
-  /** THE LIVE PRs, PUBLISHED — after dropping every one whose work is no
-   *  longer an open branch work, so an ended work's mark goes with it. */
+  /** THE LIVE PRs, PUBLISHED — after dropping every one whose work is out of
+   *  the watch's scope ({@link branchWatches}, the one statement of it), so
+   *  an ended work's mark goes with it. */
   const publishPrs = (): void => {
-    for (const id of [...livePrs.keys()]) {
-      const work = value.works.get(id);
-      if (work?.state.kind !== "open" || work.key.kind !== "branch")
-        livePrs.delete(id);
-    }
+    const watched = new Set(branchWatches().map((one) => one.work));
+    for (const id of [...livePrs.keys()])
+      if (!watched.has(id)) livePrs.delete(id);
     publishMoved(publishedPrs, livePrs, samePr, deps.publishPr);
   };
 
@@ -785,8 +784,6 @@ export const workStore = (deps: WorkStoreDeps): WorkStore => {
     publishWorks,
     publishReadings,
     prRead: (id, reading) => {
-      const work = value.works.get(id);
-      if (work?.state.kind !== "open" || work.key.kind !== "branch") return;
       livePrs.set(id, reading);
       publishPrs();
     },
