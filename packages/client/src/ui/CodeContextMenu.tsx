@@ -13,6 +13,7 @@ import {
   type Component,
   createEffect,
   createSignal,
+  flush,
   For,
   Show,
 } from "solid-js";
@@ -66,6 +67,14 @@ export const CodeContextMenu: Component<{
 
   props.ref({
     open: (event: MouseEvent) => {
+      // The host writes the selection the items describe from the very
+      // `contextmenu` handler that calls this — and a signal write is
+      // staged until the next flush, so a bare `getItems()` would sample
+      // the selection as it stood BEFORE the right-click (on the first
+      // one, no selection at all, hence no menu). Land the staged writes
+      // first; this is an imperative boundary, where observing one's own
+      // writes synchronously is what `flush` is for.
+      flush();
       const next = props.getItems();
       if (next.length === 0) return; // nothing to offer; let browser default through
       event.preventDefault();
