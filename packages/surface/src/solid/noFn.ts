@@ -4,12 +4,13 @@
  * Solid 2 reads a function handed to `createSignal` / `createStore` as a
  * DERIVATION rather than as the value: `createStore(fn)` is the projection form
  * and `createSignal(fn)` the derived form. The signatures say so with a
- * conditional type — `@solidjs/signals` 2.0.3 `dist/types/store/types.d.ts:71`,
- * `NoFn<T> = T extends Function ? never : T`, which is `Exclude<T, Function>`.
+ * conditional type: `@solidjs/signals` 2.0.3 declares `NoFn<T>` in its store
+ * type module (`store/types`) as `T extends Function ? never : T`, which is
+ * `Exclude<T, Function>`.
  *
- * It is restated here because `solid-js` does not re-export it: its type surface
- * (`solid-js` 2.0.3 `types/index.d.ts:3`) forwards `NotWrappable`, `Store`,
- * `StoreSetter` and the rest from `@solidjs/signals`, but not `NoFn`, and
+ * It is restated here because `solid-js` does not re-export it: the `solid-js`
+ * 2.0.3 type entry forwards `NotWrappable`, `Store`, `StoreSetter` and the rest
+ * of the store types from `@solidjs/signals`, but not `NoFn`, and
  * `@solidjs/signals` is not a direct dependency of any kolu package — the whole
  * repo reaches Solid through `solid-js`.
  *
