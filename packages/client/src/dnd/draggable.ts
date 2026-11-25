@@ -4,7 +4,6 @@
 import { Draggable, Droppable } from "@dnd-kit/dom";
 import { type Accessor, createEffect, onCleanup, onSettled } from "solid-js";
 import type { JSX } from "@solidjs/web";
-import { refWithRelease } from "../ui/refWithRelease";
 import { nearestCenter } from "./collision";
 import {
   type DragTransform,
@@ -15,10 +14,14 @@ import {
 export type DraggableHandle = {
   /** The dragged element: what the drag measures and the overlay is sized to. */
   ref: (el: HTMLElement) => void;
-  /** The element a press starts the drag on — the dragged element itself, or
-   *  a grip inside it. dnd-kit's pointer sensor binds it while it is mounted;
-   *  with no handle mounted, the draggable cannot be picked up. */
+  /** The element a press starts the drag on — a grip inside the dragged
+   *  element. The scope's pointer sensor binds the press to THAT element
+   *  alone, so a draggable with no handle bound cannot be picked up. */
   handleRef: (el: HTMLElement) => void;
+  /** Unbinds the handle. A caller whose grip is rendered conditionally calls
+   *  this when that grip goes, so the draggable never keeps a detached node as
+   *  its press target; the calling owner's disposal unbinds it too. */
+  releaseHandle: () => void;
   isActiveDraggable: Accessor<boolean>;
   /** The drag's offset while this one is dragged, else none. */
   transform: Accessor<DragTransform>;
@@ -41,16 +44,17 @@ export function createDraggable(
   const draggable = new Draggable({ id, register: false }, scope.manager);
   draggable.register();
   onCleanup(draggable.destroy);
-  // The factory body (the owner this draggable already lives in) owns the
-  // unbinding of the handle the ref recorded.
-  const handleRef = refWithRelease<HTMLElement>(
-    (el) => {
-      draggable.handle = el;
-    },
-    (el) => {
-      if (draggable.handle === el) draggable.handle = undefined;
-    },
-  );
+  // A ref callback is not a scope a cleanup may be registered in (Solid 2
+  // answers `CLEANUP_IN_FORBIDDEN_SCOPE`), so the element the ref recorded is
+  // held here and unbound either by this factory's own owner or by an explicit
+  // `releaseHandle` from the caller that knows its grip went.
+  let handleEl: HTMLElement | undefined;
+  const releaseHandle = () => {
+    if (handleEl === undefined) return;
+    if (draggable.handle === handleEl) draggable.handle = undefined;
+    handleEl = undefined;
+  };
+  onCleanup(releaseHandle);
   const disabled = options?.disabled;
   if (disabled)
     createEffect(
@@ -64,7 +68,11 @@ export function createDraggable(
     ref: (el) => {
       draggable.element = el;
     },
-    handleRef,
+    handleRef: (el) => {
+      handleEl = el;
+      draggable.handle = el;
+    },
+    releaseHandle,
     isActiveDraggable,
     transform: () => (isActiveDraggable() ? scope.transform() : NO_TRANSFORM),
   };

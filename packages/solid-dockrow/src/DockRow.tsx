@@ -259,15 +259,16 @@ export const DockRow: Component<DockRowProps> = (props) => {
          *  Plain children, not a `(handle) => …` narrowing callback: that body is
          *  untracked (`untrack(…, "<Show>")`), so calling the accessor there to
          *  hand the ref over is a strict read that never updates. These children
-         *  are evaluated inside `<Show>`'s own tracked memo, so the ref reads the
-         *  prop itself — the same value the condition just proved present. */}
+         *  are evaluated inside `<Show>`'s own tracked memo, so the prop is read
+         *  THERE — handed to `ref` as the function it is, rather than read again
+         *  from inside a ref callback, which is not a tracking scope. */}
         <button
           type="button"
           data-testid="dock-row-grip"
           tabindex={-1}
           aria-label="Drag to nest this terminal"
           class="dock-row-grip"
-          ref={(el) => props.handle?.(el)}
+          ref={props.handle}
           // A grip tap is not a row activation — the click must not select.
           onClick={(e) => e.stopPropagation()}
         />

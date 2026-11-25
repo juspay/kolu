@@ -19,7 +19,7 @@
 import { activeArm } from "@kolu/padi-client/surface";
 import type { TerminalMetadata } from "@kolu/padi-client/surface";
 import type { TerminalId } from "kolu-common/surface";
-import { type Accessor, createMemo, untrack } from "solid-js";
+import { type Accessor, createEffect, createMemo, untrack } from "solid-js";
 import { createDraggable, createDroppable, useDragDropScope } from "../../dnd";
 import type { ParentEdge } from "../../terminal/terminalTree";
 import { useTerminalStore } from "../../terminal/useTerminalStore";
@@ -102,8 +102,27 @@ export function useDockRowDrag(id: Accessor<TerminalId>): DockRowDrag {
   const store = useTerminalStore();
   const registered = untrack(id);
   const dragId = rowDragId(registered);
-  const draggable = createDraggable(dragId);
+  const { isLive } = dockDropContext(store);
+  // The live gate read off the id this hook REGISTERED with, which is what the
+  // draggable below is wired from: the flag and the handle belong to that one
+  // registration, while the getters that speak for the row go through `rowId`.
+  const live = createMemo(() => isLive(registered));
+  // A sleeping row cannot be dragged, said once and explicitly: a press that
+  // reaches this draggable starts nothing while it is disabled. The grip is the
+  // affordance, not the rule — a row that lost its grip must not become
+  // draggable by some other element, and a grip that outlived its row must not
+  // be what a press has to land on.
+  const draggable = createDraggable(dragId, { disabled: () => !live() });
   const droppable = createDroppable(dragId);
+  // The grip exists exactly while the row is live, so when the row sleeps THAT
+  // element is gone: unbind it with it, rather than leaving a detached grip
+  // bound as the draggable's press target.
+  createEffect(
+    () => live(),
+    (nowLive) => {
+      if (!nowLive) draggable.releaseHandle();
+    },
+  );
   /** The row's id, refused if it is no longer the one registered. */
   const rowId = (): TerminalId => {
     const now = id();
@@ -123,14 +142,13 @@ export function useDockRowDrag(id: Accessor<TerminalId>): DockRowDrag {
     droppable.isActiveDroppable,
   );
   // A row whose terminal is SLEEPING is neither draggable nor a drop target:
-  // its grip is not rendered (so no gesture can start) and the drop rules refuse
-  // it (a live row must not nest under a dormant parent). Sleep freezes a whole
-  // family, so a slept parent's splits are sleeping rows beside it — a tree the
-  // dock keeps intact; only a LIVE terminal can be re-homed. The droppable stays
-  // registered so the refusal can be PAINTED — a sleeping row under the pointer
-  // reads as "no", rather than letting the drop silently resolve to some other
-  // row behind it.
-  const { isLive } = dockDropContext(store);
+  // the draggable is disabled and its grip is not rendered, and the drop rules
+  // refuse it (a live row must not nest under a dormant parent). Sleep freezes
+  // a whole family, so a slept parent's splits are sleeping rows beside it — a
+  // tree the dock keeps intact; only a LIVE terminal can be re-homed. The
+  // droppable stays registered so the refusal can be PAINTED — a sleeping row
+  // under the pointer reads as "no", rather than letting the drop silently
+  // resolve to some other row behind it.
   return {
     ref: (el) => {
       draggable.ref(el);
