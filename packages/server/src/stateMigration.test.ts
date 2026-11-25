@@ -3879,7 +3879,17 @@ describe("the 1.68.0 rung — a work's facts are the work's (T24)", () => {
         };
       }
       tried += 1;
-      const conf = makeStore({ works, members });
+      // IN MEMORY: the rung reads and writes its store with `get` and `set`
+      // alone, and a file store per seed costs a directory and several
+      // atomic writes each — 200 of them overran the test's time. The exact
+      // cases above walk a real `Conf`.
+      const held: Record<string, unknown> = { works, members };
+      const conf = {
+        get: (key: string): unknown => held[key],
+        set: (key: string, value: unknown): void => {
+          held[key] = value;
+        },
+      };
       workFactsAreTheWorks_1_68_0(conf as never);
       const after = Schema.decodeUnknownSync(PersistedWorksSchema)(
         conf.get("works"),
