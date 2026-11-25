@@ -17,11 +17,12 @@
  *  without switching the tab. */
 
 import { encodeHostKey, type HostKey } from "kolu-common/hostKey";
-import { type Component, createMemo, onCleanup, Show } from "solid-js";
+import { type Component, createMemo, Show } from "solid-js";
 import {
   openHostDiagnostics,
   releaseHostDiagnosticsAnchor,
 } from "../host/useHostDiagnosticsOpen";
+import { refWithRelease } from "../ui/refWithRelease";
 import Tip from "../ui/Tip";
 import AgentDistroLogo from "@kolu/agent-distro/solid";
 import { type AgentMark, agentMarkLabel } from "@kolu/agent-distro/status";
@@ -83,50 +84,55 @@ const AgentDistroHostMark: Component<{
   const mark = createMemo(() => hostAgentMark(props.host));
   /** Who the words are about, named as the host tab names it. */
   const where = () => agentsWhere(props.host);
-  /** The buttons this mark has handed to the details panel to hang off. The
-   *  ref collects them and THIS BODY releases them when the mark goes: a ref
-   *  callback may not register a cleanup of its own. */
-  const anchors = new Set<HTMLElement>();
-  onCleanup(() => {
-    for (const el of anchors) releaseHostDiagnosticsAnchor(el);
-  });
-  const box = () => (
-    <button
-      ref={(el) => anchors.add(el)}
-      type="button"
-      data-testid={props.measuring ? undefined : "host-agents-mark"}
-      data-state={mark().kind}
-      data-update-failed={updateFailed(mark()) ? "" : undefined}
-      aria-label={agentMarkLabel(mark(), where())}
-      tabindex={props.measuring ? -1 : undefined}
-      onClick={(e) => {
-        // The mark sits inside the tab: opening the details must not switch
-        // host. The panel mounts at the shell and hangs off this mark.
-        e.stopPropagation();
-        openHostDiagnostics(encodeHostKey(props.host), e.currentTarget);
-      }}
-      class={[
-        "pointer-events-auto relative -ml-1 mr-2.5 grid h-[18px] w-[18px] shrink-0 cursor-pointer place-items-center rounded transition-colors hover:bg-fg/10",
-        {
-          "text-warning": mark().kind === "failed",
-          "opacity-[0.55]": mark().kind === "checking",
-        },
-      ]}
-    >
-      <Show when={busy(mark())}>
-        <Arc />
-      </Show>
-      <AgentDistroLogo size={13} />
-      <Show when={mark().kind === "failed" || updateFailed(mark())}>
-        {/* The warning dot, haloed in the strip's own background. */}
-        <span
-          aria-hidden="true"
-          class="absolute -right-0.5 -top-0.5 h-[7px] w-[7px] rounded-full bg-warning"
-          style={{ "box-shadow": "0 0 0 2px var(--color-surface-0)" }}
-        />
-      </Show>
-    </button>
-  );
+  /** The button the details panel hangs off. `box()` runs in the owner of the
+   *  `<Show>` branch that renders it, so the anchor is taken back when THAT
+   *  button goes — the mark emptying to `none` closes a panel floating
+   *  against it, rather than leaving it against a detached node. The ref only
+   *  records the element (the click hands it over); a ref callback may
+   *  register no cleanup of its own, hence `refWithRelease`. */
+  const box = () => {
+    const anchorRef = refWithRelease<HTMLButtonElement>(
+      () => {},
+      releaseHostDiagnosticsAnchor,
+    );
+    return (
+      <button
+        ref={anchorRef}
+        type="button"
+        data-testid={props.measuring ? undefined : "host-agents-mark"}
+        data-state={mark().kind}
+        data-update-failed={updateFailed(mark()) ? "" : undefined}
+        aria-label={agentMarkLabel(mark(), where())}
+        tabindex={props.measuring ? -1 : undefined}
+        onClick={(e) => {
+          // The mark sits inside the tab: opening the details must not switch
+          // host. The panel mounts at the shell and hangs off this mark.
+          e.stopPropagation();
+          openHostDiagnostics(encodeHostKey(props.host), e.currentTarget);
+        }}
+        class={[
+          "pointer-events-auto relative -ml-1 mr-2.5 grid h-[18px] w-[18px] shrink-0 cursor-pointer place-items-center rounded transition-colors hover:bg-fg/10",
+          {
+            "text-warning": mark().kind === "failed",
+            "opacity-[0.55]": mark().kind === "checking",
+          },
+        ]}
+      >
+        <Show when={busy(mark())}>
+          <Arc />
+        </Show>
+        <AgentDistroLogo size={13} />
+        <Show when={mark().kind === "failed" || updateFailed(mark())}>
+          {/* The warning dot, haloed in the strip's own background. */}
+          <span
+            aria-hidden="true"
+            class="absolute -right-0.5 -top-0.5 h-[7px] w-[7px] rounded-full bg-warning"
+            style={{ "box-shadow": "0 0 0 2px var(--color-surface-0)" }}
+          />
+        </Show>
+      </button>
+    );
+  };
   return (
     <Show when={mark().kind !== "none"}>
       <Show when={!props.measuring} fallback={box()}>
