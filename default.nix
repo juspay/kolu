@@ -864,12 +864,18 @@ let
         exit 1
       fi
       # The lane's own input: served at `/solid-dev.json`, and useless without
-      # the warning prefixes the harness matches console lines against. The
-      # script requires at least one from each of the three scanned dists
-      # (solid-js, @solidjs/web, @solidjs/signals) and fails naming the one
-      # that stopped; the dist checks the same floor on what it ships.
-      if [ "$(jq -r '.warnings | length' "$out/solid-dev.json")" -lt 3 ]; then
-        echo "${label}: solid-dev.json carries fewer warning prefixes than the three scanned Solid dists contribute — the e2e lane would see only footered diagnostics from the rest." >&2
+      # the warning prefixes the harness matches console lines against. Each of
+      # the three scanned dists (solid-js, @solidjs/web, @solidjs/signals)
+      # reports its own prefix count in `.dists`, counted before the counts are
+      # merged into one deduplicated `.warnings` list; this checks that every
+      # one of them shipped at least one, and names the dist that did not.
+      silentDists=$(jq -r '.dists | to_entries[] | select(.value < 1) | .key' "$out/solid-dev.json")
+      if [ -n "$silentDists" ]; then
+        echo "${label}: solid-dev.json carries no warning prefix from $(echo "$silentDists" | tr '\n' ' ')— the e2e lane would see only footered diagnostics from that dist." >&2
+        exit 1
+      fi
+      if [ "$(jq -r '.dists | length' "$out/solid-dev.json")" -ne 3 ]; then
+        echo "${label}: solid-dev.json does not report all three scanned Solid dists in .dists." >&2
         exit 1
       fi
     '' else ''

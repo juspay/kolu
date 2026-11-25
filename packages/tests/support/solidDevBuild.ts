@@ -8,9 +8,10 @@
  * the e2e suite reaches.
  *
  * WHAT THE CHECK KEYS ON IS SERVED, NOT TYPED HERE. The dev-mode client dist
- * carries `solid-dev.json` at its root — `{ marker, warnings }`, extracted at
- * build time from the installed Solid runtime (scripts/solid-dev-manifest.mjs,
- * through default.nix's `solidDevManifest`) — so the server under test answers
+ * carries `solid-dev.json` at its root — `{ marker, warnings, dists }`,
+ * extracted at build time from the installed Solid runtime
+ * (scripts/solid-dev-manifest.mjs, through default.nix's `solidDevManifest`)
+ * — so the server under test answers
  * `/solid-dev.json` with the exact strings its own bundle was built from:
  *
  *   - `marker` is the footer Solid's development runtime prints after the first
@@ -49,10 +50,14 @@ function laneDemandsDevBuild(): boolean {
   );
 }
 
-/** What the dev-mode client dist serves at `/solid-dev.json`. */
+/** What the dev-mode client dist serves at `/solid-dev.json`. `dists` is each
+ *  scanned Solid package's own prefix count, before the counts merge into the
+ *  deduplicated `warnings` list; the dist derivation checks every one is at
+ *  least 1, and the harness holds the shape to the same contract. */
 interface SolidDevManifest {
   readonly marker: string;
   readonly warnings: readonly string[];
+  readonly dists: Readonly<Record<string, number>>;
 }
 
 /** The console check a dev-runtime server turns on: it holds that server's own
@@ -131,19 +136,25 @@ async function fetchManifest(
     );
   }
   const body: unknown = await response.json();
-  const { marker, warnings } = body as Partial<SolidDevManifest>;
+  const { marker, warnings, dists } = body as Partial<SolidDevManifest>;
   if (
     typeof marker !== "string" ||
     marker.length === 0 ||
     !Array.isArray(warnings) ||
     warnings.length === 0 ||
-    warnings.some((prefix) => typeof prefix !== "string" || prefix.length === 0)
+    warnings.some(
+      (prefix) => typeof prefix !== "string" || prefix.length === 0,
+    ) ||
+    typeof dists !== "object" ||
+    dists === null ||
+    Object.keys(dists).length === 0 ||
+    Object.values(dists).some((count) => typeof count !== "number" || count < 1)
   ) {
     throw new Error(
-      `Solid-diagnostics check: ${url} is not a { marker, warnings } manifest: ${JSON.stringify(body)}`,
+      `Solid-diagnostics check: ${url} is not a { marker, warnings, dists } manifest: ${JSON.stringify(body)}`,
     );
   }
-  return { marker, warnings };
+  return { marker, warnings, dists };
 }
 
 /** Fail unless the server at `baseUrl` serves a client built on Solid's

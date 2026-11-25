@@ -7,7 +7,11 @@
  * from a tree whose `<client-package-dir>/node_modules` resolves the client's
  * own `solid-js` / `@solidjs/web` / `@solidjs/signals`. It writes
  *
- *     { "marker": "<console footer text>", "warnings": ["<prefix>", …] }
+ *     {
+ *       "marker": "<console footer text>",
+ *       "warnings": ["<prefix>", …],
+ *       "dists": { "<package>": <how many prefixes it contributes>, … }
+ *     }
  *
  * which `default.nix` checks both client dists against (`mkClientDist`) and
  * ships at the root of the dev-mode dist, so the server under test serves it at
@@ -185,6 +189,10 @@ const marker = extractMarker();
 // warnings behind a helper would leave the list long and the lane blind to
 // that package. Fail naming the dist that stopped.
 const prefixes = new Set();
+/** How many prefixes each dist contributes, counted BEFORE deduplication
+ *  against the other dists — a dist's own figure, so one package losing its
+ *  warnings shows up here even when another still carries the same string. */
+const distCounts = {};
 for (const dist of dists) {
   const own = warningsOf(dist);
   if (own.size === 0) {
@@ -194,11 +202,18 @@ for (const dist of dists) {
         `warnings, and the lane would stop seeing them`,
     );
   }
+  distCounts[dist.name] = own.size;
   for (const prefix of own) prefixes.add(prefix);
 }
 const warnings = [...prefixes].sort();
 
-writeFileSync(outFile, `${JSON.stringify({ marker, warnings }, null, 2)}\n`);
+writeFileSync(
+  outFile,
+  `${JSON.stringify({ marker, warnings, dists: distCounts }, null, 2)}\n`,
+);
 console.log(
-  `solid-dev-manifest: marker ${JSON.stringify(marker)}, ${warnings.length} warning prefixes`,
+  `solid-dev-manifest: marker ${JSON.stringify(marker)}, ${warnings.length} warning prefixes ` +
+    `(${Object.entries(distCounts)
+      .map(([name, count]) => `${name} ${count}`)
+      .join(", ")})`,
 );
