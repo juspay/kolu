@@ -7,6 +7,7 @@
  */
 
 import type { TerminalId } from "kolu-common/surface";
+import { flush } from "solid-js";
 import { describe, expect, it } from "vitest";
 import {
   MAX_TRACKED_PORTS,
@@ -129,7 +130,10 @@ function fakeTerminal(viewport = 3) {
   };
 }
 
-/** A manual scheduler: nothing runs until `flush`. */
+/** A manual scheduler: nothing runs until `settle`. Each batch of callbacks is
+ *  its own task in the app, and the store writes it makes are visible from the
+ *  microtask that follows — so a Solid `flush()` closes every batch, exactly as
+ *  the real scheduler's ticks do. */
 function manual() {
   let queue: Array<() => void> = [];
   return {
@@ -139,12 +143,14 @@ function manual() {
         queue = queue.filter((r) => r !== run);
       };
     },
-    flush: () => {
+    settle: () => {
       for (let i = 0; i < 100 && queue.length > 0; i++) {
         const batch = queue;
         queue = [];
         for (const run of batch) run();
+        flush();
       }
+      flush();
     },
   };
 }
@@ -160,9 +166,15 @@ function stepper() {
         queue = queue.filter((r) => r !== run);
       };
     },
-    runOne: () => queue.shift()?.(),
+    runOne: () => {
+      queue.shift()?.();
+      flush();
+    },
     drain: () => {
-      for (let i = 0; i < 50 && queue.length > 0; i++) queue.shift()?.();
+      for (let i = 0; i < 50 && queue.length > 0; i++) {
+        queue.shift()?.();
+        flush();
+      }
     },
   };
 }
@@ -178,7 +190,7 @@ describe("trackPrintedPorts", () => {
     const clock = manual();
     const id = nextId();
     const tracker = trackPrintedPorts(f.term, id, clock.schedule);
-    clock.flush();
+    clock.settle();
     expect(printedPortsOf(id)).toEqual([5173]);
     tracker.dispose();
   });
@@ -188,11 +200,11 @@ describe("trackPrintedPorts", () => {
     const clock = manual();
     const id = nextId();
     const tracker = trackPrintedPorts(f.term, id, clock.schedule);
-    clock.flush();
+    clock.settle();
     f.write("a");
     f.write("odu · http://127.0.0.1:18440/runs/x");
     f.write("b");
-    clock.flush();
+    clock.settle();
     expect(printedPortsOf(id)).toEqual([18440]);
     tracker.dispose();
   });
@@ -203,7 +215,7 @@ describe("trackPrintedPorts", () => {
     const id = nextId();
     const tracker = trackPrintedPorts(f.term, id, clock.schedule);
     f.write("see http://localhost:51", ["73/app", true]);
-    clock.flush();
+    clock.settle();
     expect(printedPortsOf(id)).toEqual([5173]);
     tracker.dispose();
   });
@@ -216,9 +228,9 @@ describe("trackPrintedPorts", () => {
     const id = nextId();
     const tracker = trackPrintedPorts(f.term, id, clock.schedule);
     f.write("1", "2", "working…", "prompt");
-    clock.flush();
+    clock.settle();
     f.rewrite(2, "└ odu · http://127.0.0.1:18440/runs/x");
-    clock.flush();
+    clock.settle();
     expect(printedPortsOf(id)).toEqual([18440]);
     tracker.dispose();
   });
@@ -229,10 +241,10 @@ describe("trackPrintedPorts", () => {
     const id = nextId();
     const tracker = trackPrintedPorts(f.term, id, clock.schedule);
     f.write("a", "b", "c", "d");
-    clock.flush();
+    clock.settle();
     f.trim(2);
     f.write("http://localhost:3000/");
-    clock.flush();
+    clock.settle();
     expect(printedPortsOf(id)).toEqual([3000]);
     tracker.dispose();
   });
@@ -249,7 +261,7 @@ describe("trackPrintedPorts", () => {
     const clock = manual();
     const id = nextId();
     const tracker = trackPrintedPorts(f.term, id, clock.schedule);
-    clock.flush();
+    clock.settle();
     expect(printedPortsOf(id)).toEqual([5173]);
     tracker.dispose();
   });
@@ -262,11 +274,11 @@ describe("trackPrintedPorts", () => {
     const clock = manual();
     const id = nextId();
     const tracker = trackPrintedPorts(f.term, id, clock.schedule);
-    clock.flush();
+    clock.settle();
     expect(printedPortsOf(id)).toEqual([]);
     f.prepend("odu · http://127.0.0.1:18440/runs/x", "older output");
     tracker.notePrepended();
-    clock.flush();
+    clock.settle();
     expect(printedPortsOf(id)).toEqual([18440]);
     tracker.dispose();
   });
@@ -323,7 +335,10 @@ describe("trackPrintedPorts", () => {
         queue = queue.filter((r) => r !== run);
       };
     };
-    const runOne = () => queue.shift()?.();
+    const runOne = () => {
+      queue.shift()?.();
+      flush();
+    };
     const id = nextId();
     const tracker = trackPrintedPorts(f.term, id, schedule);
     runOne(); // first chunk only
@@ -342,7 +357,7 @@ describe("trackPrintedPorts", () => {
     const tracker = trackPrintedPorts(f.term, id, clock.schedule);
     f.setType("alternate");
     f.write("http://localhost:9999/");
-    clock.flush();
+    clock.settle();
     expect(printedPortsOf(id)).toEqual([]);
     tracker.dispose();
   });
@@ -353,9 +368,11 @@ describe("trackPrintedPorts", () => {
     const clock = manual();
     const id = nextId();
     const tracker = trackPrintedPorts(f.term, id, clock.schedule);
-    clock.flush();
+    clock.settle();
     expect(printedPortsOf(id)).toEqual([5173]);
     tracker.dispose();
+    // The forget is a staged store write, visible from the next flush.
+    flush();
     expect(printedPortsOf(id)).toEqual([]);
   });
 
@@ -371,7 +388,7 @@ describe("trackPrintedPorts", () => {
     const clock = manual();
     const id = nextId();
     const tracker = trackPrintedPorts(f.term, id, clock.schedule);
-    clock.flush();
+    clock.settle();
     const ports = printedPortsOf(id);
     expect(ports.length).toBe(MAX_TRACKED_PORTS);
     // The earliest-printed ports are the ones evicted…

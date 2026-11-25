@@ -13,6 +13,7 @@ import {
 } from "kolu-common/conductor";
 import { needsYou, type WorkRow } from "kolu-work";
 import { render } from "@solidjs/web";
+import { flush } from "solid-js";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 // The count is a CONTROL on a phone, and a plain readout on a desktop, where
@@ -135,6 +136,7 @@ describe("the status line", () => {
     expect(button?.dataset.waiting).toBeUndefined();
 
     button?.click();
+    flush();
     expect(phoneView()).toBe("work");
   });
 

@@ -28,7 +28,7 @@ import {
 } from "@kolu/padi-client/surface";
 import type { AgentInfo, TerminalId } from "kolu-common/surface";
 import type { GitInfo } from "kolu-git/schemas";
-import { createMemo, createStore, For } from "solid-js";
+import { createMemo, createStore, flush, For } from "solid-js";
 import { render } from "@solidjs/web";
 import { afterEach, describe, expect, it } from "vitest";
 import type { TerminalAttention } from "@kolu/padi-client/attention";
@@ -202,6 +202,8 @@ function renderDock() {
     ),
     host,
   );
+  // The render's DOM work lands on the flush after creation.
+  flush();
   cleanup = () => {
     dispose();
     host.remove();
@@ -231,6 +233,8 @@ describe("dock rows in one repository stay independent", () => {
       if (held) Object.assign(held, asking);
       else all[ALICE] = asking;
     });
+    // Both store writes are staged until the flush a real frame would ride.
+    flush();
 
     const aliceAfter = readRow(host, ALICE);
     expect(aliceAfter.title).toBe("Rewrite");
@@ -246,6 +250,7 @@ describe("dock rows in one repository stay independent", () => {
     setUnread((all) => {
       all[ALICE] = true;
     });
+    flush();
 
     expect(readRow(host, ALICE).unread).toBe(true);
     expect(readRow(host, BOB).unread).toBe(false);

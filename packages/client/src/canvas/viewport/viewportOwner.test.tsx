@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import { render } from "@solidjs/web";
-import { onCleanup } from "solid-js";
+import { flush, onCleanup } from "solid-js";
 import { expect, it, vi } from "vitest";
 const camera = vi.hoisted(() => ({
   setPanX: vi.fn(),
@@ -79,6 +79,9 @@ it("waits for laid-out dimensions, uses them for centering and zoom, and release
       ],
       {} as ResizeObserver,
     );
+    // The observer's measurement is a staged write: a real reader sees it on
+    // the next flush, never in the same synchronous turn as the delivery.
+    flush();
     expect(viewport.viewportSize()).toEqual({ width: 600, height: 400 });
     expect(viewport.viewportCenter()).toEqual({ x: 300, y: 200 });
     width = 800;
@@ -94,6 +97,7 @@ it("waits for laid-out dimensions, uses them for centering and zoom, and release
       ],
       {} as ResizeObserver,
     );
+    flush();
     expect(viewport.viewportSize().width).toBe(800);
     expect(viewport.viewportCenter()).toEqual({ x: 400, y: 200 });
     viewport.zoomIn();
@@ -106,6 +110,8 @@ it("waits for laid-out dimensions, uses them for centering and zoom, and release
     vi.unstubAllGlobals();
     host.remove();
   }
+  // The release clears the measurement; settle it before reading `mounted`.
+  flush();
   expect(disconnected).toBe(1);
   expect(viewport.mounted()).toBe(false);
 });

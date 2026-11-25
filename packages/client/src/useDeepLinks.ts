@@ -562,7 +562,9 @@ export function useDeepLinks(): void {
       // calls. An effect callback is a strict-read window, so the command runs at
       // the settle that follows — the same scope the PWA-launch arm already uses,
       // and still this turn.
-      onSettled(() => navigateFromExternal(hash));
+      onSettled(() => {
+        navigateFromExternal(hash);
+      });
     },
   );
 

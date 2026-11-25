@@ -63,7 +63,7 @@ const MobileHostChip: Component<{ host: HostKey; onSwitch: () => void }> = (
   const selectedHost = useActiveHostSelector();
   const isActive = () => selectedHost(encodeHostKey(props.host));
   // #2101 N4: the presented state composes the daemon chain (padi AND kaval).
-  const kaval = useHostKavalChain(props.host);
+  const kaval = useHostKavalChain(() => props.host);
   const glance = createMemo(() => hostGlance(state(), kaval()));
   const down = createMemo(() => glance().down);
   // Always-on connection status (green / amber / red).
@@ -160,7 +160,9 @@ const MobileAddSection: Component<{ onClose: () => void }> = (props) => {
 
   // Focus the input once the section has settled (it mounts fresh via `<Show>`,
   // so this fires exactly once) — shared timing with the desktop popover.
-  onSettled(() => focusOnMount(inputEl));
+  onSettled(() => {
+    focusOnMount(inputEl);
+  });
 
   const submit = (): void => {
     runAction("add host", addHost(draft(), props.onClose));

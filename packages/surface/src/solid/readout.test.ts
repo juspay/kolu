@@ -197,8 +197,9 @@ describe("createSurfaceReadout", () => {
     // most once, so the list is the memo's NOTIFICATIONS, not its recomputes.
     const painted: SurfaceReadoutStatus[] = [];
     const { dropReadout, dispose } = createRoot((dispose) => {
-      const { readout, dispose: dropReadout } = createSurfaceReadout(status, () =>
-        fact(true, subs()),
+      const { readout, dispose: dropReadout } = createSurfaceReadout(
+        status,
+        () => fact(true, subs()),
       );
       createEffect(
         () => readout().status,

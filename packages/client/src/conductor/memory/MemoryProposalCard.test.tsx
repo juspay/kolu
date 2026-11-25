@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import type { MemoryEntry, MemoryProposal } from "kolu-common/conductorMemory";
-import { createSignal } from "solid-js";
+import { createSignal, flush } from "solid-js";
 import { render } from "@solidjs/web";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import MemoryProposalCard from "./MemoryProposalCard";
@@ -114,6 +114,7 @@ describe("a proposal to remember", () => {
         '[data-testid="memory-proposal-unfold"]',
       )
       ?.click();
+    flush();
     expect(root.textContent).toContain("Two, always.");
   });
 
@@ -179,12 +180,14 @@ describe("a proposal to change a memory", () => {
       body: "Rebase on main, then squash, before asking for review.",
     },
   });
-  const showCurrent = (root: HTMLElement) =>
+  const showCurrent = (root: HTMLElement) => {
     root
       .querySelector<HTMLButtonElement>(
         '[data-testid="memory-proposal-current"]',
       )
       ?.click();
+    flush();
+  };
 
   it("alone in its turn, names the memory it changes, with its current text one click away", () => {
     const one = replacing("p1", "u1");

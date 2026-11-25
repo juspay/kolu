@@ -31,7 +31,7 @@ import type {
 import type { OduLinkOutlet } from "./useOduLink";
 import type { TerminalId } from "kolu-common/surface";
 import { SurfaceUpstreamRefused } from "@kolu/surface/errors";
-import { type Accessor, createSignal } from "solid-js";
+import { type Accessor, createSignal, flush } from "solid-js";
 import { type JSX, render } from "@solidjs/web";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
@@ -189,13 +189,27 @@ function paint(body: () => JSX.Element) {
   host = document.createElement("div");
   document.body.append(host);
   dispose = render(() => <Shown value={() => true}>{body()}</Shown>, host);
+  flush();
 }
 
+/** Every write below is staged — what a reader of this section sees is the
+ *  frame after it — so switching terminals and moving the clock each carry the
+ *  flush that frame is. */
 function mount(initial: TerminalMetadata) {
   const [meta, setMeta] = createSignal(initial);
   paint(() => <WorkSection subject={paneSubject(meta(), LOCAL)} />);
-  return { setMeta };
+  return {
+    setMeta: (next: TerminalMetadata) => {
+      setMeta(next);
+      flush();
+    },
+  };
 }
+
+const advance = (ms: number) => {
+  clock.advance(ms);
+  flush();
+};
 
 const el = (testid: string) =>
   host?.querySelector<HTMLElement>(`[data-testid="${testid}"]`);
@@ -518,7 +532,10 @@ describe("WorkSection odu CI readout", () => {
     paint(() => (
       <WorkSection subject={paneSubject(RESIZE_BUG, LOCAL)} odu={odu.link} />
     ));
-    return setFrame;
+    return (next: CheckoutFrame | undefined) => {
+      setFrame(next);
+      flush();
+    };
   }
 
   /** Each recent row's DURATION cell, in list order. Its own cell rather than
@@ -575,7 +592,7 @@ describe("WorkSection odu CI readout", () => {
     // has been open another half minute, because a settled run's duration is
     // not a subtraction against the reader's clock.
     expect(took()).toEqual(["45s", "45s"]);
-    clock.advance(30_000);
+    advance(30_000);
     expect(took()).toEqual(["45s", "45s"]);
   });
 
@@ -605,7 +622,7 @@ describe("WorkSection odu CI readout", () => {
     // At this instant the age cell says "30s ago" as well, so the claim is only
     // worth anything read off the duration cell itself.
     expect(took()).toEqual(["30s"]);
-    clock.advance(25_000);
+    advance(25_000);
     expect(took()).toEqual(["55s"]);
   });
 
@@ -698,7 +715,7 @@ describe("WorkSection odu CI readout", () => {
     // A hundred seconds later the run is twice as long, so the same two facts
     // occupy different fractions of it: the live lane has grown, the settled
     // one has slid left into a track that grew around it.
-    clock.advance(100_000);
+    advance(100_000);
     expect(bars()).toEqual([
       { left: "25%", width: "75%" },
       { left: "0%", width: "25%" },
@@ -1044,6 +1061,7 @@ describe("WorkSection odu CI readout", () => {
     });
 
     setMeta(PI);
+    flush();
     expect(wire.input?.()).toEqual({
       repoRoot: "/home/srid/code/AI/.worktrees/pi",
     });
@@ -1076,9 +1094,11 @@ describe("WorkSection odu CI readout", () => {
       ),
       host,
     );
+    flush();
     expect(wire.input?.()).toBeNull();
 
     setShown(true);
+    flush();
     expect(wire.input?.()).toEqual({
       repoRoot: "/home/srid/code/kolu/.worktrees/resize-bug",
     });

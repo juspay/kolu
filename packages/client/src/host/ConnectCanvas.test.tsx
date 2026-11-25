@@ -19,7 +19,7 @@
 
 import type { HostKey } from "kolu-common/hostKey";
 import type { ConnectionInfo } from "kolu-common/surfacesWithPadi";
-import { createSignal } from "solid-js";
+import { createSignal, flush } from "solid-js";
 import { render } from "@solidjs/web";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -117,52 +117,65 @@ const elapsed = () =>
   document.querySelector('[data-testid="connect-elapsed"]')?.textContent ??
   null;
 
+// Both inputs here write Solid signals, and a write is staged: the rendering a
+// user sees is the one after the frame that follows. So the mount, every clock
+// tick and every connection frame is paired with the flush that frame is.
+const mount = () => {
+  dispose = render(
+    () => <ConnectCanvas daemonState={undefined} />,
+    document.body,
+  );
+  flush();
+};
+const advance = (ms: number) => {
+  clock.advance(ms);
+  flush();
+};
+const publish = (info: ConnectionInfo) => {
+  h.setInfo(info);
+  flush();
+};
+
 describe("ConnectCanvas elapsed timer (#1962)", () => {
-  it("ticks every second with ZERO incoming log frames", async () => {
-    h.setInfo({
+  it("ticks every second with ZERO incoming log frames", () => {
+    publish({
       phase: "provisioning",
       log: [{ source: "local", line: "6 paths done · 84 B of 84 B" }],
       sinceMs: 3_000,
       campaignEpoch: 1,
     });
 
-    dispose = render(
-      () => <ConnectCanvas daemonState={undefined} />,
-      document.body,
-    );
+    mount();
     expect(elapsed()).toBe("3s");
 
     // Advance the shared clock 1s at a time — no connection-frame updates.
     // Pre-fix this stayed "3s" until a log frame jumped it to "40s".
-    clock.advance(1_000);
+    advance(1_000);
     expect(elapsed()).toBe("4s");
-    clock.advance(1_000);
+    advance(1_000);
     expect(elapsed()).toBe("5s");
-    clock.advance(5_000);
+    advance(5_000);
     expect(elapsed()).toBe("10s");
   });
 
-  it("keeps ticking when the anchor effect re-runs with the SAME sinceMs", async () => {
+  it("keeps ticking when the anchor effect re-runs with the SAME sinceMs", () => {
     // Simulates mode() object identity thrash / parent re-render that re-fires
     // the createEffect without a new server duration — the freeze that wiped
     // wall-clock extension by re-baselining `at` every time.
-    h.setInfo({
+    publish({
       phase: "provisioning",
       log: [{ source: "local", line: "copying 6 paths…" }],
       sinceMs: 3_000,
       campaignEpoch: 1,
     });
-    dispose = render(
-      () => <ConnectCanvas daemonState={undefined} />,
-      document.body,
-    );
+    mount();
     expect(elapsed()).toBe("3s");
 
-    clock.advance(2_000);
+    advance(2_000);
     expect(elapsed()).toBe("5s");
 
     // Same sinceMs, new object identity — effect re-runs, must NOT reset.
-    h.setInfo({
+    publish({
       phase: "provisioning",
       log: [{ source: "local", line: "copying path '/nix/store/…-pkg'…" }],
       sinceMs: 3_000,
@@ -170,72 +183,63 @@ describe("ConnectCanvas elapsed timer (#1962)", () => {
     });
     expect(elapsed()).toBe("5s"); // still extended, not back to 3s
 
-    clock.advance(3_000);
+    advance(3_000);
     expect(elapsed()).toBe("8s");
   });
 
-  it("re-baselines when the server sinceMs advances (stays honest to the session clock)", async () => {
-    h.setInfo({
+  it("re-baselines when the server sinceMs advances (stays honest to the session clock)", () => {
+    publish({
       phase: "provisioning",
       log: [{ source: "local", line: "provisioning" }],
       sinceMs: 3_000,
       campaignEpoch: 1,
     });
-    dispose = render(
-      () => <ConnectCanvas daemonState={undefined} />,
-      document.body,
-    );
-    clock.advance(2_000);
+    mount();
+    advance(2_000);
     expect(elapsed()).toBe("5s");
 
     // Server frame with a larger sinceMs (e.g. after a quiet period) — re-anchor.
-    h.setInfo({
+    publish({
       phase: "provisioning",
       log: [{ source: "local", line: "provisioning" }],
       sinceMs: 40_000,
       campaignEpoch: 1,
     });
     expect(elapsed()).toBe("40s");
-    clock.advance(1_000);
+    advance(1_000);
     expect(elapsed()).toBe("41s");
   });
 
-  it("suppresses the sub-1s flash on a fresh frame", async () => {
-    h.setInfo({
+  it("suppresses the sub-1s flash on a fresh frame", () => {
+    publish({
       phase: "connecting",
       log: [],
       sinceMs: 200,
       campaignEpoch: 1,
     });
-    dispose = render(
-      () => <ConnectCanvas daemonState={undefined} />,
-      document.body,
-    );
+    mount();
     expect(
       document.querySelector('[data-testid="connect-elapsed"]'),
     ).toBeNull();
   });
 
-  it("re-baselines when the active host switches (same sinceMs, component stays mounted)", async () => {
+  it("re-baselines when the active host switches (same sinceMs, component stays mounted)", () => {
     // Boolean warming Match keeps ConnectCanvas mounted across host switches;
     // both episodes often open at sinceMs: 0 — must not keep host A's wall baseline.
     h.host = { kind: "remote", target: "zest" };
-    h.setInfo({
+    publish({
       phase: "provisioning",
       log: [{ source: "local", line: "building on zest" }],
       sinceMs: 0,
       campaignEpoch: 1,
     });
-    dispose = render(
-      () => <ConnectCanvas daemonState={undefined} />,
-      document.body,
-    );
+    mount();
     // Advance past the 1s elapsed guard so the label is visible.
-    clock.advance(2_000);
+    advance(2_000);
     expect(elapsed()).toBe("2s");
 
     h.host = { kind: "remote", target: "other" };
-    h.setInfo({
+    publish({
       phase: "provisioning",
       log: [{ source: "local", line: "building on other" }],
       sinceMs: 0,
@@ -245,28 +249,25 @@ describe("ConnectCanvas elapsed timer (#1962)", () => {
     expect(
       document.querySelector('[data-testid="connect-elapsed"]'),
     ).toBeNull();
-    clock.advance(2_000);
+    advance(2_000);
     expect(elapsed()).toBe("2s"); // from other, not 4s from zest
   });
 
-  it("re-baselines on same-host recheck when campaignEpoch advances (quiet stretch)", async () => {
+  it("re-baselines on same-host recheck when campaignEpoch advances (quiet stretch)", () => {
     // Quiet multi-minute stretch: anchor.ms stays 0 while wall extension shows 40s.
     // recheck() bumps campaignEpoch; first frame of the new campaign is also sinceMs: 0.
     h.host = { kind: "remote", target: "zest" };
-    h.setInfo({
+    publish({
       phase: "provisioning",
       log: [{ source: "local", line: "provisioning" }],
       sinceMs: 0,
       campaignEpoch: 1,
     });
-    dispose = render(
-      () => <ConnectCanvas daemonState={undefined} />,
-      document.body,
-    );
-    clock.advance(40_000);
+    mount();
+    advance(40_000);
     expect(elapsed()).toBe("40s");
 
-    h.setInfo({
+    publish({
       phase: "probing",
       log: [],
       sinceMs: 0,
@@ -275,7 +276,7 @@ describe("ConnectCanvas elapsed timer (#1962)", () => {
     expect(
       document.querySelector('[data-testid="connect-elapsed"]'),
     ).toBeNull();
-    clock.advance(2_000);
+    advance(2_000);
     expect(elapsed()).toBe("2s"); // not 42s
   });
 });
@@ -288,16 +289,13 @@ describe("ConnectCanvas tail chrome", () => {
 
   const mountWithTail = () => {
     h.host = { kind: "remote", target: "zest" };
-    h.setInfo({
+    publish({
       phase: "provisioning",
       log: [{ source: "local", line: LONG_LINE }],
       sinceMs: 3_000,
       campaignEpoch: 1,
     });
-    dispose = render(
-      () => <ConnectCanvas daemonState={undefined} />,
-      document.body,
-    );
+    mount();
   };
 
   it("wraps each line and holds a fixed six-row box, so the title and timer never move", () => {

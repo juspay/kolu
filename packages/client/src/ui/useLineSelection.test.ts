@@ -1,4 +1,4 @@
-import { createRoot, createSignal } from "solid-js";
+import { createRoot, createSignal, flush } from "solid-js";
 import { describe, expect, it } from "vitest";
 import { useLineSelection } from "./useLineSelection";
 
@@ -11,27 +11,32 @@ describe("useLineSelection", () => {
     // A type-changed path's diff shows the path itself AND the files that
     // used to live under it; a selection on the second item must name that
     // item's file, not the selected row's.
-    createRoot((dispose) => {
-      const sel = useLineSelection(() => "skills/odu");
-      sel.handleSelect({ start: 3, end: 4 }, "skills/odu/SKILL.md");
-      expect(sel.path()).toBe("skills/odu/SKILL.md");
-      expect(copyTexts(sel.buildItems())).toEqual([
-        "skills/odu/SKILL.md",
-        "skills/odu/SKILL.md:3-4",
-      ]);
-      // Selecting back on the path's own item returns the anchor to it.
-      sel.handleSelect({ start: 1, end: 1 }, "skills/odu");
-      expect(sel.path()).toBe("skills/odu");
-      // A range with no file named is in the view's own file — the anchor
-      // follows each selection, never an earlier one.
-      sel.handleSelect({ start: 3, end: 3 }, "skills/odu/SKILL.md");
-      sel.handleSelect({ start: 7, end: 7 });
-      expect(copyTexts(sel.buildItems())).toEqual([
-        "skills/odu",
-        "skills/odu:7",
-      ]);
-      dispose();
-    });
+    // The selection is made from OUTSIDE the root's body — a write made in the
+    // body is a write in an owned scope, and a real consumer selects from an
+    // event handler, after the root is built.
+    const { sel, dispose } = createRoot((dispose) => ({
+      sel: useLineSelection(() => "skills/odu"),
+      dispose,
+    }));
+    sel.handleSelect({ start: 3, end: 4 }, "skills/odu/SKILL.md");
+    flush();
+    expect(sel.path()).toBe("skills/odu/SKILL.md");
+    expect(copyTexts(sel.buildItems())).toEqual([
+      "skills/odu/SKILL.md",
+      "skills/odu/SKILL.md:3-4",
+    ]);
+    // Selecting back on the path's own item returns the anchor to it.
+    sel.handleSelect({ start: 1, end: 1 }, "skills/odu");
+    flush();
+    expect(sel.path()).toBe("skills/odu");
+    // A range with no file named is in the view's own file — the anchor
+    // follows each selection, never an earlier one.
+    sel.handleSelect({ start: 3, end: 3 }, "skills/odu/SKILL.md");
+    flush();
+    sel.handleSelect({ start: 7, end: 7 });
+    flush();
+    expect(copyTexts(sel.buildItems())).toEqual(["skills/odu", "skills/odu:7"]);
+    dispose();
   });
 
   it("drops the anchor and the range when the view's path changes", () => {
@@ -41,8 +46,10 @@ describe("useLineSelection", () => {
       dispose,
     }));
     sel.handleSelect({ start: 2, end: 2 }, "a/b/c");
+    flush();
     expect(sel.path()).toBe("a/b/c");
     setScope("x.ts");
+    flush();
     expect(sel.path()).toBe("x.ts");
     expect(sel.range()).toBeNull();
     dispose();

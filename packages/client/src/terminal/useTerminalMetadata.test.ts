@@ -121,8 +121,9 @@ import {
 } from "./useTerminalMetadata";
 
 const tids = (...xs: string[]) => xs as TerminalId[];
-/** Solid flushes `createEffect` on a microtask; a macrotask tick drains it. */
-const flush = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
+/** Solid flushes `createEffect` on a microtask; a macrotask tick drains it.
+ *  Named `settle` so it does not shadow Solid's own `flush`. */
+const settle = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
 
 describe("root-ancestor flatten vs nested pane tree (#2059)", () => {
   // Canvas paints every descendant under a root as a flat split tab; the Dock
@@ -268,13 +269,13 @@ describe("terminalIds reference stability (the #1422 reactivity keystone)", () =
         downstreamRuns++;
         lastRef = ids;
       });
-      await flush();
+      await settle();
       expect(downstreamRuns).toBe(1);
       const prevRef = lastRef;
 
       // A git/PR/agent field updates on one terminal; the id set is identical.
       setStore((s) => ({ ...s, a: meta({ lastActivityAt: 42 }) }));
-      await flush();
+      await settle();
       expect(Object.is(prevRef, lastRef)).toBe(true);
       expect(downstreamRuns).toBe(1);
 
@@ -302,19 +303,19 @@ describe("terminalIds reference stability (the #1422 reactivity keystone)", () =
         downstreamRuns++;
         lastRef = ids;
       });
-      await flush();
+      await settle();
       const refAfterTwo = lastRef;
       expect(downstreamRuns).toBe(1);
 
       setStore((s) => ({ ...s, c: meta() }));
       setKeys(tids("a", "b", "c")); // a terminal was created
-      await flush();
+      await settle();
       expect(Object.is(refAfterTwo, lastRef)).toBe(false);
       expect(downstreamRuns).toBe(2);
       const refAfterThree = lastRef;
 
       setKeys(tids("a", "b")); // "c" closed
-      await flush();
+      await settle();
       expect(Object.is(refAfterThree, lastRef)).toBe(false);
       expect(downstreamRuns).toBe(3);
 
@@ -343,12 +344,12 @@ describe("terminalIds reference stability (the #1422 reactivity keystone)", () =
         downstreamRuns++;
         lastRef = ids;
       });
-      await flush();
+      await settle();
       const prevRef = lastRef;
       expect(downstreamRuns).toBe(1);
 
       setKeys(tids("c", "b", "a")); // order drives sidebar position labels
-      await flush();
+      await settle();
       expect(Object.is(prevRef, lastRef)).toBe(false);
       expect(downstreamRuns).toBe(2);
 
@@ -460,7 +461,7 @@ describe("getMetadata clock reprojection (the foreign-clock ingestion boundary)"
       const { getMetadata } = useTerminalMetadata({
         list: () => tids("a").map((id) => ({ id }) as TerminalInfo),
       });
-      await flush();
+      await settle();
       const a = tids("a")[0] as TerminalId;
       const agentOf = (id: TerminalId) =>
         (getMetadata(id) as { agent?: unknown } | undefined)?.agent;
@@ -480,7 +481,7 @@ describe("getMetadata clock reprojection (the foreign-clock ingestion boundary)"
           startedAt: START,
         });
       });
-      await flush();
+      await settle();
       expect(agentOf(a)).toMatchObject({
         state: "thinking",
         startedAt: START - 90_000,
@@ -536,7 +537,7 @@ describe("getMetadata identity stability (the #1714 right-panel-flicker guard)",
       const { getMetadata } = useTerminalMetadata({
         list: () => tids("a").map((id) => ({ id }) as TerminalInfo),
       });
-      await flush();
+      await settle();
       const a = tids("a")[0] as TerminalId;
 
       const r1 = getMetadata(a);
@@ -547,14 +548,14 @@ describe("getMetadata identity stability (the #1714 right-panel-flicker guard)",
       // An unrelated field ticks (lastActivityAt) — the reconcile keeps the record's
       // proxy identity; a re-introduced fresh-object mint would fail this.
       setStore((s) => ({ ...s, a: meta({ lastActivityAt: START + 5_000 }) }));
-      await flush();
+      await settle();
       const r2 = getMetadata(a);
       expect(Object.is(r1, r2)).toBe(true);
 
       // A redundant re-emit of an equal record lands identical projected values —
       // still the same reference (reconcile is a no-op).
       setStore((s) => ({ ...s, a: meta({ lastActivityAt: START + 5_000 }) }));
-      await flush();
+      await settle();
       expect(Object.is(r1, getMetadata(a))).toBe(true);
 
       dispose();
@@ -587,20 +588,20 @@ describe("getMetadata identity stability (the #1714 right-panel-flicker guard)",
           seen = repoRoot;
         },
       );
-      await flush();
+      await settle();
       expect(runs).toBe(1);
       expect(seen).toBe("/p");
 
       // lastActivityAt ticks — repoRoot unchanged. The #1714 flicker was this
       // re-running (→ the Code tab remount). Post-fix the leaf reader is untouched.
       setStore((s) => ({ ...s, a: meta({ lastActivityAt: START + 1_000 }) }));
-      await flush();
+      await settle();
       expect(runs).toBe(1);
 
       // The active host's clock offset re-measures — reprojects the epoch but not
       // repoRoot. The leaf reader must still not re-run.
       setOffset(30_000);
-      await flush();
+      await settle();
       expect(runs).toBe(1);
 
       // repoRoot ACTUALLY changes (a `cd` to a different repo) — now it re-runs.
@@ -622,7 +623,7 @@ describe("getMetadata identity stability (the #1714 right-panel-flicker guard)",
           lastActivityAt: START + 1_000,
         }),
       }));
-      await flush();
+      await settle();
       expect(runs).toBe(2);
       expect(seen).toBe("/q");
 
@@ -646,10 +647,11 @@ describe("getMetadata identity stability (the #1714 right-panel-flicker guard)",
       const { getMetadata } = useTerminalMetadata({
         list: () => tids("a").map((id) => ({ id }) as TerminalInfo),
       });
-      await flush();
       const a = tids("a")[0] as TerminalId;
-      const agent1 = (getMetadata(a) as { agent?: unknown }).agent;
 
+      // The leaf reader is wired SYNCHRONOUSLY, inside the root's owner: after
+      // an await the owner is gone, and an effect created there would have none
+      // (NO_OWNER_EFFECT) — a real consumer never creates one that way.
       let stateRuns = 0;
       let seenState: unknown;
       createEffect(
@@ -659,9 +661,10 @@ describe("getMetadata identity stability (the #1714 right-panel-flicker guard)",
           seenState = state;
         },
       );
-      await flush();
+      await settle();
       expect(stateRuns).toBe(1);
       expect(seenState).toBe("thinking");
+      const agent1 = (getMetadata(a) as { agent?: unknown }).agent;
 
       // A sibling top-level field ticks; the agent sub-object is unchanged. The
       // `reconcile` keeps the agent proxy, and the state leaf reader does not re-run.
@@ -669,7 +672,7 @@ describe("getMetadata identity stability (the #1714 right-panel-flicker guard)",
         ...s,
         a: { cwd: "/p2", agent } as unknown as TestMeta,
       }));
-      await flush();
+      await settle();
       expect(
         Object.is(agent1, (getMetadata(a) as { agent?: unknown }).agent),
       ).toBe(true);
@@ -684,7 +687,7 @@ describe("getMetadata identity stability (the #1714 right-panel-flicker guard)",
           agent: { ...agent, state: "tool_use" },
         } as unknown as TestMeta,
       }));
-      await flush();
+      await settle();
       expect(stateRuns).toBe(2);
       expect(seenState).toBe("tool_use");
 
@@ -721,9 +724,9 @@ it("metadata ticks do not wake split-tree or unrelated display readers", async (
         displayWakes++;
       },
     );
-    await flush();
+    await settle();
     setRecords((old) => ({ ...old, a: { ...old.a, lastActivityAt: 20 } }));
-    await flush();
+    await settle();
     expect(splitWakes).toBe(1);
     expect(displayWakes).toBe(1);
     const oldKey = store.getDisplayInfo("a")?.key;
@@ -731,7 +734,7 @@ it("metadata ticks do not wake split-tree or unrelated display readers", async (
       ...old,
       a: { ...old.a, cwd: "/different/renamed" },
     }));
-    await flush();
+    await settle();
     expect(splitWakes).toBe(1);
     expect(displayWakes).toBe(1);
     expect(oldKey?.label).toBe("/work/a");

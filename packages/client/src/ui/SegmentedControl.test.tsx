@@ -10,7 +10,7 @@
  * autofocus never steals focus from something else.
  */
 
-import { createSignal } from "solid-js";
+import { createSignal, flush } from "solid-js";
 import { render } from "@solidjs/web";
 import { afterEach, describe, expect, it } from "vitest";
 import SegmentedControl, {
@@ -64,6 +64,10 @@ function mount(
     ),
     host,
   );
+  // The render's attribute writes and its in-view announcement land on the
+  // flush after creation; every interaction below is followed by the flush the
+  // browser's next frame would bring.
+  flush();
   const button = (v: V) =>
     host?.querySelector<HTMLButtonElement>(`[data-testid="seg-${v}"]`) ??
     undefined;
@@ -73,11 +77,40 @@ function mount(
     OPTIONS.map((o) => o.value).filter(
       (v) => button(v)?.getAttribute("aria-pressed") === "true",
     );
-  const key = (k: string) =>
+  const key = (k: string) => {
     document.activeElement?.dispatchEvent(
       new KeyboardEvent("keydown", { key: k, bubbles: true, cancelable: true }),
     );
-  return { button, tabStops, pressed, key, picks, setOptions, viewTrail };
+    flush();
+  };
+  const focus = (v: V) => {
+    button(v)?.focus();
+    flush();
+  };
+  const blur = (v: V) => {
+    button(v)?.blur();
+    flush();
+  };
+  const click = (v: V) => {
+    button(v)?.click();
+    flush();
+  };
+  const emitOptions = (next: readonly { value: V; label: string }[]) => {
+    setOptions(next);
+    flush();
+  };
+  return {
+    button,
+    tabStops,
+    pressed,
+    key,
+    focus,
+    blur,
+    click,
+    picks,
+    setOptions: emitOptions,
+    viewTrail,
+  };
 }
 
 describe("SegmentedControl — the roving tab stop", () => {
@@ -99,7 +132,7 @@ describe("SegmentedControl — the roving tab stop", () => {
 
   it("arrows move focus (and the stop) without picking; a click picks", () => {
     const c = mount(undefined, "vanilla");
-    c.button("vanilla")?.focus();
+    c.focus("vanilla");
     c.key("ArrowRight");
     expect(document.activeElement).toBe(c.button("juspay"));
     expect(c.tabStops()).toEqual(["juspay"]);
@@ -113,7 +146,7 @@ describe("SegmentedControl — the roving tab stop", () => {
     expect(document.activeElement).toBe(c.button("juspay"));
     expect(c.picks).toEqual([]);
     expect(c.pressed()).toEqual([]);
-    c.button("juspay")?.click();
+    c.click("juspay");
     expect(c.picks).toEqual(["juspay"]);
     expect(c.pressed()).toEqual(["juspay"]);
   });
@@ -123,17 +156,17 @@ describe("SegmentedControl — the roving tab stop", () => {
     const c = mount("off", "vanilla");
     expect(c.pressed()).toEqual(["off"]);
     expect(c.tabStops()).toEqual(["vanilla"]);
-    c.button("vanilla")?.focus();
+    c.focus("vanilla");
     c.key("Enter");
     expect(c.picks).toEqual(["vanilla"]);
   });
 
   it("leaving the group hands the stop back to the pressed option", () => {
     const c = mount("off");
-    c.button("off")?.focus();
+    c.focus("off");
     c.key("ArrowRight");
     expect(c.tabStops()).toEqual(["vanilla"]);
-    c.button("vanilla")?.blur();
+    c.blur("vanilla");
     expect(c.tabStops()).toEqual(["off"]);
   });
 });
@@ -141,7 +174,7 @@ describe("SegmentedControl — the roving tab stop", () => {
 describe("SegmentedControl — picking from the keyboard", () => {
   it("Enter picks the focused option, once", () => {
     const c = mount(undefined, "vanilla");
-    c.button("vanilla")?.focus();
+    c.focus("vanilla");
     c.key("Enter");
     expect(c.picks).toEqual(["vanilla"]);
     expect(c.pressed()).toEqual(["vanilla"]);
@@ -149,7 +182,7 @@ describe("SegmentedControl — picking from the keyboard", () => {
 
   it("Space picks the focused option, once", () => {
     const c = mount("off");
-    c.button("off")?.focus();
+    c.focus("off");
     c.key("ArrowRight");
     c.key("ArrowRight");
     c.key(" ");
@@ -158,9 +191,9 @@ describe("SegmentedControl — picking from the keyboard", () => {
 
   it("tells the host the option in view — at mount, as the keyboard moves, and back when it leaves", () => {
     const c = mount("juspay");
-    c.button("juspay")?.focus();
+    c.focus("juspay");
     c.key("ArrowLeft");
-    c.button("vanilla")?.blur();
+    c.blur("vanilla");
     expect(c.viewTrail).toEqual(["juspay", "vanilla", "juspay"]);
     expect(c.tabStops()).toEqual([c.viewTrail.at(-1)]);
   });
@@ -171,9 +204,9 @@ describe("SegmentedControl — picking from the keyboard", () => {
     const c = mount("off", "vanilla");
     expect(c.viewTrail).toEqual(["off"]);
     expect(c.tabStops()).toEqual(["vanilla"]);
-    c.button("vanilla")?.focus();
+    c.focus("vanilla");
     expect(c.viewTrail).toEqual(["off", "vanilla"]);
-    c.button("vanilla")?.blur();
+    c.blur("vanilla");
     expect(c.viewTrail).toEqual(["off", "vanilla", "off"]);
   });
 

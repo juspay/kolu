@@ -731,56 +731,6 @@ const CodeTab: Component<{
     setHandled({ request: req, resolvedPath: rel });
   };
 
-  // The controller owns the volatile open lifecycle. This presenter exposes
-  // current facts and atomic UI outcomes; it does not carry request/controller
-  // slots or reconstruct supersession in promise callbacks.
-  createCodeTabOpenController({
-    snapshot: () => ({
-      request: props.door.pending(),
-      scope: currentScope(),
-      inventoryScope: treeInventory().scope,
-      paths: treePaths(),
-      inventoryPending: treeInventory().pending,
-      includeIgnored: showIgnoredFiles(),
-      lister: lister(),
-    }),
-    resolve: (request, paths) =>
-      resolveRef({
-        rawPath: request.ref.path,
-        repoRoot: request.scope.repoRoot,
-        cwd: request.cwd,
-        repoPaths: paths,
-        allowBasenameFallback: request.allowBasenameFallback,
-        // A `:N` line suffix means the user pointed at a *file* line — a
-        // directory match would wrongly reveal the folder and drop the line.
-        hasLine: request.ref.startLine !== null,
-      }),
-    readFresh: (request, from) =>
-      // Every fact comes from the snapshot: the read is issued in the effect
-      // phase, where reading `lister()` or the toggle would be a reactive read
-      // (STRICT_READ_UNTRACKED). The request only reaches here while its scope
-      // is the one shown, so that snapshot's lister is the request's.
-      from.lister === null
-        ? Effect.fail(new Error("No repository to read"))
-        : readFreshCodePaths(
-            request.scope.host,
-            request.scope.repoRoot,
-            from.lister,
-            from.includeIgnored,
-          ),
-    onResolved: finishOpenRequest,
-    onNotFound: (request) => {
-      toast.error(`File reference not found: ${request.ref.path}`);
-      setFreshSelection(null);
-      setHandled({ request, resolvedPath: null });
-    },
-    onError: (request, error) => {
-      toast.error(`File list refresh: ${error.message}`);
-      setFreshSelection(null);
-      setHandled({ request, resolvedPath: null });
-    },
-  });
-
   // Highlight range derives from the consume-once record: if the
   // request we last handled matches the latest pending one AND its
   // resolved path is still the rendered file, surface the line
@@ -909,6 +859,56 @@ const CodeTab: Component<{
   });
 
   const treePaths = () => treeInventory().paths;
+
+  // The controller owns the volatile open lifecycle. This presenter exposes
+  // current facts and atomic UI outcomes; it does not carry request/controller
+  // slots or reconstruct supersession in promise callbacks.
+  createCodeTabOpenController({
+    snapshot: () => ({
+      request: props.door.pending(),
+      scope: currentScope(),
+      inventoryScope: treeInventory().scope,
+      paths: treePaths(),
+      inventoryPending: treeInventory().pending,
+      includeIgnored: showIgnoredFiles(),
+      lister: lister(),
+    }),
+    resolve: (request, paths) =>
+      resolveRef({
+        rawPath: request.ref.path,
+        repoRoot: request.scope.repoRoot,
+        cwd: request.cwd,
+        repoPaths: paths,
+        allowBasenameFallback: request.allowBasenameFallback,
+        // A `:N` line suffix means the user pointed at a *file* line — a
+        // directory match would wrongly reveal the folder and drop the line.
+        hasLine: request.ref.startLine !== null,
+      }),
+    readFresh: (request, from) =>
+      // Every fact comes from the snapshot: the read is issued in the effect
+      // phase, where reading `lister()` or the toggle would be a reactive read
+      // (STRICT_READ_UNTRACKED). The request only reaches here while its scope
+      // is the one shown, so that snapshot's lister is the request's.
+      from.lister === null
+        ? Effect.fail(new Error("No repository to read"))
+        : readFreshCodePaths(
+            request.scope.host,
+            request.scope.repoRoot,
+            from.lister,
+            from.includeIgnored,
+          ),
+    onResolved: finishOpenRequest,
+    onNotFound: (request) => {
+      toast.error(`File reference not found: ${request.ref.path}`);
+      setFreshSelection(null);
+      setHandled({ request, resolvedPath: null });
+    },
+    onError: (request, error) => {
+      toast.error(`File list refresh: ${error.message}`);
+      setFreshSelection(null);
+      setHandled({ request, resolvedPath: null });
+    },
+  });
 
   const treeSearch = createMemo(
     () => projectFileTreeSearch(treePaths(), searchQuery()),

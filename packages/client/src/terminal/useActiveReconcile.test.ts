@@ -1,5 +1,5 @@
 import type { TerminalId } from "kolu-common/surface";
-import { createRoot, createSignal } from "solid-js";
+import { createRoot, createSignal, flush } from "solid-js";
 import { describe, expect, it, vi } from "vitest";
 import {
   createEvictionDedup,
@@ -37,11 +37,18 @@ describe("pickAutoSwitchTarget", () => {
   });
 });
 
-/** A `plan…` port spy: it records its arguments at PLAN time and hands back a
- *  no-op actor, so an argument assertion reads exactly as it did when the port
- *  was a plain writer. */
-const planSpy = <A extends unknown[]>() =>
-  vi.fn<(...args: A) => () => void>(() => () => {});
+/** A `plan…` port's spy. The port hands back an ACTOR, and the spy records
+ *  when that actor RUNS — the moment a consumer observes the write. Recording
+ *  at plan time would count a plan the reconcile discards (a claimed id's
+ *  eviction is planned, then skipped) as a cleanup that happened. */
+const planSpy = <A extends unknown[]>() => vi.fn<(...args: A) => void>();
+
+/** The port shape around such a spy: plan now, record on the write. */
+const planPort =
+  <A extends unknown[]>(spy: (...args: A) => void) =>
+  (...args: A) =>
+  () =>
+    spy(...args);
 
 /** Spy ports for `planEviction`. `activeId` / `focusedTerminalId` /
  *  `activeSubTab` are supplied per-test; the mutating seams are spies. The
@@ -70,18 +77,18 @@ function makePorts(over: {
   const ports: TerminalEvictionPorts = {
     activeId: over.activeId ?? (() => null),
     focusedTerminalId: over.focusedTerminalId ?? (() => null),
-    planActivate: calls.planActivate,
-    planDropFromMru: calls.planDropFromMru,
-    planPromoteToTopLevel: calls.planPromoteToTopLevel,
+    planActivate: planPort(calls.planActivate),
+    planDropFromMru: planPort(calls.planDropFromMru),
+    planPromoteToTopLevel: planPort(calls.planPromoteToTopLevel),
     rehomeUnder: calls.rehomeUnder,
     subPanel: {
-      planCollapsePanel: calls.planCollapsePanel,
-      planCollapsePanelChrome: calls.planCollapsePanelChrome,
+      planCollapsePanel: planPort(calls.planCollapsePanel),
+      planCollapsePanelChrome: planPort(calls.planCollapsePanelChrome),
       paneChrome: (id: TerminalId) => ({
         activeSubTab: (over.activeSubTab ?? (() => null))(id),
       }),
       setActiveSubTab: calls.setActiveSubTab,
-      planSelectSubTab: calls.planSelectSubTab,
+      planSelectSubTab: planPort(calls.planSelectSubTab),
       requestRefocus: calls.requestRefocus,
       removePanel: calls.removePanel,
     },
@@ -473,7 +480,8 @@ function setupReconcile(init: {
       focusedTerminalId: () => state.focused,
       activeSubTab: (pid) => state.activeSubTab[pid] ?? null,
     });
-    calls.planActivate.mockImplementation((id) => () => {
+    // The spy records (and now applies) the activation when its WRITE runs.
+    calls.planActivate.mockImplementation((id) => {
       state.active = id;
     });
     const eviction = createEvictionDedup(
@@ -488,7 +496,13 @@ function setupReconcile(init: {
       listIsAuthoritative: connected,
     });
     handles = {
-      setRawIds,
+      // A list delta lands with the frame it provokes: Solid 2 stages the
+      // write, and the reconcile runs on that flush. Any `setParents` written
+      // just before rides the same frame, as a server tick does.
+      setRawIds: (v: TerminalId[]) => {
+        setRawIds(v);
+        flush();
+      },
       setParents,
       setConnected,
       setHost,
@@ -587,6 +601,8 @@ describe("useActiveReconcile — FULL cleanup driven off the list", () => {
     // handleKill's imperative path evicts synchronously (subs still present),
     // claiming P.
     h.evictImperatively(T("P"), null, [T("P")], true);
+    // The claim the kill path staged lands before the list drop arrives.
+    flush();
     expect(h.calls.planPromoteToTopLevel).toHaveBeenCalledTimes(1);
 
     // The kill's list-drop then arrives → reconcile must skip (claimed).
@@ -754,8 +770,10 @@ describe("useActiveReconcile — FULL cleanup driven off the list", () => {
     // close — the tab just looked away. NONE of the departure cleanup may fire:
     // no wrong-host promote (setParent) of P's sub, no auto-switch off P.
     h.setParents({ B1: null, B2: null });
-    h.setRawIds([T("B1"), T("B2")]);
+    // The host token flips WITH the re-keyed list — one atomic switch, one
+    // frame (the list setter is what lands it).
     h.setHost("remote:B");
+    h.setRawIds([T("B1"), T("B2")]);
 
     expect(h.calls.planPromoteToTopLevel).not.toHaveBeenCalled();
     expect(h.calls.planDropFromMru).not.toHaveBeenCalled();

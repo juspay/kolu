@@ -8,7 +8,7 @@
 
 import { Option } from "effect";
 import type { Filed, Visit } from "kolu-work";
-import { createSignal } from "solid-js";
+import { createSignal, flush } from "solid-js";
 import { render } from "@solidjs/web";
 import { afterEach, describe, expect, it } from "vitest";
 import StageTrail from "./StageTrail";
@@ -139,6 +139,7 @@ describe("the trail", () => {
       '[data-testid="trail-visit-cell"]',
     );
     cell?.click();
+    flush();
     expect(shown()).toBe(3);
     expect(cell?.getAttribute("aria-pressed")).toBe("true");
     expect(cell?.className).not.toContain("outline");

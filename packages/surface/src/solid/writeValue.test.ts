@@ -214,6 +214,28 @@ describe("the store merge never recycles a row across records", () => {
     }
   });
 
+  it("holds across successive frames — a mid-insert then an end-append", () => {
+    // The "live until the first hard edit" case: whatever a bad merge leaves
+    // behind is what every later frame merges into. Asserted frame-to-frame, so
+    // a merge that only goes wrong on the SECOND edit is caught too.
+    const { steps, final } = merge([
+      rows(["a", "b", "c"]),
+      rows(["a", "mid", "b", "c"]),
+      rows(["a", "mid", "b", "c", "end"]),
+    ]);
+    for (let i = 1; i < steps.length; i++) {
+      const before = steps[i - 1];
+      const after = steps[i];
+      if (before === undefined || after === undefined) throw new Error("frame");
+      assertNoRecycledIdentity(
+        before,
+        after.map((s) => s.proxy),
+      );
+    }
+    expect(ids(final)).toEqual(["a", "mid", "b", "c", "end"]);
+    expect(new Set(ids(final)).size).toBe(final.length);
+  });
+
   it("REPLACED, not recycled: an undeclared merge keeps no row at all", () => {
     // The mechanism behind the three assertions above, measured rather than
     // implied: the law is kept by replacing every element, so not one of the

@@ -1,4 +1,4 @@
-import { createRoot, createSignal } from "solid-js";
+import { createRoot, createSignal, flush } from "solid-js";
 import { describe, expect, it } from "vitest";
 import { latchKnown, selectWelcomeMoments } from "./welcomeMomentsSelect";
 
@@ -141,19 +141,24 @@ describe("selectWelcomeMoments", () => {
 
 describe("latchKnown — the first-run flag keeps its last known reading", () => {
   /** Run `steps` against a latch over a settable reading; return what the
-   *  latch read after each. */
+   *  latch read after each. The signal is written from OUTSIDE the latch's
+   *  owner (as a real consumer writes it — an event, a preference landing),
+   *  and each write is flushed before the next read, because a write is only
+   *  visible to the memo once the queue has flushed. */
   function trail(steps: readonly (boolean | undefined)[]) {
-    return createRoot((dispose) => {
-      const [reading, setReading] = createSignal<boolean | undefined>();
-      const latched = latchKnown(reading);
-      const seen = [latched()];
-      for (const step of steps) {
-        setReading(() => step);
-        seen.push(latched());
-      }
-      dispose();
-      return seen;
-    });
+    const [reading, setReading] = createSignal<boolean | undefined>();
+    const { latched, dispose } = createRoot((dispose) => ({
+      latched: latchKnown(reading),
+      dispose,
+    }));
+    const seen = [latched()];
+    for (const step of steps) {
+      setReading(() => step);
+      flush();
+      seen.push(latched());
+    }
+    dispose();
+    return seen;
   }
 
   it("a fresh load knows nothing until a reading arrives (no reload flash)", () => {

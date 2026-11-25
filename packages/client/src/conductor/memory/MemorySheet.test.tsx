@@ -4,7 +4,7 @@ import {
   type MemoryEntry,
   memoryUsed,
 } from "kolu-common/conductorMemory";
-import { createSignal } from "solid-js";
+import { createSignal, flush } from "solid-js";
 import { type JSX, render } from "@solidjs/web";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { MemorySheet } from "./MemorySheet";
@@ -99,6 +99,7 @@ describe("the Memory sheet", () => {
     document.body
       .querySelector<HTMLButtonElement>('[data-testid="memory-entry-delete"]')
       ?.click();
+    flush();
     expect(document.body.textContent).toContain(
       "Delete this memory? The Conductor is told with its next message. There is no undo.",
     );

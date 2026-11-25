@@ -147,7 +147,9 @@ export const useAttentionFacts = createSharedRoot(() => {
       // Publish membership, independent of the live facts above. A store write
       // cannot happen in this mapper's own computation, so it lands in the
       // settled (imperative) phase of this host's owner.
-      onSettled(() => writeHostMarks(encHost, {}));
+      onSettled(() => {
+        writeHostMarks(encHost, {});
+      });
       registerHostIndex(encHost, createAttentionIndex(byClass, liveIds));
       // Host left the pool — drop its whole record, the index whose memos
       // are disposed with this owner, and what this browser saved about its

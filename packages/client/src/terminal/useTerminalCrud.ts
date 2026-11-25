@@ -21,7 +21,7 @@ import { Data, Effect } from "effect";
 import type { TerminalId } from "kolu-common/surface";
 import { createEffect, createRoot, onSettled } from "solid-js";
 import { toast } from "solid-sonner";
-import AgentDistroLogo from "@kolu/agent-distro/solid";
+import { agentDistroToastIcon } from "../agents/toastMark";
 import { stackTitle } from "@kolu/agent-distro/landing";
 import { restartedLabel } from "@kolu/agent-distro/status";
 import { agentLive } from "@kolu/terminal-vocab/agentProjection";
@@ -168,7 +168,9 @@ export const useTerminalCrud = createSharedRoot(() => {
   ): () => void {
     const adopt = rightPanel.adoptTileCollapsed(fromTile);
     return () => {
-      onSettled(() => adopt(subId));
+      onSettled(() => {
+        adopt(subId);
+      });
       setParent(subId, null, settled);
     };
   }
@@ -503,7 +505,10 @@ export const useTerminalCrud = createSharedRoot(() => {
                   : stackTitle(restarted.agents.profiles),
               resumed: restarted.resumed,
             }),
-            { icon: AgentDistroLogo({ size: 16 }) },
+            // The mark is built in a root of its own and disposed at once
+            // (`agentDistroToastIcon`): an effect function is no owner, and
+            // sonner holds the element itself.
+            { icon: agentDistroToastIcon() },
           ),
         ),
       ),

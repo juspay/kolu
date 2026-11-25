@@ -6,7 +6,7 @@
  *  would run `setActiveHost`, or open the diagnostics popover when the drag
  *  started on the dot. This pins the latch that swallows that one click. */
 
-import { createRoot, createSignal } from "solid-js";
+import { createRoot, createSignal, flush } from "solid-js";
 import { describe, expect, it } from "vitest";
 import { createDragClickGuard } from "./dragClickGuard";
 
@@ -24,9 +24,14 @@ function harness() {
     swallow = createDragClickGuard(dragging);
     return d;
   });
+  // A drag is two frames: it starts, and later it ends. The writes are staged,
+  // so each one is flushed — collapsing both into one update would mean the
+  // guard never saw the drag at all.
   const drag = (): void => {
     setDragging(true);
+    flush();
     setDragging(false);
+    flush();
   };
   return { swallow: () => swallow(), drag, dispose };
 }
@@ -55,6 +60,7 @@ describe("createDragClickGuard", () => {
       dispose: d,
     }));
     setDragging(true);
+    flush();
     expect(swallow()).toBe(false);
     dispose();
   });

@@ -1,6 +1,6 @@
 import type { TerminalMetadata } from "@kolu/padi-client/surface";
 import type { TerminalId } from "kolu-common/surface";
-import { createSignal } from "solid-js";
+import { createSignal, flush } from "solid-js";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 type TestMeta = Partial<TerminalMetadata>;
@@ -35,6 +35,11 @@ vi.mock("../terminal/useTerminalStore", () => ({
     activate: bag.activate,
     focusMainTerminal: bag.focusMainTerminal,
     setActiveSilently: bag.setActiveSilently,
+    // The landing verbs come in PAIRS: the `plan…` half does the reads and
+    // hands back the writes. The spies fire when that returned actor RUNS,
+    // which is what a consumer's landing observes.
+    planActivate: (id: TerminalId | null) => () => bag.activate(id),
+    planFocusMainTerminal: (id: TerminalId) => () => bag.focusMainTerminal(id),
   }),
 }));
 vi.mock("../terminal/persistCanvasLayout", () => ({
@@ -82,6 +87,8 @@ describe("useTileStore projection", () => {
 
   it("tracks the live set reactively (a closed terminal drops its tile)", () => {
     setIds(tids("a")); // "b" closed
+    // The delta is staged until the flush a frame would bring.
+    flush();
     expect(store.tileIds()).toEqual(["a"]);
     expect(store.tileCount()).toBe(1);
   });

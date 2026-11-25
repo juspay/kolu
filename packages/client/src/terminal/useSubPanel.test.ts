@@ -1,5 +1,6 @@
 import { Effect } from "effect";
 import type { TerminalId } from "kolu-common/surface";
+import { flush } from "solid-js";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const h = vi.hoisted(() => ({
@@ -15,8 +16,10 @@ vi.mock("../hostScope/hostScopes", () => ({
       writeFocus: h.writeFocus,
     },
     // No terminals collection in these tests: every tile's record is absent,
-    // so the split state reads its one default (`splitPanelState.ts`).
-    wire: { terminals: undefined },
+    // so the split state reads its one default (`splitPanelState.ts`). The
+    // keys stream is still there, as every host wire has one — the settle
+    // rule subscribes to it to notice a record moving.
+    wire: { terminals: undefined, terminalKeys: () => [] },
   }),
 }));
 
@@ -39,9 +42,13 @@ const SUB = "focus-test-sub" as TerminalId;
 const OTHER = "focus-test-other" as TerminalId;
 
 describe("useSubPanel focus verbs", () => {
+  // Each verb below is one user action, and the state it writes is staged:
+  // the next action (or read) sees it only from the following flush, which is
+  // where the app's next frame falls.
   beforeEach(() => {
     useSubPanel().removePanel(PARENT);
     useSubPanel().removePanel(OTHER);
+    flush();
     h.focused = null;
     h.writeFocus.mockClear();
     h.setSubPanel.mockClear();
@@ -50,9 +57,11 @@ describe("useSubPanel focus verbs", () => {
   it("expands chrome for an external arrival without stealing focus", () => {
     const panel = useSubPanel();
     panel.collapsePanelChrome(PARENT);
+    flush();
     h.setSubPanel.mockClear();
 
     panel.expandPanel(PARENT);
+    flush();
 
     expect(h.writeFocus).not.toHaveBeenCalled();
     expect(h.setSubPanel).toHaveBeenCalledExactlyOnceWith({
@@ -65,10 +74,12 @@ describe("useSubPanel focus verbs", () => {
   it("restores the remembered split for an explicit user expansion", () => {
     const panel = useSubPanel();
     panel.focusSubTab(PARENT, SUB);
+    flush();
     h.writeFocus.mockClear();
     h.setSubPanel.mockClear();
 
     panel.expandAndFocusPanel(PARENT);
+    flush();
 
     expect(h.writeFocus).toHaveBeenCalledExactlyOnceWith({
       id: SUB,
@@ -79,10 +90,12 @@ describe("useSubPanel focus verbs", () => {
   it("restores the remembered split when its top-level tile is selected again", () => {
     const panel = useSubPanel();
     panel.focusSubTab(PARENT, SUB);
+    flush();
     h.writeFocus.mockClear();
     h.setSubPanel.mockClear();
 
     panel.focusVisiblePane(PARENT);
+    flush();
 
     expect(h.writeFocus).toHaveBeenCalledExactlyOnceWith({
       id: SUB,
@@ -93,12 +106,14 @@ describe("useSubPanel focus verbs", () => {
   it("reasserts DOM focus when selection repeats the same pane", () => {
     const panel = useSubPanel();
     panel.focusSubTab(PARENT, SUB);
+    flush();
     h.focused = SUB;
     const before = panel.paneChrome(PARENT).refocusNonce;
     h.writeFocus.mockClear();
     h.setSubPanel.mockClear();
 
     panel.focusVisiblePane(PARENT);
+    flush();
 
     expect(h.writeFocus).toHaveBeenCalledExactlyOnceWith({
       id: SUB,
@@ -110,10 +125,12 @@ describe("useSubPanel focus verbs", () => {
   it("lands on a different split with one focus commit", () => {
     const panel = useSubPanel();
     panel.setActiveSubTab(PARENT, "focus-test-old" as TerminalId);
+    flush();
     h.focused = "focus-test-old" as TerminalId;
     h.writeFocus.mockClear();
 
     panel.focusSubTab(PARENT, SUB);
+    flush();
 
     expect(h.writeFocus).toHaveBeenCalledExactlyOnceWith({
       id: SUB,
@@ -128,10 +145,13 @@ describe("useSubPanel focus verbs", () => {
   it("remembers A's split across a focus move to B and back", () => {
     const panel = useSubPanel();
     panel.focusSubTab(PARENT, SUB);
+    flush();
     panel.focusMainPane(OTHER);
+    flush();
     h.writeFocus.mockClear();
 
     panel.focusVisiblePane(PARENT);
+    flush();
 
     expect(h.writeFocus).toHaveBeenCalledExactlyOnceWith({
       id: SUB,
@@ -144,6 +164,7 @@ describe("useSubPanel focus verbs", () => {
     const absentDefault = panel.paneChrome(PARENT);
 
     panel.focusVisiblePane(PARENT);
+    flush();
 
     expect(h.writeFocus).toHaveBeenCalledExactlyOnceWith({
       id: PARENT,
@@ -155,12 +176,14 @@ describe("useSubPanel focus verbs", () => {
 
   it("keeps remembered-tab hydration chrome-only", () => {
     useSubPanel().setActiveSubTab(PARENT, SUB);
+    flush();
 
     expect(h.writeFocus).not.toHaveBeenCalled();
   });
 
   it("collapsing returns keyboard focus to the parent", () => {
     useSubPanel().collapsePanel(PARENT);
+    flush();
 
     expect(h.writeFocus).toHaveBeenCalledExactlyOnceWith({
       id: PARENT,
@@ -171,7 +194,9 @@ describe("useSubPanel focus verbs", () => {
   it("restores the remembered split after collapse temporarily focuses main", () => {
     const panel = useSubPanel();
     panel.focusSubTab(PARENT, SUB);
+    flush();
     panel.collapsePanel(PARENT);
+    flush();
 
     expect(panel.paneChrome(PARENT).rememberedPane).toBe("sub");
 
@@ -179,6 +204,7 @@ describe("useSubPanel focus verbs", () => {
     h.setSubPanel.mockClear();
 
     panel.expandAndFocusPanel(PARENT);
+    flush();
 
     expect(h.writeFocus).toHaveBeenCalledExactlyOnceWith({
       id: SUB,
@@ -189,9 +215,12 @@ describe("useSubPanel focus verbs", () => {
   it("preserves remembered split across a collapsed tile landing", () => {
     const panel = useSubPanel();
     panel.focusSubTab(PARENT, SUB);
+    flush();
     panel.collapsePanel(PARENT);
+    flush();
 
     panel.focusVisiblePane(PARENT);
+    flush();
 
     expect(panel.paneChrome(PARENT).rememberedPane).toBe("sub");
   });
@@ -199,13 +228,19 @@ describe("useSubPanel focus verbs", () => {
   it("lands back in the split after a collapsed landing and chrome-only expand", () => {
     const panel = useSubPanel();
     panel.focusSubTab(PARENT, SUB);
+    flush();
     panel.collapsePanel(PARENT);
+    flush();
     panel.focusVisiblePane(PARENT);
+    flush();
     panel.expandPanel(PARENT);
+    flush();
     panel.focusMainPane(OTHER);
+    flush();
     h.writeFocus.mockClear();
 
     panel.focusVisiblePane(PARENT);
+    flush();
 
     expect(h.writeFocus).toHaveBeenCalledExactlyOnceWith({
       id: SUB,
@@ -216,11 +251,14 @@ describe("useSubPanel focus verbs", () => {
   it("restores the remembered split after toggling the panel closed and open", () => {
     const panel = useSubPanel();
     panel.focusSubTab(PARENT, SUB);
+    flush();
     panel.togglePanel(PARENT);
+    flush();
     h.writeFocus.mockClear();
     h.setSubPanel.mockClear();
 
     panel.togglePanel(PARENT);
+    flush();
 
     expect(h.writeFocus).toHaveBeenCalledExactlyOnceWith({
       id: SUB,
@@ -231,12 +269,16 @@ describe("useSubPanel focus verbs", () => {
   it("focuses the visible split on expansion even when tile landing remembers main", () => {
     const panel = useSubPanel();
     panel.focusSubTab(PARENT, SUB);
+    flush();
     panel.focusMainPane(PARENT);
+    flush();
     panel.collapsePanel(PARENT);
+    flush();
     h.writeFocus.mockClear();
     h.setSubPanel.mockClear();
 
     panel.expandAndFocusPanel(PARENT);
+    flush();
 
     expect(h.writeFocus).toHaveBeenCalledExactlyOnceWith({
       id: SUB,
@@ -246,6 +288,7 @@ describe("useSubPanel focus verbs", () => {
 
   it("writes the main pane as the exact focused terminal", () => {
     useSubPanel().focusMainPane(PARENT);
+    flush();
 
     expect(h.writeFocus).toHaveBeenCalledExactlyOnceWith({
       id: PARENT,
@@ -256,8 +299,10 @@ describe("useSubPanel focus verbs", () => {
   it("writes a clicked visible split with its containing tile hint", () => {
     const panel = useSubPanel();
     panel.setActiveSubTab(PARENT, SUB);
+    flush();
 
     panel.focusVisibleSubPane(PARENT, SUB);
+    flush();
 
     expect(h.writeFocus).toHaveBeenCalledExactlyOnceWith({
       id: SUB,
@@ -267,6 +312,7 @@ describe("useSubPanel focus verbs", () => {
 
   it("switches the focus fact with an explicit sub-tab selection", () => {
     useSubPanel().selectSubTab(PARENT, SUB);
+    flush();
 
     expect(h.writeFocus).toHaveBeenCalledExactlyOnceWith({
       id: SUB,
@@ -276,6 +322,7 @@ describe("useSubPanel focus verbs", () => {
 
   it("focuses the main pane when an empty panel is explicitly expanded", () => {
     useSubPanel().expandAndFocusPanel(PARENT);
+    flush();
 
     expect(h.writeFocus).toHaveBeenCalledExactlyOnceWith({
       id: PARENT,

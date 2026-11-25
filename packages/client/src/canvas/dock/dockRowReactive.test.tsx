@@ -14,7 +14,7 @@
  */
 
 import { render } from "@solidjs/web";
-import { createSignal } from "solid-js";
+import { createSignal, flush } from "solid-js";
 import { describe, expect, it } from "vitest";
 
 describe("a spread prop bag of getters stays reactive", () => {
@@ -37,9 +37,13 @@ describe("a spread prop bag of getters stays reactive", () => {
       return <span {...bag} data-testid="row" />;
     }, host);
     try {
+      // Solid 2 applies a render's attribute writes on the flush after
+      // creation, and stages every later write until its own flush.
+      flush();
       const el = host.querySelector('[data-testid="row"]');
       expect(el?.getAttribute("label")).toBe("n=0");
       setN(7);
+      flush();
       // The getter must be re-read — a value snapshot would still say n=0.
       expect(el?.getAttribute("label")).toBe("n=7");
       // And the bag itself must not be rebuilt per read: rebuilding is what
@@ -58,9 +62,11 @@ describe("a spread prop bag of getters stays reactive", () => {
       return <span {...frozen} data-testid="row" />;
     }, host);
     try {
+      flush();
       const el = host.querySelector('[data-testid="row"]');
       expect(el?.getAttribute("label")).toBe("n=0");
       setN(7);
+      flush();
       // Documented, not desired: this is what the row did before the fix.
       expect(el?.getAttribute("label")).toBe("n=0");
     } finally {

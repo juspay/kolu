@@ -1,6 +1,6 @@
 import { LOCAL_HOST } from "kolu-common/hostKey";
 import type { HostKey } from "kolu-common/surfacesWithPadi";
-import { createEffect, createRoot, createSignal, untrack } from "solid-js";
+import { createEffect, createRoot, createSignal } from "solid-js";
 import { describe, expect, it } from "vitest";
 import { hostReconcileTarget } from "./hostReconcile.ts";
 
@@ -90,9 +90,8 @@ const tick = () => new Promise((r) => setTimeout(r, 0));
  *  join-request state and the single effect that enacts `hostReconcileTarget`. The
  *  add-flow's `requestActivateOnJoin` raises a SEQUENCED request, and the effect records
  *  the sequence it served in a plain variable — exactly wire.ts's shape, and for its
- *  reason: consuming the intent by clearing a signal the compute reads made the effect
- *  write its own source (EFFECT_WRITES_OWN_SOURCE), and the active host is the SUBJECT of
- *  the decision, so it is read once per pass UNTRACKED rather than triggering the pass. */
+ *  reason: consuming the intent by clearing a signal the compute reads would make the
+ *  effect re-run on its own write. The active host stays tracked, as in wire.ts. */
 function harness(init: { members: HostKey[]; active: HostKey }) {
   let handles!: {
     setMembers: (v: HostKey[]) => void;
@@ -119,7 +118,7 @@ function harness(init: { members: HostKey[]; active: HostKey }) {
           request: pending,
           action: hostReconcileTarget(
             members(),
-            untrack(activeHost),
+            activeHost(),
             pending?.host ?? null,
             LOCAL_HOST,
           ),
@@ -144,21 +143,17 @@ function harness(init: { members: HostKey[]; active: HostKey }) {
 }
 
 describe("add-host activation vs. the membership reconcile (folded repro — ONE effect)", () => {
-  it("a switch to a host that has not joined yet is left alone — the reconcile answers to MEMBERSHIP", async () => {
-    // The active host is the decision's subject, not its trigger (wire.ts reads it
-    // untracked), so a bare `setActiveHost` no longer re-enters the reconcile. The
-    // add flow still needs `requestActivateOnJoin` for its own reason: until the
-    // member is observable, nothing lists or lights the host it lands on.
+  it("BUG shape: switching to a just-added host IMMEDIATELY is bounced to local by the reconcile", async () => {
+    // Documents WHY the naive add-`.then` fix failed: a bare setActiveHost, before the
+    // member is observable, is a departed-bounce input to the very same reconcile.
     const h = harness({ members: [LOCAL_HOST, west], active: west });
     await tick();
 
     h.setActiveHost(zest); // not a member yet
     await tick();
-    expect(h.activeHost()).toEqual(zest); // not bounced by the switch itself
+    expect(h.activeHost()).toEqual(LOCAL_HOST); // bounced
 
-    // A membership frame that still does not hold it IS the departed input, and
-    // that is what bounces.
-    h.setMembers([LOCAL_HOST, west]);
+    h.setMembers([LOCAL_HOST, west, zest]); // membership catches up, but nothing re-activates
     await tick();
     expect(h.activeHost()).toEqual(LOCAL_HOST);
     h.dispose();

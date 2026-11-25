@@ -106,6 +106,20 @@ type Offer =
       readonly empty: string;
     };
 
+/** WHERE AND WHAT A MODEL QUESTION IS ASKED OF — the harness it is a model
+ *  of, and the checkout to ask it in. */
+interface Where {
+  readonly harness: string;
+  readonly cwd: string;
+}
+
+/** ... and that, or nothing to ask of: a harness question, which is not a
+ *  question OF anything, and a model question nobody has named a harness
+ *  for. */
+type Subject =
+  | { readonly kind: "unasked" }
+  | { readonly kind: "asked"; readonly where: Where };
+
 const BOX_CLASS =
   "mt-1.5 w-full rounded-md border border-edge-bright bg-surface-0 px-2 py-1 text-fg outline-none focus:border-accent";
 
@@ -158,39 +172,31 @@ const WorkChoiceQuestion: Component<{
       : Option.none<string>(),
   );
 
-  /** WHERE AND WHAT TO ASK — the harness and the checkout — compared by value
-   *  for the same reason as {@link harness}. */
-  const where = createMemo(
+  /** WHAT THIS QUESTION IS BEING ASKED OF — the harness and the checkout, or
+   *  nothing to ask of (a harness question, which is not of anything, and a
+   *  model question nobody has named a harness for). Compared by value for
+   *  the same reason as {@link harness}, and ONE value rather than a
+   *  nullable because the boundary below is keyed by it. */
+  const subject = createMemo<Subject>(
     () =>
-      Option.getOrUndefined(
+      Option.match(
         Option.flatMap(harness(), (one) =>
-          Option.map(repo(), (cwd) => ({ harness: one, cwd })),
+          Option.map(repo(), (cwd): Where => ({ harness: one, cwd })),
         ),
+        {
+          onNone: (): Subject => ({ kind: "unasked" }),
+          onSome: (where): Subject => ({ kind: "asked", where }),
+        },
       ),
     {
       equals: (a, b) =>
-        a === b ||
-        (a !== undefined &&
-          b !== undefined &&
-          a.harness === b.harness &&
-          a.cwd === b.cwd),
+        a.kind === b.kind &&
+        (a.kind === "unasked" ||
+          (b.kind === "asked" &&
+            a.where.harness === b.where.harness &&
+            a.where.cwd === b.where.cwd)),
     },
   );
-
-  /** What the host says that harness offers. The compute reads the harness
-   *  and the place to ask from, so a change in the same form re-asks and a
-   *  question with no harness yet asks nothing at all. The read is held by
-   *  the `Loading` boundary over the question and a failure thrown at the
-   *  `Errored` one beside it — the two faces of "still asking" and "could not
-   *  ask" are drawn there, each as its own offer. */
-  const models = createMemo(() => {
-    const one = where();
-    return one === undefined
-      ? undefined
-      : runActionPromise(
-          padiRpcOf(decodeHostKey(hostOf(props.work))).agentDistro.models(one),
-        );
-  });
 
   const harnessOffer = (): Offer => {
     const listing = agentDistroListing();
@@ -227,43 +233,6 @@ const WorkChoiceQuestion: Component<{
     props.memory
       .modelsUsed(harness)
       .map((one) => choiceOf(one.value, one.chosen));
-
-  const modelOffer = (): Offer => {
-    const one = Option.getOrUndefined(harness());
-    if (one === undefined)
-      return {
-        kind: "waiting",
-        words: "Choose the harness first — a model is a model of one.",
-      };
-    if (Option.isNone(repo()))
-      return {
-        kind: "failed",
-        words: `This work watches a terminal, so there is no checkout to ask ${one} what it offers in.`,
-      };
-    const answer = models();
-    if (answer === undefined)
-      return { kind: "waiting", words: `Asking what ${one} offers here…` };
-    if (answer.models.kind === "unlisted")
-      return {
-        kind: "choices",
-        context: one,
-        options: usedBefore(one),
-        offered: answer.models,
-        empty: `${one} cannot list its models — type the one to run.`,
-      };
-    return {
-      kind: "choices",
-      context: one,
-      options: answer.models.ids.map((id) => choiceOf(id, "picked")),
-      offered: answer.models,
-      empty: `${one} lists no models on this host.`,
-    };
-  };
-
-  /** Read by the branches below and by the seeding, so it is a memo. */
-  const offer = createMemo(() =>
-    what() === "harness" ? harnessOffer() : modelOffer(),
-  );
 
   /** WHAT A QUESTION STILL BEING ASKED SAYS — the `Loading` fallback's offer.
    *  A harness question never asks a host, so the only read that can be in
@@ -513,6 +482,70 @@ const WorkChoiceQuestion: Component<{
     );
   };
 
+  /** THE QUESTION AS THE HOST ANSWERS IT — drawn under the boundary that
+   *  holds the asking, and the reason this is a component rather than a memo
+   *  in the body: the read is CREATED here, inside the `Loading`, so a read
+   *  that goes pending after the question has already been drawn (the
+   *  harness seeded a frame after the form opens) is the boundary's to hold.
+   *  A read created outside it reaches the root first and the page waits on
+   *  it instead, with nothing on the question to say so. */
+  const Asked: Component<{ readonly subject: Subject }> = (shown) => {
+    /** What the host says that harness offers. A question with no harness
+     *  named yet asks nothing at all. The read is held by the `Loading`
+     *  boundary over it and a failure thrown at the `Errored` one beside it
+     *  — the two faces of "still asking" and "could not ask" are drawn
+     *  there, each as its own offer. */
+    const models = createMemo(() => {
+      const one = shown.subject;
+      return one.kind === "unasked"
+        ? undefined
+        : runActionPromise(
+            padiRpcOf(decodeHostKey(hostOf(props.work))).agentDistro.models(
+              one.where,
+            ),
+          );
+    });
+
+    const modelOffer = (): Offer => {
+      const one = Option.getOrUndefined(harness());
+      if (one === undefined)
+        return {
+          kind: "waiting",
+          words: "Choose the harness first — a model is a model of one.",
+        };
+      if (Option.isNone(repo()))
+        return {
+          kind: "failed",
+          words: `This work watches a terminal, so there is no checkout to ask ${one} what it offers in.`,
+        };
+      const answer = models();
+      if (answer === undefined)
+        return { kind: "waiting", words: `Asking what ${one} offers here…` };
+      if (answer.models.kind === "unlisted")
+        return {
+          kind: "choices",
+          context: one,
+          options: usedBefore(one),
+          offered: answer.models,
+          empty: `${one} cannot list its models — type the one to run.`,
+        };
+      return {
+        kind: "choices",
+        context: one,
+        options: answer.models.ids.map((id) => choiceOf(id, "picked")),
+        offered: answer.models,
+        empty: `${one} lists no models on this host.`,
+      };
+    };
+
+    /** Read by the branches below and by the seeding, so it is a memo. */
+    const offer = createMemo(() =>
+      what() === "harness" ? harnessOffer() : modelOffer(),
+    );
+
+    return <Offered offer={offer()} />;
+  };
+
   return (
     // THE HOST'S FAILURE IS AN OFFER, not a dead question: the model read
     // throws it here, and the question is drawn again around what can still
@@ -520,15 +553,24 @@ const WorkChoiceQuestion: Component<{
     <Errored
       fallback={(why) => <Offered offer={unread(toError(why()).message)} />}
     >
-      {/* `on` WHAT IS BEING ASKED — the harness and the checkout it is asked
-          in. A harness picked in the same form changes the SUBJECT of this
-          question, so the models of the harness they left must never sit
-          under the new one's name: the question says it is asking again. It
-          also keeps the rest of the form unheld — the harness chip reads as
-          pressed at once, rather than after a host answers. */}
-      <Loading on={where()} fallback={<Offered offer={asking()} />}>
-        <Offered offer={offer()} />
-      </Loading>
+      {/* A NEW SUBJECT IS A NEW QUESTION, and a new boundary with it. A
+          harness picked in the same form changes what this question is OF,
+          so the models of the harness they left must never sit under the new
+          one's name: the question is built again and says it is asking. It
+          is KEYED rather than re-armed (`on`) because a boundary that has
+          already shown an answer does not hold the next one: the read a
+          later subject starts reaches the root, and the whole page waits on
+          it with nothing on the question to say so. A boundary born with the
+          subject holds its own read from the first pass. The rest of the
+          form stays unheld either way — the harness chip reads as pressed at
+          once, rather than after a host answers. */}
+      <Show when={subject()} keyed>
+        {(one) => (
+          <Loading fallback={<Offered offer={asking()} />}>
+            <Asked subject={one} />
+          </Loading>
+        )}
+      </Show>
     </Errored>
   );
 };

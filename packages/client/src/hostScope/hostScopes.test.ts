@@ -22,7 +22,7 @@
  *  are driven SEPARATELY, because the boot window is exactly active-without-membership. */
 
 import type { HostKey } from "kolu-common/hostKey";
-import { createRoot, createSignal } from "solid-js";
+import { createSignal } from "solid-js";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 // The `./wire` mock stands up the mock `padiMap` the real owner reads, the per-tab
@@ -46,8 +46,9 @@ vi.mock("../wire", async () => {
 import { activeScope } from "./hostScopes";
 import { addHost, resetHosts } from "./mockHostMap.testlib";
 
-/** Solid flushes membership/keying effects on a microtask; a macrotask drains it. */
-const flush = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
+/** Solid drains membership/keying effects on a microtask; a macrotask tick
+ *  covers it. Named `settle` so it does not shadow Solid's own `flush`. */
+const settle = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
 
 /** A remote host so encode-equality (not the trivial `local`) does the grounding. */
 const HOST_A: HostKey = { kind: "remote", target: "A" };
@@ -67,27 +68,26 @@ describe("hostScopes grounding seam (juspay/kolu#1763)", () => {
   it("boot window (active names A, membership empty) → activeScope is undefined and SILENT, then resolves once A joins — still silent", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     try {
-      await createRoot(async (dispose) => {
-        try {
-          // BOOT: active restored sync from sessionStorage (A) a tick before the
-          // `entries` snapshot lands. Grounded against empty membership → `null` →
-          // the no-selection inhabitant. Handing the RAW `activeHost` (A) here would
-          // trip `scopedByEntry`'s non-member removal-race warn — the #1763 bug.
-          setDriveHost(HOST_A);
-          await flush();
-          expect(activeScope()).toBeUndefined();
-          expect(warn).not.toHaveBeenCalled();
+      // The owner lives in `hostScopes`' own app-lifetime root; the active host
+      // and membership are driven from outside any owner, as the tab's session
+      // restore and the `entries` snapshot do (a write with an owner in scope is
+      // REACTIVE_WRITE_IN_OWNED_SCOPE).
+      //
+      // BOOT: active restored sync from sessionStorage (A) a tick before the
+      // `entries` snapshot lands. Grounded against empty membership → `null` →
+      // the no-selection inhabitant. Handing the RAW `activeHost` (A) here would
+      // trip `scopedByEntry`'s non-member removal-race warn — the #1763 bug.
+      setDriveHost(HOST_A);
+      await settle();
+      expect(activeScope()).toBeUndefined();
+      expect(warn).not.toHaveBeenCalled();
 
-          // The `entries` snapshot lands with A → grounded=A → the scope resolves,
-          // still silent (a member activation is never a removal race).
-          addHost(HOST_A);
-          await flush();
-          expect(activeScope()).toBeDefined();
-          expect(warn).not.toHaveBeenCalled();
-        } finally {
-          dispose();
-        }
-      });
+      // The `entries` snapshot lands with A → grounded=A → the scope resolves,
+      // still silent (a member activation is never a removal race).
+      addHost(HOST_A);
+      await settle();
+      expect(activeScope()).toBeDefined();
+      expect(warn).not.toHaveBeenCalled();
     } finally {
       warn.mockRestore();
     }

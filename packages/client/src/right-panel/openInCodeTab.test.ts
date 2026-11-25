@@ -1,3 +1,4 @@
+import { flush } from "solid-js";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const h = vi.hoisted(() => ({
@@ -56,6 +57,8 @@ describe("openInCodeTab", () => {
     expect(h.focusTerminalSilently.mock.invocationCallOrder[0]).toBeLessThan(
       h.openCodeAt.mock.invocationCallOrder[0] ?? 0,
     );
+    // The request is a staged write: the Code view reads it on the next flush.
+    flush();
     expect(pendingOpen()?.scope).toMatchObject({
       host: { kind: "local" },
       owner: paneCodeOwner("terminal-b"),
@@ -89,6 +92,7 @@ describe("openInCodeTab", () => {
     });
 
     expect(h.focusTerminalSilently).toHaveBeenCalledWith("split-b");
+    flush();
     expect(pendingOpen()?.scope).toMatchObject({
       owner: paneCodeOwner("split-b"),
       repoRoot: "/split-repo",
@@ -128,6 +132,7 @@ describe("openInCodeTab", () => {
       targetMode: "browse",
     });
 
+    flush();
     expect(own.pending()?.scope).toEqual({
       host: { kind: "local" },
       owner: work,
@@ -146,6 +151,7 @@ describe("openInCodeTab", () => {
       ref: { path: "new.ts", startLine: 1, endLine: 1 },
       targetMode: "browse",
     });
+    flush();
     expect(pendingOpen()?.ref.path).toBe("new.ts");
     expect(own.pending()).toBe(ownBefore);
   });

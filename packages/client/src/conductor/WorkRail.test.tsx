@@ -50,7 +50,7 @@ import {
   toggleFinished,
   unpickWork,
 } from "./workListing";
-import { createSignal } from "solid-js";
+import { createSignal, flush } from "solid-js";
 import { standingClock } from "./WorkStanding";
 
 const standing = (who: StandingLine["who"], lead: string): StandingLine => ({
@@ -176,9 +176,11 @@ describe("the works sidebar", () => {
     ];
     // Another work's record changes: every row is minted afresh.
     setGroups({ moving: [row("a", "CSV export"), row("b", "Docs, again")] });
+    flush();
     expect(entry(el, "a")).toBe(before);
     // Its own record changes.
     setGroups({ moving: [row("a", "CSV export, renamed"), row("b", "Docs")] });
+    flush();
     const after = entry(el, "a");
     expect(after).toBe(before);
     const now = [...after.querySelectorAll('[data-testid="member-pip-stub"]')];
@@ -222,6 +224,7 @@ describe("the works sidebar", () => {
     el.querySelector<HTMLElement>(
       '[data-testid="works-rail-finished-toggle"]',
     )?.click();
+    flush();
     expect(isFinishedOpen()).toBe(true);
     expect(el.querySelector('[data-rail-work="f"]')).not.toBeNull();
   });
@@ -234,6 +237,7 @@ describe("the works sidebar", () => {
     const el = mount({ moving: [row("a", "CSV export")] });
     expect(el.querySelector('[data-testid="works-all"]')).toBeNull();
     pickWork("a" as WorkId);
+    flush();
     expect(el.querySelector('[data-testid="works-all"]')).not.toBeNull();
   });
 });

@@ -30,7 +30,7 @@ import {
   type ConductorState,
 } from "kolu-common/conductor";
 import { Effect } from "effect";
-import { createSignal } from "solid-js";
+import { createSignal, flush } from "solid-js";
 import { render } from "@solidjs/web";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import ConductorHeader from "./ConductorHeader";
@@ -113,6 +113,7 @@ function mount(
 
 const open = (at: (testid: string) => HTMLElement | undefined): void => {
   at("conductor-menu")?.click();
+  flush();
 };
 
 describe("the header's ⋯", () => {
@@ -140,6 +141,7 @@ describe("the header's ⋯", () => {
     expect(at("conductor-menu-panel")).toBeDefined();
 
     setShown(false);
+    flush();
     expect(at("conductor-menu-panel")).toBeUndefined();
   });
 
@@ -148,12 +150,14 @@ describe("the header's ⋯", () => {
     open(at);
 
     at("conductor-menu-new-session")?.click();
+    flush();
     // The first press ARMS. Nothing is gone yet, and the pair that can undo
     // the decision is on screen.
     expect(verbs.clearSession).not.toHaveBeenCalled();
     expect(at("conductor-menu-new-session-cancel")).toBeDefined();
 
     at("conductor-menu-new-session-confirm")?.click();
+    flush();
     expect(verbs.clearSession).toHaveBeenCalledTimes(1);
     // The WIPE, never the divider-and-carry-on verb beside it.
     expect(verbs.newSession).not.toHaveBeenCalled();
@@ -171,6 +175,7 @@ describe("the header's ⋯", () => {
     const stop = working.at("conductor-menu-stop");
     expect(stop).toBeDefined();
     stop?.click();
+    flush();
     expect(verbs.cancel).toHaveBeenCalledTimes(1);
   });
 
@@ -202,6 +207,7 @@ describe("the header's ⋯", () => {
     const door = inside.at("conductor-menu-signin");
     expect(door?.textContent).toBe("Sign in again…");
     door?.click();
+    flush();
     expect(verbs.signIn).toHaveBeenCalledTimes(1);
   });
 
@@ -209,6 +215,7 @@ describe("the header's ⋯", () => {
     const { at } = mount();
     open(at);
     at("conductor-menu-copy")?.click();
+    flush();
 
     expect(writeTextToClipboard).toHaveBeenCalledOnce();
     const text = writeTextToClipboard.mock.calls[0]?.[0] ?? "";

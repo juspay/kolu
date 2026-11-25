@@ -5,7 +5,7 @@
  *  iframe) routes through that view's composer, and no other view's. */
 
 import type { SelectionRect } from "@kolu/artifact-sdk/client";
-import { type Component, createSignal, Show } from "solid-js";
+import { type Component, createMemo, createSignal, Show } from "solid-js";
 import { Portal } from "@solidjs/web";
 import { useComposer } from "./commentView";
 import { useComments } from "./useComments";
@@ -66,8 +66,12 @@ export const CommentComposer: Component<{
       {(target) => {
         // Estimated popover height (auto-sized; this is a reasonable
         // starting estimate for clamp math — the popover may render
-        // slightly taller, but clamp keeps it on screen).
-        const pos = clampPosition(target().rect, COMPOSER_WIDTH, 180);
+        // slightly taller, but clamp keeps it on screen). A memo, because
+        // a `<Show>` child callback's body is untracked: reading the target
+        // there directly would freeze the placement at the first draft.
+        const pos = createMemo(() =>
+          clampPosition(target().rect, COMPOSER_WIDTH, 180),
+        );
         return (
           <Portal>
             <div
@@ -77,8 +81,8 @@ export const CommentComposer: Component<{
               data-kolu-modal="true"
               style={{
                 position: "fixed",
-                top: `${pos.top}px`,
-                left: `${pos.left}px`,
+                top: `${pos().top}px`,
+                left: `${pos().left}px`,
                 width: `${COMPOSER_WIDTH}px`,
               }}
               class="z-50 rounded-md border border-edge bg-surface-1 shadow-xl p-3 font-sans text-[12px]"

@@ -13,6 +13,7 @@
  */
 
 import { beforeEach, describe, expect, it } from "vitest";
+import { flush } from "solid-js";
 import {
   closeHostDiagnostics,
   hostDiagnosticsAnchor,
@@ -30,11 +31,15 @@ beforeEach(() => {
 });
 
 describe("the open host-details panel", () => {
+  // Opening, moving and releasing are commands; each write is staged, so the
+  // panel's state is read on the flush after it.
   it("keeps its host while another opener moves where it floats", () => {
     openHostDiagnostics("local", mark);
+    flush();
     expect(openHostDiagnosticsKey()).toBe("local");
 
     openHostDiagnostics("local", fleetName);
+    flush();
     expect(openHostDiagnosticsKey()).toBe("local");
     expect(hostDiagnosticsAnchor()).toBe(fleetName);
   });
@@ -43,19 +48,24 @@ describe("the open host-details panel", () => {
     openHostDiagnostics("local", fleetName);
     // Another opener's element leaving is not this panel's business.
     releaseHostDiagnosticsAnchor(mark);
+    flush();
     expect(openHostDiagnosticsKey()).toBe("local");
 
     releaseHostDiagnosticsAnchor(fleetName);
+    flush();
     expect(openHostDiagnosticsKey()).toBeNull();
     expect(hostDiagnosticsAnchor()).toBeUndefined();
   });
 
   it("closes on the pip's second click, and moves on another host's", () => {
     toggleHostDiagnostics("local", mark);
+    flush();
     expect(openHostDiagnosticsKey()).toBe("local");
     toggleHostDiagnostics("local", mark);
+    flush();
     expect(openHostDiagnosticsKey()).toBeNull();
     toggleHostDiagnostics("remote:zest", mark);
+    flush();
     expect(openHostDiagnosticsKey()).toBe("remote:zest");
   });
 });

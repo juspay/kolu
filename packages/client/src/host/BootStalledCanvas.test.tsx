@@ -14,7 +14,7 @@
  */
 
 import type { HostKey } from "kolu-common/hostKey";
-import { createSignal } from "solid-js";
+import { createSignal, flush } from "solid-js";
 import { render } from "@solidjs/web";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
@@ -176,6 +176,7 @@ describe("BootStalledCanvas renders non-blank (component render pin)", () => {
       () => <BootStalledCanvas recovery={rec()} />,
       document.body,
     );
+    flush();
     const btn = document.querySelector<HTMLButtonElement>(
       '[data-testid="boot-stalled-reconnect"]',
     );
@@ -191,6 +192,7 @@ describe("BootStalledCanvas renders non-blank (component render pin)", () => {
       logAbsence: undefined,
       quiet: undefined,
     });
+    flush();
     expect(
       document.querySelector('[data-testid="boot-stalled-reconnect"]'),
     ).toBe(btn);
@@ -204,6 +206,7 @@ describe("BootStalledCanvas renders non-blank (component render pin)", () => {
       logAbsence: undefined,
       quiet: undefined,
     });
+    flush();
     expect(
       document.querySelector('[data-testid="boot-stalled-reconnect"]'),
     ).toBe(btn);

@@ -63,9 +63,12 @@ describe("navigate is a command — it runs untracked (the loop pin)", () => {
   it("routes the bridge request from the effect arm, never the compute arm", () => {
     const start = routerSrc.indexOf("// (d) the preview bridge");
     expect(start).toBeGreaterThan(-1);
+    // The bridge arm runs to the PWA-launch arm that follows it. (Its own
+    // routing call sits inside an `onSettled` in the effect arm, so the slice
+    // must not stop at the first `onSettled(`.)
     const bridge = routerSrc.slice(
       start,
-      routerSrc.indexOf("onSettled(", start),
+      routerSrc.indexOf("(c) PWA launch", start),
     );
     // The compute arm reads the request and NOTHING else; the hash is handed to
     // the effect arm, which is where the command runs.

@@ -1,5 +1,5 @@
 import { encodeHostKey } from "kolu-common/hostKey";
-import { createEffect, createSignal } from "solid-js";
+import { createEffect, createSignal, flush } from "solid-js";
 import { type JSX, render } from "@solidjs/web";
 import { afterEach, expect, it, vi } from "vitest";
 import type { PaletteItem } from "./CommandPalette";
@@ -76,16 +76,22 @@ it("keeps a worktree agent row mounted across fresh command trees and submits on
     ),
     document.body,
   );
+  flush();
   document
     .querySelector('[role="option"]')!
     .dispatchEvent(new MouseEvent("click", { bubbles: true }));
+  flush();
   const pressed = document.querySelector('[role="option"]')!;
   pressed.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
-  for (let i = 0; i < 3; i++) setCommands(tree());
+  for (let i = 0; i < 3; i++) {
+    setCommands(tree());
+    flush();
+  }
   // Browser click synthesis requires this SAME element to survive the press.
   expect(document.querySelector('[role="option"]')).toBe(pressed);
   pressed.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
   pressed.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+  flush();
   expect(submit).toHaveBeenCalledExactlyOnceWith(
     "my-worktree",
     expect.objectContaining({ data: "codex --yolo" }),
@@ -104,11 +110,13 @@ it("preserves command identity through reordering and reads the latest callback"
     () => <CommandPalette commands={commands} open onOpenChange={() => {}} />,
     document.body,
   );
+  flush();
   const one = document.querySelector('[role="option"]')!;
   setCommands([
     { kind: "action", name: "Two", onSelect: stale },
     { kind: "action", name: "One", onSelect: fresh },
   ]);
+  flush();
   expect(document.querySelectorAll('[role="option"]')[1]).toBe(one);
   one.dispatchEvent(new MouseEvent("click", { bubbles: true }));
   expect(fresh).toHaveBeenCalledOnce();
@@ -132,9 +140,11 @@ it("keeps equal repository labels distinct and follows the selected root after r
     () => <CommandPalette commands={commands} open onOpenChange={() => {}} />,
     document.body,
   );
+  flush();
   const before = [...document.querySelectorAll('[role="option"]')];
   expect(before).toHaveLength(2);
   setCommands(tree());
+  flush();
   const after = document.querySelectorAll('[role="option"]');
   expect(after).toHaveLength(2);
   before.forEach((node, i) => {
@@ -142,7 +152,9 @@ it("keeps equal repository labels distinct and follows the selected root after r
   });
   expect(before[0]).not.toBe(before[1]);
   before[1]!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+  flush();
   setCommands(tree());
+  flush();
   const option = document.querySelector('[role="option"]')!;
   expect(option.textContent).toBe("/b/repo");
   option.dispatchEvent(new MouseEvent("click", { bubbles: true }));
@@ -181,11 +193,13 @@ it("keeps local and a remote host named local in separate header nodes", () => {
     ),
     document.body,
   );
+  flush();
   const before = [
     ...document.querySelectorAll('[data-testid="palette-host-header"]'),
   ];
   expect(before).toHaveLength(2);
   setCommands(tree());
+  flush();
   const after = document.querySelectorAll(
     '[data-testid="palette-host-header"]',
   );
@@ -194,7 +208,9 @@ it("keeps local and a remote host named local in separate header nodes", () => {
     expect(after[i]).toBe(node);
   });
   before[1]!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+  flush();
   setCommands(tree());
+  flush();
   expect(document.querySelector('[role="option"]')?.textContent).toBe(
     "Terminal 1",
   );
@@ -215,12 +231,14 @@ it("moving the highlight wakes exactly the old and new rows", () => {
     ),
     host,
   );
+  flush();
   const before = new Map(rowWakes);
   host
     .querySelector("input")!
     .dispatchEvent(
       new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }),
     );
+  flush();
   const changed = [...rowWakes].filter(
     ([name, count]) => count !== before.get(name),
   );
@@ -242,14 +260,18 @@ it("navigates from the visible highlight after the command list shrinks", () => 
     () => <CommandPalette open commands={commands} onOpenChange={() => {}} />,
     document.body,
   );
-  const press = (key: string) =>
+  flush();
+  const press = (key: string) => {
     document
       .querySelector("input")!
       .dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true }));
+    flush();
+  };
   press("ArrowDown");
   press("ArrowDown");
   press("ArrowDown");
   setCommands(items.slice(0, 2));
+  flush();
   press("ArrowUp");
   press("Enter");
   expect(selected).toHaveBeenCalledWith("a");

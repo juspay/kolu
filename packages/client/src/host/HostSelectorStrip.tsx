@@ -179,7 +179,7 @@ const HostChip: Component<{
   const isActive = () => selectedHost(encodeHostKey(props.host));
   // #2101 N4: the presented state composes the daemon chain — a padi-up host
   // whose kaval is down must not paint the connected green.
-  const kaval = useHostKavalChain(props.host);
+  const kaval = useHostKavalChain(() => props.host);
   const glance = () => hostGlance(state(), kaval());
   const down = () => glance().down;
   // Always-on connection status — also the diagnostics open control.
@@ -350,7 +350,7 @@ const HostSwitcherRow: Component<{
   const selectedHost = useActiveHostSelector();
   const isActive = () => selectedHost(props.hostKey);
   const state = () => padiMap.entry(host).state();
-  const kaval = useHostKavalChain(host);
+  const kaval = useHostKavalChain(() => host);
   const glance = () => hostGlance(state(), kaval());
   const down = () => glance().down;
   const statusDot = () => chipStatusDot(host, state(), kaval());

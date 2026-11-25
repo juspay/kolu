@@ -36,7 +36,7 @@ import type {
   WorkMode,
 } from "kolu-work";
 import { WORK_MODES } from "kolu-work";
-import { createSignal } from "solid-js";
+import { createSignal, flush } from "solid-js";
 import { render } from "@solidjs/web";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -302,15 +302,19 @@ const selected = (el: HTMLElement, field: string): string[] =>
     ),
   ].map((one) => one.getAttribute("data-value") ?? "");
 
+/** Type into a box as a person does — and let the form redraw on it, as it
+ *  does for them a frame later. */
 const typeInto = (box: HTMLInputElement, words: string): void => {
   box.value = words;
   box.dispatchEvent(new Event("input", { bubbles: true }));
+  flush();
 };
 
 const press = (el: HTMLElement, testid: string): void => {
   const button = el.querySelector(`[data-testid="${testid}"]`);
   if (button === null) throw new Error(`no ${testid}`);
   (button as HTMLElement).click();
+  flush();
 };
 
 /** THE ANSWER BUTTON ITSELF — what a person reads before pressing: it is
@@ -567,6 +571,7 @@ describe("the model question", () => {
     expect(options(el, "ask-model")).toEqual(["gpt-5-codex"]);
 
     chip(el, "ask-model", "gpt-5-codex").click();
+    flush();
     press(el, "conductor-ask-submit");
     expect(sent()).toEqual({
       "ask-harness": ["codex"],
@@ -659,8 +664,10 @@ describe("a long list of models", () => {
     expect(selected(el, "ask-model")).toEqual(["model-10"]);
     // "show all" unfolds the whole list in place, and folds back.
     all().click();
+    flush();
     expect(options(el, "ask-model")).toHaveLength(12);
     all().click();
+    flush();
     expect(options(el, "ask-model")).toEqual(["model-10"]);
   });
 });

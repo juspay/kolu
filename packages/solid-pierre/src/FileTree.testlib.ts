@@ -41,7 +41,9 @@ export function findShadowRoot(el: Element): ShadowRoot | null {
  *  assertion has to yield first. Waiting cannot mask a repaint failure: a
  *  change that never bumps the view's revision never repaints, no matter how
  *  long the test waits. */
-export function settle(): Promise<void> { return new Promise((resolve) => setTimeout(resolve, 0)); }
+export function settle(): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, 0));
+}
 
 /** The paths Pierre currently has painted, in DOM order. Sticky header rows
  *  repeat a path, so this de-dupes — these assertions are about presence, not

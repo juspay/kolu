@@ -153,8 +153,9 @@ import { useSubPanel } from "./terminal/useSubPanel";
 import type { TerminalStore } from "./terminal/useTerminalStore";
 import { useViewState } from "./useViewState";
 
-/** Solid flushes `createEffect` on a microtask; a macrotask tick drains it. */
-const flush = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
+/** Solid flushes effects on a microtask; a macrotask tick drains them. Named
+ *  `settle` so it does not shadow Solid's own `flush`. */
+const settle = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
 
 /** The two hosts a switch moves between — distinct `HostKey`s that `encodeHostKey`
  *  maps to distinct record keys ("local" vs "remote:B"). */
@@ -226,8 +227,10 @@ function mountTwoHostFixture() {
     terminalIds,
     getMetadata,
     recordPhases: () => ({ awaited: 0, parked: 0, live: 0 }),
-    setActiveSilently: (id: TerminalId | null) =>
-      id === null ? subPanel.clearFocus() : subPanel.focusVisiblePane(id),
+    planSetActiveSilently: (id: TerminalId | null) =>
+      id === null
+        ? subPanel.planClearFocus()
+        : subPanel.planFocusVisiblePane(id),
     activeId: view.activeId,
     planReconcileLiveIds: view.planReconcileLiveIds,
   } as unknown as TerminalStore;
@@ -264,87 +267,82 @@ function mountTwoHostFixture() {
   return { view, store, loadHost };
 }
 
+/** Build the fixture under its OWN root and hand the disposer back. The root
+ *  body only MOUNTS the windows; every signal write a test makes then runs
+ *  outside that owner, as a real consumer's writes do (a stream frame landing,
+ *  a click) — a write with an owner in scope is REACTIVE_WRITE_IN_OWNED_SCOPE. */
+function mount() {
+  return createRoot((dispose) => ({ ...mountTwoHostFixture(), dispose }));
+}
+
 describe("per-host canvas state (shape B)", () => {
   it("(ii) switching to a host B with live terminals adopts B's OWN saved-active id — ZERO dock click", async () => {
-    await createRoot(async (dispose) => {
-      try {
-        const { view, store, loadHost } = mountTwoHostFixture();
+    const { view, store, loadHost, dispose } = mount();
+    try {
+      // Host A active: A1/A2, server-active = A2.
+      loadHost(HOST_A, ["A1", "A2"], "A2");
+      await settle();
+      expect(view.activeId()).toBe("A2" as TerminalId);
 
-        // Host A active: A1/A2, server-active = A2.
-        loadHost(HOST_A, ["A1", "A2"], "A2");
-        await flush();
-        expect(view.activeId()).toBe("A2" as TerminalId);
+      // Switch to host B — disjoint ids, B's OWN saved session says B1 is active.
+      loadHost(HOST_B, ["B1", "B2"], "B1");
+      await settle();
 
-        // Switch to host B — disjoint ids, B's OWN saved session says B1 is active.
-        loadHost(HOST_B, ["B1", "B2"], "B1");
-        await flush();
-
-        // B's first visit seeds from B's savedSession: activeId adopts B1 and it
-        // resolves to a real B record — the canvas shows B immediately, no dock click.
-        expect(view.activeId()).toBe("B1" as TerminalId);
-        expect(store.getMetadata(view.activeId() as TerminalId)).toBeDefined();
-      } finally {
-        dispose();
-      }
-    });
+      // B's first visit seeds from B's savedSession: activeId adopts B1 and it
+      // resolves to a real B record — the canvas shows B immediately, no dock click.
+      expect(view.activeId()).toBe("B1" as TerminalId);
+      expect(store.getMetadata(view.activeId() as TerminalId)).toBeDefined();
+    } finally {
+      dispose();
+    }
   });
 
   it("(iii) no cross-host bleed — activeId/mruOrder hold B's ids once B is active, never A's", async () => {
-    await createRoot(async (dispose) => {
-      try {
-        const { view, loadHost } = mountTwoHostFixture();
+    const { view, loadHost, dispose } = mount();
+    try {
+      loadHost(HOST_A, ["A1", "A2"], "A2");
+      await settle();
 
-        loadHost(HOST_A, ["A1", "A2"], "A2");
-        await flush();
+      loadHost(HOST_B, ["B1", "B2"], "B1");
+      await settle();
 
-        loadHost(HOST_B, ["B1", "B2"], "B1");
-        await flush();
-
-        // Each host's selection lives in its OWN record; switching swaps which
-        // record the accessors read, so B active never surfaces A's ids.
-        expect(["A1", "A2"]).not.toContain(view.activeId());
-        expect(view.mruOrder()).toEqual(
-          expect.not.arrayContaining(["A1", "A2"]),
-        );
-        expect(view.mruOrder()).toContain("B1" as TerminalId);
-      } finally {
-        dispose();
-      }
-    });
+      // Each host's selection lives in its OWN record; switching swaps which
+      // record the accessors read, so B active never surfaces A's ids.
+      expect(["A1", "A2"]).not.toContain(view.activeId());
+      expect(view.mruOrder()).toEqual(expect.not.arrayContaining(["A1", "A2"]));
+      expect(view.mruOrder()).toContain("B1" as TerminalId);
+    } finally {
+      dispose();
+    }
   });
 
   it("(i) switching back A→B→A restores A's IN-MEMORY view (in-memory wins; savedSession seeds only the first visit)", async () => {
-    await createRoot(async (dispose) => {
-      try {
-        const { view, loadHost } = mountTwoHostFixture();
+    const { view, loadHost, dispose } = mount();
+    try {
+      // Host A active, server-active = A2 → A's record seeds activeId = A2.
+      loadHost(HOST_A, ["A1", "A2"], "A2");
+      await settle();
+      expect(view.activeId()).toBe("A2" as TerminalId);
 
-        // Host A active, server-active = A2 → A's record seeds activeId = A2.
-        loadHost(HOST_A, ["A1", "A2"], "A2");
-        await flush();
-        expect(view.activeId()).toBe("A2" as TerminalId);
+      // Switch away to B (seeds B's record).
+      loadHost(HOST_B, ["B1", "B2"], "B1");
+      await settle();
+      expect(view.activeId()).toBe("B1" as TerminalId);
 
-        // Switch away to B (seeds B's record).
-        loadHost(HOST_B, ["B1", "B2"], "B1");
-        await flush();
-        expect(view.activeId()).toBe("B1" as TerminalId);
+      // While away, host A's server-side active changes to A1 (another client, or
+      // a close-and-refocus). Switch BACK to A with that NOW-current saved session.
+      loadHost(HOST_A, ["A1", "A2"], "A1");
+      await settle();
 
-        // While away, host A's server-side active changes to A1 (another client, or
-        // a close-and-refocus). Switch BACK to A with that NOW-current saved session.
-        loadHost(HOST_A, ["A1", "A2"], "A1");
-        await flush();
-
-        // Shape B: A's record is already seeded, so the switch-back keeps its
-        // IN-MEMORY selection (A2 — the split panes + focus you left) rather than
-        // re-seeding from the server's changed A1. savedSession seeds only the
-        // first visit; a deliberate in-session restore is the re-seed path.
-        expect(view.activeId()).toBe("A2" as TerminalId);
-        expect(view.mruOrder()).toContain("A2" as TerminalId);
-        expect(view.mruOrder()).toEqual(
-          expect.not.arrayContaining(["B1", "B2"]),
-        );
-      } finally {
-        dispose();
-      }
-    });
+      // Shape B: A's record is already seeded, so the switch-back keeps its
+      // IN-MEMORY selection (A2 — the split panes + focus you left) rather than
+      // re-seeding from the server's changed A1. savedSession seeds only the
+      // first visit; a deliberate in-session restore is the re-seed path.
+      expect(view.activeId()).toBe("A2" as TerminalId);
+      expect(view.mruOrder()).toContain("A2" as TerminalId);
+      expect(view.mruOrder()).toEqual(expect.not.arrayContaining(["B1", "B2"]));
+    } finally {
+      dispose();
+    }
   });
 });

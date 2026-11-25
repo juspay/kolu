@@ -21,13 +21,15 @@ const A = "11111111-1111-4111-8111-111111111111" as TerminalId;
  *  host's attention record the engine raises marks on. The dynamic imports
  *  after `resetModules` ARE the reload — static imports would share one
  *  in-memory record across every "page" (and Solid itself is part of the graph
- *  being reloaded, so its owner must come from the same one). */
+ *  being reloaded, so its owner — and the `flush` that drains THAT graph's
+ *  staged writes — must come from the same one). */
 async function loadPage(): Promise<{
   view: HostViewState;
   marks: AttentionRecord;
+  flush: () => void;
 }> {
   vi.resetModules();
-  const { createRoot } = await import("solid-js");
+  const { createRoot, flush } = await import("solid-js");
   const { createViewState } = await import("./createViewState");
   const { attentionRecordOf } = await import("../attention/savedAttention");
   return {
@@ -35,6 +37,7 @@ async function loadPage(): Promise<{
       createViewState(LOCAL_HOST, () => ({ kind: "top-level" })),
     ),
     marks: attentionRecordOf(encodeHostKey(LOCAL_HOST)),
+    flush,
   };
 }
 
@@ -49,6 +52,8 @@ describe("a host's unread marks across a reload", () => {
   it("a mark you had not opened is there again on the next page", async () => {
     const page = await loadPage();
     page.marks.markUnread(A);
+    // A write is staged: the mark is what the dock reads on the next flush.
+    page.flush();
     expect(page.view.isUnread(A)).toBe(true);
     expect((await loadPage()).view.isUnread(A)).toBe(true);
   });
@@ -57,6 +62,7 @@ describe("a host's unread marks across a reload", () => {
     const page = await loadPage();
     page.marks.markUnread(A);
     page.view.writeFocus({ id: A, tileHint: A });
+    page.flush();
     expect(page.view.isUnread(A)).toBe(false);
     expect((await loadPage()).view.isUnread(A)).toBe(false);
   });
@@ -65,6 +71,7 @@ describe("a host's unread marks across a reload", () => {
     const page = await loadPage();
     page.marks.markUnread(A);
     page.view.reset();
+    page.flush();
     expect((await loadPage()).view.isUnread(A)).toBe(false);
   });
 });

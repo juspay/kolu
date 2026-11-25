@@ -2,7 +2,7 @@ import type { TerminalInfo, TerminalMetadata } from "@kolu/padi-client/surface";
 import { Effect } from "effect";
 import { LOCAL_HOST } from "kolu-common/hostKey";
 import type { TerminalId } from "kolu-common/surface";
-import { createRoot, createSignal } from "solid-js";
+import { createRoot, createSignal, flush, runWithOwner } from "solid-js";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 // `isLoading` is a pure read over three reactive inputs: the terminal list's
@@ -137,7 +137,15 @@ import type { TerminalStore } from "./useTerminalStore";
   h.sessionVersion = version;
   h.pushSavedSession = (value: unknown) => {
     h.savedSession = value;
-    bump((n) => n + 1);
+    // A host PUSH arrives from the socket, not from inside the app's reactive
+    // owner: delivered detached, so a test that pushes while a root is being
+    // built is not making an owned-scope write the real cell never makes.
+    runWithOwner(null, () => {
+      bump((n) => n + 1);
+      // …and the frame that push provokes lands with it: Solid 2 stages the
+      // write, and a consumer sees the new snapshot on the next flush.
+      flush();
+    });
   };
 }
 
@@ -147,6 +155,11 @@ beforeEach(() => {
   // the prior test's local owner (and its latch), then re-add the single local
   // host these tests use — so each test's `decided`/`seeded` starts fresh.
   resetHosts();
+  // The emptying must be OBSERVED for the owner to go: Solid 2 stages the
+  // write, so without this flush the re-add below lands in the same frame and
+  // membership never sees empty — the prior test's latch (its pinned
+  // `restoredActive` box) would survive into this one.
+  flush();
   addHost(LOCAL_HOST);
 });
 
@@ -160,6 +173,7 @@ function makeStore(): TerminalStore {
     recordPhases: () => ({ awaited: h.awaited, parked: 0, live: 0 }),
     getMetadata: () => undefined,
     setActiveSilently: () => {},
+    planSetActiveSilently: () => () => {},
     activeId: () => null,
     planReconcileLiveIds: () => () => {},
   } as unknown as TerminalStore;
@@ -254,7 +268,7 @@ describe("useSessionRestore — isLoading gate (cold-launch restore race)", () =
             h.terminalIds = []; // ...excluded from the real (canvas) set
             h.awaited = 0; // parked record has ARRIVED (settled) — not awaited
             h.sessionPending = false;
-            h.savedSession = {
+            h.pushSavedSession({
               terminals: [
                 {
                   id: "p0",
@@ -269,7 +283,7 @@ describe("useSessionRestore — isLoading gate (cold-launch restore race)", () =
               activeTerminalId: "p0",
               savedAt: 1,
               resumableIds: [],
-            };
+            });
             const session = mount();
             // Let the hydration effect flush so the decision runs.
             await new Promise((r) => setTimeout(r, 0));
@@ -302,7 +316,7 @@ describe("useSessionRestore — restore fires ONLY session.restore (respawn loop
             h.list = [];
             h.terminalIds = [];
             h.sessionPending = false;
-            h.savedSession = {
+            h.pushSavedSession({
               terminals: [
                 {
                   id: "0",
@@ -317,7 +331,7 @@ describe("useSessionRestore — restore fires ONLY session.restore (respawn loop
               activeTerminalId: "0",
               savedAt: 1,
               resumableIds: ["0"],
-            };
+            });
             const session = mount();
             // Let the hydration effect flush so `savedSession()` is populated.
             await new Promise((r) => setTimeout(r, 0));
@@ -373,12 +387,12 @@ describe("useSessionRestore — restore fires ONLY session.restore (respawn loop
               location: { kind: "local" as const },
               lastActivityAt: 0,
             });
-            h.savedSession = {
+            h.pushSavedSession({
               terminals: [savedTerminal("0"), savedTerminal("1")],
               activeTerminalId: "0",
               savedAt: 1,
               resumableIds: ["0", "1"],
-            };
+            });
             const session = mount();
             await new Promise((r) => setTimeout(r, 0));
 
@@ -437,7 +451,7 @@ describe("useSessionRestore — forfeit fires session.forfeit; the HOST dismisse
               savedAt: 1,
               resumableIds: [],
             };
-            h.savedSession = saved;
+            h.pushSavedSession(saved);
             const session = mount();
             await new Promise((r) => setTimeout(r, 0));
             expect(session.savedSession()).toEqual(saved);
@@ -483,7 +497,7 @@ describe("useSessionRestore — forfeit fires session.forfeit; the HOST dismisse
             h.list = [];
             h.terminalIds = [];
             h.sessionPending = false;
-            h.savedSession = {
+            h.pushSavedSession({
               terminals: [
                 {
                   id: "0",
@@ -498,7 +512,7 @@ describe("useSessionRestore — forfeit fires session.forfeit; the HOST dismisse
               activeTerminalId: "0",
               savedAt: 1,
               resumableIds: [],
-            };
+            });
             const session = mount();
             await new Promise((r) => setTimeout(r, 0));
 
@@ -558,6 +572,9 @@ describe("useSessionRestore — multi-terminal restore seeds the server-active t
       terminalIds: () => opts.list.map((t) => t.id) as TerminalId[],
       getMetadata: (id: TerminalId) => opts.meta[id],
       setActiveSilently,
+      // The landing comes in a PAIR: the plan half is what the hydration
+      // compute calls, and the spy fires when its actor RUNS.
+      planSetActiveSilently: (id: string | null) => () => setActiveSilently(id),
       activeId: () => active,
       planReconcileLiveIds,
     } as unknown as TerminalStore;
@@ -568,12 +585,12 @@ describe("useSessionRestore — multi-terminal restore seeds the server-active t
     const activeMeta = (): TerminalMetadata =>
       ({ state: "active", parentId: undefined }) as unknown as TerminalMetadata;
     h.sessionPending = false;
-    h.savedSession = {
+    h.pushSavedSession({
       terminals: [],
       activeTerminalId: "B",
       savedAt: 1,
       resumableIds: [],
-    };
+    });
     const { store, setActiveSilently, planReconcileLiveIds } = makeMetaStore({
       list: [{ id: "A" }, { id: "B" }] as TerminalInfo[],
       meta: { A: activeMeta(), B: activeMeta() },
@@ -640,7 +657,7 @@ describe("useSessionRestore — the restored active tile does NOT ride the sessi
   it("seeds the host-reported active tile when the restored terminals beat the session push", async () => {
     h.listPending = false;
     h.sessionPending = false;
-    h.savedSession = consumedBlob;
+    h.pushSavedSession(consumedBlob);
     // The host answers with the id it made active — the saved marker, which is
     // the SECOND tile and comes back under that same id.
     rpc.restore.mockImplementationOnce(() =>
@@ -664,6 +681,8 @@ describe("useSessionRestore — the restored active tile does NOT ride the sessi
                 (list() ?? []).map((t) => t.id) as TerminalId[],
               getMetadata: (id: TerminalId) => meta()[id],
               setActiveSilently,
+              planSetActiveSilently: (id: string | null) => () =>
+                setActiveSilently(id),
               activeId: () => null,
               planReconcileLiveIds: () => () => {},
             } as unknown as TerminalStore;
@@ -726,12 +745,12 @@ describe("useSessionRestore — the seed WAITS for the answered tile to reach th
   it("does not seed while the answered id is absent, then seeds it once its delta lands", async () => {
     h.listPending = false;
     h.sessionPending = false;
-    h.savedSession = {
+    h.pushSavedSession({
       terminals: [],
       activeTerminalId: "t-1",
       savedAt: 1,
       resumableIds: [],
-    };
+    });
     // The host answers with the SECOND tile — restored under its own saved id,
     // whose collection delta has not been applied on this client yet.
     rpc.restore.mockImplementationOnce(() =>
@@ -755,6 +774,8 @@ describe("useSessionRestore — the seed WAITS for the answered tile to reach th
                 (list() ?? []).map((t) => t.id) as TerminalId[],
               getMetadata: (id: TerminalId) => meta()[id],
               setActiveSilently,
+              planSetActiveSilently: (id: string | null) => () =>
+                setActiveSilently(id),
               activeId: () => null,
               planReconcileLiveIds: () => () => {},
             } as unknown as TerminalStore;
@@ -824,6 +845,7 @@ describe("useSessionRestore — that wait is BOUNDED (the answered tile never ar
       terminalIds: () => (list() ?? []).map((t) => t.id) as TerminalId[],
       getMetadata: (id: TerminalId) => meta()[id],
       setActiveSilently,
+      planSetActiveSilently: (id: string | null) => () => setActiveSilently(id),
       activeId: () => null,
       planReconcileLiveIds: () => () => {},
     } as unknown as TerminalStore;
@@ -851,7 +873,7 @@ describe("useSessionRestore — that wait is BOUNDED (the answered tile never ar
     toastSpy.error.mockClear();
     h.listPending = false;
     h.sessionPending = false;
-    h.savedSession = consumedBlob;
+    h.pushSavedSession(consumedBlob);
     // The host answers with a tile whose collection row this client must wait for.
     rpc.restore.mockImplementationOnce(() =>
       Effect.succeed({ activeTerminalId: "t-1" }),
@@ -983,6 +1005,9 @@ describe("useSessionRestore — an in-session restore RE-SEEDS the view (viewSee
       setActiveSilently: (id: string | null) => {
         active = id;
       },
+      planSetActiveSilently: (id: string | null) => () => {
+        active = id;
+      },
       activeId: () => active,
       planReconcileLiveIds: () => () => {},
     } as unknown as TerminalStore;
@@ -995,23 +1020,27 @@ describe("useSessionRestore — an in-session restore RE-SEEDS the view (viewSee
   it("re-runs hydrateFromTerminals for the restored terminals (fresh parent gets its sub-tab)", async () => {
     subPanelSpy.setActiveSubTab.mockClear();
     h.sessionPending = false;
-    h.savedSession = {
+    h.pushSavedSession({
       terminals: [],
       activeTerminalId: "P0",
       savedAt: 1,
       resumableIds: [],
-    };
+    });
 
     await new Promise<void>((resolve, reject) => {
       createRoot((dispose) => {
         void (async () => {
           try {
             const { store, setList, setMeta } = reactiveStore();
+            // The hook is built INSIDE the owner; every delivery below happens
+            // after an await, out of the root's synchronous scope — a write
+            // made there is a write in an owned scope.
+            const session = useSessionRestore({ store });
+            await new Promise((r) => setTimeout(r, 0));
 
             // 1) FIRST live load — a parent P0 with a split S0. viewSeeded latches.
             setMeta({ P0: splitMeta(), S0: splitMeta("P0") });
             setList([{ id: "P0" }, { id: "S0" }] as TerminalInfo[]);
-            const session = useSessionRestore({ store });
             await new Promise((r) => setTimeout(r, 0));
             expect(subPanelSpy.setActiveSubTab).toHaveBeenCalledWith(
               "P0" as TerminalId,
@@ -1100,7 +1129,7 @@ describe("useSessionRestore — savedSession is the host's cell, never a latched
 
     await createRoot(async (dispose) => {
       try {
-        h.savedSession = before;
+        h.pushSavedSession(before);
         const session = mount();
         await new Promise((r) => setTimeout(r, 0));
         expect(session.savedSession()).toEqual(before);
@@ -1138,15 +1167,17 @@ describe("useSessionRestore — savedSession is the host's cell, never a latched
 
     await createRoot(async (dispose) => {
       try {
-        h.savedSession = saved;
+        h.pushSavedSession(saved);
         const session = mount();
         await new Promise((r) => setTimeout(r, 0));
         expect(session.savedSession()).toEqual(saved);
         // The dim overlay is the rescue UI on a genuine server restart — the
         // restore button must not compete.
         setKind("restarted");
+        flush();
         expect(session.savedSession()).toBeNull();
         setKind("connected");
+        flush();
         expect(session.savedSession()).toEqual(saved);
       } finally {
         dispose();

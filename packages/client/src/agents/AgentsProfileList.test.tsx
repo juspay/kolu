@@ -17,7 +17,7 @@ import {
   JUSPAY_PROFILE,
   type ProfileSuggestion,
 } from "@kolu/agent-distro/status";
-import { createSignal } from "solid-js";
+import { createSignal, flush } from "solid-js";
 import { render } from "@solidjs/web";
 import { afterEach, describe, expect, it } from "vitest";
 import AgentsProfileList, { type ProfileListRow } from "./AgentsProfileList";
@@ -71,7 +71,12 @@ function mount(
   return {
     host,
     changes,
-    setRows,
+    /** The caller's rows, as the surface above hands them down — read back
+     *  after the frame they land in. */
+    setRows: (next: readonly ProfileListRow[]) => {
+      setRows(next);
+      flush();
+    },
     input,
     rows: () =>
       all("[data-testid=agents-profile-row]").map((r) => r.dataset.reference),
@@ -99,14 +104,17 @@ function options(): HTMLElement[] {
 
 function key(input: HTMLInputElement, k: string): void {
   input.dispatchEvent(new KeyboardEvent("keydown", { key: k, bubbles: true }));
+  flush();
 }
 
-/** Typing, as the browser reports it: an `insertText` input event. */
+/** Typing, as the browser reports it: an `insertText` input event — and the
+ *  frame the field redraws in. */
 function type(input: HTMLInputElement, text: string): void {
   input.value = text;
   input.dispatchEvent(
     new InputEvent("input", { bubbles: true, inputType: "insertText" }),
   );
+  flush();
 }
 
 describe("the rows", () => {
@@ -151,8 +159,10 @@ describe("the rows", () => {
     expect(f.button("up", 0)?.disabled).toBe(true);
     expect(f.button("down", 2)?.disabled).toBe(true);
     f.button("down", 0)?.click();
+    flush();
     expect(f.changes).toEqual([["b", "a", "c"]]);
     f.button("up", 2)?.click();
+    flush();
     expect(f.changes.at(-1)).toEqual(["b", "c", "a"]);
   });
 
@@ -170,6 +180,7 @@ describe("the rows", () => {
   it("remove hands the list without it", () => {
     const f = mount([row("a"), row("b")]);
     f.button("remove", 0)?.click();
+    flush();
     expect(f.changes).toEqual([["b"]]);
     expect(f.rows()).toEqual(["b"]);
   });
@@ -204,6 +215,7 @@ describe("adding", () => {
     const input = f.input();
     if (input === null) throw new Error("no input");
     input.focus();
+    flush();
     expect(options().map((o) => o.dataset.value)).toEqual([
       JUSPAY_PROFILE,
       "github:me/p",
@@ -228,11 +240,13 @@ describe("adding", () => {
       f.host.querySelector("[data-testid=agents-profiles]")?.firstElementChild,
     ).toBe(juspay());
     f.input()?.focus();
+    flush();
     expect(options().map((o) => o.dataset.value)).toEqual([
       "github:me/p",
       "~/work/profile",
     ]);
     juspay()?.click();
+    flush();
     expect(f.changes).toEqual([["~/mine", JUSPAY_PROFILE]]);
     expect(juspay()).toBeNull();
   });
@@ -242,6 +256,7 @@ describe("adding", () => {
     const input = f.input();
     if (input === null) throw new Error("no input");
     input.focus();
+    flush();
     options()[0]?.click();
     expect(f.changes).toEqual([["~/mine", JUSPAY_PROFILE]]);
   });
@@ -274,6 +289,7 @@ describe("adding", () => {
     );
     expect(chevron?.getAttribute("aria-expanded")).toBe("false");
     chevron?.click();
+    flush();
     expect(chevron?.getAttribute("aria-expanded")).toBe("true");
     expect(options().map((o) => o.dataset.value)).toEqual([
       JUSPAY_PROFILE,

@@ -7,7 +7,7 @@
 
 import type { CodeTabView } from "@kolu/padi-client/surface";
 import type { Subscription } from "@kolu/surface/solid";
-import { createSignal } from "solid-js";
+import { createSignal, flush } from "solid-js";
 import { render } from "@solidjs/web";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Shown } from "../ui/shown";
@@ -194,6 +194,7 @@ const show = (
     ),
     host,
   );
+  flush();
   return host;
 };
 
@@ -285,9 +286,11 @@ describe("the split between tree and file", () => {
     expect(treeShare(host)).toBeCloseTo(35);
 
     setArrangement("beside");
+    flush();
     expect(root(host)?.dataset.orientation).toBe("horizontal");
     expect(treeShare(host)).toBeCloseTo(30);
     setArrangement("stacked");
+    flush();
     expect(root(host)?.dataset.orientation).toBe("vertical");
 
     expect(host.querySelector("[data-code-tree-mode=browse]")).toBe(tree);

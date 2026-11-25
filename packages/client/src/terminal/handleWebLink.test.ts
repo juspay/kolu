@@ -4,6 +4,7 @@
  * Pure over the event modifiers + URI shape; the card store is the act.
  */
 
+import { flush } from "solid-js";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { handleWebLink } from "./handleWebLink";
 import {
@@ -13,6 +14,7 @@ import {
 
 afterEach(() => {
   closePrintedUrlCard();
+  flush();
   vi.restoreAllMocks();
 });
 
@@ -28,6 +30,8 @@ function click(mods: { meta?: boolean; ctrl?: boolean } = {}): MouseEvent {
 describe("handleWebLink", () => {
   it("opens the card for a loopback URL click", () => {
     handleWebLink(click(), "http://localhost:5173/app", "t1" as never);
+    // Opening the card is a staged write: a reader sees it on the next flush.
+    flush();
     expect(printedUrlCardTarget()).toMatchObject({
       terminalId: "t1",
       port: 5173,

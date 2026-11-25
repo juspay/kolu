@@ -35,9 +35,11 @@ async function* fromArray<T>(items: T[]): AsyncGenerator<T> {
  *  covers that flush and signal propagation, one for factory resolution, one for
  *  the async iterator's first `next()`, one for the store update — four is
  *  comfortable. */
-async function settle(ticks = 4): Promise<void> { for (let i = 0; i < ticks; i++) {
-  await new Promise<void>((r) => setTimeout(r, 0));
-} }
+async function settle(ticks = 4): Promise<void> {
+  for (let i = 0; i < ticks; i++) {
+    await new Promise<void>((r) => setTimeout(r, 0));
+  }
+}
 
 describe("createReactiveSubscription", () => {
   describe("initial state", () => {

@@ -55,9 +55,11 @@ async function* fromArray<T>(items: T[], delayMs = 0): AsyncGenerator<T> {
  *  is not enough — two full macrotask turns cover the fiber's own scheduling plus
  *  the store write, with margin. Never fewer: an assertion is never relaxed to fit
  *  the timing, the flush is made longer. */
-async function settle(ticks = 2): Promise<void> { for (let i = 0; i < ticks; i++) {
-  await new Promise<void>((r) => setTimeout(r, 0));
-} }
+async function settle(ticks = 2): Promise<void> {
+  for (let i = 0; i < ticks; i++) {
+    await new Promise<void>((r) => setTimeout(r, 0));
+  }
+}
 
 describe("createSubscription", () => {
   describe("value replacement (no reducer)", () => {

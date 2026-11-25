@@ -9,7 +9,7 @@ import { Effect } from "effect";
 import type { HostKey } from "kolu-common/hostKey";
 import { encodeHostKey } from "kolu-common/hostKey";
 import type { Work, WorkId } from "kolu-work";
-import { createSignal, Show } from "solid-js";
+import { createSignal, flush, Show } from "solid-js";
 import { type JSX, render } from "@solidjs/web";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { CodeDoor } from "../code-view/codeDoor";
@@ -184,7 +184,7 @@ const inside: MemberLine = {
   } as never,
 };
 
-const flush = () => new Promise<void>((resolve) => setTimeout(resolve, 10));
+const settle = () => new Promise<void>((resolve) => setTimeout(resolve, 10));
 
 let dispose: (() => void) | undefined;
 beforeEach(() => {
@@ -243,9 +243,9 @@ describe("a picked work's Code view", () => {
         <WorkCode id={ID} work={readWork} members={[]} />
       </Show>
     ));
-    await flush();
+    await settle();
     for (const pulse of h.emit) pulse();
-    await flush();
+    await settle();
     expect(h.calls).toContain("remote:build-box:getStatus:local");
     expect(h.calls.every((call) => call.startsWith("remote:build-box:"))).toBe(
       true,
@@ -254,7 +254,7 @@ describe("a picked work's Code view", () => {
     setFront(false);
     h.calls = [];
     for (const pulse of h.emit) pulse();
-    await flush();
+    await settle();
     expect(h.calls).toEqual([]);
   });
 
@@ -263,9 +263,9 @@ describe("a picked work's Code view", () => {
       () => <WorkCode id={ID} work={readWork} members={[]} />,
       () => false,
     );
-    await flush();
+    await settle();
     for (const pulse of h.emit) pulse();
-    await flush();
+    await settle();
     expect(h.calls).toEqual([]);
   });
 
@@ -276,6 +276,7 @@ describe("a picked work's Code view", () => {
       ref: { path: "src/main.rs", startLine: 3, endLine: null },
       targetMode: "browse",
     });
+    flush();
     expect(door?.pending()?.scope).toEqual({
       host: { kind: "remote", target: "build-box" },
       owner: codeOwner("work", ID),

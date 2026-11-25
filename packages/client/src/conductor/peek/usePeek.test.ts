@@ -1,5 +1,6 @@
 import type { TerminalId } from "kolu-common/surface";
 import type { WorkMember } from "kolu-work";
+import { flush } from "solid-js";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   closePeek,
@@ -38,14 +39,17 @@ describe("the peek's target", () => {
   it("opens on what it is given and closes to nothing", () => {
     const at = { host: "local", id: ONE };
     openPeek(at);
+    flush();
     expect(peekTarget()).toEqual(at);
     closePeek();
+    flush();
     expect(peekTarget()).toBeNull();
   });
 
   it("moves to the last terminal it is opened on", () => {
     openPeek({ host: "local", id: ONE });
     openPeek({ host: "remote:nix@example", id: TWO });
+    flush();
     expect(peekTarget()).toEqual({ host: "remote:nix@example", id: TWO });
   });
 });
@@ -53,7 +57,9 @@ describe("the peek's target", () => {
 describe("the peek's typing lock", () => {
   it("drops the typing lock on close", () => {
     setPeekTyping(true);
+    flush();
     closePeek();
+    flush();
     expect(peekTyping()).toBe(false);
   });
 });

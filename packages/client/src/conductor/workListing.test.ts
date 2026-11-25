@@ -6,6 +6,7 @@
  * it on the works' side of a phone.
  */
 
+import { flush } from "solid-js";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const world = vi.hoisted(() => ({ conductor: 0, readerClosed: 0 }));
@@ -50,6 +51,7 @@ const B = "branch:local/%2Fr/b";
 beforeEach(() => {
   unpickWork();
   setPhoneView("chat");
+  flush();
   world.conductor = 0;
   world.readerClosed = 0;
 });
@@ -57,52 +59,68 @@ beforeEach(() => {
 describe("the picked work", () => {
   it("is one work, and a pick of another replaces it", () => {
     pickWork(A);
+    flush();
     expect(pickedWork()).toBe(A);
     expect(isPicked(A)).toBe(true);
     pickWork(B);
+    flush();
     expect(isPicked(A)).toBe(false);
     expect(isPicked(B)).toBe(true);
   });
 
   it("is let go by a second press on it, and kept by a press on another", () => {
     togglePick(A);
+    flush();
     expect(pickedWork()).toBe(A);
     togglePick(B);
+    flush();
     expect(pickedWork()).toBe(B);
     togglePick(B);
+    flush();
     expect(pickedWork()).toBeNull();
   });
 
   it("points the chat at it, and All work makes the chat whole again", () => {
     pickWork(A);
+    flush();
     expect(chatScope()?.id).toBe(A);
     unpickWork();
+    flush();
     expect(chatScope()).toBeNull();
   });
 
   it("stays picked when the whole chat is shown by hand", () => {
     pickWork(A);
+    flush();
     showAllChat();
+    flush();
     expect(pickedWork()).toBe(A);
   });
 
   it("carries the stage a press on its strip asked for", () => {
     pickWork(A, "build");
+    flush();
     expect(stageAskedFor()).toBe("build");
     pickWork(B);
+    flush();
     expect(stageAskedFor()).toBeUndefined();
   });
 
   it("keeps the view chosen for it until another pick", () => {
     pickWork(A);
+    flush();
     expect(chosenView()).toBeUndefined();
     chooseView("details");
+    flush();
     expect(chosenView()).toBe("details");
     pickWork(B);
+    flush();
     expect(chosenView()).toBeUndefined();
     pickWork(A, "build");
+    flush();
     expect(chosenView()).toBe("details");
     unpickWork();
+    flush();
     expect(chosenView()).toBeUndefined();
   });
 });
@@ -110,6 +128,7 @@ describe("the picked work", () => {
 describe("a link to a work", () => {
   it("opens the Conductor, picks the work and asks for it to be shown", () => {
     showWork(A, "ask-1");
+    flush();
     expect(world.conductor).toBe(1);
     expect(world.readerClosed).toBeGreaterThan(0);
     expect(pickedWork()).toBe(A);
@@ -118,6 +137,7 @@ describe("a link to a work", () => {
 
   it("shows a phone its works", () => {
     showWork(B);
+    flush();
     expect(phoneView()).toBe("work");
   });
 });
@@ -125,6 +145,7 @@ describe("a link to a work", () => {
 describe("the pick across a reload", () => {
   it("is kept for this tab and read back by a fresh load", async () => {
     pickWork(A);
+    flush();
     expect(sessionStorage.getItem("kolu-conductor-picked-work")).toBe(
       JSON.stringify(A),
     );
@@ -135,7 +156,9 @@ describe("the pick across a reload", () => {
 
   it("is all the works again once nothing is picked", async () => {
     pickWork(A);
+    flush();
     unpickWork();
+    flush();
     vi.resetModules();
     const reloaded = await import("./workListing");
     expect(reloaded.pickedWork()).toBeNull();

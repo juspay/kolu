@@ -21,7 +21,7 @@
  *  the assertions below read via `wireLifecycle`. */
 
 import type { HostKey } from "kolu-common/hostKey";
-import { createRoot, createSignal } from "solid-js";
+import { createSignal, flush } from "solid-js";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 // The `./wire` mock stands up the mock `padiMap` (with the instrumented `entry`)
@@ -53,9 +53,10 @@ import {
   wireLifecycle,
 } from "./hostScope/mockHostMap.testlib";
 
-/** Solid flushes membership/keying (and the `mapArray({ keyed })` render effect
- *  that builds an owner) on a microtask; a macrotask drains it. */
-const flush = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
+/** Solid drains membership/keying (and the `mapArray({ keyed })` render effect
+ *  that builds an owner) on a microtask; a macrotask tick covers it. Named
+ *  `settle` so it does not shadow Solid's own `flush`. */
+const settle = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
 
 const HOST_A: HostKey = { kind: "local" };
 const HOST_B: HostKey = { kind: "remote", target: "B" };
@@ -75,71 +76,68 @@ function switchTo(host: HostKey): void {
 beforeEach(() => {
   // Empty membership FIRST — disposes the prior test's per-host owners — then reset
   // the active host and the lifecycle tallies for clean per-test isolation.
+  // The membership write is staged, so `flush()` is what tears those owners (and
+  // their subs) down; clearing the tallies before it would count the prior test's
+  // disposals against this one.
   resetHosts();
   setDriveHost(HOST_A);
+  flush();
   resetWireLog();
 });
 
 describe("per-host wire subscriptions (padi W9 — instant host switch-back)", () => {
+  // Membership and the active host are driven from OUTSIDE any owner — where a
+  // real pool delta and a real host switch make those writes. The per-host
+  // owners live in `hostScopes`' own app-lifetime root, so these tests need no
+  // root of their own; a write made inside one would be
+  // REACTIVE_WRITE_IN_OWNED_SCOPE.
   it("opens a host's wire subs LAZILY on first activation — a member you never visit costs nothing", async () => {
-    await createRoot(async (dispose) => {
-      try {
-        // Visit A (the default active host): its owner builds, opening its subs.
-        // `createHostWire` opens FIVE subs through the instrumented `entry(host)`
-        // (terminals, session, roster, activityFeed, daemonStatus); the sixth,
-        // terminalKeys, rides `createReactiveSubscription` and is not counted here.
-        switchTo(HOST_A);
-        void activeScope();
-        await flush();
-        expect(wireLifecycle(HOST_A).opened).toBe(5);
+    // Visit A (the default active host): its owner builds, opening its subs.
+    // `createHostWire` opens FIVE subs through the instrumented `entry(host)`
+    // (terminals, session, roster, activityFeed, daemonStatus); the sixth,
+    // terminalKeys, rides `createReactiveSubscription` and is not counted here.
+    switchTo(HOST_A);
+    void activeScope();
+    await settle();
+    expect(wireLifecycle(HOST_A).opened).toBe(5);
 
-        // Add B as a MEMBER but never make it active: a background host you have not
-        // visited gets no owner and opens NO subscriptions (the lazy cost floor).
-        addHost(HOST_B);
-        void activeScope();
-        await flush();
-        expect(wireLifecycle(HOST_B).opened).toBe(0);
+    // Add B as a MEMBER but never make it active: a background host you have not
+    // visited gets no owner and opens NO subscriptions (the lazy cost floor).
+    addHost(HOST_B);
+    void activeScope();
+    await settle();
+    expect(wireLifecycle(HOST_B).opened).toBe(0);
 
-        // Only on first activation does B's owner build → its wire subs open, once.
-        switchTo(HOST_B);
-        void activeScope();
-        await flush();
-        expect(wireLifecycle(HOST_B).opened).toBe(5);
-        expect(wireLifecycle(HOST_B).disposed).toBe(0);
-      } finally {
-        dispose();
-      }
-    });
+    // Only on first activation does B's owner build → its wire subs open, once.
+    switchTo(HOST_B);
+    void activeScope();
+    await settle();
+    expect(wireLifecycle(HOST_B).opened).toBe(5);
+    expect(wireLifecycle(HOST_B).disposed).toBe(0);
   });
 
   it("RETAINS a host's wire subs across a switch-away and back — NO resubscribe (the pending-window fix)", async () => {
-    await createRoot(async (dispose) => {
-      try {
-        switchTo(HOST_A);
-        void activeScope();
-        await flush();
-        expect(wireLifecycle(HOST_A).opened).toBe(5);
+    switchTo(HOST_A);
+    void activeScope();
+    await settle();
+    expect(wireLifecycle(HOST_A).opened).toBe(5);
 
-        // Switch AWAY to B: B builds its own subs; A is RETAINED (not disposed).
-        switchTo(HOST_B);
-        void activeScope();
-        await flush();
-        expect(wireLifecycle(HOST_B).opened).toBe(5);
-        expect(wireLifecycle(HOST_A).opened).toBe(5);
-        expect(wireLifecycle(HOST_A).disposed).toBe(0);
+    // Switch AWAY to B: B builds its own subs; A is RETAINED (not disposed).
+    switchTo(HOST_B);
+    void activeScope();
+    await settle();
+    expect(wireLifecycle(HOST_B).opened).toBe(5);
+    expect(wireLifecycle(HOST_A).opened).toBe(5);
+    expect(wireLifecycle(HOST_A).disposed).toBe(0);
 
-        // Switch BACK to A: its owner was retained, so it is NOT rebuilt — `opened`
-        // stays 5 (a `useEntry` regression would reopen it, making this 10). This is
-        // the structural proof that switch-back has no pending window.
-        switchTo(HOST_A);
-        void activeScope();
-        await flush();
-        expect(wireLifecycle(HOST_A).opened).toBe(5);
-        expect(wireLifecycle(HOST_A).disposed).toBe(0);
-      } finally {
-        dispose();
-      }
-    });
+    // Switch BACK to A: its owner was retained, so it is NOT rebuilt — `opened`
+    // stays 5 (a `useEntry` regression would reopen it, making this 10). This is
+    // the structural proof that switch-back has no pending window.
+    switchTo(HOST_A);
+    void activeScope();
+    await settle();
+    expect(wireLifecycle(HOST_A).opened).toBe(5);
+    expect(wireLifecycle(HOST_A).disposed).toBe(0);
   });
 
   // NOTE (#1763): the per-host daemon pending-window anchor (`wire.daemonPendingAnchorMs`)
@@ -152,27 +150,21 @@ describe("per-host wire subscriptions (padi W9 — instant host switch-back)", (
   // Both are pinned in `bootDeadline.test.ts`, not here.
 
   it("DISPOSES a host's wire subs only when it leaves membership", async () => {
-    await createRoot(async (dispose) => {
-      try {
-        // Visit A then B so both have live retained owners.
-        switchTo(HOST_A);
-        void activeScope();
-        await flush();
-        switchTo(HOST_B);
-        void activeScope();
-        await flush();
-        expect(wireLifecycle(HOST_A).disposed).toBe(0);
+    // Visit A then B so both have live retained owners.
+    switchTo(HOST_A);
+    void activeScope();
+    await settle();
+    switchTo(HOST_B);
+    void activeScope();
+    await settle();
+    expect(wireLifecycle(HOST_A).disposed).toBe(0);
 
-        // A leaves the pool (e.g. the user ✕'d its chip) while B stays active: A's
-        // owner — and every retained subscription in it — disposes; B is untouched.
-        removeHost(HOST_A);
-        void activeScope();
-        await flush();
-        expect(wireLifecycle(HOST_A).disposed).toBe(5);
-        expect(wireLifecycle(HOST_B).disposed).toBe(0);
-      } finally {
-        dispose();
-      }
-    });
+    // A leaves the pool (e.g. the user ✕'d its chip) while B stays active: A's
+    // owner — and every retained subscription in it — disposes; B is untouched.
+    removeHost(HOST_A);
+    void activeScope();
+    await settle();
+    expect(wireLifecycle(HOST_A).disposed).toBe(5);
+    expect(wireLifecycle(HOST_B).disposed).toBe(0);
   });
 });

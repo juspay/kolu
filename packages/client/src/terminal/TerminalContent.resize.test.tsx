@@ -12,7 +12,7 @@
 import type { ITheme } from "@xterm/xterm";
 import { Deferred } from "effect";
 import type { TerminalId } from "kolu-common/surface";
-import { createRoot, createSignal } from "solid-js";
+import { createRoot, createSignal, flush } from "solid-js";
 import { render } from "@solidjs/web";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -45,7 +45,13 @@ const record = createRoot(() => {
 
 vi.mock("../hostScope/hostScopes", () => ({
   activeScope: () => ({
-    wire: { terminals: { byKey: () => record.value } },
+    wire: {
+      terminals: { byKey: () => record.value },
+      // The keys stream every host wire carries; the split's settle rule
+      // subscribes to it. A literal id, because a `vi.mock` factory is
+      // hoisted above `MAIN`.
+      terminalKeys: () => ["resize-main"],
+    },
     view: { focusedTerminalId: () => MAIN, writeFocus: h.writeFocus },
   }),
 }));
@@ -146,6 +152,9 @@ function mountContent(): void {
     ),
     host,
   );
+  // The tree's first frame — effects, Corvu's measurement and the panel
+  // styles — lands on the flush after creation.
+  flush();
 }
 
 const handle = (): HTMLElement =>
@@ -173,10 +182,19 @@ function dragHandleBy(dy: number): void {
   el.dispatchEvent(
     new PointerEvent("pointerdown", { bubbles: true, clientX: 0, clientY: 0 }),
   );
+  // A real drag has a frame between each of its events: the press arms the
+  // gesture through state the move then reads, so each step settles.
+  flush();
   window.dispatchEvent(
     new PointerEvent("pointermove", { bubbles: true, clientX: 0, clientY: dy }),
   );
+  flush();
   window.dispatchEvent(new PointerEvent("pointerup", { bubbles: true }));
+  // The gesture's writes are staged; this flush is the frame that applies
+  // them and runs the settle the save rides (`TerminalContent`), and the
+  // second is the frame that shows what the save moved.
+  flush();
+  flush();
 }
 
 /** Every size this document asked the server to save, in order. */
@@ -207,6 +225,7 @@ describe("dragging the split divider", () => {
     mountContent();
     dragHandleBy(-ROOT_PX * 0.1);
     record.setValue({ subPanel: { collapsed: false, panelSize: 0.4 } });
+    flush();
 
     expect(paneFractions()).toEqual([0.6, 0.4]);
   });
@@ -217,6 +236,7 @@ describe("dragging the split divider", () => {
     handle().dispatchEvent(
       new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }),
     );
+    flush();
 
     // Corvu's default keyboard delta is 0.1 of the root, toward the sub pane.
     const [, sub] = paneFractions();
@@ -227,6 +247,7 @@ describe("dragging the split divider", () => {
   it("writes nothing when nobody touched the divider", () => {
     mountContent();
     record.setValue({ subPanel: { collapsed: false, panelSize: 0.45 } });
+    flush();
 
     expect(paneFractions()).toEqual([0.55, 0.45]);
     expect(h.setSubPanel).not.toHaveBeenCalled();
@@ -238,6 +259,7 @@ describe("dragging the split divider", () => {
     // collapse was gone for good. Nothing here is latched — the record is the
     // source, so Corvu is handed the collapse and echoes it straight back.
     record.setValue({ subPanel: { collapsed: true, panelSize: 0.3 } });
+    flush();
     mountContent();
 
     expect(paneFractions()).toEqual([1, 0]);
@@ -261,10 +283,12 @@ describe("dragging the split divider", () => {
     const panel = useSubPanel();
 
     panel.togglePanel(MAIN);
+    flush();
     expect(paneFractions()).toEqual([1, 0]);
     expect(lastSaved()).toMatchObject({ collapsed: true, panelSize: 0.3 });
 
     panel.togglePanel(MAIN);
+    flush();
     expect(paneFractions()).toEqual([0.7, 0.3]);
     expect(lastSaved()).toMatchObject({ collapsed: false, panelSize: 0.3 });
   });

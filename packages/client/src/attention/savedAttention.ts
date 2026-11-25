@@ -28,7 +28,7 @@ import {
   TerminalIdSchema,
 } from "@kolu/terminal-vocab/terminalId";
 import { Schema } from "effect";
-import { createProjection, createRoot, untrack } from "solid-js";
+import { createProjection, createRoot, runWithOwner } from "solid-js";
 import {
   defaultInvalidWarning,
   originStorageSync,
@@ -81,7 +81,7 @@ export function createAttentionRecord(opts: {
 }): AttentionRecord {
   const parse = (raw: string) => decodeSavedAttention(JSON.parse(raw));
   const onInvalid = defaultInvalidWarning(opts.name, BLANK);
-  const [saved, setSaved] = persistedPref<SavedAttention>({
+  const [saved, setSaved, loaded] = persistedPref<SavedAttention>({
     name: opts.name,
     fallback: BLANK,
     parse,
@@ -102,10 +102,11 @@ export function createAttentionRecord(opts: {
    *  record it took over below. Kept beside the signal because every write
    *  path below runs in the IMPERATIVE phase (an effect's callback, a
    *  command), where reading a reactive value is a strict-read defect, and
-   *  where a value just written reads back stale anyway. Seeded with a
-   *  one-time read of what the record loaded with — the signal at
-   *  construction, never a reading that follows it. */
-  let pageValue = untrack(saved);
+   *  where a value just written reads back stale anyway. Seeded with what the
+   *  pref LOADED, not with a read of `saved`: hydration is a staged write, so
+   *  the signal still answers the blank fallback here and this page would
+   *  start out forgetting what the browser saved. */
+  let pageValue = loaded;
   /** Write `change` of the stored record, and take it as this page's value
    *  too, so the page is current with every page's writes as of this one.
    *  `change` answers `null` when the stored record already says it; the page
@@ -153,7 +154,10 @@ export function createAttentionRecord(opts: {
 const KEY_BASE = "kolu-attention";
 
 /** The page's records, one per host, keyed by the encoded host — each under a
- *  root of its own, so the record outlives whichever view asked for it first. */
+ *  DETACHED root of its own (`runWithOwner(null, …)`), so the record outlives
+ *  whichever view asked for it first: a root created while that view's owner
+ *  is in scope would be owned by it and die with it, leaving every later
+ *  reader a projection that no longer follows the saved marks. */
 const records = new Map<
   string,
   { readonly record: AttentionRecord; readonly dispose: () => void }
@@ -164,13 +168,15 @@ const records = new Map<
 export function attentionRecordOf(encHost: string): AttentionRecord {
   let entry = records.get(encHost);
   if (entry === undefined) {
-    entry = createRoot((dispose) => ({
-      record: createAttentionRecord({
-        name: perHostName(KEY_BASE, decodeHostKey(encHost)),
-        storage: localStorage,
-      }),
-      dispose,
-    }));
+    entry = runWithOwner(null, () =>
+      createRoot((dispose) => ({
+        record: createAttentionRecord({
+          name: perHostName(KEY_BASE, decodeHostKey(encHost)),
+          storage: localStorage,
+        }),
+        dispose,
+      })),
+    );
     records.set(encHost, entry);
   }
   return entry.record;

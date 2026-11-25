@@ -8,8 +8,9 @@ import { createRoot, createStore, reconcile } from "solid-js";
 import { describe, expect, it } from "vitest";
 import { watchLanding } from "./watchLanding";
 
-/** Solid flushes `createEffect` on a microtask; a macrotask tick drains it. */
-const flush = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
+/** Solid stages writes and runs effects on a flush; a macrotask tick drains
+ *  the queue the way a frame does. */
+const settle = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
 
 function harness() {
   const [store, setStore] = createStore<{ v: AgentDistroStatus | undefined }>({
@@ -62,12 +63,12 @@ describe("watchLanding", () => {
   it("fires once when another package lands, though the value object never changes identity", async () => {
     const h = harness();
     h.write(ready("/nix/store/a"));
-    await flush();
+    await settle();
     const before = h.store.v;
     h.write(ready("/nix/store/a", { delivering: true }));
-    await flush();
+    await settle();
     h.write(ready("/nix/store/b"));
-    await flush();
+    await settle();
     // The premise: reconcile kept the same object across the landing.
     expect(h.store.v).toBe(before);
     expect(h.landed).toEqual([set("/nix/store/b")]);
@@ -77,9 +78,9 @@ describe("watchLanding", () => {
   it("a newer profile build over the same package is an update too", async () => {
     const h = harness();
     h.write(ready("/nix/store/a", { profilePath: "/nix/store/p1" }));
-    await flush();
+    await settle();
     h.write(ready("/nix/store/a", { profilePath: "/nix/store/p2" }));
-    await flush();
+    await settle();
     expect(h.landed).toEqual([set("/nix/store/a", "/nix/store/p2")]);
     h.dispose();
   });
@@ -87,11 +88,11 @@ describe("watchLanding", () => {
   it("a first delivery or a change of the stack is not an update", async () => {
     const h = harness();
     h.write({ kind: "downloading", profiles: [] });
-    await flush();
+    await settle();
     h.write(ready("/nix/store/a"));
-    await flush();
+    await settle();
     h.write(ready("/nix/store/c", { profilePath: "/nix/store/p1" }));
-    await flush();
+    await settle();
     expect(h.landed).toEqual([]);
     h.dispose();
   });

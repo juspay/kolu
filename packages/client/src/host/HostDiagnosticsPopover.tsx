@@ -116,7 +116,7 @@ export const HostDiagnosticsPopover: Component<{
 }> = (props) => {
   const state = () => padiMap.entry(props.host).state();
   // #2101 N4 — the header pip and the `state` row read the whole chain.
-  const kaval = useHostKavalChain(props.host);
+  const kaval = useHostKavalChain(() => props.host);
   const glance = () => hostGlance(state(), kaval());
   const marks = hostMarks(encodeHostKey(props.host));
   const isLocal = () => props.host.kind === "local";

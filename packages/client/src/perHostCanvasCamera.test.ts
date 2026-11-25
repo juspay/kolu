@@ -28,7 +28,7 @@
  *  off screen — cases (1) and (3) failed. GREEN after.) */
 
 import { encodeHostKey, type HostKey } from "kolu-common/hostKey";
-import { createRoot } from "solid-js";
+import { flush } from "solid-js";
 import { describe, expect, it } from "vitest";
 import { isTileInViewport, switchInNeedsCenter } from "./canvas/cameraSwap";
 import type { TileLayout } from "./canvas/TileLayout";
@@ -79,12 +79,15 @@ function makeCameras() {
 
 /** Center a host's camera on a tile — the imperative half of the switch-in, as
  *  `viewport.centerOnTile` → `setPan*`/`setZoom` do (every write marks the camera
- *  `positioned`). */
+ *  `positioned`). The pose writes are staged, so this gesture ends with a
+ *  `flush()`: the next reader is the frame after the gesture, which is where the
+ *  canvas reads the camera back too. */
 function center(cam: HostCamera, tile: TileLayout): void {
   const c = centerOn(tile, cam.zoom());
   cam.setPanX(c.panX);
   cam.setPanY(c.panY);
   cam.setZoom(c.zoom);
+  flush();
 }
 
 /** Drive one host switch under per-host camera OWNERSHIP: the active camera is
@@ -135,98 +138,78 @@ describe("cameraSwap pure core", () => {
 
 describe("per-host canvas camera on host switch", () => {
   it("(1) FIRST VISIT: switching to a never-seen host centers on its active tile (no empty region)", () => {
-    createRoot((dispose) => {
-      try {
-        const camFor = makeCameras();
-        // Start viewing A, camera centered on A's active tile.
-        center(camFor(HOST_A), A_TILE);
-        expect(
-          isTileInViewport(
-            A_TILE,
-            camFor(HOST_A).snapshot(),
-            VIEWPORT_W,
-            VIEWPORT_H,
-          ),
-        ).toBe(true);
+    // The cameras are plain signal bundles and the writes below are the
+    // viewport's own gestures, so they run with NO owner in scope — a write
+    // inside one would be REACTIVE_WRITE_IN_OWNED_SCOPE.
+    const camFor = makeCameras();
+    // Start viewing A, camera centered on A's active tile.
+    center(camFor(HOST_A), A_TILE);
+    expect(
+      isTileInViewport(
+        A_TILE,
+        camFor(HOST_A).snapshot(),
+        VIEWPORT_W,
+        VIEWPORT_H,
+      ),
+    ).toBe(true);
 
-        // Switch A → B (B never visited: its camera is unpositioned).
-        const { centered, cam } = switchHost(camFor, HOST_B, B_TILE);
+    // Switch A → B (B never visited: its camera is unpositioned).
+    const { centered, cam } = switchHost(camFor, HOST_B, B_TILE);
 
-        // Seeded on B's active tile — it is in view, not the old A region.
-        expect(centered).toBe(true);
-        expect(
-          isTileInViewport(B_TILE, cam.snapshot(), VIEWPORT_W, VIEWPORT_H),
-        ).toBe(true);
-        expect(
-          isTileInViewport(A_TILE, cam.snapshot(), VIEWPORT_W, VIEWPORT_H),
-        ).toBe(false);
-      } finally {
-        dispose();
-      }
-    });
+    // Seeded on B's active tile — it is in view, not the old A region.
+    expect(centered).toBe(true);
+    expect(
+      isTileInViewport(B_TILE, cam.snapshot(), VIEWPORT_W, VIEWPORT_H),
+    ).toBe(true);
+    expect(
+      isTileInViewport(A_TILE, cam.snapshot(), VIEWPORT_W, VIEWPORT_H),
+    ).toBe(false);
   });
 
   it("(2) REVISIT VISIBLE: switching back restores the saved pose and does NOT re-center", () => {
-    createRoot((dispose) => {
-      try {
-        const camFor = makeCameras();
-        center(camFor(HOST_A), A_TILE);
+    const camFor = makeCameras();
+    center(camFor(HOST_A), A_TILE);
 
-        // A → B (seed B), then pan B slightly so the saved pose is user-authored
-        // yet still shows B's active tile.
-        switchHost(camFor, HOST_B, B_TILE);
-        const camB = camFor(HOST_B);
-        camB.setPanX(camB.panX() + 40);
-        const bPose = camB.snapshot();
-        expect(isTileInViewport(B_TILE, bPose, VIEWPORT_W, VIEWPORT_H)).toBe(
-          true,
-        );
+    // A → B (seed B), then pan B slightly so the saved pose is user-authored
+    // yet still shows B's active tile. The pan is staged like any gesture, so
+    // the pose is read back on the next flush.
+    switchHost(camFor, HOST_B, B_TILE);
+    const camB = camFor(HOST_B);
+    camB.setPanX(camB.panX() + 40);
+    flush();
+    const bPose = camB.snapshot();
+    expect(isTileInViewport(B_TILE, bPose, VIEWPORT_W, VIEWPORT_H)).toBe(true);
 
-        // B → A (A visible), then A → B: B's camera is RETAINED — its pose is
-        // still bPose, so the switch-in keeps it (no re-center).
-        switchHost(camFor, HOST_A, A_TILE);
-        const { centered, cam } = switchHost(camFor, HOST_B, B_TILE);
+    // B → A (A visible), then A → B: B's camera is RETAINED — its pose is
+    // still bPose, so the switch-in keeps it (no re-center).
+    switchHost(camFor, HOST_A, A_TILE);
+    const { centered, cam } = switchHost(camFor, HOST_B, B_TILE);
 
-        expect(centered).toBe(false); // valid retained pose showing the tile → no center
-        expect(cam.snapshot()).toEqual(bPose); // retained verbatim (user pan preserved)
-        expect(
-          isTileInViewport(B_TILE, cam.snapshot(), VIEWPORT_W, VIEWPORT_H),
-        ).toBe(true);
-      } finally {
-        dispose();
-      }
-    });
+    expect(centered).toBe(false); // valid retained pose showing the tile → no center
+    expect(cam.snapshot()).toEqual(bPose); // retained verbatim (user pan preserved)
+    expect(
+      isTileInViewport(B_TILE, cam.snapshot(), VIEWPORT_W, VIEWPORT_H),
+    ).toBe(true);
   });
 
   it("(3) REVISIT STALE: a saved pose whose active tile moved away is re-centered", () => {
-    createRoot((dispose) => {
-      try {
-        const camFor = makeCameras();
-        center(camFor(HOST_A), A_TILE);
+    const camFor = makeCameras();
+    center(camFor(HOST_A), A_TILE);
 
-        // A → B (seed B on B_TILE), then B → A.
-        switchHost(camFor, HOST_B, B_TILE);
-        switchHost(camFor, HOST_A, A_TILE);
+    // A → B (seed B on B_TILE), then B → A.
+    switchHost(camFor, HOST_B, B_TILE);
+    switchHost(camFor, HOST_A, A_TILE);
 
-        // While away, B's active tile moved to a far region (layout changed).
-        const B_TILE_MOVED: TileLayout = { x: 9000, y: 9000, w: 300, h: 200 };
+    // While away, B's active tile moved to a far region (layout changed).
+    const B_TILE_MOVED: TileLayout = { x: 9000, y: 9000, w: 300, h: 200 };
 
-        // A → B: the retained pose no longer shows the (moved) tile, so the
-        // switch-in re-centers.
-        const { centered, cam } = switchHost(camFor, HOST_B, B_TILE_MOVED);
+    // A → B: the retained pose no longer shows the (moved) tile, so the
+    // switch-in re-centers.
+    const { centered, cam } = switchHost(camFor, HOST_B, B_TILE_MOVED);
 
-        expect(centered).toBe(true);
-        expect(
-          isTileInViewport(
-            B_TILE_MOVED,
-            cam.snapshot(),
-            VIEWPORT_W,
-            VIEWPORT_H,
-          ),
-        ).toBe(true);
-      } finally {
-        dispose();
-      }
-    });
+    expect(centered).toBe(true);
+    expect(
+      isTileInViewport(B_TILE_MOVED, cam.snapshot(), VIEWPORT_W, VIEWPORT_H),
+    ).toBe(true);
   });
 });

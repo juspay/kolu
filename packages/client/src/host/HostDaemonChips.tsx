@@ -310,7 +310,7 @@ const KavalSubChip: Component<{
   const { open, setOpen, openForHost } = useDaemonMarkOpen(props.host);
   let triggerEl!: HTMLButtonElement;
   const clockNow = getClockNow();
-  const kaval = useHostKaval(props.host);
+  const kaval = useHostKaval(() => props.host);
   const padiStatus = padiMap.entry(props.host).cells.status.use();
   // ONE presence fold for this host — the SAME value the dialog renders. The tooltip
   // version reads off its `connected` arm, so the #1793 liveness floor is inherited by

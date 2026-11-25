@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
 import { render } from "@solidjs/web";
+import { flush } from "solid-js";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 const REF = "local/11111111-1111-4111-8111-111111111111";
@@ -33,6 +34,7 @@ const mountTwo = () => {
       root.remove();
     });
   }
+  flush();
 };
 
 afterEach(() => {
@@ -54,6 +56,7 @@ describe("WorkLock", () => {
     });
     mountTwo();
     expect(personInputAt(REF)).toBe(false);
+    flush();
     expect(cards()).toHaveLength(2);
 
     const button = cards()[0]?.querySelector<HTMLButtonElement>(
@@ -62,6 +65,7 @@ describe("WorkLock", () => {
     expect(button).not.toBeNull();
     button?.dispatchEvent(new MouseEvent("pointerdown", { bubbles: true }));
     button?.click();
+    flush();
 
     expect(seam.taken).toEqual([REF]);
     expect(cards()).toHaveLength(0);
@@ -76,11 +80,13 @@ describe("WorkLock", () => {
     });
     mountTwo();
     expect(personInputAt(REF)).toBe(false);
+    flush();
     expect(cards()).toHaveLength(2);
 
     document.body.dispatchEvent(
       new MouseEvent("pointerdown", { bubbles: true }),
     );
+    flush();
 
     expect(cards()).toHaveLength(0);
     expect(seam.taken).toHaveLength(0);

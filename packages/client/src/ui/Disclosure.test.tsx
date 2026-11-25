@@ -16,7 +16,7 @@
  * that makes the promise, so no future caller can express the bug either.
  */
 
-import { createMemo, createSignal } from "solid-js";
+import { createMemo, createSignal, flush } from "solid-js";
 import { render } from "@solidjs/web";
 import { afterEach, describe, expect, it } from "vitest";
 import Disclosure from "./Disclosure";
@@ -48,6 +48,8 @@ function mountBundled(initial: { hasException: boolean; title: string }) {
     ),
     host,
   );
+  // The render's open-state assertion lands on the flush after creation.
+  flush();
   return { setFact };
 }
 
@@ -73,6 +75,7 @@ describe("Disclosure open-state", () => {
     // before the fix the bundle's new identity re-ran the effect and wrote
     // `false` back, closing the list mid-run.
     setFact({ hasException: false, title: "b" });
+    flush();
 
     expect(details()?.open).toBe(true);
   });
@@ -87,9 +90,11 @@ describe("Disclosure open-state", () => {
     // toggle in BOTH directions. Without this, "don't clobber the user" could
     // be satisfied by never re-asserting at all.
     setFact({ hasException: true, title: "a" });
+    flush();
     expect(details()?.open).toBe(true);
 
     setFact({ hasException: false, title: "a" });
+    flush();
     expect(details()?.open).toBe(false);
   });
 });

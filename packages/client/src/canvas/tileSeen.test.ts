@@ -1,4 +1,10 @@
-import { createEffect, createRoot, createSignal } from "solid-js";
+import {
+  createEffect,
+  createMemo,
+  createRoot,
+  createSignal,
+  flush,
+} from "solid-js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { CanvasTileMode } from "./CanvasTile";
 import {
@@ -93,21 +99,45 @@ describe("createHeldSeen", () => {
   /** Drive the hold over a signal, returning both ends — plus how many times
    *  the held answer actually CHANGED, which is what a pane acts on. */
   function harness(initial: boolean) {
-    return createRoot((d) => {
+    const api = createRoot((d) => {
       dispose = d;
       const [seen, setSeen] = createSignal(initial);
       const held = createHeldSeen(seen);
       let changes = 0;
+      // What a PANE is told: the held answer behind a memo, so an input tick
+      // that leaves the answer where it was is not a change. (A Solid 2 effect
+      // re-runs on every dependency tick; the memo is the equality the tile's
+      // `visible` prop has by construction.)
+      const toldPane = createMemo(held);
       createEffect(
-        held,
+        toldPane,
         () => {
           changes += 1;
         },
         { defer: true },
       );
-      return { held, setSeen, changes: () => changes };
+      return {
+        held,
+        // A sighting lands on the flush it schedules — the frame the pane
+        // would have seen it on.
+        setSeen: (next: boolean) => {
+          setSeen(next);
+          flush();
+        },
+        changes: () => changes,
+      };
     });
+    // The mount frame: the hold's own effect runs on the flush after creation,
+    // which is where a tile already in view attaches.
+    flush();
+    return api;
   }
+
+  /** Advance the fake clock and let the writes its timers made land. */
+  const tick = (ms: number) => {
+    vi.advanceTimersByTime(ms);
+    flush();
+  };
 
   it("attaches the moment a tile is seen", () => {
     const { held, setSeen } = harness(false);
@@ -120,9 +150,9 @@ describe("createHeldSeen", () => {
     const { held, setSeen, changes } = harness(true);
     setSeen(false);
     expect(held()).toBe(true);
-    vi.advanceTimersByTime(SEEN_HOLD_MS - 1);
+    tick(SEEN_HOLD_MS - 1);
     expect(held()).toBe(true);
-    vi.advanceTimersByTime(1);
+    tick(1);
     expect(held()).toBe(false);
     expect(changes()).toBe(1);
   });
@@ -130,11 +160,11 @@ describe("createHeldSeen", () => {
   it("changes nothing when the tile is seen again inside the hold", () => {
     const { held, setSeen, changes } = harness(true);
     setSeen(false);
-    vi.advanceTimersByTime(SEEN_HOLD_MS - 1);
+    tick(SEEN_HOLD_MS - 1);
     setSeen(true);
     expect(held()).toBe(true);
     // The pending let-go was spent, not merely outvoted.
-    vi.advanceTimersByTime(SEEN_HOLD_MS * 2);
+    tick(SEEN_HOLD_MS * 2);
     expect(held()).toBe(true);
     // No detach, no re-attach: the pane was never told anything.
     expect(changes()).toBe(0);
@@ -144,7 +174,7 @@ describe("createHeldSeen", () => {
     // Off screen at mount: not attached, so time alone owes it nothing — and
     // the first sighting is the FIRST thing its pane is ever told.
     const { held, setSeen, changes } = harness(false);
-    vi.advanceTimersByTime(SEEN_HOLD_MS * 2);
+    tick(SEEN_HOLD_MS * 2);
     expect(held()).toBe(false);
     expect(changes()).toBe(0);
     setSeen(true);
@@ -155,13 +185,13 @@ describe("createHeldSeen", () => {
   it("restarts the hold on each departure, not each leaving frame", () => {
     const { held, setSeen } = harness(true);
     setSeen(false);
-    vi.advanceTimersByTime(SEEN_HOLD_MS - 1);
+    tick(SEEN_HOLD_MS - 1);
     setSeen(true);
     setSeen(false);
     // A fresh departure gets a fresh window.
-    vi.advanceTimersByTime(SEEN_HOLD_MS - 1);
+    tick(SEEN_HOLD_MS - 1);
     expect(held()).toBe(true);
-    vi.advanceTimersByTime(1);
+    tick(1);
     expect(held()).toBe(false);
   });
 
@@ -170,7 +200,7 @@ describe("createHeldSeen", () => {
     setSeen(false);
     dispose?.();
     dispose = undefined;
-    vi.advanceTimersByTime(SEEN_HOLD_MS * 2);
+    tick(SEEN_HOLD_MS * 2);
     // Disposed owner: the pending flip was cancelled, not applied late.
     expect(held()).toBe(true);
   });

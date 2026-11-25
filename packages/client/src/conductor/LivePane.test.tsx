@@ -17,7 +17,7 @@
 import type { TerminalGrid } from "@kolu/xterm-kit/solid";
 import type { WorkRole } from "kolu-work";
 import type { TerminalId } from "kolu-common/surface";
-import { createSignal } from "solid-js";
+import { createSignal, flush } from "solid-js";
 import { render } from "@solidjs/web";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { FleetTerminalStanding } from "../palette/fleetTerminals";
@@ -149,6 +149,7 @@ describe("the Resize to fit offer", () => {
     setStanding(recordAt(ASKED));
     const el = mount();
     vi.advanceTimersByTime(SETTLE * 2);
+    flush();
     expect(press(el)).toBeNull();
   });
 
@@ -157,6 +158,7 @@ describe("the Resize to fit offer", () => {
     setStanding(recordAt(OLD));
     const el = mount();
     vi.advanceTimersByTime(SETTLE * 2);
+    flush();
     expect(press(el)).not.toBeNull();
   });
 });

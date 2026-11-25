@@ -1,4 +1,5 @@
 import { Effect } from "effect";
+import { flush } from "solid-js";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 // useRightPanel reads `preferences()` and writes via `updatePreferences` from
@@ -175,6 +176,8 @@ describe("useRightPanel — collapsed is per-TILE (posture follows the tile)", (
     const rp = useRightPanel();
     expect(rp.collapsed()).toBe(false); // a fresh terminal defaults open
     rp.togglePanel();
+    // The toggle's store write is staged: the panel paints it on the next flush.
+    flush();
     expect(rp.collapsed()).toBe(true);
     expect(h.updatePreferences).not.toHaveBeenCalled();
     expect(h.setRightPanel).toHaveBeenLastCalledWith(
@@ -189,6 +192,7 @@ describe("useRightPanel — collapsed is per-TILE (posture follows the tile)", (
     // Collapse A, leave B at its default (open).
     h.activeId = a;
     rp.collapsePanel();
+    flush();
     expect(rp.collapsed()).toBe(true);
     // Switch to B — it reads its OWN default (open), not A's collapse.
     h.activeId = b;
@@ -235,6 +239,7 @@ describe("useRightPanel — collapsed is per-TILE (posture follows the tile)", (
     // Expanding writes the terminal's OWN record; the global preference is
     // never touched (a toggle is per-terminal, not a preference change).
     rp.expandPanel();
+    flush();
     expect(rp.collapsed()).toBe(false);
     expect(h.updatePreferences).not.toHaveBeenCalled();
     expect(h.setRightPanel).toHaveBeenLastCalledWith(
@@ -256,6 +261,7 @@ describe("useRightPanel — the panel follows the focused pane", () => {
     // Move focus to the split and put IT on the Inspector tab.
     h.focusedId = split;
     rp.showInspector();
+    flush();
     expect(rp.activeTab()).toEqual({ kind: "inspector" });
     // Focus back to main — main's own default (Code) tab returns, and the
     // panel's posture (the TILE's) never moved.
@@ -273,6 +279,7 @@ describe("useRightPanel — the panel follows the focused pane", () => {
     h.activeId = tile;
     const rp = useRightPanel();
     rp.showCode("local");
+    flush();
     const info = {
       repoRoot: "/proj",
       repoName: "proj",
@@ -299,6 +306,7 @@ describe("useRightPanel — the panel follows the focused pane", () => {
     h.focusedId = split;
     const rp = useRightPanel();
     rp.collapsePanel();
+    flush();
     expect(rp.collapsed()).toBe(true);
     expect(h.setRightPanel).toHaveBeenLastCalledWith(
       expect.objectContaining({ id: tile, collapsed: true }),
@@ -316,10 +324,12 @@ describe("useRightPanel — the panel follows the focused pane", () => {
     h.focusedId = split;
     const rp = useRightPanel();
     rp.code.setSelectedFile("browse", "split-only.ts");
+    flush();
     expect(rp.code.selectedFile("browse")).toBe("split-only.ts");
     h.focusedId = undefined;
     expect(rp.code.selectedFile("browse")).toBeNull();
     rp.code.setSelectedFile("browse", "main-only.ts");
+    flush();
     expect(rp.code.selectedFile("browse")).toBe("main-only.ts");
     h.focusedId = split;
     expect(rp.code.selectedFile("browse")).toBe("split-only.ts");
@@ -332,13 +342,17 @@ describe("useRightPanel — the panel follows the focused pane", () => {
     const rp = useRightPanel();
     h.focusedId = undefined;
     rp.code.recordNavigation({ mode: "browse", path: "main.txt" });
+    flush();
     rp.code.recordNavigation({ mode: "browse", path: "main2.txt" });
+    flush();
     expect(rp.code.canNavigateBack()).toBe(true);
     // The split has its OWN stack — empty.
     h.focusedId = split;
     expect(rp.code.canNavigateBack()).toBe(false);
     rp.code.recordNavigation({ mode: "browse", path: "split.txt" });
+    flush();
     expect(rp.code.navigateBack()).toBeNull(); // a single-entry stack
+    flush();
     // Back to main: main's own earlier entry.
     h.focusedId = undefined;
     expect(rp.code.navigateBack()).toEqual({
@@ -352,6 +366,7 @@ describe("useRightPanel — the panel follows the focused pane", () => {
     h.activeId = tile;
     const rp = useRightPanel();
     rp.showInspector(); // the tile's main pane is on Inspector
+    flush();
     // The source is pinned at capture; a focus change before the create lands
     // must not change the seed.
     const initializePaneTab = rp.seedSplitTab(tile);
@@ -371,6 +386,7 @@ describe("useRightPanel — the panel follows the focused pane", () => {
     h.activeId = tile;
     const rp = useRightPanel();
     rp.showInspector(); // the tile (the split's parent) is on Inspector
+    flush();
     rp.seedSplitTab(tile)(split);
     expect(h.setRightPanel).toHaveBeenLastCalledWith(
       expect.objectContaining({ id: split, activeTab: "inspector" }),
@@ -388,6 +404,7 @@ describe("useRightPanel — the panel follows the focused pane", () => {
     // browser create path did before moving focus.
     h.focusedId = split;
     rp.showCode("branch");
+    flush();
     h.setRightPanel.mockClear();
     rp.seedSplitTab(tile)(split);
     expect(h.setRightPanel).not.toHaveBeenCalled();
@@ -423,6 +440,7 @@ describe("useRightPanel — the panel follows the focused pane", () => {
     h.activeId = tile;
     const rp = useRightPanel();
     rp.collapsePanel(); // the tile's panel is closed
+    flush();
     rp.adoptTileCollapsed(tile)(split);
     expect(h.setRightPanel).toHaveBeenLastCalledWith(
       expect.objectContaining({ id: split, collapsed: true }),
@@ -438,6 +456,7 @@ describe("useRightPanel — the panel follows the focused pane", () => {
     h.activeId = tile;
     const rp = useRightPanel();
     rp.collapsePanel();
+    flush();
     h.setRightPanel.mockClear();
     rp.adoptTileCollapsed(tile)(tile);
     expect(h.setRightPanel).not.toHaveBeenCalled();
@@ -454,12 +473,16 @@ describe("useRightPanel — the panel follows the focused pane", () => {
 // previous-active-tuple compare would see the switch-back as a plain terminal
 // change and skip the reset, replaying repo-A history against repo A's new repo.
 describe("useRightPanel — syncRepo scopes history per repo, per terminal", () => {
-  // Drive history for whichever terminal is active, the way CodeTab does.
+  // Drive history for whichever terminal is active, the way CodeTab does — one
+  // navigation per frame, since a push reads the stack it appends to and a
+  // write is staged until the next flush.
   function recordAt(id: TerminalId, ...paths: string[]): void {
     h.activeId = id;
     const rp = useRightPanel();
-    for (const path of paths)
+    for (const path of paths) {
       rp.code.recordNavigation({ mode: "browse", path });
+      flush();
+    }
   }
 
   it("first sight records the baseline without resetting a seeded/built stack", () => {
@@ -470,6 +493,7 @@ describe("useRightPanel — syncRepo scopes history per repo, per terminal", () 
     expect(rp.code.canNavigateBack()).toBe(true);
     // First syncRepo for this terminal just adopts its repo — history survives.
     rp.syncRepo(a, "/repo/A");
+    flush();
     expect(rp.code.canNavigateBack()).toBe(true);
   });
 
@@ -479,8 +503,10 @@ describe("useRightPanel — syncRepo scopes history per repo, per terminal", () 
     const rp = useRightPanel();
     h.activeId = a;
     rp.syncRepo(a, "/repo/A"); // baseline
+    flush();
     expect(rp.code.canNavigateBack()).toBe(true);
     rp.syncRepo(a, "/repo/A2"); // cd into another repo
+    flush();
     expect(rp.code.canNavigateBack()).toBe(false);
   });
 
@@ -491,16 +517,20 @@ describe("useRightPanel — syncRepo scopes history per repo, per terminal", () 
     recordAt(a, "a1.txt", "a2.txt");
     h.activeId = a;
     rp.syncRepo(a, "/repo/A");
+    flush();
     recordAt(b, "b1.txt", "b2.txt");
     h.activeId = b;
     rp.syncRepo(b, "/repo/B");
+    flush();
     // Switch back to A — same repo as before, so its history must be intact.
     h.activeId = a;
     rp.syncRepo(a, "/repo/A");
+    flush();
     expect(rp.code.canNavigateBack()).toBe(true);
     // And B's is untouched too.
     h.activeId = b;
     rp.syncRepo(b, "/repo/B");
+    flush();
     expect(rp.code.canNavigateBack()).toBe(true);
   });
 
@@ -512,11 +542,13 @@ describe("useRightPanel — syncRepo scopes history per repo, per terminal", () 
     recordAt(a, "a1.txt", "a2.txt");
     h.activeId = a;
     rp.syncRepo(a, "/repo/A");
+    flush();
     expect(rp.code.canNavigateBack()).toBe(true);
     // Switch to B; A is now inactive. (CodeTab only ever syncs the active id.)
     recordAt(b, "b1.txt");
     h.activeId = b;
     rp.syncRepo(b, "/repo/B");
+    flush();
     // While A was inactive its PTY cd'd into a different repo — the metadata
     // change reaches CodeTab only when A becomes active again. The previous
     // active tuple was (B, /repo/B), so a previous-tuple compare would treat
@@ -524,6 +556,7 @@ describe("useRightPanel — syncRepo scopes history per repo, per terminal", () 
     // sees A's own repo moved (/repo/A → /repo/A2) and drops the stale stack.
     h.activeId = a;
     rp.syncRepo(a, "/repo/A2");
+    flush();
     expect(rp.code.canNavigateBack()).toBe(false);
   });
 
@@ -538,11 +571,14 @@ describe("useRightPanel — syncRepo scopes history per repo, per terminal", () 
     const rp = useRightPanel();
     recordAt(a, "a1.txt", "a2.txt");
     rp.syncRepo(a, "/repo/A");
+    flush();
     recordAt(b, "b1.txt", "b2.txt");
     rp.syncRepo(b, "/repo/B");
+    flush();
     // Focus is on B, and the subject handed over still names A with A's root.
     h.activeId = b;
     rp.syncRepo(a, "/repo/A");
+    flush();
     expect(rp.code.canNavigateBack()).toBe(true);
     h.activeId = a;
     expect(rp.code.canNavigateBack()).toBe(true);
@@ -559,6 +595,7 @@ describe("new terminal panel visibility", () => {
     const next = `new-${collapsed}` as TerminalId;
     h.activeId = previous;
     collapsed ? rp.collapsePanel() : rp.expandPanel();
+    flush();
     const initializePanel = rp.adoptTileCollapsed(previous);
     // A focus change while the create RPC is pending must not change the seed.
     h.activeId = `other-${collapsed}`;
@@ -571,6 +608,7 @@ describe("new terminal panel visibility", () => {
     h.activeId = next;
     expect(rp.collapsed()).toBe(collapsed);
     collapsed ? rp.expandPanel() : rp.collapsePanel();
+    flush();
     h.activeId = previous;
     expect(rp.collapsed()).toBe(collapsed);
   });
@@ -587,6 +625,7 @@ describe("new panel initialization", () => {
     const initializePanel = rp.adoptTileCollapsed(null);
     const id = `empty-${collapsed}` as TerminalId;
     initializePanel(id);
+    flush();
     h.activeId = id;
     expect(rp.collapsed()).toBe(collapsed);
     expect(h.setRightPanel).toHaveBeenLastCalledWith(
@@ -601,6 +640,7 @@ describe("new panel initialization", () => {
     h.activeId = id;
     rp.showInspector();
     initializePanel(id);
+    flush();
     expect(rp.activeTab()).toEqual({ kind: "inspector" });
   });
 });

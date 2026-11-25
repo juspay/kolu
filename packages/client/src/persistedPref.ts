@@ -134,10 +134,17 @@ export const originStorageSync: PersistenceSyncAPI = [
   () => {},
 ];
 
+/** What a persisted pref hands back: `createSignal`'s `[Accessor, Setter]`, and
+ *  `loaded` — the value the stored string parsed to at construction (the
+ *  fallback when nothing valid was stored). The accessor reads the fallback
+ *  until `makePersisted`'s hydration write lands on the next flush, so a caller
+ *  that needs the stored value DURING construction takes `loaded`. */
+export type PersistedPref<T> = [value: Accessor<T>, set: Setter<T>, loaded: T];
+
 /** Build a persisted signal whose stored value is validated on every read.
- *  Returns the same `[Accessor, Setter]` tuple as `createSignal`.
+ *  Returns a {@link PersistedPref}.
  *
- *  `makePersisted` also returns the stored value it read at creation and a
+ *  `makePersisted` also returns the raw stored string it read at creation and a
  *  disposer, which stops the sync subscription and any pending hydration read.
  *  Under a reactive owner the disposer runs with that owner; a pref built at
  *  module scope has no owner and lives as long as the page, so there is
@@ -153,21 +160,37 @@ export const originStorageSync: PersistenceSyncAPI = [
  *  write it from an owned scope for any other reason. */
 export function persistedPref<T>(
   opts: PersistedPrefOptions<T>,
-): [Accessor<T>, Setter<T>] {
+): PersistedPref<T> {
   const serialize = opts.serialize ?? defaultSerialize;
+  // What the stored string parsed to at construction, captured from the ONE
+  // `deserialize` call `makePersisted` makes while it hydrates — not a second
+  // read of the storage, which would run `parse` (and `onInvalid`) again over
+  // the same raw string. Later calls are other pages' sync events and must
+  // not overwrite it. The signal itself answers the fallback until the
+  // hydration write lands on the next flush, so a caller that needs the
+  // loaded value DURING construction takes it from here.
+  let loaded: T | undefined;
   const [value, setValue, , dispose] = makePersisted(
     createSignal<T>(opts.fallback, { ownedWrite: true }),
     {
       name: opts.name,
       storage: opts.storage,
       serialize,
-      deserialize: (raw: string): T =>
-        readWithFallback(raw, opts.parse, opts.fallback, opts.onInvalid),
+      deserialize: (raw: string): T => {
+        const parsed = readWithFallback(
+          raw,
+          opts.parse,
+          opts.fallback,
+          opts.onInvalid,
+        );
+        loaded ??= parsed;
+        return parsed;
+      },
       sync: opts.sync,
     },
   );
   if (getOwner()) onCleanup(dispose);
-  return [value, setValue];
+  return [value, setValue, loaded ?? opts.fallback];
 }
 
 /** The strict-boolean `parse` every boolean pref shares. The default `serialize`
@@ -280,7 +303,7 @@ export function boolPref(opts: {
   name: string;
   fallback: boolean;
   onInvalid?: (err: unknown, raw: string) => void;
-}): [Accessor<boolean>, Setter<boolean>] {
+}): PersistedPref<boolean> {
   return persistedPref<boolean>({
     name: opts.name,
     fallback: opts.fallback,
@@ -324,9 +347,7 @@ export interface PerHostPrefOptions<T>
  *  old hand-rolled `createHostPrefs` cleanup had the identical coupling); closing it
  *  fully needs eviction at the `hosts.remove` membership seam, independent of owner
  *  lifecycle — tracked as follow-up, not solved here. */
-export function perHostPref<T>(
-  opts: PerHostPrefOptions<T>,
-): [Accessor<T>, Setter<T>] {
+export function perHostPref<T>(opts: PerHostPrefOptions<T>): PersistedPref<T> {
   // Enforce the "must be called under a reactive owner" precondition rather than
   // merely documenting it: `onCleanup` outside an owner silently no-ops, which would
   // drop the evict-on-host-exit guarantee this helper exists to centralize — a silent
@@ -371,7 +392,7 @@ export function perHostBoolPref(opts: {
   host: HostKey;
   base: string;
   fallback: boolean;
-}): [Accessor<boolean>, Setter<boolean>] {
+}): PersistedPref<boolean> {
   return perHostPref<boolean>({
     host: opts.host,
     base: opts.base,

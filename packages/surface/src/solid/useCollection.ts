@@ -125,12 +125,16 @@ export function useCollection<Name extends string, K, T, I>(
           // subscription. No manual teardown.
           const perKey = mapArray(keys, (key) => {
             const sub = createSubscription(
-              unenrolledStreamCall(options.valueSource, options.keyToInput(key), {
-                // The `client.health()` per-key spelling (`<key>[<id>]`), reused
-                // rather than re-spelled, so the liveness registry and the health
-                // fact name one subscription one way (kolu#2101 J2).
-                label: `${collDescriptor.name}[${String(key)}]`,
-              }),
+              unenrolledStreamCall(
+                options.valueSource,
+                options.keyToInput(key),
+                {
+                  // The `client.health()` per-key spelling (`<key>[<id>]`), reused
+                  // rather than re-spelled, so the liveness registry and the health
+                  // fact name one subscription one way (kolu#2101 J2).
+                  label: `${collDescriptor.name}[${String(key)}]`,
+                },
+              ),
               // The member's DECLARED array identity, off the descriptor — this
               // path merges an entry's value through the same seam a cell's goes
               // through, so it honours the declaration the same way. (The batched

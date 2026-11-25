@@ -10,7 +10,7 @@
 
 import { Option } from "effect";
 import type { Doubt, Filed, StageName, Stages, Visit } from "kolu-work";
-import { createSignal } from "solid-js";
+import { createSignal, flush } from "solid-js";
 import { render } from "@solidjs/web";
 import { afterEach, describe, expect, it } from "vitest";
 import StageMap from "./StageMap";
@@ -316,6 +316,7 @@ describe("the stage map", () => {
       '[data-testid="stage-cell"]',
     );
     review?.click();
+    flush();
     expect(pressed).toEqual(["review"]);
     expect(review?.getAttribute("aria-pressed")).toBe("true");
     expect(review?.classList.contains("bg-stage-review/20")).toBe(true);
@@ -339,6 +340,7 @@ describe("the stage map", () => {
       "Build or Review, 1h 5m. kolu did not record which.",
     );
     mark?.click();
+    flush();
     expect(pressed).toEqual(["build-or-review"]);
     expect(mark?.getAttribute("aria-pressed")).toBe("true");
     // No doubt between Plan and Approve: no mark there.

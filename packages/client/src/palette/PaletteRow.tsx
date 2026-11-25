@@ -118,7 +118,7 @@ const TerminalLead: Component<{
 
 const HostLead: Component<{ host: HostKey }> = (props) => {
   const state = () => padiMap.entry(props.host).state();
-  const kaval = useHostKavalChain(props.host);
+  const kaval = useHostKavalChain(() => props.host);
   return (
     <span
       class={`inline-block h-2 w-2 rounded-full shrink-0 ${dotClass(state(), kaval())}`}
@@ -132,7 +132,7 @@ const HostLead: Component<{ host: HostKey }> = (props) => {
  *  One deliberate place; never also written into the context line. */
 const TerminalHostChip: Component<{ host: HostKey }> = (props) => {
   const state = () => padiMap.entry(props.host).state();
-  const kaval = useHostKavalChain(props.host);
+  const kaval = useHostKavalChain(() => props.host);
   return (
     <span
       data-testid="palette-host-chip"

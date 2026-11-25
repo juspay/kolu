@@ -7,9 +7,14 @@
  *  for every stale-check consumer in the app).
  *
  *  This helper names the pattern. The factory runs once inside a
- *  `createRoot` so the reactive owner is the app itself — disposing
- *  the first caller's owner (fast-refresh, test teardown) does NOT
- *  freeze the value for every other consumer.
+ *  `createRoot` DETACHED from whoever reads it first
+ *  (`runWithOwner(null, …)`): a root created while an owner is in
+ *  scope is OWNED by it and dies with it, so a lazy first read inside
+ *  a component, a memo or an effect would otherwise hand every later
+ *  consumer a value whose memos stopped recomputing the moment that
+ *  caller re-ran or unmounted. Detached, the reactive owner is the
+ *  app itself — disposing the first caller's owner (fast-refresh,
+ *  test teardown) does NOT freeze the value for every other consumer.
  *
  *  APP-LIFETIME, by construction: the `createRoot` disposer is
  *  intentionally DISCARDED (there is no handle to it, on purpose), so
@@ -25,7 +30,7 @@
  *  for memo-style singletons, but the helper is shape-agnostic so
  *  signal+ticker bundles work too. */
 
-import { createRoot } from "solid-js";
+import { createRoot, runWithOwner } from "solid-js";
 
 export function createSharedRoot<T>(factory: () => T): () => T {
   // Box the result so the "not yet initialized" state is distinct from
@@ -33,7 +38,7 @@ export function createSharedRoot<T>(factory: () => T): () => T {
   let box: { value: T } | undefined;
   return () => {
     if (!box) {
-      box = { value: createRoot(factory) };
+      box = { value: runWithOwner(null, () => createRoot(factory)) };
     }
     return box.value;
   };

@@ -3,7 +3,7 @@
 import { Effect } from "effect";
 import type { HostKey } from "kolu-common/hostKey";
 import type { TerminalId } from "kolu-common/surface";
-import { createRoot, createSignal } from "solid-js";
+import { createRoot, createSignal, flush } from "solid-js";
 import { render } from "@solidjs/web";
 import { beforeEach, expect, it, vi } from "vitest";
 
@@ -40,7 +40,7 @@ import { isActiveRow } from "./activeRow";
 const [activeHost, setActiveHost] = createSignal<HostKey>(HOST);
 bag.activeHost = activeHost;
 
-const flush = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
+const settle = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
 
 beforeEach(() => {
   resetHosts();
@@ -52,7 +52,7 @@ it("clears a split's unread dock dot when its sub-entry lands", async () => {
   // The host-map write lands BEFORE the root opens: a signal write inside a
   // `createRoot` body is a write in an owned scope.
   addHost(HOST);
-  await flush();
+  await settle();
   await createRoot(async (dispose) => {
     const host = document.createElement("div");
     document.body.append(host);
@@ -63,7 +63,7 @@ it("clears a split's unread dock dot when its sub-entry lands", async () => {
 
       // Awaited out of the root's synchronous scope, so the unread write below
       // is not an owned-scope write either.
-      await flush();
+      await settle();
       attentionRecordOf("local").markUnread(SPLIT);
       disposeRow = render(
         () => (
@@ -86,6 +86,9 @@ it("clears a split's unread dock dot when its sub-entry lands", async () => {
       expect(row.hasAttribute("data-unread")).toBe(true);
 
       row.click();
+      // The handler's focus + read-marking writes are staged: flush where the
+      // browser's next frame would repaint the row.
+      flush();
 
       expect(view.focusedTerminalId()).toBe(SPLIT);
       expect(row.hasAttribute("data-unread")).toBe(false);

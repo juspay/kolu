@@ -36,9 +36,15 @@ async function freshTrail(): Promise<void> {
   sessionStorage.clear();
   vi.resetModules();
   vi.doMock("../wire", async () => {
-    const { createSignal, createMemo, createRoot } = await import("solid-js");
+    const { createSignal, createMemo, createRoot, flush } = await import(
+      "solid-js"
+    );
     const [active, setActive] = createSignal<HostKey>({ kind: "local" });
-    bag.setActive = (h: HostKey) => setActive(h);
+    // A host switch, as the trail sees it: on the frame after the write.
+    bag.setActive = (h: HostKey) => {
+      setActive(h);
+      flush();
+    };
     return {
       // The trail keys on the ENCODED memo, as wire.ts exposes it.
       encActiveHost: createRoot(() =>

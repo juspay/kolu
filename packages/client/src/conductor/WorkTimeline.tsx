@@ -292,11 +292,13 @@ const WorkTimeline: Component<{
                   counting, with the ellipsis that says so. */}
               <span class="shrink-0 font-mono text-[0.6rem] tabular-nums text-fg-3">
                 <Show when={steps()[row.index]}>
-                  {(step) =>
-                    step().ms === 0 && !step().open
-                      ? ""
-                      : `${dualPhrase(step().ms)}${step().open ? "…" : ""}`
-                  }
+                  {(step) => (
+                    <>
+                      {step().ms === 0 && !step().open
+                        ? ""
+                        : `${dualPhrase(step().ms)}${step().open ? "…" : ""}`}
+                    </>
+                  )}
                 </Show>
               </span>
             </li>

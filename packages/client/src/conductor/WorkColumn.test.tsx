@@ -10,7 +10,7 @@
  * the manual.
  */
 
-import type { Accessor } from "solid-js";
+import { type Accessor, flush } from "solid-js";
 import { render } from "@solidjs/web";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
@@ -126,6 +126,7 @@ describe("the works column with nothing in progress", () => {
     const words = (second?.textContent ?? "").trim().replace(/^“|”$/g, "");
 
     second?.click();
+    flush();
 
     // The works panel cannot write the box (the composer owns it); it
     // publishes this request, and the composer's own test proves it writes
@@ -141,6 +142,7 @@ describe("the works column with nothing in progress", () => {
     el.querySelector<HTMLButtonElement>(
       '[data-testid="work-welcome-help"]',
     )?.click();
+    flush();
 
     expect(helpSheet.open()).toBe(true);
   });

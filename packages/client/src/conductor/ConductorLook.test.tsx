@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import type { TerminalId } from "kolu-common/surface";
-import { createSignal } from "solid-js";
+import { createSignal, flush } from "solid-js";
 import { render } from "@solidjs/web";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { FleetTerminalStanding } from "../palette/fleetTerminals";
@@ -171,6 +171,7 @@ describe("an agent line", () => {
   it("says 'terminal gone' for a terminal the roster no longer has, and offers nothing", () => {
     const el = mount();
     setStanding({ kind: "gone" });
+    flush();
     expect(
       el.querySelector('[data-testid="conductor-look-status"]')?.textContent,
     ).toBe("terminal gone");

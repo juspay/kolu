@@ -13,6 +13,7 @@
 
 import type { HostKey } from "kolu-common/hostKey";
 import type { EntryFailedCause } from "kolu-common/surfacesWithPadi";
+import { Errored, flush } from "solid-js";
 import { render } from "@solidjs/web";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { LogLine } from "@kolu/solid-logtail";
@@ -85,6 +86,7 @@ const mount = (props: {
     evidence: props.log,
   };
   dispose = render(() => <HostDownCanvas />, document.body);
+  flush();
 };
 
 describe("HostDownCanvas surfaces the failed episode's output", () => {
@@ -149,16 +151,40 @@ describe("HostDownCanvas surfaces the failed episode's output", () => {
     expect(cls).toContain("overflow-y-auto");
   });
 
-  it("throws if mounted while the active entry isn't failed (fail loud, same as requireKind)", () => {
+  it("refuses to render while the active entry isn't failed (fail loud, same as requireKind)", () => {
     // Unrepresentable in the real app — App.tsx only ever mounts this card from the
     // `host-failed` <Match> arm, which is keyed on the active entry actually being `failed`.
     // Pinned here (never via App.tsx, which this file deliberately doesn't mount) because
     // it's the one behavior a props-only render pin couldn't have exercised, and the one
     // that a `createMemo` misplaced at App.tsx's top level (instead of here) turned into an
     // eager crash on every ordinary boot.
+    //
+    // The card throws from inside its own reactive scope, so the failure is delivered to
+    // the nearest `Errored` boundary — the Solid 2 shape of "this crashes rather than
+    // drawing a blank card". Left uncaught it halts the reactive system instead, which is
+    // exactly the loudness this pins.
     h.entry = { kind: "not-a-member" };
-    expect(() => render(() => <HostDownCanvas />, document.body)).toThrowError(
+    let caught: unknown;
+    dispose = render(
+      () => (
+        <Errored
+          fallback={(why) => {
+            caught = why();
+            return null;
+          }}
+        >
+          <HostDownCanvas />
+        </Errored>
+      ),
+      document.body,
+    );
+    flush();
+    expect(caught).toBeInstanceOf(Error);
+    expect((caught as Error).message).toMatch(
       /HostDownCanvas: entry is not-a-member/,
     );
+    expect(
+      document.querySelector('[data-testid="host-down-canvas"]'),
+    ).toBeNull();
   });
 });

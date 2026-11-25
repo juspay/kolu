@@ -66,7 +66,6 @@ import {
   createMemo,
   createRoot,
   createSignal,
-  untrack,
 } from "solid-js";
 import { Effect } from "effect";
 import { toast } from "solid-sonner";
@@ -301,15 +300,24 @@ export const surfaceApp = clients.surfaceApp;
 //    `connectSurfaces` watchdog `live` by construction (the handle is unforgeable), so
 //    every chip floors on the real socket — there is no raw `{ live }` seam to pass a
 //    green-over-dead accessor through.
-export const padiMap = connectSurfaceMap(padiHostMap, conn.transport, {
-  // The padi map's per-entry members (identity/urgency/status/…/daemonStatus) and its
-  // membership `entries` collection declare their policies on the spec; route them all
-  // through the ONE interpreter, with the per-key `origin` the map injects for entry
-  // members (`entries` fires origin-free). This folds in the old `surfaceSubError`
-  // (createHostWire) and `onHostMembershipError` (deleted here).
-  onClientError: (p, e, origin) =>
-    interpretClientError(p as ClientErrorPolicy, e, origin),
-});
+//
+// Dialled inside an app-lifetime `createRoot` (the same shape as the `hostScoped` root
+// below): `connectSurfaceMap` captures `getOwner()` as the client-lifetime owner for its
+// caches AND creates the departed-membership prune effect under it. At module scope there
+// is no owner, so that effect would be created unowned (Solid 2 NO_OWNER_EFFECT: "effects
+// created outside a reactive context will never be disposed"). This root is never disposed
+// — the map lives as long as the tab — which is exactly what the owner expresses.
+export const padiMap = createRoot(() =>
+  connectSurfaceMap(padiHostMap, conn.transport, {
+    // The padi map's per-entry members (identity/urgency/status/…/daemonStatus) and its
+    // membership `entries` collection declare their policies on the spec; route them all
+    // through the ONE interpreter, with the per-key `origin` the map injects for entry
+    // members (`entries` fires origin-free). This folds in the old `surfaceSubError`
+    // (createHostWire) and `onHostMembershipError` (deleted here).
+    onClientError: (p, e, origin) =>
+      interpretClientError(p as ClientErrorPolicy, e, origin),
+  }),
+);
 
 /** The per-tab ACTIVE host — which host's padi surface THIS browser tab views. Backed by
  *  `sessionStorage` (per-tab, never shared across tabs). The persisted value is the
@@ -528,13 +536,11 @@ const hostScoped = createRoot(() => {
       const request = joinRequest();
       const pending =
         request !== null && request.seq > servedJoinSeq ? request : null;
-      // The active host is the SUBJECT of the decision, not a trigger for it: this reconcile
-      // answers to MEMBERSHIP (a host left, a requested host joined), and every seam that
-      // switches hosts picks from live membership. Tracked, it also fired on the switch this
-      // effect itself writes — the own-write re-run above. So it is read ONCE per pass,
-      // untracked, exactly as `untrack`'s doc prescribes for a current selection the
-      // surrounding computation must not depend on.
-      const active = untrack(activeHost);
+      // The active host is TRACKED: a switch to a host that is not a member (a notification
+      // or chip naming a host that has since left) is a departed input in its own right, and
+      // bounces at once. The re-run this effect's own `setActiveHost` causes converges in one
+      // pass — the target it wrote is a member, so `hostReconcileTarget` answers null.
+      const active = activeHost();
       return {
         request: pending,
         action: hostReconcileTarget(

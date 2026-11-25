@@ -243,9 +243,14 @@ export const useSplitPanelState = createSharedRoot((): SplitPanelStore => {
 
   /** One of our writes answered: it is no longer outstanding, and a failure
    *  with nothing left outstanding ends the entry outright. Guarded on the
-   *  entry still being there — a tile can depart mid-write. */
+   *  entry still being there — a tile can depart mid-write.
+   *
+   *  `prev` defaults like the derivation's own parameter: a setter that runs
+   *  before the rule has ever derived (nothing has read `pending()` yet) is
+   *  handed `undefined`, and "the rule has produced nothing yet" IS the empty
+   *  map — entries only ever come from a write. */
   const settleWrite = (id: TerminalId, ok: boolean): void => {
-    setPending((prev) => {
+    setPending((prev: Record<TerminalId, SplitPending> = {}) => {
       const entry = prev[id];
       if (!entry) return prev;
       const inFlight = Math.max(0, entry.inFlight - 1);
@@ -280,7 +285,7 @@ export const useSplitPanelState = createSharedRoot((): SplitPanelStore => {
     // moved" is measured from the gesture, not from nothing.
     const sawRecordNow = savedOf(id);
     return () => {
-      setPending((prev) => {
+      setPending((prev: Record<TerminalId, SplitPending> = {}) => {
         const was = prev[id];
         return {
           ...prev,
@@ -302,7 +307,7 @@ export const useSplitPanelState = createSharedRoot((): SplitPanelStore => {
     },
     planWrite,
     forget: (id) => {
-      setPending((prev) => {
+      setPending((prev: Record<TerminalId, SplitPending> = {}) => {
         if (!(id in prev)) return prev;
         const next = { ...prev };
         delete next[id];

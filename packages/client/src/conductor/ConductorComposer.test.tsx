@@ -31,7 +31,7 @@ import {
   type WorkId,
   type WorkRow,
 } from "kolu-work";
-import { type Accessor, createSignal } from "solid-js";
+import { type Accessor, createSignal, flush } from "solid-js";
 import { render } from "@solidjs/web";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { FleetTerminalRow } from "../palette/fleetTerminals";
@@ -227,7 +227,16 @@ function mount(
   box.value = text;
   box.setSelectionRange(text.length, text.length);
   box.dispatchEvent(new Event("input", { bubbles: true }));
-  return { el: root, box, tick: setRows };
+  flush();
+  return {
+    el: root,
+    box,
+    // A fleet frame, as the composer sees it: on the frame after.
+    tick: (next: FleetTerminalRow[]) => {
+      setRows(next);
+      flush();
+    },
+  };
 }
 
 /** What the one Send on screen was handed. */
@@ -236,6 +245,7 @@ const sentMentions = (): ReadonlyArray<ConductorMention> =>
 
 const press = (el: HTMLElement, key: string): void => {
   el.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true }));
+  flush();
 };
 
 const rowsIn = (el: HTMLElement, testId: string): HTMLElement[] => [
@@ -398,6 +408,7 @@ describe("the welcome's example ask", () => {
     const text = "Plan and build a dark mode toggle";
     const { box } = mount("");
     askFromWelcome(text);
+    flush();
 
     expect(box.value).toBe(text);
     expect(composerText()).toBe(text);
@@ -436,6 +447,7 @@ describe("a chat pointed at one piece of work", () => {
     el.querySelector<HTMLElement>(
       '[data-testid="conductor-scope-chip-remove"]',
     )?.click();
+    flush();
     expect(el.querySelector('[data-testid="conductor-scope-chip"]')).toBeNull();
   });
 
@@ -445,6 +457,7 @@ describe("a chat pointed at one piece of work", () => {
     el.querySelector<HTMLElement>(
       '[data-testid="conductor-scope-chip"] [data-testid="work-chip"]',
     )?.click();
+    flush();
     expect(pickedWork()).toBe(PANE);
     expect(
       el.querySelector('[data-testid="conductor-scope-chip"]'),
@@ -458,6 +471,7 @@ describe("a work mentioned in the box", () => {
     press(box, "Enter");
     const chip = () => rowsIn(el, "conductor-mention-chip")[0];
     chip()?.querySelector<HTMLElement>('[data-testid="work-chip"]')?.click();
+    flush();
     expect(pickedWork()).toBe(PANE);
     expect(chip()).toBeDefined();
     chip()
@@ -465,6 +479,7 @@ describe("a work mentioned in the box", () => {
         '[data-testid="conductor-mention-chip-remove"]',
       )
       ?.click();
+    flush();
     expect(rowsIn(el, "conductor-mention-chip")).toHaveLength(0);
     expect(box.value).not.toContain("@page-chats-open-in-a-pane");
   });

@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import type { TerminalId } from "kolu-common/surface";
-import { createSignal } from "solid-js";
+import { createSignal, flush } from "solid-js";
 import { render } from "@solidjs/web";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { FleetTerminalStanding } from "../../palette/fleetTerminals";
@@ -196,6 +196,7 @@ describe("TerminalPeek", () => {
     document
       .querySelector<HTMLButtonElement>('[data-testid="peek-close"]')
       ?.click();
+    flush();
     expect(peekTarget()).toBeNull();
   });
 
@@ -231,6 +232,7 @@ describe("TerminalPeek", () => {
         `[data-testid="peek-tab"][data-ref="local/${OTHER}"]`,
       )
       ?.click();
+    flush();
     expect(peekTarget()).toEqual({ host: "local", id: OTHER });
   });
 
@@ -238,6 +240,7 @@ describe("TerminalPeek", () => {
     openPeek({ host: "remote:nix@example", id: ID });
     mount();
     setShown(false);
+    flush();
     expect(peekTarget()).toBeNull();
   });
 
@@ -275,6 +278,7 @@ describe("TerminalPeek", () => {
     document
       .querySelector<HTMLButtonElement>('[data-testid="peek-open-tile"]')
       ?.click();
+    flush();
     expect(seam.opened).toEqual([{ host: "remote:nix@example", id: ID }]);
     expect(peekTarget()).toBeNull();
   });
@@ -292,6 +296,7 @@ describe("TerminalPeek", () => {
     ) => void;
     onGrid({ cols: 110, rows: 34 });
     onCell({ width: 8.4, height: 17 }, { x: 26, y: 12 });
+    flush();
     expect(document.querySelector('[data-testid="peek-fit"]')).toBeNull();
     expect(seam.props?.fontSize).toBe(14);
   });
@@ -310,6 +315,7 @@ describe("TerminalPeek", () => {
     ) => void;
     onGrid({ cols: 212, rows: 52 });
     onCell({ width: 8.4, height: 17 }, { x: 26, y: 12 });
+    flush();
     const fit = document.querySelector<HTMLButtonElement>(
       '[data-testid="peek-fit"]',
     );
@@ -320,6 +326,7 @@ describe("TerminalPeek", () => {
     expect(seam.props?.fontSize).toBe(9);
     // Turning it off gives the terminal's own size back, for every pane.
     fit?.click();
+    flush();
     expect(fit?.getAttribute("aria-pressed")).toBe("false");
     expect(seam.props?.fontSize).toBe(14);
     setFitWidth(true);
@@ -380,9 +387,11 @@ describe("TerminalPeek", () => {
     mount();
     const onFocus = seam.props?.onFocus as (focused: boolean) => void;
     onFocus(true);
+    flush();
     expect(peekTyping()).toBe(true);
     expect(document.querySelector('[data-testid="peek-esc-hint"]')).toBeNull();
     onFocus(false);
+    flush();
     expect(peekTyping()).toBe(false);
   });
 
@@ -403,6 +412,9 @@ describe("TerminalPeek", () => {
       focus,
       blur: () => {},
     });
+    // The pane takes the keyboard in an effect, a frame after the handle is
+    // handed over.
+    flush();
   };
 
   const keyDown = (key: string, selector = '[data-testid="terminal-peek"]') => {
@@ -461,9 +473,11 @@ describe("TerminalPeek", () => {
     ) => void;
     onGrid({ cols: 80, rows: 24 });
     onCell({ width: 8.4, height: 17 }, { x: 26, y: 12 });
+    flush();
     expect(window?.style.width).toBe("1280px");
     expect(window?.style.height).toBe("836px");
     onGrid({ cols: 212, rows: 52 });
+    flush();
     expect(window?.style.width).toBe("1280px");
     expect(window?.style.height).toBe("836px");
     document
@@ -471,6 +485,7 @@ describe("TerminalPeek", () => {
         `[data-testid="peek-tab"][data-ref="local/${OTHER}"]`,
       )
       ?.click();
+    flush();
     expect(
       document.querySelector<HTMLElement>('[data-testid="terminal-peek"]')
         ?.style.width,
@@ -519,6 +534,7 @@ describe("TerminalPeek", () => {
     expect(dialog().getAttribute("data-escape-closes")).toBe("true");
     const onFocus = seam.props?.onFocus as (focused: boolean) => void;
     onFocus(true);
+    flush();
     expect(dialog().getAttribute("data-escape-closes")).toBe("false");
   });
 });

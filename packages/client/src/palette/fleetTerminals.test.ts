@@ -1,4 +1,4 @@
-import { createEffect, createRoot, createSignal } from "solid-js";
+import { createEffect, createRoot, createSignal, flush } from "solid-js";
 import type { TerminalMetadata } from "@kolu/padi-client/surface";
 import type { HostKey } from "kolu-common/hostKey";
 import type { TerminalId } from "kolu-common/surface";
@@ -126,25 +126,30 @@ describe("orderHostsActiveFirst", () => {
   });
 });
 
-it("unchanged clock-driven fleet projections wake no consumers", () =>
-  createRoot((dispose) => {
-    const [tick, setTick] = createSignal(0);
-    const [recency, setRecency] = createSignal(10);
+it("unchanged clock-driven fleet projections wake no consumers", () => {
+  const [tick, setTick] = createSignal(0);
+  const [recency, setRecency] = createSignal(10);
+  let wakes = 0;
+  const dispose = createRoot((disposeRoot) => {
     const rows = createStableFleetRows(() => {
       tick();
       return [row(local, "a", recency())];
     });
-    let wakes = 0;
     createEffect(
       () => rows(),
       () => {
         wakes++;
       },
     );
-    setTick(1);
-    setTick(2);
-    expect(wakes).toBe(1);
-    setRecency(20);
-    expect(wakes).toBe(2);
-    dispose();
-  }));
+    return disposeRoot;
+  });
+  flush();
+  setTick(1);
+  setTick(2);
+  flush();
+  expect(wakes).toBe(1);
+  setRecency(20);
+  flush();
+  expect(wakes).toBe(2);
+  dispose();
+});

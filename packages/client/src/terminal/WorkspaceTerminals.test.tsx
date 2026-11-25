@@ -1,4 +1,4 @@
-import { createSignal, createStore, For, Show } from "solid-js";
+import { createSignal, createStore, flush, For, Show } from "solid-js";
 import { render } from "@solidjs/web";
 import { expect, it } from "vitest";
 import { WorkspaceTerminals } from "./WorkspaceTerminals";
@@ -37,8 +37,12 @@ it("moves the same terminal DOM between desktop and touch shells", () => {
     terminal.value = "retained selection";
     terminal.setSelectionRange(2, 8);
     setDesktop(false);
+    // The shell swap is a staged write: the DOM moves on the flush that
+    // follows, which is where a real consumer sees it.
+    flush();
     expect(host.querySelector("[data-touch] textarea")).toBe(terminal);
     setDesktop(true);
+    flush();
     expect(host.querySelector("[data-desktop] textarea")).toBe(terminal);
     expect(terminal.selectionStart).toBe(2);
     expect(mounts).toBe(1);
@@ -145,13 +149,16 @@ it("asks the shell that is placing the body whether it can be seen", () => {
   try {
     expect(seen()).toBe(false);
     setOnCanvas(true);
+    flush();
     expect(seen()).toBe(true);
     // The touch shell shows its one tile unconditionally, so the canvas's
     // answer stops being the body's the moment the shell swaps.
     setDesktop(false);
     setOnCanvas(false);
+    flush();
     expect(seen()).toBe(true);
     setDesktop(true);
+    flush();
     expect(seen()).toBe(false);
     expect(mounts).toBe(1);
   } finally {

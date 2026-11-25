@@ -24,7 +24,7 @@
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { createSignal } from "solid-js";
+import { createSignal, flush } from "solid-js";
 import { render } from "@solidjs/web";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -48,15 +48,27 @@ vi.mock("../wire", () => ({
     state.setCollapsed(p.tipBarCollapsed),
 }));
 // The tooltip renders its trigger and keeps its words where a test can read
-// them.
-vi.mock("../ui/Tip", () => ({
-  default: (p: { label: string; children: unknown }) => {
-    const el = document.createElement("div");
-    el.dataset.tooltip = p.label;
-    el.append(p.children as Node);
-    return el;
-  },
-}));
+// them — through the same doors a component uses, so the prop reads are
+// tracked rather than strict reads in a component body. (`vi.mock`'s factory
+// runs BEFORE this module's imports, so solid can only be reached from inside
+// it.)
+vi.mock("../ui/Tip", async () => {
+  const { createRenderEffect } = await import("solid-js");
+  const { insert } = await import("@solidjs/web");
+  return {
+    default: (p: { label: string; children: unknown }) => {
+      const el = document.createElement("div");
+      createRenderEffect(
+        () => p.label,
+        (label) => {
+          el.dataset.tooltip = label;
+        },
+      );
+      insert(el, () => p.children);
+      return el;
+    },
+  };
+});
 
 vi.mock("../capabilities", () => ({
   showsAmbientTips: () => state.tipsOn(),
@@ -106,15 +118,23 @@ vi.mock("./useAgentDistro", () => ({
   const [meta, setMeta] = createSignal<unknown>(undefined);
   const [activeId, setActiveId] = createSignal<string | null>("t-1");
   const [collapsed, setCollapsed] = createSignal(false);
+  // A write from another surface, as this terminal sees it: on the frame
+  // after, which is when Solid has it.
+  const settles =
+    <T,>(set: (v: T) => void) =>
+    (v: T) => {
+      set(v);
+      flush();
+    };
   Object.assign(state, {
     collapsed,
-    setCollapsed,
+    setCollapsed: settles(setCollapsed),
     tipsOn,
-    setTipsOn,
+    setTipsOn: settles(setTipsOn),
     meta,
-    setMeta,
+    setMeta: settles(setMeta),
     activeId,
-    setActiveId,
+    setActiveId: settles(setActiveId),
   });
 }
 
@@ -347,6 +367,7 @@ describe("TileTip — rung 2's chips that do not fit go behind +N", () => {
     document
       .querySelector<HTMLButtonElement>('[data-testid="tile-tip-more"]')
       ?.click();
+    flush();
     const menu = document.querySelector('[data-testid="tile-tip-more-menu"]');
     expect(
       Array.from(menu?.querySelectorAll("button") ?? []).map(
@@ -358,6 +379,7 @@ describe("TileTip — rung 2's chips that do not fit go behind +N", () => {
         '[data-testid="tile-tip-more-option-pi"]',
       )
       ?.click();
+    flush();
     expect(state.typed).toEqual([{ id: "t-1", text: "pi", enter: true }]);
     expect(
       document.querySelector('[data-testid="tile-tip-more-menu"]'),

@@ -1,4 +1,5 @@
 import type { TerminalId } from "kolu-common/surface";
+import { flush } from "solid-js";
 import { describe, expect, it, vi } from "vitest";
 import { type AttentionRecord, createAttentionRecord } from "./savedAttention";
 
@@ -51,8 +52,13 @@ describe("a host's saved attention record", () => {
       latched: [A, B],
       unseenFinished: [B],
     });
+    // The writes reach storage on the flush that follows them, which is what
+    // a later page load reads.
+    flush();
 
     const after = createAttentionRecord({ name: NAME, storage });
+    // …and the fresh page's marks projection publishes on its own first flush.
+    flush();
     expect(after.isUnread(A)).toBe(true);
     expect(after.isUnread(B)).toBe(false);
     expect(after.memory()).toEqual({
@@ -113,9 +119,13 @@ describe("a host's saved attention record", () => {
     first.markUnread(A);
     // The second page loads with terminal A unread.
     const second = createAttentionRecord({ name: NAME, storage });
+    // Each page's marks are a projection: a write (here, and the storage event
+    // the other page hears) publishes on the next flush.
+    flush();
     expect(second.isUnread(A)).toBe(true);
 
     first.clearUnread(A);
+    flush();
     expect(second.isUnread(A)).toBe(false);
 
     // The second page's next write keeps the first page's read.
@@ -149,6 +159,8 @@ describe("a host's saved attention record", () => {
     first.clearUnread(A);
     write(second);
     for (const event of held.splice(0)) window.dispatchEvent(event);
+    // Both pages' marks publish on the flush after the events land.
+    flush();
 
     const saved = JSON.parse(storage.getItem(NAME) ?? "null") as {
       unread: TerminalId[];

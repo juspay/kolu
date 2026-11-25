@@ -84,50 +84,59 @@ export function createBrowser<L>(
   // computing it inside navigate() on every push is needless work.
   const bounded = Number.isFinite(maxEntries);
   const seeded = initial !== undefined;
-  const [entries, setEntries] = createSignal<L[]>(seeded ? [initial] : []);
-  const [cursor, setCursor] = createSignal(seeded ? 0 : -1);
+  // THE STACK IS PLAIN STATE, MIRRORED INTO SIGNALS. A signal write is staged:
+  // it reaches readers on the next flush. The verbs below are imperative and
+  // answer *now* — `back()` must return the entry it just moved to, and two
+  // `navigate`s in one turn must both land — so they read and update these
+  // plain fields, and publish each new value to the signals that make
+  // `current` / `canBack` / `canForward` / `length` reactive.
+  let stack: L[] = seeded ? [initial] : [];
+  let at = seeded ? 0 : -1;
+  const [entries, setEntries] = createSignal<L[]>(stack);
+  const [cursor, setCursor] = createSignal(at);
+  const publish = (nextStack: L[], nextAt: number): void => {
+    stack = nextStack;
+    at = nextAt;
+    setEntries(nextStack);
+    setCursor(nextAt);
+  };
 
   const current = (): L | null => entries()[cursor()] ?? null;
   const canBack = () => cursor() > 0;
   const canForward = () => cursor() < entries().length - 1;
 
   const navigate = (loc: L): void => {
-    const cur = current();
-    const c = cursor();
+    const cur = stack[at] ?? null;
     if (cur !== null && isSameEntry?.(cur, loc)) {
       // Same logical page — refresh the entry in place, leave the cursor and
       // any forward entries untouched (replaceState semantics, not pushState).
-      setEntries((es) => {
-        const next = [...es];
-        next[c] = loc;
-        return next;
-      });
+      const next = [...stack];
+      next[at] = loc;
+      publish(next, at);
       return;
     }
     // Push: drop any forward tail (fork), append, advance. When the result
     // would exceed the cap, evict the oldest entries from the front and shift
     // the cursor down by the same count so it still points at `loc`.
-    const next = [...entries().slice(0, c + 1), loc];
+    const next = [...stack.slice(0, at + 1), loc];
     const overflow = bounded ? Math.max(0, next.length - maxEntries) : 0;
-    setEntries(overflow > 0 ? next.slice(overflow) : next);
-    setCursor((x) => x + 1 - overflow);
+    publish(overflow > 0 ? next.slice(overflow) : next, at + 1 - overflow);
   };
 
   const back = (): L | null => {
-    if (!canBack()) return null;
-    setCursor((x) => x - 1);
-    return current();
+    if (at <= 0) return null;
+    publish(stack, at - 1);
+    return stack[at] ?? null;
   };
 
   const forward = (): L | null => {
-    if (!canForward()) return null;
-    setCursor((x) => x + 1);
-    return current();
+    if (at >= stack.length - 1) return null;
+    publish(stack, at + 1);
+    return stack[at] ?? null;
   };
 
   const reset = (next?: L): void => {
-    setEntries(next === undefined ? [] : [next]);
-    setCursor(next === undefined ? -1 : 0);
+    publish(next === undefined ? [] : [next], next === undefined ? -1 : 0);
   };
 
   return {

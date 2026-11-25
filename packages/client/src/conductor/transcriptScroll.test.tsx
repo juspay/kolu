@@ -16,7 +16,7 @@
  *  browser's does, since an unclamped one sits past the end of a grown column
  *  and makes a broken follow rule look right. */
 
-import { createSignal } from "solid-js";
+import { createSignal, flush } from "solid-js";
 import { render } from "@solidjs/web";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 // A tool card's diffs block drags in the whole code viewer and its Nix-backed
@@ -139,12 +139,15 @@ function unmount(): void {
 function append(): void {
   column += ROW_HEIGHT;
   setRows?.(makeRows(20 + (column - COLUMN) / ROW_HEIGHT));
+  // The rows land on the frame the arrival is drawn in.
+  flush();
 }
 
 /** What a reader's wheel does: move the view, and let the container say so. */
 function scrollTo(el: HTMLDivElement, top: number): void {
   el.scrollTop = top;
   el.dispatchEvent(new Event("scroll"));
+  flush();
 }
 
 /** The way back, as the reader meets it — the terminal's own pill. */
@@ -235,6 +238,7 @@ describe("the transcript's follow rule", () => {
     append();
 
     pill()?.click();
+    flush();
     expect(scroller.scrollTop).toBe(endOf(column));
     expect(pill()).toBeNull();
 
@@ -269,8 +273,10 @@ describe("the transcript's follow rule", () => {
       );
     column += ROW_HEIGHT;
     setRows?.(replying("The first half,"));
+    flush();
     column += ROW_HEIGHT;
     setRows?.(replying("The first half, and the second half."));
+    flush();
     expect(scroller.scrollTop).toBe(endOf(column));
   });
 
@@ -284,6 +290,7 @@ describe("the transcript's follow rule", () => {
     append();
     column += 162;
     scroller.dispatchEvent(new Event("scroll"));
+    flush();
     expect(pill()).toBeNull();
 
     append();
@@ -297,6 +304,7 @@ describe("the transcript's follow rule", () => {
     const scroller = mount();
     column += 162;
     setWorks(new Map());
+    flush();
     expect(scroller.scrollTop).toBe(endOf(column));
   });
 
@@ -312,6 +320,7 @@ describe("the transcript's follow rule", () => {
           : one,
       ),
     );
+    flush();
     expect(pill()).not.toBeNull();
     expect(pill()?.hasAttribute("data-active")).toBe(false);
   });
@@ -325,11 +334,13 @@ describe("the transcript's follow rule", () => {
     const wasAt = scroller.scrollTop;
 
     setShown(false);
+    flush();
     append();
     append();
     expect(scroller.scrollTop).toBe(wasAt);
 
     setShown(true);
+    flush();
     expect(scroller.scrollTop).toBe(endOf(column));
     expect(pill()).toBeNull();
   });
@@ -343,8 +354,10 @@ describe("each document's own place", () => {
       scrollHeight: 1000,
       clientHeight: VIEWPORT,
     });
+    flush();
 
     showTranscriptDocument("branch:local/%2Fr/one");
+    flush();
     // The browser clamps the SHORTER document to its end and fires `scroll`:
     // a movement the reader did not make, but one that is true of the work's
     // chat, not of the whole conversation.
@@ -353,8 +366,10 @@ describe("each document's own place", () => {
       scrollHeight: VIEWPORT,
       clientHeight: VIEWPORT,
     });
+    flush();
 
     showTranscriptDocument(WHOLE_TRANSCRIPT);
+    flush();
     expect(transcriptPinned()).toBe(false);
     const el = { scrollTop: 0, scrollHeight: 1000, clientHeight: VIEWPORT };
     applyTranscriptScroll(el, transcriptPlace(WHOLE_TRANSCRIPT));
@@ -363,17 +378,21 @@ describe("each document's own place", () => {
 
   it("keeps a follower of the whole conversation following after reading a work", () => {
     showTranscriptDocument(WHOLE_TRANSCRIPT);
+    flush();
     expect(transcriptPinned()).toBe(true);
 
     showTranscriptDocument("branch:local/%2Fr/two");
+    flush();
     rememberTranscriptScroll({
       scrollTop: 400,
       scrollHeight: 1200,
       clientHeight: VIEWPORT,
     });
+    flush();
     expect(transcriptPinned()).toBe(false);
 
     showTranscriptDocument(WHOLE_TRANSCRIPT);
+    flush();
     expect(transcriptPinned()).toBe(true);
     const el = { scrollTop: 0, scrollHeight: 5000, clientHeight: VIEWPORT };
     applyTranscriptScroll(el, transcriptPlace(WHOLE_TRANSCRIPT));

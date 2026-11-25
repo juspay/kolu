@@ -7,7 +7,7 @@
 
 import type { TerminalId } from "kolu-common/surface";
 import type { WorkMember } from "kolu-work";
-import { createRoot, createSignal } from "solid-js";
+import { createRoot, createSignal, flush } from "solid-js";
 import { describe, expect, it, vi } from "vitest";
 import type { FleetTerminalStanding } from "../palette/fleetTerminals";
 import type { WorkMemberRow } from "./workReadings";
@@ -53,46 +53,52 @@ const rowsOf = (): WorkMemberRow[] => [
 
 describe("one work's reading", () => {
   it("keeps every line when nothing in them moved, and the list too", () => {
-    createRoot((dispose) => {
-      setRecords(
-        new Map([
-          [`local/${P}`, here("a")],
-          [`local/${I}`, here("b")],
-        ]),
-      );
-      const [rows, setRows] = createSignal(rowsOf());
-      const facts = readWorkFacts(rows);
-      const before = facts.members();
-      // The members map handed over again, with the same members in it.
-      setRows(rowsOf());
-      expect(facts.members()).toBe(before);
-      dispose();
-    });
+    setRecords(
+      new Map([
+        [`local/${P}`, here("a")],
+        [`local/${I}`, here("b")],
+      ]),
+    );
+    const [rows, setRows] = createSignal(rowsOf());
+    const { facts, dispose } = createRoot((disposeRoot) => ({
+      facts: readWorkFacts(rows),
+      dispose: disposeRoot,
+    }));
+    flush();
+    const before = facts.members();
+    // The members map handed over again, with the same members in it.
+    setRows(rowsOf());
+    flush();
+    expect(facts.members()).toBe(before);
+    dispose();
   });
 
   it("gives a new line to the member whose record moved, and keeps the other", () => {
-    createRoot((dispose) => {
-      const planner = here("a");
-      setRecords(
-        new Map([
-          [`local/${P}`, planner],
-          [`local/${I}`, here("b")],
-        ]),
-      );
-      const facts = readWorkFacts(() => rowsOf());
-      const [p, i] = facts.members();
-      setRecords(
-        new Map([
-          [`local/${P}`, planner],
-          [`local/${I}`, here("c")],
-        ]),
-      );
-      const [p2, i2] = facts.members();
-      expect(p2).toBe(p);
-      expect(i2).not.toBe(i);
-      expect(i2?.standing).toEqual(here("c"));
-      dispose();
-    });
+    const planner = here("a");
+    setRecords(
+      new Map([
+        [`local/${P}`, planner],
+        [`local/${I}`, here("b")],
+      ]),
+    );
+    const { facts, dispose } = createRoot((disposeRoot) => ({
+      facts: readWorkFacts(() => rowsOf()),
+      dispose: disposeRoot,
+    }));
+    flush();
+    const [p, i] = facts.members();
+    setRecords(
+      new Map([
+        [`local/${P}`, planner],
+        [`local/${I}`, here("c")],
+      ]),
+    );
+    flush();
+    const [p2, i2] = facts.members();
+    expect(p2).toBe(p);
+    expect(i2).not.toBe(i);
+    expect(i2?.standing).toEqual(here("c"));
+    dispose();
   });
 
   it("has no lines for a work with no members", () => {

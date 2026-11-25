@@ -9,7 +9,7 @@
  *  same way the app does: by writing the active host. */
 
 import type { HostKey } from "kolu-common/hostKey";
-import { type Accessor, createRoot } from "solid-js";
+import { type Accessor, createRoot, flush } from "solid-js";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 const bag = vi.hoisted(() => {
@@ -113,14 +113,18 @@ describe("createHostRecency — recording", () => {
   /** A FRESH trail per case — `createHostRecency` is exported apart from the
    *  app-lifetime instance precisely so no case inherits another's residue.
    *  Built in its own root and RETURNED, so the switches a case drives land
-   *  outside that root's update cycle and each effect run flushes at once. */
+   *  outside that root. The trail's recording effect runs in the flush after
+   *  it is created, and each switch is staged until the next flush, so a case
+   *  flushes where the app would have painted. */
   function freshTrail(): Accessor<readonly HostVisit[]> {
     // The trail is a per-TAB pref; wipe the tab so the case boots from [].
     sessionStorage.clear();
-    return createRoot((d) => {
+    const trail = createRoot((d) => {
       dispose = d;
       return createHostRecency();
     });
+    flush();
+    return trail;
   }
 
   afterEach(() => {
@@ -131,13 +135,15 @@ describe("createHostRecency — recording", () => {
   it("records every switch off the active-host pref, newest first", () => {
     bag.setActive(LOCAL);
     const recency = freshTrail();
-    // The boot host is the trail's first entry (the effect runs immediately).
+    // The boot host is the trail's first entry (the effect's first run).
     expect(keys(recency())).toEqual(["local"]);
 
     bag.setActive(GPU);
+    flush();
     expect(keys(recency())).toEqual(["remote:gpu-box", "local"]);
 
     bag.setActive(BUILDER);
+    flush();
     expect(keys(recency())).toEqual([
       "remote:builder",
       "remote:gpu-box",
@@ -146,6 +152,7 @@ describe("createHostRecency — recording", () => {
 
     // Switching back re-promotes rather than appending a duplicate.
     bag.setActive(GPU);
+    flush();
     expect(keys(recency())).toEqual([
       "remote:gpu-box",
       "remote:builder",
@@ -157,10 +164,12 @@ describe("createHostRecency — recording", () => {
     bag.setActive(LOCAL);
     const recency = freshTrail();
     bag.setActive(GPU);
+    flush();
     const before = recency();
     // A write that names the host you are already on is not a switch: the trail
     // keeps its identity, so nothing re-stamps, re-serializes, or recomputes.
     bag.setActive({ kind: "remote", target: "gpu-box" });
+    flush();
     expect(recency()).toBe(before);
   });
 });

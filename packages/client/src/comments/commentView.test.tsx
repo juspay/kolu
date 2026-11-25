@@ -5,7 +5,7 @@
  *  opened in, the other view's navigation does not close it, and a jump made
  *  in one view does not move the other's toggle or get used up by it. */
 
-import { createSignal } from "solid-js";
+import { createSignal, flush } from "solid-js";
 import { type JSX, render } from "@solidjs/web";
 import {
   afterAll,
@@ -75,6 +75,9 @@ describe("two comment-capturing views mounted at once", () => {
     twoViews(a, b);
 
     a.composer.open(draft);
+    // Opening a draft is a staged write: the popover is drawn on the flush
+    // that follows, exactly as a user sees it a frame after their selection.
+    flush();
     expect(composers()).toHaveLength(1);
 
     const box = document.querySelector<HTMLTextAreaElement>(
@@ -83,12 +86,15 @@ describe("two comment-capturing views mounted at once", () => {
     if (!box) throw new Error("no composer text box");
     box.value = "Tighten this";
     box.dispatchEvent(new Event("input", { bubbles: true }));
+    // The typed body lands on the next flush; the click below is a later turn.
+    flush();
     const save = Array.from(
       document.querySelectorAll<HTMLButtonElement>(
         "[data-testid=kolu-comment-composer] button",
       ),
     ).find((button) => button.textContent?.startsWith("Save"));
     save?.click();
+    flush();
 
     expect(
       useComments("view-a-terminal")
@@ -107,6 +113,7 @@ describe("two comment-capturing views mounted at once", () => {
     a.composer.open(draft);
     // What a Code view does when what it shows changes.
     b.composer.close();
+    flush();
 
     expect(a.composer.target()).not.toBeNull();
     expect(composers()).toHaveLength(1);

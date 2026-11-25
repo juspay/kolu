@@ -2,6 +2,7 @@
 
 import { Effect } from "effect";
 import type { TerminalId } from "kolu-common/surface";
+import { flush } from "solid-js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const h = vi.hoisted(() => ({
@@ -42,6 +43,8 @@ const SUB = "provenance-sub" as TerminalId;
 describe("terminal focus provenance DOM boundary", () => {
   beforeEach(() => {
     useSubPanel().removePanel(PARENT);
+    // Panel state is staged; settle it so each case starts from a clean read.
+    flush();
     h.focused = null;
     h.writeFocus.mockReset();
     h.writeFocus.mockImplementation(
@@ -73,6 +76,9 @@ describe("terminal focus provenance DOM boundary", () => {
     if (!tile || !chrome || !pane || !textarea) return;
 
     panel.focusSubTab(PARENT, SUB);
+    // The sub-tab focus is staged: the provenance install below is a later
+    // turn in the app, so it must see the settled chrome.
+    flush();
     h.writeFocus.mockClear();
     const dispose = installTerminalFocusProvenance({
       pane,
@@ -84,6 +90,7 @@ describe("terminal focus provenance DOM boundary", () => {
 
     chrome.dispatchEvent(new Event("pointerdown", { bubbles: true }));
     textarea.focus();
+    flush();
 
     expect(h.focused).toBe(SUB);
     expect(panel.paneChrome(PARENT).rememberedPane).toBe("sub");
@@ -92,6 +99,7 @@ describe("terminal focus provenance DOM boundary", () => {
     textarea.blur();
     pane.dispatchEvent(new Event("pointerdown", { bubbles: true }));
     textarea.focus();
+    flush();
 
     expect(h.focused).toBe(PARENT);
     expect(panel.paneChrome(PARENT).rememberedPane).toBe("main");

@@ -169,7 +169,9 @@ export function useAdoptNewSplit(deps: {
         // `onSettled` — which is not one. It is ordered against nothing here:
         // the panel tab it seeds is a different store from the tile's split
         // chrome the two writes below touch.
-        onSettled(() => seed(subId));
+        onSettled(() => {
+          seed(subId);
+        });
         expand();
         if (takeFocus) deps.ports.setActiveSubTab(tileId, subId);
       }

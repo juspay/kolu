@@ -11,6 +11,7 @@
  */
 
 import { type HostKey, LOCAL_HOST } from "kolu-common/hostKey";
+import { flush } from "solid-js";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const wire = vi.hoisted(() => ({
@@ -47,11 +48,15 @@ beforeEach(() => {
 });
 
 describe("selectHostTab", () => {
+  // `conductorMode` is a signal: each command's write is staged, so every
+  // reading below is taken after the flush its caller's frame would have.
   it("switches the host and leaves the conductor in one act", () => {
     toggleConductorMode();
+    flush();
     expect(conductorMode()).toBe(true);
 
     selectHostTab(ZEST);
+    flush();
     expect(wire.host).toBe(ZEST);
     expect(conductorMode()).toBe(false);
   });
@@ -60,10 +65,12 @@ describe("selectHostTab", () => {
     selectHostTab(ZEST);
     const writesAfterSwitch = wire.writes;
     toggleConductorMode();
+    flush();
 
     // Clicking the tab you are already on, while reading the chat, is how a
     // person asks to go back to it — a no-op would strand them.
     selectHostTab({ kind: "remote", target: "srid@zest" });
+    flush();
     expect(conductorMode()).toBe(false);
     expect(wire.writes).toBe(writesAfterSwitch);
   });
@@ -74,12 +81,14 @@ describe("the ⌘⇧O round trip", () => {
     selectHostTab(ZEST);
 
     toggleConductorMode();
+    flush();
     expect(conductorMode()).toBe(true);
     // Showing the conversation touches no host at all.
     expect(wire.host).toBe(ZEST);
     const writesWhileReading = wire.writes;
 
     toggleConductorMode();
+    flush();
     expect(conductorMode()).toBe(false);
     expect(wire.host).toBe(ZEST);
     expect(wire.writes).toBe(writesWhileReading);

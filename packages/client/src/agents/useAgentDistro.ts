@@ -44,7 +44,7 @@ import { runAction } from "../runAction";
 import { useServerIdentity } from "../useServerIdentity";
 import { getNowTicker } from "../terminal/staleness";
 import { app, hostKeys, padiMap, preferences } from "../wire";
-import AgentDistroLogo from "@kolu/agent-distro/solid";
+import { agentDistroToastIcon } from "./toastMark";
 import {
   type AgentFleetGroup,
   type AgentHostDetail,
@@ -158,7 +158,7 @@ const byHost = createRoot(() => {
           if (landing.words === null) return;
           toast.success(landing.words.title, {
             description: landing.words.description,
-            icon: AgentDistroLogo({ size: 16 }),
+            icon: agentDistroToastIcon(),
           });
         },
       );

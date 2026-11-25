@@ -1,3 +1,4 @@
+import { flush } from "solid-js";
 import { describe, expect, it } from "vitest";
 import { chromeDrawerOpen, setChromeDrawerOpen } from "../useChromeDrawer";
 import { openSettings, setSettingsOpen, settingsOpen } from "./useSettingsOpen";
@@ -13,6 +14,9 @@ describe("openSettings — desktop must not touch the mobile drawer state", () =
     setSettingsOpen(false);
     setChromeDrawerOpen(false);
     openSettings();
+    // The command's writes are staged: the chrome reads them on the flush
+    // after it.
+    flush();
     expect(settingsOpen()).toBe(true);
     expect(chromeDrawerOpen()).toBe(false);
   });

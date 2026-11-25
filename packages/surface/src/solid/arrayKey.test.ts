@@ -75,9 +75,11 @@ const readingOf = (keys: readonly string[]): Reading => ({
 
 /** Frames wait on a real fiber, so a micro-flush is not enough — two macrotask
  *  turns, the same margin `createSubscription.test.ts` uses. */
-async function settle(ticks = 2): Promise<void> { for (let i = 0; i < ticks; i++) {
-  await new Promise<void>((r) => setTimeout(r, 0));
-} }
+async function settle(ticks = 2): Promise<void> {
+  for (let i = 0; i < ticks; i++) {
+    await new Promise<void>((r) => setTimeout(r, 0));
+  }
+}
 
 /** Observe every row of a member's value, the way a rendered list does. A merge
  *  preserves a row's STORE IDENTITY (its proxy — the raw is always the newest

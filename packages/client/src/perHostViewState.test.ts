@@ -25,7 +25,7 @@
 import { Effect } from "effect";
 import type { HostKey } from "kolu-common/hostKey";
 import type { TerminalId } from "kolu-common/surface";
-import { createRoot, createSignal } from "solid-js";
+import { createRoot, createSignal, flush } from "solid-js";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 // The `./wire` mock stands up the mock `padiMap` the real owner reads + the per-tab
@@ -61,8 +61,9 @@ import { setShowSleeping, showSleeping } from "./terminal/showSleeping";
 import { useSubPanel } from "./terminal/useSubPanel";
 import { useViewState } from "./useViewState";
 
-/** Solid flushes membership/keying effects on a microtask; a macrotask drains it. */
-const flush = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
+/** Solid drains membership/keying effects on a microtask; a macrotask tick
+ *  covers them. Named `settle` so it does not shadow Solid's own `flush`. */
+const settle = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
 
 /** The two hosts a switch moves between — `encodeHostKey` maps them to distinct
  *  record + storage keys ("local" vs "remote:B"). */
@@ -91,33 +92,39 @@ beforeEach(() => {
 
 describe("per-host view posture + dock filters (W7 TIER A)", () => {
   it("canvasMaximized: set on A → B sees tiled (default) → back to A restores maximized, and A's per-host key is written", async () => {
-    await createRoot(async (dispose) => {
-      try {
-        const view = useViewState();
+    // The window is built under a root (it is a consumer mount); every write
+    // below runs OUTSIDE that owner, where a real click or stream frame makes
+    // it — a write with an owner in scope is REACTIVE_WRITE_IN_OWNED_SCOPE.
+    const { view, dispose } = createRoot((dispose) => ({
+      view: useViewState(),
+      dispose,
+    }));
+    try {
+      switchTo(HOST_A);
+      await settle();
+      expect(view.canvasMaximized()).toBe(false);
+      view.toggleCanvasMaximized();
+      // A write is staged: the posture is what a consumer reads on the next
+      // flush, not inside the click that made it.
+      flush();
+      expect(view.canvasMaximized()).toBe(true);
+      await settle();
+      // The trade: persisted PER HOST (like the dock filters) so a host's
+      // fullscreen posture survives reload — the pre-W7 behavior, restored.
+      expect(localStorage.getItem("kolu-canvasMaximized:local")).toBe("true");
 
-        switchTo(HOST_A);
-        await flush();
-        expect(view.canvasMaximized()).toBe(false);
-        view.toggleCanvasMaximized();
-        expect(view.canvasMaximized()).toBe(true);
-        await flush();
-        // The trade: persisted PER HOST (like the dock filters) so a host's
-        // fullscreen posture survives reload — the pre-W7 behavior, restored.
-        expect(localStorage.getItem("kolu-canvasMaximized:local")).toBe("true");
+      switchTo(HOST_B);
+      await settle();
+      // B's fresh owner defaults to tiled — A's posture does not bleed across.
+      expect(view.canvasMaximized()).toBe(false);
 
-        switchTo(HOST_B);
-        await flush();
-        // B's fresh owner defaults to tiled — A's posture does not bleed across.
-        expect(view.canvasMaximized()).toBe(false);
-
-        switchTo(HOST_A);
-        await flush();
-        // A's owner was retained across the switch-away — its posture is restored.
-        expect(view.canvasMaximized()).toBe(true);
-      } finally {
-        dispose();
-      }
-    });
+      switchTo(HOST_A);
+      await settle();
+      // A's owner was retained across the switch-away — its posture is restored.
+      expect(view.canvasMaximized()).toBe(true);
+    } finally {
+      dispose();
+    }
   });
 
   it("canvasMaximized: survives a reload — a FRESH owner reads back the persisted posture (the W7-regression repro)", async () => {
@@ -127,125 +134,116 @@ describe("per-host view posture + dock filters (W7 TIER A)", () => {
     // back as maximized. Under the in-memory-only W7 posture this failed — the
     // signal defaulted to `false` and the fullscreen posture was silently lost.
     localStorage.setItem("kolu-canvasMaximized:local", "true");
-    await createRoot(async (dispose) => {
-      try {
-        const view = useViewState();
-        switchTo(HOST_A);
-        await flush();
-        expect(view.canvasMaximized()).toBe(true);
-      } finally {
-        dispose();
-      }
-    });
+    const { view, dispose } = createRoot((dispose) => ({
+      view: useViewState(),
+      dispose,
+    }));
+    try {
+      switchTo(HOST_A);
+      await settle();
+      expect(view.canvasMaximized()).toBe(true);
+    } finally {
+      dispose();
+    }
   });
 
   it("activityWindow: set on A → B sees all (default) → back to A restores 4h, and A's per-host key is written", async () => {
-    await createRoot(async (dispose) => {
-      try {
-        switchTo(HOST_A);
-        await flush();
-        expect(activityWindow()).toBe("all");
-        setActivityWindow("4h");
-        expect(activityWindow()).toBe("4h");
-        await flush();
-        // The trade: persisted PER HOST so a host's filter survives reload.
-        expect(localStorage.getItem("kolu-activityWindow:local")).toBe("4h");
+    switchTo(HOST_A);
+    await settle();
+    expect(activityWindow()).toBe("all");
+    setActivityWindow("4h");
+    flush();
+    expect(activityWindow()).toBe("4h");
+    await settle();
+    // The trade: persisted PER HOST so a host's filter survives reload.
+    expect(localStorage.getItem("kolu-activityWindow:local")).toBe("4h");
 
-        switchTo(HOST_B);
-        await flush();
-        expect(activityWindow()).toBe("all");
+    switchTo(HOST_B);
+    await settle();
+    expect(activityWindow()).toBe("all");
 
-        switchTo(HOST_A);
-        await flush();
-        expect(activityWindow()).toBe("4h");
-      } finally {
-        dispose();
-      }
-    });
+    switchTo(HOST_A);
+    await settle();
+    expect(activityWindow()).toBe("4h");
   });
 
   it("showSleeping: set on A → B sees shown (default) → back to A restores hidden, and A's per-host key is written", async () => {
-    await createRoot(async (dispose) => {
-      try {
-        switchTo(HOST_A);
-        await flush();
-        expect(showSleeping()).toBe(true);
-        setShowSleeping(false);
-        expect(showSleeping()).toBe(false);
-        await flush();
-        expect(localStorage.getItem("kolu-showSleeping:local")).toBe("false");
+    switchTo(HOST_A);
+    await settle();
+    expect(showSleeping()).toBe(true);
+    setShowSleeping(false);
+    flush();
+    expect(showSleeping()).toBe(false);
+    await settle();
+    expect(localStorage.getItem("kolu-showSleeping:local")).toBe("false");
 
-        switchTo(HOST_B);
-        await flush();
-        expect(showSleeping()).toBe(true);
+    switchTo(HOST_B);
+    await settle();
+    expect(showSleeping()).toBe(true);
 
-        switchTo(HOST_A);
-        await flush();
-        expect(showSleeping()).toBe(false);
-      } finally {
-        dispose();
-      }
-    });
+    switchTo(HOST_A);
+    await settle();
+    expect(showSleeping()).toBe(false);
   });
 
   it("reset() clears EVERY reset-on-close-all fact (completeness — a forgotten field fails HERE)", async () => {
-    await createRoot(async (dispose) => {
-      try {
-        switchTo(HOST_A);
-        await flush();
-        const vs = activeScope()?.view;
-        if (!vs) throw new Error("no active view for HOST_A");
-        // Mutate EVERY reset-on-close-all fact this factory owns.
-        useSubPanel().focusMainPane("term-1" as TerminalId);
-        vs.reconcileLiveIds(["term-1", "term-2"] as TerminalId[]);
-        attentionRecordOf("local").markUnread("term-1" as TerminalId);
-        vs.setCanvasMaximized(true);
-        // Sanity: all four facts are non-default.
-        expect(vs.activeId()).not.toBeNull();
-        expect(vs.mruOrder().length).toBeGreaterThan(0);
-        expect(vs.isUnread("term-1" as TerminalId)).toBe(true);
-        expect(vs.canvasMaximized()).toBe(true);
-        // reset() must return EVERY fact to its default. A future reset-on-close-all
-        // fact added to this factory but FORGOTTEN in reset() fails this assertion —
-        // the completeness guard for the hand-enumerated reset (perfection review).
-        vs.reset();
-        expect(vs.activeId()).toBeNull();
-        expect(vs.mruOrder()).toEqual([]);
-        expect(vs.isUnread("term-1" as TerminalId)).toBe(false);
-        expect(vs.canvasMaximized()).toBe(false);
-      } finally {
-        dispose();
-      }
-    });
+    const { subPanel, dispose } = createRoot((dispose) => ({
+      subPanel: useSubPanel(),
+      dispose,
+    }));
+    try {
+      switchTo(HOST_A);
+      await settle();
+      const vs = activeScope()?.view;
+      if (!vs) throw new Error("no active view for HOST_A");
+      // Mutate EVERY reset-on-close-all fact this factory owns.
+      subPanel.focusMainPane("term-1" as TerminalId);
+      vs.reconcileLiveIds(["term-1", "term-2"] as TerminalId[]);
+      attentionRecordOf("local").markUnread("term-1" as TerminalId);
+      vs.setCanvasMaximized(true);
+      flush();
+      // Sanity: all four facts are non-default.
+      expect(vs.activeId()).not.toBeNull();
+      expect(vs.mruOrder().length).toBeGreaterThan(0);
+      expect(vs.isUnread("term-1" as TerminalId)).toBe(true);
+      expect(vs.canvasMaximized()).toBe(true);
+      // reset() must return EVERY fact to its default. A future reset-on-close-all
+      // fact added to this factory but FORGOTTEN in reset() fails this assertion —
+      // the completeness guard for the hand-enumerated reset (perfection review).
+      vs.reset();
+      flush();
+      expect(vs.activeId()).toBeNull();
+      expect(vs.mruOrder()).toEqual([]);
+      expect(vs.isUnread("term-1" as TerminalId)).toBe(false);
+      expect(vs.canvasMaximized()).toBe(false);
+    } finally {
+      dispose();
+    }
   });
 
   it("the engine's episode end clears the mark without focusing — on a host you are NOT viewing", async () => {
     // The attention engine's episode-end edge: an agent that goes back to work
     // clears the dock unread mark it raised, addressed to the host that holds it
     // (through the host's record, which the view state reads).
-    await createRoot(async (dispose) => {
-      try {
-        switchTo(HOST_A);
-        await flush();
-        const a = activeScope()?.view;
-        if (!a) throw new Error("no active view for HOST_A");
-        attentionRecordOf("local").markUnread("term-1" as TerminalId);
-        expect(a.isUnread("term-1" as TerminalId)).toBe(true);
+    switchTo(HOST_A);
+    await settle();
+    const a = activeScope()?.view;
+    if (!a) throw new Error("no active view for HOST_A");
+    attentionRecordOf("local").markUnread("term-1" as TerminalId);
+    flush();
+    expect(a.isUnread("term-1" as TerminalId)).toBe(true);
 
-        // Switch away — A's owner is retained, so its mark is still up.
-        switchTo(HOST_B);
-        await flush();
-        const retained = hostScopeOf(HOST_A)?.view;
-        if (!retained) throw new Error("HOST_A's owner was not retained");
-        expect(retained.isUnread("term-1" as TerminalId)).toBe(true);
+    // Switch away — A's owner is retained, so its mark is still up.
+    switchTo(HOST_B);
+    await settle();
+    const retained = hostScopeOf(HOST_A)?.view;
+    if (!retained) throw new Error("HOST_A's owner was not retained");
+    expect(retained.isUnread("term-1" as TerminalId)).toBe(true);
 
-        attentionRecordOf("local").clearUnread("term-1" as TerminalId);
-        expect(retained.isUnread("term-1" as TerminalId)).toBe(false);
-        // Clearing a mark is not an activation — focus is untouched.
-        expect(retained.focusedTerminalId()).toBeNull();
-      } finally {
-        dispose();
-      }
-    });
+    attentionRecordOf("local").clearUnread("term-1" as TerminalId);
+    flush();
+    expect(retained.isUnread("term-1" as TerminalId)).toBe(false);
+    // Clearing a mark is not an activation — focus is untouched.
+    expect(retained.focusedTerminalId()).toBeNull();
   });
 });

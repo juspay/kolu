@@ -231,18 +231,27 @@ export function useTerminalMetadata(deps: {
     // Reprojects on every change of this id's raw record OR the active host's
     // clock. Sole write path for reprojected metadata — the fresh-object read
     // path is unspellable elsewhere.
+    //
+    // The derive RETURNS its value; it does not assign it into a draft. That is
+    // what buys the identity stability below: a returned value is committed
+    // through Solid's reconcile channel (merged into the live store, leaf by
+    // leaf), whereas assigning a fresh object to a draft KEY replaces that key's
+    // value wholesale — a new proxy per reprojection, and every leaf reader woken
+    // (the #1714 flicker, exactly).
     const projected = createProjection<{ v: TerminalMetadata | undefined }>(
-      (draft) => {
+      () => {
         const record = rawTile(id);
-        draft.v =
-          record === undefined
-            ? undefined
-            : reprojectTerminalClock(
-                padiMap.entry(activeHost()).clock.toLocal,
-                record,
-              );
+        return {
+          v:
+            record === undefined
+              ? undefined
+              : reprojectTerminalClock(
+                  padiMap.entry(activeHost()).clock.toLocal,
+                  record,
+                ),
+        };
       },
-      { v: undefined },
+      null,
       { key: null },
     );
     const parent = createMemo(() => {

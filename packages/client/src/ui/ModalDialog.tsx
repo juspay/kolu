@@ -136,7 +136,7 @@ const ModalDialog: Component<{
         if (props.placesOwnFocus) e.preventDefault();
       }}
       // terminal.focus() calls (visibility effects, click handlers) emit focusin
-      // events that solid-dismissible interprets as the user leaving the dialog.
+      // events that `@corvu-next/dismissible` interprets as the user leaving the dialog.
       closeOnOutsideFocus={false}
       closeOnOutsidePointer={props.dismissible ?? true}
       initialFocusEl={props.initialFocusEl}

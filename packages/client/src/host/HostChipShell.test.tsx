@@ -18,7 +18,7 @@
  * the `HostDownCanvas.test.tsx` idiom.
  */
 import type { HostKey } from "kolu-common/hostKey";
-import { createSignal } from "solid-js";
+import { createSignal, flush } from "solid-js";
 import { render } from "@solidjs/web";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { HostChipShell } from "./HostChipShell";
@@ -62,6 +62,7 @@ function mount(state: () => { active: boolean; down: boolean }) {
     ),
     root,
   );
+  flush();
   return root;
 }
 
@@ -128,10 +129,12 @@ describe("HostChipShell — one class authority per element", () => {
     const el = mount(() => ({ active: active(), down: false }));
     expect(tabOf(el).classList.contains("host-tab-active")).toBe(true);
     setActive(false);
+    flush();
     expect(tabOf(el).classList.contains("host-tab-active")).toBe(false);
     expect(tabOf(el).classList.contains("host-tab-idle")).toBe(true);
     expect(selectOf(el).classList.contains("text-fg-2")).toBe(true);
     setActive(true);
+    flush();
     expect(tabOf(el).classList.contains("host-tab-active")).toBe(true);
     expect(tabOf(el).classList.contains("host-tab-idle")).toBe(false);
     expect(selectOf(el).classList.contains("text-fg")).toBe(true);
