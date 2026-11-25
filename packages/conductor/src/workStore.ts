@@ -439,7 +439,7 @@ export const workStore = (deps: WorkStoreDeps): WorkStore => {
    *  then reads; and a re-key never lands in the middle of a sweep that read
    *  the directory before the rename. */
   let fileOps: Promise<unknown> = Promise.resolve();
-  const serial = <T>(op: () => Promise<T>): Promise<T> => {
+  const serial = <T>(op: () => T | Promise<T>): Promise<T> => {
     const run = fileOps.then(op);
     fileOps = run.catch(() => undefined);
     return run;
@@ -685,10 +685,12 @@ export const workStore = (deps: WorkStoreDeps): WorkStore => {
           ),
         );
 
-  /** A RE-KEY, written — inside the kept-files queue, at the moment it runs.
-   *  A work whose files are being kept is left alone; a move carries the
-   *  folder FIRST and the record only once the folder has moved. */
-  const rekeyNow = async (id: WorkId, root: string): Promise<RekeyDone> => {
+  /** A RE-KEY, written — inside the kept-files queue, so no keep or sweep is
+   *  in flight, and with NO WAIT between its decision and its record: a move
+   *  renames the folder (synchronously, `WorkFiles.move`) and writes the
+   *  record in the same turn, so the store cannot change in between and no
+   *  folder is ever carried back. */
+  const rekeyNow = (id: WorkId, root: string): RekeyDone => {
     const before = value.works.get(id);
     if (
       before === undefined ||
@@ -709,13 +711,11 @@ export const workStore = (deps: WorkStoreDeps): WorkStore => {
     )
       return rekey;
     if (rekey.kind === "moved") {
-      const from = workDirOf(id);
-      const to = workDirOf(rekey.to);
       // THE FILES FIRST. A record under the new id beside a folder under the
       // old one is a folder the next sweep deletes; so a move that fails
       // leaves the work where it is, and the next answer tries again.
       try {
-        await deps.workFiles.move(from, to);
+        deps.workFiles.move(workDirOf(id), workDirOf(rekey.to));
       } catch (err) {
         deps.log.error(
           { err, work: id, to: rekey.to },
@@ -723,18 +723,8 @@ export const workStore = (deps: WorkStoreDeps): WorkStore => {
         );
         return { kind: "deferred", why: "files-not-moved" };
       }
-      // ... and the record, as it stands NOW: the folder's rename was the
-      // one wait. Anything that moved meanwhile puts the folder back.
-      const again = rekeyed(value, id, root, nowIso());
-      if (
-        closing.has(id) ||
-        again.rekey.kind !== "moved" ||
-        again.rekey.to !== rekey.to
-      ) {
-        await deps.workFiles.move(to, from);
-        return { kind: "deferred", why: "not-unrooted" };
-      }
-      commit(again.value.works, again.value.members);
+      // ... and the record, in the same turn as the decision.
+      commit(first.value.works, first.value.members);
       deps.views.move(id, rekey.to);
       const pr = livePrs.get(id);
       if (pr !== undefined) {

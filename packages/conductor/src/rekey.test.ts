@@ -260,6 +260,29 @@ describe("a re-key that moves the work", () => {
     for (const keep of sweeps) expect(keep).toContain(workDirOf(OLD));
     expect(r.files.ops.some((op) => op.kind === "move")).toBe(false);
   });
+
+  it("writes the record in the rename's own turn, so nothing takes the id between (N2)", async () => {
+    // Another caller's turn, queued while the folder is renamed: a work
+    // opened at the root's key. It must find the moved work there — not a
+    // free id to open a second work at, which would send the folder back.
+    const r = rigWith(finished(OLD_KEY, "csv export"));
+    let during: unknown;
+    r.files.during = () =>
+      queueMicrotask(() => {
+        during = r.works.openFor({
+          key: GIT_KEY,
+          title: "csv, again",
+          request: { kind: "none" },
+        });
+      });
+    expect(await r.works.rekey(OLD, ROOT)).toEqual({ kind: "moved", to: NEW });
+    expect(during).toMatchObject({ id: NEW, created: false });
+    expect(r.works.all().map(([id]) => id)).toEqual([NEW]);
+    expect(r.files.ops).toEqual([
+      { kind: "move", from: workDirOf(OLD), to: workDirOf(NEW) },
+    ]);
+    expect(r.errors).toEqual([]);
+  });
 });
 
 describe("a re-key whose root another work holds", () => {

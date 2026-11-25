@@ -491,7 +491,7 @@ function fakeFiles(): FakeFiles {
       sweep: async (keep) => {
         swept.push([...keep]);
       },
-      move: async (from, to) => {
+      move: (from, to) => {
         moved.push({ from, to });
       },
     },

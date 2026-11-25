@@ -35,6 +35,9 @@ export interface FilesRig {
   >;
   /** Set to make every move reject, as a rename that fails would. */
   failMoves: boolean;
+  /** Called as each move runs: whatever else happens while the rename
+   *  does (a test queues it, as another caller's turn would come). */
+  during?: () => void;
 }
 
 export interface WorkRig {
@@ -73,7 +76,8 @@ export function workRig(): WorkRig {
     sweep: async (keep) => {
       files.ops.push({ kind: "sweep", keep });
     },
-    move: async (from, to) => {
+    move: (from, to) => {
+      files.during?.();
       if (files.failMoves) throw new Error(`could not rename ${from}`);
       files.ops.push({ kind: "move", from, to });
     },
