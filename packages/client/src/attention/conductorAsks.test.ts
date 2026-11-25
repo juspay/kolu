@@ -20,6 +20,7 @@ import {
 import { describe, expect, it } from "vitest";
 import {
   type BellReading,
+  type BellView,
   type ConductorBellHooks,
   createConductorBell,
 } from "./conductorAsks";
@@ -87,46 +88,57 @@ function harness() {
   return { bell, rang, memoryRang, replies };
 }
 
+/** The view a reading is taken with; the bell carries it to `deliver` and
+ *  reads nothing in it, so one stands for every case here. */
+const VIEW: BellView = {
+  conductorShown: false,
+  replyTitle: undefined,
+  alertsEnabled: true,
+};
+
 /** A finished reply to a message a person typed. */
 const typed = (turn: string) => ({ turn, text: "Done. More.", work: null });
 
 describe("the Conductor's bell", () => {
   it("the first reading never rings, even with waits already open (a reload)", () => {
     const { bell, rang } = harness();
-    bell.observe(reading([question(KOLU, "a1"), merge(OLAI, 700, "c88")]));
+    bell.observe(
+      reading([question(KOLU, "a1"), merge(OLAI, 700, "c88")]),
+      VIEW,
+    );
     expect(rang).toEqual([]);
   });
 
   it("a question put about a work rings once, by its words", () => {
     const { bell, rang } = harness();
-    bell.observe(reading([]));
-    bell.observe(reading([question(KOLU, "a1")]));
-    bell.observe(reading([question(KOLU, "a1")]));
+    bell.observe(reading([]), VIEW);
+    bell.observe(reading([question(KOLU, "a1")]), VIEW);
+    bell.observe(reading([question(KOLU, "a1")]), VIEW);
     expect(rang).toEqual([{ items: ["May I?"], own: null }]);
   });
 
   it("a hand-over PR going green rings, for a work this browser already knew", () => {
     const { bell, rang } = harness();
-    bell.observe(reading([]));
-    bell.observe(reading([merge(OLAI, 700, "c88")]));
+    bell.observe(reading([]), VIEW);
+    bell.observe(reading([merge(OLAI, 700, "c88")]), VIEW);
     expect(rang).toEqual([{ items: ["Merge PR #700"], own: null }]);
   });
 
   it("#2400's flicker — can, cannot, can on one commit — is one ring", () => {
     const { bell, rang } = harness();
-    bell.observe(reading([]));
-    bell.observe(reading([merge(OLAI, 2400, "d3f4185")]));
-    bell.observe(reading([]));
-    bell.observe(reading([merge(OLAI, 2400, "d3f4185")]));
+    bell.observe(reading([]), VIEW);
+    bell.observe(reading([merge(OLAI, 2400, "d3f4185")]), VIEW);
+    bell.observe(reading([]), VIEW);
+    bell.observe(reading([merge(OLAI, 2400, "d3f4185")]), VIEW);
     expect(rang).toHaveLength(1);
   });
 
   it("a second commit going green rings again", () => {
     const { bell, rang } = harness();
-    bell.observe(reading([]));
-    bell.observe(reading([merge(OLAI, 2400, "d3f4185")]));
-    bell.observe(reading([]));
-    bell.observe(reading([merge(OLAI, 2400, "69b08e9")]));
+    bell.observe(reading([]), VIEW);
+    bell.observe(reading([merge(OLAI, 2400, "d3f4185")]), VIEW);
+    bell.observe(reading([]), VIEW);
+    bell.observe(reading([merge(OLAI, 2400, "69b08e9")]), VIEW);
     expect(rang).toHaveLength(2);
   });
 
@@ -135,32 +147,35 @@ describe("the Conductor's bell", () => {
     // frame: a work met for the first time already waiting was waiting
     // before this browser looked.
     const { bell, rang } = harness();
-    bell.observe(reading([], { works: new Set(), workAsks: ["a1"] }));
-    bell.observe(reading([question(KOLU, "a1"), merge(OLAI, 700, "c88")]));
+    bell.observe(reading([], { works: new Set(), workAsks: ["a1"] }), VIEW);
+    bell.observe(
+      reading([question(KOLU, "a1"), merge(OLAI, 700, "c88")]),
+      VIEW,
+    );
     expect(rang).toEqual([]);
   });
 
   it("rings for a work born asking, whose record is new", () => {
     const { bell, rang } = harness();
-    bell.observe(reading([], { works: new Set() }));
-    bell.observe(reading([question(KOLU, "setup")]));
+    bell.observe(reading([], { works: new Set() }), VIEW);
+    bell.observe(reading([question(KOLU, "setup")]), VIEW);
     expect(rang).toEqual([{ items: ["May I?"], own: null }]);
   });
 
   it("judges a work's question by its work, though the question arrives before the work's record", () => {
     const { bell, rang } = harness();
-    bell.observe(reading([], { works: new Set() }));
-    bell.observe(reading([], { works: new Set(), workAsks: ["a1"] }));
+    bell.observe(reading([], { works: new Set() }), VIEW);
+    bell.observe(reading([], { works: new Set(), workAsks: ["a1"] }), VIEW);
     expect(rang).toEqual([]);
-    bell.observe(reading([question(KOLU, "a1")]));
+    bell.observe(reading([question(KOLU, "a1")]), VIEW);
     expect(rang).toEqual([{ items: ["May I?"], own: null }]);
   });
 
   it("each new question of the conversation's own rings, with how many are open", () => {
     const { bell, rang } = harness();
-    bell.observe(reading([]));
-    bell.observe(reading([], { ownAsks: ["c1"] }));
-    bell.observe(reading([], { ownAsks: ["c1", "c2"] }));
+    bell.observe(reading([]), VIEW);
+    bell.observe(reading([], { ownAsks: ["c1"] }), VIEW);
+    bell.observe(reading([], { ownAsks: ["c1", "c2"] }), VIEW);
     expect(rang).toEqual([
       { items: [], own: 1 },
       { items: [], own: 2 },
@@ -171,35 +186,35 @@ describe("the Conductor's bell", () => {
 describe("the Conductor's bell, for a reply to a message you typed", () => {
   it("does not ring for the first reply it has a reading of", () => {
     const { bell, replies } = harness();
-    bell.observe(reading([]));
-    bell.observe(reading([], { reply: typed("u1") }));
+    bell.observe(reading([]), VIEW);
+    bell.observe(reading([], { reply: typed("u1") }), VIEW);
     expect(replies).toEqual([]);
   });
 
   it("rings once for a new reply", () => {
     const { bell, replies } = harness();
-    bell.observe(reading([]));
-    bell.observe(reading([], { reply: typed("u1") }));
-    bell.observe(reading([], { reply: typed("u2") }));
-    bell.observe(reading([], { reply: typed("u2") }));
+    bell.observe(reading([]), VIEW);
+    bell.observe(reading([], { reply: typed("u1") }), VIEW);
+    bell.observe(reading([], { reply: typed("u2") }), VIEW);
+    bell.observe(reading([], { reply: typed("u2") }), VIEW);
     expect(replies).toEqual(["u2"]);
   });
 
   it("rings again for a later reply", () => {
     const { bell, replies } = harness();
-    bell.observe(reading([]));
-    bell.observe(reading([], { reply: typed("u1") }));
-    bell.observe(reading([], { reply: typed("u2") }));
-    bell.observe(reading([], { reply: typed("u3") }));
+    bell.observe(reading([]), VIEW);
+    bell.observe(reading([], { reply: typed("u1") }), VIEW);
+    bell.observe(reading([], { reply: typed("u2") }), VIEW);
+    bell.observe(reading([], { reply: typed("u3") }), VIEW);
     expect(replies).toEqual(["u2", "u3"]);
   });
 
   it("rings nothing more when no reply is finished", () => {
     const { bell, replies } = harness();
-    bell.observe(reading([]));
-    bell.observe(reading([], { reply: typed("u1") }));
-    bell.observe(reading([], { reply: typed("u2") }));
-    bell.observe(reading([], { reply: null }));
+    bell.observe(reading([]), VIEW);
+    bell.observe(reading([], { reply: typed("u1") }), VIEW);
+    bell.observe(reading([], { reply: typed("u2") }), VIEW);
+    bell.observe(reading([], { reply: null }), VIEW);
     expect(replies).toEqual(["u2"]);
   });
 });
@@ -269,7 +284,10 @@ describe("the Conductor's bell, over real work records", () => {
   it("never rings for a green draft, and rings once when it is marked ready", () => {
     const { bell, rang } = harness();
     const read = (work: Work) =>
-      bell.observe(reading(needsYou([[ID, work]]), { works: new Set([ID]) }));
+      bell.observe(
+        reading(needsYou([[ID, work]]), { works: new Set([ID]) }),
+        VIEW,
+      );
     let work = handOver();
     read(work);
     work = [
@@ -322,33 +340,33 @@ describe("the Conductor's bell, for memory", () => {
 
   it("never rings on the first reading, however much waits", () => {
     const { bell, memoryRang } = harness();
-    bell.observe(reading([], { memory: waiting("u1", 3) }));
+    bell.observe(reading([], { memory: waiting("u1", 3) }), VIEW);
     expect(memoryRang).toEqual([]);
   });
 
   it("rings once for a batch, however many proposals it holds", () => {
     const { bell, memoryRang } = harness();
-    bell.observe(reading([]));
-    bell.observe(reading([], { memory: waiting("u2", 1) }));
-    bell.observe(reading([], { memory: waiting("u2", 2) }));
-    bell.observe(reading([], { memory: waiting("u2", 5) }));
+    bell.observe(reading([]), VIEW);
+    bell.observe(reading([], { memory: waiting("u2", 1) }), VIEW);
+    bell.observe(reading([], { memory: waiting("u2", 2) }), VIEW);
+    bell.observe(reading([], { memory: waiting("u2", 5) }), VIEW);
     expect(memoryRang).toEqual(["u2"]);
   });
 
   it("rings again for a proposal from a later turn", () => {
     const { bell, memoryRang } = harness();
-    bell.observe(reading([]));
-    bell.observe(reading([], { memory: waiting("u2", 1) }));
-    bell.observe(reading([], { memory: waiting("u3", 2) }));
+    bell.observe(reading([]), VIEW);
+    bell.observe(reading([], { memory: waiting("u2", 1) }), VIEW);
+    bell.observe(reading([], { memory: waiting("u3", 2) }), VIEW);
     expect(memoryRang).toEqual(["u2", "u3"]);
   });
 
   it("takes the memory's own first frame as its baseline, even after the conversation's", () => {
     const { bell, memoryRang } = harness();
-    bell.observe(reading([], { memory: undefined }));
-    bell.observe(reading([], { memory: waiting("u1", 2) }));
+    bell.observe(reading([], { memory: undefined }), VIEW);
+    bell.observe(reading([], { memory: waiting("u1", 2) }), VIEW);
     expect(memoryRang).toEqual([]);
-    bell.observe(reading([], { memory: waiting("u4", 3) }));
+    bell.observe(reading([], { memory: waiting("u4", 3) }), VIEW);
     expect(memoryRang).toEqual(["u4"]);
   });
 });

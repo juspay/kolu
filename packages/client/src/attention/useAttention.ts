@@ -215,19 +215,6 @@ export function useAttention(deps: AttentionDeps): {
 
   const workMap = useWorkMap();
   const needs = useNeedsYou();
-  /** WHAT THE BELL'S DELIVERY KNOWS ABOUT THE VIEW, taken with the reading
-   *  that may ring it: read in the feed's COMPUTE phase below and set just
-   *  before the fold. `observe` is synchronous, so a ring sees the facts its
-   *  own reading carried — and the delivery itself, which runs in the effect's
-   *  imperative phase, reads nothing reactive. */
-  let bellView: {
-    /** Is the conversation the view on screen? Whether the WINDOW has focus is
-     *  a DOM question, asked at the instant of the ring. */
-    readonly conductorShown: boolean;
-    /** The title of the work a typed reply belongs to, when it has one. */
-    readonly replyTitle: string | undefined;
-    readonly alertsEnabled: boolean;
-  } = { conductorShown: false, replyTitle: undefined, alertsEnabled: false };
   /** WHAT NEEDS YOU, handed to the one path.
    *
    *  A work waiting on you — a question, a green PR handed over — and a
@@ -236,11 +223,15 @@ export function useAttention(deps: AttentionDeps): {
    *  below. WHAT rings is `conductorAsks`'s rule; HOW it reaches the human is
    *  `attend.raise`'s. In front of the Conductor, its own questions, waiting
    *  work and memory chime without a desktop popup; anywhere else, each
-   *  raises one. */
+   *  raises one.
+   *
+   *  The view facts come WITH the ring (`BellView`, read in the feed's
+   *  compute phase below): the delivery runs in the effect's imperative
+   *  phase and reads nothing reactive itself. */
   const conductorBell = createConductorBell({
-    deliver: ({ items, ownOpen, memory, reply }) => {
+    deliver: ({ items, ownOpen, memory, reply }, view) => {
       // IN FRONT OF THE HUMAN: the conversation on screen in a focused window.
-      const inFront = bellView.conductorShown && document.hasFocus();
+      const inFront = view.conductorShown && document.hasFocus();
       attend.raise(
         [
           ...items.map((item) => workItem(item, inFront)),
@@ -248,9 +239,9 @@ export function useAttention(deps: AttentionDeps): {
           ...(memory === null ? [] : [memoryItem(memory, inFront)]),
           ...(reply === null
             ? []
-            : replyItems(reply, bellView.replyTitle, inFront)),
+            : replyItems(reply, view.replyTitle, inFront)),
         ],
-        bellView.alertsEnabled,
+        view.alertsEnabled,
       );
     },
   });
@@ -288,10 +279,10 @@ export function useAttention(deps: AttentionDeps): {
     },
     (frame) => {
       if (frame === null) return;
-      bellView = frame.view;
-      // The bell folds the reading it is handed; what it reads while doing so
-      // (what is already ringing) is not an input of this feed.
-      conductorBell.observe(frame.reading);
+      // The bell folds the reading it is handed, with the view facts taken
+      // with it; what it reads while doing so (what is already ringing) is
+      // not an input of this feed.
+      conductorBell.observe(frame.reading, frame.view);
     },
   );
 
