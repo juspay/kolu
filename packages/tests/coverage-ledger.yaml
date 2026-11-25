@@ -5408,3 +5408,16 @@ retirements:
       file: packages/tests/features/conductor-work.feature
       symbol: "Scenario: The stage map names every stage and emphasises the one it is in"
       test: Same journey and the same assertions, now about the stage map that replaced the strip; only the title and the step wording changed.
+  - id: revise-bb5a2fe533ed3b79a974
+    revisionId: revision-bb5a2fe533ed3b79a974
+    action: revised
+    status: landed
+    promise: A work whose setup names a harness is refused on a host whose agents are too old to ask, before any setup form exists
+    defectSurface: [agents, conductor]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-64f64206abf9265fa351]
+    sameCodePathEvidence:
+      file: packages/tests/features/agents-too-old.feature
+      symbol: "Scenario: A work whose setup names a harness is refused on agents too old to ask"
+      test: Same journey and the same assertions; the open now names a repository the harness made, through a step instead of a raw prompt, because the fixture conductor no longer makes a repository of its own.
