@@ -144,3 +144,81 @@ test("a bad flag fails even when the server serves a manifest", async () => {
     await assert.rejects(solidDevCheckFor(baseUrl), /must be "1"/);
   });
 });
+
+test("the init script subscribes the moment the client hands OBSERVE over", () => {
+  const reported: PageDiagnostic[] = [];
+  const listeners: ((event: unknown) => void)[] = [];
+  const window: Record<string, unknown> = {
+    [SOLID_DIAGNOSTIC_BINDING]: (event: PageDiagnostic) => reported.push(event),
+  };
+  // The script is page source, not a module: run it with its own `window`,
+  // which is the only global it touches.
+  new Function("window", solidObserveInitScript())(window);
+  // Nothing to subscribe to until the client assigns it — the script runs
+  // first, so it owns the global and waits.
+  assert.equal(listeners.length, 0);
+  window.__SOLID_OBSERVE__ = {
+    diagnostics: {
+      subscribe: (listener: (event: unknown) => void) =>
+        listeners.push(listener),
+    },
+  };
+  assert.equal(listeners.length, 1);
+  listeners[0]?.({
+    sequence: 7,
+    code: "REACTIVE_WRITE_IN_OWNED_SCOPE",
+    kind: "write",
+    severity: "error",
+    message: "a signal was written in an owned scope",
+    loc: "src/conductor/PaletteRow.tsx:372:9",
+    ownerPath: ["<App>", "<PaletteRow>"],
+  });
+  assert.deepEqual(reported, [
+    {
+      code: "REACTIVE_WRITE_IN_OWNED_SCOPE",
+      loc: "src/conductor/PaletteRow.tsx:372:9",
+      ownerPath: ["<App>", "<PaletteRow>"],
+      message: "a signal was written in an owned scope",
+    },
+  ]);
+});
+
+test("the verdict names each diagnostic, where it was and what threw", () => {
+  const verdict = solidDiagnosticVerdict({
+    events: [
+      {
+        code: "REACTIVE_WRITE_IN_OWNED_SCOPE",
+        loc: "src/conductor/PaletteRow.tsx:372:9",
+        ownerPath: ["<App>", "<PaletteRow>"],
+        message: "a signal was written in an owned scope",
+      },
+      // An unowned primitive carries no owner path, and a node compiled
+      // without locations no `loc`: neither is printed as `undefined`.
+      { code: "NO_OWNER_EFFECT", message: "an effect with no owner" },
+    ],
+    lines: ["useHead: ignoring invalid attribute name"],
+    pageErrors: ["TypeError: x is not a function"],
+  });
+  assert.equal(
+    verdict,
+    [
+      "Solid dev diagnostics (3):",
+      "  REACTIVE_WRITE_IN_OWNED_SCOPE at src/conductor/PaletteRow.tsx:372:9 in <App> > <PaletteRow>: a signal was written in an owned scope",
+      "  NO_OWNER_EFFECT: an effect with no owner",
+      "  useHead: ignoring invalid attribute name",
+      "the pages threw (1):",
+      "  TypeError: x is not a function",
+    ].join("\n"),
+  );
+});
+
+test("a scenario that raised nothing has no verdict, whatever it threw", () => {
+  assert.equal(
+    solidDiagnosticVerdict({
+      events: [],
+      lines: [],
+      pageErrors: ["TypeError: x is not a function"],
+    }),
+    undefined,
+  );
+});
