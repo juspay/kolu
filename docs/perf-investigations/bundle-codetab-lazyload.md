@@ -54,15 +54,17 @@ win at the cost of a visible regression on the default surface — so it's defer
 
 ## The durable lessons (if revisited)
 
-- **Defer the lazy boundary past `onMount`.** Because the default tab is `code`,
-  rendering the lazy component during the *first synchronous render* suspended the
-  initial paint and **hung the whole app** (observed failing, then fixed, on a pu
-  box — `code-tab.feature` 0/115 → 115/115). Any future lazy-load of a
-  default-visible surface must flip its mount latch after `onMount` so first paint
-  completes first.
-- **Wrap the lazy import in an `ErrorBoundary`.** A post-deploy stale-chunk 404
-  *rejects* the dynamic import, which `Suspense` does **not** catch — route it to
-  the existing reload affordance (`useSurfaceApp().reload()`).
+- **Defer the lazy boundary past the first settle.** Because the default tab is
+  `code`, rendering the lazy component during the *first synchronous render*
+  suspended the initial paint and **hung the whole app** (observed failing, then
+  fixed, on a pu box — `code-tab.feature` 0/115 → 115/115). Any future lazy-load
+  of a default-visible surface must flip its mount latch from an `onSettled`
+  callback, so the first paint completes before the chunk is asked for.
+- **Wrap the lazy import in an `Errored` boundary.** A post-deploy stale-chunk
+  404 *rejects* the dynamic import. A `<Loading>` boundary catches only the
+  pending read; a real error passes straight through it to the nearest
+  `<Errored>` — put one there and route it to the existing reload affordance
+  (`useSurfaceApp().reload()`).
 
 ## To unblock it later
 

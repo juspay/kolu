@@ -5,7 +5,7 @@ description: Diagnose Kolu client-side performance issues (memory leaks, high GP
 
 # Performance diagnosis
 
-Full historical context + fix details: `docs/perf-investigations/memory-learnings.md`. Master tracking issue: [#610](https://github.com/juspay/kolu/issues/610). This file is the runbook.
+Full historical context + fix details: `docs/perf-investigations/memory-learnings.md`; its "The async settle cleanup race (generalizable)" section is the fix pattern in today's APIs. Master tracking issue: [#610](https://github.com/juspay/kolu/issues/610). This file is the runbook.
 
 **Server-side slowness starts somewhere else.** If what is slow is padi — typing lag on every tab, a Code tab that takes seconds, a host's dot going amber — this runbook is the wrong one. Read `kolu surface diagnostics_read` on that host (or **Debug → Diagnostic info → padi**) first: the child processes padi ran in the last minute and their start-call time, event-loop stalls, every file watcher with who asked for it, padi's memory split by heap, and per-procedure call time. `website/src/content/docs/troubleshooting.mdx` → "kolu feels slow" reads each part.
 
@@ -75,7 +75,7 @@ Violation patterns:
 
 | Violation                                                               | Diagnosis                                                                                                  |
 | ----------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
-| `totalCreated - disposed > 1` + orphan tape has only `{kind: "create"}` | Async mount-hook (`onSettled`) cleanup race. Look for a new `await` before the cleanup registers. Fix pattern in #598. |
+| `totalCreated - disposed > 1` + orphan tape has only `{kind: "create"}` | Async settle cleanup race. Look for async work started in `onSettled` that allocates after the owner is gone — "The async settle cleanup race" in `memory-learnings.md`. Fix pattern in #598. |
 | `aliveDetached > contextsLost`                                          | `loseContext()` isn't firing. Check canvas selector (#596 pattern) or xterm preventDefault.                |
 | Retained `yn._store._isDisposed=true`                                   | Cleanup runs, memory pinned externally. Run `orphan-paths.mjs` to find the pin.                            |
 | `contextlost` with `defaultPrevented: true` time-adjacent to active use | xterm's listener ran before disposal — schedules a 3 s restoration timer.                                  |

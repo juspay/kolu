@@ -259,39 +259,52 @@ Focus swaps alone rarely leak. What does:
 
 ---
 
-## The async-onMount cleanup race (generalizable)
+## The async settle cleanup race (generalizable)
 
 If you see this shape anywhere in SolidJS code:
 
 ```ts
-onMount(async () => {
-  await somethingAsync();
-  createExpensiveResource(); // allocates GPU / native / etc
-  onCleanup(() => disposeResource()); // ← silent no-op if already disposed
+onSettled(() => {
+  void somethingAsync().then(() => {
+    createExpensiveResource(); // allocates GPU / native / etc
+  });
 });
 ```
 
-...and the component can be unmounted during the `await` (via `<Show>`
-toggle, `<For>` key change, parent re-render), you have a leak.
-`onCleanup` inside a disposed reactive owner is a **silent no-op**.
+...and the component can be unmounted while that promise is in flight (via
+`<Show>` toggle, `<For>` key change, parent re-render), you have a leak. The
+resource is allocated under an owner that is already disposed, so nothing
+ever disposes it — and any `onCleanup` a library registers for it is a
+silent no-op.
 
-Fix shape:
+Solid 2 removes the sloppiest version of this: `onSettled` takes a plain
+callback that returns a cleanup function, so an `async` callback is rejected
+outright (an async function returns a promise, and a non-function return
+throws "callback returned an invalid cleanup value"). `onCleanup` is not
+allowed inside the callback either. What stays is the race above: async work
+started from the callback, landing after the owner is gone.
+
+Fix shape — capture the owner in the component body, bail out if it is gone,
+and hand back teardown as the callback's return:
 
 ```ts
-let disposed = false;
-onCleanup(() => {
-  disposed = true;
-  disposeResource(); // handle null case: await never completed
-});
+const owner = getOwner(); // the component's own owner, before any await
 
-onMount(async () => {
-  const owner = getOwner(); // capture before await
-  await somethingAsync();
-  if (disposed) return;
-  runWithOwner(owner, () => {
-    // so library-internal onCleanup
-    createExpensiveResource(); //   calls register on our list
+onSettled(() => {
+  let resource: ExpensiveResource | undefined;
+  let disposed = false;
+
+  void somethingAsync().then(() => {
+    if (disposed || !owner || isDisposed(owner)) return;
+    runWithOwner(owner, () => {
+      resource = createExpensiveResource(); // so library-internal onCleanup
+    }); //                                     calls register on a live owner
   });
+
+  return () => {
+    disposed = true;
+    resource?.dispose(); // handles the null case: the await never completed
+  };
 });
 ```
 
