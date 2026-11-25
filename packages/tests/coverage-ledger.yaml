@@ -5421,3 +5421,16 @@ retirements:
       file: packages/tests/features/agents-too-old.feature
       symbol: "Scenario: A work whose setup names a harness is refused on agents too old to ask"
       test: Same journey and the same assertions; the open now names a repository the harness made, through a step instead of a raw prompt, because the fixture conductor no longer makes a repository of its own.
+  - id: revise-5f14c3e2753aabf066a3
+    revisionId: revision-5f14c3e2753aabf066a3
+    action: revised
+    status: landed
+    promise: The stage follows each hand-off round review and build, and the map counts the loops and the trail shows every visit
+    defectSurface: [conductor]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-b49bbf5c6c25bf8f8550]
+    sameCodePathEvidence:
+      file: packages/tests/features/conductor-work.feature
+      symbol: "Scenario: A draft's work goes round review twice and into the checks, and the map counts the loops"
+      test: Same journey and every assertion it had, plus one wait; the hand-off back to the planner now comes after the timeline shows both agents stopped, as a real Conductor hands over only on that news.

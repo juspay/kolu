@@ -13582,6 +13582,18 @@
       "exampleRows": [],
       "executions": 1,
       "firstSeenSha": "d5f50f31f4bb9947bfc2e4f80da8120c35cbf690"
+    },
+    {
+      "revisionId": "revision-b49bbf5c6c25bf8f8550",
+      "scenarioKey": "scenario-2b923277b81d9d795a74",
+      "feature": "features/conductor-work.feature",
+      "scenario": "A draft's work goes round review twice and into the checks, and the map counts the loops",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "8c34c3a757632c62f6abfa5a51ec74352604218e65580b73357a76f213e12561",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "c86b9a1d3fa3159eb1eef44adbbbee300f947201"
     }
   ]
 }

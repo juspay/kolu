@@ -170,7 +170,11 @@ Feature: A piece of work is a stored thing
     # to a member — a real `agent_say` — so each hand-off is on the record:
     # to the planner is the review, back to the implementor is the build. The
     # PR stays a draft throughout, which no longer holds the work in the
-    # build. The map counts the rounds, and the trail shows every visit.
+    # build. The map counts the rounds, and the trail shows every visit. The
+    # hand-off back to the planner comes after kolu has SEEN both agents
+    # stop, as a real Conductor's does: it hands over on that news, never
+    # ahead of it — a word to a planner kolu still sees holding hands
+    # nothing over.
     Given a repo for the work
     When I ask the conductor to open the work "review the parser twice"
     And I answer the work's question with "hand-over" in the chat
@@ -190,6 +194,7 @@ Feature: A piece of work is a stored thing
     And the work's stage map should be at "build"
     When the implementor's agent starts working
     And the implementor's agent stops
+    Then the work's timeline should show 2 "stopped" events
     And I ask the conductor to tell the planner "look again"
     Then the work's timeline should show 3 "told" events
     And the work's stage map should be at "review"
