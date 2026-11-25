@@ -159,9 +159,11 @@ export type PersistedPref<T> = [value: Accessor<T>, set: Setter<T>, loaded: T];
  *  production kept it. Nothing outside this module can reach the signal to
  *  write it from an owned scope for any other reason.
  *
- *  This goes away when `makePersisted` restores the stored value without
- *  writing through the caller's setter inside the creating owner:
- *  solidjs-community/solid-primitives#1137. */
+ *  The fix is merged upstream (solidjs-community/solid-primitives#1137,
+ *  `9c935afb`: `makePersisted` restores the stored value outside the creating
+ *  owner) and ships in `@solid-primitives/storage@5.0.1`. Bumping to it
+ *  deletes `{ ownedWrite: true }` below, this paragraph and the one above it,
+ *  and the comment at the call. */
 export function persistedPref<T>(
   opts: PersistedPrefOptions<T>,
 ): PersistedPref<T> {
@@ -175,8 +177,8 @@ export function persistedPref<T>(
   // loaded value DURING construction takes it from here.
   let loaded: T | undefined;
   const [value, setValue, , dispose] = makePersisted(
-    // `ownedWrite`: see the header — drop it with
-    // solidjs-community/solid-primitives#1137.
+    // `ownedWrite`: see the header — deleted with the bump to
+    // `@solid-primitives/storage@5.0.1`.
     createSignal<T>(opts.fallback, { ownedWrite: true }),
     {
       name: opts.name,
