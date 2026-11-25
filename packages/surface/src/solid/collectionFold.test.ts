@@ -136,28 +136,37 @@ describe("fold — the frame is the unit of update", () => {
     });
   });
 
-  it("a step's own store READ is one flush behind — the frame it is handed is not", async () => {
-    // Folds still run after the store write, and the write is still one whole
-    // transaction. What changed with staged writes is what a READ sees inside the
-    // same turn: a store serves the value it last flushed, so a `step` that reads
-    // `byKey` (discouraged, and this is the reason) sees the frame BEFORE its own
-    // — here `{n:1}` while applying the delta that makes it `{n:2}`. The frame a
-    // step is handed is the authoritative one; the value lands for every reader on
-    // the flush, which is what the `byKey` read after `settle()` shows.
+  it("folds run AFTER the store write, so step sees the frame already applied", async () => {
+    // The frame loop notifies the folds inside the frame's own store
+    // transaction, so a `step` reading `byKey` or `keys()` is told the frame it
+    // is applying — not the one before it. Outside that window the store still
+    // serves what it last flushed, which is what the reads after `settle()`
+    // show: one frame, one answer, whichever way the fold asks.
     await drive(async ({ view, push }) => {
       const observed: (V | undefined)[] = [];
+      const keysSeen: string[][] = [];
       view.fold<number>({
         init: () => 0,
         step: (n) => {
           observed.push(view.byKey("a")?.());
+          keysSeen.push([...view.keys()]);
           return n + 1;
         },
       });
       push({ kind: "snapshot", entries: [["a", { n: 1 }]] });
       await settle();
-      push({ kind: "delta", upserts: [["a", { n: 2 }]], removes: [] });
+      push({
+        kind: "delta",
+        upserts: [
+          ["a", { n: 2 }],
+          ["b", { n: 3 }],
+        ],
+        removes: [],
+      });
       await settle();
-      expect(observed).toEqual([{ n: 1 }]);
+      expect(observed).toEqual([{ n: 2 }]);
+      // The key the same frame ADDED is in the set the step reads, too.
+      expect(keysSeen).toEqual([["a", "b"]]);
       expect(view.byKey("a")?.()).toEqual({ n: 2 });
     });
   });

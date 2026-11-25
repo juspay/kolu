@@ -390,12 +390,24 @@ export function useCollectionDeltas<Name extends string, K, T>(
   /** The CURRENT key list, held beside the signal rather than read back out of it:
    *  a signal write lands on the next flush, and a fiber can deliver several frames
    *  inside one synchronous turn, so reading `order()` back would rebuild the second
-   *  frame's list from the one the first frame replaced. The signal is the VIEW of
-   *  this list (`keys()`); this is the list. */
+   *  frame's list from the one the first frame replaced. This is the list; the
+   *  signal is its reactive MIRROR, and {@link keys} is the pair's one reader. */
   let heldOrder: K[] = [];
   const writeOrder = (next: K[]): void => {
     heldOrder = next;
     setOrder(next);
+  };
+  /** The key set, as every consumer and every fold reads it: SUBSCRIBE to the
+   *  mirror, ANSWER from the authority — the pair's rule everywhere in this PR
+   *  (`scrollLock`'s lock, `connectSurfaces`'s connection state). Both are moved
+   *  by `writeOrder` alone and the signal is handed the very array `heldOrder`
+   *  holds, so the two can differ only in WHEN: between a frame and its flush the
+   *  signal still reads the previous list, and a reader inside that window — a
+   *  fold `step`, which the frame loop calls there — would otherwise be told the
+   *  set from before the frame it is being handed. */
+  const keys: Accessor<K[]> = () => {
+    order();
+    return heldOrder;
   };
 
   /** Apply a FULL-SET frame. O(N), which is inherent — the frame carries N entries.
@@ -547,6 +559,35 @@ export function useCollectionDeltas<Name extends string, K, T>(
     });
   }
 
+  /** Run `notify` inside a DRAFT WINDOW on the dictionary store — the frame
+   *  loop's seam for handing consumer code the frame it just applied.
+   *
+   *  A store serves a context-free reader the COMMITTED backing until the flush
+   *  ("it mutates at exactly one moment — the flush's commit",
+   *  `@solidjs/signals` 2.0.3 `dist/dev.js` :3777), which is why a fold `step`
+   *  reading `byKey` straight after {@link applyDelta} would see the previous
+   *  frame. Inside a setter the same read is served the STAGING instead
+   *  (`readSource` :5029: `inDraft` ⇒ the pending backing; `inDraft` :4966 is
+   *  per store FAMILY, so the public proxy answers from the staging exactly as
+   *  the draft does, and hands back the very proxy it serves afterwards).
+   *
+   *  The window WRITES nothing: opening it is its whole job. `held`, `heldOrder`
+   *  and `size` are already this frame's by the time it opens, so every way a
+   *  fold can ask — the frame argument, `byKey`, `keys()`,
+   *  {@link syntheticSnapshot} — answers with the same frame. A frame with no
+   *  registered fold opens no window: the setter call is the cost, and there is
+   *  nothing to tell.
+   *
+   *  It is a `setDict` call, so it carries that call's owned-scope refusal; the
+   *  frame loop runs on the subscription's fiber, never in an owned scope (which
+   *  is why registration-time seeding — in the CALLER's scope — opens no window
+   *  and needs none: nothing is staged there). */
+  function inFrameDraft(notify: () => void): void {
+    setDict(() => {
+      notify();
+    });
+  }
+
   // The fiber, the three signals and the teardown path are the shared seam; the ONE
   // thing this hook contributes is what a frame DOES. Its error is collection-wide
   // and TERMINAL (retry-fence exhaustion, or a declared failure) — the store and
@@ -555,14 +596,16 @@ export function useCollectionDeltas<Name extends string, K, T>(
   const state = createStreamLifecycle<CollectionDeltasMsg<K, T>>(
     options.source,
     {
-      // Assert keys → apply to the store → notify the folds. No reader ever
-      // observes a half-applied frame: the store write is ONE staged transaction
-      // that lands whole on the flush, and `pending` clears after it. Folds run
-      // after the write, but a store READ is served from the last flush, so a
-      // `step` that reads `byKey` (discouraged, and this is why) sees the frame
-      // BEFORE its own. The frame it is handed is the authoritative one; a fold
-      // that is SEEDED reads {@link syntheticSnapshot}, which is built from the
-      // mirror and therefore does describe the frame that just landed.
+      // Assert keys → apply to the store → notify the folds, the last of them
+      // inside the frame's own store transaction. No reader ever observes a
+      // half-applied frame: the write is ONE staged transaction that lands
+      // whole on the flush, and `pending` clears after it.
+      //
+      // The folds are notified through {@link inFrameDraft}, so a `step` that
+      // reads `byKey` sees the frame it is applying rather than the one before
+      // it — the same frame `keys()` answers with and the same one a SEEDED
+      // fold is handed through {@link syntheticSnapshot}. One frame, one
+      // answer, whichever way a fold asks for it.
       onFrame: (msg) => {
         if (msg.kind === "snapshot") {
           applySnapshot(msg.entries);
@@ -580,11 +623,18 @@ export function useCollectionDeltas<Name extends string, K, T>(
           const registered = [...folds];
           if (registered.length > 0) {
             const entries = syntheticSnapshot();
-            for (const slot of registered) slot.seed(entries);
+            inFrameDraft(() => {
+              for (const slot of registered) slot.seed(entries);
+            });
           }
         } else {
           applyDelta(msg);
-          for (const slot of [...folds]) slot.step(msg);
+          const registered = [...folds];
+          if (registered.length > 0) {
+            inFrameDraft(() => {
+              for (const slot of registered) slot.step(msg);
+            });
+          }
         }
       },
       onComplete: options.onComplete,
@@ -672,11 +722,14 @@ export function useCollectionDeltas<Name extends string, K, T>(
     const sk = String(key);
     if (!(sk in dict)) return undefined;
     // A per-key accessor over the shared store — reading `dict[sk]` in a tracking
-    // scope tracks only that leaf. `error`/`pending`/`complete` are the single
-    // stream's, shared across keys.
+    // scope tracks only that leaf. Called from inside the frame's draft window
+    // ({@link inFrameDraft}, i.e. from a fold's `init`/`step`), the same read is
+    // served the frame being applied instead of the last flushed one, and the
+    // proxy it hands back is the one every other reader gets after the flush.
+    // `error`/`pending`/`complete` are the single stream's, shared across keys.
     const read = (() => dict[sk]) as Subscription<T>;
     return Object.assign(read, state);
   }
 
-  return { keys: order, byKey, fold, stream: state };
+  return { keys, byKey, fold, stream: state };
 }

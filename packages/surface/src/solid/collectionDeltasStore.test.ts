@@ -226,10 +226,11 @@ describe("the frame comparator — the store leaves no tag, so every symbol is c
     // The law the value-diff serves: an entry someone is WATCHING must not
     // re-notify on a reconnect that re-serialized the same content. The "reconnect
     // is a no-op" cases above pin that end-to-end; this one names the mechanism,
-    // which is that there is no mechanism left to need — Solid 2 adopts a value by
-    // pointer swap and clones before a draft write, so it never stamps the object
-    // it was handed. (Solid 1.9 planted `$PROXY` and siblings on every wrapped
-    // object, and the comparator had to exempt them by provenance.)
+    // which is that there is no mechanism left to need. The store adopts a value
+    // by pointer swap, tracks the wrapping in a private lookup and clones before
+    // a draft write, so an object it has wrapped carries exactly the own symbols
+    // it arrived with — the comparator has nothing to exempt, and every own
+    // symbol it meets is frame content.
     await drive(async ({ view, push }) => {
       const first = { n: 1 };
       push({ kind: "snapshot", entries: [["a", first]] });
