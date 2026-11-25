@@ -89,10 +89,11 @@ const SearchBar: Component<{
     },
   );
 
-  // The count and the decorations belong to one addon and one opening. Drop
-  // them when the bar closes and when the addon changes, so a replaced xterm
-  // never shows the matches of the one it replaced; the live addon speaks for
-  // the label again on its next result event.
+  // The count and the decorations belong to one addon and one opening, so they
+  // are dropped whenever either fact moves — the close, and an addon swap, so a
+  // replaced xterm never shows the matches of the one it replaced. On an OPEN
+  // this is a no-op: the close already cleared. The live addon speaks for the
+  // label again on its next result event.
   createEffect(
     () => ({ open: props.open, addon: props.searchAddon }),
     ({ addon }) => {
