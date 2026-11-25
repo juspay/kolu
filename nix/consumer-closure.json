@@ -5,7 +5,7 @@
       "pin": {
         "built": true,
         "name": "corvu-next",
-        "revision": "ef38f3220942df3dd6f01c083c71d8e40f10890a",
+        "revision": "885fd24d25e20eea2915cf961b547993adee5524",
         "subdir": "packages/dialog"
       },
       "workspace": [
@@ -25,7 +25,7 @@
       "pin": {
         "built": true,
         "name": "corvu-next",
-        "revision": "ef38f3220942df3dd6f01c083c71d8e40f10890a",
+        "revision": "885fd24d25e20eea2915cf961b547993adee5524",
         "subdir": "packages/solid-dismissible"
       },
       "workspace": [
@@ -40,7 +40,7 @@
       "pin": {
         "built": true,
         "name": "corvu-next",
-        "revision": "ef38f3220942df3dd6f01c083c71d8e40f10890a",
+        "revision": "885fd24d25e20eea2915cf961b547993adee5524",
         "subdir": "packages/drawer"
       },
       "workspace": [
@@ -58,7 +58,7 @@
       "pin": {
         "built": true,
         "name": "corvu-next",
-        "revision": "ef38f3220942df3dd6f01c083c71d8e40f10890a",
+        "revision": "885fd24d25e20eea2915cf961b547993adee5524",
         "subdir": "packages/solid-focus-trap"
       },
       "workspace": [
@@ -73,7 +73,7 @@
       "pin": {
         "built": true,
         "name": "corvu-next",
-        "revision": "ef38f3220942df3dd6f01c083c71d8e40f10890a",
+        "revision": "885fd24d25e20eea2915cf961b547993adee5524",
         "subdir": "packages/solid-presence"
       },
       "workspace": [
@@ -88,7 +88,7 @@
       "pin": {
         "built": true,
         "name": "corvu-next",
-        "revision": "ef38f3220942df3dd6f01c083c71d8e40f10890a",
+        "revision": "885fd24d25e20eea2915cf961b547993adee5524",
         "subdir": "packages/solid-prevent-scroll"
       },
       "workspace": [
@@ -103,7 +103,7 @@
       "pin": {
         "built": true,
         "name": "corvu-next",
-        "revision": "ef38f3220942df3dd6f01c083c71d8e40f10890a",
+        "revision": "885fd24d25e20eea2915cf961b547993adee5524",
         "subdir": "packages/resizable"
       },
       "workspace": [
@@ -119,7 +119,7 @@
       "pin": {
         "built": true,
         "name": "corvu-next",
-        "revision": "ef38f3220942df3dd6f01c083c71d8e40f10890a",
+        "revision": "885fd24d25e20eea2915cf961b547993adee5524",
         "subdir": "packages/tooltip"
       },
       "workspace": [
@@ -138,7 +138,7 @@
       "pin": {
         "built": true,
         "name": "corvu-next",
-        "revision": "ef38f3220942df3dd6f01c083c71d8e40f10890a",
+        "revision": "885fd24d25e20eea2915cf961b547993adee5524",
         "subdir": "packages/solid-transition-size"
       },
       "workspace": [
@@ -153,7 +153,7 @@
       "pin": {
         "built": true,
         "name": "corvu-next",
-        "revision": "ef38f3220942df3dd6f01c083c71d8e40f10890a",
+        "revision": "885fd24d25e20eea2915cf961b547993adee5524",
         "subdir": "packages/utils"
       },
       "workspace": [],
