@@ -51,7 +51,7 @@ export interface KeyedSubscriptionCache {
 }
 
 // A module-private registry giving each distinct FUNCTION a stable short id, so a
-// function-valued option (applyPatch / mergeIntoStore / source / mutate) contributes a
+// function-valued option (applyPatch / source / mutate) contributes a
 // STABLE token to the cache key by IDENTITY — the same function → the same token, a
 // different function → a different one (never source text, which two closures share).
 const fnIds = new WeakMap<object, number>();

@@ -35,7 +35,6 @@ import {
   createStore,
   getOwner,
   snapshot,
-  type StoreSetter,
 } from "solid-js";
 import {
   type StreamingProcedure,
@@ -85,18 +84,6 @@ export interface UseCellLocalOptions<T extends object, P = T> {
   /** Pure merge: returns the next value. Used when the patch shape `P`
    *  differs from `T` (otherwise `set` semantics suffice). */
   applyPatch?: (current: T, patch: P) => T;
-  /** Escape hatch for non-shallow merges (discriminated-union nested fields).
-   *  Receives Solid's `setStore` directly so callers can write the nested fields
-   *  through its draft in ways `applyPatch` + a whole-value merge can't express
-   *  cleanly.
-   *
-   *  Prefer flattening the storage shape so this hatch isn't needed — a draft
-   *  write of a whole value can't preserve DU variant invariants without
-   *  touching the nested fields one by one, and the consumer-side cost is
-   *  exporting Solid's store API across the framework boundary. When you must
-   *  use it, document at the call site (1) why `applyPatch` is insufficient and
-   *  (2) the specific nested mutation required. */
-  mergeIntoStore?: (setStore: StoreSetter<T>, patch: P) => void;
   /** Trailing-debounce window (ms) for writes that opt in via
    *  `patch(p, { coalesce: true })`. Such a write applies to the local store
    *  synchronously (the instant-UI guarantee local authority exists for) but
@@ -301,10 +288,6 @@ function useCellLocal<Name extends string, T extends object, P>(
   );
 
   function applyLocal(p: P): void {
-    if (options.mergeIntoStore) {
-      options.mergeIntoStore(setStore, p);
-      return;
-    }
     if (options.applyPatch) {
       // A SNAPSHOT, not the proxy: `applyPatch` builds the next whole value,
       // usually by spreading what it is given, and spreading the proxy would put

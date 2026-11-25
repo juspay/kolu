@@ -22,7 +22,6 @@ import {
   createSignal,
   getOwner,
   onCleanup,
-  type StoreSetter,
 } from "solid-js";
 import type { Collection } from "../index";
 import {
@@ -182,7 +181,6 @@ export type BoundCellOptions<T, P = T> = T extends object
           authority: "local";
           initial: NoFn<T>;
           applyPatch?: (current: T, patch: P) => T;
-          mergeIntoStore?: (setStore: StoreSetter<T>, patch: P) => void;
           coalesceMs?: number;
           onError?: (err: Error) => void;
         }
@@ -978,8 +976,7 @@ function bindCell<S extends SurfaceSpec>(
       if (
         specPatch &&
         merged.authority === "local" &&
-        merged.applyPatch === undefined &&
-        merged.mergeIntoStore === undefined
+        merged.applyPatch === undefined
       ) {
         merged.applyPatch = specPatch;
       }
