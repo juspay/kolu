@@ -633,12 +633,13 @@ export const workStore = (deps: WorkStoreDeps): WorkStore => {
       if (work.state.kind !== "open") continue;
       // A WATCH is not watched: a pull request and a checkout are facts about
       // a branch.
-      if (work.key.kind !== "branch") continue;
+      const key = work.key;
+      if (key.kind !== "branch") continue;
       watches.push({
         work: id,
-        host: work.key.host,
-        repo: Option.getOrElse(rootOf(work.key), () => work.key.repo),
-        branch: work.key.branch,
+        host: key.host,
+        repo: Option.getOrElse(rootOf(key), () => key.repo),
+        branch: key.branch,
       });
     }
     return watches;

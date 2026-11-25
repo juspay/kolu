@@ -186,10 +186,10 @@ export interface MemberState extends MemberWatch {
 
 /** A MEMBER'S SAVED HALF — the watch's own six fields, and nothing else.
  *
- *  LISTED rather than subtracted. The row a member is held in now carries the
- *  MODEL'S half too (`kolu-work`'s `work`, `role`, `joinedAt`, `worktree`), and
- *  a rest-spread cannot tell a watch field from a membership one — so taking
- *  "everything but the two runtime fields" wrote the model's four a second
+ *  LISTED rather than subtracted. The row a member is held in carries the
+ *  MODEL'S half too (`kolu-work`'s `work`, `role`, `joinedAt`), and a
+ *  rest-spread cannot tell a watch field from a membership one — so taking
+ *  "everything but the two runtime fields" wrote the model's three a second
  *  time inside `watch`, in every member row, on every host read. The schema is
  *  what catches a field this misses: `MemberWatchSchema` is what the file is
  *  decoded by, and `sameWatch` compares exactly its members. Read at the
@@ -315,9 +315,9 @@ const standsAs = (
  * The member carries forward what the reading does not say: a name is kept when
  * a reading has none, an agent is kept for good once one has been seen, and
  * `ran` is kept once a command has been seen in front of the shell. Where the
- * terminal is WORKING is not here: the worktree is a fact of the MODEL'S half
- * of the row, written by the observation loop off the same reading, because a
- * work's files have to outlive the terminal that wrote them.
+ * WORK is working is not here, nor anywhere on a member: it is the work's
+ * own `worktree`, git's answer for the work's branch, read by the
+ * observation loop's checkout leg.
  *
  * The row goes through WHOLE — whatever else the caller holds on a member
  * comes back on it, so a field the model grows is not quietly dropped on the

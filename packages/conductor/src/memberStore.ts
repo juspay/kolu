@@ -1,7 +1,8 @@
 /**
  * EVERY MEMBER TERMINAL — ONE map, keyed by fleet ref, holding the whole of
  * what kolu knows about it: which work it is doing, in what role, since when,
- * where it is working, and the watch's own memory of the terminal.
+ * and the watch's own memory of the terminal. Where the work is working is
+ * the WORK's (`Work.worktree`, git's answer for its branch), not a member's.
  *
  * ONE map rather than a members array inside each work plus a parallel
  * bookkeeping record beside them. Holding it in two places cost five
@@ -18,8 +19,9 @@
  * reads the map, and a write hands the next map to the store's one commit.
  *
  * The SAVED half is the watch's own six fields, listed at the write
- * (`./members.ts`'s `saved`): the row holds the model's four as well, so a
- * rest-spread would write them a second time inside `watch`. The two runtime
+ * (`./members.ts`'s `saved`): the row holds the model's three as well — its
+ * work, role and when it joined — so a rest-spread would write them a second
+ * time inside `watch`. The two runtime
  * fields — the last reading and whether the next one baselines — are not in
  * that list, so they cannot be written by accident.
  */
