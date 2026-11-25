@@ -28,7 +28,8 @@ import {
   TerminalIdSchema,
 } from "@kolu/terminal-vocab/terminalId";
 import { Schema } from "effect";
-import { createProjection, createRoot, runWithOwner } from "solid-js";
+import { createProjection } from "solid-js";
+import { detachedRoot } from "../detachedRoot";
 import {
   defaultInvalidWarning,
   originStorageSync,
@@ -154,10 +155,8 @@ export function createAttentionRecord(opts: {
 const KEY_BASE = "kolu-attention";
 
 /** The page's records, one per host, keyed by the encoded host — each under a
- *  DETACHED root of its own (`runWithOwner(null, …)`), so the record outlives
- *  whichever view asked for it first: a root created while that view's owner
- *  is in scope would be owned by it and die with it, leaving every later
- *  reader a projection that no longer follows the saved marks. */
+ *  {@link detachedRoot} of its own, so the record outlives whichever view
+ *  asked for it first. */
 const records = new Map<
   string,
   { readonly record: AttentionRecord; readonly dispose: () => void }
@@ -168,15 +167,13 @@ const records = new Map<
 export function attentionRecordOf(encHost: string): AttentionRecord {
   let entry = records.get(encHost);
   if (entry === undefined) {
-    entry = runWithOwner(null, () =>
-      createRoot((dispose) => ({
-        record: createAttentionRecord({
-          name: perHostName(KEY_BASE, decodeHostKey(encHost)),
-          storage: localStorage,
-        }),
-        dispose,
-      })),
-    );
+    entry = detachedRoot((dispose) => ({
+      record: createAttentionRecord({
+        name: perHostName(KEY_BASE, decodeHostKey(encHost)),
+        storage: localStorage,
+      }),
+      dispose,
+    }));
     records.set(encHost, entry);
   }
   return entry.record;
