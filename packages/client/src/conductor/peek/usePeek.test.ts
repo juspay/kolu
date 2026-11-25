@@ -1,6 +1,6 @@
 import type { TerminalId } from "kolu-common/surface";
 import type { WorkMember } from "kolu-work";
-import { flush } from "solid-js";
+import { createRoot, flush } from "solid-js";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   closePeek,
@@ -10,7 +10,7 @@ import {
   peekTabs,
   peekTarget,
   peekTyping,
-  setPeekTyping,
+  usePeekTyping,
 } from "./usePeek";
 
 const ONE = "11111111-1111-4111-8111-111111111111" as TerminalId;
@@ -53,10 +53,33 @@ describe("the peek's target", () => {
 });
 
 describe("the peek's typing lock", () => {
-  it("drops the typing lock on close", () => {
-    setPeekTyping(true);
+  it("answers the window's live derivation while the window is up", () => {
+    let focused = false;
+    const dispose = createRoot((dispose) => {
+      usePeekTyping(() => focused);
+      return dispose;
+    });
     flush();
+    expect(peekTyping()).toBe(false);
+    // NO flush between the source moving and the answer: the lock IS the
+    // window's derivation, not a copy of it kept a flush behind.
+    focused = true;
+    expect(peekTyping()).toBe(true);
     closePeek();
+    flush();
+    expect(peekTyping()).toBe(false);
+    dispose();
+    flush();
+    expect(peekTyping()).toBe(false);
+  });
+
+  it("drops a window's derivation when the window goes", () => {
+    const dispose = createRoot((dispose) => {
+      usePeekTyping(() => true);
+      return dispose;
+    });
+    flush();
+    dispose();
     flush();
     expect(peekTyping()).toBe(false);
   });

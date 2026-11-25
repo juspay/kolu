@@ -7,7 +7,6 @@ import {
   createMemo,
   createSignal,
   For,
-  onCleanup,
   onSettled,
   Show,
   untrack,
@@ -45,7 +44,7 @@ import {
   peekTarget,
   peekTyping,
   peekFootWords,
-  setPeekTyping,
+  usePeekTyping,
   type PeekTarget,
 } from "./usePeek";
 import { fitWidth, setFitWidth } from "../fitWidth";
@@ -129,14 +128,11 @@ const PeekWindow: Component<{ target: PeekTarget }> = (props) => {
   const membership = useMembership();
   const driver = () => membership().get(ref)?.driver ?? "nobody";
   const mayType = () => inputAllowedAt(ref);
+  /** The peek's typing lock IS this derivation (`usePeek.ts`): the window
+   *  lends it up rather than copying its answer into a signal, so the Esc
+   *  gate above never trails the keyboard by a flush. */
   const typing = () => focused() && mayType();
-  createEffect(
-    () => typing(),
-    (now) => {
-      setPeekTyping(now);
-    },
-  );
-  onCleanup(() => setPeekTyping(false));
+  usePeekTyping(typing);
   createEffect(
     () => ({
       driver: driver(),

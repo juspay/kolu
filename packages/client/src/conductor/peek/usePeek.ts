@@ -1,6 +1,6 @@
 import type { TerminalId } from "kolu-common/surface";
 import type { WorkMember, WorkRole } from "kolu-work";
-import { type Accessor, createSignal } from "solid-js";
+import { type Accessor, createSignal, onCleanup } from "solid-js";
 import { splitMemberRef } from "../memberRef";
 import { membersIn } from "../workReadings";
 
@@ -10,8 +10,25 @@ export interface PeekTarget {
   readonly id: TerminalId;
 }
 
+/** A window's typing derivation, BOXED: `createSignal`'s function form is a
+ *  writable memo, so an accessor has to be carried as a value. */
+interface TypingSource {
+  readonly read: Accessor<boolean>;
+}
+
+/** No window is up, so nobody is typing in one. */
+const NOT_TYPING: TypingSource = { read: () => false };
+
 const [target, setTarget] = createSignal<PeekTarget | null>(null);
-const [typing, setTyping] = createSignal(false);
+/** THE OPEN WINDOW'S OWN TYPING DERIVATION, not a copy of its answer: the
+ *  window hands `focused() && mayType()` up here for as long as it is up
+ *  (`usePeekTyping`), so a reader here is in the same flush as the window's
+ *  own readers. Relaying the VALUE through an effect would paint the Esc
+ *  hint and the dialog's Esc gate a flush behind the terminal that took the
+ *  keyboard. `ownedWrite`: the window registers from its body. */
+const [typingSource, setTypingSource] = createSignal<TypingSource>(NOT_TYPING, {
+  ownedWrite: true,
+});
 
 export const peekTarget: Accessor<PeekTarget | null> = target;
 
@@ -24,14 +41,19 @@ export function openPeek(next: PeekTarget): void {
  *  NOT the window's: it is the one shared by every pane (`../fitWidth`). */
 export function closePeek(): void {
   setTarget(null);
-  setTyping(false);
+  setTypingSource(NOT_TYPING);
 }
 
-export const peekTyping: Accessor<boolean> = typing;
+/** Does the peek's terminal hold the keyboard? */
+export const peekTyping: Accessor<boolean> = () => typingSource().read();
 
-/** Record whether the terminal currently holds the keyboard. */
-export function setPeekTyping(value: boolean): void {
-  setTyping(value);
+/** Hand the window's typing derivation up for the length of the window. */
+export function usePeekTyping(source: Accessor<boolean>): void {
+  const mine: TypingSource = { read: source };
+  setTypingSource(mine);
+  onCleanup(() =>
+    setTypingSource((current) => (current === mine ? NOT_TYPING : current)),
+  );
 }
 
 /** One tab of the peek: a member of the target's work. */
