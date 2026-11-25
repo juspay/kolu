@@ -90,10 +90,13 @@ async function sample(
 ): Promise<ScrollSample> {
   const rowsBack = await rowsBackOf(page, at);
   return {
-    rowsBack: await rowsBackOf(page, at),
-    phase: await page
-      .locator(at.readout)
-      .getAttribute("data-phase", { timeout: 500 }),
+    rowsBack,
+    phase: await failed.orNull(() =>
+      page.locator(at.readout).getAttribute("data-phase", { timeout: 500 }),
+    ),
+    status: await failed.orNull(() =>
+      page.locator(at.status).textContent({ timeout: 500 }),
+    ),
   };
 }
 
