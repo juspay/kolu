@@ -13,14 +13,24 @@ makes two facts loud:
 
 ```ts
 // vitest.config.ts, in the DOM project
+import { SOLID_INLINE_DEPS } from "@kolu/solid-test-setup/vitest";
+
 test: {
   environment: "happy-dom",
   setupFiles: ["@kolu/solid-test-setup/setup"],
+  server: { deps: { inline: [...SOLID_INLINE_DEPS] } },
 }
 ```
 
-The single entry is `./setup` (`src/setup.ts`). It is a dev dependency of every
-package with Solid DOM tests.
+It has two entries:
+
+- `./setup` (`src/setup.ts`): the setup file above.
+- `./vitest` (`src/vitest.ts`): `SOLID_INLINE_DEPS`, the specifiers Solid
+  ships itself under, which every DOM project must inline so the test and
+  Solid share one reactive core; and `SOLID_INLINE_DEPS_SCHEDULED`, the same
+  list plus `@solid-primitives/scheduled`.
+
+It is a dev dependency of every package with Solid DOM tests.
 
 The running app gets the same check from the e2e lane `ci::e2e-solid-dev`
 (see `packages/tests/support/solidDevBuild.ts`).
