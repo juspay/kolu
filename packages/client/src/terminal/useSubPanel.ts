@@ -437,7 +437,7 @@ export function planTileTabsRepair(
     };
   }
   const active = panel.paneChrome(tileId).activeSubTab;
-  if (active === null || remaining.includes(active)) return () => {};
+  if (active === null || remaining.includes(active)) return NOTHING_TO_WRITE;
   const replacement = remaining[0] ?? null;
   if (!leavingWasFocused)
     return () => panel.setActiveSubTab(tileId, replacement);
