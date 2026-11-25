@@ -1541,11 +1541,10 @@ export function buildSurfaceClient<const S extends SurfaceSpec>(
     const source: HealthSource = { pending, error };
     // Owner asserted above, so this auto-drops when the owner unwinds.
     registry.enroll(name, source);
-    // The effect's RETURNED cleanup is the stopper, so the fiber still dies with the
-    // caller's owner exactly as the old `onCleanup(stop)` made it. A raw stream has
-    // no reactive input (the input is captured — see the streaming contract), so the
-    // compute has nothing to read: this effect exists to move the start off the
-    // creating scope.
+    // The effect's RETURNED cleanup is the stopper, so the fiber dies with the
+    // caller's owner. A raw stream has no reactive input (the input is captured —
+    // see the streaming contract), so the compute has nothing to read: this effect
+    // exists to move the start off the creating scope.
     createEffect(
       () => undefined,
       () =>
@@ -1575,7 +1574,7 @@ export function buildSurfaceClient<const S extends SurfaceSpec>(
             },
             // Clean completion (the server ended the stream): no longer pending.
             // An interruption (the owner unwound) reports nothing — `runStreamScoped`
-            // holds that rule, so the old `ctl.signal.aborted` check is gone.
+            // holds that rule.
             onEnd: () => setPending(false),
             onFailure: (err) => {
               // A deliberate teardown the CALLER classifies (xterm's
