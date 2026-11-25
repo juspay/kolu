@@ -114,8 +114,11 @@ vi.mock("solid-sonner", () => ({
   }),
 }));
 
+import type { TerminalKey } from "@kolu/terminal-vocab/terminalKey";
+import type { TerminalDisplayInfo } from "./terminalDisplay";
 import type { PaneNode } from "./terminalTree";
 import {
+  mergeDisplayInfo,
   sameTerminalIdOrder,
   useTerminalMetadata,
 } from "./useTerminalMetadata";
@@ -746,5 +749,44 @@ it("metadata ticks do not wake split-tree or unrelated display readers", async (
     expect(store.getDisplayInfo("a")?.key.label).toBe("/different/renamed");
     expect(oldKey?.label).toBe("/different/renamed");
     dispose();
+  });
+});
+
+describe("the display row merge is TOTAL over the row's keys", () => {
+  const key = (suffix?: string): TerminalKey => ({
+    group: "kolu",
+    label: "main",
+    ...(suffix === undefined ? {} : { suffix }),
+  });
+  const row = (
+    over: Partial<TerminalDisplayInfo> = {},
+  ): TerminalDisplayInfo => ({
+    repoColor: "oklch(0.7 0.1 10)",
+    annotationColor: "oklch(0.7 0.1 80)",
+    subCount: 0,
+    key: key(),
+    ...over,
+  });
+
+  it("writes a field no hand-written list of leaves could name", () => {
+    // A field added to `TerminalDisplayInfo` tomorrow: the merge is the ONE
+    // write path into the display table, so a field it does not carry over is a
+    // field no consumer ever sees, silently and without a type error.
+    type Extended = TerminalDisplayInfo & { badge: string };
+    const into: Extended = { ...row(), badge: "old" };
+    mergeDisplayInfo<Extended>(into, { ...row(), badge: "new" });
+    expect(into.badge).toBe("new");
+  });
+
+  it("drops a leaf the fresh row no longer carries, and keeps the container", () => {
+    // The collision that gave this tile its `suffix` is gone. The whole-row
+    // write this merge replaces could not leave a stale leaf behind; neither may
+    // it — while the container a consumer holds stays the same object.
+    const into = row({ key: key("#a3f2"), subCount: 2 });
+    const heldKey = into.key;
+    mergeDisplayInfo(into, row({ subCount: 3 }));
+    expect(into.key).toBe(heldKey);
+    expect("suffix" in into.key).toBe(false);
+    expect(into.subCount).toBe(3);
   });
 });

@@ -126,18 +126,37 @@ const NO_PANE_NODES: PaneNode[] = [];
  *  would repaint its colours and its identity key, and a `<For>` keyed on the row
  *  would rebuild it. Assigned only where the two differ, so a rebuild that changes
  *  nothing — the common case, since every metadata tick re-derives the whole table
- *  — touches no node at all and this stays the no-op it was. */
-function mergeDisplayInfo(
-  into: TerminalDisplayInfo,
-  next: TerminalDisplayInfo,
-): void {
-  if (into.repoColor !== next.repoColor) into.repoColor = next.repoColor;
-  if (into.annotationColor !== next.annotationColor)
-    into.annotationColor = next.annotationColor;
-  if (into.subCount !== next.subCount) into.subCount = next.subCount;
-  if (into.key.group !== next.key.group) into.key.group = next.key.group;
-  if (into.key.label !== next.key.label) into.key.label = next.key.label;
-  if (into.key.suffix !== next.key.suffix) into.key.suffix = next.key.suffix;
+ *  — touches no node at all and this stays the no-op it was.
+ *
+ *  TOTAL over the row's keys, in both directions, which is what the whole-row
+ *  write it replaces was for free: a field this merge did not know about would
+ *  otherwise never reach the store, and a field the fresh row DROPS (the
+ *  collision `suffix`, once the collision is gone) would stand forever. Nested
+ *  containers recurse rather than being replaced — `key` is the one today — so a
+ *  reader of one of their leaves is woken only by that leaf. */
+export function mergeDisplayInfo<T extends object>(into: T, next: T): void {
+  for (const key of Object.keys(next) as (keyof T)[]) {
+    const fresh = next[key];
+    const held = into[key];
+    if (isPlainBranch(fresh) && isPlainBranch(held)) {
+      mergeDisplayInfo(held, fresh);
+      continue;
+    }
+    if (held !== fresh) into[key] = fresh;
+  }
+  for (const key of Object.keys(into) as (keyof T)[])
+    if (!(key in next)) delete into[key];
+}
+
+/** A value this merge recurses INTO rather than assigns: a plain object. An
+ *  array, a `Date` or a class instance is one value, and is replaced whole. */
+function isPlainBranch(value: unknown): value is Record<string, unknown> {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    !Array.isArray(value) &&
+    Object.getPrototypeOf(value) === Object.prototype
+  );
 }
 
 export function useTerminalMetadata(deps: {
