@@ -1,6 +1,6 @@
 import { LOCAL_HOST } from "kolu-common/hostKey";
 import type { HostKey } from "kolu-common/surfacesWithPadi";
-import { createEffect, createRoot, createSignal } from "solid-js";
+import { createEffect, createRoot, createSignal, untrack } from "solid-js";
 import { describe, expect, it } from "vitest";
 import { hostReconcileTarget } from "./hostReconcile.ts";
 
@@ -86,12 +86,16 @@ describe("hostReconcileTarget — join-activation arm (W6 add-host fix)", () => 
  *  next microtask checkpoint, so each step of a scenario awaits one before asserting. */
 const tick = () => new Promise((r) => setTimeout(r, 0));
 
-/** wire.ts's ONE host-scope reconcile effect, over signals: the `members`/`activeHost`/
- *  join-request state and the single effect that enacts `hostReconcileTarget`. The
- *  add-flow's `requestActivateOnJoin` raises a SEQUENCED request, and the effect records
- *  the sequence it served in a plain variable — exactly wire.ts's shape, and for its
- *  reason: consuming the intent by clearing a signal the compute reads would make the
- *  effect re-run on its own write. The active host stays tracked, as in wire.ts. */
+/** wire.ts's ONE host-scope reconcile, over signals: the `members`/`activeHost`/
+ *  join-request state, the GROUNDED `setActiveHost` every surface writes through, and the
+ *  single effect that enacts `hostReconcileTarget` on a membership frame. Exactly wire.ts's
+ *  shape, and for its reasons.
+ *
+ *  Neither half writes a value its own compute reads. The add-flow's `requestActivateOnJoin`
+ *  raises a SEQUENCED request and the effect records the sequence it served in a plain
+ *  variable, so consuming the intent is not a write the compute reads. The ACTIVE host is the
+ *  effect's own output and is read untracked, with MEMBERSHIP as the trigger; a switch naming
+ *  a host the pool does not hold is refused at the WRITE instead, by the grounded setter. */
 function harness(init: { members: HostKey[]; active: HostKey }) {
   let handles!: {
     setMembers: (v: HostKey[]) => void;
@@ -102,13 +106,22 @@ function harness(init: { members: HostKey[]; active: HostKey }) {
   };
   createRoot((dispose) => {
     const [members, setMembers] = createSignal<HostKey[]>(init.members);
-    const [activeHost, setActiveHost] = createSignal<HostKey>(init.active);
+    const [activeHost, setActiveHostIntent] = createSignal<HostKey>(
+      init.active,
+    );
     type JoinRequest = { host: HostKey; seq: number };
     let joinSeq = 0;
     let servedJoinSeq = 0;
     const [joinRequest, setJoinRequest] = createSignal<JoinRequest | null>(
       null,
     );
+    // The grounded writer: a target the live pool does not hold seats the local default.
+    const setActiveHost = (next: HostKey): void => {
+      const action = untrack(() =>
+        hostReconcileTarget(members(), next, null, LOCAL_HOST),
+      );
+      setActiveHostIntent(action === null ? next : action.target);
+    };
     createEffect(
       () => {
         const request = joinRequest();
@@ -118,7 +131,7 @@ function harness(init: { members: HostKey[]; active: HostKey }) {
           request: pending,
           action: hostReconcileTarget(
             members(),
-            activeHost(),
+            untrack(activeHost),
             pending?.host ?? null,
             LOCAL_HOST,
           ),
@@ -128,7 +141,7 @@ function harness(init: { members: HostKey[]; active: HostKey }) {
         if (action === null) return;
         if (action.kind === "activate-joined" && request !== null)
           servedJoinSeq = request.seq;
-        setActiveHost(action.target);
+        setActiveHostIntent(action.target);
       },
     );
     handles = {
@@ -143,9 +156,10 @@ function harness(init: { members: HostKey[]; active: HostKey }) {
 }
 
 describe("add-host activation vs. the membership reconcile (folded repro — ONE effect)", () => {
-  it("BUG shape: switching to a just-added host IMMEDIATELY is bounced to local by the reconcile", async () => {
+  it("BUG shape: switching to a just-added host IMMEDIATELY is grounded to local", async () => {
     // Documents WHY the naive add-`.then` fix failed: a bare setActiveHost, before the
-    // member is observable, is a departed-bounce input to the very same reconcile.
+    // member is observable, names a host the pool does not hold — and the grounded writer
+    // seats the local default rather than stranding the tab on it.
     const h = harness({ members: [LOCAL_HOST, west], active: west });
     await tick();
 

@@ -66,6 +66,8 @@ import {
   createMemo,
   createRoot,
   createSignal,
+  type Setter,
+  untrack,
 } from "solid-js";
 import { Effect } from "effect";
 import { toast } from "solid-sonner";
@@ -324,8 +326,13 @@ export const padiMap = createRoot(() =>
  *  CANONICAL wire string (`encodeHostKey`/`decodeHostKey` — NOT the default
  *  `JSON.stringify`, which would write `{"kind":"local"}` instead of `"local"`),
  *  defaulting to the unremovable LOCAL default. Switching it re-keys every
- *  `useEntry(activeHost)` readout — the canvas live-switches, no reload. */
-export const [activeHost, setActiveHost] = persistedPref<HostKey>({
+ *  `useEntry(activeHost)` readout — the canvas live-switches, no reload.
+ *
+ *  The RAW setter stays in this module: every switch an app surface makes goes
+ *  through the GROUNDED {@link setActiveHost} below, which refuses to seat a
+ *  host membership does not hold. This one is written only by the host-scope
+ *  block, which has already decided against membership. */
+const [activeHostIntent, setActiveHostIntent] = persistedPref<HostKey>({
   name: "kolu-active-host",
   fallback: LOCAL_HOST,
   parse: (raw) => decodeHostKey(raw),
@@ -341,6 +348,8 @@ export const [activeHost, setActiveHost] = persistedPref<HostKey>({
       err,
     ),
 });
+/** The per-tab ACTIVE host (see the pref above). */
+export const activeHost: Accessor<HostKey> = activeHostIntent;
 
 /** kolu's ROOT (non-surface) procedures over the combined wire —
  *  `client.server.info(...)`, `client.daemon.restart(...)`,
@@ -529,6 +538,43 @@ const hostScoped = createRoot(() => {
     setJoinRequest({ host, seq: ++joinSeq });
   };
   let servedJoinSeq = 0;
+  /** Say that a host is gone and the canvas has moved — the ONE wording, used
+   *  by both groundings below. */
+  const sayDeparted = (departed: HostKey): void => {
+    toast.warning(
+      `Host "${encodeHostKey(departed)}" left the pool — switched to the local host`,
+    );
+  };
+  // GROUNDING AT THE WRITE. A surface can name a host that has since left — an
+  // attention jump off a notification, a palette row built before the pool
+  // moved. Seating it would strand the tab on a dead host (`useEntry` does not
+  // re-key on its own; every `activePadiRpc` call throws `MAP_KEY_UNKNOWN`,
+  // canvas frozen, no chip lit), so the write itself is grounded against the
+  // SAME `hostReconcileTarget` decision the membership effect below enacts: a
+  // non-member target seats the local default and says so. Before the first
+  // membership snapshot lands there is nothing to ground against, which that
+  // decision already answers as a no-op.
+  //
+  // This is what lets the effect below be driven by MEMBERSHIP alone: an
+  // ungrounded active host is unrepresentable at the one place it could be
+  // written, rather than corrected a flush later by the effect that reads it.
+  //
+  // Membership is read as a FACT, not a dependency: `untrack` keeps a caller
+  // standing in a reactive scope (an event handler inside an effect's apply
+  // arm) from subscribing it to the pool, and from a strict-read diagnostic.
+  const setActiveHost = ((value: HostKey | ((prev: HostKey) => HostKey)) => {
+    const next =
+      typeof value === "function" ? value(untrack(activeHostIntent)) : value;
+    const action = untrack(() =>
+      hostReconcileTarget(members.keys(), next, null, LOCAL_HOST),
+    );
+    if (action === null) return setActiveHostIntent(next);
+    sayDeparted(next);
+    return setActiveHostIntent(action.target);
+    // `Setter<HostKey>`'s overload set (a value, an updater, and the arms a
+    // non-nullable signal cannot take) is not expressible in one implementation
+    // signature; the two arms above are its whole surface here.
+  }) as Setter<HostKey>;
   // THE ONE active-host effect — enacts `hostReconcileTarget` for BOTH the join-activation and
   // the departed-bounce (see its doc). One writer, one ordering to reason about.
   createEffect(
@@ -536,11 +582,15 @@ const hostScoped = createRoot(() => {
       const request = joinRequest();
       const pending =
         request !== null && request.seq > servedJoinSeq ? request : null;
-      // The active host is TRACKED: a switch to a host that is not a member (a notification
-      // or chip naming a host that has since left) is a departed input in its own right, and
-      // bounces at once. The re-run this effect's own `setActiveHost` causes converges in one
-      // pass — the target it wrote is a member, so `hostReconcileTarget` answers null.
-      const active = activeHost();
+      // MEMBERSHIP is the trigger, and the only one: a host departs when the
+      // pool says so, and a join lands when the pool publishes it. The active
+      // host is this effect's OWN output (`useDaemonStatus`'s announce marks
+      // are the precedent) and is read untracked — tracked, the bounce re-ran
+      // this effect on its own write: two flushes for one departure, with the
+      // dead host's canvas painted in between (EFFECT_WRITES_OWN_SOURCE).
+      // Nothing is missed by it: a switch to a host that is not a member is
+      // refused by `setActiveHost` above, at the write.
+      const active = untrack(activeHostIntent);
       return {
         request: pending,
         action: hostReconcileTarget(
@@ -560,13 +610,14 @@ const hostScoped = createRoot(() => {
         // Consume the intent — the added host is now active, and a later membership
         // change must not yank the user back to it.
         if (request !== null) servedJoinSeq = request.seq;
-        setActiveHost(action.target);
+        setActiveHostIntent(action.target);
         return;
       }
-      setActiveHost(action.target);
-      toast.warning(
-        `Host "${encodeHostKey(departed)}" left the pool — switched to the local host`,
-      );
+      // The target is the local default — a member by the server's seed
+      // invariant — so the raw setter is right here: there is nothing left to
+      // ground.
+      setActiveHostIntent(action.target);
+      sayDeparted(departed);
     },
   );
   // The pool membership IN THE USER'S ARRANGEMENT, exposed so the host-switcher
@@ -599,6 +650,7 @@ const hostScoped = createRoot(() => {
     connection,
     preferences,
     requestActivateOnJoin,
+    setActiveHost,
     hostKeys,
     procedures: active.procedures,
     streams: active.streams,
@@ -610,6 +662,14 @@ const hostScoped = createRoot(() => {
  *  Raises the sequenced request the ONE reconcile effect enacts (`hostReconcileTarget`'s
  *  join-activation arm), so there is no second `setActiveHost` writer to reason about. */
 export const requestActivateOnJoin = hostScoped.requestActivateOnJoin;
+
+/** Switch the per-tab ACTIVE host — the ONE writer every surface uses (a chip,
+ *  a palette row, an attention jump, the canvas failure card). GROUNDED: a
+ *  target the live pool does not hold seats the unremovable local default and
+ *  says so, so a notification naming a host that has since left can never
+ *  strand the tab on a dead host. Takes a value or an updater, like the signal
+ *  setter it replaces. */
+export const setActiveHost: Setter<HostKey> = hostScoped.setActiveHost;
 
 /** The current pool membership IN THE USER'S ARRANGEMENT — the ONE ordered host
  *  list. Reads the `members` authority `hostScoped` already holds (so no
