@@ -117,19 +117,27 @@ const NO_SUB_IDS: TerminalId[] = [];
 /** Same stable-reference contract for the nested shape. */
 const NO_PANE_NODES: PaneNode[] = [];
 
-function sameDisplayInfo(
-  a: TerminalDisplayInfo | undefined,
-  b: TerminalDisplayInfo,
-): boolean {
-  return (
-    !!a &&
-    a.repoColor === b.repoColor &&
-    a.annotationColor === b.annotationColor &&
-    a.subCount === b.subCount &&
-    a.key.group === b.key.group &&
-    a.key.label === b.key.label &&
-    a.key.suffix === b.key.suffix
-  );
+/** Merge one freshly built display row into the row standing in the projection's
+ *  draft, LEAF BY LEAF — never `draft[id] = row`.
+ *
+ *  The store tracks leaves: a row written whole makes every reader under that id
+ *  re-run for the one field that moved, and hands the row a new reference. That is
+ *  the #1714 shape one level down — a split opening under a tile (`subCount`)
+ *  would repaint its colours and its identity key, and a `<For>` keyed on the row
+ *  would rebuild it. Assigned only where the two differ, so a rebuild that changes
+ *  nothing — the common case, since every metadata tick re-derives the whole table
+ *  — touches no node at all and this stays the no-op it was. */
+function mergeDisplayInfo(
+  into: TerminalDisplayInfo,
+  next: TerminalDisplayInfo,
+): void {
+  if (into.repoColor !== next.repoColor) into.repoColor = next.repoColor;
+  if (into.annotationColor !== next.annotationColor)
+    into.annotationColor = next.annotationColor;
+  if (into.subCount !== next.subCount) into.subCount = next.subCount;
+  if (into.key.group !== next.key.group) into.key.group = next.key.group;
+  if (into.key.label !== next.key.label) into.key.label = next.key.label;
+  if (into.key.suffix !== next.key.suffix) into.key.suffix = next.key.suffix;
 }
 
 export function useTerminalMetadata(deps: {
@@ -463,8 +471,10 @@ export function useTerminalMetadata(deps: {
   /** The display table, derived per id. A projection rather than a store a
    *  rule writes: the derive's `draft` IS the previous table (its reads are
    *  not tracked, so diffing against it takes no untracking), and the commit
-   *  touches only the keys that moved — a tile whose row is unchanged
-   *  notifies nobody. */
+   *  touches only the LEAVES that moved — a tile whose row is unchanged
+   *  notifies nobody, and a tile whose split count moved notifies the readers
+   *  of that count alone ({@link mergeDisplayInfo}). A row arriving for the
+   *  first time is the one write that assigns: there is nothing to merge into. */
   const displayInfos = createProjection<Record<string, TerminalDisplayInfo>>(
     (draft) => {
       const next = buildTerminalDisplayInfos(
@@ -474,7 +484,9 @@ export function useTerminalMetadata(deps: {
       );
       for (const id of Object.keys(draft)) if (!next.has(id)) delete draft[id];
       for (const [id, value] of next) {
-        if (!sameDisplayInfo(draft[id], value)) draft[id] = value;
+        const row = draft[id];
+        if (row === undefined) draft[id] = value;
+        else mergeDisplayInfo(row, value);
       }
     },
     {},

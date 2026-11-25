@@ -345,23 +345,24 @@ export interface CollectionSpec<K = unknown, T = unknown, TPolicy = never> {
    *  on the wire and in the store; this names a field inside the value filed
    *  there.
    *
-   *  WHICH DELIVERY APPLIES IT, precisely, because a collection has two and they
-   *  are chosen per CALL SITE, not per collection:
+   *  BOTH DELIVERIES APPLY IT, each at the grain it writes:
    *
    *    - the PER-KEY path — `.use({ keys })`, and any collection whose verbs omit
    *      `deltas` — opens one subscription per key through the same
    *      `createSubscription` seam a cell uses, so the merge is the same merge and
    *      the declaration governs it exactly as it governs a cell's.
-   *    - the BATCHED `deltas` path replaces each named leaf WHOLE rather than
-   *      merging into it, and must: a `fold` consumer may be holding the very
-   *      object a merge would write through, so from that store's point of view a
-   *      frame handed onward is frozen. There is no merge there for a key to
-   *      govern.
+   *    - the BATCHED `deltas` path merges each named ENTRY into the one standing
+   *      there (`solid/writeValue.ts`'s `writeEntryValue`), so a delta that moved
+   *      one field of a record wakes that field's readers and not the record's
+   *      other leaves — and the declaration governs the arrays inside that entry
+   *      exactly as it does on the per-key path.
    *
-   *  So a `deltas`-declaring collection may still declare this and mean it — the
-   *  narrowed `.use({ keys })` on that same collection is served per-key and will
-   *  honour it. What the batched path does is a property of that delivery, stated
-   *  where the delivery is, not a declaration silently dropped. */
+   *  That merge does NOT cost a `fold` consumer the frame objects it holds, which
+   *  is the thing this path has to protect: `reconcile` ADOPTS the incoming frame
+   *  at every level it reaches — an internal pointer swap, no clones and no
+   *  user-object mutation (`@solidjs/signals` 2.0.4 `dist/dev.js` `adoptPB`
+   *  :4364) — so a frame handed onward is still frozen, as it was when every
+   *  entry was replaced whole. */
   arrayKey?: string;
 }
 

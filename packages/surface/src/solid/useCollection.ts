@@ -41,6 +41,7 @@ import {
   type SubscriptionOptions,
   type SubscriptionState,
 } from "./createSubscription";
+import { writeEntryValue } from "./writeValue";
 
 export interface UseCollectionOptions<K, T, I> {
   /** Reactive accessor for the live key set. The caller owns the subscription
@@ -357,7 +358,7 @@ function sameOrder<K>(a: readonly K[], b: readonly K[]): boolean {
 }
 
 export function useCollectionDeltas<Name extends string, K, T>(
-  _coll: Collection<Name, K, T>,
+  coll: Collection<Name, K, T>,
   options: {
     /** The collection's `deltas` stream (snapshot-then-deltas), already fenced.
      *  Lazy — tearing down the last consumer of a shared dedup slot interrupts the
@@ -441,10 +442,11 @@ export function useCollectionDeltas<Name extends string, K, T>(
    *  turns a transport drop into a fresh snapshot rather than an error, so a
    *  reconnect re-serializes the same content into fresh objects. An entry whose
    *  value is unchanged must therefore NOT re-notify its readers — a link flap is
-   *  deliberately a visual no-op. An entry that DID change is REPLACED whole (never
-   *  merged into the object standing there), because that object is the same one a
-   *  fold may be holding: from the store's point of view a frame handed onward is
-   *  frozen. */
+   *  deliberately a visual no-op. An entry that DID change is MERGED into the
+   *  entry standing there ({@link writeEntryValue}), so only the leaves that
+   *  actually moved wake their readers; the object a fold may be holding is not
+   *  written through either way, because a merge ADOPTS the incoming frame rather
+   *  than mutating what it replaces. */
   function applySnapshot(entries: ReadonlyArray<readonly [K, T]>): void {
     const present = new Set<string>();
     const nextOrder: K[] = [];
@@ -466,9 +468,10 @@ export function useCollectionDeltas<Name extends string, K, T>(
         // Membership and the value to diff against BOTH come from the mirror, so
         // neither question walks the draft: a read through it would mint a
         // mutation proxy for every object it touches, and the comparison walks
-        // the whole value.
+        // the whole value. Only an entry that survives the diff is then read
+        // through the draft, by the merge that writes it.
         if (!(sk in held) || !framesEqual(held[sk], v)) {
-          d[sk] = v;
+          writeEntryValue(d, sk, held[sk], v, coll.arrayKey);
           held[sk] = v;
         }
       }
@@ -490,7 +493,8 @@ export function useCollectionDeltas<Name extends string, K, T>(
    *  already answered — so a deep compare here would re-ask a question already
    *  answered and pay per named key for it. The snapshot arm has no such answer to
    *  lean on: a reconnect re-serializes the WHOLE set whether or not anything
-   *  moved. */
+   *  moved. Unconditional is about the KEY, not about its leaves: the write is the
+   *  merge below, which notifies the leaves the two frames disagree on. */
   function applyDelta(delta: CollectionDelta<K, T>): void {
     // Keys NEW to the collection as of THIS FRAME'S START, computed against the
     // PRE-write dictionary. That "pre-write" is load-bearing, not incidental: two
@@ -515,15 +519,20 @@ export function useCollectionDeltas<Name extends string, K, T>(
     let net = 0;
     const removed: K[] = [];
     setDict((d) => {
-      // A LEAF REPLACEMENT per named key, not a merge into the object already
-      // there: the store must never write through a frame object it previously
-      // adopted, since a fold may be holding that same object (§ the aliasing
-      // contract). Membership is asked of the mirror, which is the same key set
-      // the draft holds and costs no trap.
+      // A MERGE per named key ({@link writeEntryValue}), not a wholesale
+      // replacement of the entry: the store tracks leaves, so replacing the
+      // container would wake every reader under that key for the one field a
+      // delta moved — and a record whose title ticks would re-run the readers of
+      // its git facts. The frame object a fold may be holding stays frozen under
+      // the merge: `reconcile` adopts the incoming frame by pointer swap and
+      // never writes through what stood there (§ the aliasing contract, argued in
+      // `./writeValue.ts`). Membership and the merge's previous value are asked
+      // of the mirror, which is the same key set — and the same backing objects —
+      // the draft holds, and costs no trap.
       for (const [k, v] of delta.upserts) {
         const sk = String(k);
         if (!(sk in held)) net++;
-        d[sk] = v;
+        writeEntryValue(d, sk, held[sk], v, coll.arrayKey);
         held[sk] = v;
       }
       for (const k of delta.removes) {

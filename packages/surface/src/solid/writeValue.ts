@@ -301,3 +301,47 @@ export function writeWrappedValue<T>(
     merge(prev);
   });
 }
+
+/** Merge `next` into the value a DRAFT DICTIONARY holds at `key` — the merge the
+ *  batched `deltas` store performs on one entry a frame named
+ *  (`./useCollection.ts`'s `applySnapshot`/`applyDelta`), under the collection's
+ *  declared array identity (see {@link reconcileFrame} for what that buys).
+ *
+ *  `prev` is what the store holds at `key` RIGHT NOW, handed in rather than read
+ *  back out of the draft: the deltas store keeps a plain mirror of its dictionary
+ *  beside it, and that mirror IS the store's backing by reference — a frame is
+ *  adopted by pointer swap, never cloned — so the question "can a merge reach
+ *  into what stands there?" is answered without walking the draft at all. The
+ *  draft is read only on the path that then merges into it, which is the one
+ *  place a mutation proxy for that entry has to exist.
+ *
+ *  A key the dictionary does not hold yet (`prev` undefined), a primitive on
+ *  either side, or a value a merge cannot reach is ASSIGNED — the same three
+ *  replacements {@link writeWrappedValue} makes, for the same reasons.
+ *
+ *  The entry the store already adopted is NOT written through: `reconcile` adopts
+ *  the incoming frame at every level it reaches (`@solidjs/signals` 2.0.4
+ *  `dist/dev.js` `adoptPB` :4364 — "the incoming object becomes the backing by
+ *  reference at the fold — no clones, no user-object mutation"), so a `fold`
+ *  consumer holding a previous frame's object keeps it frozen, exactly as it did
+ *  when every entry was replaced whole. What the merge changes is which READERS
+ *  wake: the entry's leaf readers where the two frames disagree, instead of every
+ *  reader under that key for the one leaf that moved. */
+export function writeEntryValue<T>(
+  draft: Record<string, T>,
+  key: string,
+  prev: unknown,
+  next: T,
+  arrayKey?: string,
+): void {
+  if (next === null || typeof next !== "object") {
+    draft[key] = next;
+    return;
+  }
+  const merge = frameMerge(prev, next as T & object, arrayKey);
+  if (merge === null) {
+    draft[key] = next;
+    return;
+  }
+  merge(draft[key] as object);
+}

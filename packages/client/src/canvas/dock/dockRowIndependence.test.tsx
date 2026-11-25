@@ -28,7 +28,7 @@ import {
 } from "@kolu/padi-client/surface";
 import type { AgentInfo, TerminalId } from "kolu-common/surface";
 import type { GitInfo } from "kolu-git/schemas";
-import { createMemo, createStore, flush, For } from "solid-js";
+import { createMemo, createStore, flush, For, reconcile } from "solid-js";
 import { render } from "@solidjs/web";
 import { afterEach, describe, expect, it } from "vitest";
 import type { TerminalAttention } from "@kolu/padi-client/attention";
@@ -218,13 +218,22 @@ describe("dock rows in one repository stay independent", () => {
 
     // Alice's harness finishes its turn, renames its task and gains an intent —
     // every field the Dock's primary line and sub-line read.
+    //
+    // MERGED into the record standing there, the way production delivers a whole
+    // server record: `useTerminalMetadata`'s per-id projection commits the
+    // reprojected record through Solid's reconcile channel (`createProjection(…,
+    // { key: null })`), and the collection store under it merges each named entry
+    // (`@kolu/surface`'s `writeEntryValue`). Neither ever hands a record's `git`
+    // (or any other container) a fresh object for a field that did not move — an
+    // `Object.assign` of a freshly built record does exactly that, and would make
+    // this fixture test a write shape the app cannot produce.
     const aliceMeta = metaWith(
       agentInfo("awaiting_user", "Ship it?"),
       "Rewrite",
     );
     setMeta((all) => {
       const held = all[ALICE];
-      if (held) Object.assign(held, aliceMeta);
+      if (held) reconcile(aliceMeta, null)(held);
       else all[ALICE] = aliceMeta;
     });
     setAttention((all) => {

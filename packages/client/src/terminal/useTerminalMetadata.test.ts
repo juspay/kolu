@@ -737,9 +737,14 @@ it("metadata ticks do not wake split-tree or unrelated display readers", async (
     await settle();
     expect(splitWakes).toBe(1);
     expect(displayWakes).toBe(1);
-    expect(oldKey?.label).toBe("/work/a");
+    // `a`'s OWN row did move — and it moved as a MERGE: the display table writes
+    // the leaves that changed rather than dropping a fresh row in, so the key a
+    // consumer is holding is still the key, now reading the new label. A
+    // replacement would have handed `a` a new row object (and woken every reader
+    // under it) for the one field that moved.
+    expect(store.getDisplayInfo("a")?.key).toBe(oldKey);
     expect(store.getDisplayInfo("a")?.key.label).toBe("/different/renamed");
-    expect(store.getDisplayInfo("a")?.key).not.toBe(oldKey);
+    expect(oldKey?.label).toBe("/different/renamed");
     dispose();
   });
 });
