@@ -277,6 +277,10 @@ describe("a re-key whose root another work holds", () => {
       key: HELD_KEY,
       state: { kind: "open" },
     });
+    // Its branch is asked about in the root git said, not its old folder.
+    expect(r.works.branchWatches()).toEqual([
+      { work: OLD, host: "local", repo: ROOT, branch: expect.any(String) },
+    ]);
     await drain();
     expect(r.files.ops).toEqual([]);
     expect(r.publishedWorks.filter((one) => one.work === null)).toEqual([]);

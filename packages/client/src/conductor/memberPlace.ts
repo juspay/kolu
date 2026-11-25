@@ -3,16 +3,19 @@
  *
  *  A terminal may join a work from anywhere, and may change directory or
  *  branch a second after it does; nothing about the work is read off it. What
- *  the row can honestly say is where the terminal is RIGHT NOW compared with
- *  the work's key: in the work's own checkout, somewhere else (and where), in
- *  no repository, or not known. Only `elsewhere` adds words to the row. */
+ *  the row can honestly say is where the terminal is — or, asleep, where it
+ *  slept — compared with the work's key: in the work's own checkout,
+ *  somewhere else (and where), in no repository, or not known. The work's
+ *  repository is the root git said for its key (`rootOf`); a key whose root
+ *  git has not said cannot place a terminal on its branch. Only `elsewhere`
+ *  adds words to the row. */
 
-import { activeArm } from "@kolu/padi-client/surface";
-import type { WorkKey } from "kolu-work";
+import { Option } from "effect";
+import { rootOf, type WorkKey } from "kolu-work";
 import type { FleetTerminalStanding } from "../palette/fleetTerminals";
 
 export type MemberPlace =
-  /** On the key's host, in the key's repository, on the key's branch. */
+  /** On the key's host, in the root git said for it, on the key's branch. */
   | { readonly kind: "in-worktree" }
   /** Anywhere else: another branch, another repository, another host. */
   | {
@@ -22,8 +25,9 @@ export type MemberPlace =
     }
   /** Its record says it is in no repository. */
   | { readonly kind: "no-repository" }
-  /** Not here, not read yet, or the work is a watch (whose key IS the
-   *  terminal, so there is nothing to compare it with). */
+  /** Not here, not read yet, on the key's branch of a repository whose root
+   *  git has not said, or the work is a watch (whose key IS the terminal, so
+   *  there is nothing to compare it with). */
   | { readonly kind: "unknown" };
 
 const UNKNOWN: MemberPlace = { kind: "unknown" };
@@ -35,23 +39,29 @@ export function memberPlace(
   standing: FleetTerminalStanding | undefined,
 ): MemberPlace {
   if (key.kind !== "branch" || standing?.kind !== "here") return UNKNOWN;
-  const arm = activeArm(standing.meta);
-  if (arm === undefined) return UNKNOWN;
-  switch (arm.git.kind) {
+  // Both arms carry the terminal's git: a sleeping one's is where it slept.
+  const git = standing.meta.git;
+  switch (git.kind) {
     case "unresolved":
       return UNKNOWN;
     case "none":
       return { kind: "no-repository" };
     case "repo": {
-      const info = arm.git.info;
-      return host === key.host &&
-        info.mainRepoRoot === key.repo &&
-        info.branch === key.branch
-        ? { kind: "in-worktree" }
-        : { kind: "elsewhere", repo: info.repoName, branch: info.branch };
+      const info = git.info;
+      const elsewhere: MemberPlace = {
+        kind: "elsewhere",
+        repo: info.repoName,
+        branch: info.branch,
+      };
+      if (host !== key.host || info.branch !== key.branch) return elsewhere;
+      return Option.match(rootOf(key), {
+        onNone: () => UNKNOWN,
+        onSome: (root) =>
+          info.mainRepoRoot === root ? { kind: "in-worktree" } : elsewhere,
+      });
     }
     default:
-      return arm.git satisfies never;
+      return git satisfies never;
   }
 }
 

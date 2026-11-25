@@ -41,20 +41,28 @@ const standingIn = (
     },
   }) as FleetTerminalStanding;
 
-const repo = (mainRepoRoot: string, branch: string, repoName = "repo") =>
-  standingIn({
-    kind: "repo",
-    info: {
-      repoRoot: `${mainRepoRoot}/.worktrees/${branch}`,
-      repoName,
-      worktreePath: `${mainRepoRoot}/.worktrees/${branch}`,
-      branch,
-      isWorktree: true,
-      mainRepoRoot,
-      remoteUrl: null,
-      isBare: false,
+const repo = (
+  mainRepoRoot: string,
+  branch: string,
+  repoName = "repo",
+  state: "active" | "sleeping" = "active",
+) =>
+  standingIn(
+    {
+      kind: "repo",
+      info: {
+        repoRoot: `${mainRepoRoot}/.worktrees/${branch}`,
+        repoName,
+        worktreePath: `${mainRepoRoot}/.worktrees/${branch}`,
+        branch,
+        isWorktree: true,
+        mainRepoRoot,
+        remoteUrl: null,
+        isBare: false,
+      },
     },
-  });
+    state,
+  );
 
 describe("where a member stands", () => {
   it("is in the worktree on the key's host, repository and branch", () => {
@@ -93,6 +101,44 @@ describe("where a member stands", () => {
     expect(memberPlace(KEY, "local", standingIn({ kind: "none" }))).toEqual({
       kind: "no-repository",
     });
+  });
+
+  it("reads a sleeping member where it slept", () => {
+    const place = memberPlace(
+      KEY,
+      "local",
+      repo("/repo", "other-branch", "kolu", "sleeping"),
+    );
+    expect(placeWords(place)).toBe("elsewhere · kolu · other-branch");
+    expect(
+      memberPlace(
+        KEY,
+        "local",
+        repo("/repo", "solid-2-switch", "repo", "sleeping"),
+      ),
+    ).toEqual({ kind: "in-worktree" });
+  });
+
+  it("compares with the root git said, not the folder the key was written with", () => {
+    // A HELD work keeps its old folder as `repo` and the root git said
+    // apart: a member in that root's checkout is in the work's worktree.
+    const held: WorkKey = {
+      ...KEY,
+      repo: "/repo/.worktrees/solid-2-switch",
+      repoBy: { kind: "held", root: "/repo" },
+    };
+    expect(memberPlace(held, "local", repo("/repo", "solid-2-switch"))).toEqual(
+      { kind: "in-worktree" },
+    );
+    // AS WRITTEN, git has said no root: on the key's branch the row cannot
+    // say whether that is the work's repository; off it, it is elsewhere.
+    const asWritten: WorkKey = { ...KEY, repoBy: { kind: "as-written" } };
+    expect(
+      memberPlace(asWritten, "local", repo("/repo", "solid-2-switch")).kind,
+    ).toBe("unknown");
+    expect(
+      memberPlace(asWritten, "local", repo("/repo", "elsewhere-branch")).kind,
+    ).toBe("elsewhere");
   });
 
   it("is unknown when it is not read, not here, not resolved, or the work is a watch", () => {

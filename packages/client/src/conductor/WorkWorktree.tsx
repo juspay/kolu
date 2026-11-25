@@ -6,9 +6,12 @@
  *  about (`WorkSubject`), and this hands over the work's. Every fact in it is
  *  the WORK's, and none is read off a member terminal:
  *
- *  - the repository and the branch are the work's key;
+ *  - the branch is the work's key, the repository the root git said for it
+ *    (`rootOf`). A key whose root git has not said draws no repository part
+ *    — the section's own "before git said" — rather than guess one off the
+ *    folder the work was opened in;
  *  - the folder is git's last answer for that key (`Work.worktree`), and it
- *    is a linked worktree exactly when it is not the repository's root;
+ *    is a linked worktree exactly when it is not that root;
  *  - the pull request is the work's own (`./workPr.ts`). With no live
  *    reading, the line under the title and the Pull request part say the one
  *    the timeline recorded.
@@ -21,7 +24,7 @@
 
 import { Option } from "effect";
 import { decodeHostKey } from "kolu-common/hostKey";
-import { hostOf, type Work } from "kolu-work";
+import { hostOf, rootOf, type Work } from "kolu-work";
 import { type Component, createMemo, Match, Show, Switch } from "solid-js";
 import { useOduLink } from "../right-panel/useOduLink";
 import WorkSection, { type WorkSubject } from "../right-panel/WorkSection";
@@ -43,13 +46,16 @@ const At: Component<{
       host: hostKey(),
       git:
         key.kind === "branch"
-          ? {
-              repoName: repoName(key.repo),
-              branch: key.branch,
-              isWorktree: props.path !== key.repo,
-              repoRoot: props.path,
-              mainRepoRoot: key.repo,
-            }
+          ? Option.match(rootOf(key), {
+              onNone: () => null,
+              onSome: (root) => ({
+                repoName: repoName(root),
+                branch: key.branch,
+                isWorktree: props.path !== root,
+                repoRoot: props.path,
+                mainRepoRoot: root,
+              }),
+            })
           : null,
       pr: Option.match(props.pr, {
         onNone: () => null,

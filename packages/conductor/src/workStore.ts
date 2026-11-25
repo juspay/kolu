@@ -623,7 +623,10 @@ export const workStore = (deps: WorkStoreDeps): WorkStore => {
    *
    *  The key IS the answer — it carries the host, the repository and the
    *  branch — so nothing here re-derives a work's identity from a member's
-   *  record. */
+   *  record. Git is asked in the root it said for the key (`rootOf`: a HELD
+   *  work's is not its old folder); a key whose root git has not said is
+   *  asked in the folder it was written with, which is how git comes to say
+   *  one. */
   const branchWatches = (): ReadonlyArray<BranchWatch> => {
     const watches: BranchWatch[] = [];
     for (const [id, work] of value.works) {
@@ -634,7 +637,7 @@ export const workStore = (deps: WorkStoreDeps): WorkStore => {
       watches.push({
         work: id,
         host: work.key.host,
-        repo: work.key.repo,
+        repo: Option.getOrElse(rootOf(work.key), () => work.key.repo),
         branch: work.key.branch,
       });
     }
