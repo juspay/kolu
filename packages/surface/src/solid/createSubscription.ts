@@ -442,6 +442,32 @@ export interface SubscriptionState {
   readonly complete: Accessor<boolean>;
 }
 
+/** The refusal every view-opening primitive throws when the call has neither a
+ *  reactive owner nor an `AbortSignal` — one wording, worded from the CALLER.
+ *
+ *  `name` is the primitive the consumer actually called, so the message names
+ *  something they can find, not the shared seam underneath it. `acceptsSignal`
+ *  says whether that primitive exposes `options.signal`: the batched collection
+ *  path does not, so its advice stops at "call it from a component / createRoot"
+ *  rather than offering an option its caller has no way to spell. */
+export function noLifetimeRefusal(caller: {
+  name: string;
+  acceptsSignal: boolean;
+}): Error {
+  return new Error(
+    caller.acceptsSignal
+      ? `${caller.name}: must run under a reactive owner, or be given ` +
+        "`options.signal` — the view's lifetime is one or the other, and with " +
+        "neither nothing can ever interrupt its fiber or close the wire " +
+        "subscription behind it. Call it from a component / createRoot, or " +
+        "pass an AbortSignal."
+      : `${caller.name}: must run under a reactive owner — the owner's ` +
+        "disposal is the only thing that can interrupt the view's fiber and " +
+        "close the wire subscription behind it, so an ownerless view would " +
+        "leak both. Call it from a component / createRoot.",
+  );
+}
+
 /** Drive `source` on its own scoped fiber and report its lifecycle as the three
  *  signals of a {@link SubscriptionState}, handing each frame to `onFrame`.
  *
@@ -483,6 +509,12 @@ export interface SubscriptionState {
 export function createStreamLifecycle<T>(
   source: Stream.Stream<T, unknown>,
   options: {
+    /** WHO is refusing, when this view turns out to have no lifetime at all. The
+     *  message names this primitive and words its advice from what THIS caller
+     *  accepts — the collection path reaches the same refusal and exposes no
+     *  `signal`, so telling its caller to pass one would name an option it has
+     *  no way to spell. */
+    caller: { name: string; acceptsSignal: boolean };
     /** One stream frame. Runs before `pending` clears, in the same flush. */
     onFrame: (item: T) => void;
     /** The stream ENDED NORMALLY (a typed end), never on abort. */
@@ -594,16 +626,8 @@ export function createStreamLifecycle<T>(
     // the wire subscription its finalizers close — would outlive everything with
     // no handle left to stop it. That is the silent leak this package refuses by
     // construction everywhere else it can (`createKeyedRoot`, `fold`,
-    // `client.rawStream`), and the caller has two ways to say what it meant.
-    if (!getOwner()) {
-      throw new Error(
-        "createSubscription: must run under a reactive owner, or be given " +
-          "`options.signal` — the view's lifetime is one or the other, and with " +
-          "neither nothing can ever interrupt its fiber or close the wire " +
-          "subscription behind it. Call it from a component / createRoot, or " +
-          "pass an AbortSignal.",
-      );
-    }
+    // `client.rawStream`).
+    if (!getOwner()) throw noLifetimeRefusal(options.caller);
     createEffect(
       () => undefined,
       () => {
@@ -678,6 +702,7 @@ export function createSubscription<T, R = T>(
   // shared seam; the ONE thing this primitive contributes is what a frame does —
   // reduce it, tell the tracker, write it into the wrapped store.
   const state = createStreamLifecycle<T>(source, {
+    caller: { name: "createSubscription", acceptsSignal: true },
     onFrame: (item) => {
       acc = reduce ? reduce(acc as T | R, item) : (item as T | R);
       tracker.noteFrame(acc); // fire `updated` on a genuine change, before the write

@@ -10,7 +10,8 @@
  * if you want imperative lifetime (e.g. fire-and-forget per-entity subscriptions
  * whose lifetime tracks the entity, not a component). Either way the actual
  * teardown is a fiber interrupt, which the stream's own finalizers turn into a
- * wire unsubscribe.
+ * wire unsubscribe. With NEITHER an owner nor a signal the view has no lifetime
+ * at all and the call is refused, the same way `createSubscription` refuses it.
  *
  * No snapshot obligation: a late subscriber misses past occurrences by
  * design. Re-subscribe on transport drop is transparent (the retry fence) —
@@ -18,10 +19,11 @@
  * the fence's `shouldRetryStreamError` policy.
  */
 
-import { createEffect, onCleanup } from "solid-js";
+import { createEffect, getOwner, onCleanup } from "solid-js";
 import { type StreamingProcedure, unenrolledStreamCall } from "../client";
 import type { Event } from "../index";
 import { runStreamScoped } from "../runStream";
+import { noLifetimeRefusal } from "./createSubscription";
 
 export interface UseEventOptions {
   /** Called when the subscription errors (a transport failure the fence can't
@@ -70,11 +72,18 @@ export function useEvent<Name extends string, I, T>(
   }
 
   // Single cleanup path: external signal OR `onCleanup`. Never both — avoids dual
-  // lifecycle braiding (the same shape `createSubscription` uses).
+  // lifecycle braiding (the same shape `createSubscription` uses). With NEITHER
+  // there is no cleanup path at all: `onCleanup` outside an owner never fires,
+  // the effect below would be one Solid only warns about (`NO_OWNER_EFFECT`),
+  // and the fiber — plus the wire subscription its finalizers close — would
+  // outlive the page with no handle left to stop it. Refused at birth, like
+  // every other view-opening primitive here.
   if (options.signal) {
     if (options.signal.aborted) return;
     options.signal.addEventListener("abort", stop, { once: true });
   } else {
+    if (!getOwner())
+      throw noLifetimeRefusal({ name: "useEvent", acceptsSignal: true });
     onCleanup(stop);
   }
 
@@ -93,6 +102,17 @@ export function useEvent<Name extends string, I, T>(
   // A caller that fired an event itself (the `await client.X.create` shape) is not
   // racing the server: the member's own stream decides what a late subscriber
   // sees, and an event stream promises nothing about occurrences before it.
+  //
+  // OWNERLESS (the signal arm): there is no effect phase to defer into and no
+  // owned scope for an occurrence to land in, so the subscribe is inline. An
+  // ownerless `createEffect` is itself a defect Solid names (`NO_OWNER_EFFECT`)
+  // — nothing would ever dispose it — and the input cannot change reactively
+  // with no owner to re-run anything, so the first read is the only one.
+  if (!getOwner()) {
+    const input = inputFn();
+    if (input !== null) start(input);
+    return;
+  }
   createEffect(inputFn, (input) => {
     stop();
     if (input !== null) start(input);

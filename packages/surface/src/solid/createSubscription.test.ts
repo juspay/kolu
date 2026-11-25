@@ -2,6 +2,7 @@ import * as assert from "node:assert";
 import { Effect, Stream } from "effect";
 import { createEffect, createRoot, createSignal } from "solid-js";
 import { describe, expect, it, vi } from "vitest";
+import type { CollectionDeltasMsg } from "../define";
 import { controllableStream } from "./controllableStream.testlib";
 import { createReactiveSubscription } from "./createReactiveSubscription";
 import {
@@ -9,6 +10,8 @@ import {
   createUpdatedTracker,
   type Subscription,
 } from "./createSubscription";
+import { type NumberRow, numberRows } from "./deltasHarness.testlib";
+import { useCollectionDeltas } from "./useCollection";
 
 /** Test-local: read the current value of a subscription, throwing with a
  *  descriptive message if it hasn't yielded yet. Replaces inline non-null
@@ -1106,10 +1109,14 @@ describe("a view's lifetime: an owner, a signal, or a refusal", () => {
   // is no handle left in the world, so the view is refused at birth — Solid
   // only warns about the undisposable effect such a call would mint, and a
   // warning leaves a wire subscription open for the life of the page.
-  it("createSubscription with no owner and no signal refuses", () => {
+  //
+  // The refusal names the primitive the CONSUMER called and offers only the
+  // options that primitive has, which is why each path below asserts its own
+  // wording rather than a shared prefix.
+  it("createSubscription with no owner and no signal refuses, naming itself", () => {
     const stream = controllableStream<number>();
     expect(() => createSubscription(stream.source)).toThrow(
-      /must run under a reactive owner, or be given `options.signal`/,
+      /^createSubscription: must run under a reactive owner, or be given `options\.signal`/,
     );
     stream.close();
   });
@@ -1133,14 +1140,32 @@ describe("a view's lifetime: an owner, a signal, or a refusal", () => {
     stream.close();
   });
 
-  it("createReactiveSubscription with no owner refuses", () => {
+  it("createReactiveSubscription with no owner refuses, naming itself", () => {
     const stream = controllableStream<number>();
     expect(() =>
       createReactiveSubscription(
         () => 1,
         () => stream.source,
       ),
-    ).toThrow(/must run under a reactive owner/);
+    ).toThrow(/^createReactiveSubscription: must run under a reactive owner/);
+    stream.close();
+  });
+
+  it("the collection path refuses in its own words — no `signal` it cannot be given", () => {
+    // `.collections.X.use({ keys, onError })` reaches the same seam and has no
+    // `signal` option, so its refusal must not tell the caller to pass one.
+    const stream = controllableStream<CollectionDeltasMsg<string, NumberRow>>();
+    let thrown: unknown;
+    try {
+      useCollectionDeltas(numberRows, { source: stream.source });
+    } catch (err) {
+      thrown = err;
+    }
+    assert.ok(thrown instanceof Error, "expected the collection path to refuse");
+    expect(thrown.message).toMatch(
+      /^`\.collections\.X\.use\(\)` \(useCollectionDeltas\): must run under a reactive owner/,
+    );
+    expect(thrown.message).not.toMatch(/options\.signal|AbortSignal/);
     stream.close();
   });
 });

@@ -596,6 +596,13 @@ export function useCollectionDeltas<Name extends string, K, T>(
   const state = createStreamLifecycle<CollectionDeltasMsg<K, T>>(
     options.source,
     {
+      // This path's consumer spelling is `.collections.X.use({ keys, onError })`
+      // (and `useCollectionDeltas` under it): no `signal` option, so the
+      // no-lifetime refusal must not offer one.
+      caller: {
+        name: "`.collections.X.use()` (useCollectionDeltas)",
+        acceptsSignal: false,
+      },
       // Assert keys → apply to the store → notify the folds, the last of them
       // inside the frame's own store transaction. No reader ever observes a
       // half-applied frame: the write is ONE staged transaction that lands
