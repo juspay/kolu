@@ -94,6 +94,7 @@ import {
   timeSpentOnYou,
 } from "./workReadings";
 import WorkTerminals from "./WorkTerminals";
+import WorkHeld from "./WorkHeld";
 import WorkWorktree from "./WorkWorktree";
 import WorkCode from "./WorkCode";
 
@@ -331,16 +332,19 @@ const WorkCard: Component<{
     </Tip>
   );
   const subtitle = () => (
-    <p class="m-0 mt-0.5 flex min-w-0 items-center gap-2 font-mono text-[0.62rem] text-fg-3">
-      <WorkSubtitle work={props.work} pr={pr()} />
-      {/* HOW LONG IT HAS WAITED ON YOU, all told — from a whole second, so a
-          setup answered in a blink does not read "you 0s". */}
-      <Show when={onYou() >= 1000}>
-        <span data-testid="work-on-you" class="shrink-0 text-alert">
-          you {dualPhrase(onYou())}
-        </span>
-      </Show>
-    </p>
+    <>
+      <p class="m-0 mt-0.5 flex min-w-0 items-center gap-2 font-mono text-[0.62rem] text-fg-3">
+        <WorkSubtitle work={props.work} pr={pr()} />
+        {/* HOW LONG IT HAS WAITED ON YOU, all told — from a whole second, so a
+            setup answered in a blink does not read "you 0s". */}
+        <Show when={onYou() >= 1000}>
+          <span data-testid="work-on-you" class="shrink-0 text-alert">
+            you {dualPhrase(onYou())}
+          </span>
+        </Show>
+      </p>
+      <WorkHeld work={props.work} />
+    </>
   );
   const title = () => (
     <span

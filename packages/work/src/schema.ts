@@ -273,16 +273,18 @@ export type KeptFile = typeof KeptFileSchema.Type;
 /** HOW A WORK ENDED — one sum, never a pair of nullable fields.
  *
  *  Three ways and no more: the forge says the PR merged, the forge says it
- *  was closed, or somebody STOPPED it (the person, from the card; or the
- *  Conductor, through `work_stop`). There is no `abandoned`: kolu failing to
- *  see a terminal is not an ending, and a work whose members have all gone is
- *  an open work with no terminals. */
+ *  was closed, or somebody STOPPED it (the person, from the card; the
+ *  Conductor, through `work_stop`; or kolu, for one reason only: a re-key
+ *  found a second open work on the same branch, `./store.ts`'s `rekeyed`).
+ *  There is no `abandoned`: kolu failing to see a terminal is not an ending,
+ *  and a work whose members have all gone is an open work with no terminals.
+ */
 export const OutcomeSchema = Schema.Union([
   Schema.Struct({ kind: Schema.Literal("merged"), pr: Schema.Int }),
   Schema.Struct({ kind: Schema.Literal("closed"), pr: Schema.Int }),
   Schema.Struct({
     kind: Schema.Literal("stopped"),
-    by: Schema.Literals(["you", "conductor"]),
+    by: Schema.Literals(["you", "conductor", "kolu"]),
   }),
 ]);
 export type Outcome = typeof OutcomeSchema.Type;

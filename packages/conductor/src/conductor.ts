@@ -199,8 +199,8 @@ import {
   type Work,
   type WorkId,
   type ParsedWorkKey,
+  type Rekey,
   type WorkMember,
-  workIdOf,
   WorkRefusal,
   type WorkRole,
 } from "kolu-work";
@@ -238,6 +238,7 @@ import {
 } from "./memoryStore.ts";
 import { bringOverMessage, memoryBlock } from "./memoryBlock.ts";
 import { recordWrites } from "./recordWrites.ts";
+import { rowsMovedTo } from "./rekeyRows.ts";
 import { teaching } from "./teaching.ts";
 import { wakes } from "./wakes.ts";
 import type { WorkFiles } from "./workFiles.ts";
@@ -513,8 +514,22 @@ export interface ConductorHost {
    *  card's button (after its confirm), `conductor` is `work_stop`. Its
    *  members leave in the same step and its open questions are dropped. */
   readonly stopWork: (work: WorkId, by: "you" | "conductor") => void;
-  /** ... and bring one back: Ended → Open, decisions and timeline kept. */
+  /** ... and bring one back: Ended → Open, decisions and timeline kept —
+   *  refused (`branch-open`) while another work is open on its branch. */
   readonly reopenWork: (work: WorkId) => void;
+  /** RE-KEY A BRANCH WORK TO THE ROOT GIT NAMED, and carry everything that
+   *  names it along: the work store's re-key (members, Code view, live PR,
+   *  kept files), the conversation's rows that name the work, and the news
+   *  held about it. A `given:<id>` ask id is a name, not a pointer, and is
+   *  left as it was. Nothing is removed. */
+  readonly rekeyWork: (work: WorkId, root: string) => Rekey;
+  /** The stored branch works on `host` and `branch` whose repository git has
+   *  not named yet, ended ones included — what `work_open` re-keys before it
+   *  opens anything. */
+  readonly unrootedWorks: (
+    host: string,
+    branch: string,
+  ) => ReadonlyArray<{ readonly id: WorkId; readonly repo: string }>;
   /** A QUESTION ABOUT A WORK, put to the human as one ask the work knows about
    *  — so the answer is a decision kept with the work, and the card, the chat
    *  and the reader all draw and answer the one decision.
@@ -1488,6 +1503,7 @@ export function startConductorHost(deps: ConductorDeps): ConductorHost {
       hostNames.set(host, name);
     },
     publishState,
+    rekey: (id, root) => rekeyWork(id, root),
     worksMoved,
     watchScopeMoved,
     flush: () => {
@@ -1870,6 +1886,20 @@ export function startConductorHost(deps: ConductorDeps): ConductorHost {
       removes: [],
       appends: [],
     });
+  };
+
+  /** A WORK RE-KEYED TO THE ROOT GIT NAMED, and everything in the
+   *  conversation that points at it carried along: the rows that name it
+   *  ({@link rowsMovedTo}) and the news held about it. The work store moved
+   *  the rest — its members, its Code view, its live PR, its kept files. */
+  const rekeyWork = (id: WorkId, root: string): Rekey => {
+    const rekey = works.rekey(id, root);
+    if (rekey.kind !== "moved") return rekey;
+    const upserts = rowsMovedTo(rows(), id, rekey.to);
+    if (upserts.length > 0) applyRows({ upserts, removes: [], appends: [] });
+    wake.workMoved(id, rekey.to);
+    publishState();
+    return rekey;
   };
 
   /** Bring the conversation up, once, and hand back the same promise to every
@@ -2363,7 +2393,7 @@ export function startConductorHost(deps: ConductorDeps): ConductorHost {
       // longer stands in the question's own words (only keys with no answer
       // are asked otherwise, so a role whose saved answer cannot start would
       // never be asked again). Both against ONE reading of the host.
-      const before = works.get(workIdOf(intent.key));
+      const before = Option.map(works.forKey(intent.key), ([, work]) => work);
       const given = givenAnswersOf(
         intent.setup.flatMap((one) =>
           isKoluChoiceKey(one.key) && one.given.kind === "given"
@@ -2668,6 +2698,14 @@ export function startConductorHost(deps: ConductorDeps): ConductorHost {
       remembered();
       works.reopen(id);
       publishState();
+    },
+    rekeyWork: (id, root) => {
+      remembered();
+      return rekeyWork(id, root);
+    },
+    unrootedWorks: (host, branch) => {
+      remembered();
+      return works.unrooted(host, branch);
     },
     joinWork: (id, ref, role, joined) => {
       remembered();

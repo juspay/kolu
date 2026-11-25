@@ -54,6 +54,7 @@ import {
   type Work,
   type WorkEvent,
   type WorkId,
+  type Rekey,
 } from "kolu-work";
 import type { ConductorWakeEvent } from "kolu-common/conductor";
 import type { Logger } from "pino";
@@ -384,6 +385,10 @@ export const observing = (deps: {
   /** Publish the conversation's own frame; answers whether anybody would see
    *  something different. */
   readonly publishState: () => boolean;
+  /** RE-KEY A BRANCH WORK TO THE ROOT GIT NAMED — the work store's re-key,
+   *  and everything in the conversation that names the work carried along
+   *  with it (the host's {@link ConductorHost.rekeyWork}). */
+  readonly rekey: (id: WorkId, root: string) => Rekey;
   /** A work, a member row or a reading moved — every reader of the `works`
    *  resource is owed a redraw. */
   readonly worksMoved: () => void;
@@ -559,14 +564,27 @@ export const observing = (deps: {
       deps.store.changed();
       if (deps.publishState()) deps.flush();
     },
-    observedCheckout: (id, reading) => {
+    observedCheckout: (watched, reading) => {
       // GIT'S ANSWER, or nothing: a path that is no repository and a git that
       // would not answer say nothing about where the branch is.
       if (reading.kind !== "repository") return;
-      const found = deps.store.get(id);
+      const found = deps.store.get(watched);
       if (Option.isNone(found)) return;
-      const work = found.value;
-      if (work.state.kind !== "open" || work.key.kind !== "branch") return;
+      if (found.value.state.kind !== "open") return;
+      if (found.value.key.kind !== "branch") return;
+      // A KEY GIT HAS NOT NAMED YET IS RE-KEYED FIRST — to the root this
+      // answer names, so a work kept from before the key was git's (or held
+      // under its old key) becomes the work of that root and branch — and the
+      // folder is recorded on whatever the work is now.
+      let id = watched;
+      if (found.value.key.repoBy.kind !== "git") {
+        const rekey = deps.rekey(watched, reading.root);
+        if (rekey.kind === "moved") id = rekey.to;
+        if (rekey.kind === "held" && rekey.ended) return;
+      }
+      const now = deps.store.get(id);
+      if (Option.isNone(now)) return;
+      const work = now.value;
       const next = recordWorktree(
         work,
         reading.checkout.kind === "at"

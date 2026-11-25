@@ -9,13 +9,16 @@
  * and no `endedAt` without an outcome (one sum), no check event without a PR
  * (a required field), no "answered with nothing" (a sum).
  *
- * What is left is what JSON cannot say, and it is exactly four sentences:
+ * What is left is what JSON cannot say, and it is exactly five sentences:
  *
  *  1. the record's key is the work's own id;
  *  2. every member's work exists;
  *  3. that work is OPEN — so an ended work has no members, which is the same
  *     rule read from the other end;
- *  4. a work holds at most one `planner` and at most one `implementor`.
+ *  4. a work holds at most one `planner` and at most one `implementor`;
+ *  5. no two OPEN works share a host, a repository root and a branch, where
+ *     git has said the root ({@link rootOf}) — one branch runs as one card.
+ *     A key whose root git has not said (`as-written`) is outside it.
  *
  * PARSE, DO NOT VALIDATE: the DECODER goes through here, so a store on disk
  * that breaks one of the four fails to decode with the fault that names it —
@@ -27,8 +30,11 @@
  */
 
 import { Option } from "effect";
+import { endWork } from "./record.ts";
 import {
+  type BranchKey,
   isWaterfallRole,
+  rootOf,
   type Work,
   type WorkId,
   type WorkMember,
@@ -36,7 +42,7 @@ import {
   workIdOf,
 } from "./schema.ts";
 
-/** WHICH OF THE FOUR RULES A STORE BREAKS, and the rows that break it.
+/** WHICH OF THE FIVE RULES A STORE BREAKS, and the rows that break it.
  *
  *  A value, not a sentence: this package holds no English a person reads
  *  ({@link WorkRefusal}'s doc states the rule), so the one face that shows a
@@ -63,9 +69,16 @@ export type StoreFault =
       readonly role: WorkRole;
       readonly held: string;
       readonly second: string;
+    }
+  | {
+      readonly kind: "branch-twice";
+      /** The two open works on one host, root and branch, by title. */
+      readonly first: string;
+      readonly second: string;
+      readonly branch: string;
     };
 
-/** A store that breaks one of the four rules — the {@link StoreFault} saying
+/** A store that breaks one of the five rules — the {@link StoreFault} saying
  *  which, thrown. The `message` is the kind, for a stack trace and nothing
  *  else; what a person is shown is the face's. */
 export class InvalidWorkStore extends Error {
@@ -95,10 +108,25 @@ export const storeFault = <M extends WorkMember>(
   const workRows = works instanceof Map ? [...works] : Object.entries(works);
   const memberRows =
     members instanceof Map ? [...members] : Object.entries(members);
+  const branches = new Map<string, Work>();
   for (const [id, work] of workRows) {
     const own = workIdOf(work.key);
     if (own !== id)
       return Option.some({ kind: "key-mismatch", filedAs: id, says: own });
+    if (work.state.kind !== "open" || work.key.kind !== "branch") continue;
+    const { host, branch } = work.key;
+    const root = rootOf(work.key);
+    if (Option.isNone(root)) continue;
+    const at = JSON.stringify([host, root.value, branch]);
+    const first = branches.get(at);
+    if (first !== undefined)
+      return Option.some({
+        kind: "branch-twice",
+        first: first.title,
+        second: work.title,
+        branch,
+      });
+    branches.set(at, work);
   }
   const byId = new Map(workRows);
   const byWork = new Map<WorkId, Map<string, string>>();
@@ -146,3 +174,107 @@ export const parseStore = <M extends WorkMember>(
         : new Map(Object.entries(members)),
   };
 };
+
+/** WHAT A RE-KEY DID — see {@link rekeyed}. */
+export type Rekey =
+  /** The root's id is the work's own: its key is stamped `git`. */
+  | { readonly kind: "stamped" }
+  /** The work moved to the root's id, in its place, stamped `git`. */
+  | { readonly kind: "moved"; readonly to: WorkId }
+  /** Another work holds the root's id: this one keeps its old key and id,
+   *  `held` from the root — and, when both were open, it was ended. */
+  | {
+      readonly kind: "held";
+      readonly by: WorkId;
+      readonly ended: boolean;
+    };
+
+/** A BRANCH WORK RE-KEYED TO GIT'S ROOT — the one transition, pure. With `W`
+ *  the work at `id` and `N` the id of `W`'s key with `repo` set to `root`:
+ *
+ *  - `N` is `W`'s own id: the key is stamped `git`. Nothing moves.
+ *  - `N` is free: `W` moves to `N` AT THE SAME POSITION (a card keeps its
+ *    place), stamped `git`, and its members follow.
+ *  - `N` is held by another work `C`: `W` keeps its old key and id, `held`
+ *    from `root`. `C` is not touched. If both are OPEN, `W` is also ended —
+ *    stopped, by kolu, at `at`, its members leaving with it — because one
+ *    branch cannot run as two cards (rule 5).
+ *
+ *  NOTHING IS EVER REMOVED: no work, open or finished, leaves the value, and
+ *  every work but `W` is the same value it was. `id` must be a branch work
+ *  the store holds; anything else is a defect. */
+export const rekeyed = <M extends WorkMember>(
+  store: WorkStoreValue<M>,
+  id: WorkId,
+  root: string,
+  at: string,
+): { readonly value: WorkStoreValue<M>; readonly rekey: Rekey } => {
+  const work = store.works.get(id);
+  if (work === undefined || work.key.kind !== "branch")
+    throw new Error(`rekeyed: ${id} is no branch work in the store`);
+  const key: BranchKey = work.key;
+  const target = workIdOf({ ...key, repo: root });
+  if (target === id)
+    return {
+      value: {
+        works: replaced(store.works, id, id, {
+          ...work,
+          key: { ...key, repoBy: { kind: "git" } },
+        }),
+        members: store.members,
+      },
+      rekey: { kind: "stamped" },
+    };
+  const holder = store.works.get(target);
+  if (holder === undefined)
+    return {
+      value: {
+        works: replaced(store.works, id, target, {
+          ...work,
+          key: { ...key, repo: root, repoBy: { kind: "git" } },
+        }),
+        members: new Map(
+          [...store.members].map(([ref, one]) => [
+            ref,
+            one.work === id ? { ...one, work: target } : one,
+          ]),
+        ),
+      },
+      rekey: { kind: "moved", to: target },
+    };
+  const held: Work = {
+    ...work,
+    key: { ...key, repoBy: { kind: "held", root } },
+  };
+  const ended = work.state.kind === "open" && holder.state.kind === "open";
+  return {
+    value: {
+      works: replaced(
+        store.works,
+        id,
+        id,
+        ended
+          ? endWork(held, { outcome: { kind: "stopped", by: "kolu" }, at })
+          : held,
+      ),
+      members: ended
+        ? new Map([...store.members].filter(([, one]) => one.work !== id))
+        : store.members,
+    },
+    rekey: { kind: "held", by: target, ended },
+  };
+};
+
+/** The works with the one at `from` replaced by `work` under `to`, in the
+ *  same place. */
+const replaced = (
+  works: ReadonlyMap<WorkId, Work>,
+  from: WorkId,
+  to: WorkId,
+  work: Work,
+): ReadonlyMap<WorkId, Work> =>
+  new Map(
+    [...works].map(([id, one]): [WorkId, Work] =>
+      id === from ? [to, work] : [id, one],
+    ),
+  );

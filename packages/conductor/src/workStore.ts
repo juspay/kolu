@@ -59,6 +59,9 @@ import {
   type Work,
   type WorkId,
   type ParsedWorkKey,
+  type Rekey,
+  rekeyed,
+  rootOf,
   type WorkMember,
   type WorkRole,
   WorkRefusal,
@@ -150,20 +153,41 @@ export interface WorkStore {
   /** A work that exists and has not ended, or the refusal that says which of
    *  the two it failed. */
   readonly openAt: (id: WorkId) => Work;
-  /** OPEN THE WORK FOR THIS KEY — idempotent. A key kolu already holds
-   *  answers that work (brought back to Open if it had ended); a key it does
-   *  not holds a new one. Only a PARSED key reaches here: a branch whose
+  /** OPEN THE WORK FOR THIS KEY — idempotent. The work {@link forKey}
+   *  answers comes back as it stands (reopened if it had ended); a key with
+   *  none holds a new one. Only a PARSED key reaches here: a branch whose
    *  repository git named, or a watch of a terminal its host holds. */
   readonly openFor: (opened: {
     readonly key: ParsedWorkKey;
     readonly title: string;
     readonly request: RequestWords;
   }) => Opened;
+  /** THE WORK `work_open` OF THIS KEY ANSWERS, if any: an OPEN work on the
+   *  same host, repository root and branch under another id (one kept under
+   *  its old key, `held`), else the work at the key's own id. */
+  readonly forKey: (
+    key: ParsedWorkKey,
+  ) => Option.Option<readonly [WorkId, Work]>;
+  /** RE-KEY A BRANCH WORK TO THE ROOT GIT NAMED — `kolu-work`'s `rekeyed`,
+   *  written: a move takes the work's members, its Code view, its live PR and
+   *  its kept files to the new id; a work ended because its branch already
+   *  runs as another open work ends the ordinary way (questions dropped,
+   *  files kept). Nothing is ever removed. A `held` work whose holder is
+   *  unchanged is not rewritten. */
+  readonly rekey: (id: WorkId, root: string) => Rekey;
+  /** The stored branch works on `host` and `branch` whose repository git has
+   *  not named yet — `as-written` or `held` — ended ones included: the works
+   *  a `work_open` re-keys before it opens anything. */
+  readonly unrooted: (
+    host: string,
+    branch: string,
+  ) => ReadonlyArray<{ readonly id: WorkId; readonly repo: string }>;
   /** Write a work back. */
   readonly save: (id: WorkId, work: Work) => void;
   /** STOP a work — the one ending nobody observed. */
   readonly stop: (id: WorkId, by: "you" | "conductor") => Work;
-  /** ... and bring one back. */
+  /** ... and bring one back — refused (`branch-open`) while another work is
+   *  open on the same host, repository root and branch. */
   readonly reopen: (id: WorkId) => Work;
   /** THE FORGE SAID SO: merged, or closed. */
   readonly endWith: (id: WorkId, outcome: Outcome) => void;
@@ -392,21 +416,34 @@ export const workStore = (deps: WorkStoreDeps): WorkStore => {
   const viewsKeepTheirWorks = (): void =>
     deps.views.keepOnly(new Set(value.works.keys()));
 
+  /** THE KEPT-FILES DIRECTORY OPERATIONS, ONE AT A TIME — a sweep and a
+   *  re-key's move. A sweep reads the works when it RUNS, not when it was
+   *  asked for, so a move queued before it has already renamed the directory
+   *  the sweep then finds named; and a move never lands in the middle of a
+   *  sweep that read the directory before the rename. */
+  let fileOps: Promise<void> = Promise.resolve();
+  const onFiles = (op: () => Promise<void>, failed: string): void => {
+    fileOps = fileOps.then(op).catch((err: unknown) => {
+      deps.log.warn({ err }, failed);
+    });
+  };
+
   /** THE RULE FOR EVERY WAY A WORK GOES — the finished cap, a declined card,
    *  a restored backup that lacks it: what it left behind goes too. Its kept
    *  files are swept, and its Code view is forgotten, so neither outlives the
    *  work. Said here once; the three places a work goes each ask it. */
   const forgetGone = (): void => {
     viewsKeepTheirWorks();
-    void deps.workFiles
-      .sweep([...value.works.keys()].map(workDirOf))
-      .catch((err: unknown) => {
-        deps.log.warn(
-          { err },
-          "kolu-server: the conductor could not delete the files of works it no longer keeps",
-        );
-      });
+    onFiles(
+      () => deps.workFiles.sweep([...value.works.keys()].map(workDirOf)),
+      "kolu-server: the conductor could not delete the files of works it no longer keeps",
+    );
   };
+
+  /** The ended works whose files are being kept RIGHT NOW. A re-key leaves
+   *  them be until the keep is written: the keep writes under the id the
+   *  work ended with. */
+  const closing = new Set<WorkId>();
 
   /** WHERE A WORK'S FILES ARE — the folder git last named for the work's own
    *  key, on the key's host, which outlives its terminals. */
@@ -424,6 +461,7 @@ export const workStore = (deps: WorkStoreDeps): WorkStore => {
   ): Promise<void> => {
     const ending = value.works.get(id);
     if (ending === undefined || ending.state.kind !== "ended") return;
+    closing.add(id);
     const paths = new Set(filesSeen(ending));
     let more = false;
     if (Option.isSome(at)) {
@@ -458,6 +496,7 @@ export const workStore = (deps: WorkStoreDeps): WorkStore => {
         setWork(id, keepFailed(ended, sentenceOf(err), nowIso()));
       }
     }
+    closing.delete(id);
     dropWorks(
       capFinished(everyWork(), FINISHED_KEPT).dropped.map(
         ([dropped]) => dropped,
@@ -591,6 +630,40 @@ export const workStore = (deps: WorkStoreDeps): WorkStore => {
     emptied(found.id);
   };
 
+  /** THE OPEN WORK, other than `except`, on the same host, repository root
+   *  and branch as `key` — where git has said the root ({@link rootOf}). The
+   *  store holds at most one (`kolu-work`'s rule 5). */
+  const openOnBranch = (
+    key: Work["key"],
+    except: WorkId,
+  ): Option.Option<readonly [WorkId, Work]> => {
+    if (key.kind !== "branch") return Option.none();
+    const root = rootOf(key);
+    if (Option.isNone(root)) return Option.none();
+    for (const [id, work] of value.works) {
+      if (id === except || work.state.kind !== "open") continue;
+      if (work.key.kind !== "branch") continue;
+      if (work.key.host !== key.host || work.key.branch !== key.branch)
+        continue;
+      const other = rootOf(work.key);
+      if (Option.isSome(other) && other.value === root.value)
+        return Option.some([id, work]);
+    }
+    return Option.none();
+  };
+
+  const forKey = (
+    key: ParsedWorkKey,
+  ): Option.Option<readonly [WorkId, Work]> => {
+    const id = workIdOf(key);
+    return Option.orElse(openOnBranch(key, id), () =>
+      Option.map(
+        Option.fromUndefinedOr(value.works.get(id)),
+        (work): readonly [WorkId, Work] => [id, work],
+      ),
+    );
+  };
+
   return {
     members,
     all: everyWork,
@@ -623,13 +696,66 @@ export const workStore = (deps: WorkStoreDeps): WorkStore => {
     read: () => [...inProgress(everyWork()), ...finished(everyWork())],
     openAsks: () =>
       inProgress(everyWork()).flatMap(([, work]) => openAsks(work)),
+    forKey,
+    unrooted: (host, branch) =>
+      [...value.works].flatMap(([id, work]) =>
+        work.key.kind === "branch" &&
+        work.key.host === host &&
+        work.key.branch === branch &&
+        work.key.repoBy.kind !== "git" &&
+        !closing.has(id)
+          ? [{ id, repo: work.key.repo }]
+          : [],
+      ),
+    rekey: (id, root) => {
+      const before = value.works.get(id);
+      const { value: next, rekey } = rekeyed(value, id, root, nowIso());
+      // STILL HELD BY THE SAME HOLDER: nothing to write, and nothing for a
+      // reader to redraw — a held work is asked again on every answer.
+      if (
+        rekey.kind === "held" &&
+        !rekey.ended &&
+        before?.key.kind === "branch" &&
+        before.key.repoBy.kind === "held" &&
+        before.key.repoBy.root === root
+      )
+        return rekey;
+      const ending = next.works.get(id);
+      // ENDED BECAUSE ITS BRANCH ALREADY RUNS AS ANOTHER OPEN WORK: the
+      // ordinary ending, by the one writer that ends works — its members
+      // leave, its open questions are dropped, its files are kept.
+      if (rekey.kind === "held" && rekey.ended && ending !== undefined)
+        save(id, ending);
+      else commit(next.works, next.members);
+      if (rekey.kind === "moved") {
+        deps.views.move(id, rekey.to);
+        const pr = livePrs.get(id);
+        if (pr !== undefined) {
+          livePrs.delete(id);
+          livePrs.set(rekey.to, pr);
+        }
+        const from = workDirOf(id);
+        const to = workDirOf(rekey.to);
+        onFiles(
+          () => deps.workFiles.move(from, to),
+          "kolu-server: the conductor could not carry a re-keyed work's kept files to its new id",
+        );
+        deps.records.schedule("members");
+      }
+      changed();
+      deps.worksMoved();
+      deps.watchScopeMoved();
+      return rekey;
+    },
     openFor: ({ key, title, request }) => {
-      const id = workIdOf(key);
-      const held = value.works.get(id);
-      if (held !== undefined) {
+      const found = forKey(key);
+      if (Option.isSome(found)) {
+        const [id, held] = found.value;
         // THE SAME WORK, AS IT STANDS. An ended one comes back open, decisions
-        // and timeline whole; an open one is handed back untouched, and the
-        // caller asks only the setup questions that have no answer.
+        // and timeline whole; an open one — at this key's id, or kept under
+        // its old key while this branch's root was held — is handed back
+        // untouched, and the caller asks only the setup questions that have
+        // no answer.
         if (held.state.kind === "open")
           return { id, work: held, created: false, reopened: false };
         const again = reopenWork(held, nowIso());
@@ -642,6 +768,7 @@ export const workStore = (deps: WorkStoreDeps): WorkStore => {
         deps.watchScopeMoved();
         return { id, work: again, created: false, reopened: true };
       }
+      const id = workIdOf(key);
       const work = openWork({ key, title, at: nowIso(), request });
       setWork(id, work);
       changed();
@@ -664,6 +791,16 @@ export const workStore = (deps: WorkStoreDeps): WorkStore => {
     reopen: (id) => {
       const work = value.works.get(id);
       if (work === undefined) return openAt(id);
+      // ONE BRANCH RUNS AS ONE CARD: a finished work comes back only while
+      // no other work is in progress on its branch.
+      const running = openOnBranch(work.key, id);
+      if (work.state.kind === "ended" && Option.isSome(running)) {
+        const [openId, open] = running.value;
+        throw new WorkRefusal(
+          "branch-open",
+          `«${work.title}» cannot be reopened: «${open.title}» (${openId}) is already in progress on the same branch — one branch runs as one card. Carry on with that work, or stop it first.`,
+        );
+      }
       const again = reopenWork(work, nowIso());
       setWork(id, again);
       changed();

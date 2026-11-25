@@ -476,9 +476,16 @@ export function outcomeWords(outcome: Outcome): string {
     case "closed":
       return `Closed #${outcome.pr}`;
     case "stopped":
-      return outcome.by === "you"
-        ? "Stopped by you"
-        : "Stopped by the Conductor";
+      switch (outcome.by) {
+        case "you":
+          return "Stopped by you";
+        case "conductor":
+          return "Stopped by the Conductor";
+        case "kolu":
+          return "Stopped by kolu: its branch runs as another work";
+        default:
+          return outcome.by satisfies never;
+      }
   }
 }
 

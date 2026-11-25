@@ -492,6 +492,8 @@ const faultClause = (fault: StoreFault): string => {
       return `the terminal ${JSON.stringify(fault.terminal)} is recorded as a member of «${fault.title}», which has ended — a work that ends takes its members with it, so a finished work has no terminals`;
     case "role-taken":
       return `«${fault.title}» has two terminals in the ${fault.role} role (${JSON.stringify(fault.held)} and ${JSON.stringify(fault.second)}) — a piece of work has one planner and one implementor`;
+    case "branch-twice":
+      return `«${fault.first}» and «${fault.second}» are both in progress on the branch ${JSON.stringify(fault.branch)} of the same repository — one branch runs as one piece of work`;
   }
 };
 

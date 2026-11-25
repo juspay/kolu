@@ -202,6 +202,17 @@ export interface FleetWorks {
    *  are not ready, or when a `given` harness or model is not one kolu
    *  offers — a {@link WorkRefusal} either way. */
   open(intent: FleetWorkIntent): Promise<FleetWorkOpened>;
+  /** The stored branch works on `host` and `branch` whose repository git has
+   *  not named yet (kept from before a key was git's, or held under an old
+   *  key), ended ones included — with the folder each was opened on. */
+  unrooted(
+    host: string,
+    branch: string,
+  ): ReadonlyArray<{ readonly work: string; readonly repo: string }>;
+  /** RE-KEY that work to the repository root git named — moved to the
+   *  root's id when it is free, kept under its old key (`held`) when another
+   *  work holds it. Nothing is removed. */
+  rekey(work: string, root: string): void;
   /** WHAT A PLANNER OR IMPLEMENTOR OF THIS WORK STARTS — the harness and model
    *  its setup recorded, on the work's host, judged again against what kolu
    *  offers there now, and how that host's harness takes a model. The one
@@ -313,7 +324,16 @@ export const standingWords = (standing: Standing): string => {
         case "closed":
           return `PR #${standing.outcome.pr} closed`;
         case "stopped":
-          return `stopped by ${standing.outcome.by === "you" ? "the human" : "the conductor"}`;
+          switch (standing.outcome.by) {
+            case "you":
+              return "stopped by the human";
+            case "conductor":
+              return "stopped by the conductor";
+            case "kolu":
+              return "stopped by kolu: its branch already runs as another open work";
+            default:
+              return standing.outcome.by satisfies never;
+          }
         default:
           return standing.outcome satisfies never;
       }
@@ -719,6 +739,66 @@ export function parseWorkKey(
   );
 }
 
+/** THE WORKS ON THIS BRANCH WHOSE REPOSITORY GIT HAS NOT NAMED, RE-KEYED
+ *  before `work_open` opens anything — each one's folder asked of git on the
+ *  key's host, and re-keyed to the root git names. A folder that is no
+ *  repository any more (a worktree deleted after its merge) leaves its work
+ *  as it is; a git that does not answer refuses the open, because opening
+ *  beside a work kolu could not place is the second card for one branch
+ *  this exists to prevent. Nothing is removed. */
+export function rekeyBeforeOpen(
+  hosts: FleetHosts,
+  works: FleetWorks,
+  key: ParsedWorkKey,
+): Effect.Effect<void, ToolFailure> {
+  if (key.kind !== "branch") return Effect.void;
+  const pending = works.unrooted(key.host, key.branch);
+  if (pending.length === 0) return Effect.void;
+  const { host, branch } = key;
+  return Effect.flatMap(requireHost(hosts, host), (padi) =>
+    Effect.forEach(
+      pending,
+      ({ work, repo }) =>
+        Effect.flatMap(
+          Effect.mapError(
+            firstFrameOrThrow(
+              padi.surface.branchCheckout.get({ repoPath: repo, branch }),
+              `${host} answered nothing about ${repo}.`,
+            ),
+            (cause) =>
+              new ToolFailure<WorkKeyRefusal>(
+                `could not ask ${hosts.display(host)} where the earlier work ${work} on ${branch} stands (${repo}): ${String(cause)}. Nothing was created.`,
+                { kind: "git-unavailable", host, repo, reason: String(cause) },
+              ),
+          ),
+          (reading): Effect.Effect<void, ToolFailure> => {
+            switch (reading.kind) {
+              case "repository":
+                return Effect.sync(() => works.rekey(work, reading.root));
+              case "not-a-repository":
+                return Effect.void;
+              case "unavailable":
+                return Effect.fail(
+                  new ToolFailure<WorkKeyRefusal>(
+                    `git on ${hosts.display(host)} would not say where the earlier work ${work} on ${branch} stands (${repo}): ${reading.reason}. Nothing was created.`,
+                    {
+                      kind: "git-unavailable",
+                      host,
+                      repo,
+                      reason: reading.reason,
+                    },
+                  ),
+                );
+              default:
+                return reading satisfies never;
+            }
+          },
+        ),
+      { discard: true },
+    ),
+  );
+}
+
 /** The setup the tool was called with, as the record's own asks — THE EDGE
  *  where the wire's optional `given` becomes an arm. A model writes JSON and
  *  "I was not told" is a key it leaves out; the record takes
@@ -787,26 +867,30 @@ export function workOpenTool(
       'Open a piece of work — a branch on a machine (`host`, `repo`, `branch`), or `watch` for one terminal — and ask the human its setup in ONE form, the whole of it: which mode, which harness and model per role, and what to do when the PR is green (GitHub would merge it, and no check is running or failing). kolu OFFERS the harness and model questions itself — the harnesses installed, the models the chosen harness offers on that host, the human\'s last answers already selected — so you name those four keys and offer nothing for them. Opening a host, repo and branch that already has a work returns THAT work (reopening it if it had ended) and asks only what is still unanswered — and again any saved harness or model kolu no longer offers, which is the way out when `lifecycle_create` refuses to start a planner or implementor on one. kolu puts the questions to the human, records every one as a DECISION on this work, and ANSWERS YOU AT ONCE: nothing in kolu\'s tools ever waits for a person. The answer carries the work\'s id and `setup`, as kolu reads it back RIGHT NOW: `host`, and `mode` and `onGreen` as `{kind: "answered", value}` or `{kind: "unanswered"}` while their question is still open, and `roles` — each role\'s setup as `{kind: "not-chosen"}`, `{kind: "harness", harness}` or `{kind: "harness-and-model", harness, model}`, so a role is startable exactly when it reads `harness-and-model`. `asked: true` means a form went to them. Use `given` for anything the human\'s request already said — it is recorded as their answer without asking, and reads back immediately. Refused, with nothing created, when the setup does not carry a question the mode needs, when the host\'s coding agents are not ready (the refusal says why and what the human must do — tell them, and end your turn), or when a `given` harness or model is not one kolu offers. When `asked` is true, say what you asked and END YOUR TURN: kolu wakes you with every answer. A setup they decline for a work nothing has happened in removes the work, and you are told the same way. Everything after this names the work it answers with: `lifecycle_create`, `work_adopt`, `work_ask`, `work_note`, `work_stop`.',
     handler: (args, _bundle, _signal) => {
       const intent = args as WorkOpenArgs;
-      return Effect.flatMap(parseWorkKey(hosts, intent), (key) =>
-        Effect.tryPromise({
-          try: async () => {
-            const opened = await works.open({
-              key,
-              title: intent.title,
-              setup: setupAsksOf(intent),
-            });
-            const answer = {
-              work: opened.work,
-              setup: setupSaid(opened.setup),
-              ask: opened.ask,
-              asked: opened.asked,
-              created: opened.created,
-              reopened: opened.reopened,
-            };
-            return opened.asked ? { ...answer, said: ASKED_SAID } : answer;
-          },
-          catch: (err: unknown) => refusalFailure(err, intent.title),
-        }),
+      return Effect.flatMap(
+        Effect.tap(parseWorkKey(hosts, intent), (key) =>
+          rekeyBeforeOpen(hosts, works, key),
+        ),
+        (key) =>
+          Effect.tryPromise({
+            try: async () => {
+              const opened = await works.open({
+                key,
+                title: intent.title,
+                setup: setupAsksOf(intent),
+              });
+              const answer = {
+                work: opened.work,
+                setup: setupSaid(opened.setup),
+                ask: opened.ask,
+                asked: opened.asked,
+                created: opened.created,
+                reopened: opened.reopened,
+              };
+              return opened.asked ? { ...answer, said: ASKED_SAID } : answer;
+            },
+            catch: (err: unknown) => refusalFailure(err, intent.title),
+          }),
       );
     },
   };

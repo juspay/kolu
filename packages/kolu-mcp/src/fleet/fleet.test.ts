@@ -697,6 +697,11 @@ function fakeWorks(): FleetWorks & {
     role: "planner" | "implementor",
     start: SetUpStart | WorkRefusal,
   ): void;
+  /** A stored work whose repository git has not named, as kolu-server would
+   *  answer `unrooted` for it. */
+  unrootedAt(work: string, host: string, repo: string, branch: string): void;
+  /** Every re-key and every open that reached the port, in order. */
+  readonly steps: string[];
 } {
   const works = new Map<string, FleetWorkRow>();
   const ended = new Map<string, string>();
@@ -713,6 +718,13 @@ function fakeWorks(): FleetWorks & {
   const moved = (): void => {
     for (const one of listeners) one();
   };
+  const unrooted: {
+    work: string;
+    host: string;
+    repo: string;
+    branch: string;
+  }[] = [];
+  const steps: string[] = [];
   const blank = (id: string, title: string): FleetWorkRow => ({
     id,
     title,
@@ -750,6 +762,7 @@ function fakeWorks(): FleetWorks & {
       };
     },
     open: async (intent: Parameters<FleetWorks["open"]>[0]) => {
+      steps.push(`open ${intent.key.kind === "branch" ? intent.key.repo : ""}`);
       opened.push({
         title: intent.title,
         setup: intent.setup,
@@ -789,6 +802,19 @@ function fakeWorks(): FleetWorks & {
       };
       return answer;
     },
+    unrooted: (host: string, branch: string) =>
+      unrooted
+        .filter((one) => one.host === host && one.branch === branch)
+        .map(({ work, repo }) => ({ work, repo })),
+    rekey(work: string, root: string) {
+      steps.push(`rekey ${work} ${root}`);
+      const at = unrooted.findIndex((one) => one.work === work);
+      if (at >= 0) unrooted.splice(at, 1);
+    },
+    unrootedAt(work: string, host: string, repo: string, branch: string) {
+      unrooted.push({ work, host, repo, branch });
+    },
+    steps,
     startOf: async (work: string, role: "planner" | "implementor") => {
       const one = works.get(work);
       const start = starts.get(`${work}#${role}`);
@@ -1655,6 +1681,53 @@ describe("the conductor's pieces of work", () => {
         ),
       },
     ]);
+  });
+
+  it("`work_open` re-keys the branch's earlier works to git's root BEFORE it opens", async () => {
+    // T16 at the door: a work kept from before keys were git's — opened on a
+    // linked worktree's path — is re-keyed to the root git names for that
+    // folder, and only then is the work opened; so the store answers the
+    // open with THAT work, moved to the root's id (the conductor's own
+    // re-key and `openFor` cases are that half). A folder that is no
+    // repository any more leaves its work as it was.
+    const { fleet } = twoHostFleet();
+    const works = fakeWorks();
+    works.unrootedAt("earlier", "local", "/repo/.worktrees/work", "work");
+    works.unrootedAt("gone", "local", "/deleted", "work");
+    works.unrootedAt("elsewhere", "local", "/repo/.worktrees/csv", "csv");
+    const mcp = await servedFleet(fleet.hosts, works);
+    const res = await mcp.callTool({
+      name: "work_open",
+      arguments: {
+        title: "carry on",
+        host: "local",
+        repo: "/repo",
+        branch: "work",
+        setup: SETUP,
+      },
+    });
+    expect(res.isError ?? false, JSON.stringify(res.content)).toBe(false);
+    expect(works.steps).toEqual(["rekey earlier /repo", "open /repo"]);
+  });
+
+  it("`work_open` is refused, with nothing opened, when git will not say where an earlier work stands", async () => {
+    const { fleet } = twoHostFleet();
+    const works = fakeWorks();
+    works.unrootedAt("earlier", "local", "/broken", "work");
+    const mcp = await servedFleet(fleet.hosts, works);
+    const res = await mcp.callTool({
+      name: "work_open",
+      arguments: {
+        title: "carry on",
+        host: "local",
+        repo: "/repo",
+        branch: "work",
+        setup: SETUP,
+      },
+    });
+    expect(res.isError).toBe(true);
+    expect(JSON.stringify(res.content)).toMatch(/git hung/);
+    expect(works.steps).toEqual([]);
   });
 
   it("a `given` answer reaches the record as the arm that says the request gave it", async () => {

@@ -459,6 +459,8 @@ interface FakeFiles {
   /** Every reconciliation the host asked for, as the work ids it said to
    *  KEEP — the one rule that deletes a kept-files directory. */
   readonly swept: () => ReadonlyArray<ReadonlyArray<string>>;
+  /** Every kept-files directory a re-key carried to a new id. */
+  readonly moved: () => ReadonlyArray<{ from: string; to: string }>;
 }
 
 function fakeFiles(): FakeFiles {
@@ -469,6 +471,7 @@ function fakeFiles(): FakeFiles {
   const listed: Array<{ host: string; worktree: string }> = [];
   const kept: Array<{ work: string; paths: ReadonlyArray<string> }> = [];
   const swept: Array<ReadonlyArray<string>> = [];
+  const moved: Array<{ from: string; to: string }> = [];
   return {
     port: {
       list: async (at) => {
@@ -488,6 +491,9 @@ function fakeFiles(): FakeFiles {
       sweep: async (keep) => {
         swept.push([...keep]);
       },
+      move: async (from, to) => {
+        moved.push({ from, to });
+      },
     },
     holds: (paths, more = false) => {
       holding = paths;
@@ -502,6 +508,7 @@ function fakeFiles(): FakeFiles {
     listed: () => listed,
     kept: () => kept,
     swept: () => swept,
+    moved: () => moved,
   };
 }
 

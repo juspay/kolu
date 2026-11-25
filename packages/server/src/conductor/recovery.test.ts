@@ -136,6 +136,7 @@ function hostOver(): ConductorHost {
       list: async () => ({ paths: [], more: false }),
       keep: async () => ({ kept: [], tooBig: [] }),
       sweep: async () => {},
+      move: async () => {},
     },
     spawn: async () => {
       throw new Error("these scenarios never reach an agent");

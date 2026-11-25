@@ -76,4 +76,9 @@ export interface WorkFiles {
    *  and a restored backup replaces the lot — and a per-work delete leaves the
    *  second one's orphans on disk for ever. A missing root is nothing to do. */
   sweep(keep: ReadonlyArray<string>): Promise<void>;
+  /** A RE-KEYED WORK'S KEPT FILES, carried to its new id: the directory
+   *  `<stateRoot>/works/<from>` renamed to `<to>` (both `workDirOf` names).
+   *  A work that kept nothing has no directory, and nothing moves. A re-key
+   *  never deletes: this is the one thing it does to kept files. */
+  move(from: string, to: string): Promise<void>;
 }
