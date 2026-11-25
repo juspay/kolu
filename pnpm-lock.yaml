@@ -2545,9 +2545,6 @@ importers:
       '@kolu/surface':
         specifier: workspace:*
         version: link:../surface
-      '@solidjs/web':
-        specifier: ^2.0.3
-        version: 2.0.3(solid-js@2.0.3)
       dequal:
         specifier: ^2.0.3
         version: 2.0.3
