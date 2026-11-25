@@ -197,10 +197,10 @@ export interface SubscriptionOptions<T, R = T> {
  *  a draft write touches anything — so an object a consumer has read through a
  *  store proxy carries exactly the own symbols it arrived with (probed: a frame
  *  adopted, wrapped, read through, and written over still answers
- *  `Object.getOwnPropertySymbols(frame)` with `[]`). Solid 1.9 planted `$PROXY`
- *  and its siblings on every wrapped object, which is why this comparator used
- *  to exempt them by provenance; there is nothing left to exempt, and the
- *  "never claim an equality we can't prove" contract is now total.
+ *  `Object.getOwnPropertySymbols(frame)` with `[]`). There is no store tag to
+ *  exempt, so the "never claim an equality we can't prove" contract is total:
+ *  an own symbol here is frame content, and content this comparator cannot read
+ *  through `getOwnPropertyNames` makes the two frames unequal.
  *
  *  Why hand-rolled and not `dequal` / `fast-deep-equal` (both already in the
  *  lockfile): a deep-equal here MUST be cycle-safe (a `directDispatch` frame can be
@@ -565,8 +565,12 @@ export function createStreamLifecycle<T>(
     else options.signal.addEventListener("abort", end, { once: true });
     // Under an owner, the start still belongs in THAT owner's effect phase — the
     // frames would otherwise be written in its scope, whoever ends the view. With
-    // no owner (the case this arm exists for) there is no effect phase to defer
-    // into and no owned scope to write from, so the inline start is the right one.
+    // no owner (the case this arm exists for) the inline start is not a fallback
+    // but the only reading: there is no owned scope for a frame to be written
+    // from, so nothing to defer around, and no effect phase to defer INTO — an
+    // ownerless `createEffect` is itself a defect Solid names (`NO_OWNER_EFFECT`,
+    // "Effect created without reactive owner"), because nothing would ever
+    // dispose it. The signal carries the whole lifetime either way.
     if (getOwner()) {
       createEffect(
         () => undefined,
@@ -579,10 +583,27 @@ export function createStreamLifecycle<T>(
     }
   } else {
     // The creating owner IS the lifetime: the effect's returned cleanup interrupts
-    // the fiber when that owner disposes, which is what the caller's `onCleanup`
-    // used to do — one teardown path, now the same one that opened the fiber.
-    // A static source has nothing reactive to read, so the compute returns a
-    // constant: this effect exists only to put the start in the effect phase.
+    // the fiber when that owner disposes — one teardown path, the same one that
+    // opened the fiber. A static source has nothing reactive to read, so the
+    // compute returns a constant: this effect exists only to put the start in the
+    // effect phase.
+    //
+    // So a view with NEITHER an owner nor a signal has no lifetime at all, and is
+    // refused here rather than opened. Solid only warns (`NO_OWNER_EFFECT`): the
+    // effect would still run, nothing would ever dispose it, and the fiber — and
+    // the wire subscription its finalizers close — would outlive everything with
+    // no handle left to stop it. That is the silent leak this package refuses by
+    // construction everywhere else it can (`createKeyedRoot`, `fold`,
+    // `client.rawStream`), and the caller has two ways to say what it meant.
+    if (!getOwner()) {
+      throw new Error(
+        "createSubscription: must run under a reactive owner, or be given " +
+          "`options.signal` — the view's lifetime is one or the other, and with " +
+          "neither nothing can ever interrupt its fiber or close the wire " +
+          "subscription behind it. Call it from a component / createRoot, or " +
+          "pass an AbortSignal.",
+      );
+    }
     createEffect(
       () => undefined,
       () => {

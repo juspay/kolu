@@ -21,6 +21,7 @@ import {
   createEffect,
   createSignal,
   createStore,
+  getOwner,
 } from "solid-js";
 import {
   createUpdatedTracker,
@@ -51,6 +52,22 @@ export function createReactiveSubscription<I, T>(
   factory: (input: I) => Stream.Stream<T, unknown>,
   options?: ReactiveSubscriptionOptions & { arrayKey?: string },
 ): Subscription<T> {
+  // This primitive's lifetime is the creating OWNER's and has no second
+  // spelling: the effect below opens each input's fiber and its RETURNED
+  // cleanup interrupts it, so an ownerless call would mint an effect nothing
+  // disposes (Solid names it `NO_OWNER_EFFECT` and warns) over a fiber nothing
+  // can interrupt — the wire subscription stays open for the life of the page.
+  // Refused rather than leaked, like `createSubscription`'s own no-lifetime
+  // case and `client.rawStream`'s.
+  if (!getOwner()) {
+    throw new Error(
+      "createReactiveSubscription: must run under a reactive owner — the " +
+        "owner's disposal is what interrupts the subscription's fiber and " +
+        "closes the wire subscription behind it, so an ownerless view would " +
+        "leak both. Call it from a component / createRoot. (`useStream` and " +
+        "the bound `.use()` hooks carry the same requirement.)",
+    );
+  }
   const [store, setStore] = createStore<{ v: T | undefined }>({ v: undefined });
   const [error, setError] = createSignal<Error | undefined>();
   const [pending, setPending] = createSignal(true);

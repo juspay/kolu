@@ -1098,3 +1098,49 @@ describe("createSubscription", () => {
     });
   });
 });
+
+describe("a view's lifetime: an owner, a signal, or a refusal", () => {
+  // A view opens a fiber, and interrupting that fiber is what closes the wire
+  // subscription behind it. Exactly two things can do the interrupting: the
+  // creating owner's disposal, or an external `AbortSignal`. With neither there
+  // is no handle left in the world, so the view is refused at birth — Solid
+  // only warns about the undisposable effect such a call would mint, and a
+  // warning leaves a wire subscription open for the life of the page.
+  it("createSubscription with no owner and no signal refuses", () => {
+    const stream = controllableStream<number>();
+    expect(() => createSubscription(stream.source)).toThrow(
+      /must run under a reactive owner, or be given `options.signal`/,
+    );
+    stream.close();
+  });
+
+  it("createSubscription with no owner but a signal opens AT ONCE", async () => {
+    // The documented ownerless timing, and the only one available: with no
+    // owner there is no effect phase to defer the start into, and no owned
+    // scope for a frame to be written from either. The signal is the lifetime.
+    const controller = new AbortController();
+    const stream = controllableStream<number>();
+    const sub = createSubscription(stream.source, {
+      signal: controller.signal,
+    });
+    stream.push(1);
+    await settle();
+    expect(readSub(sub)).toBe(1);
+    controller.abort();
+    stream.push(2);
+    await settle();
+    expect(readSub(sub)).toBe(1);
+    stream.close();
+  });
+
+  it("createReactiveSubscription with no owner refuses", () => {
+    const stream = controllableStream<number>();
+    expect(() =>
+      createReactiveSubscription(
+        () => 1,
+        () => stream.source,
+      ),
+    ).toThrow(/must run under a reactive owner/);
+    stream.close();
+  });
+});

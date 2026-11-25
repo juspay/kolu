@@ -1128,7 +1128,7 @@ pending, error, set, patch, sub }`, where `value` is the accessor and `sub` is t
 - A read-only cell's result has no `set` / `patch`, and its `.use()` accepts only `onError`, since a get-only cell has no wire mutation verb to reconcile against.
 - A collection view answers `error()`, `pending()` and `keys()` whatever the path. Under batched delivery the per-key handle `byKey(id)` returns is assembled from the one stream's signals, so it carries no `.updated()`. Ask [`fold`](#fold-on-a-deltas-collection) instead, which hands over the wire's whole frame rather than one key's before and after.
 - The stream opens in the creating owner's effect phase, on the flush after `.use()` returns — never inside the creating scope, where Solid 2 refuses a write. Until the first frame lands the accessor reads `undefined` and `pending()` reads `true`, even over an in-process link or a replayed snapshot. `events.X.use(...)` attaches on that same flush. A view created during server rendering opens no stream.
-- A view created with no reactive owner and an external input signal subscribes at once.
+- A view's lifetime is the creating owner's or an external `AbortSignal`'s, and it must be one of the two: a view created with neither is refused, because nothing would be left that could interrupt its fiber or close the wire subscription behind it. Created with a signal and no owner, it subscribes at once — there is no effect phase to defer into without an owner, and no owned scope for a frame to be written from either.
 
 #### `.updated(handler)` and `.changed(handler)`
 
@@ -1227,7 +1227,7 @@ framework never sees inside the accumulator.
 | What `init` is handed | The client store's own values, in its arrival order: the same objects `byKey` reads |
 | `undefined` | Means exactly one thing: there is no valid accumulator |
 | Removes of unknown keys | Delivered verbatim, so `step` must be total over a remove of a key it never saw |
-| Ordering | Assert keys, apply to the store, notify the folds, clear `pending`, all in one tick |
+| Ordering | Assert keys, apply to the store, notify the folds, clear `pending`, all in one tick — the folds inside the frame's own store transaction |
 | Aliasing | `step` receives the wire's decoded frame objects and `init` receives the store's held ones; a fold may retain either without cloning |
 | Errors | The batched stream's error is collection-wide and terminal; a throwing `init` / `step` is contained to its own fold |
 | Teardown | `fold()` must be called under a reactive owner; the registration is dropped by that owner's `onCleanup` |
@@ -1236,7 +1236,7 @@ framework never sees inside the accumulator.
 - `init` is never handed the wire's entries directly. The store's snapshot write is value-diffed, so an entry a reconnect re-serialized unchanged keeps the object already held and the fresh copy is dropped. Seeding from the wire would hand a fold objects the store refused, and make what `init` receives depend on when the fold registered.
 - `undefined` is the state before the first snapshot, and the state a throwing `init` / `step` returns the fold to until the next snapshot re-seeds it.
 - The server's tick coalescer resolves an upsert-then-remove within one producer tick to a bare remove. The framework does not filter such a remove out, since that would be swallowing part of the frame.
-- A `step` that reads `byKey` sees state consistent with the frame it holds.
+- A `step` that reads `byKey` or `keys()` sees state consistent with the frame it holds. The folds are notified inside the frame's own store transaction, where a store read is served the frame being applied rather than the last flushed one, so the frame argument, the store and the key set all answer the same way. Every other reader sees that frame on the flush, as with any store write.
 
 #### What a fold may hold, and what fails it
 
