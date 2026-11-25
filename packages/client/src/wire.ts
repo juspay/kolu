@@ -516,12 +516,12 @@ const hostScoped = createRoot(() => {
   // `setActiveHost` writer here. `requestActivateOnJoin` (exported) raises one request.
   //
   // The request carries a SEQUENCE, and the reconcile records the one it enacted in a plain
-  // variable. Consuming the intent by clearing a signal (the old `setPendingJoin(null)`) made
-  // this effect write a source its own compute reads: it re-ran on its own write, took two
-  // flushes to settle, and Solid 2 reports it (EFFECT_WRITES_OWN_SOURCE). A served sequence
-  // number is the same one-shot with no feedback — the shape `canvas/useCanvasCenterOnSwitch`
-  // uses for its switch epoch. A repeat request for the SAME host is a new sequence, so
-  // re-adding a host the user has since switched away from still lands on it.
+  // variable. Clearing a signal this compute reads would make the effect write its own
+  // source — a re-run on its own write, two flushes to settle, and EFFECT_WRITES_OWN_SOURCE.
+  // A served sequence number is the same one-shot with no feedback — the shape
+  // `canvas/useCanvasCenterOnSwitch` uses for its switch epoch. A repeat request for the SAME
+  // host is a new sequence, so re-adding a host the user has since switched away from still
+  // lands on it.
   type JoinRequest = { host: HostKey; seq: number };
   let joinSeq = 0;
   const [joinRequest, setJoinRequest] = createSignal<JoinRequest | null>(null);
