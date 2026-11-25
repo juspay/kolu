@@ -52,6 +52,7 @@ import {
   LINE_LIMIT,
   lockCardWords,
   lockWords,
+  membersByWork,
   membersIn,
   oneLine,
   otherDecisions,
@@ -804,6 +805,36 @@ describe("the members of one work", () => {
     expect(membersIn(map, WORK).map((one) => one.terminal)).toEqual([
       "local/a",
       "local/b",
+    ]);
+  });
+
+  it("yields exactly one row per terminal, over every work", () => {
+    // THE INVARIANT EVERY PANE RESTS ON: the rows are read out of the ONE
+    // members map, keyed by terminal, so a terminal names exactly one row and
+    // appears under exactly one work. `conductor/WorkLive.tsx` draws a pane
+    // per row and keys it by that ref; a ref that came back twice would
+    // attach one terminal's stream twice and leave every readout matching two
+    // elements. Pinned here, where the rows are made.
+    const map = new Map<string, WorkMember>([
+      ["local/a", { work: WORK, role: "planner", joinedAt: AT }],
+      ["local/b", { work: WORK, role: "implementor", joinedAt: AT }],
+      ["local/c", { work: WORK, role: "implementor", joinedAt: AT }],
+      ["other/a", { work: "branch:local/x/y", role: "other", joinedAt: AT }],
+    ]);
+    const by = membersByWork(map);
+    const rows = [...by.values()].flat();
+    expect(rows).toHaveLength(map.size);
+    expect(rows.map((one) => one.terminal).sort()).toEqual([
+      "local/a",
+      "local/b",
+      "local/c",
+      "other/a",
+    ]);
+    // And within one work, each terminal once.
+    expect(membersIn(map, WORK).map((one) => one.terminal)).toEqual([
+      "local/a",
+      "local/b",
+      "local/c",
     ]);
   });
 

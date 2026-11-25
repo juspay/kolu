@@ -42,19 +42,16 @@ const WorkLive: Component<{
   /** The terminals a pane can be drawn for — the ones this browser can
    *  reach — by ref, in the order the waterfall runs them.
    *
-   *  ONE PANE PER TERMINAL: a terminal is one screen, so a ref is kept once,
-   *  where it first appears. The rows come from `membersByWork`, which keys
-   *  members by terminal, so today a ref never arrives twice; the rule holds
-   *  here by construction rather than by that upstream fact, because a second
-   *  pane over one ref would attach its stream twice and leave every readout
-   *  matching two elements. */
-  const refs = createMemo(() => [
-    ...new Set(
-      props.members.flatMap((one) =>
-        one.split === null ? [] : [one.terminal],
-      ),
-    ),
-  ]);
+   *  ONE PANE PER MEMBER ROW, and one row per terminal: the rows come from
+   *  `membersByWork` (`workReadings.ts:309-320`), which reads the ONE members
+   *  map, keyed by terminal, so a ref cannot arrive twice. That invariant is
+   *  pinned where it is produced (`workReadings.test.ts`) rather than guarded
+   *  here: a ref that did arrive twice would attach its stream twice and
+   *  leave every readout matching two elements, and dropping the second row
+   *  here would hide that instead of showing it. */
+  const refs = createMemo(() =>
+    props.members.flatMap((one) => (one.split === null ? [] : [one.terminal])),
+  );
   const roleOf = (ref: string): WorkRole | undefined =>
     props.members.find((one) => one.terminal === ref)?.member.role;
   const layout = () => paneLayout(refs().length, !atWide());

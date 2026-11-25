@@ -155,47 +155,4 @@ describe("the panes a picked work draws", () => {
     expect(panesIn(el)).toEqual([was]);
     expect(was?.getAttribute("data-role")).toBe("implementor");
   });
-
-  it("draws one pane per terminal when a ref arrives twice", () => {
-    // THE SAME TERMINAL, TWICE in the work's member lines — two rows naming
-    // one terminal, as a membership read mid-rebuild can hand over. One
-    // terminal is one screen: a second pane over the same ref would attach
-    // the stream twice and the readouts would match two elements.
-    setMembers([
-      line("local", ID, "implementor", "a"),
-      line("local", ID, "implementor", "b"),
-    ]);
-    const el = mount();
-    flush();
-    expect(panesIn(el).map((p) => p.getAttribute("data-ref"))).toEqual([
-      `local/${ID}`,
-    ]);
-
-    // AND AFTER A RE-PICK: the rows are read again, with the duplicate still
-    // in them. Still one pane, and the SAME element.
-    const was = panesIn(el)[0];
-    setMembers([
-      line("local", ID, "implementor", "c"),
-      line("local", ID, "implementor", "d"),
-    ]);
-    flush();
-    expect(panesIn(el)).toEqual([was]);
-  });
-
-  it("draws one pane per terminal when a tabbed work holds a ref twice", () => {
-    setWide(false);
-    setMembers([
-      line("local", ID, "planner", "a"),
-      line("local", ID, "planner", "b"),
-      line("local", OTHER, "implementor", "a"),
-    ]);
-    const el = mount();
-    flush();
-    expect(
-      el.querySelectorAll(`[data-testid="live-tab"][data-ref="local/${ID}"]`),
-    ).toHaveLength(1);
-    expect(panesIn(el).map((p) => p.getAttribute("data-ref"))).toEqual([
-      `local/${ID}`,
-    ]);
-  });
 });
