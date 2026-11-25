@@ -36,13 +36,11 @@ import { Effect } from "effect";
 import type { HostKey } from "kolu-common/hostKey";
 import {
   type Component,
-  createMemo,
+  createDeferred,
   createSignal,
   Errored,
   For,
   isPending,
-  latest,
-  Loading,
   refresh,
   Show,
 } from "solid-js";
@@ -64,8 +62,11 @@ export const stateBackupsDialog = createDisclosure();
 
 const chrome = surface({ portalled: true });
 
-/** What a dialog with no store picked lists: nothing, synchronously. */
-const NO_BACKUPS: ReadonlyArray<BackupRow> = [];
+/** A listing, and the ring whose it is. */
+interface Listed {
+  readonly title: string;
+  readonly rows: ReadonlyArray<BackupRow>;
+}
 
 /** A snapshot row, normalized across the two stores' wire shapes. */
 interface BackupRow {
@@ -213,28 +214,37 @@ const StateBackupsDialog: Component = () => {
     const v = view();
     return v.kind === "stores" ? null : v.store;
   };
-  /** THE SELECTED RING'S SNAPSHOTS. Asked for the store being browsed, and
-   *  only while the dialog is open — a closed dialog lists nothing. A failed
-   *  listing is thrown at the reader and caught by the `Errored` boundary
-   *  around the rows; a listing still in the air HOLDS the write that asked
-   *  for it, under the one `Loading` boundary the dialog's body sits in. */
-  const backups = createMemo<ReadonlyArray<BackupRow>>(() => {
-    const store = stateBackupsDialog.open() ? browsing() : null;
-    return store === null ? NO_BACKUPS : store.list();
-  });
-  /** WHICH RING IS OPENING, said while the picker is still the screen.
-   *  Picking a ring writes `view` onto that ring's first listing, so the
-   *  write is held until the rows land and the picker is what the person is
-   *  still looking at — `latest` reads that held write, so the row they
-   *  pressed is the row that says it is working, and the press is answered
-   *  rather than reading as a dead click (SILENT_HOLD). Compared by title:
-   *  the padi adapters are rebuilt per render, so the object is not an
-   *  identity, and one title per ring is. */
-  const opening = createMemo<string | null>(() => {
-    if (!isPending(backups)) return null;
-    const held = latest(view);
-    return held.kind === "stores" ? null : held.store.title;
-  });
+  /** THE SELECTED RING'S SNAPSHOTS, with the ring they are OF. Asked for the
+   *  store being browsed, and only while the dialog is open — a closed
+   *  dialog lists nothing. A failed listing is thrown at the reader and
+   *  caught by the `Errored` boundary around the rows.
+   *
+   *  A LISTING IN THE AIR HOLDS NOTHING: deferred, with `null` declared as
+   *  the loading value, so no reader ever suspends on it and the pick
+   *  commits in the press's own frame — the ring's title, its "← Stores"
+   *  affordance and a plain "Loading…" where the rows will be. A remote padi
+   *  ring answers in seconds, and a frame held that long is a frozen screen.
+   *
+   *  A deferred node LAGS, so the rows it holds stay up while the next
+   *  listing is read. What they are OF is carried beside them, so they are
+   *  kept on a re-list of the SAME ring and dropped the moment another ring
+   *  is picked — one ring's snapshots must never sit under another's title.
+   *  Compared by title: the padi adapters are rebuilt per render, so the
+   *  object is no identity and one title per ring is. */
+  const listed = createDeferred<Listed | null>(
+    () => {
+      const store = stateBackupsDialog.open() ? browsing() : null;
+      if (store === null) return null;
+      const title = store.title;
+      return store.list().then((rows) => ({ title, rows }));
+    },
+    { loadingValue: null },
+  );
+  /** This ring's rows — `null` while its own listing is still in the air. */
+  const backups = (): ReadonlyArray<BackupRow> | null => {
+    const one = listed();
+    return one !== null && one.title === browsing()?.title ? one.rows : null;
+  };
 
   const close = (open: boolean) => {
     stateBackupsDialog.onOpenChange(open);
@@ -268,7 +278,7 @@ const StateBackupsDialog: Component = () => {
             // restore's end, so there is no window before it in which the
             // rows must already read as pending; `isPending` over the list
             // covers the re-ask itself.
-            void refresh(backups);
+            void refresh(listed);
           }),
         ),
         Effect.catch((err) =>
@@ -304,121 +314,109 @@ const StateBackupsDialog: Component = () => {
           </Show>
         </div>
 
-        {/* ONE BOUNDARY FOR THE WHOLE BODY, born with the dialog and
-            revealed by the picker's first frame — nothing is in the air
-            while a store is being chosen. Picking a ring therefore HOLDS
-            rather than falling back: the write lands on that ring's first
-            listing, the picker stays up for the wait, and the title, the
-            "← Stores" affordance and the rows commit together (one ring's
-            snapshots can never sit under another's title). This is what
-            master's `createResource` did — it kept the rows it had while the
-            next ring was read. A boundary built per ring would instead show
-            "Loading…" on every pick, a flicker for a listing that answers in
-            a few ms (FALLBACK_FLASH). The hold is answered where the screen
-            is: on the picker row (`opening`), and on the rows themselves
-            (`isPending`) when the SAME ring is listed again. The fallback
-            below is for a first frame that is already unresolved. */}
-        <Loading
-          fallback={<div class="px-1 text-[11px] text-fg-3">Loading…</div>}
-        >
-          {/* Store picker — one row per ring, from the one adapter list. */}
-          <Show when={browsing() === null}>
-            <div class="space-y-1.5">
-              <For each={stores()}>
-                {(store) => {
-                  const working = () => opening() === store.title;
-                  return (
-                    <button
-                      type="button"
-                      class={`w-full rounded-lg border border-edge bg-surface-1 px-3 py-2 text-left hover:border-accent/40 disabled:cursor-not-allowed disabled:opacity-50 ${working() ? "opacity-60" : ""}`}
-                      disabled={!store.available}
-                      aria-busy={working() ? "true" : "false"}
-                      onClick={() => setView({ kind: "list", store })}
-                    >
-                      <div class="font-medium text-fg">{store.title}</div>
-                      <div class="text-[11px] text-fg-3">
-                        {working() ? "Listing snapshots…" : store.subtitle}
-                      </div>
-                    </button>
-                  );
-                }}
-              </For>
-            </div>
-          </Show>
+        {/* Store picker — one row per ring, from the one adapter list. */}
+        <Show when={browsing() === null}>
+          <div class="space-y-1.5">
+            <For each={stores()}>
+              {(store) => (
+                <button
+                  type="button"
+                  class="w-full rounded-lg border border-edge bg-surface-1 px-3 py-2 text-left hover:border-accent/40 disabled:cursor-not-allowed disabled:opacity-50"
+                  disabled={!store.available}
+                  onClick={() => setView({ kind: "list", store })}
+                >
+                  <div class="font-medium text-fg">{store.title}</div>
+                  <div class="text-[11px] text-fg-3">{store.subtitle}</div>
+                </button>
+              )}
+            </For>
+          </div>
+        </Show>
 
-          {/* Snapshot list for the selected store. */}
-          <Show when={browsing()}>
-            {(store) => (
-              <div class="space-y-1.5">
-                <div class="text-[11px] text-fg-3">{store().title}</div>
-                {/* A RING THAT COULD NOT BE LISTED says so in place of the
-                  list — the read throws it here. */}
-                <Errored
-                  fallback={(why) => (
-                    <div class="rounded-lg border border-danger/40 bg-danger/10 px-3 py-2 text-[11px] text-danger">
-                      Failed to list backups: {toError(why()).message}
+        {/* Snapshot list for the selected store. Drawn the moment the ring is
+            picked: the title and the chrome are on screen while the first
+            listing is still in the air, with "Loading…" where the rows will
+            be. */}
+        <Show when={browsing()}>
+          {(store) => (
+            <div class="space-y-1.5">
+              <div class="text-[11px] text-fg-3">{store().title}</div>
+              {/* A RING THAT COULD NOT BE LISTED says so in place of the
+                  list — the read throws it here. The `Errored` is built per
+                  ring, so one ring's failure cannot outlive the ring it was
+                  about. */}
+              <Errored
+                fallback={(why) => (
+                  <div class="rounded-lg border border-danger/40 bg-danger/10 px-3 py-2 text-[11px] text-danger">
+                    Failed to list backups: {toError(why()).message}
+                  </div>
+                )}
+              >
+                <Show
+                  when={backups()}
+                  fallback={
+                    <div class="px-1 text-[11px] text-fg-3">Loading…</div>
+                  }
+                >
+                  {(rows) => (
+                    // THE ROWS DIM ON A RE-LIST of the SAME ring (a restore
+                    // re-asks): the rows on screen are this ring's own, so
+                    // they stay, dimmed, until the next listing lands.
+                    <div
+                      class={`space-y-1.5 ${isPending(listed) ? "opacity-60" : ""}`}
+                    >
+                      <Show when={rows().length === 0}>
+                        <div class="px-1 text-[11px] text-fg-3">
+                          No backups yet — a snapshot is taken at every boot
+                          (and daily), once the store has content.
+                        </div>
+                      </Show>
+                      <For each={rows()}>
+                        {(row) => (
+                          <div class="rounded-lg border border-edge bg-surface-1 px-3 py-2">
+                            <div class="min-w-0">
+                              <div class="font-medium text-fg">
+                                {formatTimeAgo(row.savedAtMs) || "—"}
+                                <span class="ml-2 text-[11px] font-normal text-fg-3">
+                                  {row.summary} · {formatSize(row.sizeBytes)}
+                                </span>
+                              </div>
+                              <div class="truncate font-mono text-[10px] text-fg-3">
+                                {row.file}
+                              </div>
+                            </div>
+                            {/* The repo's canonical destructive-action
+                                affordance: it owns the confirm step, the
+                                Cancel/confirm pair and the `data-testid`
+                                triplet every other confirm exposes. */}
+                            <Show when={row.restorable}>
+                              <div class="mt-2">
+                                <InlineConfirmButton
+                                  label="Restore"
+                                  inFlightLabel="Restoring…"
+                                  tone="warning"
+                                  confirmCopy={store().confirmCopy(row)}
+                                  inFlight={view().kind === "restoring"}
+                                  testid={`state-backup-restore-${row.file}`}
+                                  onConfirm={() =>
+                                    runAction(
+                                      "restore state backup",
+                                      restore(store(), row),
+                                    )
+                                  }
+                                />
+                              </div>
+                            </Show>
+                          </div>
+                        )}
+                      </For>
                     </div>
                   )}
-                >
-                  {/* THE ROWS DIM ON A RE-LIST of the SAME ring (a restore
-                    re-asks): `view` has not moved, so the rows on screen are
-                    this ring's own and they stay, dimmed, until the next
-                    listing lands. The `Errored` is built per ring, so one
-                    ring's failure cannot outlive the ring it was about. */}
-                  <div
-                    class={`space-y-1.5 ${isPending(backups) ? "opacity-60" : ""}`}
-                  >
-                    <Show when={backups().length === 0}>
-                      <div class="px-1 text-[11px] text-fg-3">
-                        No backups yet — a snapshot is taken at every boot (and
-                        daily), once the store has content.
-                      </div>
-                    </Show>
-                    <For each={backups()}>
-                      {(row) => (
-                        <div class="rounded-lg border border-edge bg-surface-1 px-3 py-2">
-                          <div class="min-w-0">
-                            <div class="font-medium text-fg">
-                              {formatTimeAgo(row.savedAtMs) || "—"}
-                              <span class="ml-2 text-[11px] font-normal text-fg-3">
-                                {row.summary} · {formatSize(row.sizeBytes)}
-                              </span>
-                            </div>
-                            <div class="truncate font-mono text-[10px] text-fg-3">
-                              {row.file}
-                            </div>
-                          </div>
-                          {/* The repo's canonical destructive-action
-                          affordance: it owns the confirm step, the
-                          Cancel/confirm pair and the `data-testid`
-                          triplet every other confirm exposes. */}
-                          <Show when={row.restorable}>
-                            <div class="mt-2">
-                              <InlineConfirmButton
-                                label="Restore"
-                                inFlightLabel="Restoring…"
-                                tone="warning"
-                                confirmCopy={store().confirmCopy(row)}
-                                inFlight={view().kind === "restoring"}
-                                testid={`state-backup-restore-${row.file}`}
-                                onConfirm={() =>
-                                  runAction(
-                                    "restore state backup",
-                                    restore(store(), row),
-                                  )
-                                }
-                              />
-                            </div>
-                          </Show>
-                        </div>
-                      )}
-                    </For>
-                  </div>
-                </Errored>
-              </div>
-            )}
-          </Show>
-        </Loading>
+                </Show>
+              </Errored>
+            </div>
+          )}
+        </Show>
       </Dialog.Content>
     </ModalDialog>
   );

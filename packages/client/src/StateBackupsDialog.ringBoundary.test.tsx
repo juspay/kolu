@@ -1,14 +1,13 @@
 // @vitest-environment happy-dom
-/** A PICK IS HELD, NOT FLASHED.
+/** A PICK IS DRAWN AT ONCE, NOT HELD.
  *
- *  The dialog's body sits in ONE boundary, born with the dialog and revealed
- *  by the store picker — nothing is in the air while a ring is being chosen.
- *  Picking one lands that ring's first listing, so the write is HELD: the
- *  picker stays on screen, the row pressed says it is listing, and the title,
- *  the "← Stores" affordance and the rows commit together. A boundary built
- *  per ring would show "Loading…" for every pick instead — a flicker for a
- *  listing that answers in milliseconds. A second listing of the SAME ring
- *  keeps the rows it has on screen (dimmed) until the new ones land. */
+ *  Picking a ring commits in the press's own frame: the chosen ring's title
+ *  and its "← Stores" affordance are on screen while the first listing is
+ *  still in the air, with a plain "Loading…" where the rows will be. A
+ *  remote padi ring answers in seconds, and a frame held that long is a
+ *  frozen screen. Nothing falls back over a boundary, so there is no flash.
+ *  A second listing of the SAME ring keeps the rows it has (dimmed) until
+ *  the new ones land; a swap to ANOTHER ring drops them. */
 
 import { Effect } from "effect";
 import { createSignal, flush } from "solid-js";
@@ -138,7 +137,19 @@ function press(label: string): void {
   flush();
 }
 
-it("holds the picker while a newly picked ring lists, and keeps the rows on a re-list", async () => {
+/** Is the rows container dimmed? `null` when no rows are drawn. */
+function rowsDimmed(): boolean | null {
+  if (!host) throw new Error("not mounted");
+  const containers = [...host.querySelectorAll("div")].filter(
+    (one) =>
+      one.className.includes("space-y-1.5") &&
+      (one.textContent ?? "").includes("terminals"),
+  );
+  const rows = containers.at(-1);
+  return rows ? rows.className.includes("opacity-60") : null;
+}
+
+it("draws the picked ring at once with Loading…, then its rows", async () => {
   const [revision, setRevision] = createSignal(0);
   fixture.revision = revision;
 
@@ -149,38 +160,43 @@ it("holds the picker while a newly picked ring lists, and keeps the rows on a re
   flush();
 
   press("h1");
-  await settle();
-  // The pick is HELD, not flashed: no fallback, the picker is still the
-  // screen (the kolu-server row beside it is still there), and the row that
-  // was pressed says what it is doing.
-  expect(body()).not.toContain("Loading…");
-  expect(body()).toContain("Listing snapshots…");
-  expect(body()).toContain("kolu-server");
-  expect(body()).toContain("State backups");
-  expect(body()).not.toContain("← Stores");
+  // THE DESTINATION IS THE SCREEN IN THE PRESS'S OWN FRAME: its title, the
+  // way back, and "Loading…" where the rows will be. The picker is gone —
+  // nothing waits on the listing.
+  expect(body()).toContain("padi — h1");
+  expect(body()).toContain("← Stores");
+  expect(body()).toContain("Loading…");
+  expect(body()).not.toContain("Listing snapshots…");
+  expect(body()).not.toContain("preferences · hosts");
 
-  // The whole frame lands at once — chrome, title and rows together.
+  await settle();
+  // Still waiting, still the same frame — nothing fell back over it.
+  expect(body()).toContain("Loading…");
+  expect(body()).toContain("← Stores");
+
   fixture.answer(3);
   await settle();
   expect(body()).toContain("3 terminals");
-  expect(body()).toContain("← Stores");
-  expect(body()).not.toContain("Listing snapshots…");
+  expect(body()).not.toContain("Loading…");
+  expect(rowsDimmed()).toBe(false);
 
   // THE SAME RING, listed again: the rows on screen are this ring's own, so
-  // they stay up (dimmed) while the new ones are read.
+  // they stay up, dimmed, while the new ones are read.
   setRevision(1);
   await settle();
   expect(body()).toContain("3 terminals");
   expect(body()).not.toContain("Loading…");
+  expect(rowsDimmed()).toBe(true);
 
   fixture.answer(5);
   await settle();
   expect(body()).toContain("5 terminals");
+  expect(rowsDimmed()).toBe(false);
 
   // ANOTHER RING: the padi ring's snapshots are gone from under the
-  // kolu-server title — the swap commits in one frame.
+  // kolu-server title the moment it is picked.
   press("← Stores");
   press("kolu-server");
-  await settle();
   expect(body()).not.toContain("5 terminals");
+  expect(body()).toContain("Loading…");
 });
