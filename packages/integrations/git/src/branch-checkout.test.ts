@@ -110,6 +110,27 @@ describe("where a branch is checked out", () => {
     });
   });
 
+  it("answers unavailable for a path kolu could not read, not no-repository", async () => {
+    // Root reads every folder, so the case is not one it can be in.
+    if (process.getuid?.() === 0) return;
+    const shut = path.join(tmpDir, "shut");
+    fs.mkdirSync(path.join(shut, "inner"), { recursive: true });
+    fs.chmodSync(shut, 0o000);
+    try {
+      const answer = await branchCheckout(path.join(shut, "inner"), "main");
+      expect(answer.kind).toBe("unavailable");
+    } finally {
+      fs.chmodSync(shut, 0o755);
+    }
+  });
+
+  it("answers a repository reached through a symlink with its main checkout as its root", async () => {
+    const { dir } = await repo("through-a-link");
+    const link = path.join(tmpDir, "the-link");
+    fs.symlinkSync(dir, link);
+    expect(await branchCheckout(link, "main")).toEqual(at(dir, dir));
+  });
+
   it("leaves out a bare repository's own entry and a worktree whose folder is gone", () => {
     expect(
       parseWorktreeList(
@@ -230,6 +251,35 @@ describe.skipIf(SKIP_DARWIN_FSWATCH)(
         root: dir,
         checkout: { kind: "none" },
       });
+      stop();
+    });
+
+    it("keeps watching through an answer that is no listing", async () => {
+      // git stops placing the repository for a moment — its HEAD is moved
+      // aside — and then does again. The HEAD watchers armed by the last
+      // listing stay, so the switch after it is still seen.
+      const { dir, git } = await repo("follow-through-an-error");
+      const { answers, stop } = await follow(dir, "feature");
+      const head = path.join(dir, ".git", "HEAD");
+      fs.renameSync(head, `${head}.aside`);
+      await waitFor(() => answers.length === 2);
+      expect(answers[1]).toEqual({ kind: "not-a-repository" });
+      fs.renameSync(`${head}.aside`, head);
+      await waitFor(() => answers.length === 3);
+      await git.checkout("feature");
+      await waitFor(() => answers.length === 4);
+      expect(answers[3]).toEqual(at(dir, dir));
+      stop();
+    });
+
+    it("answers once a folder that was no repository becomes one", async () => {
+      const dir = path.join(tmpDir, "becomes-a-repo");
+      fs.mkdirSync(dir, { recursive: true });
+      const { answers, stop } = await follow(dir, "main");
+      expect(answers).toEqual([{ kind: "not-a-repository" }]);
+      await testGit(dir).init();
+      await waitFor(() => answers.length === 2);
+      expect(answers[1]?.kind).toBe("repository");
       stop();
     });
   },

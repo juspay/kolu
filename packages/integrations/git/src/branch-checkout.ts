@@ -11,23 +11,31 @@
  *
  * ## What re-asks it
  *
- * Every way the answer can move rewrites one of two things:
+ * Every way the answer can move rewrites one of three things:
  *
  *  - the `worktrees` entry of the shared git dir: `git worktree add` and
  *    `git worktree remove` add or drop a folder inside it, which changes the
  *    entry's own stat. `subscribeRepoChange` does not see this — it watches
  *    the main checkout's HEAD, reflog, index and working tree, and none of
- *    them is written;
+ *    them is written. Watched from the first answer that is a repository;
  *  - the `HEAD` of a checkout: a `git switch` to or from the branch, in any
- *    worktree. Every checkout the last listing named is watched, the main one
- *    included, and the set is re-armed after each listing.
+ *    worktree. Every checkout the last LISTING named is watched, the main
+ *    one included. Only a listing re-arms them: an answer that is not one
+ *    (`unavailable`, or a path git no longer places) leaves every watcher
+ *    where it was, so a git that timed out once is asked again at the next
+ *    switch;
+ *  - the `.git` entry of the path itself, while git says it is no
+ *    repository: a `git init` there is a repository to answer for.
  *
- * A re-ask that finds the same answer says nothing.
+ * A re-ask that finds the same answer says nothing. git lists checkouts by
+ * their symlink-resolved paths, as the root is read, so a repository reached
+ * through a link answers its main checkout as its root (a test pins it).
  */
 
 import { execFile } from "node:child_process";
 import fs from "node:fs";
 import { promisify } from "node:util";
+import { Option } from "effect";
 import { createDirFilenameWatcher, type WatchAsker } from "kolu-io";
 import type { Logger } from "kolu-shared";
 import { backgroundGit } from "./background.ts";
@@ -36,6 +44,7 @@ import {
   resolveGitCommonDir,
   WATCHER_DEBOUNCE_MS,
 } from "./git-dir.ts";
+import { watchCwdForGitDir } from "./cwd-git-watcher.ts";
 import { watchGitHead } from "./head-watcher.ts";
 import { repositoryRootOf } from "./resolve.ts";
 import type { BranchCheckout } from "./schemas.ts";
@@ -72,16 +81,33 @@ export function parseWorktreeList(porcelain: string): ReadonlyArray<Listed> {
   return out;
 }
 
-/** The answer, and every checkout the listing named — what the HEAD
- *  watchers are armed on. */
+/** The answer, and — when git listed them — every checkout it named: what
+ *  the HEAD watchers are armed on. An answer that is no listing re-arms
+ *  nothing. */
 interface Reading {
   readonly answer: BranchCheckout;
-  readonly listed: ReadonlyArray<string>;
+  readonly listed: Option.Option<ReadonlyArray<string>>;
 }
 
 const NOT_A_REPOSITORY: Reading = {
   answer: { kind: "not-a-repository" },
-  listed: [],
+  listed: Option.none(),
+};
+
+/** git's word as kolu stores it, unavailable — and logged. */
+const unavailable = (
+  message: string,
+  at: { readonly repoPath: string; readonly branch: string },
+  log?: Logger,
+): Reading => {
+  log?.warn(
+    { err: message, ...at },
+    "git: could not read where a branch is checked out",
+  );
+  return {
+    answer: { kind: "unavailable", reason: message.trim() },
+    listed: Option.none(),
+  };
 };
 
 async function read(
@@ -89,13 +115,19 @@ async function read(
   branch: string,
   log?: Logger,
 ): Promise<Reading> {
-  // simple-git refuses a folder that does not exist before git is asked; a
-  // path that is no folder is no repository.
+  // simple-git refuses a folder that does not exist before git is asked. A
+  // path that is not there, or is no folder, is no repository; a path kolu
+  // could not READ is git not answering.
   const folder = await fs.promises.stat(repoPath).then(
-    (stat) => stat.isDirectory(),
-    () => false,
+    (stat) => ({ kind: "stat" as const, folder: stat.isDirectory() }),
+    (e: NodeJS.ErrnoException) => ({ kind: "error" as const, e }),
   );
-  if (!folder) return NOT_A_REPOSITORY;
+  if (folder.kind === "error") {
+    if (folder.e.code === "ENOENT" || folder.e.code === "ENOTDIR")
+      return NOT_A_REPOSITORY;
+    return unavailable(folder.e.message, { repoPath, branch }, log);
+  }
+  if (!folder.folder) return NOT_A_REPOSITORY;
   try {
     const { root } = await repositoryRootOf(backgroundGit(repoPath), repoPath);
     const { stdout } = await execFileAsync(
@@ -112,19 +144,12 @@ async function read(
         checkout:
           on === undefined ? { kind: "none" } : { kind: "at", path: on.path },
       },
-      listed: listed.map((one) => one.path),
+      listed: Option.some(listed.map((one) => one.path)),
     };
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);
     if (/not a git repository/i.test(message)) return NOT_A_REPOSITORY;
-    log?.warn(
-      { err: message, repoPath, branch },
-      "git: could not read where a branch is checked out",
-    );
-    return {
-      answer: { kind: "unavailable", reason: message.trim() },
-      listed: [],
-    };
+    return unavailable(message, { repoPath, branch }, log);
   }
 }
 
@@ -190,8 +215,12 @@ export function subscribeBranchCheckout(
   let last: BranchCheckout | null = null;
   let asking = false;
   let again = false;
-  /** The HEAD watcher of every checkout the last listing named. */
+  /** The HEAD watcher of every checkout the last LISTING named. */
   const heads = new Map<string, () => void>();
+  /** The shared git dir's `worktrees` entry, from the first repository. */
+  let worktrees: (() => void) | null = null;
+  /** The path's own `.git` entry, while git says it is no repository. */
+  let gitDir: (() => void) | null = null;
 
   const rearm = (listed: ReadonlyArray<string>): void => {
     const want = new Set(listed);
@@ -206,6 +235,28 @@ export function subscribeBranchCheckout(
     }
   };
 
+  /** What re-asks, after an answer. */
+  const watch = (reading: Reading): void => {
+    switch (reading.answer.kind) {
+      case "repository":
+        gitDir?.();
+        gitDir = null;
+        worktrees ??= worktreesWatcher.watch(repoPath, asker, ask, log);
+        break;
+      case "not-a-repository":
+        gitDir ??= watchCwdForGitDir(repoPath, asker, ask, log);
+        break;
+      case "unavailable":
+        // Nothing listed to watch yet: the path's own HEAD, so the next
+        // switch there asks again.
+        if (heads.size === 0) rearm([repoPath]);
+        break;
+      default:
+        reading.answer satisfies never;
+    }
+    if (Option.isSome(reading.listed)) rearm(reading.listed.value);
+  };
+
   function ask(): void {
     if (stopped) return;
     if (asking) {
@@ -216,7 +267,7 @@ export function subscribeBranchCheckout(
     void read(repoPath, branch, log).then((reading) => {
       asking = false;
       if (stopped) return;
-      rearm(reading.listed);
+      watch(reading);
       if (last === null || !branchCheckoutEqual(last, reading.answer)) {
         last = reading.answer;
         onAnswer(reading.answer);
@@ -228,11 +279,11 @@ export function subscribeBranchCheckout(
     });
   }
 
-  const unwatchWorktrees = worktreesWatcher.watch(repoPath, asker, ask, log);
   ask();
   return () => {
     stopped = true;
-    unwatchWorktrees();
+    worktrees?.();
+    gitDir?.();
     for (const stop of heads.values()) stop();
     heads.clear();
   };
