@@ -111,10 +111,10 @@ import {
   type CodeTabOpenResolutionSource,
   type CodeTabScope,
   codeTabRepoSlotKey,
-  codeTabSelectionInventoryVerdict,
   createCodeTabOpenController,
   type OpenInCodeTabRequest,
 } from "./codeTabOpenController";
+import { createCodeTabSelectionReconcile } from "./codeTabSelectionReconcile";
 import type { BrowserLocation, CodeViewState } from "./codeViewState";
 import FileSearchInput from "./FileSearchInput";
 import { projectFileTreeSearch } from "./fileSearch";
@@ -957,65 +957,19 @@ const CodeTab: Component<{
     return `${pierreTreesShadowCss}\n${rowPathsCss(ignored, pierreTreesIgnoredRowDecl)}`;
   });
 
-  // Track membership rather than the treePaths array identity: browse paths
-  // come from a reconciled store array whose contents can change in place.
-  // Gate on the inventory's OWN readiness — taken from the same value as the
-  // paths, so the guard can never check a half-loaded tree against a settled
-  // flag. When a stream resubscribes (e.g. on right-panel tab switch, since its
-  // inputFn returns a fresh object literal), the value briefly resets to
-  // undefined and the inventory collapses to `[]`. Treating that transient empty as
-  // "selected file is missing" would null `selectedPath` on every
-  // resubscribe and lose the selection across tab toggles. Once the stream
-  // has delivered (`!pending()`), an empty paths set IS authoritative —
-  // the file truly went away (commit cleared local diff, rm deleted it) —
-  // except for a path a direct fresh read just proved exists. That result can
-  // beat the retained stream's repo-change pulse, so `freshSelection` pins the
-  // path until the retained inventory first contains it. From that point the
-  // normal removal rule is authoritative again.
-  //
-  // Bail on the tick where `repoSlotKey` itself just changed: the shared
-  // `treePaths()` / `pending()` signals can momentarily expose the
-  // previous repo's snapshot before the query blanks for the new input, so the
-  // new slot's selection would be checked
-  // against the previous repo's tree and falsely cleared. The next tick
-  // (after the reset effect runs) re-evaluates with the authoritative
-  // values for the new slot. (A pane switch inside one repo does not move this
-  // key — the inventory is the same repo's — so no bail is needed there.)
-  createEffect(
-    () => {
-      const s = selectedPath();
-      const sk = repoSlotKey();
-      const { paths, pending: isPending } = treeInventory();
-      const fresh = freshSelection();
-      const freshPath =
-        fresh !== null && fresh.request === props.door.pending()
-          ? fresh.path
-          : null;
-      return {
-        s,
-        sk,
-        // Read once, without depending on it: the mode a clear is addressed
-        // to is the one showing when the verdict lands, and a mode switch is
-        // not itself a reason to re-decide.
-        view: untrack(view),
-        verdict: codeTabSelectionInventoryVerdict(
-          s,
-          isPending,
-          paths,
-          freshPath,
-        ),
-      };
+  createCodeTabSelectionReconcile({
+    selectedPath,
+    repoSlotKey,
+    inventory: () => {
+      const { paths, pending } = treeInventory();
+      return { paths, pending };
     },
-    (cur, prev) => {
-      if (prev && prev.sk !== cur.sk) return;
-      if (cur.verdict === "confirm-fresh") {
-        setFreshSelection(null);
-      } else if (cur.s && cur.verdict === "clear") {
-        select(cur.view, null, { record: false });
-      }
-    },
-    { defer: true },
-  );
+    freshSelection,
+    pendingRequest: () => props.door.pending(),
+    view,
+    consumeFreshSelection: () => setFreshSelection(null),
+    clearSelection: (mode) => select(mode, null, { record: false }),
+  });
 
   const treeGitStatus = createMemo(() => {
     // Browse overlays both layers (local primary, branch fallback). Outside
