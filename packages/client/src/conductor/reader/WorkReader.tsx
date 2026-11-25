@@ -304,33 +304,45 @@ const WorkReader: Component<{
                 <Viewer file={null} error={toError(why())} vault={NO_VAULT} />
               )}
             >
-              {/* `on` THE OPEN PATH: a tab press changes what this frame is
-                  OF, and the file that was open must not sit under the new
-                  tab's name while the next one is read — so the waiting line
-                  comes back for it, and the tabs and the questions beside it
-                  are not held waiting for the read. A source that changes
-                  under the same path (a work ending while the reader is open)
-                  keeps the text on screen until the kept copy lands.
+              {/* KEYED ON THE OPEN PATH: a tab press changes what this frame
+                  is OF, and the file that was open must not sit under the new
+                  tab's name while the next one is read — so the frame is built
+                  again around the new path, with a boundary born with it, and
+                  the waiting line comes back for it. A boundary born with its
+                  subject has shown nothing yet, so the read that subject
+                  starts is its to hold whoever starts it — the one mechanism
+                  kolu arms these boundaries with (`WorkChoiceQuestion`,
+                  `StateBackupsDialog`), where a re-arm (`on`) misses a subject
+                  settled by an effect's write in the same flush. The tabs and
+                  the questions beside it are not held waiting for the read.
+                  A source that changes under the SAME path (a work ending
+                  while the reader is open) keeps the text on screen until the
+                  kept copy lands.
 
                   The fallback is the viewer's own pre-bytes line, said here:
                   a second dispatcher mounted to draw one line would build a
                   wikilink menu and a footnote popover for a frame. */}
-              <Loading
-                on={props.target.path}
-                fallback={<div class="px-2 py-1 text-fg-3/50">Loading…</div>}
-              >
-                <Viewer
-                  file={bytes()}
-                  error={undefined}
-                  // The work's OWN files are the vault a `[[wikilink]]` in a
-                  // plan resolves against — the list a plan's links actually
-                  // point into.
-                  vault={{
-                    paths: files.rows().map((file) => file.path),
-                    pending: files.pending(),
-                  }}
-                />
-              </Loading>
+              <Show when={props.target.path} keyed>
+                {(_path) => (
+                  <Loading
+                    fallback={
+                      <div class="px-2 py-1 text-fg-3/50">Loading…</div>
+                    }
+                  >
+                    <Viewer
+                      file={bytes()}
+                      error={undefined}
+                      // The work's OWN files are the vault a `[[wikilink]]` in
+                      // a plan resolves against — the list a plan's links
+                      // actually point into.
+                      vault={{
+                        paths: files.rows().map((file) => file.path),
+                        pending: files.pending(),
+                      }}
+                    />
+                  </Loading>
+                )}
+              </Show>
             </Errored>
           </div>
           {/* SELECTING TEXT TAKES A COMMENT, as on the Code tab — the pill is

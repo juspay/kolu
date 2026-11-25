@@ -553,17 +553,28 @@ const WorkChoiceQuestion: Component<{
     <Errored
       fallback={(why) => <Offered offer={unread(toError(why()).message)} />}
     >
-      {/* A NEW SUBJECT IS A NEW QUESTION, and a new boundary with it. A
+      {/* A NEW SUBJECT IS A NEW QUESTION, and a new boundary with it: the
           harness picked in the same form changes what this question is OF,
           so the models of the harness they left must never sit under the new
-          one's name: the question is built again and says it is asking. It
-          is KEYED rather than re-armed (`on`) because a boundary that has
-          already shown an answer does not hold the next one: the read a
-          later subject starts reaches the root, and the whole page waits on
-          it with nothing on the question to say so. A boundary born with the
-          subject holds its own read from the first pass. The rest of the
-          form stays unheld either way — the harness chip reads as pressed at
-          once, rather than after a host answers. */}
+          one's name — the question is built again and says it is asking.
+
+          KEYED on the subject, which is how all three of kolu's "a new
+          subject must not hold the page" boundaries are armed (`WorkReader`,
+          `StateBackupsDialog`). A boundary BORN with its subject has shown
+          nothing yet, so the first read that subject starts is its to hold,
+          whoever starts it. A boundary re-armed with `on` only covers the
+          subject changes that reach it before the read does: here the
+          subject is settled by the seeding of what this person chose last
+          time, which is an EFFECT's write in the mount's own flush — by then
+          this boundary has already shown the "choose the harness first" line,
+          so it is no longer collecting and forwards the host read to the
+          root (ASYNC_OUTSIDE_LOADING_BOUNDARY: "the root mount will be
+          deferred", `@solidjs/signals` 2.0.3 `dist/dev.js:1549-1572`,
+          `isCollecting` at `:10301`). The whole page would wait on the host
+          with nothing on the question to say so.
+
+          The rest of the form stays unheld either way — the harness chip
+          reads as pressed at once, rather than after a host answers. */}
       <Show when={subject()} keyed>
         {(one) => (
           <Loading fallback={<Offered offer={asking()} />}>
