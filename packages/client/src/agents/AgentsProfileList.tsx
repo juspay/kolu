@@ -209,7 +209,7 @@ const AddField: Component<{
             ? undefined
             : `agents-profile-option-${active()}`
         }
-        spellcheck={false}
+        spellcheck="false"
         autocomplete="off"
         data-testid="agents-profile-input"
         class="h-8 w-full rounded-lg border border-edge bg-surface-1 pl-2.5 pr-8 font-mono text-xs text-fg placeholder:text-fg-3 transition-colors focus:border-accent/50 focus:bg-surface-2 focus:outline-none"
