@@ -3,6 +3,7 @@ import type { HostKey } from "kolu-common/surfacesWithPadi";
 import { createEffect, createRoot, createSignal, untrack } from "solid-js";
 import { describe, expect, it } from "vitest";
 import { hostReconcileTarget } from "./hostReconcile.ts";
+import { createGroundedHostSetter } from "./groundHostSwitch.ts";
 
 const zest: HostKey = { kind: "remote", target: "zest" };
 const west: HostKey = { kind: "remote", target: "west" };
@@ -115,13 +116,16 @@ function harness(init: { members: HostKey[]; active: HostKey }) {
     const [joinRequest, setJoinRequest] = createSignal<JoinRequest | null>(
       null,
     );
-    // The grounded writer: a target the live pool does not hold seats the local default.
-    const setActiveHost = (next: HostKey): void => {
-      const action = untrack(() =>
-        hostReconcileTarget(members(), next, null, LOCAL_HOST),
-      );
-      setActiveHostIntent(action === null ? next : action.target);
-    };
+    // The grounded writer is PRODUCTION's (`groundHostSwitch.ts`), the same
+    // one wire.ts installs — its own wording and toast arm are pinned in
+    // `groundHostSwitch.test.ts`; here it is the write half of the pair.
+    const setActiveHost = createGroundedHostSetter({
+      members: () => untrack(members),
+      intent: () => untrack(activeHost),
+      seat: (host) => setActiveHostIntent(host),
+      localHost: LOCAL_HOST,
+      warn: () => {},
+    });
     createEffect(
       () => {
         const request = joinRequest();

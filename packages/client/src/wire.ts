@@ -74,6 +74,10 @@ import { toast } from "solid-sonner";
 import { match } from "ts-pattern";
 import { groundActiveHost } from "./host/groundActive.ts";
 import { hostReconcileTarget } from "./host/hostReconcile.ts";
+import {
+  createGroundedHostSetter,
+  hostDepartedMessage,
+} from "./host/groundHostSwitch.ts";
 import { orderHostKeys } from "./host/hostOrder.ts";
 import { hostLabel } from "./host/hostChipTone.ts";
 import { persistedPref } from "./persistedPref.ts";
@@ -541,40 +545,22 @@ const hostScoped = createRoot(() => {
   /** Say that a host is gone and the canvas has moved — the ONE wording, used
    *  by both groundings below. */
   const sayDeparted = (departed: HostKey): void => {
-    toast.warning(
-      `Host "${encodeHostKey(departed)}" left the pool — switched to the local host`,
-    );
+    toast.warning(hostDepartedMessage(departed));
   };
-  // GROUNDING AT THE WRITE. A surface can name a host that has since left — an
-  // attention jump off a notification, a palette row built before the pool
-  // moved. Seating it would strand the tab on a dead host (`useEntry` does not
-  // re-key on its own; every `activePadiRpc` call throws `MAP_KEY_UNKNOWN`,
-  // canvas frozen, no chip lit), so the write itself is grounded against the
-  // SAME `hostReconcileTarget` decision the membership effect below enacts: a
-  // non-member target seats the local default and says so. Before the first
-  // membership snapshot lands there is nothing to ground against, which that
-  // decision already answers as a no-op.
-  //
-  // This is what lets the effect below be driven by MEMBERSHIP alone: an
-  // ungrounded active host is unrepresentable at the one place it could be
-  // written, rather than corrected a flush later by the effect that reads it.
+  // GROUNDING AT THE WRITE — the rule and its reasons live in
+  // `host/groundHostSwitch.ts`, which this installs over the pool, the raw
+  // intent signal and the toast.
   //
   // Membership is read as a FACT, not a dependency: `untrack` keeps a caller
   // standing in a reactive scope (an event handler inside an effect's apply
   // arm) from subscribing it to the pool, and from a strict-read diagnostic.
-  const setActiveHost = ((value: HostKey | ((prev: HostKey) => HostKey)) => {
-    const next =
-      typeof value === "function" ? value(untrack(activeHostIntent)) : value;
-    const action = untrack(() =>
-      hostReconcileTarget(members.keys(), next, null, LOCAL_HOST),
-    );
-    if (action === null) return setActiveHostIntent(next);
-    sayDeparted(next);
-    return setActiveHostIntent(action.target);
-    // `Setter<HostKey>`'s overload set (a value, an updater, and the arms a
-    // non-nullable signal cannot take) is not expressible in one implementation
-    // signature; the two arms above are its whole surface here.
-  }) as Setter<HostKey>;
+  const setActiveHost = createGroundedHostSetter({
+    members: () => untrack(() => [...members.keys()]),
+    intent: () => untrack(activeHostIntent),
+    seat: (host) => setActiveHostIntent(host),
+    localHost: LOCAL_HOST,
+    warn: (message) => toast.warning(message),
+  });
   // THE ONE active-host effect — enacts `hostReconcileTarget` for BOTH the join-activation and
   // the departed-bounce (see its doc). One writer, one ordering to reason about.
   createEffect(
