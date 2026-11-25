@@ -41,6 +41,7 @@ import {
   Errored,
   For,
   isPending,
+  latest,
   Loading,
   refresh,
   Show,
@@ -215,11 +216,24 @@ const StateBackupsDialog: Component = () => {
   /** THE SELECTED RING'S SNAPSHOTS. Asked for the store being browsed, and
    *  only while the dialog is open — a closed dialog lists nothing. A failed
    *  listing is thrown at the reader and caught by the `Errored` boundary
-   *  below; the first read of a store is held by the `Loading` boundary
-   *  beside it. */
+   *  around the rows; a listing still in the air HOLDS the write that asked
+   *  for it, under the one `Loading` boundary the dialog's body sits in. */
   const backups = createMemo<ReadonlyArray<BackupRow>>(() => {
     const store = stateBackupsDialog.open() ? browsing() : null;
     return store === null ? NO_BACKUPS : store.list();
+  });
+  /** WHICH RING IS OPENING, said while the picker is still the screen.
+   *  Picking a ring writes `view` onto that ring's first listing, so the
+   *  write is held until the rows land and the picker is what the person is
+   *  still looking at — `latest` reads that held write, so the row they
+   *  pressed is the row that says it is working, and the press is answered
+   *  rather than reading as a dead click (SILENT_HOLD). Compared by title:
+   *  the padi adapters are rebuilt per render, so the object is not an
+   *  identity, and one title per ring is. */
+  const opening = createMemo<string | null>(() => {
+    if (!isPending(backups)) return null;
+    const held = latest(view);
+    return held.kind === "stores" ? null : held.store.title;
   });
 
   const close = (open: boolean) => {
@@ -290,56 +304,67 @@ const StateBackupsDialog: Component = () => {
           </Show>
         </div>
 
-        {/* Store picker — one row per ring, from the one adapter list. */}
-        <Show when={browsing() === null}>
-          <div class="space-y-1.5">
-            <For each={stores()}>
-              {(store) => (
-                <button
-                  type="button"
-                  class="w-full rounded-lg border border-edge bg-surface-1 px-3 py-2 text-left hover:border-accent/40 disabled:cursor-not-allowed disabled:opacity-50"
-                  disabled={!store.available}
-                  onClick={() => setView({ kind: "list", store })}
-                >
-                  <div class="font-medium text-fg">{store.title}</div>
-                  <div class="text-[11px] text-fg-3">{store.subtitle}</div>
-                </button>
-              )}
-            </For>
-          </div>
-        </Show>
-
-        {/* Snapshot list for the selected store. */}
-        <Show when={browsing()}>
-          {(store) => (
+        {/* ONE BOUNDARY FOR THE WHOLE BODY, born with the dialog and
+            revealed by the picker's first frame — nothing is in the air
+            while a store is being chosen. Picking a ring therefore HOLDS
+            rather than falling back: the write lands on that ring's first
+            listing, the picker stays up for the wait, and the title, the
+            "← Stores" affordance and the rows commit together (one ring's
+            snapshots can never sit under another's title). This is what
+            master's `createResource` did — it kept the rows it had while the
+            next ring was read. A boundary built per ring would instead show
+            "Loading…" on every pick, a flicker for a listing that answers in
+            a few ms (FALLBACK_FLASH). The hold is answered where the screen
+            is: on the picker row (`opening`), and on the rows themselves
+            (`isPending`) when the SAME ring is listed again. The fallback
+            below is for a first frame that is already unresolved. */}
+        <Loading
+          fallback={<div class="px-1 text-[11px] text-fg-3">Loading…</div>}
+        >
+          {/* Store picker — one row per ring, from the one adapter list. */}
+          <Show when={browsing() === null}>
             <div class="space-y-1.5">
-              <div class="text-[11px] text-fg-3">{store().title}</div>
-              {/* A RING THAT COULD NOT BE LISTED says so in place of the
+              <For each={stores()}>
+                {(store) => {
+                  const working = () => opening() === store.title;
+                  return (
+                    <button
+                      type="button"
+                      class={`w-full rounded-lg border border-edge bg-surface-1 px-3 py-2 text-left hover:border-accent/40 disabled:cursor-not-allowed disabled:opacity-50 ${working() ? "opacity-60" : ""}`}
+                      disabled={!store.available}
+                      aria-busy={working() ? "true" : "false"}
+                      onClick={() => setView({ kind: "list", store })}
+                    >
+                      <div class="font-medium text-fg">{store.title}</div>
+                      <div class="text-[11px] text-fg-3">
+                        {working() ? "Listing snapshots…" : store.subtitle}
+                      </div>
+                    </button>
+                  );
+                }}
+              </For>
+            </div>
+          </Show>
+
+          {/* Snapshot list for the selected store. */}
+          <Show when={browsing()}>
+            {(store) => (
+              <div class="space-y-1.5">
+                <div class="text-[11px] text-fg-3">{store().title}</div>
+                {/* A RING THAT COULD NOT BE LISTED says so in place of the
                   list — the read throws it here. */}
-              <Errored
-                fallback={(why) => (
-                  <div class="rounded-lg border border-danger/40 bg-danger/10 px-3 py-2 text-[11px] text-danger">
-                    Failed to list backups: {toError(why()).message}
-                  </div>
-                )}
-              >
-                {/* EACH RING'S BOUNDARIES ARE BORN WITH IT. Picking a ring
-                    mounts this list and leaving it unmounts it: the outer
-                    `<Show when={browsing()}>` holds the list, and every ring
-                    change goes through the store picker, which renders only
-                    while nothing is being browsed — so `browsing()` only ever
-                    moves ring → null → ring. This `Errored` and the `Loading`
-                    below are therefore built again for each ring, have shown
-                    nothing yet, and hold that ring's first listing ("Loading…"
-                    comes back per ring, and one ring's snapshots can never sit
-                    under another's title). A re-ask for the SAME ring (after a
-                    restore) is the same boundary, which has already shown rows:
-                    they stay on screen and dim. */}
-                <Loading
-                  fallback={
-                    <div class="px-1 text-[11px] text-fg-3">Loading…</div>
-                  }
+                <Errored
+                  fallback={(why) => (
+                    <div class="rounded-lg border border-danger/40 bg-danger/10 px-3 py-2 text-[11px] text-danger">
+                      Failed to list backups: {toError(why()).message}
+                    </div>
+                  )}
                 >
+                  {/* THE ROWS DIM ON A RE-LIST of the SAME ring (a restore
+                    re-asks): `view` has not moved, so the rows on screen are
+                    this ring's own and they stay, dimmed, until the next
+                    listing lands. The `Errored` is built per ring, so one
+                    ring's failure cannot outlive the ring it was about. */}
                   <div
                     class={`space-y-1.5 ${isPending(backups) ? "opacity-60" : ""}`}
                   >
@@ -389,11 +414,11 @@ const StateBackupsDialog: Component = () => {
                       )}
                     </For>
                   </div>
-                </Loading>
-              </Errored>
-            </div>
-          )}
-        </Show>
+                </Errored>
+              </div>
+            )}
+          </Show>
+        </Loading>
       </Dialog.Content>
     </ModalDialog>
   );

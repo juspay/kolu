@@ -1,12 +1,14 @@
 // @vitest-environment happy-dom
-/** A RING'S BOUNDARIES ARE BORN WITH IT.
+/** A PICK IS HELD, NOT FLASHED.
  *
- *  Picking a ring mounts the snapshot list and leaving it unmounts it, so the
- *  boundary is built again with the new ring: it has shown nothing yet and
- *  holds that ring's first listing — "Loading…" comes back, while the dialog's
- *  own chrome keeps drawing. A second listing of the SAME ring is not a new
- *  subject: the boundary is the same one, it has already shown rows, and they
- *  stay on screen (dimmed) until the new ones land. */
+ *  The dialog's body sits in ONE boundary, born with the dialog and revealed
+ *  by the store picker — nothing is in the air while a ring is being chosen.
+ *  Picking one lands that ring's first listing, so the write is HELD: the
+ *  picker stays on screen, the row pressed says it is listing, and the title,
+ *  the "← Stores" affordance and the rows commit together. A boundary built
+ *  per ring would show "Loading…" for every pick instead — a flicker for a
+ *  listing that answers in milliseconds. A second listing of the SAME ring
+ *  keeps the rows it has on screen (dimmed) until the new ones land. */
 
 import { Effect } from "effect";
 import { createSignal, flush } from "solid-js";
@@ -136,7 +138,7 @@ function press(label: string): void {
   flush();
 }
 
-it("holds a newly picked ring in its own boundary and keeps the rows on a re-list", async () => {
+it("holds the picker while a newly picked ring lists, and keeps the rows on a re-list", async () => {
   const [revision, setRevision] = createSignal(0);
   fixture.revision = revision;
 
@@ -148,18 +150,24 @@ it("holds a newly picked ring in its own boundary and keeps the rows on a re-lis
 
   press("h1");
   await settle();
-  // The first listing of this ring is held by the boundary born with it — and
-  // the dialog's own chrome draws beside it.
-  expect(body()).toContain("Loading…");
+  // The pick is HELD, not flashed: no fallback, the picker is still the
+  // screen (the kolu-server row beside it is still there), and the row that
+  // was pressed says what it is doing.
+  expect(body()).not.toContain("Loading…");
+  expect(body()).toContain("Listing snapshots…");
+  expect(body()).toContain("kolu-server");
   expect(body()).toContain("State backups");
-  expect(body()).toContain("← Stores");
+  expect(body()).not.toContain("← Stores");
 
+  // The whole frame lands at once — chrome, title and rows together.
   fixture.answer(3);
   await settle();
   expect(body()).toContain("3 terminals");
+  expect(body()).toContain("← Stores");
+  expect(body()).not.toContain("Listing snapshots…");
 
-  // THE SAME RING, listed again: the boundary has already shown rows, so they
-  // stay up while the new ones are read.
+  // THE SAME RING, listed again: the rows on screen are this ring's own, so
+  // they stay up (dimmed) while the new ones are read.
   setRevision(1);
   await settle();
   expect(body()).toContain("3 terminals");
@@ -169,8 +177,8 @@ it("holds a newly picked ring in its own boundary and keeps the rows on a re-lis
   await settle();
   expect(body()).toContain("5 terminals");
 
-  // ANOTHER RING: a new subject, so the waiting line comes back and the padi
-  // ring's snapshots are gone from under the kolu-server title.
+  // ANOTHER RING: the padi ring's snapshots are gone from under the
+  // kolu-server title — the swap commits in one frame.
   press("← Stores");
   press("kolu-server");
   await settle();
