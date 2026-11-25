@@ -524,6 +524,14 @@ export function blankNonCode(source: string): string {
   return scan(source, false);
 }
 
+/** Comments blanked, STRING LITERALS KEPT — for a check that must read a module
+ *  specifier, which is the one question about a source that a string literal is
+ *  the answer to rather than a hiding place. Offsets are preserved, so a
+ *  position found here lines up with `blankNonCode`'s view and the original. */
+export function blankComments(source: string): string {
+  return scan(source, true);
+}
+
 /** How many run calls `source` really makes. */
 export function countRunCalls(source: string): number {
   return (blankNonCode(source).match(RUN_CALL) ?? []).length;
