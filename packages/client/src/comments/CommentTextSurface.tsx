@@ -18,16 +18,17 @@ import {
 } from "solid-js";
 import { useHighlightOverlay } from "./highlightOverlay";
 import { SelectionPill } from "./SelectionPill";
-import { commentsForTerminal } from "./useComments";
+import type { CommentQueue } from "./types";
+import { commentsFor } from "./useComments";
 import { useTextSelection } from "./useTextSelection";
 
 export type CommentTextSurfaceProps = {
-  /** The terminal a comment hangs on, or `null` while there is none — a kept
-   *  file nobody can be pointed back at, or a reader that has not learnt a
-   *  terminal yet. With none, the view is drawn exactly the same and only
-   *  commenting is off; a terminal arriving or leaving turns it on or off
-   *  around the SAME drawn view, never moving it. */
-  terminalId: string | null;
+  /** The queue a comment is filed in, or `null` while there is none — a kept
+   *  file nobody can be pointed back at, or a Code tab with no terminal yet.
+   *  With none, the view is drawn exactly the same and only commenting is
+   *  off; a queue arriving or leaving turns it on or off around the SAME
+   *  drawn view, never moving it. */
+  queue: CommentQueue | null;
   /** Repo-relative path the captured comments anchor to. */
   path: string;
   /** Ticker — caller bumps when the host's text content changes so the
@@ -48,13 +49,13 @@ export type CommentTextSurfaceProps = {
   children: JSX.Element;
 };
 
-/** COMMENTING ON ONE HOST ELEMENT, for one terminal: the selection adapter,
+/** COMMENTING ON ONE HOST ELEMENT, for one queue: the selection adapter,
  *  the highlight overlay and the pill. Mounted beside the host it reads, so
- *  it comes and goes with the terminal while the view inside the host stays
+ *  it comes and goes with the queue while the view inside the host stays
  *  where it is; going, it takes its highlights and listeners with it. */
 const Commenting: Component<
-  Omit<CommentTextSurfaceProps, "terminalId" | "class" | "children"> & {
-    terminalId: string;
+  Omit<CommentTextSurfaceProps, "queue" | "class" | "children"> & {
+    queue: CommentQueue;
     host: () => HTMLDivElement | undefined;
   }
 > = (props) => {
@@ -64,9 +65,9 @@ const Commenting: Component<
     lineAnchored: () => props.lineAnchored,
     surface: () => props.surface,
   });
-  // `createMemo` re-derives the store when `props.terminalId` changes,
-  // so switching terminals re-reads the per-terminal queue.
-  const comments = commentsForTerminal(() => props.terminalId);
+  // `commentsFor` re-derives the store when `props.queue` changes, so
+  // switching terminals or works re-reads that queue.
+  const comments = commentsFor(() => props.queue);
   // Filter to THIS surface's comments. Markdown's Source ⇄ Rendered toggle now
   // keeps both surfaces mounted at once, so a path-only filter would feed each
   // overlay the other surface's comments too — a prose quote ("Hello Doc")
@@ -112,14 +113,14 @@ export const CommentTextSurface: Component<CommentTextSurfaceProps> = (
   return (
     <>
       {/* THE HOST, always: the view inside it is mounted once, whatever
-          becomes of the terminal. */}
+          becomes of the queue. */}
       <div ref={setHost} class={props.class}>
         {props.children}
       </div>
-      <Show when={props.terminalId}>
-        {(terminalId) => (
+      <Show when={props.queue}>
+        {(queue) => (
           <Commenting
-            terminalId={terminalId()}
+            queue={queue()}
             host={host}
             path={props.path}
             contentTick={props.contentTick}

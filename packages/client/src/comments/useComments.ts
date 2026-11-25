@@ -1,11 +1,13 @@
 /** Comments store — singleton, persisted to localStorage, keyed by
- *  `terminalId`.
+ *  {@link CommentQueue}: a terminal's own queue, or a piece of work's.
  *
- *  INVARIANT: keyed by terminalId (NOT by git repoRoot). Each terminal
- *  has its own comment queue. Two terminals in the same repo do NOT
- *  share comments — they're typically working on different feature
- *  branches with different review contexts, and merging their queues
- *  would conflate unrelated drafts.
+ *  INVARIANT: keyed by WHOSE comments they are (NOT by git repoRoot). A
+ *  terminal's Code tab files in that terminal's queue; a work's reader and
+ *  Code view file in the work's. Two terminals in the same repo do NOT share
+ *  comments — they're typically working on different feature branches with
+ *  different review contexts, and merging their queues would conflate
+ *  unrelated drafts — and a work's comments do not depend on which member
+ *  terminal stands in its folder, or on any being up at all.
  *
  *  Stored shape: `{v: 1, comments: Comment[]}`. The `v` bump path lets
  *  future schema changes ship a migration without breaking existing
@@ -18,9 +20,20 @@ import { createComputed, untrack, type Accessor } from "solid-js";
 import { toast } from "solid-sonner";
 import { persistedPref } from "../persistedPref";
 import { backfillSurface } from "./backfillSurface";
-import type { Comment, PersistedShape } from "./types";
+import type { Comment, CommentQueue, PersistedShape } from "./types";
 
-const STORAGE_PREFIX = "kolu:comments-by-terminal:";
+/** The localStorage name of a queue. A terminal's is the name it always had,
+ *  so every comment already written stays where it is. */
+export function commentStorageName(queue: CommentQueue): string {
+  switch (queue.kind) {
+    case "terminal":
+      return `kolu:comments-by-terminal:${queue.id}`;
+    case "work":
+      return `kolu:comments-by-work:${queue.id}`;
+    default:
+      return queue satisfies never;
+  }
+}
 
 type StoresByKey = Map<
   string,
@@ -32,14 +45,14 @@ type StoresByKey = Map<
 
 const storesByKey: StoresByKey = new Map();
 
-/** Get or lazily create the persisted store for a given terminalId. The
- *  per-terminal store is a singleton so multiple call sites share one
- *  reactive source. */
-function storeFor(terminalId: string) {
-  const existing = storesByKey.get(terminalId);
+/** Get or lazily create the persisted store for a queue. The store is a
+ *  singleton per queue so multiple call sites share one reactive source. */
+function storeFor(queue: CommentQueue) {
+  const name = commentStorageName(queue);
+  const existing = storesByKey.get(name);
   if (existing) return existing;
   const [signal, setSignal] = persistedPref<PersistedShape>({
-    name: `${STORAGE_PREFIX}${terminalId}`,
+    name,
     fallback: { v: 1, comments: [] },
     serialize: (v) => JSON.stringify(v),
     parse: (raw): PersistedShape => {
@@ -54,7 +67,7 @@ function storeFor(terminalId: string) {
     onInvalid: (err) => {
       if (err instanceof SyntaxError) {
         console.error(
-          `[comments] Failed to parse stored data for ${terminalId}:`,
+          `[comments] Failed to parse stored data for ${name}:`,
           err,
         );
         toast.error(
@@ -62,7 +75,7 @@ function storeFor(terminalId: string) {
         );
       } else {
         console.error(
-          `[comments] Stored data for ${terminalId} has unexpected shape; resetting queue`,
+          `[comments] Stored data for ${name} has unexpected shape; resetting queue`,
           err,
         );
         toast.error(
@@ -80,32 +93,28 @@ function storeFor(terminalId: string) {
       }));
     },
   };
-  storesByKey.set(terminalId, wrapped);
+  storesByKey.set(name, wrapped);
   return wrapped;
 }
 
-/** Drop the in-memory store wrapper for a terminal whose lifecycle has
- *  ended. The `makePersisted` storage entry stays — comments survive
- *  terminal recreation as long as the terminalId is reused (e.g. session
- *  restore). Call this from the terminal-deletion path to bound the
- *  in-memory Map; without it, every `useComments(tid)` call leaves a
- *  Map entry that lives for the page session.
+/** Drop the in-memory store wrapper for a queue whose owner has gone. The
+ *  `makePersisted` storage entry stays — comments survive the owner coming
+ *  back under the same id (e.g. session restore). Bounds the in-memory Map;
+ *  without it, every `useComments(queue)` call leaves a Map entry that lives
+ *  for the page session.
  *
  *  NOTE: not yet wired to terminal deletion — the comments feature
- *  doesn't own the terminal lifecycle. Filed as a follow-up because
- *  the Map entries are tiny (a few function closures each) and the
- *  realistic upper bound is the number of terminals opened in one
- *  session, which is small. The API exists so wiring it later is a
- *  one-line change in the terminal-management code. */
-export function releaseTerminal(terminalId: string): void {
-  storesByKey.delete(terminalId);
+ *  doesn't own the terminal lifecycle. The Map entries are tiny (a few
+ *  function closures each) and the realistic upper bound is the number of
+ *  queues opened in one session, which is small. */
+export function releaseQueue(queue: CommentQueue): void {
+  storesByKey.delete(commentStorageName(queue));
 }
 
-/** API the rest of the client uses. Pass the active terminalId at the
- *  consumer site — there's no global ambient context (matches how
- *  `CodeTab.tsx` already threads `props.terminalId`). */
-export function useComments(terminalId: string) {
-  const store = storeFor(terminalId);
+/** API the rest of the client uses. Pass the queue at the consumer site —
+ *  there's no global ambient context. */
+export function useComments(queue: CommentQueue) {
+  const store = storeFor(queue);
   return {
     comments: store.comments,
     commentsForPath: (path: string): Comment[] =>
@@ -132,10 +141,10 @@ export function useComments(terminalId: string) {
 }
 
 /** Initialize on identity changes before exposing a read-only reactive lookup. */
-export function commentsForTerminal(terminalId: Accessor<string>) {
+export function commentsFor(queue: Accessor<CommentQueue>) {
   createComputed(() => {
-    const id = terminalId();
-    untrack(() => storeFor(id));
+    const one = queue();
+    untrack(() => storeFor(one));
   });
-  return () => useComments(terminalId());
+  return () => useComments(queue());
 }

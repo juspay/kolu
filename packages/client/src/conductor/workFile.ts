@@ -39,6 +39,7 @@ import {
 import { type Accessor, createMemo, createResource } from "solid-js";
 import { type CodeLister, repoLister } from "../code-view/codeLister";
 import { noTerminalToFetch } from "../code-view/codeSubject";
+import type { CommentQueue } from "../comments/types";
 import { runActionPromise } from "../runAction";
 import { padiMap } from "../wire";
 import type { MemberLine } from "./workFacts";
@@ -83,12 +84,15 @@ export interface WorkFilesRead {
 
 /** WHERE A WORK'S FILES COME FROM — the live worktree, or kolu's own copy.
  *
- *  `at` is the terminal the bytes (and the comments on them) belong to, and
- *  `null` is the whole of "these are the files kolu kept": a kept file has no
- *  tree to anchor a comment to, and every face reads that one flag rather
- *  than re-deciding what a `null` place means. */
+ *  `at` is the terminal the bytes are fetched through, `null` when no
+ *  terminal serves them (a kept copy, or a live folder nobody stands in).
+ *  `comments` is whose comments they are: the work's own queue for the live
+ *  folder, `null` for a kept copy, which has no tree to anchor a comment to.
+ *  Two facts, because they are: a work's comments never depend on which
+ *  terminal is up. */
 export interface WorkFileSource {
   readonly at: { host: string; terminalId: TerminalId } | null;
+  readonly comments: CommentQueue | null;
   readonly list: () => Promise<WorkFilesRead>;
   readonly read: (path: string) => Promise<FileWithSource | FileWithUrl>;
 }
@@ -183,6 +187,9 @@ export function workFileSource(
     });
     return {
       at: null,
+      // A kept copy has nothing to anchor a comment to once its worktree is
+      // gone.
+      comments: null,
       list: () => Promise.resolve({ rows, more: false }),
       read: (path) => readKeptFile(id, path),
     };
@@ -192,6 +199,9 @@ export function workFileSource(
       place.terminalId === null
         ? null
         : { host: place.host, terminalId: place.terminalId },
+    // THE WORK'S OWN QUEUE: which member serves the bytes, or whether any
+    // does, has nothing to do with whose comments these are.
+    comments: { kind: "work", id },
     list: () => listLiveFiles(place),
     read: (path) => readWorkFile(place, path),
   };

@@ -47,7 +47,8 @@ import {
 import { CommentComposer } from "../../comments/CommentComposer";
 import { CommentView, createCommentView } from "../../comments/commentView";
 import { formatMarkdown } from "../../comments/formatMarkdown";
-import { commentsForTerminal } from "../../comments/useComments";
+import { commentsFor } from "../../comments/useComments";
+import type { CommentQueue } from "../../comments/types";
 import BrowseFileDispatcher from "../../code-view/BrowseFileDispatcher";
 import { rightPanelCodeDoor } from "../../right-panel/openInCodeTab";
 import { useColorScheme } from "../../settings/useColorScheme";
@@ -140,14 +141,17 @@ const WorkReader: Component<{
       target.source.read(target.path),
   );
 
-  /** THE COMMENTS THAT WILL GO WITH AN ANSWER — the existing
-   *  comments-on-files for this file, which are kept per terminal and reached
-   *  through the receptacle built for a terminal that MOVES. A kept file has
-   *  none: there is nothing to anchor a comment to once the worktree is
-   *  gone. */
-  const commentsAt = commentsForTerminal(() => at()?.terminalId ?? "");
+  /** WHOSE COMMENTS this file's are: the work's own queue for its live
+   *  folder, whichever member is up — or none for a kept file, which has
+   *  nothing to anchor a comment to once the worktree is gone. */
+  const queue = createMemo(() => source()?.comments ?? null);
+  /** THE COMMENTS THAT WILL GO WITH AN ANSWER — the ones on this file in
+   *  that queue. */
+  const commentsAt = commentsFor(
+    (): CommentQueue => ({ kind: "work", id: props.target.work }),
+  );
   const comments = createMemo(() =>
-    at() === null ? [] : commentsAt().commentsForPath(props.target.path),
+    queue() === null ? [] : commentsAt().commentsForPath(props.target.path),
   );
 
   /** THE OPEN QUESTIONS ABOUT THIS WORK — every ask the record still has
@@ -260,6 +264,7 @@ const WorkReader: Component<{
           >
             <BrowseFileDispatcher
               at={at()}
+              comments={queue()}
               open={at() === null ? null : door.open}
               filePath={props.target.path}
               // A resource RE-THROWS its failure at its reader, and `error`
@@ -281,10 +286,9 @@ const WorkReader: Component<{
             reader, portalled, exactly as the Code tab mounts one per tab: a
             surface that could capture a selection with nowhere to write it
             would offer to comment and then swallow the comment. A kept file
-            has no terminal to anchor one against, so it has no composer
-            either. */}
-          <Show when={at()}>
-            {(spot) => <CommentComposer terminalId={spot().terminalId} />}
+            has no queue to file one in, so it has no composer either. */}
+          <Show when={queue()}>
+            {(one) => <CommentComposer queue={one()} />}
           </Show>
         </Show>
       </section>

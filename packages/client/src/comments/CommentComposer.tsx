@@ -8,6 +8,7 @@ import type { SelectionRect } from "@kolu/artifact-sdk/client";
 import { type Component, createSignal, Show } from "solid-js";
 import { Portal } from "solid-js/web";
 import { useComposer } from "./commentView";
+import type { CommentQueue } from "./types";
 import { useComments } from "./useComments";
 
 const COMPOSER_WIDTH = 320;
@@ -31,7 +32,8 @@ function clampPosition(
 }
 
 export const CommentComposer: Component<{
-  terminalId: string;
+  /** The queue a submitted comment is filed in. */
+  queue: CommentQueue;
 }> = (props) => {
   const composer = useComposer();
   const [body, setBody] = createSignal("");
@@ -45,7 +47,7 @@ export const CommentComposer: Component<{
       setBody("");
       return;
     }
-    useComments(props.terminalId).add({
+    useComments(props.queue).add({
       path: target.path,
       locator: target.locator,
       lineRange: target.lineRange,

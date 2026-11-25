@@ -12,12 +12,16 @@
  *  - **where git stands** — not read yet, not a repository, or a root and who
  *    lists it ({@link CodeLister}: git, or the disk for a folder git cannot
  *    list);
- *  - **a terminal, or none** — what a picture's and a download's address and
- *    the comments hang on. Nothing else in the view needs one: the tree, the
- *    diffs and a text file are read by path. */
+ *  - **a terminal, or none** — what a picture's and a download's address
+ *    hangs on. Nothing else in the view needs one: the tree, the diffs and a
+ *    text file are read by path;
+ *  - **whose comments**, or none — the terminal's own queue for the Right
+ *    panel, the work's for a work's view ({@link CommentQueue}). Its own
+ *    fact: a work's comments never depend on which terminal is up. */
 
 import type { HostKey } from "kolu-common/hostKey";
 import type { TerminalId } from "kolu-common/surface";
+import type { CommentQueue } from "../comments/types";
 import type { CodeLister } from "./codeLister";
 import type { CodeOwner } from "./codeTabOpenController";
 
@@ -39,6 +43,9 @@ export interface CodeSubject {
   readonly host: HostKey;
   readonly git: CodeGit;
   readonly terminalId: TerminalId | null;
+  /** The queue the view's comments are filed in, or `null` where nothing
+   *  can be commented. */
+  readonly comments: CommentQueue | null;
 }
 
 /** The one line for bytes that only a terminal's file route can fetch — a

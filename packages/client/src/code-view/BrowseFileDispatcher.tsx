@@ -70,6 +70,7 @@ import {
 import { toast } from "solid-sonner";
 import { match, P } from "ts-pattern";
 import { CommentTextSurface } from "../comments/CommentTextSurface";
+import type { CommentQueue } from "../comments/types";
 import { useCommentScrollRequest } from "../comments/commentView";
 import { OptionMenu } from "../ui/OptionMenu";
 import BrowseFileView from "./BrowseFileView";
@@ -103,15 +104,19 @@ const NoPreview: Component = () => (
 );
 
 export type BrowseFileDispatcherProps = {
-  /** WHERE the file comes from: the terminal whose host serves its bytes and
-   *  whose repo a comment is anchored against.
+  /** WHERE the file comes from: the host that serves its bytes and the
+   *  terminal they are fetched through.
    *
    *  `null` for a copy kolu holds ITSELF — a finished work's kept file, which
-   *  outlived the worktree it was written in. There is no repo behind it and
-   *  no terminal to address a comment to, so the links, the image resolver
-   *  and the comment surface are simply absent rather than pointed at a
-   *  terminal that has nothing to do with the bytes. */
+   *  outlived the worktree it was written in. There is no repo behind it, so
+   *  the links and the image resolver are simply absent rather than pointed
+   *  at a terminal that has nothing to do with the bytes. */
   at: { host: string; terminalId: TerminalId } | null;
+  /** WHOSE COMMENTS this file's are — the Code tab's terminal, or the work a
+   *  reader or a work's Code view is about — or `null` where nothing can be
+   *  commented (a kept copy). Its own prop, not read off `at`: a work's
+   *  comments do not depend on which terminal fetches its bytes. */
+  comments: CommentQueue | null;
   filePath: string;
   /** Where a link in the document opens: the door of the view this viewer is
    *  drawn in. `null` when there is nowhere to open one — a copy kolu kept
@@ -283,7 +288,7 @@ const BrowseFileDispatcher: Component<BrowseFileDispatcherProps> = (props) => {
     opts: { lineAnchored: boolean; surface?: "source" | "prose" },
   ): JSX.Element => (
     <CommentTextSurface
-      terminalId={props.at?.terminalId ?? null}
+      queue={props.comments}
       path={file().path}
       // The host's text is the file source, so the highlight overlay
       // re-anchors when the server bumps content on save.
@@ -406,7 +411,7 @@ const BrowseFileDispatcher: Component<BrowseFileDispatcherProps> = (props) => {
           "iframe",
           file,
           <BrowseIframeRenderer
-            terminalId={props.at?.terminalId ?? null}
+            queue={props.comments}
             path={file().path}
             url={file().url}
             onNavigate={props.onNavigate}

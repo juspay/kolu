@@ -58,14 +58,16 @@ const composers = () =>
   document.querySelectorAll("[data-testid=kolu-comment-composer]");
 
 /** Two views, each with its own composer, on two terminals. */
+const VIEW_A = { kind: "terminal", id: "view-a-terminal" } as const;
+const VIEW_B = { kind: "terminal", id: "view-b-terminal" } as const;
 function twoViews(a: CommentViewState, b: CommentViewState) {
   mount(() => (
     <>
       <CommentView.Provider value={a}>
-        <CommentComposer terminalId="view-a-terminal" />
+        <CommentComposer queue={VIEW_A} />
       </CommentView.Provider>
       <CommentView.Provider value={b}>
-        <CommentComposer terminalId="view-b-terminal" />
+        <CommentComposer queue={VIEW_B} />
       </CommentView.Provider>
     </>
   ));
@@ -94,11 +96,11 @@ describe("two comment-capturing views mounted at once", () => {
     save?.click();
 
     expect(
-      useComments("view-a-terminal")
+      useComments(VIEW_A)
         .comments()
         .map((c) => c.body),
     ).toEqual(["Tighten this"]);
-    expect(useComments("view-b-terminal").comments()).toEqual([]);
+    expect(useComments(VIEW_B).comments()).toEqual([]);
     expect(composers()).toHaveLength(0);
   });
 
@@ -143,7 +145,7 @@ describe("two comment-capturing views mounted at once", () => {
     // in what that view draws, so its overlay uses up a request it sees.
     const terminalId = "shared-terminal";
     const twoViewsOnOneFile = () => {
-      const comment = useComments(terminalId).add({
+      const comment = useComments({ kind: "terminal", id: terminalId }).add({
         path: "plan.md",
         locator: { quote: "words not in the plan", prefix: "", suffix: "" },
         surface: "source",
@@ -158,6 +160,7 @@ describe("two comment-capturing views mounted at once", () => {
           <CommentView.Provider value={b}>
             <BrowseFileDispatcher
               at={shown()}
+              comments={{ kind: "terminal", id: terminalId }}
               open={null}
               filePath="plan.md"
               file={{

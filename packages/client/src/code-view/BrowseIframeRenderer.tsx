@@ -25,12 +25,13 @@ import {
   Show,
 } from "solid-js";
 import { CommentIframeSurface } from "../comments/CommentIframeSurface";
+import type { CommentQueue } from "../comments/types";
 
 export type BrowseIframeRendererProps = {
-  /** The terminal a comment on this preview is anchored to, or `null` for a
-   *  copy kolu holds itself (a finished work's kept file) — bytes with no
-   *  repo behind them and so nothing a comment could address. */
-  terminalId: string | null;
+  /** The queue a comment on this preview is filed in, or `null` for a copy
+   *  kolu holds itself (a finished work's kept file) — bytes with no repo
+   *  behind them and so nothing a comment could anchor to. */
+  queue: CommentQueue | null;
   path: string;
   url: string;
   /** Follow a same-frame link click to another repo file: the in-iframe SDK
@@ -120,10 +121,10 @@ const BrowseIframeRenderer: Component<BrowseIframeRendererProps> = (props) => {
   return (
     <>
       <IframeRenderer path={props.path} url={props.url} ref={setIframeEl} />
-      <Show when={props.terminalId}>
-        {(id) => (
+      <Show when={props.queue}>
+        {(queue) => (
           <CommentIframeSurface
-            terminalId={id()}
+            queue={queue()}
             path={props.path}
             iframe={iframeEl()}
           />

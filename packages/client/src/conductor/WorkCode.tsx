@@ -66,6 +66,8 @@ const Read: Component<{
         lister: props.place.lister,
       },
       terminalId: props.place.terminalId,
+      // A WORK'S COMMENTS ARE THE WORK'S: whichever member is up, or none.
+      comments: { kind: "work", id: props.id },
     }),
   );
   const state = workCodeState(props.id, () => props.place.lister);

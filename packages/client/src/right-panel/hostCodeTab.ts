@@ -106,6 +106,7 @@ export function codeSubjectOf(
     host,
     git: codeGitOf(meta?.git),
     terminalId,
+    comments: terminalId === null ? null : { kind: "terminal", id: terminalId },
   };
 }
 

@@ -40,3 +40,16 @@ export type Comment = {
  *  (NOT on the clipboard payload, which is plain Markdown). Future schema
  *  changes bump `v` and ship a migration in `useComments.ts`. */
 export type PersistedShape = { v: 1; comments: Comment[] };
+
+/** WHOSE COMMENTS — the queue a comment is filed in and read back from.
+ *
+ *  - `terminal`: a terminal's own queue — the Right panel's Code tab, which
+ *    is about that terminal. Stored as `kolu:comments-by-terminal:<id>`, the
+ *    name it always had, so nothing already written moves.
+ *  - `work`: a piece of work's queue — its reader and its Code view, which
+ *    are about the work. Stored as `kolu:comments-by-work:<id>`, keyed by the
+ *    work's id alone: which member terminal stands in its folder, or whether
+ *    any does, changes nothing. */
+export type CommentQueue =
+  | { readonly kind: "terminal"; readonly id: string }
+  | { readonly kind: "work"; readonly id: string };
