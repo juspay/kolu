@@ -18,7 +18,19 @@
  *  window — reading the signal here would report STRICT_READ_UNTRACKED at
  *  every one of those call sites. An updater is handed the current value
  *  without reading the signal, and returning that same value is an equal
- *  write, which notifies nobody. */
+ *  write, which notifies nobody.
+ *
+ *  That updater reaches the PERSISTED setter either way, so a click on the
+ *  already-active tab writes the same host string to `sessionStorage` where
+ *  the read-guard would have returned first. Nothing observes that write:
+ *
+ *   - the signal write is equal, so it notifies no reader;
+ *   - this pref passes no `sync` (`wire.ts`'s `activeHost`), so
+ *     `makePersisted` announces it to nobody;
+ *   - `setItem` with a value identical to the stored one returns before
+ *     mutating the map (HTML Standard), so no `storage` event is fired —
+ *     and `sessionStorage` is per browser tab, so it has no other page to
+ *     tell in the first place. */
 
 import { type HostKey, hostKeysEqual } from "kolu-common/hostKey";
 import { exitConductorMode } from "../conductor/useConductorMode";
