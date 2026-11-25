@@ -12,7 +12,7 @@ import type { TerminalId } from "kolu-common/surface";
 import { type Component, For, Show } from "solid-js";
 import type { JSX } from "@solidjs/web";
 import { runAction } from "../runAction";
-import { controlledSizes, realSizes } from "../ui/corvuResizable";
+import { controlledSizes, twoPanelSplit } from "../ui/corvuResizable";
 import { Z_HANDLE_INNER } from "../ui/stackLayers";
 import DormantTileBody from "./DormantTileBody";
 import SubPanelTabBar from "./SubPanelTabBar";
@@ -176,7 +176,7 @@ const TerminalContent: Component<{
     // programmatic transition (expand from collapsed), which would otherwise
     // persist a collapse as a zero-height divider. The collapse ITSELF is
     // still latched, below: that is one report, not a stream of them.
-    const s = realSizes(sizes);
+    const s = twoPanelSplit(sizes);
     if (s && s[1] > 0.02) {
       subPanel.setPanelSize(props.terminalId, s[1]);
     }

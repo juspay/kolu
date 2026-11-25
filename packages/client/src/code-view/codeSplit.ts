@@ -26,7 +26,7 @@ import {
   MIN_CODE_PANE_SHARE,
   useRightPanel,
 } from "../right-panel/useRightPanel";
-import { controlledSizes, realSizes } from "../ui/corvuResizable";
+import { controlledSizes, twoPanelSplit } from "../ui/corvuResizable";
 
 /** Tree above the file, or tree left of the file. */
 export type CodeArrangement = "stacked" | "beside";
@@ -120,7 +120,7 @@ export function createCodeSplit(arrangement: Accessor<CodeArrangement>) {
       // Nothing handed over yet: there is no layout of ours for this to be a
       // report about.
       if (held === null) return;
-      const s = realSizes(next);
+      const s = twoPanelSplit(next);
       // Compare with what Corvu holds, not with a share derived now: when
       // the arrangement changes inside an effect pass, Corvu emits its old
       // sizes before it is handed the new ones.

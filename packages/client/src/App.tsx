@@ -94,7 +94,7 @@ import { useTileStore } from "./tile/useTileStore";
 import {
   controlledSizes,
   RESIZE_HANDLE_CLASS,
-  realSizes,
+  twoPanelSplit,
 } from "./ui/corvuResizable";
 import { refocusTerminal } from "./ui/ModalDialog";
 import { Z_HANDLE_OUTER } from "./ui/stackLayers";
@@ -679,7 +679,7 @@ const App: Component = () => {
                         // the collapsed `sizes[1] = 0` case so `preferences.size`
                         // never persists as zero (which would re-expand into an
                         // ungrabbable zero-width panel).
-                        const s = realSizes(sizes);
+                        const s = twoPanelSplit(sizes);
                         if (s) rightPanel.setPanelSize(s[1]);
                       }}
                       class="flex-1 min-h-0 overflow-hidden"

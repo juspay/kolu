@@ -12,19 +12,18 @@ export const RESIZE_HANDLE_CLASS = {
     "shrink-0 w-0 relative before:absolute before:inset-y-0 before:-left-1 before:w-2 before:cursor-col-resize before:hover:bg-accent/30 before:transition-colors",
 } as const;
 
-/** Decode a Corvu Resizable `onSizesChange(sizes: number[])` emission down to
- *  the real, user-intended two-panel split.
- *
- *  Corvu's callback is leaky: besides legitimate user-drag fractions it also
- *  emits degenerate shapes the consumer never wants to persist — a LENGTH-1
- *  renormalized array on `unregisterPanel`/unmount, and `createEffect`-driven
- *  re-emissions of the current value. The one piece of application-agnostic
- *  lore — "a real layout has both panels" — lives here, once, instead of being
- *  re-derived (in three incompatible forms) at each call site. Per-domain
- *  clamps (min-size bands, collapse-from-zero epsilon) stay with the setters
- *  that own those concerns. */
-export function realSizes(sizes: number[]): [number, number] | undefined {
-  return sizes.length === 2 ? (sizes as [number, number]) : undefined;
+/** The two shares of a two-panel Resizable, from an `onSizesChange` report —
+ *  or `undefined` while only one of its panels is mounted. Corvu reports a
+ *  real layout each time one changes, and with one panel mounted that layout
+ *  is `[1]`: there is no split in it to save. Per-domain clamps (min-size
+ *  bands, collapse-from-zero epsilon) stay with the setters that own them. */
+export function twoPanelSplit(
+  sizes: readonly number[],
+): [number, number] | undefined {
+  const [first, second] = sizes;
+  return sizes.length === 2 && first !== undefined && second !== undefined
+    ? [first, second]
+    : undefined;
 }
 
 /** The value to hand a controlled Corvu Resizable as `sizes`.
