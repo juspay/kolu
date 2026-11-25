@@ -12,7 +12,10 @@ import type { CodeTabView } from "@kolu/padi-client/surface";
 import { createRoot, createSignal, flush } from "solid-js";
 import { describe, expect, it } from "vitest";
 import type { OpenInCodeTabRequest } from "./codeTabOpenController";
-import { createCodeTabSelectionReconcile } from "./codeTabSelectionReconcile";
+import {
+  createCodeTabSelect,
+  createCodeTabSelectionReconcile,
+} from "./codeTabSelectionReconcile";
 
 const SLOT = "slot:local:/srv/code/kestrel:browse";
 
@@ -135,5 +138,67 @@ describe("the Code tab's selection ↔ inventory reconcile", () => {
     expect(h.selected()).toBe("elsewhere.rs");
     expect(h.cleared).toEqual([]);
     h.dispose();
+  });
+});
+
+/** The grounded selection funnel. The reconcile judges a selection on an
+ *  inventory frame and on no other, so a write that lands between frames — a
+ *  same-mode back/forward step onto a file the inventory already dropped — is
+ *  judged here instead, or it would stand forever. */
+describe("the Code tab's selection funnel", () => {
+  function selectHarness(init: { paths: string[]; pending?: boolean }) {
+    const [paths] = createSignal<string[]>(init.paths);
+    const [pending, setPending] = createSignal(init.pending ?? false);
+    const seated: Array<{ mode: CodeTabView; path: string | null }> = [];
+    const recorded: Array<{ mode: CodeTabView; path: string | null }> = [];
+    const select = createCodeTabSelect({
+      view: () => "browse",
+      inventory: () => ({ paths: paths(), pending: pending() }),
+      setSelectedFile: (mode, path) => seated.push({ mode, path }),
+      recordNavigation: (loc) =>
+        recorded.push({ mode: loc.mode, path: loc.path }),
+    });
+    return { select, seated, recorded, setPending };
+  }
+
+  it("clears a selection written to a missing path, with no inventory frame", () => {
+    const h = selectHarness({ paths: ["notes.txt"] });
+
+    // A back/forward step inside one mode, onto a file the settled inventory
+    // has already dropped. Nothing moves the inventory, so the reconcile never
+    // decides: the write itself must seat null.
+    h.select("browse", "gone.txt", { record: false });
+    expect(h.seated).toEqual([{ mode: "browse", path: null }]);
+
+    // A file the inventory does list is seated as asked, and recorded.
+    h.select("browse", "notes.txt");
+    expect(h.seated.at(-1)).toEqual({ mode: "browse", path: "notes.txt" });
+    expect(h.recorded).toEqual([{ mode: "browse", path: "notes.txt" }]);
+  });
+
+  it("seats a path a fresh read proved, and one the inventory has not settled", () => {
+    const h = selectHarness({ paths: ["notes.txt"] });
+
+    // The fresh read proved the file before the retained tree published it;
+    // the pin minted alongside this write is not readable yet, so the proof
+    // rides on the write.
+    h.select("browse", "fresh.txt", { proven: true });
+    expect(h.seated.at(-1)).toEqual({ mode: "browse", path: "fresh.txt" });
+
+    // An unsettled inventory condemns nothing (the write reads the frame
+    // standing at it, so let the new one land first).
+    h.setPending(true);
+    flush();
+    h.select("browse", "gone.txt");
+    expect(h.seated.at(-1)).toEqual({ mode: "browse", path: "gone.txt" });
+  });
+
+  it("leaves another mode's slot to the reconcile", () => {
+    const h = selectHarness({ paths: ["notes.txt"] });
+
+    // The tree menu's cross-mode jump writes before the switch, against an
+    // inventory that is not that mode's.
+    h.select("local", "gone.txt");
+    expect(h.seated).toEqual([{ mode: "local", path: "gone.txt" }]);
   });
 });

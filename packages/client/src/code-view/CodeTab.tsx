@@ -114,7 +114,10 @@ import {
   createCodeTabOpenController,
   type OpenInCodeTabRequest,
 } from "./codeTabOpenController";
-import { createCodeTabSelectionReconcile } from "./codeTabSelectionReconcile";
+import {
+  createCodeTabSelect,
+  createCodeTabSelectionReconcile,
+} from "./codeTabSelectionReconcile";
 import type { BrowserLocation, CodeViewState } from "./codeViewState";
 import FileSearchInput from "./FileSearchInput";
 import { projectFileTreeSearch } from "./fileSearch";
@@ -267,10 +270,11 @@ const CodeTab: Component<{
   // Pierre snapshots the menu config at mount. For a file row, navigation seeds
   // the destination view's selection slot *before* switching so the same file
   // lands selected there (a file absent from that view's changed set — e.g. an
-  // untracked file in Branch mode, or anything in a base-less Branch — falls
-  // out and the membership effect clears it; the view still switches, the
-  // asked-for behavior). For a directory row `path` is null (directories
-  // aren't selectable), so the target keeps its own last pick.
+  // untracked file in Branch mode, or anything in a base-less Branch — is
+  // written to a slot that is not the shown one, so the reconcile judges it on
+  // the frame the switch publishes and clears it there; the view still
+  // switches, the asked-for behavior). For a directory row `path` is null
+  // (directories aren't selectable), so the target keeps its own last pick.
   const renderTreeMenu = makeTreeContextMenu({
     view,
     navigate: (target, path) => {
@@ -419,24 +423,18 @@ const CodeTab: Component<{
       : undefined;
   });
   const selectedPath = (): string | null => props.state.selectedFile(view());
-  // The single selection funnel: set the shown file AND record it in history.
-  // Recording can never drift from selection because they are one call —
-  // routing every selection-mutation site through here replaces the old
-  // convention of placing a paired `recordNavigation` next to each write.
-  // Recording is skipped when `record === false` (mechanical clears, history
-  // replay) or when `path === null` (clearing the slot is not a navigation).
-  const select = (
-    mode: CodeTabView,
-    path: string | null,
-    opts?: {
-      ref?: { startLine: number; endLine: number };
-      record?: boolean;
+  // The single selection funnel, grounded in the standing inventory frame:
+  // see `createCodeTabSelect`. `treeInventory` is declared below, so it is
+  // reached through a thunk.
+  const select = createCodeTabSelect({
+    view,
+    inventory: () => {
+      const { paths, pending } = treeInventory();
+      return { paths, pending };
     },
-  ) => {
-    props.state.setSelectedFile(mode, path);
-    if (opts?.record === false || path === null) return;
-    props.state.recordNavigation({ mode, path, ref: opts?.ref });
-  };
+    setSelectedFile: (mode, path) => props.state.setSelectedFile(mode, path),
+    recordNavigation: (loc) => props.state.recordNavigation(loc),
+  });
   const repoSlotKey = createMemo(() => codeTabRepoSlotKey(currentScope()));
 
   // Dismiss any open comment composer when the user navigates away from the
@@ -727,9 +725,13 @@ const CodeTab: Component<{
     // this ref is safe; only a later USER re-click of the same file reaches
     // `handleSelect`, whose `record` guard keeps it from clobbering the ref.
     // The writes share one microtask flush, so downstream readers see them
-    // together.
+    // together — and that is why the fresh read's proof is handed to `select`
+    // directly: the pin minted on the line above is not yet readable, and the
+    // grounded write would judge a just-proved path against a retained
+    // inventory that has not published it.
     setFreshSelection(source === "fresh" ? { request: req, path: rel } : null);
     select(req.scope.mode, rel, {
+      proven: source === "fresh",
       ref:
         req.ref.startLine !== null && req.ref.endLine !== null
           ? { startLine: req.ref.startLine, endLine: req.ref.endLine }
