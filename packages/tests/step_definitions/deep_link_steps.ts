@@ -175,6 +175,19 @@ Then(
   },
 );
 
+/** A toast has timed out and left the screen, so a later toast with the same
+ *  text can only be a new one. */
+Then(
+  "the toast {string} should go away",
+  async function (this: KoluWorld, text: string) {
+    await this.page
+      .locator("[data-sonner-toaster] li")
+      .filter({ hasText: text })
+      .first()
+      .waitFor({ state: "hidden", timeout: POLL_TIMEOUT });
+  },
+);
+
 /** Snapshot the top-level `history.length` so a later step can pin that
  *  deep-link routing pushed NO entries (srid's ruling: a routed link must not
  *  record history that ordinary in-app navigation doesn't — otherwise
