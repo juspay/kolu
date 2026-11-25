@@ -147,3 +147,65 @@ it("drops the subscription when the bar unmounts", () => {
   host.remove();
   host = undefined;
 });
+
+it("clears the count when the addon changes", () => {
+  const first = fakeAddon();
+  const second = fakeAddon();
+  const [addon, setAddon] = createSignal<SearchAddon>(first.addon);
+  host = document.createElement("div");
+  document.body.append(host);
+  dispose = render(
+    () => <SearchBar searchAddon={addon()} open={true} onClose={() => {}} />,
+    host,
+  );
+  flush();
+
+  type(host, "needle");
+  first.emit({ resultIndex: 0, resultCount: 2 });
+  flush();
+  expect(resultLabel(host)).toBe("1 / 2");
+
+  // The rebuilt xterm's addon has found nothing yet: the dead addon's numbers
+  // must not stand in for it.
+  setAddon(() => second.addon);
+  flush();
+  expect(resultLabel(host)).toBe("No results");
+});
+
+/** Two frames: the focus effect's `select()` runs in a rAF, so a frame has to
+ *  pass before "it focused" or "it never did" is a fact. */
+async function frames(): Promise<void> {
+  const passed = Promise.withResolvers<void>();
+  requestAnimationFrame(() =>
+    requestAnimationFrame(() => passed.resolve(undefined)),
+  );
+  await passed.promise;
+}
+
+it("leaves the input's selection alone when the addon changes", async () => {
+  const first = fakeAddon();
+  const second = fakeAddon();
+  const [addon, setAddon] = createSignal<SearchAddon>(first.addon);
+  host = document.createElement("div");
+  document.body.append(host);
+  dispose = render(
+    () => <SearchBar searchAddon={addon()} open={true} onClose={() => {}} />,
+    host,
+  );
+  flush();
+  // The opening's own focus has had its frame: what happens next is the
+  // addon's doing, not the opening's.
+  await frames();
+
+  type(host, "needle");
+  const input = host.querySelector("input");
+  if (!input) throw new Error("search bar has no input");
+  input.setSelectionRange(2, 4);
+
+  // xterm rebuilt under the open bar: the person's caret is theirs.
+  setAddon(() => second.addon);
+  flush();
+  await frames();
+
+  expect([input.selectionStart, input.selectionEnd]).toEqual([2, 4]);
+});

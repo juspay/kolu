@@ -74,23 +74,31 @@ const SearchBar: Component<{
     },
   );
 
-  // Focus the input when opened; clear the addon's decorations and the count
-  // when closed — and when the addon itself changes, so a replaced xterm never
-  // shows the matches of the one it replaced.
+  // Focus the input when the bar opens. Only `open` is tracked: an xterm
+  // rebuild hands this same mounted bar a new addon, and re-running this
+  // would select away what the person has typed.
+  createEffect(
+    () => props.open,
+    (open) => {
+      if (!open) return;
+      // rAF: input is inside <Show> and may not be in DOM yet when the effect runs
+      requestAnimationFrame(() => {
+        inputRef?.focus();
+        inputRef?.select();
+      });
+    },
+  );
+
+  // The count and the decorations belong to one addon and one opening. Drop
+  // them when the bar closes and when the addon changes, so a replaced xterm
+  // never shows the matches of the one it replaced; the live addon speaks for
+  // the label again on its next result event.
   createEffect(
     () => ({ open: props.open, addon: props.searchAddon }),
-    ({ open, addon }) => {
-      if (open) {
-        // rAF: input is inside <Show> and may not be in DOM yet when the effect runs
-        requestAnimationFrame(() => {
-          inputRef?.focus();
-          inputRef?.select();
-        });
-      } else {
-        addon.clearDecorations();
-        setResultIndex(-1);
-        setResultCount(0);
-      }
+    ({ addon }) => {
+      addon.clearDecorations();
+      setResultIndex(-1);
+      setResultCount(0);
     },
   );
 
