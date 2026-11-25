@@ -1020,6 +1020,7 @@ one client per surface, and one fold face for a delta stream.
 | [`.streams.X.useCollection(input, descriptor)`](#streamsxusecollectioninput-descriptor) | `/solid` | A keyed, read-only collection view over a stream of snapshots and deltas. |
 | [`fold`](#fold-on-a-deltas-collection) | `/solid` | Folds a `deltas` collection's whole frames into your own accumulator. |
 | [`useCollectionDeltas`](#usecollectiondeltas) | `/solid` | The delta hook `.use()` drives, for an un-enrolled stream. |
+| [`NoFn<T>`](#nofnt) | `/solid` | Solid 2's value constraint, for an option handed to Solid as a value. |
 
 ### `surfaceClient(surface, transport, onClientError?)`
 
@@ -1049,6 +1050,7 @@ Returns a client with a bound accessor per member. It replaces the `source` /
 - A `deltas`-declaring collection's whole-collection `.use()` also carries [`.fold({ init, step })`](#fold-on-a-deltas-collection).
 - A cell's `authority` is `"server"` (the default: every push reconciles) or `"local"` (the local store wins after the first server yield).
 - An `inputFn` that returns `null` pauses a stream or an event.
+- A cell's `initial` is typed [`NoFn<T>`](#nofnt): a function there is Solid's derived-store spelling, not a value, so a cell whose value is a function cannot be seeded with one.
 
 #### Calling a procedure
 
@@ -1142,6 +1144,16 @@ pending, error, set, patch, sub }`, where `value` is the accessor and `sub` is t
 - `.changed(handler)` is the same law without the payload: same moments, same `Dispose`, no `{ prev, next }`.
 - `.updated()` must hand its handlers a snapshot, because the store adopts a frame and mutates it on the next write, so a retained pair would change out from under the consumer. That snapshot is two `structuredClone`s of a whole frame, and it is the price of the payload. Subscribing with `.changed()`, the clones do not happen at all.
 - Reach for `.updated()` when you read `prev` / `next`, `.changed()` when you do not. Neither is a raw arrival count: an equal reconnect snapshot is silent on both.
+
+### `NoFn<T>`
+
+Solid 2's VALUE constraint, `Exclude<T, Function>`, defined here and exported
+from `@kolu/surface/solid` because `solid-js` does not forward
+`@solidjs/signals`' own `NoFn`.
+
+- Solid reads a function handed to `createSignal` / `createStore` as a derivation rather than as the value: `createStore(fn)` is the projection form, `createSignal(fn)` the derived form.
+- It types every option this package hands to Solid as a value: `.cells.X.use({ initial })` and the bound cell's own `initial`.
+- Use it on an option of your own that reaches Solid as a value, so the requirement is visible at the call site rather than asserted at the handoff.
 
 ### `surfaceClients(transport, map)`
 
@@ -1244,6 +1256,7 @@ framework never sees inside the accumulator.
 - On a collection-wide error, fold accessors keep their last value, frozen, exactly as `byKey` does, and the failure surfaces through the shared `error()` / `onError` / health enrolment.
 - A throwing `init` / `step` is reported loudly, never killing the stream, the store or another fold, and it invalidates that fold's accumulator. Later deltas have no valid base to land on, so the accessor returns to `undefined` rather than reading live while frozen forever.
 - Called ownerless, `fold()` throws rather than minting an accumulator nothing can drop.
+- A `step` must not create computations. It runs inside the frame's own store transaction, where a store read is served the frame being applied and does not subscribe, so a memo or effect built over `byKey` there would silently never track.
 
 #### Frames are bounded
 
