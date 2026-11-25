@@ -93,8 +93,6 @@ type RestoreOutcome =
 
 /** The five things that differ between the two rings, spelled once per store. */
 interface StoreAdapter {
-  /** `For`-key, and what the listing is of. */
-  key: string;
   title: string;
   subtitle: string;
   /** Is the store reachable right now? A padi ring lives on ITS host. */
@@ -107,7 +105,6 @@ interface StoreAdapter {
 const UNDOABLE = "The current state is snapshotted first, so this is undoable.";
 
 const koluStore: StoreAdapter = {
-  key: "kolu",
   title: "kolu-server",
   subtitle:
     "preferences · hosts · the Conductor's works, their Code views and memory",
@@ -154,7 +151,6 @@ const koluStore: StoreAdapter = {
 const padiStore = (host: HostKey): StoreAdapter => {
   const entry = () => padiMap.entry(host);
   return {
-    key: `padi:${host}`,
     title: `padi — ${hostLabel(host)}`,
     // Offer only what the channel can carry out (#1793).
     subtitle:
