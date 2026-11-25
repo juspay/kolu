@@ -36,6 +36,7 @@ import {
   createStreamLifecycle,
   createSubscription,
   framesEqual,
+  noLifetimeRefusal,
   type Subscription,
   type SubscriptionOptions,
   type SubscriptionState,
@@ -110,7 +111,22 @@ export function useCollection<Name extends string, K, T, I>(
   // component takes but never reads costs nothing). The view's owner is captured
   // so the deferred build still lands HERE, not on whichever reactive scope
   // happens to look up first.
+  //
+  // That capture is also this view's whole lifetime: every per-key subscription
+  // is opened under it and dies with it, and this hook exposes no `signal`, so
+  // an ownerless call is refused at birth — in the consumer's own spelling, not
+  // the shared seam's, which names a primitive this caller never called and
+  // offers a `signal` it has no way to pass. (The refusal is worded at the hook
+  // rather than threaded into `createSubscription` as a `caller`, because that
+  // option bag is public: a public `caller` would let any call site rename the
+  // framework's refusal.) Refusing here rather than at the first `byKey` also
+  // keeps the deferral honest — a view nobody looks up still has no lifetime.
   const owner = getOwner();
+  if (!owner)
+    throw noLifetimeRefusal({
+      name: "`.collections.X.use()` (useCollection)",
+      acceptsSignal: false,
+    });
   const lookups = new Map<K, Accessor<Subscription<T> | undefined>>();
   let index: Accessor<Map<K, Subscription<T>>> | undefined;
   function byKey(key: K): Subscription<T> | undefined {

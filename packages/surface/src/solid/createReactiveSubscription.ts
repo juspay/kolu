@@ -25,6 +25,7 @@ import {
 } from "solid-js";
 import {
   createUpdatedTracker,
+  noLifetimeRefusal,
   type Subscription,
   wireSubscriptionError,
 } from "./createSubscription";
@@ -58,16 +59,15 @@ export function createReactiveSubscription<I, T>(
   // disposes (Solid names it `NO_OWNER_EFFECT` and warns) over a fiber nothing
   // can interrupt — the wire subscription stays open for the life of the page.
   // Refused rather than leaked, like `createSubscription`'s own no-lifetime
-  // case and `client.rawStream`'s.
-  if (!getOwner()) {
-    throw new Error(
-      "createReactiveSubscription: must run under a reactive owner — the " +
-        "owner's disposal is what interrupts the subscription's fiber and " +
-        "closes the wire subscription behind it, so an ownerless view would " +
-        "leak both. Call it from a component / createRoot. (`useStream` and " +
-        "the bound `.use()` hooks carry the same requirement.)",
-    );
-  }
+  // case and `client.rawStream`'s — and in those same words, through the one
+  // helper, so the framework has ONE refusal with one wording. `useStream` and
+  // the bound `.use()` hooks reach this primitive and carry the requirement
+  // with it; none of them exposes a `signal`, so the advice offers none.
+  if (!getOwner())
+    throw noLifetimeRefusal({
+      name: "createReactiveSubscription",
+      acceptsSignal: false,
+    });
   const [store, setStore] = createStore<{ v: T | undefined }>({ v: undefined });
   const [error, setError] = createSignal<Error | undefined>();
   const [pending, setPending] = createSignal(true);

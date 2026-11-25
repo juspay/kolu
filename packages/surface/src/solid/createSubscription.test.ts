@@ -1,8 +1,9 @@
 import * as assert from "node:assert";
-import { Effect, Stream } from "effect";
+import { Effect, Schema, Stream } from "effect";
 import { createEffect, createRoot, createSignal } from "solid-js";
 import { describe, expect, it, vi } from "vitest";
 import type { CollectionDeltasMsg } from "../define";
+import { cell } from "../index";
 import { controllableStream } from "./controllableStream.testlib";
 import { createReactiveSubscription } from "./createReactiveSubscription";
 import {
@@ -11,7 +12,12 @@ import {
   type Subscription,
 } from "./createSubscription";
 import { type NumberRow, numberRows } from "./deltasHarness.testlib";
-import { useCollectionDeltas } from "./useCollection";
+import { useCell } from "./useCell";
+import { useCollection, useCollectionDeltas } from "./useCollection";
+
+/** A cell descriptor for the refusal below: the wording is the whole subject, so
+ *  the cell's shape is the simplest one a descriptor can carry. */
+const countCell = cell({ name: "count", schema: Schema.Number, default: 0 });
 
 /** Test-local: read the current value of a subscription, throwing with a
  *  descriptive message if it hasn't yielded yet. Replaces inline non-null
@@ -1167,6 +1173,53 @@ describe("a view's lifetime: an owner, a signal, or a refusal", () => {
     );
     expect(thrown.message).toMatch(
       /^`\.collections\.X\.use\(\)` \(useCollectionDeltas\): must run under a reactive owner/,
+    );
+    expect(thrown.message).not.toMatch(/options\.signal|AbortSignal/);
+    stream.close();
+  });
+
+  it("the cell path refuses in its own words — no `signal` it cannot be given", () => {
+    // `.cells.X.use()` opens its subscription under the caller's owner and has
+    // no `signal` option, so the shared seam's wording — which names
+    // `createSubscription` and offers one — would describe a call this consumer
+    // never made. Both authorities refuse through the one check in `useCell`.
+    const stream = controllableStream<number>();
+    let thrown: unknown;
+    try {
+      useCell(countCell, { source: () => stream.source });
+    } catch (err) {
+      thrown = err;
+    }
+    assert.ok(thrown instanceof Error, "expected the cell path to refuse");
+    expect(thrown.message).toMatch(
+      /^`\.cells\.X\.use\(\)` \(useCell\): must run under a reactive owner/,
+    );
+    expect(thrown.message).not.toMatch(/options\.signal|AbortSignal/);
+    stream.close();
+  });
+
+  it("the per-key collection path refuses at birth, in its own words", () => {
+    // The per-key path defers every subscription to the first `byKey`, but the
+    // owner it would run them under is captured HERE — so a call with no owner
+    // has no lifetime from the start and is refused now, not at a lookup that
+    // may never happen.
+    const stream = controllableStream<NumberRow>();
+    let thrown: unknown;
+    try {
+      useCollection(numberRows, {
+        keys: () => ["a"],
+        valueSource: () => stream.source,
+        keyToInput: (k) => k,
+      });
+    } catch (err) {
+      thrown = err;
+    }
+    assert.ok(
+      thrown instanceof Error,
+      "expected the per-key collection path to refuse",
+    );
+    expect(thrown.message).toMatch(
+      /^`\.collections\.X\.use\(\)` \(useCollection\): must run under a reactive owner/,
     );
     expect(thrown.message).not.toMatch(/options\.signal|AbortSignal/);
     stream.close();

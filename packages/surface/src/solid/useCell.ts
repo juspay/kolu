@@ -33,6 +33,7 @@ import {
   type Accessor,
   createEffect,
   createStore,
+  getOwner,
   snapshot,
   type StoreSetter,
 } from "solid-js";
@@ -43,7 +44,11 @@ import {
 } from "../client";
 import type { Cell } from "../index";
 import { runDetached } from "../runStream";
-import { createSubscription, type Subscription } from "./createSubscription";
+import {
+  createSubscription,
+  noLifetimeRefusal,
+  type Subscription,
+} from "./createSubscription";
 import type { NoFn } from "./noFn";
 import { reconcileFrame } from "./writeValue";
 
@@ -169,6 +174,21 @@ export function useCell<Name extends string, T, P = T>(
   cell: Cell<Name, T>,
   options: UseCellOptions<T, P>,
 ): UseCellResult<T, P> | UseCellLocalResult<T, P> {
+  // Both arms open a subscription whose ONLY lifetime is this caller's owner —
+  // neither exposes a `signal` — so an ownerless call is refused here, at birth,
+  // before a store or an effect exists. The refusal is worded from the consumer's
+  // spelling rather than from `createSubscription`'s: the seam underneath is
+  // shared and does take a `signal`, so its own wording would name a primitive
+  // this caller never called and offer an option this hook has no way to accept.
+  // Refused at the hook rather than by threading a `caller` down, because
+  // `caller` is `createStreamLifecycle`'s internal seam and `SubscriptionOptions`
+  // is the public option bag — a public `caller` would let any call site rename
+  // the framework's refusal.
+  if (!getOwner())
+    throw noLifetimeRefusal({
+      name: "`.cells.X.use()` (useCell)",
+      acceptsSignal: false,
+    });
   if (options.authority === "local") {
     return useCellLocal(
       cell as Cell<Name, T & object>,
