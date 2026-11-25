@@ -7,6 +7,28 @@
  * component tests already fail on any diagnostic; this covers the paths only
  * the e2e suite reaches.
  *
+ * WHICH TIER EACH LANE COVERS. Solid's 75 codes come from two places, and one
+ * of them has to be switched on:
+ *
+ *   - The RUNTIME's own 56 codes — strict reads, writes in owned scopes,
+ *     cleanup and async and SSR rules — are raised by the development runtime
+ *     itself (`@solidjs/signals` `dev.js` / `dev-shared.js`). They are live
+ *     wherever that runtime runs: unit and component tests (`ci::unit`, which
+ *     resolves the `development` condition under vitest), `ci::dev-smoke`'s
+ *     dev server, and this lane's build.
+ *   - The ATTRIBUTION tier's 19 codes — `EFFECT_WRITES_OWN_SOURCE`,
+ *     `EFFECT_RELAY_TEAR`, `UNSTABLE_MEMO_OUTPUT`, the hold and waterfall
+ *     family — come from `@solidjs/signals/attribution`, an engine the
+ *     development runtime ships beside itself and installs only when something
+ *     calls `attribution.enable()`. One caller per lane: the Vite plugin's
+ *     performance-tracks module, which applies to `vite serve` alone
+ *     (`ci::dev-smoke`); `@kolu/solid-test-setup`'s setup file (`ci::unit`);
+ *     and the client's own `solidDiagnosticsExpose.ts` under the `solid-dev`
+ *     build mode (this lane). Each enables it with the dev server's options,
+ *     `{ log: false, checks: false }`, and `default.nix`'s `mkClientDist`
+ *     greps the dev-mode dist for one of the engine's codes, so a build that
+ *     stopped carrying it fails there rather than reporting nothing here.
+ *
  * WHAT THE CHECK KEYS ON IS SERVED, NOT TYPED HERE. The dev-mode client dist
  * carries `solid-dev.json` at its root — `{ marker, warnings }`,
  * extracted at build time from the installed Solid runtime

@@ -849,6 +849,18 @@ let
   # carry the development runtime, and the dev-mode dist must, and must ship the
   # manifest itself at its root for the e2e harness to read.
   #
+  # The SECOND tier checked the same way is the attribution engine
+  # (`@solidjs/signals/attribution`): 19 of Solid's 75 codes —
+  # EFFECT_WRITES_OWN_SOURCE, EFFECT_RELAY_TEAR, the hold and waterfall family
+  # — are raised by it alone, and it does nothing until `attribution.enable()`
+  # installs it. `vite serve` enables it through the Vite plugin's
+  # performance-tracks module, which never applies to a build, so the dev-mode
+  # client enables it itself (`packages/client/src/solidDiagnosticsExpose.ts`,
+  # behind the `solid-dev` mode literal). The dev-mode dist must therefore
+  # carry the engine — without it the e2e lane clicks through the whole app
+  # with those 19 codes unraisable, and reports no finding for having no engine
+  # — and the production dist must not.
+  #
   # The other half of that pair is the window the dev lane reaches the runtime
   # through: the global `packages/client/src/solidDiagnosticsExpose.ts` assigns
   # `OBSERVE` to, read out of the module that owns it as `solidObserveGlobal`.
@@ -888,6 +900,33 @@ let
         fi
       fi
       solidDevMarker=$(jq -er .marker ${solidDevManifest})
+      # THE ATTRIBUTION ENGINE'S FINGERPRINT: one of the codes only it raises.
+      # Typed once here and then CHECKED against the installed runtime, so a
+      # renamed or moved code fails the build instead of leaving a grep that
+      # can no longer match anything. Two facts are asserted: the engine's own
+      # dist carries the string, and no other file of the development runtime
+      # does — otherwise a hit in a bundle would say nothing about the engine
+      # being there.
+      attributionMarker=EFFECT_WRITES_OWN_SOURCE
+      signalsDist=$(echo ${koluDeps}/node_modules/.pnpm/@solidjs+signals@*/node_modules/@solidjs/signals/dist)
+      case "$signalsDist" in
+        *" "*)
+          echo "${label}: more than one @solidjs/signals is installed ($signalsDist) — the bundle's own engine cannot be told from another copy's." >&2
+          exit 1
+          ;;
+      esac
+      if [ ! -d "$signalsDist" ]; then
+        echo "${label}: no installed @solidjs/signals dist at $signalsDist — the dependency farm's layout moved." >&2
+        exit 1
+      fi
+      if ! grep -qF "$attributionMarker" "$signalsDist/dev.attribution.js"; then
+        echo "${label}: '$attributionMarker' is not in $signalsDist/dev.attribution.js — Solid renamed the code these checks key on." >&2
+        exit 1
+      fi
+      if grep -qF "$attributionMarker" "$signalsDist/dev.js" "$signalsDist/dev-shared.js"; then
+        echo "${label}: '$attributionMarker' is no longer unique to the attribution engine — the base development runtime carries it too, so its presence in a bundle proves nothing." >&2
+        exit 1
+      fi
     '' + (if solidRuntime == "development" then ''
       if ! grep -RqF "$solidDevMarker" "$out/assets"; then
         echo "${label}: no asset carries Solid's development runtime ('$solidDevMarker') — the solid-dev build fell back to production." >&2
@@ -895,6 +934,10 @@ let
       fi
       if ! grep -RqF '${solidObserveGlobal}' "$out/assets"; then
         echo "${label}: no asset writes '${solidObserveGlobal}' — the dev lane's diagnostics channel is never handed to the page (packages/client/src/solidDiagnosticsExpose.ts)." >&2
+        exit 1
+      fi
+      if ! grep -RqF "$attributionMarker" "$out/assets"; then
+        echo "${label}: no asset carries Solid's attribution engine ('$attributionMarker') — the solid-dev build never calls attribution.enable(), so 19 of Solid's codes cannot be raised on any e2e path (packages/client/src/solidDiagnosticsExpose.ts)." >&2
         exit 1
       fi
     '' else ''
@@ -921,6 +964,17 @@ let
         grepStatus=$?
         if [ "$grepStatus" -ne 1 ]; then
           echo "${label}: failed to inspect hashed assets for '${solidObserveGlobal}'." >&2
+          exit "$grepStatus"
+        fi
+      fi
+      if attributionMatches=$(grep -RlF "$attributionMarker" "$out/assets"); then
+        echo "${label}: Solid's attribution engine ('$attributionMarker') reached the production bundle — it must stay behind the solid-dev build-time branch." >&2
+        echo "$attributionMatches" >&2
+        exit 1
+      else
+        grepStatus=$?
+        if [ "$grepStatus" -ne 1 ]; then
+          echo "${label}: failed to inspect hashed assets for '$attributionMarker'." >&2
           exit "$grepStatus"
         fi
       fi
