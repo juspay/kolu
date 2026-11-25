@@ -177,6 +177,12 @@ const UNREACHABLE: FleetTerminalStanding = { kind: "unreachable" };
  *  itself, so it can be driven over a real collection view without a host map
  *  (`fleetStanding.test.ts`).
  *
+ *  EVERY read but `connected` is a THUNK, read only on the branch that needs
+ *  it. The host entry's state publishes while it is connected (phase, log
+ *  tail, elapsed), so an eager `warming` read would make every one of those
+ *  publishes invalidate every terminal's standing — and each re-read mints a
+ *  fresh `{kind:"here"}`, which is a new object for every gate above it.
+ *
  *  `census` is the host's own roster standing, which rides the same frame as
  *  the list it qualifies. A padi still adopting (a fresh daemon, a kaval
  *  recycle) has no census, and reading its silence as a death is what
@@ -187,16 +193,18 @@ const UNREACHABLE: FleetTerminalStanding = { kind: "unreachable" };
 export function terminalStandingFrom(args: {
   readonly id: TerminalId;
   readonly connected: boolean;
-  /** The host entry's own word while it is not connected. */
-  readonly warming: boolean;
-  readonly census: PadiRoster | undefined;
+  /** The host entry's own word, READ ONLY while it is not connected. */
+  readonly warming: () => boolean;
+  /** The host's roster standing, READ ONLY once it is connected. */
+  readonly census: () => PadiRoster | undefined;
   /** The terminal's record, READ ONLY once the census says the host holds it:
    *  a record this host does not hold is not a dependency of its standing. */
   readonly record: () => PadiTerminal | undefined;
 }): FleetTerminalStanding {
-  if (!args.connected) return args.warming ? LOADING : UNREACHABLE;
-  if (args.census === undefined) return LOADING;
-  const held = rosterHolds(args.census, args.id);
+  if (!args.connected) return args.warming() ? LOADING : UNREACHABLE;
+  const census = args.census();
+  if (census === undefined) return LOADING;
+  const held = rosterHolds(census, args.id);
   if (held === null) return LOADING;
   if (!held) return GONE;
   const record = args.record();
@@ -289,10 +297,12 @@ const useFleetHosts = createSharedRoot(() => {
         terminalStandingFrom({
           id,
           connected: connected(),
-          warming: entry.state().kind === "warming",
-          // READ TOGETHER, in the one frame: the host's census and the record
-          // it qualifies (`terminalStandingFrom`).
-          census: roster.value(),
+          // THUNKS, so a branch that does not decide this standing is not a
+          // dependency of it: the entry's state publishes on every phase and
+          // log-tail move while connected, and the census is beside the
+          // record it qualifies (`terminalStandingFrom`).
+          warming: () => entry.state().kind === "warming",
+          census: () => roster.value(),
           record: () => terminals.byKey(id)?.(),
         });
 
