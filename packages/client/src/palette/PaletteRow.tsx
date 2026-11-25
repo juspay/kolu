@@ -235,6 +235,14 @@ const PaletteRow: Component<{
     return compactRecency(row()?.recencyAt);
   };
 
+  /** The right rail's keycaps — one per keybind, read where it is painted so a
+   *  command whose shortcut changes repaints. */
+  const keybinds = (): Keybind[] => {
+    const kb = props.cmd.keybind;
+    if (!kb) return [];
+    return Array.isArray(kb) ? kb : [kb];
+  };
+
   /** Host chip only when the terminal lives on a non-active host. */
   const foreignHost = (): HostKey | undefined => {
     const r = row();
@@ -370,17 +378,10 @@ const PaletteRow: Component<{
             </span>
           )}
         </Show>
-        <Show when={props.cmd.keybind}>
-          {(keybind) => {
-            const kb = keybind() as Keybind | Keybind[];
-            return (
-              <span class="flex items-center gap-1">
-                <For each={Array.isArray(kb) ? kb : [kb]}>
-                  {(k) => <Kbd>{formatKeybind(k)}</Kbd>}
-                </For>
-              </span>
-            );
-          }}
+        <Show when={keybinds().length > 0}>
+          <span class="flex items-center gap-1">
+            <For each={keybinds()}>{(k) => <Kbd>{formatKeybind(k)}</Kbd>}</For>
+          </span>
         </Show>
         <Show when={props.showKindTag}>
           <KindTag kind={kind()} />

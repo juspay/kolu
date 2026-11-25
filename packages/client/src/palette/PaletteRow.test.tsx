@@ -11,7 +11,9 @@ import type { TerminalMetadata } from "@kolu/padi-client/surface";
 import type { HostKey } from "kolu-common/hostKey";
 import type { TerminalId } from "kolu-common/surface";
 import { render } from "@solidjs/web";
+import { createSignal, flush } from "solid-js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { formatKeybind, type Keybind } from "../input/keyboard";
 
 vi.mock("../wire", () => ({
   activeHost: () => ({ kind: "local" }),
@@ -97,5 +99,52 @@ describe("a terminal row's mark in the palette", () => {
   it("does not wear another host's mark for a terminal with the same id", () => {
     attentionRecordOf("remote:box-1").markUnread(ID);
     expect(pip(mount({ kind: "local" }))?.dataset.alert).toBeUndefined();
+  });
+});
+
+/** THE RIGHT RAIL'S KEYCAPS follow the command's keybind: a row whose shortcut
+ *  changes repaints it. The read used to sit at the top of `<Show>`'s child
+ *  body, which Solid runs untracked — a one-time snapshot (and a
+ *  STRICT_READ_UNTRACKED diagnostic, which `@kolu/solid-test-setup` fails on). */
+describe("a row's keybind rail", () => {
+  it("repaints when the command's keybind changes", () => {
+    const [keybind, setKeybind] = createSignal<Keybind>({
+      key: "k",
+      modifier: "cmdOrCtrl",
+    });
+    const host = document.createElement("div");
+    dispose = render(
+      () => (
+        <PaletteRow
+          cmd={{
+            kind: "action",
+            name: "Open palette",
+            get keybind() {
+              return keybind();
+            },
+            onSelect: () => {},
+          }}
+          selected={false}
+          query=""
+          showKindTag={false}
+          drillable={false}
+          onSelect={() => {}}
+          onHover={() => {}}
+        />
+      ),
+      host,
+    );
+    const caps = () =>
+      [...host.querySelectorAll("kbd")].map((k) => k.textContent);
+
+    expect(caps()).toEqual([
+      formatKeybind({ key: "k", modifier: "cmdOrCtrl" }),
+    ]);
+
+    setKeybind({ key: "j", modifier: "cmdOrCtrl", shift: true });
+    flush();
+    expect(caps()).toEqual([
+      formatKeybind({ key: "j", modifier: "cmdOrCtrl", shift: true }),
+    ]);
   });
 });
