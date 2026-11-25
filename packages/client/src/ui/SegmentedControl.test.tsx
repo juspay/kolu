@@ -38,7 +38,7 @@ afterEach(() => {
 function mount(
   initial: V | undefined,
   restingValue?: V,
-  extra: { autofocus?: boolean } = {},
+  extra: { autofocus?: boolean; touch?: boolean; toolbar?: boolean } = {},
 ) {
   const [value, setValue] = createSignal<V | undefined>(initial);
   const [options, setOptions] =
@@ -54,6 +54,9 @@ function mount(
         value={value()}
         restingValue={restingValue}
         autofocus={extra.autofocus}
+        touch={extra.touch}
+        ariaRole={extra.toolbar ? "toolbar" : undefined}
+        ariaLabel={extra.toolbar ? "Scope" : undefined}
         onInViewChange={(v) => viewTrail.push(v)}
         onChange={(v) => {
           picks.push(v);
@@ -68,6 +71,8 @@ function mount(
   // flush after creation; every interaction below is followed by the flush the
   // browser's next frame would bring.
   flush();
+  const toolbar = () =>
+    host?.querySelector<HTMLElement>(`[data-testid="seg-toggle"]`) ?? undefined;
   const button = (v: V) =>
     host?.querySelector<HTMLButtonElement>(`[data-testid="seg-${v}"]`) ??
     undefined;
@@ -100,6 +105,7 @@ function mount(
     flush();
   };
   return {
+    toolbar,
     button,
     tabStops,
     pressed,
@@ -254,6 +260,23 @@ describe("SegmentedControl — autofocus", () => {
     expect(document.activeElement).toBe(other);
     expect(c.button("vanilla")).not.toBe(document.activeElement);
     other.remove();
+  });
+});
+
+describe("SegmentedControl — the touch mark", () => {
+  // `data-[touch=true]:` is how the roomier coarse-pointer sizing is spelled
+  // in the class, so the mark has to be the WORD `true`, not the empty value
+  // a boolean attribute would render.
+  it('writes data-touch="true" on the toolbar and every option', () => {
+    const c = mount("juspay", undefined, { touch: true, toolbar: true });
+    expect(c.toolbar()?.getAttribute("data-touch")).toBe("true");
+    expect(c.button("juspay")?.getAttribute("data-touch")).toBe("true");
+  });
+
+  it("leaves data-touch off a fine pointer", () => {
+    const c = mount("juspay", undefined, { toolbar: true });
+    expect(c.toolbar()?.hasAttribute("data-touch")).toBe(false);
+    expect(c.button("juspay")?.hasAttribute("data-touch")).toBe(false);
   });
 });
 

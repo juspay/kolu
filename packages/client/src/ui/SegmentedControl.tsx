@@ -32,6 +32,7 @@ import {
   untrack,
 } from "solid-js";
 import { dynamic, type JSX } from "@solidjs/web";
+import { trueWord } from "./attrWord";
 import { refWithRelease } from "./refWithRelease";
 
 export interface SegmentedControlOption<T extends string> {
@@ -263,7 +264,7 @@ export default function SegmentedControl<T extends string>(props: {
         role="toolbar"
         aria-label={props.ariaLabel}
         data-mode={props.dataMode ? props.value : undefined}
-        data-touch={props.touch || undefined}
+        data-touch={trueWord(props.touch)}
         class="flex items-center gap-0.5 data-[touch=true]:gap-1 shrink-0 rounded bg-surface-2/40 p-0.5 data-[touch=true]:p-1"
       >
         <For each={props.options} keyed={(opt) => opt.value}>
@@ -291,7 +292,7 @@ export default function SegmentedControl<T extends string>(props: {
                   data-active={props.value === value ? "" : undefined}
                   data-mode={value}
                   title={opt().hint}
-                  data-touch={props.touch || undefined}
+                  data-touch={trueWord(props.touch)}
                   class="flex items-center gap-1.5 px-2 data-[touch=true]:px-2.5 h-5 data-[touch=true]:h-7 rounded text-[10px] data-[touch=true]:text-[11px] font-mono cursor-pointer transition-colors text-fg-2 hover:text-fg hover:bg-surface-2/60 data-active:bg-surface-0 data-active:text-fg data-active:shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
                   onClick={() => props.onChange(value)}
                 >

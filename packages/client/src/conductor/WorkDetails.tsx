@@ -109,7 +109,7 @@ const WorkDetails: Component<{
             <p
               data-testid="work-pr-state"
               data-state={pr().state}
-              data-draft={pr().draft}
+              data-draft={pr().draft ? "true" : "false"}
               class="m-0 mt-1 text-[0.68rem] text-fg"
             >
               <PrText work={props.work} text={`#${pr().number}`} />

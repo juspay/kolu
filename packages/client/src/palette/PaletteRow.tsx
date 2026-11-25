@@ -33,6 +33,7 @@ import { formatKeybind, type Keybind } from "../input/keyboard";
 import { IntentMarkdownInline } from "../intent/IntentMarkdown";
 import { annotationLine } from "../intent/text";
 import HostTerminalPip from "../terminal/HostTerminalPip";
+import { trueWord } from "../ui/attrWord";
 import Kbd from "../ui/Kbd";
 import RepoMonogram from "../ui/RepoMonogram";
 import { activeHost, padiMap } from "../wire";
@@ -254,7 +255,7 @@ const PaletteRow: Component<{
       role="option"
       tabindex={-1}
       aria-selected={props.selected ? "true" : "false"}
-      data-selected={props.selected || undefined}
+      data-selected={trueWord(props.selected)}
       data-palette-kind={kind()}
       data-palette-name={props.cmd.name}
       data-host={row()?.hostKey ? encodeHostAttr(row()!.hostKey!) : undefined}

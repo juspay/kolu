@@ -67,6 +67,7 @@ import { CommentView, createCommentView } from "../comments/commentView";
 import { triggerDownload } from "../download";
 import { runActionPromise } from "../runAction";
 import { useColorScheme } from "../settings/useColorScheme";
+import { trueWord } from "../ui/attrWord";
 import { filterChipAccent } from "../ui/filterChip";
 import { mergeGitStatusEntries } from "../ui/gitStatusEntries";
 import {
@@ -1266,7 +1267,7 @@ const CodeTab: Component<{
            *  given (a phone's drawer, a picked work on a phone). */}
           <div
             data-testid="code-tab-toolbar"
-            data-touch={isTouch() || undefined}
+            data-touch={trueWord(isTouch())}
             class="group/toolbar flex items-center h-7 data-[touch=true]:h-10 px-1.5 bg-surface-1/30 border-b border-edge shrink-0 gap-2 overflow-x-auto scrollbar-none"
           >
             <div class="flex items-center gap-0.5 shrink-0">
