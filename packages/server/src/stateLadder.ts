@@ -2366,6 +2366,81 @@ const splitWatch_1_68_0 = (
     : { host: terminal.slice(0, cut), id: terminal.slice(cut + 1) };
 };
 
+/** STEP 5's ONE MOVE — terminal `ref`, a member of watch `from` that is not
+ *  its own terminal, given a watch of its own. Answers the id it is now a
+ *  member of: a watch of that terminal already filed (joined — reopened if it
+ *  had finished), or a new one written into `splitOff`. Every time is one the
+ *  file holds — never a clock — and a value it cannot read fails the rung
+ *  loudly, before anything is written. Frozen history: the id spelling is
+ *  1.68.0's `workIdOf` for a watch, written out. */
+const splitWatchOf_1_68_0 = (
+  ref: string,
+  from: string,
+  member: Record<string, unknown>,
+  works: Record<string, unknown>,
+  splitOff: Map<string, Record<string, unknown>>,
+): string => {
+  const split = splitWatch_1_68_0(ref);
+  if (split === null)
+    throw new Error(
+      `1.68.0: watch ${from} holds ${ref}, which names no terminal to give a watch of its own`,
+    );
+  const id = `watch:${encodeURIComponent(ref)}`;
+  const joined = (at: string) => ({
+    at,
+    by: "kolu",
+    about: { kind: "member", terminal: ref },
+    kind: "joined",
+    role: "other",
+  });
+  const filed = recordOf(splitOff.get(id) ?? works[id]);
+  if (filed !== null) {
+    // A WATCH OF THIS TERMINAL IS ALREADY KEPT: it is the one it joins.
+    const events = Array.isArray(filed.events) ? filed.events : null;
+    const at = recordOf(events?.at(-1))?.at ?? filed.startedAt;
+    if (events === null || typeof at !== "string")
+      throw new Error(
+        `1.68.0: the watch ${id} that ${ref} joins has no timeline to say so on`,
+      );
+    const open = recordOf(filed.state)?.kind === "open";
+    splitOff.set(id, {
+      ...filed,
+      state: { kind: "open" },
+      events: [
+        ...events,
+        ...(open
+          ? []
+          : [{ at, by: "kolu", about: { kind: "work" }, kind: "reopened" }]),
+        joined(at),
+      ],
+    });
+    return id;
+  }
+  const at = member.joinedAt;
+  const name = recordOf(member.watch)?.name;
+  const title =
+    typeof name === "string" && name !== ""
+      ? name
+      : recordOf(works[from])?.title;
+  if (typeof at !== "string" || typeof title !== "string")
+    throw new Error(
+      `1.68.0: ${ref} in watch ${from} has no join time or title to give its own watch`,
+    );
+  splitOff.set(id, {
+    key: { kind: "watch", host: split.host, id: split.id },
+    title,
+    startedAt: at,
+    decisions: [],
+    events: [
+      { at, by: "kolu", about: { kind: "work" }, kind: "carried-over" },
+      joined(at),
+    ],
+    state: { kind: "open" },
+    worktree: { kind: "unread" },
+  });
+  return id;
+};
+
 /** The 1.68.0 rung — A WORK'S FACTS ARE THE WORK'S. What a work stood on was
  *  read off whichever member terminal was there first, and its identity was
  *  strings a caller typed; it is now asked of git, on the work's host, by a
@@ -2384,11 +2459,16 @@ const splitWatch_1_68_0 = (
  *     (`workDirOf(id)`) still match;
  *  4. a watch whose `terminal` cannot be split never named a terminal: it is
  *     removed, with its members and its Code view;
- *  5. every watch keeps its own terminal alone, as `other`: any other member
- *     leaves it, with a `left` (`released`) event stamped at the work's last
- *     event time (its start, with none) — never a clock — and its own
- *     terminal's role becomes `other`. A watch IS that one terminal, and the
- *     store now refuses anything else in one;
+ *  5. every watch keeps its own terminal alone, as `other`, and NO WATCHED
+ *     TERMINAL IS DROPPED: each other member becomes a watch of its own —
+ *     keyed by itself, filed under the id a watch of that terminal has
+ *     (`watch:<encoded ref>`), its member row and bookkeeping kept whole.
+ *     The new watch is titled by the terminal's own name (the old watch's
+ *     title when it has none), starts when the terminal joined, and its
+ *     timeline opens `carried-over`, then `joined`. A watch of that terminal
+ *     already filed is the one it joins — reopened, with a `reopened` event,
+ *     when it had finished. A watch IS that one terminal, and the store now
+ *     refuses anything else in one;
  *  6. every branch key gains `repoBy: { kind: "as-written" }` — its `repo` is
  *     what a caller typed, and the host's first answer re-keys it to git's
  *     root.
@@ -2441,8 +2521,8 @@ export function workFactsAreTheWorks_1_68_0(store: Conf<PersistedState>): void {
       nextWorks[id] = { ...work, key: nextKey, worktree: { kind: "unread" } };
     }
   }
-  /** Step 5's leavers, by the watch they leave. */
-  const released = new Map<string, string[]>();
+  /** Step 5's new watches, by the id each is filed under. */
+  const splitOff = new Map<string, Record<string, unknown>>();
   /** The members as this rung leaves them — written after every check. */
   let nextMembers: Record<string, unknown> | null = null;
   const members = recordOf(store.get("members"));
@@ -2457,16 +2537,21 @@ export function workFactsAreTheWorks_1_68_0(store: Conf<PersistedState>): void {
         continue;
       }
       const own = work === null ? undefined : watched.get(work);
-      if (work !== null && own !== undefined && ref !== own) {
-        released.set(work, [...(released.get(work) ?? []), ref]);
-        changed = true;
-        continue;
-      }
       if (member === null) {
         next[ref] = value;
         continue;
       }
       const { worktree: _gone, ...kept } = member;
+      if (work !== null && own !== undefined && ref !== own) {
+        // ANOTHER TERMINAL IN A WATCH: it becomes a watch of its own.
+        next[ref] = {
+          ...kept,
+          work: splitWatchOf_1_68_0(ref, work, member, nextWorks, splitOff),
+          role: "other",
+        };
+        changed = true;
+        continue;
+      }
       const role = own !== undefined ? "other" : member.role;
       if (!("worktree" in member) && role === member.role) {
         next[ref] = value;
@@ -2477,36 +2562,9 @@ export function workFactsAreTheWorks_1_68_0(store: Conf<PersistedState>): void {
     }
     if (changed) nextMembers = next;
   }
-  // A RUNG THAT CANNOT READ WHAT IT MUST EDIT FAILS LOUDLY: a watch whose
-  // members leave gets a `left` for each, timed by its last event, or the
-  // file is not one this rung knows — and nothing is written.
-  for (const [id, refs] of released) {
-    const work = recordOf(nextWorks[id]);
-    const events = Array.isArray(work?.events) ? work.events : null;
-    if (work === null || events === null)
-      throw new Error(
-        `1.68.0: watch ${id} has members to release but no events list`,
-      );
-    const last = recordOf(events.at(-1));
-    const at = last !== null ? last.at : work.startedAt;
-    if (typeof at !== "string")
-      throw new Error(
-        `1.68.0: watch ${id}'s last event (or start) has no time to release its members at`,
-      );
+  for (const [id, work] of splitOff) {
     worksChanged = true;
-    nextWorks[id] = {
-      ...work,
-      events: [
-        ...events,
-        ...refs.map((terminal) => ({
-          at,
-          by: "kolu",
-          kind: "left",
-          about: { kind: "member", terminal },
-          why: "released",
-        })),
-      ],
-    };
+    nextWorks[id] = work;
   }
   if (nextMembers !== null)
     store.set("members", nextMembers as unknown as PersistedState["members"]);

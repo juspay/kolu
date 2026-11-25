@@ -806,7 +806,7 @@ describe("the conductor's rungs", () => {
     );
   });
 
-  it("lose no terminal off a watch list a pre-release build stamped 1.46.0", () => {
+  it("lose no terminal off a watch list a pre-release build stamped 1.46.0: the second becomes a watch of its own", () => {
     // A file the watch list's own earlier builds wrote: its first entry
     // predates `joined`/`spoken`/`ran`, `root` and `since`. TWO rungs run
     // over it — 1.49.0 completes each entry, 1.50.0 turns them into works —
@@ -838,32 +838,41 @@ describe("the conductor's rungs", () => {
       fileAt("1.46.0", { conductor: held }),
       "1.46-pre-release",
     );
-    // ONE work — the second entry's `root` names the first — keyed by the
-    // first terminal: a WATCH. A watch IS its own terminal (1.68.0), so that
-    // one stays its member with its wake bookkeeping carried on verbatim,
-    // and the second is not lost silently: it LEAVES, on the timeline.
+    // The group — the second entry's `root` names the first — becomes a
+    // watch keyed by the first terminal. A watch IS its own terminal
+    // (1.68.0), so the second is not dropped: it is a WATCH OF ITS OWN,
+    // keyed by itself. Both terminals are members still, each with its own
+    // wake bookkeeping carried on verbatim.
+    const OTHER_WATCH = workIdOf({
+      kind: "watch",
+      host: "remote:prod",
+      id: "22222222-2222-4222-8222-222222222222",
+    });
     const ids = Object.keys(migrated.works);
-    expect(ids.length).toBe(1);
+    expect(ids.length).toBe(2);
     const id = ids[0] ?? "";
+    expect(ids[1]).toBe(OTHER_WATCH);
     const work = migrated.works[id];
     if (work === undefined) throw new Error("the watch list lost its work");
     expect(work.title).toBe("build");
+    expect(migrated.works[OTHER_WATCH]?.title).toBe("build");
     const watched = migrated.members;
-    expect(
-      Object.entries(watched)
-        .filter(([, one]) => one.work === id)
-        .map(([ref]) => ref),
-    ).toEqual([FLEET_REF]);
-    expect(
-      work.events.flatMap((event) =>
-        event.kind === "left" ? [[event.about, event.why]] : [],
-      ),
-    ).toEqual([[{ kind: "member", terminal: OTHER_REF }, "released"]]);
+    expect([watched[FLEET_REF]?.work, watched[OTHER_REF]?.work]).toEqual([
+      id,
+      OTHER_WATCH,
+    ]);
     expect([
       watched[FLEET_REF]?.watch.told,
+      watched[OTHER_REF]?.watch.told,
+    ]).toEqual(["stopped", null]);
+    expect([
       watched[FLEET_REF]?.watch.joined,
+      watched[OTHER_REF]?.watch.joined,
+    ]).toEqual(["asked", "created-run"]);
+    expect([
       watched[FLEET_REF]?.watch.spoken,
-    ]).toEqual(["stopped", "asked", false]);
+      watched[OTHER_REF]?.watch.spoken,
+    ]).toEqual([false, true]);
     // Every member's role is `other`: roles arrived with works, and a watch
     // is exactly "keep an eye on this".
     expect(Object.values(watched).every((one) => one.role === "other")).toBe(
@@ -874,7 +883,7 @@ describe("the conductor's rungs", () => {
     expectStampedAtBoot(work.startedAt, before);
   });
 
-  it("turn a MASTER-SHAPED 1.49.0 file into works without losing a terminal", () => {
+  it("turn a MASTER-SHAPED 1.49.0 file into works without losing a terminal: each is a watch of its own", () => {
     // THE NUMBER A RUNNING INSTALL SITS ON, with everything 1.49.0
     // guarantees: rows in the store and a complete watch list beside them —
     // two terminals grouped as one piece of work, and a third on its own.
@@ -932,8 +941,10 @@ describe("the conductor's rungs", () => {
       fleet: [FLEET_REF],
       taught: false,
     });
-    // ...and the watch list left it too, as two works: the waterfall its two
-    // terminals were drawn as, and the plain watch on its own. A work with no
+    // ...and the watch list left it too, as works: the group its two
+    // terminals were drawn as became a watch keyed by its first, and a watch
+    // IS its own terminal (1.68.0) — so the second is a WATCH OF ITS OWN,
+    // after the two the earlier rungs made, never dropped. A work with no
     // branch IS the terminal somebody asked kolu to watch, so that is its key.
     const ids = Object.keys(migrated.works);
     expect(ids).toEqual([
@@ -947,41 +958,50 @@ describe("the conductor's rungs", () => {
         host: "remote:box",
         id: "33333333-3333-4333-8333-333333333333",
       }),
+      workIdOf({
+        kind: "watch",
+        host: "remote:prod",
+        id: "22222222-2222-4222-8222-222222222222",
+      }),
     ]);
     const all = Object.values(migrated.works);
     const memberRefs = (id: string) =>
       Object.entries(migrated.members)
         .filter(([, one]) => one.work === id)
         .map(([ref]) => ref);
-    // A watch IS its own terminal (1.68.0): the group's second terminal is
-    // not a member of it any more, and it LEFT on the timeline rather than
-    // vanished.
     expect(
       all.map((one, at) => [one.title, memberRefs(ids[at] ?? "")]),
     ).toEqual([
       ["plan the cutover", [FLEET_REF]],
       ["a plain watch", [THIRD_REF]],
+      ["the implementor", [OTHER_REF]],
     ]);
-    expect(
-      all[0]?.events.flatMap((event) =>
-        event.kind === "left" ? [[event.about, event.why]] : [],
-      ),
-    ).toEqual([[{ kind: "member", terminal: OTHER_REF }, "released"]]);
-    // NOT A TERMINAL LOST SILENTLY, and each age is the one the person was
-    // already being shown — the earliest join in its group, never this boot.
+    // NOT A TERMINAL LOST, and each age is the one the person was already
+    // being shown — the earliest join in its group, or the terminal's own
+    // join for the one split off — never this boot.
     expect(all.map((one) => one.startedAt)).toEqual([
       "2026-01-01T00:00:00.000Z",
       "2026-01-01T00:20:00.000Z",
+      "2026-01-01T00:10:00.000Z",
     ]);
-    // The mode is a DECISION, so a card reads it the same way it reads an
-    // answer a person gave; the HOST is the key's own, never a decision.
+    // A watch's mode is its key's; the HOST is the key's own, never a
+    // decision.
     expect(all.map((one) => modeOf(one))).toEqual([
       Option.some("watch"),
       Option.some("watch"),
+      Option.some("watch"),
     ]);
-    expect(all.map((one) => hostOf(one))).toEqual(["local", "remote:box"]);
-    // ...and the timeline opens with the carry-over rather than with nothing.
-    expect(all[0]?.events[0]?.kind).toBe("carried-over");
+    expect(all.map((one) => hostOf(one))).toEqual([
+      "local",
+      "remote:box",
+      "remote:prod",
+    ]);
+    // ...and each timeline opens with the carry-over rather than with nothing.
+    expect(all.map((one) => one.events[0]?.kind)).toEqual([
+      "carried-over",
+      "carried-over",
+      "carried-over",
+    ]);
   });
 
   it("re-point a remembered attachment at the corner its bytes moved to", () => {

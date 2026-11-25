@@ -44,8 +44,9 @@ export type WorkRole = typeof WorkRoleSchema.Type;
 
 /** The roles a work may hold only ONE of — the waterfall's parts. A second
  *  `planner` is two agents planning one branch, which is the shape of the
- *  defect this round removes; `other` is uncapped (a watch may hold several
- *  terminals nobody has a part for). Enforced in {@link parseStore}. */
+ *  defect this round removes. `other` is uncapped on a BRANCH work (several
+ *  terminals nobody has a part for); a WATCH holds its own terminal alone.
+ *  Both enforced in {@link parseStore}. */
 export const UNIQUE_ROLES = ["planner", "implementor"] as const;
 /** A waterfall's part — the roles a work holds one of, and the two whose
  *  agent kolu starts from the work's own setup. */
