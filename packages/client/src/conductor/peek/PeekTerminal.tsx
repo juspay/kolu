@@ -119,7 +119,16 @@ const PeekTerminal: Component<{
         // leaves through, never a reason to report it again.
         report: untrack(() => props.onHeld),
       }),
-      ({ held, report }) => report(held),
+      // BRACES, NOT A CONCISE BODY: what an effect callback returns is its
+      // CLEANUP, and Solid 2 refuses anything that is not a function or
+      // `undefined` — it throws out of the effect, which escalates to
+      // REACTIVITY_HALTED and stops the whole view updating. Both callers
+      // hand down a signal setter (`TerminalPeek.tsx`, `LivePane.tsx`), and a
+      // Solid 2 setter answers with the value it set — so `=> report(held)`
+      // returns a boolean here, every time the lock changes.
+      ({ held, report }) => {
+        report(held);
+      },
     );
 
     let lastWidth = Number.NaN;
