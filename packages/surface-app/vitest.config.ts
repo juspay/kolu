@@ -4,7 +4,7 @@ import { defineConfig } from "vitest/config";
 // The tests that RUN Solid live with the Solid client layer, under `src/solid/`
 // (the same rule as `@kolu/surface`'s config): they join the DOM project by
 // existing. Every other test runs in the Node project.
-const DOM_TESTS = ["src/solid/**/*.test.ts"];
+const DOM_TESTS = ["src/solid/**/*.test.{ts,tsx}"];
 
 export default defineConfig({
   // The plugin picks each project's posture from its environment. The `dom`
@@ -31,7 +31,7 @@ export default defineConfig({
         test: {
           name: "node",
           environment: "node",
-          include: ["src/**/*.test.ts"],
+          include: ["src/**/*.test.{ts,tsx}"],
           exclude: DOM_TESTS,
         },
       },
