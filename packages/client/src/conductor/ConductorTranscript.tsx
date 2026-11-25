@@ -353,12 +353,7 @@ const ConductorTranscript: Component<{
   // first run, which is what a conversation that mounts with rows already in
   // hand goes through — and both land on the same remembered place, so the
   // two are idempotent with each other.
-  onSettled(() =>
-    applyTranscriptScroll(
-      scroller,
-      transcriptPlace(chatScope()?.id ?? WHOLE_TRANSCRIPT),
-    ),
-  );
+  onSettled(() => applyTranscriptScroll(scroller, transcriptPlace(shownDoc())));
 
   /** New rows arrived while the reader was away from the end — what makes the
    *  pill's ring, so it says "there is something new down there" rather than
@@ -399,12 +394,9 @@ const ConductorTranscript: Component<{
    *  shown. The write lands for the next run of everything that reads it;
    *  the follow effect puts the container at a place by the key its own run
    *  computed, so it never depends on this write being visible yet. */
-  createEffect(
-    () => chatScope()?.id ?? WHOLE_TRANSCRIPT,
-    (doc) => {
-      showTranscriptDocument(doc);
-    },
-  );
+  createEffect(shownDoc, (doc) => {
+    showTranscriptDocument(doc);
+  });
 
   /** The document the container was last put at the place of. `undefined`
    *  until the first run, so the mount's restore is not repeated. */
