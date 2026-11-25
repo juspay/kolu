@@ -61,8 +61,6 @@ import { readdirSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
 import { blankComments, blankNonCode } from "./runEdges";
 
-const IDENT = "[A-Za-z_$][A-Za-z0-9_$]*";
-
 /** Position name → the 0-based argument index that is the apply/cleanup arm. */
 const POSITIONS: ReadonlyMap<string, number> = new Map([
   ["createEffect", 1],
@@ -81,10 +79,8 @@ const IMPORT_CLAUSE =
   /import\s*(?:type\s+)?\{([^{}]*)\}\s*from\s*["']([^"']+)["']/g;
 
 /** `const { onSettled } = await import("solid-js")` — the dynamic spelling. */
-const DYNAMIC_IMPORT = new RegExp(
-  String.raw`\{([^{}]*)\}\s*=\s*(?:await\s+)?import\(\s*["']([^"']+)["']\s*\)`,
-  "g",
-);
+const DYNAMIC_IMPORT =
+  /\{([^{}]*)\}\s*=\s*(?:await\s+)?import\(\s*["']([^"']+)["']\s*\)/g;
 
 export interface EffectCleanupHit {
   /** Repo-relative path, POSIX separators. Empty from the source-only scan. */
