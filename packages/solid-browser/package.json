@@ -17,6 +17,9 @@
     "test:unit": "vitest run"
   },
   "devDependencies": {
+    "@kolu/solid-test-setup": "workspace:*",
+    "@solidjs/vite-plugin": "^3.0.1",
+    "happy-dom": "^21.0.4",
     "typescript": "^7.0.2",
     "vitest": "^5.0.3"
   },

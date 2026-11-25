@@ -1284,9 +1284,18 @@ importers:
       '@kolu/log':
         specifier: workspace:*
         version: link:../log
+      '@kolu/solid-test-setup':
+        specifier: workspace:*
+        version: link:../solid-test-setup
+      '@solidjs/vite-plugin':
+        specifier: ^3.0.1
+        version: 3.0.1(@babel/core@7.29.7)(@solidjs/web@2.0.3(solid-js@2.0.3))(solid-js@2.0.3)(vite@8.3.8(@types/node@22.19.15)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.48.0)(tsx@4.23.15)(yaml@2.8.3))
       '@types/node':
         specifier: ^22.0.0
         version: 22.19.15
+      happy-dom:
+        specifier: ^21.0.4
+        version: 21.0.4
       kolu-pty:
         specifier: workspace:*
         version: link:../integrations/pty
@@ -1988,6 +1997,15 @@ importers:
         specifier: ^2.0.3
         version: 2.0.3
     devDependencies:
+      '@kolu/solid-test-setup':
+        specifier: workspace:*
+        version: link:../solid-test-setup
+      '@solidjs/vite-plugin':
+        specifier: ^3.0.1
+        version: 3.0.1(@babel/core@7.29.7)(@solidjs/web@2.0.3(solid-js@2.0.3))(solid-js@2.0.3)(vite@8.3.8(@types/node@22.19.15)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.48.0)(tsx@4.23.15)(yaml@2.8.3))
+      happy-dom:
+        specifier: ^21.0.4
+        version: 21.0.4
       typescript:
         specifier: ^7.0.2
         version: 7.0.2
