@@ -167,6 +167,8 @@ agent-flake-nix: nix
         *.drv) ;;
         *) echo "$package resolved to '$drv', not a derivation path" >&2; exit 1 ;;
       esac
+      # The gate's only output: a pass and an empty loop must not look alike.
+      echo "agent-flake-nix: $package -> $drv"
     done <<< "$agent_packages"
 
 # Build and schema-check the website subflake after the root Kolu build exits.

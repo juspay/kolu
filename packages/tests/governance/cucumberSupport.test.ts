@@ -64,6 +64,10 @@ test("the ui profile defines every step of every feature it runs", () => {
     // parenthesised breakdown, so the count is read on its own.
     const scenarios = out.match(/^(\d+) scenarios?(?: \(([^)]*)\))?$/m);
     assert.ok(
+      scenarios !== null,
+      `no scenario summary in the dry run:\n${out}`,
+    );
+    assert.ok(
       Number(scenarios[1]) >= SCENARIO_FLOOR,
       `the dry run selected ${scenarios[1]} scenarios, under ${SCENARIO_FLOOR}:\n${out}`,
     );
