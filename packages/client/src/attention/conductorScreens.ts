@@ -36,12 +36,6 @@ export function holdConductorScreen(ref: string): () => void {
   };
 }
 
-/** Is a screen of this terminal showing in the Conductor? Reactive, per
- *  terminal. */
-export function conductorScreenShowing(ref: string): boolean {
-  return (held[ref] ?? 0) > 0;
-}
-
 /** Every terminal a screen of which is showing, by fleet ref — reactive over
  *  the set. Strings, so a list over it keeps each terminal's entry while
  *  others come and go. */
