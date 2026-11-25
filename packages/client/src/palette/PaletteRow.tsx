@@ -249,7 +249,7 @@ const PaletteRow: Component<{
   };
 
   return (
-    // biome-ignore lint/a11y/useFocusableInteractive: the option IS focusable — Solid 2's JSX types spell the attribute `tabindex` (lowercase, see `tabindex={-1}` below), which this rule only recognises as React's `tabIndex`
+    // biome-ignore lint/a11y/useFocusableInteractive: the option IS focusable — Solid 2's JSX types spell the attribute `tabindex` (lowercase, see `tabindex={-1}` below), which this rule only recognises as React's `tabIndex`. Delete this line once the rule also reads lowercase `tabindex`: biomejs/biome#13415.
     <div
       role="option"
       tabindex={-1}

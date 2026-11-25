@@ -238,7 +238,7 @@ Violation patterns:
 
 | Violation                                                                 | Diagnosis                                                                                   |
 | ------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
-| `totalCreated - disposed > WEBGL_CONTEXT_CAP` (over the WebGL budget) and orphan tape has only `{kind: "create"}` | Async-onMount cleanup race — another `await` before `onCleanup(...)` registers. Fix: #598.  |
+| `totalCreated - disposed > WEBGL_CONTEXT_CAP` (over the WebGL budget) and orphan tape has only `{kind: "create"}` | Async settle cleanup race. Look for async work started in `onSettled` that allocates after the owner is gone — "The async settle cleanup race" below. Fix pattern in #598. |
 | `aliveDetached > contextsLost`                                            | `loseContext()` isn't firing. Check canvas selector (#596) or xterm preventDefault.         |
 | `yn._store._isDisposed=true` for retained Rn                              | Cleanup runs, memory retained externally. Likely #607 / #609 shape. Run `orphan-paths.mjs`. |
 | `contextlost` with `defaultPrevented: true` time-adjacent to active use   | xterm's listener ran before disposal — schedules a 3 s restoration timer.                   |
