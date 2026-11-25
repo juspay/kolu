@@ -26,6 +26,7 @@
 
 import { type PadiSurfaceClient, padiClientOver } from "@kolu/padi-client/dial";
 import {
+  type BranchCheckout,
   type PadiRoster,
   type PadiTerminal,
   type PadiUrgency,
@@ -141,6 +142,9 @@ interface FakePadi {
    *  stream, one cell for however many branches the test asks about (no test
    *  here asks about two). */
   readonly pr: Cell<PrResult>;
+  /** Where this host says the branch it is asked about is checked out — the
+   *  `branchCheckout` stream, one cell like `pr`. */
+  readonly checkout: Cell<BranchCheckout>;
   /** Every `(repoPath, branch)` a leg asked this host about. */
   prAsked(): ReadonlyArray<{ repoPath: string; branch: string }>;
   /** How many times anything asked the `terminals` collection for its KEYS.
@@ -179,6 +183,7 @@ function fakePadi(
   );
   let keysRead = 0;
   const pr = cell<PrResult>({ kind: "pending" });
+  const checkout = cell<BranchCheckout>({ kind: "not-a-repository" });
   const prAsked: Array<{ repoPath: string; branch: string }> = [];
   const at = (member: string, verb: string): string =>
     surfaceTag(padiSurfaceSibling.tagPrefix, member, verb);
@@ -206,20 +211,22 @@ function fakePadi(
       return pr.stream();
     },
     // ... and where that branch is checked out: asked beside the PR, by the
-    // same key. Silent here — these tests are about the PR and the members.
-    [at("branchCheckout", "get")]: () => Stream.never,
+    // same key.
+    [at("branchCheckout", "get")]: () => checkout.stream(),
   } as unknown as SurfaceHandlers;
   return {
     client: padiClientOver(directDispatch({ handlers })).padi,
     urgency,
     roster,
     pr,
+    checkout,
     prAsked: () => prAsked,
     keysRead: () => keysRead,
     held: () =>
       urgency.held() +
       roster.held() +
       pr.held() +
+      checkout.held() +
       [...records.values()].reduce((sum, one) => sum + one.held(), 0),
   };
 }
@@ -267,6 +274,8 @@ function fakeConductor(
   readonly seen: WatchObservation[];
   /** Every work-level pull-request reading the watch handed over. */
   readonly readings: Array<{ work: WorkId; pr: PrResult }>;
+  /** Every answer about where a work's branch is checked out. */
+  readonly checkouts: Array<{ work: WorkId; checkout: BranchCheckout }>;
   /** Move the scope, the way a work opening or coming back does. The watch is
    *  told separately (`scopeMoved`), because it RE-READS the scope rather
    *  than being handed the new list. */
@@ -274,6 +283,7 @@ function fakeConductor(
 } {
   const seen: WatchObservation[] = [];
   const readings: Array<{ work: WorkId; pr: PrResult }> = [];
+  const checkouts: Array<{ work: WorkId; checkout: BranchCheckout }> = [];
   let watches = initial;
   const host = {
     memberRefs: () => (refuse === undefined ? members : refuse()),
@@ -284,11 +294,15 @@ function fakeConductor(
     observedPr: (work: WorkId, pr: PrResult) => {
       readings.push({ work, pr });
     },
+    observedCheckout: (work: WorkId, checkout: BranchCheckout) => {
+      checkouts.push({ work, checkout });
+    },
   } as unknown as ConductorHost;
   return {
     host: () => host,
     seen,
     readings,
+    checkouts,
     setWatches: (next) => {
       watches = next;
     },
@@ -626,6 +640,37 @@ describe("the conductor's watch, as wiring", () => {
     await vi.waitFor(() => {
       expect(local.held()).toBe(0);
     });
+  });
+
+  it("hands where a work's branch is checked out to the conversation, under the work's id", async () => {
+    // The checkout leg rides beside the PR leg, by the same key: git's
+    // answer is the one source of the work's folder, so it must arrive
+    // filed under the work it was asked for.
+    const local = fakePadi({});
+    const fleet = fakeHosts({ [LOCAL]: local.client });
+    const work = "branch:local/%2Fsrv%2Frepo/fix-the-parser" as WorkId;
+    const conductor = fakeConductor([], undefined, [
+      { work, host: LOCAL, repo: "/srv/repo", branch: "fix-the-parser" },
+    ]);
+    const watcher = startConductorWatcher({
+      hosts: fleet.hosts,
+      conductor: conductor.host,
+      log,
+    });
+    const at: BranchCheckout = {
+      kind: "repository",
+      root: "/srv/repo",
+      checkout: { kind: "at", path: "/srv/repo/.worktrees/fix-the-parser" },
+    };
+    try {
+      local.checkout.set(at);
+      await vi.waitFor(() => {
+        expect(conductor.checkouts.at(-1)).toEqual({ work, checkout: at });
+      });
+      expect(conductor.seen).toEqual([]);
+    } finally {
+      await watcher.dispose();
+    }
   });
 
   it("concludes NOTHING about the pull request of a work on an unreachable host", async () => {

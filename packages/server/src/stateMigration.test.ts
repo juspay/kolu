@@ -3555,4 +3555,27 @@ describe("the 1.68.0 rung — a work's facts are the work's (T24)", () => {
     expect(set).not.toHaveBeenCalled();
     expect(JSON.stringify(conf.store)).toBe(once);
   });
+
+  it("throws, and writes nothing, for a watch whose events it cannot read", () => {
+    for (const events of [
+      "not a list",
+      [{ ...joined(WATCHED, "implementor", 2), at: 7 }],
+    ]) {
+      const conf = makeStore({
+        works: {
+          [WATCH]: {
+            ...work({ kind: "watch", terminal: WATCHED }, "watched", []),
+            events,
+          },
+        },
+        members: {
+          [WATCHED]: member(WATCH, "implementor"),
+          [SECOND]: member(WATCH, "other"),
+        },
+      });
+      const before = JSON.stringify(conf.store);
+      expect(() => workFactsAreTheWorks_1_68_0(conf as never)).toThrow(WATCH);
+      expect(JSON.stringify(conf.store)).toBe(before);
+    }
+  });
 });

@@ -2443,6 +2443,8 @@ export function workFactsAreTheWorks_1_68_0(store: Conf<PersistedState>): void {
   }
   /** Step 5's leavers, by the watch they leave. */
   const released = new Map<string, string[]>();
+  /** The members as this rung leaves them — written after every check. */
+  let nextMembers: Record<string, unknown> | null = null;
   const members = recordOf(store.get("members"));
   if (members !== null) {
     let changed = false;
@@ -2473,16 +2475,24 @@ export function workFactsAreTheWorks_1_68_0(store: Conf<PersistedState>): void {
       changed = true;
       next[ref] = { ...kept, role };
     }
-    if (changed)
-      store.set("members", next as unknown as PersistedState["members"]);
+    if (changed) nextMembers = next;
   }
+  // A RUNG THAT CANNOT READ WHAT IT MUST EDIT FAILS LOUDLY: a watch whose
+  // members leave gets a `left` for each, timed by its last event, or the
+  // file is not one this rung knows — and nothing is written.
   for (const [id, refs] of released) {
     const work = recordOf(nextWorks[id]);
     const events = Array.isArray(work?.events) ? work.events : null;
-    if (work === null || events === null) continue;
+    if (work === null || events === null)
+      throw new Error(
+        `1.68.0: watch ${id} has members to release but no events list`,
+      );
     const last = recordOf(events.at(-1));
     const at = last !== null ? last.at : work.startedAt;
-    if (typeof at !== "string") continue;
+    if (typeof at !== "string")
+      throw new Error(
+        `1.68.0: watch ${id}'s last event (or start) has no time to release its members at`,
+      );
     worksChanged = true;
     nextWorks[id] = {
       ...work,
@@ -2498,6 +2508,8 @@ export function workFactsAreTheWorks_1_68_0(store: Conf<PersistedState>): void {
       ],
     };
   }
+  if (nextMembers !== null)
+    store.set("members", nextMembers as unknown as PersistedState["members"]);
   if (worksChanged)
     store.set("works", nextWorks as unknown as PersistedState["works"]);
   const views = recordOf(store.get("workCodeViews"));
