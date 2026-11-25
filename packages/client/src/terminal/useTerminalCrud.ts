@@ -534,9 +534,9 @@ export const useTerminalCrud = createSharedRoot(() => {
   }
 
   /** The guard for `id`, created on first use inside its own reactive root: the
-   *  primitive owns a signal, a tracking effect (an agent going quiet while armed
-   *  disarms it) and a cleanup, so it needs an owner even when the first press
-   *  arrives long after mount.
+   *  primitive owns a signal, tracked derivations (an agent going quiet while
+   *  armed disarms it) and a cleanup, so it needs an owner even when the first
+   *  press arrives long after mount.
    *
    *  The root's LIFETIME is the record's, so it rides the store's own fact and
    *  not the four UI events that used to drop it (imperative eviction, the list
