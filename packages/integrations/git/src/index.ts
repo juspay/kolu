@@ -6,11 +6,7 @@
 // Name generation
 export { randomName } from "memorable-names";
 // Where a branch is checked out — asked once, or followed
-export {
-  branchCheckout,
-  branchCheckoutEqual,
-  subscribeBranchCheckout,
-} from "./branch-checkout.ts";
+export { branchCheckout, subscribeBranchCheckout } from "./branch-checkout.ts";
 // File tree browsing
 export {
   listAll,
@@ -21,6 +17,7 @@ export {
 } from "./browse.ts";
 // Equality predicates for streamed snapshot dedup
 export {
+  branchCheckoutEqual,
   fsListAllOutputEqual,
   fsReadFileOutputEqual,
   gitDiffOutputEqual,

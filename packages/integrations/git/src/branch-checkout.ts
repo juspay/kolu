@@ -42,9 +42,11 @@ import { Option } from "effect";
 import { createDirFilenameWatcher, type WatchAsker } from "kolu-io";
 import type { Logger } from "kolu-shared";
 import { backgroundGit } from "./background.ts";
+import { branchCheckoutEqual } from "./equals.ts";
 import {
   GIT_QUERY_TIMEOUT_MS,
   resolveGitCommonDir,
+  UNAVAILABLE_REASK_MS,
   WATCHER_DEBOUNCE_MS,
 } from "./git-dir.ts";
 import { watchCwdForGitDir } from "./cwd-git-watcher.ts";
@@ -152,29 +154,6 @@ export async function branchCheckout(
   return (await read(repoPath, branch)).answer;
 }
 
-/** Two answers that say the same thing. */
-export function branchCheckoutEqual(
-  a: BranchCheckout,
-  b: BranchCheckout,
-): boolean {
-  switch (a.kind) {
-    case "not-a-repository":
-      return b.kind === a.kind;
-    case "unavailable":
-      return b.kind === a.kind && b.reason === a.reason;
-    case "repository":
-      return (
-        b.kind === "repository" &&
-        b.root === a.root &&
-        b.checkout.kind === a.checkout.kind &&
-        (a.checkout.kind !== "at" ||
-          (b.checkout.kind === "at" && b.checkout.path === a.checkout.path))
-      );
-    default:
-      return a satisfies never;
-  }
-}
-
 /** The shared git dir's `worktrees` entry: a worktree added or removed
  *  changes its stat. Refcounted per shared git dir, like the HEAD watcher. */
 const worktreesWatcher = createDirFilenameWatcher({
@@ -188,10 +167,6 @@ const worktreesWatcher = createDirFilenameWatcher({
  *  watcher has them. */
 export const _settledSharedWorktreesWatchers = worktreesWatcher._whenSettled;
 export const _resetSharedWorktreesWatchers = worktreesWatcher._reset;
-
-/** How long after an `unavailable` answer git is asked again — the same
- *  spacing the Conductor's watcher reopens a leg at. */
-const UNAVAILABLE_REASK_MS = 3_000;
 
 /** WHERE `branch` IS CHECKED OUT, for as long as the caller listens: the
  *  answer as it stands, then every answer that differs from the last. One

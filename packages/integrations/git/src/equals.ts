@@ -12,6 +12,7 @@
  * explicit names exactly which fields participate in identity, which is
  * what dedup needs anyway. */
 import type {
+  BranchCheckout,
   FsListAllOutput,
   FsReadFileOutput,
   GitBranchStatus,
@@ -118,4 +119,28 @@ export function fsReadFileOutputEqual(
     return a.url === b.url;
   }
   return false;
+}
+
+/** Two answers about where a branch is checked out that say the same
+ *  thing. */
+export function branchCheckoutEqual(
+  a: BranchCheckout,
+  b: BranchCheckout,
+): boolean {
+  switch (a.kind) {
+    case "not-a-repository":
+      return b.kind === a.kind;
+    case "unavailable":
+      return b.kind === a.kind && b.reason === a.reason;
+    case "repository":
+      return (
+        b.kind === "repository" &&
+        b.root === a.root &&
+        b.checkout.kind === a.checkout.kind &&
+        (a.checkout.kind !== "at" ||
+          (b.checkout.kind === "at" && b.checkout.path === a.checkout.path))
+      );
+    default:
+      return a satisfies never;
+  }
 }
