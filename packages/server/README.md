@@ -24,8 +24,10 @@ transcript, records every piece of work it opens, and serves the whole of it
 as `koluSurface` members: the `conductor` cell, the `works` collection (keyed
 by work id) beside the `memberReadings` collection (keyed by terminal ref — how
 each member terminal stands), so what goes on the wire is the one work or the
-one reading that moved, the `workCodeViews` collection (keyed by work id —
-where each work's Code view was left), the `conductorMemory` cell (what the
+one reading that moved, the `workPrs` collection (keyed by work id — the
+forge's last answer for the work's own branch, runtime only), the
+`workCodeViews` collection (keyed by work id — where each work's Code view
+was left), the `conductorMemory` cell (what the
 human approved, and the proposals waiting on them), the `conductorTranscript`
 stream
 and the `conductor` procedure namespace. The conversation is

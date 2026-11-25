@@ -296,8 +296,9 @@ the picture, because a piece of work is a branch and must be read after its
 terminals close. `pullRequest` (`src/branchPr.ts`) rides the per-terminal PR
 sensor's own watcher. `branchCheckout` (`src/branchCheckout.ts`) is kolu-git's
 `subscribeBranchCheckout`: the repository's root and where the branch is
-checked out, re-read when HEAD moves in any checkout or a worktree is cut or
-removed. Neither keeps state of its own.
+checked out, re-read when HEAD moves in any checkout, a worktree is cut or
+removed, or the path becomes a repository. An answer git could not give
+leaves every watcher in place. Neither keeps state of its own.
 
 ## Diagnostics — `diagnostics.read`, padi says why it is slow
 

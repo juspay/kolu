@@ -9,9 +9,9 @@ Every piece of work the [Conductor](/conductor) runs has a card or a row. Shut, 
 
 ## Where the cards are
 
-The works take the wide side of the Conductor, and the chat is a panel on the right. While a file is open, [the reader](/read-a-plan) takes the works' place, and **← Work** brings them back as they were.
+The works take the wide side of the Conductor. While a file is open, [the reader](/read-a-plan) takes the works' place, and **← Work** brings them back as they were.
 
-On a phone the works are the **Work** tab, beside **Chat**. The tab shows how many works need you. The status line's **N pieces of work** opens it, and so does tapping a work chip in the chat.
+On a phone the works are the **Work** tab, beside **Chat**. The status line's **N pieces of work** opens it, and so does tapping a work chip in the chat.
 
 The works come in four groups:
 
@@ -30,7 +30,7 @@ A sidebar beside the works lists every work, one entry each, whether a work is p
 
 | Part | What it shows |
 | --- | --- |
-| Top row | **All work** names where you are. With a work picked it is **← All work**, which goes back. The row keeps one height, so the entries never move. |
+| Top row | **All work** names where you are. With a work picked it is **← All work**, which goes back. |
 | **Needs you · N** | Pinned at the top, each work with the violet chip saying how long it has waited. |
 | Groups | **In progress**, **Watching** and **Finished**, each counting its works. **Finished** folds with the list's own **Finished**. |
 | An entry's first line | The repository's monogram, the title, and how long the work has stood where it is. |
@@ -114,12 +114,11 @@ A loop the work went round says how often (**×6**). Each stage shows its total 
 On a work saved before kolu kept hand-offs, time that could have been either of two stages, **Build or Review** or **Plan or Approve**, is a doubt. A count across one is at least that many (**×2+**), or unknown (**×?**).
 
 - A ring marks where the work is, with this visit's time inside (**now 8m**) when the stage had others.
-- A finished work's last stage has a bold name.
 - A dashed stage did not happen: its mode has none, or the work went past it. A faint one is not reached.
 - A hatched stage may have had a doubt's time.
 - A doubt's mark, **▨ 1h 20m**, sits between its two stages: their time together. Both are ringed while the work is in it.
 
-Clicking a stage that happened, or a doubt's mark, opens its events.
+On a narrow card a stage shows its first letter; hover for its name. Before the mode is chosen, all six are faint. Clicking a stage that happened, or a doubt's mark, opens its events.
 
 ### Which stage the work is in
 
@@ -206,7 +205,7 @@ Below the rows:
 
 The timeline shows the stage the work is in, or a finished work's last stage, until you click a stage, a doubt or a visit. **whole timeline · N events** unfolds it all in place. A watch, which has no stages, shows its latest five events.
 
-The gap between two events grows with the wait, up to about four rows.
+The gap between two events grows with the wait, up to about four rows, and a wait near that maximum prints its time on the line, such as **3h**.
 
 A question reads **Asked:** and your answer **You:**. A run of files one agent wrote into a folder is one row, such as **Wrote mockup/ · 49 files**. A line too long for the row is cut, and a folder's row lists its files, with **more** beside it.
 
@@ -231,10 +230,10 @@ Nothing else is dropped, and kolu keeps the **last 20** finished works with thei
 
 ## How a work ends
 
-A work ends three ways: the forge merges or closes its pull request, you click **Stop** on the card and confirm, or the Conductor stops it. Declining the setup of a work nothing has happened in removes it.
+A work ends four ways: the forge merges or closes its pull request, you click **Stop** on the card and confirm, the Conductor stops it, or kolu stops it when another work runs its branch. Declining the setup of a work nothing has happened in removes it.
 
 An ended card's line says how it ended, such as **Merged #181 · 1d ago**. Open, it shows where the time went, the kept files, the decisions and the timeline, where the merge and the end it caused are one row. It never shows terminals, a lock or a question, and it offers **Reopen**.
 
 kolu copies the work's `.waterfall/` files when it ends, up to 50 MiB per work. Under **Files (kept)**, a line starting **Not kept:** names what was left out and why: a file past that size, a listing that stopped at 200 files and folders, or a copy that failed.
 
-Reopening keeps a merged PR merged and is refused while another work runs the branch. A work saved before kolu keyed works by repository root moves to that key. If another work holds it, the card says **Kept under its old key: «title» holds csv in kolu**, and kolu stops it when both are open.
+Reopening keeps a merged PR merged and is refused while another work runs the branch. A work saved before kolu keyed works by repository root moves to that key. If another work holds it, the card says **Kept under its old key: «title» holds csv in kolu**.
