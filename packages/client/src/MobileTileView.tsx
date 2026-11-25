@@ -65,10 +65,12 @@ const MobileTileView: Component<{
   // Is this view the one in front? The Conductor covers it without unmounting
   // it; a tile under it stays attached but states no size (`ui/shown.ts`).
   const viewShown = useShown();
-  const [touchStart, setTouchStart] = createSignal<{
-    x: number;
-    y: number;
-  } | null>(null);
+  /** Where the finger went down. NOT a signal — nothing renders from it, and
+   *  the two halves of a gesture can arrive in one task (the browser flushes a
+   *  queued touch pair together when the main thread was busy). A signal write
+   *  is staged until the flush, so `touchend` reading one back in the same
+   *  synchronous run would get the pre-gesture `null` and drop the swipe. */
+  let touchStart: { x: number; y: number } | null = null;
   const [dockOpen, setDockOpen] = createSignal(false);
   // The dock dismiss paths (backdrop tap, drag-to-close via Corvu's
   // onOpenChange, and selecting a terminal row) funnel through this so the soft
@@ -90,12 +92,12 @@ const MobileTileView: Component<{
   function onTouchStart(e: TouchEvent) {
     const t = e.touches[0];
     if (!t) return;
-    setTouchStart({ x: t.clientX, y: t.clientY });
+    touchStart = { x: t.clientX, y: t.clientY };
   }
 
   function onTouchEnd(e: TouchEvent) {
-    const start = touchStart();
-    setTouchStart(null);
+    const start = touchStart;
+    touchStart = null;
     if (!start) return;
     const t = e.changedTouches[0];
     if (!t) return;
