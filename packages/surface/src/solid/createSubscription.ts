@@ -457,14 +457,14 @@ export function noLifetimeRefusal(caller: {
   return new Error(
     caller.acceptsSignal
       ? `${caller.name}: must run under a reactive owner, or be given ` +
-        "`options.signal` — the view's lifetime is one or the other, and with " +
-        "neither nothing can ever interrupt its fiber or close the wire " +
-        "subscription behind it. Call it from a component / createRoot, or " +
-        "pass an AbortSignal."
+          "`options.signal` — the view's lifetime is one or the other, and with " +
+          "neither nothing can ever interrupt its fiber or close the wire " +
+          "subscription behind it. Call it from a component / createRoot, or " +
+          "pass an AbortSignal."
       : `${caller.name}: must run under a reactive owner — the owner's ` +
-        "disposal is the only thing that can interrupt the view's fiber and " +
-        "close the wire subscription behind it, so an ownerless view would " +
-        "leak both. Call it from a component / createRoot.",
+          "disposal is the only thing that can interrupt the view's fiber and " +
+          "close the wire subscription behind it, so an ownerless view would " +
+          "leak both. Call it from a component / createRoot.",
   );
 }
 

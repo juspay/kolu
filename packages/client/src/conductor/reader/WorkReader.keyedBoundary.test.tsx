@@ -60,7 +60,9 @@ vi.mock("../useWorks", () => ({
   useWorkMap: () => () => new Map([["w1", { id: "w1" }]]),
   useWorkMembers: () => () => [],
 }));
-vi.mock("../workFacts", () => ({ readWorkFacts: () => ({ members: () => [] }) }));
+vi.mock("../workFacts", () => ({
+  readWorkFacts: () => ({ members: () => [] }),
+}));
 vi.mock("../workReadings", () => ({ membersIn: () => [] }));
 vi.mock("kolu-work", () => ({ openAsks: () => [] }));
 vi.mock("../../comments/useComments", () => ({

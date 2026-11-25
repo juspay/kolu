@@ -34,15 +34,14 @@ function listing(): Promise<{
     summary: { kind: "session"; terminals: number };
   }>;
 }> {
-  const asked =
-    Promise.withResolvers<{
-      backups: Array<{
-        file: string;
-        savedAtMs: number;
-        sizeBytes: number;
-        summary: { kind: "session"; terminals: number };
-      }>;
-    }>();
+  const asked = Promise.withResolvers<{
+    backups: Array<{
+      file: string;
+      savedAtMs: number;
+      sizeBytes: number;
+      summary: { kind: "session"; terminals: number };
+    }>;
+  }>();
   fixture.pending.push((terminals) =>
     asked.resolve({
       backups: [
@@ -91,7 +90,12 @@ vi.mock("@corvu-next/dialog", () => ({
   },
 }));
 vi.mock("solid-sonner", () => ({
-  toast: { loading: () => 1, success: () => {}, error: () => {}, warning: () => {} },
+  toast: {
+    loading: () => 1,
+    success: () => {},
+    error: () => {},
+    warning: () => {},
+  },
 }));
 vi.mock("./host/hostChipTone", () => ({ hostLabel: (host: string) => host }));
 

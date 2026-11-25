@@ -1161,7 +1161,10 @@ describe("a view's lifetime: an owner, a signal, or a refusal", () => {
     } catch (err) {
       thrown = err;
     }
-    assert.ok(thrown instanceof Error, "expected the collection path to refuse");
+    assert.ok(
+      thrown instanceof Error,
+      "expected the collection path to refuse",
+    );
     expect(thrown.message).toMatch(
       /^`\.collections\.X\.use\(\)` \(useCollectionDeltas\): must run under a reactive owner/,
     );

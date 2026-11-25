@@ -9,7 +9,11 @@ import { createSignal, flush } from "solid-js";
 import { render } from "@solidjs/web";
 import { afterEach, expect, it } from "vitest";
 import { DragDropProvider } from "./DragDropProvider";
-import { createSortable, type SortableHandle, SortableProvider } from "./sortable";
+import {
+  createSortable,
+  type SortableHandle,
+  SortableProvider,
+} from "./sortable";
 
 let dispose: (() => void) | undefined;
 let host: HTMLElement | undefined;
