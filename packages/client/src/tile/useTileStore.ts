@@ -101,10 +101,7 @@ export const useTileStore = createSharedRoot(() => {
   };
 
   /** Explicit tile-identity landing: a top-level terminal tile denotes its main
-   *  pane, so no remembered split may override the id the caller supplied.
-   *  Published in both phases like the terminal store's landing verbs: `plan…`
-   *  does the reads and hands back the writes, so a canvas effect runs the plan
-   *  in its compute and the writes in its effect. */
+   *  pane, so no remembered split may override the id the caller supplied. */
   const planActivate = (id: TileId | null): (() => void) =>
     id === null ? store.planActivate(null) : store.planFocusMainTerminal(id);
 
@@ -132,7 +129,6 @@ export const useTileStore = createSharedRoot(() => {
     isFocused: store.isFocused,
     isActiveTile: store.isActiveTile,
     activate,
-    planActivate,
     /** Tile-level/system landing with no explicit pane target. */
     activateVisiblePane: store.activate,
     planActivateVisiblePane: store.planActivate,
