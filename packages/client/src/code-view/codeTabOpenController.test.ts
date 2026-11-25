@@ -114,6 +114,20 @@ describe("createCodeTabOpenController", () => {
     fresh.dispose();
   });
 
+  it("lands a fresh read that answers at once, without subscribing the landing to the snapshot", async () => {
+    // A read whose description needs no suspension (a cached or in-process
+    // listing) lands INSIDE the effect phase that forked it — a strict-read
+    // window. The currency check reads the snapshot there, as a point-in-time
+    // fact; read reactively it would raise STRICT_READ_UNTRACKED and, worse,
+    // claim a dependency for a computation that has already run.
+    const h = createHarness({
+      readFresh: () => Effect.succeed(["new.ts"] as Paths),
+    });
+    await tick();
+    expect(h.onResolved).toHaveBeenCalledWith(h.req, "new.ts", "fresh");
+    h.dispose();
+  });
+
   it("waits through null and mismatched scope, then resolves on the owner", async () => {
     const h = createHarness({ snapshot: { scope: null } });
     await tick();
