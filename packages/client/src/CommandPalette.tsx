@@ -1152,9 +1152,8 @@ const CommandPalette: Component<{
                       "px-1.5 py-0.5 rounded-md hover:bg-surface-2/70 transition-colors",
                       {
                         "text-accent font-medium":
-                          i() === breadcrumbSegments().length - 1,
-                        "hover:text-fg":
-                          i() !== breadcrumbSegments().length - 1,
+                          i === breadcrumbSegments().length - 1,
+                        "hover:text-fg": i !== breadcrumbSegments().length - 1,
                       },
                     ]}
                     onClick={() => navigateTo(segment().depth)}
