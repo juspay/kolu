@@ -19,12 +19,23 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 const landed = vi.hoisted(() => ({
   hosts: [] as HostKey[],
   focused: [] as TerminalId[],
+  /** The open-tile steps in the order they ran. */
+  steps: [] as string[],
 }));
 vi.mock("../host/selectHostTab", () => ({
-  selectHostTab: (host: HostKey) => landed.hosts.push(host),
+  selectHostTab: (host: HostKey) => {
+    landed.hosts.push(host);
+    landed.steps.push("select");
+  },
+  landHostSwitch: () => {
+    landed.steps.push("land");
+  },
 }));
 vi.mock("../canvas/dock/useDockFocus", () => ({
-  useDockFocus: () => (id: TerminalId) => landed.focused.push(id),
+  useDockFocus: () => (id: TerminalId) => {
+    landed.focused.push(id);
+    landed.steps.push("focus");
+  },
 }));
 // The diffs block drags in the whole code viewer (and its Nix-backed grammar
 // aliases) for a row that carries none — stub it so this file tests the card.
@@ -63,6 +74,7 @@ afterEach(() => {
   root = undefined;
   landed.hosts = [];
   landed.focused = [];
+  landed.steps = [];
 });
 
 function mount(host: string | null): HTMLElement {
@@ -99,6 +111,8 @@ describe("a tool card naming a terminal on another host", () => {
     )?.click();
     expect(landed.hosts).toEqual([{ kind: "remote", target: "srid@zest" }]);
     expect(landed.focused).toEqual([TERMINAL]);
+    // The switch lands before the focus reads the active host's terminals.
+    expect(landed.steps).toEqual(["select", "land", "focus"]);
   });
 
   it("offers nothing to open for a call whose ref could not be resolved", () => {
