@@ -47,12 +47,7 @@ export function twoPanelSplit(
  *  (`@corvu-next/utils`, `createControllableSignal`) compares the owner's
  *  value with `Object.is` to decide whether the frame's staged write has
  *  landed — so a fresh array of the same two numbers each recompute would
- *  read as a change and defeat it.
- *
- *  A controlled root also ECHOES this prop back through `onSizesChange` — on
- *  every invalidation of its own report effect and on each panel
- *  registration — so a listener that PERSISTS what it is handed needs its own
- *  equality guard (`SIZE_EPSILON`, `right-panel/useRightPanel.ts`). */
+ *  read as a change and defeat it. */
 export function controlledSizes(derive: () => number[]): Accessor<number[]> {
   return createMemo(derive, {
     equals: (a, b) => a.length === b.length && a.every((v, i) => v === b[i]),
