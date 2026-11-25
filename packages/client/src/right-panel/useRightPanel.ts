@@ -86,13 +86,15 @@ const MIN_PANEL_SIZE = 0.05;
  *  every writer of a tree share accepts, and each pane's Corvu `minSize`.
  *  Mirrors `MIN_PANEL_SIZE`'s role for the Right panel's own split. */
 export const MIN_CODE_PANE_SHARE = 0.1;
-/** Drop a size write when it matches the stored value. A controlled Corvu
- *  `Resizable` ECHOES: it reports back the `sizes` it was given, on its own
- *  reactive invalidations and again on every panel re-registration during
- *  restart churn (`ui/corvuResizable.ts` holds the corvu-read lore). Those
- *  reports carry the value we already hold; persisting them is pure noise
+/** Drop a size write that matches the value already stored. Corvu reports
+ *  only real changes — a controlled root never echoes the `sizes` prop back
+ *  (`ui/corvuResizable.ts` holds the corvu-read lore) — but the prop and the
+ *  store DIVERGE while the panel is collapsed: the prop reads `[1, 0]` while
+ *  the store keeps the remembered share. So a genuine report, from a panel
+ *  registering during restart churn or from the layout pass on expand, can
+ *  carry exactly the share we already hold, and persisting it is pure noise
  *  (#1041). Corvu rounds sizes to 6 decimals, so a tolerance below that
- *  catches the echo without dropping a real one-pixel drag step. */
+ *  catches those without dropping a real one-pixel drag step. */
 const SIZE_EPSILON = 1e-6;
 
 const [perTerminal, setPerTerminal] = createStore<
