@@ -242,10 +242,7 @@ describe("a re-key that moves the work", () => {
       opened(keyAt(ROOT, { kind: "git" }, "never-started"), "never started"),
     );
     r.files.failMoves = true;
-    expect(await r.works.rekey(OLD, ROOT)).toEqual({
-      kind: "deferred",
-      why: "files-not-moved",
-    });
+    expect(await r.works.rekey(OLD, ROOT)).toEqual({ kind: "deferred" });
     expect(r.works.get(NEW)).toEqual(Option.none());
     expect(workOf(r, OLD).key).toEqual(OLD_KEY);
     expect(r.errors).toHaveLength(1);
@@ -291,7 +288,6 @@ describe("a re-key whose root another work holds", () => {
     const r = rigWith(holder, opened(OLD_KEY, "csv export"));
     expect(await r.works.rekey(OLD, ROOT)).toEqual({
       kind: "held",
-      by: NEW,
       ended: false,
     });
     expect(r.works.all().map(([id]) => id)).toEqual([NEW, OLD]);

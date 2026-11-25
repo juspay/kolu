@@ -65,7 +65,7 @@ import type { WatchObservation, WatchPr } from "./observation.ts";
 import { prReading } from "./readings.ts";
 import type { RecordWrites } from "./recordWrites.ts";
 import type { WorkFiles } from "./workFiles.ts";
-import type { RekeyDone, WorkStore } from "./workStore.ts";
+import { type RekeyDone, rekeyedTo, type WorkStore } from "./workStore.ts";
 
 /** Two members' WRITTEN halves, compared by what they say — derived from the
  *  schema, so a field the watch grows is compared without an edit here. What
@@ -582,17 +582,14 @@ export const observing = (deps: {
         recordFolder(watched, folder);
         return;
       }
+      // The folder is recorded where the work is now: under its new id, its
+      // old one, or nowhere when the re-key ended it.
       deps.rekey(watched, reading.root).then(
-        (done) => {
-          if (done.kind === "deferred") {
-            // Left for the next answer: the work keeps its old key, and the
-            // folder git just named is still its own.
-            recordFolder(watched, folder);
-            return;
-          }
-          if (done.kind !== "moved" && done.ended) return;
-          recordFolder(done.kind === "moved" ? done.to : watched, folder);
-        },
+        (done) =>
+          Option.match(rekeyedTo(done, watched), {
+            onNone: () => {},
+            onSome: (id) => recordFolder(id, folder),
+          }),
         (err: unknown) => {
           deps.log.error(
             { err, work: watched },

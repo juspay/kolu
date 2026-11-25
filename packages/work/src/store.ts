@@ -225,13 +225,9 @@ export type Rekey =
   /** The work moved to the root's id, in its place, stamped `git`. */
   | { readonly kind: "moved"; readonly to: WorkId }
   /** The root's id is another work's, or the branch already runs as another
-   *  open work (`by`): this one keeps its old key and id, `held` from the
-   *  root — and, when it was open beside that open work, it was ended. */
-  | {
-      readonly kind: "held";
-      readonly by: WorkId;
-      readonly ended: boolean;
-    };
+   *  open work: this one keeps its old key and id, `held` from the root —
+   *  and, when it was open beside that open work, it was ended. */
+  | { readonly kind: "held"; readonly ended: boolean };
 
 /** A BRANCH WORK RE-KEYED TO GIT'S ROOT — the one transition, pure. With `W`
  *  the work at `id`, `N` the id of `W`'s key with `repo` set to `root`, and
@@ -280,15 +276,12 @@ export const rekeyed = <M extends WorkMember>(
   const key: BranchKey = work.key;
   const target = workIdOf({ ...key, repo: root });
   const holder = target === id ? undefined : store.works.get(target);
-  const running: Option.Option<readonly [WorkId, Work]> =
-    holder !== undefined && holder.state.kind === "open"
-      ? Option.some([target, holder])
-      : runningOn(
-          store.works,
-          { host: key.host, root, branch: key.branch },
-          id,
-        );
-  const ended = work.state.kind === "open" && Option.isSome(running);
+  const running =
+    (holder !== undefined && holder.state.kind === "open") ||
+    Option.isSome(
+      runningOn(store.works, { host: key.host, root, branch: key.branch }, id),
+    );
+  const ended = work.state.kind === "open" && running;
   /** `W` written back under its own id as `next`, ended when it must be. */
   const kept = (next: Work): WorkStoreValue<M> => ({
     works: replaced(
@@ -308,7 +301,7 @@ export const rekeyed = <M extends WorkMember>(
       value: kept({ ...work, key: { ...key, repoBy: { kind: "git" } } }),
       rekey: { kind: "stamped", ended },
     };
-  if (holder === undefined && Option.isNone(running))
+  if (holder === undefined && !running)
     return {
       value: {
         works: replaced(store.works, id, target, {
@@ -326,14 +319,7 @@ export const rekeyed = <M extends WorkMember>(
     };
   return {
     value: kept({ ...work, key: { ...key, repoBy: { kind: "held", root } } }),
-    rekey: {
-      kind: "held",
-      by: Option.match(running, {
-        onNone: () => target,
-        onSome: ([other]) => other,
-      }),
-      ended,
-    },
+    rekey: { kind: "held", ended },
   };
 };
 

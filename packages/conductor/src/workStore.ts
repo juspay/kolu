@@ -126,13 +126,28 @@ export interface Opened {
 }
 
 /** What a re-key came to — `kolu-work`'s {@link Rekey}, or left for the next
- *  answer, and why. */
-export type RekeyDone =
-  | Rekey
-  | {
-      readonly kind: "deferred";
-      readonly why: "closing" | "files-not-moved" | "not-unrooted";
-    };
+ *  answer (the work's files are being kept, its folder could not be moved,
+ *  or it is no longer a key git has not named). */
+export type RekeyDone = Rekey | { readonly kind: "deferred" };
+
+/** WHERE THE WORK RE-KEYED AT `id` IS NOW — its new id when it moved, `id`
+ *  when it stayed, none when the re-key ended it. */
+export const rekeyedTo = (
+  done: RekeyDone,
+  id: WorkId,
+): Option.Option<WorkId> => {
+  switch (done.kind) {
+    case "moved":
+      return Option.some(done.to);
+    case "deferred":
+      return Option.some(id);
+    case "stamped":
+    case "held":
+      return done.ended ? Option.none() : Option.some(id);
+    default:
+      return done satisfies never;
+  }
+};
 
 export interface WorkStore {
   /** THE MEMBERS, as the other half of the store's one value: read here,
@@ -184,9 +199,8 @@ export interface WorkStore {
    *  live PR to the new id; a work ended because its branch already runs as
    *  another open work ends the ordinary way (questions dropped, files kept)
    *  with no cap. Nothing is ever removed. `deferred` is a re-key left for
-   *  the next answer: the work's files are being kept, its folder could not
-   *  be moved, or it is no longer a key git has not named. A `held` work
-   *  whose root is unchanged is not rewritten. */
+   *  the next answer. A `held` work whose root is unchanged is not
+   *  rewritten. */
   readonly rekey: (id: WorkId, root: string) => Promise<RekeyDone>;
   /** The stored branch works on `host` and `branch` whose repository git has
    *  not named yet — `as-written` or `held` — ended ones included, each
@@ -697,8 +711,8 @@ export const workStore = (deps: WorkStoreDeps): WorkStore => {
       before.key.kind !== "branch" ||
       before.key.repoBy.kind === "git"
     )
-      return { kind: "deferred", why: "not-unrooted" };
-    if (closing.has(id)) return { kind: "deferred", why: "closing" };
+      return { kind: "deferred" };
+    if (closing.has(id)) return { kind: "deferred" };
     const first = rekeyed(value, id, root, nowIso());
     const rekey = first.rekey;
     // STILL HELD FROM THE SAME ROOT: nothing to write, and nothing for a
@@ -721,7 +735,7 @@ export const workStore = (deps: WorkStoreDeps): WorkStore => {
           { err, work: id, to: rekey.to },
           "kolu-server: the conductor could not carry a work's kept files to the id git's root names — the work stays under its old key, and is re-keyed at the next answer",
         );
-        return { kind: "deferred", why: "files-not-moved" };
+        return { kind: "deferred" };
       }
       // ... and the record, in the same turn as the decision.
       commit(first.value.works, first.value.members);

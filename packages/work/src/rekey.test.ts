@@ -107,7 +107,6 @@ describe("re-keying a work to git's root", () => {
     const { value, rekey } = rekeyed(store, id, "/repo", AT);
     expect(rekey).toEqual({
       kind: "held",
-      by: workIdOf(holder.key),
       ended: false,
     });
     expect(value.works.get(workIdOf(holder.key))).toBe(holder);
@@ -130,7 +129,6 @@ describe("re-keying a work to git's root", () => {
     const { value, rekey } = rekeyed(store, id, "/repo", AT);
     expect(rekey).toEqual({
       kind: "held",
-      by: workIdOf(holder.key),
       ended: true,
     });
     const kept = value.works.get(id);
