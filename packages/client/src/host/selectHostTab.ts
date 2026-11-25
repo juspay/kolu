@@ -61,7 +61,12 @@ export function selectHostTab(host: HostKey): void {
  *  notification click): `flush()` throws inside an action or a tracked-effect
  *  callback. A caller that switches from an EFFECT must instead act on the
  *  settle, the way `useDeepLinks` gates on "the active host IS the route's
- *  host". */
+ *  host".
+ *
+ *  While a flush is already running, `flush()` returns without doing anything.
+ *  The one caller that can land there is a notification click handled during
+ *  the first render, before any host scope exists; it finds nothing to land
+ *  on, exactly as on master. */
 export function landHostSwitch(): void {
   flush();
 }
