@@ -284,13 +284,14 @@ export const Xterm: Component<
    *  which they do. kolu's canvas tiles render under a transform, so gating on
    *  a quantity the measurement never reads would let the guard and the
    *  measurement disagree. */
-  const applyFit = (decided: boolean = props.boxDecided) => {
+  const applyFit = (decided: boolean) => {
     if (!core) return;
     // The OWNER's gate, read first: a box its layout has not decided is a
     // stand-in, and a measurement of it is a size this pane would go on to
-    // state. See {@link XtermOwnProps.boxDecided}. The box-decided effect
-    // hands its compute's value in — an effect callback is a strict-read
-    // window, so the prop must not be read there.
+    // state. See {@link XtermOwnProps.boxDecided}. Every caller hands the gate
+    // in — the box-decided effect its compute's value, the others the prop
+    // read at the moment they fit — because an effect callback is a
+    // strict-read window where the prop must not be read.
     if (!decided) return;
     if (container.clientWidth <= 0 || container.clientHeight <= 0) return;
     const box = measureGridBox(core.terminal, container);
@@ -325,9 +326,7 @@ export const Xterm: Component<
   };
   const refit = () => {
     cancelAnimationFrame(fitRaf);
-    // Wrapped: `requestAnimationFrame` would otherwise hand `applyFit` the
-    // frame timestamp as its `decided` argument.
-    fitRaf = requestAnimationFrame(() => applyFit());
+    fitRaf = requestAnimationFrame(() => applyFit(props.boxDecided));
   };
 
   // See `XtermHandle.onceMeasured`. The one-shot-ness is latched in the DATA,
@@ -494,7 +493,7 @@ export const Xterm: Component<
       // imperatively: the signal is the one door this fact leaves through, so
       // the consumer's own effect over it covers the initial sizing and every
       // later one with no ordering to get right.
-      applyFit();
+      applyFit(props.boxDecided);
 
       props.onReady(handle);
     },
