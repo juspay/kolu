@@ -13,13 +13,14 @@
  *  moved, dropping hover and focus. Keyed on the group's `key` and on each
  *  machine's host key, only the words move. */
 
-import { type Component, For, onCleanup, Show } from "solid-js";
+import { type Component, For, Show } from "solid-js";
 import type { AgentFleetGroup } from "@kolu/agent-distro/status";
 import { encodeHostKey, type HostKey } from "kolu-common/hostKey";
 import {
   openHostDiagnostics,
   releaseHostDiagnosticsAnchor,
 } from "../host/useHostDiagnosticsOpen";
+import { refWithRelease } from "../ui/refWithRelease";
 
 /** One group's dot colour, by its tone. */
 const DOT: Record<AgentFleetGroup<never>["tone"], string> = {
@@ -66,20 +67,18 @@ const AgentsFleetLine: Component<{
               <For each={group().hosts} keyed={(h) => encodeHostKey(h.host)}>
                 {(host, at) => {
                   // The row's own owner releases the button it handed to the
-                  // details panel when the row goes — a ref callback may not
-                  // register a cleanup of its own.
-                  let anchor: HTMLElement | undefined;
-                  onCleanup(() => {
-                    if (anchor !== undefined)
-                      releaseHostDiagnosticsAnchor(anchor);
-                  });
+                  // details panel when the row goes.
+                  const anchorRef = refWithRelease<HTMLElement>(
+                    () => {},
+                    releaseHostDiagnosticsAnchor,
+                  );
                   return (
                     <>
                       <Show when={at() > 0}>
                         <span>and</span>
                       </Show>
                       <button
-                        ref={(el) => (anchor = el)}
+                        ref={anchorRef}
                         type="button"
                         data-testid="agents-fleet-host"
                         data-host={host().label}

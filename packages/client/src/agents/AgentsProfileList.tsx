@@ -48,12 +48,12 @@ import {
   createMemo,
   createSignal,
   For,
-  onCleanup,
   Show,
 } from "solid-js";
 import { Portal } from "@solidjs/web";
 import DocLink from "../ui/DocLink";
 import { ChevronDownIcon, ChevronUpIcon, CloseIcon } from "../ui/Icons";
+import { refWithRelease } from "../ui/refWithRelease";
 import { surface } from "../ui/Surface";
 import { useAnchoredPopover } from "../ui/useAnchoredPopover";
 import FailureWords from "./FailureWords";
@@ -141,8 +141,7 @@ const AddField: Component<{
   const chrome = surface({ radius: "lg", shadow: "light", portalled: true });
   // Native, so Escape can stop here: with the menu open it closes the menu,
   // not Settings around it. The ref ATTACHES it (a key pressed before the
-  // next microtask must reach it) and this body takes it off: a ref callback
-  // may not register a cleanup, which is what `makeEventListener` does.
+  // next microtask must reach it) and the field's owner takes it off again.
   const onKeyDown = (e: KeyboardEvent) => {
     switch (e.key) {
       case "ArrowDown":
@@ -169,15 +168,18 @@ const AddField: Component<{
         return;
     }
   };
-  onCleanup(() => input?.removeEventListener("keydown", onKeyDown));
+  const inputRef = refWithRelease<HTMLInputElement>(
+    (el) => {
+      input = el;
+      el.addEventListener("keydown", onKeyDown);
+    },
+    (el) => el.removeEventListener("keydown", onKeyDown),
+  );
 
   return (
     <div ref={field} class="relative min-w-0">
       <input
-        ref={(el) => {
-          input = el;
-          el.addEventListener("keydown", onKeyDown);
-        }}
+        ref={inputRef}
         id="agents-profile-input"
         type="text"
         role="combobox"

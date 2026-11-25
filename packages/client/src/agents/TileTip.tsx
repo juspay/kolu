@@ -27,7 +27,6 @@ import {
   createMemo,
   createSignal,
   For,
-  onCleanup,
   Show,
 } from "solid-js";
 import { showsAmbientTips } from "../capabilities";
@@ -36,6 +35,7 @@ import { useTerminalCrud } from "../terminal/useTerminalCrud";
 import { useTerminalStore } from "../terminal/useTerminalStore";
 import { ChevronDownIcon, ChevronUpIcon } from "../ui/Icons";
 import { OptionMenu } from "../ui/OptionMenu";
+import { refWithRelease } from "../ui/refWithRelease";
 import Tooltip from "../ui/Tip";
 import { chipsThatFit } from "./chipFit";
 import { PLUGIN_SKILLS } from "./pluginSkills";
@@ -167,19 +167,23 @@ const TileTip: Component<{ id: TerminalId }> = (props) => {
   // does not take focus from the terminal (the chip types into it). Native
   // listeners, so the press stops here — Solid's delegated handlers run at the
   // document, after the tile's own listeners. The ref ATTACHES them (the press
-  // must be stopped from the first one, not a microtask later) and this body
-  // takes them off: a ref callback may not register a cleanup, which is what
-  // `makeEventListener` does.
-  let slot: HTMLElement | undefined;
+  // must be stopped from the first one, not a microtask later), and the
+  // component's owner takes them off again.
   const stopPress = (e: Event) => e.stopPropagation();
   const stopDrag = (e: Event) => {
     e.preventDefault();
     e.stopPropagation();
   };
-  onCleanup(() => {
-    slot?.removeEventListener("pointerdown", stopPress);
-    slot?.removeEventListener("mousedown", stopDrag);
-  });
+  const slotRef = refWithRelease<HTMLElement>(
+    (el) => {
+      el.addEventListener("pointerdown", stopPress);
+      el.addEventListener("mousedown", stopDrag);
+    },
+    (el) => {
+      el.removeEventListener("pointerdown", stopPress);
+      el.removeEventListener("mousedown", stopDrag);
+    },
+  );
   return (
     <div
       data-testid="tile-tip-slot"
@@ -190,11 +194,7 @@ const TileTip: Component<{ id: TerminalId }> = (props) => {
       // Above the terminal (the tab hangs over its top edge), below the find
       // bar (`z-10` in the body).
       class="relative z-[5] shrink-0 select-none"
-      ref={(el) => {
-        slot = el;
-        el.addEventListener("pointerdown", stopPress);
-        el.addEventListener("mousedown", stopDrag);
-      }}
+      ref={slotRef}
     >
       <div
         data-testid="tile-tip"

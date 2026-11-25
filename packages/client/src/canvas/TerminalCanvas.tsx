@@ -34,6 +34,7 @@ import { useStaleCheck } from "../terminal/staleness";
 import { useTerminalStore } from "../terminal/useTerminalStore";
 import type { TileId } from "../tile/tileContent";
 import { useTileStore } from "../tile/useTileStore";
+import { refWithRelease } from "../ui/refWithRelease";
 import { useShown } from "../ui/shown";
 import CanvasMinimap from "./CanvasMinimap";
 import CanvasTile, { type CanvasTileMode } from "./CanvasTile";
@@ -151,13 +152,16 @@ const TerminalCanvas: Component<{
   // stale entry whose echo arrived while the canvas was gone.
   onCleanup(() => pendingLayouts.clear());
 
-  // The viewport's container is attached from the canvas div's `ref` below,
-  // and a ref callback may register no cleanup — so its release is registered
-  // HERE, on the component's own owner, against the element that ref recorded.
-  let containerEl: HTMLDivElement | undefined;
-  onCleanup(() => {
-    if (containerEl) viewport.releaseContainer(containerEl);
-  });
+  // The viewport's container is attached from the canvas div's `ref` below;
+  // this component's owner hands it back.
+  const containerRef = refWithRelease<HTMLDivElement>(
+    (el) =>
+      viewport.setContainerRef(el, {
+        wheelTargetScrollsItself: isWheelTargetTerminal,
+        covered: () => posture.layout() !== "tiled",
+      }),
+    (el) => viewport.releaseContainer(el),
+  );
 
   /** Effective layout for a tile (pending override wins over saved). */
   function layoutOf(id: string): TileLayout | undefined {
@@ -558,13 +562,7 @@ const TerminalCanvas: Component<{
          *  buffer and every attach. */}
         <div class="flex-1 min-w-0 min-h-0 flex flex-col">
           <div
-            ref={(el) => {
-              containerEl = el;
-              viewport.setContainerRef(el, {
-                wheelTargetScrollsItself: isWheelTargetTerminal,
-                covered: () => posture.layout() !== "tiled",
-              });
-            }}
+            ref={containerRef}
             data-testid="canvas-container"
             data-zoom={viewport.zoom()}
             data-viewport={viewport.canvasTransform()}
