@@ -331,8 +331,16 @@ client:
 # a gate call site declares the wrong one, or a test-bearing package declares
 # neither. This is the safe reach a workstation can run beside a live kolu.
 test-unit: install
-    {{ nix_shell }} pnpm -r {{ pnpm_vendored_filter }} --workspace-concurrency=1 test:unit
-    {{ nix_shell }} python3 .github/actions/publish-closure/test-publish-closure.py
+    #!/usr/bin/env bash
+    set -uo pipefail
+    # `--no-bail`: pnpm runs every package and still exits non-zero, so one
+    # failing package cannot hide the packages ordered after it. The closure
+    # check is held to the same rule — it runs whatever vitest reported, and
+    # the recipe fails if either did.
+    status=0
+    {{ nix_shell }} pnpm -r {{ pnpm_vendored_filter }} --workspace-concurrency=1 --no-bail test:unit || status=1
+    {{ nix_shell }} python3 .github/actions/publish-closure/test-publish-closure.py || status=1
+    exit "$status"
 
 # Regenerate `nix/consumer-closure.json` — the workspace adjacency an out-of-repo
 # consumer walks to turn its SEED list into the package set it hydrates. Derived
@@ -424,7 +432,8 @@ test-daemon: install
         exit "$st"
     }
     trap cleanup EXIT
-    KOLU_DAEMON_TESTS=1 KOLU_DAEMON_BIND_PID=$$ {{ nix_shell }} pnpm -r {{ pnpm_vendored_filter }} --workspace-concurrency=1 test:daemon "${shard_args[@]}"
+    # `--no-bail`: every daemon package reports; pnpm still exits non-zero.
+    KOLU_DAEMON_TESTS=1 KOLU_DAEMON_BIND_PID=$$ {{ nix_shell }} pnpm -r {{ pnpm_vendored_filter }} --workspace-concurrency=1 --no-bail test:daemon "${shard_args[@]}"
 
 # THE TWO REAL PACKAGES, ASKED (`ci::agent-models`). Builds the floor this tree
 # pins AND upstream's package from the commit before `--models` existed
