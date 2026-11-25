@@ -1,15 +1,20 @@
 /**
  * A WORK RE-KEYED TO GIT'S ROOT, as the host writes it — and NOTHING REMOVED.
  *
- * - T15: a move carries everything that names the work — its record, its
- *   members, its Code view, the conversation's rows — so the old id is left
- *   only inside a `given:` ask id (a name minted once), and a question still
- *   open on it can be answered.
+ * - T15: the host's own re-key (`rekeyWork`, the one function the host
+ *   calls) carries everything that names the work — its record, its
+ *   members, its Code view, the conversation's rows, the news held about it
+ *   — so the old id is left only inside a `given:` ask id (a name minted
+ *   once), and a question still open on it can be answered.
  * - T16: a finished work kept under a worktree path, re-keyed, is the work
  *   `openFor` of the root's key brings back — reopened, under the root's id.
  * - T27: another work holds the root's id: the old-key work stays where it
  *   was, `held`, the holder untouched — no kept-files move or sweep, and
  *   nothing published gone.
+ * - Its ending, when both are open, runs no finished cap: twenty finished
+ *   works and the collision leave twenty-one, and nothing is swept.
+ * - A kept-files move that fails leaves the work under its old key, its
+ *   folder where it was, and the next sweep removing nothing.
  * - T28: `openFor` the root's key answers the OPEN held work, under its own
  *   id; nothing is created and the finished holder stays finished.
  * - T29: Reopen is refused while another work is open on the same branch.
@@ -30,23 +35,24 @@ import {
   WorkRefusal,
   workIdOf,
 } from "kolu-work";
+import type { Logger } from "pino";
 import { describe, expect, it } from "vitest";
 import { asking } from "./asking.ts";
-import { rowsMovedTo } from "./rekeyRows.ts";
+import { rekeyWork } from "./rekeyWork.ts";
+import { wakes } from "./wakes.ts";
 import { workDirOf } from "./workFiles.ts";
 import { type WorkRig, workRig } from "./workRig.testlib.ts";
+import { FINISHED_KEPT } from "./workStore.ts";
 
 const AT = "2026-11-24T19:00:00.000Z";
 const ROOT = "/repo";
 const WORKTREE = "/repo/.worktrees/csv";
 
-const keyAt = (repo: string, repoBy: BranchKey["repoBy"]): BranchKey => ({
-  kind: "branch",
-  host: "local",
-  repo,
-  branch: "csv",
-  repoBy,
-});
+const keyAt = (
+  repo: string,
+  repoBy: BranchKey["repoBy"],
+  branch = "csv",
+): BranchKey => ({ kind: "branch", host: "local", repo, branch, repoBy });
 const GIT_KEY = {
   kind: "branch",
   host: "local",
@@ -62,7 +68,10 @@ const NEW: WorkId = workIdOf(GIT_KEY);
 const opened = (key: BranchKey, title: string): Work =>
   openWork({ key, title, at: AT, request: { kind: "none" } });
 const finished = (key: BranchKey, title: string): Work =>
-  endWork(opened(key, title), { outcome: { kind: "merged", pr: 7 }, at: AT });
+  endWork(opened(key, title), {
+    outcome: { kind: "stopped", by: "you" },
+    at: AT,
+  });
 
 const rigWith = (...works: ReadonlyArray<Work>): WorkRig => {
   const r = workRig();
@@ -75,6 +84,11 @@ const rigWith = (...works: ReadonlyArray<Work>): WorkRig => {
 };
 const workOf = (r: WorkRig, id: WorkId): Work =>
   Option.getOrThrow(r.works.get(id));
+
+/** Every async step an ending's close-out takes, run out. */
+const drain = async (): Promise<void> => {
+  for (let i = 0; i < 10; i += 1) await settle();
+};
 
 const QUESTION: Question = {
   id: "q-mode",
@@ -110,7 +124,7 @@ describe("a re-key that moves the work", () => {
       codeMode: "local",
       selectedFileByMode: { local: "src/csv.ts" },
     });
-    const rows: ReadonlyArray<ConductorRow> = [
+    let rows: ReadonlyArray<ConductorRow> = [
       {
         kind: "user",
         id: "u1",
@@ -130,24 +144,66 @@ describe("a re-key that moves the work", () => {
         work: OLD,
       },
     ];
+    // THE NEWS HELD ABOUT IT, in a real `wakes` — an answer, and the work
+    // losing its last terminal — flushed into a turn the test reads.
+    const said: string[] = [];
+    const news = wakes({
+      turn: async () => ({
+        idle: true,
+        wake: async (text) => {
+          said.push(text);
+        },
+      }),
+      say: () => {},
+      changed: () => {},
+      membership: () => null,
+      told: () => {},
+      stopped: () => false,
+      log: { warn: () => {}, error: () => {} } as unknown as Logger,
+    });
+    news.answered({
+      work: OLD,
+      title: "csv export",
+      ask: "ask:earlier",
+      at: AT,
+      questions: [],
+      how: "dropped",
+    });
+    news.noTerminals({ work: OLD, title: "csv export", at: AT });
 
-    expect(r.works.rekey(OLD, ROOT)).toEqual({ kind: "moved", to: NEW });
-    const moved = rowsMovedTo(rows, OLD, NEW);
-    const after = new Map(rows.map((row) => [row.id, row]));
-    for (const row of moved) after.set(row.id, row);
+    // THE HOST'S OWN RE-KEY, handed this test's rows and news.
+    const done = await rekeyWork(
+      {
+        works: r.works,
+        rows: () => rows,
+        upsertRows: (upserts) => {
+          const byId = new Map(rows.map((row) => [row.id, row]));
+          for (const row of upserts) byId.set(row.id, row);
+          rows = [...byId.values()];
+        },
+        news,
+        publishState: () => {},
+      },
+      OLD,
+      ROOT,
+    );
+    expect(done).toEqual({ kind: "moved", to: NEW });
 
     // What a reader holds once every publication has landed.
     const live = new Map<WorkId, Work>();
     for (const { id, work } of r.publishedWorks)
       if (work === null) live.delete(id);
       else live.set(id, work);
+    await news.flush();
     const everything = JSON.stringify({
       works: r.works.persisted(),
       members: [...r.works.members.all()],
       views: r.views.read(),
-      rows: [...after.values()],
+      rows,
       published: [...live],
+      news: said,
     });
+    expect(said.join("")).toContain(NEW);
     expect(everything.split(`given:${OLD}`).join("")).not.toContain(OLD);
     expect(live.has(NEW)).toBe(true);
 
@@ -160,7 +216,6 @@ describe("a re-key that moves the work", () => {
       reply: { kind: "answered", values: new Map([["q-mode", ["full"]]]) },
     });
     expect(answered).toEqual({ kind: "answered" });
-    await settle();
     expect(r.files.ops).toEqual([
       { kind: "move", from: workDirOf(OLD), to: workDirOf(NEW) },
     ]);
@@ -168,7 +223,7 @@ describe("a re-key that moves the work", () => {
 
   it("brings a finished work kept under a worktree path back under the root's id (T16)", async () => {
     const r = rigWith(finished(OLD_KEY, "csv export"));
-    expect(r.works.rekey(OLD, ROOT)).toEqual({ kind: "moved", to: NEW });
+    expect(await r.works.rekey(OLD, ROOT)).toEqual({ kind: "moved", to: NEW });
     const again = r.works.openFor({
       key: GIT_KEY,
       title: "csv export",
@@ -176,10 +231,34 @@ describe("a re-key that moves the work", () => {
     });
     expect(again).toMatchObject({ id: NEW, created: false, reopened: true });
     expect(r.works.all().map(([id]) => id)).toEqual([NEW]);
-    await settle();
     expect(r.files.ops).toEqual([
       { kind: "move", from: workDirOf(OLD), to: workDirOf(NEW) },
     ]);
+  });
+
+  it("leaves the work under its old key when its kept files cannot move", async () => {
+    const r = rigWith(
+      finished(OLD_KEY, "csv export"),
+      opened(keyAt(ROOT, { kind: "git" }, "never-started"), "never started"),
+    );
+    r.files.failMoves = true;
+    expect(await r.works.rekey(OLD, ROOT)).toEqual({
+      kind: "deferred",
+      why: "files-not-moved",
+    });
+    expect(r.works.get(NEW)).toEqual(Option.none());
+    expect(workOf(r, OLD).key).toEqual(OLD_KEY);
+    expect(r.errors).toHaveLength(1);
+    // A later sweep — a card declined — keeps the old folder: its work is
+    // still the work that names it.
+    r.works.declined(workIdOf(keyAt(ROOT, { kind: "git" }, "never-started")));
+    await drain();
+    const sweeps = r.files.ops.flatMap((op) =>
+      op.kind === "sweep" ? [op.keep] : [],
+    );
+    expect(sweeps.length).toBeGreaterThan(0);
+    for (const keep of sweeps) expect(keep).toContain(workDirOf(OLD));
+    expect(r.files.ops.some((op) => op.kind === "move")).toBe(false);
   });
 });
 
@@ -187,7 +266,7 @@ describe("a re-key whose root another work holds", () => {
   it("keeps the old-key work where it was, held, and removes nothing (T27)", async () => {
     const holder = finished(GIT_KEY, "csv, the first time");
     const r = rigWith(holder, opened(OLD_KEY, "csv export"));
-    expect(r.works.rekey(OLD, ROOT)).toEqual({
+    expect(await r.works.rekey(OLD, ROOT)).toEqual({
       kind: "held",
       by: NEW,
       ended: false,
@@ -198,34 +277,38 @@ describe("a re-key whose root another work holds", () => {
       key: HELD_KEY,
       state: { kind: "open" },
     });
-    await settle();
+    await drain();
     expect(r.files.ops).toEqual([]);
     expect(r.publishedWorks.filter((one) => one.work === null)).toEqual([]);
   });
 
-  it("ends the old-key work, and keeps it, when both are open", async () => {
+  it("ends the old-key work and keeps it, with no finished cap, when both are open", async () => {
+    // A FULL FINISHED LIST, and a collision: the ending a re-key causes is
+    // the ordinary ending without the cap, so the list holds one more.
+    const done = Array.from({ length: FINISHED_KEPT }, (_, i) =>
+      finished(keyAt(ROOT, { kind: "git" }, `done-${i}`), `done ${i}`),
+    );
     const r = rigWith(
+      ...done,
       opened(GIT_KEY, "csv, the first time"),
       opened(OLD_KEY, "csv export"),
     );
     r.works.join(OLD, "local/t1", "planner", "asked");
-    expect(r.works.rekey(OLD, ROOT)).toMatchObject({
+    expect(await r.works.rekey(OLD, ROOT)).toMatchObject({
       kind: "held",
       ended: true,
     });
+    await drain();
     expect(workOf(r, OLD)).toMatchObject({
       key: HELD_KEY,
       state: { kind: "ended", outcome: { kind: "stopped", by: "kolu" } },
     });
     expect(r.works.members.all().size).toBe(0);
-    await settle();
-    for (const op of r.files.ops) {
-      expect(op.kind).toBe("sweep");
-      if (op.kind === "sweep")
-        expect(op.keep).toEqual(
-          expect.arrayContaining([workDirOf(NEW), workDirOf(OLD)]),
-        );
-    }
+    const ended = r.works
+      .all()
+      .filter(([, work]) => work.state.kind === "ended");
+    expect(ended).toHaveLength(FINISHED_KEPT + 1);
+    expect(r.files.ops.filter((op) => op.kind === "sweep")).toEqual([]);
     expect(r.publishedWorks.filter((one) => one.work === null)).toEqual([]);
   });
 
@@ -262,7 +345,7 @@ describe("a re-key whose root another work holds", () => {
     expect(() => s.works.reopen(OLD)).toThrow(/«csv, the second time»/);
   });
 
-  it("moves to the root's id once the holder has gone (T30)", () => {
+  it("moves to the root's id once the holder has gone (T30)", async () => {
     const r = rigWith(
       opened(GIT_KEY, "never started"),
       finished(HELD_KEY, "csv export"),
@@ -278,12 +361,13 @@ describe("a re-key whose root another work holds", () => {
       root: ROOT,
       checkout: { kind: "at", path: WORKTREE },
     });
+    await drain();
     expect(s.works.get(OLD)).toEqual(Option.none());
     expect(workOf(s, NEW)).toMatchObject({
       key: GIT_KEY,
       worktree: { kind: "at", path: WORKTREE },
     });
-    expect(r.works.rekey(OLD, ROOT)).toEqual({ kind: "moved", to: NEW });
+    expect(await r.works.rekey(OLD, ROOT)).toEqual({ kind: "moved", to: NEW });
     expect(workOf(r, NEW).key).toEqual(GIT_KEY);
   });
 });

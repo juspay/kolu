@@ -65,7 +65,9 @@ const keptFromBefore = (pick: () => number): Record<WorkId, Work> => {
       host: "local",
       repo: among(OLD_REPOS),
       branch: among(BRANCHES),
-      repoBy: { kind: "as-written" },
+      // Kept from before keys were git's, or held under an old key.
+      repoBy:
+        pick() < 0.5 ? { kind: "as-written" } : { kind: "held", root: "/repo" },
     };
     const opened = openWork({
       key,
@@ -91,7 +93,11 @@ describe("the works and their members, as one value", () => {
       const among = <T>(of: ReadonlyArray<T>): T =>
         of[Math.floor(pick() * of.length)] as T;
       const r = rig();
-      r.works.load(keptFromBefore(pick), {}, {});
+      const before = keptFromBefore(pick);
+      // Two open works held from one root on one branch is a store the
+      // rules refuse; that seed starts from another.
+      if (Option.isSome(storeFault(before, {}))) continue;
+      r.works.load(before, {}, {});
       for (let step = 0; step < 60; step += 1) {
         const roll = pick();
         const ids = r.works.all().map(([one]) => one);
@@ -140,7 +146,7 @@ describe("the works and their members, as one value", () => {
           } else if (roll < 0.9) {
             const unrooted = r.works.unrooted("local", among(BRANCHES));
             const one = unrooted[Math.floor(pick() * unrooted.length)];
-            if (one !== undefined) r.works.rekey(one.id, "/repo");
+            if (one !== undefined) await r.works.rekey(one.id, "/repo");
           } else r.works.declined(id);
         } catch (err) {
           // A refusal is the store saying no to a caller — a role taken, a
@@ -148,6 +154,10 @@ describe("the works and their members, as one value", () => {
           if (!(err instanceof WorkRefusal)) throw err;
         }
         await settle();
+        await settle();
+        // A defect the store or the observer caught to keep going — a store
+        // fault out of a re-key — fails the walk as surely as a throw.
+        expect(r.errors, `seed ${seed}, step ${step}`).toEqual([]);
         expect(
           storeFault(Object.fromEntries(r.works.all()), r.works.members.all()),
           `seed ${seed}, step ${step}`,

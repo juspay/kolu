@@ -197,14 +197,34 @@ export const parseStore = <M extends WorkMember>(
   };
 };
 
+/** THE OPEN WORK, other than `except`, that runs `branch` of `root` on `host`
+ *  — rule 5's own test: an open branch work whose key says that root
+ *  ({@link rootOf}). A well-formed store holds at most one. */
+export const runningOn = (
+  works: ReadonlyMap<WorkId, Work>,
+  at: { readonly host: string; readonly root: string; readonly branch: string },
+  except: WorkId,
+): Option.Option<readonly [WorkId, Work]> => {
+  for (const [id, work] of works) {
+    if (id === except || work.state.kind !== "open") continue;
+    if (work.key.kind !== "branch") continue;
+    if (work.key.host !== at.host || work.key.branch !== at.branch) continue;
+    if (Option.contains(rootOf(work.key), at.root))
+      return Option.some([id, work]);
+  }
+  return Option.none();
+};
+
 /** WHAT A RE-KEY DID — see {@link rekeyed}. */
 export type Rekey =
-  /** The root's id is the work's own: its key is stamped `git`. */
-  | { readonly kind: "stamped" }
+  /** The root's id is the work's own: its key is stamped `git` — and, when
+   *  the branch already runs as another open work, it was ended. */
+  | { readonly kind: "stamped"; readonly ended: boolean }
   /** The work moved to the root's id, in its place, stamped `git`. */
   | { readonly kind: "moved"; readonly to: WorkId }
-  /** Another work holds the root's id: this one keeps its old key and id,
-   *  `held` from the root — and, when both were open, it was ended. */
+  /** The root's id is another work's, or the branch already runs as another
+   *  open work (`by`): this one keeps its old key and id, `held` from the
+   *  root — and, when it was open beside that open work, it was ended. */
   | {
       readonly kind: "held";
       readonly by: WorkId;
@@ -212,15 +232,21 @@ export type Rekey =
     };
 
 /** A BRANCH WORK RE-KEYED TO GIT'S ROOT — the one transition, pure. With `W`
- *  the work at `id` and `N` the id of `W`'s key with `repo` set to `root`:
+ *  the work at `id`, `N` the id of `W`'s key with `repo` set to `root`, and
+ *  RUNNING the open work other than `W` on that host, root and branch, if
+ *  any ({@link runningOn}, rule 5's own test):
  *
  *  - `N` is `W`'s own id: the key is stamped `git`. Nothing moves.
- *  - `N` is free: `W` moves to `N` AT THE SAME POSITION (a card keeps its
- *    place), stamped `git`, and its members follow.
- *  - `N` is held by another work `C`: `W` keeps its old key and id, `held`
- *    from `root`. `C` is not touched. If both are OPEN, `W` is also ended —
- *    stopped, by kolu, at `at`, its members leaving with it — because one
- *    branch cannot run as two cards (rule 5).
+ *  - `N` is free and nothing else runs the branch: `W` moves to `N` AT THE
+ *    SAME POSITION (a card keeps its place), stamped `git`, and its members
+ *    follow.
+ *  - `N` is another work's, or the branch already runs as another open
+ *    work: `W` keeps its old key and id, `held` from `root`. No other work
+ *    is touched.
+ *
+ *  In every row, an OPEN `W` beside a RUNNING work is also ended — stopped,
+ *  by kolu, at `at`, its members leaving with it — because one branch
+ *  cannot run as two cards (rule 5).
  *
  *  NOTHING IS EVER REMOVED: no work, open or finished, leaves the value, and
  *  every work but `W` is the same value it was. `id` must be a branch work
@@ -236,19 +262,33 @@ export const rekeyed = <M extends WorkMember>(
     throw new Error(`rekeyed: ${id} is no branch work in the store`);
   const key: BranchKey = work.key;
   const target = workIdOf({ ...key, repo: root });
+  const running = runningOn(
+    store.works,
+    { host: key.host, root, branch: key.branch },
+    id,
+  );
+  const ended = work.state.kind === "open" && Option.isSome(running);
+  /** `W` written back under its own id as `next`, ended when it must be. */
+  const kept = (next: Work): WorkStoreValue<M> => ({
+    works: replaced(
+      store.works,
+      id,
+      id,
+      ended
+        ? endWork(next, { outcome: { kind: "stopped", by: "kolu" }, at })
+        : next,
+    ),
+    members: ended
+      ? new Map([...store.members].filter(([, one]) => one.work !== id))
+      : store.members,
+  });
   if (target === id)
     return {
-      value: {
-        works: replaced(store.works, id, id, {
-          ...work,
-          key: { ...key, repoBy: { kind: "git" } },
-        }),
-        members: store.members,
-      },
-      rekey: { kind: "stamped" },
+      value: kept({ ...work, key: { ...key, repoBy: { kind: "git" } } }),
+      rekey: { kind: "stamped", ended },
     };
   const holder = store.works.get(target);
-  if (holder === undefined)
+  if (holder === undefined && Option.isNone(running))
     return {
       value: {
         works: replaced(store.works, id, target, {
@@ -264,26 +304,16 @@ export const rekeyed = <M extends WorkMember>(
       },
       rekey: { kind: "moved", to: target },
     };
-  const held: Work = {
-    ...work,
-    key: { ...key, repoBy: { kind: "held", root } },
-  };
-  const ended = work.state.kind === "open" && holder.state.kind === "open";
   return {
-    value: {
-      works: replaced(
-        store.works,
-        id,
-        id,
-        ended
-          ? endWork(held, { outcome: { kind: "stopped", by: "kolu" }, at })
-          : held,
-      ),
-      members: ended
-        ? new Map([...store.members].filter(([, one]) => one.work !== id))
-        : store.members,
+    value: kept({ ...work, key: { ...key, repoBy: { kind: "held", root } } }),
+    rekey: {
+      kind: "held",
+      by: Option.match(running, {
+        onNone: () => target,
+        onSome: ([other]) => other,
+      }),
+      ended,
     },
-    rekey: { kind: "held", by: target, ended },
   };
 };
 

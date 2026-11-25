@@ -199,7 +199,6 @@ import {
   type Work,
   type WorkId,
   type ParsedWorkKey,
-  type Rekey,
   type WorkMember,
   WorkRefusal,
   type WorkRole,
@@ -238,12 +237,12 @@ import {
 } from "./memoryStore.ts";
 import { bringOverMessage, memoryBlock } from "./memoryBlock.ts";
 import { recordWrites } from "./recordWrites.ts";
-import { rowsMovedTo } from "./rekeyRows.ts";
+import { rekeyWork } from "./rekeyWork.ts";
 import { teaching } from "./teaching.ts";
 import { wakes } from "./wakes.ts";
 import type { WorkFiles } from "./workFiles.ts";
 import { workCodeViewStore } from "./workCodeViewStore.ts";
-import { type MemberDetail, workStore } from "./workStore.ts";
+import { type MemberDetail, type RekeyDone, workStore } from "./workStore.ts";
 
 /** What a reader of the transcript stream is handed, in order: one snapshot,
  *  then deltas, for as long as it is subscribed. */
@@ -521,15 +520,20 @@ export interface ConductorHost {
    *  names it along: the work store's re-key (members, Code view, live PR,
    *  kept files), the conversation's rows that name the work, and the news
    *  held about it. A `given:<id>` ask id is a name, not a pointer, and is
-   *  left as it was. Nothing is removed. */
-  readonly rekeyWork: (work: WorkId, root: string) => Rekey;
+   *  left as it was. Nothing is removed. Answers once the re-key has run, in
+   *  the kept-files queue; `deferred` is one left for the next answer. */
+  readonly rekeyWork: (work: WorkId, root: string) => Promise<RekeyDone>;
   /** The stored branch works on `host` and `branch` whose repository git has
-   *  not named yet, ended ones included — what `work_open` re-keys before it
-   *  opens anything. */
+   *  not named yet, ended ones included and each saying whether it is open —
+   *  what `work_open` re-keys before it opens anything. */
   readonly unrootedWorks: (
     host: string,
     branch: string,
-  ) => ReadonlyArray<{ readonly id: WorkId; readonly repo: string }>;
+  ) => ReadonlyArray<{
+    readonly id: WorkId;
+    readonly repo: string;
+    readonly open: boolean;
+  }>;
   /** A QUESTION ABOUT A WORK, put to the human as one ask the work knows about
    *  — so the answer is a decision kept with the work, and the card, the chat
    *  and the reader all draw and answer the one decision.
@@ -1503,7 +1507,7 @@ export function startConductorHost(deps: ConductorDeps): ConductorHost {
       hostNames.set(host, name);
     },
     publishState,
-    rekey: (id, root) => rekeyWork(id, root),
+    rekey: (id, root) => rekey(id, root),
     worksMoved,
     watchScopeMoved,
     flush: () => {
@@ -1888,19 +1892,21 @@ export function startConductorHost(deps: ConductorDeps): ConductorHost {
     });
   };
 
-  /** A WORK RE-KEYED TO THE ROOT GIT NAMED, and everything in the
-   *  conversation that points at it carried along: the rows that name it
-   *  ({@link rowsMovedTo}) and the news held about it. The work store moved
-   *  the rest — its members, its Code view, its live PR, its kept files. */
-  const rekeyWork = (id: WorkId, root: string): Rekey => {
-    const rekey = works.rekey(id, root);
-    if (rekey.kind !== "moved") return rekey;
-    const upserts = rowsMovedTo(rows(), id, rekey.to);
-    if (upserts.length > 0) applyRows({ upserts, removes: [], appends: [] });
-    wake.workMoved(id, rekey.to);
-    publishState();
-    return rekey;
-  };
+  /** A WORK RE-KEYED TO THE ROOT GIT NAMED — `./rekeyWork.ts`'s one
+   *  composition, handed this host's rows and held news. */
+  const rekey = (id: WorkId, root: string): Promise<RekeyDone> =>
+    rekeyWork(
+      {
+        works,
+        rows,
+        upsertRows: (upserts) =>
+          applyRows({ upserts, removes: [], appends: [] }),
+        news: wake,
+        publishState,
+      },
+      id,
+      root,
+    );
 
   /** Bring the conversation up, once, and hand back the same promise to every
    *  caller that arrives while it is in flight — so two readers opening at the
@@ -2724,7 +2730,7 @@ export function startConductorHost(deps: ConductorDeps): ConductorHost {
     },
     rekeyWork: (id, root) => {
       remembered();
-      return rekeyWork(id, root);
+      return rekey(id, root);
     },
     unrootedWorks: (host, branch) => {
       remembered();

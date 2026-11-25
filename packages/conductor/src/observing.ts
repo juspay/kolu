@@ -55,7 +55,7 @@ import {
   type Work,
   type WorkEvent,
   type WorkId,
-  type Rekey,
+  type WorkWorktree,
 } from "kolu-work";
 import type { ConductorWakeEvent } from "kolu-common/conductor";
 import type { Logger } from "pino";
@@ -65,7 +65,7 @@ import type { WatchObservation, WatchPr } from "./observation.ts";
 import { prReading } from "./readings.ts";
 import type { RecordWrites } from "./recordWrites.ts";
 import type { WorkFiles } from "./workFiles.ts";
-import type { WorkStore } from "./workStore.ts";
+import type { RekeyDone, WorkStore } from "./workStore.ts";
 
 /** Two members' WRITTEN halves, compared by what they say — derived from the
  *  schema, so a field the watch grows is compared without an edit here. What
@@ -374,8 +374,8 @@ export const observing = (deps: {
   readonly publishState: () => boolean;
   /** RE-KEY A BRANCH WORK TO THE ROOT GIT NAMED — the work store's re-key,
    *  and everything in the conversation that names the work carried along
-   *  with it (the host's {@link ConductorHost.rekeyWork}). */
-  readonly rekey: (id: WorkId, root: string) => Rekey;
+   *  with it (`./rekeyWork.ts`, the host's {@link ConductorHost.rekeyWork}). */
+  readonly rekey: (id: WorkId, root: string) => Promise<RekeyDone>;
   /** A work, a member row or a reading moved — every reader of the `works`
    *  resource is owed a redraw. */
   readonly worksMoved: () => void;
@@ -391,6 +391,17 @@ export const observing = (deps: {
   /** The works whose `.waterfall/` is being listed RIGHT NOW. One listing per
    *  work at a time: the place listed is the work's, whoever asked. */
   const listing = new Set<WorkId>();
+
+  /** GIT'S ANSWER FOR A WORK'S FOLDER, written on the work at `id` — the one
+   *  writer of a branch work's `worktree` — while that work is open. */
+  const recordFolder = (id: WorkId, folder: WorkWorktree): void => {
+    const now = deps.store.get(id);
+    if (Option.isNone(now) || now.value.state.kind !== "open") return;
+    const next = recordWorktree(now.value, folder);
+    if (next === now.value) return;
+    deps.store.save(id, next);
+    deps.store.changed();
+  };
 
   /** A WORK'S `.waterfall/`, LISTED — in the work's own folder on the key's
    *  host, never a member's — and every path kolu has not seen before put on
@@ -563,24 +574,32 @@ export const observing = (deps: {
       // answer names, so a work kept from before the key was git's (or held
       // under its old key) becomes the work of that root and branch — and the
       // folder is recorded on whatever the work is now.
-      let id = watched;
-      if (found.value.key.repoBy.kind !== "git") {
-        const rekey = deps.rekey(watched, reading.root);
-        if (rekey.kind === "moved") id = rekey.to;
-        if (rekey.kind === "held" && rekey.ended) return;
-      }
-      const now = deps.store.get(id);
-      if (Option.isNone(now)) return;
-      const work = now.value;
-      const next = recordWorktree(
-        work,
+      const folder: WorkWorktree =
         reading.checkout.kind === "at"
           ? { kind: "at", path: reading.checkout.path }
-          : { kind: "absent" },
+          : { kind: "absent" };
+      if (found.value.key.repoBy.kind === "git") {
+        recordFolder(watched, folder);
+        return;
+      }
+      deps.rekey(watched, reading.root).then(
+        (done) => {
+          if (done.kind === "deferred") {
+            // Left for the next answer: the work keeps its old key, and the
+            // folder git just named is still its own.
+            recordFolder(watched, folder);
+            return;
+          }
+          if (done.kind !== "moved" && done.ended) return;
+          recordFolder(done.kind === "moved" ? done.to : watched, folder);
+        },
+        (err: unknown) => {
+          deps.log.error(
+            { err, work: watched },
+            "kolu-server: the conductor could not re-key a work to the root git named",
+          );
+        },
       );
-      if (next === work) return;
-      deps.store.save(id, next);
-      deps.store.changed();
     },
     saidTo: (ref) => {
       const found = deps.store.at(ref);

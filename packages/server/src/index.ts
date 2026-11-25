@@ -764,9 +764,9 @@ export async function bootKoluWeb(flags: KoluBootFlags): Promise<void> {
     unrooted: (host, branch) =>
       liveServerConductor()
         .unrootedWorks(host, branch)
-        .map(({ id, repo }) => ({ work: id, repo })),
-    rekey: (work, root) => {
-      liveServerConductor().rekeyWork(work, root);
+        .map(({ id, repo, open }) => ({ work: id, repo, open })),
+    rekey: async (work, root) => {
+      await liveServerConductor().rekeyWork(work, root);
     },
     // WHAT A PLANNER OR IMPLEMENTOR STARTS, read off the work's own answers
     // and judged again — the face builds the command from this, so there is

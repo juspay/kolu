@@ -70,7 +70,7 @@ describe("re-keying a work to git's root", () => {
     const work = opened(branchKey("/repo", "csv", AS_WRITTEN));
     const id = workIdOf(work.key);
     const { value, rekey } = rekeyed(storeOf([work]), id, "/repo", AT);
-    expect(rekey).toEqual({ kind: "stamped" });
+    expect(rekey).toEqual({ kind: "stamped", ended: false });
     expect(value.works.get(id)?.key).toEqual(branchKey("/repo", "csv", GIT));
   });
 
@@ -157,8 +157,14 @@ describe("re-keying a work to git's root", () => {
       const works = new Map<WorkId, Work>();
       for (let i = 0; i < 6; i += 1) {
         const repo = among(REPOS);
-        const by = pick() < 0.5 ? GIT : AS_WRITTEN;
-        // A `git` key's repo IS a root; an as-written one may be anything.
+        const arm = pick();
+        const by: BranchKey["repoBy"] =
+          arm < 0.34
+            ? GIT
+            : arm < 0.67
+              ? AS_WRITTEN
+              : { kind: "held", root: ROOT[repo] };
+        // A `git` key's repo IS a root; the other two may be any path.
         const key = branchKey(
           by.kind === "git" ? ROOT[repo] : repo,
           among(["csv", "json"]),
@@ -169,9 +175,10 @@ describe("re-keying a work to git's root", () => {
         works.set(workIdOf(one.key), one);
       }
       if (Option.isSome(storeFault(works, new Map()))) continue;
+      // Every key git has not named is re-keyed — as-written, and held
+      // ones asked again.
       const candidates = [...works].filter(
-        ([, one]) =>
-          one.key.kind === "branch" && one.key.repoBy.kind === "as-written",
+        ([, one]) => one.key.kind === "branch" && one.key.repoBy.kind !== "git",
       );
       if (candidates.length === 0) continue;
       tried += 1;
@@ -190,6 +197,46 @@ describe("re-keying a work to git's root", () => {
       expect(storeFault(value.works, value.members), at).toEqual(Option.none());
     }
     expect(tried).toBe(300);
+  });
+
+  it("ends the second old-key work on a branch whose holder has finished", () => {
+    // A finished work holds the root's id; two open works on that branch
+    // under two spellings. The first is kept, held; the second finds the
+    // branch already running and is ended, kept under its old key.
+    const holder = finished(branchKey("/repo", "csv", GIT), "holder");
+    const first = opened(branchKey(WORKTREE, "csv", AS_WRITTEN), "first");
+    const second = opened(branchKey("/repo/sub", "csv", AS_WRITTEN), "second");
+    const store = storeOf([holder, first, second]);
+    const once = rekeyed(store, workIdOf(first.key), "/repo", AT);
+    expect(once.rekey).toMatchObject({ kind: "held", ended: false });
+    const twice = rekeyed(once.value, workIdOf(second.key), "/repo", AT);
+    expect(twice.rekey).toMatchObject({ kind: "held", ended: true });
+    expect(twice.value.works.get(workIdOf(second.key))?.state).toMatchObject({
+      kind: "ended",
+      outcome: { kind: "stopped", by: "kolu" },
+    });
+    expect(storeFault(twice.value.works, twice.value.members)).toEqual(
+      Option.none(),
+    );
+  });
+
+  it("never moves an old-key work beside an open held work on its branch", () => {
+    // The holder has left the list; an open held work runs the branch, and
+    // an open as-written work on it finds the root's id free.
+    const running = opened(
+      branchKey(WORKTREE, "csv", { kind: "held", root: "/repo" }),
+      "running",
+    );
+    const late = opened(branchKey("/repo/sub", "csv", AS_WRITTEN), "late");
+    const { value, rekey } = rekeyed(
+      storeOf([running, late]),
+      workIdOf(late.key),
+      "/repo",
+      AT,
+    );
+    expect(rekey).toMatchObject({ kind: "held", ended: true });
+    expect(value.works.has(workIdOf(late.key))).toBe(true);
+    expect(storeFault(value.works, value.members)).toEqual(Option.none());
   });
 });
 

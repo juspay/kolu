@@ -204,15 +204,20 @@ export interface FleetWorks {
   open(intent: FleetWorkIntent): Promise<FleetWorkOpened>;
   /** The stored branch works on `host` and `branch` whose repository git has
    *  not named yet (kept from before a key was git's, or held under an old
-   *  key), ended ones included — with the folder each was opened on. */
+   *  key), ended ones included — with the folder each was opened on and
+   *  whether it is open. */
   unrooted(
     host: string,
     branch: string,
-  ): ReadonlyArray<{ readonly work: string; readonly repo: string }>;
+  ): ReadonlyArray<{
+    readonly work: string;
+    readonly repo: string;
+    readonly open: boolean;
+  }>;
   /** RE-KEY that work to the repository root git named — moved to the
    *  root's id when it is free, kept under its old key (`held`) when another
-   *  work holds it. Nothing is removed. */
-  rekey(work: string, root: string): void;
+   *  work holds it. Nothing is removed. Settles once the re-key has run. */
+  rekey(work: string, root: string): Promise<void>;
   /** WHAT A PLANNER OR IMPLEMENTOR OF THIS WORK STARTS — the harness and model
    *  its setup recorded, on the work's host, judged again against what kolu
    *  offers there now, and how that host's harness takes a model. The one
@@ -745,9 +750,11 @@ export function parseWorkKey(
  *  before `work_open` opens anything — each one's folder asked of git on the
  *  key's host, and re-keyed to the root git names. A folder that is no
  *  repository any more (a worktree deleted after its merge) leaves its work
- *  as it is; a git that does not answer refuses the open, because opening
- *  beside a work kolu could not place is the second card for one branch
- *  this exists to prevent. Nothing is removed. */
+ *  as it is. A git that does not answer for an OPEN earlier work refuses
+ *  the open: opening beside a work in progress kolu could not place is the
+ *  second card for one branch this exists to prevent. For a FINISHED one it
+ *  refuses nothing — the new work is legal beside it, and it is re-keyed
+ *  whenever git does answer. Nothing is removed. */
 export function rekeyBeforeOpen(
   hosts: FleetHosts,
   works: FleetWorks,
@@ -760,42 +767,47 @@ export function rekeyBeforeOpen(
   return Effect.flatMap(requireHost(hosts, host), (padi) =>
     Effect.forEach(
       pending,
-      ({ work, repo }) =>
-        Effect.flatMap(
-          Effect.mapError(
-            firstFrameOrThrow(
-              padi.surface.branchCheckout.get({ repoPath: repo, branch }),
-              `${host} answered nothing about ${repo}.`,
-            ),
-            (cause) =>
-              new ToolFailure<WorkKeyRefusal>(
-                `could not ask ${hosts.display(host)} where the earlier work ${work} on ${branch} stands (${repo}): ${String(cause)}. Nothing was created.`,
-                { kind: "git-unavailable", host, repo, reason: String(cause) },
-              ),
+      ({ work, repo, open }) => {
+        /** Git did not place an earlier work: a refusal for an open one,
+         *  nothing for a finished one. */
+        const unplaced = (
+          why: string,
+          reason: string,
+        ): Effect.Effect<void, ToolFailure> =>
+          open
+            ? Effect.fail(
+                new ToolFailure<WorkKeyRefusal>(
+                  `${why} where the earlier work ${work}, still in progress on ${branch}, stands (${repo}): ${reason}. Nothing was created.`,
+                  { kind: "git-unavailable", host, repo, reason },
+                ),
+              )
+            : Effect.void;
+        return Effect.matchEffect(
+          firstFrameOrThrow(
+            padi.surface.branchCheckout.get({ repoPath: repo, branch }),
+            `${host} answered nothing about ${repo}.`,
           ),
-          (reading): Effect.Effect<void, ToolFailure> => {
-            switch (reading.kind) {
-              case "repository":
-                return Effect.sync(() => works.rekey(work, reading.root));
-              case "not-a-repository":
-                return Effect.void;
-              case "unavailable":
-                return Effect.fail(
-                  new ToolFailure<WorkKeyRefusal>(
-                    `git on ${hosts.display(host)} would not say where the earlier work ${work} on ${branch} stands (${repo}): ${reading.reason}. Nothing was created.`,
-                    {
-                      kind: "git-unavailable",
-                      host,
-                      repo,
-                      reason: reading.reason,
-                    },
-                  ),
-                );
-              default:
-                return reading satisfies never;
-            }
+          {
+            onFailure: (cause) =>
+              unplaced(`could not ask ${hosts.display(host)}`, String(cause)),
+            onSuccess: (reading): Effect.Effect<void, ToolFailure> => {
+              switch (reading.kind) {
+                case "repository":
+                  return Effect.promise(() => works.rekey(work, reading.root));
+                case "not-a-repository":
+                  return Effect.void;
+                case "unavailable":
+                  return unplaced(
+                    `git on ${hosts.display(host)} would not say`,
+                    reading.reason,
+                  );
+                default:
+                  return reading satisfies never;
+              }
+            },
           },
-        ),
+        );
+      },
       { discard: true },
     ),
   );

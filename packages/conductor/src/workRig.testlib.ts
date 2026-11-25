@@ -28,11 +28,13 @@ export interface FilesRig {
   readonly listed: Array<{ host: string; worktree: string }>;
   /** Paths under `.waterfall/`, by folder. A folder not here holds none. */
   readonly holds: Map<string, ReadonlyArray<string>>;
-  /** Every sweep and move of the kept-files directories, in order. */
+  /** Every sweep and every move that landed, in order. */
   readonly ops: Array<
     | { kind: "sweep"; keep: ReadonlyArray<string> }
     | { kind: "move"; from: string; to: string }
   >;
+  /** Set to make every move reject, as a rename that fails would. */
+  failMoves: boolean;
 }
 
 export interface WorkRig {
@@ -43,13 +45,25 @@ export interface WorkRig {
   readonly publishedWorks: Array<{ id: WorkId; work: Work | null }>;
   readonly files: FilesRig;
   readonly views: WorkCodeViewStore;
+  /** Everything the store and the observer logged at error level — a
+   *  defect they caught to keep going, which a test must not miss. */
+  readonly errors: Array<unknown>;
 }
 
 export function workRig(): WorkRig {
-  const log = { warn: () => {}, error: () => {} } as unknown as Logger;
+  const errors: Array<unknown> = [];
+  const log = {
+    warn: () => {},
+    error: (...args: Array<unknown>) => errors.push(args),
+  } as unknown as Logger;
   const published: Array<{ id: WorkId; pr: PrResult | null }> = [];
   const publishedWorks: Array<{ id: WorkId; work: Work | null }> = [];
-  const files: FilesRig = { listed: [], holds: new Map(), ops: [] };
+  const files: FilesRig = {
+    listed: [],
+    holds: new Map(),
+    ops: [],
+    failMoves: false,
+  };
   const workFiles: WorkFiles = {
     list: async (at) => {
       files.listed.push(at);
@@ -60,6 +74,7 @@ export function workRig(): WorkRig {
       files.ops.push({ kind: "sweep", keep });
     },
     move: async (from, to) => {
+      if (files.failMoves) throw new Error(`could not rename ${from}`);
       files.ops.push({ kind: "move", from, to });
     },
   };
@@ -97,5 +112,5 @@ export function workRig(): WorkRig {
     flush: () => {},
     log,
   });
-  return { works, watch, published, publishedWorks, files, views };
+  return { works, watch, published, publishedWorks, files, views, errors };
 }

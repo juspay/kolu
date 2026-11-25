@@ -698,8 +698,14 @@ function fakeWorks(): FleetWorks & {
     start: SetUpStart | WorkRefusal,
   ): void;
   /** A stored work whose repository git has not named, as kolu-server would
-   *  answer `unrooted` for it. */
-  unrootedAt(work: string, host: string, repo: string, branch: string): void;
+   *  answer `unrooted` for it — open unless said. */
+  unrootedAt(
+    work: string,
+    host: string,
+    repo: string,
+    branch: string,
+    open?: boolean,
+  ): void;
   /** Every re-key and every open that reached the port, in order. */
   readonly steps: string[];
 } {
@@ -723,6 +729,7 @@ function fakeWorks(): FleetWorks & {
     host: string;
     repo: string;
     branch: string;
+    open: boolean;
   }[] = [];
   const steps: string[] = [];
   const blank = (id: string, title: string): FleetWorkRow => ({
@@ -805,14 +812,20 @@ function fakeWorks(): FleetWorks & {
     unrooted: (host: string, branch: string) =>
       unrooted
         .filter((one) => one.host === host && one.branch === branch)
-        .map(({ work, repo }) => ({ work, repo })),
-    rekey(work: string, root: string) {
+        .map(({ work, repo, open }) => ({ work, repo, open })),
+    rekey: async (work: string, root: string) => {
       steps.push(`rekey ${work} ${root}`);
       const at = unrooted.findIndex((one) => one.work === work);
       if (at >= 0) unrooted.splice(at, 1);
     },
-    unrootedAt(work: string, host: string, repo: string, branch: string) {
-      unrooted.push({ work, host, repo, branch });
+    unrootedAt(
+      work: string,
+      host: string,
+      repo: string,
+      branch: string,
+      open = true,
+    ) {
+      unrooted.push({ work, host, repo, branch, open });
     },
     steps,
     startOf: async (work: string, role: "planner" | "implementor") => {
@@ -1710,7 +1723,7 @@ describe("the conductor's pieces of work", () => {
     expect(works.steps).toEqual(["rekey earlier /repo", "open /repo"]);
   });
 
-  it("`work_open` is refused, with nothing opened, when git will not say where an earlier work stands", async () => {
+  it("`work_open` is refused, with nothing opened, when git will not say where an earlier work in progress stands", async () => {
     const { fleet } = twoHostFleet();
     const works = fakeWorks();
     works.unrootedAt("earlier", "local", "/broken", "work");
@@ -1728,6 +1741,27 @@ describe("the conductor's pieces of work", () => {
     expect(res.isError).toBe(true);
     expect(JSON.stringify(res.content)).toMatch(/git hung/);
     expect(works.steps).toEqual([]);
+  });
+
+  it("`work_open` opens beside a FINISHED earlier work git will not place", async () => {
+    // Nothing is at risk: the new work is legal beside a finished one, which
+    // is re-keyed whenever git does answer.
+    const { fleet } = twoHostFleet();
+    const works = fakeWorks();
+    works.unrootedAt("earlier", "local", "/broken", "work", false);
+    const mcp = await servedFleet(fleet.hosts, works);
+    const res = await mcp.callTool({
+      name: "work_open",
+      arguments: {
+        title: "carry on",
+        host: "local",
+        repo: "/repo",
+        branch: "work",
+        setup: SETUP,
+      },
+    });
+    expect(res.isError ?? false, JSON.stringify(res.content)).toBe(false);
+    expect(works.steps).toEqual(["open /repo"]);
   });
 
   it("a `given` answer reaches the record as the arm that says the request gave it", async () => {

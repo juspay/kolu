@@ -61,6 +61,7 @@ import {
   type Rekey,
   rekeyed,
   rootOf,
+  runningOn,
   type WorkMember,
   type WorkRole,
   WorkRefusal,
@@ -124,6 +125,15 @@ export interface Opened {
   readonly reopened: boolean;
 }
 
+/** What a re-key came to — `kolu-work`'s {@link Rekey}, or left for the next
+ *  answer, and why. */
+export type RekeyDone =
+  | Rekey
+  | {
+      readonly kind: "deferred";
+      readonly why: "closing" | "files-not-moved" | "not-unrooted";
+    };
+
 export interface WorkStore {
   /** THE MEMBERS, as the other half of the store's one value: read here,
    *  and every write parsed with the works before it is assigned. */
@@ -169,19 +179,27 @@ export interface WorkStore {
     key: ParsedWorkKey,
   ) => Option.Option<readonly [WorkId, Work]>;
   /** RE-KEY A BRANCH WORK TO THE ROOT GIT NAMED — `kolu-work`'s `rekeyed`,
-   *  written: a move takes the work's members, its Code view, its live PR and
-   *  its kept files to the new id; a work ended because its branch already
-   *  runs as another open work ends the ordinary way (questions dropped,
-   *  files kept). Nothing is ever removed. A `held` work whose holder is
-   *  unchanged is not rewritten. */
-  readonly rekey: (id: WorkId, root: string) => Rekey;
+   *  written in the kept-files queue at the moment it runs: a move carries
+   *  the work's kept files FIRST, then its record, members, Code view and
+   *  live PR to the new id; a work ended because its branch already runs as
+   *  another open work ends the ordinary way (questions dropped, files kept)
+   *  with no cap. Nothing is ever removed. `deferred` is a re-key left for
+   *  the next answer: the work's files are being kept, its folder could not
+   *  be moved, or it is no longer a key git has not named. A `held` work
+   *  whose root is unchanged is not rewritten. */
+  readonly rekey: (id: WorkId, root: string) => Promise<RekeyDone>;
   /** The stored branch works on `host` and `branch` whose repository git has
-   *  not named yet — `as-written` or `held` — ended ones included: the works
-   *  a `work_open` re-keys before it opens anything. */
+   *  not named yet — `as-written` or `held` — ended ones included, each
+   *  saying whether it is open: the works a `work_open` re-keys before it
+   *  opens anything. */
   readonly unrooted: (
     host: string,
     branch: string,
-  ) => ReadonlyArray<{ readonly id: WorkId; readonly repo: string }>;
+  ) => ReadonlyArray<{
+    readonly id: WorkId;
+    readonly repo: string;
+    readonly open: boolean;
+  }>;
   /** Write a work back. */
   readonly save: (id: WorkId, work: Work) => void;
   /** STOP a work — the one ending nobody observed. */
@@ -414,14 +432,20 @@ export const workStore = (deps: WorkStoreDeps): WorkStore => {
   const viewsKeepTheirWorks = (): void =>
     deps.views.keepOnly(new Set(value.works.keys()));
 
-  /** THE KEPT-FILES DIRECTORY OPERATIONS, ONE AT A TIME — a sweep and a
-   *  re-key's move. A sweep reads the works when it RUNS, not when it was
-   *  asked for, so a move queued before it has already renamed the directory
-   *  the sweep then finds named; and a move never lands in the middle of a
-   *  sweep that read the directory before the rename. */
-  let fileOps: Promise<void> = Promise.resolve();
+  /** THE KEPT-FILES DIRECTORY OPERATIONS, ONE AT A TIME — a sweep, and a
+   *  re-key (which moves a work's folder before its record). A sweep reads
+   *  the works when it RUNS, not when it was asked for, so a re-key queued
+   *  before it has already renamed the folder and moved the record the sweep
+   *  then reads; and a re-key never lands in the middle of a sweep that read
+   *  the directory before the rename. */
+  let fileOps: Promise<unknown> = Promise.resolve();
+  const serial = <T>(op: () => Promise<T>): Promise<T> => {
+    const run = fileOps.then(op);
+    fileOps = run.catch(() => undefined);
+    return run;
+  };
   const onFiles = (op: () => Promise<void>, failed: string): void => {
-    fileOps = fileOps.then(op).catch((err: unknown) => {
+    serial(op).catch((err: unknown) => {
       deps.log.warn({ err }, failed);
     });
   };
@@ -439,8 +463,8 @@ export const workStore = (deps: WorkStoreDeps): WorkStore => {
   };
 
   /** The ended works whose files are being kept RIGHT NOW. A re-key leaves
-   *  them be until the keep is written: the keep writes under the id the
-   *  work ended with. */
+   *  them be until the keep is written — the keep writes under the id the
+   *  work ended with — and asks again at the next answer. */
   const closing = new Set<WorkId>();
 
   /** WHERE A WORK'S FILES ARE — the folder git last named for the work's own
@@ -452,10 +476,14 @@ export const workStore = (deps: WorkStoreDeps): WorkStore => {
       ? Option.some({ host: hostOf(work), worktree: work.worktree.path })
       : Option.none();
 
-  /** THE WORK IS OVER — keep its files, then cap the history. */
+  /** THE WORK IS OVER — keep its files, then cap the history. An ending a
+   *  re-key caused (`cap: false`) keeps its files and caps NOTHING: a re-key
+   *  never removes a work or its kept files, so the finished list holds one
+   *  more until the next ordinary ending. */
   const closeOut = async (
     id: WorkId,
     at: Option.Option<{ host: string; worktree: string }>,
+    cap: boolean,
   ): Promise<void> => {
     const ending = value.works.get(id);
     if (ending === undefined || ending.state.kind !== "ended") return;
@@ -476,31 +504,34 @@ export const workStore = (deps: WorkStoreDeps): WorkStore => {
     }
     const ended = value.works.get(id);
     if (ended !== undefined && Option.isSome(at) && paths.size > 0) {
+      // The copy's outcome is caught; the WRITE of it is not — a store fault
+      // there is a defect, never a sentence on the timeline.
+      let kept: Work;
       try {
         const done = await deps.workFiles.keep({
           ...at.value,
           work: workDirOf(id),
           paths: [...paths],
         });
-        const kept = keepFiles(ended, { files: done.kept, at: nowIso() });
-        setWork(
-          id,
-          Option.match(notKeptWhy({ tooBig: done.tooBig, more }), {
-            onNone: () => kept,
-            onSome: (why) => keepFailed(kept, why, nowIso()),
-          }),
-        );
+        const copied = keepFiles(ended, { files: done.kept, at: nowIso() });
+        kept = Option.match(notKeptWhy({ tooBig: done.tooBig, more }), {
+          onNone: () => copied,
+          onSome: (why) => keepFailed(copied, why, nowIso()),
+        });
       } catch (err) {
-        setWork(id, keepFailed(ended, sentenceOf(err), nowIso()));
+        kept = keepFailed(ended, sentenceOf(err), nowIso());
       }
+      setWork(id, kept);
     }
     closing.delete(id);
-    dropWorks(
-      capFinished(everyWork(), FINISHED_KEPT).dropped.map(
-        ([dropped]) => dropped,
-      ),
-    );
-    forgetGone();
+    if (cap) {
+      dropWorks(
+        capFinished(everyWork(), FINISHED_KEPT).dropped.map(
+          ([dropped]) => dropped,
+        ),
+      );
+      forgetGone();
+    }
     changed();
     deps.records.now("works");
   };
@@ -514,6 +545,11 @@ export const workStore = (deps: WorkStoreDeps): WorkStore => {
       setWork(id, work);
       return;
     }
+    end(id, work, true);
+  };
+
+  /** THE ENDING ITSELF — `save`'s, and a re-key's with `cap: false`. */
+  const end = (id: WorkId, work: Work, cap: boolean): void => {
     const at = worktreeOf(work);
     // THE QUESTIONS GO WITH IT — the one edge where a question stops being
     // answerable, because the work it is about is over. Recorded HERE rather
@@ -540,7 +576,7 @@ export const workStore = (deps: WorkStoreDeps): WorkStore => {
     if (dropped > 0) deps.records.schedule("members");
     deps.worksMoved();
     deps.watchScopeMoved();
-    void closeOut(id, at);
+    void closeOut(id, at, cap);
   };
 
   /** The work a terminal is a member of, if it is one. */
@@ -629,25 +665,92 @@ export const workStore = (deps: WorkStoreDeps): WorkStore => {
   };
 
   /** THE OPEN WORK, other than `except`, on the same host, repository root
-   *  and branch as `key` — where git has said the root ({@link rootOf}). The
-   *  store holds at most one (`kolu-work`'s rule 5). */
+   *  and branch as `key` — `kolu-work`'s `runningOn`, rule 5's own test —
+   *  where git has said the root ({@link rootOf}). */
   const openOnBranch = (
     key: Work["key"],
     except: WorkId,
-  ): Option.Option<readonly [WorkId, Work]> => {
-    if (key.kind !== "branch") return Option.none();
-    const root = rootOf(key);
-    if (Option.isNone(root)) return Option.none();
-    for (const [id, work] of value.works) {
-      if (id === except || work.state.kind !== "open") continue;
-      if (work.key.kind !== "branch") continue;
-      if (work.key.host !== key.host || work.key.branch !== key.branch)
-        continue;
-      const other = rootOf(work.key);
-      if (Option.isSome(other) && other.value === root.value)
-        return Option.some([id, work]);
+  ): Option.Option<readonly [WorkId, Work]> =>
+    key.kind !== "branch"
+      ? Option.none()
+      : Option.flatMap(rootOf(key), (root) =>
+          runningOn(
+            value.works,
+            { host: key.host, root, branch: key.branch },
+            except,
+          ),
+        );
+
+  /** A RE-KEY, written — inside the kept-files queue, at the moment it runs.
+   *  A work whose files are being kept is left alone; a move carries the
+   *  folder FIRST and the record only once the folder has moved. */
+  const rekeyNow = async (id: WorkId, root: string): Promise<RekeyDone> => {
+    const before = value.works.get(id);
+    if (
+      before === undefined ||
+      before.key.kind !== "branch" ||
+      before.key.repoBy.kind === "git"
+    )
+      return { kind: "deferred", why: "not-unrooted" };
+    if (closing.has(id)) return { kind: "deferred", why: "closing" };
+    const first = rekeyed(value, id, root, nowIso());
+    const rekey = first.rekey;
+    // STILL HELD FROM THE SAME ROOT: nothing to write, and nothing for a
+    // reader to redraw — a held work is asked again on every answer.
+    if (
+      rekey.kind === "held" &&
+      !rekey.ended &&
+      before.key.repoBy.kind === "held" &&
+      before.key.repoBy.root === root
+    )
+      return rekey;
+    if (rekey.kind === "moved") {
+      const from = workDirOf(id);
+      const to = workDirOf(rekey.to);
+      // THE FILES FIRST. A record under the new id beside a folder under the
+      // old one is a folder the next sweep deletes; so a move that fails
+      // leaves the work where it is, and the next answer tries again.
+      try {
+        await deps.workFiles.move(from, to);
+      } catch (err) {
+        deps.log.error(
+          { err, work: id, to: rekey.to },
+          "kolu-server: the conductor could not carry a work's kept files to the id git's root names — the work stays under its old key, and is re-keyed at the next answer",
+        );
+        return { kind: "deferred", why: "files-not-moved" };
+      }
+      // ... and the record, as it stands NOW: the folder's rename was the
+      // one wait. Anything that moved meanwhile puts the folder back.
+      const again = rekeyed(value, id, root, nowIso());
+      if (
+        closing.has(id) ||
+        again.rekey.kind !== "moved" ||
+        again.rekey.to !== rekey.to
+      ) {
+        await deps.workFiles.move(to, from);
+        return { kind: "deferred", why: "not-unrooted" };
+      }
+      commit(again.value.works, again.value.members);
+      deps.views.move(id, rekey.to);
+      const pr = livePrs.get(id);
+      if (pr !== undefined) {
+        livePrs.delete(id);
+        livePrs.set(rekey.to, pr);
+      }
+      deps.records.schedule("members");
+    } else {
+      const ending = first.value.works.get(id);
+      // ENDED BECAUSE ITS BRANCH ALREADY RUNS AS ANOTHER OPEN WORK: the
+      // ordinary ending — its members leave, its open questions are
+      // dropped, its files are kept — and NO CAP: a re-key never removes a
+      // work or its kept files.
+      if (rekey.ended && ending !== undefined) end(id, ending, false);
+      else commit(first.value.works, first.value.members);
     }
-    return Option.none();
+    changed();
+    deps.worksMoved();
+    deps.watchScopeMoved();
+    return rekey;
   };
 
   const forKey = (
@@ -700,51 +803,11 @@ export const workStore = (deps: WorkStoreDeps): WorkStore => {
         work.key.kind === "branch" &&
         work.key.host === host &&
         work.key.branch === branch &&
-        work.key.repoBy.kind !== "git" &&
-        !closing.has(id)
-          ? [{ id, repo: work.key.repo }]
+        work.key.repoBy.kind !== "git"
+          ? [{ id, repo: work.key.repo, open: work.state.kind === "open" }]
           : [],
       ),
-    rekey: (id, root) => {
-      const before = value.works.get(id);
-      const { value: next, rekey } = rekeyed(value, id, root, nowIso());
-      // STILL HELD BY THE SAME HOLDER: nothing to write, and nothing for a
-      // reader to redraw — a held work is asked again on every answer.
-      if (
-        rekey.kind === "held" &&
-        !rekey.ended &&
-        before?.key.kind === "branch" &&
-        before.key.repoBy.kind === "held" &&
-        before.key.repoBy.root === root
-      )
-        return rekey;
-      const ending = next.works.get(id);
-      // ENDED BECAUSE ITS BRANCH ALREADY RUNS AS ANOTHER OPEN WORK: the
-      // ordinary ending, by the one writer that ends works — its members
-      // leave, its open questions are dropped, its files are kept.
-      if (rekey.kind === "held" && rekey.ended && ending !== undefined)
-        save(id, ending);
-      else commit(next.works, next.members);
-      if (rekey.kind === "moved") {
-        deps.views.move(id, rekey.to);
-        const pr = livePrs.get(id);
-        if (pr !== undefined) {
-          livePrs.delete(id);
-          livePrs.set(rekey.to, pr);
-        }
-        const from = workDirOf(id);
-        const to = workDirOf(rekey.to);
-        onFiles(
-          () => deps.workFiles.move(from, to),
-          "kolu-server: the conductor could not carry a re-keyed work's kept files to its new id",
-        );
-        deps.records.schedule("members");
-      }
-      changed();
-      deps.worksMoved();
-      deps.watchScopeMoved();
-      return rekey;
-    },
+    rekey: (id, root) => serial(() => rekeyNow(id, root)),
     openFor: ({ key, title, request }) => {
       const found = forKey(key);
       if (Option.isSome(found)) {
