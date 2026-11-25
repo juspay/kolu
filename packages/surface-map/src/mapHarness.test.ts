@@ -4,7 +4,7 @@
  * via `directDispatch` and wired through a mock `MapRegistry`.
  *
  * Proves: (1) two entries served (no cross-talk), (2) a `useEntry` switch re-keys
- * synchronously, (3) two views of one cell cause ONE upstream subscription
+ * on the flush it schedules, (3) two views of one cell cause ONE upstream subscription
  * (dedup), (4) removing a member ends its live subs TYPED (no error), drops it
  * from `entries`, and reads `not-a-member`, (5) `entries` is the one authority
  * (warming→connected + a fault member reads failed).
@@ -109,7 +109,7 @@ describe("surface-map mock-entry e2e harness", () => {
     });
   });
 
-  it("(2) useEntry re-keys synchronously on a signal switch", async () => {
+  it("(2) useEntry re-keys on the flush a signal switch schedules", async () => {
     await createRoot(async (dispose) => {
       const { client, addSession } = setup();
       addSession(
@@ -1005,7 +1005,7 @@ describe("membership is time — opaque membershipId (PR3)", () => {
       const entry1 = makeEntry({ awaiting: 1, awaitingIds: [] });
       addSession(A, entry1.dispatch, connected(0));
 
-      // A reactive useEntry sub over A's urgency cell (opened synchronously — `useEntry`
+      // A reactive useEntry sub over A's urgency cell (created in the root body — `useEntry`
       // needs a live reactive owner). It is the sub that must REBUILD on a same-key re-add
       // — the exact stranding `createRejoinKeyedSub` used to hand-fix.
       const [active] = createSignal<HostKey>(A);

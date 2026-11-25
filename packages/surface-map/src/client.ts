@@ -4,7 +4,7 @@
  * `entry(key)` is a PURE lens (partial application of the key — no owner, no I/O,
  * total), and whose `useEntry(accessor)` is the Solid reactive lens that owns
  * swap disposal (a key change disposes the old key's subscriptions and rebuilds
- * synchronously).
+ * on the flush that key change schedules).
  *
  * The per-key subtree is the runtime-keyed analogue of the compile-time sibling
  * client: a per-key `SurfaceClient<ES>` built over a {@link keyInjectingDispatch} —
@@ -328,8 +328,9 @@ export interface SurfaceMapClient<
    *  (`entry(key).odu.…`), each typed from that sibling's own spec. */
   entry(key: KS["Type"]): Entry<ES, Failure, Conn, Sibs>;
   /** Solid reactive lens — owns swap disposal (a keyed root disposes the old
-   *  key's subscriptions on switch and rebuilds synchronously). THROWS outside a
-   *  reactive owner. Sibling faces re-key with the entry's own. */
+   *  key's subscriptions on switch and rebuilds on the flush the key change
+   *  schedules). THROWS outside a reactive owner. Sibling faces re-key with the
+   *  entry's own. */
   useEntry(key: Accessor<KS["Type"]>): Entry<ES, Failure, Conn, Sibs>;
   dispose(): void;
 }

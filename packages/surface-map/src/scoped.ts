@@ -92,8 +92,8 @@ function membershipKernel<
  *  (and everything `build` opens inside it) persists while the key stays in
  *  `sourceKeys` and is disposed the moment it leaves — Solid's keyed `mapArray`
  *  (the framework's retained-per-key-root primitive), read in a render effect so
- *  build/dispose happen SYNCHRONOUSLY on a membership change, never lazily on
- *  the next read. Returns the enc→world index both accessors read. */
+ *  build/dispose happen on the flush the membership change schedules, never
+ *  lazily on the next read. Returns the enc→world index both accessors read. */
 function keyedRoots<K, T>(
   enc: (key: K) => string,
   sourceKeys: Accessor<K[]>,

@@ -30,9 +30,10 @@ export function createKeyedRoot<K, T>(
 ): Accessor<T> {
   if (!getOwner()) {
     throw new Error(
-      "createKeyedRoot must run under a reactive owner — it disposes the prior " +
-        "key's root synchronously on a key change (the switch-abort ordering) and " +
-        "would leak a detached root otherwise. Call it inside a component / createRoot.",
+      "createKeyedRoot must run under a reactive owner — on the flush a key " +
+        "change schedules it disposes the prior key's root (the switch-abort " +
+        "ordering) and would leak a detached root otherwise. Call it inside a " +
+        "component / createRoot.",
     );
   }
   // Single-element keyed array. mapArray re-runs `factory` on a KEY change (not when
