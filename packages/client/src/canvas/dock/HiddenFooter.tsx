@@ -186,18 +186,20 @@ const CardsLayout: Component<{
     <div
       data-testid={props.testId ?? DOCK_HIDDEN_FOOTER_TESTID}
       data-layout="cards"
-      class={{
+      class={[
         // Common: bordered top edge, neutral text, left-aligned content.
-        "flex items-center gap-1.5 border-t border-edge/40 text-fg-3 text-left": true,
-        // Touch (mobile drawer): larger vertical padding, slightly bigger
-        // type so the strip clears 44px tap target.
-        "px-3 py-3 text-[0.75rem]": props.compact === true,
-        // Pointer (desktop): right padding tracks the dock cards' row
-        // gutter so "show all" sits in the same column as the time
-        // labels above it.
-        [`pl-3 ${DOCK_CARDS_GUTTER_CLASS} py-2 text-[0.65rem]`]:
-          props.compact !== true,
-      }}
+        "flex items-center gap-1.5 border-t border-edge/40 text-fg-3 text-left",
+        {
+          // Touch (mobile drawer): larger vertical padding, slightly bigger
+          // type so the strip clears 44px tap target.
+          "px-3 py-3 text-[0.75rem]": props.compact === true,
+          // Pointer (desktop): right padding tracks the dock cards' row
+          // gutter so "show all" sits in the same column as the time
+          // labels above it.
+          [`pl-3 ${DOCK_CARDS_GUTTER_CLASS} py-2 text-[0.65rem]`]:
+            props.compact !== true,
+        },
+      ]}
     >
       {/* The framing label — turns two lone controls into an obvious
        *  "these are the dock's filters" group. */}

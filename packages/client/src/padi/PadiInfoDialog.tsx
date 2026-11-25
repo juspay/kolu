@@ -138,11 +138,13 @@ const ConvergenceBanner: Component<{ conv: PadiConvergence }> = (props) => {
     CONVERGENCE_PRESENTATION[props.conv.kind];
   return (
     <div
-      class={{
-        "rounded-md border px-2.5 py-1.5 text-[11px] leading-relaxed": true,
-        "border-warning/40 bg-warning/10 text-warning": p().tone === "warn",
-        "border-danger/40 bg-danger/15 text-danger": p().tone === "down",
-      }}
+      class={[
+        "rounded-md border px-2.5 py-1.5 text-[11px] leading-relaxed",
+        {
+          "border-warning/40 bg-warning/10 text-warning": p().tone === "warn",
+          "border-danger/40 bg-danger/15 text-danger": p().tone === "down",
+        },
+      ]}
       role="status"
     >
       <div class="font-medium">{p().title}</div>
