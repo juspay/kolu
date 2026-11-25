@@ -116,10 +116,19 @@ const AddField: Component<{
     setDraft("");
     props.onAdd(value);
   };
-  const move = (step: 1 | -1) => {
-    const count = rows().length;
+  /** Move the highlight one row through `through`, from `at`. Both are the
+   *  CALLER's, never read back here: ↓ on a closed menu OPENS it and moves in
+   *  the same press, and a Solid 2 write is staged until the flush — reading
+   *  `rows()` or `active()` here would answer the pre-open filter and
+   *  highlight, which lands the press on the wrong row (or, with a draft
+   *  nothing matched, on none at all). */
+  const move = (
+    step: 1 | -1,
+    through: readonly ProfileSuggestion[],
+    at: number | undefined,
+  ) => {
+    const count = through.length;
     if (count === 0) return;
-    const at = active();
     setActive(
       at === undefined
         ? step === 1
@@ -145,11 +154,19 @@ const AddField: Component<{
   const onKeyDown = (e: KeyboardEvent) => {
     switch (e.key) {
       case "ArrowDown":
-      case "ArrowUp":
+      case "ArrowUp": {
         e.preventDefault();
-        if (!open()) show(false);
-        move(e.key === "ArrowDown" ? 1 : -1);
+        const step = e.key === "ArrowDown" ? 1 : -1;
+        // A closed menu opens UNFILTERED on this press, so the rows it moves
+        // through are every suggestion and the highlight starts from nothing
+        // — the state `show` just wrote, not the one still readable.
+        if (open()) move(step, rows(), active());
+        else {
+          show(false);
+          move(step, props.suggestions, undefined);
+        }
         return;
+      }
       case "Enter": {
         e.preventDefault();
         const at = active();

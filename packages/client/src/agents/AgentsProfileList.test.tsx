@@ -312,6 +312,25 @@ describe("adding", () => {
     expect(options()).toEqual([]);
   });
 
+  it("↓ on a menu closed while filtered opens every row and lands on the first", () => {
+    const f = mount([]);
+    const input = f.input();
+    if (input === null) throw new Error("no input");
+    // A draft nothing matches, then Escape: the menu closes with its filter
+    // still armed.
+    type(input, "zzz");
+    expect(options()).toEqual([]);
+    key(input, "Escape");
+    // One press both opens the menu unfiltered AND moves into it.
+    key(input, "ArrowDown");
+    expect(options().map((o) => o.dataset.value)).toEqual([
+      JUSPAY_PROFILE,
+      "github:me/p",
+      "~/work/profile",
+    ]);
+    expect(options()[0]?.dataset.active).toBe("");
+  });
+
   it("a click on a row adds it", () => {
     const f = mount([]);
     const input = f.input();
