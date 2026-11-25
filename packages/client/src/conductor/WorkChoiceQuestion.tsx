@@ -568,10 +568,13 @@ const WorkChoiceQuestion: Component<{
           time, which is an EFFECT's write in the mount's own flush — by then
           this boundary has already shown the "choose the harness first" line,
           so it is no longer collecting and forwards the host read to the
-          root (ASYNC_OUTSIDE_LOADING_BOUNDARY: "the root mount will be
-          deferred", `@solidjs/signals` 2.0.3 `dist/dev.js:1549-1572`,
-          `isCollecting` at `:10301`). The whole page would wait on the host
-          with nothing on the question to say so.
+          root — the runtime says so itself with
+          ASYNC_OUTSIDE_LOADING_BOUNDARY, "the root mount will be deferred".
+          That is where the runtime differs from the documented contract for
+          `Loading`'s `on` (`solid-js`, `types/client/flow.d.ts`), which reads
+          as if re-arming on a changed `on` value covered the next read. The
+          whole page would wait on the host with nothing on the question to
+          say so.
 
           The rest of the form stays unheld either way — the harness chip
           reads as pressed at once, rather than after a host answers. */}
