@@ -85,8 +85,8 @@ export const useDockReparent = createSharedRoot(
           edge: store.parentEdge(p.id),
           // Untracked: the repair below wants the pane list AT THE LANDING,
           // and a pane list that moves on its own is not a reason to re-run
-          // the landing (the Solid 1 effect never acted on it either — it
-          // bailed on `pending` long before reaching this read).
+          // the landing — the only thing that may re-run it is `pending`,
+          // which this compute bails on above.
           panes: untrack(() => store.getSplitPaneIds(p.fromTile)),
         };
       },

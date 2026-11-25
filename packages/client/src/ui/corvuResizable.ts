@@ -29,29 +29,23 @@ export function realSizes(sizes: number[]): [number, number] | undefined {
 
 /** The value to hand a controlled Corvu Resizable as `sizes`.
  *
- *  The Corvu site (`@corvu-next/resizable`, `@corvu-next/utils`):
- *  `Resizable.Panel`'s `onCleanup` calls the root's `unregisterPanel`, which
- *  calls `setSizes(fn)`; `createControllableSignal`'s setter evaluates
- *  `fn(value())` inside `untrack`, and when controlled `value()` reads the
- *  `sizes` prop. So this derivation runs during teardown — and a teardown
+ *  A memo, and read during TEARDOWN as well as render. The Corvu site
+ *  (`@corvu-next/resizable`, `@corvu-next/utils`): `Resizable.Panel`'s
+ *  `onCleanup` calls the root's `unregisterPanel`, which calls `setSizes(fn)`;
+ *  `createControllableSignal`'s setter evaluates `fn(value())` inside
+ *  `untrack`, and when controlled `value()` reads the `sizes` prop. A teardown
  *  happens inside the very flush that changed its inputs (a host switch, a
- *  canvas-mode change), so the read can land on a memo still dirty in that
- *  flush.
+ *  canvas-mode change), so that read can land on a memo still dirty in the
+ *  flush. Solid 2 answers it without re-entering disposal: `updateIfNecessary`
+ *  refuses to recompute a node carrying the DISPOSED flag, `disposeChildren`
+ *  returns at once on an already-disposed node, and `dispose` strips the
+ *  observation lifecycle — so a dirty derivation read while its owner is being
+ *  torn down recomputes pull-style, or answers with its last committed value
+ *  if it is itself disposed.
  *
- *  Under Solid 1 that was a crash: resolving the pending read re-ran owners
- *  that were mid-disposal and `cleanNode` threw, so the helper kept a plain
- *  signal written ahead of the render instead. Solid 2 closes that hole in the
- *  core — `updateIfNecessary` refuses to recompute a node carrying the
- *  DISPOSED flag ("it would come back alive"), `disposeChildren` returns at
- *  once on an already-disposed node, and `dispose` strips the observation
- *  lifecycle so a later read freezes at the last committed value. A dirty
- *  derivation read during teardown therefore just recomputes, pull-style, or
- *  answers frozen if it was itself disposed; nothing re-enters disposal.
- *
- *  So this is an ordinary memo now. What it still earns over an inline
- *  `sizes={…}` is the value equality: Corvu's controllable setter compares
- *  with `Object.is`, so a fresh array of the same two numbers would otherwise
- *  read as a change on every recompute. */
+ *  What the memo earns over an inline `sizes={…}` is the value equality:
+ *  Corvu's controllable setter compares with `Object.is`, so a fresh array of
+ *  the same two numbers would otherwise read as a change on every recompute. */
 export function controlledSizes(derive: () => number[]): Accessor<number[]> {
   return createMemo(derive, {
     equals: (a, b) => a.length === b.length && a.every((v, i) => v === b[i]),
