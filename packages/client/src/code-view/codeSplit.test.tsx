@@ -41,7 +41,7 @@ const besideSplit = async () => {
 
 /** One microtask turn, so a staged setter's value is readable: a share the
  *  drag reached is visible in `sizes()` on the flush after it is written. */
-const flush = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
+const settle = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
 
 afterEach(() => {
   localStorage.clear();
@@ -82,7 +82,7 @@ describe("the side-by-side share", () => {
     split.onSizesChange([0.36, 0.64]);
     split.onSizesChange([0.4, 0.6]);
     expect(localStorage.getItem(KEY)).toBeNull();
-    await flush();
+    await settle();
     expect(split.sizes()[0]).toBe(0.4);
 
     split.onHandleDragEnd();

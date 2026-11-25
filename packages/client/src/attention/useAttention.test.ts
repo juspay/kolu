@@ -71,7 +71,7 @@ import { useAttention } from "./useAttention";
 
 const A = "11111111-1111-4111-8111-111111111111" as TerminalId;
 
-const flush = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
+const settle = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
 
 /** A host whose attention frame a case drives by hand: `finish` moves a
  *  terminal into the finished list, `work` puts it back to work. */
@@ -154,9 +154,9 @@ describe("which terminals are marked unread", () => {
     vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue(undefined);
     const away = drivenHost("remote:box-1");
     await withAttention(null, async () => {
-      await flush();
+      await settle();
       away.finish(A);
-      await flush();
+      await settle();
       expect(attentionRecordOf("remote:box-1").isUnread(A)).toBe(true);
       expect(attentionRecordOf("local").isUnread(A)).toBe(false);
     });
@@ -169,18 +169,18 @@ describe("which terminals are marked unread", () => {
       .mockResolvedValue(undefined);
     const here = drivenHost("local");
     await withAttention(A, async () => {
-      await flush();
+      await settle();
       // The canvas is on screen and A is the pane you are in: seen.
       here.finish(A);
-      await flush();
+      await settle();
       expect(attentionRecordOf("local").isUnread(A)).toBe(false);
       expect(chimes).not.toHaveBeenCalled();
       // The Conductor covers the canvas: the same pane is no longer in front.
       conductor.inMode = () => true;
       here.work(A);
-      await flush();
+      await settle();
       here.finish(A);
-      await flush();
+      await settle();
       expect(attentionRecordOf("local").isUnread(A)).toBe(true);
       expect(chimes).toHaveBeenCalledTimes(1);
     });
@@ -192,26 +192,26 @@ describe("which terminals are marked unread", () => {
     conductor.inMode = () => true;
     const away = drivenHost("remote:box-2");
     await withAttention(null, async () => {
-      await flush();
+      await settle();
       away.finish(A);
-      await flush();
+      await settle();
       expect(attentionRecordOf("remote:box-2").isUnread(A)).toBe(true);
       // Look, or the live pane, comes to show it: the mark lifts.
       const release = holdConductorScreen(`remote:box-2/${A}`);
-      await flush();
+      await settle();
       expect(attentionRecordOf("remote:box-2").isUnread(A)).toBe(false);
       // A ping while it shows: in front of you, no mark.
       away.work(A);
-      await flush();
+      await settle();
       away.finish(A);
-      await flush();
+      await settle();
       expect(attentionRecordOf("remote:box-2").isUnread(A)).toBe(false);
       // It stops showing: the next ping marks it.
       release();
       away.work(A);
-      await flush();
+      await settle();
       away.finish(A);
-      await flush();
+      await settle();
       expect(attentionRecordOf("remote:box-2").isUnread(A)).toBe(true);
     });
   });
@@ -238,9 +238,9 @@ describe("a terminal the Conductor drives", () => {
     works.membership = () => naming("remote:box-3", "conductor");
     const away = drivenHost("remote:box-3");
     await withAttention(null, async () => {
-      await flush();
+      await settle();
       away.finish(A);
-      await flush();
+      await settle();
       expect(attentionRecordOf("remote:box-3").isUnread(A)).toBe(false);
       expect(hostMarks("remote:box-3").unseenFinished()).toBe(0);
       expect(chimes).not.toHaveBeenCalled();
@@ -258,14 +258,14 @@ describe("a terminal the Conductor drives", () => {
     works.membership = membership;
     const away = drivenHost("remote:box-4");
     await withAttention(null, async () => {
-      await flush();
+      await settle();
       away.finish(A);
-      await flush();
+      await settle();
       expect(attentionRecordOf("remote:box-4").isUnread(A)).toBe(true);
       expect(hostMarks("remote:box-4").unseenFinished()).toBe(1);
       expect(chimes).toHaveBeenCalledTimes(1);
       setMembership(naming("remote:box-4", "conductor"));
-      await flush();
+      await settle();
       expect(attentionRecordOf("remote:box-4").isUnread(A)).toBe(false);
       expect(hostMarks("remote:box-4").unseenFinished()).toBe(0);
     });
@@ -280,13 +280,13 @@ describe("a terminal the Conductor drives", () => {
     works.membership = membership;
     const away = drivenHost("remote:box-5");
     await withAttention(null, async () => {
-      await flush();
+      await settle();
       away.finish(A);
-      await flush();
+      await settle();
       expect(attentionRecordOf("remote:box-5").isUnread(A)).toBe(true);
       expect(hostMarks("remote:box-5").unseenFinished()).toBe(1);
       setMembership(naming("remote:box-5", "conductor"));
-      await flush();
+      await settle();
       expect(attentionRecordOf("remote:box-5").isUnread(A)).toBe(false);
       expect(hostMarks("remote:box-5").unseenFinished()).toBe(0);
     });
@@ -306,18 +306,18 @@ describe("a terminal the Conductor drives", () => {
     works.membership = membership;
     const away = drivenHost("remote:box-6");
     await withAttention(null, async () => {
-      await flush();
+      await settle();
       away.finish(A);
-      await flush();
+      await settle();
       expect(attentionRecordOf("remote:box-6").isUnread(A)).toBe(true);
       expect(() => setMembership(new Map([unresolvable]))).not.toThrow();
-      await flush();
+      await settle();
       expect(() =>
         setMembership(
           new Map([unresolvable, ...naming("remote:box-6", "conductor")]),
         ),
       ).not.toThrow();
-      await flush();
+      await settle();
       expect(attentionRecordOf("remote:box-6").isUnread(A)).toBe(false);
       expect(hostMarks("remote:box-6").unseenFinished()).toBe(0);
     });
@@ -356,13 +356,13 @@ it("a resumed first frame raises no mark before the preferences have arrived, no
     return disposeRoot;
   });
   try {
-    await flush();
+    await settle();
     // Defaults say alerts are on; that is not the user's answer yet.
     expect(attentionRecordOf("local").isUnread(A)).toBe(false);
     // The user's answer: off.
     setAlerts(false);
     setArrived(true);
-    await flush();
+    await settle();
     expect(attentionRecordOf("local").isUnread(A)).toBe(false);
   } finally {
     dispose();
@@ -396,18 +396,18 @@ it("a question asked while the Conductor is in front of you chimes and raises no
   try {
     // The server's first word: nothing is being asked. The baseline.
     setAsks({ ownAsks: [], workAsks: [] });
-    await flush();
+    await settle();
     // The window is away: the first question chimes and raises a popup.
     setAsks({ ownAsks: ["c1"], workAsks: [] });
-    await flush();
+    await settle();
     expect(chimes).toHaveBeenCalledTimes(1);
     expect(conductor.popups).toEqual(["conductor"]);
     // Back in front of it. The question is answered, and a second is asked.
     focused.mockReturnValue(true);
     setAsks({ ownAsks: [], workAsks: [] });
-    await flush();
+    await settle();
     setAsks({ ownAsks: ["c2"], workAsks: [] });
-    await flush();
+    await settle();
     // One more chime for it, and no second popup.
     expect(chimes).toHaveBeenCalledTimes(2);
     expect(conductor.popups).toEqual(["conductor"]);

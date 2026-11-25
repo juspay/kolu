@@ -80,7 +80,7 @@ vi.mock("solid-sonner", () => ({ toast: { error: () => {} } }));
 import { buildCodeQueries } from "./codeQueries";
 import { codeOwner } from "./codeTabOpenController";
 
-const flush = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
+const settle = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
 
 describe("a Code view's query set", () => {
   it("reads its subject's host, not the host the page shows", async () => {
@@ -100,9 +100,9 @@ describe("a Code view's query set", () => {
       void q.allPaths.pending();
       return dispose;
     });
-    await flush();
+    await settle();
     for (const emit of h.emit) emit();
-    await flush();
+    await settle();
 
     const remote = encodeHostKey(elsewhere);
     expect(h.pulses.length).toBeGreaterThan(0);

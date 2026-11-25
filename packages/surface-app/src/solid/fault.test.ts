@@ -1,6 +1,6 @@
 /**
  * `SurfaceFaultBoundary` — the three verbs the framework owns (catch, record,
- * print) proven against a REAL Solid `ErrorBoundary` (the vitest config pins
+ * print) proven against a REAL Solid `Errored` boundary (the vitest config pins
  * the browser build, so the boundary that catches here is the one that catches
  * in a page). The LOOK is the app's; these tests hand in a capturing one.
  *
@@ -25,7 +25,7 @@ afterEach(() => {
 });
 
 /** Solid flushes `createEffect` on a microtask; a macrotask tick drains it. */
-const flush = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
+const settle = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
 
 describe("SurfaceFaultBoundary", () => {
   it("hands the LOOK the PRINTED fault — normalized, not the raw value", () => {
@@ -72,7 +72,7 @@ describe("SurfaceFaultBoundary", () => {
       );
       return d;
     });
-    await flush();
+    await settle();
     // The RAW error (a console renders its stack itself), behind the naming
     // prefix — among possibly-many dev-mode error lines, ours must be one.
     expect(spy.mock.calls).toContainEqual([
