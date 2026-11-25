@@ -74,7 +74,9 @@ export type SortableHandle = {
  *  slot below), so a caller hands the item's id straight through without
  *  reading it in its component body. The dnd-kit registration cannot follow
  *  it — a registered draggable keeps the id it was created with for this
- *  owner's lifetime — so that one samples the accessor, which is exact: every
+ *  owner's lifetime — so the id is sampled once and every later read is
+ *  checked against it: a sortable whose id changed would be registered under
+ *  the old id while its preview slot followed the new one, silently. Every
  *  caller renders one sortable per keyed list item, so an instance IS its id. */
 export function createSortable(id: Accessor<string>): SortableHandle {
   const scope = useDragDropScope();
@@ -84,10 +86,24 @@ export function createSortable(id: Accessor<string>): SortableHandle {
   const registered = untrack(id);
   const draggable = createDraggable(registered);
   const droppable = createDroppable(registered);
+  /** This item's id, refused if it is no longer the one registered. */
+  const itemId = (): string => {
+    const now = id();
+    if (now !== registered) {
+      throw new Error(
+        `createSortable was given a changing id (${registered} -> ${now}) — ` +
+          "the dnd-kit draggable and droppable keep the id they were " +
+          "registered with for this owner's lifetime, so the drag would move " +
+          "one item while the preview shifted another. Render one sortable " +
+          "per id, under a keyed loop.",
+      );
+    }
+    return now;
+  };
   // The offset from this item's own start rect to the rect of the slot the
   // preview order puts it in.
   const slotOffset = (): DragTransform => {
-    const self = id();
+    const self = itemId();
     const slot = list.sortedIds().indexOf(self);
     const home = list.ids().indexOf(self);
     if (slot === -1 || slot === home) return NO_TRANSFORM;

@@ -92,16 +92,34 @@ export function useDockDropVerdict(
  *  verdict and the live gate below follow it, so a caller hands the row's id
  *  straight through without reading it in its component body. The one read
  *  that cannot follow is the dnd-kit registration — a registered draggable
- *  keeps the id it was created with for this owner's lifetime — so that one
- *  samples the accessor, which is exact: every caller renders from a `<For>`
- *  keyed on this id, so an instance IS its terminal. */
+ *  keeps the id it was created with for this owner's lifetime. So the id is
+ *  sampled once and every later read is checked against it: a caller whose id
+ *  changes under one instance would be registered with dnd-kit under the old
+ *  id while the verdict and the live gate followed the new one, and nothing
+ *  would say so. Every caller today renders from a keyed `<For>`, so an
+ *  instance IS its terminal. */
 export function useDockRowDrag(id: Accessor<TerminalId>): DockRowDrag {
   const store = useTerminalStore();
-  const dragId = rowDragId(untrack(id));
+  const registered = untrack(id);
+  const dragId = rowDragId(registered);
   const draggable = createDraggable(dragId);
   const droppable = createDroppable(dragId);
+  /** The row's id, refused if it is no longer the one registered. */
+  const rowId = (): TerminalId => {
+    const now = id();
+    if (now !== registered) {
+      throw new Error(
+        `useDockRowDrag was given a changing id (${registered} -> ${now}) — ` +
+          "the dnd-kit draggable and droppable keep the id they were " +
+          "registered with for this owner's lifetime, so the drag would act " +
+          "for one row while the verdict spoke for another. Render one hook " +
+          "per id, under a keyed loop.",
+      );
+    }
+    return now;
+  };
   const drop = useDockDropVerdict(
-    () => ({ kind: "row", id: id() }),
+    () => ({ kind: "row", id: rowId() }),
     droppable.isActiveDroppable,
   );
   // A row whose terminal is SLEEPING is neither draggable nor a drop target:
@@ -119,7 +137,7 @@ export function useDockRowDrag(id: Accessor<TerminalId>): DockRowDrag {
       droppable.ref(el);
     },
     get handle() {
-      return isLive(id()) ? draggable.handleRef : undefined;
+      return isLive(rowId()) ? draggable.handleRef : undefined;
     },
     get drop() {
       return drop();
