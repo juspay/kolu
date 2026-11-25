@@ -1,12 +1,13 @@
 // @vitest-environment happy-dom
 /** A NEW PATH WAITS; THE SAME PATH KEEPS ITS DOCUMENT.
  *
- *  A tab press changes what the reader shows: the old file leaves, and the
- *  waiting line stands under the new tab's name until the new file's bytes
- *  land, while the header and the tabs beside it keep drawing. A second read
- *  of the SAME path (the work ends while the reader is open and the source
- *  becomes kolu's kept copy) is not a new document: the text stays on screen
- *  until the new bytes land. */
+ *  A tab press changes what the reader shows: the new tab's name goes up at
+ *  once — the header and the tabs are never held waiting for a file — and the
+ *  file that was open is NOT left sitting under it: the viewer, which stays
+ *  mounted, draws its own pre-bytes line until the new file's bytes land. A
+ *  second read of the SAME path (the work ends while the reader is open and
+ *  the source becomes kolu's kept copy) is not a new document: the text stays
+ *  on screen until the new bytes land. */
 
 import { createSignal, flush } from "solid-js";
 import { render } from "@solidjs/web";
@@ -29,8 +30,11 @@ const fixture = vi.hoisted(() => {
 });
 
 vi.mock("../../code-view/BrowseFileDispatcher", () => ({
-  default: (props: { file: { text?: string } | null }) => (
-    <div data-testid="doc">{props.file?.text ?? "no file"}</div>
+  // The one viewer, as the real one draws: the file's text once it has bytes,
+  // and its own waiting line while it has none (the dispatcher's own `Switch`
+  // fallback).
+  default: (props: { file: { path: string; text?: string } | null }) => (
+    <div data-testid="doc">{props.file?.text ?? "Loading…"}</div>
   ),
 }));
 vi.mock("../workFile", () => ({
@@ -43,8 +47,11 @@ vi.mock("../workFile", () => ({
       at: null,
       list: () => Promise.resolve({ rows: [], more: false }),
       read: (path: string) => {
-        const pending = Promise.withResolvers<{ text: string }>();
-        fixture.reads.set(path, (text) => pending.resolve({ text }));
+        // A read answers the file WITH THE PATH it was read for, as both of
+        // the real sources do (`FileData.path`) — that is what tells a
+        // document still on screen from the one the open tab asks for.
+        const pending = Promise.withResolvers<{ path: string; text: string }>();
+        fixture.reads.set(path, (text) => pending.resolve({ path, text }));
         return pending.promise;
       },
     };
@@ -132,22 +139,21 @@ it("waits under a new path's name and keeps the document on a re-read of the sam
   );
   await settle();
 
-  // The first read shows the waiting line — and the header beside it draws,
-  // so the page is not waiting on the document.
-  expect(text("doc")).toBeNull();
-  expect(text("reader-doc")).toContain("Loading…");
+  // The first read draws the viewer with no bytes yet — its own waiting line,
+  // under a header that is already drawn: the page is not waiting on the
+  // document.
+  expect(text("doc")).toBe("Loading…");
   expect(text("reader-head")).toContain("plan.md");
 
   fixture.resolve("plan.md", "the plan");
   await settle();
   expect(text("doc")).toBe("the plan");
 
-  // A TAB PRESS: a new subject, so the waiting line comes back and the old
-  // file is gone from under the new tab's name.
+  // A TAB PRESS: a new subject, so the new name is up at once and the file
+  // that was open is NOT under it — the viewer is back to its waiting line.
   setPath("notes.md");
   await settle();
-  expect(text("doc")).toBeNull();
-  expect(text("reader-doc")).toContain("Loading…");
+  expect(text("doc")).toBe("Loading…");
   expect(text("reader-head")).toContain("notes.md");
 
   fixture.resolve("notes.md", "the notes");
@@ -159,7 +165,6 @@ it("waits under a new path's name and keeps the document on a re-read of the sam
   setRevision(revision() + 1);
   await settle();
   expect(text("doc")).toBe("the notes");
-  expect(text("reader-doc")).not.toContain("Loading…");
 
   fixture.resolve("notes.md", "the notes, kept");
   await settle();

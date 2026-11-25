@@ -43,7 +43,7 @@ import {
   createMemo,
   Errored,
   For,
-  Loading,
+  latest,
   Show,
 } from "solid-js";
 import BrowseFileDispatcher from "../../code-view/BrowseFileDispatcher";
@@ -132,13 +132,54 @@ const WorkReader: Component<{
    *  derivation, shared with the card. */
   const files = createWorkFiles(source);
 
+  /** WHICH FILE THE READER IS OF, read AHEAD of the bytes it asks for.
+   *
+   *  A tab press writes a path onto a file that is not here yet, so the
+   *  runtime holds that write — and everything derived from it — until the
+   *  read lands: a press that moved nothing on screen reads as a dead one.
+   *  `latest` is the display-ahead read of exactly that held write, so the
+   *  name at the head, the tab that is marked open and the document's own
+   *  waiting line are the NEW file's the moment it is pressed, while its
+   *  bytes catch up. The read itself ({@link bytes}) takes the written path,
+   *  not this one: this is what the screen says, not what is being fetched. */
+  const openPath = createMemo(() => latest(() => props.target.path));
+
   /** THE OPEN FILE'S BYTES, keyed on the path AND the source — so a tab press
    *  reads the new file, and a work that ends while the reader is open falls
    *  back to the kept copy without the reader doing anything. `null` only for
-   *  a work this browser has no record of, whose document is never drawn. */
-  const bytes = createMemo<FileWithSource | FileWithUrl | null>(() => {
-    const from = source();
-    return from === null ? null : from.read(props.target.path);
+   *  a work this browser has no record of, whose document is never drawn.
+   *
+   *  THE READ IS DECLARED WITH A LOADING VALUE, exactly as the tabs beside it
+   *  are (`createWorkFiles`): nothing in this frame is held waiting on a file,
+   *  so the header, the tabs and the questions draw while the bytes are in the
+   *  air, and the document says for itself that it is being read. A `Loading`
+   *  boundary over the viewer would say the same line through a fallback that
+   *  appears and vanishes for a read answering in milliseconds (Solid 2
+   *  FALLBACK_FLASH) — and the line it would draw is the viewer's OWN
+   *  pre-bytes line, restated. A FAILED read is still thrown at whoever reads
+   *  it, and the `Errored` boundary below draws the viewer's error face. */
+  const bytes = createMemo<FileWithSource | FileWithUrl | null>(
+    () => {
+      const from = source();
+      return from === null ? null : from.read(props.target.path);
+    },
+    { loadingValue: null },
+  );
+
+  /** WHAT THE VIEWER IS GIVEN: the bytes of the path that is OPEN, and
+   *  nothing while another path's are still being read.
+   *
+   *  A read in the air keeps serving the file it served before, and that is
+   *  the whole of "the same path keeps its document": a work ending under an
+   *  open reader re-reads the same file from kolu's kept copy, and the text
+   *  stays on screen until the new bytes land. Under a NEW path that same
+   *  held file is the WRONG document — the file that was open sitting under
+   *  the new tab's name — so it is withheld, and the viewer draws its waiting
+   *  line instead. The file carries the path it was read for, so the two are
+   *  compared rather than tracked in a second signal. */
+  const shown = createMemo<FileWithSource | FileWithUrl | null>(() => {
+    const file = bytes();
+    return file !== null && file.path === openPath() ? file : null;
   });
 
   /** WHOSE COMMENTS this file's are: the work's own queue for its live
@@ -149,7 +190,7 @@ const WorkReader: Component<{
    *  that queue, and none without one. */
   const commentsAt = commentsFor(queue);
   const comments = createMemo(
-    () => commentsAt()?.commentsForPath(props.target.path) ?? [],
+    () => commentsAt()?.commentsForPath(openPath()) ?? [],
   );
 
   /** THE OPEN QUESTIONS ABOUT THIS WORK — every ask the record still has
@@ -179,7 +220,7 @@ const WorkReader: Component<{
       at={at()}
       comments={queue()}
       open={at() === null ? null : door.open}
-      filePath={props.target.path}
+      filePath={openPath()}
       file={shown.file}
       error={shown.error}
       repoVault={shown.vault}
@@ -192,7 +233,7 @@ const WorkReader: Component<{
       <section
         data-testid="conductor-reader"
         data-work={props.target.work}
-        data-path={props.target.path}
+        data-path={openPath()}
         // WHICH FACE THIS IS — the fact an answer from here is recorded under,
         // and the one a test asks about.
         data-from={props.from}
@@ -203,7 +244,7 @@ const WorkReader: Component<{
           class="flex shrink-0 flex-wrap items-center gap-2 border-b border-edge px-4 py-2"
         >
           <span class="min-w-0 truncate text-[0.82rem] font-semibold text-fg">
-            {workFileName(props.target.path)}
+            {workFileName(openPath())}
           </span>
           <Show when={work()}>
             {(one) => (
@@ -241,7 +282,7 @@ const WorkReader: Component<{
               <WorkFileList
                 rows={files.rows()}
                 more={files.more()}
-                openTo={props.target.path}
+                openTo={openPath()}
                 layout="line"
                 onOpen={(path) =>
                   props.onOpen({ work: props.target.work, path })
@@ -306,34 +347,26 @@ const WorkReader: Component<{
                 <Viewer file={null} error={toError(why())} vault={NO_VAULT} />
               )}
             >
-              {/* THE BOUNDARY FOLLOWS THE OPEN PATH (`on`): a tab press
-                  changes what this frame is OF, and the file that was open
-                  must not sit under the new tab's name while the next one is
-                  read, so the waiting line comes back for the new path. The
-                  tabs and the questions beside it are not held waiting for the
-                  read. A source that changes under the SAME path (a work
-                  ending while the reader is open) keeps the text on screen
-                  until the kept copy lands.
+              {/* THE VIEWER STAYS MOUNTED and says for itself when it has no
+                  bytes yet. A `Loading` boundary here would draw that same
+                  line as a fallback — the viewer's own pre-bytes line,
+                  restated — and would put it up and take it down again for a
+                  read that answers in milliseconds.
 
-                  The fallback is the viewer's own pre-bytes line, said here:
-                  a second dispatcher mounted to draw one line would build a
-                  wikilink menu and a footnote popover for a frame. */}
-              <Loading
-                on={props.target.path}
-                fallback={<div class="px-2 py-1 text-fg-3/50">Loading…</div>}
-              >
-                <Viewer
-                  file={bytes()}
-                  error={undefined}
-                  // The work's OWN files are the vault a `[[wikilink]]` in a
-                  // plan resolves against — the list a plan's links actually
-                  // point into.
-                  vault={{
-                    paths: files.rows().map((file) => file.path),
-                    pending: files.pending(),
-                  }}
-                />
-              </Loading>
+                  What it is handed is the file for the path that is OPEN: the
+                  document that was on screen is withheld under a NEW tab's
+                  name, and kept while the SAME path is read again. */}
+              <Viewer
+                file={shown()}
+                error={undefined}
+                // The work's OWN files are the vault a `[[wikilink]]` in a
+                // plan resolves against — the list a plan's links actually
+                // point into.
+                vault={{
+                  paths: files.rows().map((file) => file.path),
+                  pending: files.pending(),
+                }}
+              />
             </Errored>
           </div>
           {/* SELECTING TEXT TAKES A COMMENT, as on the Code tab — the pill is
