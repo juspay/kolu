@@ -2188,6 +2188,9 @@ When(
     conductorAgentCwd = fs.mkdtempSync(
       path.join(os.tmpdir(), `kolu-conductor-omp-${process.pid}-`),
     );
+    // The directory is the work's repository too: the harness makes it one,
+    // and the fixture conductor opens what it is given.
+    run("git", ["init", "-q", "-b", "main"], conductorAgentCwd);
     const fixture = ompTranscriptPath({ ompDir, cwd: conductorAgentCwd });
     const stagePath = path.join(conductorAgentCwd, "omp-session-pending.jsonl");
     // What its FIRST prompt writes: a session already thinking, which is what
@@ -3086,6 +3089,8 @@ const agentSessions = new Map<
 /** The pull request the scenario has stated so far, so a step that changes one
  *  thing about it (its checks, its state) restates the rest unchanged. */
 let statedPr: PrFixture | null = null;
+/** The terminal the scenario's planner runs in, as the Conductor answered it. */
+let plannerTerminalId: string | null = null;
 
 After(() => {
   for (const dir of workRepos) {
@@ -3095,6 +3100,7 @@ After(() => {
   agentSessions.clear();
   otherRepoDir = null;
   statedPr = null;
+  plannerTerminalId = null;
 });
 
 export function workRepo(world: KoluWorld): string {
@@ -3103,14 +3109,21 @@ export function workRepo(world: KoluWorld): string {
   return dir;
 }
 
-/** WHAT THE PERSON TYPES TO OPEN A WORK — and the repository it is in, when
- *  the scenario made one. A work is a branch in a repository and kolu asks
- *  THAT repository about the branch's pull request, so a scenario with a forge
- *  must key its work by the repo it wrote the PR into; one without says only
- *  the title and keeps the fixture agent's placeholder path. */
+/** WHAT THE PERSON TYPES TO OPEN A WORK — and the repository it is in. A
+ *  work is a branch in a repository and kolu asks THAT repository about the
+ *  branch's pull request and where the branch is checked out, so every open
+ *  names one ({@link workRepoFor}). */
 function openWords(world: KoluWorld, title: string): string {
-  const dir = world.workRepoDir;
-  return dir === undefined ? `open ${title}` : `open ${title} in ${dir}`;
+  return `open ${title} in ${workRepoFor(world)}`;
+}
+
+/** THE WORK'S REPOSITORY, made here when the scenario has not made one: a
+ *  real repository of this scenario's own, reaped by the After hook above. The
+ *  harness chooses the work's folder; the fixture conductor opens what it is
+ *  given, and never makes a repository of its own. */
+function workRepoFor(world: KoluWorld): string {
+  world.workRepoDir ??= makeRepo("work");
+  return world.workRepoDir;
 }
 
 function run(command: string, args: string[], cwd: string): void {
@@ -3177,6 +3190,15 @@ When(
   },
 );
 
+/** ... and only SEND it, in the scenario's own repository, waiting for no
+ *  card: for a scenario in which nothing opens. */
+When(
+  "I send the conductor an open for the work {string}",
+  async function (this: KoluWorld, title: string) {
+    await sendPrompt(this, openWords(this, title));
+  },
+);
+
 /** ... a TRIVIAL one, nothing asked, so an implementor can run in it at once —
  *  in the scenario's own repo, which is where its pull request is read. */
 When(
@@ -3196,11 +3218,10 @@ When(
 When(
   "I ask the conductor to open the work {string} with its model left to me",
   async function (this: KoluWorld, title: string) {
-    const dir = this.workRepoDir;
     await openWorkSaying(
       this,
       title,
-      `open the model by hand ${title}${dir === undefined ? "" : ` in ${dir}`}`,
+      `open the model by hand ${title} in ${workRepoFor(this)}`,
     );
   },
 );
@@ -3214,9 +3235,7 @@ async function openWorkSaying(
 ): Promise<void> {
   // THE WORK'S BRANCH, CHECKED OUT in the scenario's repo — the folder git
   // names for the work's key.
-  const repo = world.workRepoDir;
-  if (repo !== undefined)
-    run("git", ["checkout", "-B", workBranchOf(title)], repo);
+  run("git", ["checkout", "-B", workBranchOf(title)], workRepoFor(world));
   await enterConductor(world);
   world.workTitle = title;
   await sendPrompt(world, prompt);
@@ -3562,7 +3581,12 @@ async function runPlannerIn(world: KoluWorld, repo: string): Promise<void> {
       ),
     }),
   );
-  await runMember(world, "planner", `${bin} ${program}`, repo);
+  plannerTerminalId = await runMember(
+    world,
+    "planner",
+    `${bin} ${program}`,
+    repo,
+  );
 }
 
 When(
@@ -3579,6 +3603,31 @@ When(
   async function (this: KoluWorld) {
     assert.ok(otherRepoDir, "this scenario never made another repo");
     await runPlannerIn(this, otherRepoDir);
+  },
+);
+
+/** THE PLANNER'S OWN TERMINAL CARRIES ITS OWN BRANCH'S PR — a true fact about
+ *  that terminal, read off its tile's title, where kolu draws the PR of the
+ *  branch the terminal stands on. A scenario that says the card takes nothing
+ *  from it shows first that there was something to take. */
+Then(
+  "the planner's own terminal should show its pull request {string}",
+  async function (this: KoluWorld, number: string) {
+    const id = plannerTerminalId;
+    assert.ok(id, "this scenario never ran a planner");
+    const pr = this.page.locator(
+      `[data-testid="canvas-tile"][data-terminal-id="${id}"] :is([data-testid="terminal-meta-pr"], [data-testid="terminal-meta-pr-compact"])`,
+    );
+    await pollFor({
+      observe: async () =>
+        (await pr.allTextContents()).map((text) => text.trim()).join(" | "),
+      isDone: (said) => said.includes(number),
+      timeoutMs: POLL_TIMEOUT,
+      onTimeout: (said, ms) =>
+        new Error(
+          `the planner's tile never showed pull request ${number} after ${ms}ms; its title's PR reads ${JSON.stringify(said)}`,
+        ),
+    });
   },
 );
 
