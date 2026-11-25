@@ -13,8 +13,10 @@ const west: HostKey = { kind: "remote", target: "west" };
 // departed case (→ null, NOT a substituted local world), and encode-equality.
 describe("groundActiveHost — ground the active host against membership", () => {
   it("boot window: membership not snapshotted yet → null (no ungrounded active)", () => {
-    // active restored sync from sessionStorage before the first entries frame — the
-    // #1763 transient. `null` is `scopedByEntry`'s no-warn no-selection inhabitant.
+    // The stored active lands on the first flush, not synchronously: Solid 2 stages
+    // makePersisted's hydration write. Either way it is read before the first entries
+    // frame — the #1763 transient. `null` is `scopedByEntry`'s no-warn no-selection
+    // inhabitant.
     expect(groundActiveHost(LOCAL_HOST, [])).toBeNull();
     expect(groundActiveHost(zest, [])).toBeNull();
   });
