@@ -122,7 +122,7 @@ test("a hold the client vouches for is still a hold", async () => {
     await holdFailure({
       rowsBack: 3,
       phase: () => "held",
-      status: () => "thinking · 2m",
+      state: () => "thinking for 2m",
     }),
     null,
   );

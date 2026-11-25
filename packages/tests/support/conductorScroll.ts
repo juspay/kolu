@@ -159,9 +159,16 @@ export async function moveStory(
     at.screen,
   );
   if (left === undefined) return "no move was recorded";
-  return left
-    ? "it scrolled back and was thrown to the bottom"
-    : "it never scrolled";
+  if (!left) return "it never scrolled";
+  const now = await sample(page, at, lastReadFailure());
+  if (now.rowsBack === null)
+    return "it scrolled back, and the screen cannot be read now";
+  if (now.rowsBack === 0)
+    return "it scrolled back and was thrown to the bottom";
+  return (
+    `it scrolled back and is still ${now.rowsBack} row(s) off the bottom, ` +
+    `with the head saying ${JSON.stringify(now.phase)}`
+  );
 }
 
 /** WHAT THE PAGE HOLDS RIGHT NOW, by the two selectors the sample reads. A
