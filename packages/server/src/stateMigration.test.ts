@@ -3759,6 +3759,8 @@ describe("the 1.68.0 rung — a work's facts are the work's (T24)", () => {
       readonly events: unknown;
       readonly ref: string;
       readonly extra: unknown;
+      /** A watch of the moving terminal kept already, beside the old one. */
+      readonly kept?: Record<string, unknown>;
     }> = [
       {
         why: "no join time",
@@ -3778,6 +3780,18 @@ describe("the 1.68.0 rung — a work's facts are the work's (T24)", () => {
         ref: SECOND,
         extra: member(WATCH, "other"),
       },
+      {
+        why: "a kept watch of the terminal whose timeline it cannot add to",
+        events: [joined(WATCHED, "implementor", 2)],
+        ref: SECOND,
+        extra: member(WATCH, "other"),
+        kept: {
+          [SECOND_WATCH]: {
+            ...work({ kind: "watch", terminal: SECOND }, "second", []),
+            events: "not a list",
+          },
+        },
+      },
     ];
     for (const one of cases) {
       const conf = makeStore({
@@ -3786,6 +3800,7 @@ describe("the 1.68.0 rung — a work's facts are the work's (T24)", () => {
             ...work({ kind: "watch", terminal: WATCHED }, "watched", []),
             events: one.events,
           },
+          ...one.kept,
         },
         members: {
           [WATCHED]: member(WATCH, "implementor"),
@@ -3804,8 +3819,10 @@ describe("the 1.68.0 rung — a work's facts are the work's (T24)", () => {
     // Any store of watches — some keyed by a terminal, open or finished, one
     // maybe nameless — and terminals each in at most one open watch, joined
     // after it began. After the rung: the store is legal, every timeline is
-    // in time order, and for every terminal the newest `joined` about it,
-    // across every timeline, is on the one watch its member row names.
+    // in time order, for every terminal the newest `joined` about it, across
+    // every timeline, is on the one watch its member row names — and a
+    // terminal that moved out of a watch that stays is said to have LEFT it,
+    // `released`, at that same move time.
     const POOL = [0, 1, 2, 3, 4, 5].map((n) => `local/t-${n}`);
     let tried = 0;
     for (let seed = 1; tried < 200 && seed < 2000; seed += 1) {
@@ -3845,9 +3862,12 @@ describe("the 1.68.0 rung — a work's facts are the work's (T24)", () => {
       }
       if (open.length === 0) continue;
       const members: Record<string, unknown> = {};
+      /** Each member's watch before the rung. */
+      const before = new Map<string, string>();
       for (const ref of POOL) {
         if (pick() < 0.3) continue;
         const id = among(open);
+        before.set(ref, id);
         const minute = (lastMinute.get(id) ?? 0) + Math.floor(pick() * 5);
         lastMinute.set(id, minute);
         (works[id]?.events as unknown[]).push(joined(ref, "other", minute));
@@ -3891,6 +3911,19 @@ describe("the 1.68.0 rung — a work's facts are the work's (T24)", () => {
           joins.filter((one) => one.at === newest).map((one) => one.id),
           `${where} ${ref}`,
         ).toEqual([row.work]);
+        const was = before.get(ref) ?? row.work;
+        const stayed = after[was];
+        if (was !== row.work && stayed !== undefined)
+          expect(
+            stayed.events.flatMap((event) =>
+              event.kind === "left" &&
+              event.about.kind === "member" &&
+              event.about.terminal === ref
+                ? [[event.at, event.why]]
+                : [],
+            ),
+            `${where} ${ref} left ${was}`,
+          ).toEqual([[newest, "released"]]);
       }
     }
     expect(tried).toBe(200);
