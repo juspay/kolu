@@ -65,6 +65,7 @@ import "kolu-common/test-hooks";
 import { fleetTerminalRef, splitFleetTerminalRef } from "kolu-mcp/fleetRef";
 import { Effect, Semaphore } from "effect";
 import {
+  type Accessor,
   createEffect,
   createMemo,
   mapArray,
@@ -458,26 +459,34 @@ export function useAttention(deps: AttentionDeps): {
     (encHost) => core.markHostSeen(encHost),
   );
 
+  /** RUN `onEntered` ONCE PER REF THAT JOINS `refs`, and forget the ones that
+   *  leave — the entry half of a `mapArray` mapper, in the effect phase: the
+   *  callers below WRITE a record per arrival, imperative work that belongs
+   *  there and not in a computation. */
+  function onRefsEntered(
+    refs: Accessor<readonly string[]>,
+    onEntered: (ref: string) => void,
+  ): void {
+    const served = new Set<string>();
+    createEffect(refs, (next) => {
+      const current = new Set(next);
+      for (const ref of served) if (!current.has(ref)) served.delete(ref);
+      for (const ref of current) {
+        if (served.has(ref)) continue;
+        served.add(ref);
+        onEntered(ref);
+      }
+    });
+  }
+
   // A SCREEN THAT COMES TO SHOW IN THE CONDUCTOR LIFTS ITS TERMINAL'S MARK —
   // Look opened or moved onto it, or its live pane coming on screen — on its
   // own host's record, which that host's Dock reads too. Once per showing:
   // the list keeps a terminal's entry while it stays shown.
-  //
-  // The "once per entry" bookkeeping is a plain served-set rather than a
-  // `mapArray` mapper, because lifting a mark WRITES a record — imperative
-  // work, which belongs in the effect phase and not in a computation.
-  const showingServed = new Set<string>();
-  createEffect(conductorScreensShowing, (refs) => {
-    const current = new Set(refs);
-    for (const ref of showingServed)
-      if (!current.has(ref)) showingServed.delete(ref);
-    for (const ref of current) {
-      if (showingServed.has(ref)) continue;
-      showingServed.add(ref);
-      const split = splitFleetTerminalRef(ref);
-      if (split !== null)
-        attentionRecordOf(split.host).clearUnread(split.id as TerminalId);
-    }
+  onRefsEntered(conductorScreensShowing, (ref) => {
+    const split = splitFleetTerminalRef(ref);
+    if (split !== null)
+      attentionRecordOf(split.host).clearUnread(split.id as TerminalId);
   });
 
   // A TERMINAL THE CONDUCTOR STARTS DRIVING LIFTS ITS UNREAD MARK — it
@@ -490,19 +499,11 @@ export function useAttention(deps: AttentionDeps): {
   // cannot resolve (a host key that is not canonical) is skipped: there is
   // no record of it to lift a mark from, and a throw here would stop the
   // lift for every other member.
-  const drivingServed = new Set<string>();
-  createEffect(
+  onRefsEntered(
     () => drivenRefs(membership()),
-    (refs) => {
-      const current = new Set(refs);
-      for (const ref of drivingServed)
-        if (!current.has(ref)) drivingServed.delete(ref);
-      for (const ref of current) {
-        if (drivingServed.has(ref)) continue;
-        drivingServed.add(ref);
-        const member = splitMemberRef(ref);
-        if (member !== null) core.conductorDrives(member.host, member.id);
-      }
+    (ref) => {
+      const member = splitMemberRef(ref);
+      if (member !== null) core.conductorDrives(member.host, member.id);
     },
   );
 
