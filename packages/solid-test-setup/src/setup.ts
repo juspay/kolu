@@ -11,7 +11,7 @@
  *      production build, this throws at load instead of every diagnostic below
  *      going silent.
  *   2. **Any Solid dev diagnostic fails the test that raised it.** Every event
- *      on `OBSERVE.diagnostics` (`@solidjs/signals` 2.0.3
+ *      on `OBSERVE.diagnostics` (`@solidjs/signals` 2.0.4
  *      `dist/types/core/dev.d.ts`, `Diagnostics.subscribe`) — a strict read,
  *      a write in an owned scope, a cleanup in a forbidden scope, any code —
  *      is collected, and the test's `afterEach` throws with all of them. The

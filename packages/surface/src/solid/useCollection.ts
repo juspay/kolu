@@ -104,7 +104,7 @@ export function useCollection<Name extends string, K, T, I>(
   //
   // `mapArray` is BUILT on that first lookup rather than here, because a Solid 2
   // computed is EAGER — `setupComputedNode` recomputes at creation unless it is
-  // declared lazy (`@solidjs/signals` 2.0.3 `dist/dev-shared.js`), and `mapArray`
+  // declared lazy (`@solidjs/signals` 2.0.4 `dist/dev-shared.js`), and `mapArray`
   // declares an ordinary one. Built at construction it would walk the key set and
   // open one upstream subscription per key before any consumer named one, which
   // is exactly the laziness this receptacle promises (a whole-collection view a
@@ -391,7 +391,7 @@ export function useCollectionDeltas<Name extends string, K, T>(
   // The PLAIN mirror of what the store holds, maintained key-for-key beside it by
   // the two apply functions below — the dictionary twin of `heldOrder`, and for
   // the same two reasons. A store's backing is COPY-ON-WRITE (a draft write clones
-  // the container it writes into, `@solidjs/signals` 2.0.3 `dist/dev.js`
+  // the container it writes into, `@solidjs/signals` 2.0.4 `dist/dev.js`
   // `cloneRaw`), so a `snapshot(dict)` taken once goes stale at the first write and
   // one taken per frame copies the whole dictionary — O(N) per O(|frame|) update,
   // which is the cost this path exists to avoid. Every read inside the frame loop
@@ -589,10 +589,10 @@ export function useCollectionDeltas<Name extends string, K, T>(
    *
    *  A store serves a context-free reader the COMMITTED backing until the flush
    *  ("it mutates at exactly one moment — the flush's commit",
-   *  `@solidjs/signals` 2.0.3 `dist/dev.js` :3777), which is why a fold `step`
+   *  `@solidjs/signals` 2.0.4 `dist/dev.js` :3744), which is why a fold `step`
    *  reading `byKey` straight after {@link applyDelta} would see the previous
    *  frame. Inside a setter the same read is served the STAGING instead
-   *  (`readSource` :5029: `inDraft` ⇒ the pending backing; `inDraft` :4966 is
+   *  (`readSource` :5001: `inDraft` ⇒ the pending backing; `inDraft` :4938 is
    *  per store FAMILY, so the public proxy answers from the staging exactly as
    *  the draft does, and hands back the very proxy it serves afterwards).
    *

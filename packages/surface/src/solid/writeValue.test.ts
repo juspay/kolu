@@ -19,8 +19,8 @@
  * readers notify. Pinning only values would be a vacuous suite for this change.
  *
  * Identity only EXISTS where something is observing: with a key, a merge adopts
- * a child only where a node lives below it (`@solidjs/signals` 2.0.3
- * `dist/dev.js` `descend` :6837), so an unread row is replaced whatever the key
+ * a child only where a node lives below it (`@solidjs/signals` 2.0.4
+ * `dist/dev.js` `descend` :6809), so an unread row is replaced whatever the key
  * says. Every identity test here therefore OBSERVES the rows it then compares,
  * which is also what a rendered list does.
  *
@@ -679,10 +679,10 @@ describe("the declared field must be required and non-nullable", () => {
 describe("a frame a merge cannot reach is replaced, not merged into", () => {
   /** `reconcile` requires a store PROXY at the slot it merges into, and the
    *  store only wraps what Solid calls wrappable: a plain object, a
-   *  null-prototype object, an array (`@solidjs/signals` 2.0.3 `dist/dev.js`
+   *  null-prototype object, an array (`@solidjs/signals` 2.0.4 `dist/dev.js`
    *  `isWrappable` :1969). A `Date`, `Map`, `Set`, typed array or class
    *  instance is served RAW, so a merge aimed at one throws "reconcile target
-   *  is not a store proxy" (:6556) — on the SECOND frame, because the first
+   *  is not a store proxy" (:6528) — on the SECOND frame, because the first
    *  had nothing to merge into and was written by assignment.
    *
    *  No kolu member's value is such a thing at its root today; the framework

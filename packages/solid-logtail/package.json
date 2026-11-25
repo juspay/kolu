@@ -27,8 +27,8 @@
   },
   "dependencies": {
     "@kolu/theme": "workspace:*",
-    "@solidjs/web": "^2.0.3",
+    "@solidjs/web": "^2.0.4",
     "effect": "catalog:",
-    "solid-js": "^2.0.3"
+    "solid-js": "^2.0.4"
   }
 }

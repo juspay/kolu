@@ -698,8 +698,8 @@ const CommandPalette: Component<{
    *  `keyedDisplay` is what the list actually iterates, never `displayed()`.
    *  Solid 2's keyed `mapArray` does NOT drop a repeated key — it indexes the
    *  new window by key and chains the earlier occurrences
-   *  (`newIndices` / `newIndicesNext`, @solidjs/signals 2.0.3 `dist/dev.js`
-   *  :3570-3593), so same-key entries are paired with old nodes in occurrence
+   *  (`newIndices` / `newIndicesNext`, @solidjs/signals 2.0.4 `dist/dev.js`
+   *  :3537-3560), so same-key entries are paired with old nodes in occurrence
    *  order and every entry still gets a node. What it cannot do is tell two
    *  same-key rows apart: pairing by occurrence means a reorder moves a row's
    *  node (its pending click, its hover) to whichever twin now sits in that

@@ -12,8 +12,8 @@
   },
   "dependencies": {
     "@kolu/solid-browser": "workspace:*",
-    "@solidjs/web": "^2.0.3",
-    "solid-js": "^2.0.3"
+    "@solidjs/web": "^2.0.4",
+    "solid-js": "^2.0.4"
   },
   "devDependencies": {
     "@kolu/solid-test-setup": "workspace:*",

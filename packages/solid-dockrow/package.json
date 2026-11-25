@@ -33,8 +33,8 @@
     "@kolu/solid-statepip": "workspace:*",
     "@kolu/terminal-vocab": "workspace:*",
     "@kolu/theme": "workspace:*",
-    "@solidjs/web": "^2.0.3",
+    "@solidjs/web": "^2.0.4",
     "anyforge": "workspace:*",
-    "solid-js": "^2.0.3"
+    "solid-js": "^2.0.4"
   }
 }

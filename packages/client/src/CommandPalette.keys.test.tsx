@@ -72,7 +72,7 @@ it("keeps a distinct row's key stable when its neighbours move", () => {
 // What this guards: every entry gets its own key, so every row is painted and
 // a reorder moves the right node. Solid 2's keyed `mapArray` pairs same-key
 // entries by occurrence order (`newIndices` / `newIndicesNext`,
-// @solidjs/signals 2.0.3 `dist/dev.js`:3570-3593) — nothing vanishes, but two
+// @solidjs/signals 2.0.4 `dist/dev.js`:3537-3560) — nothing vanishes, but two
 // rows sharing a key swap nodes (and node-local state) whenever they move.
 it("paints every same-named row, and keeps painting it across a refresh", () => {
   const tree = (): PaletteItem[] => [

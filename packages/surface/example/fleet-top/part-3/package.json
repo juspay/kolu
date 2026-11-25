@@ -19,9 +19,9 @@
     "@kolu/surface-app": "workspace:*",
     "@kolu/surface-map": "workspace:*",
     "@kolu/surface-remote": "workspace:*",
-    "@solidjs/web": "^2.0.3",
+    "@solidjs/web": "^2.0.4",
     "effect": "catalog:",
-    "solid-js": "^2.0.3",
+    "solid-js": "^2.0.4",
     "ts-pattern": "^5.9.0",
     "ws": "^8.23.0"
   },

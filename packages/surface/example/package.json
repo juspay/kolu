@@ -16,9 +16,9 @@
     "@effect/platform-node": "catalog:",
     "@kolu/surface": "workspace:*",
     "@kolu/surface-app": "workspace:*",
-    "@solidjs/web": "^2.0.3",
+    "@solidjs/web": "^2.0.4",
     "effect": "catalog:",
-    "solid-js": "^2.0.3",
+    "solid-js": "^2.0.4",
     "ws": "^8.23.0"
   },
   "devDependencies": {

@@ -84,7 +84,7 @@ async function settle(ticks = 2): Promise<void> {
 /** Observe every row of a member's value, the way a rendered list does. A merge
  *  preserves a row's STORE IDENTITY (its proxy — the raw is always the newest
  *  frame, since a merge adopts rather than mutates) only where a node lives
- *  below that row: `@solidjs/signals` 2.0.3 `dist/dev.js` `descend` :6837 skips a
+ *  below that row: `@solidjs/signals` 2.0.4 `dist/dev.js` `descend` :6809 skips a
  *  child nothing is watching, so an unobserved row is replaced whatever the key
  *  says. Returns the disposer for the observing root. */
 function watchRows(read: () => Reading | undefined): () => void {

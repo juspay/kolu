@@ -18,7 +18,7 @@
     "@kolu/surface-mcp": "workspace:*",
     "@kolu/surface-remote": "workspace:*",
     "effect": "catalog:",
-    "solid-js": "^2.0.3",
+    "solid-js": "^2.0.4",
     "ts-pattern": "^5.9.0"
   },
   "devDependencies": {

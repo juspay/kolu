@@ -25,6 +25,6 @@
   },
   "dependencies": {
     "@kolu/url-shape": "workspace:*",
-    "solid-js": "^2.0.3"
+    "solid-js": "^2.0.4"
   }
 }

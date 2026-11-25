@@ -192,7 +192,7 @@ export interface SubscriptionOptions<T, R = T> {
  *  EVERY own symbol is content, with no exception carved out for the store, and
  *  that is a fact about Solid 2 rather than a relaxation: a store neither stamps
  *  nor mutates a value it is handed. It ADOPTS a frame as its own backing by a
- *  pointer swap (`@solidjs/signals` 2.0.3 `dist/dev.js` `adoptPB` :4392), tracks
+ *  pointer swap (`@solidjs/signals` 2.0.4 `dist/dev.js` `adoptPB` :4364), tracks
  *  the wrapping in a private lookup rather than on the object, and CLONES before
  *  a draft write touches anything — so an object a consumer has read through a
  *  store proxy carries exactly the own symbols it arrived with (probed: a frame

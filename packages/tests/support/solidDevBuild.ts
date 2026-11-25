@@ -97,7 +97,7 @@ export interface PageDiagnostic {
  *
  * A diagnostic whose call site throws (every `error` severity one) reaches the
  * console as its footer line alone — no code, no message, no owner, no
- * location (`@solidjs/signals` 2.0.3 `dev-shared.js:883-889`). Subscribing to
+ * location (`@solidjs/signals` 2.0.4 `dev-shared.js:883-889`). Subscribing to
  * the channel itself gets the whole event, whatever the console did with it.
  *
  * It runs before any page script, so it cannot read a global the client has

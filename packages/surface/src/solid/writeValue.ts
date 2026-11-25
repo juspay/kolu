@@ -10,8 +10,8 @@
  *
  * `reconcile` ADOPTS the incoming frame: at every level it reaches, the store's
  * backing BECOMES the frame's own object by a pointer swap, and the nodes that
- * exist are notified where the two frames disagree (`@solidjs/signals` 2.0.3
- * `dist/dev.js`: `reconcileState` :6553, `applyAdopt` :6592, `adoptPB` :4392).
+ * exist are notified where the two frames disagree (`@solidjs/signals` 2.0.4
+ * `dist/dev.js`: `reconcileState` :6525, `applyAdopt` :6564, `adoptPB` :4364).
  * Nothing off the wire is cloned, and nothing already in the store is mutated:
  * a frame handed to the store is frozen by construction, and `snapshot(store)`
  * is always the newest frame's own objects.
@@ -205,9 +205,9 @@ function freshElementKey(next: object): (item: unknown) => unknown {
  *  than restated so this module cannot drift from the check it is pre-empting:
  *  a plain object, a null-prototype object or an array is WRAPPABLE; a `Date`,
  *  `Map`, `Set`, typed array, `RegExp` or class instance is not
- *  (`@solidjs/signals` 2.0.3 `dist/dev.js` `isWrappable` :1969). The store
- *  serves an unwrappable child RAW (the draft get traps :5737, :5782), so there
- *  is no store proxy at that slot for `reconcileState` :6556 to merge into.
+ *  (`@solidjs/signals` 2.0.4 `dist/dev.js` `isWrappable` :1969). The store
+ *  serves an unwrappable child RAW (the draft get traps :5709, :5754), so there
+ *  is no store proxy at that slot for `reconcileState` :6528 to merge into.
  *
  *  The `typeof` half is the narrowing `isWrappable`'s own signature cannot give
  *  from `unknown` — it is the same question asked twice, never a second rule. */

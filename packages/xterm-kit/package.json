@@ -21,8 +21,8 @@
     "test:unit": "vitest run"
   },
   "peerDependencies": {
-    "@solidjs/web": "^2.0.3",
-    "solid-js": "^2.0.3"
+    "@solidjs/web": "^2.0.4",
+    "solid-js": "^2.0.4"
   },
   "dependencies": {
     "@kolu/url-shape": "workspace:*",
@@ -42,11 +42,11 @@
     "@babel/parser": "^7.29.2",
     "@kolu/solid-test-setup": "workspace:*",
     "@solidjs/vite-plugin": "^3.0.1",
-    "@solidjs/web": "^2.0.3",
+    "@solidjs/web": "^2.0.4",
     "@types/node": "^22.0.0",
     "@xterm/headless": "^6.0.0",
     "happy-dom": "^21.0.4",
-    "solid-js": "^2.0.3",
+    "solid-js": "^2.0.4",
     "typescript": "^7.0.2",
     "vitest": "^5.0.3"
   }

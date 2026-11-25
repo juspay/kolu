@@ -29,9 +29,9 @@
     "@effect/platform-browser": "4.1.5",
     "@kolu/surface": "workspace:*",
     "@kolu/url-shape": "workspace:*",
-    "@solidjs/web": "^2.0.3",
+    "@solidjs/web": "^2.0.4",
     "effect": "4.1.5",
-    "solid-js": "^2.0.3"
+    "solid-js": "^2.0.4"
   },
   "peerDependencies": {
     "@effect/platform-node": "4.1.5",

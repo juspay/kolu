@@ -28,7 +28,7 @@
     "@pierre/diffs": "^1.6.4",
     "@pierre/trees": "^1.0.0",
     "@solid-primitives/event-listener": "^3.0.0",
-    "@solidjs/web": "^2.0.3",
-    "solid-js": "^2.0.3"
+    "@solidjs/web": "^2.0.4",
+    "solid-js": "^2.0.4"
   }
 }
