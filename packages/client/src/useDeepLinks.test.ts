@@ -309,3 +309,39 @@ describe("verdict-time stamping contract (#1900 R1 / codex F4)", () => {
     expect(ext).toContain('if (hash) history.replaceState(null, "", hash);');
   });
 });
+
+/** The work link's IDENTITY: the same work linked twice must land twice.
+ *
+ *  A work link is answered by object identity — both effects under
+ *  `routeToWork` compare the link they read with the one they already answered
+ *  (`link !== answeredWork`), and neither clears the signal. So a second click
+ *  on the SAME work link only re-triggers because the raise MINTS A FRESH
+ *  `{ work }`: a fresh object is never `Object.is`-equal to the last one, so the
+ *  signal notifies and `answeredWork` no longer matches.
+ *
+ *  Hoist that literal — a module constant, a per-work cache, a memo — and the
+ *  second raise writes the very object already answered: the signal notifies
+ *  nobody, and even if it did both computes would read it as answered. The link
+ *  would land once per work for the life of the session, and nothing else in
+ *  the suite would go red. This pins the mint at the source. */
+describe("the same work linked twice lands twice (the identity pin)", () => {
+  const raise = routerSrc.slice(
+    routerSrc.indexOf("function routeToWork("),
+    routerSrc.indexOf("const workMap ="),
+  );
+
+  it("mints a fresh link inside the raise itself", () => {
+    expect(raise).toContain("setWorkLink({ work })");
+  });
+
+  it("has no other writer to raise a held link from", () => {
+    // One call site, and it is the one above — a hoisted link would have to
+    // reach the signal through some other write.
+    expect((routerSrc.match(/setWorkLink\(/g) ?? []).length).toBe(1);
+  });
+
+  it("answers by identity, which is what an equal write would defeat", () => {
+    // Both effects — the arrival and the bound — gate on the same comparison.
+    expect((routerSrc.match(/link !== answeredWork/g) ?? []).length).toBe(2);
+  });
+});
