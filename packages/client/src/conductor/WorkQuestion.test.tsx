@@ -608,6 +608,41 @@ describe("the model question", () => {
     expect(options(el, "ask-model")).toEqual(["gpt-5-codex"]);
     expect(selected(el, "ask-model")).toEqual([]);
   });
+
+  it("says it is asking the harness just picked, before the host answers", async () => {
+    const el = mount(
+      workOf("now", [
+        koluAsked("ask-harness", "planner.harness"),
+        koluAsked("ask-model", "planner.model"),
+      ]),
+    );
+    await settle();
+    chip(el, "ask-harness", "claude").click();
+    await settle();
+    expect(options(el, "ask-model")).toEqual(["sonnet-4", "opus-4.9"]);
+
+    // The second harness: the host is slow, so the press and the answer are
+    // separate frames — which is the frame this test is about.
+    const slow = Promise.withResolvers<unknown>();
+    host.reply = () => Effect.promise(() => slow.promise);
+    chip(el, "ask-harness", "codex").click();
+    flush();
+
+    // The press is on screen at once, and the model question says whose list
+    // it is waiting for — NOT the models of the harness they left.
+    expect(selected(el, "ask-harness")).toEqual(["codex"]);
+    expect(
+      el.querySelector('[data-testid="conductor-ask-waiting"]')?.textContent,
+    ).toContain("Asking what codex offers here…");
+    expect(options(el, "ask-model")).toEqual([]);
+
+    slow.resolve({
+      launch: { kind: "flag", flag: "--model" },
+      models: { kind: "listed", ids: ["gpt-5-codex"] },
+    });
+    await settle();
+    expect(options(el, "ask-model")).toEqual(["gpt-5-codex"]);
+  });
 });
 
 describe("a kolu built without agent-distro", () => {
