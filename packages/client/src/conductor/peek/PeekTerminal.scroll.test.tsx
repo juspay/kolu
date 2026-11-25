@@ -251,6 +251,7 @@ describe("scrolling back in a Conductor screen", () => {
       locked: true,
       held: true,
     });
+    dispose();
   });
 
   it("holds its place when the pty states a new size while it is held", async () => {
