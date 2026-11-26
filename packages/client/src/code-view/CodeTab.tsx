@@ -1042,9 +1042,13 @@ const CodeTab: Component<{
     },
     {
       // The merge mints a fresh array per status pulse, and a watcher pulses
-      // whether or not anything changed. Pierre re-applies a new reference by
-      // rolling every entry up into its ancestors' change counters, so compare
-      // the entries and let an unchanged set stay silent.
+      // whether or not anything changed. Pierre itself absorbs the equal set —
+      // it returns the PREVIOUS state on a matching `getGitStatusSignature`,
+      // before any ancestor roll-up — so what this gate saves is everything on
+      // THIS side of that cache key: the memo's re-notification, the tree
+      // wrapper's `setGitStatus` effect run, the array spread, the signature
+      // build, and the `UNSTABLE_MEMO_OUTPUT` a fourth equal republish raises
+      // (`sameGitStatusEntries` carries the reference).
       equals: sameGitStatusEntries,
     },
   );
