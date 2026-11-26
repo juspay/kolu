@@ -29,19 +29,20 @@
 
 import type { PrResult } from "kolu-common/surface";
 import type { MemberReading } from "kolu-common/works";
+import { Option } from "effect";
 import {
   finished,
   inProgress,
   membershipOf,
   type Membership,
   type NeedsYou,
-  needsYou,
+  needsYouOf,
   type Work,
   type WorkId,
   type WorkMember,
   type WorkRow,
 } from "kolu-work";
-import { type Accessor, createMemo } from "solid-js";
+import { type Accessor, createMemo, mapArray } from "solid-js";
 import { createSharedRoot } from "../createSharedRoot";
 import { app } from "../wire";
 
@@ -87,6 +88,29 @@ export const useWorkMap = createSharedRoot<Accessor<ReadonlyMap<WorkId, Work>>>(
     mapOf(app.collections.works.use(), "workMap"),
 );
 
+/** TWO READINGS SEEN AS ONE LIST — the same ids in the same order, from the
+ *  same records. Every mirror below hands out a FRESH container per publish,
+ *  so a fold over one mints a new array each run even when no work moved;
+ *  this gate holds the previous array instead, and nothing downstream re-runs
+ *  for a list that did not change. Holding it keeps nothing stale: a record's
+ *  own leaves are read THROUGH the kept row, and a row whose record was
+ *  replaced compares unequal. */
+const sameWorkRows = (
+  a: ReadonlyArray<WorkRow>,
+  b: ReadonlyArray<WorkRow>,
+): boolean =>
+  a.length === b.length &&
+  a.every((row, at) => {
+    const other = b[at];
+    return other !== undefined && other[0] === row[0] && other[1] === row[1];
+  });
+
+/** THE SAME THINGS IN THE SAME ORDER — the gate for a derived list whose
+ *  entries are already held by something else (an id off a row, a row memo's
+ *  own answer), so identity is the whole question. */
+const sameOrder = <T>(a: ReadonlyArray<T>, b: ReadonlyArray<T>): boolean =>
+  a.length === b.length && a.every((one, at) => b[at] === one);
+
 /** THE WORKS, in the order every reader draws them: in progress oldest first
  *  (a card keeps its place), then the finished ones most recently ended first.
  *
@@ -104,10 +128,55 @@ export const useWorks = createSharedRoot<Accessor<ReadonlyArray<WorkRow>>>(
         );
         return [...inProgress(pairs), ...finished(pairs)];
       },
-      { name: "works" },
+      { name: "works", equals: sameWorkRows },
     );
   },
 );
+
+/** ONE MEMO PER WORK — the seam every whole-collection reading of the works
+ *  is folded from, so a reading's scope is N row memos and not N × every leaf
+ *  of every record. A fold that walks the records itself subscribes to all of
+ *  them, and then ONE work's answer changing re-runs the reading for all.
+ *
+ *  `mapArray` over the IDS, which are strings and so keyed by value: a work
+ *  keeps its memo, its owner and its last answer across every publish that
+ *  does not add or remove one. The record is read through a memo of its own,
+ *  so the mirror's fresh `Map` per publish re-runs that one `get` and stops
+ *  there — `of` runs again only when the record it was handed is replaced, or
+ *  a leaf IT read moved.
+ *
+ *  A row reads `undefined` while its work is no longer in the mirror, which a
+ *  reading drops: a row memo outlives its work by the moment between the
+ *  record leaving and the id list being folded again. */
+export const perWork = <T>(
+  /** The reading's name in dev diagnostics; each row memo wears it with the
+   *  id of the work it is about. */
+  name: string,
+  of: (id: WorkId, record: Work) => T,
+): Accessor<ReadonlyArray<Accessor<T | undefined>>> => {
+  const map = useWorkMap();
+  const works = useWorks();
+  const ids = createMemo(() => works().map(([id]) => id), {
+    name: `${name}.ids`,
+    equals: sameOrder,
+  });
+  return mapArray(
+    ids,
+    (id) => {
+      const record = createMemo(() => map().get(id), {
+        name: `${name}.record[${id}]`,
+      });
+      return createMemo(
+        () => {
+          const one = record();
+          return one === undefined ? undefined : of(id, one);
+        },
+        { name: `${name}[${id}]` },
+      );
+    },
+    { name },
+  );
+};
 
 /** EVERY TERMINAL THAT IS IN A PIECE OF WORK, by its `<host>/<id>` ref — the
  *  one map, mirrored once. A ref that is not a key here is in no work; a ref
@@ -152,10 +221,28 @@ export const useWorkPrs = createSharedRoot<
  *  reading over the works mirror. The "Needs you" group, the bell, the tab's
  *  and the OS badge's count, the phone's handle and the palette's rows all
  *  read THIS, so none of them can count a different thing. In the works'
- *  own order: oldest first. */
+ *  own order: oldest first.
+ *
+ *  ONE WORK AT A TIME ({@link perWork}): the reading each work is waiting on
+ *  the human for is that work's own memo, and this list joins the answers. So
+ *  a timeline that moves wakes its own work's reading and nothing else, and
+ *  the list itself re-publishes only when an item joins, leaves or changes —
+ *  the list every count in the app is taken from. */
 export const useNeedsYou = createSharedRoot<Accessor<ReadonlyArray<NeedsYou>>>(
   () => {
-    const works = useWorks();
-    return createMemo(() => needsYou(works()), { name: "needsYou" });
+    const rows = perWork("needsYou", (id, record) =>
+      Option.getOrUndefined(needsYouOf(id, record)),
+    );
+    return createMemo(
+      () => {
+        const out: NeedsYou[] = [];
+        for (const row of rows()) {
+          const one = row();
+          if (one !== undefined) out.push(one);
+        }
+        return out;
+      },
+      { name: "needsYou", equals: sameOrder },
+    );
   },
 );
