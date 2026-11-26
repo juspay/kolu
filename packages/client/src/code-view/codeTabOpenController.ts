@@ -222,11 +222,21 @@ export function createCodeTabOpenController<Paths, Resolved>(
    *
    *  The callbacks write plain signals and stores and raise toasts; they
    *  create no children and register no cleanup, which `onSettled` forbids
-   *  unowned. */
+   *  unowned. They are handed over in a BLOCK that answers with nothing,
+   *  whatever they return: an unowned settle has no lifecycle to attach a
+   *  cleanup to, so a returned value (a toast's id, a setter's `false`) throws
+   *  `SETTLED_CLEANUP_UNOWNED` out of the drain and halts the flush it was
+   *  draining. Passing `apply` straight through would make that every caller's
+   *  problem; `governance/effectCleanup.ts` holds every `onSettled` to this
+   *  form. */
   const complete = (request: OpenInCodeTabRequest, apply: () => void): void => {
     stopRefreshing();
     attempt = { kind: "complete", request };
-    runWithOwner(null, () => onSettled(apply));
+    runWithOwner(null, () => {
+      onSettled(() => {
+        apply();
+      });
+    });
   };
 
   const isCurrent = (

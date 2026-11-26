@@ -460,6 +460,42 @@ describe("createCodeTabOpenController — the landing writes settled", () => {
     dispose();
   });
 
+  it("lands an outcome whose callback answers with a value", () => {
+    // The product's own landings answer with something: `toast.error` returns
+    // its id, a store setter returns the written value. The settle is UNOWNED,
+    // where a return is a cleanup with no lifecycle to attach to — the drain
+    // rejects it with `SETTLED_CLEANUP_UNOWNED` and that throw escapes the
+    // flush it was draining. The landing verb hands `onSettled` a block that
+    // answers with nothing, so the id stays inside the callback.
+    const { rp, snapshot, open, watch } = pane("open-answering-tile");
+    const toasts: string[] = [];
+    const dispose = createRoot((dispose) => {
+      watch();
+      createCodeTabOpenController<Paths, string>({
+        snapshot,
+        resolve: (request, paths) =>
+          paths.includes(request.ref.path) ? request.ref.path : null,
+        readFresh: asEffect(async () => []),
+        onResolved: (_request, resolved) => {
+          rp.code.setSelectedFile("browse", resolved);
+          toasts.push(`opened-${resolved}`);
+          return toasts.length;
+        },
+        onNotFound: () => {},
+        onError: () => {},
+      });
+      return dispose;
+    });
+    flush();
+
+    for (const path of PICKS) open(path);
+
+    expect(toasts).toHaveLength(PICKS.length);
+    expect(rp.code.selectedFile("browse")).toBe("five.ts");
+    expect(takeSolidDiagnostics()).toEqual([]);
+    dispose();
+  });
+
   it("tears when the same landing is written from the arm itself", () => {
     // THE CONTROL, so the case above cannot become a sleeping detector: the
     // same five opens and the same victim, with the landing written inline

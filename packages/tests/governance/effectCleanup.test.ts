@@ -182,9 +182,70 @@ test("does NOT read a method call on an object that merely shares the name", () 
   );
 });
 
-test("does NOT flag an apply arm passed as a named reference", () => {
-  // Outside what a lexical scan can know, and said so in the header.
+test("does NOT flag an EFFECT's apply arm passed as a named reference", () => {
+  // Outside what a lexical scan can know, and said so in the header. Only
+  // `onSettled`'s callback is total.
   assert.equal(hits(withImport("createEffect(dep, applyIt);")).length, 0);
+});
+
+test("flags a callback passed to `onSettled` by name", () => {
+  // The live shape: `code-view/codeTabOpenController.ts` handed its landing
+  // `apply` straight through, so whatever the arm's last call answered (a
+  // toast id, a setter's `false`) reached the drain's cleanup check.
+  const found = hits(withImport("runWithOwner(null, () => onSettled(apply));"));
+  assert.equal(found.length, 1);
+  assert.equal(found[0]?.call, "onSettled");
+  assert.equal(found[0]?.reason, "reference");
+  assert.match(found[0]?.text ?? "", /^apply$/);
+});
+
+test("flags every `onSettled` callback that is not a function literal", () => {
+  for (const arm of [
+    "apply",
+    "apply.bind(null)",
+    "makeApply(request)",
+    "ready ? apply : skip",
+    "{ effect: apply }",
+  ])
+    assert.equal(
+      hits(withImport(`onSettled(${arm});`)).length,
+      1,
+      `expected a hit for onSettled(${arm})`,
+    );
+});
+
+test("the total form and a braced `function` literal pass `onSettled`", () => {
+  assert.equal(hits(withImport("onSettled(() => { apply(); });")).length, 0);
+  assert.equal(
+    hits(withImport("onSettled(function () { apply(); });")).length,
+    0,
+  );
+  // Still async-sensitive, by either spelling.
+  assert.equal(
+    hits(withImport("onSettled(async function () { await s(); });")).length,
+    1,
+  );
+});
+
+test("names the total rule and its throw in the failure", () => {
+  assert.throws(
+    () =>
+      validateEffectCleanupHits([
+        {
+          path: "client/src/code-view/codeTabOpenController.ts",
+          line: 224,
+          call: "onSettled",
+          text: "apply",
+          reason: "reference",
+        },
+      ]),
+    (error: Error) => {
+      assert.match(error.message, /SETTLED_CLEANUP_UNOWNED/);
+      assert.match(error.message, /codeTabOpenController\.ts:224/);
+      assert.match(error.message, /onSettled\(\(\) => \{ apply\(\); \}\)/);
+      return true;
+    },
+  );
 });
 
 test("does NOT flag the ban NAMED in prose or quoted in a message", () => {
@@ -210,6 +271,7 @@ test("reports the 1-based line of the arrow and names the call in the failure", 
           line: 7,
           call: "createEffect",
           text: "({ held, report }) => report(held)",
+          reason: "expression",
         },
       ]),
     /packages\/x\/src\/a\.tsx:7/,

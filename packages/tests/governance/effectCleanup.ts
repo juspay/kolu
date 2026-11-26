@@ -43,6 +43,17 @@
  * becomes something a reader (and a reviewer) can see. Three sites in the tree
  * legitimately return one and all three are written that way.
  *
+ * **`onSettled` is TOTAL: its callback must be a literal with a block body.**
+ * The one-shot fires from the queue's drain with no owner of its own, and an
+ * unowned callback that answers with anything but `undefined` throws
+ * `SETTLED_CLEANUP_UNOWNED` out of the drain — "a cleanup can only be honored
+ * under an owner" — which halts the flush that was draining. So for this
+ * position a callback that is not an inline function literal is itself the
+ * hit: `onSettled(apply)` passes `apply`'s return value straight to that
+ * check, and no lexical scan can follow the name to see what it answers. The
+ * total form is `onSettled(() => { apply(); })`, which answers with nothing
+ * whatever `apply` returns.
+ *
  * **`async` is a hit whatever the body.** `createEffect(dep, async (v) => {
  * … })` and `onSettled(async () => { … })` answer with a Promise, braces or
  * not, so the block cannot save them: start the promise inside the body and
@@ -69,7 +80,8 @@
  * import("solid-js")`, which a test uses) counts as an import too.
  *
  * **Residual risk.** An apply arm passed as a named reference
- * (`createEffect(dep, applyIt)`) is not inspected, and neither is one reached
+ * (`createEffect(dep, applyIt)`) is not inspected — only `onSettled`'s
+ * callback is total — and neither is an arm reached
  * through a re-export under a different module specifier. Three more shapes
  * walk past: a namespace import (`import * as solid`, then
  * `solid.createEffect(…)`), which this scan reads as a method call on an
@@ -83,7 +95,12 @@
  * argument's own type arguments (`dep as Map<string, number>`,
  * `<T,>(v: T) => …`), since arguments are split without counting `<`/`>`.
  * All of them are outside what a lexical scan can know; the shapes that
- * actually shipped are inside it.
+ * actually shipped are inside it. Two things the total rule still cannot see:
+ * what a block body does — `onSettled(() => { return toast.error(m); })` is an
+ * explicit `return`, which the rule above reads as a deliberate cleanup, and
+ * for an unowned settle it is the throw, so the explicitness is the whole
+ * defence; and a callback handed to `onSettled` by a helper of the repo's own
+ * (`settleWith(apply)`), whose own call of `onSettled` is what gets scanned.
  */
 
 import { readdirSync, readFileSync, statSync } from "node:fs";
@@ -111,6 +128,11 @@ const IMPORT_CLAUSE =
 const DYNAMIC_IMPORT =
   /\{([^{}]*)\}\s*=\s*(?:await\s+)?import\(\s*["']([^"']+)["']\s*\)/g;
 
+/** Why an arm offends: `expression`, a concise body whose value IS the
+ *  returned cleanup; `reference`, a total position's callback that is not an
+ *  inline function literal at all. */
+export type EffectCleanupReason = "expression" | "reference";
+
 export interface EffectCleanupHit {
   /** Repo-relative path, POSIX separators. Empty from the source-only scan. */
   readonly path: string;
@@ -120,6 +142,8 @@ export interface EffectCleanupHit {
   readonly call: string;
   /** The offending text, trimmed and collapsed onto one line. */
   readonly text: string;
+  /** Which rule it broke. */
+  readonly reason: EffectCleanupReason;
 }
 
 const lineOf = (code: string, index: number): number =>
@@ -224,31 +248,40 @@ function callOpenParen(code: string, after: number): number | null {
   return code[i] === "(" ? i : null;
 }
 
-/** An offending arm: the index to report it at, and its text. */
+/** An offending arm: the index to report it at, its text, and the rule. */
 interface ArmHit {
   readonly index: number;
   readonly text: string;
+  readonly reason: EffectCleanupReason;
 }
 
 /** `async` as the arm's own modifier, rather than the head of a name. */
 const ASYNC_ARM = /^async(?:[\s(<]|$)/;
 
 /** The arm spanning `[start, end)`, inspected. `null` when it cannot hand back
- *  a value by accident: a synchronous braced body, a named reference, anything
- *  that is not a function literal at all. */
-function armHit(code: string, start: number, end: number): ArmHit | null {
+ *  a value by accident: a synchronous braced body, anything that is not a
+ *  function literal at all — unless `total`, where not being a function
+ *  literal is itself the hit, because the name's own return is what reaches
+ *  the drain. */
+function armHit(
+  code: string,
+  start: number,
+  end: number,
+  total: boolean,
+): ArmHit | null {
   const whole = code.slice(start, end);
   const text = whole.trim();
   const body = arrowBodyStart(code, start, end);
-  const isFunction = body !== null || /^async\s+function\b/.test(text);
+  const isFunction = body !== null || /^(?:async\s+)?function\b/.test(text);
+  const head = start + whole.length - whole.trimStart().length;
   if (ASYNC_ARM.test(text) && isFunction)
-    return {
-      index: start + whole.length - whole.trimStart().length,
-      text: oneLine(whole),
-    };
-  if (body === null) return null;
+    return { index: head, text: oneLine(whole), reason: "expression" };
+  if (body === null) {
+    if (!total || isFunction) return null;
+    return { index: head, text: oneLine(whole), reason: "reference" };
+  }
   if (code.slice(body, end).trimStart().startsWith("{")) return null;
-  return { index: body, text: oneLine(whole) };
+  return { index: body, text: oneLine(whole), reason: "expression" };
 }
 
 /** A bundle property that runs in the effect phase: `effect: value`,
@@ -257,11 +290,22 @@ const BUNDLE_ARM = /^\s*(?:(async)\s+)?(?:effect|error)\s*([:(])/;
 
 /** Every offending arm of the apply position spanning `[start, end)`: the arm
  *  itself, or — when the position holds an `{ effect, error }` bundle — each of
- *  its two values. */
-function applyArmHits(code: string, start: number, end: number): ArmHit[] {
+ *  its two values. A total position takes no bundle, so an arm of one that
+ *  opens with `{` is an object where a function literal was owed. */
+function applyArmHits(
+  code: string,
+  start: number,
+  end: number,
+  total: boolean,
+): ArmHit[] {
   const brace = code.indexOf("{", start);
-  if (brace === -1 || brace >= end || code.slice(start, brace).trim() !== "") {
-    const hit = armHit(code, start, end);
+  if (
+    total ||
+    brace === -1 ||
+    brace >= end ||
+    code.slice(start, brace).trim() !== ""
+  ) {
+    const hit = armHit(code, start, end, total);
     return hit === null ? [] : [hit];
   }
   const hits: ArmHit[] = [];
@@ -277,11 +321,12 @@ function applyArmHits(code: string, start: number, end: number): ArmHit[] {
       hits.push({
         index: from + property.length - property.trimStart().length,
         text,
+        reason: "expression",
       });
       continue;
     }
-    const hit = armHit(code, from + match[0].length, to);
-    if (hit !== null) hits.push({ index: hit.index, text });
+    const hit = armHit(code, from + match[0].length, to, false);
+    if (hit !== null) hits.push({ index: hit.index, text, reason: hit.reason });
   }
   return hits;
 }
@@ -304,12 +349,18 @@ export function findEffectCleanupHits(source: string): EffectCleanupHit[] {
       const spans = argumentSpans(code, open);
       const span = spans?.[POSITIONS.get(exported) ?? 0];
       if (span === undefined) continue;
-      for (const hit of applyArmHits(code, span[0], span[1]))
+      for (const hit of applyArmHits(
+        code,
+        span[0],
+        span[1],
+        exported === "onSettled",
+      ))
         hits.push({
           path: "",
           line: lineOf(code, hit.index),
           call: exported,
           text: hit.text,
+          reason: hit.reason,
         });
     }
   }
@@ -346,19 +397,37 @@ export function collectEffectCleanupHits(repoRoot: string): EffectCleanupHit[] {
   return out;
 }
 
-/** Throw unless every apply arm is braced. There is no allowlist: a cleanup is
- *  spelled `return`, and a non-cleanup is spelled with a statement. */
+/** Throw unless every apply arm is braced and every total callback is an
+ *  inline function literal. There is no allowlist: a cleanup is spelled
+ *  `return`, and a non-cleanup is spelled with a statement. */
 export function validateEffectCleanupHits(
   hits: readonly EffectCleanupHit[],
 ): void {
   if (hits.length === 0) return;
-  const lines = hits.map((h) => `  ${h.path}:${h.line}  ${h.call}  ${h.text}`);
-  throw new Error(
-    "an expression-bodied arrow in an effect's apply position — its value IS the " +
-      "returned cleanup, so a setter's `false` or a helper's `null` halts " +
-      "reactivity in prod and throws in dev:\n" +
-      `${lines.join("\n")}\n` +
-      "Give the arrow a BLOCK body. If it really does return a cleanup, say so " +
-      "with an explicit `return`.",
-  );
+  const listing = (reason: EffectCleanupReason): string =>
+    hits
+      .filter((h) => h.reason === reason)
+      .map((h) => `  ${h.path}:${h.line}  ${h.call}  ${h.text}`)
+      .join("\n");
+  const expression = listing("expression");
+  const reference = listing("reference");
+  const parts: string[] = [];
+  if (expression !== "")
+    parts.push(
+      "an expression-bodied arrow in an effect's apply position — its value IS the " +
+        "returned cleanup, so a setter's `false` or a helper's `null` halts " +
+        "reactivity in prod and throws in dev:\n" +
+        `${expression}\n` +
+        "Give the arrow a BLOCK body. If it really does return a cleanup, say so " +
+        "with an explicit `return`.",
+    );
+  if (reference !== "")
+    parts.push(
+      "a callback passed to `onSettled` by name — whatever it answers reaches the " +
+        "drain's cleanup check, and an unowned settle throws " +
+        "`SETTLED_CLEANUP_UNOWNED` from the flush it was draining:\n" +
+        `${reference}\n` +
+        "Wrap it in a literal that answers with nothing: `onSettled(() => { apply(); })`.",
+    );
+  throw new Error(parts.join("\n\n"));
 }
