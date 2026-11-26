@@ -33,7 +33,17 @@ const cucumber = path.join(
 // or `tags` slip that selects almost nothing is caught rather than passed.
 const SCENARIO_FLOOR = 500;
 
-test("the ui profile defines every step of every feature it runs", () => {
+/**
+ * Dry-run the `ui` profile in a child cucumber process and return its output.
+ *
+ * `features` are passed as positional arguments, which `cucumber.js` reads
+ * off the importing process's own argv — the importer is this child, so a
+ * feature argument drops `ui.paths` and lets the argument select the run,
+ * exactly as `just record` and a one-feature `just test` do. `env` is added
+ * to this process's environment, so the profile's env-keyed `tags` is
+ * computed the way the lane computes it.
+ */
+function dryRun(features: string[], env: NodeJS.ProcessEnv = {}) {
   const dir = mkdtempSync(path.join(tmpdir(), "kolu-cucumber-support-"));
   try {
     const config = path.join(dir, "cucumber.mjs");
@@ -41,8 +51,8 @@ test("the ui profile defines every step of every feature it runs", () => {
     writeFileSync(
       config,
       `import { ui } from ${JSON.stringify(profile)};\n` +
-        `export default { import: ui.import, paths: ui.paths, tags: ui.tags,` +
-        ` dryRun: true, format: ["summary"] };\n`,
+        `export default { import: ui.import, ...(ui.paths && { paths: ui.paths }),` +
+        ` tags: ui.tags, dryRun: true, format: ["summary"] };\n`,
     );
     const result = spawnSync(
       process.execPath,
@@ -53,29 +63,53 @@ test("the ui profile defines every step of every feature it runs", () => {
         "--config",
         // cucumber joins the config path onto its cwd, so it goes relative.
         path.relative(packageRoot, config),
+        ...features,
       ],
-      // No feature argument: `cucumber.js` keys `paths` off the importing
-      // process's own argv, and the importer here is this cucumber child, so
-      // `ui.paths` is the whole feature tree.
-      { cwd: packageRoot, env: process.env, encoding: "utf8" },
+      { cwd: packageRoot, env: { ...process.env, ...env }, encoding: "utf8" },
     );
-    const out = `${result.stdout}${result.stderr}`;
-    // A summary that selected nothing prints a bare `0 scenarios`, with no
-    // parenthesised breakdown, so the count is read on its own.
-    const scenarios = out.match(/^(\d+) scenarios?(?: \(([^)]*)\))?$/m);
-    assert.ok(
-      scenarios !== null,
-      `no scenario summary in the dry run:\n${out}`,
-    );
-    assert.ok(
-      Number(scenarios[1]) >= SCENARIO_FLOOR,
-      `the dry run selected ${scenarios[1]} scenarios, under ${SCENARIO_FLOOR}:\n${out}`,
-    );
-    const steps = out.match(/^(\d+) steps?(?: \(([^)]*)\))?$/m);
-    assert.ok(steps !== null, `no step summary in the dry run:\n${out}`);
-    assert.doesNotMatch(steps[2] ?? "", /undefined/, steps[0]);
-    assert.equal(result.status, 0, out);
+    return { out: `${result.stdout}${result.stderr}`, status: result.status };
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+}
+
+/** Assert the summary selected at least `floor` scenarios, none undefined. */
+function assertSelected(
+  { out, status }: { out: string; status: number | null },
+  floor: number,
+) {
+  // A summary that selected nothing prints a bare `0 scenarios`, with no
+  // parenthesised breakdown, so the count is read on its own.
+  const scenarios = out.match(/^(\d+) scenarios?(?: \(([^)]*)\))?$/m);
+  assert.ok(scenarios !== null, `no scenario summary in the dry run:\n${out}`);
+  assert.ok(
+    Number(scenarios[1]) >= floor,
+    `the dry run selected ${scenarios[1]} scenarios, under ${floor}:\n${out}`,
+  );
+  const steps = out.match(/^(\d+) steps?(?: \(([^)]*)\))?$/m);
+  assert.ok(steps !== null, `no step summary in the dry run:\n${out}`);
+  assert.doesNotMatch(steps[2] ?? "", /undefined/, steps[0]);
+  assert.equal(status, 0, out);
+}
+
+test("the ui profile defines every step of every feature it runs", () => {
+  // No feature argument: `ui.paths` is the whole feature tree.
+  assertSelected(dryRun([]), SCENARIO_FLOOR);
+});
+
+/**
+ * `recordings.feature` is `@recording`, which the default tag filter excludes;
+ * only `KOLU_X11CAP` (set by `just record`) admits it, so the lane's dry run
+ * above never checks its step text. This child sets that key and names the
+ * feature, which is the pair `just record` uses.
+ *
+ * It proves the `@recording` steps are DEFINED — nothing more. The recording
+ * flow itself launches real agents under X11 capture and stays unexercised
+ * here; on Solid 2 it is first exercised by the next `just record`.
+ */
+test("the ui profile defines every step of the @recording feature", () => {
+  assertSelected(
+    dryRun(["features/recordings.feature"], { KOLU_X11CAP: "1" }),
+    1,
+  );
 });
