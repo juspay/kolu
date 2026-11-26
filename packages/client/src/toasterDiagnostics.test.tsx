@@ -54,3 +54,45 @@ it("keeps the toaster's derived lists stable across unchanged publishes", async 
   // The toasts are on screen: the gate withholds a republish, not a render.
   expect(document.querySelectorAll("[data-sonner-toast]")).toHaveLength(5);
 });
+
+it("keeps the per-position lists stable when another position publishes", async () => {
+  const host = document.createElement("div");
+  document.body.append(host);
+  const dispose = render(
+    () => <Toaster position="bottom-right" richColors />,
+    host,
+  );
+  onTestFinished(() => {
+    dispose();
+    host.remove();
+  });
+  await settle();
+
+  // One toast at the toaster's own position. The toast state is module-global
+  // and outlives a `<Toaster>`, so what the `bottom-right` slice holds is
+  // whatever this file published before, plus this one — the count that must
+  // not move once the other position starts publishing.
+  toast("the steady one");
+  await settle();
+  const at = (y: string) =>
+    document
+      .querySelector(`ol[data-sonner-toaster][data-y-position="${y}"]`)
+      ?.querySelectorAll("[data-sonner-toast]").length ?? 0;
+  const steady = at("bottom");
+
+  // Five publishes that land at ANOTHER position. Each one changes the
+  // toaster's filtered list, so the `bottom-right` row's `toastsByPosition`
+  // and `heightsByPosition` recompute — and each time they produce the same
+  // toasts they produced before. Without an equality gate on those two
+  // memos (`solid-sonner`'s `index.jsx` per-position slices) the fourth
+  // republish of an equal list is what `UNSTABLE_MEMO_OUTPUT` names, and the
+  // setup's `afterEach` fails the test over it.
+  for (let index = 0; index < 5; index++) {
+    toast(`elsewhere ${index}`, { position: "top-left" });
+    await settle();
+  }
+
+  // Both positions are on screen: the gate withholds a republish, not a render.
+  expect(at("top")).toBe(5);
+  expect(at("bottom")).toBe(steady);
+});
