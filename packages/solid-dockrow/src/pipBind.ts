@@ -319,7 +319,7 @@ export type StatePipBind = {
   alertLabel: string;
 };
 
-/** Whether two bound pips say the same thing — field by field over the eleven
+/** Whether two bound pips say the same thing — field by field over all ten
  *  primitives above.
  *
  *  Beside {@link bindStatePip} because the bag and the test for "is this the

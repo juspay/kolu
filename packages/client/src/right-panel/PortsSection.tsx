@@ -123,9 +123,12 @@ const PortsSection: Component<{ terminalId: TerminalId }> = (props) => {
       elsewhereOpen()
         ? groups().elsewhere
         : groups().elsewhere.filter((row) => row.forward !== undefined),
-    // The rows are keyed and stable; the FILTER is what allocates. Without the
-    // gate every port, listener and forward tick republishes the same rows and
-    // re-checks each one downstream.
+    // `sameRows` is identity per index, so it closes only when the filter
+    // selects the very same row objects — in practice the empty result a
+    // quiet host republishes on every pass, or a reference-equal selection.
+    // The join mints fresh rows, so a tick that CHANGES a row publishes, as
+    // it must; what the gate removes is the equal republish re-checking each
+    // row downstream.
     { equals: sameRows },
   );
   const elsewhereFolded = () =>

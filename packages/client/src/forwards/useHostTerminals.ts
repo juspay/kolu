@@ -39,11 +39,13 @@ export const sameSet = (
 /** Element-wise identity for a FILTERED view of keyed rows — the `equals` gate
  *  a memo needs when it selects from a list whose items are already stable.
  *
- *  Beside {@link sameSet} for the same reason: the port join rebuilds its row
- *  objects on a tick, but a filter over an unchanged result is a new array of
- *  the very same references, and publishing it re-checks every row downstream
- *  for nothing. Identity per index, not a deep compare — the rows ARE the
- *  identity here. */
+ *  Beside {@link sameSet} for the same reason. Identity per index, not a deep
+ *  compare, so it closes only on a selection of the very same references — in
+ *  practice the empty result a quiet host republishes on every pass, or a
+ *  filter that picked the same rows out of an unchanged join. The port join
+ *  mints fresh row objects on a tick, so a tick that changes a row publishes;
+ *  what the gate removes is the equal republish re-checking every row
+ *  downstream for nothing. */
 export const sameRows = <T>(a: readonly T[], b: readonly T[]): boolean =>
   a.length === b.length && a.every((row, i) => row === b[i]);
 
