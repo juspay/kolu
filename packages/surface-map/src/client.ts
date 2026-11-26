@@ -545,11 +545,29 @@ function reactiveFace<
                     return reactiveDelegate(current);
                   };
                 }
-                // Imperative, lifecycle-free members (collection upsert/delete).
+                // Imperative, lifecycle-free members: a collection's
+                // `upsert`/`delete`, and the raw un-enrolled stream/keys refs
+                // (`streams.<k>.unenrolled`, `collections.<k>.unenrolledKeys`).
+                //
+                // The key is resolved with `untrack`, for the same reason
+                // `faceDelegate` resolves it that way: a call here is a
+                // point-in-time act that goes to the key active WHEN IT IS
+                // MADE, and never a dependency of whoever made it. Two things
+                // rest on that. A call made from a memo or an effect's compute
+                // must not subscribe that computation to the active key — the
+                // key change already re-keys this walk's `.use()` subscriptions
+                // through the keyed root, and a second, accidental dependency
+                // would re-run the caller as well. And a raw ref handed to
+                // `unenrolledStreamCall` is re-read inside its `Stream.suspend`
+                // on every subscribe and every retry, which runs under the
+                // effect-ts fiber of whichever effect callback opened it: a
+                // bare read there is a strict-read window, and the sample must
+                // not enrol the stream's key accessor as a dependency of it
+                // either.
                 return (...args: unknown[]) => {
-                  const fn = face(entryFor(keyAccessor()))[prim][member]?.[
-                    verb
-                  ];
+                  const fn = untrack(
+                    () => face(entryFor(keyAccessor()))[prim][member]?.[verb],
+                  );
                   if (fn === undefined) {
                     throw new Error(
                       `surface-map: no bound "${prim}.${member}.${verb}" on this face — the walk asked for a verb the spec never declared.`,
