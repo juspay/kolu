@@ -91,9 +91,19 @@ vi.mock("../agents/useAgentDistro", () => ({
 }));
 
 const [works, setWorks] = createSignal<ReadonlyMap<WorkId, Work>>(new Map());
-vi.mock("./useWorks", () => ({
-  useWorkMap: () => works,
-}));
+// `await import` and not a static one: a mock factory is hoisted above this
+// file's imports, so the reading it builds on has to be reached inside it.
+vi.mock("./useWorks", async () => {
+  // The answers the form's memory opens on, derived from the SAME mirror
+  // through the real per-work reading — so these works still drive what each
+  // setup question offers back.
+  const { setupAnswersOf } = await import("kolu-work");
+  return {
+    useWorkMap: () => works,
+    useSetupAnswers: () => () =>
+      [...works().values()].flatMap((record) => setupAnswersOf(record)),
+  };
+});
 
 import { Shown } from "../ui/shown";
 import { forgetAskDraft } from "./drafts";

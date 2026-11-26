@@ -62,15 +62,24 @@ const mirror = vi.hoisted(() => ({
   needs: (() => []) as Accessor<ReadonlyArray<NeedsYou>>,
   membership: (() => new Map()) as Accessor<ReadonlyMap<string, Membership>>,
 }));
-vi.mock("./useWorks", () => ({
-  useWorks: () => mirror.works,
-  useNeedsYou: () => mirror.needs,
-  useWorkMap: () => () => new Map(mirror.works()),
-  useMembership: () => mirror.membership,
-  // A work's chip reads its terminals; these works have none.
-  useWorkMembers: () => () => new Map(),
-  useSeen: () => () => new Map(),
-}));
+// `await import` and not a static one: a mock factory is hoisted above this
+// file's imports, so the reading it builds on has to be reached inside it.
+vi.mock("./useWorks", async () => {
+  // The menu's per-work reading, taken off the SAME records by the real one:
+  // the title and the standing line are still the works' own.
+  const { workMentionOf } = await import("./mentionCandidates");
+  return {
+    useWorks: () => mirror.works,
+    useNeedsYou: () => mirror.needs,
+    useWorkMap: () => () => new Map(mirror.works()),
+    useWorkMentions: () => () =>
+      mirror.works().map(([id, record]) => workMentionOf(id, record)),
+    useMembership: () => mirror.membership,
+    // A work's chip reads its terminals; these works have none.
+    useWorkMembers: () => () => new Map(),
+    useSeen: () => () => new Map(),
+  };
+});
 // The wire-facing neighbours, inert: a real upload would only add a second
 // thing to fail. The prompt verb is a spy the tests read — what a message
 // CARRIES is half of what a mention is for.

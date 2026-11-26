@@ -30,10 +30,21 @@ const mirror = vi.hoisted(() => ({
   works: (() => []) as Accessor<ReadonlyArray<WorkRow>>,
   needs: (() => []) as Accessor<ReadonlyArray<NeedsYou>>,
 }));
-vi.mock("./useWorks", () => ({
-  useWorks: () => mirror.works,
-  useNeedsYou: () => mirror.needs,
-}));
+// `await import` and not a static one: a mock factory is hoisted above this
+// file's imports, so the folds it builds on have to be reached inside it.
+vi.mock("./useWorks", async () => {
+  // The board's two halves, cut from the SAME rows by the real folds — the
+  // column still draws exactly what these works say it should.
+  const { finished, inProgress } = await import("kolu-work");
+  return {
+    useWorks: () => mirror.works,
+    useNeedsYou: () => mirror.needs,
+    useWorkSplit: () => ({
+      live: () => inProgress(mirror.works()),
+      done: () => finished(mirror.works()),
+    }),
+  };
+});
 vi.mock("./WorkCard", () => ({
   default: (props: { id: WorkId }) => (
     <div data-testid="work-card-stub" data-work={props.id} />
