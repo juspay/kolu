@@ -99,6 +99,10 @@ const distinctPart = (id: WorkId): string =>
  *  keeps a work that moved from re-reading every other work's record. */
 export interface WorkMention {
   readonly work: WorkId;
+  /** The record as the MIRROR holds it, which is what a face handed this row
+   *  reads its own leaves off (`WorkChipFace`). The two readings below are
+   *  folded from the snapshot instead, so a row that names a work does not
+   *  subscribe every leaf of it. */
   readonly record: Work;
   readonly title: string;
   readonly standing: string;
@@ -107,9 +111,14 @@ export interface WorkMention {
 /** ONE WORK'S OWN MENU READING. The standing is the CARD's own lead, not a
  *  second vocabulary for where a work stands: "Needs you", "Agents at work",
  *  "CI running", "Merged". */
-export const workMentionOf = (work: WorkId, record: Work): WorkMention => ({
+export const workMentionOf = (
+  work: WorkId,
+  record: Work,
+  /** What the row hands on — the mirror's record where the two differ. */
+  held: Work = record,
+): WorkMention => ({
   work,
-  record,
+  record: held,
   title: record.title,
   standing: standingLine(record, Option.none()).lead,
 });

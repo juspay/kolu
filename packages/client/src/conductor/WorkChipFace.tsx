@@ -17,8 +17,8 @@
 
 import type { Work } from "kolu-work";
 import { type Component, createMemo, Show } from "solid-js";
-import { createWorkRecord } from "./workFacts";
 import { repoName, WORK_DOT, waiterOf } from "./workReadings";
+import { createWorkRecord } from "./workRecord";
 
 const WorkChipFace: Component<{ work: Work }> = (props) => {
   /** WHO THE WORK WAITS ON — a fold over the whole record, so it is read

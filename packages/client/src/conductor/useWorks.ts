@@ -57,6 +57,7 @@ import { workMentionOf, type WorkMention } from "./mentionCandidates";
 import { type FileHolders, mergeHolders, pathsOf } from "./namedFiles";
 import { mergeNotes, notesOfWork, type WorkNote } from "./quietChat";
 import { type Joins, joinsOfWork, mergeJoins } from "./turnWorks";
+import { createWorkRecord } from "./workRecord";
 
 /** ONE BOUND COLLECTION, AS A MAP — the three mirrors below are the same eight
  *  lines over three collections: walk the keys, read each row's accessor, drop
@@ -145,6 +146,43 @@ export const useWorks = createSharedRoot<Accessor<ReadonlyArray<WorkRow>>>(
   },
 );
 
+/** ONE SNAPSHOT PER WORK, read once for the whole app — the shared record
+ *  ({@link createWorkRecord}) every whole-collection reading folds.
+ *
+ *  A fold over a work read off the STORE subscribes every leaf it touches:
+ *  about five nodes an event, so a work with a hundred events puts one
+ *  reading's row over five hundred sources on its own — the `WIDE_SCOPE_DEPS`
+ *  the per-work split exists to remove, moved rather than removed. The
+ *  snapshot is one node per event and per decision, read ONCE here and
+ *  handed to all six readings, so a reading's row carries ONE dependency and
+ *  the record is subscribed once for the app rather than once per reading.
+ *
+ *  The map is minted per id-list change only — its entries are the row
+ *  accessors `mapArray` keeps, not their values — so a work whose timeline
+ *  moves does not re-publish this map and so does not touch another work's
+ *  rows. */
+const useWorkRecords = createSharedRoot<
+  Accessor<ReadonlyMap<WorkId, Accessor<Work | undefined>>>
+>(() => {
+  const map = useWorkMap();
+  const works = useWorks();
+  const ids = createMemo(() => works().map(([id]) => id), {
+    name: "workRecordIds",
+    equals: sameOrder,
+  });
+  const rows = mapArray(
+    ids,
+    (id) => {
+      const held = createMemo(() => map().get(id), {
+        name: "workRecords.record",
+      });
+      return [id, createWorkRecord(held)] as const;
+    },
+    { name: "workRecordsByWork" },
+  );
+  return createMemo(() => new Map(rows()), { name: "workRecords" });
+});
+
 /** ONE MEMO PER WORK — the seam every whole-collection reading of the works
  *  is folded from, so a reading's scope is N row memos and not N × every leaf
  *  of every record. A fold that walks the records itself subscribes to all of
@@ -166,16 +204,25 @@ export const useWorks = createSharedRoot<Accessor<ReadonlyArray<WorkRow>>>(
  *  it every publish that re-runs a row hands the fold a new-but-equal array
  *  and the fold re-publishes too, which is the whole saving undone. */
 export const perWork = <T>(
-  /** The reading's name in dev diagnostics; each row memo wears it with the
-   *  id of the work it is about. */
+  /** The reading's name in dev diagnostics: the `mapArray`'s, with its row
+   *  memos under it. One name per site — no work id is baked into any of
+   *  them, or one reading would become N fold keys carrying repo paths and
+   *  branch names. */
   name: string,
-  of: (id: WorkId, record: Work) => T,
+  /** ONE WORK'S READING. `record` is the shared SNAPSHOT
+   *  ({@link useWorkRecords}): fold that, and the row carries one dependency
+   *  however deep the fold goes. `held` is the store's own record, for the
+   *  rare reading that hands a work on rather than folding it (the rows a
+   *  board column draws, the record a chip face reads for itself) — folding
+   *  it is what puts a row over the wide-scope threshold. */
+  of: (id: WorkId, record: Work, held: Work) => T,
   /** When two readings of ONE work are the same thing. A work that has left
    *  the mirror reads `undefined`, which is equal only to itself. */
   equals?: (a: T, b: T) => boolean,
 ): Accessor<ReadonlyArray<Accessor<T | undefined>>> => {
   const map = useWorkMap();
   const works = useWorks();
+  const records = useWorkRecords();
   const ids = createMemo(() => works().map(([id]) => id), {
     name: `${name}.ids`,
     equals: sameOrder,
@@ -188,15 +235,21 @@ export const perWork = <T>(
   return mapArray(
     ids,
     (id) => {
-      const record = createMemo(() => map().get(id), {
-        name: `${name}.record[${id}]`,
+      const held = createMemo(() => map().get(id), {
+        name: `${name}.record`,
+      });
+      const record = createMemo(() => records().get(id)?.(), {
+        name: `${name}.snapshot`,
       });
       return createMemo(
         () => {
           const one = record();
-          return one === undefined ? undefined : of(id, one);
+          const live = held();
+          return one === undefined || live === undefined
+            ? undefined
+            : of(id, one, live);
         },
-        { name: `${name}[${id}]`, equals: same },
+        { name: `${name}.row`, equals: same },
       );
     },
     { name },
@@ -302,7 +355,7 @@ export const useWorkPrs = createSharedRoot<
  *  the list every count in the app is taken from. */
 export const useNeedsYou = createSharedRoot<Accessor<ReadonlyArray<NeedsYou>>>(
   () => {
-    const rows = perWork("needsYou", (id, record) =>
+    const rows = perWork("needsYouByWork", (id, record) =>
       Option.getOrUndefined(needsYouOf(id, record)),
     );
     return createMemo(
@@ -328,7 +381,7 @@ export const useSetupAnswers = createSharedRoot<
   Accessor<ReadonlyArray<SetupAnswer>>
 >(() => {
   const rows = perWork(
-    "setupAnswers",
+    "setupAnswersByWork",
     (_, record) => setupAnswersOf(record),
     (a, b) =>
       a.length === b.length &&
@@ -358,7 +411,7 @@ export const useSetupAnswers = createSharedRoot<
  *  timeline that moves re-reads one work's events and not every work's. */
 export const useJoins = createSharedRoot<Accessor<Joins>>(() => {
   const rows = perWork(
-    "workJoins",
+    "workJoinsByWork",
     joinsOfWork,
     (a, b) =>
       a.length === b.length &&
@@ -385,7 +438,7 @@ export const useAgentNotes = createSharedRoot<
   Accessor<ReadonlyArray<WorkNote>>
 >(() => {
   const rows = perWork(
-    "workNotes",
+    "agentNotesByWork",
     (_, record) => notesOfWork(record),
     (a, b) =>
       a.length === b.length &&
@@ -407,7 +460,7 @@ export const useAgentNotes = createSharedRoot<
  *  rebuilds the index without re-reading every other work's. */
 export const useFileHolders = createSharedRoot<Accessor<FileHolders>>(() => {
   const rows = perWork(
-    "workPaths",
+    "fileHoldersByWork",
     (id, record) => [id, pathsOf(record)] as const,
     ([id, paths], [otherId, otherPaths]) =>
       id === otherId &&
@@ -434,7 +487,7 @@ export const useWorkMentions = createSharedRoot<
   Accessor<ReadonlyArray<WorkMention>>
 >(() => {
   const rows = perWork(
-    "workMention",
+    "workMentionsByWork",
     workMentionOf,
     (a, b) =>
       a.work === b.work &&
@@ -461,9 +514,9 @@ export const useWorkSplit = createSharedRoot<{
   readonly done: Accessor<ReadonlyArray<WorkRow>>;
 }>(() => {
   const rows = perWork(
-    "workOpen",
-    (id, record) => ({
-      row: [id, record] as WorkRow,
+    "workOpenByWork",
+    (id, record, held) => ({
+      row: [id, held] as WorkRow,
       open: record.state.kind === "open",
     }),
     (a, b) =>
