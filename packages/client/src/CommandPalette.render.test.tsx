@@ -345,3 +345,56 @@ it("builds no command tree while it is closed, and a fresh one on open", () => {
   expect(builds).toBe(1);
   expect(document.querySelector('[role="option"]')?.textContent).toBe("Row 4");
 });
+
+it("holds mode and the breadcrumb still across four open/close cycles", () => {
+  // `mode` is a one-key tag and the root breadcrumb is an empty list: both are
+  // rebuilt from `path()` on every move, and open/close rewrites the path, so
+  // without a gate each cycle republishes an equivalent `{ kind: "filter" }`
+  // and an equivalent empty chip strip to every reader. Four in a row is
+  // Solid's `UNSTABLE_MEMO_OUTPUT`, which `@kolu/solid-test-setup` fails on.
+  const nest = (depth: number): PaletteItem[] =>
+    depth === 0
+      ? [{ kind: "action", name: "Leaf", onSelect: () => {} }]
+      : [{ kind: "group", name: `Level ${depth}`, children: nest(depth - 1) }];
+  const [open, setOpen] = createSignal(true);
+  dispose = render(
+    () => (
+      <CommandPalette
+        open={open()}
+        commands={() => nest(4)}
+        onOpenChange={setOpen}
+      />
+    ),
+    document.body,
+  );
+  flush();
+  const crumbs = (): (string | null)[] =>
+    Array.from(document.querySelectorAll("nav button")).map(
+      (el) => el.textContent,
+    );
+  expect(crumbs()).toEqual([]);
+  for (let i = 0; i < 4; i++) {
+    setOpen(false);
+    flush();
+    setOpen(true);
+    flush();
+  }
+  expect(crumbs()).toEqual([]);
+
+  // Four drills, all of them staying in filter mode.
+  const input = document.querySelector("input")!;
+  for (let i = 0; i < 4; i++) {
+    input.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "Enter", bubbles: true }),
+    );
+    flush();
+  }
+  expect(crumbs()).toEqual([
+    "Commands",
+    "Level 4",
+    "Level 3",
+    "Level 2",
+    "Level 1",
+  ]);
+  expect(document.querySelector('[role="option"]')?.textContent).toBe("Leaf");
+});

@@ -340,6 +340,39 @@ export type PaletteMode =
   | { kind: "filter" }
   | { kind: "value"; leaf: PaletteValueInput };
 
+/** The ONE filter-mode value. Filter mode carries no data, so every
+ *  construction of it is the same value; minting a fresh object per `mode()`
+ *  recompute would republish an equivalent object to every reader on each
+ *  keystroke. */
+const FILTER_MODE: PaletteMode = { kind: "filter" };
+
+/** Two modes are the same when they are the same arm over the same leaf —
+ *  `leaf` is a live tree node, compared by identity. */
+function sameMode(a: PaletteMode, b: PaletteMode): boolean {
+  if (a.kind === "value") return b.kind === "value" && a.leaf === b.leaf;
+  return b.kind === "filter";
+}
+
+/** One breadcrumb chip: the label at a path depth. */
+type BreadcrumbSegment = { name: string; depth: number };
+
+/** The empty breadcrumb — the root level, i.e. the common case. Returned by
+ *  reference so a palette that never leaves root never republishes the strip. */
+const NO_BREADCRUMBS: readonly BreadcrumbSegment[] = [];
+
+/** Whether two breadcrumb strips read the same. The segments are rebuilt from
+ *  `path()` on every recompute, so without this every keystroke republishes an
+ *  equal strip. */
+function sameBreadcrumbs(
+  a: readonly BreadcrumbSegment[],
+  b: readonly BreadcrumbSegment[],
+): boolean {
+  return (
+    a.length === b.length &&
+    a.every((s, i) => s.name === b[i]?.name && s.depth === b[i]?.depth)
+  );
+}
+
 function isDrillable(item: PaletteItem): item is DrillableKind {
   return item.kind === "group" || item.kind === "value";
 }
@@ -566,11 +599,14 @@ const CommandPalette: Component<{
     return { interactive, hints };
   });
 
-  const mode = createMemo<PaletteMode>(() => {
-    const last = path().at(-1);
-    if (last?.kind === "value") return { kind: "value", leaf: last };
-    return { kind: "filter" };
-  });
+  const mode = createMemo<PaletteMode>(
+    () => {
+      const last = path().at(-1);
+      if (last?.kind === "value") return { kind: "value", leaf: last };
+      return FILTER_MODE;
+    },
+    { equals: sameMode },
+  );
 
   /** The query AS A FILTER — `""` throughout value mode, where the input holds
    *  a value the user is composing rather than a narrowing term. Named once so
@@ -728,11 +764,17 @@ const CommandPalette: Component<{
 
   /** Breadcrumb labels — path names, plus a virtual host segment when a
    *  Terminals search highlight lands on a terminal (so the path reads
-   *  Commands › Terminals › zest without a real host drill). */
+   *  Commands › Terminals › zest without a real host drill).
+   *
+   *  Root — the common case, and every open/close edge rewrites the path —
+   *  answers the shared empty strip, and the gate below holds the rest: the
+   *  chips are rebuilt from `path()` on every move, and a drilled-in level's
+   *  labels almost never change. */
   const breadcrumbSegments = createMemo(
-    (): { name: string; depth: number }[] => {
-      const segments = path().map((s, i) => ({ name: s.name, depth: i + 1 }));
+    (): readonly BreadcrumbSegment[] => {
       const p = path();
+      if (p.length === 0) return NO_BREADCRUMBS;
+      const segments = p.map((s, i) => ({ name: s.name, depth: i + 1 }));
       if (
         p.length === 1 &&
         p[0]?.name === TERMINALS_GROUP_NAME &&
@@ -746,6 +788,7 @@ const CommandPalette: Component<{
       }
       return segments;
     },
+    { equals: sameBreadcrumbs },
   );
 
   const atRootFilter = createMemo(
@@ -1247,10 +1290,10 @@ const CommandPalette: Component<{
             </button>
             {/* The chips are POSITIONAL — chip n is path depth n, and a drill
                 that swaps the group at a depth relabels that chip rather than
-                replacing it. `breadcrumbSegments` rebuilds its objects on every
-                recomputation, so identity keying would dispose and recreate the
-                whole strip for labels that did not move; index keying updates
-                them in place. */}
+                replacing it. A republish of `breadcrumbSegments` carries fresh
+                objects, so identity keying would dispose and recreate the whole
+                strip for labels that did not move; index keying updates them in
+                place. */}
             <For each={breadcrumbSegments()} keyed={false}>
               {(segment, i) => (
                 <>
