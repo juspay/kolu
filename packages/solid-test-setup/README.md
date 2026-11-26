@@ -10,12 +10,15 @@ makes three facts loud:
   `OBSERVE.diagnostics` and throws from `afterEach` with every event the test
   produced: strict reads, writes in owned scopes, cleanups in forbidden scopes,
   any code Solid emits.
-- **The attribution engine is held for each test**, in `beforeEach`, and
-  released in `afterEach` — the 19 codes it raises are off until something
-  calls `attribution.enable()`, and a finding that reports a subject once
-  (`IMMUTABLE_UPDATE_IN_STORE`, once per store path) forgets what it has said
-  only when the engine is enabled afresh. A worker-long hold would let the
-  second test in a file write a path the wrong way in silence.
+- **The attribution engine is held for the whole worker, and again for each
+  test.** The 19 codes it raises are off until something calls
+  `attribution.enable()`, so the worker-long hold is taken at load — before
+  the test file's own modules evaluate, which is where kolu's module-scope
+  owned scopes compute. The per-test hold in `beforeEach` stacks on top of it:
+  `enable()` resets the engine's windows on EVERY hold, so a finding that
+  reports a subject once (`IMMUTABLE_UPDATE_IN_STORE`, once per store path)
+  starts each test having said nothing, while the engine itself stays
+  installed between tests.
 
 ```ts
 // vitest.config.ts, in the DOM project
@@ -42,8 +45,16 @@ It has three entries:
 - `./attribution` (`src/attribution.ts`): `SOLID_ATTRIBUTION_OPTIONS`, the one
   set of attribution options every kolu lane judges by — shared with the
   client's `solid-dev` build (`packages/client/src/solidDiagnosticsExpose.ts`),
-  so a finding is never red here and silent in the browser. It folds off the
-  cost checks and the six wall-clock ones, which judge the machine's timings.
+  so a finding is never red here and silent in the browser. Judged: the
+  runtime's own always-on codes, plus ten of the engine's —
+  `EFFECT_WRITES_OWN_SOURCE`, `EFFECT_RELAY_TEAR`,
+  `IMMUTABLE_UPDATE_IN_STORE`, `UNSTABLE_LIST_IDENTITY`, `FALLBACK_FLASH`,
+  `OPTIMISTIC_REVERTED`, `GRAPH_GROWTH`, `ABANDONED_FLIGHTS`,
+  `WIDE_SCOPE_DEPS` and `UNSTABLE_MEMO_OUTPUT` — and `HUGE_FAN_OUT` at the
+  engine's lower 250-subscriber threshold. Off are the nine the clock
+  decides: `HOT_SCOPE_RERUNS`, `HOT_SCOPE_FANOUT`, `HOT_SCOPE_TIME`,
+  `WASTED_RECOMPUTE`, `SILENT_HOLD`, `UNTRACKED_ASYNC_HANDLER`, `LONG_HOLD`,
+  `ASYNC_WATERFALL` and `STACKED_HOLDS`.
 
 It is a dev dependency of every package with Solid DOM tests.
 
