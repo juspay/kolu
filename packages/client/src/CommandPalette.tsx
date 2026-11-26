@@ -315,7 +315,15 @@ const CommandPalette: Component<{
 }> = (props) => {
   const { peekAmbientTipText } = useTips();
   const view = useViewState();
-  let inputRef!: HTMLInputElement;
+  /** The search input, as a SIGNAL — `ModalDialog`/Corvu is handed it as
+   *  `initialFocusEl`, and a component prop that is a bare `let` compiles to a
+   *  value captured once, while the element only exists once the children have
+   *  rendered. Corvu would then read `undefined`, fall back to the FIRST
+   *  focusable element in the dialog content, and focus THAT — on an open at a
+   *  path, the breadcrumb's "Commands" chip sits ahead of the input. A signal
+   *  read (`inputRef()`) is a getter the whole way down, so the trap focuses
+   *  the input the palette actually means. */
+  const [inputRef, setInputRef] = createSignal<HTMLInputElement>();
   let listEl!: HTMLDivElement;
   const [query, setQuery] = createSignal("");
   const [ambientTip, setAmbientTip] = createSignal("");
@@ -775,13 +783,15 @@ const CommandPalette: Component<{
     // the input, Enter on a div option doesn't restore it), so the user
     // can immediately type to filter the sub-mode. Deferred to rAF so the
     // input has rendered any new query value first (select() before the
-    // render highlights nothing). One rAF suffices here because the dialog
-    // is already open and Corvu's initialFocusEl is idle — no focus
-    // competition. The open-effect uses a double-rAF to outlast Corvu's
-    // own focus management on (re)open.
-    requestAnimationFrame(() =>
-      cmd.kind === "value" ? inputRef.select() : inputRef.focus(),
-    );
+    // render highlights nothing). One rAF suffices here because the dialog is
+    // already open, so Corvu's focus trap — which takes the input itself at
+    // every OPEN edge — is idle: no focus competition.
+    requestAnimationFrame(() => {
+      const el = inputRef();
+      if (!el) return;
+      if (cmd.kind === "value") el.select();
+      else el.focus();
+    });
   }
 
   function navigateTo(depth: number) {
@@ -818,7 +828,7 @@ const CommandPalette: Component<{
     if (!hostGroup) return;
     setPath([terminals, hostGroup]);
     setQuery("");
-    requestAnimationFrame(() => inputRef.focus());
+    requestAnimationFrame(() => inputRef()?.focus());
   }
 
   /** Resolve `names` against the live command tree — the read half. **Every**
@@ -972,16 +982,23 @@ const CommandPalette: Component<{
         if (leaf) {
           // A resolved deep link is the sole focus owner — the double-rAF
           // below would race this one, and for a value-kind leaf its
-          // unconditional .focus() would clobber .select().
-          requestAnimationFrame(() =>
-            leaf.kind === "value" ? inputRef.select() : inputRef.focus(),
-          );
+          // unconditional .focus() would clobber .select(). Corvu's trap takes
+          // the SAME input a frame later, and .focus() on an already-focused
+          // input leaves the selection alone.
+          requestAnimationFrame(() => {
+            const el = inputRef();
+            if (!el) return;
+            if (leaf.kind === "value") el.select();
+            else el.focus();
+          });
         } else {
-          // forceMount keeps the dialog in the DOM, so Corvu's initialFocusEl
-          // only fires on first mount. Re-focus explicitly on every root open —
-          // a rejected deep link included, since that lands on the root list.
+          // Corvu's trap does take the input at every open edge (it is keyed on
+          // `open`, not on the mount forceMount keeps alive) — but NOT when a
+          // new `initialPath` arrives while the palette stays open and resolves
+          // to nothing. Focus explicitly, so every root landing is covered — a
+          // rejected deep link included, since that lands on the root list.
           requestAnimationFrame(() =>
-            requestAnimationFrame(() => inputRef.focus()),
+            requestAnimationFrame(() => inputRef()?.focus()),
           );
         }
       } else {
@@ -1095,7 +1112,7 @@ const CommandPalette: Component<{
       open={props.open}
       onOpenChange={props.onOpenChange}
       transparentOverlay={props.transparentOverlay}
-      initialFocusEl={inputRef}
+      initialFocusEl={inputRef()}
       // No `refocusOnClose`: the palette also closes itself programmatically
       // (selection → onOpenChange(false), Cmd+K → toggle()), paths that never
       // re-enter ModalDialog.handleOpenChange. So the refocus lives once in
@@ -1173,7 +1190,7 @@ const CommandPalette: Component<{
             ⏵
           </span>
           <input
-            ref={inputRef}
+            ref={setInputRef}
             type="text"
             data-value-input={mode().kind === "value" ? "" : undefined}
             data-value-invalid={valueError() ? "" : undefined}
