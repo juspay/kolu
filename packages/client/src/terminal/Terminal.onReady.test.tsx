@@ -41,6 +41,7 @@ import type { ITheme } from "@xterm/xterm";
 import type { TerminalId } from "kolu-common/surface";
 import { render } from "@solidjs/web";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { toast } from "solid-sonner";
 
 const ID = "ready-main" as TerminalId;
 
@@ -187,8 +188,10 @@ describe("Terminal onReady", () => {
     ).toBe(true);
 
     // THE END of onReady: the file-drop listeners are the last thing it
-    // registers, so a drag that highlights the pane and a leave that clears it
-    // again is the proof that execution reached the final statements.
+    // registers, in the order dragover, dragleave, drop. A drag that
+    // highlights the pane, a leave that clears it again, and a drop that
+    // clears it and rejects the file is the proof that execution reached the
+    // final statement — the `drop` registration at `Terminal.tsx:1265`.
     const drag = (type: string, relatedTarget: Node | null = null): void => {
       const e = new Event(type, { bubbles: true, cancelable: true });
       Object.defineProperty(e, "dataTransfer", {
@@ -201,5 +204,24 @@ describe("Terminal onReady", () => {
     expect(container.dataset.dropTarget).toBe("");
     drag("dragleave");
     expect(container.dataset.dropTarget).toBeUndefined();
+
+    // The drop handler, which only the LAST registration installs. A
+    // disallowed extension takes the rejection arm, which needs no server:
+    // `rejectionFor` answers a reason and the handler toasts it. The handler
+    // clears the highlight before it looks at the files, so both halves are
+    // visible — re-highlight first so the clear is a change.
+    drag("dragover");
+    expect(container.dataset.dropTarget).toBe("");
+    const drop = new Event("drop", { bubbles: true, cancelable: true });
+    Object.defineProperty(drop, "dataTransfer", {
+      value: { types: ["Files"], files: [new File(["x"], "malware.exe")] },
+    });
+    container.dispatchEvent(drop);
+    expect(container.dataset.dropTarget).toBeUndefined();
+    // The toast is forked as an effect; one turn settles it.
+    await tick();
+    expect(toast.error).toHaveBeenCalledWith(
+      expect.stringContaining("not allowed"),
+    );
   });
 });
