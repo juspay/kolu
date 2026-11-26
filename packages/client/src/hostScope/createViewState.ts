@@ -418,7 +418,10 @@ export function createViewState(
    *
    *  `onSettled` keeps the visit and loses the relay: the callback fires in
    *  its own pass of the same flush, so the write opens a frame of its own
-   *  exactly as a gesture's does and those readers run once, settled. Nothing
+   *  exactly as a gesture's does. Those readers still run TWICE — once for the
+   *  census, once for the trail — because the trail did move; what `onSettled`
+   *  removes is the TORN frame, the run that saw the new trail against the
+   *  census the arm was answering, not the second run. Nothing
    *  is ordered against it — the trail is this browser's memory of where it
    *  has been, and the in-flush answer is already `mruOrder`'s active-tile
    *  hoist. The dead-id prune rides along, so it is taken against the census
