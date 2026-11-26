@@ -242,10 +242,21 @@ const PaletteRow: Component<{
     return r.hostKey;
   };
 
-  const terminalRepo = (): { name: string; color: string } | undefined => {
+  /** The repo the identity slot paints, as TWO PRIMITIVES rather than one
+   *  pair object. The name gates the slot's `<Show>`, whose condition value is
+   *  a memo: a minted pair would be a new-but-equal object on every row
+   *  republish, waking the monogram and the spine for two strings that did not
+   *  move. Both are `undefined` unless the row carries name AND colour — the
+   *  slot paints them together. */
+  const repoName = (): string | undefined => {
     const r = row();
     if (r?.kind !== "terminal" || !r.repoName || !r.repoColor) return undefined;
-    return { name: r.repoName, color: r.repoColor };
+    return r.repoName;
+  };
+  const repoColor = (): string | undefined => {
+    const r = row();
+    if (r?.kind !== "terminal" || !r.repoName || !r.repoColor) return undefined;
+    return r.repoColor;
   };
 
   return (
@@ -264,12 +275,14 @@ const PaletteRow: Component<{
           "bg-accent/[0.14] text-fg shadow-[inset_0_0_0_1px_color-mix(in_oklch,var(--color-accent)_38%,transparent)]":
             props.selected,
           "text-fg-2 hover:bg-surface-2/50": !props.selected,
-          "repo-spine pl-2": !!terminalRepo(),
-          "pl-2.5": !terminalRepo(),
+          "repo-spine pl-2": repoName() !== undefined,
+          "pl-2.5": repoName() === undefined,
         },
       ]}
       style={
-        terminalRepo() ? { "--repo-color": terminalRepo()!.color } : undefined
+        repoColor() === undefined
+          ? undefined
+          : { "--repo-color": repoColor() as string }
       }
       onMouseEnter={() => props.onHover()}
       onClick={() => props.onSelect()}
@@ -304,12 +317,12 @@ const PaletteRow: Component<{
       {/* 2 · Identity — monogram + repo name (repoColor) + branch/intent
        *  (annotationColor). Same two-hue vocabulary as the dock row. */}
       <div class="flex items-center gap-1.5 min-w-0 shrink">
-        <Show when={terminalRepo()}>
-          {(repo) => (
+        <Show when={repoName()}>
+          {(name) => (
             <>
               <RepoMonogram
-                group={repo().name}
-                color={repo().color}
+                group={name()}
+                color={repoColor() as string}
                 size="sm"
                 data-testid="palette-repo-monogram"
               />
@@ -317,7 +330,7 @@ const PaletteRow: Component<{
                 class="repo-name-ink font-mono text-[0.72rem] font-semibold truncate max-w-[7rem]"
                 data-testid="palette-repo-name"
               >
-                {repo().name}
+                {name()}
               </span>
             </>
           )}
