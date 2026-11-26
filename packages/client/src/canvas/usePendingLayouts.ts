@@ -127,6 +127,22 @@ export function authoredTrailLength(id: string): number {
 let nextDefaultSize: { w: number; h: number; claimedBy: string | null } | null =
   null;
 
+// The default layouts the canvas DERIVED for brand-new tiles and reported, by
+// tile id — the third term of the canvas's `layoutOf` (`TerminalCanvas.tsx`:
+// standing override, else saved, else derived default), published here so a
+// gesture raised OUTSIDE the canvas component can mint against the layout the
+// tile is actually SHOWING. `useCanvasArrange`'s "Reset terminal size" is that
+// gesture: its tile may be a new one whose derived default is still in flight,
+// and a base of `undefined` would make that default's own echo read as foreign
+// and snap the reset back. This singleton is already the canvas↔arrange bridge
+// (see the note above), so the fact travels with the overrides rather than
+// through an imperative ref handshake.
+//
+// NOT reactive and NOT a second source of truth: the canvas's placement memo
+// owns the value, publishes what it reported and forgets what left the map, in
+// the same effect arm. Emptied with the overrides (`dropIds`, `clear`).
+const derivedDefaults = new Map<string, TileLayout>();
+
 // E2e test hook — bounded ring of recent `applyMany` calls. Use
 // instead of a snapshot getter on the live store: the snapshot races
 // the `deadIds`/`dropIds` cleanup (under CI load the seeded window can be
@@ -202,6 +218,18 @@ export function usePendingLayouts(): {
    *  tile to ask keeps it across re-runs, everyone else gets null. Called by
    *  the canvas's default-placement derivation. */
   claimNextDefaultSize: (id: TerminalId) => { w: number; h: number } | null;
+  /** Effective layout as the canvas SHOWS it: a standing override, else the
+   *  saved layout, else the default this canvas derived for a brand-new tile.
+   *  The out-of-component twin of `TerminalCanvas`'s `layoutOf`, for a gesture
+   *  minted outside it. */
+  resolveShownLayout: (
+    id: TerminalId,
+    saved: TileLayout | undefined,
+  ) => TileLayout | undefined;
+  /** Record the default the canvas derived and reported for a tile, and drop
+   *  it when the tile leaves the placement map. Writes — effect phase only. */
+  publishDerivedDefault: (id: TerminalId, layout: TileLayout) => void;
+  forgetDerivedDefault: (id: TerminalId) => void;
 } {
   /** The override as it STANDS: released by its own echo (the saved value has
    *  caught up with it) and by any FOREIGN saved value; held while the saved
@@ -279,6 +307,15 @@ export function usePendingLayouts(): {
     resolveLayout(id, saved) {
       return standingOverride(id, saved) ?? saved;
     },
+    resolveShownLayout(id, saved) {
+      return standingOverride(id, saved) ?? saved ?? derivedDefaults.get(id);
+    },
+    publishDerivedDefault(id, layout) {
+      derivedDefaults.set(id, layout);
+    },
+    forgetDerivedDefault(id) {
+      derivedDefaults.delete(id);
+    },
     hasOverride(id, saved) {
       return standingOverride(id, saved) !== undefined;
     },
@@ -310,7 +347,10 @@ export function usePendingLayouts(): {
       setPending((draft) => {
         for (const id of ids) delete draft[id];
       });
-      for (const id of ids) authoredTrails.delete(id);
+      for (const id of ids) {
+        authoredTrails.delete(id);
+        derivedDefaults.delete(id);
+      }
     },
     clear() {
       // `null` key: positional reconcile. The value is `{}`, so every entry
@@ -318,6 +358,7 @@ export function usePendingLayouts(): {
       // so there is nothing to match rows by.
       setPending(reconcile({}, null));
       authoredTrails.clear();
+      derivedDefaults.clear();
       // The one-shot size slot is part of the same cleanup contract: a
       // canvas unmount wipes the keyed pending AND any size armed but not
       // yet claimed, so a remount can't have a stale create-time size

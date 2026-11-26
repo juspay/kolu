@@ -61,6 +61,8 @@ vi.mock("./usePendingLayouts", () => ({
     hasOverride: () => false,
     claimNextDefaultSize: () => null,
     resolveLayout: (_id: string, saved: unknown) => saved,
+    publishDerivedDefault: () => {},
+    forgetDerivedDefault: () => {},
   }),
 }));
 vi.mock("./viewport/useCanvasViewport", () => ({

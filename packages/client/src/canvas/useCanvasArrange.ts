@@ -109,7 +109,14 @@ export function useCanvasArrange() {
       w: DEFAULT_TILE_W,
       h: DEFAULT_TILE_H,
     };
-    pendingLayouts.setOne(id, layout, tileStore.getLayout(id));
+    // Minted against the layout the tile is SHOWING, not its saved value: for
+    // a new tile whose derived default is still in flight the saved value is
+    // `undefined`, and a base of `undefined` makes the default's own echo read
+    // as foreign, which snaps the reset back. `resolveShownLayout` is the
+    // canvas's `layoutOf` from out here — the same base its other three
+    // gesture sites (drag-end, resize, minimap) mint against.
+    const base = pendingLayouts.resolveShownLayout(id, tileStore.getLayout(id));
+    pendingLayouts.setOne(id, layout, base);
     tileStore.setLayout(id, layout);
     tileStore.activateVisiblePane(id);
   }

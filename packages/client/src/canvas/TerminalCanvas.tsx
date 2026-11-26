@@ -372,9 +372,17 @@ const TerminalCanvas: Component<{
       });
     },
     (work) => {
-      for (const id of work.placed) persistedDefaults.delete(id);
+      // The reported default is published to the pending singleton as it goes
+      // out, and dropped when the tile leaves the map, so a gesture raised
+      // outside this component (`useCanvasArrange`'s reset) can mint against
+      // the layout the tile is SHOWING — this component's `layoutOf`.
+      for (const id of work.placed) {
+        persistedDefaults.delete(id);
+        pendingLayouts.forgetDerivedDefault(id);
+      }
       for (const { id, layout, write } of work.writes) {
         persistedDefaults.add(id);
+        pendingLayouts.publishDerivedDefault(id, layout);
         write(layout);
       }
       // Pan to the active newly-placed tile. This is a tile-level landing with
