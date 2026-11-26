@@ -69,7 +69,10 @@ import { runActionPromise } from "../runAction";
 import { useColorScheme } from "../settings/useColorScheme";
 import { trueWord } from "../ui/attrWord";
 import { filterChipAccent } from "../ui/filterChip";
-import { mergeGitStatusEntries } from "../ui/gitStatusEntries";
+import {
+  mergeGitStatusEntries,
+  sameGitStatusEntries,
+} from "../ui/gitStatusEntries";
 import {
   ChevronRightIcon,
   EyeIcon,
@@ -376,12 +379,20 @@ const CodeTab: Component<{
   /** WHERE A FILE'S BYTES AND ITS COMMENTS BELONG — the subject's host and
    *  terminal, or `null` with no terminal: then a text file still draws and
    *  only commenting is off. */
-  const fileAt = createMemo(() => {
-    const id = terminalId();
-    return id === null
-      ? null
-      : { host: encodeHostKey(props.subject.host), terminalId: id };
-  });
+  const fileAt = createMemo(
+    () => {
+      const id = terminalId();
+      return id === null
+        ? null
+        : { host: encodeHostKey(props.subject.host), terminalId: id };
+    },
+    {
+      // Two strings rebuilt into a record on every subject tick: compare the
+      // strings, so a re-emitted subject naming the same terminal does not
+      // republish an equal location to the viewer and its comment plumbing.
+      equals: (a, b) => a?.host === b?.host && a?.terminalId === b?.terminalId,
+    },
+  );
   /** THE SELECTED FILE, as the viewer takes it — the query's wire variant
    *  projected onto `@kolu/solid-fileview`'s two shapes.
    *
@@ -973,17 +984,26 @@ const CodeTab: Component<{
     clearSelection: (mode) => select(mode, null, { record: false }),
   });
 
-  const treeGitStatus = createMemo(() => {
-    // Browse overlays both layers (local primary, branch fallback). Outside
-    // browse, decoration comes straight off the active mode's `status` stream.
-    if (view() === "browse") {
-      const local = localStatus()?.files ?? [];
-      const branch = branchStatus()?.files ?? [];
-      return mergeGitStatusEntries(local, branch);
-    }
-    const s = status();
-    return s ? mergeGitStatusEntries(s.files, []) : undefined;
-  });
+  const treeGitStatus = createMemo(
+    () => {
+      // Browse overlays both layers (local primary, branch fallback). Outside
+      // browse, decoration comes straight off the active mode's `status` stream.
+      if (view() === "browse") {
+        const local = localStatus()?.files ?? [];
+        const branch = branchStatus()?.files ?? [];
+        return mergeGitStatusEntries(local, branch);
+      }
+      const s = status();
+      return s ? mergeGitStatusEntries(s.files, []) : undefined;
+    },
+    {
+      // The merge mints a fresh array per status pulse, and a watcher pulses
+      // whether or not anything changed. Pierre re-applies a new reference by
+      // rolling every entry up into its ancestors' change counters, so compare
+      // the entries and let an unchanged set stay silent.
+      equals: sameGitStatusEntries,
+    },
+  );
 
   const handleSelect = (path: string | null) => {
     // Pierre fires null in many situations beyond user intent — including
