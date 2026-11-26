@@ -253,14 +253,17 @@ describe("a host's view-state derivations", () => {
     flush();
     expect(held.view.activeId()).toBe(C);
     expect(held.view.mruOrder()).toEqual([C, A]);
-    // The activation's imperative half is taken ONCE, by the reconcile.
-    expect(held.view.takeAutoSwitch()).toBe(C);
-    expect(held.view.takeAutoSwitch()).toBeUndefined();
+    // The activation's imperative half is taken ONCE, by the reconcile — and
+    // only by the eviction of the tile whose departure produced it. An
+    // eviction of some other tile is not what this answer is about.
+    expect(held.view.takeAutoSwitch(A)).toBeUndefined();
+    expect(held.view.takeAutoSwitch(B)).toBe(C);
+    expect(held.view.takeAutoSwitch(B)).toBeUndefined();
     // The last tile leaving clears the selection rather than naming a ghost.
     setCensus([]);
     flush();
     expect(held.view.activeId()).toBeNull();
-    expect(held.view.takeAutoSwitch()).toBeNull();
+    expect(held.view.takeAutoSwitch(C)).toBeNull();
     held.dispose();
   });
 

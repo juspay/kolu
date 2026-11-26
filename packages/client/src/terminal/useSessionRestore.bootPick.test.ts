@@ -495,7 +495,8 @@ function evictionPorts(
   return {
     activeId: () => store.activeId(),
     focusedTerminalId: () => store.focusedTerminalId(),
-    takeAutoSwitch: () => activeScope()?.view.takeAutoSwitch(),
+    takeAutoSwitch: (from: TerminalId) =>
+      activeScope()?.view.takeAutoSwitch(from),
     noteAutoSwitch: (id: TerminalId) => {
       panned.push(id);
       runWithOwner(null, () => activeScope()?.view.noteAutoSwitch(id));

@@ -1,6 +1,12 @@
+import { Effect } from "effect";
+import { LOCAL_HOST } from "kolu-common/hostKey";
 import type { TerminalId } from "kolu-common/surface";
 import { createRoot, createSignal, flush } from "solid-js";
 import { describe, expect, it, vi } from "vitest";
+import {
+  createViewState,
+  type HostViewState,
+} from "../hostScope/createViewState";
 import { pickAutoSwitchTarget } from "./autoSwitchTarget";
 import {
   createEvictionDedup,
@@ -8,6 +14,22 @@ import {
   type TerminalEvictionPorts,
   useActiveReconcile,
 } from "./useActiveReconcile";
+
+/** The ids the per-host view reported to its host as active, in order — the
+ *  real `chrome.setActive` call `createViewState` makes, which is one of the
+ *  two things a close owes and the one a reload reads back. */
+const reported = vi.hoisted(() => [] as string[]);
+
+vi.mock("../wire", () => ({
+  padiRpcOf: () => ({
+    chrome: {
+      setActive: (arg: { id: string }) =>
+        Effect.sync(() => {
+          reported.push(arg.id);
+        }),
+    },
+  }),
+}));
 
 const T = (s: string) => s as TerminalId;
 
@@ -56,7 +78,7 @@ const planPort =
 function makePorts(over: {
   activeId?: () => TerminalId | null;
   focusedTerminalId?: () => TerminalId | null;
-  takeAutoSwitch?: () => TerminalId | null | undefined;
+  takeAutoSwitch?: (from: TerminalId) => TerminalId | null | undefined;
   activeSubTab?: (parentId: TerminalId) => TerminalId | null;
 }) {
   const calls = {
@@ -783,5 +805,95 @@ describe("useActiveReconcile — FULL cleanup driven off the list", () => {
     h.setRawIds([T("B1")]);
     expect(h.calls.removePanel).toHaveBeenCalledWith(T("B2"));
     h.dispose();
+  });
+});
+
+/** The eviction's seams over a REAL per-host view, so the one-shot under test
+ *  is the one production fills. `planActivate` is production's
+ *  pan-and-activate: it records the pan target and performs the activation
+ *  through the one focus write path. The rest are inert — this is about the
+ *  auto-switch, not the chrome. */
+function viewPorts(
+  view: HostViewState,
+  panned: (TerminalId | null)[],
+): TerminalEvictionPorts {
+  return {
+    activeId: view.activeId,
+    focusedTerminalId: view.focusedTerminalId,
+    takeAutoSwitch: view.takeAutoSwitch,
+    noteAutoSwitch: (id: TerminalId) => {
+      panned.push(id);
+      view.noteAutoSwitch(id);
+    },
+    planActivate: (id: TerminalId | null) => () => {
+      panned.push(id);
+      view.writeFocus(id === null ? null : { id, tileHint: id });
+    },
+    planPromoteToTopLevel: () => () => {},
+    rehomeUnder: () => {},
+    subPanel: {
+      planCollapsePanel: () => () => {},
+      planCollapsePanelChrome: () => () => {},
+      paneChrome: () => ({ activeSubTab: null }),
+      setActiveSubTab: () => {},
+      planSelectSubTab: () => () => {},
+      requestRefocus: () => {},
+      removePanel: () => {},
+    },
+    removeRightPanel: () => {},
+    removeSearch: () => {},
+  };
+}
+
+describe("the derived auto-switch's one-shot", () => {
+  it("is not spent by the eviction of a tile it was not armed for", () => {
+    localStorage.clear();
+    const [a, b, c] = [T("a"), T("b"), T("c")];
+    const [census, setCensus] = createSignal<TerminalId[]>([a, b, c]);
+    const held = createRoot((dispose) => ({
+      dispose,
+      view: createViewState(
+        LOCAL_HOST,
+        () => ({ kind: "top-level" }),
+        () => null,
+        census,
+      ),
+    }));
+    held.view.writeFocus({ id: c, tileHint: c });
+    flush();
+    reported.length = 0;
+
+    // THE ARMING NOBODY TAKES. The census drops the focused tile with no
+    // eviction behind it — the shape a non-authoritative drain produces (the
+    // reconcile returns `nothingToDo` while a supervised recycle empties the
+    // list), and the shape a host you are not viewing produces, since 2.0.4
+    // recomputes a writable memo with no readers at all. The focus derivation
+    // moves the selection to C's survivor and fills the one-shot.
+    setCensus([a, b]);
+    flush();
+    expect(held.view.activeId()).toBe(b);
+
+    // Now the user closes B through the SYNCHRONOUS path: the census still
+    // holds it, so the derivation has answered nothing about this departure
+    // and the close owes the activation itself.
+    const panned: (TerminalId | null)[] = [];
+    planEviction(
+      viewPorts(held.view, panned),
+      b,
+      null,
+      [a, b],
+      new Set([b]),
+      graph({ a: null, b: null }),
+    )();
+    flush();
+
+    // Both halves of the close survive: the pan to the survivor and the host's
+    // report of it, which is what a reload's restore pick reads back. Taking
+    // the stale arming instead aimed both at B — the tile that just went — and
+    // skipped the activation, leaving the host naming a dead terminal.
+    expect(panned).toEqual([a]);
+    expect(reported).toEqual([a]);
+    expect(held.view.activeId()).toBe(a);
+    held.dispose();
   });
 });

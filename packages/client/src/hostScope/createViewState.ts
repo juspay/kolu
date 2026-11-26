@@ -106,10 +106,16 @@ export interface HostViewState {
    *  on its own, so recording it would be a persisted write relayed out of the
    *  hydration effect for an answer already visible. */
   noteSeededActivation: (tileId: TerminalId) => void;
-  /** The tile the focus DERIVATION moved to when the census dropped the one
-   *  that held it, taken once — `undefined` when it moved nothing. The removal
-   *  reconcile takes it to perform the activation's imperative half. */
-  takeAutoSwitch: () => TerminalId | null | undefined;
+  /** The tile the focus DERIVATION moved to when the census dropped `from` —
+   *  the tile whose departure produced that answer — taken once. `undefined`
+   *  when this host's derivation moved nothing FOR THAT DEPARTURE, which is
+   *  why the caller names the tile it is evicting: the box is filled by a
+   *  derivation, and a derivation recomputes for a host nobody is viewing and
+   *  for a drain no eviction follows. Unstamped, such an arming was handed to
+   *  the next close of this host's active tile, which then lost its pan, its
+   *  `chrome.setActive` report and its unread clear to an answer about another
+   *  tile. */
+  takeAutoSwitch: (from: TerminalId) => TerminalId | null | undefined;
   /** That switch's imperative half: the unread mark and the host's
    *  active-terminal report. */
   noteAutoSwitch: (tileId: TerminalId) => void;
@@ -144,6 +150,16 @@ function sameOverrideState(a: OverrideState, b: OverrideState): boolean {
   return sameOverride(a.focus, b.focus) && sameIdOrder(a.live, b.live);
 }
 
+/** The auto-switch the focus derivation performed, stamped with the departure
+ *  that produced it: `from` is the tile that held the selection and left,
+ *  `target` the survivor that took its slot (`null` when the top level
+ *  emptied). The stamp is the whole point — see
+ *  {@link HostViewState.takeAutoSwitch}. */
+type AutoSwitch = {
+  readonly from: TerminalId;
+  readonly target: TerminalId | null;
+};
+
 export function createViewState(
   host: HostKey,
   placementOf: (id: TerminalId) => LivePlacement,
@@ -175,28 +191,39 @@ export function createViewState(
   // census drops the tile the written fact names, the survivor occupying its
   // slot takes it, in that same flush — the answer the removal reconcile used
   // to write from its apply arm, one flush after the list its compute read,
-  // with every reader painting a frame on the departed tile first. `prev.live`
-  // is the pre-removal order the policy needs; it is this memo's own memory,
-  // which is why the fact and the census ride one node.
-  // What the derivation moved the selection to, for the imperative half the
-  // removal reconcile takes. A plain box: nothing reads it reactively, so a
-  // memo may fill it without writing reactive state.
-  let pendingAutoSwitch: TerminalId | null | undefined;
+  // so every reader of the selection ran torn, against the departed tile.
+  // `prev.live` is the pre-removal order the policy needs; it is this memo's
+  // own memory, which is why the fact and the census ride one node.
+  // What the derivation moved the selection to, STAMPED with the tile whose
+  // departure produced it, for the imperative half the removal reconcile
+  // takes. A plain box: nothing reads it reactively, so a memo may fill it
+  // without writing reactive state. The stamp is what makes the one-shot
+  // answerable: this derivation runs for EVERY retained host scope, viewed or
+  // not (2.0.4 recomputes a writable memo with no readers), and a drain the
+  // reconcile suppresses arms it with no eviction behind it — so the taker
+  // must prove the answer is about the tile it is evicting.
+  let pendingAutoSwitch: AutoSwitch | undefined;
   const [override, setOverride] = createSignal<OverrideState>(
     (prev = NO_OVERRIDE): OverrideState => {
       const live = tileIds();
       const written = prev.focus;
       // Nothing written (the boot pick stands, answered once and deliberately
       // kept when its tile exits), or an explicit "nothing is selected".
-      if (written == null) return { live, focus: written };
-      const tile = untrack(() => activeTileOf(written, placementOf));
-      if (tile === null || live.includes(tile) || prev.live.length === 0)
+      if (written == null) {
+        pendingAutoSwitch = undefined;
         return { live, focus: written };
+      }
+      const tile = untrack(() => activeTileOf(written, placementOf));
+      if (tile === null || live.includes(tile) || prev.live.length === 0) {
+        pendingAutoSwitch = undefined;
+        return { live, focus: written };
+      }
       const departing = new Set(prev.live.filter((id) => !live.includes(id)));
       const target = pickAutoSwitchTarget(prev.live, departing, tile);
       // The activation's imperative half is not derivable; it is taken once by
-      // the removal reconcile through `takeAutoSwitch`.
-      pendingAutoSwitch = target;
+      // the removal reconcile through `takeAutoSwitch`, which answers only the
+      // eviction of `tile` — the departure this answer is about.
+      pendingAutoSwitch = { from: tile, target };
       return {
         live,
         focus: target === null ? null : { id: target, tileHint: target },
@@ -347,13 +374,19 @@ export function createViewState(
     return override().focus === undefined && seededPick() === tileId;
   }
 
-  /** The tile the focus derivation moved to when the census dropped the one
-   *  that held it — taken ONCE, because its imperative half must happen once.
-   *  `undefined` when the derivation moved nothing. */
-  function takeAutoSwitch(): TerminalId | null | undefined {
+  /** The tile the focus derivation moved to when the census dropped `from` —
+   *  taken ONCE, because its imperative half must happen once, and only by
+   *  the eviction of the tile the answer is about. A derivation recomputes
+   *  with no readers, so this box is filled for every retained host scope and
+   *  for a drain whose eviction never ran; an unstamped answer was then taken
+   *  by the next unrelated close, which lost its own pan and report to it. A
+   *  mismatch leaves the box alone: the departure it names may still arrive,
+   *  and the derivation's other arms clear it on the next census move. */
+  function takeAutoSwitch(from: TerminalId): TerminalId | null | undefined {
     const taken = pendingAutoSwitch;
+    if (taken === undefined || taken.from !== from) return undefined;
     pendingAutoSwitch = undefined;
-    return taken;
+    return taken.target;
   }
 
   /** That switch's imperative half. The visit is NOT among them: the derived

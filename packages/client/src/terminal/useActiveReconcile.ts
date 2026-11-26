@@ -38,9 +38,12 @@ export interface TerminalEvictionPorts {
   activeId: () => TerminalId | null;
   focusedTerminalId: () => TerminalId | null;
   /** The tile the focus DERIVATION moved to because this frame's census
-   *  dropped the one that held it, taken once — `undefined` when it moved
-   *  nothing. Read in the plan phase, like every other seam here. */
-  takeAutoSwitch: () => TerminalId | null | undefined;
+   *  dropped THIS id, taken once — `undefined` when it moved nothing for this
+   *  departure. Keyed on the evicted id because the derivation also runs for
+   *  hosts nobody is viewing and for drains no eviction follows, and an
+   *  answer about another tile must not silence this close's own pan and
+   *  report. Read in the plan phase, like every other seam here. */
+  takeAutoSwitch: (from: TerminalId) => TerminalId | null | undefined;
   /** The derived auto-switch's imperative half: the unread mark, the host's
    *  active-terminal report, and the pan to the survivor. */
   noteAutoSwitch: (id: TerminalId) => void;
@@ -208,11 +211,15 @@ export function planEviction(
   // answers the survivor in the flush the census dropped this tile
   // (`hostScope/createViewState`), because writing it from here — an effect
   // apply arm, one flush after the list the compute read — relayed the census
-  // into the signal the canvas, the dock and the palette all read, and every
-  // reader painted one frame with the departed tile still selected. What the
+  // into the signal the canvas, the dock and the palette all read, so every
+  // reader of the selection ran torn, against the departed tile. What the
   // derivation cannot do is the activation's imperative half, so this takes it:
   // the tile it moved to, once, with the pan and the host's report for it.
-  const autoSwitched = ports.takeAutoSwitch();
+  // KEYED ON THIS ID: the derivation also runs for a host nobody is viewing
+  // and for a drain the reconcile suppressed, so an answer about some other
+  // tile's departure must not be mistaken for this one's and silence the
+  // synchronous branch below.
+  const autoSwitched = ports.takeAutoSwitch(id);
   if (autoSwitched !== undefined) {
     if (autoSwitched !== null)
       writes.push(() => ports.noteAutoSwitch(autoSwitched));

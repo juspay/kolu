@@ -104,11 +104,12 @@ export function useViewState() {
     return () => scope?.noteSeededActivation(id);
   };
 
-  /** The ACTIVE host's derived auto-switch, taken once — see
-   *  `hostScope/createViewState.takeAutoSwitch`. A departing host has no owner
-   *  to have moved anything, so the removal race reads "nothing moved". */
-  const takeAutoSwitch = (): TerminalId | null | undefined =>
-    view()?.takeAutoSwitch();
+  /** The ACTIVE host's derived auto-switch for the eviction of `from`, taken
+   *  once — see `hostScope/createViewState.takeAutoSwitch`. A departing host
+   *  has no owner to have moved anything, so the removal race reads "nothing
+   *  moved". */
+  const takeAutoSwitch = (from: TerminalId): TerminalId | null | undefined =>
+    view()?.takeAutoSwitch(from);
 
   /** Its imperative half, plus the canvas pan the write verb used to carry. */
   const noteAutoSwitch = (id: TerminalId): void => {
