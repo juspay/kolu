@@ -136,6 +136,11 @@ const EMPTY_STATE: Record<GitDiffMode, string> = {
 
 const NO_BRANCH_BASE = "No branch base to compare";
 
+/** The ONE empty lazy-level map: every slot that has opened no folder — and
+ *  every read of another slot's levels — returns this same reference, so the
+ *  merge memo and the tree below it stay silent (`UNSTABLE_MEMO_OUTPUT`). */
+const NO_LOADED_LEVELS: ReadonlyMap<string, readonly string[]> = new Map();
+
 /** The flag pair for leaving kolu in a new tab, fire-and-forget: `noopener`
  *  denies the new tab a handle on kolu's `window`, `noreferrer` keeps kolu's
  *  URL — which can carry a terminal id — out of the target's `Referer`. One
@@ -455,9 +460,23 @@ const CodeTab: Component<{
   const comments = createCommentView();
   const composer = comments.composer;
 
-  // Filename filter — drives Pierre's tree filter externally. Reset on
-  // mode switch so a stale needle doesn't hide the wrong file set.
-  const [searchQuery, setSearchQuery] = createSignal("");
+  // Filename filter — drives Pierre's tree filter externally. STAMPED with the
+  // repo slot it was typed for, and read back only for that slot: the needle
+  // was scoped to the previous file set, so another slot reads the default
+  // instead of an effect clearing it one flush after the switch (which
+  // published a tree filtered by the previous repo's needle for that frame).
+  // Written `untrack`ed — `finishOpenRequest` writes it from the effect phase.
+  const [searchState, setSearchState] = createSignal<{
+    slot: string | null;
+    needle: string;
+  }>({ slot: null, needle: "" });
+  const searchQuery = (): string => {
+    const state = searchState();
+    return state.slot === repoSlotKey() ? state.needle : "";
+  };
+  const setSearchQuery = (needle: string): void => {
+    setSearchState({ slot: untrack(repoSlotKey), needle });
+  };
 
   // ── Selection-stability invariants ─────────────────────────────────
   // CodeTab survives right-panel tab toggles and panel collapse (#818)
@@ -498,50 +517,31 @@ const CodeTab: Component<{
   const statusPending = () => activeStatus.pending();
   const statusError = () => activeStatus.error();
 
-  // Clear the filename filter when the REPO SLOT changes — the search needle
-  // was scoped to the previous file set and rarely makes sense post-switch.
-  // Selection itself is per owner (read/written via
-  // `props.state.selectedFile(mode)` → the owner's per-mode record) so the
-  // new view automatically surfaces its own
-  // pick without a clear here. The key deliberately excludes the terminal: the
-  // filter, the reveal, the lazy folder levels and the tree's expansion are all
-  // facts about the REPO, so moving focus between two panes of one repo keeps
-  // them (and does not re-dispatch `fs.listAll`). `repoSlotKey` is memoized, so
-  // this fires only when the tuple genuinely changes — a compute that rebuilt
-  // the tuple inline would re-run this effect on every incidental tick of
-  // `repoPath()` (metadata cell) or `view()` (per-terminal in-memory store)
-  // and wipe the filter spuriously after #818 made CodeTab survive
-  // right-panel tab toggles.
+  // RETIRE THE READS STILL IN FLIGHT when the REPO SLOT changes. That is all
+  // this effect does: the slot-scoped STATE — the filename filter, the standing
+  // folder reveal and the lazily-loaded folder levels — is stamped with the
+  // slot it was written for and reads the default under any other slot, so
+  // none of it has to be cleared by a write one flush after the switch. (It
+  // used to be, and that frame published the NEW repo's paths with the OLD
+  // repo's loaded levels, needle and reveal.)
+  //
+  // A read of the previous repo resolving afterwards would otherwise write its
+  // listing under an identical folder name — repo-relative keys collide across
+  // repos (`out/` exists in both). Aborting is belt; the landing's own
+  // issued-slot check is braces. The tree's own record of which lazy
+  // directories are open is invalidated by the same key, via `lazyEpoch` below.
+  //
+  // `repoSlotKey` is memoized, so this fires only when the tuple genuinely
+  // changes — a compute that rebuilt the tuple inline would re-run on every
+  // incidental tick of `repoPath()` (metadata cell) or `view()` (per-terminal
+  // in-memory store).
   createEffect(
     repoSlotKey,
-    (key, previous) => {
-      // Only a change BETWEEN two repos invalidates the slot's state. A `null`
-      // key means "no repo to scope to" — the shown pane's git is still
-      // unresolved, or the terminal sits outside a repo. Either way there is
-      // nothing to reset: an unresolved split may be in the very same repo,
-      // and a terminal outside a repo has no slot state to keep. Resetting on
-      // it would drop the filter and the open folders whenever focus lands on
-      // a just-created split whose git has not answered yet.
-      if (key === null || previous === null) return;
-      setSearchQuery("");
-      // Retire any standing folder reveal too — it was scoped to the previous
-      // repo/view. Clearing here can't clobber a folder click that *causes*
-      // the view switch: that switch fires this effect while fsListAll is
-      // still loading, before the gated resolution effect sets `revealDir`.
-      setRevealDir(null);
-      // The loaded levels were read out of the PREVIOUS repo, and repo-
-      // relative keys collide across repos (`out/` exists in both), so
-      // keeping them would paint one repo's build output inside another's.
-      // Aborting first covers the reads still in flight, which would
-      // otherwise resolve afterwards and write the previous repo's listing
-      // into the new repo's map under an identical folder name. The tree's
-      // own record of which lazy directories are open is invalidated by the
-      // same signal, via `lazyEpoch` below.
+    () => {
       for (const ctl of inFlight.values()) ctl.abort();
       inFlight.clear();
-      setLoadedChildren(new Map());
     },
-    { defer: true },
+    { defer: true, name: "retireSlotReads" },
   );
 
   // Highlight-session record for the latest handled door request. Holds
@@ -568,11 +568,21 @@ const CodeTab: Component<{
   // remount: the live `fsListAll` stream resubscribes under load and briefly
   // unmounts/remounts the tree, and a consume-once reveal was lost in that
   // window (the folder came back collapsed — a darwin-CI flake). It is cleared
-  // on the next real navigation instead — a file pick (`handleSelect`) or a
-  // repo/view switch (the `repoSlotKey` effect) — so it never re-scrolls to a stale
-  // folder forever. A fresh object per request re-fires the reveal on a repeat
-  // click of the same folder.
-  const [revealDir, setRevealDir] = createSignal<{ path: string } | null>(null);
+  // on the next real navigation instead — a file pick (`handleSelect`) — and a
+  // reveal asked for one repo slot is simply not read under another, so it
+  // never re-scrolls to a stale folder. A fresh object per request re-fires the
+  // reveal on a repeat click of the same folder.
+  const [revealState, setRevealState] = createSignal<{
+    slot: string | null;
+    dir: { path: string } | null;
+  }>({ slot: null, dir: null });
+  const revealDir = (): { path: string } | null => {
+    const state = revealState();
+    return state.slot === repoSlotKey() ? state.dir : null;
+  };
+  const setRevealDir = (dir: { path: string } | null): void => {
+    setRevealState({ slot: untrack(repoSlotKey), dir });
+  };
 
   // One level of contents per lazy directory the user has opened, keyed by
   // Pierre's folder key. `fs.listIgnored` collapses a wholly-ignored
@@ -580,6 +590,13 @@ const CodeTab: Component<{
   // — which left those rows expandable but empty (#2091); this holds what an
   // expand read back so the merge can substitute it for the collapsed key. On a
   // folder git cannot list, every folder is such a directory.
+  //
+  // STAMPED with the repo slot the levels were read under, because those keys
+  // are repo-relative and collide across repos (`out/` exists in both): reading
+  // them back only under their own slot is what keeps one repo's build output
+  // out of another's tree — including in the frame the slot itself moves, which
+  // a clearing write could only reach one flush later. A landing re-checks the
+  // slot it was ISSUED under, so a read that outlives its repo writes nothing.
   //
   // Deliberately NOT a `createPolledQuery` beside the two listings in the
   // query set: those are keyed by REPO and refreshed by the repo-change
@@ -590,9 +607,30 @@ const CodeTab: Component<{
   // ignore set exists to keep out. Re-expanding a folder is the refresh
   // instead: the wrapper reports every expansion, so a collapse-and-reopen
   // re-reads the level.
-  const [loadedChildren, setLoadedChildren] = createSignal<
-    ReadonlyMap<string, readonly string[]>
-  >(new Map());
+  const [loadedState, setLoadedState] = createSignal<{
+    slot: string | null;
+    levels: ReadonlyMap<string, readonly string[]>;
+  }>({ slot: null, levels: NO_LOADED_LEVELS });
+  const loadedChildren = (): ReadonlyMap<string, readonly string[]> => {
+    const state = loadedState();
+    return state.slot === repoSlotKey() ? state.levels : NO_LOADED_LEVELS;
+  };
+  /** Record one lazy level under the slot the read was ISSUED for. A fresh Map
+   *  per write: the merge memo reads this by reference, and an in-place `set`
+   *  would leave the tree painting the previous level. */
+  const recordLoadedLevel = (
+    slot: string | null,
+    dirPath: string,
+    paths: readonly string[],
+  ): void => {
+    if (slot !== untrack(repoSlotKey)) return;
+    setLoadedState((previous) => ({
+      slot,
+      levels: new Map(
+        previous.slot === slot ? previous.levels : NO_LOADED_LEVELS,
+      ).set(dirPath, paths),
+    }));
+  };
 
   // The newest read per directory, as a controller rather than a bookkeeping
   // pair. A rapid expand → collapse → expand is three store ticks, so the
@@ -622,8 +660,11 @@ const CodeTab: Component<{
   const inFlight = new Map<string, AbortController>();
 
   const loadLazyDirectory = (dirPath: string): Promise<void> => {
-    const p = repoPath();
+    const p = untrack(repoPath);
     if (!p) return Promise.resolve();
+    // The slot this read is issued under: its answer belongs to that slot and
+    // to no other.
+    const slot = untrack(repoSlotKey);
     inFlight.get(dirPath)?.abort();
     const ctl = new AbortController();
     inFlight.set(dirPath, ctl);
@@ -634,11 +675,7 @@ const CodeTab: Component<{
           Effect.tap((result) =>
             Effect.sync(() => {
               if (ctl.signal.aborted) return;
-              // A fresh Map per write: the merge memo reads this by reference, and
-              // an in-place `set` would leave the tree painting the previous level.
-              setLoadedChildren((prev) =>
-                new Map(prev).set(dirPath, result.paths),
-              );
+              recordLoadedLevel(slot, dirPath, result.paths);
             }),
           ),
           Effect.tapError((err) =>
