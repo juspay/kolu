@@ -182,12 +182,16 @@ export function createViewState(
   // every time, so re-stating the pane that is already focused used to NOTIFY —
   // and the callers that do that most are effect apply arms (the canvas's
   // placement pass re-lands the active tile it just placed, a dock row lands on
-  // the pane it is already on). That made this signal a write RELAYED out of an
-  // effect that had just read the terminal census, so `focus` and `activeId`
-  // ran twice for one census move and the first run paired the new census with
-  // the previous selection. Re-stating a fact is not news: the write is dropped
-  // here, and the activation's side effects (the unread mark, the visit, the
-  // host's report, the pane's refocus nonce) still run at their call sites.
+  // the pane it is already on). That made this a write RELAYED out of an effect
+  // that had just read the terminal census. `focus` carries `equals: sameFocus`,
+  // so a re-stated pane recomputed it and published nothing — `activeId` never
+  // re-ran — but the activation's SIDE effects did run: a persisted visit and a
+  // `chrome.setActive` per re-landing, and that trail write tore `mruOrder`,
+  // which had read the same census (the judged `EFFECT_RELAY_TEAR`). Re-stating
+  // a fact is not news: the write, the visit and the report are dropped here.
+  // The unread mark is not — it is cleared on every landing, re-stated or not,
+  // because looking at a terminal ends its mark — and the pane's refocus nonce
+  // has its own call site.
   //
   // AND KEYED ON THE CENSUS, so the auto-switch is a DERIVATION too. When the
   // census drops the tile the written fact names, the survivor occupying its

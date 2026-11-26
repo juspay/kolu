@@ -215,10 +215,14 @@ describe("a host's view-state derivations", () => {
     // and its apply arm re-lands the active tile it just placed. A landing
     // mints a fresh `{ id, tileHint }` every time, so an ungated focus signal
     // turned that into a write RELAYED out of an effect that had just read the
-    // census — `focus` and `activeId` then ran twice for one census move, the
-    // first run pairing the new census with the previous selection. Solid
+    // census. `focus` carries `equals: sameFocus`, so `activeId` never re-ran
+    // for it — the counter below says so with the gate and without it. What
+    // bites is the activation's side effects, which the gate also drops: the
+    // re-landing's `noteVisit` writes the trail from that apply arm, and
+    // `mruOrder` — which read the same census — runs again for it. Solid
     // grades that `EFFECT_RELAY_TEAR`, `warn` on the third sighting, and
-    // `@kolu/solid-test-setup` fails the test on it.
+    // `@kolu/solid-test-setup` fails the test on it. The counter pins the
+    // other half of the claim: the selection itself never moves.
     const [census, setCensus] = createSignal<TerminalId[]>([A, B], {
       equals: false,
     });
@@ -257,7 +261,7 @@ describe("a host's view-state derivations", () => {
   it("hands the departed tile's slot to its survivor in the same flush", () => {
     // The removal reconcile used to write this answer from its apply arm, one
     // flush after the list its compute had read — so the canvas, the dock and
-    // the palette each painted a frame with the departed tile still selected.
+    // the palette each ran against the departed tile before the repair.
     // It is a function of the census and the pre-removal order, which this
     // fact keeps as its own memory, so it arrives with the census.
     const [census, setCensus] = createSignal<TerminalId[]>([A, B, C]);

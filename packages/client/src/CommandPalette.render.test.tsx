@@ -468,6 +468,11 @@ it("clears the filter on the open edge, with no write relaying it", () => {
   // `EFFECT_RELAY_TEAR`, escalating to `warn` on the third sighting, and
   // `@kolu/solid-test-setup` fails the test on it. Four cycles, each with a
   // real query to clear, is what drives it past that threshold.
+  //
+  // THE JUDGE IS THE ASSERTION THAT BITES. The row count below passes either
+  // way: the apply arm's write drains inside the same synchronous `flush()`,
+  // so by the time anything is read the list is whole again. What the
+  // derivation removes is the torn run, which only the judge can see.
   const [open, setOpen] = createSignal(true);
   dispose = render(
     () => (
@@ -495,8 +500,8 @@ it("clears the filter on the open edge, with no write relaying it", () => {
     flush();
     setOpen(true);
     flush();
-    // The whole list is back: the open cleared the filter in the flush `open`
-    // changed, not one behind it.
+    // The whole list is back — and with the reset derived, it was never
+    // anything else: no reader ran against the previous query first.
     expect(rows()).toBe(2);
   }
 });

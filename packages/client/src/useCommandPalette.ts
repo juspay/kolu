@@ -31,11 +31,20 @@ export const useCommandPalette = createSharedRoot(() => {
   /** Close bookkeeping shared by every close path (Corvu dismiss, selection,
    *  toggle): run the guarded terminal refocus.
    *
-   *  It does NOT reset `initialPath`. Every open path sets the path before it
-   *  sets `open` (`openDialog`, `openPath`, `openGroup`, `toggle`), so a
-   *  close-time reset changes no answer — and it is one more write on the edge
+   *  It does NOT reset `initialPath`. FIVE functions here set `open` to true,
+   *  and the four a caller reaches for — `openDialog`, `openPath`,
+   *  `openGroup`, `toggle` — set the path before they do, so a close-time
+   *  reset changes no answer for them, and it is one more write on the edge
    *  corvu's dismiss effect and the palette's own derivations read, i.e. a
-   *  relay of the close for a value nothing reads until the next open. */
+   *  relay of the close for a value nothing reads until the next open.
+   *
+   *  The fifth is `onOpenChange(true)`, which writes no path — and for this
+   *  mount it is unreachable as an open. `App.tsx` hands `onOpenChange` to the
+   *  dialog and `ModalDialog` forwards whatever corvu emits; corvu emits
+   *  `true` from a `Dialog.Trigger` or from an uncontrolled `initialOpen`, and
+   *  the palette mounts neither — its `open` is the prop this controller owns.
+   *  So corvu only ever emits `false` here, a dismiss. A trigger added to that
+   *  mount would change it, and would want `openDialog()`. */
   function close() {
     setOpen(false);
     refocusIfNoDialogOpen();

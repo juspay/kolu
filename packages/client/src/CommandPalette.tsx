@@ -261,12 +261,13 @@ interface PaletteBase {
   onHighlight?: () => void;
   /** Called when leaving this item without executing it (Escape, Backspace, breadcrumb). */
   onCancel?: () => void;
-  /** Highlighting this row previews something painted BEHIND the dialog — the
-   *  active terminal's theme is the one case. The palette drops its backdrop
-   *  while such a row is highlighted, so the preview is visible. Declared on
-   *  the ROW rather than read back off the preview signal the row's
-   *  `onHighlight` writes: the backdrop and the highlight then settle in one
-   *  flush instead of the overlay painting a frame behind the row. */
+  /** Highlighting this row previews something rendered BEHIND the dialog —
+   *  the active terminal's theme is the one case. The palette drops its
+   *  backdrop while such a row is highlighted, so the preview is visible.
+   *  Declared on the ROW rather than read back off the preview signal the
+   *  row's `onHighlight` writes: the backdrop and the highlight then settle in
+   *  one run instead of the overlay memo running once against its previous
+   *  opacity and again after the write. */
   previewsBehind?: boolean;
 }
 
@@ -420,11 +421,14 @@ const CommandPalette: Component<{
    *  nothing. Written from the lifecycle effect's apply arm they would RELAY
    *  the open: corvu's own dismiss effect and every memo reading `props.open`
    *  run once in the flush `open` changed — against the previous query, tip
-   *  and hover arm — and again after the write lands, so each open painted a
-   *  torn first frame. As writable memos keyed on the edge (the same idiom as
-   *  `pathState` below) the reset arrives in the SAME flush as the open, and
-   *  the keystroke/pointer writes stay exactly as they were. `open` rides
-   *  along as the edge's memory: the derivation sees only `prev`. */
+   *  and hover arm — and again after the write lands, so each open ran TORN.
+   *  (Torn, not painted: the write's continuation drains inside the same
+   *  `flush()`, so no stale frame reaches the screen — what the double run
+   *  costs is the work, and Solid grades it `EFFECT_RELAY_TEAR`.) As writable
+   *  memos keyed on the edge (the same idiom as `pathState` below) the reset
+   *  arrives in the SAME flush as the open, and the keystroke/pointer writes
+   *  stay exactly as they were. `open` rides along as the edge's memory: the
+   *  derivation sees only `prev`. */
   type EdgeReset<T> = { readonly open: boolean; readonly value: T };
   function onOpenEdge<T>(
     name: string,
@@ -502,8 +506,8 @@ const CommandPalette: Component<{
    *  on `props.open` would RELAY the open: everything reading both the open and
    *  the path (the default-highlight rule, the level memo, the breadcrumb) runs
    *  once in the flush where `open` changed — against the STALE path — and
-   *  again after the effect's write lands, so every open paints one torn frame.
-   *  As a derivation the new path arrives in the SAME flush as the open.
+   *  again after the effect's write lands, so every open ran torn. As a
+   *  derivation the new path arrives in the SAME flush as the open.
    *
    *  So an open edge is where a deep link resolves (exactly, against the tree
    *  as it stands at the open), and a close edge is where the path empties.
@@ -1267,9 +1271,9 @@ const CommandPalette: Component<{
    *  a fact about which row is highlighted, not news that has to travel. Read
    *  back off the preview signal `onHighlight` writes, it was a relay of the
    *  open edge: the dialog reads `open`, the highlight effect reads `open` and
-   *  wrote the preview, and the overlay painted its previous opacity for one
-   *  frame of every open. The preview signal keeps its tile-chrome readers,
-   *  which do not read `open`. */
+   *  wrote the preview, so every open ran the overlay twice — once against its
+   *  previous opacity, then again once the write landed in the same flush. The
+   *  preview signal keeps its tile-chrome readers, which do not read `open`. */
   const transparentOverlay = createMemo(
     () => props.open && filtered()[effectiveIndex()]?.previewsBehind === true,
   );
