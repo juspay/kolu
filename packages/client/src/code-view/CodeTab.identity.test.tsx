@@ -3,12 +3,15 @@
  *
  *  A git watcher pulses, a listing re-emits and the subject is rebuilt whether
  *  or not anything moved. Each of those re-derives a container from unchanged
- *  leaves, and Pierre pays for a new reference: a `gitStatus` set is rolled up
- *  into every entry's ancestors, an `expandPaths`/`lazyDirectories` list
- *  re-drives the expansion reconcile. So the view's job here is to hand the
- *  SAME reference back when the facts are the same — which is what the mocked
- *  tree records, and what Solid's `UNSTABLE_MEMO_OUTPUT` diagnostic (four
- *  equal publishes) fails the test over when it does not. */
+ *  leaves, and the view pays for a new reference even where Pierre does not:
+ *  a `gitStatus` set re-runs the wrapper's `setGitStatus` effect and is
+ *  hashed again before Pierre recognizes it as the state it already holds
+ *  (`@pierre/trees` `dist/model/gitStatus.js:20-23`), an
+ *  `expandPaths`/`lazyDirectories` list re-drives the expansion reconcile. So
+ *  the view's job here is to hand the SAME reference back when the facts are
+ *  the same — which is what the mocked tree records, and what Solid's
+ *  `UNSTABLE_MEMO_OUTPUT` diagnostic (four equal publishes) fails the test
+ *  over when it does not. */
 
 import type { CodeTabView } from "@kolu/padi-client/surface";
 import type { Subscription } from "@kolu/surface/solid";

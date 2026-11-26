@@ -51,11 +51,18 @@ export function mergeGitStatusEntries(
 
 /** Pairwise equality for two decoration sets, in the order
  *  {@link mergeGitStatusEntries} produced them. A status pulse that changed
- *  nothing re-derives an equal-but-fresh array; Pierre rolls every entry up
- *  into its ancestors' change counters on each application, so a memo that
- *  publishes such an array pays that whole roll-up for no change. Used as a
- *  memo `equals`, which is why `undefined` (no status stream yet) is a value
- *  here and only equals itself.
+ *  nothing re-derives an equal-but-fresh array, and Pierre itself absorbs
+ *  that: `resolveFileTreeGitStatusState` hashes the entries and returns the
+ *  PREVIOUS state on a matching signature, before any ancestor roll-up, and
+ *  `setGitStatus` then returns early on the unchanged state (`@pierre/trees`
+ *  `dist/model/gitStatus.js:20-23`, `dist/render/FileTree.js:268-275`). So
+ *  what a memo without this `equals` pays is everything on THIS side of
+ *  Pierre's cache key: the memo re-notifies, the tree wrapper's
+ *  `setGitStatus` effect runs, the array is spread again, Pierre rebuilds the
+ *  signature to discover nothing moved, and Solid raises
+ *  `UNSTABLE_MEMO_OUTPUT` on the fourth equal publish. Used as a memo
+ *  `equals`, which is why `undefined` (no status stream yet) is a value here
+ *  and only equals itself.
  *
  *  Order-sensitive on purpose: the producer builds both sides the same way
  *  from the same two layers, so equal inputs give equal order, and a sort
