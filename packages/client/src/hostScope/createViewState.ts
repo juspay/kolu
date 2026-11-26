@@ -103,6 +103,24 @@ export interface HostViewState {
   noteSeededActivation: (tileId: TerminalId) => void;
 }
 
+/** Whether two focus facts name the same pane and the same tile. `TerminalFocus`
+ *  is those two ids and nothing else, so this is the whole value. */
+function sameFocus(a: TerminalFocus | null, b: TerminalFocus | null): boolean {
+  if (a === null || b === null) return a === b;
+  return a.id === b.id && a.tileHint === b.tileHint;
+}
+
+/** Whether two id lists are the same ids in the same order — the same rule as
+ *  `useTerminalMetadata`'s `sameTerminalIdOrder`, restated here rather than
+ *  imported: that module reaches back into `hostScope/hostScopes`, which builds
+ *  this one, and the cycle would decide module-eval order for every consumer. */
+function sameIdOrder(
+  a: readonly TerminalId[],
+  b: readonly TerminalId[],
+): boolean {
+  return a.length === b.length && a.every((id, i) => id === b[i]);
+}
+
 export function createViewState(
   host: HostKey,
   placementOf: (id: TerminalId) => LivePlacement,
@@ -119,13 +137,19 @@ export function createViewState(
   const [override, setOverride] = createSignal<
     TerminalFocus | null | undefined
   >(undefined);
-  const focus = createMemo<TerminalFocus | null>(() => {
-    const written = override();
-    if (written !== undefined) return written;
-    const picked = seededPick();
-    // The boot pick names a TILE, so it is its own pane and its own hint.
-    return picked === null ? null : { id: picked, tileHint: picked };
-  });
+  const focus = createMemo<TerminalFocus | null>(
+    () => {
+      const written = override();
+      if (written !== undefined) return written;
+      const picked = seededPick();
+      // The boot pick names a TILE, so it is its own pane and its own hint.
+      return picked === null ? null : { id: picked, tileHint: picked };
+    },
+    // The derived arm mints its pair fresh on every run, and the pick is
+    // re-derived on every census move — so without this every reader of the
+    // focus fact re-runs for a selection that did not change.
+    { equals: sameFocus },
+  );
   const focusedTerminalId = createMemo(() => focus()?.id ?? null);
   const activeId = createMemo(() => activeTileOf(focus(), placementOf));
   // Per-key projections (Solid 2's selector): moving focus wakes the terminal
@@ -147,7 +171,11 @@ export function createViewState(
 
   // Host-filtered slice of the visit MRU (most-recent first). Replaces the old
   // per-host in-memory list so cycling order survives reloads.
-  const mruOrder = createMemo(() => visits.mruForHost(host));
+  const mruOrder = createMemo(() => visits.mruForHost(host), {
+    // The trail is one cross-host list: a visit on ANOTHER host rewrites it,
+    // and this host's slice comes back a new array holding the same ids.
+    equals: sameIdOrder,
+  });
 
   // View posture: persisted PER HOST so a host's fullscreen posture survives reload —
   // the pre-W7 behavior, restored — but keyed by host (unlike the pre-W7 GLOBAL

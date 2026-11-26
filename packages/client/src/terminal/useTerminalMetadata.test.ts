@@ -790,3 +790,53 @@ describe("the display row merge is TOTAL over the row's keys", () => {
     expect(into.subCount).toBe(3);
   });
 });
+
+/** THE TRI-STATE CENSUS is three counts, and the canvas's loading gate reads
+ *  it. A census tick that moves a record's fields leaves all three alone, so
+ *  without an equality gate the gate re-decides on every tick — Solid's
+ *  `UNSTABLE_MEMO_OUTPUT`, which `@kolu/solid-test-setup` fails the test on. */
+describe("recordPhases — the loading gate's input", () => {
+  it("does not republish when four ticks leave the three counts alone", async () => {
+    await createRoot(async (dispose) => {
+      const [keys] = createSignal(tids("a", "b"));
+      const [store, setStore] = createSignal<Record<string, TestMeta>>({
+        a: { cwd: "/home/user/p" },
+        b: { cwd: "/home/user/p" },
+      });
+      bag.keys = keys;
+      bag.metaOf = (id) => store()[id];
+
+      const { recordPhases } = useTerminalMetadata({
+        list: () => keys().map((id) => ({ id }) as TerminalInfo),
+      });
+
+      let runs = 0;
+      let last = { awaited: -1, parked: -1, live: -1 };
+      createEffect(recordPhases, (phases) => {
+        runs++;
+        last = phases;
+      });
+      await settle();
+      expect(runs).toBe(1);
+      expect(last).toEqual({ awaited: 0, parked: 0, live: 2 });
+
+      for (let i = 1; i <= 4; i++) {
+        setStore((s) => ({
+          ...s,
+          a: { cwd: "/home/user/p", lastActivityAt: i },
+        }));
+        await settle();
+      }
+      expect(runs).toBe(1);
+
+      // A record that ARRIVES moves a count, and that must still publish.
+      bag.metaOf = (id) => (id === "b" ? undefined : store()[id]);
+      setStore((s) => ({ ...s }));
+      await settle();
+      expect(runs).toBe(2);
+      expect(last).toEqual({ awaited: 1, parked: 0, live: 1 });
+
+      dispose();
+    });
+  });
+});

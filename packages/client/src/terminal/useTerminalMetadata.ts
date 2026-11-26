@@ -337,18 +337,27 @@ export function useTerminalMetadata(deps: {
    *  `CanvasFacts.channelLive` (watchdog-backed ws ∧ the active entry) — a LIVE channel
    *  with a never-composing record is a padi/compose BUG that must surface loudly, not a UI
    *  state to tune around. */
-  const recordPhases = createMemo(() => {
-    let awaited = 0;
-    let parked = 0;
-    let live = 0;
-    for (const id of keys()) {
-      const record = terminals()?.byKey(id)?.();
-      if (record === undefined) awaited++;
-      else if (isParkedTerminal(record)) parked++;
-      else live++;
-    }
-    return { awaited, parked, live };
-  });
+  const recordPhases = createMemo(
+    () => {
+      let awaited = 0;
+      let parked = 0;
+      let live = 0;
+      for (const id of keys()) {
+        const record = terminals()?.byKey(id)?.();
+        if (record === undefined) awaited++;
+        else if (isParkedTerminal(record)) parked++;
+        else live++;
+      }
+      return { awaited, parked, live };
+    },
+    // Three counts, minted fresh on every census tick. Most ticks move a
+    // record's fields without moving any count, and the loading gate above
+    // this must not re-decide for that.
+    {
+      equals: (a, b) =>
+        a.awaited === b.awaited && a.parked === b.parked && a.live === b.live,
+    },
+  );
 
   // --- Order: server Map insertion order, filtered by parent relationship ---
 

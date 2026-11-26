@@ -15,6 +15,14 @@ vi.mock("../wire", () => ({
   padiRpcOf: () => ({ chrome: { setActive: () => Effect.void } }),
 }));
 
+// STATIC, unlike `loadPage`'s dynamic ones: a `resetModules` graph brings its
+// OWN solid-js, whose diagnostics nothing is subscribed to. The derivation
+// cases below are judged by `@kolu/solid-test-setup`, so they must run on the
+// engine this worker installed.
+import { createEffect, createRoot, createSignal, flush } from "solid-js";
+import { useVisitRecency } from "../terminal/visitRecency";
+import { createViewState } from "./createViewState";
+
 const A = "11111111-1111-4111-8111-111111111111" as TerminalId;
 
 /** Load the page: a fresh module graph, this host's view state in it, and the
@@ -78,5 +86,67 @@ describe("a host's unread marks across a reload", () => {
     page.view.reset();
     page.flush();
     expect((await loadPage()).view.isUnread(A)).toBe(false);
+  });
+});
+
+/** THE VIEW-STATE DERIVATIONS are value-stable by construction: the focus fact
+ *  is two ids, this host's MRU is a slice of one cross-host trail. Both are
+ *  rebuilt from upstream state that moves for unrelated reasons, so without an
+ *  equality gate they republish an equal value — Solid's
+ *  `UNSTABLE_MEMO_OUTPUT`, which `@kolu/solid-test-setup` fails the test on. */
+describe("a host's view-state derivations", () => {
+  beforeEach(() => localStorage.clear());
+
+  it("holds the focus fact still while the same boot pick is re-derived", () => {
+    // `{ equals: false }` is the census: the pick is re-derived on every move,
+    // and lands on the same tile.
+    const [pick, setPick] = createSignal<TerminalId | null>(A, {
+      equals: false,
+    });
+    let seen: TerminalId | null = null;
+    const held = createRoot((dispose) => {
+      const view = createViewState(
+        LOCAL_HOST,
+        () => ({ kind: "top-level" }),
+        pick,
+      );
+      createEffect(view.focusedTerminalId, (id) => {
+        seen = id;
+      });
+      return { dispose, view };
+    });
+    flush();
+    for (let i = 0; i < 4; i++) {
+      setPick(A);
+      flush();
+    }
+    expect(seen).toBe(A);
+    expect(held.view.activeId()).toBe(A);
+    held.dispose();
+  });
+
+  it("holds this host's MRU still while another host's trail moves", () => {
+    const other = { kind: "remote", target: "box-1" } as const;
+    let seen: TerminalId[] = [];
+    const held = createRoot((dispose) => {
+      const view = createViewState(
+        LOCAL_HOST,
+        () => ({ kind: "top-level" }),
+        () => null,
+      );
+      createEffect(view.mruOrder, (ids) => {
+        seen = ids;
+      });
+      return { dispose, visits: useVisitRecency() };
+    });
+    flush();
+    // Four visits on ANOTHER host rewrite the one trail; this host's slice
+    // comes back the same (empty) list every time.
+    for (let i = 1; i <= 4; i++) {
+      held.visits.noteVisit(other, A, i);
+      flush();
+    }
+    expect(seen).toEqual([]);
+    held.dispose();
   });
 });
