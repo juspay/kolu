@@ -334,6 +334,12 @@ const TerminalCanvas: Component<{
   // plain set, not state: it answers "has this tile's first write gone out",
   // which nothing renders, and the derived default stands either way until the
   // echo replaces it. Dead ids are dropped with their pending entries above.
+  //
+  // A tile LEAVING the map is also recorded: it left because its own layout
+  // landed, so the next time placement derives a default for it — its layout
+  // was withdrawn and it is a new tile again — that fresh position must be
+  // PERSISTED too, not just painted locally. Hence the compute runs (and
+  // returns work) even when there is nothing to write.
   const persistedDefaults = new Set<TileId>();
   createEffect(
     () => {
@@ -347,10 +353,12 @@ const TerminalCanvas: Component<{
             ([id, layout]) =>
               ({ id, layout, write: props.planLayoutChange(id) }) as const,
           );
-        if (writes.length === 0) return null;
-        const activeId = tileStore.activeId();
+        const placed = [...persistedDefaults].filter((id) => !defaults.has(id));
+        // Nothing to write: no active tile to read, and no landing to plan.
+        const activeId = writes.length > 0 ? tileStore.activeId() : null;
         return {
           writes,
+          placed,
           activeId,
           // The landing is PLANNED here, where its reads (the tile's
           // remembered pane, its split's state) belong; the effect below only
@@ -362,7 +370,7 @@ const TerminalCanvas: Component<{
       });
     },
     (work) => {
-      if (!work) return;
+      for (const id of work.placed) persistedDefaults.delete(id);
       for (const { id, layout, write } of work.writes) {
         persistedDefaults.add(id);
         write(layout);

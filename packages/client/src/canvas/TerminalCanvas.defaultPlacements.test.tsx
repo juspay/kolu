@@ -63,6 +63,7 @@ vi.mock("./useViewPosture", () => ({
 vi.mock("./usePendingLayouts", () => ({
   usePendingLayouts: () => ({
     setOne: () => {},
+    previewOne: () => {},
     applyMany: () => {},
     clear: () => {},
     dropIds: () => {},
@@ -166,4 +167,64 @@ it("re-places a tile from the current camera once its own layout has gone", () =
   const replaced = layout();
   expect(replaced).not.toBeNull();
   expect((replaced as TileLayout).x).toBeGreaterThan(4000);
+});
+
+/** A RE-PLACED TILE IS PERSISTED, NOT JUST PAINTED.
+ *
+ *  `persistedDefaults` remembers which derived defaults have gone out through
+ *  `planLayoutChange`, so a tile is written once. A tile that re-enters
+ *  `defaultPlacements` — its layout withdrawn, so it is a new tile again —
+ *  must be written AGAIN, with its fresh position; otherwise it paints at the
+ *  new place here and stays layout-less everywhere else.
+ *
+ *  IS WITHDRAWAL REACHABLE? No padi writer ever clears `canvasLayout`:
+ *  `setCanvasLayout` (`padi/src/terminals.ts:446-455`) only sets it, so a
+ *  server that has one keeps it. The record arrives WITHOUT one in two live
+ *  paths: a session restore whose saved blob carries no layout for the tile
+ *  (`padi/src/session/sessionRestore.ts:113-121` omits the key rather than
+ *  spelling `undefined`), and a host switch, where the tile list re-keys to a
+ *  host before its per-terminal metadata re-arrives. The id is the same tile's
+ *  throughout, which is what makes this a re-placement and not a new tile. */
+it("writes the re-placed layout when a tile's own layout is withdrawn", () => {
+  const [saved, setSaved] = createSignal<TileLayout | undefined>(undefined);
+  const written: TileLayout[] = [];
+  camera.center = { x: 0, y: 0 };
+
+  const host = document.createElement("div");
+  dispose = render(
+    () => (
+      <TerminalCanvas
+        tileIds={[TILE]}
+        getLayout={() => saved()}
+        onLayoutChange={() => {}}
+        planLayoutChange={() => (layout) => written.push(layout)}
+        onSelect={() => {}}
+        onClose={() => {}}
+        onOpenWorkspaceSearch={() => {}}
+        onCreate={() => {}}
+        renderTileTitle={() => null}
+        renderTileBody={() => null}
+      />
+    ),
+    host,
+  );
+
+  // The first default goes out once.
+  flush();
+  expect(written).toHaveLength(1);
+  const first = written[0] as TileLayout;
+
+  // Its own layout lands: the tile leaves the map, nothing more is written.
+  setSaved(FAR);
+  flush();
+  expect(written).toHaveLength(1);
+
+  // Withdrawn under a moved camera: re-placed AND re-reported.
+  camera.center = { x: 5000, y: 5000 };
+  setSaved(undefined);
+  flush();
+  expect(written).toHaveLength(2);
+  const second = written[1] as TileLayout;
+  expect(second.x).toBeGreaterThan(4000);
+  expect(second).not.toEqual(first);
 });
