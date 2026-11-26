@@ -89,7 +89,12 @@ vi.mock("./useCanvasFocus", () => ({
 }));
 vi.mock(import("./useViewPosture"), async (importOriginal) => ({
   ...(await importOriginal()),
-  useViewPosture: () => ({ layout: () => "tiled", toggle: () => {} }),
+  useViewPosture: () => ({
+    layout: () => "tiled" as const,
+    canMaximize: () => true,
+    postureTo: () => {},
+    toggle: () => {},
+  }),
 }));
 
 import TerminalCanvas from "./TerminalCanvas";
