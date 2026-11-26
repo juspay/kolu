@@ -44,6 +44,13 @@ import {
  *     directory that reads back EMPTY keeps its own row rather than yielding to
  *     nothing — see the walk. */
 
+/** The one empty array every "nothing here" arm returns. A memo publishing
+ *  this inventory is read by reference downstream (Pierre re-applies a new
+ *  `gitStatus`/`lazyDirectories` reference by walking every row), so a fresh
+ *  `[]` per tick re-drives that work for a set that did not change. Frozen so
+ *  the sharing cannot be defeated by a caller pushing into it. */
+const NONE: readonly string[] = Object.freeze([]);
+
 export interface BrowseInventory {
   /** Everything the tree renders: tracked entries, then the overlay. */
   paths: string[];
@@ -53,13 +60,13 @@ export interface BrowseInventory {
    *  ignored: omitting it here un-dims a folder at the exact moment the user
    *  opens it, with its children dimmed below. So this is a subset of the rows
    *  RENDERED, not of `paths`. */
-  ignored: string[];
+  ignored: readonly string[];
   /** The overlay's directory rows, whose children are NOT in `paths` until the
    *  user expands them. Handed to `<FileTree>` as `lazyDirectories` so it can
    *  report each expansion. A directory stays here after its children load, so
    *  reopening it refetches — nothing watches an ignored path, making
    *  collapse-and-reopen the only honest refresh gesture. */
-  lazyDirs: string[];
+  lazyDirs: readonly string[];
   /** True while any consulted source has yet to deliver. */
   pending: boolean;
 }
@@ -87,7 +94,7 @@ export function mergeBrowseInventory(
   // the default. The spread stays: callers depend on a fresh reference (see
   // `treeInventory`'s note on the reconciled store's in-place mutation).
   if (!ignored?.length)
-    return { paths: [...tracked], ignored: [], lazyDirs: [], pending };
+    return { paths: [...tracked], ignored: NONE, lazyDirs: NONE, pending };
   // Rule 2 — exact overlap and tracked-under-dir both belong to tracked.
   const seen = new Set(tracked);
   const surviving = ignored.filter((p) => {
@@ -109,7 +116,10 @@ export function mergeBrowseInventory(
     // Loaded directories whose children REPLACED their key are rows Pierre
     // still paints but `paths` no longer names, so `ignored` carries them to
     // keep them dimmed.
-    ignored: [...walk.rows, ...walk.substituted],
+    ignored:
+      walk.rows.length === 0 && walk.substituted.length === 0
+        ? NONE
+        : [...walk.rows, ...walk.substituted],
     lazyDirs: walk.lazyDirs,
     pending,
   };
@@ -121,7 +131,7 @@ interface LazyWalk {
    *  that was not loaded or loaded EMPTY (its own trailing-slash key). */
   rows: string[];
   /** Every directory reached, loaded or not. */
-  lazyDirs: string[];
+  lazyDirs: readonly string[];
   /** Loaded directories whose children replaced their key. */
   substituted: string[];
 }
@@ -192,9 +202,9 @@ export function diskInventory(
   loadedChildren: ReadonlyMap<string, readonly string[]> | undefined,
   pending: boolean,
 ): BrowseInventory {
-  if (!rootLevel) return { paths: [], ignored: [], lazyDirs: [], pending };
+  if (!rootLevel) return { paths: [], ignored: NONE, lazyDirs: NONE, pending };
   const walk = walkLazyLevels(rootLevel, loadedChildren);
-  return { paths: walk.rows, ignored: [], lazyDirs: walk.lazyDirs, pending };
+  return { paths: walk.rows, ignored: NONE, lazyDirs: walk.lazyDirs, pending };
 }
 
 /** Fold a directory↔file type change down to its ONE file row.
@@ -234,5 +244,10 @@ export function diffInventory(
   paths: string[],
   pending: boolean,
 ): BrowseInventory {
-  return { paths: foldTypeChanges(paths), ignored: [], lazyDirs: [], pending };
+  return {
+    paths: foldTypeChanges(paths),
+    ignored: NONE,
+    lazyDirs: NONE,
+    pending,
+  };
 }

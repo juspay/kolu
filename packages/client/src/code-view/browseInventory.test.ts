@@ -186,7 +186,7 @@ describe("mergeBrowseInventory", () => {
         new Map([["blog/out/", ["blog/out/000.html"]]]),
         settled,
       );
-      expect(out.ignored.sort()).toEqual(
+      expect([...out.ignored].sort()).toEqual(
         ["blog/out/", "blog/out/000.html"].sort(),
       );
     });

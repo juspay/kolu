@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { mergeGitStatusEntries } from "./gitStatusEntries";
+import {
+  mergeGitStatusEntries,
+  sameGitStatusEntries,
+} from "./gitStatusEntries";
 
 describe("mergeGitStatusEntries", () => {
   it("returns nothing for two empty layers", () => {

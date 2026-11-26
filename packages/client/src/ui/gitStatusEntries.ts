@@ -48,3 +48,31 @@ export function mergeGitStatusEntries(
   }
   return [...byPath.values()];
 }
+
+/** Pairwise equality for two decoration sets, in the order
+ *  {@link mergeGitStatusEntries} produced them. A status pulse that changed
+ *  nothing re-derives an equal-but-fresh array; Pierre rolls every entry up
+ *  into its ancestors' change counters on each application, so a memo that
+ *  publishes such an array pays that whole roll-up for no change. Used as a
+ *  memo `equals`, which is why `undefined` (no status stream yet) is a value
+ *  here and only equals itself.
+ *
+ *  Order-sensitive on purpose: the producer builds both sides the same way
+ *  from the same two layers, so equal inputs give equal order, and a sort
+ *  would put O(n log n) on the per-pulse path to catch nothing. */
+export function sameGitStatusEntries(
+  a: readonly GitStatusEntry[] | undefined,
+  b: readonly GitStatusEntry[] | undefined,
+): boolean {
+  if (a === b) return true;
+  if (a === undefined || b === undefined) return false;
+  if (a.length !== b.length) return false;
+  return a.every((entry, i) => {
+    const other = b[i];
+    return (
+      other !== undefined &&
+      entry.path === other.path &&
+      entry.status === other.status
+    );
+  });
+}

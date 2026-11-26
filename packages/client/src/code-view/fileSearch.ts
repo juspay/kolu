@@ -17,8 +17,14 @@ import { ancestorDirectoryPaths } from "@kolu/solid-pierre/paths";
 
 type FileTreeSearchProjection = {
   projectedPaths: string[];
-  expandedAncestors: string[];
+  expandedAncestors: readonly string[];
 };
+
+/** The empty ancestor list for an inactive filter — the overwhelmingly common
+ *  state. Shared and frozen so an inventory tick under no filter hands the
+ *  tree the SAME reference, instead of re-driving Pierre's expansion
+ *  reconcile with a fresh-but-equal `[]`. */
+const NO_ANCESTORS: readonly string[] = Object.freeze([]);
 
 function normalizePathSearchText(value: string): string {
   const trimmed = value.trim();
@@ -53,7 +59,7 @@ export function projectFileTreeSearch(
 ): FileTreeSearchProjection {
   const tokens = normalizePathSearchText(query).split(/\s+/).filter(Boolean);
   if (tokens.length === 0) {
-    return { projectedPaths: paths, expandedAncestors: [] };
+    return { projectedPaths: paths, expandedAncestors: NO_ANCESTORS };
   }
   const matches = paths.filter((path) =>
     pathContainsTokensInOrder(path, tokens),
