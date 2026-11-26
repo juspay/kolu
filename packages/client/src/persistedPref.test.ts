@@ -1,7 +1,7 @@
 import type { HostKey } from "kolu-common/hostKey";
-import { createRoot } from "solid-js";
+import { createRoot, flush } from "solid-js";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { perHostPref, readWithFallback } from "./persistedPref";
+import { perHostPref, persistedPref, readWithFallback } from "./persistedPref";
 
 /** `readWithFallback` is the validation/fallback core every `persistedPref`
  *  call site runs on read. These tests pin the two latent bugs the migration
@@ -116,5 +116,34 @@ describe("perHostPref", () => {
         parse: (r) => r === "true",
       }),
     ).toThrow(/reactive owner/);
+  });
+});
+
+/** The #1137 case: a pref CONSTRUCTED under a reactive owner, over storage that
+ *  already holds a value. `makePersisted` hydrates by writing the stored value
+ *  back into the signal, and that write runs while the constructing owner is
+ *  still current — which Solid 2 rejects as `REACTIVE_WRITE_IN_OWNED_SCOPE`
+ *  unless the library detaches it. `@solid-primitives/storage` 5.0.1 wraps the
+ *  hydration write in `runWithOwner(null, …)`; 5.0.0 did not, and this throws
+ *  there. Every per-host pref is built under an owner, so this is the shape the
+ *  app runs, and the reason the version floor exists. */
+describe("persistedPref under an owner", () => {
+  it("hydrates from stored data when constructed inside createRoot", () => {
+    const fake = fakeStorage();
+    fake.setItem("kolu-hydrate", "true");
+    const [dispose, value, loaded] = createRoot((d) => {
+      const [read, , loadedValue] = persistedPref<boolean>({
+        name: "kolu-hydrate",
+        fallback: false,
+        parse: (raw) => raw === "true",
+        storage: fake,
+      });
+      return [d, read, loadedValue] as const;
+    });
+    // The hydration write lands on the flush after construction.
+    flush();
+    expect(value()).toBe(true);
+    expect(loaded).toBe(true);
+    dispose();
   });
 });
