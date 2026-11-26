@@ -54,19 +54,79 @@ export type FleetTerminalRow = {
   recencyAt: number | null;
 };
 
-/** Capture a value signature while reading the frame. Comparing a previous
- *  mutable metadata proxy later could hide a real metadata change. */
-export function createStableFleetRows(
-  read: Accessor<FleetTerminalRow[]>,
-): Accessor<FleetTerminalRow[]> {
-  const snapshot = createMemo(
-    () => {
-      const rows = read();
-      return { rows, signature: JSON.stringify(rows) };
-    },
-    { equals: (a, b) => a.signature === b.signature },
+/** Whether two row lists hold the SAME rows in the same order. Rows carry
+ *  per-id identity ({@link createFleetHostRows}), so reference comparison is
+ *  the whole test — and the list only has to republish when a row did. */
+function sameRowList(
+  a: readonly FleetTerminalRow[],
+  b: readonly FleetTerminalRow[],
+): boolean {
+  return a.length === b.length && a.every((r, i) => r === b[i]);
+}
+
+/** ONE HOST'S SWITCHER ROWS, with PER-ID IDENTITY — the shape the active
+ *  host's records already have (`useTerminalMetadata`'s per-id projection).
+ *
+ *  One memo per terminal id, so a terminal whose record did not move keeps its
+ *  row object AND the clock-reprojected `meta` inside it while any other
+ *  terminal on the host changes. A single pass that rebuilt every row per
+ *  snapshot handed each row's downstream bindings — the pip, the lead subtree
+ *  — a new-but-equal object on every census tick, and the list memo above it
+ *  had to read every leaf of every record to tell the churn from a real move.
+ *
+ *  The activity window is a WHOLE-LIST gate, so the ticker and the threshold
+ *  are read here and not in the per-id memos, whose values must not churn
+ *  when only the clock advances.
+ *
+ *  The readers are injected so the rule is exercisable without a host pool:
+ *  `recordOf` is that id's record as its host publishes it, `project` is the
+ *  clock reprojection (a fresh object per call). */
+export function createFleetHostRows(opts: {
+  host: HostKey;
+  keys: Accessor<TerminalId[]>;
+  recordOf: (id: TerminalId) => PadiTerminal | undefined;
+  project: (record: TerminalMetadata) => TerminalMetadata;
+  now: Accessor<number>;
+  thresholdMs: Accessor<number | null>;
+}): Accessor<FleetTerminalRow[]> {
+  // Live parent edge over THIS host's census. A parked or not-yet-arrived
+  // record is `undefined` (absent), exactly as the active host's store reads
+  // it, so the shared walk answers the same question here.
+  const parentOf = (id: TerminalId): TerminalId | null | undefined => {
+    const record = opts.recordOf(id);
+    if (record === undefined || isParked(record)) return undefined;
+    return (record.parentId as TerminalId | undefined) ?? null;
+  };
+  const rowOf = mapArray(
+    opts.keys,
+    (id): Accessor<FleetTerminalRow | null> =>
+      createMemo(
+        (): FleetTerminalRow | null => {
+          const raw = opts.recordOf(id);
+          if (raw === undefined || isParked(raw)) return null;
+          // Match Dock / `terminalIds`: splits are not independent rows.
+          if (!isTileTerminal(id, parentOf)) return null;
+          const meta = opts.project(raw);
+          return { host: opts.host, id, meta, recencyAt: rowRecencyAt(meta) };
+        },
+        { name: "fleetRow" },
+      ),
   );
-  return () => snapshot().rows;
+  return createMemo(
+    (): FleetTerminalRow[] => {
+      const now = opts.now();
+      const thresholdMs = opts.thresholdMs();
+      const out: FleetTerminalRow[] = [];
+      for (const read of rowOf()) {
+        const row = read();
+        if (row === null || isStaleAt(row.recencyAt, now, thresholdMs))
+          continue;
+        out.push(row);
+      }
+      return out;
+    },
+    { name: "fleetHostRows", equals: sameRowList },
+  );
 }
 
 /** Pure merge + rank — unit-tested without Solid. Higher recency first;
@@ -266,31 +326,15 @@ const useFleetHosts = createSharedRoot(() => {
       // the host finishes adopting, one more if it recycles.
       const roster = entry.cells.roster.use();
 
-      const rows = createStableFleetRows(() => {
-        if (!connected()) return [];
-        const now = getNowTicker()();
-        const thresholdMs = thresholdMsForHost(host);
-        const out: FleetTerminalRow[] = [];
-        // Live parent edge over THIS host's census. A parked or not-yet-arrived
-        // record is `undefined` (absent), exactly as the active host's store
-        // reads it, so the shared walk answers the same question here.
-        const parentOf = (id: TerminalId) => {
-          const record = terminals.byKey(id)?.();
-          if (record === undefined || isParked(record)) return undefined;
-          return (record.parentId as TerminalId | undefined) ?? null;
-        };
-        for (const id of keys()) {
-          // Bound collection: `byKey` is a method on the use() result (not a signal).
-          const raw = terminals.byKey(id)?.();
-          if (raw === undefined || isParked(raw)) continue;
-          // Match Dock / `terminalIds`: splits are not independent rows.
-          if (!isTileTerminal(id, parentOf)) continue;
-          const meta = reprojectOnHost(host, raw);
-          const recencyAt = rowRecencyAt(meta);
-          if (isStaleAt(recencyAt, now, thresholdMs)) continue;
-          out.push({ host, id, meta, recencyAt });
-        }
-        return out;
+      // `keys` is already empty while disconnected, so the row set empties
+      // with the host. `byKey` is a method on the use() result, not a signal.
+      const rows = createFleetHostRows({
+        host,
+        keys,
+        recordOf: (id) => terminals.byKey(id)?.(),
+        project: (record) => reprojectOnHost(host, record),
+        now: getNowTicker(),
+        thresholdMs: () => thresholdMsForHost(host),
       });
 
       const standing = (id: TerminalId): FleetTerminalStanding =>

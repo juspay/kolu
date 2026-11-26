@@ -1,10 +1,10 @@
 import { createEffect, createRoot, createSignal, flush } from "solid-js";
-import type { TerminalMetadata } from "@kolu/padi-client/surface";
+import type { PadiTerminal, TerminalMetadata } from "@kolu/padi-client/surface";
 import type { HostKey } from "kolu-common/hostKey";
 import type { TerminalId } from "kolu-common/surface";
 import { describe, expect, it } from "vitest";
 import {
-  createStableFleetRows,
+  createFleetHostRows,
   type FleetTerminalRow,
   groupFleetByHost,
   isTileTerminal,
@@ -126,30 +126,76 @@ describe("orderHostsActiveFirst", () => {
   });
 });
 
-it("unchanged clock-driven fleet projections wake no consumers", () => {
-  const [tick, setTick] = createSignal(0);
-  const [recency, setRecency] = createSignal(10);
-  let wakes = 0;
-  const dispose = createRoot((disposeRoot) => {
-    const rows = createStableFleetRows(() => {
-      tick();
-      return [row(local, "a", recency())];
-    });
-    createEffect(
-      () => rows(),
-      () => {
-        wakes++;
-      },
-    );
-    return disposeRoot;
+/** A FLEET ROW'S IDENTITY IS ITS TERMINAL'S. Every row-level consumer — the
+ *  palette row's pip, its lead subtree — is bound to the row's `meta`, so a
+ *  snapshot that rebuilt every row handed all of them a new-but-equal object
+ *  whenever any one terminal on the host moved. */
+describe("createFleetHostRows", () => {
+  const wire = (lastActivityAt: number): PadiTerminal =>
+    ({
+      state: "active",
+      lastActivityAt,
+      parentId: null,
+    }) as unknown as PadiTerminal;
+
+  it("keeps an untouched terminal's row and meta across another's change", () => {
+    const [a, setA] = createSignal(wire(10));
+    const [b] = createSignal(wire(20));
+    const held = createRoot((disposeRoot) => ({
+      disposeRoot,
+      rows: createFleetHostRows({
+        host: local,
+        keys: () => ["a", "b"] as TerminalId[],
+        recordOf: (id) => (id === ("a" as TerminalId) ? a() : b()),
+        // A reprojection mints a fresh record every call, as the clock one does.
+        project: (record) => ({ ...record }) as TerminalMetadata,
+        now: () => 0,
+        thresholdMs: () => null,
+      }),
+    }));
+    const rowB = (): FleetTerminalRow =>
+      held.rows().find((r) => r.id === ("b" as TerminalId))!;
+    flush();
+    const before = rowB();
+    for (let i = 1; i <= 4; i++) {
+      setA(wire(10 + i));
+      flush();
+    }
+    const after = rowB();
+    expect(after).toBe(before);
+    expect(after.meta).toBe(before.meta);
+    held.disposeRoot();
   });
-  flush();
-  setTick(1);
-  setTick(2);
-  flush();
-  expect(wakes).toBe(1);
-  setRecency(20);
-  flush();
-  expect(wakes).toBe(2);
-  dispose();
+
+  it("wakes no consumer when the clock ticks without a record moving", () => {
+    const [tick, setTick] = createSignal(0);
+    const [a, setA] = createSignal(wire(10));
+    let wakes = 0;
+    const dispose = createRoot((disposeRoot) => {
+      const rows = createFleetHostRows({
+        host: local,
+        keys: () => ["a"] as TerminalId[],
+        recordOf: () => a(),
+        project: (record) => ({ ...record }) as TerminalMetadata,
+        now: tick,
+        thresholdMs: () => null,
+      });
+      createEffect(
+        () => rows(),
+        () => {
+          wakes++;
+        },
+      );
+      return disposeRoot;
+    });
+    flush();
+    setTick(1);
+    setTick(2);
+    flush();
+    expect(wakes).toBe(1);
+    setA(wire(20));
+    flush();
+    expect(wakes).toBe(2);
+    dispose();
+  });
 });
