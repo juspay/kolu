@@ -23,6 +23,8 @@ import {
   For,
   Match,
   onCleanup,
+  onSettled,
+  runWithOwner,
   Show,
   Switch,
   untrack,
@@ -383,23 +385,47 @@ const TerminalCanvas: Component<{
       // out, and dropped when the tile leaves the map, so a gesture raised
       // outside this component (`useCanvasArrange`'s reset) can mint against
       // the layout the tile is SHOWING — this component's `layoutOf`.
-      for (const id of work.placed) {
-        persistedDefaults.delete(id);
-        pendingLayouts.forgetDerivedDefault(id);
-      }
-      for (const { id, layout, write } of work.writes) {
-        persistedDefaults.add(id);
-        pendingLayouts.publishDerivedDefault(id, layout);
-        write(layout);
-      }
-      // Pan to the active newly-placed tile. This is a tile-level landing with
-      // no explicit pane target, so it preserves the visible remembered pane;
-      // the call's job is bumping the centering signal once the new tile's
-      // layout is derivable. Same mechanism the `focus.request` effect below
-      // uses for every other system-driven activation.
-      const { activeId, landActive } = work;
-      if (landActive && activeId && work.writes.some((w) => w.id === activeId))
-        landActive();
+      //
+      // The BOOKKEEPING stays synchronous: `persistedDefaults` is the guard
+      // that keeps one tile's default from being planned twice, so it must
+      // record the write the moment it is queued, not when it drains.
+      for (const id of work.placed) persistedDefaults.delete(id);
+      for (const { id } of work.writes) persistedDefaults.add(id);
+      // SETTLED, not inline: `write` lands in the tile's metadata record
+      // (`state.<terminal-uuid>`), which `useTerminalStore`'s `webglTileBudget`
+      // reads — so an inline write from this arm relays into a memo that has
+      // already run this flush (`EFFECT_RELAY_TEAR`, the dev lane's largest
+      // advisory). From `onSettled` the whole write phase lands in a later pass
+      // of the SAME flush — no extra frame, the same order — carrying no effect
+      // origin.
+      //
+      // UNOWNED: with an owner, `onSettled` is a tracked effect created and run
+      // right there, which would carry this arm's frame and grow a child per
+      // pass. With no owner it enqueues, which is the deferral. The callback is
+      // a BLOCK that returns nothing: an unowned `onSettled` reads a returned
+      // value as a cleanup and throws from the drain.
+      runWithOwner(null, () =>
+        onSettled(() => {
+          for (const id of work.placed) pendingLayouts.forgetDerivedDefault(id);
+          for (const { id, layout, write } of work.writes) {
+            pendingLayouts.publishDerivedDefault(id, layout);
+            write(layout);
+          }
+          // Pan to the active newly-placed tile. This is a tile-level landing
+          // with no explicit pane target, so it preserves the visible
+          // remembered pane; the call's job is bumping the centering signal
+          // once the new tile's layout is derivable. Same mechanism the
+          // `focus.request` effect below uses for every other system-driven
+          // activation.
+          const { activeId, landActive } = work;
+          if (
+            landActive &&
+            activeId &&
+            work.writes.some((w) => w.id === activeId)
+          )
+            landActive();
+        }),
+      );
     },
     { name: "persistDerivedDefaults" },
   );
