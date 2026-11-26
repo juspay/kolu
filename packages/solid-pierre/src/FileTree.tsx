@@ -344,16 +344,32 @@ export const FileTree: Component<FileTreeProps> = (props) => {
   // gets an entry here, and the next reader cannot reintroduce the hazard by
   // reading `props` directly inside an effect's compute.
   const propValue = {
-    paths: createMemo(() => props.paths),
-    expandPaths: createMemo(() => props.expandPaths),
-    gitStatus: createMemo(() => props.gitStatus),
-    selectedPath: createMemo(() => props.selectedPath ?? null),
-    revealRequest: createMemo(() => props.revealRequest),
-    lazyDirectories: createMemo(() => props.lazyDirectories),
-    shadowCss: createMemo(() => props.shadowCss),
-    lazyEpoch: createMemo(() => props.lazyEpoch),
-    onExpandLazyDirectory: createMemo(() => props.onExpandLazyDirectory),
-    onError: createMemo(() => props.onError),
+    paths: createMemo(() => props.paths, { name: "fileTree.paths" }),
+    expandPaths: createMemo(() => props.expandPaths, {
+      name: "fileTree.expandPaths",
+    }),
+    gitStatus: createMemo(() => props.gitStatus, {
+      name: "fileTree.gitStatus",
+    }),
+    selectedPath: createMemo(() => props.selectedPath ?? null, {
+      name: "fileTree.selectedPath",
+    }),
+    revealRequest: createMemo(() => props.revealRequest, {
+      name: "fileTree.revealRequest",
+    }),
+    lazyDirectories: createMemo(() => props.lazyDirectories, {
+      name: "fileTree.lazyDirectories",
+    }),
+    shadowCss: createMemo(() => props.shadowCss, {
+      name: "fileTree.shadowCss",
+    }),
+    lazyEpoch: createMemo(() => props.lazyEpoch, {
+      name: "fileTree.lazyEpoch",
+    }),
+    onExpandLazyDirectory: createMemo(() => props.onExpandLazyDirectory, {
+      name: "fileTree.onExpandLazyDirectory",
+    }),
+    onError: createMemo(() => props.onError, { name: "fileTree.onError" }),
   };
 
   // Pierre fires `onSelectionChange` for directory clicks too, which would

@@ -164,15 +164,20 @@ export function useCollection<Name extends string, K, T, I>(
             options.enroll?.(key, sub);
             return { key, sub };
           });
-          index = createMemo(() => {
-            const table = new Map<K, Subscription<T>>();
-            for (const entry of perKey())
-              if (!table.has(entry.key)) table.set(entry.key, entry.sub);
-            return table;
-          });
+          index = createMemo(
+            () => {
+              const table = new Map<K, Subscription<T>>();
+              for (const entry of perKey())
+                if (!table.has(entry.key)) table.set(entry.key, entry.sub);
+              return table;
+            },
+            { name: `${collDescriptor.name}.index` },
+          );
         }
         const table = index;
-        return createMemo(() => table().get(key));
+        return createMemo(() => table().get(key), {
+          name: `${collDescriptor.name}[${String(key)}]`,
+        });
       });
       if (!read)
         throw new Error("Collection lookup owner failed to initialize");

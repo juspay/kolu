@@ -99,7 +99,9 @@ export function agentDistroStored(): AgentDistroPrefs | null {
 /** The Agents setting new terminals get — the stored value through the one fold
  *  (`agentDistroSettingOf`: never chosen is off). Every other reader uses this. */
 export const agentDistroSetting = createRoot(() =>
-  createMemo(() => agentDistroSettingOf(agentDistroStored())),
+  createMemo(() => agentDistroSettingOf(agentDistroStored()), {
+    name: "agentDistroSetting",
+  }),
 );
 
 /** Per-host status reads, one subscription per pool member. */

@@ -31,7 +31,9 @@ export type PrintedUrlCardTarget = {
 };
 
 const [target, setTarget] = createRoot(() =>
-  createSignal<PrintedUrlCardTarget | null>(null),
+  createSignal<PrintedUrlCardTarget | null>(null, {
+    name: "printedUrlCardTarget",
+  }),
 );
 
 export function openPrintedUrlCard(next: PrintedUrlCardTarget): void {

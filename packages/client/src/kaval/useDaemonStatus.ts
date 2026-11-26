@@ -78,7 +78,7 @@ export {
 // `getClockNow` / the stale-ticker use (dev/skills/kolu-client/SKILL.md "memos for multi-consumer
 // derivations").
 const sharedDaemonTransportLive = createSharedRoot(() =>
-  createMemo(() => app.health().live),
+  createMemo(() => app.health().live, { name: "daemonTransportLive" }),
 );
 
 /** The watchdog-backed liveness of the ws transport that delivers `daemonStatus`
@@ -239,8 +239,10 @@ export function reprojectDaemonStatus(
  *  callable accessor, so this IS `localDaemonStatus` — no pass-through wrapper. Module-
  *  lifetime root like `sharedDaemonTransportLive` above. */
 export const localDaemonStatus = createRoot(() =>
-  createMemo((): DaemonStatus | undefined =>
-    reprojectDaemonStatus(activeHost(), localDaemonEntry()?.()),
+  createMemo(
+    (): DaemonStatus | undefined =>
+      reprojectDaemonStatus(activeHost(), localDaemonEntry()?.()),
+    { name: "localDaemonStatus" },
   ),
 );
 
@@ -320,6 +322,7 @@ export const activeKavalPresence = createRoot(() =>
   createMemo(
     (): KavalPresence =>
       toKavalPresence(localDaemonStatus(), daemonChannelLive()),
+    { name: "activeKavalPresence" },
   ),
 );
 

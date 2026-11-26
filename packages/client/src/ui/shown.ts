@@ -61,7 +61,8 @@ export function useShown(): Accessor<boolean> {
 export function useShownClock(): Accessor<number> {
   const shown = useShown();
   const now = getClockNow();
-  return createMemo((previous?: number) =>
-    shown() ? now() : (previous ?? untrack(now)),
+  return createMemo(
+    (previous?: number) => (shown() ? now() : (previous ?? untrack(now))),
+    { name: "shownClock" },
   );
 }

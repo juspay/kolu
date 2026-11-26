@@ -101,5 +101,7 @@ export function selectWelcomeMoments(
 export function latchKnown(
   read: Accessor<boolean | undefined>,
 ): Accessor<boolean | undefined> {
-  return createMemo<boolean | undefined>((last) => read() ?? last);
+  return createMemo<boolean | undefined>((last) => read() ?? last, {
+    name: "latchKnown",
+  });
 }

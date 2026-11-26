@@ -37,6 +37,7 @@ export function createAttentionIndex(
     activeCount: createMemo(
       () =>
         hostActiveIds({ byClass: byClass(), liveIds: [...liveIds()] }).length,
+      { name: "attentionIndex.activeCount" },
     ),
   };
 }

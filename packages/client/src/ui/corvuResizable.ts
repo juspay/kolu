@@ -50,6 +50,7 @@ export function twoPanelSplit(
  *  read as a change and defeat it. */
 export function controlledSizes(derive: () => number[]): Accessor<number[]> {
   return createMemo(derive, {
+    name: "controlledSizes",
     equals: (a, b) => a.length === b.length && a.every((v, i) => v === b[i]),
   });
 }

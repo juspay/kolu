@@ -179,7 +179,7 @@ export function persistedPref<T>(
   const [value, setValue, , dispose] = makePersisted(
     // `ownedWrite`: see the header — deleted with the bump to
     // `@solid-primitives/storage@5.0.1`.
-    createSignal<T>(opts.fallback, { ownedWrite: true }),
+    createSignal<T>(opts.fallback, { ownedWrite: true, name: opts.name }),
     {
       name: opts.name,
       storage: opts.storage,

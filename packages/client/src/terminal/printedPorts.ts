@@ -98,7 +98,10 @@ export function portsInText(text: string): number[] {
 }
 
 const [printed, setPrinted] = createRoot(() =>
-  createStore<Record<TerminalId, readonly number[]>>({}),
+  createStore<Record<TerminalId, readonly number[]>>(
+    {},
+    { name: "printedPorts" },
+  ),
 );
 
 /** Distinct ports tracked per terminal, capped so a session that keeps a

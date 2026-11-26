@@ -241,7 +241,7 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
   const memory = useMemoryNeed();
   const works = useWorks();
 
-  return createMemo((): PaletteCommand[] => [
+  const commands = createMemo((): PaletteCommand[] => [
     // --- Root index: terminals (all hosts) + hosts ---
     // Empty root caps terminals to Recent (~3); a query surfaces all matches
     // flat across hosts (host chip on each row). ⌘⇧K opens Terminals as a
@@ -763,4 +763,5 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
       ],
     },
   ]);
+  return commands;
 }

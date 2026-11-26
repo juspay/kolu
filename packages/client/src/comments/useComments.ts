@@ -141,8 +141,11 @@ export function commentsFor(
 export function commentsFor(
   queue: Accessor<CommentQueue | null>,
 ): () => Comments | null {
-  return createMemo(() => {
-    const one = queue();
-    return one === null ? null : useComments(one);
-  });
+  return createMemo(
+    () => {
+      const one = queue();
+      return one === null ? null : useComments(one);
+    },
+    { name: "commentsFor" },
+  );
 }

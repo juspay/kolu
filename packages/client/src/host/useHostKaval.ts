@@ -69,7 +69,8 @@ export function useHostKaval(host: Accessor<HostKey>): {
  *  spells the composition once and cannot pick a different one. */
 export function useHostKavalChain(host: Accessor<HostKey>): () => KavalChain {
   const kaval = useHostKaval(host);
-  return createMemo(() =>
-    kavalChainOf(toKavalPresence(kaval.daemon(), kaval.live())),
+  return createMemo(
+    () => kavalChainOf(toKavalPresence(kaval.daemon(), kaval.live())),
+    { name: "hostKavalChain" },
   );
 }

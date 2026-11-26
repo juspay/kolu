@@ -64,7 +64,14 @@ export const useDockOrder = createSharedRoot<Accessor<DockTree>>(() => {
       store.getPaneTree,
     ),
   );
-  return createMemo(() =>
-    buildDockTree(ranked(), store.getDisplayInfo, !showSleeping(), dockOrder()),
+  return createMemo(
+    () =>
+      buildDockTree(
+        ranked(),
+        store.getDisplayInfo,
+        !showSleeping(),
+        dockOrder(),
+      ),
+    { name: "dockTree" },
   );
 });

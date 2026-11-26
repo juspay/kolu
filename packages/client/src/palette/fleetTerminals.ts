@@ -325,8 +325,10 @@ export const useFleetTerminalIndex = createSharedRoot(
   // never refreshes the memo behind it.
   (): Accessor<FleetTerminalRow[]> => {
     const hosts = useFleetHosts();
-    return createMemo((): FleetTerminalRow[] =>
-      rankFleetTerminalRows(hosts().flatMap((h) => h.rows())),
+    return createMemo(
+      (): FleetTerminalRow[] =>
+        rankFleetTerminalRows(hosts().flatMap((h) => h.rows())),
+      { name: "fleetTerminalIndex" },
     );
   },
 );

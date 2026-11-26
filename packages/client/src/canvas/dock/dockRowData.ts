@@ -23,8 +23,9 @@ export function createDockRowData(
   id: Accessor<TerminalId>,
 ): () => { info: TerminalDisplayInfo; meta: TerminalMetadata } | null {
   const store = useTerminalStore();
-  return createMemo(() =>
-    pairDisplayRow(store.getDisplayInfo(id()), store.getMetadata(id())),
+  return createMemo(
+    () => pairDisplayRow(store.getDisplayInfo(id()), store.getMetadata(id())),
+    { name: "dockRowData" },
   );
 }
 

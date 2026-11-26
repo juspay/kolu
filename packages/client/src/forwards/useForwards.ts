@@ -41,8 +41,9 @@ const byHost = createRoot(() => {
     () => hostKeys().map(encodeHostKey),
     (enc) => ({
       enc,
-      read: createMemo(() =>
-        allForwards().filter((f) => encodeHostKey(f.host) === enc),
+      read: createMemo(
+        () => allForwards().filter((f) => encodeHostKey(f.host) === enc),
+        { name: "forwardsByHost" },
       ),
     }),
   );
@@ -68,6 +69,7 @@ export function forwardsForHost(host: HostKey): Forwards {
  *  one door rendered twice. */
 export const doorLocalPorts = createRoot(() =>
   createMemo(() => new Set(allForwards().map((f) => f.localPort)), {
+    name: "doorLocalPorts",
     // An unrelated forward tick with the same doors must not re-run the join.
     equals: (a, b) => a.size === b.size && [...a].every((p) => b.has(p)),
   }),
@@ -135,7 +137,7 @@ const viewerHostQuery = createRoot(() =>
           ),
         ),
       ),
-    { loadingValue: null },
+    { loadingValue: null, name: "viewerHostQuery" },
   ),
 );
 

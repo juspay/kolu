@@ -118,6 +118,7 @@ const ConductorPane: Component<{
         };
       },
       {
+        name: "typedReply",
         equals: (a, b) =>
           a === b ||
           (a !== undefined &&

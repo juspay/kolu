@@ -45,6 +45,10 @@ import {
   validatePackageReadmes,
 } from "./packageReadmes";
 import {
+  collectPrimitiveNameHits,
+  validatePrimitiveNameHits,
+} from "./primitiveNames";
+import {
   collectRunEdges,
   RUN_EDGE_ALLOWLIST,
   validateRunEdges,
@@ -212,6 +216,13 @@ validateAwaitedFaceCalls(collectAwaitedFaceCalls(repoRoot));
 // prod and throws in dev. TypeScript types such a call `void`; biome is not
 // type-aware. Two of these shipped here.
 validateEffectCleanupHits(collectEffectCleanupHits(repoRoot));
+
+// The unnamed-primitive ban — the naming half of the same Solid 2 story. A
+// `createSignal`/`createMemo`/`createStore` with no declarator has no name to
+// take, so Solid's dev diagnostics address it as the bare kind and every such
+// primitive under one owner folds into a single nameless bucket. The dev lane
+// found 5 549 events in one such row.
+validatePrimitiveNameHits(collectPrimitiveNameHits(repoRoot));
 
 // The `Schema.optional` tolerance allowlist (B3) — the third scan of the same
 // family. `optionalKey` is the migration's law; the four fields that break it

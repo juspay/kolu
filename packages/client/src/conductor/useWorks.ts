@@ -55,18 +55,26 @@ import { app } from "../wire";
  *  accessor whose frame has not landed — and the map carries neither, so `V`
  *  is inferred as the ROW's type rather than the row-or-nothing the binding
  *  hands out. */
-const mapOf = <K extends string, V>(bound: {
-  keys: () => Iterable<K>;
-  byKey: (key: K) => Accessor<V | undefined> | undefined;
-}): Accessor<ReadonlyMap<K, V>> =>
-  createMemo(() => {
-    const by = new Map<K, V>();
-    for (const key of bound.keys()) {
-      const one = bound.byKey(key)?.();
-      if (one !== undefined) by.set(key, one);
-    }
-    return by;
-  });
+const mapOf = <K extends string, V>(
+  bound: {
+    keys: () => Iterable<K>;
+    byKey: (key: K) => Accessor<V | undefined> | undefined;
+  },
+  /** The fold's name in dev diagnostics — one `mapOf` serves every mirror, so
+   *  the collection it folds is the caller's to say. */
+  name: string,
+): Accessor<ReadonlyMap<K, V>> =>
+  createMemo(
+    () => {
+      const by = new Map<K, V>();
+      for (const key of bound.keys()) {
+        const one = bound.byKey(key)?.();
+        if (one !== undefined) by.set(key, one);
+      }
+      return by;
+    },
+    { name },
+  );
 
 /** THE WORKS BY ID, mirrored once for the whole app — the shape membership is
  *  folded from, and what a reader looking for ONE work (the reader window, a
@@ -76,7 +84,7 @@ export const useWorkMap = createSharedRoot<Accessor<ReadonlyMap<WorkId, Work>>>(
     // Bare `.use()`: the collection DECLARES its own `onError` policy (a toast
     // labelled `Works`) on the spec, so the use-site carries none, and its
     // default keys stream is the server's own — every work, no narrowing.
-    mapOf(app.collections.works.use()),
+    mapOf(app.collections.works.use(), "workMap"),
 );
 
 /** THE WORKS, in the order every reader draws them: in progress oldest first
@@ -89,12 +97,15 @@ export const useWorkMap = createSharedRoot<Accessor<ReadonlyMap<WorkId, Work>>>(
 export const useWorks = createSharedRoot<Accessor<ReadonlyArray<WorkRow>>>(
   () => {
     const map = useWorkMap();
-    return createMemo(() => {
-      const pairs = [...map()].sort(([, a], [, b]) =>
-        a.startedAt < b.startedAt ? -1 : 1,
-      );
-      return [...inProgress(pairs), ...finished(pairs)];
-    });
+    return createMemo(
+      () => {
+        const pairs = [...map()].sort(([, a], [, b]) =>
+          a.startedAt < b.startedAt ? -1 : 1,
+        );
+        return [...inProgress(pairs), ...finished(pairs)];
+      },
+      { name: "works" },
+    );
   },
 );
 
@@ -103,7 +114,7 @@ export const useWorks = createSharedRoot<Accessor<ReadonlyArray<WorkRow>>>(
  *  that is names exactly one. */
 export const useWorkMembers = createSharedRoot<
   Accessor<ReadonlyMap<string, WorkMember>>
->(() => mapOf(app.collections.workMembers.use()));
+>(() => mapOf(app.collections.workMembers.use(), "workMembers"));
 
 /** THE MEMBERSHIP INDEX, derived once — terminal (`host/id`) to the work it is
  *  a member of, and WHO DRIVES it.
@@ -117,7 +128,9 @@ export const useMembership = createSharedRoot<
 >(() => {
   const works = useWorkMap();
   const members = useWorkMembers();
-  return createMemo(() => membershipOf(works(), members()));
+  return createMemo(() => membershipOf(works(), members()), {
+    name: "membership",
+  });
 });
 
 /** HOW A MEMBER TERMINAL STANDS, by kolu's watch — ref to the level it was
@@ -125,7 +138,7 @@ export const useMembership = createSharedRoot<
  *  read in this process, which is a different thing from "0s ago". */
 export const useSeen = createSharedRoot<
   Accessor<ReadonlyMap<string, MemberReading>>
->(() => mapOf(app.collections.memberReadings.use()));
+>(() => mapOf(app.collections.memberReadings.use(), "memberReadings"));
 
 /** EACH WORK'S OWN PULL REQUEST, by work id — the forge's last answer for the
  *  work's branch, as kolu's watch read it. Absent while the work is not an
@@ -133,7 +146,7 @@ export const useSeen = createSharedRoot<
  *  through `./workPr.ts` only. */
 export const useWorkPrs = createSharedRoot<
   Accessor<ReadonlyMap<WorkId, PrResult>>
->(() => mapOf(app.collections.workPrs.use()));
+>(() => mapOf(app.collections.workPrs.use(), "workPrs"));
 
 /** WHAT NEEDS THE HUMAN, read once for the whole app — `kolu-work`'s one
  *  reading over the works mirror. The "Needs you" group, the bell, the tab's
@@ -143,6 +156,6 @@ export const useWorkPrs = createSharedRoot<
 export const useNeedsYou = createSharedRoot<Accessor<ReadonlyArray<NeedsYou>>>(
   () => {
     const works = useWorks();
-    return createMemo(() => needsYou(works()));
+    return createMemo(() => needsYou(works()), { name: "needsYou" });
   },
 );

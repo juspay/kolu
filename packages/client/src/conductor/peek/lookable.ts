@@ -32,8 +32,11 @@ import { liveArm } from "../terminalStatus";
 export function createLookable(
   standing: Accessor<FleetTerminalStanding>,
 ): Accessor<boolean> {
-  return createMemo((was: boolean = false) => {
-    const now = standing();
-    return now.kind === "loading" ? was : liveArm(now) !== undefined;
-  });
+  return createMemo(
+    (was: boolean = false) => {
+      const now = standing();
+      return now.kind === "loading" ? was : liveArm(now) !== undefined;
+    },
+    { name: "lookable" },
+  );
 }

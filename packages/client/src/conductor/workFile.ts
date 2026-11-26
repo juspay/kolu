@@ -235,7 +235,7 @@ export function createWorkFiles(source: Accessor<WorkFileSource | null>): {
     { loadingValue: null },
   );
   return {
-    rows: createMemo(() => listed()?.rows ?? []),
+    rows: createMemo(() => listed()?.rows ?? [], { name: "workFiles.rows" }),
     more: () => listed()?.more ?? false,
     // Not read yet (the declared `null`, or no source to read from), or being
     // read again for a source that changed.

@@ -33,12 +33,14 @@ export function useStatePip(
   pipBucket?: Accessor<DockRowBucket | undefined>,
 ): Accessor<StatePipBind> {
   const facts = useAttentionFacts();
-  return createMemo(() =>
-    bindStatePip({
-      meta: meta(),
-      attention: facts.attentionOf(encHost(), id()),
-      unread: unread(),
-      pipBucket: pipBucket?.(),
-    }),
+  return createMemo(
+    () =>
+      bindStatePip({
+        meta: meta(),
+        attention: facts.attentionOf(encHost(), id()),
+        unread: unread(),
+        pipBucket: pipBucket?.(),
+      }),
+    { name: "statePipBind" },
   );
 }

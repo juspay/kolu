@@ -104,8 +104,9 @@ export const useConductorBadge = createSharedRoot(() => {
   const memory = useMemoryNeed();
   return {
     /** How many things are waiting on the human. */
-    waiting: createMemo(() =>
-      waitingCount(needs(), facts().openAsks, memory()),
+    waiting: createMemo(
+      () => waitingCount(needs(), facts().openAsks, memory()),
+      { name: "conductorBadge.waiting" },
     ),
   };
 });

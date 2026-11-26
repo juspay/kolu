@@ -97,7 +97,9 @@ export const useMemory = createSharedRoot((): ConductorMemory => {
   return {
     cell,
     view,
-    used: createMemo(() => memoryUsed(view().entries)),
+    used: createMemo(() => memoryUsed(view().entries), {
+      name: "memoryUsed",
+    }),
     waiting: (id) => view().proposals.find((one) => one.id === id),
     inBatch: (id) => {
       const batch = view().proposals.find((one) => one.id === id)?.batch;
@@ -141,8 +143,11 @@ export const useMemory = createSharedRoot((): ConductorMemory => {
  *  baseline rather than as news. */
 export const useMemoryNeed = createSharedRoot(() => {
   const memory = useMemory();
-  return createMemo(() => {
-    const cell = memory.cell();
-    return cell === undefined ? undefined : memoryNeed(cell);
-  });
+  return createMemo(
+    () => {
+      const cell = memory.cell();
+      return cell === undefined ? undefined : memoryNeed(cell);
+    },
+    { name: "memoryNeed" },
+  );
 });

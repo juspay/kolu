@@ -82,7 +82,7 @@ const NONE: ReadonlyArray<WorkMemberRow> = [];
 /** THE MEMBERS MAP, SPLIT BY WORK — once for the whole app. */
 const useMembersByWork = createSharedRoot(() => {
   const all = useWorkMembers();
-  return createMemo(() => membersByWork(all()));
+  return createMemo(() => membersByWork(all()), { name: "membersByWork" });
 });
 
 /** One work's reading of its members, and nothing else: no fact about the

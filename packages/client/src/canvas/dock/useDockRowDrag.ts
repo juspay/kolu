@@ -76,14 +76,17 @@ export function useDockDropVerdict(
   const scope = useDragDropScope();
   const store = useTerminalStore();
   const drop = dockDropContext(store);
-  return createMemo(() => {
-    if (!isActiveTarget()) return undefined;
-    const dragged = rowIdOfDragId(scope.activeId() ?? "");
-    // A cluster drag hovering this target is not this target's business: the
-    // verdict is about ROW drops.
-    if (dragged === null) return undefined;
-    return dropHighlightOf(drop, dragged, target());
-  });
+  return createMemo(
+    () => {
+      if (!isActiveTarget()) return undefined;
+      const dragged = rowIdOfDragId(scope.activeId() ?? "");
+      // A cluster drag hovering this target is not this target's business: the
+      // verdict is about ROW drops.
+      if (dragged === null) return undefined;
+      return dropHighlightOf(drop, dragged, target());
+    },
+    { name: "dockDropVerdict" },
+  );
 }
 
 /** One desktop dock row's drag sockets.

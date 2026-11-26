@@ -47,15 +47,18 @@ export function standaloneName(
 export function useKnownNames(): () => ReadonlyMap<string, string> {
   const fleet = useFleetTerminalIndex();
   const membership = useMembership();
-  return createMemo(() => {
-    const byRef = new Map<string, string>();
-    for (const candidate of fleetMentionCandidates(fleet(), membership()))
-      byRef.set(
-        fleetTerminalRef(candidate.host, candidate.terminalId),
-        candidate.name,
-      );
-    return byRef;
-  });
+  return createMemo(
+    () => {
+      const byRef = new Map<string, string>();
+      for (const candidate of fleetMentionCandidates(fleet(), membership()))
+        byRef.set(
+          fleetTerminalRef(candidate.host, candidate.terminalId),
+          candidate.name,
+        );
+      return byRef;
+    },
+    { name: "knownNames" },
+  );
 }
 
 /** The name a member goes by standing alone — the peek's tabs and title. */

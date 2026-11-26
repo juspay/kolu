@@ -689,7 +689,9 @@ export const hostKeys: Accessor<HostKey[]> = hostScoped.hostKeys;
  *  stops, instead of fanning every consumer out on unrelated pool churn. In its own app-lifetime
  *  `createRoot`, like `localDaemonStatus`. */
 export const groundedActiveHost: Accessor<HostKey | null> = createRoot(() =>
-  createMemo(() => groundActiveHost(activeHost(), hostKeys())),
+  createMemo(() => groundActiveHost(activeHost(), hostKeys()), {
+    name: "groundedActiveHost",
+  }),
 );
 
 /** The ACTIVE host as its ENCODED key — the string the attention mirror, the
@@ -703,7 +705,7 @@ export const groundedActiveHost: Accessor<HostKey | null> = createRoot(() =>
  *  A memo returns the same string reference until the host actually changes, so
  *  a row's pip memo stops re-running just because something else ticked. */
 export const encActiveHost: Accessor<string> = createRoot(() =>
-  createMemo(() => encodeHostKey(activeHost())),
+  createMemo(() => encodeHostKey(activeHost()), { name: "encActiveHost" }),
 );
 
 /** The FUSED active-host procedure client — `padiMap.useEntry(activeHost).procedures`,

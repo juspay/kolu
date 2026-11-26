@@ -108,16 +108,20 @@ function keyedRoots<K, T>(
     () => scopes(),
     () => {},
   );
-  return createMemo(() => {
-    const keys = sourceKeys();
-    const built = scopes();
-    const m = new Map<string, T>();
-    // mapArray returns worlds aligned 1:1 with `keys`, so `built[i]` is present.
-    keys.forEach((key, i) => {
-      m.set(enc(key), built[i] as T);
-    });
-    return m;
-  });
+  return createMemo(
+    () => {
+      const keys = sourceKeys();
+      const built = scopes();
+      const m = new Map<string, T>();
+      // mapArray returns worlds aligned 1:1 with `keys`, so `built[i]` is
+      // present.
+      keys.forEach((key, i) => {
+        m.set(enc(key), built[i] as T);
+      });
+      return m;
+    },
+    { name: "keyedRoots" },
+  );
 }
 
 export interface ScopedByEntry<K, T> {

@@ -62,7 +62,7 @@ export function createBootPick(
   /** This host's restore window — see {@link HostRestoreLatch.restoreInFlight}. */
   restoreInFlight: Accessor<boolean>,
 ): Accessor<TerminalId | null> {
-  return createMemo<TerminalId | null>((previous) => {
+  const pick = createMemo<TerminalId | null>((previous) => {
     // Answered once: a later census cannot move the tile this boot landed on.
     if (previous != null) return previous;
     // A restore this client issued is mid-flight: the census is half re-spawned
@@ -94,4 +94,5 @@ export function createBootPick(
       return saved as TerminalId;
     return topIds[0] ?? null;
   });
+  return pick;
 }

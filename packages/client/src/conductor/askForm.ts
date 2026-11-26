@@ -128,11 +128,13 @@ export function seededChips(
       });
     },
   );
-  return createMemo(() =>
-    defaultFirst(
-      options(),
-      Option.map(standing(), (one) => one.value),
-    ),
+  return createMemo(
+    () =>
+      defaultFirst(
+        options(),
+        Option.map(standing(), (one) => one.value),
+      ),
+    { name: "seededChips" },
   );
 }
 

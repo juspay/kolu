@@ -55,14 +55,17 @@ export function useSectionAttention(
 ): Accessor<SectionAttention> {
   const store = useTerminalStore();
   const facts = useAttentionFacts();
-  return createMemo(() => {
-    // The dock renders the ACTIVE host's terminals, so that is the frame every
-    // row's facts come off — the shared key memo, so this fold and every pip
-    // beneath it read one derivation of it.
-    const encHost = encActiveHost();
-    const ids = sectionAttentionIds(group());
-    return scopeAttention(ids, store.isUnread, (id) =>
-      facts.attentionOf(encHost, id),
-    );
-  });
+  return createMemo(
+    () => {
+      // The dock renders the ACTIVE host's terminals, so that is the frame
+      // every row's facts come off — the shared key memo, so this fold and
+      // every pip beneath it read one derivation of it.
+      const encHost = encActiveHost();
+      const ids = sectionAttentionIds(group());
+      return scopeAttention(ids, store.isUnread, (id) =>
+        facts.attentionOf(encHost, id),
+      );
+    },
+    { name: "sectionAttention" },
+  );
 }

@@ -60,7 +60,10 @@ export interface CodeDoor {
  *  highlight on every fire, even when the same `path:line` is clicked twice
  *  in a row. */
 export function pendingRequest() {
-  return createSignal<OpenInCodeTabRequest | null>(null, { equals: false });
+  return createSignal<OpenInCodeTabRequest | null>(null, {
+    equals: false,
+    name: "codeDoor.pendingRequest",
+  });
 }
 
 /** A Code view's OWN door. A request names the scope `scopeFor` gives for

@@ -264,7 +264,7 @@ export function createSurfaceReadout(
           const presentingDown = base.status === "retired" ? true : down();
           return { ...base, presentingDown };
         },
-        { equals: sameReadout },
+        { name: "surfaceReadout", equals: sameReadout },
       ),
       dispose,
     };
