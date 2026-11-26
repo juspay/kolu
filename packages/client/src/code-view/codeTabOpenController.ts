@@ -1,7 +1,13 @@
 import type { CodeTabView } from "@kolu/padi-client/surface";
 import { Effect, type Fiber } from "effect";
 import { encodeHostKey, type HostKey } from "kolu-common/hostKey";
-import { createEffect, onCleanup, untrack } from "solid-js";
+import {
+  createEffect,
+  onCleanup,
+  onSettled,
+  runWithOwner,
+  untrack,
+} from "solid-js";
 import { match } from "ts-pattern";
 import { runAction } from "../runAction";
 import type { LineRef } from "../ui/lineRef";
@@ -191,10 +197,31 @@ export function createCodeTabOpenController<Paths, Resolved>(
     attempt = { kind: "idle" };
   };
 
+  /** THE ONE LANDING VERB — and every landing writes SETTLED.
+   *
+   *  The latch above is synchronous, so a second resolution of the same
+   *  request is still refused at once. The OUTCOME writes are not: they are
+   *  made from this controller's effect, whose compute has just read the
+   *  inventory, the scope and the mode, and the presenter's `onResolved`
+   *  lands the pane's selection through the Code view's one `select` funnel.
+   *  Written inline, every memo keyed on those roots — the per-mode frame and
+   *  its `<Show>` condition, the browse query's input state and its poll
+   *  effect — ran once mid-flush against the facts the arm was answering and
+   *  again after the write landed (`EFFECT_RELAY_TEAR`, `warn` from the third
+   *  sighting against the same (effect, signal) pair). Settled, the write
+   *  opens a frame of its own exactly as a click's does, inside the same
+   *  flush, so the selection and its highlight still paint together.
+   *
+   *  UNOWNED, as `createViewState.noteActivation` is: an owner would make
+   *  `onSettled` a tracked effect created and run right there, carrying the
+   *  arm's own frame and binding a child per open. With no owner it enqueues,
+   *  which is the deferral. The callbacks write plain signals and stores and
+   *  raise toasts; they create no children and register no cleanup, which
+   *  `onSettled` forbids. */
   const complete = (request: OpenInCodeTabRequest, apply: () => void): void => {
     stopRefreshing();
     attempt = { kind: "complete", request };
-    apply();
+    runWithOwner(null, () => onSettled(apply));
   };
 
   const isCurrent = (
@@ -228,109 +255,113 @@ export function createCodeTabOpenController<Paths, Resolved>(
     );
   };
 
-  createEffect(options.snapshot, (current) => {
-    const request = current.request;
+  createEffect(
+    options.snapshot,
+    (current) => {
+      const request = current.request;
 
-    if (request === null) {
-      retire();
-      return;
-    }
-    if (
-      match(attempt)
-        .with(
-          { kind: "complete" },
-          (completeAttempt) => completeAttempt.request === request,
-        )
-        .otherwise(() => false)
-    )
-      return;
-
-    if (
-      current.scope === null ||
-      !codeTabScopesEqual(current.scope, request.scope)
-    ) {
-      // A scope mismatch can be transient: the producer may have selected a
-      // different terminal in the same batch, while this consumer still sees
-      // the prior projection. Abort work tied to the departed scope, but keep
-      // the latest request eligible for the matching scope to arrive.
-      retire();
-      return;
-    }
-
-    const refreshing = refreshingAttempt();
-    if (
-      refreshing !== null &&
-      (refreshing.request !== request ||
-        refreshing.includeIgnored !== current.includeIgnored ||
-        current.inventoryPending)
-    ) {
-      retire();
-    }
-
-    if (current.inventoryPending) return;
-
-    if (
-      current.inventoryScope !== null &&
-      codeTabScopesEqual(current.inventoryScope, request.scope)
-    ) {
-      const resolved = options.resolve(request, current.paths);
-      if (resolved !== null) {
-        complete(request, () =>
-          options.onResolved(request, resolved, "inventory"),
-        );
+      if (request === null) {
+        retire();
         return;
       }
-    }
+      if (
+        match(attempt)
+          .with(
+            { kind: "complete" },
+            (completeAttempt) => completeAttempt.request === request,
+          )
+          .otherwise(() => false)
+      )
+        return;
 
-    if (refreshingAttempt() !== null) return;
+      if (
+        current.scope === null ||
+        !codeTabScopesEqual(current.scope, request.scope)
+      ) {
+        // A scope mismatch can be transient: the producer may have selected a
+        // different terminal in the same batch, while this consumer still sees
+        // the prior projection. Abort work tied to the departed scope, but keep
+        // the latest request eligible for the matching scope to arrive.
+        retire();
+        return;
+      }
 
-    const includeIgnored = current.includeIgnored;
-    const retired = { value: false };
-    const fiber: { current: Fiber.Fiber<unknown, never> | null } = {
-      current: null,
-    };
-    attempt = { kind: "refreshing", request, includeIgnored, fiber, retired };
-    // The whole read AND its landing live on one fiber, so interrupting it stops
-    // both. Recovered to a total program before the fork: the outcome is applied
-    // by `complete`, which is this controller's one landing verb.
-    //
-    // Forked with `runAction`, not `runOwnedAction`: this is the effect phase,
-    // where `onCleanup` — which is how `runOwnedAction` ties a fiber to an
-    // owner — is forbidden (CLEANUP_IN_FORBIDDEN_SCOPE). The fiber's
-    // interruption is owned here instead: `stopRefreshing` interrupts it when
-    // a newer attempt supersedes it, and the body's `onCleanup(retire)` when
-    // the view goes away.
-    fiber.current = runAction(
-      "open in code tab",
-      options.readFresh(request, current).pipe(
-        Effect.map((paths) => () => {
-          const freshResolved = options.resolve(request, paths);
-          if (freshResolved === null) {
-            complete(request, () => options.onNotFound(request));
-            return;
-          }
+      const refreshing = refreshingAttempt();
+      if (
+        refreshing !== null &&
+        (refreshing.request !== request ||
+          refreshing.includeIgnored !== current.includeIgnored ||
+          current.inventoryPending)
+      ) {
+        retire();
+      }
+
+      if (current.inventoryPending) return;
+
+      if (
+        current.inventoryScope !== null &&
+        codeTabScopesEqual(current.inventoryScope, request.scope)
+      ) {
+        const resolved = options.resolve(request, current.paths);
+        if (resolved !== null) {
           complete(request, () =>
-            options.onResolved(request, freshResolved, "fresh"),
+            options.onResolved(request, resolved, "inventory"),
           );
-        }),
-        Effect.catch((raw) =>
-          Effect.succeed(() => {
-            const error = raw instanceof Error ? raw : new Error(String(raw));
-            complete(request, () => options.onError(request, error));
+          return;
+        }
+      }
+
+      if (refreshingAttempt() !== null) return;
+
+      const includeIgnored = current.includeIgnored;
+      const retired = { value: false };
+      const fiber: { current: Fiber.Fiber<unknown, never> | null } = {
+        current: null,
+      };
+      attempt = { kind: "refreshing", request, includeIgnored, fiber, retired };
+      // The whole read AND its landing live on one fiber, so interrupting it stops
+      // both. Recovered to a total program before the fork: the outcome is applied
+      // by `complete`, which is this controller's one landing verb.
+      //
+      // Forked with `runAction`, not `runOwnedAction`: this is the effect phase,
+      // where `onCleanup` — which is how `runOwnedAction` ties a fiber to an
+      // owner — is forbidden (CLEANUP_IN_FORBIDDEN_SCOPE). The fiber's
+      // interruption is owned here instead: `stopRefreshing` interrupts it when
+      // a newer attempt supersedes it, and the body's `onCleanup(retire)` when
+      // the view goes away.
+      fiber.current = runAction(
+        "open in code tab",
+        options.readFresh(request, current).pipe(
+          Effect.map((paths) => () => {
+            const freshResolved = options.resolve(request, paths);
+            if (freshResolved === null) {
+              complete(request, () => options.onNotFound(request));
+              return;
+            }
+            complete(request, () =>
+              options.onResolved(request, freshResolved, "fresh"),
+            );
           }),
+          Effect.catch((raw) =>
+            Effect.succeed(() => {
+              const error = raw instanceof Error ? raw : new Error(String(raw));
+              complete(request, () => options.onError(request, error));
+            }),
+          ),
+          Effect.tap((land) =>
+            Effect.sync(() => {
+              // A superseded read no longer belongs to the latest user intent; its
+              // answer — success OR failure — must not land over the replacement
+              // request. Checked HERE, after the read, because interruption alone
+              // cannot guarantee this frame never runs.
+              if (isCurrent(request, includeIgnored, retired)) land();
+            }),
+          ),
         ),
-        Effect.tap((land) =>
-          Effect.sync(() => {
-            // A superseded read no longer belongs to the latest user intent; its
-            // answer — success OR failure — must not land over the replacement
-            // request. Checked HERE, after the read, because interruption alone
-            // cannot guarantee this frame never runs.
-            if (isCurrent(request, includeIgnored, retired)) land();
-          }),
-        ),
-      ),
-    );
-  });
+      );
+    },
+    { name: "codeTabOpenRequest" },
+  );
 
   onCleanup(retire);
 }

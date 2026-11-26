@@ -1,6 +1,60 @@
+import { takeSolidDiagnostics } from "@kolu/solid-test-setup/setup";
 import { Deferred, Effect } from "effect";
-import { createRoot, createSignal } from "solid-js";
+import {
+  createEffect,
+  createMemo,
+  createRoot,
+  createSignal,
+  flush,
+} from "solid-js";
 import { describe, expect, it, vi } from "vitest";
+
+// The REAL right-panel selection writer is the landing this controller's
+// `onResolved` reaches in the product (`CodeTab`'s `finishOpenRequest` →
+// `select`), and the write is the subject here — so it is driven, not spied.
+// It needs the three singletons the panel reads: the wire's per-terminal
+// report, the focused terminal, and the tile count.
+const panel = vi.hoisted(() => ({
+  activeId: null as string | null,
+  setRightPanel: vi.fn(() => Effect.void),
+}));
+
+vi.mock("../wire", () => ({
+  activePadiRpc: { chrome: { setRightPanel: panel.setRightPanel } },
+  activeHost: () => "host-A",
+  padiRpcOf: () => ({ chrome: { setRightPanel: panel.setRightPanel } }),
+  updatePreferences: () => {},
+  preferences: () => ({
+    newTerminalCollapsed: false,
+    rightPanel: { size: 0.25, codeTabTreeSize: 0.35 },
+  }),
+}));
+vi.mock("../terminal/useTerminalStore", async () => {
+  // Bound here: a `vi.mock` factory is hoisted above this file's imports.
+  const { createSignal, flush } = await import("solid-js");
+  const [activeId, setActiveId] = createSignal<string | null>(null);
+  Object.defineProperty(panel, "activeId", {
+    get: activeId,
+    set: (value: string | null) => {
+      setActiveId(() => value);
+      flush();
+    },
+    configurable: true,
+  });
+  return {
+    useTerminalStore: () => ({
+      activeId,
+      focusedTerminalId: activeId,
+      getMetadata: () => undefined,
+    }),
+  };
+});
+vi.mock("../tile/useTileStore", () => ({
+  useTileStore: () => ({ tileCount: () => (panel.activeId ? 1 : 0) }),
+}));
+vi.mock("solid-sonner", () => ({ toast: { error: () => {} } }));
+
+import { useRightPanel } from "../right-panel/useRightPanel";
 import {
   codeOwner,
   codeTabSelectionInventoryVerdict,
@@ -22,7 +76,14 @@ const request = (terminalId: string): OpenInCodeTabRequest => ({
   ref: { path: "new.ts", startLine: 1, endLine: 1 },
 });
 
-const tick = () => Promise.resolve();
+/** One microtask, then the settle pass. Every landing verb writes from
+ *  `onSettled` (see `complete`), so a fresh read that answers on its own
+ *  fiber lands in the flush the settle enqueued — which is a microtask away
+ *  in the app and is taken here by hand. */
+const tick = async (): Promise<void> => {
+  await Promise.resolve();
+  flush();
+};
 
 /** The `readFresh` seam takes a DESCRIPTION now, so a fixture that must be
  *  settled BY HAND parks on a `Deferred` instead of holding a `resolve`. The
@@ -312,6 +373,123 @@ describe("createCodeTabOpenController", () => {
     reads[1]?.settle(["new.ts"]);
     await tick();
     expect(onResolved).toHaveBeenCalledOnce();
+    dispose();
+  });
+});
+
+/** THE LANDING'S PHASE, over the real selection writer.
+ *
+ *  The controller's compute reads the retained inventory, the scope and the
+ *  mode; its landing writes the pane's selection, which is one of the roots
+ *  those facts are keyed on. So every reader that takes BOTH — the Code tab's
+ *  per-mode frame, the browse query's input — ran mid-flush against the facts
+ *  the arm was answering and again after the write, unless the landing is
+ *  settled. `EFFECT_RELAY_TEAR` is advisory on its first sighting and `warn`
+ *  from the third, so these drive five opens and assert the judge is EMPTY —
+ *  red at the first sighting, not the third. */
+describe("createCodeTabOpenController — the landing writes settled", () => {
+  const PICKS = ["one.ts", "two.ts", "three.ts", "four.ts", "five.ts"];
+
+  /** A pane with a standing pick, and a reader of both the snapshot's own
+   *  root and the selection leaf the landing writes — the victim. */
+  const pane = (tile: string) => {
+    panel.activeId = tile;
+    const rp = useRightPanel();
+    rp.code.setSelectedFile("browse", "seed.ts");
+    flush();
+    const paneScope: CodeTabScope = {
+      host: { kind: "local" },
+      owner: codeOwner("pane", tile),
+      repoRoot: "/repo",
+      mode: "browse",
+    };
+    const [snapshot, setSnapshot] = createSignal<Snapshot>({
+      request: null,
+      scope: paneScope,
+      inventoryScope: paneScope,
+      paths: ["seed.ts"],
+      inventoryPending: false,
+      includeIgnored: false,
+      lister: "git",
+    });
+    const open = (path: string) => {
+      setSnapshot((current) => ({
+        ...current,
+        paths: [...current.paths, path],
+        request: { scope: paneScope, ref: { path, startLine: 1, endLine: 1 } },
+      }));
+      flush();
+    };
+    const watch = () =>
+      createEffect(
+        createMemo(
+          () => `${snapshot().paths.length}|${rp.code.selectedFile("browse")}`,
+          { name: "shownFrame" },
+        ),
+        () => {},
+        { name: "paintShownFrame" },
+      );
+    return { rp, snapshot, open, watch };
+  };
+
+  it("lands its outcome off the arm's own frame, over the real selection writer", () => {
+    const { rp, snapshot, open, watch } = pane("open-settled-tile");
+    const dispose = createRoot((dispose) => {
+      watch();
+      createCodeTabOpenController<Paths, string>({
+        snapshot,
+        resolve: (request, paths) =>
+          paths.includes(request.ref.path) ? request.ref.path : null,
+        readFresh: asEffect(async () => []),
+        // The product's landing: `CodeTab`'s `finishOpenRequest` → `select` →
+        // the right panel's per-key selection write.
+        onResolved: (_request, resolved) => {
+          rp.code.setSelectedFile("browse", resolved);
+        },
+        onNotFound: () => {},
+        onError: () => {},
+      });
+      return dispose;
+    });
+    flush();
+
+    for (const path of PICKS) open(path);
+
+    expect(rp.code.selectedFile("browse")).toBe("five.ts");
+    expect(takeSolidDiagnostics()).toEqual([]);
+    dispose();
+  });
+
+  it("tears when the same landing is written from the arm itself", () => {
+    // THE CONTROL, so the case above cannot become a sleeping detector: the
+    // same five opens and the same victim, with the landing written inline
+    // from an effect's apply arm instead of settled out of it.
+    const { rp, snapshot, open, watch } = pane("open-inline-tile");
+    const dispose = createRoot((dispose) => {
+      watch();
+      createEffect(
+        snapshot,
+        (current) => {
+          const path = current.request?.ref.path;
+          if (path !== undefined && current.paths.includes(path))
+            rp.code.setSelectedFile("browse", path);
+        },
+        { name: "inlinedLanding" },
+      );
+      return dispose;
+    });
+    flush();
+
+    for (const path of PICKS) open(path);
+
+    expect(rp.code.selectedFile("browse")).toBe("five.ts");
+    const tears = takeSolidDiagnostics().filter(
+      (event) => event.code === "EFFECT_RELAY_TEAR",
+    );
+    expect(tears.length).toBeGreaterThan(0);
+    expect(tears.some((event) => event.message.includes("perTerminal"))).toBe(
+      true,
+    );
     dispose();
   });
 });
