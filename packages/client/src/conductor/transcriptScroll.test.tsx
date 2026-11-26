@@ -36,6 +36,7 @@ import { Shown } from "../ui/shown";
 import {
   applyTranscriptScroll,
   atEnd,
+  forgetTranscriptPlaces,
   pinTranscript,
   rememberTranscriptScroll,
   revealTranscriptRow,
@@ -384,6 +385,31 @@ describe("each document's own place", () => {
     const el = { scrollTop: 0, scrollHeight: 5000, clientHeight: VIEWPORT };
     applyTranscriptScroll(el, transcriptPlace(WHOLE_TRANSCRIPT));
     expect(el.scrollTop).toBe(5000);
+  });
+
+  it("drops every document's place when the conversation is replaced", () => {
+    // A NEW SESSION, A CLEARED ONE, A RECOVERED STORE: every remembered pixel
+    // describes turns that are gone — including the works' chats nobody is
+    // looking at right now, which a pin of the shown document alone would
+    // leave pointing into a conversation that no longer exists.
+    for (const key of [WHOLE_TRANSCRIPT, ONE, TWO])
+      rememberTranscriptScroll(
+        { scrollTop: 300, scrollHeight: 1000, clientHeight: VIEWPORT },
+        key,
+      );
+    flush();
+    expect(transcriptPinned(ONE)).toBe(false);
+    expect(transcriptPinned(TWO)).toBe(false);
+
+    forgetTranscriptPlaces();
+    flush();
+
+    for (const key of [WHOLE_TRANSCRIPT, ONE, TWO]) {
+      expect(transcriptPinned(key)).toBe(true);
+      const el = { scrollTop: 0, scrollHeight: 5000, clientHeight: VIEWPORT };
+      applyTranscriptScroll(el, transcriptPlace(key));
+      expect(el.scrollTop).toBe(5000);
+    }
   });
 });
 
