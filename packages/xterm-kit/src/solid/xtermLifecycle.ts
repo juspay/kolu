@@ -20,7 +20,7 @@
  *  the `__xterm` e2e bridge — is wired in `onReady`, inside that owner. */
 
 import { WEB_URL_PATTERN } from "@kolu/url-shape";
-import { getOwner, onCleanup, runWithOwner } from "solid-js";
+import { getOwner, onCleanup, runWithOwner, untrack } from "solid-js";
 import { ImageAddon } from "@xterm/addon-image";
 import { SearchAddon } from "@xterm/addon-search";
 import { SerializeAddon } from "@xterm/addon-serialize";
@@ -101,7 +101,16 @@ export function createXtermLifecycle(
       // Capture the face we AWAIT and pin it into construction below, so xterm is
       // never built with a font we didn't wait for (kolu's fontFamily is static,
       // but a mid-await change must not slip an un-awaited face past the measure).
-      const awaitedFontFamily = getOptions().terminalOptions.fontFamily;
+      //
+      // UNTRACKED, and specifically only this one read: this runs synchronously
+      // in the consumer's component body, where reading a reactive value is a
+      // STRICT_READ_UNTRACKED. The bag `getOptions()` builds carries the live
+      // `theme`/`fontSize` too, and every one of those is discarded here and
+      // re-read after the await (where the live effects own them) — so the only
+      // thing this snapshot is allowed to depend on is the face it awaits.
+      const awaitedFontFamily = untrack(
+        () => getOptions().terminalOptions.fontFamily,
+      );
       await document.fonts.load(`1em ${awaitedFontFamily}`);
       if (disposed) return;
       const container = getContainer();
