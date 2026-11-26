@@ -12,19 +12,27 @@
  *    of the still-saved pre-arrange ones — the metadata round-trip
  *    hasn't completed yet.
  *
- *  AN OVERRIDE CARRIES WHAT THIS CLIENT AUTHORED. Each entry is
- *  `{ layout, authored }`, where `authored` is every saved value this client
- *  has put on the wire for the tile: the base the first gesture was minted
- *  against, then each gesture a later one superseded. The override is released
- *  by its OWN echo — the flush whose saved value equals `layout`. A saved
- *  value from the `authored` list is an earlier write of ours catching up, so
- *  the newest gesture keeps standing; anything else is FOREIGN (another
- *  client, or a server-side move) and wins immediately.
+ *  AN OVERRIDE CARRIES WHAT THIS CLIENT AUTHORED. The store entry is just
+ *  `{ layout }`; beside it, keyed by the same id, runs the tile's AUTHORED
+ *  TRAIL: every value this client has COMMITTED for the tile — the base the
+ *  first gesture was minted against, then each committed gesture a later one
+ *  superseded. Only values that go on the wire (drag-end, resize commit,
+ *  minimap commit, `applyMany`, `resetActiveTileSize`) join it; a preview
+ *  frame replaces `layout` alone, because a value nobody sent can never echo.
+ *  The override is released by its OWN echo — the flush whose saved value
+ *  equals `layout`. A saved value from the trail is an earlier write of ours
+ *  catching up, so the newest gesture keeps standing; anything else is
+ *  FOREIGN (another client, or a server-side move) and wins immediately.
  *  Either way the release costs no pass: it happens in the flush that delivers
  *  the saved value, with nobody writing anything. The old design deleted the
  *  entry from an effect that had just READ it, so the release was a write
  *  relayed back into every layout consumer (the canvas's own `layoutOf`, the
  *  minimap's bounds, the centering resolver).
+ *
+ *  THE TRAIL IS NOT REACTIVE (the `claimedBy` convention below): the release
+ *  that forgets it happens inside a READ, in the flush that delivers the echo,
+ *  and a store write there would relay that read back into every layout
+ *  consumer — the very second pass this design exists to avoid.
  *
  *  Singleton hook per `dev/skills/kolu-client/SKILL.md`'s "State per domain"
  *  rule. `createStore` (per the same rule, "use createStore over
@@ -36,14 +44,10 @@ import type { TerminalId } from "kolu-common/surface";
 import { createStore, reconcile, untrack } from "solid-js";
 import { layoutsEqual, type TileLayout } from "./TileLayout";
 
-/** A local geometry intent, stamped with every saved value this client has
- *  authored for the tile. See the note above. */
+/** A local geometry intent. The trail it is judged against is side data
+ *  (`authoredTrails`), not part of the entry. See the note above. */
 interface PendingEntry {
   readonly layout: TileLayout;
-  /** The base the first gesture was minted against, then each superseded
-   *  gesture, then `layout`. The base is `undefined` when the tile had no
-   *  saved layout yet (a brand-new tile whose first layout hasn't echoed). */
-  readonly authored: readonly (TileLayout | undefined)[];
 }
 
 /** Layout equality that admits "no layout", so a base of `undefined` matches a
@@ -61,6 +65,21 @@ function sameLayout(
 // pending override applies to its own tile regardless of which host is shown, not
 // durable per-host state.
 const [pending, setPending] = createStore<Record<string, PendingEntry>>({});
+
+// The committed values this client has authored per tile, beside the store and
+// NOT reactive (see the note above): the release that forgets a tile's trail
+// runs inside `standingOverride`, a read. Keyed by the same ids as `pending`
+// and emptied with them (`dropIds`, `clear`), so it cannot outlive the store.
+// Bounded by design: a preview frame does not extend it, and the trail is
+// deleted the moment the override's own echo lands.
+const authoredTrails = new Map<string, (TileLayout | undefined)[]>();
+
+/** Test seam — how long a tile's authored trail is. Previews must leave it at
+ *  the number of COMMITTED writes. Not part of the hook's surface; nothing in
+ *  the app reads it. */
+export function authoredTrailLength(id: string): number {
+  return authoredTrails.get(id)?.length ?? 0;
+}
 
 // One-shot create-time geometry slot — a distinct lifecycle from the
 // keyed `pending` store above. `pending` is keyed by tile id (which
@@ -115,9 +134,21 @@ if (typeof window !== "undefined") {
 }
 
 export function usePendingLayouts(): {
-  /** Set or update a single tile's pending override, stamped with the saved
-   *  layout it is minted against (the value the echo will replace). */
+  /** COMMIT a single tile's pending override — a value that has gone (or is
+   *  going) on the wire, stamped with the layout it was minted against (the
+   *  value the echo will replace). Joins the tile's authored trail. */
   setOne: (
+    id: TerminalId,
+    layout: TileLayout,
+    saved: TileLayout | undefined,
+  ) => void;
+  /** PREVIEW a single tile's pending override — a live gesture frame (resize
+   *  `onMove`, minimap drag) that is NOT reported to the server. Replaces the
+   *  standing layout without extending the authored trail: an unsent value can
+   *  never echo, so recording it would only grow the trail per frame. The
+   *  first frame of a gesture still mints the entry, so `saved` is the base it
+   *  is judged against. */
+  previewOne: (
     id: TerminalId,
     layout: TileLayout,
     saved: TileLayout | undefined,
@@ -162,37 +193,58 @@ export function usePendingLayouts(): {
 } {
   /** The override as it STANDS: released by its own echo (the saved value has
    *  caught up with it) and by any FOREIGN saved value; held while the saved
-   *  value is one this client authored earlier and a later gesture superseded. */
+   *  value is one this client authored earlier and a later gesture superseded.
+   *
+   *  The own-echo release FORGETS the trail. Without that, a saved value equal
+   *  to an older authored value — the same tile pushed back to where it was,
+   *  by another client or a revert — would read as "our earlier write catching
+   *  up" and resurrect the released override, permanently. The forget is a Map
+   *  delete, not a store write, so it costs no pass. */
   function standingOverride(
     id: TerminalId,
     saved: TileLayout | undefined,
   ): TileLayout | undefined {
     const entry = pending[id];
     if (!entry) return undefined;
-    if (sameLayout(saved, entry.layout)) return undefined;
-    return entry.authored.some((own) => sameLayout(saved, own))
+    if (sameLayout(saved, entry.layout)) {
+      authoredTrails.delete(id);
+      return undefined;
+    }
+    // No saved layout at all: nobody authored "nothing", so there is no
+    // foreign value to lose to. The gesture stands — this is a brand-new tile
+    // whose first layout (the default this canvas derived, the base the
+    // gesture was minted against) has not echoed yet.
+    if (saved === undefined) return entry.layout;
+    return authoredTrails.get(id)?.some((own) => sameLayout(saved, own))
       ? entry.layout
       : undefined;
   }
 
-  /** Mint (or extend) an entry: the authored trail grows by the new layout,
-   *  keeping the base at its head. */
+  /** Mint (or extend) an entry. `commit` says whether the layout went on the
+   *  wire: a committed value joins the authored trail, a preview frame only
+   *  replaces the standing layout. Either way the trail keeps the base the
+   *  first frame of the gesture was minted against at its head. */
   function mint(
     draft: Record<string, PendingEntry>,
     id: TerminalId,
     layout: TileLayout,
     saved: TileLayout | undefined,
+    commit: boolean,
   ): void {
-    draft[id] = {
-      layout,
-      authored: [...(draft[id]?.authored ?? [saved]), layout],
-    };
+    const trail = authoredTrails.get(id) ?? [saved];
+    authoredTrails.set(id, commit ? [...trail, layout] : trail);
+    draft[id] = { layout };
   }
 
   return {
     setOne(id, layout, saved) {
       setPending((draft) => {
-        mint(draft, id, layout, saved);
+        mint(draft, id, layout, saved, true);
+      });
+    },
+    previewOne(id, layout, saved) {
+      setPending((draft) => {
+        mint(draft, id, layout, saved, false);
       });
     },
     resolveLayout(id, saved) {
@@ -203,7 +255,8 @@ export function usePendingLayouts(): {
     },
     applyMany(layouts, saved) {
       setPending((draft) => {
-        for (const [id, layout] of layouts) mint(draft, id, layout, saved(id));
+        for (const [id, layout] of layouts)
+          mint(draft, id, layout, saved(id), true);
       });
       if (typeof window !== "undefined") {
         const history = window.__koluPendingApplyHistory;
@@ -228,12 +281,14 @@ export function usePendingLayouts(): {
       setPending((draft) => {
         for (const id of ids) delete draft[id];
       });
+      for (const id of ids) authoredTrails.delete(id);
     },
     clear() {
       // `null` key: positional reconcile. The value is `{}`, so every entry
       // goes regardless — and the entries are layouts with no identity field,
       // so there is nothing to match rows by.
       setPending(reconcile({}, null));
+      authoredTrails.clear();
       // The one-shot size slot is part of the same cleanup contract: a
       // canvas unmount wipes the keyed pending AND any size armed but not
       // yet claimed, so a remount can't have a stale create-time size

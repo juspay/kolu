@@ -7,12 +7,15 @@
  * canvas's `layoutOf`, the minimap's bounds, the switch-in centering resolver)
  * a second time for a value that had not changed.
  *
- * Each entry now carries every saved value this client AUTHORED, so the echo
- * releases it by arriving: `resolveLayout` stops preferring the override the
- * moment the saved value equals it, in the flush that delivers it, with nobody
- * writing anything. A saved value this client authored earlier (the base, or a
- * gesture a later one superseded) is that earlier write catching up and leaves
- * the newest gesture standing; a FOREIGN saved value wins at once.
+ * Each entry is judged against the values this client COMMITTED (the authored
+ * trail), so the echo releases it by arriving: `resolveLayout` stops
+ * preferring the override the moment the saved value equals it, in the flush
+ * that delivers it, with nobody writing anything. A saved value this client
+ * committed earlier (the base, or a gesture a later one superseded) is that
+ * earlier write catching up and leaves the newest gesture standing; a FOREIGN
+ * saved value wins at once. Preview frames never go on the wire, so they never
+ * join the trail — and the trail is FORGOTTEN once the override's own echo
+ * lands, so a later value equal to an older gesture of ours cannot resurrect it.
  */
 
 import type { TerminalId } from "kolu-common/surface";
@@ -123,6 +126,11 @@ it("keeps the newest gesture when a superseded one echoes", () => {
   canvas.dispose();
 });
 
+/** CHARACTERIZATION, not regression: this passes without the release rules
+ *  too. It pins the INTENTIONAL change from master, where a standing gesture
+ *  held until this client's own echo landed and a rejected or never-echoing
+ *  write pinned the tile forever. The server is authoritative: a foreign value
+ *  wins at once. */
 it("lets a foreign layout win over a standing gesture", () => {
   const canvas = createRoot((dispose) => {
     const [saved, setSaved] = createSignal<TileLayout | undefined>(SAVED);
@@ -142,19 +150,47 @@ it("lets a foreign layout win over a standing gesture", () => {
   canvas.dispose();
 });
 
-/** The create-time size slot is armed for ONE create, so only the tile that
- *  create made inherits it — a second new tile in the same placement pass
- *  takes the canvas default. The claim is stamped into the record, so the
- *  claiming tile keeps the size across re-derivations of the memo. */
-it("gives the armed create size to the created tile only", () => {
+it("forgets the trail once the override's own echo lands", () => {
+  const canvas = createRoot((dispose) => {
+    const [saved, setSaved] = createSignal<TileLayout | undefined>(SAVED);
+    return { ...mountCanvasSide(saved), saved, setSaved, dispose };
+  });
+  flush();
+
+  // L1 minted on the base L0, then released by its own echo.
+  const L0 = SAVED;
+  const L1 = DRAGGED;
+  canvas.pending.setOne(ID, L1, L0);
+  flush();
+  canvas.setSaved(L1);
+  flush();
+  expect(canvas.published.at(-1)).toEqual(L1);
+
+  // Somebody else puts the tile back where it started. That equals the base
+  // this client once authored — but the override is RELEASED, so there is
+  // nothing left to catch up with: L0 must show.
+  canvas.setSaved({ ...L0 });
+  flush();
+  expect(canvas.published.at(-1)).toEqual(L0);
+  expect(canvas.pending.hasOverride(ID, L0)).toBe(false);
+  canvas.dispose();
+});
+
+/** The create-time size slot is armed for ONE create, and the arm happens
+ *  before the create's id exists, so the slot names no tile: the FIRST tile
+ *  to ask takes it — in practice the first new tile of the placement pass, in
+ *  `props.tileIds` order — and a second new tile in the same pass takes the
+ *  canvas default. The claim is stamped into the record, so the claiming tile
+ *  keeps the size across re-derivations of the memo. */
+it("gives the armed create size to the first tile that asks", () => {
   const pending = usePendingLayouts();
-  const created = "tile-created" as TerminalId;
+  const first = "tile-created" as TerminalId;
   const other = "tile-other" as TerminalId;
   pending.setNextDefaultSize({ w: 640, h: 480 });
 
-  expect(pending.claimNextDefaultSize(created)).toEqual({ w: 640, h: 480 });
+  expect(pending.claimNextDefaultSize(first)).toEqual({ w: 640, h: 480 });
   expect(pending.claimNextDefaultSize(other)).toBeNull();
   // Idempotent across re-runs of the derivation.
-  expect(pending.claimNextDefaultSize(created)).toEqual({ w: 640, h: 480 });
+  expect(pending.claimNextDefaultSize(first)).toEqual({ w: 640, h: 480 });
   expect(pending.claimNextDefaultSize(other)).toBeNull();
 });
