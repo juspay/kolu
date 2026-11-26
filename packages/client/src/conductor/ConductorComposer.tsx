@@ -95,6 +95,22 @@ const openMenu = (
     ? null
     : { trigger, token, words: rows.map((row) => row.name) };
 
+/** Two match lists are the SAME list when they hold the same rows, in the
+ *  same order. The rows are minted UPSTREAM — a command out of
+ *  `props.state`, a candidate out of `candidates` — and a filter hands back
+ *  the very objects it was given, so identity is the comparison that is both
+ *  right and cheap: a row whose contents changed is a new object, and a row
+ *  that did not change is the one that was there. Without this gate every
+ *  keystroke in the box republishes a referentially-new-but-equal array (the
+ *  `[]` of a closed menu included), rebuilding every row of the menu under it
+ *  and re-running everything that counts rows.
+ *
+ *  The lists' keys (`work`, `host/terminalId`) would also serve, but they are
+ *  coarser: two candidates may share a key and differ in what the row draws,
+ *  and keying the gate would hold the stale one on screen. */
+const sameRows = <T,>(a: readonly T[], b: readonly T[]): boolean =>
+  a.length === b.length && a.every((row, at) => row === b[at]);
+
 /** The two arms of a mention, as `<Show>` takes them — the one it is, or
  *  nothing. A work chip and a terminal chip are different drawings of
  *  different facts, and this is what narrows one union to each. */
@@ -142,25 +158,31 @@ const ConductorComposer: Component<{
   const workCandidates = createMemo<WorkCandidate[]>(() =>
     workMentionCandidates(works(), needs(), terminalNames()),
   );
-  const candidates = createMemo<MentionCandidate[]>(() => [
-    ...workCandidates(),
-    ...terminalCandidates(),
-  ]);
+  const candidates = createMemo<MentionCandidate[]>(
+    () => [...workCandidates(), ...terminalCandidates()],
+    { equals: sameRows },
+  );
 
   const mentionToken = () => tokenQueryAt(composerText(), caret(), "@");
   const commandToken = () => tokenQueryAt(composerText(), caret(), "/");
-  const mentionMatches = createMemo(() => {
-    const token = mentionToken();
-    return token === null ? [] : filterMentions(candidates(), token.query);
-  });
-  const commandMatches = createMemo(() => {
-    const token = commandToken();
-    if (token === null) return [];
-    const needle = token.query.toLowerCase();
-    return props.state.commands.filter((command) =>
-      command.name.toLowerCase().startsWith(needle),
-    );
-  });
+  const mentionMatches = createMemo(
+    () => {
+      const token = mentionToken();
+      return token === null ? [] : filterMentions(candidates(), token.query);
+    },
+    { equals: sameRows },
+  );
+  const commandMatches = createMemo(
+    () => {
+      const token = commandToken();
+      if (token === null) return [];
+      const needle = token.query.toLowerCase();
+      return props.state.commands.filter((command) =>
+        command.name.toLowerCase().startsWith(needle),
+      );
+    },
+    { equals: sameRows },
+  );
   // The pane's `Escape` leaves the mode and this component's closes the menu,
   // and exactly one of those may happen per press. The pane reads this fact
   // rather than waiting for an event the composer stops — see `drafts.ts`.
@@ -187,13 +209,19 @@ const ConductorComposer: Component<{
    *  every work ahead of every terminal, so a terminal's index in the FLAT
    *  list — the one the keyboard moves through — is its own plus the number
    *  of works above it. */
-  const workMatches = createMemo(() =>
-    mentionMatches().filter((one): one is WorkCandidate => one.kind === "work"),
+  const workMatches = createMemo(
+    () =>
+      mentionMatches().filter(
+        (one): one is WorkCandidate => one.kind === "work",
+      ),
+    { equals: sameRows },
   );
-  const terminalMatches = createMemo(() =>
-    mentionMatches().filter(
-      (one): one is TerminalCandidate => one.kind === "terminal",
-    ),
+  const terminalMatches = createMemo(
+    () =>
+      mentionMatches().filter(
+        (one): one is TerminalCandidate => one.kind === "terminal",
+      ),
+    { equals: sameRows },
   );
 
   /** THE OPEN MENU — read by the count the keyboard folds against and by the
