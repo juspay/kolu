@@ -103,6 +103,10 @@ afterEach(() => {
   host?.remove();
   dispose = undefined;
   host = undefined;
+  // One case stubs `HTMLElement.prototype.getBoundingClientRect` to stand a
+  // measured box up; the prototype is shared by every later case in the file,
+  // so the stub is put back here rather than left standing.
+  vi.restoreAllMocks();
 });
 
 it("gives the split's panels the root size of the flush the orientation changed in", () => {
