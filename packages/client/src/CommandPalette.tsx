@@ -949,14 +949,17 @@ const CommandPalette: Component<{
   }
 
   /** From Terminals browse, drill into a named host group (breadcrumb or
-   *  deep-link). Resolves against the live tree so object identity stays fresh. */
+   *  deep-link). Resolves against `commandTree()` — the ONE tree of record for
+   *  this component, the same one the list, the path walk and the footer read —
+   *  so the segments it writes into the path are the objects already on screen.
+   *  Reached only from `navigateTo` with a one-segment Terminals path, which an
+   *  open palette is the only thing that has, so this always resolves against
+   *  the live tree. */
   function drillIntoHostUnderTerminals(hostName: string) {
-    const terminals = props
-      .commands()
-      .find(
-        (c): c is PaletteGroup =>
-          c.kind === "group" && c.name === TERMINALS_GROUP_NAME,
-      );
+    const terminals = commandTree().find(
+      (c): c is PaletteGroup =>
+        c.kind === "group" && c.name === TERMINALS_GROUP_NAME,
+    );
     if (!terminals) return;
     const hostGroup = resolveChildren(terminals).find(
       (c): c is PaletteGroup => c.kind === "group" && c.name === hostName,
