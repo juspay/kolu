@@ -17,6 +17,7 @@
  *  (`createBootPick`). Only the WIRE is a double, so a test can hand the host's
  *  census and saved session over as one snapshot. */
 
+import { Effect } from "effect";
 import type { TerminalMetadata } from "@kolu/padi-client/surface";
 import { LOCAL_HOST } from "kolu-common/hostKey";
 import type { TerminalId } from "kolu-common/surface";
@@ -34,21 +35,35 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
  *  before `solid-js` has loaded): the real cells are live subscriptions, and a
  *  census the derivation reads as a plain object would cache its first answer
  *  for the whole file. */
+type SavedBlob = {
+  activeTerminalId: string | null;
+  /** The card's own fields — only a restore-driving case supplies them. */
+  terminals?: unknown[];
+  resumableIds?: string[];
+  savedAt?: number;
+};
+
 const w = vi.hoisted(() => ({
   keys: (() => undefined) as () => TerminalId[] | undefined,
   records: (() => ({})) as () => Record<string, TerminalMetadata>,
-  session: (() => null) as () => { activeTerminalId: string | null } | null,
+  session: (() => null) as () => SavedBlob | null,
   sessionPending: () => false,
   /** Publish a census the way the socket does — detached, then observed. */
   deliver: (_census: {
     keys: TerminalId[];
     records: Record<string, TerminalMetadata>;
-    session: { activeTerminalId: string | null } | null;
+    session: SavedBlob | null;
   }) => {},
   reset: () => {},
 }));
 
-const spy = vi.hoisted(() => ({ setActive: vi.fn() }));
+const spy = vi.hoisted(() => ({
+  setActive: vi.fn(),
+  /** The id `session.restore` ANSWERS with — the host's "this tile is active
+   *  now", which the seed prefers over the consumed blob. */
+  restoreAnswer: null as string | null,
+  restore: vi.fn(),
+}));
 
 vi.mock("../wire", async () => {
   const { Effect } = await import("effect");
@@ -59,7 +74,14 @@ vi.mock("../wire", async () => {
     padiMap: mockPadiMap,
     groundedActiveHost: mockGroundedActiveHost(() => LOCAL_HOST),
     activeHost: () => ({ kind: "local" }),
-    activePadiRpc: { session: { restore: () => Effect.void } },
+    activePadiRpc: {
+      session: {
+        restore: (arg: unknown) => {
+          spy.restore(arg);
+          return Effect.succeed({ activeTerminalId: spy.restoreAnswer });
+        },
+      },
+    },
     padiRpcOf: () => ({
       chrome: {
         setActive: (arg: { id: string }) => {
@@ -125,10 +147,12 @@ import { activeScope } from "../hostScope/hostScopes";
 import { addHost, resetHosts } from "../hostScope/mockHostMap.testlib";
 import { useViewState } from "../useViewState";
 import { useSessionRestore } from "./useSessionRestore";
+import { planEviction, type TerminalEvictionPorts } from "./useActiveReconcile";
 import type { TerminalStore } from "./useTerminalStore";
 
 const A = "a0000000-0000-4000-8000-000000000001" as TerminalId;
 const B = "b0000000-0000-4000-8000-000000000002" as TerminalId;
+const C = "c0000000-0000-4000-8000-000000000003" as TerminalId;
 
 const tile = (): TerminalMetadata =>
   ({ state: "active", parentId: undefined }) as unknown as TerminalMetadata;
@@ -140,9 +164,7 @@ const tile = (): TerminalMetadata =>
   const [records, setRecords] = createSignal<Record<string, TerminalMetadata>>(
     {},
   );
-  const [session, setSession] = createSignal<{
-    activeTerminalId: string | null;
-  } | null>(null);
+  const [session, setSession] = createSignal<SavedBlob | null>(null);
   w.keys = keys;
   w.records = records;
   w.session = session;
@@ -168,6 +190,8 @@ const tile = (): TerminalMetadata =>
 beforeEach(() => {
   localStorage.clear();
   spy.setActive.mockClear();
+  spy.restore.mockClear();
+  spy.restoreAnswer = null;
   w.reset();
   // Dispose the previous test's per-host owner (and its view state), then
   // re-add the single host these cases use. The emptying must be OBSERVED for
@@ -203,7 +227,11 @@ function makeStore() {
     listSub: Object.assign(() => w.keys()?.map((id) => ({ id })), {
       pending: () => w.keys() === undefined,
     }),
-    terminalIds: () => w.keys() ?? [],
+    // PARKED rows are listed but have no record — the restore card's rows, which
+    // the empty-vs-restore decision must read as "no tiles" exactly as the
+    // production store's parked filter does.
+    terminalIds: () =>
+      (w.keys() ?? []).filter((id) => w.records()[id] !== undefined),
     getMetadata: (id: TerminalId) => w.records()[id],
     recordPhases: () => ({
       awaited: 0,
@@ -290,3 +318,198 @@ describe("the first active tile on a cold boot", () => {
     });
   });
 });
+
+/** THE RESTORE WINDOW. A restore from the card re-spawns every parked row under
+ *  its own id, and those rows come back as the host spawns them — so there are
+ *  flushes in which the census is live, complete-looking, and MISSING the tile
+ *  the host made active. A pick taken from such a flush names the wrong tile,
+ *  and since the pick is answered once, it stays that tile: the camera centres
+ *  on it (`TerminalCanvas` re-centres only while `activeId()` is null and a
+ *  saved active is expected), and focus and the attention record follow it.
+ *
+ *  This drives the REAL path: the real `handleRestoreSession`, the real
+ *  `session.restore` answer, the real latch, the real per-host view. */
+describe("a restore from the card", () => {
+  it("shows no tile until the answered one arrives, then only that tile", async () => {
+    // A reboot: three PARKED rows (listed, no records — the restore card's rows)
+    // and the saved session naming C as the active terminal.
+    const blob = {
+      activeTerminalId: C,
+      terminals: [],
+      resumableIds: [],
+      savedAt: 1,
+    };
+    w.deliver({ keys: [A, B, C], records: {}, session: blob });
+    // The host will answer the restore with C — the tile it made active.
+    spy.restoreAnswer = C;
+
+    await new Promise<void>((resolve, reject) => {
+      createRoot((dispose) => {
+        void (async () => {
+          try {
+            const { store, planSetActiveSilently } = makeStore();
+            const session = useSessionRestore({ store });
+            // A consumer of the active tile, like the app shell's: it records
+            // every value it is ever shown.
+            const seen: (TerminalId | null)[] = [];
+            createEffect(
+              () => store.activeId(),
+              (id) => {
+                seen.push(id);
+              },
+            );
+            flush();
+            expect(seen).toEqual([null]);
+            expect(session.savedSession()).toEqual(blob);
+
+            // The user clicks Restore. From the EVENT LOOP, as a DOM handler's
+            // run does — the root body is an owned scope, and the action writes.
+            await new Promise((r) => setTimeout(r, 0));
+            await Effect.runPromise(session.handleRestoreSession({}));
+
+            // The restored rows come back as the host spawns them: A and B are
+            // live, C's row has not arrived yet. This is the flush a census-only
+            // pick answers `topIds[0]` — A — in.
+            w.deliver({
+              keys: [A, B],
+              records: { [A]: tile(), [B]: tile() },
+              session: blob,
+            });
+            await new Promise((r) => setTimeout(r, 0));
+            flush();
+            // THE CAMERA'S INPUTS, asserted rather than the canvas itself: its
+            // first-mount centring defers exactly while `activeId()` is null and
+            // the saved session names an active terminal, and once it has centred
+            // the viewport is no longer at default, so it never centres again.
+            // Both inputs hold here, so the restore window is still deferring.
+            const midRestore = {
+              active: store.activeId(),
+              savedActive: session.savedSession()?.activeTerminalId ?? null,
+            };
+
+            // C's row lands. The seed spends the host's answer.
+            w.deliver({
+              keys: [A, B, C],
+              records: { [A]: tile(), [B]: tile(), [C]: tile() },
+              session: blob,
+            });
+            await new Promise((r) => setTimeout(r, 0));
+            flush();
+
+            expect(midRestore).toEqual({ active: null, savedActive: C });
+            // The active tile was NEVER a tile other than C: no wrong tile for
+            // the camera to latch on, and the one value the consumer is shown
+            // after `null` is C.
+            expect(seen).toEqual([null, C]);
+            expect(store.activeId()).toBe(C);
+            // The seed's own write — the derivation does not cover a restore's
+            // answered tile — and the host hears about C exactly once.
+            expect(planSetActiveSilently.mock.calls).toEqual([[C]]);
+            expect(spy.setActive.mock.calls).toEqual([[C]]);
+
+            dispose();
+            resolve();
+          } catch (err) {
+            dispose();
+            reject(err);
+          }
+        })();
+      });
+    });
+  });
+});
+
+/** THE TILE THE BOOT LANDED ON EXITS. Nothing has been clicked — the normal
+ *  state after a cold boot — so the focus fact is still the derivation's. When
+ *  that tile's row leaves the census, the eviction must still see it as the
+ *  ACTIVE tile (`ports.activeId() === id`), or the auto-switch it gates — the
+ *  pan to the survivor, the host's active-terminal report, the visit — never
+ *  fires and the host keeps naming a dead terminal. A pick that re-answers from
+ *  the shrunken census reads as the survivor and silences all three. */
+describe("the booted tile exits", () => {
+  it("is the active tile the eviction sees, so the auto-switch fires", () => {
+    w.deliver({
+      keys: [A, B],
+      records: { [A]: tile(), [B]: tile() },
+      session: { activeTerminalId: B },
+    });
+
+    createRoot((dispose) => {
+      const { store } = makeStore();
+      useSessionRestore({ store });
+      flush();
+      expect(store.activeId()).toBe(B);
+      expect(spy.setActive.mock.calls).toEqual([[B]]);
+
+      // `exit` in B: its row leaves the census.
+      w.deliver({
+        keys: [A],
+        records: { [A]: tile() },
+        session: { activeTerminalId: B },
+      });
+      flush();
+
+      // The list-driven reconcile plans the eviction over the pre-removal order.
+      const panned: (TerminalId | null)[] = [];
+      planEviction(
+        evictionPorts(store, panned),
+        B,
+        null,
+        [A, B],
+        new Set([B]),
+        {
+          ids: [A, B],
+          parentOf: (id) => (id === A || id === B ? null : undefined),
+        },
+      )();
+      flush();
+
+      // The survivor took the slot: the canvas panned to it, the host was told,
+      // and the visit trail puts it at the head.
+      expect(panned).toEqual([A]);
+      expect(spy.setActive.mock.calls).toEqual([[B], [A]]);
+      expect(activeScope()?.view.mruOrder()[0]).toBe(A);
+      expect(store.activeId()).toBe(A);
+
+      dispose();
+    });
+  });
+});
+
+/** The eviction's seams over the REAL per-host view: `activeId` is the fact
+ *  under test, and `planActivate` is production's pan-and-activate — it records
+ *  the pan target and performs the activation through the one focus write path.
+ *  The rest are inert: this case is about the auto-switch, not the chrome. */
+function evictionPorts(
+  store: TerminalStore,
+  panned: (TerminalId | null)[],
+): TerminalEvictionPorts {
+  return {
+    activeId: () => store.activeId(),
+    focusedTerminalId: () => store.focusedTerminalId(),
+    planActivate: (id: TerminalId | null) => () => {
+      panned.push(id);
+      runWithOwner(null, () => {
+        activeScope()?.view.writeFocus(
+          id === null ? null : { id, tileHint: id },
+        );
+      });
+    },
+    planDropFromMru: (id: TerminalId) => () => {
+      activeScope()?.view.forgetFromMru(id);
+    },
+    planPromoteToTopLevel: () => () => {},
+    rehomeUnder: () => {},
+    subPanel: {
+      planCollapsePanel: () => () => {},
+      planCollapsePanelChrome: () => () => {},
+      paneChrome: () => ({ activeSubTab: null }),
+      setActiveSubTab: () => {},
+      planSelectSubTab: () => () => {},
+      requestRefocus: () => {},
+      removePanel: () => {},
+    },
+    removeRightPanel: () => {},
+    removeSearch: () => {},
+  };
+}

@@ -126,6 +126,7 @@ vi.mock("solid-sonner", () => ({
 }));
 
 import { addHost, resetHosts } from "../hostScope/mockHostMap.testlib";
+import { activeScope } from "../hostScope/hostScopes";
 import {
   ANSWERED_TILE_DEADLINE_MS,
   useSessionRestore,
@@ -693,13 +694,23 @@ describe("useSessionRestore — the restored active tile does NOT ride the sessi
                 setActiveSilently(id),
               activeId: () => null,
               planReconcileLiveIds: () => () => {},
-              seedCovers: () => false,
+              // THE REAL derivation, not a `() => false` stand-in: this case
+              // drives a restore, which is exactly the window the derived boot
+              // pick must answer `null` through (`hostScope/createBootPick`), so
+              // the pick belongs in this graph. It answers `null` here (the host
+              // wire this per-host owner builds has no census behind it), which
+              // is what makes the seed's own write the assertion below.
+              seedCovers: (id: TerminalId) =>
+                activeScope()?.view.seedCovers(id) ?? false,
             } as unknown as TerminalStore;
 
             // Empty canvas + a saved session → the restore card.
             const session = useSessionRestore({ store });
             await new Promise((r) => setTimeout(r, 0));
             expect(session.savedSession()).toEqual(consumedBlob);
+            // The per-host owner IS built here, so `seedCovers` above is the
+            // real derivation and not a silently-floored `false`.
+            expect(activeScope()).toBeDefined();
 
             // The user restores. The host re-spawns both tiles under their own
             // ids and publishes them; its `session` snapshot is still in flight
