@@ -1127,6 +1127,21 @@ export function connectSurfaceMap<
     // this swap-root for no membership change at all. `canonicalizeKey` guarantees
     // one reference per encoded string map-wide, so the read below is a no-op read,
     // never a key change.
+    //
+    // ONE DIRECTION, and it is worth naming because this callback is handed
+    // across a boundary (into `makeReactiveEntry`, and from there into every
+    // proxy the walk mints): `stableKey` is read STRICTLY DOWNSTREAM of the
+    // caller's own key accessor and of nothing else. It reads `keyAccessor()`
+    // and a map-wide reference cache, and it reads no value any of its readers
+    // publishes — not the keyed root's view, not a bound member's subscription,
+    // not an entry's `state()`. So the lens cannot close a cycle back onto
+    // itself, and two `useEntry` lenses whose keys are peers (one lens's key
+    // derived from the other's entry, or an imperative call made from the
+    // other's compute) are still a DAG: each key flows one way into the walk
+    // that uses it. A cycle here would be a throw inside Solid's flush rather
+    // than a diagnostic, so it is pinned by a test
+    // (`imperativeKeyFromApplyArm.test.ts`, the peer-lens case) and not just by
+    // this paragraph.
     const stableKey = () => canonicalizeKey(keyAccessor());
     // The re-key identity the keyed root switches on: the per-key client's
     // `{enc, membershipId}` cache key. Reads `membershipIdOf` TRACKED (this runs inside

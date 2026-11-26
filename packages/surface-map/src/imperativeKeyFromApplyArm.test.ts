@@ -9,7 +9,7 @@
  * that half goes to the key active when the call is made and must enrol
  * nobody, which is what `client.ts`'s `untrack` around the walk says.
  *
- * Two consequences, one per case below.
+ * Three consequences, one per case below.
  *
  * - **A raw ref is re-read inside `Stream.suspend`.** `unenrolledStreamCall`
  *   wraps the ref so every subscribe and every retry calls it again, under the
@@ -18,18 +18,26 @@
  *   effect callback is a strict-read window, so a bare key read there is
  *   `STRICT_READ_UNTRACKED`; kolu's own key is the active-host pref
  *   (`wire.ts`'s `kolu-active-host`). The setup file fails a test on any Solid
- *   diagnostic, so case 1 states no assertion for that; what it asserts is that
- *   the sampled call still reached the member.
+ *   diagnostic, so case 1 states no assertion for that; what it asserts is WHICH
+ *   key the sampled call reached.
  * - **A call from a TRACKED caller must not subscribe it.** Case 2 calls the
  *   same ref from a memo and moves the key: the memo must not recompute. That is
  *   the consumer-visible half — without the sample, taking a raw ref inside any
  *   computation would make that computation a reader of the active key and
  *   re-run it on every host switch, on top of the re-key the keyed root already
  *   performs.
+ * - **`stableKey` is read in ONE direction.** It is handed across a boundary
+ *   (into the walk, and from there into every proxy it mints), so case 3 mounts
+ *   the shape where two lenses' keys are PEERS: the mirror lens's key is derived
+ *   from the primary's entry, and each lens makes an imperative call on the
+ *   OTHER'S face from its own compute. A cycle here would throw inside Solid's
+ *   flush rather than raise a diagnostic, so the case asserts the crossing stays
+ *   a DAG — both directions answer, and both follow a key switch.
  */
 
 import { unenrolledStreamCall } from "@kolu/surface/client";
 import { directDispatch } from "@kolu/surface/links/direct";
+import { implementSurface, inMemoryStore } from "@kolu/surface/server";
 import { Effect, Option, Stream } from "effect";
 import { createEffect, createMemo, createRoot, createSignal } from "solid-js";
 import { describe, expect, it } from "vitest";
@@ -40,13 +48,34 @@ import {
   buildTestMap,
   connected,
   entrySurface,
+  type HostKey,
   HostKeySchema,
   identityCodec,
-  makeEntry,
   makeRegistry,
   settle,
 } from "./mapHarness.testlib";
 import { serveSurfaceMap } from "./server";
+
+/** The one terminal each key's entry serves, so a keys frame NAMES the key the
+ *  imperative call routed to rather than merely proving it answered. */
+const terminalOf = (key: HostKey) => `t-${key}`;
+
+/** An entry serving exactly one terminal, named after its key. */
+function entryServing(key: HostKey) {
+  const { handlers } = implementSurface(entrySurface, {
+    cells: {
+      urgency: { store: inMemoryStore({ awaiting: 0, awaitingIds: [] }) },
+    },
+    collections: {
+      terminals: {
+        readAll: () => new Map([[terminalOf(key), { title: key as string }]]),
+        upsert: () => {},
+        remove: () => {},
+      },
+    },
+  });
+  return directDispatch({ handlers });
+}
 
 /** The served map, with both keys already members. `connectSurfaceMap` is left
  *  to each case, which opens it INSIDE its own root: the client builds owned
@@ -59,11 +88,7 @@ function served() {
   });
   const reg = makeRegistry();
   for (const key of [A, B])
-    reg.addSession(
-      key,
-      makeEntry({ awaiting: 0, awaitingIds: [] }).dispatch,
-      connected(0),
-    );
+    reg.addSession(key, entryServing(key), connected(0));
   return { map, dispatch: directDispatch(serveSurfaceMap(map, reg.registry)) };
 }
 
@@ -71,6 +96,14 @@ function served() {
  *  imperative half of the walk, typed as the streaming procedure
  *  `unenrolledStreamCall` takes. */
 type KeysRef = () => Stream.Stream<readonly string[], unknown>;
+
+/** The first keys frame of a raw ref's stream, as a plain array. */
+const firstFrame = (
+  stream: Stream.Stream<readonly string[], unknown>,
+): Promise<readonly string[] | undefined> =>
+  Effect.runPromise(
+    Stream.runHead(stream).pipe(Effect.map(Option.getOrUndefined)),
+  );
 
 describe("the imperative member walk samples the active key", () => {
   it("takes a raw ref from an effect callback and routes it to the key active then", async () => {
@@ -90,18 +123,13 @@ describe("the imperative member walk samples the active key", () => {
           // `Stream.suspend`, run here on the effect callback's own fiber.
           const ref = entry.collections.terminals
             .unenrolledKeys as unknown as KeysRef;
-          opened = Effect.runPromise(
-            Stream.runHead(unenrolledStreamCall(ref, undefined)).pipe(
-              Effect.map(Option.getOrUndefined),
-            ),
-          );
+          opened = firstFrame(unenrolledStreamCall(ref, undefined));
         },
       );
 
       await settle();
-      // The served entry holds no terminals, so the first keys frame is the
-      // empty snapshot — the member answering, not a stream that never ran.
-      expect(await opened).toEqual([]);
+      // A's own terminal, not B's: the sample reached the key that was active.
+      expect(await opened).toEqual([terminalOf(A)]);
 
       dispose();
     });
@@ -136,6 +164,72 @@ describe("the imperative member walk samples the active key", () => {
       await settle();
       ref();
       expect(runs).toBe(1);
+
+      dispose();
+    });
+  });
+
+  it("stays a DAG when two lenses' keys are peers that read each other", async () => {
+    const { map, dispatch } = served();
+
+    await createRoot(async (dispose) => {
+      const client = connectSurfaceMap(map, dispatch);
+      const [primaryKey, setPrimaryKey] = createSignal(A, {
+        name: "primaryMapKey",
+      });
+      const primary = client.useEntry(primaryKey);
+
+      // Peer 2's KEY is derived from peer 1's entry — the boundary `stableKey`
+      // is handed across, in the one direction it is read: a key flows into the
+      // walk that uses it, and the walk publishes nothing the key reads back.
+      const mirrorKey = createMemo(
+        () =>
+          primary.state().kind === "connected"
+            ? primaryKey() === A
+              ? B
+              : A
+            : primaryKey(),
+        { name: "mirrorMapKey" },
+      );
+      const mirror = client.useEntry(mirrorKey);
+
+      // …and each peer makes an IMPERATIVE call on the OTHER'S face from its own
+      // compute. Without the sample each of these computes would also become a
+      // reader of the other lens's key; with it they stay what they declare.
+      const refFromMirror = createMemo(
+        () => {
+          mirror.state();
+          mirrorKey();
+          return (
+            primary.collections.terminals.unenrolledKeys as unknown as KeysRef
+          )();
+        },
+        { name: "primaryRefTakenOnTheMirrorSide" },
+      );
+      const refFromPrimary = createMemo(
+        () => {
+          primary.state();
+          primaryKey();
+          return (
+            mirror.collections.terminals.unenrolledKeys as unknown as KeysRef
+          )();
+        },
+        { name: "mirrorRefTakenOnThePrimarySide" },
+      );
+
+      await settle();
+      expect(mirrorKey()).toBe(B);
+      expect(await firstFrame(refFromMirror())).toEqual([terminalOf(A)]);
+      expect(await firstFrame(refFromPrimary())).toEqual([terminalOf(B)]);
+
+      // The switch moves BOTH keys — the primary by its signal, the mirror by
+      // the derivation that reads the primary's entry — and each crossing call
+      // follows its own lens.
+      setPrimaryKey(B);
+      await settle();
+      expect(mirrorKey()).toBe(A);
+      expect(await firstFrame(refFromMirror())).toEqual([terminalOf(B)]);
+      expect(await firstFrame(refFromPrimary())).toEqual([terminalOf(A)]);
 
       dispose();
     });
