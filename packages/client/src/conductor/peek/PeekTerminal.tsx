@@ -48,7 +48,13 @@ const PeekTerminal: Component<{
   fontSize: number;
   mayType: () => boolean;
   onGrid: (grid: TerminalGrid) => void;
-  onCell: (cell: PeekCell, pad: PeekPad) => void;
+  /** A cell measurement, the pad around it, and THE FONT THE SCREEN DREW
+   *  THEM AT — `fontSize` as the terminal itself holds it, so a view that
+   *  latches a base cell judges the measurement by the font it was taken at
+   *  rather than re-deriving one from its own staged state inside this
+   *  callback. xterm types its options bag for the caller that SETS it, so
+   *  the font is optional there; a report with no font latches nothing. */
+  onCell: (cell: PeekCell, pad: PeekPad, drawnFont: number | undefined) => void;
   onPhase: (phase: "reading" | "live" | "reconnecting") => void;
   onHeld: (held: boolean) => void;
   onFocus: (focused: boolean) => void;
@@ -158,7 +164,11 @@ const PeekTerminal: Component<{
       lastHeight = height;
       lastPadX = padX;
       lastPadY = padY;
-      props.onCell({ width, height }, { x: padX, y: padY });
+      props.onCell(
+        { width, height },
+        { x: padX, y: padY },
+        h.terminal.options.fontSize,
+      );
     };
     const sub = h.terminal.onRender(reportCell);
     onCleanup(() => sub.dispose());

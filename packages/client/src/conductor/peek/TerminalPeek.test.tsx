@@ -21,6 +21,8 @@ const seam = vi.hoisted(() => ({
   allowed: true,
   gateRefs: [] as string[],
   focusCalls: 0,
+  /** Run something from the screen stand-in's effect apply arm. */
+  fromApplyArm: undefined as ((run: () => void) => void) | undefined,
 }));
 
 const live = (): FleetTerminalStanding => ({
@@ -42,12 +44,33 @@ const [membership, setMembership] = createSignal<ReadonlyMap<string, unknown>>(
   new Map(),
 );
 
-vi.mock("./PeekTerminal", () => ({
-  default: (props: Record<string, unknown>) => {
-    seam.props = props;
-    return <div data-testid="peek-screen" />;
-  },
-}));
+vi.mock("./PeekTerminal", async () => {
+  // Hoisted factory: the import cannot be static here.
+  const { createEffect, createSignal } = await import("solid-js");
+  return {
+    default: (props: Record<string, unknown>) => {
+      seam.props = props;
+      // THE REPORTS ARRIVE FROM AN EFFECT'S APPLY ARM, as the real screen's
+      // do: the attach effect's apply arm resizes the screen, which re-enters
+      // xterm's render callback synchronously. That is a strict-read window,
+      // so a report that reads the window's own state is a diagnostic.
+      const pending: Array<() => void> = [];
+      const [tick, setTick] = createSignal(0);
+      createEffect(
+        () => tick(),
+        () => {
+          // In the order they were made, as one dispatch's renders are.
+          while (pending.length > 0) pending.shift()?.();
+        },
+      );
+      seam.fromApplyArm = (run: () => void) => {
+        pending.push(run);
+        setTick((n) => n + 1);
+      };
+      return <div data-testid="peek-screen" />;
+    },
+  };
+});
 vi.mock("../../palette/fleetTerminals", () => ({
   fleetTerminalStanding: () => standing(),
 }));
@@ -130,6 +153,29 @@ const mount = () => {
     dispose();
     root.remove();
   });
+};
+
+/** The screen states a size, in the apply arm the real one states it in. */
+const reportGrid = (g: { cols: number; rows: number }): void => {
+  const onGrid = seam.props?.onGrid as (g: {
+    cols: number;
+    rows: number;
+  }) => void;
+  seam.fromApplyArm?.(() => onGrid(g));
+};
+/** The screen reports a measurement AND the font it drew it at — the one the
+ *  window last handed it, as the real screen reads `terminal.options`. */
+const reportCell = (
+  c: { width: number; height: number },
+  p: { x: number; y: number },
+): void => {
+  const onCell = seam.props?.onCell as (
+    c: { width: number; height: number },
+    p: { x: number; y: number },
+    drawnFont: number | undefined,
+  ) => void;
+  const drawn = seam.props?.fontSize as number;
+  seam.fromApplyArm?.(() => onCell(c, p, drawn));
 };
 
 afterEach(() => {
@@ -288,16 +334,8 @@ describe("TerminalPeek", () => {
   it("leaves a terminal that fits at the default font size alone", () => {
     openPeek({ host: "remote:nix@example", id: ID });
     mount();
-    const onGrid = seam.props?.onGrid as (g: {
-      cols: number;
-      rows: number;
-    }) => void;
-    const onCell = seam.props?.onCell as (
-      c: { width: number; height: number },
-      p: { x: number; y: number },
-    ) => void;
-    onGrid({ cols: 110, rows: 34 });
-    onCell({ width: 8.4, height: 17 }, { x: 26, y: 12 });
+    reportGrid({ cols: 110, rows: 34 });
+    reportCell({ width: 8.4, height: 17 }, { x: 26, y: 12 });
     flush();
     expect(document.querySelector('[data-testid="peek-fit"]')).toBeNull();
     expect(seam.props?.fontSize).toBe(14);
@@ -307,16 +345,8 @@ describe("TerminalPeek", () => {
     setFitWidth(true);
     openPeek({ host: "remote:nix@example", id: ID });
     mount();
-    const onGrid = seam.props?.onGrid as (g: {
-      cols: number;
-      rows: number;
-    }) => void;
-    const onCell = seam.props?.onCell as (
-      c: { width: number; height: number },
-      p: { x: number; y: number },
-    ) => void;
-    onGrid({ cols: 212, rows: 52 });
-    onCell({ width: 8.4, height: 17 }, { x: 26, y: 12 });
+    reportGrid({ cols: 212, rows: 52 });
+    reportCell({ width: 8.4, height: 17 }, { x: 26, y: 12 });
     flush();
     const fit = document.querySelector<HTMLButtonElement>(
       '[data-testid="peek-fit"]',
@@ -334,37 +364,28 @@ describe("TerminalPeek", () => {
     setFitWidth(true);
   });
 
-  it("judges the report against the grid and the pad the same dispatch reported", () => {
+  it("latches the base cell from the font the screen drew it at", () => {
     setFitWidth(true);
     openPeek({ host: "remote:nix@example", id: ID });
     mount();
-    const onGrid = seam.props?.onGrid as (g: {
-      cols: number;
-      rows: number;
-    }) => void;
-    const onCell = seam.props?.onCell as (
-      c: { width: number; height: number },
-      p: { x: number; y: number },
-    ) => void;
     // The window opens on a terminal that fits: this cell IS the base one.
-    onGrid({ cols: 80, rows: 24 });
-    onCell({ width: 8.4, height: 17 }, { x: 26, y: 12 });
+    reportGrid({ cols: 80, rows: 24 });
+    reportCell({ width: 8.4, height: 17 }, { x: 26, y: 12 });
     flush();
     expect(seam.props?.fontSize).toBe(DEFAULT_FONT_SIZE);
 
     // ONE DISPATCH, as the screen makes it: the stream states a far wider
-    // grid, and the render that follows reports the cell and the padding it
-    // was drawn at. Both are judged as reported — a Solid 2 write is staged
-    // until the flush, so reading either signal back here would answer with
-    // the value BEFORE this report and latch a shrunken cell as the base
-    // one.
-    onGrid({ cols: 212, rows: 52 });
-    onCell({ width: 7, height: 14 }, { x: 300, y: 12 });
+    // grid, xterm redraws for it — still at the base font, which it keeps
+    // until the window's next font prop lands — and reports the cell and the
+    // padding it drew. The report states the font it was taken at, so this
+    // cell IS the base one and the window sizes from it.
+    reportGrid({ cols: 212, rows: 52 });
+    reportCell({ width: 7, height: 14 }, { x: 300, y: 12 });
     flush();
     expect(seam.props?.fontSize).toBe(
       fitFontSize({
         cols: 212,
-        cellWidth: 8.4,
+        cellWidth: 7,
         fontSize: DEFAULT_FONT_SIZE,
         // The window is 1280 wide, less the border it draws.
         availWidth: 1278,
@@ -547,20 +568,12 @@ describe("TerminalPeek", () => {
     );
     expect(window?.style.width).toBe("1280px");
     expect(window?.style.height).toBe("836px");
-    const onGrid = seam.props?.onGrid as (g: {
-      cols: number;
-      rows: number;
-    }) => void;
-    const onCell = seam.props?.onCell as (
-      c: { width: number; height: number },
-      p: { x: number; y: number },
-    ) => void;
-    onGrid({ cols: 80, rows: 24 });
-    onCell({ width: 8.4, height: 17 }, { x: 26, y: 12 });
+    reportGrid({ cols: 80, rows: 24 });
+    reportCell({ width: 8.4, height: 17 }, { x: 26, y: 12 });
     flush();
     expect(window?.style.width).toBe("1280px");
     expect(window?.style.height).toBe("836px");
-    onGrid({ cols: 212, rows: 52 });
+    reportGrid({ cols: 212, rows: 52 });
     flush();
     expect(window?.style.width).toBe("1280px");
     expect(window?.style.height).toBe("836px");

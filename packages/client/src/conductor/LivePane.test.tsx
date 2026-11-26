@@ -108,7 +108,10 @@ vi.mock("@solid-primitives/resize-observer", () => ({
   createElementSize: () => ({ width: 1374, height: 900 }),
 }));
 vi.mock("./peek/PeekTerminal", async () => {
-  const { onSettled } = await import("solid-js");
+  // Hoisted factory: the import cannot be static here.
+  const { createEffect, createSignal, onSettled, untrack } = await import(
+    "solid-js"
+  );
   return {
     default: (props: {
       fontSize: number;
@@ -116,13 +119,39 @@ vi.mock("./peek/PeekTerminal", async () => {
       onCell: (
         c: { width: number; height: number },
         p: { x: number; y: number },
+        drawnFont: number | undefined,
       ) => void;
       onPhase: (p: "live") => void;
     }) => {
-      seam.report = (c, p) => props.onCell(c, p);
-      seam.reportGrid = (g) => props.onGrid(g);
+      // THE REPORTS ARRIVE FROM AN EFFECT'S APPLY ARM, as the real screen's
+      // do: the attach effect's apply arm resizes the screen, which re-enters
+      // xterm's render callback synchronously. That is a strict-read window,
+      // so a report that reads the pane's own state is a diagnostic.
+      const pending: Array<() => void> = [];
+      const [tick, setTick] = createSignal(0);
+      createEffect(
+        () => tick(),
+        () => {
+          // In the order they were made, as one dispatch's renders are.
+          while (pending.length > 0) pending.shift()?.();
+        },
+      );
+      const fromApplyArm = (run: () => void) => {
+        pending.push(run);
+        setTick((n) => n + 1);
+      };
+      seam.report = (c, p) => {
+        // The font the screen is drawn at right now — read here, outside the
+        // window, exactly as the real screen reads `terminal.options`.
+        const drawn = props.fontSize;
+        fromApplyArm(() => props.onCell(c, p, drawn));
+      };
+      seam.reportGrid = (g) => fromApplyArm(() => props.onGrid(g));
       onSettled(() => {
-        props.onCell({ width: 8.4, height: 17 }, { x: 26, y: 12 });
+        // A POINT-IN-TIME SAMPLE: the font the first draw was made at, which
+        // is the pane's opening font.
+        const drawn = untrack(() => props.fontSize);
+        props.onCell({ width: 8.4, height: 17 }, { x: 26, y: 12 }, drawn);
         props.onGrid(seam.drawn);
         props.onPhase("live");
       });
@@ -271,7 +300,7 @@ const fontOf = (el: HTMLElement): string | null =>
   null;
 
 describe("the base cell the pane sizes from", () => {
-  it("keeps the base cell when a report is drawn at a shrunken font", () => {
+  it("keeps the base cell when the screen reports a cell it drew shrunken", () => {
     seam.drawn = OLD;
     setStanding(recordAt(OLD));
     const el = mount();
@@ -280,25 +309,26 @@ describe("the base cell the pane sizes from", () => {
     // an 8.4px cell inside 1374px of body.
     expect(fontOf(el)).toBe(String(DEFAULT_FONT_SIZE));
 
-    // The screen reports a smaller cell inside far more padding. At THAT pad
-    // Fit width is drawing below the base font, so the cell is not the base
-    // one and must not be latched as it — the pane keeps sizing from 8.4.
-    seam.report?.({ width: 7, height: 14 }, { x: 1000, y: 12 });
+    // A far wider grid, and the pane shrinks its font to fit it.
+    seam.reportGrid?.(WIDE);
     flush();
-    expect(fontOf(el)).toBe(
-      String(
-        fitFontSize({
-          cols: OLD.cols,
-          cellWidth: 8.4,
-          fontSize: DEFAULT_FONT_SIZE,
-          availWidth: 1374,
-          padX: 1000,
-        }),
-      ),
-    );
+    const shrunk = fitFontSize({
+      cols: WIDE.cols,
+      cellWidth: 8.4,
+      fontSize: DEFAULT_FONT_SIZE,
+      availWidth: 1374,
+      padX: 26,
+    });
+    expect(fontOf(el)).toBe(String(shrunk));
+
+    // The screen redraws at THAT font and reports the smaller cell it drew.
+    // It is not the base cell, so the pane keeps sizing from 8.4.
+    seam.report?.({ width: 7, height: 14 }, { x: 26, y: 12 });
+    flush();
+    expect(fontOf(el)).toBe(String(shrunk));
   });
 
-  it("judges the report against the grid the same dispatch reported", () => {
+  it("takes a cell drawn at the base font, though the grid widened in the same dispatch", () => {
     seam.drawn = OLD;
     setStanding(recordAt(OLD));
     const el = mount();
@@ -306,21 +336,20 @@ describe("the base cell the pane sizes from", () => {
     expect(fontOf(el)).toBe(String(DEFAULT_FONT_SIZE));
 
     // ONE DISPATCH, as the screen makes it: the stream states a far wider
-    // grid, and the render that follows reports the cell it was drawn at.
-    // At 212 columns of 8.4px the pane is already drawing below the base
-    // font, so the 7px cell is NOT the base one — judged against the grid
-    // just reported, not the one before it, which is still staged.
+    // grid, xterm redraws for it — still at the base font, which it keeps
+    // until the pane's next font prop lands — and reports the cell. Drawn at
+    // the base font, so it IS the base cell, and the pane sizes from it.
     seam.reportGrid?.(WIDE);
-    seam.report?.({ width: 7, height: 14 }, { x: 300, y: 12 });
+    seam.report?.({ width: 7, height: 14 }, { x: 26, y: 12 });
     flush();
     expect(fontOf(el)).toBe(
       String(
         fitFontSize({
           cols: WIDE.cols,
-          cellWidth: 8.4,
+          cellWidth: 7,
           fontSize: DEFAULT_FONT_SIZE,
           availWidth: 1374,
-          padX: 300,
+          padX: 26,
         }),
       ),
     );

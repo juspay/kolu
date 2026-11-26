@@ -101,13 +101,6 @@ const LivePane: Component<{
     // size after this one arrives through `onGrid`.
     openingGrid,
   );
-  /** THE SIZE THE SCREEN WAS LAST STATED AT — `grid()`'s plain mirror, written
-   *  by `onGrid` in the dispatch the report arrives in. `onCell` below is the
-   *  sibling of that callback (`PeekTerminal.tsx`'s `screen.resize`), and a
-   *  Solid 2 signal write is staged until the flush: reading `grid()` there
-   *  would answer with the size BEFORE the resize, and the columns dominate
-   *  the gate. */
-  let statedGrid: TerminalGrid | null = openingGrid;
   const [cell, setCell] = createSignal<PeekCell | null>(null);
   const [baseCell, setBaseCell] = createSignal<PeekCell | null>(null);
   const [pad, setPad] = createSignal<PeekPad | null>(null);
@@ -163,17 +156,15 @@ const LivePane: Component<{
       ? peekPans(peekNatural(g, c, p).width, availWidth())
       : false;
   };
-  /** THE FONT THE SCREEN DRAWS AT, FOR A GIVEN SIZE AND PAD — Fit width's
-   *  answer at the pane's base cell, else the base font.
-   *
-   *  The grid and the pad are ARGUMENTS, not reads: `onCell` below judges
-   *  this with the measurement it has just been handed, beside the size
-   *  `onGrid` was handed in the same dispatch, and a Solid 2 signal write is
-   *  staged until the flush — so reading either signal there would answer
-   *  with the value BEFORE the report, latching the base cell against a
-   *  screen it was never drawn at. */
-  const fontSizeFor = (g: TerminalGrid | null, p: PeekPad | null): number => {
+  /** THE FONT THE SCREEN DRAWS AT — Fit width's answer at the pane's base
+   *  cell, else the base font. Read where it is bound, in the screen's
+   *  `fontSize` prop: the base cell is latched from the font the screen
+   *  reports WITH its measurement, so nothing re-derives this inside a
+   *  render callback. */
+  const fontSize = () => {
+    const g = grid();
     const c = baseCell();
+    const p = pad();
     return fitWidth() && g && c && p && availWidth() > 0
       ? fitFontSize({
           cols: g.cols,
@@ -184,7 +175,6 @@ const LivePane: Component<{
         })
       : DEFAULT_FONT_SIZE;
   };
-  const fontSize = () => fontSizeFor(grid(), pad());
   const background = () => {
     const s = standing();
     return (
@@ -365,15 +355,14 @@ const LivePane: Component<{
                 id={props.id}
                 fontSize={fontSize()}
                 mayType={mayType}
-                onGrid={(g) => {
-                  statedGrid = g;
-                  setGrid(g);
-                }}
-                onCell={(c, p) => {
+                onGrid={setGrid}
+                onCell={(c, p, drawnFont) => {
                   setCell(c);
                   setPad(p);
-                  if (fontSizeFor(statedGrid, p) === DEFAULT_FONT_SIZE)
-                    setBaseCell(c);
+                  // THE FONT THIS CELL WAS DRAWN AT, as the screen states
+                  // it: the base cell is the one measured at the base font,
+                  // and nothing here reads the pane's own staged state.
+                  if (drawnFont === DEFAULT_FONT_SIZE) setBaseCell(c);
                 }}
                 onPhase={setPhase}
                 onHeld={setHeld}
