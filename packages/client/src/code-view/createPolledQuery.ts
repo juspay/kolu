@@ -358,12 +358,18 @@ export function createPolledQuery<Input, PulseInput, Pulse, Result>(
     complete,
   });
 
-  // Drive `onError` off the self-clearing `error()` EDGE via the shared
-  // `@kolu/surface/solid` helper (the exact wiring `createSubscription` itself
-  // uses internally) — not a hand-rolled copy — so a transient blip fires once
-  // per rising transition and clears with the signal, and this file can't drift
-  // from the framework's one edge-wiring implementation.
-  if (onError) wireSubscriptionError(sub, onError);
+  // Drive `onError` off the FAILURE ITSELF, not the key-gated `error()` face:
+  // the face is DERIVED through `shownKey()`, so it tracks `active()` and the
+  // standing input key as well as the failure — and an effect's apply arm runs
+  // on every re-run of its COMPUTE, equal value or not. Wired to the face, one
+  // standing failure therefore fires the callback again on every pause, every
+  // resume and every re-key, so a single failed read raises a fresh toast on
+  // each mode switch forever. `errored` moves only when a read fails or a
+  // landing retires it: one surfaced failure, one call. The shared
+  // `@kolu/surface/solid` helper does the edge wiring (the one `createSubscription`
+  // uses internally), so this file can't drift from it.
+  if (onError)
+    wireSubscriptionError({ error: () => errored()?.error }, onError);
 
   return sub;
 }

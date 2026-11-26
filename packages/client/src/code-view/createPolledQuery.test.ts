@@ -624,4 +624,49 @@ describe("createPolledQuery", () => {
     expect(res.paused).toBe("A#1"); // held value frozen on pause
     expect(res.afterLateResolve).toBe("A#1"); // late resolve discarded (aborted)
   });
+
+  it("a STANDING failure fires onError once, not again on every pause/resume (one toast per failure)", async () => {
+    // The faces are derived through `shownKey()`, which reads `active()` and the
+    // standing input key — and an effect's apply arm runs on every re-run of its
+    // compute, equal value or not. Wiring `onError` to `error()` therefore raised
+    // a fresh toast on every mode switch once a read had failed, forever (1 → 3 → 5
+    // over two away-and-back switches). It is wired to the failure itself, so the
+    // callback moves only when a read fails or a landing retires it.
+    const seen: string[] = [];
+    const errAfterSwitches = await new Promise<string | undefined>(
+      (resolve) => {
+        createRoot(async (dispose) => {
+          const [active, setActive] = createSignal(true);
+          const { live, pulseProc, pulse } = fakeStream();
+          const q = createPolledQuery({
+            input: () => ({ repoPath: "A" }),
+            live,
+            pulseProc,
+            pulseInput: (i) => ({ repoPath: i.repoPath }),
+            query: asEffect(async () => {
+              throw new Error("boom");
+            }),
+            onError: (err) => seen.push(err.message),
+            active,
+          });
+          await settle();
+          pulse(); // the one failed read
+          await settle();
+
+          // Two away-and-back mode switches. No pulse frame fires on resume, so
+          // no NEW read fails — nothing here is a second failure.
+          for (let i = 0; i < 2; i++) {
+            setActive(false);
+            await settle();
+            setActive(true);
+            await settle();
+          }
+          resolve(q.error()?.message);
+          dispose();
+        });
+      },
+    );
+    expect(seen).toEqual(["boom"]); // ONE call — five before the fix
+    expect(errAfterSwitches).toBe("boom"); // the face still stands for the key
+  });
 });
