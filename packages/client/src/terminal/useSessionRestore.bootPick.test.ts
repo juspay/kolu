@@ -508,9 +508,6 @@ function evictionPorts(
         );
       });
     },
-    planDropFromMru: (id: TerminalId) => () => {
-      activeScope()?.view.forgetFromMru(id);
-    },
     planPromoteToTopLevel: () => () => {},
     rehomeUnder: () => {},
     subPanel: {

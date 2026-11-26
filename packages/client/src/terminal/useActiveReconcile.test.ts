@@ -64,7 +64,6 @@ function makePorts(over: {
     rehomeUnder: vi.fn<(id: TerminalId, parent: TerminalId) => void>(),
     planActivate: planSpy<[id: TerminalId | null]>(),
     noteAutoSwitch: vi.fn<(id: TerminalId) => void>(),
-    planDropFromMru: planSpy<[id: TerminalId]>(),
     planCollapsePanel: planSpy<[id: TerminalId]>(),
     planCollapsePanelChrome: planSpy<[id: TerminalId]>(),
     setActiveSubTab:
@@ -82,7 +81,6 @@ function makePorts(over: {
     planActivate: planPort(calls.planActivate),
     takeAutoSwitch: over.takeAutoSwitch ?? (() => undefined),
     noteAutoSwitch: calls.noteAutoSwitch,
-    planDropFromMru: planPort(calls.planDropFromMru),
     planPromoteToTopLevel: planPort(calls.planPromoteToTopLevel),
     rehomeUnder: calls.rehomeUnder,
     subPanel: {
@@ -137,7 +135,6 @@ describe("planEviction — top-level branch", () => {
     expect(calls.removePanel).toHaveBeenCalledWith(T("P"));
     expect(calls.removeRightPanel).toHaveBeenCalledWith(T("P"));
     expect(calls.removeSearch).toHaveBeenCalledWith(T("P"));
-    expect(calls.planDropFromMru).toHaveBeenCalledWith(T("P"));
     // Removed at index 0 of [P, Q] → survivor Q.
     expect(calls.planActivate).toHaveBeenCalledWith(T("Q"));
   });
@@ -636,7 +633,6 @@ describe("useActiveReconcile — FULL cleanup driven off the list", () => {
     expect(h.calls.planPromoteToTopLevel).not.toHaveBeenCalled();
     expect(h.calls.removePanel).not.toHaveBeenCalled();
     expect(h.calls.removeRightPanel).not.toHaveBeenCalled();
-    expect(h.calls.planDropFromMru).not.toHaveBeenCalled();
     expect(h.calls.planActivate).not.toHaveBeenCalled();
     h.dispose();
   });
@@ -780,13 +776,12 @@ describe("useActiveReconcile — FULL cleanup driven off the list", () => {
     h.setRawIds([T("B1"), T("B2")]);
 
     expect(h.calls.planPromoteToTopLevel).not.toHaveBeenCalled();
-    expect(h.calls.planDropFromMru).not.toHaveBeenCalled();
     expect(h.calls.planActivate).not.toHaveBeenCalled();
 
     // And a REAL close on host B still reconciles normally (baseline advanced to B).
     h.setParents({ B1: null });
     h.setRawIds([T("B1")]);
-    expect(h.calls.planDropFromMru).toHaveBeenCalledWith(T("B2"));
+    expect(h.calls.removePanel).toHaveBeenCalledWith(T("B2"));
     h.dispose();
   });
 });

@@ -50,9 +50,6 @@ export interface TerminalEvictionPorts {
    *  this verb is what moves the selection; the list-driven caller runs after
    *  it, where `takeAutoSwitch` has. */
   planActivate: (id: TerminalId | null) => () => void;
-  /** Reader half of "drop an id from the tile MRU": it resolves the ACTIVE
-   *  host's view scope (a reactive read) and hands back the trail write. */
-  planDropFromMru: (id: TerminalId) => () => void;
   /** Reader half of the promote: a sub-terminal takes its own tile (server
    *  `setParent(id, null)`), inheriting the panel posture of `fromTile` — the
    *  tile it is leaving, whose record the READ half consults. `fromTile` is
@@ -201,12 +198,10 @@ export function planEviction(
     if (departing.has(subId)) continue;
     writes.push(ports.planPromoteToTopLevel(subId, id));
   }
-  const dropFromMru = ports.planDropFromMru(id);
   writes.push(() => {
     ports.subPanel.removePanel(id);
     ports.removeRightPanel(id);
     ports.removeSearch(id);
-    dropFromMru();
   });
 
   // THE AUTO-SWITCH IS DERIVED, NOT WRITTEN. The per-host focus fact already

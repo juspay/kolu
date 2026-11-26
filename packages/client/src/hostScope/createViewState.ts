@@ -79,8 +79,6 @@ export interface HostViewState {
   /** The single per-host focus write path. Active-tile side effects use the
    *  ancestor folded from this terminal. */
   writeFocus: (focus: TerminalFocus | null) => void;
-  /** Drop one terminal from the durable visit trail (kill path). */
-  forgetFromMru: (id: TerminalId) => void;
   /** Does this terminal carry a dock unread mark? Read from this host's saved
    *  attention record, which the attention engine raises and clears marks on;
    *  this view state clears one when you focus its terminal. */
@@ -238,8 +236,8 @@ export function createViewState(
   // state may never have been built).
   const attention = attentionRecordOf(encoded);
 
-  // THIS HOST'S TILE MRU, DERIVED. The persisted trail records GESTURES —
-  // `noteVisit` on an activation, `forgetVisit` on a kill — and nothing else;
+  // THIS HOST'S TILE MRU, DERIVED. The persisted trail records ACTIVATIONS —
+  // `noteVisit`, and a close-all's clear — and nothing else;
   // which of them are still live, and where a tile the trail has never seen
   // ranks, are answers this census already carries. Folding them here rather
   // than writing them back keeps hydration from relaying the census into a
@@ -370,10 +368,6 @@ export function createViewState(
     reportActive(tileId);
   }
 
-  function forgetFromMru(id: TerminalId): void {
-    visits.forgetVisit(host, id);
-  }
-
   function reset(): void {
     // This factory owns ONLY reset-on-close-all state — the selection facts
     // (active tile, MRU, attention) plus the maximized posture. The sticky per-host
@@ -401,7 +395,6 @@ export function createViewState(
     isActiveTile,
     mruOrder,
     writeFocus,
-    forgetFromMru,
     isUnread: attention.isUnread,
     canvasMaximized,
     setCanvasMaximized,

@@ -263,4 +263,38 @@ describe("a host's view-state derivations", () => {
     expect(held.view.takeAutoSwitch()).toBeNull();
     held.dispose();
   });
+
+  it("needs no prune on a kill — a dead id leaves the MRU with the census", () => {
+    // The kill path used to write the trail (`forgetVisit`) from the eviction
+    // effect's apply arm. It is dead weight now: the MRU is READ narrowed to
+    // the host's live tiles, so a killed tile leaves it on the census move
+    // that killed it, and the stored list is capped by `upsertVisit` anyway.
+    const [census, setCensus] = createSignal<TerminalId[]>([A, B]);
+    const held = createRoot((dispose) => ({
+      dispose,
+      view: createViewState(
+        LOCAL_HOST,
+        () => ({ kind: "top-level" }),
+        () => null,
+        census,
+      ),
+      visits: useVisitRecency(),
+    }));
+    held.view.writeFocus({ id: B, tileHint: B });
+    held.view.writeFocus({ id: A, tileHint: A });
+    flush();
+    expect(held.view.mruOrder()).toEqual([A, B]);
+    // B is killed. Nobody prunes anything.
+    setCensus([A]);
+    flush();
+    expect(held.view.mruOrder()).toEqual([A]);
+    // The stored trail still remembers B — and that is invisible, which is
+    // the point: the reading is the same as if it had been pruned, and B
+    // comes back ranked where it was if its id ever returns.
+    expect(held.visits.mruForHost(LOCAL_HOST)).toContain(B);
+    setCensus([A, B]);
+    flush();
+    expect(held.view.mruOrder()).toEqual([A, B]);
+    held.dispose();
+  });
 });

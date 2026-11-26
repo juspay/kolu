@@ -117,14 +117,12 @@ export const useDockReparent = createSharedRoot(
           if (p.fromTile === p.id) {
             // The row WAS a tile: it is a split now, so the panel chrome keyed
             // on its old tile identity is stale (the eviction path drops the
-            // same state when a tile departs) — and so is the per-host VISIT
-            // TRAIL, a list of TILES that `Ctrl+Tab`/`Alt+Tab` walks straight
-            // into `activate`, which throws on a split. Same prune the eviction
-            // path performs for a departing tile, for the same reason: this
-            // terminal is no longer a tile, which is exactly what that trail
-            // lists.
+            // same state when a tile departs). The per-host VISIT TRAIL needs
+            // no prune: it is READ narrowed to the host's live TILES
+            // (`hostScope/createViewState.mruOrder`), and this terminal is no
+            // longer one, so it leaves the MRU on the same census move that
+            // re-parented it.
             subPanel.removePanel(p.id);
-            store.forgetFromMru(p.id);
           } else {
             // The row left a tile that survives: repair that tile's tab strip so
             // its `activeSubTab` cannot dangle at a pane that is no longer under

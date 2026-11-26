@@ -102,10 +102,6 @@ vi.mock("./useTerminalStore", () => {
       planActivate: vi.fn(() => () => {}),
       takeAutoSwitch: () => undefined,
       noteAutoSwitch: vi.fn(),
-      forgetFromMru: vi.fn(),
-      // The MRU drop comes in a PAIR now: the plan half hands back the write
-      // so an eviction can read in its compute and write in its effect.
-      planForgetFromMru: vi.fn(() => () => {}),
       reset: vi.fn(),
       setActiveSilently: vi.fn(),
       getDisplayInfo: () => undefined,

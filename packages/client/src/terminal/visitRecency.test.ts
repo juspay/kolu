@@ -4,7 +4,6 @@ import {
   clearHostVisits,
   mruIdsForHost,
   parseVisitList,
-  removeVisit,
   upsertVisit,
   visitedAtOf,
   type VisitEntry,
@@ -130,13 +129,12 @@ describe("mruIdsForHost / clear", () => {
     expect(mruIdsForHost(visits, "local")).toEqual([A, B]);
   });
 
-  it("removeVisit and clearHostVisits", () => {
+  it("clearHostVisits", () => {
     const prev: VisitEntry[] = [
       { hostKey: "local", terminalId: A, visitedAt: 1 },
       { hostKey: "local", terminalId: B, visitedAt: 2 },
       { hostKey: "remote:zest", terminalId: Z, visitedAt: 3 },
     ];
-    expect(removeVisit(prev, "local", A)).toHaveLength(2);
     expect(clearHostVisits(prev, "local").map((e) => e.hostKey)).toEqual([
       "remote:zest",
     ]);

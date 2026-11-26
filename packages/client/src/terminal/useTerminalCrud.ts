@@ -189,7 +189,6 @@ export const useTerminalCrud = createSharedRoot(() => {
     takeAutoSwitch: store.takeAutoSwitch,
     noteAutoSwitch: store.noteAutoSwitch,
     planActivate: store.planActivate,
-    planDropFromMru: store.planForgetFromMru,
     planPromoteToTopLevel,
     rehomeUnder: (subId, newParentId) => setParent(subId, newParentId),
     subPanel,

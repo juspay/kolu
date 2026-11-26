@@ -75,29 +75,6 @@ export function useViewState() {
     setCenterActiveRequest(tileId);
   }
 
-  /** THE VISIT-TRAIL VERBS ARE READER/ACTOR PAIRS, like the store's landing
-   *  verbs. Their one reactive read is the ACTIVE HOST's scope (`view()`); the
-   *  owner half behind it is pure writes (the visit trail's updater-form
-   *  setters). So the `plan…` half RESOLVES THE SCOPE — in a compute — and
-   *  hands back a write-only actor for the effect phase, where that read would
-   *  be STRICT_READ_UNTRACKED. An eager verb beside it is that plan, run, and
-   *  exists only where an event handler (which may read freely) calls it.
-   *
-   *  Resolving the scope one phase earlier is the behaviour that is wanted:
-   *  the trail the effect writes is the one its compute saw, so a host switch
-   *  racing the write cannot land a departing host's cleanup on the new host's
-   *  trail.
-   *
-   *  There is no SEED verb beside this one. A host's live MRU membership is
-   *  derived from its census where it is read (`hostScope/createViewState`),
-   *  so the trail carries gestures only: a visit, and a kill's forget. */
-  const planForgetFromMru = (id: TerminalId): (() => void) => {
-    const scope = view();
-    return () => scope?.forgetFromMru(id);
-  };
-
-  const forgetFromMru = (id: TerminalId): void => planForgetFromMru(id)();
-
   function toggleCanvasMaximized() {
     view()?.setCanvasMaximized((prev) => !prev);
   }
@@ -146,8 +123,6 @@ export function useViewState() {
     canvasMaximized,
     toggleCanvasMaximized,
     mruOrder,
-    forgetFromMru,
-    planForgetFromMru,
     centerActiveRequest,
     requestCenterActive,
     isUnread,

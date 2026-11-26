@@ -76,7 +76,6 @@ vi.mock("../terminal/useTerminalStore", () => ({
     parentEdge: () => undefined,
     focusedTerminalId: () => null,
     focusTerminal: () => {},
-    forgetFromMru: () => {},
     isUnread: () => false,
   }),
 }));

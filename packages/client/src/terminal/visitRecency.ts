@@ -102,18 +102,6 @@ export function upsertVisit(
   return [next, ...rest].slice(0, cap);
 }
 
-/** Remove every entry for a terminal id on a host (tile kill). Does not
- *  restamp survivors. */
-export function removeVisit(
-  prev: readonly VisitEntry[],
-  hostKey: string,
-  terminalId: TerminalId,
-): VisitEntry[] {
-  return prev.filter(
-    (e) => !(e.hostKey === hostKey && e.terminalId === terminalId),
-  );
-}
-
 /** Drop all visits for one host (close-all / host reset). */
 export function clearHostVisits(
   prev: readonly VisitEntry[],
@@ -150,12 +138,14 @@ export function visitLiveKey(hostKey: string, terminalId: TerminalId): string {
 const STORAGE_KEY = "kolu-visit-recency";
 
 type VisitRecencyApi = {
-  /** The cross-host trail of GESTURES — an activation, or a kill's forget.
-   *  Membership against a host's live tiles is DERIVED by the reader
-   *  (`hostScope/createViewState.mruOrder`), never written back here. */
+  /** The cross-host trail of GESTURES — an activation, and a close-all's
+   *  clear. A kill writes NOTHING: a dead id is dropped where the trail is
+   *  READ (`hostScope/createViewState.mruOrder` narrows it to the host's live
+   *  census), and `upsertVisit`/`parseVisitList` cap the stored list at
+   *  {@link VISIT_MRU_CAP}, so a dead entry is bounded and a live visit always
+   *  takes the front. */
   visits: Accessor<VisitEntry[]>;
   noteVisit: (host: HostKey, terminalId: TerminalId, at?: number) => void;
-  forgetVisit: (host: HostKey, terminalId: TerminalId) => void;
   clearHost: (host: HostKey) => void;
   mruForHost: (host: HostKey) => TerminalId[];
 };
@@ -178,10 +168,6 @@ export const useVisitRecency = createSharedRoot((): VisitRecencyApi => {
     setVisits((prev) => upsertVisit(prev, encodeHostKey(host), terminalId, at));
   }
 
-  function forgetVisit(host: HostKey, terminalId: TerminalId): void {
-    setVisits((prev) => removeVisit(prev, encodeHostKey(host), terminalId));
-  }
-
   function clearHost(host: HostKey): void {
     setVisits((prev) => clearHostVisits(prev, encodeHostKey(host)));
   }
@@ -193,7 +179,6 @@ export const useVisitRecency = createSharedRoot((): VisitRecencyApi => {
   return {
     visits,
     noteVisit,
-    forgetVisit,
     clearHost,
     mruForHost,
   };
