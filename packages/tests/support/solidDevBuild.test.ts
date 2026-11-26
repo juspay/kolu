@@ -285,6 +285,34 @@ test("a warn finding fails, and carries its info neighbours along", () => {
   );
 });
 
+// `info` IS NOT A BLANKET PASS. Solid grades `EFFECT_WRITES_OWN_SOURCE` by
+// cycle length (`links.length === 1 ? "warn" : "info"`,
+// `dev.attribution.js:1054`), so a cycle relayed through two effects arrives
+// `info` while Solid's own message says "derive them in memos and drop the
+// writes". Only an `info` relay tear is advisory; every other code fails.
+test("an info finding of another code fails rather than passing", () => {
+  const verdict = solidDiagnosticVerdict({
+    events: [
+      {
+        code: "EFFECT_WRITES_OWN_SOURCE",
+        severity: "info",
+        nodeName: "layout",
+        message: "effects relay writes in a cycle",
+      },
+    ],
+    lines: [],
+    pageErrors: [],
+  });
+  assert.equal(verdict?.fails, true);
+  assert.equal(
+    verdict?.words,
+    [
+      "Solid dev diagnostics (1):",
+      '  [info] EFFECT_WRITES_OWN_SOURCE on "layout": effects relay writes in a cycle',
+    ].join("\n"),
+  );
+});
+
 // A shape this harness does not know is a finding it must not wave through:
 // every `emitDiagnostic` in 2.0.4 passes a grade, so a missing one means the
 // event lost a field on its way here.

@@ -1,18 +1,25 @@
 /**
- * SOLID'S GRADE DECIDES WHAT FAILS, judged through the setup file itself.
+ * WHICH FINDINGS ARE ADVISORY, judged through the setup file itself.
  *
- * Solid grades every diagnostic it raises. `info` is its own word for
- * "reported, not wrong" — the relay tear of a value measured from outside the
- * graph is the standing example, and Solid's repair text for it says so: "the
- * tear is the cost of measuring" (`@solidjs/signals` 2.0.4
- * `dev.attribution.js:1222-1229`). A judge that fails on it fails a scenario
- * for a finding Solid itself calls advisory, which is what both of kolu's
- * judges used to do.
+ * Exactly one is: an `EFFECT_RELAY_TEAR` Solid grades `info`. There `info` is
+ * Solid's own word for "reported, not wrong" — the relay tear of a value
+ * measured from outside the graph is the standing example, and Solid's repair
+ * text for it says so: "the tear is the cost of measuring" (`@solidjs/signals`
+ * 2.0.4 `dev.attribution.js:1222-1229`). A judge that fails on it fails a
+ * scenario for a finding Solid itself calls advisory, which is what both of
+ * kolu's judges used to do.
  *
- * Both findings here are REAL: the attribution engine grades them, nothing is
+ * `info` IS NOT A BLANKET PASS, which is what both judges used to make it:
+ * Solid grades `EFFECT_WRITES_OWN_SOURCE` by cycle length (`links.length === 1
+ * ? "warn" : "info"`, `dev.attribution.js:1054`), so a write cycle relayed
+ * through two effects comes out `info` while Solid's own message says "derive
+ * them in memos and drop the writes". Every code but `EFFECT_RELAY_TEAR`
+ * therefore fails whatever its grade.
+ *
+ * Every finding here is REAL: the attribution engine grades them, nothing is
  * hand-built. The advisory one is deliberately left in the collector, so the
- * setup file's own `afterEach` is what judges it — this test passes only
- * because `info` fails nothing.
+ * setup file's own `afterEach` is what judges it — that test passes only
+ * because an `info` relay tear fails nothing.
  */
 
 import { createEffect, createRoot, createSignal } from "solid-js";
@@ -117,5 +124,52 @@ it("a warn-grade finding is judged a failure", async () => {
   expect(tear?.severity).toBe("warn");
   expect(tear && isAdvisorySolidDiagnostic(tear)).toBe(false);
   // And the advisory grade is not a blanket pass: every event here fails.
+  expect(events.filter(isAdvisorySolidDiagnostic)).toEqual([]);
+});
+
+/**
+ * A WRITE CYCLE RELAYED THROUGH TWO EFFECTS. The first effect tracks `a` and
+ * writes `b`; the second tracks `b` and writes `a`, so the first effect's own
+ * write comes back to its inputs one hop later. Solid grades the cycle by its
+ * length — two links, so `info` — while its message for exactly this shape
+ * says "derive them in memos and drop the writes"
+ * (`dev.attribution.js:1044-1054`). Derivable and wrong, graded `info`: the
+ * class a judge that waves every `info` through lets past.
+ */
+function relayedCycle(): { run: () => void; dispose: () => void } {
+  return createRoot((dispose) => {
+    const [a, setA] = createSignal(0);
+    const [b, setB] = createSignal(0);
+    createEffect(
+      () => a(),
+      (value) => {
+        if (value < 3) setB(value + 1);
+      },
+    );
+    createEffect(
+      () => b(),
+      (value) => {
+        if (value < 3) setA(value + 1);
+      },
+    );
+    return { run: () => setA(1), dispose };
+  });
+}
+
+it("an info-grade finding of any other code is judged a failure", async () => {
+  const { run, dispose } = relayedCycle();
+  await tick();
+  run();
+  await tick();
+  await tick();
+  dispose();
+  // TAKEN, because this one WOULD fail the test — which is the assertion.
+  const events = takeSolidDiagnostics();
+  const cycle = events.find(
+    (event) => event.code === "EFFECT_WRITES_OWN_SOURCE",
+  );
+  expect(cycle?.severity).toBe("info");
+  expect(cycle && isAdvisorySolidDiagnostic(cycle)).toBe(false);
+  // Nothing here is advisory: only an info-graded relay tear ever is.
   expect(events.filter(isAdvisorySolidDiagnostic)).toEqual([]);
 });

@@ -1707,13 +1707,15 @@ BeforeStep(function (this: KoluWorld, { pickle, pickleStep }) {
 });
 
 // THE SOLID-DIAGNOSTICS LANE'S VERDICT: a scenario whose pages raised a Solid
-// dev diagnostic Solid itself grades `error` or `warn` fails, naming each —
-// what the diagnostics channel handed over (code, grade, location, owner path,
-// node name) and what reached the console, plus everything the pages threw,
-// since a diagnostic that throws is also a page error. A finding Solid grades
-// `info` is advisory: printed, failing nothing, because that is Solid's own
-// word for "reported, not wrong" (a DOM measurement's relay tear is the
-// standing example).
+// dev diagnostic fails, naming each — what the diagnostics channel handed
+// over (code, grade, location, owner path, node name) and what reached the
+// console, plus everything the pages threw, since a diagnostic that throws is
+// also a page error. EXACTLY ONE finding is advisory — an `EFFECT_RELAY_TEAR`
+// Solid grades `info` — printed and failing nothing, because that is Solid's
+// own word for "reported, not wrong" there (a DOM measurement's relay tear is
+// the standing example). Every other code fails whatever its grade: `info` is
+// not a blanket pass, since Solid grades a multi-effect
+// `EFFECT_WRITES_OWN_SOURCE` cycle `info` while telling you to derive it.
 // Defined BEFORE the main After hook because Cucumber runs After hooks in
 // reverse definition order, so this runs last — after the teardown and failure
 // artifacts, which a throw here must not skip. On a production server it has

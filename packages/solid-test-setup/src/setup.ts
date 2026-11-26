@@ -123,23 +123,32 @@ export function takeSolidDiagnostics(): DiagnosticEvent[] {
 }
 
 /**
- * IS THIS FINDING ADVISORY? Solid grades every diagnostic it emits
- * (`@solidjs/signals` 2.0.4: every `emitDiagnostic` call site in
- * `dev-shared.js`, `dev.js` and `dev.attribution.js` passes a `severity`),
- * and `info` is its own word for "reported, not wrong": the relay tear of a
- * DOM measurement is the standing example — "the tear is the cost of
- * measuring" is Solid's own repair text for it (`dev.attribution.js:1222-
- * 1229`), and corvu-next's vitest setup passes on exactly that grade.
+ * IS THIS FINDING ADVISORY? Exactly one code is: `EFFECT_RELAY_TEAR` graded
+ * `info`. Solid grades every diagnostic it emits (`@solidjs/signals` 2.0.4:
+ * every `emitDiagnostic` call site in `dev-shared.js`, `dev.js` and
+ * `dev.attribution.js` passes a `severity`), and for THAT code `info` is its
+ * own word for "reported, not wrong": the relay tear of a DOM measurement is
+ * the standing example — "the tear is the cost of measuring" is Solid's own
+ * repair text for it (`dev.attribution.js:1222-1229`), and corvu-next's
+ * vitest setup passes on exactly that grade.
  *
- * `error` and `warn` fail the test, and so does an event carrying NO grade:
- * a shape this file does not know is a finding it must not wave through.
+ * `info` IS NOT A BLANKET PASS. Solid grades `EFFECT_WRITES_OWN_SOURCE` by
+ * cycle length — `links.length === 1 ? "warn" : "info"`
+ * (`dev.attribution.js:1054`) — so a cycle relayed through two effects is
+ * `info` while Solid's own repair text says "derive them in memos and drop
+ * the writes". `FALLBACK_FLASH` and `OPTIMISTIC_REVERTED` are always `info`.
+ * Every code other than `EFFECT_RELAY_TEAR` therefore fails whatever its
+ * grade, and an unknown `info` code fails until it is dispositioned.
+ *
+ * `error` and `warn` fail too, and so does an event carrying NO grade: a
+ * shape this file does not know is a finding it must not wave through.
  *
  * This is not a softer gate. A derivable relay is `warn` from its first
  * sighting, and a repeated one escalates to `warn` at three
  * (`dev.attribution.js:1205-1217`).
  */
 export function isAdvisorySolidDiagnostic(event: DiagnosticEvent): boolean {
-  return event.severity === "info";
+  return event.severity === "info" && event.code === "EFFECT_RELAY_TEAR";
 }
 
 function words({ event, stack }: Raised): string {

@@ -218,9 +218,9 @@ async function main() {
   }
 
   // One verdict from everything the page said: console errors, uncaught
-  // throws, and every Solid dev diagnostic the channel named, folded — the
-  // ones Solid grades `error` or `warn` as failures, the `info` ones printed
-  // as advisory, exactly as the e2e lane's verdict grades them.
+  // throws, and every Solid dev diagnostic the channel named, folded — only
+  // an `info`-graded `EFFECT_RELAY_TEAR` is advisory and printed, everything
+  // else is a failure, exactly as the e2e lane's verdict grades them.
   const graded = devSmokeFailures({ consoleErrors, pageErrors, diagnostics });
   if (graded.advisories.length > 0) {
     console.info(

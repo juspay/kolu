@@ -227,17 +227,27 @@ export function solidDiagnosticWords(event: PageDiagnostic): string {
   return `[${grade}] ${code}${where}${path}${named}${said}`;
 }
 
-/** IS THIS FINDING ADVISORY? Solid grades every diagnostic it emits, and
- *  `info` is its own word for "reported, not wrong" — the relay tear of a DOM
+/** IS THIS FINDING ADVISORY? Exactly one code is: `EFFECT_RELAY_TEAR` graded
+ *  `info`. Solid grades every diagnostic it emits, and for THAT code `info`
+ *  is its own word for "reported, not wrong" — the relay tear of a DOM
  *  measurement is the standing example (`RightPanelDrawer.tsx:81` through
  *  corvu-next's `createSize`), and corvu-next's own vitest setup already
- *  passes on exactly that grade. `error` and `warn` fail, and so does an
- *  event carrying no grade at all: a shape this harness does not know is a
- *  finding it must not wave through. This is not a softer gate — a derivable
- *  relay is `warn` from its first sighting, and a repeated one escalates to
- *  `warn` at three (`dev.attribution.js:1205-1217,1609`). */
+ *  passes on exactly that grade.
+ *
+ *  `info` IS NOT A BLANKET PASS. Solid grades `EFFECT_WRITES_OWN_SOURCE`
+ *  `info` whenever the write cycle runs through more than one effect
+ *  (`links.length === 1 ? "warn" : "info"`, `dev.attribution.js:1054`), and
+ *  `FALLBACK_FLASH` and `OPTIMISTIC_REVERTED` are always `info`. So every
+ *  other code fails whatever its grade, and an unknown `info` code fails
+ *  until it is dispositioned.
+ *
+ *  `error` and `warn` fail, and so does an event carrying no grade at all: a
+ *  shape this harness does not know is a finding it must not wave through.
+ *  This is not a softer gate — a derivable relay is `warn` from its first
+ *  sighting, and a repeated one escalates to `warn` at three
+ *  (`dev.attribution.js:1205-1217,1609`). */
 export function isAdvisoryDiagnostic(event: PageDiagnostic): boolean {
-  return event.severity === "info";
+  return event.severity === "info" && event.code === "EFFECT_RELAY_TEAR";
 }
 
 /** One diagnostic with the scenario and step that were running when it
@@ -327,10 +337,11 @@ function foldedWords(folded: FoldedDiagnostic): string {
  * for. The page's thrown errors ride along, because a diagnostic that threw
  * is also the throw the page reports.
  *
- * SOLID'S GRADE DECIDES WHETHER IT FAILS. `error` and `warn` findings — and
- * any event with no grade — make `fails` true; `info` findings are printed
- * as advisory under their own heading and fail nothing. A console line is a
- * Solid warning the console itself printed, so it fails.
+ * SOLID'S GRADE AND CODE DECIDE WHETHER IT FAILS, through
+ * {@link isAdvisoryDiagnostic}: only an `info`-graded `EFFECT_RELAY_TEAR` is
+ * advisory, printed under its own heading and failing nothing. Every other
+ * finding — and any event with no grade — makes `fails` true. A console line
+ * is a Solid warning the console itself printed, so it fails.
  *
  * THE HEADLINE COUNTS EACH FINDING ONCE. An error-severity diagnostic reaches
  * the console as a footer line AND the channel as an event, so footers are
@@ -395,8 +406,9 @@ export function solidDiagnosticVerdict(found: {
  *  the console alone. Page errors ride along: a diagnostic that throws reaches
  *  the page as a throw.
  *
- *  Solid's grade decides which list a diagnostic lands in, exactly as it does
- *  for the e2e lane's verdict: `info` is advisory, everything else fails. */
+ *  Solid's grade AND code decide which list a diagnostic lands in, exactly as
+ *  they do for the e2e lane's verdict ({@link isAdvisoryDiagnostic}): an
+ *  `info`-graded `EFFECT_RELAY_TEAR` is advisory, everything else fails. */
 export function devSmokeFailures(saw: {
   consoleErrors: readonly string[];
   pageErrors: readonly string[];
