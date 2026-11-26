@@ -1,23 +1,50 @@
 import { SOLID_INLINE_DEPS_SCHEDULED } from "@kolu/solid-test-setup/vitest";
 import solid from "@solidjs/vite-plugin";
-import { defineConfig } from "vitest/config";
+import { defineConfig, type Plugin } from "vitest/config";
 
 // The tests that RUN Solid live with the Solid client layer, under `src/solid/`:
 // a test that drives the client or renders belongs there, and joins the DOM
 // project by existing. Every other test runs in the Node project.
 const DOM_TESTS = ["src/solid/**/*.test.{ts,tsx}"];
 
-// The bench project resolves Solid's PRODUCTION tier, which is what ships.
-// `solid({ dev: false })` alone does not get there under vitest: the plugin's
-// `forceProduction` is gated on `!isTestMode`
-// (`@solidjs/vite-plugin/dist/esm/index.mjs:4511`), so the `development|production`
-// placeholder Vite carries in its default conditions would still resolve to
-// `development` (vite `dist/node/chunks/node.js:29556`, since a test run is not
-// `isProduction`). Naming the conditions ourselves removes the placeholder: the
-// plugin only fills conditions in when they are `null` (`:4618-4620`) and
-// otherwise appends ours verbatim (`:4628`).
-const PROD_CLIENT_CONDITIONS = ["module", "browser", "production"];
-const PROD_SERVER_CONDITIONS = ["module", "node", "production"];
+/**
+ * Puts the `bench` project on Solid's PRODUCTION tier, which is what ships.
+ *
+ * Nothing else gets there. `solid({ dev: false })` does not: the plugin's
+ * `forceProduction` is gated on `!isTestMode`
+ * (`@solidjs/vite-plugin/dist/esm/index.mjs:4511`), so under vitest it leaves the
+ * `development|production` placeholder in the conditions, and Vite expands that to
+ * `development` for a config that is not `isProduction` — which a test run never is.
+ * NAMING the conditions ourselves does not get there either, which is the trap this
+ * replaced: vitest injects its own resolve defaults — `node` plus the placeholder —
+ * into every environment (`getDefaultResolveOptions`, vitest
+ * `dist/chunks/index.*.js:2097-2105`, applied at `:2279-2294`), and Vite CONCATENATES
+ * config arrays rather than replacing them, so an explicit
+ * `environments.client.resolve.conditions` of `["module","browser","production"]`
+ * resolved to `["solid","browser","node","development|production","module","browser",
+ * "production"]`. One `development` in the set is enough: solid-js's `exports` tries
+ * `browser.development` before `browser.default`, so the bench loaded
+ * `dist/solid.dev.js` and its tier guard fired.
+ *
+ * So the conditions are repaired LAST, after every other plugin has had its say:
+ * drop the development placeholder, name `production`. In place, deliberately — a
+ * partial config returned from this hook would be merged (concatenated) back in,
+ * reinstating exactly what was dropped.
+ */
+const solidProductionTier = (): Plugin => ({
+  name: "kolu:bench-production-conditions",
+  enforce: "post",
+  configEnvironment(_name, config) {
+    const resolve = config.resolve;
+    if (resolve?.conditions === undefined) return;
+    const production = resolve.conditions.filter(
+      (condition) =>
+        condition !== "development" && condition !== "development|production",
+    );
+    if (!production.includes("production")) production.push("production");
+    resolve.conditions = production;
+  },
+});
 
 export default defineConfig({
   // The Solid JSX transform — so the `.test.tsx` render harness (`SurfaceGate`)
@@ -81,16 +108,14 @@ export default defineConfig({
         // dev-tier run, with the engine installed through the inherited setup
         // file, died out of memory.
         extends: false,
-        plugins: [solid({ dev: false })],
-        environments: {
-          client: { resolve: { conditions: PROD_CLIENT_CONDITIONS } },
-          // The bench's own graph is inlined (`server.deps.inline` below), so
-          // nothing in it is externalized and these SSR conditions go unused.
-          // They are stated so
-          // an externalized Solid consumer, were one ever added, resolves the
-          // production server build rather than a development one.
-          ssr: { resolve: { conditions: PROD_SERVER_CONDITIONS } },
-        },
+        // `solidProductionTier()` runs after `solid()` and fixes what vitest
+        // put back: the bench's client conditions end up
+        // `["solid","browser","node","production"]` — `solid-js` →
+        // `dist/solid.js`, `@solidjs/signals` → `dist/prod`, `@solidjs/web` →
+        // `dist/web.js`. Vitest derives the workers' own `--conditions` from the
+        // ssr environment (`dist/chunks/index.*.js:6325-6341`), so an
+        // externalized dep lands on production too.
+        plugins: [solid({ dev: false }), solidProductionTier()],
         test: {
           name: "bench",
           environment: "happy-dom",
