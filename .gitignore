@@ -58,5 +58,8 @@ packages/surface/example/binary-cache.json
 # (`builtPins` in nix/workspace.nix).
 /corvu-next/
 
+# solid-sonner — the same, from a BUILD of the npins `solid-sonner` pin.
+/solid-sonner/
+
 # Python bytecode (the publish-closure action runs its script in place).
 __pycache__/

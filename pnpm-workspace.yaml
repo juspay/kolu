@@ -34,6 +34,10 @@ packages:
   - corvu-next/focus-trap
   - corvu-next/prevent-scroll
   - corvu-next/transition-size
+  # solid-sonner — the same, from a BUILD of the npins `solid-sonner` pin: the
+  # commit that gates the toaster's derived lists on equality, which no release
+  # carries yet. GENERATED, never committed (`.gitignore`).
+  - solid-sonner
 
 # Effect 4 (stable). Every @effect/* package must resolve to the SAME version as
 # `effect` itself, so these are exact pins (no `^`) for kolu-private members.
