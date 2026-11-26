@@ -223,6 +223,24 @@ export const Xterm: Component<
   let container!: HTMLDivElement;
   let fitRaf = 0;
 
+  // The renderer fact, bound by the KIT on its own div (`data-renderer`) rather
+  // than handed to a consumer to put back through the spread.
+  //
+  // `hasWebgl` is written from the WebGL attach/detach effect (`./webgl`), so a
+  // consumer attribute derived from it lands a flush AFTER the box change that
+  // caused the re-attach. Riding the shared spread, that late write re-ran the
+  // ONE render effect that also carries every layout-derived attribute, so a
+  // single box measurement painted the div twice and the first frame showed the
+  // new layout with the stale renderer (`EFFECT_RELAY_TEAR`). Bound here it is
+  // its own small effect over its own source: it applies once, in the flush its
+  // write lands in, and the spread reads nothing an effect writes.
+  //
+  // Written in the ready callback — an owned scope — hence `ownedWrite`.
+  const [webglFacts, setWebglFacts] = createSignal<WebglHandle | null>(null, {
+    name: "xtermWebglFacts",
+    ownedWrite: true,
+  });
+
   // The two grids this component keeps apart, and the whole of why it does.
   //
   // `wantedGrid` is what the BOX can hold — a measurement, which moves the
@@ -399,6 +417,7 @@ export const Xterm: Component<
       const term = c.terminal;
 
       const webgl = attachWebGL(term, props.webgl, props.webglHooks);
+      setWebglFacts(webgl);
       clearAtlas = webgl.clearTextureAtlas;
       const recovery = createRenderRecovery(term, () => props.visible);
       // App-switch return fires `focus` (not `visibilitychange`); force a sync
@@ -554,6 +573,21 @@ export const Xterm: Component<
       applyFit(decided);
     },
     { defer: true, name: "xtermFitDecidedBox" },
+  );
+
+  // `data-renderer`, applied from its OWN effect rather than as one more
+  // attribute in the JSX below: an element that carries a spread has every
+  // other dynamic attribute MERGED into that one spread effect, so a binding
+  // written there would read `hasWebgl` in the same effect that reads every
+  // layout-derived attribute a consumer passes — the relay tear this attribute
+  // moved here to leave. On its own source it applies once, in the flush the
+  // WebGL attach/detach effect's write lands in.
+  createEffect(
+    () => webglFacts()?.hasWebgl() ?? false,
+    (has) => {
+      container.dataset.renderer = has ? "webgl" : "dom";
+    },
+    { name: "xtermRendererAttr" },
   );
 
   // The mount box and the terminal inside it are now two different HEIGHTS for a

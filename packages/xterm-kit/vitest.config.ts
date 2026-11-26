@@ -9,7 +9,8 @@ export default defineConfig({
   // builds, and compiles the component's JSX.
   plugins: [solid()],
   test: {
-    include: ["src/**/*.test.ts"],
+    // `.tsx` too: `<Xterm>`'s own tests mount the component.
+    include: ["src/**/*.test.ts", "src/**/*.test.tsx"],
     // The kit drives real `@xterm/xterm` and `@xterm/headless` terminals plus
     // SolidJS `/solid` primitives, so it needs a DOM (xterm reads `window`,
     // `@solid-primitives/media` reads `matchMedia` at module load) and the

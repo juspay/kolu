@@ -1478,7 +1478,9 @@ const Terminal: Component<{
         data-focused={isFocused() ? "" : undefined}
         data-sub-terminal={props.isSub ? "" : undefined}
         data-font-size={fontSize()}
-        data-renderer={(handle()?.webgl.hasWebgl() ?? false) ? "webgl" : "dom"}
+        // `data-renderer` is the kit's own: it owns `hasWebgl`, and routing
+        // that effect-written fact back through this spread painted the div
+        // twice for one box change.
       />
       {/* THE LOCK, on the terminal's own BODY — the thin frame that says the
        *  Conductor is driving this terminal, the card a blocked keystroke
