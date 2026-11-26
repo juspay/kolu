@@ -36,6 +36,17 @@ export const sameSet = (
   b: ReadonlySet<number>,
 ): boolean => a.size === b.size && [...a].every((p) => b.has(p));
 
+/** Element-wise identity for a FILTERED view of keyed rows — the `equals` gate
+ *  a memo needs when it selects from a list whose items are already stable.
+ *
+ *  Beside {@link sameSet} for the same reason: the port join rebuilds its row
+ *  objects on a tick, but a filter over an unchanged result is a new array of
+ *  the very same references, and publishing it re-checks every row downstream
+ *  for nothing. Identity per index, not a deep compare — the rows ARE the
+ *  identity here. */
+export const sameRows = <T>(a: readonly T[], b: readonly T[]): boolean =>
+  a.length === b.length && a.every((row, i) => row === b[i]);
+
 export interface HostTerminals {
   /** The tile serving `port` and the way to it, or `undefined` when no KNOWN
    *  terminal subtree holds it. */

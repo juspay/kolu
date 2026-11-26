@@ -96,8 +96,16 @@ const AddField: Component<{
   // Typing filters; the chevron shows every row.
   const [filtering, setFiltering] = createSignal(false);
   const [active, setActive] = createSignal<number | undefined>();
-  const rows = createMemo(() =>
-    filtering() ? matching(props.suggestions, draft()) : props.suggestions,
+  const rows = createMemo(
+    () =>
+      filtering() ? matching(props.suggestions, draft()) : props.suggestions,
+    // `matching` filters a list of stable suggestion objects, so an unchanged
+    // draft re-publishes a new array of the very same rows and re-checks the
+    // whole menu. Identity per index is the whole test.
+    {
+      equals: (a, b) =>
+        a.length === b.length && a.every((row, i) => row === b[i]),
+    },
   );
   let field: HTMLDivElement | undefined;
   let input: HTMLInputElement | undefined;

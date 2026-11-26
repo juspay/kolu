@@ -51,7 +51,11 @@ import {
   viewerHost,
 } from "../forwards/useForwards";
 import { useHostListeners } from "../forwards/useHostListeners";
-import { sameSet, useHostTerminals } from "../forwards/useHostTerminals";
+import {
+  sameRows,
+  sameSet,
+  useHostTerminals,
+} from "../forwards/useHostTerminals";
 import { isActiveHostLocal } from "../kaval/useDaemonStatus";
 import { isTouch } from "../useMobile";
 import { ChevronRightIcon } from "../ui/Icons";
@@ -114,10 +118,15 @@ const PortsSection: Component<{ terminalId: TerminalId }> = (props) => {
   const [elsewhereOpen, setElsewhereOpen] = createSignal(false);
   /** The elsewhere rows on screen: all of them when open, and only the rows
    *  with an open door when folded. */
-  const elsewhereShown = createMemo(() =>
-    elsewhereOpen()
-      ? groups().elsewhere
-      : groups().elsewhere.filter((row) => row.forward !== undefined),
+  const elsewhereShown = createMemo(
+    () =>
+      elsewhereOpen()
+        ? groups().elsewhere
+        : groups().elsewhere.filter((row) => row.forward !== undefined),
+    // The rows are keyed and stable; the FILTER is what allocates. Without the
+    // gate every port, listener and forward tick republishes the same rows and
+    // re-checks each one downstream.
+    { equals: sameRows },
   );
   const elsewhereFolded = () =>
     groups().elsewhere.length - elsewhereShown().length;
