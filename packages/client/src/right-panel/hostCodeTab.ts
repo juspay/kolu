@@ -143,6 +143,7 @@ const codeTabScopes = createSharedRoot(() =>
       subject: rightPanelCodeSubject,
       state: useRightPanel().code,
       active: () => ctx.isActive() && leases.shown(),
+      showsPick: leases.showsPick,
     }),
   ),
 );

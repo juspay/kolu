@@ -87,7 +87,12 @@ const Read: Component<{
   const state = workCodeState(work, () => props.place.lister);
   const leases = createCodeLeases();
   const queries = {
-    ...buildCodeQueries({ subject, state, active: leases.shown }),
+    ...buildCodeQueries({
+      subject,
+      state,
+      active: leases.shown,
+      showsPick: leases.showsPick,
+    }),
     lease: leases.lease,
   };
   const door = createCodeDoor((mode) => ({

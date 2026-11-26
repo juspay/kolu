@@ -256,7 +256,10 @@ const CodeTab: Component<{
     fileContent,
     lease,
   } = untrack(() => props.queries);
-  lease(shown);
+  // The shown pick rides on the same lease, through a thunk because
+  // `shownFile` is derived further down: it is what pauses the file-content
+  // query once this view stops showing that file.
+  lease(shown, () => shownFile());
   // The tree's share is a preference per arrangement, not part of a view's
   // place.
   const split = createCodeSplit(() => props.arrangement);

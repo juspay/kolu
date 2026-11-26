@@ -264,7 +264,7 @@ beforeEach(async () => {
   setCodeShown(true);
   createRoot((dispose) => {
     releaseLease = dispose;
-    leaseCodeQueries(codeShown);
+    leaseCodeQueries(codeShown, () => bag.selected());
   });
   // Build the lazy app-lifetime owner (a real consumer reads the facade at mount) so the
   // `scopedByEntry` reactive graph is live and reacts to `switchTo` before the first pulse.
@@ -571,7 +571,10 @@ it("one hidden or disposed consumer cannot pause another shown Code view", async
   let releaseOther!: () => void;
   createRoot((dispose) => {
     releaseOther = dispose;
-    leaseCodeQueries(() => true);
+    leaseCodeQueries(
+      () => true,
+      () => bag.selected(),
+    );
   });
   setCodeShown(false);
   await settle();

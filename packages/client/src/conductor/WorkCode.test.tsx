@@ -105,13 +105,13 @@ vi.mock("../code-view/CodeTab", async () => {
     default: (props: {
       subject: unknown;
       queries: {
-        lease: (shown: () => boolean) => void;
+        lease: (shown: () => boolean, shownPick: () => string | null) => void;
         localStatus: { pending: () => boolean };
       };
       door: CodeDoor;
       arrangement: string;
     }) => {
-      props.queries.lease(useShown());
+      props.queries.lease(useShown(), () => null);
       h.tabs.push({ subject: () => props.subject, door: props.door });
       createRenderEffect(
         () => props.arrangement,

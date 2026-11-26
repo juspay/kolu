@@ -17,7 +17,9 @@
  *  NOTHING READS WHILE NOBODY LOOKS: a set is idle unless `active` says so,
  *  and the caller's `active` includes the set's own {@link createCodeLeases}
  *  — each mounted view leases its visibility on the set it was handed, so a
- *  view shown somewhere else never wakes a set it does not read. */
+ *  view shown somewhere else never wakes a set it does not read. A view also
+ *  leases the PICK it is showing, which is what pauses the file-content read
+ *  the moment the tree stops showing that file. */
 
 import type { CodeTabView } from "@kolu/padi-client/surface";
 import type { Subscription } from "@kolu/surface/solid";
@@ -79,18 +81,29 @@ export interface CodeQueries {
   readonly ignoredPaths: CodeQuery<ScopedCodePaths>;
   readonly diff: CodeQuery<GitDiffOutput>;
   readonly fileContent: CodeQuery<BrowseFileContent>;
-  /** Lease the mounted view's visibility on THIS set; disposal withdraws it. */
-  readonly lease: (shown: Accessor<boolean>) => void;
+  /** Lease the mounted view's visibility AND the pick it is SHOWING on THIS
+   *  set; disposal withdraws it. */
+  readonly lease: (
+    shown: Accessor<boolean>,
+    shownPick: Accessor<string | null>,
+  ) => void;
 }
 
 /** The visibility leases of ONE query set: each mounted view adds its own
- *  `shown`, and the set reads while any of them is shown. */
+ *  `shown` and its own shown pick, and the set reads while any of them is
+ *  shown. The pick rides along so a query whose subject is a FILE can ask
+ *  whether anyone is looking at that file — a read out of the view, never a
+ *  write back into it. */
 export function createCodeLeases(): {
-  readonly lease: (shown: Accessor<boolean>) => void;
+  readonly lease: (
+    shown: Accessor<boolean>,
+    shownPick: Accessor<string | null>,
+  ) => void;
   readonly shown: Accessor<boolean>;
+  readonly showsPick: (pick: string | null) => boolean;
 } {
   const [leases, setLeases] = createSignal<
-    readonly { shown: Accessor<boolean> }[]
+    readonly { shown: Accessor<boolean>; shownPick: Accessor<string | null> }[]
   >([]);
   return {
     // Called from a view's COMPONENT BODY, where writing a signal is
@@ -100,8 +113,8 @@ export function createCodeLeases(): {
     // to give it. The compute is a constant, so the effect runs exactly once
     // per mounted view; the only change is that the set reports itself shown
     // from the mounting flush on, rather than from the middle of the body.
-    lease: (shown) => {
-      const lease = { shown };
+    lease: (shown, shownPick) => {
+      const lease = { shown, shownPick };
       createEffect(
         () => lease,
         (value) => {
@@ -112,18 +125,24 @@ export function createCodeLeases(): {
       );
     },
     shown: () => leases().some((lease) => lease.shown()),
+    showsPick: (pick) =>
+      pick !== null &&
+      leases().some((lease) => lease.shown() && lease.shownPick() === pick),
   };
 }
 
 /** Build one Code view's queries. `subject` names the host every read goes
  *  to and the root it reads; `state` names the mode and the selected file;
- *  `active` is when the set may read at all. */
+ *  `active` is when the set may read at all; `showsPick` answers whether a
+ *  mounted, shown view is SHOWING a given browse pick — the leases' own
+ *  {@link createCodeLeases.showsPick}, which gates the file-content read. */
 export function buildCodeQueries(input: {
   subject: Accessor<CodeSubject>;
   state: Pick<CodeViewState, "codeMode" | "selectedFile">;
   active: Accessor<boolean>;
+  showsPick: (pick: string | null) => boolean;
 }): Omit<CodeQueries, "lease"> {
-  const { subject, state } = input;
+  const { subject, state, showsPick } = input;
   const host = (): HostKey => subject().host;
   const rpc = () => padiRpcOf(host());
   const streams = () => padiMap.entry(host()).streams;
@@ -315,28 +334,24 @@ export function buildCodeQueries(input: {
   // one thing that DOES need a terminal, the binary preview URL, is built where
   // the subject's terminal is read (the view), so the URL can never go stale.
   //
-  // ITS INPUT IS THE STORED PICK, NOT THE SHOWN FILE, and that is a decision
-  // with a cost: once the tree stops showing a condemned pick
-  // (`codeTabShownSelection`), this query stays keyed on it — a refcounted
-  // (repo, file) watcher pair (`git: file-change` = HEAD + working tree) and a
-  // re-read per pulse whose `FileGone` the swallow below discards — until the
-  // user picks another file or the repo/host/mode re-keys it. Master's clear
-  // retired that watcher at the moment the file went away.
+  // IT READS ONLY WHILE A SHOWN VIEW IS SHOWING THAT PICK. The input is the
+  // stored pick, but the gate is the leases' `showsPick`: the view hands its
+  // own shown file (`codeTabShownSelection`) over the same channel it already
+  // leases its visibility on, so the query learns the view's verdict as a
+  // READ — no re-derivation here, and no clear written back into the
+  // selection store. Once the tree stops showing a condemned pick the query
+  // PAUSES, which retires the refcounted (repo, file) watcher pair
+  // (`git: file-change` = HEAD + working tree), its asker row in the Padi
+  // diagnostics panel, and the per-pulse re-read whose non-`ENOENT` failure
+  // would otherwise raise a `File content stream:` toast every frame for a
+  // file nobody is looking at. That is what master's clear retired, without
+  // master's write.
   //
-  // It cannot read the shown file. The shown file is a VIEW derivation over
-  // `treeInventory` (`CodeTab.tsx`), which merges these listings with the
-  // view's OWN lazily-read directory levels; a file reached by expanding a
-  // folder of a root git cannot list, or an ignored directory, is listed
-  // nowhere else, so a query-layer re-derivation would condemn exactly the
-  // files whose content the user just opened. And this set is built per HOST
-  // in `hostCodeTab`, upstream of any Code view and retained while none is
-  // mounted, so the view's derivation is not in scope here — the only way to
-  // bring it in is to write the shown file back into the selection store,
-  // which is the clear-write this group deleted.
-  //
-  // What the standing read buys: the content for a file that comes back is
-  // already there, and nothing paints from it while it is condemned (the
-  // content pane is gated on the shown file).
+  // A PAUSE, not a null input: the stamped answer is frozen, so a file that
+  // comes back is shown with its content already there and refreshed in place
+  // by the resumed pulse's first frame — no blank. And the gate stays OPEN in
+  // the window between a delete and the listing that proves it, because the
+  // view still shows the pick until its inventory says otherwise.
   const fileContent = createPolledQuery<
     { repoPath: string; filePath: string },
     { repoPath: string; filePath: string },
@@ -344,7 +359,10 @@ export function buildCodeQueries(input: {
     BrowseFileContent
   >({
     ...authorities,
-    active: () => authorities.active() && codeView() === "browse",
+    active: () =>
+      authorities.active() &&
+      codeView() === "browse" &&
+      showsPick(state.selectedFile("browse")),
     input: () => {
       const p = shownRepoPath();
       const s = state.selectedFile("browse");
