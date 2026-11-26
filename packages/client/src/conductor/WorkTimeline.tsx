@@ -38,6 +38,7 @@ import {
   type TimelineView,
   WATCH_EVENTS_SHOWN,
 } from "./timelineView";
+import { sameFields, sameItems } from "./sameItems";
 import { gapWordsFor, timelineGap } from "./timelineGap";
 import { mergeReason } from "./prReadings";
 import {
@@ -95,6 +96,23 @@ interface Rail {
   readonly gapPx: number;
   readonly words: string | undefined;
 }
+
+/** TWO READINGS OF ONE ROW, by what the row SAYS: a view read again mints a
+ *  fresh row per event, and a folder row carries its own list of them, so
+ *  neither the row nor its indices can be compared by reference. */
+const sameRow = (
+  a: TimelineRow | undefined,
+  b: TimelineRow | undefined,
+): boolean => {
+  if (a === b) return true;
+  if (a === undefined || b === undefined) return false;
+  if (a.kind === "event") return b.kind === "event" && a.index === b.index;
+  return (
+    b.kind === "folder" &&
+    a.folder === b.folder &&
+    sameItems(a.indices, b.indices)
+  );
+};
 
 /** A ROW'S TIME AND WHO IT WAS BY — the clock cell and the coloured dot,
  *  drawn the same at the head of an event row and of a folder row. */
@@ -162,8 +180,19 @@ const WorkTimeline: Component<{
    *  its check events name, which decision an ask points at) are computed
    *  once by the reader this returns. */
   const words = createMemo(() => eventReader(props.work));
-  const steps = createMemo(() =>
-    took(props.work, new Date(props.now).toISOString()),
+  /** HOW LONG EACH STEP TOOK, with each row's own reading kept across a
+   *  tick: `took` folds the whole timeline again on every move of the clock
+   *  and mints a `{ ms, open }` per event, so a row whose step is settled
+   *  would be handed an equal-but-new reading every second. The rows that
+   *  did not move keep the object they had, and the list keeps its identity
+   *  when none of them did — so only the step still running wakes. */
+  const steps = createMemo<ReadonlyArray<{ ms: number; open: boolean }>>(
+    (prev = []) =>
+      took(props.work, new Date(props.now).toISOString()).map((one, index) => {
+        const was = prev[index];
+        return was !== undefined && sameFields(was, one) ? was : one;
+      }),
+    { equals: sameItems },
   );
   /** The control's words: what a press does from here — unfold the whole,
    *  or fold back to the part the card shows when folded. */
@@ -396,35 +425,49 @@ const WorkTimeline: Component<{
                 throw new Error(`timeline row ${rowKey(one)} names no event`);
               return Date.parse(event.at);
             };
-            const rail = (): Rail => {
-              const rows = shown().rows;
-              const i = index();
-              const next = rows[i + 1];
-              const gapMs =
-                next === undefined ? 0 : Math.max(0, at(next) - at(row()));
-              return {
-                first: i === 0,
-                last: next === undefined,
-                gapPx: next === undefined ? 0 : timelineGap(gapMs),
-                words: next === undefined ? undefined : gapWordsFor(gapMs),
-              };
-            };
+            /** THE RAIL UNDER THIS ROW — a memo, and gated: the view mints
+             *  fresh rows on every tick, so an ungated rail would hand the
+             *  row's `<Show>`s and its padding an equal-but-new object every
+             *  second. */
+            const rail = createMemo(
+              (): Rail => {
+                const rows = shown().rows;
+                const i = index();
+                const next = rows[i + 1];
+                const gapMs =
+                  next === undefined ? 0 : Math.max(0, at(next) - at(row()));
+                return {
+                  first: i === 0,
+                  last: next === undefined,
+                  gapPx: next === undefined ? 0 : timelineGap(gapMs),
+                  words: next === undefined ? undefined : gapWordsFor(gapMs),
+                };
+              },
+              { equals: sameFields },
+            );
+            /** THE ROW, NARROWED TO ITS KIND — each arm its own gated memo,
+             *  so the `<Match>` holding it is not handed a rebuilt row that
+             *  says exactly what the last one did. */
+            const eventRow = createMemo(
+              () => {
+                const it = row();
+                return it.kind === "event" ? it : undefined;
+              },
+              { equals: sameRow },
+            );
+            const folderRow = createMemo(
+              () => {
+                const it = row();
+                return it.kind === "folder" ? it : undefined;
+              },
+              { equals: sameRow },
+            );
             return (
               <Switch>
-                <Match
-                  when={(() => {
-                    const it = row();
-                    return it.kind === "event" ? it : undefined;
-                  })()}
-                >
+                <Match when={eventRow()}>
                   {(it) => <EventRow index={it().index} rail={rail()} />}
                 </Match>
-                <Match
-                  when={(() => {
-                    const it = row();
-                    return it.kind === "folder" ? it : undefined;
-                  })()}
-                >
+                <Match when={folderRow()}>
                   {(it) => <FolderRow row={it()} rail={rail()} />}
                 </Match>
               </Switch>

@@ -15,6 +15,7 @@ import {
   type Work,
   type WorkId,
 } from "kolu-work";
+import { createSignal, flush } from "solid-js";
 import { render } from "@solidjs/web";
 import { afterEach, describe, expect, it } from "vitest";
 import type { TimelineShown } from "./timelineView";
@@ -81,6 +82,43 @@ function mount(work: Work): HTMLElement {
   return root;
 }
 
+/** THE TIMELINE AS A CARD DRIVES IT: the clock moves, and the card reads
+ *  what it shows of the timeline again — fresh row objects around the same
+ *  events, which is what the view's fold returns. */
+function mountLive(work: Work) {
+  const shownOf = (): TimelineShown => ({
+    view: { kind: "whole" },
+    folded: { kind: "stage", stage: "build" },
+    rows: work.events.map((_, index) => ({ kind: "event", index })),
+    total: work.events.length,
+  });
+  const [shown, setShown] = createSignal<TimelineShown>(shownOf());
+  const [now, setNow] = createSignal(T0 + 4 * 60 * MIN);
+  root = document.createElement("div");
+  document.body.append(root);
+  const el = root;
+  dispose = render(
+    () => (
+      <WorkTimeline
+        id={"branch:local/%2Fr/waits" as WorkId}
+        work={work}
+        shown={shown()}
+        onWhole={() => {}}
+        now={now()}
+      />
+    ),
+    root,
+  );
+  return {
+    el,
+    tick: () => {
+      setNow((was) => was + 1000);
+      setShown(shownOf());
+      flush();
+    },
+  };
+}
+
 const rows = (el: HTMLElement): ReadonlyArray<HTMLElement> => [
   ...el.querySelectorAll<HTMLElement>('[data-testid="work-event"]'),
 ];
@@ -114,5 +152,19 @@ describe("a work's timeline", () => {
     ].map((one) => one.textContent);
     expect(words).toHaveLength(1);
     expect(words[0]).toBe("3h");
+  });
+
+  it("keeps every settled row's rail and step across four ticks of the clock", () => {
+    // The clock moves and the view is read again; only the LAST step is
+    // still running, so nothing else about any row changed. Four
+    // equal-but-new rails, narrowings or step readings is what
+    // `UNSTABLE_MEMO_OUTPUT` names.
+    const { el, tick } = mountLive(staged());
+    const first = row(el, 0);
+    const gaps = rows(el).map(gapOf);
+    for (let moved = 1; moved <= 4; moved += 1) tick();
+    expect(rows(el)).toHaveLength(3);
+    expect(row(el, 0)).toBe(first);
+    expect(rows(el).map(gapOf)).toEqual(gaps);
   });
 });

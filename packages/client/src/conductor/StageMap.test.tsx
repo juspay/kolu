@@ -167,6 +167,13 @@ const MERGED: Stages = {
   ),
 };
 
+/** THE SAME STAGES, READ AGAIN — a fresh reading of a record that did not
+ *  move, which is what the card's fold hands the map on every tick. */
+const reread = (one: Stages): Stages =>
+  one.kind === "staged"
+    ? { ...one, stages: [...one.stages], trail: [...one.trail] }
+    : { ...one };
+
 function mount(stages: Stages) {
   const [shown, setShown] = createSignal<StageName | Doubt | undefined>();
   const pressed: Array<StageName | Doubt> = [];
@@ -256,6 +263,29 @@ describe("the stage map", () => {
     expect(checks.textContent).toBe("→×2←×1");
     // A loop nobody went back along has a plain arrow and no count.
     expect(arrow(el, "stage-arrow-plan-approve").textContent).toBe("→");
+  });
+
+  it("keeps its arrow counts when the record moves and the trail does not", () => {
+    // THE CLOCK, as a card feels it: the fold is read again every second and
+    // the stage the work is in has a new `here`. Nothing about the moves
+    // between stages changed, so neither arrow may publish again — four
+    // equivalent `Count` objects is what `UNSTABLE_MEMO_OUTPUT` names.
+    const [stages, setStages] = createSignal<Stages>(REPORTED);
+    root = document.createElement("div");
+    document.body.append(root);
+    const el = root;
+    dispose = render(
+      () => <StageMap stages={stages()} size="full" testId="stage-map" />,
+      root,
+    );
+    const checks = arrow(el, "stage-arrow-build-checks");
+    for (let tick = 1; tick <= 4; tick += 1) {
+      setStages(reread(REPORTED));
+      flush();
+    }
+    expect(arrow(el, "stage-arrow-build-checks")).toBe(checks);
+    expect([checks.dataset.forward, checks.dataset.back]).toEqual(["2", "1"]);
+    expect(arrow(el, "stage-arrow-build-review").dataset.rounds).toBe("6");
   });
 
   it("counts across a doubt only from below: unknown, or at least", () => {

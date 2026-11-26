@@ -61,6 +61,7 @@ import {
   type Where,
 } from "kolu-work";
 import { type Component, createMemo, For, Show } from "solid-js";
+import { sameFields } from "./sameItems";
 import { HATCH, NOW_RING, STAGE_INK, STAGE_LABEL } from "./workReadings";
 
 /** WHERE EACH STAGE SITS on the map's grid: five in a row, Review above
@@ -341,8 +342,20 @@ const Arrow: Component<{
   mark: { readonly doubt: Doubt; readonly ms: number } | undefined;
   pick: { readonly shown: boolean; readonly show: () => void } | undefined;
 }> = (props) => {
-  const forward = createMemo(() => props.moved(props.cell.from, props.cell.to));
-  const back = createMemo(() => props.moved(props.cell.to, props.cell.from));
+  // THE COUNT, NOT THE OBJECT IT ARRIVES IN: `movedTimes` folds the trail
+  // again on every move of the record and returns a fresh `{ kind, times }`
+  // for an unchanged count, so without the gate both arrows of every cell
+  // re-publish — and every glyph under them re-runs — whenever anything
+  // about the work changes.
+  const forward = createMemo(
+    () => props.moved(props.cell.from, props.cell.to),
+    {
+      equals: sameFields,
+    },
+  );
+  const back = createMemo(() => props.moved(props.cell.to, props.cell.from), {
+    equals: sameFields,
+  });
   const mark = createMemo(() => props.mark);
   const glyphs = () => {
     switch (props.cell.way) {

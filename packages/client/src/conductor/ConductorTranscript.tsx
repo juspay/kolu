@@ -73,6 +73,7 @@ import {
 } from "./transcriptScroll";
 import type { FileHolders } from "./namedFiles";
 import { chatScope } from "./chatScope";
+import { sameFields, sameItems } from "./sameItems";
 import { quietChat, type QuietTurn } from "./quietChat";
 import type { Turn } from "./turnWorks";
 import { useConductor } from "./useConductor";
@@ -564,6 +565,20 @@ const ConductorTranscript: Component<{
                   inScope(first().id) &&
                   (!turn().folds || opened(turn()) || kept()),
               );
+              /** THE ARMS OF THIS ITEM, each gated on what it SAYS. The
+               *  folds run again over the whole conversation on every chunk
+               *  and mint a fresh item — and a fresh list inside it — around
+               *  the same rows, so an ungated `<Match>` would re-run its
+               *  whole arm per chunk, for every row on screen. */
+              const fold = createMemo(() => foldRowsOf(item()), {
+                equals: sameItems,
+              });
+              const failures = createMemo(() => failuresOf(item()), {
+                equals: sameFailures,
+              });
+              const entry = createMemo(() => entryOf(item()), {
+                equals: sameFields,
+              });
               return (
                 <>
                   {/* THE HEADING OVER THE RUN OF UNASKED REPLIES — only in
@@ -609,10 +624,10 @@ const ConductorTranscript: Component<{
                   <div class={{ contents: drawn(), hidden: !drawn() }}>
                     <TurnHead rows={rowsOf(item())} />
                     <Switch>
-                      <Match when={foldRowsOf(item())}>
+                      <Match when={fold()}>
                         {(rows) => <TranscriptFold rows={rows()} />}
                       </Match>
-                      <Match when={failuresOf(item())}>
+                      <Match when={failures()}>
                         {(run) => (
                           <TranscriptFailures
                             tool={run().tool}
@@ -621,11 +636,11 @@ const ConductorTranscript: Component<{
                           />
                         )}
                       </Match>
-                      <Match when={entryOf(item())}>
-                        {(entry) => (
+                      <Match when={entry()}>
+                        {(one) => (
                           <TranscriptRow
-                            row={entry().row}
-                            repeat={entry().repeat}
+                            row={one().row}
+                            repeat={one().repeat}
                             onRedrawn={noteRedrawn}
                           />
                         )}
@@ -661,6 +676,18 @@ const failuresOf = (item: TranscriptItem) =>
   item.kind === "failures" ? item : undefined;
 const entryOf = (item: TranscriptItem) =>
   item.kind === "entry" ? item.entry : undefined;
+/** Two readings of one failure run, by what its line says and which rows it
+ *  holds — the run itself is rebuilt by the fold on every chunk. */
+const sameFailures = (
+  a: Extract<TranscriptItem, { kind: "failures" }> | undefined,
+  b: Extract<TranscriptItem, { kind: "failures" }> | undefined,
+): boolean =>
+  a === b ||
+  (a !== undefined &&
+    b !== undefined &&
+    a.tool === b.tool &&
+    a.reason === b.reason &&
+    sameItems(a.rows, b.rows));
 /** The rows an item draws, in order — what its turn's head is read from. */
 const rowsOf = (item: TranscriptItem): ReadonlyArray<ConductorRow> =>
   item.kind === "entry" ? [item.entry.row] : item.rows;
