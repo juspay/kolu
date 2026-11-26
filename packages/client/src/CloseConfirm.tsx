@@ -9,7 +9,7 @@ import {
   type TerminalMetadata,
 } from "@kolu/padi-client/surface";
 import type { TerminalId } from "kolu-common/surface";
-import { type Component, Show } from "solid-js";
+import { type Component, createSignal, Show } from "solid-js";
 import { PrMarks } from "@kolu/solid-dockrow";
 import { prTooltip } from "@kolu/solid-dockrow/rowValues";
 import { WorktreeIcon } from "./ui/Icons";
@@ -52,7 +52,11 @@ const CloseConfirm: Component<{
   onClose: () => void;
   onCloseAndRemove: () => void;
 }> = (props) => {
-  let cancelRef!: HTMLButtonElement;
+  // Corvu reads `initialFocusEl` two animation frames after the open edge, so
+  // the ref has to be a SIGNAL: a bare `let` is captured by value at the JSX
+  // site and hands the trap `undefined`, which falls back to the first
+  // focusable — the PR link, when the closing terminal has one.
+  const [cancelRef, setCancelRef] = createSignal<HTMLButtonElement>();
   /** The target's repo, when git resolved to one — the dialog names no repo
    *  (and offers no worktree removal) for `none` or `unresolved`. */
   const repo = () => {
@@ -103,7 +107,7 @@ const CloseConfirm: Component<{
       onOpenChange={(open) => {
         if (!open) props.onCancel();
       }}
-      initialFocusEl={cancelRef}
+      initialFocusEl={cancelRef()}
       size="sm"
     >
       <Dialog.Content
@@ -178,7 +182,7 @@ const CloseConfirm: Component<{
         <div class="flex flex-wrap justify-end gap-2 pt-1">
           <button
             type="button"
-            ref={cancelRef}
+            ref={setCancelRef}
             class="px-3 py-1.5 text-xs rounded-lg text-fg-3 hover:text-fg-2 transition-colors cursor-pointer"
             data-testid="close-confirm-cancel"
             onClick={() => props.onCancel()}

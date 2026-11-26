@@ -5,7 +5,7 @@
 
 import Dialog from "@corvu-next/dialog";
 import type { TranscriptHtmlMode } from "@kolu/padi-client/surface";
-import type { Component } from "solid-js";
+import { type Component, createSignal } from "solid-js";
 import { runAction } from "./runAction";
 import { useTerminalCrud } from "./terminal/useTerminalCrud";
 import { createDisclosure } from "./ui/createDisclosure";
@@ -17,7 +17,10 @@ export const exportSessionDialog = createDisclosure();
 const ExportSessionDialog: Component = () => {
   const crud = useTerminalCrud();
   const chrome = surface({ portalled: true });
-  let chatRef: HTMLButtonElement | undefined;
+  // A signal, not a bare `let`: Corvu reads `initialFocusEl` two frames after
+  // the open edge, and a `let` captured at the JSX site is always `undefined`
+  // there, leaving the trap on its first-focusable fallback.
+  const [chatRef, setChatRef] = createSignal<HTMLButtonElement>();
 
   const exportMode = (modes: [TranscriptHtmlMode, ...TranscriptHtmlMode[]]) => {
     exportSessionDialog.close();
@@ -28,7 +31,7 @@ const ExportSessionDialog: Component = () => {
     <ModalDialog
       open={exportSessionDialog.open()}
       onOpenChange={exportSessionDialog.onOpenChange}
-      initialFocusEl={chatRef}
+      initialFocusEl={chatRef()}
       refocusOnClose
       size="sm"
     >
@@ -46,7 +49,7 @@ const ExportSessionDialog: Component = () => {
         <div class="grid gap-2">
           <button
             type="button"
-            ref={chatRef}
+            ref={setChatRef}
             class="text-left rounded-lg border border-edge bg-surface-2 px-3 py-2.5 hover:bg-surface-3 transition-colors cursor-pointer"
             onClick={() => exportMode(["chat"])}
           >
