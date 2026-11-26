@@ -11,13 +11,14 @@
  *
  * Everything around the pane is a stand-in: the screen reports a drawn size
  * and a measured cell, the body has a fixed box, and the record states its
- * own size.
+ * own size — from a STORE, as the fleet index holds it, so a resize merged
+ * into the record in place is a case this file can drive.
  */
 
 import type { TerminalGrid } from "@kolu/xterm-kit/solid";
 import type { WorkRole } from "kolu-work";
 import type { TerminalId } from "kolu-common/surface";
-import { createSignal, flush } from "solid-js";
+import { createSignal, createStore, flush, reconcile } from "solid-js";
 import { render } from "@solidjs/web";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { FleetTerminalStanding } from "../palette/fleetTerminals";
@@ -46,13 +47,57 @@ const seam = vi.hoisted(() => ({
     | undefined,
 }));
 
-const [standing, setStanding] = createSignal<FleetTerminalStanding>({
-  kind: "gone",
-} as never);
-const recordAt = (grid: TerminalGrid): FleetTerminalStanding => ({
-  kind: "here",
-  meta: { state: "active", foreground: null, agent: null, grid } as never,
+/** THE RECORD IS A STORE, as the fleet index's is: padi's metadata rides a
+ *  subscription store and is reconciled leaf by leaf, so a resize somebody
+ *  else asked for moves `grid.cols` in place and mints no new record. The
+ *  standing AROUND it is minted per read, as the index mints it. */
+const [meta, setMeta] = createStore<{
+  state: "active";
+  foreground: null;
+  agent: null;
+  grid: TerminalGrid;
+}>({
+  state: "active",
+  foreground: null,
+  agent: null,
+  grid: { cols: 0, rows: 0 },
 });
+const [kind, setKind] = createSignal<FleetTerminalStanding["kind"]>("gone");
+const standing = (): FleetTerminalStanding => {
+  const now = kind();
+  return now === "here"
+    ? ({ kind: "here", meta } as unknown as FleetTerminalStanding)
+    : ({ kind: now } as FleetTerminalStanding);
+};
+const recordAt = (grid: TerminalGrid) => ({ kind: "here" as const, grid });
+/** How the terminal stands now — a record stated afresh, size and all. */
+const setStanding = (
+  next:
+    | { kind: "here"; grid: TerminalGrid }
+    | { kind: "gone" | "loading" | "unreachable" },
+): void => {
+  // RECONCILED, as the fleet index states a record: the leaves that moved
+  // are the ones that notify, and the record object survives.
+  if (next.kind === "here")
+    setMeta(
+      reconcile({
+        state: "active" as const,
+        foreground: null,
+        agent: null,
+        grid: { ...next.grid },
+      }),
+    );
+  setKind(next.kind);
+};
+/** THE SAME RECORD, RESIZED IN PLACE: its leaves move and the record itself
+ *  does not — what the fleet index's `reconcile` does when the PTY takes a
+ *  size somebody else asked for. */
+const resizeRecord = (grid: TerminalGrid): void => {
+  setMeta((draft) => {
+    draft.grid.cols = grid.cols;
+    draft.grid.rows = grid.rows;
+  });
+};
 
 vi.mock("../palette/fleetTerminals", () => ({
   fleetTerminalStanding: () => standing(),
@@ -196,6 +241,24 @@ describe("the Resize to fit offer", () => {
     seam.drawn = ASKED;
     setStanding(recordAt(OLD));
     const el = mount();
+    vi.advanceTimersByTime(SETTLE * 2);
+    flush();
+    expect(press(el)).not.toBeNull();
+  });
+
+  it("is offered when the record is resized in place, minting no new record", () => {
+    // The pane and the terminal agree, so nothing is offered.
+    seam.drawn = ASKED;
+    setStanding(recordAt(ASKED));
+    const el = mount();
+    vi.advanceTimersByTime(SETTLE * 2);
+    flush();
+    expect(press(el)).toBeNull();
+
+    // Somebody else resizes the PTY: the record's own `cols`/`rows` move and
+    // the record object does not. The pane must still notice.
+    resizeRecord(OLD);
+    flush();
     vi.advanceTimersByTime(SETTLE * 2);
     flush();
     expect(press(el)).not.toBeNull();

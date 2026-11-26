@@ -50,7 +50,7 @@ import { useMemberName } from "./memberNames";
 import { inputAllowedAt } from "./personInput";
 import { fitWidth, setFitWidth } from "./fitWidth";
 import { createPaneSize, paneGrid } from "./paneSize";
-import { createResizeOffer } from "./resizeOffer";
+import { createResizeOffer, plainGrid } from "./resizeOffer";
 import PeekTerminal, { type PeekTerminalHandle } from "./peek/PeekTerminal";
 import {
   type PeekCell,
@@ -262,8 +262,11 @@ const LivePane: Component<{
   };
   const [resizeOffered, setResizeOffered] = createSignal(false);
   /** The terminal's REAL size: its record's, never the drawn screen's, which
-   *  lags behind the scroll lock. */
-  const realGrid = () => liveArm(standing())?.grid;
+   *  lags behind the scroll lock. Taken as a PLAIN pair (`plainGrid`): the
+   *  record is a subscription store, so this is where `cols` and `rows` are
+   *  read — the offer's comparison is then plain numbers, and a resize
+   *  merged into the record in place still wakes this effect. */
+  const realGrid = () => plainGrid(liveArm(standing())?.grid);
   const offer = createResizeOffer({
     settleMs: FOREIGN_GRID_SETTLE_MS,
     show: setResizeOffered,

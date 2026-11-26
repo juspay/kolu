@@ -38,6 +38,17 @@ export interface ResizeOfferNow {
   readonly asked: TerminalGrid | null | undefined;
 }
 
+/** A GRID'S TWO NUMBERS, COPIED OFF WHATEVER HOLDS THEM — the terminal's
+ *  record is a subscription store, so its grid arrives as a proxy whose
+ *  `cols` and `rows` are reads of their own. Taking them here, in the
+ *  caller's COMPUTE, is what makes {@link ResizeOffer.observe} a comparison
+ *  of plain numbers — and what makes the effect wake at all when a resize
+ *  someone else asked for is merged into the record in place, leaving the
+ *  `grid` key the compute would otherwise track untouched. */
+export const plainGrid = (
+  g: TerminalGrid | null | undefined,
+): TerminalGrid | null => (g ? { cols: g.cols, rows: g.rows } : null);
+
 export interface ResizeOffer {
   /** Re-read both sizes. Safe on every tick: an unchanged pair, compared by
    *  value, keeps whatever wait or answer stands. */
