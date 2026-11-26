@@ -1132,7 +1132,8 @@ export function buildSurfaceClient<const S extends SurfaceSpec>(
   // whichever consumer subscribed first (a first-consumer owner is the leak class the
   // cache exists to kill). This replaces the module-const `createSharedRoot` "sharing
   // by convention" idiom — every consumer inherits sharing from the base client.
-  const subs = createKeyedSubscriptionCache(getOwner());
+  const clientOwner = getOwner();
+  const subs = createKeyedSubscriptionCache(clientOwner);
 
   // The whole-collection dedup slot's per-consumer `onError` registry. A STATIC-input
   // `.use()` (no `keys`) dedups N consumer views onto ONE shared upstream subscription
@@ -1323,7 +1324,7 @@ export function buildSurfaceClient<const S extends SurfaceSpec>(
                 collOnError.delete(collKey);
               }
             });
-          });
+          }, clientOwner);
         }
         const view = subs.use(collKey, (onComplete) => {
           // Built ONCE per slot; fired on every upstream error. Reads the registry

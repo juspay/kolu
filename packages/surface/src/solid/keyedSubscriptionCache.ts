@@ -33,7 +33,13 @@
  */
 
 import { createSingletonRoot } from "@solid-primitives/rootless";
-import { createRoot, getOwner, type Owner, onCleanup } from "solid-js";
+import {
+  createRoot,
+  getOwner,
+  type Owner,
+  onCleanup,
+  runWithOwner,
+} from "solid-js";
 
 export interface KeyedSubscriptionCache {
   /**
@@ -214,7 +220,7 @@ export function createKeyedSubscriptionCache(
    *  leak. An owned call is completely unaffected (identical to calling `slot()`
    *  directly). */
   function read(slot: () => unknown): unknown {
-    return runUnderOwner(slot);
+    return runUnderOwner(slot, clientOwner);
   }
 
   return { use };
@@ -236,16 +242,31 @@ export function createKeyedSubscriptionCache(
  * real consumer that mounts and immediately unmounts. An owned call is completely
  * unaffected (identical to calling `fn()` directly).
  */
-export function runUnderOwner<R>(fn: () => R): R {
+export function runUnderOwner<R>(fn: () => R, parentOwner?: Owner | null): R {
   if (getOwner()) return fn();
-  // Non-null: `createRoot` invokes its callback synchronously (see solid-js's own
-  // implementation), so `value` is always assigned by the time this line runs — TS's
-  // control-flow analysis just can't see through the callback boundary. The repo's
-  // `noNonNullAssertion` rule is off (biome.jsonc), so no suppression is needed.
+  // The throwaway root is created UNDER `parentOwner` (the client's own owner at
+  // both call sites), not bare. Solid 2's effect phase runs with NO ambient owner
+  // and FORBIDS creating an ownerless root there (`PRIMITIVE_IN_EFFECT_CALLBACK`),
+  // while explicitly allowing one parented through `runWithOwner` — so a bare
+  // `createRoot` here THROWS for exactly the ownerless callers this helper exists
+  // to serve whenever they sit in an effect's apply arm (padi's
+  // `entry(host).state()` read from a `createEffect` apply arm, the surface-map
+  // `pendingProcedureFromApplyArm` shape). Parenting changes nothing else: the root
+  // is disposed in the SAME tick, so it unlinks from the parent immediately and the
+  // increment+decrement still nets to zero — the parent never accumulates a child.
+  //
+  // Non-null assertion below: `createRoot` invokes its callback synchronously, so
+  // `value` is always assigned by the time this returns — TS's control-flow analysis
+  // just can't see through the callback boundary. The repo's `noNonNullAssertion`
+  // rule is off (biome.jsonc), so no suppression is needed.
   let value: R;
-  createRoot((dispose) => {
-    value = fn();
-    dispose();
-  });
+  const acquireAndRelease = () => {
+    createRoot((dispose) => {
+      value = fn();
+      dispose();
+    });
+  };
+  if (parentOwner) runWithOwner(parentOwner, acquireAndRelease);
+  else acquireAndRelease();
   return value!;
 }
