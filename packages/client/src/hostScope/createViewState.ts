@@ -104,7 +104,22 @@ export function createViewState(
    *  focus fact falls back to while nothing has overridden it. */
   seededPick: Accessor<TerminalId | null>,
 ): HostViewState {
-  const [focus, setFocus] = createSignal<TerminalFocus | null>(null);
+  // THE FOCUS FACT IS A DERIVATION, NOT A SEEDED SIGNAL. What is written here is
+  // the user's OVERRIDE — every activation path (canvas, dock, palette, Ctrl+Tab,
+  // a restore's answered tile) — over the boot pick the census already implies.
+  // `undefined` means "nothing has overridden it": the pick stands. An explicit
+  // `null` is a written fact of its own (a close-all cleared the selection), so
+  // the derivation cannot resurrect a tile the user just closed.
+  const [override, setOverride] = createSignal<
+    TerminalFocus | null | undefined
+  >(undefined);
+  const focus = createMemo<TerminalFocus | null>(() => {
+    const written = override();
+    if (written !== undefined) return written;
+    const picked = seededPick();
+    // The boot pick names a TILE, so it is its own pane and its own hint.
+    return picked === null ? null : { id: picked, tileHint: picked };
+  });
   const focusedTerminalId = createMemo(() => focus()?.id ?? null);
   const activeId = createMemo(() => activeTileOf(focus(), placementOf));
   // Per-key projections (Solid 2's selector): moving focus wakes the terminal
