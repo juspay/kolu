@@ -14,7 +14,7 @@
 
 import type { TerminalMetadata } from "@kolu/padi-client/surface";
 import type { TerminalId } from "kolu-common/surface";
-import type { JSX } from "solid-js";
+import type { JSX } from "@solidjs/web";
 import { render } from "@solidjs/web";
 import { flush } from "solid-js";
 import { afterEach, expect, it, vi } from "vitest";
