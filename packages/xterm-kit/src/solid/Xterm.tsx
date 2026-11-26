@@ -24,6 +24,8 @@ import {
   createSignal,
   omit,
   onCleanup,
+  onSettled,
+  runWithOwner,
 } from "solid-js";
 import type { JSX } from "@solidjs/web";
 import { BIRTH_GRID } from "../birthGrid";
@@ -302,20 +304,27 @@ export const Xterm: Component<
    *  which they do. kolu's canvas tiles render under a transform, so gating on
    *  a quantity the measurement never reads would let the guard and the
    *  measurement disagree. */
-  const applyFit = (decided: boolean) => {
-    if (!core) return;
+  const measureFit = (decided: boolean): TerminalGrid | null => {
+    if (!core) return null;
     // The OWNER's gate, read first: a box its layout has not decided is a
     // stand-in, and a measurement of it is a size this pane would go on to
     // state. See {@link XtermOwnProps.boxDecided}. Every caller hands the gate
     // in — the box-decided effect its compute's value, the others the prop
     // read at the moment they fit — because an effect callback is a
     // strict-read window where the prop must not be read.
-    if (!decided) return;
-    if (container.clientWidth <= 0 || container.clientHeight <= 0) return;
+    if (!decided) return null;
+    if (container.clientWidth <= 0 || container.clientHeight <= 0) return null;
     const box = measureGridBox(core.terminal, container);
-    const next = box && gridForBox(box);
-    if (!next) return;
-    setWantedGrid(next);
+    return (box && gridForBox(box)) || null;
+  };
+
+  /** {@link measureFit}, published straight away — the rAF path and the initial
+   *  in-scope fit, neither of which runs from an effect's apply arm. The
+   *  decided-box effect publishes its own reading from `onSettled` instead; see
+   *  its call site. */
+  const applyFit = (decided: boolean) => {
+    const next = measureFit(decided);
+    if (next) setWantedGrid(next);
   };
 
   /** Apply a grid the STREAM stated, at this point in the stream — the ONE
@@ -570,7 +579,28 @@ export const Xterm: Component<
     (decided) => {
       if (!decided || !core) return;
       cancelAnimationFrame(fitRaf);
-      applyFit(decided);
+      // MEASURED now, in this update — that is the gate's promise, and it is a
+      // layout read, not a graph read, so it cannot be a memo.
+      const next = measureFit(decided);
+      if (!next) return;
+      // PUBLISHED from a settle, not inline: the same owner fact that decided
+      // this box also tells the consumer's gate whether the pane is shown, so
+      // that gate has already run in this flush — an inline write relays into
+      // it and the first frame pairs the new posture with the stale grid.
+      // `onSettled` lands the write in a later pass of the SAME flush (no extra
+      // frame) with no effect origin, so the posture and the measurement reach
+      // the consumer together.
+      //
+      // UNOWNED: under an owner — which an apply arm has — `onSettled` is a
+      // tracked effect created and run right there, carrying the arm's own
+      // frame (the relay) and growing a child per box change. The callback
+      // writes one signal and returns nothing: no children, no cleanup, which
+      // `onSettled` forbids unowned.
+      runWithOwner(null, () =>
+        onSettled(() => {
+          setWantedGrid(next);
+        }),
+      );
     },
     { defer: true, name: "xtermFitDecidedBox" },
   );
