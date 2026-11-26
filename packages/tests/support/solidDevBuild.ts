@@ -31,14 +31,17 @@
  *     `solid-dev` build both enable with, so a finding is never red in a unit
  *     test and silent here. Judged: `EFFECT_WRITES_OWN_SOURCE`,
  *     `EFFECT_RELAY_TEAR`, `IMMUTABLE_UPDATE_IN_STORE`,
- *     `UNSTABLE_LIST_IDENTITY`, `UNTRACKED_ASYNC_HANDLER`, `FALLBACK_FLASH`
- *     and `OPTIMISTIC_REVERTED`. Folded off: the six cost checks
+ *     `UNSTABLE_LIST_IDENTITY`, `FALLBACK_FLASH`, `OPTIMISTIC_REVERTED`,
+ *     `GRAPH_GROWTH` and `ABANDONED_FLIGHTS`. Folded off: the six cost checks
  *     (`HOT_SCOPE_RERUNS`, `HOT_SCOPE_TIME`, `WIDE_SCOPE_DEPS`,
  *     `UNSTABLE_MEMO_OUTPUT`, `HOT_SCOPE_FANOUT`, `WASTED_RECOMPUTE`) and the
- *     six wall-clock ones (`SILENT_HOLD`, `LONG_HOLD`, `ASYNC_WATERFALL`,
- *     `GRAPH_GROWTH`, `ABANDONED_FLIGHTS`, `STACKED_HOLDS`) — on this lane
- *     every one of those times a daemon answering a real scenario, so they
- *     would judge the machine rather than the code.
+ *     five that time a real wait — `SILENT_HOLD` and
+ *     `UNTRACKED_ASYNC_HANDLER` (one `holds: false` turns off both),
+ *     `LONG_HOLD`, `ASYNC_WATERFALL` and `STACKED_HOLDS` — since on this lane
+ *     each of those times a daemon answering a real scenario, so they would
+ *     judge the machine rather than the code. `GRAPH_GROWTH` (three visits to
+ *     one route) and `ABANDONED_FLIGHTS` (three superseded flights of one
+ *     source in a second) judge a code shape, not a clock, and stay on.
  *
  *     `default.nix`'s `mkClientDist` greps the dev-mode dist for one of the
  *     engine's codes, so a build that stopped carrying it fails there rather
