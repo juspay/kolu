@@ -179,6 +179,14 @@ export function createViewState(
    *  (`HostWire.terminalKeys`), `undefined` until it has answered —
    *  the liveness test {@link deadVisitIds} prunes the trail by. */
   keys: Accessor<readonly TerminalId[] | undefined>,
+  /** Whether that census is AUTHORITATIVE — the client is the lifecycle
+   *  authority (`listIsAuthoritative`). While it is false the list is the
+   *  server's doing: a supervised recycle publishes `restarting` and then
+   *  drains the list, and restore undoes it. The removal reconcile already
+   *  suppresses its writes on this one fact; the auto-switch derivation below
+   *  gates on it too, so the two authorities over one fact cannot hold
+   *  opposite policies. */
+  authoritative: Accessor<boolean>,
 ): HostViewState {
   // THE FOCUS FACT IS A DERIVATION, NOT A SEEDED SIGNAL. What is written here is
   // the user's OVERRIDE — every activation path (canvas, dock, palette, Ctrl+Tab,
@@ -228,6 +236,17 @@ export function createViewState(
       // Nothing written (the boot pick stands, answered once and deliberately
       // kept when its tile exits), or an explicit "nothing is selected".
       if (written == null) {
+        pendingAutoSwitch = undefined;
+        return { live, focus: written };
+      }
+      // AND NOT WHILE THE LIST IS NOT A CENSUS. A supervised recycle drains
+      // this host's tiles without anything having closed: the auto-switch arm
+      // would read that drain as a departure and clamp the written fact to an
+      // explicit `null` — which is FINAL, so the restored tile never takes the
+      // selection back and the tile stays unfocused with no tab strip
+      // (`kaval-daemon.feature:58`). The written fact stands through the drain;
+      // the census coming back finds it naming the same tile.
+      if (!authoritative()) {
         pendingAutoSwitch = undefined;
         return { live, focus: written };
       }

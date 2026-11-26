@@ -82,6 +82,13 @@ const scopes: () => ScopedByEntry<HostKey, HostScope> = createSharedRoot(() =>
           createBootPick(wire, restore.restoreInFlight),
           wire.tileIds,
           wire.terminalKeys,
+          // ONE authority fact for one list, read off this host's own wire.
+          // The removal reconcile suppresses its eviction writes while the
+          // list is not a census (`useActiveReconcile`, through
+          // `listIsAuthoritative`); the focus derivation's auto-switch gates
+          // on the same fact, so a supervised recycle's drain cannot clamp
+          // the selection to an explicit `null` behind the reconcile's back.
+          wire.listIsCensus,
         ),
         prefs: createHostPrefs(host),
         camera: createCamera(),

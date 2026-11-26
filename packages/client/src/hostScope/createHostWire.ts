@@ -56,6 +56,7 @@
 import {
   encodeHostLocation,
   LOCAL_LOCATION,
+  rosterIsEstablished,
   tileTerminalOf,
 } from "@kolu/padi-client/surface";
 import { unenrolledStreamCall } from "@kolu/surface/client";
@@ -101,6 +102,14 @@ export interface HostWire {
    *  because every reader that concludes an ABSENCE from `terminalKeys` needs
    *  both in the same breath (`listIsAuthoritative`, the fleet standing). */
   roster: ReturnType<PadiEntry["cells"]["roster"]["use"]>;
+  /** The READING of that pair — whether this host's list can be trusted as a
+   *  COMPLETE census right now. The one authority fact the removal reconcile
+   *  suppresses its eviction writes on and the focus derivation gates its
+   *  auto-switch on, so a supervised recycle's drain cannot be read as a
+   *  departure by one of them and not the other. `listIsAuthoritative`
+   *  (`kaval/useDaemonStatus`) is this for the ACTIVE host, conjoined with
+   *  the link-liveness leg. */
+  listIsCensus: Accessor<boolean>;
   activityFeed: ReturnType<PadiEntry["cells"]["activityFeed"]["use"]>;
   daemonStatus: ReturnType<PadiEntry["collections"]["daemonStatus"]["use"]>;
   /** Pure placement lookup over this host's retained terminal collection. */
@@ -214,6 +223,21 @@ export function createHostWire(host: HostKey): HostWire {
   // whose terminals all exited.
   const roster = entry.cells.roster.use();
 
+  // …AND THE READING OF THAT PAIR, once, here: the list is a census when the
+  // standing is established AND the list has delivered every id the standing
+  // names. A host that is adopting, recycling or restarting fails the first
+  // test; a list still arriving fails the second (#2376). Both the removal
+  // reconcile's suppression and the focus derivation's auto-switch gate read
+  // this one answer, through `listIsAuthoritative`, which conjoins the
+  // link-liveness leg the fleet owns.
+  const listIsCensus = createMemo(() => {
+    const standing = roster.value();
+    if (standing === undefined || !rosterIsEstablished(standing)) return false;
+    const listed = terminalKeys();
+    if (listed === undefined) return false;
+    return standing.ids.every((id) => listed.includes(id));
+  });
+
   // The kaval daemon-status collection (this host's local kaval, keyed by its
   // local location). `useDaemonStatus` reads it through `activeScope().wire`. Its
   // `hostToast` "daemon status" policy (4C ruling) rides the spec; only `keys` stays.
@@ -226,6 +250,7 @@ export function createHostWire(host: HostKey): HostWire {
     terminals,
     session,
     roster,
+    listIsCensus,
     activityFeed,
     daemonStatus,
     placementOf,

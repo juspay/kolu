@@ -21,7 +21,6 @@ import {
   type DaemonStatus,
   encodeHostLocation,
   LOCAL_LOCATION,
-  rosterIsEstablished,
 } from "@kolu/padi-client/surface";
 import type { EntryState } from "@kolu/surface-map";
 import { encodeHostKey, type HostKey } from "kolu-common/hostKey";
@@ -435,15 +434,17 @@ export function daemonConnected(): boolean {
  *  host says it has; an id the census names and the list has not delivered is a
  *  list still arriving, not a terminal that died.
  *
+ *  THE STANDING-AND-LIST READING ITSELF lives on the host's own wire
+ *  (`HostWire.listIsCensus`), beside the two members it folds, because the
+ *  focus derivation inside that host's scope gates its auto-switch on the
+ *  same fact and must not re-spell it. This accessor is that answer for the
+ *  ACTIVE host, conjoined with the link-liveness leg above.
+ *
  *  A reactive accessor; read it inside a tracking scope. */
 export function listIsAuthoritative(): boolean {
   const scope = activeScope();
   if (scope === undefined || !daemonConnected()) return false;
-  const standing = scope.wire.roster.value();
-  if (standing === undefined || !rosterIsEstablished(standing)) return false;
-  const listed = scope.wire.terminalKeys();
-  if (listed === undefined) return false;
-  return standing.ids.every((id) => listed.includes(id));
+  return scope.wire.listIsCensus();
 }
 
 /** The single warming-refusal gate for terminal creation: if the daemon is

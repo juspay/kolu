@@ -858,6 +858,10 @@ describe("the derived auto-switch's one-shot", () => {
         () => null,
         census,
         census,
+        // A census, as far as this host knows: the arming below is the
+        // unviewed-host shape, not a supervised drain (which the derivation
+        // now gates out).
+        () => true,
       ),
     }));
     held.view.writeFocus({ id: c, tileHint: c });

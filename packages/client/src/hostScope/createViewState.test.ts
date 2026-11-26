@@ -3,6 +3,7 @@
  *  is a fresh module graph over the same `localStorage`, which is what a
  *  reload is. */
 
+import { takeSolidDiagnostics } from "@kolu/solid-test-setup/setup";
 import { Effect } from "effect";
 import { encodeHostKey, LOCAL_HOST } from "kolu-common/hostKey";
 import type { TerminalId } from "kolu-common/surface";
@@ -41,6 +42,10 @@ const D = "44444444-4444-4444-8444-444444444444" as TerminalId;
 const E = "55555555-5555-4555-8555-555555555555" as TerminalId;
 const F = "66666666-6666-4666-8666-666666666666" as TerminalId;
 
+/** The ordinary case: the host's list IS a census, so the derivation owns the
+ *  auto-switch. The supervised-drain case below flips it. */
+const AUTHORITATIVE = () => true;
+
 /** Load the page: a fresh module graph, this host's view state in it, the
  *  host's attention record the engine raises marks on, and the visit trail
  *  that graph parsed out of `localStorage`. The dynamic imports after
@@ -76,6 +81,7 @@ async function loadPage(
         () => opts.pick ?? null,
         tiles,
         tiles,
+        AUTHORITATIVE,
       ),
     ),
     marks: attentionRecordOf(encodeHostKey(LOCAL_HOST)),
@@ -143,6 +149,7 @@ describe("a host's view-state derivations", () => {
         pick,
         () => [A],
         () => [A],
+        AUTHORITATIVE,
       );
       createEffect(view.focusedTerminalId, (id) => {
         seen = id;
@@ -169,6 +176,7 @@ describe("a host's view-state derivations", () => {
         () => B,
         () => [A, B, C],
         () => [A, B, C],
+        AUTHORITATIVE,
       );
       return { dispose, view, visits: useVisitRecency() };
     });
@@ -197,6 +205,7 @@ describe("a host's view-state derivations", () => {
         () => null,
         () => [A],
         () => [A],
+        AUTHORITATIVE,
       );
       createEffect(view.mruOrder, (ids) => {
         seen = ids;
@@ -238,6 +247,7 @@ describe("a host's view-state derivations", () => {
         () => null,
         census,
         census,
+        AUTHORITATIVE,
       );
       // The placement pass, in miniature: the census in the compute, the
       // landing in the apply arm.
@@ -278,6 +288,7 @@ describe("a host's view-state derivations", () => {
         () => null,
         census,
         census,
+        AUTHORITATIVE,
       ),
     }));
     held.view.writeFocus({ id: B, tileHint: B });
@@ -303,6 +314,66 @@ describe("a host's view-state derivations", () => {
     held.dispose();
   });
 
+  it("keeps the selection through a supervised drain the client did not order", () => {
+    // A SUPERVISED RECYCLE, which is not a close: kaval publishes `restarting`
+    // and the host's list drains to nothing, then restore brings the same
+    // tile back. The removal reconcile already suppresses its eviction writes
+    // for exactly this window (`listIsAuthoritative`); without the same gate
+    // here the auto-switch arm read the drain as a departure of the focused
+    // tile and clamped the written fact to an explicit `null` — which is
+    // FINAL, so the restored tile never took the selection back and the tile
+    // came back with no tab strip (`kaval-daemon.feature:58`).
+    const records = new Set<TerminalId>([A, B]);
+    const [census, setCensus] = createSignal<readonly TerminalId[]>([A]);
+    const [authoritative, setAuthoritative] = createSignal(true);
+    const held = createRoot((dispose) => ({
+      dispose,
+      view: createViewState(
+        LOCAL_HOST,
+        // B is a split of tile A; a drained record reads `missing`, exactly as
+        // the retained collection answers mid-recycle.
+        (id): LivePlacement =>
+          !records.has(id)
+            ? { kind: "missing" }
+            : id === A
+              ? { kind: "top-level" }
+              : { kind: "split", parentId: A },
+        () => null,
+        census,
+        census,
+        authoritative,
+      ),
+    }));
+    // The user is on the split.
+    held.view.writeFocus({ id: B, tileHint: A });
+    flush();
+    expect(held.view.focusedTerminalId()).toBe(B);
+    expect(held.view.activeId()).toBe(A);
+    // The recycle: the standing drops first, then the list drains.
+    setAuthoritative(false);
+    flush();
+    records.clear();
+    setCensus([]);
+    flush();
+    // Restore spawns the tile and its split again, and the standing returns.
+    records.add(A);
+    records.add(B);
+    setCensus([A]);
+    flush();
+    setAuthoritative(true);
+    flush();
+    expect(held.view.focusedTerminalId()).toBe(B);
+    expect(held.view.activeId()).toBe(A);
+    // Nothing departed, so no auto-switch was ever armed for the reconcile to
+    // take — neither for the tile nor for its split.
+    expect(held.view.takeAutoSwitch(A)).toBeUndefined();
+    expect(held.view.takeAutoSwitch(B)).toBeUndefined();
+    // RED AT THE FIRST SIGHTING: an advisory relay tear is a finding here, not
+    // something the suite-wide judge may wave through.
+    expect(takeSolidDiagnostics()).toEqual([]);
+    held.dispose();
+  });
+
   it("needs no kill-time write — a dead id leaves the MRU with the census", () => {
     // The kill path used to write the trail (`forgetVisit`) from the eviction
     // effect's apply arm. It is dead weight now: the MRU is READ narrowed to
@@ -318,6 +389,7 @@ describe("a host's view-state derivations", () => {
         () => null,
         census,
         census,
+        AUTHORITATIVE,
       ),
       visits: useVisitRecency(),
     }));
@@ -359,6 +431,7 @@ describe("a host's view-state derivations", () => {
         () => null,
         census,
         census,
+        AUTHORITATIVE,
       ),
       visits: useVisitRecency(),
     }));
@@ -419,6 +492,7 @@ describe("a host's view-state derivations", () => {
         // …so the tile census is empty, and the key list has said nothing.
         () => [],
         () => undefined,
+        AUTHORITATIVE,
       ),
     }));
     held.view.writeFocus({ id: C, tileHint: C });
@@ -451,6 +525,7 @@ describe("a host's view-state derivations", () => {
         () => null,
         () => [],
         keys,
+        AUTHORITATIVE,
       ),
     }));
     // A is killed: the host stops listing it.
