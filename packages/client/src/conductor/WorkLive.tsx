@@ -14,14 +14,7 @@
 import { createMediaQuery } from "@solid-primitives/media";
 import type { WorkRole } from "kolu-work";
 import type { JSX } from "@solidjs/web";
-import {
-  type Accessor,
-  type Component,
-  createMemo,
-  createSignal,
-  For,
-  Show,
-} from "solid-js";
+import { type Component, createMemo, createSignal, For, Show } from "solid-js";
 import { useShown } from "../ui/shown";
 import LivePane from "./LivePane";
 import MemberPip from "./MemberPip";
@@ -74,21 +67,20 @@ const WorkLive: Component<{
 
   /** One pane, for the terminal at `ref`.
    *
-   *  The split ref is an ACCESSOR, not a value: this is called from a flow
-   *  child, which is a strict-read window — a read made there is frozen at
-   *  the value it had when the child was built, so the pane would keep
-   *  pointing at the terminal it was first drawn for. The reads happen in
-   *  the JSX below, where they track. */
-  const pane = (
-    ref: string,
-    at: Accessor<MemberRef>,
-    withTabs: boolean,
-  ): JSX.Element => (
+   *  The split ref is a VALUE, not an accessor: `ref` is the row's own
+   *  identity, and `splitMemberRef` is a pure split of that string, so the
+   *  pair cannot move while this pane lives. Handing an accessor down would
+   *  only pay a strict-read window — a component body that reads `props.host`
+   *  is such a window — for a change that cannot happen.
+   *
+   *  `role` IS reactive (`roleOf` reads `props.members`), so it keeps its
+   *  `<Show>`: it is read from tracked JSX alone. */
+  const pane = (ref: string, at: MemberRef, withTabs: boolean): JSX.Element => (
     <Show when={roleOf(ref)}>
       {(role) => (
         <LivePane
-          host={at().host}
-          id={at().id}
+          host={at.host}
+          id={at.id}
           role={role()}
           connected={connected().has(ref)}
           height={height()}
@@ -154,11 +146,10 @@ const WorkLive: Component<{
           when={layout() === "tabs"}
           fallback={
             <For each={refs()}>
-              {(ref) => (
-                <Show when={splitMemberRef(ref)}>
-                  {(at) => pane(ref, at, false)}
-                </Show>
-              )}
+              {(ref) => {
+                const at = splitMemberRef(ref);
+                return at === null ? null : pane(ref, at, false);
+              }}
             </For>
           }
         >
@@ -166,11 +157,10 @@ const WorkLive: Component<{
               terminal's screen, read from the start, not the last one's
               screen relabelled. */}
           <Show when={front()} keyed>
-            {(ref) => (
-              <Show when={splitMemberRef(ref)}>
-                {(at) => pane(ref, at, true)}
-              </Show>
-            )}
+            {(ref) => {
+              const at = splitMemberRef(ref);
+              return at === null ? null : pane(ref, at, true);
+            }}
           </Show>
         </Show>
       </Show>

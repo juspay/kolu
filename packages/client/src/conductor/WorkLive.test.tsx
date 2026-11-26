@@ -34,8 +34,14 @@ vi.mock("@solid-primitives/media", () => ({
 }));
 // The pane itself is stood in for: what it draws is its own test
 // (`LivePane.test.tsx`). What matters here is WHICH terminal each pane is
-// handed, and whether its element survives a members rebuild. Every prop is
-// read in JSX, so the stand-in is not itself a frozen read.
+// handed, and whether its element survives a members rebuild.
+//
+// THE STAND-IN READS `host`/`id` IN ITS BODY, as the real pane does
+// (`LivePane.tsx`'s `fleetTerminalRef(props.host, props.id)` and its grid
+// publisher). A component body is a strict-read window under Solid 2, so a
+// view that hands those props down through a flow child's accessor raises
+// `STRICT_READ_UNTRACKED` here and the setup fails the test. `role` is read
+// in JSX, where it tracks.
 vi.mock("./LivePane", () => ({
   default: (props: {
     host: string;
@@ -43,16 +49,19 @@ vi.mock("./LivePane", () => ({
     role: WorkRole;
     connected: boolean;
     tabs?: unknown;
-  }) => (
-    <section
-      data-testid="live-pane"
-      data-ref={`${props.host}/${props.id}`}
-      data-role={props.role}
-      data-connected={props.connected ? "" : undefined}
-    >
-      {props.tabs as never}
-    </section>
-  ),
+  }) => {
+    const ref = `${props.host}/${props.id}`;
+    return (
+      <section
+        data-testid="live-pane"
+        data-ref={ref}
+        data-role={props.role}
+        data-connected={props.connected ? "" : undefined}
+      >
+        {props.tabs as never}
+      </section>
+    );
+  },
 }));
 vi.mock("./MemberPip", () => ({ default: () => null }));
 vi.mock("./memberNames", () => ({ useMemberName: () => () => "member" }));
