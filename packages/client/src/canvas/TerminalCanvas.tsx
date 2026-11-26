@@ -138,8 +138,20 @@ const TerminalCanvas: Component<{
    *  against, so the echo RELEASES it by arriving — in the flush that
    *  delivers it, with no write and no second pass. */
   const pendingLayouts = usePendingLayouts();
+  // The gesture is minted against the layout it was COMPUTED from — `layoutOf`,
+  // not the saved value. A brand-new tile's layout is the default this canvas
+  // DERIVED, written through `planLayoutChange`; stamping the gesture with the
+  // saved `undefined` instead would make that default's own echo read as
+  // FOREIGN, and the tile would snap back out from under the pointer. No extra
+  // read: drag-end, resize and the minimap already called `layoutOf(id)` for
+  // the same gesture. Only the first frame's base is kept (later frames extend
+  // the entry), so reading the standing override back is harmless.
   const setPendingLayout = (id: string, layout: TileLayout) =>
-    pendingLayouts.setOne(id, layout, props.getLayout(id as TileId));
+    pendingLayouts.setOne(id, layout, layoutOf(id));
+  // A live gesture frame: nothing goes on the wire, so it must not join the
+  // tile's authored trail (one entry per pointermove, never pruned).
+  const previewPendingLayout = (id: string, layout: TileLayout) =>
+    pendingLayouts.previewOne(id, layout, layoutOf(id));
 
   // Dead-tile hygiene: an entry whose tile is gone has nobody to release it.
   // That is ALL this effect does — a landed echo releases its own override
@@ -397,7 +409,8 @@ const TerminalCanvas: Component<{
     snapToGrid: viewport.snapToGrid,
     hasPending: (id) =>
       pendingLayouts.hasOverride(id, props.getLayout(id as TileId)),
-    setPending: setPendingLayout,
+    // `onMove` frames are previews — held locally, never reported.
+    setPending: previewPendingLayout,
     commit: (id, layout) => {
       setPendingLayout(id, layout);
       props.onLayoutChange(id as TileId, layout);
@@ -675,7 +688,7 @@ const TerminalCanvas: Component<{
                     if (!origin) return null;
                     return {
                       preview: (dx, dy) =>
-                        setPendingLayout(id, {
+                        previewPendingLayout(id, {
                           ...origin,
                           x: origin.x + dx,
                           y: origin.y + dy,

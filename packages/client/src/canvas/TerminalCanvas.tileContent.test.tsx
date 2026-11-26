@@ -54,6 +54,7 @@ vi.mock("./useViewPosture", () => ({
 vi.mock("./usePendingLayouts", () => ({
   usePendingLayouts: () => ({
     setOne: () => {},
+    previewOne: () => {},
     clear: () => {},
     dropIds: () => {},
     deadIds: () => [],
