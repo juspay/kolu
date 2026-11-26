@@ -155,6 +155,39 @@ export const codeViewItemIdAt = (node: Node): string | undefined => {
 export const CodeView: Component<CodeViewProps> = (props) => {
   let root!: HTMLDivElement;
   let instance: CodeViewClass | undefined;
+  // The two handlers PIERRE holds, mirrored into plain fields by the effect
+  // below — the one place they are read reactively.
+  //
+  // Pierre keeps the selection callback it is constructed with and fires it
+  // when the user completes a gutter selection, which is inside its own
+  // dispatch — a strict-read window, where reading `props` is a defect. And
+  // `props` here is routinely a `merge()` key bag (`BrowseFileView` and
+  // `BrowseDiffView` spread `{...koluCodeViewProps()}`), so the read lands on
+  // the merge proxy rather than on a plain object. The Pierre-facing closure
+  // reads the field instead; the field is kept current by a tracked compute,
+  // so a consumer swapping its handler still takes effect with no reconstruct.
+  //
+  // `onError` rides along: it is the channel every `safeApply` reports
+  // through, including the one in `onSettled` that builds the instance, so
+  // one mirror serves both and there is a single spelling for "the current
+  // handler". The effect is created before the instance is, so it has already
+  // run when anything fires.
+  //
+  // Plain fields rather than memos: nothing else reads these, and the compute
+  // below is already the tracking scope a memo would add.
+  let emitSelection: ((s: CodeViewLineSelection | null) => void) | undefined;
+  let reportError!: (err: Error) => void;
+  createEffect(
+    () => ({
+      onSelected: props.onSelectedLinesChange,
+      onError: props.onError,
+    }),
+    ({ onSelected, onError }) => {
+      emitSelection = onSelected;
+      reportError = onError;
+    },
+    { name: "codeView.handlerMirror" },
+  );
   // Per-item version state — keyed by `id`. When the same id appears in a
   // new items array with a different content reference, bump its version
   // so Pierre publishes the new content. Without this, the `version`-gated
@@ -209,7 +242,11 @@ export const CodeView: Component<CodeViewProps> = (props) => {
     overflow: props.overflow ?? "wrap",
     lineHoverHighlight: "both",
     enableLineSelection: props.enableLineSelection ?? false,
-    onSelectedLinesChange: (s) => props.onSelectedLinesChange?.(s),
+    // The MIRROR, not `props`: Pierre fires this from its own dispatch, a
+    // strict-read window (see the fields above). A fresh closure per call is
+    // deliberate — `setOptions` compares option identity, and that comparison
+    // is what bumps Pierre's render revision for a reused element.
+    onSelectedLinesChange: (s) => emitSelection?.(s),
     ...(props.lineHeight != null
       ? { itemMetrics: { lineHeight: props.lineHeight } }
       : {}),
@@ -240,22 +277,18 @@ export const CodeView: Component<CodeViewProps> = (props) => {
       // centers — there is no prior scroll position to disturb at mount,
       // so the navigation intent reads best with the range centered.
       scrollToSelection(props.selectedLines, "center");
-    }, props.onError);
+    }, reportError);
   });
 
   createEffect(
     // The effect phase is a strict-read window, so everything it needs comes
-    // from here. `buildOptions()` and `onError` are read with `untrack`: the
-    // items apply must re-run for a NEW `items` only — tracking the option
-    // sources here would re-apply the whole item list on a theme toggle (the
-    // options effect below already owns that), and `onError` is a channel, not
-    // a trigger.
-    () => ({
-      items: props.items,
-      options: untrack(buildOptions),
-      onError: untrack(() => props.onError),
-    }),
-    ({ items, options, onError }) => {
+    // from here. `buildOptions()` is read with `untrack`: the items apply must
+    // re-run for a NEW `items` only — tracking the option sources here would
+    // re-apply the whole item list on a theme toggle (the options effect below
+    // already owns that). The error channel is the mirrored field: it is a
+    // channel, not a trigger.
+    () => ({ items: props.items, options: untrack(buildOptions) }),
+    ({ items, options }) => {
       safeApply(() => {
         if (!instance) return;
         instance.setItems(versionedItems(items));
@@ -267,21 +300,21 @@ export const CodeView: Component<CodeViewProps> = (props) => {
         // renderOptionsRevision, which is the forceRender the reused
         // element path needs.
         instance.setOptions(options);
-      }, onError);
+      }, reportError);
     },
     { defer: true },
   );
 
   createEffect(
-    () => ({
-      selected: props.selectedLines,
-      onError: untrack(() => props.onError),
-    }),
-    ({ selected, onError }) => {
+    // A fresh record per pass, so an identical `selectedLines` reference still
+    // re-applies: Pierre owns the painted highlight, and the wrapper's job is
+    // to assert the prop over whatever Pierre currently holds.
+    () => ({ selected: props.selectedLines }),
+    ({ selected }) => {
       safeApply(() => {
         instance?.setSelectedLines(selected ?? null);
         scrollToSelection(selected, "nearest");
-      }, onError);
+      }, reportError);
     },
     { defer: true },
   );
@@ -293,10 +326,13 @@ export const CodeView: Component<CodeViewProps> = (props) => {
   // tracked set automatically — the two cannot drift if a new option
   // is added to `buildOptions` later. Pierre's `setOptions` is
   // idempotent on identical input, so any incidental re-fire is harmless.
+  // The selection handler is no longer among what `buildOptions` reads — the
+  // closure Pierre holds delegates to the mirror — so this effect tracks the
+  // option sources only.
   createEffect(
-    () => ({ opts: buildOptions(), onError: untrack(() => props.onError) }),
-    ({ opts, onError }) => {
-      safeApply(() => instance?.setOptions(opts), onError);
+    buildOptions,
+    (opts) => {
+      safeApply(() => instance?.setOptions(opts), reportError);
     },
     { defer: true },
   );
