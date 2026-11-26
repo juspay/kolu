@@ -32,16 +32,19 @@
  *     test and silent here. Judged: `EFFECT_WRITES_OWN_SOURCE`,
  *     `EFFECT_RELAY_TEAR`, `IMMUTABLE_UPDATE_IN_STORE`,
  *     `UNSTABLE_LIST_IDENTITY`, `FALLBACK_FLASH`, `OPTIMISTIC_REVERTED`,
- *     `GRAPH_GROWTH` and `ABANDONED_FLIGHTS`. Folded off: the six cost checks
- *     (`HOT_SCOPE_RERUNS`, `HOT_SCOPE_TIME`, `WIDE_SCOPE_DEPS`,
- *     `UNSTABLE_MEMO_OUTPUT`, `HOT_SCOPE_FANOUT`, `WASTED_RECOMPUTE`) and the
- *     five that time a real wait — `SILENT_HOLD` and
+ *     `GRAPH_GROWTH`, `ABANDONED_FLIGHTS`, `WIDE_SCOPE_DEPS` and
+ *     `UNSTABLE_MEMO_OUTPUT` — ten of the engine's nineteen — plus the
+ *     runtime's own codes, with `HUGE_FAN_OUT` lowered to 250 subscribers by
+ *     `fanOut`. Folded off are the nine the clock decides: `HOT_SCOPE_RERUNS`
+ *     and `HOT_SCOPE_FANOUT` (one `hotRuns: false` turns off both),
+ *     `HOT_SCOPE_TIME`, `WASTED_RECOMPUTE`, `SILENT_HOLD` and
  *     `UNTRACKED_ASYNC_HANDLER` (one `holds: false` turns off both),
  *     `LONG_HOLD`, `ASYNC_WATERFALL` and `STACKED_HOLDS` — since on this lane
  *     each of those times a daemon answering a real scenario, so they would
- *     judge the machine rather than the code. `GRAPH_GROWTH` (three visits to
+ *     judge the machine rather than the code. The three COUNT checks, and
+ *     `GRAPH_GROWTH` (three visits to
  *     one route) and `ABANDONED_FLIGHTS` (three superseded flights of one
- *     source in a second) judge a code shape, not a clock, and stay on.
+ *     source in a second), judge a code shape, not a clock, and stay on.
  *
  *     `default.nix`'s `mkClientDist` greps the dev-mode dist for one of the
  *     engine's codes, so a build that stopped carrying it fails there rather

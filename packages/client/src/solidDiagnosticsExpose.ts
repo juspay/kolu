@@ -31,18 +31,24 @@
  *
  * Enabled with `SOLID_ATTRIBUTION_OPTIONS`, the one judged set this lane
  * shares with the vitest setup (`@kolu/solid-test-setup/attribution`, which
- * imports nothing but a type): no console print, the six cost checks off, and
- * the five that time a real wait off too — `SILENT_HOLD` and
- * `UNTRACKED_ASYNC_HANDLER` (both under `holds: false`), `LONG_HOLD`,
- * `ASYNC_WATERFALL` and `STACKED_HOLDS` would fail scenarios on this lane for
- * a daemon's latency rather than for code. `GRAPH_GROWTH` and
+ * imports nothing but a type): no console print, the four checks that read
+ * the clock as a cost off (`HOT_SCOPE_RERUNS` and `HOT_SCOPE_FANOUT` under
+ * `hotRuns: false`, `HOT_SCOPE_TIME`, `WASTED_RECOMPUTE`), and the five that
+ * time a real wait off too — `SILENT_HOLD` and `UNTRACKED_ASYNC_HANDLER`
+ * (both under `holds: false`), `LONG_HOLD`, `ASYNC_WATERFALL` and
+ * `STACKED_HOLDS` would fail scenarios on this lane for a daemon's latency
+ * rather than for code. The three COUNT checks stay on — `WIDE_SCOPE_DEPS`
+ * (200 deps), `UNSTABLE_MEMO_OUTPUT` (four consecutive equal-but-new memo
+ * outputs) and the runtime's `HUGE_FAN_OUT` at the engine's lower 250
+ * threshold — since a count judges the graph a diff built. `GRAPH_GROWTH` and
  * `ABANDONED_FLIGHTS` stay at their defaults, ON: neither times a wait — one
  * wants three consecutive visits to a named route (kolu has no router, so it
  * is inert), the other three superseded flights of one source inside a
  * second. Judged here are the runtime's own codes plus the engine's
  * `EFFECT_WRITES_OWN_SOURCE`, `EFFECT_RELAY_TEAR`,
  * `IMMUTABLE_UPDATE_IN_STORE`, `UNSTABLE_LIST_IDENTITY`, `FALLBACK_FLASH`,
- * `OPTIMISTIC_REVERTED`, `GRAPH_GROWTH` and `ABANDONED_FLIGHTS`. Every
+ * `OPTIMISTIC_REVERTED`, `GRAPH_GROWTH`, `ABANDONED_FLIGHTS`,
+ * `WIDE_SCOPE_DEPS` and `UNSTABLE_MEMO_OUTPUT`. Every
  * finding that stays on still reaches `OBSERVE.diagnostics`, which is what
  * the harness reads.
  *

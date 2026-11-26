@@ -42,18 +42,18 @@
  *
  *      WHICH CODES THE LANE GATES ON is `SOLID_ATTRIBUTION_OPTIONS`
  *      (`./attribution`), shared with the `solid-dev` build so both judge the
- *      same set: the runtime's own codes, plus eight of the engine's —
+ *      same set: the runtime's own codes (with `HUGE_FAN_OUT` lowered to 250
+ *      subscribers by `fanOut`), plus TEN of the engine's nineteen —
  *      `EFFECT_WRITES_OWN_SOURCE`, `EFFECT_RELAY_TEAR`,
  *      `IMMUTABLE_UPDATE_IN_STORE`, `UNSTABLE_LIST_IDENTITY`,
- *      `FALLBACK_FLASH`, `OPTIMISTIC_REVERTED`, `GRAPH_GROWTH` and
- *      `ABANDONED_FLIGHTS`. Off are the six checks `checks: false` folds away
- *      (`HOT_SCOPE_RERUNS` and `HOT_SCOPE_FANOUT` from `hotRuns`,
- *      `HOT_SCOPE_TIME`, `WASTED_RECOMPUTE`, `WIDE_SCOPE_DEPS`,
- *      `UNSTABLE_MEMO_OUTPUT`, and the engine's lower `HUGE_FAN_OUT`
- *      threshold) and the five that time a real
- *      wait: `SILENT_HOLD` and `UNTRACKED_ASYNC_HANDLER` (both guarded by
- *      `holds`, `dev.attribution.js:1725,2800-2802`), `LONG_HOLD`,
- *      `ASYNC_WATERFALL` and `STACKED_HOLDS` — a test that waits on a real
+ *      `FALLBACK_FLASH`, `OPTIMISTIC_REVERTED`, `GRAPH_GROWTH`,
+ *      `ABANDONED_FLIGHTS`, `WIDE_SCOPE_DEPS` and `UNSTABLE_MEMO_OUTPUT`.
+ *      Off are the nine the clock decides: `HOT_SCOPE_RERUNS` and
+ *      `HOT_SCOPE_FANOUT` (both under `hotRuns: false`), `HOT_SCOPE_TIME`,
+ *      `WASTED_RECOMPUTE`, and the five that time a real wait: `SILENT_HOLD`
+ *      and `UNTRACKED_ASYNC_HANDLER` (both guarded by `holds`,
+ *      `dev.attribution.js:1725,2800-2802`), `LONG_HOLD`, `ASYNC_WATERFALL`
+ *      and `STACKED_HOLDS` — a test that waits on a real
  *      timer would fail for its fixture's delay. The engine's diagnostics
  *      reach the collector below unchanged: it emits on the SAME
  *      `OBSERVE.diagnostics` channel.
