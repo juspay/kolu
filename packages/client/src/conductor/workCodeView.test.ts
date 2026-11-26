@@ -9,6 +9,7 @@ import type { WorkCodeView } from "kolu-common/works";
 import type { WorkId } from "kolu-work";
 import { createRoot, flush } from "solid-js";
 import type { CodeViewState } from "../code-view/codeViewState";
+import { takeSolidDiagnostics } from "@kolu/solid-test-setup/setup";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const h = vi.hoisted(() => ({
@@ -112,6 +113,28 @@ describe("a work's Code view in the browser", () => {
         shownWhenReported: "notes.md",
       },
     ]);
+  });
+
+  it("writes the picked mode's leaf and leaves the other mode's alone", async () => {
+    // A WORK THAT ALREADY HAS A RECORD, picked in two modes: the shape the
+    // store's immutable-update detector answers on (two leaves written, one
+    // of them unchanged). A single-mode fixture cannot reach it however many
+    // times it writes, which is how a whole-container `Object.assign` lived
+    // in this writer while the Right panel's was already per-key. The work id
+    // is fresh because the module's store — and the detector's per-path
+    // census — are shared across this file.
+    const state = stateFor("w-leaf" as WorkId);
+
+    state.setSelectedFile("local", "x.ts");
+    flush();
+    state.setSelectedFile("browse", "y.ts");
+    flush();
+
+    await settle();
+    await settle();
+    expect(state.selectedFile("local")).toBe("x.ts");
+    expect(state.selectedFile("browse")).toBe("y.ts");
+    expect(takeSolidDiagnostics()).toEqual([]);
   });
 
   it("says a refused report in one toast, however many clicks it refuses", async () => {

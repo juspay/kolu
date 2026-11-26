@@ -31,6 +31,7 @@ import { createSharedRoot } from "../createSharedRoot";
 import { type CodeLister, codeModeFor } from "../code-view/codeLister";
 import {
   type CodeViewState,
+  type SelectedFiles,
   codeHistoryVerbs,
   createCodeHistories,
   selectionWith,
@@ -78,11 +79,35 @@ function viewOf(work: WorkId): WorkCodeView {
   return written[work] ?? served().byKey(work)?.() ?? DEFAULT_WORK_CODE_VIEW;
 }
 
-/** Write first, report after. */
-function write(work: WorkId, next: WorkCodeView): void {
+/** A held record AS A DRAFT: the decoded view type is readonly, and the store
+ *  write below assigns its leaves one at a time. */
+type WorkCodeDraft = {
+  -readonly [K in keyof Omit<
+    WorkCodeView,
+    "selectedFileByMode"
+  >]: WorkCodeView[K];
+} & {
+  selectedFileByMode?: {
+    -readonly [M in keyof SelectedFiles]: SelectedFiles[M];
+  };
+};
+
+/** Write first, report after. ONE LEAF PER WRITE: assigning a rebuilt
+ *  `selectedFileByMode` over the map the store already holds is
+ *  `IMMUTABLE_UPDATE_IN_STORE` — two keys written, one of them unchanged —
+ *  and wakes every reader of the other modes' leaves for a one-mode change.
+ *  `mutate` is that per-key write; `next` stays the whole record, because the
+ *  report is a whole-view report. The same rule, and the same four branches,
+ *  as the Right panel's `writeFrom` arm (`right-panel/useRightPanel.ts`), the
+ *  other face of this interface. */
+function write(
+  work: WorkId,
+  next: WorkCodeView,
+  mutate: (draft: WorkCodeDraft) => void,
+): void {
   setWritten((all) => {
     const held = all[work];
-    if (held) Object.assign(held, next);
+    if (held) mutate(held as WorkCodeDraft);
     else all[work] = next;
   });
   runAction(
@@ -152,24 +177,44 @@ export function workCodeState(
       standing = now;
     },
   );
-  const record = (next: WorkCodeView): void => {
+  const record = (
+    next: WorkCodeView,
+    mutate: (d: WorkCodeDraft) => void,
+  ): void => {
     standing = next;
-    write(work, next);
+    write(work, next, mutate);
   };
   return {
     codeMode: () => codeModeFor(lister(), viewOf(work).codeMode),
     setCodeMode: (mode) => {
       if (standing.codeMode === mode) return;
-      record({ ...standing, codeMode: mode });
+      record({ ...standing, codeMode: mode }, (s) => {
+        s.codeMode = mode;
+      });
     },
     selectedFile: (mode) => viewOf(work).selectedFileByMode?.[mode] ?? null,
     setSelectedFile: (mode, path) => {
       const next = selectionWith(standing.selectedFileByMode, mode, path);
       if (next === "unchanged") return;
-      record({
-        codeMode: standing.codeMode,
-        ...(next !== undefined && { selectedFileByMode: next }),
-      });
+      record(
+        {
+          codeMode: standing.codeMode,
+          ...(next !== undefined && { selectedFileByMode: next }),
+        },
+        (s) => {
+          if (next === undefined) {
+            // The last selection went away. ABSENCE — not a present
+            // `undefined` — is the only spelling of "no selection".
+            delete s.selectedFileByMode;
+          } else if (s.selectedFileByMode === undefined) {
+            s.selectedFileByMode = { ...next };
+          } else if (path === null) {
+            delete s.selectedFileByMode[mode];
+          } else {
+            s.selectedFileByMode[mode] = path;
+          }
+        },
+      );
     },
     ...codeHistoryVerbs(() => histories.browserFor(work)),
     canNavigateBack: () => histories.browserFor(work).canBack(),

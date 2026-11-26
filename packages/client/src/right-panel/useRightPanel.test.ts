@@ -1,3 +1,4 @@
+import { takeSolidDiagnostics } from "@kolu/solid-test-setup/setup";
 import { Effect } from "effect";
 import {
   createEffect,
@@ -413,6 +414,10 @@ describe("useRightPanel — the panel follows the focused pane", () => {
           selectedFileByMode: { browse: "seed.ts", local: "from-the-arm.ts" },
         }),
       );
+      // RED AT THE FIRST SIGHTING: an effect-phase write is judged empty,
+      // advisory tears included, rather than left to the per-test afterEach
+      // that only throws from a relay's third.
+      expect(takeSolidDiagnostics()).toEqual([]);
       dispose();
     });
   });
@@ -496,6 +501,7 @@ describe("useRightPanel — the panel follows the focused pane", () => {
     ]);
     // …and the other mode's leaf was never touched by any of them.
     expect(localRuns).toBe(seededLocalRuns);
+    expect(takeSolidDiagnostics()).toEqual([]);
     dispose();
   });
 
