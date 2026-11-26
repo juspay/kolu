@@ -1006,7 +1006,7 @@ let
         fi
       fi
       if enableMatches=$(grep -RlF "$attributionEnableMarker" "$out/assets"); then
-        echo "${label}: solidDiagnosticsExpose.ts's attribution.enable() options ('$attributionEnableMarker') reached the production bundle — the engine would be installed in a shipped client, and its wall-clock checks would run against real users." >&2
+        echo "${label}: solidDiagnosticsExpose.ts's attribution.enable() options ('$attributionEnableMarker') reached the production bundle — the engine would be installed in a shipped client, doing its per-write bookkeeping on every interaction and running the judged checks in real users' sessions." >&2
         echo "$enableMatches" >&2
         exit 1
       else
