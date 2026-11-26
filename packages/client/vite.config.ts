@@ -173,5 +173,11 @@ export default defineConfig(({ mode }) => ({
   // `optimizeDeps.esbuildOptions` is deprecated in Vite 8.
   build: {
     target: "esnext",
+    // The dev-mode dist (`mode === SOLID_DEV_MODE`) also emits a sourcemap, so
+    // the `ci::e2e-solid-dev` lane's diagnostic stacks — minified `index-*.js`
+    // line:column pairs — resolve back to source. A map is a side channel: the
+    // only change to the emitted JS is the trailing `sourceMappingURL` comment,
+    // so bundle positions are unaffected. The production build is untouched.
+    ...(mode === SOLID_DEV_MODE && { sourcemap: true }),
   },
 }));
