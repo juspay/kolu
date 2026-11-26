@@ -56,7 +56,9 @@ vi.mock("./usePendingLayouts", () => ({
     setOne: () => {},
     clear: () => {},
     dropIds: () => {},
-    evictedIds: () => [],
+    deadIds: () => [],
+    hasOverride: () => false,
+    claimNextDefaultSize: () => null,
     resolveLayout: (_id: string, saved: unknown) => saved,
   }),
 }));
