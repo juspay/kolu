@@ -48,6 +48,7 @@ const row = (name: string, index: number): DisplayEntry => ({
   kind: "row",
   cmd: { kind: "action", name, onSelect: () => {} },
   index,
+  segments: [{ text: name, hit: false }],
 });
 
 it("separates entries the tree cannot tell apart", () => {

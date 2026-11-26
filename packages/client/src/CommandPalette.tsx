@@ -30,6 +30,12 @@ import { ACTIONS } from "./input/actions";
 import type { Keybind } from "./input/keyboard";
 import CreateIdentityPreview from "./palette/CreateIdentityPreview";
 import { HOSTS_GROUP_NAME } from "./palette/hostsGroup";
+import {
+  sameSegments,
+  type Segment,
+  segmentsForTokens,
+} from "./palette/highlightMatch";
+import { identityPrimary } from "./palette/identityPrimary";
 import PaletteRow, { type PaletteRowMeta } from "./palette/PaletteRow";
 import { notePointerMove, type PointerPos } from "./palette/pointerHoverGate";
 import {
@@ -40,6 +46,7 @@ import {
   type ResultKind,
 } from "./palette/rootIndex";
 import { TERMINALS_GROUP_NAME } from "./palette/terminalsGroup";
+import { tokenize } from "./search";
 import { useTips } from "./settings/useTips";
 import Kbd from "./ui/Kbd";
 import ModalDialog from "./ui/ModalDialog";
@@ -128,7 +135,15 @@ export type DisplayEntry =
       group: PaletteGroup;
       index?: never;
     }
-  | { kind: "row"; cmd: PaletteCommand | PaletteLabel; index: number };
+  | {
+      kind: "row";
+      cmd: PaletteCommand | PaletteLabel;
+      index: number;
+      /** The row's headline, already split against the query. Computed HERE,
+       *  where the list tokenizes once for every row, so no row has to read
+       *  the query signal to paint its highlight. */
+      segments: readonly Segment[];
+    };
 
 /** A render entry paired with the identity the list retains its node by. */
 export interface KeyedDisplayEntry {
@@ -145,7 +160,9 @@ export interface KeyedDisplayEntry {
  *  (or host header, or row) stops the republish at the narrowing instead of
  *  re-running every attribute under it. Rows and host headers carry live
  *  command/group payloads, which are compared by reference: a fresh payload is
- *  a real change, because its callbacks and status are what the node renders. */
+ *  a real change, because its callbacks and status are what the node renders.
+ *  A row's segments are compared by content, because every keystroke mints a
+ *  fresh split and an unchanged one must not repaint. */
 export function sameDisplayEntry(
   a: DisplayEntry | undefined,
   b: DisplayEntry | undefined,
@@ -163,7 +180,12 @@ export function sameDisplayEntry(
       a.group === b.group
     );
   }
-  return b.kind === "row" && a.index === b.index && a.cmd === b.cmd;
+  return (
+    b.kind === "row" &&
+    a.index === b.index &&
+    a.cmd === b.cmd &&
+    sameSegments(a.segments, b.segments)
+  );
 }
 
 /** The identity an entry WANTS — its logical name in the tree.
@@ -761,6 +783,21 @@ const CommandPalette: Component<{
   }
 
   const displayed = createMemo((): DisplayEntry[] => {
+    // The query, tokenized ONCE for the whole list: every row's highlight is
+    // split here, so the rows themselves never read the query signal. This is
+    // the raw query, not `filterQuery` — in value mode the typed text is what
+    // the labels highlight against.
+    const tokens = tokenize(query());
+    const rowEntry = (
+      cmd: PaletteCommand | PaletteLabel,
+      index: number,
+    ): DisplayEntry => ({
+      kind: "row",
+      cmd,
+      index,
+      segments: segmentsForTokens(identityPrimary(cmd), tokens),
+    });
+
     // Terminals empty browse: host header (name · count) + that host's
     // terminals — visual grouping, no drill required. Clicking a header
     // optionally scopes to that host (breadcrumb Terminals › $host).
@@ -778,7 +815,7 @@ const CommandPalette: Component<{
           group,
         });
         for (const child of kids) {
-          out.push({ kind: "row", cmd: child, index: index++ });
+          out.push(rowEntry(child, index++));
         }
       }
       return out;
@@ -786,7 +823,7 @@ const CommandPalette: Component<{
 
     const items = filtered();
     if (!showSectionHeaders()) {
-      return items.map((cmd, index) => ({ kind: "row" as const, cmd, index }));
+      return items.map(rowEntry);
     }
     const out: DisplayEntry[] = [];
     let lastSection: SectionId | undefined;
@@ -796,7 +833,7 @@ const CommandPalette: Component<{
         out.push({ kind: "header", section });
       }
       lastSection = section;
-      out.push({ kind: "row", cmd, index });
+      out.push(rowEntry(cmd, index));
     });
     return out;
   });
@@ -1394,7 +1431,7 @@ const CommandPalette: Component<{
                           <PaletteRow
                             cmd={row().cmd}
                             selected={isSelected(row().index)}
-                            query={query()}
+                            segments={row().segments}
                             showKindTag={showKindTag()}
                             drillable={isDrillable(row().cmd)}
                             onHover={() =>

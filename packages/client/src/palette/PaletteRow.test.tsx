@@ -75,7 +75,7 @@ function mount(hostKey: HostKey): HTMLElement {
           },
         }}
         selected={false}
-        query=""
+        segments={[{ text: "tidepool", hit: false }]}
         showKindTag={false}
         drillable={false}
         onSelect={() => {}}
@@ -125,7 +125,7 @@ describe("a row's keybind rail", () => {
             onSelect: () => {},
           }}
           selected={false}
-          query=""
+          segments={[{ text: "Open palette", hit: false }]}
           showKindTag={false}
           drillable={false}
           onSelect={() => {}}
@@ -168,7 +168,7 @@ describe("a row's kind tag", () => {
             },
           }}
           selected={false}
-          query=""
+          segments={[{ text: "tidepool", hit: false }]}
           showKindTag={true}
           drillable={false}
           onSelect={() => {}}

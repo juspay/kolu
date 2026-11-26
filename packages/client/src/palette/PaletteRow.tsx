@@ -31,13 +31,13 @@ import {
 import { useHostKavalChain } from "../host/useHostKaval";
 import { formatKeybind, type Keybind } from "../input/keyboard";
 import { IntentMarkdownInline } from "../intent/IntentMarkdown";
-import { annotationLine } from "../intent/text";
 import HostTerminalPip from "../terminal/HostTerminalPip";
 import { trueWord } from "../ui/attrWord";
 import Kbd from "../ui/Kbd";
 import RepoMonogram from "../ui/RepoMonogram";
 import { activeHost, padiMap } from "../wire";
-import HighlightedText from "./highlightMatch";
+import HighlightedText, { type Segment } from "./highlightMatch";
+import { identityPrimary } from "./identityPrimary";
 import type { ResultKind } from "./rootIndex";
 
 function encodeHostAttr(h: HostKey): string {
@@ -185,7 +185,9 @@ const CommandLead: Component<{
 const PaletteRow: Component<{
   cmd: PaletteCommand | PaletteLabel;
   selected: boolean;
-  query: string;
+  /** The headline's highlight split, computed by the list — never the query
+   *  itself, which would put one subscriber per row on it. */
+  segments: readonly Segment[];
   /** Kind tags only during cross-kind root search. */
   showKindTag: boolean;
   drillable: boolean;
@@ -194,20 +196,6 @@ const PaletteRow: Component<{
 }> = (props) => {
   const row = () => props.cmd.row;
   const kind = (): ResultKind => row()?.kind ?? "command";
-
-  /** Same headline rule as Dock cards/list: intent line-1 when set, else
-   *  branch (`annotationLine` — the Dock's single derivation). */
-  const identityPrimary = (): string => {
-    const r = row();
-    if (r?.kind === "terminal") {
-      return annotationLine(
-        r.terminalMeta?.intent,
-        r.branchLabel ?? props.cmd.name,
-      );
-    }
-    if (r?.kind === "host" && r.hostKey) return hostLabel(r.hostKey);
-    return props.cmd.name;
-  };
 
   const contextLine = (): string => {
     const r = row();
@@ -345,13 +333,11 @@ const PaletteRow: Component<{
         >
           <Show
             when={kind() === "terminal" && row()?.terminalMeta?.intent}
-            fallback={
-              <HighlightedText text={identityPrimary()} query={props.query} />
-            }
+            fallback={<HighlightedText segments={props.segments} />}
           >
             {/* Dock identity path for intents — always markdown-safe, including
                 during typed search (raw `**` must never reappear). */}
-            <IntentMarkdownInline markdown={identityPrimary()} />
+            <IntentMarkdownInline markdown={identityPrimary(props.cmd)} />
           </Show>
         </span>
       </div>
