@@ -67,12 +67,6 @@ export function mergeJoins(works: Iterable<ReadonlyArray<Joining>>): Joins {
   return joins;
 }
 
-export function joinsOf(works: ReadonlyMap<WorkId, Work>): Joins {
-  return mergeJoins(
-    [...works].map(([work, record]) => joinsOfWork(work, record)),
-  );
-}
-
 /** ONE TURN: the row that starts it — where its works are drawn — and the
  *  works it names, in the order it first named them. */
 export interface Turn {

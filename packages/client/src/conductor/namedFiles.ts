@@ -59,10 +59,6 @@ export function mergeHolders(
   return index;
 }
 
-export function fileHolders(works: ReadonlyMap<WorkId, Work>): FileHolders {
-  return mergeHolders([...works].map(([id, work]) => [id, pathsOf(work)]));
-}
-
 /** WHAT PRESSING A NAMED PATH DOES, as a sum:
  *
  *  - `plain` — no work holds it: it is code, not a link;

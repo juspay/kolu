@@ -1037,9 +1037,10 @@ export interface SetupAnswer {
 }
 
 /** ONE WORK'S OWN SETUP ANSWERS, in the order its decisions carry them — the
- *  per-work half of {@link setupMemory}, so a reader mirroring a collection
- *  of works can read each work once and join the answers, rather than walking
- *  every decision of every work again whenever any one of them moves. */
+ *  per-work half of the setup reading, so a reader mirroring a collection of
+ *  works can read each work once and join the answers ({@link setupMemoryOf}),
+ *  rather than walking every decision of every work again whenever any one of
+ *  them moves. */
 export const setupAnswersOf = (work: Work): ReadonlyArray<SetupAnswer> =>
   work.decisions.flatMap((one) => {
     if (
@@ -1065,10 +1066,11 @@ export const setupAnswersOf = (work: Work): ReadonlyArray<SetupAnswer> =>
     ];
   });
 
-/** THE MEMORY OVER ANSWERS ALREADY READ — {@link setupMemory}'s second half.
- *  The answers may arrive in any order (a join of per-work readings is in the
- *  works' order, not time's); recency is what the memory is about, so they
- *  are ordered here, newest first. */
+/** THE MEMORY OVER ANSWERS ALREADY READ — the second half of the setup
+ *  reading, over the answers {@link setupAnswersOf} took. The answers may
+ *  arrive in any order (a join of per-work readings is in the works' order,
+ *  not time's); recency is what the memory is about, so they are ordered
+ *  here, newest first. */
 export const setupMemoryOf = (
   answers: ReadonlyArray<SetupAnswer>,
   host: string,
@@ -1116,11 +1118,6 @@ export const setupMemoryOf = (
     },
   };
 };
-
-export const setupMemory = (
-  works: ReadonlyArray<Work>,
-  host: string,
-): SetupMemory => setupMemoryOf(works.flatMap(setupAnswersOf), host);
 
 /** What a terminal is, as a member of a work in progress. */
 export interface Membership {

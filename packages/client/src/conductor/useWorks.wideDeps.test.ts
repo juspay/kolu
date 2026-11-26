@@ -32,7 +32,8 @@ import {
   openWork,
   type Question,
   type SentAnswer,
-  setupMemory,
+  setupAnswersOf,
+  type SetupMemory,
   setupMemoryOf,
   type Work,
   type WorkEvent,
@@ -73,9 +74,9 @@ vi.mock("../wire", () => {
 });
 
 import { workMentionCandidates, workMentionOf } from "./mentionCandidates";
-import { fileHolders } from "./namedFiles";
-import { agentNotes } from "./quietChat";
-import { joinsOf } from "./turnWorks";
+import { type FileHolders, mergeHolders, pathsOf } from "./namedFiles";
+import { mergeNotes, notesOfWork, type WorkNote } from "./quietChat";
+import { type Joins, joinsOfWork, mergeJoins } from "./turnWorks";
 import {
   useAgentNotes,
   useFileHolders,
@@ -84,6 +85,24 @@ import {
   useWorkMentions,
   useWorkSplit,
 } from "./useWorks";
+
+/** THE WHOLE-COLLECTION FOLDS, as the app composes them from the per-work
+ *  readings that ship (`useJoins`, `useAgentNotes`, `useFileHolders`,
+ *  `useSetupAnswers`): each work read once, the answers joined. They are the
+ *  oracle every reading below is compared against, and they live here
+ *  because nothing in the product walks a collection of works any more. */
+const joinsOf = (works: ReadonlyMap<WorkId, Work>): Joins =>
+  mergeJoins([...works].map(([id, record]) => joinsOfWork(id, record)));
+
+const agentNotes = (
+  works: ReadonlyMap<WorkId, Work>,
+): ReadonlyArray<WorkNote> => mergeNotes([...works.values()].map(notesOfWork));
+
+const fileHolders = (works: ReadonlyMap<WorkId, Work>): FileHolders =>
+  mergeHolders([...works].map(([id, one]) => [id, pathsOf(one)] as const));
+
+const setupMemory = (works: ReadonlyArray<Work>, host: string): SetupMemory =>
+  setupMemoryOf(works.flatMap(setupAnswersOf), host);
 
 const HOST = "local";
 const T0 = Date.UTC(2026, 10, 20, 9, 0, 0);
@@ -226,8 +245,8 @@ const tick = (id: WorkId, minute: number): void => {
   flush();
 };
 
-/** The mirror as a whole-collection fold would take it — what the faces used
- *  to hand `setupMemory`, `joinsOf`, `agentNotes` and `fileHolders`. */
+/** The mirror as a whole-collection fold takes it — what the oracles above
+ *  (`setupMemory`, `joinsOf`, `agentNotes`, `fileHolders`) are handed. */
 const whole = (): ReadonlyMap<WorkId, Work> =>
   new Map(Object.entries(works) as Array<[WorkId, Work]>);
 

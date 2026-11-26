@@ -10,7 +10,18 @@ import {
   WORK_OF_A,
   WORK_OF_B,
 } from "./replyAcrossTurns.testlib";
-import { chatTurns, joinsOf, turnWorks } from "./turnWorks";
+import {
+  chatTurns,
+  type Joins,
+  joinsOfWork,
+  mergeJoins,
+  turnWorks,
+} from "./turnWorks";
+
+/** THE INDEX OVER A COLLECTION, as the app builds it (`useJoins`): each
+ *  work's own joins, read once, and merged. */
+const joinsOf = (works: ReadonlyMap<WorkId, Work>): Joins =>
+  mergeJoins([...works].map(([id, record]) => joinsOfWork(id, record)));
 
 const PLANNER = "11111111-1111-4111-8111-111111111111";
 const IMPLEMENTOR = "22222222-2222-4222-8222-222222222222";

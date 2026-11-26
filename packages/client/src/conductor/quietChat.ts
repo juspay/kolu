@@ -20,7 +20,7 @@
  *  boundary the chips are drawn by. */
 
 import type { ConductorRow } from "kolu-common/conductor";
-import type { Work, WorkId } from "kolu-work";
+import type { Work } from "kolu-work";
 import { chatTurns } from "./turnWorks";
 
 /** A RUN OF CHARACTERS A FULL STOP INSIDE CANNOT END A SENTENCE: a code span
@@ -154,9 +154,10 @@ export interface WorkNote {
 }
 
 /** ONE WORK'S OWN NOTES, in the order its timeline carries them — the
- *  per-work half of {@link agentNotes}, so a mirror of many works is read
- *  work by work rather than walked again whenever any timeline moves. The
- *  human's own notes are not news from a turn, so only the agent's are read. */
+ *  per-work half of the shared reading (`useAgentNotes`), so a mirror of many
+ *  works is read work by work rather than walked again whenever any timeline
+ *  moves. The human's own notes are not news from a turn, so only the
+ *  agent's are read. */
 export function notesOfWork(work: Work): ReadonlyArray<WorkNote> {
   const out: WorkNote[] = [];
   for (const event of work.events)
@@ -172,13 +173,6 @@ export function mergeNotes(
   const out: WorkNote[] = [];
   for (const one of works) out.push(...one);
   return out.sort((one, other) => one.at - other.at);
-}
-
-/** EVERY NOTE THE CONDUCTOR WROTE, oldest first, off the works' own
- *  timelines — a turn in which it wrote no reply still said something, and
- *  it said it there. */
-export function agentNotes(works: ReadonlyMap<WorkId, Work>): WorkNote[] {
-  return mergeNotes([...works.values()].map(notesOfWork));
 }
 
 /** WHAT A WAKE TURN'S ONE LINE SAYS: the reply's first sentence, the note it
@@ -230,7 +224,7 @@ const prose = (
 /** THE FOLD, READ OFF THE CHAT: which turns are one line, what the line says,
  *  and which of them is open before anybody presses anything.
  *
- *  `notes` is every note the Conductor wrote on any work ({@link agentNotes}),
+ *  `notes` is every note the Conductor wrote on any work (`useAgentNotes`),
  *  because a turn is a window of time and a note is an event in one. A turn
  *  with no prose shows the LAST note written inside its window: the Conductor
  *  writing twice in one turn has said the newer thing. */

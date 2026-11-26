@@ -107,9 +107,14 @@ vi.mock("./useWorks", () => ({
 
 import ConductorProse from "./ConductorProse";
 import { Shown } from "../ui/shown";
-import { fileHolders } from "./namedFiles";
+import { type FileHolders, mergeHolders, pathsOf } from "./namedFiles";
 import { PROSE_LIST_FOLD_OVER, PROSE_LIST_FOLD_SHOWS } from "./proseListFold";
 import { closeReader, readerTarget } from "./reader/useReader";
+
+/** THE INDEX OVER A COLLECTION, as the app builds it (`useFileHolders`):
+ *  each work's own paths, read once, and merged under the id holding them. */
+const fileHolders = (works: ReadonlyMap<WorkId, Work>): FileHolders =>
+  mergeHolders([...works].map(([id, one]) => [id, pathsOf(one)] as const));
 
 const disposers: (() => void)[] = [];
 

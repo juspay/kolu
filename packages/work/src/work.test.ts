@@ -52,7 +52,9 @@ import {
   SETUP_KEYS,
   type SentAnswer,
   type SetupAsk,
-  setupMemory,
+  setupAnswersOf,
+  type SetupMemory,
+  setupMemoryOf,
   setupOf,
   setupStanding,
   setupValue,
@@ -85,6 +87,13 @@ const T = (minute: number): string =>
 /** The value a reading found, or a failure naming the reading that found
  *  nothing — what a test asserts on now that a lookup answers an `Option`. */
 const got = <A>(found: Option.Option<A>): A => Option.getOrThrow(found);
+
+/** THE MEMORY OVER A COLLECTION, as every reader of one builds it: each
+ *  work's own answers, read once, and joined. The app reads the halves apart
+ *  (`useSetupAnswers` joins them work by work); here they are composed so a
+ *  case can hand over a handful of works. */
+const memoryOf = (works: ReadonlyArray<Work>, host: string): SetupMemory =>
+  setupMemoryOf(works.flatMap(setupAnswersOf), host);
 
 const KEY: Extract<WorkKey, { kind: "branch" }> = {
   kind: "branch",
@@ -637,7 +646,7 @@ describe("kolu's own setup questions — the harness and the model", () => {
       ]),
       answered(elsewhere, 20, ["litellm/open-large", "claude-sonnet-4-6"]),
     ];
-    const memory = setupMemory(works, KEY.host);
+    const memory = memoryOf(works, KEY.host);
     expect(got(memory.last("planner.harness", Option.none())).value).toBe(
       "omp",
     );
@@ -675,7 +684,7 @@ describe("kolu's own setup questions — the harness and the model", () => {
         ]),
       },
     });
-    const memory = setupMemory([work], KEY.host);
+    const memory = memoryOf([work], KEY.host);
     expect(memory.last("planner.model", Option.some("omp"))).toEqual(
       Option.some({ value: "opus", chosen: "typed" }),
     );
@@ -708,7 +717,7 @@ describe("kolu's own setup questions — the harness and the model", () => {
         ]),
       },
     });
-    const memory = setupMemory([work], KEY.host);
+    const memory = memoryOf([work], KEY.host);
     expect(got(memory.last("planner.model", Option.some("omp"))).value).toBe(
       "anthropic/claude-fable-5-2",
     );
@@ -731,7 +740,7 @@ describe("kolu's own setup questions — the harness and the model", () => {
     });
     expect(
       got(
-        setupMemory([plannerOnly], KEY.host).last(
+        memoryOf([plannerOnly], KEY.host).last(
           "implementor.model",
           Option.some("omp"),
         ),
