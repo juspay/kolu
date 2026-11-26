@@ -175,6 +175,10 @@ export function createViewState(
   /** This host's live top-level tiles in census order (`HostWire.tileIds`) —
    *  the membership {@link HostViewState.mruOrder} narrows the visit trail to. */
   tileIds: Accessor<readonly TerminalId[]>,
+  /** This host's KEY LIST as the registry stream answers it
+   *  (`HostWire.terminalKeys`), `undefined` until it has answered —
+   *  the liveness test {@link deadVisitIds} prunes the trail by. */
+  keys: Accessor<readonly TerminalId[] | undefined>,
 ): HostViewState {
   // THE FOCUS FACT IS A DERIVATION, NOT A SEEDED SIGNAL. What is written here is
   // the user's OVERRIDE — every activation path (canvas, dock, palette, Ctrl+Tab,
@@ -343,19 +347,32 @@ export function createViewState(
     noteActivation(tileId);
   }
 
-  /** This host's trailed ids whose terminal is gone — the prune an activation
-   *  carries. `placementOf(id).kind === "missing"` is the exact kill test: a
-   *  parked row and a split both still have a placement, so only a terminal
-   *  the collection no longer holds is dropped. SAMPLED, like every read a
-   *  write verb makes: `noteActivation` runs from gestures and from effect
-   *  actors, so neither the trail nor the census may become a dependency of
-   *  one. */
+  /** This host's trailed ids the host no longer holds — the prune an
+   *  activation carries.
+   *
+   *  THE KEY LIST IS THE KILL TEST, not the record. A trailed id is dead when
+   *  the host's registry no longer lists it: a kill takes the id out of that
+   *  list, while a record that has merely not arrived yet is still listed. The
+   *  record cannot tell those apart — `placementOf` reads `missing` for both —
+   *  and a host scope is built LAZILY on first activation, so the first
+   *  cross-host palette jump (switch, then activate, in one click) lands an
+   *  activation a daemon round trip BEFORE any record: judged by records, that
+   *  activation called every saved id dead and erased this host's whole trail
+   *  from storage. A re-subscribe's snapshot replay opens the same window.
+   *
+   *  And NOTHING is pruned until the list has answered at all (`undefined`):
+   *  an absence read from a list that has said nothing is not a kill either.
+   *
+   *  SAMPLED, like every read a write verb makes: `noteActivation` runs from
+   *  gestures and from effect actors, so neither the trail nor the key list
+   *  may become a dependency of one. */
   function deadVisitIds(): TerminalId[] {
-    return untrack(() =>
-      visits
-        .mruForHost(host)
-        .filter((id) => placementOf(id).kind === "missing"),
-    );
+    return untrack(() => {
+      const listed = keys();
+      if (listed === undefined) return [];
+      const live = new Set(listed);
+      return visits.mruForHost(host).filter((id) => !live.has(id));
+    });
   }
 
   /** Everything an activation does BESIDES writing the focus fact — the visit

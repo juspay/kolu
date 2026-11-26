@@ -75,6 +75,7 @@ async function loadPage(
         () => ({ kind: "top-level" }),
         () => opts.pick ?? null,
         tiles,
+        tiles,
       ),
     ),
     marks: attentionRecordOf(encodeHostKey(LOCAL_HOST)),
@@ -141,6 +142,7 @@ describe("a host's view-state derivations", () => {
         () => ({ kind: "top-level" }),
         pick,
         () => [A],
+        () => [A],
       );
       createEffect(view.focusedTerminalId, (id) => {
         seen = id;
@@ -165,6 +167,7 @@ describe("a host's view-state derivations", () => {
         LOCAL_HOST,
         () => ({ kind: "top-level" }),
         () => B,
+        () => [A, B, C],
         () => [A, B, C],
       );
       return { dispose, view, visits: useVisitRecency() };
@@ -192,6 +195,7 @@ describe("a host's view-state derivations", () => {
         LOCAL_HOST,
         () => ({ kind: "top-level" }),
         () => null,
+        () => [A],
         () => [A],
       );
       createEffect(view.mruOrder, (ids) => {
@@ -233,6 +237,7 @@ describe("a host's view-state derivations", () => {
         () => ({ kind: "top-level" }),
         () => null,
         census,
+        census,
       );
       // The placement pass, in miniature: the census in the compute, the
       // landing in the apply arm.
@@ -272,6 +277,7 @@ describe("a host's view-state derivations", () => {
         () => ({ kind: "top-level" }),
         () => null,
         census,
+        census,
       ),
     }));
     held.view.writeFocus({ id: B, tileHint: B });
@@ -310,6 +316,7 @@ describe("a host's view-state derivations", () => {
         LOCAL_HOST,
         () => ({ kind: "top-level" }),
         () => null,
+        census,
         census,
       ),
       visits: useVisitRecency(),
@@ -351,6 +358,7 @@ describe("a host's view-state derivations", () => {
           live.has(id) ? { kind: "top-level" } : { kind: "missing" },
         () => null,
         census,
+        census,
       ),
       visits: useVisitRecency(),
     }));
@@ -382,6 +390,75 @@ describe("a host's view-state derivations", () => {
     expect(
       held.visits.mruForHost(LOCAL_HOST).filter((id) => live.has(id)),
     ).toEqual([A, B]);
+    held.dispose();
+  });
+
+  it("keeps the saved trail of a host whose records have not arrived", () => {
+    // THE FIRST CROSS-HOST PALETTE JUMP. A host scope is built lazily on first
+    // activation, and `selectFleetTerminal` switches and activates in one
+    // click — so this activation lands a daemon round trip before the host's
+    // first record, and before its key list has answered at all. Every id the
+    // trail remembers for this host reads `missing` in that window, which is
+    // ALSO how a killed id reads: judged by records, the one activation would
+    // erase this host's whole saved history from storage.
+    // The static trail store outlives one case (`localStorage` is cleared,
+    // the in-memory one is not), so this host starts from nothing.
+    const visits = useVisitRecency();
+    visits.clearHost(LOCAL_HOST);
+    flush();
+    visits.noteVisit(LOCAL_HOST, A, { at: 1 });
+    visits.noteVisit(LOCAL_HOST, B, { at: 2 });
+    flush();
+    const held = createRoot((dispose) => ({
+      dispose,
+      view: createViewState(
+        LOCAL_HOST,
+        // No record has arrived for anything.
+        () => ({ kind: "missing" }),
+        () => null,
+        // …so the tile census is empty, and the key list has said nothing.
+        () => [],
+        () => undefined,
+      ),
+    }));
+    held.view.writeFocus({ id: C, tileHint: C });
+    flush();
+    // The clicked tile is stamped, and both saved entries are still there.
+    expect(visits.mruForHost(LOCAL_HOST)).toEqual([C, B, A]);
+    held.dispose();
+  });
+
+  it("prunes by the key list — the one fact a kill moves", () => {
+    // Once the list HAS answered, an id it does not name is gone for real:
+    // that is the kill the trail's slot cap depends on. A record arriving (or
+    // not) never moves this answer.
+    const visits = useVisitRecency();
+    visits.clearHost(LOCAL_HOST);
+    flush();
+    visits.noteVisit(LOCAL_HOST, A, { at: 1 });
+    visits.noteVisit(LOCAL_HOST, B, { at: 2 });
+    flush();
+    const [keys, setKeys] = createSignal<readonly TerminalId[] | undefined>([
+      A,
+      B,
+      C,
+    ]);
+    const held = createRoot((dispose) => ({
+      dispose,
+      view: createViewState(
+        LOCAL_HOST,
+        () => ({ kind: "missing" }),
+        () => null,
+        () => [],
+        keys,
+      ),
+    }));
+    // A is killed: the host stops listing it.
+    setKeys([B, C]);
+    flush();
+    held.view.writeFocus({ id: C, tileHint: C });
+    flush();
+    expect(visits.mruForHost(LOCAL_HOST)).toEqual([C, B]);
     held.dispose();
   });
 });

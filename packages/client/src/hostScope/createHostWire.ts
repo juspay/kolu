@@ -84,6 +84,15 @@ type PadiEntry = ReturnType<typeof padiMap.entry>;
 /** One host's retained wire subscriptions. Its members are read through
  *  `activeScope().wire` by the exported facades and the metadata/daemon readers. */
 export interface HostWire {
+  /** The host's KEY LIST as the stream answers it — every id the registry
+   *  holds, tiles, splits and parked rows alike, and `undefined` until it has
+   *  answered at all.
+   *
+   *  It is also the LIVENESS fact, the one an absence-reader must use instead
+   *  of a record: a kill changes this list, while a record merely arriving
+   *  does not, so "the host no longer has this id" is answerable here a
+   *  daemon round trip before the composed records land. `createViewState`'s
+   *  visit prune reads it for exactly that reason. */
   terminalKeys: Subscription<TerminalId[]>;
   terminals: ReturnType<PadiEntry["collections"]["terminals"]["use"]>;
   session: ReturnType<PadiEntry["cells"]["session"]["use"]>;

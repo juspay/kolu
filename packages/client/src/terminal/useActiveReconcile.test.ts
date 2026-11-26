@@ -857,6 +857,7 @@ describe("the derived auto-switch's one-shot", () => {
         () => ({ kind: "top-level" }),
         () => null,
         census,
+        census,
       ),
     }));
     held.view.writeFocus({ id: c, tileHint: c });
