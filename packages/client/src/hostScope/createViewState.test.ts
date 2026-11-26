@@ -183,4 +183,48 @@ describe("a host's view-state derivations", () => {
     expect(seen).toEqual([A]);
     held.dispose();
   });
+
+  it("drops a landing that re-states the pane already focused", () => {
+    // The canvas's placement pass is an effect: its compute reads the census,
+    // and its apply arm re-lands the active tile it just placed. A landing
+    // mints a fresh `{ id, tileHint }` every time, so an ungated focus signal
+    // turned that into a write RELAYED out of an effect that had just read the
+    // census — `focus` and `activeId` then ran twice for one census move, the
+    // first run pairing the new census with the previous selection. Solid
+    // grades that `EFFECT_RELAY_TEAR`, `warn` on the third sighting, and
+    // `@kolu/solid-test-setup` fails the test on it.
+    const [census, setCensus] = createSignal<TerminalId[]>([A, B], {
+      equals: false,
+    });
+    let seen = 0;
+    const held = createRoot((dispose) => {
+      const view = createViewState(
+        LOCAL_HOST,
+        () => ({ kind: "top-level" }),
+        () => null,
+        census,
+      );
+      // The placement pass, in miniature: the census in the compute, the
+      // landing in the apply arm.
+      createEffect(census, (live) => {
+        view.writeFocus({ id: live[0]!, tileHint: live[0]! });
+      });
+      createEffect(view.activeId, () => {
+        seen++;
+      });
+      return { dispose, view };
+    });
+    // The first landing, from out here where a real gesture makes it.
+    held.view.writeFocus({ id: A, tileHint: A });
+    flush();
+    const settled = seen;
+    for (let i = 0; i < 4; i++) {
+      setCensus([A, B]);
+      flush();
+    }
+    // The pane never moved, so no reader of the selection was ever told it did.
+    expect(held.view.activeId()).toBe(A);
+    expect(seen).toBe(settled);
+    held.dispose();
+  });
 });

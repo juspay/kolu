@@ -116,6 +116,16 @@ function sameFocus(a: TerminalFocus | null, b: TerminalFocus | null): boolean {
   return a.id === b.id && a.tileHint === b.tileHint;
 }
 
+/** The same question for the OVERRIDE, whose third state — `undefined`, "nothing
+ *  has overridden the pick" — is a fact of its own and equals only itself. */
+function sameOverride(
+  a: TerminalFocus | null | undefined,
+  b: TerminalFocus | null | undefined,
+): boolean {
+  if (a === undefined || b === undefined) return a === b;
+  return sameFocus(a, b);
+}
+
 export function createViewState(
   host: HostKey,
   placementOf: (id: TerminalId) => LivePlacement,
@@ -132,9 +142,19 @@ export function createViewState(
   // `undefined` means "nothing has overridden it": the pick stands. An explicit
   // `null` is a written fact of its own (a close-all cleared the selection), so
   // the derivation cannot resurrect a tile the user just closed.
+  // GATED ON THE FACT IT STATES. A landing verb mints a fresh `{ id, tileHint }`
+  // every time, so re-stating the pane that is already focused used to NOTIFY —
+  // and the callers that do that most are effect apply arms (the canvas's
+  // placement pass re-lands the active tile it just placed, a dock row lands on
+  // the pane it is already on). That made this signal a write RELAYED out of an
+  // effect that had just read the terminal census, so `focus` and `activeId`
+  // ran twice for one census move and the first run paired the new census with
+  // the previous selection. Re-stating a fact is not news: the write is dropped
+  // here, and the activation's side effects (the unread mark, the visit, the
+  // host's report, the pane's refocus nonce) still run at their call sites.
   const [override, setOverride] = createSignal<
     TerminalFocus | null | undefined
-  >(undefined);
+  >(undefined, { equals: sameOverride });
   const focus = createMemo<TerminalFocus | null>(
     () => {
       const written = override();
@@ -211,11 +231,18 @@ export function createViewState(
   });
 
   function writeFocus(next: TerminalFocus | null): void {
+    // Whether this landing MOVES the written fact. A landing that re-states the
+    // pane already written is not an activation: the selection does not move,
+    // the tile is already at the head of the visit trail, and the host already
+    // holds it as active. Sampled, because `writeFocus` runs from effect apply
+    // arms (the canvas's placement pass) where a tracked read is forbidden.
+    const moved = !sameOverride(untrack(override), next);
     setOverride(next);
     // Focusing a terminal is one of the two ways its unread mark ends; the other
     // is the attention engine's episode-end edge. Both clear it on the host's
     // record, so a reload does not bring it back.
     if (next) attention.clearUnread(next.id);
+    if (!moved) return;
     // SAMPLED: which tile this pane belongs to, read to drive the activation's
     // side effects. `writeFocus` is a WRITE verb — a gesture, or the hydration
     // seed's landing, which runs in an effect CALLBACK, a strict-read window —
