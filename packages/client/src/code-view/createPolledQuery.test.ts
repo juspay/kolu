@@ -210,6 +210,61 @@ describe("createPolledQuery", () => {
     expect(result.calls).toBe(2);
   });
 
+  it("a round trip BACK to an already-answered key keeps that key's answer (no blank), where master re-blanked", async () => {
+    // The one behaviour difference from master. The store's stamp moves only on a
+    // landing, so A → B → A with no landing for B returns to A's OWN answer:
+    // value held, `pending()` false, refreshed in place by the pulse's first frame.
+    // Master reset the faces on every active run of the poll effect, so the way
+    // back blanked and showed a "Loading…" frame before re-answering the same bytes.
+    const res = await new Promise<{
+      onB: { v: unknown; pending: boolean };
+      backAtA: { v: unknown; pending: boolean };
+      afterRefresh: unknown;
+      calls: number;
+    }>((resolve) => {
+      createRoot(async (dispose) => {
+        let calls = 0;
+        const [repo, setRepo] = createSignal("A");
+        const { live, pulseProc, pulse } = fakeStream();
+        const q = createPolledQuery({
+          input: () => ({ repoPath: repo() }),
+          live,
+          pulseProc,
+          pulseInput: (i) => ({ repoPath: i.repoPath }),
+          query: asEffect(async (i) => {
+            calls += 1;
+            return `${i.repoPath}#${calls}`;
+          }),
+        });
+        await settle();
+        pulse(); // A's answer lands: "A#1"
+        await settle();
+
+        // Away to B, with NO landing for B (no pulse frame): B has no stamped
+        // answer, so it is blank and pending — the unchanged half of the rule.
+        setRepo("B");
+        await settle();
+        const onB = { v: q(), pending: q.pending() };
+
+        // …and BACK to A, whose answer the store still carries.
+        setRepo("A");
+        await settle();
+        const backAtA = { v: q(), pending: q.pending() };
+
+        pulse(); // the re-subscribed pulse's first frame refreshes it in place
+        await settle();
+        resolve({ onB, backAtA, afterRefresh: q(), calls });
+        dispose();
+      });
+    });
+    expect(res.onB.v).toBeUndefined(); // a key with no stamped answer is blank…
+    expect(res.onB.pending).toBe(true);
+    expect(res.backAtA.v).toBe("A#1"); // …and the key the store answers for is not
+    expect(res.backAtA.pending).toBe(false);
+    expect(res.afterRefresh).toBe("A#2"); // refreshed in place, never blanked
+    expect(res.calls).toBe(2); // B never read: it got no pulse frame
+  });
+
   it("surfaces a query rejection via error() and onError", async () => {
     const seen: string[] = [];
     const result = await new Promise<string>((resolve) => {
