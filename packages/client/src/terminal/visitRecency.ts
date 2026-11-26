@@ -85,17 +85,32 @@ export function parseVisitList(
 }
 
 /** Upsert one visit to the front of the MRU, dedupe by (hostKey, terminalId),
- *  cap length. Timestamps are forced strictly monotonic so same-ms activations
- *  still rank later-before-earlier. Pure — unit-tested without Solid. */
+ *  drop this host's `dead` ids, cap length. Timestamps are forced strictly
+ *  monotonic so same-ms activations still rank later-before-earlier. Pure —
+ *  unit-tested without Solid.
+ *
+ *  `dead` is the PRUNE, carried by the gesture that writes rather than applied
+ *  at the persistence boundary, which cannot know liveness for a host that is
+ *  offline and would throw away real history. Without it the 50 slots fill
+ *  with killed terminals — each kill leaves the most RECENT entry, which holds
+ *  a slot ahead of older live ones — and a browser's long-lived tiles lose
+ *  their stamps after about that many open-visit-kill cycles. They read as
+ *  never visited then, which is Ctrl+Tab's order, the palette's `rankOf`
+ *  tie-break, the no-query Enter target and the Recent band's reserved seat.
+ *  Host-scoped, because an id is only dead on the host that lost it. */
 export function upsertVisit(
   prev: readonly VisitEntry[],
   hostKey: string,
   terminalId: TerminalId,
   visitedAt: number,
+  dead: readonly TerminalId[] = [],
   cap: number = VISIT_MRU_CAP,
 ): VisitEntry[] {
+  const gone = new Set(dead);
   const rest = prev.filter(
-    (e) => !(e.hostKey === hostKey && e.terminalId === terminalId),
+    (e) =>
+      e.hostKey !== hostKey ||
+      (e.terminalId !== terminalId && !gone.has(e.terminalId)),
   );
   const at = monotonicStamp(rest, visitedAt, (e) => e.visitedAt);
   const next: VisitEntry = { hostKey, terminalId, visitedAt: at };
@@ -137,15 +152,28 @@ export function visitLiveKey(hostKey: string, terminalId: TerminalId): string {
 
 const STORAGE_KEY = "kolu-visit-recency";
 
+/** What one activation writes: when it happened, and which of this host's
+ *  trailed ids are gone. The caller samples `dead` — it is the only layer
+ *  that can ask the live census without subscribing a write verb to it. */
+export type NoteVisitOptions = {
+  at?: number;
+  dead?: readonly TerminalId[];
+};
+
 type VisitRecencyApi = {
   /** The cross-host trail of GESTURES — an activation, and a close-all's
-   *  clear. A kill writes NOTHING: a dead id is dropped where the trail is
-   *  READ (`hostScope/createViewState.mruOrder` narrows it to the host's live
-   *  census), and `upsertVisit`/`parseVisitList` cap the stored list at
-   *  {@link VISIT_MRU_CAP}, so a dead entry is bounded and a live visit always
-   *  takes the front. */
+   *  clear. A kill writes nothing of its own: a dead id is dropped where the
+   *  trail is READ (`hostScope/createViewState.mruOrder` narrows it to the
+   *  host's live census), and PRUNED from storage by the next activation on
+   *  that host, which carries the dead ids it saw ({@link upsertVisit}'s
+   *  `dead`) — so the {@link VISIT_MRU_CAP} slots hold live history rather
+   *  than the last 50 terminals to die. */
   visits: Accessor<VisitEntry[]>;
-  noteVisit: (host: HostKey, terminalId: TerminalId, at?: number) => void;
+  noteVisit: (
+    host: HostKey,
+    terminalId: TerminalId,
+    opts?: NoteVisitOptions,
+  ) => void;
   clearHost: (host: HostKey) => void;
   mruForHost: (host: HostKey) => TerminalId[];
 };
@@ -163,9 +191,17 @@ export const useVisitRecency = createSharedRoot((): VisitRecencyApi => {
   function noteVisit(
     host: HostKey,
     terminalId: TerminalId,
-    at: number = Date.now(),
+    opts: NoteVisitOptions = {},
   ): void {
-    setVisits((prev) => upsertVisit(prev, encodeHostKey(host), terminalId, at));
+    setVisits((prev) =>
+      upsertVisit(
+        prev,
+        encodeHostKey(host),
+        terminalId,
+        opts.at ?? Date.now(),
+        opts.dead,
+      ),
+    );
   }
 
   function clearHost(host: HostKey): void {

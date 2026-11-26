@@ -20,7 +20,12 @@ vi.mock("../wire", () => ({
 // cases below are judged by `@kolu/solid-test-setup`, so they must run on the
 // engine this worker installed.
 import { createEffect, createRoot, createSignal, flush } from "solid-js";
-import { useVisitRecency } from "../terminal/visitRecency";
+import type { LivePlacement } from "../terminal/focusedTerminal";
+import {
+  useVisitRecency,
+  VISIT_MRU_CAP,
+  visitedAtOf,
+} from "../terminal/visitRecency";
 import { createViewState } from "./createViewState";
 
 const A = "11111111-1111-4111-8111-111111111111" as TerminalId;
@@ -177,7 +182,7 @@ describe("a host's view-state derivations", () => {
     // Four visits on ANOTHER host rewrite the one trail; this host's slice
     // comes back the same list every time.
     for (let i = 1; i <= 4; i++) {
-      held.visits.noteVisit(other, A, i);
+      held.visits.noteVisit(other, A, { at: i });
       flush();
     }
     expect(seen).toEqual([A]);
@@ -267,11 +272,12 @@ describe("a host's view-state derivations", () => {
     held.dispose();
   });
 
-  it("needs no prune on a kill — a dead id leaves the MRU with the census", () => {
+  it("needs no kill-time write — a dead id leaves the MRU with the census", () => {
     // The kill path used to write the trail (`forgetVisit`) from the eviction
     // effect's apply arm. It is dead weight now: the MRU is READ narrowed to
     // the host's live tiles, so a killed tile leaves it on the census move
-    // that killed it, and the stored list is capped by `upsertVisit` anyway.
+    // that killed it. What it leaves BEHIND, in storage, is pruned by the
+    // next activation on this host (the case below) — no write of its own.
     const [census, setCensus] = createSignal<TerminalId[]>([A, B]);
     const held = createRoot((dispose) => ({
       dispose,
@@ -298,6 +304,59 @@ describe("a host's view-state derivations", () => {
     setCensus([A, B]);
     flush();
     expect(held.view.mruOrder()).toEqual([A, B]);
+    held.dispose();
+  });
+
+  it("keeps a live tile's stamp and its rank through fifty kills", () => {
+    // The cap is 50 slots of HISTORY. A killed terminal's entry is the most
+    // recent visit, so without a prune each kill holds a slot ahead of older
+    // live ones and about fifty open-visit-kill cycles — the ordinary
+    // agent-terminal rhythm, and the trail is `localStorage`, so it
+    // accumulates across reloads — push every long-lived tile's stamp out.
+    // A tile with no stamp is one Ctrl+Tab orders by the census, the palette
+    // ranks at zero, and neither the no-query Enter target nor the Recent
+    // band's reserved seat will have.
+    const live = new Set<TerminalId>([A, B]);
+    const [census, setCensus] = createSignal<TerminalId[]>([B, A]);
+    const held = createRoot((dispose) => ({
+      dispose,
+      view: createViewState(
+        LOCAL_HOST,
+        (id): LivePlacement =>
+          live.has(id) ? { kind: "top-level" } : { kind: "missing" },
+        () => null,
+        census,
+      ),
+      visits: useVisitRecency(),
+    }));
+    // The two long-lived tiles, visited once each and then left alone.
+    held.view.writeFocus({ id: B, tileHint: B });
+    held.view.writeFocus({ id: A, tileHint: A });
+    flush();
+    // Fifty scratch terminals: opened, visited, killed.
+    for (let i = 0; i < VISIT_MRU_CAP; i++) {
+      const scratch =
+        `00000000-0000-4000-8000-${String(i).padStart(12, "0")}` as TerminalId;
+      live.add(scratch);
+      setCensus([B, A, scratch]);
+      held.view.writeFocus({ id: scratch, tileHint: scratch });
+      flush();
+      live.delete(scratch);
+      setCensus([B, A]);
+      flush();
+    }
+    // Both tiles still carry the stamp their one visit wrote, in the order
+    // they were visited in — the basis every ranking rule reads.
+    const trail = held.visits.visits();
+    const local = encodeHostKey(LOCAL_HOST);
+    expect(visitedAtOf(trail, local, A)).toBeGreaterThan(0);
+    expect(visitedAtOf(trail, local, B)).toBeGreaterThan(0);
+    expect(visitedAtOf(trail, local, A)).toBeGreaterThan(
+      visitedAtOf(trail, local, B),
+    );
+    expect(
+      held.visits.mruForHost(LOCAL_HOST).filter((id) => live.has(id)),
+    ).toEqual([A, B]);
     held.dispose();
   });
 });

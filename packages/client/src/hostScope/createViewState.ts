@@ -331,12 +331,27 @@ export function createViewState(
     noteActivation(tileId);
   }
 
+  /** This host's trailed ids whose terminal is gone — the prune an activation
+   *  carries. `placementOf(id).kind === "missing"` is the exact kill test: a
+   *  parked row and a split both still have a placement, so only a terminal
+   *  the collection no longer holds is dropped. SAMPLED, like every read a
+   *  write verb makes: `noteActivation` runs from gestures and from effect
+   *  actors, so neither the trail nor the census may become a dependency of
+   *  one. */
+  function deadVisitIds(): TerminalId[] {
+    return untrack(() =>
+      visits
+        .mruForHost(host)
+        .filter((id) => placementOf(id).kind === "missing"),
+    );
+  }
+
   /** Everything an activation does BESIDES writing the focus fact — the visit
-   *  that ranks this tile in the trail, and the host's active-terminal
-   *  report. */
+   *  that ranks this tile in the trail (and prunes the host's dead ids out of
+   *  it), and the host's active-terminal report. */
   function noteActivation(tileId: TerminalId): void {
     // THE activation choke point — canvas, dock, palette, Ctrl+Tab all land here.
-    visits.noteVisit(host, tileId);
+    visits.noteVisit(host, tileId, { dead: deadVisitIds() });
     reportActive(tileId);
   }
 

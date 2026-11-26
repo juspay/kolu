@@ -48,6 +48,7 @@ describe("upsertVisit", () => {
         "local",
         T(`00000000-0000-4000-8000-00000000000${i}`),
         i,
+        [],
         3,
       );
     }
@@ -56,6 +57,23 @@ describe("upsertVisit", () => {
       T("00000000-0000-4000-8000-000000000004"),
       T("00000000-0000-4000-8000-000000000003"),
       T("00000000-0000-4000-8000-000000000002"),
+    ]);
+  });
+
+  it("drops the dead ids the activation carries, on that host only", () => {
+    // The prune rides the gesture that writes, so the 50 slots stay live
+    // history instead of filling with the last 50 terminals to die.
+    const prev: VisitEntry[] = [
+      { hostKey: "local", terminalId: A, visitedAt: 3 },
+      { hostKey: "local", terminalId: Z, visitedAt: 2 },
+      { hostKey: "remote:zest", terminalId: Z, visitedAt: 1 },
+    ];
+    const out = upsertVisit(prev, "local", B, 9, [Z]);
+    expect(out).toEqual([
+      { hostKey: "local", terminalId: B, visitedAt: 9 },
+      { hostKey: "local", terminalId: A, visitedAt: 3 },
+      // The same id is alive on another host: an id is only dead where it died.
+      { hostKey: "remote:zest", terminalId: Z, visitedAt: 1 },
     ]);
   });
 
