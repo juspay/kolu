@@ -200,6 +200,10 @@ const WorkCard: Component<{
         unflash = window.setTimeout(() => setFlash(false), 1200);
       });
     },
+    // An effect takes no name from the compiler, and its findings are
+    // reported at its OWNER's JSX site (`WorkColumn.tsx:150`), so this one
+    // says which effect it is itself.
+    { name: "wantedCard" },
   );
 
   /** WHAT IS BEING ASKED, or `undefined` for a work that is over. EVERY open

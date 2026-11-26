@@ -201,6 +201,10 @@ const ConductorComposer: Component<{
     (open) => {
       setCompletionOpen(open);
     },
+    // An effect takes no name from the compiler, and its findings are
+    // reported at its OWNER's JSX site (`ConductorPane.tsx:417`), so this one
+    // says which effect it is itself.
+    { name: "completionOpen" },
   );
   onCleanup(() => setCompletionOpen(false));
   // GATED too, and for the same reason: `armedMentions` returns a fresh `[]`

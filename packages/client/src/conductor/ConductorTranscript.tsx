@@ -401,9 +401,16 @@ const ConductorTranscript: Component<{
    *  shown. The write lands for the next run of everything that reads it;
    *  the follow effect puts the container at a place by the key its own run
    *  computed, so it never depends on this write being visible yet. */
-  createEffect(shownDoc, (doc) => {
-    showTranscriptDocument(doc);
-  });
+  createEffect(
+    shownDoc,
+    (doc) => {
+      showTranscriptDocument(doc);
+    },
+    // An effect takes no name from the compiler, and its findings are
+    // reported at its OWNER's JSX site (`ConductorPane.tsx:395`), so this one
+    // says which effect it is itself.
+    { name: "showTranscriptDocument" },
+  );
 
   /** The document the container was last put at the place of. `undefined`
    *  until the first run, so the mount's restore is not repeated. */
