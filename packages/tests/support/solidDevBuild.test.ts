@@ -264,6 +264,76 @@ test("an info finding is printed as advisory and fails nothing", () => {
   );
 });
 
+// A RELAY TEAR NAMES THREE NODES AND THE LINE PRINTS ALL THREE. `nodeName` is
+// the victim that ran twice; `data.relay` is the effect whose write re-ran it
+// and `data.wrote` the value that write landed in. Without the pair, a tear
+// inside a library's own measurement and a tear the app causes by writing
+// back from inside that measurement's report read identically.
+test("a relay tear names the relay and what it wrote", () => {
+  const verdict = solidDiagnosticVerdict({
+    events: [
+      {
+        code: "EFFECT_RELAY_TEAR",
+        severity: "info",
+        nodeName: "div.spread",
+        message: "ran twice for one write",
+        data: {
+          victim: "div.spread",
+          root: "selection",
+          relay: "rootSize",
+          wrote: "codeTabTreeSize",
+          copy: false,
+          soleWriter: true,
+          occurrences: 2,
+        },
+      },
+    ],
+    lines: [],
+    pageErrors: [],
+  });
+  assert.equal(verdict?.fails, false);
+  assert.match(
+    verdict?.words ?? "",
+    /EFFECT_RELAY_TEAR \(relay "rootSize", wrote "codeTabTreeSize"\) on "div\.spread"/,
+  );
+});
+
+// The pair belongs to that one code: another finding's `data` is the
+// detector's own census, and printing it would say "relay" where there is
+// none.
+test("another code's data is not printed as a relay", () => {
+  const verdict = solidDiagnosticVerdict({
+    events: [
+      {
+        code: "WIDE_SCOPE_DEPS",
+        severity: "warn",
+        nodeName: "needsYou",
+        data: { relay: "not a relay", wrote: "not a write" },
+      },
+    ],
+    lines: [],
+    pageErrors: [],
+  });
+  assert.equal(verdict?.words.includes("relay"), false);
+});
+
+// A tear whose data did not survive the page boundary is printed as it
+// stands, rather than as a pair of `undefined`s.
+test("a relay tear with no data prints without the pair", () => {
+  const verdict = solidDiagnosticVerdict({
+    events: [{ code: "EFFECT_RELAY_TEAR", severity: "info", loc: "a.tsx:1:1" }],
+    lines: [],
+    pageErrors: [],
+  });
+  assert.equal(
+    verdict?.words,
+    [
+      "Solid also graded 1 finding(s) info — advisory, failing nothing:",
+      "  [info] EFFECT_RELAY_TEAR at a.tsx:1:1",
+    ].join("\n"),
+  );
+});
+
 test("a warn finding fails, and carries its info neighbours along", () => {
   const verdict = solidDiagnosticVerdict({
     events: [

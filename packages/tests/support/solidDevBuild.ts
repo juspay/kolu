@@ -224,7 +224,27 @@ export function solidDiagnosticWords(event: PageDiagnostic): string {
   const named =
     typeof event.nodeName === "string" ? ` on "${event.nodeName}"` : "";
   const said = typeof event.message === "string" ? `: ${event.message}` : "";
-  return `[${grade}] ${code}${where}${path}${named}${said}`;
+  return `[${grade}] ${code}${where}${path}${relayWords(event)}${named}${said}`;
+}
+
+/** WHO RELAYED, AND WHAT THEY WROTE — the two names that decide whose tear a
+ *  relay tear is. `nodeName` on an `EFFECT_RELAY_TEAR` is the VICTIM (the
+ *  node that ran twice), so the pair that tells a library's own measurement
+ *  apart from a write-back the app made from inside that measurement's report
+ *  rides in `data` alone: `relay` is the effect that wrote, `wrote` the
+ *  signal or store leaf it wrote (`@solidjs/signals` 2.0.4
+ *  `dev.attribution.js:1136-1151,1238-1253`). Both are printed for that code
+ *  and for no other; a tear that carries neither is printed as it stands,
+ *  because a missing field is not a field worth a placeholder. */
+function relayWords(event: PageDiagnostic): string {
+  if (event.code !== "EFFECT_RELAY_TEAR") return "";
+  const data: unknown = event.data;
+  if (typeof data !== "object" || data === null) return "";
+  const { relay, wrote } = data as { relay?: unknown; wrote?: unknown };
+  const parts: string[] = [];
+  if (typeof relay === "string") parts.push(`relay "${relay}"`);
+  if (typeof wrote === "string") parts.push(`wrote "${wrote}"`);
+  return parts.length === 0 ? "" : ` (${parts.join(", ")})`;
 }
 
 /** IS THIS FINDING ADVISORY? Exactly one code is: `EFFECT_RELAY_TEAR` graded
