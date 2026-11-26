@@ -65,11 +65,13 @@ export function createXtermLifecycle(
    *  the component body, but is present by the time the post-await body reads it
    *  (the div mounts synchronously before the font `await` resolves). */
   getContainer: () => HTMLElement,
-  /** Read lazily too, and specifically re-read AFTER the font await for
-   *  construction — so a reactive `theme`/`fontSize` that changed while the font
-   *  was loading constructs the terminal with the LATEST value, not a snapshot
-   *  taken at call time (which the deferred live-update effects would then miss,
-   *  having already fired-and-bailed while `core` was still null). */
+  /** Read lazily too — first called from the component body (a strict-read
+   *  window), and again after the font await — and specifically re-read AFTER
+   *  that await for construction, so a reactive `theme`/`fontSize` that changed
+   *  while the font was loading constructs the terminal with the LATEST value,
+   *  not a snapshot taken at call time (which the deferred live-update effects
+   *  would then miss, having already fired-and-bailed while `core` was still
+   *  null). */
   getOptions: () => XtermLifecycleOptions,
   /** Called under the owner captured at line 1 of this function — the CALLER's
    *  owner (a component body), re-entered with `runWithOwner` once the font has
