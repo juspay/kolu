@@ -3,11 +3,13 @@
  *
  *  `<Toaster>` keeps its toasts in a store and derives four lists from it: the
  *  toasts this toaster shows, the set of positions they occupy, and the
- *  per-position toast and height slices. kolu mounts one toaster with a static
- *  `position`, so that second list is `["bottom-right"]` for the whole life of
- *  the app — and a toaster that rebuilds it on every publish commits a
- *  new-but-equal array each time and wakes the `<For>` over the positions and
- *  everything under it for nothing.
+ *  per-position toast and height slices. kolu mounts one toaster per document
+ *  — `App.tsx` or `conductor/reader/ReaderWindow.tsx`, whichever `index.tsx`
+ *  renders for this window — each with a static `position`, so that second
+ *  list is `["bottom-right"]` for the whole life of the app, and a toaster
+ *  that rebuilds it on every publish commits a new-but-equal array each time
+ *  and wakes the `<For>` over the positions and everything under it for
+ *  nothing.
  *
  *  Four consecutive republishes of an equivalent array are what Solid's
  *  attribution engine raises `UNSTABLE_MEMO_OUTPUT` on, and

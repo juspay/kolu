@@ -83,10 +83,12 @@ let
     "@corvu-next/focus-trap" = "corvu-next";
     "@corvu-next/prevent-scroll" = "corvu-next";
     "@corvu-next/transition-size" = "corvu-next";
-    # solid-sonner, the toast component the client mounts once in `App.tsx`.
-    # Grafted from the pin's BUILD too, and for the same reason; the pin is a
-    # commit that gates the toaster's four derived lists on equality, which no
-    # registry release carries yet. See nix/packages/solid-sonner.nix.
+    # solid-sonner, the toast component the client mounts once per document —
+    # `App.tsx` or `conductor/reader/ReaderWindow.tsx`, whichever `index.tsx`
+    # renders for this window. Grafted from the pin's BUILD too, and for the
+    # same reason; the pin is a commit that gates the toaster's four derived
+    # lists on equality, which no registry release carries yet. See
+    # nix/packages/solid-sonner.nix.
     "solid-sonner" = "solid-sonner";
   };
   pinnedNames = builtins.attrNames pinnedPins;

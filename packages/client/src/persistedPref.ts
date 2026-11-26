@@ -111,7 +111,7 @@ function defaultSerialize<T>(value: T): string {
  *  not change what it reads.
  *
  *  WHY THIS STEPS AROUND THE LIBRARY instead of fixing it there: no released
- *  version removes that check (every release through 5.0.0 carries it). Kept
+ *  version removes that check (every release through 5.0.1 carries it). Kept
  *  here by decision until a release drops it.
  *
  *  The subscribe half returns its unsubscribe, which `makePersisted` calls from
