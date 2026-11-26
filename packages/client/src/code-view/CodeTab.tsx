@@ -1463,6 +1463,32 @@ const CodeTab: Component<{
                               css: treeShadowCss(),
                             }
                           : previous,
+                      {
+                        name: "codeTreeFrame",
+                        // THE FROZEN FRAME IS A VALUE, so equal facts are the
+                        // same frame. The one input that moves without its
+                        // leaves is `treeInventory` — ungated by design, since
+                        // its `paths` spread is what makes an in-place add
+                        // surface — and this memo reads just its `lazyDirs`,
+                        // a shared frozen empty whenever nothing is lazy.
+                        // Ungated, every equal listing pulse published a
+                        // new-but-equivalent frame (`UNSTABLE_MEMO_OUTPUT` on
+                        // the fourth, here and again on the `<Show>` condition
+                        // that carries it) and re-drove every `FileTree` prop
+                        // effect for facts that did not move.
+                        equals: (a, b) =>
+                          a === b ||
+                          (a !== undefined &&
+                            b !== undefined &&
+                            a.paths === b.paths &&
+                            a.expanded === b.expanded &&
+                            a.gitStatus === b.gitStatus &&
+                            a.selected === b.selected &&
+                            a.reveal === b.reveal &&
+                            a.lazy === b.lazy &&
+                            a.epoch === b.epoch &&
+                            a.css === b.css),
+                      },
                     );
                     // The host element of this mode's tree, recorded by its
                     // `ref` and driven from the effect phase below: the manual

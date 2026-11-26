@@ -14,6 +14,7 @@
  *  over when it does not. */
 
 import type { CodeTabView } from "@kolu/padi-client/surface";
+import { takeSolidDiagnostics } from "@kolu/solid-test-setup/setup";
 import type { Subscription } from "@kolu/surface/solid";
 import type { TerminalId } from "kolu-common/surface";
 import { createSignal, flush } from "solid-js";
@@ -237,4 +238,63 @@ it("hands the tree one gitStatus, expandPaths and lazyDirectories reference acro
   oneReference(h.gitStatus);
   oneReference(h.expandPaths);
   oneReference(h.lazyDirectories);
+});
+
+it("hands the tree the same frame when a pulse re-emits the SAME paths", () => {
+  // THE PULSE THAT CHANGED NOTHING — the drive the case above deliberately
+  // does not make, since it moves the path set each round and so resets the
+  // unstable-output streak. Here the listing, the status and the subject are
+  // re-emitted unchanged, which is what a watcher does between edits: the
+  // frozen frame the tree is handed must then be the same frame, not a fresh
+  // container whose eight leaves are all the previous one's.
+  const host = document.createElement("div");
+  document.body.append(host);
+  const [localStatus, pulseStatus] = feed<Status>(statusOf());
+  const [allPaths, relist] = feed<Listing>({
+    repoRoot: ROOT,
+    paths: ["notes.txt", "src/ledger.rs"],
+  });
+  const [subject, resubject] = createSignal(subjectWith());
+  const queries: CodeQueries = {
+    localStatus: localStatus as never,
+    branchStatus: settled<never>(undefined),
+    activeStatus: localStatus as never,
+    allPaths: allPaths as never,
+    diskRootLevel: settled<never>(undefined),
+    ignoredPaths: settled<never>(undefined),
+    diff: settled<never>(undefined),
+    fileContent: settled(TEXT),
+    lease: () => {},
+  };
+  const place = state();
+  dispose = render(
+    () => (
+      <Shown value={() => true}>
+        <CodeTab
+          subject={subject()}
+          state={place}
+          queries={queries}
+          door={door}
+          arrangement="stacked"
+        />
+      </Shown>
+    ),
+    host,
+  );
+  flush();
+
+  // Five equal republishes: the streak the diagnostic answers on is four
+  // consecutive equivalent publishes, so a drive that stopped at the
+  // threshold could be silenced by dropping one pulse.
+  for (let round = 0; round < 5; round++) {
+    pulseStatus(statusOf());
+    relist({ repoRoot: ROOT, paths: ["notes.txt", "src/ledger.rs"] });
+    resubject(subjectWith());
+    flush();
+  }
+
+  oneReference(h.gitStatus);
+  oneReference(h.expandPaths);
+  oneReference(h.lazyDirectories);
+  expect(takeSolidDiagnostics()).toEqual([]);
 });
