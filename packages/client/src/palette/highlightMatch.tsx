@@ -1,7 +1,7 @@
 /** Bold every AND-token hit inside a string. Tokens that don't appear are
  *  skipped; overlapping hits merge so the string never double-wraps. */
 
-import { type Component, For } from "solid-js";
+import { type Component, createMemo, For } from "solid-js";
 import { tokenize } from "../search";
 
 type Segment = { text: string; hit: boolean };
@@ -39,10 +39,27 @@ export function highlightSegments(text: string, query: string): Segment[] {
   return segs;
 }
 
-const HighlightedText: Component<{ text: string; query: string }> = (props) => (
-  <For each={highlightSegments(props.text, props.query)}>
-    {(seg) => (seg.hit ? <b class="font-semibold">{seg.text}</b> : seg.text)}
-  </For>
-);
+/** Whether two segment lists are the same text split the same way. Every
+ *  recompute mints fresh segment objects — a palette row republished with the
+ *  same text and query produces an equal list — so without this the `<For>`
+ *  below would dispose and rebuild every segment node per tick. */
+function sameSegments(a: Segment[], b: Segment[]): boolean {
+  return (
+    a.length === b.length &&
+    a.every((s, i) => s.text === b[i]?.text && s.hit === b[i]?.hit)
+  );
+}
+
+const HighlightedText: Component<{ text: string; query: string }> = (props) => {
+  const segments = createMemo(
+    () => highlightSegments(props.text, props.query),
+    { equals: sameSegments },
+  );
+  return (
+    <For each={segments()}>
+      {(seg) => (seg.hit ? <b class="font-semibold">{seg.text}</b> : seg.text)}
+    </For>
+  );
+};
 
 export default HighlightedText;
