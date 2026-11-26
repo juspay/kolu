@@ -159,7 +159,10 @@ const workOf = (branch: string, decisions: readonly Decision[]): Work => ({
 
 /** The works this person already answered — one model per harness, which is
  *  what each harness's own default is read from. */
-const answeredBefore = (model: string, when: string): ReadonlyMap<WorkId, Work> =>
+const answeredBefore = (
+  model: string,
+  when: string,
+): ReadonlyMap<WorkId, Work> =>
   new Map([
     [
       `branch:local/src/${model}`,
@@ -374,5 +377,43 @@ describe("the default a setup question opens on", () => {
 
     expect(options(el, "ask-mode")[0]).toBe("trivial");
     expect(selected(el, "ask-mode")).toEqual(["trivial"]);
+  });
+
+  it("draws a full run's four questions, untouched, without a cycle", async () => {
+    // FULL MODE ASKS TWO ROLES, so two MODEL questions are on screen at once
+    // and both are untouched. A default read from every other decision of the
+    // ask would make each model question a source of the other's harness
+    // memo — a cycle, which Solid throws out of the flush, so this mount does
+    // not survive it. Each model reads its OWN role's harness and nothing
+    // else, so the graph runs one way and both open on their own memory.
+    setWorks(
+      new Map([
+        [
+          "branch:local/src/both",
+          workOf("both", [
+            koluAnswered("b-p-harness", "planner.harness", "claude"),
+            koluAnswered("b-p-model", "planner.model", "sonnet-4"),
+            koluAnswered("b-i-harness", "implementor.harness", "codex"),
+            koluAnswered("b-i-model", "implementor.model", "gpt-5"),
+          ]),
+        ],
+      ]),
+    );
+    const el = mount(
+      workOf("now", [
+        koluAsked("ask-p-harness", "planner.harness"),
+        koluAsked("ask-p-model", "planner.model"),
+        koluAsked("ask-i-harness", "implementor.harness"),
+        koluAsked("ask-i-model", "implementor.model"),
+      ]),
+    );
+    await settle();
+
+    expect(selected(el, "ask-p-harness")).toEqual(["claude"]);
+    expect(selected(el, "ask-i-harness")).toEqual(["codex"]);
+    expect(options(el, "ask-p-model")).toEqual(["sonnet-4", "opus-4.9"]);
+    expect(options(el, "ask-i-model")).toEqual(["gpt-5", "o4"]);
+    expect(selected(el, "ask-p-model")).toEqual(["sonnet-4"]);
+    expect(selected(el, "ask-i-model")).toEqual(["gpt-5"]);
   });
 });

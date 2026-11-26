@@ -163,17 +163,25 @@ const WorkChoiceQuestion: Component<{
    *  role and one of its two. */
   const what = (): "harness" | "model" => roleOfKey(props.decision.key).what;
 
-  /** This form's answers so far, as {@link harnessForModel} reads them: the
-   *  harness answered beside this question counts before it is sent, and so
-   *  does the one it OPENS on while nobody has touched it ({@link draftOf}).
+  /** This form's answer to THE ONE QUESTION {@link harnessForModel} reads —
+   *  this role's harness — as it stands: answered beside this question
+   *  before it is sent, and the one it OPENS on while nobody has touched it
+   *  ({@link draftOf}).
    *
-   *  This question's own field is left out: what a model question is a model
-   *  OF is read here, and that answer is what this question's own default is
-   *  derived from. */
+   *  ONLY that key. A model question reads this; a harness question does
+   *  not, so the graph runs one way. Asking every other decision of the ask
+   *  for its default would make two model questions each a source of the
+   *  other's {@link harness} memo — a cycle, which Solid answers with a
+   *  throw out of the flush, and `full` mode draws exactly that pair. */
   const drafted = (): ReadonlyMap<string, SentAnswer> => {
+    const key = setupKeyOf(roleOfKey(props.decision.key).role, "harness");
     const values = new Map<string, SentAnswer>();
     for (const one of props.work.decisions)
-      if (one.ask === props.ask && one.id !== props.decision.id)
+      if (
+        one.ask === props.ask &&
+        one.topic === "setup" &&
+        Option.contains(key, one.key)
+      )
         values.set(one.id, draftOf(props.ask, one.id));
     return values;
   };

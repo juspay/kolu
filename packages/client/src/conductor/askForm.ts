@@ -65,10 +65,15 @@ interface Standing {
  *  exactly as the question itself is subscribed. A relayed VALUE would put
  *  the Answer button a flush behind the chips.
  *
- *  `ownedWrite`: a question publishes from its body, the way the peek window
- *  hands up its typing derivation (`peek/usePeek.ts`). A form holds a handful
- *  of questions, so the map is replaced whole: the moments it changes are the
- *  moments the form itself is being built or taken down. */
+ *  `ownedWrite`: a registration, written once from the question's body when
+ *  it is drawn and removed when it leaves, and read only DOWNSTREAM of
+ *  itself — a model question reads the harness question's default, and a
+ *  harness question reads nobody's, so no publisher is a reader of a
+ *  derivation that reads it back. That is the condition `usePeek.ts`'s
+ *  window takes the option under. A form holds a handful of questions, so
+ *  the map is replaced whole: the moments it changes are the moments the
+ *  form itself is being built or taken down.
+ */
 const [standings, setStandings] = createSignal<ReadonlyMap<string, Standing>>(
   new Map(),
   { ownedWrite: true },
