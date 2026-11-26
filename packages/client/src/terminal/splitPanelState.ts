@@ -140,11 +140,6 @@ export function savedSplitOf(
   return pending ?? saved ?? DEFAULT_SPLIT_PANEL_STATE;
 }
 
-/** Take a value and do nothing with it. A store leaf is tracked by being READ,
- *  and a read whose value is discarded is otherwise an expression statement
- *  with no effect; this says the subscription is the point. */
-function touch(_value: unknown): void {}
-
 /** The watermark {@link SplitPending.sawRecord} holds — the record's leaves
  *  COPIED out, never the record's own object. The collection MERGES a frame
  *  into the record standing at a key, so what `savedOf` hands back is the LIVE
@@ -231,8 +226,9 @@ export const useSplitPanelState = createSharedRoot((): SplitPanelStore => {
     for (const id of wire.terminalKeys() ?? []) {
       const saved = savedOf(id);
       if (!saved) continue;
-      touch(saved.collapsed);
-      touch(saved.panelSize);
+      // Read for the subscription alone: the leaves the rule compares.
+      void saved.collapsed;
+      void saved.panelSize;
     }
   };
 
