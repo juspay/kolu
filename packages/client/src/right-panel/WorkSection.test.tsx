@@ -31,7 +31,7 @@ import type {
 import type { OduLinkOutlet } from "./useOduLink";
 import type { TerminalId } from "kolu-common/surface";
 import { SurfaceUpstreamRefused } from "@kolu/surface/errors";
-import { type Accessor, createSignal, flush } from "solid-js";
+import { type Accessor, createEffect, createSignal, flush } from "solid-js";
 import { type JSX, render } from "@solidjs/web";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
@@ -118,6 +118,33 @@ vi.mock("../time/clock", () => ({
   },
 }));
 
+/** HOW OFTEN A CHECK ROW'S READER WOKE — counted around the real indicator, so
+ *  what the rows draw is unchanged and only the count is this file's. A row
+ *  wakes when the bundle publishes a new per-check record for it, which is the
+ *  thing the PR gate's row-wise check comparison exists to stop; the count is
+ *  taken in the COMPUTE, because an apply arm would be gated on the status
+ *  value and a re-minted record carries the same one. */
+const checks = vi.hoisted(() => ({ woke: 0 }));
+vi.mock("@kolu/solid-dockrow", async (importOriginal) => {
+  const real = (await importOriginal()) as Record<string, unknown> & {
+    ChecksIndicator: (props: { status: string }) => JSX.Element;
+  };
+  return {
+    ...real,
+    ChecksIndicator: (props: { status: string }) => {
+      createEffect(
+        () => {
+          checks.woke += 1;
+          return props.status;
+        },
+        () => {},
+        { name: "checksIndicatorWoke" },
+      );
+      return real.ChecksIndicator(props);
+    },
+  };
+});
+
 let dispose: (() => void) | undefined;
 let host: HTMLElement | undefined;
 
@@ -130,6 +157,7 @@ afterEach(() => {
   wire.error = () => undefined;
   wire.input = null;
   clock.reset();
+  checks.woke = 0;
 });
 
 type ActivePr = ActiveTerminal["pr"];
@@ -494,6 +522,8 @@ describe("WorkSection PR and CI", () => {
     const { setMeta } = mount(GREEN);
     const before = checkRows();
     const chip = el("inspector-ci");
+    // One wake per row, from the mount that drew them.
+    expect(checks.woke).toBe(2);
 
     for (let frame = 1; frame <= 5; frame += 1) {
       setMeta(greenAgain("Repo identity paints the same way across Kolu"));
@@ -502,6 +532,11 @@ describe("WorkSection PR and CI", () => {
     expect(el("inspector-ci")).toBe(chip);
     expect(text("inspector-ci")).toBe("✓ 2 passed");
     expect(checkRows().every((one, at) => one === before[at])).toBe(true);
+    // THE ROWS NEVER WOKE. Five frames, each carrying freshly minted records
+    // for the same two checks: without the bundle's row-wise comparison of
+    // them the bundle publishes, every row is handed its new record, and each
+    // row's reader runs again for a line that has not moved.
+    expect(checks.woke).toBe(2);
   });
 
   it("publishes nothing while a reading that says nothing arrives again", () => {
