@@ -270,7 +270,7 @@ describe("the first active tile on a cold boot", () => {
     // A consumer of the active tile, exactly like the app shell's and the
     // palette's: it records every value it is ever shown.
     const seen: (TerminalId | null)[] = [];
-    const [{ store, planSetActiveSilently, planReconcileLiveIds }, dispose] =
+    const [{ planSetActiveSilently, planReconcileLiveIds }, dispose] =
       mountRoot(() => {
         const made = makeStore();
         useSessionRestore({ store: made.store });
