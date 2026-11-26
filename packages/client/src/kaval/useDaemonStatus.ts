@@ -43,6 +43,7 @@ import {
   type KavalPresence,
   liveDownState,
   liveWarming,
+  sameKavalPresence,
   toKavalPresence,
 } from "./daemonPresentation";
 import {
@@ -316,12 +317,16 @@ export function daemonStatusPending(): boolean {
  *  is the {@link offerRestartVerb} fold — the affordance is a total function of whichever
  *  presence each surface holds — not one memoized value; for the active host the two presences
  *  coincide (same fold, same inputs), so the Restart verb can't disagree between them.
+ *  GATED on {@link sameKavalPresence}: the fold COARSENS a churning upstream
+ *  (`localDaemonStatus` republishes a fresh object on every daemon-status tick) onto a
+ *  small sum, so without the gate a recycle window republishes four equivalent presences
+ *  and wakes every subscriber for a decision that did not move.
  *  A reactive accessor; read it inside a tracking scope. */
 export const activeKavalPresence = createRoot(() =>
   createMemo(
     (): KavalPresence =>
       toKavalPresence(localDaemonStatus(), daemonChannelLive()),
-    { name: "activeKavalPresence" },
+    { name: "activeKavalPresence", equals: sameKavalPresence },
   ),
 );
 

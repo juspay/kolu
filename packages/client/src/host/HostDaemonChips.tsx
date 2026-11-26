@@ -20,6 +20,7 @@ import {
   type KavalPresence,
   kavalPresencePresentation,
   presenceState,
+  sameKavalPresence,
   toKavalPresence,
 } from "../kaval/daemonPresentation";
 import KavalInfoDialog, { KAVAL_LOGO_URL } from "../kaval/KavalInfoDialog";
@@ -277,8 +278,13 @@ const KavalSubChip: Component<{
   // version reads off its `connected` arm, so the #1793 liveness floor is inherited by
   // construction: a version can surface only for a LIVE, identity-confirmed `connected`
   // daemon, and the raw stale `daemon()` is never read for the version at all.
-  const presence = createMemo(() =>
-    toKavalPresence(kaval.daemon(), kaval.live()),
+  // GATED on `sameKavalPresence`, exactly as the active-host twin
+  // (`activeKavalPresence`) is: this host's daemon status re-serves far faster than its
+  // coarse presence moves, and an ungated fold republishes a new-but-equivalent object
+  // per tick to every reader below.
+  const presence = createMemo(
+    () => toKavalPresence(kaval.daemon(), kaval.live()),
+    { name: "hostKavalPresence", equals: sameKavalPresence },
   );
   const kavalVersion = (): string | undefined => {
     const p = presence();
