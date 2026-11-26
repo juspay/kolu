@@ -337,9 +337,15 @@ export const Xterm: Component<
     const first = createMemo<TerminalGrid | null>(
       (prev) => prev ?? wantedGrid(),
     );
-    createEffect(first, (measured) => {
-      if (measured) fn(measured);
-    });
+    // Named by hand: the compiler names no effect, so every effect under this
+    // component otherwise reports at its owner's `<Xterm>` JSX site alone.
+    createEffect(
+      first,
+      (measured) => {
+        if (measured) fn(measured);
+      },
+      { name: "xtermOnceMeasured" },
+    );
   };
 
   // The constructed core (terminal + addons), built asynchronously and read by
@@ -430,7 +436,7 @@ export const Xterm: Component<
         (fr) => {
           if (fr) outputCoalesce.flush();
         },
-        { defer: true },
+        { defer: true, name: "xtermFullRateFlush" },
       );
 
       // Touch: xterm 6.0 ships no touch path. The soft-keyboard input surface is
@@ -507,7 +513,7 @@ export const Xterm: Component<
       core.terminal.options.theme = theme;
       clearAtlas?.();
     },
-    { defer: true },
+    { defer: true, name: "xtermThemeApply" },
   );
   // Live font-size: apply + refit + clear atlas.
   createEffect(
@@ -518,7 +524,7 @@ export const Xterm: Component<
       refit();
       clearAtlas?.();
     },
-    { defer: true },
+    { defer: true, name: "xtermFontSizeApply" },
   );
   // Re-fit against current geometry on reveal without changing the user's scroll position.
   createEffect(
@@ -527,7 +533,7 @@ export const Xterm: Component<
       if (!visible || !core) return;
       refit();
     },
-    { defer: true },
+    { defer: true, name: "xtermRefitOnReveal" },
   );
   // The box became DECIDED: measure it NOW, in this update, rather than on the
   // next animation frame `refit` would wait for.
@@ -547,7 +553,7 @@ export const Xterm: Component<
       cancelAnimationFrame(fitRaf);
       applyFit(decided);
     },
-    { defer: true },
+    { defer: true, name: "xtermFitDecidedBox" },
   );
 
   // The mount box and the terminal inside it are now two different HEIGHTS for a

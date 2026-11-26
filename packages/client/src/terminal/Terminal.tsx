@@ -663,6 +663,9 @@ const Terminal: Component<{
       (facts) => {
         shownPane.observe(facts);
       },
+      // Named by hand: the compiler names no effect, so every effect in this
+      // component otherwise reports at the `<Terminal>` JSX site alone.
+      { name: "observeShownPane" },
     );
 
     // The ONE publisher of this pane's WANTED grid → the PTY. (The attach's own
@@ -687,6 +690,7 @@ const Terminal: Component<{
         if (measured)
           shownPane.measured(measured, { shown: isShown, viewShown: inFront });
       },
+      { name: "publishMeasuredGrid" },
     );
 
     // The pty's OWN grid, as the record states it — the standing fact that says
@@ -720,6 +724,7 @@ const Terminal: Component<{
       (held) => {
         foreignGrid.observe(held);
       },
+      { name: "observeForeignGrid" },
     );
 
     // Supersession for restartable attach loops: every attempt holds its OWN
@@ -1301,7 +1306,7 @@ const Terminal: Component<{
       if (!visible) return;
       if (focused !== false) focusOnSelection(touch);
     },
-    { defer: true },
+    { defer: true, name: "focusOnReveal" },
   );
 
   // Restore focus from two trigger sources, one guard. The `focused` prop
@@ -1327,7 +1332,7 @@ const Terminal: Component<{
         }
       });
     },
-    { defer: true },
+    { defer: true, name: "refocusOnNonce" },
   );
 
   // Refocus terminal when search bar closes — only if this terminal should have focus.
@@ -1343,7 +1348,7 @@ const Terminal: Component<{
     ({ open, visible, focused, touch }) => {
       if (!open && visible && focused !== false) focusOnSelection(touch);
     },
-    { defer: true },
+    { defer: true, name: "refocusOnSearchClose" },
   );
 
   return (

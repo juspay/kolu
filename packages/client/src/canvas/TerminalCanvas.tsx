@@ -163,6 +163,9 @@ const TerminalCanvas: Component<{
       pendingLayouts.dropIds(dead);
       for (const id of dead) persistedDefaults.delete(id as TileId);
     },
+    // Named by hand: the compiler names no effect, so all four effects in this
+    // component otherwise report at the `<TerminalCanvas>` JSX site alone.
+    { name: "dropDeadPendingLayouts" },
   );
 
   // Pending lives at module scope (singleton, shared with useCanvasArrange).
@@ -398,6 +401,7 @@ const TerminalCanvas: Component<{
       if (landActive && activeId && work.writes.some((w) => w.id === activeId))
         landActive();
     },
+    { name: "persistDerivedDefaults" },
   );
 
   /** Apply the drag's offset to the tile's persisted position.
@@ -464,6 +468,7 @@ const TerminalCanvas: Component<{
     (layout) => {
       if (layout) requestAnimationFrame(() => viewport.centerOnTile(layout));
     },
+    { name: "centerOnFocusRequest" },
   );
 
   // On first mount at the default origin, pan so the persisted active tile
@@ -539,6 +544,7 @@ const TerminalCanvas: Component<{
         else viewport.panTo(target.x, target.y);
       });
     },
+    { name: "centerOnFirstMount" },
   );
 
   /** Render a live-terminal tile. Driven by two id faces that coincide today

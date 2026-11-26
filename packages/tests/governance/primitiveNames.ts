@@ -40,15 +40,27 @@
  * | `createStore`, `createOptimisticStore` | 2nd for the VALUE form, 3rd for the function (projection) form |
  *
  * **The effect primitives are deliberately OUT of scope** — `createEffect`,
- * `createRenderEffect`, `createTrackedEffect`, `createReaction`. An effect
- * yields no node for anyone to read, and its findings are already addressed:
- * the compiler carries a location for them, so the dev lane's rows read
- * `App.tsx:426:7 effect` / `Terminal.tsx:1393:7 effect` (Run A). No effect
- * finding was ever location-less. The gap review 41 §3 found was
- * declarator-less VALUE nodes, whose rows carry neither a name nor a `loc`,
- * and that is exactly what this scan closes. Banning nameless effects would
- * instead tax all 169 of them with hand-written names the compiler can never
- * supply.
+ * `createRenderEffect`, `createTrackedEffect`, `createReaction`, `onSettled`.
+ * An effect yields no node for anyone to read, and the compiler cannot name
+ * one: `@solidjs/compiler` 2.0.3 emits `{ name, loc }` for a memo bound to a
+ * declarator and NOTHING for an effect, declared or not. An effect's reported
+ * location is therefore its nearest located OWNER's — the component's JSX
+ * site — so every effect in one component folds into ONE key: Run A's groups
+ * G and I both reported at `App.tsx:716:27` and could not be told apart.
+ *
+ * They stay out anyway, for the two reasons that are true: the tax is 181
+ * call sites in 101 files, each needing a hand-written string the compiler
+ * can never supply, and `onSettled` cannot be named at all — 2.0.4 declares
+ * `onSettled(callback)` with no options parameter (`signals.d.ts:740`).
+ *
+ * **The rule this scan cannot enforce, so it is written here instead:** when
+ * a commit adds an effect to a component that already has one, or touches an
+ * effect Run A reported only by its owner's location, it NAMES that effect by
+ * hand — `{ name }` in the 3rd argument of `createEffect`/`createRenderEffect`,
+ * the 2nd of `createTrackedEffect`/`createReaction` — and records the name in
+ * its group file, exactly as value-node names are recorded. The gap review 41
+ * §3 found was declarator-less VALUE nodes, whose rows carry neither a name
+ * nor a `loc`, and that is what this scan closes.
  *
  * **The position is checked, not merely the presence of a `name`.** A `name`
  * in the wrong argument is not an options bag: `createProjection(fn, { name },
