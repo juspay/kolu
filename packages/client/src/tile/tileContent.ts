@@ -35,3 +35,21 @@ export type TileId = TerminalId;
  *  Adding a kind is one new arm here plus one new `<Match>`/`.with(...)` at each
  *  dispatch — the silo becomes unrepresentable. */
 export type TileContent = { kind: "terminal"; terminalId: TerminalId };
+
+/** Whether two tile contents say the same thing — the kind, and the identity
+ *  that kind carries.
+ *
+ *  Beside the union, so a new arm declares its own equality here rather than
+ *  leaving each reader to invent one. `contentOf` answers a FRESH object per
+ *  call over a tracked tile set, so a reader memoising it needs this as its
+ *  `equals` or the whole content dispatch re-publishes on every tile add and
+ *  remove — an equal-but-new value, which is also what Solid's dev attribution
+ *  reports as an unstable memo output. */
+export function sameTileContent(
+  a: TileContent | undefined,
+  b: TileContent | undefined,
+): boolean {
+  if (a === b) return true;
+  if (a === undefined || b === undefined) return false;
+  return a.kind === b.kind && a.terminalId === b.terminalId;
+}

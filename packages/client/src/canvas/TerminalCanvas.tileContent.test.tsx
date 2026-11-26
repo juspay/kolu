@@ -15,6 +15,7 @@ import type { TileContent } from "../tile/tileContent";
 
 const content = vi.hoisted(() => ({
   of: (() => undefined) as (id: string) => TileContent | undefined,
+  mounts: 0,
 }));
 
 vi.mock("../tile/useTileStore", () => ({
@@ -134,4 +135,45 @@ it("follows the terminal its tile holds when the content changes", () => {
   setTerminalId(TWO);
   flush();
   expect(theme()).toBe(TWO);
+});
+
+it("churning the tile set leaves a tile's content dispatch alone", () => {
+  // `contentOf` mints a FRESH content object per call over the tracked tile
+  // set, so every add and remove re-runs this tile's content read with the
+  // same answer — the shape Solid's dev attribution reports as an unstable
+  // memo output once four consecutive runs do it.
+  const [present, setPresent] = createSignal<string[]>([TILE]);
+  content.of = (id) =>
+    present().includes(id) ? { kind: "terminal", terminalId: ONE } : undefined;
+  content.mounts = 0;
+
+  const host = document.createElement("div");
+  dispose = render(
+    () => (
+      <TerminalCanvas
+        tileIds={[TILE]}
+        getLayout={() => ({ x: 0, y: 0, w: 300, h: 200 })}
+        onLayoutChange={() => {}}
+        planLayoutChange={() => () => {}}
+        onSelect={() => {}}
+        onClose={() => {}}
+        onOpenWorkspaceSearch={() => {}}
+        onCreate={() => {}}
+        renderTileTitle={() => null}
+        renderTileBody={() => null}
+      />
+    ),
+    host,
+  );
+  expect(content.mounts).toBe(1);
+
+  for (let cycle = 1; cycle <= 5; cycle++) {
+    setPresent(cycle % 2 === 1 ? [TILE, "tile-2"] : [TILE]);
+    flush();
+  }
+
+  expect(content.mounts).toBe(1);
+  expect(
+    host.querySelector<HTMLElement>('[data-testid="tile"]')?.dataset.theme,
+  ).toBe(ONE);
 });
