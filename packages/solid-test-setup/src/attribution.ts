@@ -60,7 +60,11 @@
  * `ASYNC_WATERFALL` and `STACKED_HOLDS`. `fallbackFlashes` is left at its
  * default on purpose: its 150ms window judges a fallback that was shown and
  * taken away, which is a boundary's shape rather than the machine's speed, and
- * it found eight real sites in this repository.
+ * it found eight real sites in this repository. DECIDED: it therefore fails
+ * both judges — `FALLBACK_FLASH` is always graded `info`, and `info` is
+ * advisory only for `EFFECT_RELAY_TEAR`, so a flash fails the unit lane's
+ * `afterEach` and the `solid-dev` e2e lane alike. That is intended: a flashed
+ * fallback is a defect to fix, not a note to print.
  *
  * `log: false` turns off the per-re-run console print only. Every finding
  * still reaches `OBSERVE.diagnostics`, which is what both lanes read.
