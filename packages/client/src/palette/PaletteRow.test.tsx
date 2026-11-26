@@ -194,3 +194,60 @@ describe("a row's kind tag", () => {
     expect(tag()?.textContent).toBe("term");
   });
 });
+
+/** THE IDENTITY SLOT'S REPO is two strings that almost never move, while the
+ *  row object around them is rebuilt on every fleet snapshot. Reading them as
+ *  one minted pair handed the `<Show>` a new-but-equal condition value per
+ *  republish — Solid's `UNSTABLE_MEMO_OUTPUT`, which `@kolu/solid-test-setup`
+ *  fails the test on. */
+describe("a terminal row's repo identity", () => {
+  it("stays still across four republishes that leave the repo alone", () => {
+    const [row, setRow] = createSignal<PaletteRowMeta>({
+      kind: "terminal",
+      terminalId: ID,
+      terminalMeta: META,
+      hostKey: { kind: "local" },
+      repoName: "tidepool",
+      repoColor: "oklch(0.7 0.1 200)",
+      recencyAt: 0,
+    });
+    const host = document.createElement("div");
+    dispose = render(
+      () => (
+        <PaletteRow
+          cmd={{
+            kind: "label",
+            name: "tidepool",
+            get row() {
+              return row();
+            },
+          }}
+          selected={false}
+          segments={[{ text: "tidepool", hit: false }]}
+          showKindTag={false}
+          drillable={false}
+          onSelect={() => {}}
+          onHover={() => {}}
+        />
+      ),
+      host,
+    );
+    const monogram = host.querySelector(
+      '[data-testid="palette-repo-monogram"]',
+    );
+    const name = host.querySelector('[data-testid="palette-repo-name"]');
+    expect(name?.textContent).toBe("tidepool");
+
+    // Four fleet snapshots: a brand-new row object each time, same repo.
+    for (let i = 1; i <= 4; i++) {
+      setRow({ ...row(), recencyAt: i });
+      flush();
+    }
+
+    expect(host.querySelector('[data-testid="palette-repo-monogram"]')).toBe(
+      monogram,
+    );
+    expect(host.querySelector('[data-testid="palette-repo-name"]')).toBe(name);
+    expect(name?.textContent).toBe("tidepool");
+  });
+});
