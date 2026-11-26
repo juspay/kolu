@@ -57,7 +57,12 @@ import {
 import { toError } from "@kolu/surface/run-stream";
 import { Effect } from "effect";
 import type { TerminalId } from "kolu-common/surface";
-import { createEffect, createSignal, createStore } from "solid-js";
+import {
+  createEffect,
+  createSignal,
+  createStore,
+  runWithOwner,
+} from "solid-js";
 import { toast } from "solid-sonner";
 import { createSharedRoot } from "../createSharedRoot";
 import { runAction } from "../runAction";
@@ -76,6 +81,7 @@ import {
   type CodeViewState,
   codeHistoryVerbs,
   createCodeHistories,
+  type SelectedFiles,
   selectionWith,
 } from "../code-view/codeViewState";
 
@@ -167,6 +173,39 @@ function stateOf(id: TerminalId | null): RightPanelPerTerminalState {
   );
 }
 
+/** A record's values in plain objects of this module's own — never a store's,
+ *  at any depth.
+ *
+ *  {@link stateOf} answers with the LIVE object: `perTerminal[id]` is a
+ *  `createStore` proxy and a terminal's own `rightPanel` is a
+ *  subscription-store proxy. A container spread alone is not enough, because
+ *  `selectedFileByMode` is a nested object: the copy would carry the store's
+ *  own map, and reading its leaves later — in the effect phase, which is where
+ *  the write-only verbs run — is STRICT_READ_UNTRACKED. Copying both levels
+ *  here, inside a tracked compute, is what makes the mirror's promise true.
+ *  (`conductor/workCodeView.ts`'s `plainView` is the same copy for the work
+ *  face's record.) */
+function plainRecord(
+  s: RightPanelPerTerminalState,
+): RightPanelPerTerminalState {
+  return s.selectedFileByMode === undefined
+    ? { ...s }
+    : { ...s, selectedFileByMode: { ...s.selectedFileByMode } };
+}
+
+/** A record as a DRAFT: the decoded schema type is readonly all the way down,
+ *  and {@link writeFrom}'s mutator arm writes it leaf by leaf. */
+type RightPanelDraft = Omit<
+  {
+    -readonly [K in keyof RightPanelPerTerminalState]: RightPanelPerTerminalState[K];
+  },
+  "selectedFileByMode"
+> & {
+  selectedFileByMode?: {
+    -readonly [M in keyof SelectedFiles]: SelectedFiles[M];
+  };
+};
+
 /** The focused pane and the record it carries. */
 type PanePlace = {
   readonly id: TerminalId | null;
@@ -206,6 +245,13 @@ interface PlaceMirror {
  *  nothing else: no signal, no store, no I/O. The effect phase has nothing left
  *  to do, which is why it is empty rather than the keeper.
  *
+ *  It is a copy of the VALUES ({@link plainRecord}), not of the reference:
+ *  `stateOf` answers with the live store object, so mirroring it would hand
+ *  the write-only verbs a proxy to read leaves off. Copying here makes this
+ *  compute track the focused record's leaves, which is precisely the keeper's
+ *  job — a leaf written anywhere (this browser, a session restore, another
+ *  face) re-runs it and the mirror is current again.
+ *
  *  The initial value is the STATIC default, never `freshPerTerminalState()`:
  *  it is only ever read if something consults the mirror before the compute has
  *  run at all, and `collapsed` — the one field that seed reads a preference for
@@ -218,7 +264,10 @@ const focusedPlace = createSharedRoot((): PlaceMirror => {
       const id = store.focusedTerminalId();
       place = {
         id,
-        state: id === null ? DEFAULT_RIGHT_PANEL_PER_TERMINAL : stateOf(id),
+        state:
+          id === null
+            ? DEFAULT_RIGHT_PANEL_PER_TERMINAL
+            : plainRecord(stateOf(id)),
       };
     },
     () => {},
@@ -351,25 +400,45 @@ export function useRightPanel() {
    *
    *  The record the write PRODUCES is captured inside the mutator and handed on
    *  to {@link reportToServer} and to the place mirror: a read of
-   *  `perTerminal[id]` after the write would answer with the pre-write record. */
+   *  `perTerminal[id]` after the write would answer with the pre-write record.
+   *  It is handed on as plain VALUES ({@link plainRecord}) — the draft's own
+   *  `selectedFileByMode` is the store's nested object, and the mirror's whole
+   *  point is that nothing downstream reads a store leaf. The fresh entry is
+   *  copied the same way, so a mutator arm writing a leaf cannot reach back
+   *  into the caller's base.
+   *
+   *  The MUTATOR arm writes the draft leaf by leaf; the partial arm replaces
+   *  whole fields. A field holding an object (the selection map) belongs to
+   *  the mutator arm: assigning a fresh container over one the store already
+   *  holds is `IMMUTABLE_UPDATE_IN_STORE`, and wakes every reader of the
+   *  container's other leaves. */
   function writeFrom(
     id: TerminalId,
     base: RightPanelPerTerminalState,
     update:
       | Partial<RightPanelPerTerminalState>
-      | ((s: RightPanelPerTerminalState) => void),
+      | ((s: RightPanelDraft) => void),
     rpc: ReturnType<typeof padiRpcOf>,
   ): void {
     // Assigned by the mutator below, which the store setter runs synchronously.
     let written!: RightPanelPerTerminalState;
-    setPerTerminal((all) => {
-      const held = all[id];
-      const state = held ?? { ...base };
-      if (typeof update === "function") update(state);
-      else Object.assign(state, update);
-      if (!held) all[id] = state;
-      written = { ...state };
-    });
+    // DETACHED: `setSelectedFile` and the other write-only verbs run in the
+    // Code view's EFFECT PHASE, and a store setter under an owner is
+    // REACTIVE_WRITE_IN_OWNED_SCOPE — an error, not a warning. `createStore`
+    // has no `ownedWrite` to declare (only `createSignal` does), so detaching
+    // is the hatch, as `terminal/useTerminalDiagnostics.ts` detaches its own.
+    // It costs nothing: this is app-global per-terminal state rather than the
+    // caller's own, and nothing inside registers a cleanup.
+    runWithOwner(null, () =>
+      setPerTerminal((all) => {
+        const held = all[id];
+        const state = held ?? plainRecord(base);
+        if (typeof update === "function") update(state);
+        else Object.assign(state, update);
+        if (!held) all[id] = state;
+        written = plainRecord(state);
+      }),
+    );
     place.noteWrite(id, written);
     reportToServer(id, written, rpc);
   }
@@ -470,19 +539,42 @@ export function useRightPanel() {
     /** Per-mode file selection, keyed by `(focusedPane, mode)` so each pane
      *  remembers its own pick in each of local/branch/browse. */
     selectedFile: (mode) => paneState().selectedFileByMode?.[mode] ?? null,
-    // A shallow PATCH, not a draft mutation: the decoded record is readonly
-    // (Effect's `Struct.Type`), so the map is REBUILT ({@link selectionWith}).
+    // ONE LEAF PER WRITE. `selectionWith` decides — "unchanged", or the map
+    // the record should end up with — and the mutator arm below writes the
+    // single mode's key. Assigning the rebuilt map over the one the store
+    // already holds would be `IMMUTABLE_UPDATE_IN_STORE`, and would wake every
+    // reader of the OTHER modes' leaves for a one-mode change (the tree menu's
+    // cross-mode jump writes `browse` while `local` is shown, re-running the
+    // Local view's file query for nothing).
     //
-    // WRITE-ONLY: the pane and the record it carries both come from the mirror,
-    // and the write takes that record as its merge base, so nothing here reads
-    // reactive state. No focused pane is no target, exactly as `mutatePane`
-    // drops a write on an empty workspace.
+    // WRITE-ONLY, and now true at every depth: the mirror hands over a copy of
+    // the record's VALUES ({@link plainRecord}), so reading `selectedFileByMode`
+    // and its leaves here touches no store property. No focused pane is no
+    // target, exactly as `mutatePane` drops a write on an empty workspace.
     setSelectedFile: (mode, path) => {
       const { id, state } = place.now();
       if (id === null) return;
       const next = selectionWith(state.selectedFileByMode, mode, path);
-      if (next !== "unchanged")
-        writeFrom(id, state, { selectedFileByMode: next }, activePadiRpc);
+      if (next === "unchanged") return;
+      writeFrom(
+        id,
+        state,
+        (s) => {
+          if (next === undefined) {
+            // The last selection went away. ABSENCE — not a present
+            // `undefined` — is the only spelling of "no selection", on the
+            // wire and here.
+            delete s.selectedFileByMode;
+          } else if (s.selectedFileByMode === undefined) {
+            s.selectedFileByMode = { ...next };
+          } else if (path === null) {
+            delete s.selectedFileByMode[mode];
+          } else {
+            s.selectedFileByMode[mode] = path;
+          }
+        },
+        activePadiRpc,
+      );
     },
     // ── Navigation history (back / forward), one stack per pane ──────
     // Keyed by the mirror's plain id: `recordNavigation` lands in the effect

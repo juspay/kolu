@@ -1,5 +1,5 @@
 import { Effect } from "effect";
-import { flush } from "solid-js";
+import { createEffect, createMemo, createRoot, flush } from "solid-js";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 // useRightPanel reads `preferences()` and writes via `updatePreferences` from
@@ -11,7 +11,28 @@ const h = vi.hoisted(() => ({
   host: "host-A",
   saveOnOtherHost: vi.fn((): Effect.Effect<void, Error> => Effect.void),
   updatePreferences: vi.fn(),
-  setRightPanel: vi.fn((): Effect.Effect<void, Error> => Effect.void),
+  // The record the last report carried, with its selection map copied leaf by
+  // leaf, or `undefined` when the report carried no map at all.
+  decoded: undefined as
+    | { selectedFileByMode?: Record<string, string> }
+    | undefined,
+  // The REAL `chrome.setRightPanel` decodes its input at the edge
+  // (`@kolu/surface`'s unary dispatch: `decode(input)`), walking the record's
+  // leaves SYNCHRONOUSLY, in whatever phase the write was made from. A report
+  // that carries the store's own `selectedFileByMode` therefore reads a store
+  // leaf inside an effect's apply arm — STRICT_READ_UNTRACKED. This stand-in
+  // walks the same leaves, so the test harness sees what the wire would.
+  setRightPanel: vi.fn(
+    (input: {
+      selectedFileByMode?: Record<string, string>;
+    }): Effect.Effect<void, Error> => {
+      h.decoded =
+        input.selectedFileByMode === undefined
+          ? {}
+          : { selectedFileByMode: { ...input.selectedFileByMode } };
+      return Effect.void;
+    },
+  ),
   toastError: vi.fn(),
   prefs: {
     newTerminalCollapsed: false,
@@ -116,6 +137,7 @@ beforeEach(() => {
   h.updatePreferences.mockClear();
   h.setRightPanel.mockClear();
   h.toastError.mockClear();
+  h.decoded = undefined;
   h.activeId = null;
   h.focusedId = undefined;
   h.metadata = undefined;
@@ -333,6 +355,90 @@ describe("useRightPanel — the panel follows the focused pane", () => {
     expect(rp.code.selectedFile("browse")).toBe("main-only.ts");
     h.focusedId = split;
     expect(rp.code.selectedFile("browse")).toBe("split-only.ts");
+  });
+
+  // The two halves of ONE defect: the mirror the write-only verbs consult used
+  // to hold the store's own record, and the write replaced the whole selection
+  // map. `setSelectedFile` lands in the Code view's EFFECT PHASE (the open
+  // controller's `onResolved`), so the first half is a Solid dev diagnostic
+  // (`STRICT_READ_UNTRACKED`, which `@kolu/solid-test-setup` fails the test
+  // on), and the second is cost a reader can count: a write to one mode woke
+  // the readers of the other modes' leaves.
+  it("a selection written from an effect's apply arm reads no store leaf, and wakes only its own mode", () => {
+    const tile = "fp-arm-tile" as TerminalId;
+    h.activeId = tile;
+    const rp = useRightPanel();
+    // Seed the LOCAL entry first: until this write there is none, and the
+    // mirror carries the plain `freshPerTerminalState()` seed — the proxy only
+    // arrives once `perTerminal[tile]` exists.
+    rp.code.setSelectedFile("browse", "seed.ts");
+    flush();
+    createRoot((dispose) => {
+      let browseRuns = 0;
+      const browseFile = createMemo(() => {
+        browseRuns += 1;
+        return rp.code.selectedFile("browse");
+      });
+      expect(browseFile()).toBe("seed.ts");
+      flush();
+      const seeded = browseRuns;
+      // The real caller's phase: a write from an effect's apply arm.
+      createEffect(
+        () => undefined,
+        () => rp.code.setSelectedFile("local", "from-the-arm.ts"),
+        { name: "rightPanelArmSelection" },
+      );
+      flush();
+      expect(rp.code.selectedFile("local")).toBe("from-the-arm.ts");
+      expect(rp.code.selectedFile("browse")).toBe("seed.ts");
+      // The `browse` leaf never moved, so nothing reading it re-ran.
+      expect(browseRuns).toBe(seeded);
+      // The report the write produced reached the wire's decode with the whole
+      // selection map readable — and raised nothing doing it, from inside the
+      // apply arm.
+      expect(h.decoded).toEqual({
+        selectedFileByMode: { browse: "seed.ts", local: "from-the-arm.ts" },
+      });
+      expect(h.setRightPanel).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          id: tile,
+          selectedFileByMode: { browse: "seed.ts", local: "from-the-arm.ts" },
+        }),
+      );
+      dispose();
+    });
+  });
+
+  // Absence is the only spelling of "no selection": the wire's `optionalKey`
+  // rejects a present-but-`undefined` value, so an emptied map leaves the key
+  // off the record entirely.
+  it("dropping the last selection removes the map, and dropping one mode keeps the rest", () => {
+    const tile = "fp-drop-tile" as TerminalId;
+    h.activeId = tile;
+    const rp = useRightPanel();
+    rp.code.setSelectedFile("browse", "a.ts");
+    flush();
+    rp.code.setSelectedFile("local", "b.ts");
+    flush();
+    rp.code.setSelectedFile("browse", null);
+    flush();
+    expect(rp.code.selectedFile("browse")).toBeNull();
+    expect(rp.code.selectedFile("local")).toBe("b.ts");
+    expect(h.setRightPanel).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        id: tile,
+        selectedFileByMode: { local: "b.ts" },
+      }),
+    );
+    rp.code.setSelectedFile("local", null);
+    flush();
+    expect(rp.code.selectedFile("local")).toBeNull();
+    expect(h.decoded).toEqual({});
+    // An already-absent selection is not a write at all.
+    h.setRightPanel.mockClear();
+    rp.code.setSelectedFile("local", null);
+    flush();
+    expect(h.setRightPanel).not.toHaveBeenCalled();
   });
 
   it("navigation history is per pane", () => {

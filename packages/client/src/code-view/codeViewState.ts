@@ -152,7 +152,19 @@ export type SelectedFiles = NonNullable<
  *  mutation: the deselect arm drops the mode's key rather than writing
  *  `undefined` into it (an optional key on the wire refuses a present-but-
  *  undefined value), and an emptied map is `undefined` — absence is the only
- *  spelling of "no selection". */
+ *  spelling of "no selection".
+ *
+ *  `files` MUST BE A PLAIN SNAPSHOT, never a store's own map: the decision
+ *  below reads the map's leaves (`mode in cur`, `cur[mode]`, the rest spread),
+ *  and every caller is a WRITE-ONLY verb reached from the Code view's effect
+ *  phase, where a store read is STRICT_READ_UNTRACKED. Both homes hold their
+ *  merge base as plain values for exactly this reason
+ *  (`conductor/workCodeView.ts`'s `plainView`,
+ *  `right-panel/useRightPanel.ts`'s `plainRecord`).
+ *
+ *  The rebuilt map is the DECISION, not necessarily the write: a home whose
+ *  record lives in a store writes the one leaf it names, and reads this result
+ *  only to tell "unchanged" from "the last selection went away" (`undefined`). */
 export function selectionWith(
   files: SelectedFiles | undefined,
   mode: CodeTabView,
