@@ -26,22 +26,38 @@
  * RUNS AGAINST SOLID'S PRODUCTION TIER, in its own `bench` vitest project
  * (`packages/surface/vitest.config.ts`) — production builds, no
  * `@kolu/solid-test-setup` and so no attribution engine. That is the tier that
- * ships, and it is the only one this is measurable in: the dev tier with the
- * engine installed retains a change record, a `WeakRef` and a cost-fold entry
- * per committed write, so the tens of millions of writes below run out of
- * memory while measuring bookkeeping no user pays for.
+ * ships, and it is the only one this is measurable in: the full dev-tier run,
+ * with the engine installed through the inherited setup file, died out of
+ * memory, and a dev-tier number measures bookkeeping no user pays for anyway.
+ *
+ * THE TIER IS PROVEN AT LOAD, below, not asserted in this prose: `OBSERVE` is
+ * exported only by Solid's development runtime (the mirror of
+ * `@kolu/solid-test-setup/setup`'s guard, which throws when it is UNDEFINED),
+ * so a run that resolved the dev build fails before the first bench is built.
  *
  * Run: `just bench-collection-deltas`.
  */
 
 import { Schema } from "effect";
-import { createEffect, createRoot } from "solid-js";
+import { createEffect, createRoot, OBSERVE } from "solid-js";
 import { test } from "vitest";
 import type { CollectionDeltasMsg } from "../define";
 import { collection } from "../index";
 import { controllableStream } from "./controllableStream.testlib";
 import { createSubscription } from "./createSubscription";
 import { useCollectionDeltas } from "./useCollection";
+
+// THE TIER GUARD. `OBSERVE` is `undefined` in Solid's production build and
+// defined in its development one, so this throws at module load if anything —
+// a changed export condition, a project that re-collected `*.bench.ts` under
+// the dev posture — put this file on the tier that does not ship.
+if (OBSERVE !== undefined) {
+  throw new Error(
+    "collectionDeltas.bench.ts: solid-js resolved to its DEVELOPMENT build (OBSERVE is defined). " +
+      "This bench measures the production tier only: run it through `just bench-collection-deltas`, " +
+      "which uses the `bench` project in packages/surface/vitest.config.ts.",
+  );
+}
 
 interface Row {
   readonly cpu: number;

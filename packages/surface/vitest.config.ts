@@ -38,6 +38,14 @@ export default defineConfig({
     // DOM (`happy-dom`, as in the client), the transport/server/reactor tests
     // run in plain Node. A third project, `bench`, inherits nothing and runs the
     // benches against Solid's production tier.
+    //
+    // NO PROJECT INHERITING THIS CONFIG COLLECTS A BENCH. Under `vitest bench`
+    // vitest expands a `<name> (bench)` project out of every project, cloning
+    // its environment and setup files — which is how the dev tier reached the
+    // bench before. The empty include lives here, on the root, rather than only
+    // on each project, so a project added later is covered by default and only
+    // `bench` (which extends nothing) overrides it.
+    benchmark: { include: [] },
     projects: [
       {
         extends: true,
@@ -48,10 +56,9 @@ export default defineConfig({
           // Joins the root `setupFiles` (`extends` concatenates the arrays):
           // fails a test on any Solid dev diagnostic (`@kolu/solid-test-setup`).
           setupFiles: ["@kolu/solid-test-setup/setup"],
-          // The benches belong to the `bench` project below, not to a variant
-          // derived from this one: under `vitest bench` vitest expands a
-          // `<name> (bench)` project out of EVERY project, inheriting its
-          // environment and setup files.
+          // Belt to the root's braces: the benches belong to the `bench`
+          // project below, not to a `dom (bench)` variant derived from this
+          // one, which would carry this project's dev-tier setup files.
           benchmark: { include: [] },
         },
       },
@@ -69,15 +76,19 @@ export default defineConfig({
         // `extends: false`: since vitest 5 an inline project inherits the
         // declaring config by default, and the bench must NOT inherit the root
         // `solid()` dev posture or the dom setup. It measures what SHIPS —
-        // Solid's production builds, with no attribution engine — because the
-        // dev tier under `@kolu/solid-test-setup/setup` retains a change record,
-        // a `WeakRef` and a cost-fold entry per committed write, which no user
-        // ever pays for and which a multi-million-write bench cannot hold in
-        // memory.
+        // Solid's production builds, with no attribution engine. The dev tier
+        // is not an option here as well as being the wrong tier: the full
+        // dev-tier run, with the engine installed through the inherited setup
+        // file, died out of memory.
         extends: false,
         plugins: [solid({ dev: false })],
         environments: {
           client: { resolve: { conditions: PROD_CLIENT_CONDITIONS } },
+          // The bench's own graph is inlined (`server.deps.inline` below), so
+          // nothing in it is externalized and these SSR conditions go unused.
+          // They are stated so
+          // an externalized Solid consumer, were one ever added, resolves the
+          // production server build rather than a development one.
           ssr: { resolve: { conditions: PROD_SERVER_CONDITIONS } },
         },
         test: {
