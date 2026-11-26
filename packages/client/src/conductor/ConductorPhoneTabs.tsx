@@ -7,6 +7,7 @@
 import { type Component, createMemo, For, Show } from "solid-js";
 import { useMemoryNeed } from "./memory/useMemory";
 import { type PhoneView, phoneView, setPhoneView } from "./phoneView";
+import { sameFields } from "./sameItems";
 import { useNeedsYou } from "./useWorks";
 
 const TABS: ReadonlyArray<{ readonly view: PhoneView; readonly word: string }> =
@@ -19,12 +20,14 @@ const ConductorPhoneTabs: Component = () => {
   const needs = useNeedsYou();
   const memory = useMemoryNeed();
   /** What needs you in each view — a work with two questions is one, and the
-   *  memory's proposals are one. */
+   *  memory's proposals are one. Gated on the two counts: the needs-you list
+   *  is rebuilt whenever any work moves, and both tabs' capsules read this. */
   const waiting = createMemo(
     (): Record<PhoneView, number> => ({
       work: new Set(needs().map((one) => one.work)).size,
       chat: memory() ? 1 : 0,
     }),
+    { equals: sameFields },
   );
   return (
     <div

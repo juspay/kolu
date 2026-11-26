@@ -43,6 +43,7 @@ import type { JSX } from "@solidjs/web";
 import { ChecksIndicator, PrStateIcon } from "@kolu/solid-dockrow";
 import { ProviderUnavailableContent } from "../terminal/PrUnavailablePopover";
 import { assignColors } from "../terminal/terminalDisplay";
+import { sameEach, sameFields } from "../conductor/sameItems";
 import { getClockNow } from "../time/clock";
 import Chip from "../ui/Chip";
 import Disclosure from "../ui/Disclosure";
@@ -116,6 +117,44 @@ const checksSummary = (counts: Record<CheckStatus, number>): string =>
   TRIAGE.filter((o) => counts[o] > 0)
     .map((o) => `${counts[o]} ${OUTCOME[o].word}`)
     .join(" · ");
+
+/** TWO READINGS OF THE SECTION'S PR FACTS. The subscription hands a fresh PR
+ *  subtree on every frame and the fold mints its three derived fields on every
+ *  run, so the bundle is never the object it was — and without this gate the
+ *  whole section (its chip, its summary, every check row) is rebuilt per
+ *  frame. The checks are compared by what each one SAYS, because a re-minted
+ *  frame gives them new records for an unchanged list. */
+const sameWork = (a: object | null, b: object | null): boolean => {
+  if (a === b) return true;
+  if (a === null || b === null) return false;
+  const left = a as {
+    readonly unavailable: unknown;
+    readonly pr: Readonly<Record<string, unknown>> | null;
+  };
+  const right = b as typeof left;
+  if (left.unavailable !== right.unavailable) return false;
+  const one = left.pr;
+  const other = right.pr;
+  if (one === null || other === null) return one === other;
+  const keys = Object.keys(one);
+  if (keys.length !== Object.keys(other).length) return false;
+  return keys.every((key) => {
+    const mine = one[key];
+    const theirs = other[key];
+    if (key === "checkRuns")
+      return sameEach(sameFields)(
+        mine as ReadonlyArray<object>,
+        theirs as ReadonlyArray<object>,
+      );
+    if (mine === theirs) return true;
+    // `summary` and `rollup`: records of leaves, rebuilt per run.
+    return (
+      typeof mine === "object" &&
+      typeof theirs === "object" &&
+      sameFields(mine, theirs)
+    );
+  });
+};
 
 /** Where a LANE lives in odu web: its own attempt's log, or — for a lane that
  *  never started — the run page.
@@ -524,39 +563,42 @@ const WorkSection: Component<{
    *
    *  PR facts are live only on a live record; a sleeping terminal has no PR
    *  resolution (same gate the old Pull Request section used). */
-  const work = createMemo(() => {
-    const reading = props.subject.pr;
-    if (reading === null) return null;
-    const unavailable = prUnavailableSource(reading);
-    const pr = prValue(reading);
-    if (!pr) return { unavailable, pr: null };
-    const counts = countChecks(pr.checkRuns);
-    return {
-      unavailable,
-      pr: {
-        ...pr,
-        // Overrides the spread: ONE name for this list, already sorted. Keeping
-        // both `checkRuns` and a sorted `runs` twin let the JSX gate on one and
-        // render the other, and nothing stopped a later edit from rendering the
-        // unsorted one — which type-checks and silently drops the triage order.
-        checkRuns: [...pr.checkRuns].sort(
-          (a, b) => TRIAGE.indexOf(a.outcome) - TRIAGE.indexOf(b.outcome),
-        ),
-        summary: checksSummary(counts),
-        // The rollup is FOLDED HERE rather than published as a `counts` field
-        // for the view to re-derive: it is the whole reason the memo bundles,
-        // so finishing it here makes "verdict and tally describe one PR"
-        // structural instead of a convention the JSX has to keep.
-        rollup: pr.checks ? ciRollup(pr.checks, counts) : null,
-        /** Anything but a clean pass is an exception, and an exception
-         *  opens the list on its own. Read off the server's fold — the
-         *  same verdict the chip wears. `null` is "no checks
-         *  configured", which is not an exception (and renders no list
-         *  at all), so it is not read as not-pass. */
-        hasException: pr.checks !== null && pr.checks !== "pass",
-      },
-    };
-  });
+  const work = createMemo(
+    () => {
+      const reading = props.subject.pr;
+      if (reading === null) return null;
+      const unavailable = prUnavailableSource(reading);
+      const pr = prValue(reading);
+      if (!pr) return { unavailable, pr: null };
+      const counts = countChecks(pr.checkRuns);
+      return {
+        unavailable,
+        pr: {
+          ...pr,
+          // Overrides the spread: ONE name for this list, already sorted. Keeping
+          // both `checkRuns` and a sorted `runs` twin let the JSX gate on one and
+          // render the other, and nothing stopped a later edit from rendering the
+          // unsorted one — which type-checks and silently drops the triage order.
+          checkRuns: [...pr.checkRuns].sort(
+            (a, b) => TRIAGE.indexOf(a.outcome) - TRIAGE.indexOf(b.outcome),
+          ),
+          summary: checksSummary(counts),
+          // The rollup is FOLDED HERE rather than published as a `counts` field
+          // for the view to re-derive: it is the whole reason the memo bundles,
+          // so finishing it here makes "verdict and tally describe one PR"
+          // structural instead of a convention the JSX has to keep.
+          rollup: pr.checks ? ciRollup(pr.checks, counts) : null,
+          /** Anything but a clean pass is an exception, and an exception
+           *  opens the list on its own. Read off the server's fold — the
+           *  same verdict the chip wears. `null` is "no checks
+           *  configured", which is not an exception (and renders no list
+           *  at all), so it is not read as not-pass. */
+          hasException: pr.checks !== null && pr.checks !== "pass",
+        },
+      };
+    },
+    { equals: sameWork },
+  );
   const shown = useShown();
   /** This checkout's CI, read from ODU ITSELF: padi carries odu's own surface as
    *  a sibling (`entry(h).odu`), so this is odu's `checkout` stream and not a

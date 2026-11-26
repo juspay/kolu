@@ -18,12 +18,14 @@
 
 /** Two lists holding the SAME members in the same order. */
 export const sameItems = <T>(
-  a: readonly T[] | undefined,
-  b: readonly T[] | undefined,
+  a: readonly T[] | null | undefined,
+  b: readonly T[] | null | undefined,
 ): boolean =>
   a === b ||
   (a !== undefined &&
+    a !== null &&
     b !== undefined &&
+    b !== null &&
     a.length === b.length &&
     a.every((one, index) => one === b[index]));
 
@@ -32,11 +34,12 @@ export const sameItems = <T>(
  *  record with one of those takes {@link sameItems} on that field in a
  *  comparison of its own. */
 export const sameFields = (
-  a: object | undefined,
-  b: object | undefined,
+  a: object | null | undefined,
+  b: object | null | undefined,
 ): boolean => {
   if (a === b) return true;
-  if (a === undefined || b === undefined) return false;
+  if (a === undefined || b === undefined || a === null || b === null)
+    return false;
   const keys = Object.keys(a);
   if (keys.length !== Object.keys(b).length) return false;
   const left = a as Readonly<Record<string, unknown>>;

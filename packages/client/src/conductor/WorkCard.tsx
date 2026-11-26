@@ -91,6 +91,7 @@ import WorkStanding from "./WorkStanding";
 import {
   outcomeWords,
   repoName,
+  sameStages,
   stagesOf,
   timeSpentOnYou,
 } from "./workReadings";
@@ -230,9 +231,12 @@ const WorkCard: Component<{
   );
 
   /** THE STAGES, read once for the map, the trail and the timeline they
-   *  index. */
-  const read = createMemo(() =>
-    stagesOf(record(), new Date(now()).toISOString()),
+   *  index — and gated on what they say: the fold walks the whole timeline
+   *  again on every tick of the clock, so a card whose stages have not moved
+   *  would redraw its map, its trail and every timeline row each second. */
+  const read = createMemo(
+    () => stagesOf(record(), new Date(now()).toISOString()),
+    { equals: sameStages },
   );
   /** WHAT THE PICKED WORK SHOWS OF ITS TIMELINE — the stage pressed on the
    *  map or the visit pressed on the trail (none: the stage the work is in)

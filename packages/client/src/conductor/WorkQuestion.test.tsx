@@ -263,6 +263,38 @@ function mount(work: Work): HTMLElement {
   return el;
 }
 
+/** The form over a work that is READ AGAIN — a fresh record around the same
+ *  decision objects, which is what the collection hands a card per frame. */
+function mountLive(first: Work): {
+  readonly el: HTMLElement;
+  readonly reread: () => void;
+} {
+  const [work, setWork] = createSignal(first);
+  const el = document.createElement("div");
+  document.body.append(el);
+  root = el;
+  dispose = render(
+    () => (
+      <Shown value={() => true}>
+        <WorkQuestion
+          work={work()}
+          id="branch:local/src/now"
+          ask={ASK}
+          from="card"
+        />
+      </Shown>
+    ),
+    el,
+  );
+  return {
+    el,
+    reread: () => {
+      setWork((was) => ({ ...was, decisions: [...was.decisions] }));
+      flush();
+    },
+  };
+}
+
 /** Let the host's answer land and the form settle on it. */
 const settle = async (): Promise<void> => {
   for (let turn = 0; turn < 6; turn += 1) {
@@ -763,5 +795,25 @@ describe("a form answered in part", () => {
     await settle();
     submit(el).click();
     expect(sent()).toEqual({ "w-plan": ["Approve"] });
+  });
+});
+
+describe("a form over a work that is read again", () => {
+  it("keeps its questions, its chips and its Answer button across five reads", () => {
+    const { el, reread } = mountLive(
+      workOf("now", [
+        workSaid("w-done", { kind: "picked", picked: ["Approve"] }),
+        workAsked("w-plan", { question: "Approve the plan?" }),
+      ]),
+    );
+    const approve = chip(el, "w-plan", "Approve");
+    const button = submit(el);
+    const said = recorded(el);
+    // Five, not four: the diagnostic names a memo at four equal publishes.
+    for (let read = 1; read <= 5; read += 1) reread();
+    expect(chip(el, "w-plan", "Approve")).toBe(approve);
+    expect(submit(el)).toBe(button);
+    expect(recorded(el)).toEqual(said);
+    expect(options(el, "w-plan")).toEqual(["Approve", "Ask for changes"]);
   });
 });

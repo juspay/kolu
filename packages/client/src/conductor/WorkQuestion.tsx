@@ -87,6 +87,7 @@ import {
   toggleAskDraft,
 } from "./drafts";
 import { openReader } from "./reader/useReader";
+import { sameFields, sameItems } from "./sameItems";
 import { useConductor } from "./useConductor";
 import { useSetupAnswers } from "./useWorks";
 import WorkChip from "./WorkChip";
@@ -109,6 +110,26 @@ const readWords = (path: string): string => {
 const takesSeveral = (decision: Offered): boolean =>
   decision.topic === "work" && decision.multiple;
 
+/** TWO READINGS OF THE FORM AS IT WOULD BE SENT: the same questions, each
+ *  carrying the same answer. A value is a list of picks or the one thing
+ *  typed, and both are rebuilt per run, so neither can be compared by
+ *  reference. */
+const sameAnswers = (
+  a: Record<string, SentAnswer>,
+  b: Record<string, SentAnswer>,
+): boolean => {
+  const keys = Object.keys(a);
+  if (keys.length !== Object.keys(b).length) return false;
+  return keys.every((key) => {
+    const one = a[key];
+    const other = b[key];
+    if (one === undefined || other === undefined) return false;
+    if (Array.isArray(one))
+      return Array.isArray(other) && sameItems(one, other);
+    return !Array.isArray(other) && sameFields(one, other);
+  });
+};
+
 const WorkQuestion: Component<{
   work: Work;
   /** The id the work is filed under — what answering it names. */
@@ -127,24 +148,33 @@ const WorkQuestion: Component<{
 }> = (props) => {
   const orch = useConductor();
   /** The questions of this ask, in the order they were asked. A question the
-   *  REQUEST answered is not drawn: nobody is asked what they already said. */
-  const questions = createMemo(() =>
-    props.work.decisions.filter(
-      (one) =>
-        one.ask === props.ask &&
-        !(
-          isSettled(one) &&
-          one.answer.how !== "dropped" &&
-          one.answer.from === "request"
-        ),
-    ),
+   *  REQUEST answered is not drawn: nobody is asked what they already said.
+   *
+   *  The three lists are GATED on their rows: each filter mints a new list
+   *  around the same decision records on every move of the work, and the
+   *  `<For>`s and the Answer button below read all three. */
+  const questions = createMemo(
+    () =>
+      props.work.decisions.filter(
+        (one) =>
+          one.ask === props.ask &&
+          !(
+            isSettled(one) &&
+            one.answer.how !== "dropped" &&
+            one.answer.from === "request"
+          ),
+      ),
+    { equals: sameItems },
   );
   /** The ones still asked — the fields — and the ones already settled, which
    *  are drawn as the record of what was said ABOVE them. A form answered in
    *  parts is both at once. */
-  const open = createMemo(() => questions().filter((one) => isAsked(one)));
-  const recorded = createMemo(() =>
-    questions().filter((one) => isSettled(one)),
+  const open = createMemo(() => questions().filter((one) => isAsked(one)), {
+    equals: sameItems,
+  });
+  const recorded = createMemo(
+    () => questions().filter((one) => isSettled(one)),
+    { equals: sameItems },
   );
   const settled = () => open().length === 0;
 
@@ -275,16 +305,21 @@ const WorkQuestion: Component<{
   };
 
   /** The whole form, as it is sent: only the questions that have something in
-   *  them. */
-  const answers = createMemo((): Record<string, SentAnswer> => {
-    const sending: Record<string, SentAnswer> = {};
-    const rider = props.attach?.text() ?? "";
-    for (const decision of open()) {
-      const sent = sentOf(decision, rider);
-      if (Option.isSome(sent)) sending[decision.id] = sent.value;
-    }
-    return sending;
-  });
+   *  them. Gated on what it holds — the record and the values inside it are
+   *  rebuilt on every keystroke elsewhere in the form, and the Answer
+   *  button's dead-or-alive rule is drawn from this. */
+  const answers = createMemo(
+    (): Record<string, SentAnswer> => {
+      const sending: Record<string, SentAnswer> = {};
+      const rider = props.attach?.text() ?? "";
+      for (const decision of open()) {
+        const sent = sentOf(decision, rider);
+        if (Option.isSome(sent)) sending[decision.id] = sent.value;
+      }
+      return sending;
+    },
+    { equals: sameAnswers },
+  );
 
   /** NOTHING FILLED IN IS NOTHING TO SEND — the one rule the Answer button
    *  is dead by. */

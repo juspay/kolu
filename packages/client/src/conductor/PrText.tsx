@@ -9,12 +9,18 @@
 
 import { prLinks, type Work } from "kolu-work";
 import { type Component, createMemo, For, Show } from "solid-js";
+import { sameItems } from "./sameItems";
 
 const PR_NUMBER = /(#\d+)/;
 
 const PrText: Component<{ work: Work; text: string }> = (props) => {
   const links = createMemo(() => prLinks(props.work));
-  const parts = createMemo(() => props.text.split(PR_NUMBER));
+  // The same words, split again: the list is new and its parts are the
+  // strings it had, so without this gate every `<For>` row re-runs on any
+  // move of the record around it.
+  const parts = createMemo(() => props.text.split(PR_NUMBER), {
+    equals: sameItems,
+  });
   // `keyed={false}`: a part is a string, so its POSITION is its identity.
   return (
     <For each={parts()} keyed={false}>

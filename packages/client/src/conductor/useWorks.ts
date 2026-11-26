@@ -54,6 +54,7 @@ import {
 import { createSharedRoot } from "../createSharedRoot";
 import { app } from "../wire";
 import { workMentionOf, type WorkMention } from "./mentionCandidates";
+import { sameItems } from "./sameItems";
 import { type FileHolders, mergeHolders, pathsOf } from "./namedFiles";
 import { mergeNotes, notesOfWork, type WorkNote } from "./quietChat";
 import { type Joins, joinsOfWork, mergeJoins } from "./turnWorks";
@@ -118,12 +119,6 @@ const sameWorkRows = (
     return other !== undefined && other[0] === row[0] && other[1] === row[1];
   });
 
-/** THE SAME THINGS IN THE SAME ORDER — the gate for a derived list whose
- *  entries are already held by something else (an id off a row, a row memo's
- *  own answer), so identity is the whole question. */
-const sameOrder = <T>(a: ReadonlyArray<T>, b: ReadonlyArray<T>): boolean =>
-  a.length === b.length && a.every((one, at) => b[at] === one);
-
 /** THE WORKS, in the order every reader draws them: in progress oldest first
  *  (a card keeps its place), then the finished ones most recently ended first.
  *
@@ -168,7 +163,7 @@ const useWorkRecords = createSharedRoot<
   const works = useWorks();
   const ids = createMemo(() => works().map(([id]) => id), {
     name: "workRecordIds",
-    equals: sameOrder,
+    equals: sameItems,
   });
   const rows = mapArray(
     ids,
@@ -225,7 +220,7 @@ export const perWork = <T>(
   const records = useWorkRecords();
   const ids = createMemo(() => works().map(([id]) => id), {
     name: `${name}.ids`,
-    equals: sameOrder,
+    equals: sameItems,
   });
   const same =
     equals === undefined
@@ -367,7 +362,7 @@ export const useNeedsYou = createSharedRoot<Accessor<ReadonlyArray<NeedsYou>>>(
         }
         return out;
       },
-      { name: "needsYou", equals: sameOrder },
+      { name: "needsYou", equals: sameItems },
     );
   },
 );
@@ -402,7 +397,7 @@ export const useSetupAnswers = createSharedRoot<
   );
   return createMemo(() => rows().flatMap((row) => row() ?? []), {
     name: "setupAnswers",
-    equals: sameOrder,
+    equals: sameItems,
   });
 });
 
@@ -451,7 +446,7 @@ export const useAgentNotes = createSharedRoot<
   );
   return createMemo(() => mergeNotes(rows().map((row) => row() ?? [])), {
     name: "agentNotes",
-    equals: sameOrder,
+    equals: sameItems,
   });
 });
 
@@ -501,7 +496,7 @@ export const useWorkMentions = createSharedRoot<
         const one = row();
         return one === undefined ? [] : [one];
       }),
-    { name: "workMentions", equals: sameOrder },
+    { name: "workMentions", equals: sameItems },
   );
 });
 

@@ -60,6 +60,7 @@ import {
   repoName,
   SETUP_ROWS,
   setupLine,
+  sameStages,
   stagesOf,
   standingLine,
   timeSpentOnYou,
@@ -620,6 +621,22 @@ describe("which events an open card shows", () => {
       view: { kind: "visit", visit: 3, stage: "build", nth: 2, of: 2 },
       rows: rowsOfEvents([6]),
     });
+  });
+
+  it("says two readings of unmoved stages are the same, and a moved one is not", () => {
+    // The card re-folds on every tick of the clock and on every move of the
+    // record, and mints every cell, filing and visit afresh — so the gate on
+    // it has to read them rather than compare references.
+    const read = stagesOf(one, minute(40));
+    expect(sameStages(read, stagesOf(one, minute(40)))).toBe(true);
+    // A later clock moves the open stage's time, which is a real change.
+    expect(sameStages(read, stagesOf(one, minute(41)))).toBe(false);
+    // ... and so is an event that puts the work somewhere else.
+    const moved = work({
+      decisions: [mode("full")],
+      events: [...timeline, said("local/i", 35)],
+    });
+    expect(sameStages(read, stagesOf(moved, minute(40)))).toBe(false);
   });
 
   it("shows a doubt's events when its mark is pressed, under the doubt's name", () => {
