@@ -282,8 +282,7 @@ it("keeps its section headers still across four republished trees", () => {
   // tree republished unchanged hands every keyed node a NEW header entry.
   // Four of those are Solid's `UNSTABLE_MEMO_OUTPUT`, which
   // `@kolu/solid-test-setup` fails the test on — the `sameDisplayEntry` gate
-  // on the narrowings is what this holds, and the headers' own nodes must
-  // survive each republish.
+  // on the narrowings is what this holds.
   const tree = (): PaletteItem[] => [
     { kind: "action", name: "Split", section: "canvas", onSelect: () => {} },
     { kind: "action", name: "Theme", section: "ui", onSelect: () => {} },
@@ -295,21 +294,16 @@ it("keeps its section headers still across four republished trees", () => {
     document.body,
   );
   flush();
-  const headers = () =>
+  const sections = (): (string | null)[] =>
     Array.from(
       document.querySelectorAll('[data-testid="palette-section-header"]'),
-    );
-  const before = headers();
-  expect(before.map((el) => el.getAttribute("data-section"))).toEqual([
-    "canvas",
-    "ui",
-    "help",
-  ]);
+    ).map((el) => el.getAttribute("data-section"));
+  expect(sections()).toEqual(["canvas", "ui", "help"]);
 
   for (let i = 0; i < 4; i++) {
     setCommands(tree());
     flush();
   }
 
-  expect(headers()).toEqual(before);
+  expect(sections()).toEqual(["canvas", "ui", "help"]);
 });

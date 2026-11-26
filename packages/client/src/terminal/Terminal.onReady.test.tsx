@@ -16,11 +16,12 @@
 // `@kolu/xterm-kit` `<Xterm>` and its REAL lifecycle, and asks the one question
 // the e2e step "the terminal is ready" asks: did `onReady` reach its end?
 //
-// It is answered three ways, because a single assertion could be satisfied by a
+// It is answered four ways, because a single assertion could be satisfied by a
 // `onReady` that died later: the `__xterm` bridge (set near the TOP of
-// `onReady`), the first focus (near the BOTTOM, `Terminal.tsx`'s post-fit
-// focus), and the lifecycle's own `console.error` staying silent. Any owned
-// scope write that hides behind the first one fails the second.
+// `onReady`), the first focus (`Terminal.tsx`'s post-fit focus), the drag
+// listeners registered AFTER it (the last statements of `onReady`), and the
+// lifecycle's own `console.error` staying silent. Any owned scope write that
+// hides behind an earlier one fails a later assertion.
 //
 // Under `@kolu/solid-test-setup` the run also fails on any Solid diagnostic at
 // all, so this same mount is the zero-diagnostic proof for the kit's
@@ -28,10 +29,13 @@
 // snapshot the awaited font face, now `untrack`ed.
 //
 // WHAT IS STOOD IN FOR, and only this: the browser facts happy-dom does not
-// have (`document.fonts`, `ResizeObserver`), and kolu's WIRE — the host map,
-// the RPC, the preferences store and the terminal store — which is a server
-// connection, not a terminal. Every link between `<Terminal>` and the xterm it
-// drives is the production one, including the real `@xterm/xterm`.
+// have (`document.fonts`, `ResizeObserver`, `OffscreenCanvas` and a 2d
+// `getContext`), kolu's WIRE — the host map, the RPC, the preferences store and
+// the terminal store — which is a server connection, not a terminal, and four
+// surfaces that hang off the pane rather than drive it (`personInput`,
+// `WorkLock`, `PrintedUrlCard` and `solid-sonner`'s toaster). Every link
+// between `<Terminal>` and the xterm it drives is the production one, including
+// the real `@xterm/xterm`.
 
 import type { ITheme } from "@xterm/xterm";
 import type { TerminalId } from "kolu-common/surface";
@@ -176,11 +180,26 @@ describe("Terminal onReady", () => {
       (container as HTMLElement & { __xterm?: unknown }).__xterm,
     ).toBeDefined();
 
-    // BOTTOM of onReady: the first focus. Reached only if nothing in between
-    // threw — which is what makes this the proof that no LATER owned-scope
-    // write hides behind the handle signal's.
+    // MIDDLE of onReady: the first focus, which is what makes this the proof
+    // that no owned-scope write hides behind the handle signal's.
     expect(
       document.activeElement?.classList.contains("xterm-helper-textarea"),
     ).toBe(true);
+
+    // THE END of onReady: the file-drop listeners are the last thing it
+    // registers, so a drag that highlights the pane and a leave that clears it
+    // again is the proof that execution reached the final statements.
+    const drag = (type: string, relatedTarget: Node | null = null): void => {
+      const e = new Event(type, { bubbles: true, cancelable: true });
+      Object.defineProperty(e, "dataTransfer", {
+        value: { types: ["Files"], dropEffect: "none" },
+      });
+      Object.defineProperty(e, "relatedTarget", { value: relatedTarget });
+      container.dispatchEvent(e);
+    };
+    drag("dragover");
+    expect(container.dataset.dropTarget).toBe("");
+    drag("dragleave");
+    expect(container.dataset.dropTarget).toBeUndefined();
   });
 });

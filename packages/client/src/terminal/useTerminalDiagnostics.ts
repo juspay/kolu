@@ -103,10 +103,11 @@ export function registerDiagnostics(
   // from `Terminal.tsx`'s `onReady`, which the kit runs inside the pane's own
   // owner — an OWNED scope, where a store setter is
   // REACTIVE_WRITE_IN_OWNED_SCOPE and THROWS in a development build. A store
-  // setter has no `ownedWrite` to declare, so detaching the owner is the hatch
-  // (`detachedRoot.ts` takes the same one for the same reason). It costs
-  // nothing: this registry is app-global state rather than the caller's
-  // reactive state, and nothing in here registers a cleanup.
+  // setter has no `ownedWrite` to declare, so detaching the owner is the hatch.
+  // (`detachedRoot.ts` detaches too, but for an unrelated reason: the lifetime
+  // of what it creates, not the legality of a write.) It costs nothing: this
+  // registry is app-global state rather than the caller's reactive state, and
+  // nothing in here registers a cleanup.
   runWithOwner(null, () =>
     setStore((s) => {
       const held = s[id];
