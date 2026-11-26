@@ -5,12 +5,22 @@
  *  Ctrl+Tab), the boot pick a cold boot lands on, and the survivor the focus
  *  derivation hands the slot to when the active tile exits. Server activity
  *  clocks (agent output, etc.) do not count, and neither does a landing that
- *  re-states the pane already focused: the active tile already holds the
- *  newest stamp on this host, so refreshing it moves nothing's rank — while
- *  the callers that re-land most are effect apply arms, where the write would
- *  tear every reader of the trail. The store holds host+terminal keys and
- *  timestamps only; labels are joined live from the fleet index so nothing
- *  denormalizes.
+ *  RE-STATES the pane already focused.
+ *
+ *  That last one is a trade, not a free drop. Within one host it changes no
+ *  ranking — the tile is already this host's newest stamp — but the trail is
+ *  ONE cross-host list and ⌘K's Recent band is fleet-wide, so a stamp that is
+ *  not refreshed can be outranked by a tile visited on ANOTHER host in
+ *  between: stay on X here, visit Y there, and X ranks below Y though you
+ *  never left X. What is bought is the relay: the callers that re-land most
+ *  are effect apply arms (the canvas's placement pass, a dock row landing on
+ *  the pane it is already on), and a refresh from there is a trail write out
+ *  of an effect that had just read the census, which tears every reader of
+ *  the trail. The alternative — refreshing from a non-relaying path — buys a
+ *  rank nobody asked for at the price of a write per placement pass.
+ *
+ *  The store holds host+terminal keys and timestamps only; labels are joined
+ *  live from the fleet index so nothing denormalizes.
  *
  *  Consumers:
  *  - ⌘K Recent ranks by max(visitedAt, serverActivityAt)

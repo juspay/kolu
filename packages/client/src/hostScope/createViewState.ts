@@ -197,9 +197,13 @@ export function createViewState(
   // `chrome.setActive` per re-landing, and that trail write tore `mruOrder`,
   // which had read the same census (the judged `EFFECT_RELAY_TEAR`). Re-stating
   // a fact is not news: the write, the visit and the report are dropped here.
-  // The unread mark is not — it is cleared on every landing, re-stated or not,
-  // because looking at a terminal ends its mark — and the pane's refocus nonce
-  // has its own call site.
+  // THE TRADE IS CROSS-HOST, and it is real: the trail is one fleet-wide list,
+  // so a stamp this gate does not refresh can be outranked in ⌘K's Recent band
+  // by a tile visited on ANOTHER host while you stayed on this one. The
+  // alternative was the apply-arm trail write above, per placement pass; see
+  // `terminal/visitRecency.ts`'s header. The unread mark is NOT dropped — it is
+  // cleared on every landing, re-stated or not, because looking at a terminal
+  // ends its mark — and the pane's refocus nonce has its own call site.
   //
   // AND KEYED ON THE CENSUS, so the auto-switch is a DERIVATION too. When the
   // census drops the tile the written fact names, the survivor occupying its
