@@ -40,8 +40,9 @@ const SCENARIO_FLOOR = 500;
  * off the importing process's own argv — the importer is this child, so a
  * feature argument drops `ui.paths` and lets the argument select the run,
  * exactly as `just record` and a one-feature `just test` do. `env` is added
- * to this process's environment, so the profile's env-keyed `tags` is
- * computed the way the lane computes it.
+ * to the CHILD's environment (`spawnSync`'s `env: { ...process.env, ...env }`
+ * below), which is where `cucumber.js` reads it, so the profile's env-keyed
+ * `tags` is computed the way the lane computes it.
  */
 function dryRun(features: string[], env: NodeJS.ProcessEnv = {}) {
   const dir = mkdtempSync(path.join(tmpdir(), "kolu-cucumber-support-"));
