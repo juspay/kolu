@@ -307,3 +307,41 @@ it("keeps its section headers still across four republished trees", () => {
 
   expect(sections()).toEqual(["canvas", "ui", "help"]);
 });
+
+it("builds no command tree while it is closed, and a fresh one on open", () => {
+  // The palette's content is force-mounted and merely hidden while closed,
+  // so a palette that read its commands unconditionally held the whole app
+  // tree — every fleet terminal, every work record — subscribed to a surface
+  // nobody is looking at, and rebuilt it on every tick behind it.
+  const [tick, setTick] = createSignal(0);
+  let builds = 0;
+  const commands = (): PaletteItem[] => {
+    builds++;
+    return [{ kind: "action", name: `Row ${tick()}`, onSelect: () => {} }];
+  };
+  const [open, setOpen] = createSignal(false);
+  dispose = render(
+    () => (
+      <CommandPalette
+        commands={commands}
+        open={open()}
+        onOpenChange={setOpen}
+      />
+    ),
+    document.body,
+  );
+  flush();
+  expect(builds).toBe(0);
+
+  for (let i = 0; i < 4; i++) {
+    setTick(i + 1);
+    flush();
+  }
+  expect(builds).toBe(0);
+
+  // Opening reads the tree as it stands NOW — no stale frame to catch up on.
+  setOpen(true);
+  flush();
+  expect(builds).toBe(1);
+  expect(document.querySelector('[role="option"]')?.textContent).toBe("Row 4");
+});

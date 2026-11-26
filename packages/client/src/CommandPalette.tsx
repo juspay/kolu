@@ -363,6 +363,23 @@ const CommandPalette: Component<{
   // keyboard highlight (open-under-cursor shimmer).
   const [mouseActive, setMouseActive] = createSignal(false);
   let lastPointerPos: PointerPos | null = null;
+  /** THE COMMAND TREE AS A SHUT PALETTE SEES IT — the last one it was given.
+   *
+   *  The palette's content is force-mounted and merely hidden while closed
+   *  (`ModalDialog`), so every read of `props.commands()` below — the list,
+   *  the path walk, the footer — is a live subscription to the whole app
+   *  command tree: at kolu's scale that is every fleet terminal and every
+   *  work record, rebuilt on each metadata tick for a palette nobody is
+   *  looking at. Reading it only while open ends that, and changes nothing a
+   *  reader can see: the rows a hidden palette holds are not on screen, and
+   *  opening is itself a change to `props.open`, so the first open frame
+   *  reads the tree fresh. The rows stay MOUNTED meanwhile, which is what
+   *  force-mounting is for. */
+  const commandTree = createMemo<PaletteItem[]>(
+    (prev) => (props.open ? props.commands() : (prev ?? [])),
+    { name: "paletteCommandTree" },
+  );
+
   /** The drill PATH — the segments the user drilled into, derived from the
    *  OPEN EDGE and trimmed to what the live command tree still resolves. A
    *  WRITABLE MEMO, not a plain signal: the path FOLLOWS `props.open` and the
@@ -456,7 +473,7 @@ const CommandPalette: Component<{
     valid: DrillableKind[];
     level: PaletteItem[];
   } {
-    let level: PaletteItem[] = props.commands();
+    let level: PaletteItem[] = commandTree();
     const valid: DrillableKind[] = [];
     for (const segment of p) {
       const match = level.find(
@@ -493,16 +510,16 @@ const CommandPalette: Component<{
 
   /** Items at the current navigation level (may include hints).
    *
-   *  Resolves the drilled-in path by **name** against the fresh
-   *  `props.commands()` tree, not by object reference against the
+   *  Resolves the drilled-in path by **name** against the live
+   *  `commandTree()`, not by object reference against the
    *  snapshot captured in `path()`. */
   const currentItems = createMemo((): PaletteItem[] => {
     const p = path();
-    if (p.length === 0) return props.commands();
+    if (p.length === 0) return commandTree();
     const { valid, level } = resolveLivePath(p);
     // While the reconcile effect hasn't trimmed yet, render the deepest
     // still-valid level — never the stale missing segment's children.
-    if (valid.length === 0) return props.commands();
+    if (valid.length === 0) return commandTree();
     if (valid.length < p.length)
       return resolveChildren(valid[valid.length - 1]!);
     return level;
@@ -868,7 +885,7 @@ const CommandPalette: Component<{
     names: readonly string[],
   ): DrillableKind[] | null {
     if (names.length === 0) return null;
-    let level: PaletteItem[] = props.commands();
+    let level: PaletteItem[] = commandTree();
     const built: DrillableKind[] = [];
     for (const name of names) {
       const match = level.find(
@@ -1102,11 +1119,19 @@ const CommandPalette: Component<{
   // Notify highlighted item when selection changes. Cancels the previous
   // leaf's onCancel first so root-flattened previews (theme) don't stick.
   // Tracks props.open so the effect re-fires on reopen with the same selection.
+  //
+  // THE LIST IS READ ONLY WHILE THE PALETTE IS OPEN. The apply arm already
+  // did nothing while closed; reading `filtered()` in the compute regardless
+  // kept the whole command tree — every fleet row, every work's record —
+  // subscribed to a shut palette, so a work frame or metadata tick rebuilt
+  // it for nobody. `props.open` is still a dependency, so re-opening
+  // recomputes and the first open frame is what it always was.
   let lastHighlight: (PaletteCommand | PaletteLabel) | undefined;
   createEffect(
-    () => [filtered(), effectiveIndex(), props.open] as const,
-    ([items, idx, open]) => {
-      if (!open) return;
+    () => (props.open ? ([filtered(), effectiveIndex()] as const) : null),
+    (seen) => {
+      if (seen === null) return;
+      const [items, idx] = seen;
       const next = items[idx];
       if (next === lastHighlight) {
         next?.onHighlight?.();
