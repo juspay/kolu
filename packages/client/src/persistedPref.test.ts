@@ -86,17 +86,19 @@ describe("perHostPref", () => {
     // A decoy real-localStorage key of the SAME composed name: the old cleanup deleted
     // THIS instead of the fake's key, so the assertion below is falsifiable.
     localStorage.setItem("kolu-x:local", "GLOBAL-DECOY");
-    const dispose = createRoot((d) => {
-      const [, setV] = perHostPref<boolean>({
+    // The write happens OUTSIDE the creating scope: a setter call in a
+    // `createRoot` body is a write in an owned scope, which Solid 2 rejects.
+    const [dispose, setV] = createRoot((d) => {
+      const [, set] = perHostPref<boolean>({
         host: LOCAL,
         base: "kolu-x",
         fallback: false,
         parse: (r) => r === "true",
         storage: fake,
       });
-      setV(true);
-      return d;
+      return [d, set] as const;
     });
+    setV(true);
     expect(fake.getItem("kolu-x:local")).toBe("true");
     dispose();
     // Evicted from the fake it wrote to…

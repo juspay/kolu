@@ -52,7 +52,7 @@
     "@solid-primitives/event-listener": "^3.0.0",
     "@solid-primitives/media": "^4.0.0",
     "@solid-primitives/resize-observer": "^4.0.0",
-    "@solid-primitives/storage": "^5.0.0",
+    "@solid-primitives/storage": "^5.0.1",
     "@solidjs/meta": "^2.0.0",
     "@solidjs/web": "^2.0.4",
     "@xterm/addon-clipboard": "^0.2.0",

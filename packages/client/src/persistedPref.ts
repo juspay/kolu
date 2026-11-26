@@ -148,22 +148,7 @@ export type PersistedPref<T> = [value: Accessor<T>, set: Setter<T>, loaded: T];
  *  disposer, which stops the sync subscription and any pending hydration read.
  *  Under a reactive owner the disposer runs with that owner; a pref built at
  *  module scope has no owner and lives as long as the page, so there is
- *  nothing to dispose.
- *
- *  `ownedWrite` — an INTERNAL signal that intentionally accepts a write from
- *  the scope that creates it: `makePersisted` hydrates by calling this setter
- *  synchronously while it builds the pref, and most prefs are built inside an
- *  owner (a `createRoot`, a component or hook body). Without it that hydration
- *  write is a write in an owned scope, which `makePersisted` swallows — the
- *  stored value would be silently dropped for the fallback in dev while
- *  production kept it. Nothing outside this module can reach the signal to
- *  write it from an owned scope for any other reason.
- *
- *  The fix is merged upstream (solidjs-community/solid-primitives#1137,
- *  `9c935afb`: `makePersisted` restores the stored value outside the creating
- *  owner) and ships in `@solid-primitives/storage@5.0.1`. Bumping to it
- *  deletes `{ ownedWrite: true }` below, this paragraph and the one above it,
- *  and the comment at the call. */
+ *  nothing to dispose. */
 export function persistedPref<T>(
   opts: PersistedPrefOptions<T>,
 ): PersistedPref<T> {
@@ -177,9 +162,7 @@ export function persistedPref<T>(
   // loaded value DURING construction takes it from here.
   let loaded: T | undefined;
   const [value, setValue, , dispose] = makePersisted(
-    // `ownedWrite`: see the header — deleted with the bump to
-    // `@solid-primitives/storage@5.0.1`.
-    createSignal<T>(opts.fallback, { ownedWrite: true, name: opts.name }),
+    createSignal<T>(opts.fallback, { name: opts.name }),
     {
       name: opts.name,
       storage: opts.storage,

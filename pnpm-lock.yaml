@@ -531,8 +531,8 @@ importers:
         specifier: ^4.0.0
         version: 4.0.0(@solidjs/web@2.0.4(solid-js@2.0.4))(solid-js@2.0.4)
       '@solid-primitives/storage':
-        specifier: ^5.0.0
-        version: 5.0.0(@solidjs/web@2.0.4(solid-js@2.0.4))(solid-js@2.0.4)
+        specifier: ^5.0.1
+        version: 5.0.1(@solidjs/web@2.0.4(solid-js@2.0.4))(solid-js@2.0.4)
       '@solidjs/meta':
         specifier: ^2.0.0
         version: 2.0.0(@solidjs/web@2.0.4(solid-js@2.0.4))(solid-js@2.0.4)
@@ -4350,8 +4350,8 @@ packages:
       '@solidjs/web': ^2.0.0
       solid-js: ^2.0.0
 
-  '@solid-primitives/storage@5.0.0':
-    resolution: {integrity: sha512-HNZxmWrOqiz8kzxrSkghP2DTVrIxzgYmE2txT9K/OiHV1ReCbcW/OzCFchvUguJzhxqi4YCkU36B2JSUgO5/Og==}
+  '@solid-primitives/storage@5.0.1':
+    resolution: {integrity: sha512-euC7xJ/skaiAbgv3k6wmM7I6IuEpsp55CKCwx01XT4kN1Y5EKj50Duce/h0QifmHAyT+7ZCq/7x442ml0R1R+Q==}
     peerDependencies:
       '@solidjs/web': ^2.0.0
       '@tauri-apps/plugin-store': '*'
@@ -7945,7 +7945,7 @@ snapshots:
       '@solidjs/web': 2.0.4(solid-js@2.0.4)
       solid-js: 2.0.4
 
-  '@solid-primitives/storage@5.0.0(@solidjs/web@2.0.4(solid-js@2.0.4))(solid-js@2.0.4)':
+  '@solid-primitives/storage@5.0.1(@solidjs/web@2.0.4(solid-js@2.0.4))(solid-js@2.0.4)':
     dependencies:
       '@solid-primitives/utils': 7.0.1(@solidjs/web@2.0.4(solid-js@2.0.4))(solid-js@2.0.4)
       '@solidjs/web': 2.0.4(solid-js@2.0.4)
