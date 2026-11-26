@@ -136,6 +136,36 @@ export interface KeyedDisplayEntry {
   entry: DisplayEntry;
 }
 
+/** Whether two render entries are the same entry — the same kind carrying the
+ *  same displayed content.
+ *
+ *  {@link displayed} mints fresh entry objects on every recompute, so a list
+ *  republished unchanged hands each keyed node a NEW entry with identical
+ *  fields. The narrowings below gate on this so an unchanged section header
+ *  (or host header, or row) stops the republish at the narrowing instead of
+ *  re-running every attribute under it. Rows and host headers carry live
+ *  command/group payloads, which are compared by reference: a fresh payload is
+ *  a real change, because its callbacks and status are what the node renders. */
+export function sameDisplayEntry(
+  a: DisplayEntry | undefined,
+  b: DisplayEntry | undefined,
+): boolean {
+  if (a === b) return true;
+  if (a === undefined || b === undefined) return false;
+  if (a.kind === "header") {
+    return b.kind === "header" && a.section === b.section;
+  }
+  if (a.kind === "host-header") {
+    return (
+      b.kind === "host-header" &&
+      a.name === b.name &&
+      a.count === b.count &&
+      a.group === b.group
+    );
+  }
+  return b.kind === "row" && a.index === b.index && a.cmd === b.cmd;
+}
+
 /** The identity an entry WANTS — its logical name in the tree.
  *
  *  Deliberately not unique on its own: a terminal has an id and a host has an
@@ -1259,18 +1289,31 @@ const CommandPalette: Component<{
               <For each={keyedDisplay()} keyed={(keyed) => keyed.key}>
                 {(keyed) => {
                   const entry = () => keyed().entry;
-                  const header = () => {
-                    const e = entry();
-                    return e.kind === "header" ? e : undefined;
-                  };
-                  const host = () => {
-                    const e = entry();
-                    return e.kind === "host-header" ? e : undefined;
-                  };
-                  const row = () => {
-                    const e = entry();
-                    return e.kind === "row" ? e : undefined;
-                  };
+                  // Each narrowing is a GATE: `keyedDisplay()` republishes a
+                  // fresh entry object for every refresh, so without
+                  // `sameDisplayEntry` an unchanged header would re-run every
+                  // attribute under its `<Show>` on every tick.
+                  const header = createMemo(
+                    () => {
+                      const e = entry();
+                      return e.kind === "header" ? e : undefined;
+                    },
+                    { equals: sameDisplayEntry },
+                  );
+                  const host = createMemo(
+                    () => {
+                      const e = entry();
+                      return e.kind === "host-header" ? e : undefined;
+                    },
+                    { equals: sameDisplayEntry },
+                  );
+                  const row = createMemo(
+                    () => {
+                      const e = entry();
+                      return e.kind === "row" ? e : undefined;
+                    },
+                    { equals: sameDisplayEntry },
+                  );
                   return (
                     <>
                       <Show when={header()}>

@@ -276,3 +276,40 @@ it("navigates from the visible highlight after the command list shrinks", () => 
   press("Enter");
   expect(selected).toHaveBeenCalledWith("a");
 });
+
+it("keeps its section headers still across four republished trees", () => {
+  // `displayed()`/`keyedDisplay()` mint fresh entries on every refresh, so a
+  // tree republished unchanged hands every keyed node a NEW header entry.
+  // Four of those are Solid's `UNSTABLE_MEMO_OUTPUT`, which
+  // `@kolu/solid-test-setup` fails the test on — the `sameDisplayEntry` gate
+  // on the narrowings is what this holds, and the headers' own nodes must
+  // survive each republish.
+  const tree = (): PaletteItem[] => [
+    { kind: "action", name: "Split", section: "canvas", onSelect: () => {} },
+    { kind: "action", name: "Theme", section: "ui", onSelect: () => {} },
+    { kind: "action", name: "Docs", section: "help", onSelect: () => {} },
+  ];
+  const [commands, setCommands] = createSignal(tree());
+  dispose = render(
+    () => <CommandPalette commands={commands} open onOpenChange={() => {}} />,
+    document.body,
+  );
+  flush();
+  const headers = () =>
+    Array.from(
+      document.querySelectorAll('[data-testid="palette-section-header"]'),
+    );
+  const before = headers();
+  expect(before.map((el) => el.getAttribute("data-section"))).toEqual([
+    "canvas",
+    "ui",
+    "help",
+  ]);
+
+  for (let i = 0; i < 4; i++) {
+    setCommands(tree());
+    flush();
+  }
+
+  expect(headers()).toEqual(before);
+});
