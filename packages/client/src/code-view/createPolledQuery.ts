@@ -58,6 +58,7 @@ import {
   createMemo,
   createSignal,
   createStore,
+  type StoreSetter,
   untrack,
 } from "solid-js";
 import { runActionPromise } from "../runAction";
@@ -127,30 +128,54 @@ export function createPolledQuery<Input, PulseInput, Pulse, Result>(
     active = () => true,
   } = config;
 
-  const [store, setStore] = createStore<{ v: Result | undefined }>({
-    v: undefined,
-  });
-  const [pending, setPending] = createSignal(true);
-  const [error, setError] = createSignal<Error | undefined>();
-  // Mirrors `createSubscription`'s typed-end fact: latches true once the PULSE
-  // stream (the thing that would ever tell this query to requery again) ends
-  // normally — never on abort (an input change / teardown). Without it, this
+  // THE VALUE AND THE KEY IT IS AN ANSWER TO, in one store: a landing writes
+  // both, so no reader can ever see one without the other. Everything this
+  // primitive publishes is then DERIVED by comparing that stamp with the
+  // standing input's — which is why an input change needs no reset write at
+  // all, and why `sub()`/`pending()` move in the SAME flush as the input
+  // rather than one flush behind it (`EFFECT_RELAY_TEAR`: every memo keyed on
+  // a query's value used to run once with the previous input's answer and
+  // again after the poll's apply arm blanked it).
+  const [store, setStore] = createStore<{
+    key: string | null;
+    v: Result | undefined;
+  }>({ key: null, v: undefined });
+  /** The value half of that store, as `writeWrappedValue` takes it. The
+   *  helper's own callbacks only assign, so dropping their (always `void`)
+   *  return is what lets one store carry the stamp beside the value. */
+  const setValue: StoreSetter<{ v: Result | undefined }> = (fn) => {
+    setStore((s) => {
+      fn(s);
+    });
+  };
+  // The failure that answered a key, stamped the same way: an error IS an
+  // answer, so it ends `pending` for its own key and for no other.
+  const [errored, setErrored] = createSignal<{
+    key: string;
+    error: Error;
+  } | null>(null);
+  // Mirrors `createSubscription`'s typed-end fact: holds the key whose PULSE
+  // stream (the thing that would ever tell this query to requery again) ended
+  // normally — never an abort (an input change / teardown). Without it, this
   // hand-rolled `Subscription` silently dropped the field a real one always
   // populates, and a consumer that checks `.complete?.()` (same as any other
   // stream-backed subscription) would see "not complete" forever even after the
   // pulse genuinely stopped.
-  const [complete, setComplete] = createSignal(false);
+  const [completedKey, setCompletedKey] = createSignal<string | null>(null);
 
   /** The ONE error sink for BOTH channels — the requery AND the pulse stream.
    *  Routing the pulse (watcher-install) failure here, not to a separate
    *  `onError`-only path, is the fix for the disjoint-channels bug: a persistent
-   *  watcher failure (inotify ENOSPC) now sets `error()` + clears `pending()` so
+   *  watcher failure (inotify ENOSPC) now sets `error()` + ends `pending()` so
    *  the Code tab shows a real error and un-sticks a pre-first-frame "Loading…",
    *  exactly as the old value stream did — the 4s toast alone left stale state
    *  forever. The two guards below are the two benign-transient carve-outs; a
    *  survivor sets `error()`, whose rising EDGE drives the single `onError`
-   *  below, so the panel and the toast can never disagree. */
-  function surfaceError(raw: unknown): void {
+   *  below, so the panel and the toast can never disagree.
+   *
+   *  The key is the one the READ was issued under, so a failure that outlives
+   *  its input is simply not an answer to the standing one. */
+  function surfaceError(key: string, raw: unknown): void {
     const err = raw instanceof Error ? raw : new Error(String(raw));
     // Reconnect-window blip: `rawStream`'s STREAM_RETRY re-subscribes and the
     // pulse re-fires `{seq:0}`, so a genuine persistent failure re-surfaces on
@@ -158,31 +183,14 @@ export function createPolledQuery<Input, PulseInput, Pulse, Result>(
     if (!live()) return;
     // Caller-classified benign transient (e.g. the viewed file was deleted).
     if (swallowError?.(err)) return;
-    setError(err);
-    if (pending()) setPending(false);
-  }
-
-  // The input key the value currently in `store.v` corresponds to — `null` while
-  // blank. The resume decision reads it: on re-activation, an unchanged key means the
-  // held value is still the answer (keep it, refresh), a changed key means a new query
-  // (blank). One value per instance (NOT a cache/LRU) — the instance IS a single host's
-  // query, so it only ever holds that host's one current value.
-  let shownKey: string | null = null;
-
-  /** Reset to the empty/loading state: no value, `pending`, no shown key. The idle
-   *  input and the changed-query paths below share it. */
-  function blank(): void {
-    setStore((s) => {
-      s.v = undefined;
-    });
-    setPending(true);
-    shownKey = null;
+    setErrored({ key, error: err });
   }
 
   // The requery-per-pulse-frame loop (subscribe pulse → requery → emit, with
   // abort-supersede) is the framework-free `pollOnChange` core in `@kolu/surface`;
-  // this file keeps only the Solid ergonomics that wrap it — the reconciled store
-  // write, the `pending`/`error` signals, `shownKey`, and the #818/#1714 guard.
+  // this file keeps only the Solid ergonomics that wrap it — the reconciled
+  // store write, the derived `pending`/`error`/`complete`, and the #818/#1714
+  // contract.
   // The core's in-flight requery is torn down through the pulse `signal` below
   // (aborted by the cleanup this effect RETURNS, on re-run and on dispose).
 
@@ -208,6 +216,41 @@ export function createPolledQuery<Input, PulseInput, Pulse, Result>(
     { equals: (a, b) => a.key === b.key },
   );
 
+  /** THE KEY THE FACES ANSWER FOR — the standing input's while this query is
+   *  the shown one, and the stamp the store already carries while it is
+   *  PAUSED. Pausing freezes what a background host publishes: its input can
+   *  still tick (it reads shared state), and a switch-BACK must find the held
+   *  value, not a blank the pause itself caused. */
+  const shownKey = (): string | null =>
+    active() ? inputState().key : store.key;
+
+  /** THE THREE FACES, all derived against that key.
+   *
+   *  An answer belongs to the key it was read for: the value while the stamp
+   *  matches, nothing while it does not. So a new input is blank and `pending`
+   *  from the instant it is written — no reset write, nothing for a reader to
+   *  see one flush early — and a resume on an unchanged key is the held value
+   *  with no blank, which is what `active` exists to protect (padi W9's
+   *  instant switch-back). An idle input (`key === null`) answers nothing and
+   *  stays `pending`, exactly as the idle blank used to. */
+  const value = (): Result | undefined => {
+    const key = shownKey();
+    return key !== null && store.key === key ? store.v : undefined;
+  };
+  const pending = (): boolean => {
+    const key = shownKey();
+    return key === null || (store.key !== key && errored()?.key !== key);
+  };
+  const error = (): Error | undefined => {
+    const key = shownKey();
+    const failure = errored();
+    return failure !== null && failure.key === key ? failure.error : undefined;
+  };
+  const complete = (): boolean => {
+    const key = shownKey();
+    return key !== null && completedKey() === key;
+  };
+
   createEffect(
     () => {
       const isActive = active();
@@ -224,10 +267,10 @@ export function createPolledQuery<Input, PulseInput, Pulse, Result>(
       };
     },
     ({ isActive, i, key, pulse, pulseIn }) => {
-      // The previous run's RETURNED cleanup (pulse abort) has already run. While PAUSED
-      // (this host is not the shown one), the pulse is torn down — no background
-      // polling — and the held value + `pending` + `shownKey` are FROZEN for a later
-      // resume. Do NOT blank; a switch-BACK must find the value here.
+      // The previous run's RETURNED cleanup (pulse abort) has already run.
+      // While PAUSED (this host is not the shown one), the pulse is torn down
+      // — no background polling — and the store keeps the value it holds,
+      // stamped with the key it answers, for a later resume.
       // (The effect still re-runs when the ACTIVE host's `input` ticks while we are
       // paused, since `input` reads shared state; each such run is this same no-op.)
       if (!isActive) {
@@ -236,32 +279,25 @@ export function createPolledQuery<Input, PulseInput, Pulse, Result>(
         // requery the core dispatched. That matters: a requery already dispatched would
         // otherwise land AFTER the switch and write THIS now-background host's retained
         // store off the NOW-active host's reactive reads (e.g. `BrowseFileDispatcher`'s
-        // binary branch builds its URL from `activeHost()` AFTER its `filePreviewTag`
-        // await — a cross-host mix). The held value + `pending` + `shownKey` stay frozen
-        // for the switch-BACK, so no blank and no late write. Nothing to do but hold.
+        // binary branch builds its URL from `activeHost()` AFTER its
+        // `filePreviewTag` await — a cross-host mix). The stamped value stays
+        // for the switch-BACK, so no late write. Nothing to do but hold.
         return;
       }
 
-      // ACTIVE. The resume/blank decision is "does `store.v` already hold THIS key?".
-      // (The previous run's returned cleanup already aborted its `pollOnChange` — pulse
-      // + in-flight requery — so a stale read can't land over this run.)
-      setError(undefined);
-      setComplete(false);
+      // ACTIVE. THE ARM WRITES NOTHING: a changed key is already blank and
+      // `pending` through the faces above, and an unchanged one — the
+      // switch-BACK case — already answers with the value the store still
+      // holds, refreshed by the pulse's first frame. All that is left is to
+      // subscribe the pulse and hand back its abort.
       if (i === null) {
         // Idle input: no pulse, no query. (`key` is null exactly when `i` is.)
-        blank();
         return;
       }
       // `key` is non-null exactly when `i` is (both derive from `input()` in
-      // `inputState`), so past the guard above it is the canonical string to compare
-      // against `shownKey` and stamp this run's value under.
+      // `inputState`), so past the guard above it is the canonical string to
+      // stamp this run's answers under.
       const activeKey = key as string;
-      // A changed query BLANKS — a real input change while active, the first activation,
-      // or the query changed while paused — going `pending` until the fresh read lands
-      // (the `#1714` active-path behavior, unchanged). An UNCHANGED key is the switch-BACK
-      // case: fall through with the held value kept (no blank, not `pending`), refreshed by
-      // the pulse below on its first frame (the immediate refresh on activation).
-      if (activeKey !== shownKey) blank();
       // The pulse: an UNENROLLED STREAM_RETRY stream over the active host's link
       // (`activePadiStreams.<pulse>.unenrolled`). Each frame requeries; the
       // stream re-subscribes transparently on reconnect (STREAM_RETRY) and re-yields its
@@ -288,18 +324,22 @@ export function createPolledQuery<Input, PulseInput, Pulse, Result>(
         // `connectPollNode`, where an Effect's interruption drives a controller.
         query: (signal) => runActionPromise(query(i), signal),
         onResult: (result) => {
-          // A requery updates the value IN PLACE (reconciled — no blank), stamps the
-          // shown key, and clears `pending`/`error` on a fresh landing. The writes
-          // share one microtask flush.
-          writeWrappedValue<Result>(setStore, result);
-          shownKey = activeKey;
-          if (pending()) setPending(false);
-          if (error()) setError(undefined);
+          // THE LANDING, which is the root fact this primitive exists to
+          // publish — not a relay: it comes from the read's own completion, not
+          // from an effect's frame. The value lands IN PLACE (reconciled — no
+          // blank) and the key it answers lands with it, in the same flush, so
+          // `sub()` and `pending()` cannot disagree. A fresh answer retires the
+          // failure that stood for this key.
+          setStore((s) => {
+            s.key = activeKey;
+          });
+          writeWrappedValue<Result>(setValue, result);
+          if (errored() !== null) setErrored(null);
         },
-        onError: (err) => surfaceError(err),
+        onError: (err) => surfaceError(activeKey, err),
         // Normal completion — the pulse ended on its own (a typed end, e.g. the
         // host/entry left membership). Mirrors `createSubscription`'s typed-end.
-        onComplete: () => setComplete(true),
+        onComplete: () => setCompletedKey(activeKey),
         signal: pulseCtl.signal,
       });
       // The poll's lifetime is this run's: the RETURNED cleanup aborts it on
@@ -307,9 +347,12 @@ export function createPolledQuery<Input, PulseInput, Pulse, Result>(
       // in-flight requery.
       return () => pulseCtl.abort();
     },
+    // An effect carries no compiler name, and this one is a relay suspect by
+    // construction: it is the arm every query's pulse is subscribed from.
+    { name: "createPolledQuery.poll" },
   );
 
-  const sub = Object.assign(() => store.v, {
+  const sub = Object.assign(value, {
     error,
     pending,
     complete,
