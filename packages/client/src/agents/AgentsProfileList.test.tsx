@@ -360,4 +360,27 @@ describe("adding", () => {
     expect(input.value).toBe("");
     expect(f.changes).toEqual([]);
   });
+
+  it("typing on, with the same row still the only match, republishes no rows", () => {
+    // `matching` mints a fresh array of the very SAME suggestion objects on
+    // every keystroke, so a draft that keeps narrowing onto one row publishes
+    // an equal-but-new list each frame — which re-checks the whole menu, and
+    // which Solid's dev attribution reports as UNSTABLE_MEMO_OUTPUT (array)
+    // once four consecutive runs do it.
+    const f = mount([]);
+    const input = f.input();
+    if (input === null) throw new Error("no input");
+    type(input, "j");
+    expect(options().map((o) => o.dataset.value)).toEqual([JUSPAY_PROFILE]);
+    const row = options()[0];
+
+    for (const draft of ["ju", "jus", "jusp", "juspa"]) {
+      type(input, draft);
+      expect(options().map((o) => o.dataset.value)).toEqual([JUSPAY_PROFILE]);
+    }
+
+    // The one matching row is the same object each pass, so its button is the
+    // same element: identity per index is what the gate compares.
+    expect(options()[0]).toBe(row);
+  });
 });
