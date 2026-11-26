@@ -319,6 +319,31 @@ export type StatePipBind = {
   alertLabel: string;
 };
 
+/** Whether two bound pips say the same thing — field by field over the eleven
+ *  primitives above.
+ *
+ *  Beside {@link bindStatePip} because the bag and the test for "is this the
+ *  same bag" are one authority: every member is a primitive derived from the
+ *  terminal's facts, so a re-run with unchanged facts mints a new object that
+ *  is field-identical to the last. A reactive consumer memoising the fold
+ *  passes this as `equals`, and a row whose ranking moved stops waking its
+ *  paint, its motion and its recency cell for a pip that did not change. */
+export function sameStatePip(a: StatePipBind, b: StatePipBind): boolean {
+  return (
+    a === b ||
+    (a.variant === b.variant &&
+      a.glyph === b.glyph &&
+      a.motion === b.motion &&
+      a.active === b.active &&
+      a.asking === b.asking &&
+      a.bytesLive === b.bytesLive &&
+      a.shellLive === b.shellLive &&
+      a.sleeping === b.sleeping &&
+      a.alert === b.alert &&
+      a.alertLabel === b.alertLabel)
+  );
+}
+
 /** Pure terminal facts → StatePip props.
  *
  *  `attention` arrives as ONE value from the attention fold rather than as a

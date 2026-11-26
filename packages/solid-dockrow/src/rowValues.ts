@@ -40,6 +40,7 @@ export {
   pipMotionKind,
   pipShellLive,
   pipVariant,
+  sameStatePip,
   type StatePipBind,
   type UnparkedPaintBucket,
 } from "./pipBind.ts";
@@ -50,6 +51,7 @@ export {
   type RecencyMode,
   recencyMode,
   recencyText,
+  sameRowRecency,
   type RowClocks,
   rowRecency,
   type RowRecency,

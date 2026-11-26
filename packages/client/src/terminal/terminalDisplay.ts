@@ -57,6 +57,24 @@ export function pairDisplayRow(
   return info && meta ? { info, meta } : null;
 }
 
+/** Whether two display rows carry the SAME two references.
+ *
+ *  Beside the fold that mints them, because the pairing and the test for "is
+ *  this the same pairing" are one authority: `pairDisplayRow` allocates a fresh
+ *  wrapper around two identity-stable projection records on every call, so a
+ *  memo over it publishes a new-but-equivalent object whenever its id or the
+ *  store moves — waking every reader for nothing. This is that memo's `equals`.
+ *  Reference equality on the halves is the whole test: both are keyed store
+ *  projections whose records are retained while unchanged. */
+export function sameDisplayRow(
+  a: { info: TerminalDisplayInfo; meta: TerminalMetadata } | null,
+  b: { info: TerminalDisplayInfo; meta: TerminalMetadata } | null,
+): boolean {
+  if (a === b) return true;
+  if (a === null || b === null) return false;
+  return a.info === b.info && a.meta === b.meta;
+}
+
 /** The title a client-side EXPORT of one terminal carries — the PNG copied to
  *  the clipboard and the PDF printed from the scrollback.
  *

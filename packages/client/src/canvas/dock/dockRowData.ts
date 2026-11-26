@@ -7,6 +7,7 @@ import { type Accessor, createMemo } from "solid-js";
 import { annotationLine } from "../../intent/text";
 import {
   pairDisplayRow,
+  sameDisplayRow,
   type TerminalDisplayInfo,
 } from "../../terminal/terminalDisplay";
 import { useTerminalStore } from "../../terminal/useTerminalStore";
@@ -25,7 +26,12 @@ export function createDockRowData(
   const store = useTerminalStore();
   return createMemo(
     () => pairDisplayRow(store.getDisplayInfo(id()), store.getMetadata(id())),
-    { name: "dockRowData" },
+    // The pair is a fresh wrapper around two identity-stable projection
+    // records, and the memo tracks the id as well as the store — so a re-rank
+    // that rewrites the row's item signal re-runs it with the same two halves.
+    // The gate keeps that re-run from waking the row's attribute effect, its
+    // pip and its recency cell.
+    { name: "dockRowData", equals: sameDisplayRow },
   );
 }
 

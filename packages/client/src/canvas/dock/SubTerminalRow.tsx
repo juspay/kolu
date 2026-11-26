@@ -18,6 +18,7 @@ import { DockRow } from "@kolu/solid-dockrow";
 import {
   dockRowFacts,
   type DockRowSurface,
+  sameRowRecency,
 } from "@kolu/solid-dockrow/rowValues";
 import type { TerminalId } from "kolu-common/surface";
 import { type Component, createMemo, Show } from "solid-js";
@@ -75,8 +76,11 @@ export const SubTerminalRow: Component<{
         // The split's OWN recency on both channels. `ts` in the ranking fold IS
         // `rowRecencyAt(meta)` — a split has no wider window than itself, and
         // the tile-wide fold is the parent's line, already rendered above it.
-        const recency = createMemo(() =>
-          rowRecency(pip(), { window: props.row.ts, own: props.row.ts }),
+        const recency = createMemo(
+          () => rowRecency(pip(), { window: props.row.ts, own: props.row.ts }),
+          // A fresh `{ mode }`/`{ mode, text }` per run: the gate stops a
+          // re-rank from re-rendering the same words in the recency cell.
+          { equals: sameRowRecency },
         );
         return (
           <DockRow

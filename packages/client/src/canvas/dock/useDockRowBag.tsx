@@ -36,7 +36,7 @@
 
 import type { TerminalMetadata } from "@kolu/padi-client/vocab";
 import type { DockRowProps } from "@kolu/solid-dockrow";
-import { dockRowFacts } from "@kolu/solid-dockrow/rowValues";
+import { dockRowFacts, sameRowRecency } from "@kolu/solid-dockrow/rowValues";
 import type { TerminalId } from "kolu-common/surface";
 import { fleetTerminalRef } from "kolu-mcp/fleetRef";
 import { type Accessor, createMemo } from "solid-js";
@@ -112,11 +112,16 @@ export function useDockRowBag(): (input: {
     // `.mode` and `.text` inside whichever branch renders), and a getter
     // re-runs the whole fold — and re-allocates its `{ window, own }` and its
     // `CompactDelta` — once per read, per row, per repaint.
-    const recency = createMemo(() =>
-      rowRecency(pip(), {
-        window: input.recencyAt(),
-        own: rowRecencyAt(input.combined().meta),
-      }),
+    const recency = createMemo(
+      () =>
+        rowRecency(pip(), {
+          window: input.recencyAt(),
+          own: rowRecencyAt(input.combined().meta),
+        }),
+      // A fresh `{ mode }`/`{ mode, text }` per run, and the fold reads the
+      // row's own props — so a re-rank re-runs it with the same words. The
+      // gate keeps `RecencyCell`'s four reads from re-rendering them.
+      { equals: sameRowRecency },
     );
     return {
       get id() {

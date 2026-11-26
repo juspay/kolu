@@ -19,7 +19,7 @@ import type {
   DockRowBucket,
   StatePipBind,
 } from "@kolu/solid-dockrow/rowValues";
-import { bindStatePip } from "@kolu/solid-dockrow/rowValues";
+import { bindStatePip, sameStatePip } from "@kolu/solid-dockrow/rowValues";
 import type { TerminalMetadata } from "@kolu/padi-client/surface";
 import type { TerminalId } from "kolu-common/surface";
 import { type Accessor, createMemo } from "solid-js";
@@ -41,6 +41,10 @@ export function useStatePip(
         unread: unread(),
         pipBucket: pipBucket?.(),
       }),
-    { name: "statePipBind" },
+    // The bag is eleven primitives, freshly allocated per run, and the memo
+    // tracks four accessors a caller feeds from its row prop — so a re-rank
+    // re-runs it with the terminal's facts unchanged. The gate keeps an
+    // unchanged pip from waking the row's paint, motion and recency readers.
+    { name: "statePipBind", equals: sameStatePip },
   );
 }
