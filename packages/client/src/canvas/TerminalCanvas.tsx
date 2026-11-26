@@ -223,18 +223,29 @@ const TerminalCanvas: Component<{
   // `allRecordsSettled` re-arms the derivation when a deferred tile's record
   // arrives (undefined -> defined). It's a BOOLEAN memo, so a metadata VALUE
   // change (agent state, cwd, git) does NOT re-derive placement — only the tile
-  // set changing or the "all records arrived" edge does, keeping placement's
-  // dependency set down to the tile ids (a metadata tick must not wake it).
+  // set changing, the "all records arrived" edge, or a tile gaining/losing a
+  // layout of its own does, keeping placement's dependency set down to the tile
+  // ids (a metadata tick must not wake it).
   const isMetadataRecordPresent = (id: TileId): boolean =>
     store.getMetadata(id) !== undefined;
   const allRecordsSettled = createMemo(() =>
     props.tileIds.every(isMetadataRecordPresent),
   );
+  // The ECHO edge. A tile this canvas default-placed leaves the map when its
+  // own layout lands (the `onLayoutChange` write, then the server's echo), and
+  // that only happens if placement WAKES on it. Counting the tiles with no
+  // layout of their own is the narrowest edge that does: it ticks when a tile
+  // gains or loses a layout — never when an already-placed tile's layout VALUE
+  // changes, so a drag echo or a metadata tick still cannot wake placement.
+  const unplacedCount = createMemo(
+    () => props.tileIds.filter((id) => resolvedLayout(id) === undefined).length,
+  );
   const defaultPlacements = createMemo<Map<TileId, TileLayout>>(
     (previous = new Map()) => {
       const ids = props.tileIds;
-      // The two edges that may WAKE placement, and nothing else.
+      // The three edges that may WAKE placement, and nothing else.
       void allRecordsSettled();
+      void unplacedCount();
       void viewport.mounted();
       // Everything below is a SNAPSHOT taken at that edge: read untracked so a
       // camera pan or a metadata VALUE tick is not a dependency and cannot
@@ -282,9 +293,10 @@ const TerminalCanvas: Component<{
       });
     },
     {
-      // The echo arriving empties this map; a re-derivation that changes
-      // nothing must not republish into `layoutOf` (and through it the
-      // minimap's bounds and the switch-in centering resolver).
+      // A placed tile's own layout landing re-derives this map (the
+      // `unplacedCount` edge) and empties the tile out of it; a re-derivation
+      // that changes nothing must not republish into `layoutOf` (and through
+      // it the minimap's bounds and the switch-in centering resolver).
       equals: (a, b) =>
         a.size === b.size &&
         [...a].every(([id, l]) => {
@@ -294,6 +306,10 @@ const TerminalCanvas: Component<{
     },
   );
 
+  // The create-time size is armed for ONE create, so exactly one tile claims
+  // it: the tile the create made. Any other tile appearing in the same pass
+  // (another client's create landing in the same push, a restore) is not what
+  // the user sized from, and takes the plain default.
   function sizeForNewTile(id: TileId): { w: number; h: number } {
     const inherited = pendingLayouts.claimNextDefaultSize(id);
     return {
