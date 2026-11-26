@@ -52,7 +52,9 @@ vi.mock("./useWorks", () => ({
 }));
 vi.mock("./WorkCode", () => ({ default: () => <div /> }));
 vi.mock("./WorkLive", () => ({ default: () => <div /> }));
-vi.mock("./WorkCardActions", () => ({ default: () => <div /> }));
+// `WorkCardActions` is NOT mocked: its own fold over the record
+// (`needsYouOf`) is one of the scopes this file judges, and it is drawn on
+// the board face below.
 vi.mock("./WorkTerminals", () => ({ default: () => <div /> }));
 vi.mock("./WorkSubtitle", () => ({ default: () => <p /> }));
 

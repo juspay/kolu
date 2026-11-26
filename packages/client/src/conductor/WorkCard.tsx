@@ -469,7 +469,7 @@ const WorkCard: Component<{
                 </div>
                 <div class="px-2.5 pb-2">
                   {map()}
-                  <WorkCardActions id={props.id} work={props.work} />
+                  <WorkCardActions id={props.id} work={record()} />
                   <Show when={isOpen() && live() !== undefined}>{views()}</Show>
                 </div>
               </>
