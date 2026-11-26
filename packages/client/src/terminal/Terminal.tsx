@@ -105,6 +105,7 @@ import {
   consumeReattachingStream,
   REATTACH_BACKOFF_MS,
 } from "./reattachingStream";
+import { createScrollLockFacts } from "./scrollLockFacts";
 import ScrollToBottom from "./ScrollToBottom";
 import SearchBar from "./SearchBar";
 import { createShownPane, type ShownPaneFacts } from "./shownPane";
@@ -218,6 +219,13 @@ const Terminal: Component<{
   const [handle, setHandle] = createSignal<XtermHandle | null>(null, {
     ownedWrite: true,
   });
+  /** The scroll-to-bottom button's two facts, derived once per change. The
+   *  button's props share this component's JSX effect with reads of the pane's
+   *  own store, while the scroll lock's mirrors move from inside the effect
+   *  phase (the write door buffering a chunk) — so reading them inline ran
+   *  that effect twice for one store write, the second time to show the lock
+   *  state the first frame had stale. */
+  const scrollLockFacts = createScrollLockFacts(handle);
   /** The live handle as a PLAIN reference — the imperative half's copy of the
    *  signal above, set and cleared in the very same two places (`onReady`, the
    *  consumer teardown). The SIGNAL is what the JSX reads; this is what the
@@ -1383,8 +1391,8 @@ const Terminal: Component<{
         )}
       </Show>
       <ScrollToBottom
-        visible={handle()?.scrollLock.isLocked() ?? false}
-        active={handle()?.scrollLock.hasNewOutput() ?? false}
+        visible={scrollLockFacts().locked}
+        active={scrollLockFacts().newOutput}
         onClick={() => {
           const h = handle();
           if (h) h.scrollLock.scrollToBottom(h.terminal);
