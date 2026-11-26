@@ -213,6 +213,51 @@ it("keeps following the pointer when the default echoes mid-gesture", () => {
   });
 });
 
+/** A GESTURE IN PROGRESS OUTRANKS A FOREIGN VALUE.
+ *
+ *  A saved layout nobody here authored — another client moving the same tile —
+ *  releases a COMMITTED override at once: the server is authoritative, and a
+ *  rejected write must not pin the tile. A gesture that has not committed yet
+ *  is a different thing: nothing of it has gone on the wire, so there is
+ *  nothing to be authoritative about, and master kept it until its own echo.
+ *  Releasing it froze the tile under the pointer for the rest of the drag. */
+it("keeps following the pointer when another client moves the tile mid-drag", () => {
+  const canvas = mountCanvas();
+  const derived = canvas.layout() as TileLayout;
+  const drag = canvas.ports();
+
+  drag.preview(10, 10);
+  flush();
+  // Another client drops the same tile somewhere else, mid-drag.
+  const FOREIGN: TileLayout = { x: -400, y: -300, w: derived.w, h: derived.h };
+  canvas.setSaved(FOREIGN);
+  flush();
+  expect(canvas.layout()).toEqual({
+    ...derived,
+    x: derived.x + 10,
+    y: derived.y + 10,
+  });
+
+  // The pointer moves on, and the tile goes with it.
+  drag.preview(60, 30);
+  flush();
+  expect(canvas.layout()).toEqual({
+    ...derived,
+    x: derived.x + 60,
+    y: derived.y + 30,
+  });
+
+  // Dropped: the value is on the wire now, so the foreign rule applies to it
+  // and the server's value wins — here, and for the next one it sends.
+  drag.commit(60, 30);
+  flush();
+  expect(canvas.layout()).toEqual(FOREIGN);
+  const OTHER: TileLayout = { x: 11, y: 22, w: derived.w, h: derived.h };
+  canvas.setSaved(OTHER);
+  flush();
+  expect(canvas.layout()).toEqual(OTHER);
+});
+
 it("leaves the authored trail at the number of committed writes", () => {
   const canvas = mountCanvas();
   const drag = canvas.ports();

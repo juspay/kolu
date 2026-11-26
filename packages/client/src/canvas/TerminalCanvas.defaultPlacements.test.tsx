@@ -60,20 +60,9 @@ vi.mock("./useCanvasCenterOnSwitch", () => ({
 vi.mock("./useViewPosture", () => ({
   useViewPosture: () => ({ layout: () => "tiled", toggle: () => {} }),
 }));
-vi.mock("./usePendingLayouts", () => ({
-  usePendingLayouts: () => ({
-    setOne: () => {},
-    previewOne: () => {},
-    applyMany: () => {},
-    clear: () => {},
-    dropIds: () => {},
-    deadIds: () => [],
-    hasOverride: () => false,
-    setNextDefaultSize: () => {},
-    claimNextDefaultSize: () => null,
-    resolveLayout: (_id: string, saved: unknown) => saved,
-  }),
-}));
+// `usePendingLayouts` is REAL here: a withdrawal only re-places the tile if
+// the override the user's last gesture left behind is genuinely released, and
+// a stub that answers the saved value cannot see that.
 vi.mock("./viewport/useCanvasViewport", () => ({
   createContainerSizeObserver: () => {},
   useCanvasViewport: () => ({
@@ -111,12 +100,18 @@ vi.mock("./CanvasTile", () => ({
 }));
 
 import TerminalCanvas from "./TerminalCanvas";
+import { usePendingLayouts } from "./usePendingLayouts";
 
 const TILE = "tile-1";
 const FAR: TileLayout = { x: 9000, y: 9000, w: 300, h: 200 };
 
 let dispose: (() => void) | undefined;
-afterEach(() => dispose?.());
+afterEach(() => {
+  dispose?.();
+  dispose = undefined;
+  // The pending store is a module singleton.
+  usePendingLayouts().clear();
+});
 
 it("re-places a tile from the current camera once its own layout has gone", () => {
   const [saved, setSaved] = createSignal<TileLayout | undefined>(undefined);
@@ -179,12 +174,18 @@ it("re-places a tile from the current camera once its own layout has gone", () =
  *
  *  IS WITHDRAWAL REACHABLE? No padi writer ever clears `canvasLayout`:
  *  `setCanvasLayout` (`padi/src/terminals.ts:446-455`) only sets it, so a
- *  server that has one keeps it. The record arrives WITHOUT one in two live
- *  paths: a session restore whose saved blob carries no layout for the tile
+ *  server that has one keeps it. The live path that delivers a record WITHOUT
+ *  one is a session restore whose saved blob carries no layout for the tile
  *  (`padi/src/session/sessionRestore.ts:113-121` omits the key rather than
- *  spelling `undefined`), and a host switch, where the tile list re-keys to a
- *  host before its per-terminal metadata re-arrives. The id is the same tile's
- *  throughout, which is what makes this a re-placement and not a new tile. */
+ *  spelling `undefined`). A tile whose record has not arrived at all is NOT
+ *  this case — placement DEFERS it by design (`tilePlacementPlan.ts:45`) and
+ *  writes nothing. The id is the same tile's throughout, which is what makes
+ *  this a re-placement and not a new tile.
+ *
+ *  The tile is DRAGGED first, as a user's would have been: the gesture's
+ *  override is released by its own echo, and a released override must not come
+ *  back when the layout is withdrawn — it would read as a layout of its own,
+ *  and nothing would be re-placed or written. */
 it("writes the re-placed layout when a tile's own layout is withdrawn", () => {
   const [saved, setSaved] = createSignal<TileLayout | undefined>(undefined);
   const written: TileLayout[] = [];
@@ -216,6 +217,15 @@ it("writes the re-placed layout when a tile's own layout is withdrawn", () => {
 
   // Its own layout lands: the tile leaves the map, nothing more is written.
   setSaved(FAR);
+  flush();
+  expect(written).toHaveLength(1);
+
+  // The user drags it, and that gesture's own echo lands: the override is
+  // released, and the tile paints at the saved value alone.
+  const DRAGGED: TileLayout = { x: 9500, y: 9400, w: 300, h: 200 };
+  usePendingLayouts().setOne(TILE as TerminalId, DRAGGED, FAR);
+  flush();
+  setSaved(DRAGGED);
   flush();
   expect(written).toHaveLength(1);
 

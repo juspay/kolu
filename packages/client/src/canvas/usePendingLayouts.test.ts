@@ -176,6 +176,72 @@ it("forgets the trail once the override's own echo lands", () => {
   canvas.dispose();
 });
 
+it("stays released when the tile's layout is withdrawn", () => {
+  const canvas = createRoot((dispose) => {
+    const [saved, setSaved] = createSignal<TileLayout | undefined>(SAVED);
+    return { ...mountCanvasSide(saved), saved, setSaved, dispose };
+  });
+  flush();
+
+  // L1 minted on the base L0, then released by its own echo.
+  const L0 = SAVED;
+  const L1 = DRAGGED;
+  canvas.pending.setOne(ID, L1, L0);
+  flush();
+  canvas.setSaved(L1);
+  flush();
+  expect(canvas.published.at(-1)).toEqual(L1);
+
+  // The layout is WITHDRAWN (a record republished without one). The released
+  // override must not come back: the tile is layout-less again, which is what
+  // lets the canvas re-place it at the current camera and persist that.
+  canvas.setSaved(undefined);
+  flush();
+  expect(canvas.published.at(-1)).toBeUndefined();
+  expect(canvas.pending.hasOverride(ID, undefined)).toBe(false);
+  canvas.dispose();
+});
+
+/** A GESTURE IN PROGRESS OUTRANKS A FOREIGN VALUE; A COMMITTED ONE DOES NOT.
+ *  Master held every gesture until its own echo. The foreign-wins rule is the
+ *  intentional change — for a value this client has SENT, which a rejected
+ *  write would otherwise pin forever. A preview frame has been sent nowhere,
+ *  so nothing can echo it and nothing outranks the pointer. */
+it("keeps a previewing gesture over a foreign layout, until it commits", () => {
+  const canvas = createRoot((dispose) => {
+    const [saved, setSaved] = createSignal<TileLayout | undefined>(SAVED);
+    return { ...mountCanvasSide(saved), saved, setSaved, dispose };
+  });
+  flush();
+
+  const FOREIGN: TileLayout = { x: -90, y: 40, w: 300, h: 200 };
+  canvas.pending.previewOne(ID, DRAGGED, SAVED);
+  flush();
+  canvas.setSaved(FOREIGN); // another client moves the same tile mid-drag
+  flush();
+  expect(canvas.published.at(-1)).toEqual(DRAGGED);
+
+  // The next frame still follows the pointer.
+  const MOVED: TileLayout = { x: 200, y: 150, w: 300, h: 200 };
+  canvas.pending.previewOne(ID, MOVED, SAVED);
+  flush();
+  expect(canvas.published.at(-1)).toEqual(MOVED);
+
+  // The commit puts the value on the wire, and the foreign rule applies to it
+  // at once: the standing saved value is one nobody here authored, so the
+  // server's value wins and the override is released.
+  canvas.pending.setOne(ID, MOVED, FOREIGN);
+  flush();
+  expect(canvas.published.at(-1)).toEqual(FOREIGN);
+  expect(canvas.pending.hasOverride(ID, FOREIGN)).toBe(false);
+  // And a further foreign value keeps winning.
+  const OTHER: TileLayout = { x: 7, y: 7, w: 300, h: 200 };
+  canvas.setSaved(OTHER);
+  flush();
+  expect(canvas.published.at(-1)).toEqual(OTHER);
+  canvas.dispose();
+});
+
 /** The create-time size slot is armed for ONE create, and the arm happens
  *  before the create's id exists, so the slot names no tile: the FIRST tile
  *  to ask takes it — in practice the first new tile of the placement pass, in

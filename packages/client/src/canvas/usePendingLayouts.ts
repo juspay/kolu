@@ -44,8 +44,11 @@ import type { TerminalId } from "kolu-common/surface";
 import { createStore, reconcile, untrack } from "solid-js";
 import { layoutsEqual, type TileLayout } from "./TileLayout";
 
-/** A local geometry intent. The trail it is judged against is side data
- *  (`authoredTrails`), not part of the entry. See the note above. */
+/** A local geometry intent. What it is judged against — the authored trail,
+ *  and whether this layout is a preview frame or a commit — is side data
+ *  (`authoredTrails`), not part of the entry: the entry is a store row, and a
+ *  second field on it would replace the row's container on every preview frame
+ *  for the one key that moved. See the note above. */
 interface PendingEntry {
   readonly layout: TileLayout;
 }
@@ -66,19 +69,28 @@ function sameLayout(
 // durable per-host state.
 const [pending, setPending] = createStore<Record<string, PendingEntry>>({});
 
-// The committed values this client has authored per tile, beside the store and
-// NOT reactive (see the note above): the release that forgets a tile's trail
-// runs inside `standingOverride`, a read. Keyed by the same ids as `pending`
-// and emptied with them (`dropIds`, `clear`), so it cannot outlive the store.
-// Bounded by design: a preview frame does not extend it, and the trail is
-// deleted the moment the override's own echo lands.
-const authoredTrails = new Map<string, (TileLayout | undefined)[]>();
+// What this client has authored per tile, beside the store and NOT reactive
+// (see the note above): the release that forgets a tile's trail runs inside
+// `standingOverride`, a read. Keyed by the same ids as `pending` and emptied
+// with them (`dropIds`, `clear`), so it cannot outlive the store.
+//
+// `values` are the COMMITTED layouts (the base the gesture was minted against
+// at its head) — bounded by design: a preview frame does not extend it, and
+// the trail is deleted the moment the override's own echo lands. `committed`
+// says whether the entry's CURRENT layout went on the wire or is a live
+// preview frame; a gesture that has not committed yet outranks any saved
+// value, because the pointer is the newest intent there is.
+interface AuthoredTrail {
+  readonly values: (TileLayout | undefined)[];
+  readonly committed: boolean;
+}
+const authoredTrails = new Map<string, AuthoredTrail>();
 
 /** Test seam — how long a tile's authored trail is. Previews must leave it at
  *  the number of COMMITTED writes. Not part of the hook's surface; nothing in
  *  the app reads it. */
 export function authoredTrailLength(id: string): number {
-  return authoredTrails.get(id)?.length ?? 0;
+  return authoredTrails.get(id)?.values.length ?? 0;
 }
 
 // One-shot create-time geometry slot — a distinct lifecycle from the
@@ -193,7 +205,13 @@ export function usePendingLayouts(): {
 } {
   /** The override as it STANDS: released by its own echo (the saved value has
    *  caught up with it) and by any FOREIGN saved value; held while the saved
-   *  value is one this client authored earlier and a later gesture superseded.
+   *  value is one this client authored earlier and a later gesture superseded,
+   *  and held unconditionally while the gesture is still previewing.
+   *
+   *  The trail is consulted FIRST: it is the only mark that an entry was
+   *  already released (the store entry itself is never deleted), so without
+   *  that gate a released override would come back the moment the tile's
+   *  layout was withdrawn, and stand forever.
    *
    *  The own-echo release FORGETS the trail. Without that, a saved value equal
    *  to an older authored value — the same tile pushed back to where it was,
@@ -206,6 +224,14 @@ export function usePendingLayouts(): {
   ): TileLayout | undefined {
     const entry = pending[id];
     if (!entry) return undefined;
+    // No trail: this entry was already released by its own echo. Nothing
+    // revives it — not even the saved layout going away again.
+    const trail = authoredTrails.get(id);
+    if (!trail) return undefined;
+    // A gesture in progress. Nothing this client has sent can be waiting for
+    // this value, so there is no echo to release it and no foreign value that
+    // outranks the pointer: it stands until its commit, as on master.
+    if (!trail.committed) return entry.layout;
     if (sameLayout(saved, entry.layout)) {
       authoredTrails.delete(id);
       return undefined;
@@ -215,7 +241,7 @@ export function usePendingLayouts(): {
     // whose first layout (the default this canvas derived, the base the
     // gesture was minted against) has not echoed yet.
     if (saved === undefined) return entry.layout;
-    return authoredTrails.get(id)?.some((own) => sameLayout(saved, own))
+    return trail.values.some((own) => sameLayout(saved, own))
       ? entry.layout
       : undefined;
   }
@@ -231,8 +257,11 @@ export function usePendingLayouts(): {
     saved: TileLayout | undefined,
     commit: boolean,
   ): void {
-    const trail = authoredTrails.get(id) ?? [saved];
-    authoredTrails.set(id, commit ? [...trail, layout] : trail);
+    const values = authoredTrails.get(id)?.values ?? [saved];
+    authoredTrails.set(id, {
+      values: commit ? [...values, layout] : values,
+      committed: commit,
+    });
     draft[id] = { layout };
   }
 
