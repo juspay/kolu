@@ -15,12 +15,15 @@
  *
  *  Where the work stands (`at`) is folded from the face's own record: it is a
  *  pure fold over that record, and a face may hold a work's last record for a
- *  moment while the mirror is without it (the picked work). */
+ *  moment while the mirror is without it (the picked work). Every such fold
+ *  reads `record` ({@link createWorkRecord}) rather than the store, so the
+ *  whole record is subscribed once per face — a source per event and per
+ *  decision, not a node per leaf — and each fold over it carries one. */
 
 import { activeArm } from "@kolu/padi-client/surface";
 import { Option } from "effect";
 import type { Work, WorkId } from "kolu-work";
-import { type Accessor, createMemo } from "solid-js";
+import { type Accessor, createMemo, deep, mapArray } from "solid-js";
 import { createSharedRoot } from "../createSharedRoot";
 import {
   type FleetTerminalStanding,
@@ -67,6 +70,10 @@ export function memberRuns(work: Work, one: MemberLine): string {
 }
 
 export interface WorkFacts {
+  /** THE WHOLE RECORD, AS ONE READ — {@link createWorkRecord}. Every fold
+   *  over the work reads this rather than the store, so each of them carries
+   *  one dependency and the record is subscribed once for the face. */
+  readonly record: Accessor<Work>;
   /** The members, in the order a waterfall runs them — none once the work
    *  is over. */
   readonly members: Accessor<ReadonlyArray<MemberLine>>;
@@ -127,6 +134,59 @@ export function readWorkFacts(
   return { members };
 }
 
+/** ONE WORK'S RECORD, READ AS A SNAPSHOT — the reading every fold over a
+ *  whole work is built on.
+ *
+ *  A fold over a work (where it stands, how long it waited on you, its
+ *  stages, its timeline, who it waits on) is a total function of the record,
+ *  so read off the store it subscribes every leaf it touches: two hundred
+ *  and more nodes on ONE scope for a work with a long timeline, and one such
+ *  scope per fold per face.
+ *
+ *  This splits that one scope the way the record itself is split. Each event
+ *  and each decision is read by a memo of ITS OWN (`deep`, which subscribes
+ *  a record's container and deep witness rather than every path under it),
+ *  and this memo joins their answers: its own scope is one source per event
+ *  and per decision, each row's is the handful that row holds, and every
+ *  fold downstream carries ONE — the whole record is subscribed once per
+ *  face however many folds read it.
+ *
+ *  An unmoved row is handed back the SAME object (`deep` copies nothing it
+ *  does not have to), so a row that did not move republishes nothing and
+ *  this memo re-runs only when the record really moved.
+ *
+ *  The value is a plain snapshot, not the store's proxy: reads off it track
+ *  nothing, which is the point. A face that wants one leaf — a title, the
+ *  state's arm — reads the proxy, which is one node. */
+export function createWorkRecord(work: Accessor<Work>): Accessor<Work> {
+  const events = mapArray(
+    () => work().events,
+    (event) => createMemo(() => deep(event), { name: "workRecord.event" }),
+    { name: "workRecord.events" },
+  );
+  const decisions = mapArray(
+    () => work().decisions,
+    (decision) =>
+      createMemo(() => deep(decision), { name: "workRecord.decision" }),
+    { name: "workRecord.decisions" },
+  );
+  return createMemo(
+    () => {
+      const one = work();
+      return {
+        key: deep(one.key),
+        title: one.title,
+        startedAt: one.startedAt,
+        decisions: decisions().map((read) => read()),
+        events: events().map((read) => read()),
+        state: deep(one.state),
+        worktree: deep(one.worktree),
+      };
+    },
+    { name: "workRecord" },
+  );
+}
+
 /** A face's reading of its work. Call from a component body: it lives as long
  *  as the face, and follows the face's id.
  *
@@ -137,13 +197,14 @@ export function createWorkFacts(
   work: Accessor<Work>,
 ): WorkFacts {
   const byWork = useMembersByWork();
+  const record = createWorkRecord(work);
   const { members } = readWorkFacts(() =>
     work().state.kind === "open" ? (byWork().get(id()) ?? NONE) : NONE,
   );
   const pr = useWorkPr(id, work);
   const checks = createMemo(() => checksTally(pr()));
-  const at = createMemo(() => standingLine(work(), checks()));
-  return { members, pr, checks, at };
+  const at = createMemo(() => standingLine(record(), checks()));
+  return { record, members, pr, checks, at };
 }
 
 /** The same standing: the same answer, and for a terminal that is here, the

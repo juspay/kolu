@@ -16,11 +16,17 @@
  *  (the reader popped out on its own) draws it as it is. */
 
 import type { Work } from "kolu-work";
-import { type Component, Show } from "solid-js";
+import { type Component, createMemo, Show } from "solid-js";
+import { createWorkRecord } from "./workFacts";
 import { repoName, WORK_DOT, waiterOf } from "./workReadings";
 
 const WorkChipFace: Component<{ work: Work }> = (props) => {
-  const who = () => waiterOf(props.work);
+  /** WHO THE WORK WAITS ON — a fold over the whole record, so it is read
+   *  off the one reading of it (`createWorkRecord`: a source per event, not
+   *  a node per leaf) and both bindings that draw it track this memo
+   *  alone. */
+  const record = createWorkRecord(() => props.work);
+  const who = createMemo(() => waiterOf(record()));
   const repo = () => {
     const key = props.work.key;
     return key.kind === "branch" ? repoName(key.repo) : null;

@@ -152,9 +152,12 @@ const WorkCard: Component<{
   // The column's clock, stopped while nobody is looking at the pane: every
   // duration on this card ticks from it, and a hidden pane ticks for nobody.
   const now = useShownClock();
-  /** Its members, its own PR and checks, and where it stands — the one
-   *  reading the work's line in the sidebar and its chip read too. */
-  const { members, pr, checks, at } = createWorkFacts(
+  /** Its record as one read, its members, its own PR and checks, and where
+   *  it stands — the one reading the work's line in the sidebar and its
+   *  chip read too. Every fold below reads `record()`: a fold is a total
+   *  function of the record, and reading the store leaf by leaf subscribes
+   *  one node per leaf where this subscribes one per record. */
+  const { record, members, pr, checks, at } = createWorkFacts(
     () => props.id,
     () => props.work,
   );
@@ -203,29 +206,29 @@ const WorkCard: Component<{
    *  ask: a Conductor that asks about a failing check while a plan approval
    *  is still open has put two things to the human, and a face that draws
    *  one of them makes the second answerable nowhere. */
-  const live = createMemo(() =>
-    props.work.state.kind === "open"
-      ? { asks: openAsks(props.work) }
-      : undefined,
-  );
+  const live = createMemo(() => {
+    const work = record();
+    return work.state.kind === "open" ? { asks: openAsks(work) } : undefined;
+  });
   /** All the time this work has waited on you, while it is still running. */
-  const onYou = createMemo(() =>
-    props.work.state.kind === "open"
-      ? timeSpentOnYou(props.work, new Date(now()).toISOString())
-      : 0,
-  );
+  const onYou = createMemo(() => {
+    const work = record();
+    return work.state.kind === "open"
+      ? timeSpentOnYou(work, new Date(now()).toISOString())
+      : 0;
+  });
 
   /** WHERE THE FILES COME FROM — the one derivation, shared with the reader a
    *  file row opens (`workFile.ts`): the live worktree while a member reports
    *  one, kolu's kept copy otherwise. The card never asks which it got. */
   const source = createMemo(() =>
-    workFileSource(props.id, props.work, members()),
+    workFileSource(props.id, record(), members()),
   );
 
   /** THE STAGES, read once for the map, the trail and the timeline they
    *  index. */
   const read = createMemo(() =>
-    stagesOf(props.work, new Date(now()).toISOString()),
+    stagesOf(record(), new Date(now()).toISOString()),
   );
   /** WHAT THE PICKED WORK SHOWS OF ITS TIMELINE — the stage pressed on the
    *  map or the visit pressed on the trail (none: the stage the work is in)
@@ -253,7 +256,7 @@ const WorkCard: Component<{
   );
   /** ... read ONCE per redraw, for the map, the trail and the timeline. */
   const view = createMemo(() =>
-    timelineShown(props.work, read(), pressed(), whole()),
+    timelineShown(record(), read(), pressed(), whole()),
   );
   /** The stage, or doubt, pressed on the map: the place whose events the
    *  picked work shows, none while it is not picked, a visit is shown or the
@@ -337,7 +340,7 @@ const WorkCard: Component<{
         data-testid="work-age"
         class="shrink-0 font-mono text-[0.62rem] tabular-nums text-fg-3"
       >
-        {dualPhrase(lifetime(props.work, new Date(now()).toISOString()))}
+        {dualPhrase(lifetime(record(), new Date(now()).toISOString()))}
       </span>
     </Tip>
   );
@@ -534,7 +537,7 @@ const WorkCard: Component<{
               )}
             </Show>
             <span class="w-14 shrink-0 text-end font-mono text-[0.62rem] tabular-nums text-fg-3 max-sm:hidden">
-              {dualPhrase(lifetime(props.work, new Date(now()).toISOString()))}
+              {dualPhrase(lifetime(record(), new Date(now()).toISOString()))}
             </span>
             <span class="w-14 shrink-0 text-end font-mono text-[0.62rem] tabular-nums text-fg-3">
               {endedAgo()}
@@ -608,7 +611,7 @@ const WorkCard: Component<{
               <WorkWorktree work={props.work} pr={pr()} />
               <WorkDetails
                 id={props.id}
-                work={props.work}
+                work={record()}
                 source={source()}
                 checks={checks()}
                 shown={view()}

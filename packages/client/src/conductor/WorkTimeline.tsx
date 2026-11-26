@@ -134,6 +134,9 @@ const GapWords: Component<{ rail: Rail }> = (props) => (
 
 const WorkTimeline: Component<{
   id: WorkId;
+  /** The record, as the card read it once (`createWorkRecord`): a snapshot,
+   *  so every fold here — and every row's reading of its own event — tracks
+   *  that one reading rather than the store's leaves. */
   work: Work;
   /** What the card shows of the timeline, read once by the card. */
   shown: TimelineShown;

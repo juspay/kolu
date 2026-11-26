@@ -36,6 +36,9 @@ const STOP_COPY =
 
 const WorkDetails: Component<{
   id: WorkId;
+  /** The record, as the card read it once (`createWorkRecord`): a snapshot,
+   *  so the fold below — and everything this hands it to — tracks that one
+   *  reading rather than the store's leaves. */
   work: Work;
   /** Where the work's files come from, read once by the face. */
   source: WorkFileSource;
