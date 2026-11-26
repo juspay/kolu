@@ -118,23 +118,28 @@ const ownProps = (
     onTap: () => false,
   }) as const;
 
-/** The relay tears Solid raised, with the name of the write it relayed. */
-function relayTears(): { wrote: unknown; severity?: string }[] {
-  return takeSolidDiagnostics()
-    .filter((event) => event.code === "EFFECT_RELAY_TEAR")
-    .map((event) => {
-      const data = event.data;
-      const wrote =
-        data && typeof data === "object" && "wrote" in data
-          ? data.wrote
-          : undefined;
-      // PRINTED, because the name of the relayed write is the whole address of
-      // this finding and the report's own reduction drops it.
-      console.info(
-        `EFFECT_RELAY_TEAR [${event.severity}] wrote=${String(wrote)}: ${event.message}`,
-      );
-      return { wrote, severity: event.severity };
-    });
+/** EVERYTHING Solid raised, taken off the judge so this file can assert it
+ *  itself. The whole list, never a filtered one: taking the events empties the
+ *  judge, so a finding this file does not filter for is a finding nobody would
+ *  ever see. Tests that are about one code filter THIS list. */
+function drainDiagnostics(): {
+  code: string;
+  severity?: string;
+  wrote: unknown;
+}[] {
+  return takeSolidDiagnostics().map((event) => {
+    const data = event.data;
+    const wrote =
+      data && typeof data === "object" && "wrote" in data
+        ? data.wrote
+        : undefined;
+    // PRINTED, because the name of a relayed write is the whole address of
+    // that finding and the report's own reduction drops it.
+    console.info(
+      `${event.code} [${event.severity}] wrote=${String(wrote)}: ${event.message}`,
+    );
+    return { code: event.code, wrote, severity: event.severity };
+  });
 }
 
 it("binds the renderer attribute itself, so a box change paints once", async () => {
@@ -167,7 +172,9 @@ it("binds the renderer attribute itself, so a box change paints once", async () 
 
   expect(div?.getAttribute("data-box")).toBe("3");
   expect(div?.getAttribute("data-renderer")).toBe("dom");
-  expect(relayTears()).toEqual([]);
+  // The WHOLE drained list, not the tears in it: this test's claim is that the
+  // mount raised NOTHING, and filtering here would swallow every other code.
+  expect(drainDiagnostics()).toEqual([]);
 });
 
 it("tears when a consumer routes the renderer fact back through the spread", async () => {
@@ -200,7 +207,14 @@ it("tears when a consumer routes the renderer fact back through the spread", asy
     flush();
   }
 
-  const tears = relayTears();
+  const drained = drainDiagnostics();
+  // This test is about one code, so it filters — but it filters the WHOLE
+  // drained list and then asserts nothing else was in it, so a second finding
+  // raised by this shape fails here rather than disappearing with the drain.
+  const tears = drained.filter((event) => event.code === "EFFECT_RELAY_TEAR");
+  expect(drained.filter((event) => event.code !== "EFFECT_RELAY_TEAR")).toEqual(
+    [],
+  );
   expect(tears.length).toBeGreaterThan(0);
   // The relayed write is the kit's own renderer fact, named by the compiler
   // from its factory and its variable.

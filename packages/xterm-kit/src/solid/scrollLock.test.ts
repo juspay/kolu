@@ -575,7 +575,9 @@ describe("createScrollLock — the write door runs inside the effect phase", () 
     const disposeEffect = createRoot((d) => {
       createEffect(
         () => cols(),
-        (c) => t.lock.resizeInOrder(c, 24),
+        (c) => {
+          t.lock.resizeInOrder(c, 24);
+        },
         { name: "scrollLockResizeFromApplyArm" },
       );
       return d;
