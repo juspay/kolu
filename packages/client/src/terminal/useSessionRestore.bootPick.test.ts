@@ -211,14 +211,10 @@ function makeStore() {
   const planSetActiveSilently = vi.fn((id: TerminalId | null) => {
     // Reader half in the compute, writes in the actor — the landing's own
     // contract, so the spy can stand in for it inside the hydration effect.
-    // DETACHED, so a seeded write shows up here as the FRAME it costs rather
-    // than as the owned-scope write an effect's write also is: the subject is
-    // what the consumer is shown, not how the runtime grades the write.
     const scope = activeScope();
-    return () =>
-      runWithOwner(null, () => {
-        scope?.view.writeFocus(id === null ? null : { id, tileHint: id });
-      });
+    return () => {
+      scope?.view.writeFocus(id === null ? null : { id, tileHint: id });
+    };
   });
   const planReconcileLiveIds = vi.fn(view.planReconcileLiveIds);
   const store = {
@@ -243,6 +239,24 @@ function makeStore() {
   return { store, planSetActiveSilently, planReconcileLiveIds };
 }
 
+/** Build the graph inside a root, and hand the body's value and the root's
+ *  `dispose` to a caller standing OUTSIDE it.
+ *
+ *  Every `flush()` a case makes runs out here, never in the root body. A flush
+ *  inside the body would run the hydration effect with the ROOT as the current
+ *  owner, and the latch's `markSeeded` — a plain signal write — would be graded
+ *  a write inside an owned scope. Nothing in production flushes from an owner:
+ *  a flush is the scheduler's, and the owner during an effect callback is
+ *  `null`, so an in-root flush would be grading a harness artefact. */
+function mountRoot<T>(build: () => T): [T, () => void] {
+  let dispose!: () => void;
+  const value = createRoot((disposeRoot) => {
+    dispose = disposeRoot;
+    return build();
+  });
+  return [value, dispose];
+}
+
 describe("the first active tile on a cold boot", () => {
   it("is the picked tile in the flush hydration runs in, with no seeding write", () => {
     // The whole census arrives at once — the list, both records, and the saved
@@ -253,38 +267,39 @@ describe("the first active tile on a cold boot", () => {
       session: { activeTerminalId: B },
     });
 
-    createRoot((dispose) => {
-      const { store, planSetActiveSilently, planReconcileLiveIds } =
-        makeStore();
-      useSessionRestore({ store });
-      // A consumer of the active tile, exactly like the app shell's and the
-      // palette's: it records every value it is ever shown.
-      const seen: (TerminalId | null)[] = [];
-      createEffect(
-        () => store.activeId(),
-        (id) => {
-          seen.push(id);
-        },
-      );
+    // A consumer of the active tile, exactly like the app shell's and the
+    // palette's: it records every value it is ever shown.
+    const seen: (TerminalId | null)[] = [];
+    const [{ store, planSetActiveSilently, planReconcileLiveIds }, dispose] =
+      mountRoot(() => {
+        const made = makeStore();
+        useSessionRestore({ store: made.store });
+        createEffect(
+          () => made.store.activeId(),
+          (id) => {
+            seen.push(id);
+          },
+        );
+        return made;
+      });
 
-      flush();
-      // The seeded shape shows up as ["…", null, B]: the consumer paints once
-      // with no active tile, then the effect's write relays the census into it.
-      expect(seen).toEqual([B]);
-      // And it settles there — no second frame behind the first.
-      flush();
-      expect(seen).toEqual([B]);
-      expect(planSetActiveSilently).not.toHaveBeenCalled();
+    flush();
+    // The seeded shape shows up as ["…", null, B]: the consumer paints once
+    // with no active tile, then the effect's write relays the census into it.
+    expect(seen).toEqual([B]);
+    // And it settles there — no second frame behind the first.
+    flush();
+    expect(seen).toEqual([B]);
+    expect(planSetActiveSilently).not.toHaveBeenCalled();
 
-      // The activation's SIDE effects are not derivable and still happen once:
-      // the host hears which tile is active, and the visit trail is seeded with
-      // the pick at its head.
-      expect(spy.setActive.mock.calls).toEqual([[B]]);
-      expect(planReconcileLiveIds.mock.calls).toEqual([[[B, A]]]);
-      expect(activeScope()?.view.mruOrder()).toEqual([B, A]);
+    // The activation's SIDE effects are not derivable and still happen once:
+    // the host hears which tile is active, and the visit trail is seeded with
+    // the pick at its head.
+    expect(spy.setActive.mock.calls).toEqual([[B]]);
+    expect(planReconcileLiveIds.mock.calls).toEqual([[[B, A]]]);
+    expect(activeScope()?.view.mruOrder()).toEqual([B, A]);
 
-      dispose();
-    });
+    dispose();
   });
 
   it("yields to a tile the user picks, and the pick never comes back", () => {
@@ -294,28 +309,27 @@ describe("the first active tile on a cold boot", () => {
       session: { activeTerminalId: B },
     });
 
-    createRoot((dispose) => {
-      const { store } = makeStore();
-      useSessionRestore({ store });
-      flush();
-      expect(store.activeId()).toBe(B);
-
-      // An ordinary activation — the user clicks A's tile. Detached, the way a
-      // DOM handler's write is: a root body is an owned scope.
-      runWithOwner(null, () => {
-        activeScope()?.view.writeFocus({ id: A, tileHint: A });
-      });
-      flush();
-      expect(store.activeId()).toBe(A);
-
-      // A close-all clears the selection: an explicit "nothing is selected",
-      // which the derivation must not undo while the tiles are still listed.
-      runWithOwner(null, () => activeScope()?.view.reset());
-      flush();
-      expect(store.activeId()).toBe(null);
-
-      dispose();
+    const [store, dispose] = mountRoot(() => {
+      const made = makeStore();
+      useSessionRestore({ store: made.store });
+      return made.store;
     });
+    flush();
+    expect(store.activeId()).toBe(B);
+
+    // An ordinary activation — the user clicks A's tile. This body stands
+    // outside the root, which is where a DOM handler's write runs.
+    activeScope()?.view.writeFocus({ id: A, tileHint: A });
+    flush();
+    expect(store.activeId()).toBe(A);
+
+    // A close-all clears the selection: an explicit "nothing is selected",
+    // which the derivation must not undo while the tiles are still listed.
+    activeScope()?.view.reset();
+    flush();
+    expect(store.activeId()).toBe(null);
+
+    dispose();
   });
 });
 
@@ -343,79 +357,73 @@ describe("a restore from the card", () => {
     // The host will answer the restore with C — the tile it made active.
     spy.restoreAnswer = C;
 
-    await new Promise<void>((resolve, reject) => {
-      createRoot((dispose) => {
-        void (async () => {
-          try {
-            const { store, planSetActiveSilently } = makeStore();
-            const session = useSessionRestore({ store });
-            // A consumer of the active tile, like the app shell's: it records
-            // every value it is ever shown.
-            const seen: (TerminalId | null)[] = [];
-            createEffect(
-              () => store.activeId(),
-              (id) => {
-                seen.push(id);
-              },
-            );
-            flush();
-            expect(seen).toEqual([null]);
-            expect(session.savedSession()).toEqual(blob);
+    // A consumer of the active tile, like the app shell's: it records every
+    // value it is ever shown.
+    const seen: (TerminalId | null)[] = [];
+    const [{ store, planSetActiveSilently, session }, dispose] = mountRoot(
+      () => {
+        const made = makeStore();
+        const session = useSessionRestore({ store: made.store });
+        createEffect(
+          () => made.store.activeId(),
+          (id) => {
+            seen.push(id);
+          },
+        );
+        return { ...made, session };
+      },
+    );
+    try {
+      flush();
+      expect(seen).toEqual([null]);
+      expect(session.savedSession()).toEqual(blob);
 
-            // The user clicks Restore. From the EVENT LOOP, as a DOM handler's
-            // run does — the root body is an owned scope, and the action writes.
-            await new Promise((r) => setTimeout(r, 0));
-            await Effect.runPromise(session.handleRestoreSession({}));
+      // The user clicks Restore — from this body, which stands outside the
+      // root, exactly as a DOM handler's run does.
+      await Effect.runPromise(session.handleRestoreSession({}));
 
-            // The restored rows come back as the host spawns them: A and B are
-            // live, C's row has not arrived yet. This is the flush a census-only
-            // pick answers `topIds[0]` — A — in.
-            w.deliver({
-              keys: [A, B],
-              records: { [A]: tile(), [B]: tile() },
-              session: blob,
-            });
-            await new Promise((r) => setTimeout(r, 0));
-            flush();
-            // THE CAMERA'S INPUTS, asserted rather than the canvas itself: its
-            // first-mount centring defers exactly while `activeId()` is null and
-            // the saved session names an active terminal, and once it has centred
-            // the viewport is no longer at default, so it never centres again.
-            // Both inputs hold here, so the restore window is still deferring.
-            const midRestore = {
-              active: store.activeId(),
-              savedActive: session.savedSession()?.activeTerminalId ?? null,
-            };
-
-            // C's row lands. The seed spends the host's answer.
-            w.deliver({
-              keys: [A, B, C],
-              records: { [A]: tile(), [B]: tile(), [C]: tile() },
-              session: blob,
-            });
-            await new Promise((r) => setTimeout(r, 0));
-            flush();
-
-            expect(midRestore).toEqual({ active: null, savedActive: C });
-            // The active tile was NEVER a tile other than C: no wrong tile for
-            // the camera to latch on, and the one value the consumer is shown
-            // after `null` is C.
-            expect(seen).toEqual([null, C]);
-            expect(store.activeId()).toBe(C);
-            // The seed's own write — the derivation does not cover a restore's
-            // answered tile — and the host hears about C exactly once.
-            expect(planSetActiveSilently.mock.calls).toEqual([[C]]);
-            expect(spy.setActive.mock.calls).toEqual([[C]]);
-
-            dispose();
-            resolve();
-          } catch (err) {
-            dispose();
-            reject(err);
-          }
-        })();
+      // The restored rows come back as the host spawns them: A and B are
+      // live, C's row has not arrived yet. This is the flush a census-only
+      // pick answers `topIds[0]` — A — in.
+      w.deliver({
+        keys: [A, B],
+        records: { [A]: tile(), [B]: tile() },
+        session: blob,
       });
-    });
+      await new Promise((r) => setTimeout(r, 0));
+      flush();
+      // THE CAMERA'S INPUTS, asserted rather than the canvas itself: its
+      // first-mount centring defers exactly while `activeId()` is null and
+      // the saved session names an active terminal, and once it has centred
+      // the viewport is no longer at default, so it never centres again.
+      // Both inputs hold here, so the restore window is still deferring.
+      const midRestore = {
+        active: store.activeId(),
+        savedActive: session.savedSession()?.activeTerminalId ?? null,
+      };
+
+      // C's row lands. The seed spends the host's answer.
+      w.deliver({
+        keys: [A, B, C],
+        records: { [A]: tile(), [B]: tile(), [C]: tile() },
+        session: blob,
+      });
+      await new Promise((r) => setTimeout(r, 0));
+      flush();
+
+      expect(midRestore).toEqual({ active: null, savedActive: C });
+      // The active tile was NEVER a tile other than C: no wrong tile for
+      // the camera to latch on, and the one value the consumer is shown
+      // after `null` is C.
+      expect(seen).toEqual([null, C]);
+      expect(store.activeId()).toBe(C);
+      // The seed's own write — the derivation does not cover a restore's
+      // answered tile — and the host hears about C exactly once.
+      expect(planSetActiveSilently.mock.calls).toEqual([[C]]);
+      expect(spy.setActive.mock.calls).toEqual([[C]]);
+    } finally {
+      dispose();
+    }
   });
 });
 
@@ -434,45 +442,39 @@ describe("the booted tile exits", () => {
       session: { activeTerminalId: B },
     });
 
-    createRoot((dispose) => {
-      const { store } = makeStore();
-      useSessionRestore({ store });
-      flush();
-      expect(store.activeId()).toBe(B);
-      expect(spy.setActive.mock.calls).toEqual([[B]]);
-
-      // `exit` in B: its row leaves the census.
-      w.deliver({
-        keys: [A],
-        records: { [A]: tile() },
-        session: { activeTerminalId: B },
-      });
-      flush();
-
-      // The list-driven reconcile plans the eviction over the pre-removal order.
-      const panned: (TerminalId | null)[] = [];
-      planEviction(
-        evictionPorts(store, panned),
-        B,
-        null,
-        [A, B],
-        new Set([B]),
-        {
-          ids: [A, B],
-          parentOf: (id) => (id === A || id === B ? null : undefined),
-        },
-      )();
-      flush();
-
-      // The survivor took the slot: the canvas panned to it, the host was told,
-      // and the visit trail puts it at the head.
-      expect(panned).toEqual([A]);
-      expect(spy.setActive.mock.calls).toEqual([[B], [A]]);
-      expect(activeScope()?.view.mruOrder()[0]).toBe(A);
-      expect(store.activeId()).toBe(A);
-
-      dispose();
+    const [store, dispose] = mountRoot(() => {
+      const made = makeStore();
+      useSessionRestore({ store: made.store });
+      return made.store;
     });
+    flush();
+    expect(store.activeId()).toBe(B);
+    expect(spy.setActive.mock.calls).toEqual([[B]]);
+
+    // `exit` in B: its row leaves the census.
+    w.deliver({
+      keys: [A],
+      records: { [A]: tile() },
+      session: { activeTerminalId: B },
+    });
+    flush();
+
+    // The list-driven reconcile plans the eviction over the pre-removal order.
+    const panned: (TerminalId | null)[] = [];
+    planEviction(evictionPorts(store, panned), B, null, [A, B], new Set([B]), {
+      ids: [A, B],
+      parentOf: (id) => (id === A || id === B ? null : undefined),
+    })();
+    flush();
+
+    // The survivor took the slot: the canvas panned to it, the host was told,
+    // and the visit trail puts it at the head.
+    expect(panned).toEqual([A]);
+    expect(spy.setActive.mock.calls).toEqual([[B], [A]]);
+    expect(activeScope()?.view.mruOrder()[0]).toBe(A);
+    expect(store.activeId()).toBe(A);
+
+    dispose();
   });
 });
 

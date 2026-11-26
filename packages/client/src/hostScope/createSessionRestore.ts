@@ -113,13 +113,7 @@ export interface HostRestoreLatch {
 export function createSessionRestore(): HostRestoreLatch {
   let phase: HydrationPhase = "pending";
   let restoredActive: { readonly id: string | null } | null = null;
-  // `ownedWrite`: the window's edges are written from exactly the places the
-  // phase is marked — the restore action and the hydration EFFECT's callback
-  // (`markSeeded`) — and an effect callback is an owned scope. The write stages
-  // to the flush either way; the option says the site is intended.
-  const [restoreInFlight, setRestoreInFlight] = createSignal(false, {
-    ownedWrite: true,
-  });
+  const [restoreInFlight, setRestoreInFlight] = createSignal(false);
   return {
     get phase() {
       return phase;
