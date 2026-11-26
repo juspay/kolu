@@ -84,6 +84,24 @@ OBSERVE.diagnostics.subscribe((event) => {
   raised.push({ event, stack: new Error().stack ?? "" });
 });
 
+// THE WORKER-LONG HOLD, taken at load so the engine is already installed
+// while the test file's modules evaluate. Never released: the file's last
+// `afterEach` must not uninstall the engine, and the worker exits with it.
+attribution.enable(SOLID_ATTRIBUTION_OPTIONS);
+
+// THE PER-TEST HOLD, stacked on top of the worker-long one. It is what makes
+// every finding that remembers what it has already said start each test
+// having said nothing: `enable()` calls `resetWindows()` on EVERY hold
+// (`@solidjs/signals` 2.0.4 `dev.attribution.js:3232-3237`), which clears
+// `immutableReported` and the rest (`:3126`), while the engine itself stays
+// installed until the last hold is released. Both holds pass the same
+// options, so the merge of the two is that same set.
+let release: (() => void) | undefined;
+
+beforeEach(() => {
+  release = attribution.enable(SOLID_ATTRIBUTION_OPTIONS);
+});
+
 /**
  * The diagnostics raised so far, TAKEN off the collector so the `afterEach`
  * below no longer has them to throw with: the seam for a test whose subject
