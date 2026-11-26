@@ -7,10 +7,12 @@
  * canvas's `layoutOf`, the minimap's bounds, the switch-in centering resolver)
  * a second time for a value that had not changed.
  *
- * Each entry now carries the saved layout it was MINTED against, so the echo
+ * Each entry now carries every saved value this client AUTHORED, so the echo
  * releases it by arriving: `resolveLayout` stops preferring the override the
- * moment the saved value differs from that base, in the flush that delivers it,
- * with nobody writing anything.
+ * moment the saved value equals it, in the flush that delivers it, with nobody
+ * writing anything. A saved value this client authored earlier (the base, or a
+ * gesture a later one superseded) is that earlier write catching up and leaves
+ * the newest gesture standing; a FOREIGN saved value wins at once.
  */
 
 import type { TerminalId } from "kolu-common/surface";
@@ -88,4 +90,71 @@ it("holds the override until its own echo arrives", () => {
   expect(canvas.published.at(-1)).toEqual(DRAGGED);
   expect(canvas.pending.hasOverride(ID, canvas.saved())).toBe(true);
   canvas.dispose();
+});
+
+it("keeps the newest gesture when a superseded one echoes", () => {
+  const canvas = createRoot((dispose) => {
+    const [saved, setSaved] = createSignal<TileLayout | undefined>(SAVED);
+    return { ...mountCanvasSide(saved), saved, setSaved, dispose };
+  });
+  flush();
+
+  // Two gestures minted against the same base — e.g. arrange, then a drag
+  // before the arrange has echoed.
+  const L1 = DRAGGED;
+  const L2: TileLayout = { x: 400, y: 260, w: 300, h: 200 };
+  canvas.pending.setOne(ID, L1, canvas.saved());
+  canvas.pending.setOne(ID, L2, canvas.saved());
+  flush();
+  expect(canvas.published.at(-1)).toEqual(L2);
+
+  // L1's echo lands: this client's own earlier write catching up, so the
+  // tile must NOT jump back to it.
+  canvas.setSaved(L1);
+  flush();
+  expect(canvas.published.at(-1)).toEqual(L2);
+  expect(canvas.pending.hasOverride(ID, L1)).toBe(true);
+
+  // L2's own echo releases it.
+  canvas.setSaved(L2);
+  flush();
+  expect(canvas.published.at(-1)).toEqual(L2);
+  expect(canvas.pending.hasOverride(ID, L2)).toBe(false);
+  canvas.dispose();
+});
+
+it("lets a foreign layout win over a standing gesture", () => {
+  const canvas = createRoot((dispose) => {
+    const [saved, setSaved] = createSignal<TileLayout | undefined>(SAVED);
+    return { ...mountCanvasSide(saved), saved, setSaved, dispose };
+  });
+  flush();
+
+  canvas.pending.setOne(ID, DRAGGED, canvas.saved());
+  flush();
+  // Nobody here authored this: another client moved the tile.
+  const FOREIGN: TileLayout = { x: -90, y: 40, w: 300, h: 200 };
+  canvas.setSaved(FOREIGN);
+  flush();
+
+  expect(canvas.published.at(-1)).toEqual(FOREIGN);
+  expect(canvas.pending.hasOverride(ID, FOREIGN)).toBe(false);
+  canvas.dispose();
+});
+
+/** The create-time size slot is armed for ONE create, so only the tile that
+ *  create made inherits it — a second new tile in the same placement pass
+ *  takes the canvas default. The claim is stamped into the record, so the
+ *  claiming tile keeps the size across re-derivations of the memo. */
+it("gives the armed create size to the created tile only", () => {
+  const pending = usePendingLayouts();
+  const created = "tile-created" as TerminalId;
+  const other = "tile-other" as TerminalId;
+  pending.setNextDefaultSize({ w: 640, h: 480 });
+
+  expect(pending.claimNextDefaultSize(created)).toEqual({ w: 640, h: 480 });
+  expect(pending.claimNextDefaultSize(other)).toBeNull();
+  // Idempotent across re-runs of the derivation.
+  expect(pending.claimNextDefaultSize(created)).toEqual({ w: 640, h: 480 });
+  expect(pending.claimNextDefaultSize(other)).toBeNull();
 });

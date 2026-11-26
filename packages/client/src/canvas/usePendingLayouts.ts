@@ -12,15 +12,19 @@
  *    of the still-saved pre-arrange ones — the metadata round-trip
  *    hasn't completed yet.
  *
- *  AN OVERRIDE CARRIES ITS BASE. Each entry is `{ layout, base }`, where
- *  `base` is the saved layout as it stood when the gesture was minted. The
- *  override is the answer only while the saved layout still EQUALS that base;
- *  the moment the server's echo lands, `saved` differs from `base` and the
- *  override stops applying — in the same flush, with nobody writing anything.
- *  That is what keeps the echo from costing a second pass: the old design
- *  deleted the entry from an effect that had just READ it, so the release was
- *  a write relayed back into every layout consumer (the canvas's own
- *  `layoutOf`, the minimap's bounds, the centering resolver).
+ *  AN OVERRIDE CARRIES WHAT THIS CLIENT AUTHORED. Each entry is
+ *  `{ layout, authored }`, where `authored` is every saved value this client
+ *  has put on the wire for the tile: the base the first gesture was minted
+ *  against, then each gesture a later one superseded. The override is released
+ *  by its OWN echo — the flush whose saved value equals `layout`. A saved
+ *  value from the `authored` list is an earlier write of ours catching up, so
+ *  the newest gesture keeps standing; anything else is FOREIGN (another
+ *  client, or a server-side move) and wins immediately.
+ *  Either way the release costs no pass: it happens in the flush that delivers
+ *  the saved value, with nobody writing anything. The old design deleted the
+ *  entry from an effect that had just READ it, so the release was a write
+ *  relayed back into every layout consumer (the canvas's own `layoutOf`, the
+ *  minimap's bounds, the centering resolver).
  *
  *  Singleton hook per `dev/skills/kolu-client/SKILL.md`'s "State per domain"
  *  rule. `createStore` (per the same rule, "use createStore over
@@ -32,13 +36,14 @@ import type { TerminalId } from "kolu-common/surface";
 import { createStore, reconcile, untrack } from "solid-js";
 import { layoutsEqual, type TileLayout } from "./TileLayout";
 
-/** A local geometry intent, stamped with the saved layout it was minted
- *  against. See the "an override carries its base" note above. */
+/** A local geometry intent, stamped with every saved value this client has
+ *  authored for the tile. See the note above. */
 interface PendingEntry {
   readonly layout: TileLayout;
-  /** The saved layout at mint time — `undefined` when the tile had none
-   *  (a brand-new tile whose first layout hasn't echoed back yet). */
-  readonly base: TileLayout | undefined;
+  /** The base the first gesture was minted against, then each superseded
+   *  gesture, then `layout`. The base is `undefined` when the tile had no
+   *  saved layout yet (a brand-new tile whose first layout hasn't echoed). */
+  readonly authored: readonly (TileLayout | undefined)[];
 }
 
 /** Layout equality that admits "no layout", so a base of `undefined` matches a
@@ -155,21 +160,39 @@ export function usePendingLayouts(): {
    *  the canvas's default-placement derivation. */
   claimNextDefaultSize: (id: TerminalId) => { w: number; h: number } | null;
 } {
-  /** The override as it STANDS: present only while the saved layout still
-   *  equals the base the entry was minted against. */
+  /** The override as it STANDS: released by its own echo (the saved value has
+   *  caught up with it) and by any FOREIGN saved value; held while the saved
+   *  value is one this client authored earlier and a later gesture superseded. */
   function standingOverride(
     id: TerminalId,
     saved: TileLayout | undefined,
   ): TileLayout | undefined {
     const entry = pending[id];
     if (!entry) return undefined;
-    return sameLayout(saved, entry.base) ? entry.layout : undefined;
+    if (sameLayout(saved, entry.layout)) return undefined;
+    return entry.authored.some((own) => sameLayout(saved, own))
+      ? entry.layout
+      : undefined;
+  }
+
+  /** Mint (or extend) an entry: the authored trail grows by the new layout,
+   *  keeping the base at its head. */
+  function mint(
+    draft: Record<string, PendingEntry>,
+    id: TerminalId,
+    layout: TileLayout,
+    saved: TileLayout | undefined,
+  ): void {
+    draft[id] = {
+      layout,
+      authored: [...(draft[id]?.authored ?? [saved]), layout],
+    };
   }
 
   return {
     setOne(id, layout, saved) {
       setPending((draft) => {
-        draft[id] = { layout, base: saved };
+        mint(draft, id, layout, saved);
       });
     },
     resolveLayout(id, saved) {
@@ -180,8 +203,7 @@ export function usePendingLayouts(): {
     },
     applyMany(layouts, saved) {
       setPending((draft) => {
-        for (const [id, layout] of layouts)
-          draft[id] = { layout, base: saved(id) };
+        for (const [id, layout] of layouts) mint(draft, id, layout, saved(id));
       });
       if (typeof window !== "undefined") {
         const history = window.__koluPendingApplyHistory;
