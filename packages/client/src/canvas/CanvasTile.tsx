@@ -19,6 +19,7 @@ import {
   createSignal,
   For,
   onSettled,
+  runWithOwner,
   Show,
 } from "solid-js";
 import type { JSX } from "@solidjs/web";
@@ -261,11 +262,31 @@ const CanvasTile: Component<{
       // `prev` is the previous compute result, so the tier TRANSITION is read
       // off it rather than a mutable closure variable.
       const enteredFinished = tier === "finished" && prev?.tier !== "finished";
-      if (enteredFinished) {
-        setExhale(eligible);
-      } else if (tier !== "finished" || !eligible) {
-        setExhale(false);
-      }
+      const next = enteredFinished
+        ? eligible
+        : tier !== "finished" || !eligible
+          ? false
+          : undefined;
+      if (next === undefined) return;
+      // SETTLED, not inline: the tile's chrome spread reads `exhale` beside the
+      // very tier this arm is answering, so an inline write relays into a render
+      // effect that already ran — one frame of the new tier with the stale
+      // exhale. From `onSettled` the write lands in a later pass of the SAME
+      // flush (no extra frame) and carries no effect origin, so the attribute
+      // and the tier reach the DOM together.
+      //
+      // UNOWNED: under an owner — which an apply arm has — `onSettled` is a
+      // tracked effect created and run right there, so the write would carry the
+      // arm's own frame (the relay) and the tile would grow a child per
+      // transition. With no owner it enqueues, which is the deferral. The
+      // callback writes one plain signal and returns NOTHING (a returned value
+      // reads as a cleanup, which `onSettled` forbids unowned): no children, no
+      // cleanup.
+      runWithOwner(null, () =>
+        onSettled(() => {
+          setExhale(next);
+        }),
+      );
     },
   );
   const onAuraAnim: JSX.EventHandlerUnion<HTMLDivElement, AnimationEvent> = (
