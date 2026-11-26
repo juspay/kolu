@@ -17,7 +17,7 @@
  *  (`createBootPick`). Only the WIRE is a double, so a test can hand the host's
  *  census and saved session over as one snapshot. */
 
-import type { TerminalInfo, TerminalMetadata } from "@kolu/padi-client/surface";
+import type { TerminalMetadata } from "@kolu/padi-client/surface";
 import { LOCAL_HOST } from "kolu-common/hostKey";
 import type { TerminalId } from "kolu-common/surface";
 import {

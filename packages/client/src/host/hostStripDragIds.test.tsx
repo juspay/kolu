@@ -15,7 +15,7 @@
 
 import { encodeHostKey, type HostKey } from "kolu-common/hostKey";
 import { testMembershipId } from "@kolu/surface-map/testing";
-import { createEffect, createSignal, flush } from "solid-js";
+import { createSignal, flush } from "solid-js";
 import { render } from "@solidjs/web";
 import { afterEach, expect, it, vi } from "vitest";
 
