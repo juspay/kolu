@@ -32,7 +32,6 @@ import {
   createMemo,
   createSignal,
   For,
-  onCleanup,
   Show,
 } from "solid-js";
 import { toast } from "solid-sonner";
@@ -57,8 +56,8 @@ import {
   composerAttachments,
   composerText,
   dropComposerAttachment,
+  offerCompletionOpen,
   sendableAttachments,
-  setCompletionOpen,
   setComposerText,
   welcomeAsk,
 } from "./drafts";
@@ -194,19 +193,14 @@ const ConductorComposer: Component<{
     { equals: sameRows },
   );
   // The pane's `Escape` leaves the mode and this component's closes the menu,
-  // and exactly one of those may happen per press. The pane reads this fact
-  // rather than waiting for an event the composer stops — see `drafts.ts`.
-  createEffect(
+  // and exactly one of those may happen per press. The pane reads this
+  // derivation — not an answer copied out of it one flush later — so a press
+  // in the flush the menu opens in is judged against the menu that is open
+  // (see `drafts.ts`).
+  const menuOpen = createMemo(
     () => mentionMatches().length > 0 || commandMatches().length > 0,
-    (open) => {
-      setCompletionOpen(open);
-    },
-    // An effect takes no name from the compiler, and its findings are
-    // reported at its OWNER's JSX site (`ConductorPane.tsx:417`), so this one
-    // says which effect it is itself.
-    { name: "completionOpen" },
   );
-  onCleanup(() => setCompletionOpen(false));
+  offerCompletionOpen(menuOpen);
   // GATED too, and for the same reason: `armedMentions` returns a fresh `[]`
   // whenever nothing in the box resolves, and a fleet metadata tick re-runs it
   // — four idle ticks are four equal-but-new publishes. A NON-empty list mints

@@ -8,7 +8,7 @@
  *  is the honest boundary for text the server was never told about. */
 
 import type { ConductorAttachment } from "kolu-common/conductor";
-import { createSignal, createStore } from "solid-js";
+import { createSignal, createStore, onCleanup } from "solid-js";
 import { armedMentionText } from "./mentions";
 import { forgetThumbnail } from "./thumbnails";
 
@@ -166,10 +166,31 @@ export function unsettleComposerAttachments(): void {
  *  in the PTY and it never bubbles), so a bubble-phase `stopPropagation` in the
  *  composer cannot reach it. A fact both can read settles the order without
  *  either listening for the other.
+ *
+ *  THE COMPOSER HANDS UP ITS DERIVATION, not an answer copied out of it
+ *  ({@link offerCompletionOpen}, as the peek window hands up its typing
+ *  derivation in `peek/usePeek.ts`). Relaying the VALUE through an effect put
+ *  this fact one flush behind the menu it is about, so an `Escape` arriving in
+ *  the flush the menu opens in was judged against the menu being shut — the
+ *  very race the shared fact exists to settle. `ownedWrite`: the composer
+ *  registers from its body.
  */
-const [completionOpen, setCompletionOpen] = createSignal(false);
+const SHUT = { read: () => false };
+const [completionSource, setCompletionSource] = createSignal<{
+  readonly read: () => boolean;
+}>(SHUT, { ownedWrite: true });
 
-export { completionOpen, setCompletionOpen };
+export const completionOpen = (): boolean => completionSource().read();
+
+/** Hand the composer's "is a menu open" derivation up for as long as the
+ *  composer is mounted. With no composer there is no menu. */
+export function offerCompletionOpen(read: () => boolean): void {
+  const mine = { read };
+  setCompletionSource(mine);
+  onCleanup(() =>
+    setCompletionSource((current) => (current === mine ? SHUT : current)),
+  );
+}
 
 /** Drop a terminal's `@name` into the box — the tile action's landing. The
  *  words already there are kept: arming is an addition to what you were saying,

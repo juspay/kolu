@@ -33,12 +33,23 @@ import {
   type WorkId,
   type WorkRow,
 } from "kolu-work";
-import { type Accessor, createSignal, flush } from "solid-js";
+import {
+  type Accessor,
+  createEffect,
+  createRoot,
+  createSignal,
+  flush,
+} from "solid-js";
 import { render } from "@solidjs/web";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { FleetTerminalRow } from "../palette/fleetTerminals";
 import { aboutWork, showAllChat } from "./chatScope";
-import { askFromWelcome, composerText, setComposerText } from "./drafts";
+import {
+  askFromWelcome,
+  completionOpen,
+  composerText,
+  setComposerText,
+} from "./drafts";
 import ConductorComposer from "./ConductorComposer";
 import { pickedWork, unpickWork } from "./workListing";
 import { standingLine } from "./workReadings";
@@ -527,5 +538,52 @@ describe("an idle box across fleet ticks", () => {
       tick([here(), there(intent)]);
 
     expect(rowsIn(el, "conductor-mention-chip")).toHaveLength(0);
+  });
+});
+
+describe("the shared fact that a completion menu is open", () => {
+  it("wakes a reader of the box and the menu once per keystroke", () => {
+    // THE RACE THIS FACT EXISTS TO SETTLE. The pane decides between leaving
+    // the Conductor's mode and closing the menu from ONE `Escape`, so it
+    // reads the box and this fact together. Copied out of the composer's
+    // derivation by an effect, the fact lands a flush after the box it is
+    // about: such a reader runs twice for one keystroke, and the first of
+    // those runs pairs the new box with the old answer.
+    const { box } = mount("");
+    const runs: Array<{ typed: string; open: boolean }> = [];
+    const stop = createRoot((end) => {
+      createEffect(
+        () => ({ typed: composerText(), open: completionOpen() }),
+        (seen) => {
+          runs.push(seen);
+        },
+        { name: "standDown" },
+      );
+      return end;
+    });
+    flush();
+    runs.length = 0;
+
+    box.value = "@";
+    box.setSelectionRange(1, 1);
+    box.dispatchEvent(new Event("input", { bubbles: true }));
+    flush();
+
+    expect(runs).toEqual([{ typed: "@", open: true }]);
+    stop();
+  });
+
+  it("is false with no composer on screen", () => {
+    const { box } = mount("");
+    box.value = "@";
+    box.setSelectionRange(1, 1);
+    box.dispatchEvent(new Event("input", { bubbles: true }));
+    flush();
+    expect(completionOpen()).toBe(true);
+
+    dispose?.();
+    dispose = undefined;
+    flush();
+    expect(completionOpen()).toBe(false);
   });
 });
