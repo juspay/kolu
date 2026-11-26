@@ -319,7 +319,9 @@ const TerminalCanvas: Component<{
   );
 
   // The create-time size is armed for ONE create, so exactly one tile claims
-  // it: the tile the create made. Any other tile appearing in the same pass
+  // it: the first new tile of the pass, in `props.tileIds` order. The arm
+  // happens before the create's own id exists (`useTerminalCrud.ts:299-301`),
+  // so the slot names no tile; any other tile appearing in the same pass
   // (another client's create landing in the same push, a restore) is not what
   // the user sized from, and takes the plain default.
   function sizeForNewTile(id: TileId): { w: number; h: number } {
