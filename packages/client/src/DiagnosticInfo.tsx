@@ -34,7 +34,7 @@ import { writeTextToClipboard } from "@kolu/solid-logtail";
 import { createDisclosure } from "./ui/createDisclosure";
 import DocLink from "./ui/DocLink";
 import ModalDialog from "./ui/ModalDialog";
-import { formatSize, readJsHeap } from "./ui/memory";
+import { formatSize, readJsHeap, sameJsHeap } from "./ui/memory";
 import Row from "./ui/Row";
 import Section from "./ui/Section";
 import { surface } from "./ui/Surface";
@@ -244,6 +244,13 @@ const DiagnosticInfoContent: Component<{ activeId: TerminalId | null }> = (
     };
   });
 
+  /** The heap row's value, gated on the three figures: the dump memo mints a
+   *  fresh readout on every recompute, so the row's `<Show>` was re-published
+   *  for a heap that had not moved. */
+  const jsHeap = createMemo(() => snapshot().session.jsHeap, {
+    equals: sameJsHeap,
+  });
+
   function copyJson(): UiAction {
     return Effect.suspend(() =>
       writeTextToClipboard(JSON.stringify(snapshot(), null, 2)),
@@ -342,7 +349,7 @@ const DiagnosticInfoContent: Component<{ activeId: TerminalId | null }> = (
             <Row label="Count">
               <span class="font-mono text-fg">{getDiagnostics().length}</span>
             </Row>
-            <Show when={snapshot().session.jsHeap}>
+            <Show when={jsHeap()}>
               {(heap) => (
                 <Row label="JS heap">
                   <span class="font-mono text-fg">

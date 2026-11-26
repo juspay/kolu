@@ -26,7 +26,7 @@ import type {
   TerminalMetadata,
 } from "@kolu/padi-client/surface";
 import type { TerminalId } from "kolu-common/surface";
-import { type Component, createEffect, For, Show } from "solid-js";
+import { type Component, createEffect, createMemo, For, Show } from "solid-js";
 import { match } from "ts-pattern";
 import { dockRowLabel } from "../canvas/dock/dockRowData";
 import { CHROME_ICON_BUTTON_CLASS } from "../ui/chromeSpacing";
@@ -36,7 +36,7 @@ import CodeTab from "../code-view/CodeTab";
 import { rightPanelCodeQueries, rightPanelCodeSubject } from "./hostCodeTab";
 import MetadataInspector from "./MetadataInspector";
 import { rightPanelCodeDoor } from "./openInCodeTab";
-import { paneDirectory } from "./paneDirectory";
+import { paneDirectory, samePaneDirectory } from "./paneDirectory";
 import { useRightPanel } from "./useRightPanel";
 
 /** Ordered tab kinds shown in the tab bar. Adding a new kind to the
@@ -90,7 +90,12 @@ const RightPanel: Component<{
    *  — `~`-shortened by the ONE shortener, so the root keeps the emphasis and
    *  everything below it dims. The split itself lives in `paneDirectory`, with
    *  its own test. */
-  const directory = () => paneDirectory(props.meta);
+  // Memoised on the line's own equality: the fold re-reads the whole metadata
+  // proxy, so any leaf tick re-minted an equal record and re-published the
+  // header's `<Show>`.
+  const directory = createMemo(() => paneDirectory(props.meta), {
+    equals: samePaneDirectory,
+  });
 
   /** The Code view's door: the panel's front door, opening in the pane the
    *  view shows. */
