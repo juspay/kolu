@@ -385,7 +385,9 @@ describe("useRightPanel — the panel follows the focused pane", () => {
       // The real caller's phase: a write from an effect's apply arm.
       createEffect(
         () => undefined,
-        () => rp.code.setSelectedFile("local", "from-the-arm.ts"),
+        () => {
+          rp.code.setSelectedFile("local", "from-the-arm.ts");
+        },
         { name: "rightPanelArmSelection" },
       );
       flush();
