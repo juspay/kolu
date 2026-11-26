@@ -12,11 +12,17 @@
  * WHAT IS FOLDED OFF, AND WHY ONLY THESE. Two kinds of check judge something
  * other than the code:
  *
- *   - `checks: false` folds off the six cost checks (`hotRuns`, `hotTime`,
- *     `wideDeps`, `unstableMemos`, `fanOut`, `wastedRecompute` →
- *     `HOT_SCOPE_RERUNS`, `HOT_SCOPE_TIME`, `WIDE_SCOPE_DEPS`,
- *     `UNSTABLE_MEMO_OUTPUT`, `HOT_SCOPE_FANOUT`, `WASTED_RECOMPUTE`), whose
- *     budgets are milliseconds of compute on whatever machine is running.
+ *   - `checks: false` folds off six checks in one word (`resolveHold`,
+ *     `dev.attribution.js:3163-3170`): `hotRuns` (`HOT_SCOPE_RERUNS`, and
+ *     `HOT_SCOPE_FANOUT`, which is emitted from the same window, `:568,631`),
+ *     `hotTime` (`HOT_SCOPE_TIME`), `wastedRecompute` (`WASTED_RECOMPUTE`),
+ *     `wideDeps` (`WIDE_SCOPE_DEPS`), `unstableMemos`
+ *     (`UNSTABLE_MEMO_OUTPUT`) and `fanOut`, which gates the RUNTIME's
+ *     `HUGE_FAN_OUT` at the engine's lower threshold (250 subscribers,
+ *     `:430-439`; the core's own always-on check takes over at 2000).
+ *     Only the first three read a clock: `wideDeps` is a dependency COUNT
+ *     (200), `unstableMemos` a number of consecutive equal outputs (four)
+ *     and `fanOut` a subscriber COUNT — not milliseconds of compute.
  *   - The five wall-clock checks below are not cost checks, so `checks: false`
  *     leaves them on and each is named off here. `holds: false` turns off TWO
  *     codes, not one: `SILENT_HOLD` (a write held ≥100ms,
@@ -38,8 +44,9 @@
  * inside 1000ms (`:2256-2290`) — the request-per-keystroke shape, which a
  * fast machine makes more likely, not less: it judges the code, not the clock.
  *
- * WHAT STAYS ON is everything a diff can cause: the runtime's own 56 codes
- * (which this object cannot touch) plus eight of the engine's —
+ * WHAT STAYS ON is everything a diff can cause: the runtime's own codes (of
+ * which `fanOut` lowers one threshold, `HUGE_FAN_OUT`) plus eight of the
+ * engine's —
  * `EFFECT_WRITES_OWN_SOURCE`, `EFFECT_RELAY_TEAR`, `IMMUTABLE_UPDATE_IN_STORE`,
  * `UNSTABLE_LIST_IDENTITY`, `FALLBACK_FLASH`, `OPTIMISTIC_REVERTED`,
  * `GRAPH_GROWTH` and `ABANDONED_FLIGHTS`. `fallbackFlashes` is left at its

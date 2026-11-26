@@ -42,13 +42,15 @@
  *
  *      WHICH CODES THE LANE GATES ON is `SOLID_ATTRIBUTION_OPTIONS`
  *      (`./attribution`), shared with the `solid-dev` build so both judge the
- *      same set: the runtime's own 56 codes, plus eight of the engine's —
+ *      same set: the runtime's own codes, plus eight of the engine's —
  *      `EFFECT_WRITES_OWN_SOURCE`, `EFFECT_RELAY_TEAR`,
  *      `IMMUTABLE_UPDATE_IN_STORE`, `UNSTABLE_LIST_IDENTITY`,
  *      `FALLBACK_FLASH`, `OPTIMISTIC_REVERTED`, `GRAPH_GROWTH` and
- *      `ABANDONED_FLIGHTS`. Off are the six cost checks (`HOT_SCOPE_RERUNS`,
- *      `HOT_SCOPE_TIME`, `WIDE_SCOPE_DEPS`, `UNSTABLE_MEMO_OUTPUT`,
- *      `HOT_SCOPE_FANOUT`, `WASTED_RECOMPUTE`) and the five that time a real
+ *      `ABANDONED_FLIGHTS`. Off are the six checks `checks: false` folds away
+ *      (`HOT_SCOPE_RERUNS` and `HOT_SCOPE_FANOUT` from `hotRuns`,
+ *      `HOT_SCOPE_TIME`, `WASTED_RECOMPUTE`, `WIDE_SCOPE_DEPS`,
+ *      `UNSTABLE_MEMO_OUTPUT`, and the engine's lower `HUGE_FAN_OUT`
+ *      threshold) and the five that time a real
  *      wait: `SILENT_HOLD` and `UNTRACKED_ASYNC_HANDLER` (both guarded by
  *      `holds`, `dev.attribution.js:1725,2800-2802`), `LONG_HOLD`,
  *      `ASYNC_WATERFALL` and `STACKED_HOLDS` — a test that waits on a real
