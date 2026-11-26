@@ -8,7 +8,7 @@
  * (making the re-key lazy-on-read) fails the first test.
  */
 
-import { createRoot, createSignal, flush, onCleanup } from "solid-js";
+import { createRoot, createSignal, flush, onCleanup, untrack } from "solid-js";
 import { describe, expect, it } from "vitest";
 import { createKeyedRoot } from "./createKeyedRoot";
 
@@ -67,7 +67,12 @@ describe("createKeyedRoot", () => {
     const { value, dispose } = createRoot((dispose) => {
       const value = createKeyedRoot(key, (k) => {
         builds++;
-        return `${k}:${tick()}`;
+        // `untrack`: a `mapArray` item factory is a strict-read scope (like a
+        // component body), so a bare reactive read there is a one-time read Solid
+        // flags as STRICT_READ_UNTRACKED. Reading the incidental signal once IS
+        // what this test is about — the atom keys on `key`, never on what the
+        // factory happened to read — so the read says so.
+        return `${k}:${untrack(tick)}`;
       });
       return { value, dispose };
     });
