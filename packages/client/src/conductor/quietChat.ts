@@ -153,17 +153,32 @@ export interface WorkNote {
   readonly text: string;
 }
 
+/** ONE WORK'S OWN NOTES, in the order its timeline carries them — the
+ *  per-work half of {@link agentNotes}, so a mirror of many works is read
+ *  work by work rather than walked again whenever any timeline moves. The
+ *  human's own notes are not news from a turn, so only the agent's are read. */
+export function notesOfWork(work: Work): ReadonlyArray<WorkNote> {
+  const out: WorkNote[] = [];
+  for (const event of work.events)
+    if (event.kind === "note" && event.by === "agent")
+      out.push({ at: Date.parse(event.at), text: event.text });
+  return out;
+}
+
+/** EVERY NOTE OF EVERY WORK, oldest first — from readings already taken. */
+export function mergeNotes(
+  works: Iterable<ReadonlyArray<WorkNote>>,
+): WorkNote[] {
+  const out: WorkNote[] = [];
+  for (const one of works) out.push(...one);
+  return out.sort((one, other) => one.at - other.at);
+}
+
 /** EVERY NOTE THE CONDUCTOR WROTE, oldest first, off the works' own
  *  timelines — a turn in which it wrote no reply still said something, and
- *  it said it there. The human's own notes are not news from a turn, so only
- *  the agent's are read. */
+ *  it said it there. */
 export function agentNotes(works: ReadonlyMap<WorkId, Work>): WorkNote[] {
-  const out: WorkNote[] = [];
-  for (const work of works.values())
-    for (const event of work.events)
-      if (event.kind === "note" && event.by === "agent")
-        out.push({ at: Date.parse(event.at), text: event.text });
-  return out.sort((one, other) => one.at - other.at);
+  return mergeNotes([...works.values()].map(notesOfWork));
 }
 
 /** WHAT A WAKE TURN'S ONE LINE SAYS: the reply's first sentence, the note it

@@ -23,9 +23,10 @@ import { Option } from "effect";
 import { filesSeen, keptOf, type Work, type WorkId } from "kolu-work";
 import { type NonEmpty, nonEmpty } from "nonempty";
 
-/** The paths a work holds: its kept copies once it has ended, the files it
- *  has seen appear while it is in progress. */
-const pathsOf = (work: Work): ReadonlySet<string> =>
+/** THE PATHS A WORK HOLDS: its kept copies once it has ended, the files it
+ *  has seen appear while it is in progress — one work's own reading, so a
+ *  mirror of many works is read work by work. */
+export const pathsOf = (work: Work): ReadonlySet<string> =>
   Option.match(keptOf(work), {
     onNone: () => filesSeen(work),
     onSome: (kept) => new Set(kept.map((one) => one.path)),
@@ -43,15 +44,23 @@ export const holdsPath = (work: Work, path: string): boolean =>
  *  the works, never per code span or per streamed chunk. */
 export type FileHolders = ReadonlyMap<string, ReadonlyArray<WorkId>>;
 
-export function fileHolders(works: ReadonlyMap<WorkId, Work>): FileHolders {
+/** THE INDEX, from readings already taken: each work's paths under the id
+ *  that holds them, in the order the works were given. */
+export function mergeHolders(
+  works: Iterable<readonly [WorkId, ReadonlySet<string>]>,
+): FileHolders {
   const index = new Map<string, WorkId[]>();
-  for (const [id, work] of works)
-    for (const path of pathsOf(work)) {
+  for (const [id, paths] of works)
+    for (const path of paths) {
       const list = index.get(path) ?? [];
       list.push(id);
       index.set(path, list);
     }
   return index;
+}
+
+export function fileHolders(works: ReadonlyMap<WorkId, Work>): FileHolders {
+  return mergeHolders([...works].map(([id, work]) => [id, pathsOf(work)]));
 }
 
 /** WHAT PRESSING A NAMED PATH DOES, as a sum:

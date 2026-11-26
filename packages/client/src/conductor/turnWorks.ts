@@ -21,8 +21,10 @@ import type { ConductorRow } from "kolu-common/conductor";
 import { fleetTerminalRef } from "kolu-mcp/fleetRef";
 import type { Work, WorkId } from "kolu-work";
 
-/** One work a terminal joined, and when. */
-interface Joining {
+/** One work a terminal joined, and when — with the terminal that joined it,
+ *  so a work's own joins can be read before they are filed by terminal. */
+export interface Joining {
+  readonly terminal: string;
   readonly work: WorkId;
   readonly at: number;
 }
@@ -32,17 +34,43 @@ interface Joining {
  *  change of the works, never per streamed chunk of the chat. */
 export type Joins = ReadonlyMap<string, ReadonlyArray<Joining>>;
 
-export function joinsOf(works: ReadonlyMap<WorkId, Work>): Joins {
+/** ONE WORK'S OWN JOINS, oldest first — read off that work's timeline alone,
+ *  so a mirror of many works is read work by work and a timeline that moves
+ *  re-reads only the work it moved in. */
+export function joinsOfWork(
+  work: WorkId,
+  record: Work,
+): ReadonlyArray<Joining> {
+  const joins: Joining[] = [];
+  for (const event of record.events) {
+    if (event.kind !== "joined" || event.about.kind !== "member") continue;
+    joins.push({
+      terminal: event.about.terminal,
+      work,
+      at: Date.parse(event.at),
+    });
+  }
+  return joins;
+}
+
+/** THE INDEX, from readings already taken: every work's joins by the terminal
+ *  that made them, each terminal's oldest first. */
+export function mergeJoins(works: Iterable<ReadonlyArray<Joining>>): Joins {
   const joins = new Map<string, Joining[]>();
-  for (const [work, one] of works)
-    for (const event of one.events) {
-      if (event.kind !== "joined" || event.about.kind !== "member") continue;
-      const list = joins.get(event.about.terminal) ?? [];
-      list.push({ work, at: Date.parse(event.at) });
-      joins.set(event.about.terminal, list);
+  for (const one of works)
+    for (const joining of one) {
+      const list = joins.get(joining.terminal) ?? [];
+      list.push(joining);
+      joins.set(joining.terminal, list);
     }
   for (const list of joins.values()) list.sort((a, b) => a.at - b.at);
   return joins;
+}
+
+export function joinsOf(works: ReadonlyMap<WorkId, Work>): Joins {
+  return mergeJoins(
+    [...works].map(([work, record]) => joinsOfWork(work, record)),
+  );
 }
 
 /** ONE TURN: the row that starts it — where its works are drawn — and the

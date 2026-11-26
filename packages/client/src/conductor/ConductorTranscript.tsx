@@ -71,13 +71,13 @@ import {
   unpinTranscript,
   WHOLE_TRANSCRIPT,
 } from "./transcriptScroll";
-import { type FileHolders, fileHolders } from "./namedFiles";
+import type { FileHolders } from "./namedFiles";
 import { chatScope } from "./chatScope";
-import { agentNotes, quietChat, type QuietTurn } from "./quietChat";
+import { quietChat, type QuietTurn } from "./quietChat";
 import type { Turn } from "./turnWorks";
 import { useConductor } from "./useConductor";
 import { wakeHeadline, wakeWhen } from "./wake";
-import { useWorkMap } from "./useWorks";
+import { useAgentNotes, useFileHolders, useWorkMap } from "./useWorks";
 import WorkChip from "./WorkChip";
 import WorkChipFace from "./WorkChipFace";
 import WorkQuestion from "./WorkQuestion";
@@ -308,10 +308,13 @@ const ConductorTranscript: Component<{
   const items = createMemo(() =>
     foldFailureRuns(foldToolRuns(foldNoticeRuns(props.rows))),
   );
-  /** Which work holds which file, built once per change of the works — what
-   *  the prose's file links read. The turns are the pane's (`props.turns`). */
+  /** The works themselves, as the re-place trigger below reads them: rows
+   *  arriving for a work are a reason to put the scroller back where it was. */
   const workMap = useWorkMap();
-  const holders = createMemo(() => fileHolders(workMap()));
+  /** Which work holds which file — what the prose's file links read. The
+   *  app's one index ({@link useFileHolders}), built work by work. The turns
+   *  are the pane's (`props.turns`). */
+  const holders = useFileHolders();
   const turns = () => props.turns;
   const turnsContext: Turns = {
     // Every row of `props.rows` has a turn, and every row drawn is one of
@@ -327,9 +330,10 @@ const ConductorTranscript: Component<{
 
   /** THE FOLD: which turns are one line, what the line says, which one is
    *  open before anybody presses, and how many replies have landed since the
-   *  last thing a person typed. The notes are read once per change of the
-   *  works, never per streamed chunk of the chat. */
-  const notes = createMemo(() => agentNotes(workMap()));
+   *  last thing a person typed. The notes are the app's one reading
+   *  ({@link useAgentNotes}), taken work by work — never per streamed chunk
+   *  of the chat. */
+  const notes = useAgentNotes();
   const quiet = createMemo(() => quietChat(props.rows, notes()));
   /** Is this turn open — what somebody pressed, or the rule. */
   const opened = (turn: QuietTurn): boolean =>

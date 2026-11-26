@@ -43,7 +43,7 @@
  *
  *  WHAT YOU CHOSE LAST TIME IS ALREADY CHOSEN. Every setup question opens on
  *  this person's last answer on this host, read off the SAVED works
- *  (`setupMemory`) rather than off a conversation — so a new conversation, a
+ *  (`setupMemoryOf`) rather than off a conversation — so a new conversation, a
  *  restart and a second tab all offer the same thing — drawn first and
  *  selected, which means one press of Answer sends the whole setup. It is
  *  written into the draft once ({@link seededChips}), which is what keeps
@@ -67,7 +67,7 @@ import {
   type Offered,
   type Recalled,
   type SentAnswer,
-  setupMemory,
+  setupMemoryOf,
   type Work,
   type WorkId,
 } from "kolu-work";
@@ -88,7 +88,7 @@ import {
 } from "./drafts";
 import { openReader } from "./reader/useReader";
 import { useConductor } from "./useConductor";
-import { useWorkMap } from "./useWorks";
+import { useSetupAnswers } from "./useWorks";
 import WorkChip from "./WorkChip";
 import WorkChipFace from "./WorkChipFace";
 import WorkChoiceQuestion from "./WorkChoiceQuestion";
@@ -150,10 +150,14 @@ const WorkQuestion: Component<{
 
   /** WHAT THIS PERSON CHOSE BEFORE on this work's host, off the saved works.
    *  Read by every setup question in the form — the two drawn here and the
-   *  four {@link WorkChoiceQuestion} draws — so the mirror is folded once. */
-  const works = useWorkMap();
-  const memory = createMemo(() =>
-    setupMemory([...works().values()], hostOf(props.work)),
+   *  four {@link WorkChoiceQuestion} draws — and the answers themselves are
+   *  the APP's one reading ({@link useSetupAnswers}), read work by work: the
+   *  four faces an ask is drawn in share that fold, and this memo's own
+   *  scope is the answers and this work's host. */
+  const setupAnswers = useSetupAnswers();
+  const memory = createMemo(
+    () => setupMemoryOf(setupAnswers(), hostOf(props.work)),
+    { name: "memory" },
   );
 
   const picked = (decision: string, value: string): boolean =>

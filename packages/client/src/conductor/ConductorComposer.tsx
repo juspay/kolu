@@ -77,7 +77,12 @@ import {
 import { chatScope, showAllChat } from "./chatScope";
 import WorkChip from "./WorkChip";
 import WorkChipFace from "./WorkChipFace";
-import { useMembership, useNeedsYou, useWorkMap, useWorks } from "./useWorks";
+import {
+  useMembership,
+  useNeedsYou,
+  useWorkMap,
+  useWorkMentions,
+} from "./useWorks";
 import { sendsAsSteer, steerOnOffer } from "./steer";
 import { thumbnailOf } from "./thumbnails";
 import { pinTranscript } from "./transcriptScroll";
@@ -131,7 +136,7 @@ const ConductorComposer: Component<{
 }> = (props) => {
   const orch = useConductor();
   const fleet = useFleetTerminalIndex();
-  const works = useWorks();
+  const mentions = useWorkMentions();
   const needs = useNeedsYou();
   const workMap = useWorkMap();
   const membership = useMembership();
@@ -161,7 +166,7 @@ const ConductorComposer: Component<{
     },
   );
   const workCandidates = createMemo<WorkCandidate[]>(() =>
-    workMentionCandidates(works(), needs(), terminalNames()),
+    workMentionCandidates(mentions(), needs(), terminalNames()),
   );
   const candidates = createMemo<MentionCandidate[]>(
     () => [...workCandidates(), ...terminalCandidates()],

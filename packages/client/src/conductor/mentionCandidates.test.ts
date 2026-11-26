@@ -19,7 +19,9 @@ import {
   fleetMentionCandidates,
   memberDetail,
   mentionDetail,
+  type WorkMention,
   workMentionCandidates,
+  workMentionOf,
 } from "./mentionCandidates";
 import { armedMentions } from "./mentions";
 
@@ -162,14 +164,21 @@ describe("workMentionCandidates", () => {
 
   const NONE: ReadonlySet<string> = new Set();
 
+  /** The works as the menu reads them — one reading per work, which is what
+   *  the composer hands in. */
+  const read = (
+    rows: ReadonlyArray<readonly [WorkId, Work]>,
+  ): ReadonlyArray<WorkMention> =>
+    rows.map(([id, record]) => workMentionOf(id, record));
+
   it("offers what needs the human first, then the rest in the works' order", () => {
     expect(
-      workMentionCandidates([...works], needs, NONE).map((one) => one.work),
+      workMentionCandidates(read(works), needs, NONE).map((one) => one.work),
     ).toEqual([AGENTS, FOLDERS, PANE]);
   });
 
   it("offers each work once, by a slug of its title, with where it stands", () => {
-    const [first] = workMentionCandidates([...works], [], NONE);
+    const [first] = workMentionCandidates(read(works), [], NONE);
     expect(first).toMatchObject({
       kind: "work",
       work: PANE,
@@ -183,7 +192,7 @@ describe("workMentionCandidates", () => {
   it("drops a wait whose work the mirror no longer lists", () => {
     expect(
       workMentionCandidates(
-        [works[0]],
+        read([works[0]]),
         [{ work: AGENTS } as NeedsYou],
         NONE,
       ).map((one) => one.work),
@@ -197,10 +206,10 @@ describe("workMentionCandidates", () => {
     const stopped = "branch:local/%2Fr/agents-closure" as WorkId;
     const merged = "branch:local/%2Fr/agents-closure-in-cache" as WorkId;
     const offered = workMentionCandidates(
-      [
+      read([
         [stopped, work(title, "2026-11-16T01:00:00.000Z")],
         [merged, work(title, "2026-11-16T02:00:00.000Z")],
-      ],
+      ]),
       [],
       NONE,
     );
@@ -216,7 +225,7 @@ describe("workMentionCandidates", () => {
 
   it("never takes a word a terminal is already called", () => {
     const [one] = workMentionCandidates(
-      [[PANE, work("Page chats", "2026-11-16T01:00:00.000Z")]],
+      read([[PANE, work("Page chats", "2026-11-16T01:00:00.000Z")]]),
       [],
       new Set(["page-chats"]),
     );

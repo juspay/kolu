@@ -26,13 +26,7 @@
  *  WITH NOTHING IN FLIGHT, it says WHAT THE PANEL IS FOR — a welcome, not a
  *  count: never `0`, and never a bare line that teaches nobody anything. */
 
-import {
-  finished,
-  inProgress,
-  type Work,
-  type WorkId,
-  type WorkRow,
-} from "kolu-work";
+import type { Work, WorkId, WorkRow } from "kolu-work";
 import type { JSX } from "@solidjs/web";
 import {
   type Component,
@@ -47,7 +41,7 @@ import { layoutMode } from "../useMobile";
 import { askFromWelcome } from "./drafts";
 import { helpSheet } from "./helpContent";
 import { setPhoneView } from "./phoneView";
-import { useNeedsYou, useWorks } from "./useWorks";
+import { useNeedsYou, useWorks, useWorkSplit } from "./useWorks";
 import WorkCard from "./WorkCard";
 import {
   isFinishedOpen,
@@ -224,7 +218,10 @@ const Welcome: Component = () => {
 const WorkColumn: Component = () => {
   const works = useWorks();
   const needs = useNeedsYou();
-  const live = createMemo(() => inProgress(works()));
+  /** THE TWO HALVES OF THE BOARD, as the app reads them once: whether a work
+   *  is still running is that work's own reading, so neither list moves for a
+   *  timeline tick. */
+  const { live, done } = useWorkSplit();
   /** On a phone every work is a card: a row needs a side to stand beside. */
   const rowShape = (): "card" | "row" =>
     layoutMode() === "phone" ? "card" : "row";
@@ -241,7 +238,6 @@ const WorkColumn: Component = () => {
     }
     return { onYou, moving, watching };
   });
-  const done = createMemo(() => finished(works()));
 
   /** Is the picked work in the list right now? */
   const pickedHere = createMemo(() => {

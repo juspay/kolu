@@ -37,6 +37,8 @@ import {
   type Membership,
   type NeedsYou,
   needsYouOf,
+  type SetupAnswer,
+  setupAnswersOf,
   type Work,
   type WorkId,
   type WorkMember,
@@ -45,6 +47,10 @@ import {
 import { type Accessor, createMemo, mapArray } from "solid-js";
 import { createSharedRoot } from "../createSharedRoot";
 import { app } from "../wire";
+import { workMentionOf, type WorkMention } from "./mentionCandidates";
+import { type FileHolders, mergeHolders, pathsOf } from "./namedFiles";
+import { mergeNotes, notesOfWork, type WorkNote } from "./quietChat";
+import { type Joins, joinsOfWork, mergeJoins } from "./turnWorks";
 
 /** ONE BOUND COLLECTION, AS A MAP — the three mirrors below are the same eight
  *  lines over three collections: walk the keys, read each row's accessor, drop
@@ -147,12 +153,20 @@ export const useWorks = createSharedRoot<Accessor<ReadonlyArray<WorkRow>>>(
  *
  *  A row reads `undefined` while its work is no longer in the mirror, which a
  *  reading drops: a row memo outlives its work by the moment between the
- *  record leaving and the id list being folded again. */
+ *  record leaving and the id list being folded again.
+ *
+ *  `equals` is what a reading that mints a CONTAINER per run (a work's notes,
+ *  its joins, its setup answers) says to hold the previous one by: without
+ *  it every publish that re-runs a row hands the fold a new-but-equal array
+ *  and the fold re-publishes too, which is the whole saving undone. */
 export const perWork = <T>(
   /** The reading's name in dev diagnostics; each row memo wears it with the
    *  id of the work it is about. */
   name: string,
   of: (id: WorkId, record: Work) => T,
+  /** When two readings of ONE work are the same thing. A work that has left
+   *  the mirror reads `undefined`, which is equal only to itself. */
+  equals?: (a: T, b: T) => boolean,
 ): Accessor<ReadonlyArray<Accessor<T | undefined>>> => {
   const map = useWorkMap();
   const works = useWorks();
@@ -160,6 +174,11 @@ export const perWork = <T>(
     name: `${name}.ids`,
     equals: sameOrder,
   });
+  const same =
+    equals === undefined
+      ? undefined
+      : (a: T | undefined, b: T | undefined): boolean =>
+          a === undefined || b === undefined ? a === b : equals(a, b);
   return mapArray(
     ids,
     (id) => {
@@ -171,7 +190,7 @@ export const perWork = <T>(
           const one = record();
           return one === undefined ? undefined : of(id, one);
         },
-        { name: `${name}[${id}]` },
+        { name: `${name}[${id}]`, equals: same },
       );
     },
     { name },
@@ -246,3 +265,168 @@ export const useNeedsYou = createSharedRoot<Accessor<ReadonlyArray<NeedsYou>>>(
     );
   },
 );
+
+/** WHAT ONE PERSON CHOSE BEFORE, over the whole collection — the answers of
+ *  every work, read one work at a time and joined. The memory a form opens
+ *  on is `setupMemoryOf(useSetupAnswers()(), host)`: the host is the FORM's
+ *  (a work's own), while the answers are the app's, so four faces of one ask
+ *  share the fold instead of each walking every decision of every work. */
+export const useSetupAnswers = createSharedRoot<
+  Accessor<ReadonlyArray<SetupAnswer>>
+>(() => {
+  const rows = perWork(
+    "setupAnswers",
+    (_, record) => setupAnswersOf(record),
+    (a, b) =>
+      a.length === b.length &&
+      a.every((one, at) => {
+        const other = b[at];
+        return (
+          other !== undefined &&
+          other.host === one.host &&
+          other.key === one.key &&
+          other.at === one.at &&
+          other.value === one.value &&
+          other.chosen === one.chosen &&
+          other.model === one.model &&
+          Option.getOrUndefined(other.harness) ===
+            Option.getOrUndefined(one.harness)
+        );
+      }),
+  );
+  return createMemo(() => rows().flatMap((row) => row() ?? []), {
+    name: "setupAnswers",
+    equals: sameOrder,
+  });
+});
+
+/** WHICH TERMINAL JOINED WHICH WORK, for the whole collection — the index a
+ *  chat turn's terminals become works through, read work by work so a
+ *  timeline that moves re-reads one work's events and not every work's. */
+export const useJoins = createSharedRoot<Accessor<Joins>>(() => {
+  const rows = perWork(
+    "workJoins",
+    joinsOfWork,
+    (a, b) =>
+      a.length === b.length &&
+      a.every((one, at) => {
+        const other = b[at];
+        return (
+          other !== undefined &&
+          other.terminal === one.terminal &&
+          other.work === one.work &&
+          other.at === one.at
+        );
+      }),
+  );
+  return createMemo(() => mergeJoins(rows().map((row) => row() ?? [])), {
+    name: "joins",
+  });
+});
+
+/** EVERY NOTE THE CONDUCTOR WROTE ON ANY WORK, oldest first — what the
+ *  transcript's folded turns say instead of a reply. Read work by work: a
+ *  streamed chunk of the chat moves no work, and a work that moves re-reads
+ *  only its own timeline. */
+export const useAgentNotes = createSharedRoot<
+  Accessor<ReadonlyArray<WorkNote>>
+>(() => {
+  const rows = perWork(
+    "workNotes",
+    (_, record) => notesOfWork(record),
+    (a, b) =>
+      a.length === b.length &&
+      a.every((one, at) => {
+        const other = b[at];
+        return (
+          other !== undefined && other.at === one.at && other.text === one.text
+        );
+      }),
+  );
+  return createMemo(() => mergeNotes(rows().map((row) => row() ?? [])), {
+    name: "agentNotes",
+    equals: sameOrder,
+  });
+});
+
+/** WHICH WORK HOLDS WHICH FILE — what makes a path named in the prose a
+ *  link. One work's paths are its own reading, so a work writing a file
+ *  rebuilds the index without re-reading every other work's. */
+export const useFileHolders = createSharedRoot<Accessor<FileHolders>>(() => {
+  const rows = perWork(
+    "workPaths",
+    (id, record) => [id, pathsOf(record)] as const,
+    ([id, paths], [otherId, otherPaths]) =>
+      id === otherId &&
+      paths.size === otherPaths.size &&
+      [...paths].every((path) => otherPaths.has(path)),
+  );
+  return createMemo(
+    () =>
+      mergeHolders(
+        rows().flatMap((row) => {
+          const one = row();
+          return one === undefined ? [] : [one];
+        }),
+      ),
+    { name: "fileHolders" },
+  );
+});
+
+/** EVERY WORK AS THE `@` MENU READS IT, in the works' own order — the title
+ *  it is named by and where it stands, per work. The menu's own list adds
+ *  what needs the human first and the words that tell two works apart, which
+ *  are the composer's (its terminals' names are half of that question). */
+export const useWorkMentions = createSharedRoot<
+  Accessor<ReadonlyArray<WorkMention>>
+>(() => {
+  const rows = perWork(
+    "workMention",
+    workMentionOf,
+    (a, b) =>
+      a.work === b.work &&
+      a.record === b.record &&
+      a.title === b.title &&
+      a.standing === b.standing,
+  );
+  return createMemo(
+    () =>
+      rows().flatMap((row) => {
+        const one = row();
+        return one === undefined ? [] : [one];
+      }),
+    { name: "workMentions", equals: sameOrder },
+  );
+});
+
+/** THE BOARD'S TWO HALVES — what is running and what has finished, in the
+ *  one order {@link useWorks} puts them in. Whether a work is still open is
+ *  that work's own reading, so a timeline tick moves neither list and the
+ *  column does not re-group for it. */
+export const useWorkSplit = createSharedRoot<{
+  readonly live: Accessor<ReadonlyArray<WorkRow>>;
+  readonly done: Accessor<ReadonlyArray<WorkRow>>;
+}>(() => {
+  const rows = perWork(
+    "workOpen",
+    (id, record) => ({
+      row: [id, record] as WorkRow,
+      open: record.state.kind === "open",
+    }),
+    (a, b) =>
+      a.open === b.open && a.row[0] === b.row[0] && a.row[1] === b.row[1],
+  );
+  const half = (
+    open: boolean,
+    name: string,
+  ): Accessor<ReadonlyArray<WorkRow>> =>
+    createMemo(
+      () =>
+        rows().flatMap((row) => {
+          const one = row();
+          return one === undefined || one.open !== open ? [] : [one.row];
+        }),
+      { name, equals: sameWorkRows },
+    );
+  return { live: half(true, "liveWorks"), done: half(false, "finishedWorks") };
+});

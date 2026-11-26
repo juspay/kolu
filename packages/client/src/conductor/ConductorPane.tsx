@@ -70,13 +70,13 @@ import { revealTranscriptRow } from "./transcriptScroll";
 import WorkReader from "./reader/WorkReader";
 import ReaderChrome from "./reader/ReaderChrome";
 import { openReader, readerFilled, readerTarget } from "./reader/useReader";
-import { chatTurns, joinsOf, turnWorks } from "./turnWorks";
+import { chatTurns, turnWorks } from "./turnWorks";
 import {
   finishedReplyOf,
   provideTypedReply,
   type TypedReply,
 } from "./typedReply";
-import { useWorkMap } from "./useWorks";
+import { useJoins, useWorkMap } from "./useWorks";
 
 const ConductorPane: Component<{
   class?: string;
@@ -85,10 +85,11 @@ const ConductorPane: Component<{
   const feed = createConductorTranscript();
   let transcriptEl: HTMLDivElement | undefined;
   /** EACH ROW'S TURN, read once — one walk of the rows per change, over the
-   *  index of which terminal joined which work, built once per change of the
-   *  works. The transcript and the scope bar over it both read this. */
+   *  index of which terminal joined which work ({@link useJoins}, built work
+   *  by work for the whole app). The transcript and the scope bar over it
+   *  both read this. */
   const workMap = useWorkMap();
-  const joins = createMemo(() => joinsOf(workMap()));
+  const joins = useJoins();
   const turns = createMemo(() => turnWorks(feed.rows(), workMap(), joins()));
   /** THE ROWS IN THE ORDER THE CHAT IS DRAWN: turn by turn, each turn's rows
    *  under its message — so a message sent while a reply is still being
