@@ -1,5 +1,5 @@
 import type { Terminal } from "@xterm/xterm";
-import { createEffect, createRoot, flush } from "solid-js";
+import { createEffect, createRoot, createSignal, flush } from "solid-js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createScrollLock, SCROLL_INTENT_WINDOW_MS } from "./scrollLock";
 
@@ -509,6 +509,84 @@ describe("createScrollLock — a resize keeps its place in the stream", () => {
     t.lock.reset();
     expect(t.trace).toEqual([]);
     expect(t.grid()).toEqual({ cols: 80, rows: 24 });
+    t.dispose();
+  });
+});
+
+describe("createScrollLock — the write door runs inside the effect phase", () => {
+  it("buffers a locked write made from an effect's apply arm", () => {
+    const t = setup();
+    t.lock.armUserScrollIntent("wheel");
+    t.scrollUp(10);
+    const [bytes, setBytes] = createSignal("");
+    // The production shape: terminal output arrives as a signal and reaches
+    // the write door from an effect's APPLY arm — a strict-read window, where
+    // a door that subscribed to the lock's reactive mirror raises
+    // STRICT_READ_UNTRACKED and the setup file's `afterEach` throws.
+    const disposeEffect = createRoot((d) => {
+      createEffect(
+        () => bytes(),
+        (data) => {
+          if (data.length > 0) t.lock.writeData(t.term, data);
+        },
+        { name: "scrollLockDoorFromApplyArm" },
+      );
+      return d;
+    });
+    flush();
+    setBytes("held");
+    flush();
+    // Held, not painted: the door asked the plain authority and got "locked".
+    expect(t.trace).toEqual([]);
+    expect(t.lock.hasNewOutput()).toBe(true);
+    t.lock.reset();
+    expect(t.trace).toEqual(["w:held"]);
+    disposeEffect();
+    t.dispose();
+  });
+
+  it("writes straight through from an effect's apply arm while unlocked", () => {
+    const t = setup();
+    const [bytes, setBytes] = createSignal("");
+    const disposeEffect = createRoot((d) => {
+      createEffect(
+        () => bytes(),
+        (data) => {
+          if (data.length > 0) t.lock.writeData(t.term, data);
+        },
+        { name: "scrollLockOpenDoorFromApplyArm" },
+      );
+      return d;
+    });
+    flush();
+    setBytes("live");
+    flush();
+    expect(t.trace).toEqual(["w:live"]);
+    disposeEffect();
+    t.dispose();
+  });
+
+  it("queues a resize from an effect's apply arm behind the held bytes", () => {
+    const t = setup();
+    t.lock.armUserScrollIntent("wheel");
+    t.scrollUp(10);
+    t.lock.writeData(t.term, "before");
+    const [cols, setCols] = createSignal(80);
+    const disposeEffect = createRoot((d) => {
+      createEffect(
+        () => cols(),
+        (c) => t.lock.resizeInOrder(c, 24),
+        { name: "scrollLockResizeFromApplyArm" },
+      );
+      return d;
+    });
+    flush();
+    setCols(100);
+    flush();
+    expect(t.trace).toEqual([]);
+    t.lock.reset();
+    expect(t.trace).toEqual(["w:before", "r:100x24"]);
+    disposeEffect();
     t.dispose();
   });
 });

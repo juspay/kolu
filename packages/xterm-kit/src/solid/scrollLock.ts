@@ -129,9 +129,13 @@ export function createScrollLock(
    *  signal that answer would still be "unlocked" and the bytes the lock was
    *  just engaged to hold would jump the user's screen — the exact defect this
    *  module exists to prevent. The signal beside it is the REACTIVE MIRROR the
-   *  UI (and the `enabled` effect) re-runs on; one writer moves both. The
-   *  readers below subscribe to the mirror and answer from the authority, so a
-   *  tracked read is never a flush behind an imperative one. */
+   *  UI (and the `enabled` effect) re-runs on; one writer moves both. TRACKED
+   *  readers (`isLocked`, `pending`) subscribe to the mirror and answer from
+   *  the authority, so a tracked read is never a flush behind an imperative
+   *  one. IMPERATIVE readers (`lockedNow`, `pendingNow`) answer from the
+   *  authority ALONE: the write door and the flush path reach them from inside
+   *  the effect phase, where subscribing is both meaningless — nothing re-runs
+   *  them — and a dev diagnostic. */
   let lock: {
     source: ScrollIntentSource;
     hiddenAtEngage: boolean;
@@ -154,6 +158,13 @@ export function createScrollLock(
     return lock;
   };
   const isLocked = () => lockNow() !== null;
+  /** The lock, answered WITHOUT subscribing — for the imperative paths (the
+   *  write door, the flush/release path) that are not waiting to be re-run by
+   *  a later value. They run inside the effect phase, where a tracked read is
+   *  a dev diagnostic (STRICT_READ_UNTRACKED) as well as a pointless
+   *  subscription. Same answer as `isLocked()` by construction: both report
+   *  the plain authority, and only the mirror subscription differs. */
+  const lockedNow = (): boolean => lock !== null;
 
   /** What the lock is holding back, IN ORDER — flushed on unlock.
    *
@@ -181,6 +192,9 @@ export function createScrollLock(
     pendingMirror();
     return heldItems;
   };
+  /** The buffer, answered WITHOUT subscribing — the imperative counterpart of
+   *  `pending()`, for the same reason `lockedNow` exists beside `isLocked`. */
+  const pendingNow = (): PendingItem[] => heldItems;
   const pendingChunks = () =>
     pending().reduce((n, item) => (item.kind === "data" ? n + 1 : n), 0);
   const hasNewOutput = () => pendingChunks() > 0;
@@ -331,11 +345,11 @@ export function createScrollLock(
 
   /** The imperative façade over {@link drain}: reads the buffer's current
    *  contents and replays them. Every caller is an event handler, a write-door
-   *  entry or the public API — never an effect callback, which is a strict-read
-   *  window: the `enabled` effect below takes the buffer from its own compute
-   *  and calls `drain` directly. */
+   *  entry or the public API — never a tracked reader, hence `pendingNow`; the
+   *  `enabled` effect below takes the buffer from its own compute and calls
+   *  `drain` directly. */
   function flush(): void {
-    drain(pending());
+    drain(pendingNow());
   }
 
   /** Drop everything the lock is holding, bytes and resizes alike, without
@@ -395,7 +409,7 @@ export function createScrollLock(
    *  it for a scroll that changed nothing. Nothing is held while unlocked (the
    *  write door only buffers under a lock), so there is nothing to flush either. */
   function flushAndRelease(): void {
-    if (!isLocked()) return;
+    if (!lockedNow()) return;
     flush();
     setLockState(null);
   }
@@ -506,14 +520,14 @@ export function createScrollLock(
     data: string,
     onParsed?: () => void,
   ): void {
-    if (!isLocked()) {
+    if (!lockedNow()) {
       term.write(data, onParsed);
       return;
     }
     // Stash the callback WITH the chunk (not invoked now — no paint yet); flush()
     // fires it once the buffered write parses on unlock, so a re-seed that rides
     // the callback survives the lock instead of being silently dropped.
-    setPending([...pending(), { kind: "data", data, onParsed }]);
+    setPending([...pendingNow(), { kind: "data", data, onParsed }]);
   }
 
   /**
@@ -537,11 +551,11 @@ export function createScrollLock(
   function resizeInOrder(cols: number, rows: number): void {
     const term = termRef;
     if (!term) return;
-    if (!isLocked()) {
+    if (!lockedNow()) {
       resizeTerminal(term, cols, rows);
       return;
     }
-    setPending([...pending(), { kind: "resize", cols, rows }]);
+    setPending([...pendingNow(), { kind: "resize", cols, rows }]);
   }
 
   /**
