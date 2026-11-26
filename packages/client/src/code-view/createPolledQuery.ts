@@ -30,11 +30,14 @@
  *     the #818 pending-gate is written against), and a key it still answers
  *     for — the input moved away and came BACK with no landing in between,
  *     a bare host switch and back, a pause and resume — keeps that answer and
- *     refreshes it from the pulse's first frame. The key is value-deduped over
- *     (input, host), so a fresh-reference-but-equal-value input on the same
+ *     refreshes it from the pulse's first frame. A key whose last answer was a
+ *     FAILURE keeps that too: `error()` stands again with `pending() === false`,
+ *     which is the leg that paints (the error panel). The key is value-deduped
+ *     over (input, host), so a fresh-reference-but-equal-value input on the same
  *     host re-issues nothing at all (a #1714-class trap, armed since #1652,
- *     closed here). Holding a stamped answer is where this differs from
- *     master, which blanked on every re-key: see `shownKey` below.
+ *     closed here). Holding a stamped answer — value or failure — is where this
+ *     differs from master, which blanked both on every re-key: see `shownKey`
+ *     below.
  *
  * The returned handle is a `Subscription<Result>` — a callable accessor with
  * `.pending` / `.error` — identical to what `app.streams.X.use(...)` returned,
@@ -108,16 +111,20 @@ export interface PolledQueryConfig<Input, PulseInput, Pulse, Result> {
   swallowError?: (err: Error) => boolean;
   /** Whether this query is the SHOWN one — its polling gate. Defaults to always-on
    *  (`() => true`), the standalone behavior. While `false` the query PAUSES: the pulse
-   *  is torn down (no background polling) and the last value + `pending` are FROZEN. On
-   *  re-activation it RESUMES: an input the store already answers for keeps the held
-   *  value (no blank) and the pulse refreshes it; one it does not is blank and
-   *  `pending` like any key with no stamped answer.
+   *  is torn down (no background polling) and the last value, error and `pending` are
+   *  FROZEN. On re-activation it RESUMES: an input the store already answers for keeps
+   *  the held value (no blank) and the pulse refreshes it; one whose last answer FAILED
+   *  re-shows that failure, settled, until the resumed pulse's first frame retires it;
+   *  one the store has never answered is blank and `pending` like any key with no
+   *  stamped answer.
    *  A key change WHILE active obeys the same stamp rule, which is where this differs
-   *  from master: master blanked on every re-key, so a round trip back to a key it had
-   *  already answered blanked too, while here that key's answer still stands and is
-   *  refreshed in place (`createPolledQuery.test.ts`'s round-trip case pins it).
-   *  `hostCodeTab` wires this to `ctx.isActive` for per-host switch-back by ownership —
-   *  see its header for the why. */
+   *  from master: master blanked value, error and pending on every re-key, so a round
+   *  trip back to a key it had already answered blanked too, while here that key's
+   *  answer still stands and is refreshed in place (`createPolledQuery.test.ts`'s
+   *  round-trip case pins it).
+   *  `hostCodeTab` wires this to `ctx.isActive` for per-host switch-back by ownership,
+   *  and `codeQueries`' browse file-content read ANDs in whether a shown view is
+   *  showing that pick — see their headers for the why. */
   active?: Accessor<boolean>;
 }
 
@@ -243,15 +250,23 @@ export function createPolledQuery<Input, PulseInput, Pulse, Result>(
    *  stays `pending`, exactly as the idle blank used to.
    *
    *  THE RULE CUTS BOTH WAYS, and that is this primitive's one behaviour
-   *  difference from master. The store's stamp moves only on a landing, so an
-   *  input that goes A → B → A with no landing for B comes back to A's own
-   *  answer: `value()` is it, `pending()` is false, and `complete()` is true
-   *  again if A's pulse had already ended. Master reset all three on every
-   *  active run of the poll effect, so it blanked on the way back and showed
-   *  one "Loading…" frame before re-answering the same bytes. Both are honest
-   *  — an answer to A is still an answer to A, and the pulse's first frame
-   *  refreshes it in place — and this one is a flash less. The round-trip case
-   *  in `createPolledQuery.test.ts` pins it. */
+   *  difference from master. The store's stamp moves only on a landing and
+   *  `errored` is retired only by one (see the landing below), so an input
+   *  that goes A → B → A with no landing for B comes back to A's own answer,
+   *  whichever answer that was. If A LANDED: `value()` is it, `pending()` is
+   *  false, and `complete()` is true again if A's pulse had already ended. If
+   *  A FAILED: `error()` is that failure again with `pending()` false — the
+   *  face that PAINTS, since the error panel reads it (`browseError`,
+   *  `CodeTab.tsx`), where `complete()` has no consumer at all. Master reset
+   *  all four on every active run of the poll effect, so it blanked on the way
+   *  back and showed one "Loading…" frame before re-answering the same bytes
+   *  or re-raising the same failure. Both are honest — an answer to A is still
+   *  an answer to A, and the pulse's first frame refreshes it in place — and
+   *  this one is a flash less. The one caveat: while the host's transport is
+   *  down the `!live()` swallow leaves the held answer standing with no error
+   *  and `pending() === false`, so a re-key cannot refresh it until the
+   *  transport is back. The round-trip case in `createPolledQuery.test.ts`
+   *  pins it. */
   const value = (): Result | undefined => {
     const key = shownKey();
     return key !== null && store.key === key ? store.v : undefined;

@@ -684,9 +684,13 @@ describe("createPolledQuery", () => {
     // The faces are derived through `shownKey()`, which reads `active()` and the
     // standing input key — and an effect's apply arm runs on every re-run of its
     // compute, equal value or not. Wiring `onError` to `error()` therefore raised
-    // a fresh toast on every mode switch once a read had failed, forever (1 → 3 → 5
-    // over two away-and-back switches). It is wired to the failure itself, so the
-    // callback moves only when a read fails or a landing retires it.
+    // a fresh toast on every mode switch once a read had failed, forever — three
+    // calls for the one failure here (1 → 2 → 3 over two away-and-back switches:
+    // nothing LANDS in this fixture, so `store.key` stays null, the paused
+    // `shownKey()` matches no failure and only each resume re-raises). A landed-
+    // then-failed key pauses onto its own failure too, and makes it five. It is
+    // wired to the failure itself, so the callback moves only when a read fails
+    // or a landing retires it.
     const seen: string[] = [];
     const errAfterSwitches = await new Promise<string | undefined>(
       (resolve) => {
@@ -721,7 +725,7 @@ describe("createPolledQuery", () => {
         });
       },
     );
-    expect(seen).toEqual(["boom"]); // ONE call — five before the fix
+    expect(seen).toEqual(["boom"]); // ONE call — three before the fix
     expect(errAfterSwitches).toBe("boom"); // the face still stands for the key
   });
 });
