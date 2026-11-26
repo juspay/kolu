@@ -46,9 +46,9 @@ import { layoutsEqual, type TileLayout } from "./TileLayout";
 
 /** A local geometry intent. What it is judged against — the authored trail,
  *  and whether this layout is a preview frame or a commit — is side data
- *  (`authoredTrails`), not part of the entry: the entry is a store row, and a
- *  second field on it would replace the row's container on every preview frame
- *  for the one key that moved. See the note above. */
+ *  (`authoredTrails`), not part of the entry: that flag is gesture state,
+ *  nothing renders from it, and it belongs with the trail, which is already
+ *  non-reactive and keyed by the same ids. See the note above. */
 interface PendingEntry {
   readonly layout: TileLayout;
 }
@@ -258,7 +258,8 @@ export function usePendingLayouts(): {
     if (!trail) return undefined;
     // A gesture in progress. Nothing this client has sent can be waiting for
     // this value, so there is no echo to release it and no foreign value that
-    // outranks the pointer: it stands until its commit, as on master.
+    // outranks the pointer: it stands until its commit, or until the tile
+    // goes, as on master.
     if (!trail.committed) return entry.layout;
     if (sameLayout(saved, entry.layout)) {
       authoredTrails.delete(id);
