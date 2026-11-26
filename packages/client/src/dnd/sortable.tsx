@@ -37,20 +37,33 @@ type SortableList = {
 
 const SortableContext = createContext<SortableList>();
 
+/** Whether two id lists are the same ids in the same positions. The preview
+ *  order is positional, so a reorder must invalidate; a recompute that lands
+ *  on the same sequence must not, because every sortable's slot derives from
+ *  it and callers hand `ids` in as a fresh array on every publish. A bounded
+ *  leaf, deliberately local to this list rather than a generic array-equality
+ *  receptacle. */
+function sameIdOrder(a: readonly string[], b: readonly string[]): boolean {
+  return a.length === b.length && a.every((id, i) => id === b[i]);
+}
+
 export const SortableProvider: Component<{
   ids: readonly string[];
   children: JSX.Element;
 }> = (props) => {
   const scope = useDragDropScope();
-  const sortedIds = createMemo(() => {
-    const ids = props.ids;
-    const from = ids.indexOf(scope.activeId() ?? "");
-    const to = ids.indexOf(scope.overId() ?? "");
-    if (from === -1 || to === -1 || from === to) return ids;
-    const next = ids.slice();
-    next.splice(to, 0, ...next.splice(from, 1));
-    return next;
-  });
+  const sortedIds = createMemo(
+    () => {
+      const ids = props.ids;
+      const from = ids.indexOf(scope.activeId() ?? "");
+      const to = ids.indexOf(scope.overId() ?? "");
+      if (from === -1 || to === -1 || from === to) return ids;
+      const next = ids.slice();
+      next.splice(to, 0, ...next.splice(from, 1));
+      return next;
+    },
+    { equals: sameIdOrder },
+  );
   return (
     <SortableContext value={{ ids: () => props.ids, sortedIds }}>
       {props.children}
