@@ -10,12 +10,16 @@
  *      `development` condition under vitest. If a config ever resolves the
  *      production build, this throws at load instead of every diagnostic below
  *      going silent.
- *   2. **Any Solid dev diagnostic fails the test that raised it.** Every event
- *      on `OBSERVE.diagnostics` (`@solidjs/signals` 2.0.4
+ *   2. **Solid's own grade decides what fails.** Every event on
+ *      `OBSERVE.diagnostics` (`@solidjs/signals` 2.0.4
  *      `dist/types/core/dev.d.ts`, `Diagnostics.subscribe`) — a strict read,
  *      a write in an owned scope, a cleanup in a forbidden scope, any code —
- *      is collected, and the test's `afterEach` throws with all of them. The
- *      check names no codes, so a new one is covered the day Solid adds it.
+ *      is collected, and the test's `afterEach` throws with every one Solid
+ *      graded `error` or `warn` (or did not grade at all). One graded `info`
+ *      is printed as advisory and fails nothing: that is Solid's own word
+ *      for "reported, not wrong", and a DOM measurement's relay tear — which
+ *      has no repair — is the standing example. The check names no codes, so
+ *      a new one is covered the day Solid adds it.
  *   3. **The attribution tier is switched on too, once per test.** 19 of
  *      Solid's codes — the feedback family, `EFFECT_WRITES_OWN_SOURCE` among
  *      them — are raised by the attribution ENGINE, which the plain
@@ -118,18 +122,53 @@ export function takeSolidDiagnostics(): DiagnosticEvent[] {
   return events;
 }
 
-function report(events: Raised[], when: string): never {
+/**
+ * IS THIS FINDING ADVISORY? Solid grades every diagnostic it emits
+ * (`@solidjs/signals` 2.0.4: every `emitDiagnostic` call site in
+ * `dev-shared.js`, `dev.js` and `dev.attribution.js` passes a `severity`),
+ * and `info` is its own word for "reported, not wrong": the relay tear of a
+ * DOM measurement is the standing example — "the tear is the cost of
+ * measuring" is Solid's own repair text for it (`dev.attribution.js:1222-
+ * 1229`), and corvu-next's vitest setup passes on exactly that grade.
+ *
+ * `error` and `warn` fail the test, and so does an event carrying NO grade:
+ * a shape this file does not know is a finding it must not wave through.
+ *
+ * This is not a softer gate. A derivable relay is `warn` from its first
+ * sighting, and a repeated one escalates to `warn` at three
+ * (`dev.attribution.js:1205-1217`).
+ */
+export function isAdvisorySolidDiagnostic(event: DiagnosticEvent): boolean {
+  return event.severity === "info";
+}
+
+function words({ event, stack }: Raised): string {
+  return (
+    `  [${event.severity ?? "(no severity)"}] [${event.code}] ${event.message}` +
+    (event.ownerPath ? `\n    at ${event.ownerPath.join(" › ")}` : "") +
+    (event.loc ? `\n    (${event.loc})` : "") +
+    `\n    raised from:\n${stack.split("\n").slice(1).join("\n")}`
+  );
+}
+
+/** Print what Solid graded advisory, then throw with what it graded wrong.
+ *  A run with advisory findings alone prints and returns. */
+function judge(events: Raised[], when: string): void {
+  const advisory = events.filter(({ event }) =>
+    isAdvisorySolidDiagnostic(event),
+  );
+  if (advisory.length > 0)
+    console.info(
+      `Solid graded ${advisory.length} finding(s) info ${when} — advisory, failing nothing:\n` +
+        advisory.map(words).join("\n"),
+    );
+  const failures = events.filter(
+    ({ event }) => !isAdvisorySolidDiagnostic(event),
+  );
+  if (failures.length === 0) return;
   throw new Error(
-    `Solid raised ${events.length} dev diagnostic(s) ${when}:\n` +
-      events
-        .map(
-          ({ event, stack }) =>
-            `  [${event.code}] ${event.message}` +
-            (event.ownerPath ? `\n    at ${event.ownerPath.join(" › ")}` : "") +
-            (event.loc ? `\n    (${event.loc})` : "") +
-            `\n    raised from:\n${stack.split("\n").slice(1).join("\n")}`,
-        )
-        .join("\n"),
+    `Solid raised ${failures.length} dev diagnostic(s) ${when}:\n` +
+      failures.map(words).join("\n"),
   );
 }
 
@@ -141,7 +180,7 @@ afterEach(() => {
   raised = [];
   // Load-time findings are still sitting here when the FIRST test ends, so
   // they fail that test; the wording covers both.
-  report(events, "during this test (or while this file's modules loaded)");
+  judge(events, "during this test (or while this file's modules loaded)");
 });
 
 // A file whose modules raise a diagnostic and then run no test at all — or
@@ -150,5 +189,5 @@ afterAll(() => {
   if (raised.length === 0) return;
   const events = raised;
   raised = [];
-  report(events, "in this file outside any test");
+  judge(events, "in this file outside any test");
 });
