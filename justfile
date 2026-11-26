@@ -843,9 +843,10 @@ smoke:
 # their relative speed — READ THE RATIO, not the absolute number.
 #
 # Runs in the `bench` vitest project, which resolves Solid's PRODUCTION tier —
-# what ships. The test projects' DEV tier carries the attribution engine
-# (`@kolu/solid-test-setup`), which retains a record per committed write: not
-# what any user pays for, and an out-of-memory at this bench's write volume.
+# what ships, and the only tier this is measurable in: the full dev-tier run,
+# with the attribution engine installed through the test projects' inherited
+# setup file (`@kolu/solid-test-setup`), died out of memory. The bench file
+# refuses the dev tier at module load, and only this project collects benches.
 bench-collection-deltas: install
     cd packages/surface && {{ nix_shell }} pnpm exec vitest bench --run src/solid/collectionDeltas.bench.ts
 
