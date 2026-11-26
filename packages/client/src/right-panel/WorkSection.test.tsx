@@ -434,6 +434,99 @@ describe("WorkSection PR and CI", () => {
     // The identity half must still have followed the switch.
     expect(text("inspector-branch")).toBe("docs/pesu-chat-rewrite");
   });
+
+  /** The same PR, read again — a whole fresh subtree, check records included,
+   *  which is what a frame off the watch is: the forge answers the question
+   *  again and the reading is rebuilt from the answer. `title` is the only
+   *  thing that moves, and only in the case that wants the memo to publish. */
+  const greenAgain = (title: string) =>
+    terminal({
+      repoName: "kolu",
+      branch: "resize-bug",
+      cwd: "/home/srid/code/kolu/.worktrees/resize-bug",
+      pr: {
+        kind: "ok",
+        value: {
+          number: 2037,
+          title,
+          state: "open",
+          url: "https://github.test/pull/2037",
+          checks: "pass",
+          checkRuns: [
+            { name: "ci::biome", outcome: "pass" },
+            { name: "ci::nix", outcome: "pass" },
+          ],
+          reviewDecision: "APPROVED",
+          mergeStateStatus: "CLEAN",
+          headSha: null,
+          isDraft: false,
+        },
+      },
+    });
+
+  const checkRows = (): ReadonlyArray<HTMLElement> => [
+    ...(host?.querySelectorAll<HTMLElement>(
+      '[data-testid="inspector-pr-checks"] li',
+    ) ?? []),
+  ];
+
+  it("keeps its check rows while the PR's words change five times", () => {
+    const { setMeta } = mount(GREEN);
+    const before = checkRows();
+    expect(before).toHaveLength(2);
+
+    // Five, not four: the diagnostic names a list at four rebuilds. Each
+    // frame really does say something new — the title — so the bundle
+    // publishes and the list is handed records minted afresh for an
+    // unchanged pair of checks.
+    for (let frame = 1; frame <= 5; frame += 1) {
+      setMeta(greenAgain(`Repo identity, said again (${frame})`));
+    }
+
+    expect(host?.textContent).toContain("Repo identity, said again (5)");
+    const after = checkRows();
+    expect(after).toHaveLength(2);
+    expect(after.every((one, at) => one === before[at])).toBe(true);
+    expect(checkNames()).toEqual(["ci::biome", "ci::nix"]);
+  });
+
+  it("says nothing at all when the same reading is delivered again", () => {
+    const { setMeta } = mount(GREEN);
+    const before = checkRows();
+    const chip = el("inspector-ci");
+
+    for (let frame = 1; frame <= 5; frame += 1) {
+      setMeta(greenAgain("Repo identity paints the same way across Kolu"));
+    }
+
+    expect(el("inspector-ci")).toBe(chip);
+    expect(text("inspector-ci")).toBe("✓ 2 passed");
+    expect(checkRows().every((one, at) => one === before[at])).toBe(true);
+  });
+
+  it("publishes nothing while a reading that says nothing arrives again", () => {
+    // A PR still being resolved is re-delivered on every poll, and the bundle
+    // it folds to — no reason unavailable, no PR — says the same thing every
+    // time. Five, not four: the diagnostic names a memo at four equal
+    // publishes.
+    const pending = () =>
+      terminal({
+        repoName: "kolu",
+        branch: "resize-bug",
+        cwd: "/home/srid/code/kolu/.worktrees/resize-bug",
+        pr: { kind: "pending" },
+      });
+    const { setMeta } = mount(pending());
+    expect(prLink()).toBeNull();
+
+    for (let frame = 1; frame <= 5; frame += 1) setMeta(pending());
+
+    expect(prLink()).toBeNull();
+    expect(el("inspector-ci")).toBeNull();
+    expect(el("inspector-pr-checks")).toBeNull();
+    // The identity half still paints from the same subject.
+    expect(text("inspector-branch")).toBe("resize-bug");
+  });
 });
 
 describe("WorkSection odu CI readout", () => {

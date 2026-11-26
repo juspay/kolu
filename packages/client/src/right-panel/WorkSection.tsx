@@ -599,6 +599,13 @@ const WorkSection: Component<{
     },
     { equals: sameWork },
   );
+  /** THE CI CHIP'S OWN TWO WORDS, taken off the bundle and gated on them: the
+   *  bundle publishes whenever ANYTHING about the PR moves — its title, a
+   *  review, a check — and mints a fresh rollup record each time, while the
+   *  chip says "✓ 2 passed" throughout. */
+  const rollup = createMemo(() => work()?.pr?.rollup ?? null, {
+    equals: sameFields,
+  });
   const shown = useShown();
   /** This checkout's CI, read from ODU ITSELF: padi carries odu's own surface as
    *  a sibling (`entry(h).odu`), so this is odu's `checkout` stream and not a
@@ -736,10 +743,10 @@ const WorkSection: Component<{
                     <span class="text-accent">#{p().number}</span>
                   </Chip>
                 </a>
-                <Show when={p().rollup}>
-                  {(rollup) => (
-                    <Chip tone={rollup().tone} data-testid="inspector-ci">
-                      {rollup().label}
+                <Show when={rollup()}>
+                  {(said) => (
+                    <Chip tone={said().tone} data-testid="inspector-ci">
+                      {said().label}
                     </Chip>
                   )}
                 </Show>
@@ -794,19 +801,24 @@ const WorkSection: Component<{
                   data-testid="inspector-pr-checks"
                   class="flex flex-col gap-0.5 text-[11px]"
                 >
-                  <For each={p().checkRuns}>
+                  {/* KEYED ON THE CHECK'S NAME, which is its identity: a PR
+                      frame that moved one field mints every check record
+                      afresh, and the rows a reader is looking at survive it
+                      rather than being torn down and rebuilt. */}
+                  <For each={p().checkRuns} keyed={(one) => one.name}>
                     {(c) => (
                       <li class="flex min-w-0 items-center gap-1.5">
-                        <ChecksIndicator status={c.outcome} />
+                        <ChecksIndicator status={c().outcome} />
                         <span
                           class={[
                             "min-w-0 truncate font-mono",
                             {
-                              "text-danger font-semibold": c.outcome === "fail",
+                              "text-danger font-semibold":
+                                c().outcome === "fail",
                             },
                           ]}
                         >
-                          {c.name}
+                          {c().name}
                         </span>
                       </li>
                     )}
