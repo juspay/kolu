@@ -1,3 +1,4 @@
+import { takeSolidDiagnostics } from "@kolu/solid-test-setup/setup";
 import { encodeHostKey } from "kolu-common/hostKey";
 import { createEffect, createMemo, createSignal, flush } from "solid-js";
 import { type JSX, render } from "@solidjs/web";
@@ -286,9 +287,10 @@ it("navigates from the visible highlight after the command list shrinks", () => 
 it("keeps its section headers still across four republished trees", () => {
   // `displayed()`/`keyedDisplay()` mint fresh entries on every refresh, so a
   // tree republished unchanged hands every keyed node a NEW header entry.
-  // Four of those are Solid's `UNSTABLE_MEMO_OUTPUT`, which
-  // `@kolu/solid-test-setup` fails the test on — the `sameDisplayEntry` gate
-  // on the narrowings is what this holds.
+  // Four of those are Solid's `UNSTABLE_MEMO_OUTPUT` — the `sameDisplayEntry`
+  // gate on the narrowings is what this holds. Asserted on the collector
+  // directly, so an advisory sighting fails here rather than waiting for the
+  // threshold the `afterEach` judge escalates on.
   const tree = (): PaletteItem[] => [
     { kind: "action", name: "Split", section: "canvas", onSelect: () => {} },
     { kind: "action", name: "Theme", section: "ui", onSelect: () => {} },
@@ -310,8 +312,10 @@ it("keeps its section headers still across four republished trees", () => {
     setCommands(tree());
     flush();
   }
-
   expect(sections()).toEqual(["canvas", "ui", "help"]);
+  expect(takeSolidDiagnostics().map((e) => `${e.code} ${e.message}`)).toEqual(
+    [],
+  );
 });
 
 it("does not call its commands prop while it is closed, and reads it on open", () => {
@@ -412,7 +416,8 @@ it("holds mode and the breadcrumb still across four open/close cycles", () => {
   // rebuilt from `path()` on every move, and open/close rewrites the path, so
   // without a gate each cycle republishes an equivalent `{ kind: "filter" }`
   // and an equivalent empty chip strip to every reader. Four in a row is
-  // Solid's `UNSTABLE_MEMO_OUTPUT`, which `@kolu/solid-test-setup` fails on.
+  // Solid's `UNSTABLE_MEMO_OUTPUT`. Read off the collector below, so the
+  // first sighting of anything — advisory relay tears included — fails.
   const nest = (depth: number): PaletteItem[] =>
     depth === 0
       ? [{ kind: "action", name: "Leaf", onSelect: () => {} }]
@@ -458,6 +463,9 @@ it("holds mode and the breadcrumb still across four open/close cycles", () => {
     "Level 1",
   ]);
   expect(document.querySelector('[role="option"]')?.textContent).toBe("Leaf");
+  expect(takeSolidDiagnostics().map((e) => `${e.code} ${e.message}`)).toEqual(
+    [],
+  );
 });
 
 it("clears the filter on the open edge, with no write relaying it", () => {
@@ -504,6 +512,12 @@ it("clears the filter on the open edge, with no write relaying it", () => {
     // anything else: no reader ran against the previous query first.
     expect(rows()).toBe(2);
   }
+  // The torn run is the subject, and only the collector sees it: an `info`
+  // `EFFECT_RELAY_TEAR` fails here at its FIRST sighting, where the judge
+  // would let it through until it escalated.
+  expect(takeSolidDiagnostics().map((e) => `${e.code} ${e.message}`)).toEqual(
+    [],
+  );
 });
 
 it("drops its backdrop while a row that previews behind it is highlighted", () => {

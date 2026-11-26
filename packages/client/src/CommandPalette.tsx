@@ -381,6 +381,22 @@ function sameBreadcrumbs(
   );
 }
 
+/** Whether two "where the user already is" facts read the same. Both legs are
+ *  plain keys, so this is the whole value — the fact is rebuilt per recompute
+ *  and would otherwise republish an equal object. */
+function sameSelection(a: CurrentSelection, b: CurrentSelection): boolean {
+  return a.hostKey === b.hostKey && a.terminalId === b.terminalId;
+}
+
+/** The ONE empty list every list memo below returns when it has nothing to
+ *  show, so a palette that matches nothing republishes the same reference
+ *  rather than a fresh equal array per recompute (`NO_BREADCRUMBS` above is
+ *  the same idea for the breadcrumb strip). */
+const NO_ENTRIES: readonly never[] = [];
+
+const orEmpty = <T,>(xs: T[]): T[] =>
+  xs.length === 0 ? (NO_ENTRIES as unknown as T[]) : xs;
+
 function isDrillable(item: PaletteItem): item is DrillableKind {
   return item.kind === "group" || item.kind === "value";
 }
@@ -775,11 +791,22 @@ const CommandPalette: Component<{
    *  (never offer "go where you already are") applied at two levels — so both
    *  take this one value rather than two shapes of it. The host key comes off
    *  `encActiveHost`, the ONE memo every surface that keys on the active host
-   *  reads, not a re-derived `encodeHostKey(activeHost())` thunk. */
-  const currentSelection = (): CurrentSelection => ({
-    hostKey: encActiveHost(),
-    terminalId: view.activeId(),
-  });
+   *  reads, not a re-derived `encodeHostKey(activeHost())` thunk.
+   *
+   *  GATED ON THE OPEN, like `commandTree` above, and for the same reason: a
+   *  shut palette ranks nothing, so the active tile moving on the canvas is
+   *  not its business. Without the gate this is the one dependency that
+   *  bypasses that gate — every activation on the host re-ran the whole
+   *  `filtered` → `displayed` → `keyedDisplay` chain for a surface nobody is
+   *  looking at. The creation run still answers a real value, and `equals`
+   *  keeps an open palette from republishing an equal fact per recompute. */
+  const currentSelection = createMemo<CurrentSelection>(
+    (prev) =>
+      props.open || prev === undefined
+        ? { hostKey: encActiveHost(), terminalId: view.activeId() }
+        : prev,
+    { equals: sameSelection, name: "paletteCurrentSelection" },
+  );
 
   /** Interactive rows at the current level (filter is bypassed in
    *  value mode). Filter mode produces `PaletteCommand[]`;
@@ -795,8 +822,10 @@ const CommandPalette: Component<{
     if (mode().kind !== "filter") {
       // Value mode doesn't search — preserve registration order with a
       // stable section sort for any tagged labels.
-      return [...items].sort(
-        (a, b) => sectionIndex(a.section) - sectionIndex(b.section),
+      return orEmpty(
+        [...items].sort(
+          (a, b) => sectionIndex(a.section) - sectionIndex(b.section),
+        ),
       );
     }
     const p = path();
@@ -817,11 +846,13 @@ const CommandPalette: Component<{
     // No `atRoot ?` gate on `current`: the ranker already returns early for a
     // drilled-in level, so re-stating that condition here would only teach the
     // call site the callee's own gating.
-    return filterAndRankPaletteItems(stamped, {
-      query: q,
-      atRoot,
-      current: currentSelection(),
-    });
+    return orEmpty(
+      filterAndRankPaletteItems(stamped, {
+        query: q,
+        atRoot,
+        current: currentSelection(),
+      }),
+    );
   });
 
   /** Breadcrumb labels — path names, plus a virtual host segment when a
@@ -923,12 +954,12 @@ const CommandPalette: Component<{
           out.push(rowEntry(child, index++));
         }
       }
-      return out;
+      return orEmpty(out);
     }
 
     const items = filtered();
     if (!showSectionHeaders()) {
-      return items.map(rowEntry);
+      return orEmpty(items.map(rowEntry));
     }
     const out: DisplayEntry[] = [];
     let lastSection: SectionId | undefined;
@@ -940,7 +971,7 @@ const CommandPalette: Component<{
       lastSection = section;
       out.push(rowEntry(cmd, index));
     });
-    return out;
+    return orEmpty(out);
   });
 
   /** List has content to paint (rows and/or host headers with zero terms). */
@@ -961,7 +992,9 @@ const CommandPalette: Component<{
    *  separate), so uniqueness has to be established over the whole list rather
    *  than hoped for per item.
    */
-  const keyedDisplay = createMemo(() => keyDisplayEntries(displayed()));
+  const keyedDisplay = createMemo(() =>
+    orEmpty(keyDisplayEntries(displayed())),
+  );
 
   function drillInto(cmd: DrillableKind) {
     setPath((p) => [...p, cmd]);
