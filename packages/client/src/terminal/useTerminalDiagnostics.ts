@@ -14,7 +14,13 @@
  *  — both registrations happen in Terminal.tsx at mount and teardown. */
 
 import type { TerminalId } from "kolu-common/surface";
-import { type Accessor, createEffect, createRoot, createStore } from "solid-js";
+import {
+  type Accessor,
+  createEffect,
+  createRoot,
+  createStore,
+  runWithOwner,
+} from "solid-js";
 import type { ScrollLockEvent, TerminalGrid } from "@kolu/xterm-kit/solid";
 
 export type Renderer = "webgl" | "dom";
@@ -93,11 +99,21 @@ export function registerDiagnostics(
     renderer: renderer(),
     scrollLock: scrollLockSnapshot(scrollLock),
   };
-  setStore((s) => {
-    const held = s[id];
-    if (held) Object.assign(held, registered);
-    else s[id] = registered;
-  });
+  // DETACHED for the one synchronous write: `registerDiagnostics` is called
+  // from `Terminal.tsx`'s `onReady`, which the kit runs inside the pane's own
+  // owner — an OWNED scope, where a store setter is
+  // REACTIVE_WRITE_IN_OWNED_SCOPE and THROWS in a development build. A store
+  // setter has no `ownedWrite` to declare, so detaching the owner is the hatch
+  // (`detachedRoot.ts` takes the same one for the same reason). It costs
+  // nothing: this registry is app-global state rather than the caller's
+  // reactive state, and nothing in here registers a cleanup.
+  runWithOwner(null, () =>
+    setStore((s) => {
+      const held = s[id];
+      if (held) Object.assign(held, registered);
+      else s[id] = registered;
+    }),
+  );
   /** Write this terminal's registered entry in place. */
   const write = (edit: (entry: TerminalDiagnostics) => void): void =>
     setStore((s) => {
