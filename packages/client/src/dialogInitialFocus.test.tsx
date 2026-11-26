@@ -111,7 +111,14 @@ it("puts the close dialog's focus on Cancel, not on the terminal's PR link", asy
   expect(landed).toBe("close-confirm-cancel");
 });
 
-it("puts the export dialog's focus on its Chat log button", async () => {
+/** A BEHAVIOUR CHECK THAT DOES NOT DISTINGUISH THE FIX. The export dialog's
+ *  content holds no other focusable element, so its Chat log button is also
+ *  the trap's first-focusable FALLBACK: the focus lands there with the signal
+ *  ref and with a bare `let` alike. It is kept because where this dialog
+ *  opens is worth pinning, and the regression it cannot see is pinned next
+ *  door — `dialogInitialFocus.prop.test.tsx` records what each dialog hands
+ *  the trap, and `CloseConfirm` above is the behavioural proof. */
+it("puts the export dialog's focus on its Chat log button (fallback-equal)", async () => {
   exportSessionDialog.openDialog();
   const landed = await settleFocus(() => <ExportSessionDialog />);
   exportSessionDialog.close();
