@@ -151,6 +151,7 @@ import { addHost, resetHosts } from "./hostScope/mockHostMap.testlib";
 import { useSessionRestore } from "./terminal/useSessionRestore";
 import { useSubPanel } from "./terminal/useSubPanel";
 import type { TerminalStore } from "./terminal/useTerminalStore";
+import { useVisitRecency } from "./terminal/visitRecency";
 import { useViewState } from "./useViewState";
 
 /** Solid flushes effects on a microtask; a macrotask tick drains them. Named
@@ -237,7 +238,6 @@ function mountTwoHostFixture() {
         ? subPanel.planClearFocus()
         : subPanel.planFocusVisiblePane(id),
     activeId: view.activeId,
-    planReconcileLiveIds: view.planReconcileLiveIds,
   } as unknown as TerminalStore;
 
   useSessionRestore({ store });
@@ -312,10 +312,16 @@ describe("per-host canvas state (shape B)", () => {
       await settle();
 
       // Each host's selection lives in its OWN record; switching swaps which
-      // record the accessors read, so B active never surfaces A's ids.
+      // record the accessors read, so B active never surfaces A's ids. The MRU
+      // is read as the per-host TRAIL — `mruOrder` narrows that trail to the
+      // host's census, which this fixture's wire does not publish.
       expect(["A1", "A2"]).not.toContain(view.activeId());
-      expect(view.mruOrder()).toEqual(expect.not.arrayContaining(["A1", "A2"]));
-      expect(view.mruOrder()).toContain("B1" as TerminalId);
+      expect(useVisitRecency().mruForHost(HOST_B)).toEqual(
+        expect.not.arrayContaining(["A1", "A2"]),
+      );
+      expect(useVisitRecency().mruForHost(HOST_B)).toContain(
+        "B1" as TerminalId,
+      );
     } finally {
       dispose();
     }
@@ -344,8 +350,12 @@ describe("per-host canvas state (shape B)", () => {
       // re-seeding from the server's changed A1. savedSession seeds only the
       // first visit; a deliberate in-session restore is the re-seed path.
       expect(view.activeId()).toBe("A2" as TerminalId);
-      expect(view.mruOrder()).toContain("A2" as TerminalId);
-      expect(view.mruOrder()).toEqual(expect.not.arrayContaining(["B1", "B2"]));
+      expect(useVisitRecency().mruForHost(HOST_A)).toContain(
+        "A2" as TerminalId,
+      );
+      expect(useVisitRecency().mruForHost(HOST_A)).toEqual(
+        expect.not.arrayContaining(["B1", "B2"]),
+      );
     } finally {
       dispose();
     }

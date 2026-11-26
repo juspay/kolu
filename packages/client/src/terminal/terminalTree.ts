@@ -22,6 +22,16 @@ import type { TerminalId } from "kolu-common/surface";
  *  - `undefined` — id is absent from the census (dangling edge / not yet arrived). */
 export type ParentEdge = (id: TerminalId) => TerminalId | null | undefined;
 
+/** Whether two id lists are the same ids in the same order — the equality gate
+ *  every derived tile/pane list wants, since each run mints a fresh array from
+ *  a census that moves for unrelated reasons. */
+export function sameIdOrder(
+  a: readonly TerminalId[],
+  b: readonly TerminalId[],
+): boolean {
+  return a.length === b.length && a.every((id, i) => id === b[i]);
+}
+
 /** Containing canvas tile for a pane — the root of its parent chain, or the
  *  id itself when it is a root / cycle / orphan (no resolvable root). The ONE
  *  answer to "which top-level tile owns this pane" for focus, panel chrome,

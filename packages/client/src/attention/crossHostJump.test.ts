@@ -92,6 +92,7 @@ import { addHost, resetHosts } from "../hostScope/mockHostMap.testlib";
 import { registerHostFacts, writeHostMarks } from "./attentionMarks";
 import { jumpToAsking } from "./attentionNav";
 import { useAttention } from "./useAttention";
+import { useVisitRecency } from "../terminal/visitRecency";
 
 const HOST_A: HostKey = { kind: "local" };
 const HOST_B: HostKey = { kind: "remote", target: "B" };
@@ -174,7 +175,7 @@ describe("the attention engine's cross-host landings", () => {
       // B2 — anchored on A's selection it would land back on B1.
       expect(hostScopeOf(HOST_B)?.view.focusedTerminalId()).toBe(B2);
       expect(hostScopeOf(HOST_A)?.view.focusedTerminalId()).toBeNull();
-      expect(hostScopeOf(HOST_A)?.view.mruOrder()).toEqual([]);
+      expect(useVisitRecency().mruForHost(HOST_A)).toEqual([]);
     });
   });
 
@@ -188,7 +189,7 @@ describe("the attention engine's cross-host landings", () => {
 
       expect(hostScopeOf(HOST_B)?.view.focusedTerminalId()).toBe(B2);
       expect(hostScopeOf(HOST_A)?.view.focusedTerminalId()).toBeNull();
-      expect(hostScopeOf(HOST_A)?.view.mruOrder()).toEqual([]);
+      expect(useVisitRecency().mruForHost(HOST_A)).toEqual([]);
     });
   });
 

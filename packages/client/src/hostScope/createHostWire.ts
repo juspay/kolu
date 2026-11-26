@@ -53,7 +53,11 @@
  *  shows its degraded state structurally (an errored `terminals`/`session` reads empty
  *  → the canvas's connecting/empty surface). */
 
-import { encodeHostLocation, LOCAL_LOCATION } from "@kolu/padi-client/surface";
+import {
+  encodeHostLocation,
+  LOCAL_LOCATION,
+  tileTerminalOf,
+} from "@kolu/padi-client/surface";
 import { unenrolledStreamCall } from "@kolu/surface/client";
 import {
   createReactiveSubscription,
@@ -61,8 +65,13 @@ import {
 } from "@kolu/surface/solid";
 import { encodeHostKey, type HostKey } from "kolu-common/hostKey";
 import type { TerminalId } from "kolu-common/surface";
-import { createMemo } from "solid-js";
+import { type Accessor, createMemo } from "solid-js";
 import type { LivePlacement } from "../terminal/focusedTerminal";
+import {
+  containingTileOf,
+  type ParentEdge,
+  sameIdOrder,
+} from "../terminal/terminalTree";
 import { interpretClientError, padiMap } from "../wire";
 
 /** The map entry lens `createHostWire` opens its cells/collections through. Aliased
@@ -87,6 +96,15 @@ export interface HostWire {
   daemonStatus: ReturnType<PadiEntry["collections"]["daemonStatus"]["use"]>;
   /** Pure placement lookup over this host's retained terminal collection. */
   placementOf: (id: TerminalId) => LivePlacement;
+  /** This host's live TOP-LEVEL tiles, in the server's census order.
+   *
+   *  The membership the visit trail is READ against
+   *  (`createViewState.mruOrder`) instead of being written into it: the trail
+   *  is a durable record of GESTURES, and "which of those are still here, and
+   *  which tiles it has never seen" is a function of this census. Parked
+   *  registry rows are restore-card entries, not tiles, so they are dropped
+   *  exactly as `createBootPick` drops them. */
+  tileIds: Accessor<TerminalId[]>;
 }
 
 export function createHostWire(host: HostKey): HostWire {
@@ -151,6 +169,29 @@ export function createHostWire(host: HostKey): HostWire {
       : { kind: "split", parentId: terminal.parentId };
   };
 
+  // The host's live top-level tiles — see {@link HostWire.tileIds}. Derived
+  // from the same two retained members the boot pick folds (the key list and
+  // each key's composed record), so the trail's live membership and the pick
+  // can never be answered from two different censuses.
+  const tileIds = createMemo<TerminalId[]>(
+    () => {
+      const parents = new Map<TerminalId, TerminalId | null>();
+      for (const id of keys()) {
+        // `undefined` for a not-yet-arrived record AND for a parked one, which
+        // is why both fall out of the census here.
+        const record = tileTerminalOf(terminals.byKey(id)?.());
+        if (record !== undefined) parents.set(id, record.parentId ?? null);
+      }
+      const parentEdge: ParentEdge = (id) => parents.get(id);
+      return keys().filter(
+        (id) => parents.has(id) && containingTileOf(id, parentEdge) === id,
+      );
+    },
+    // A census move that changes no tile (a split's title, a record arriving
+    // under a tile already listed) must not wake the MRU and the WebGL budget.
+    { equals: sameIdOrder },
+  );
+
   // The persisted saved-session cell (host-owned, restore-relevant).
   const session = entry.cells.session.use();
 
@@ -179,5 +220,6 @@ export function createHostWire(host: HostKey): HostWire {
     activityFeed,
     daemonStatus,
     placementOf,
+    tileIds,
   };
 }

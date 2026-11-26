@@ -94,8 +94,9 @@ vi.mock("../wire", async () => {
 });
 
 // The retained per-host wire, driven by the snapshot above. `createViewState`
-// folds focus through `placementOf`, and `createBootPick` reads the keys, the
-// records and the session cell — those five reads are the whole surface here.
+// folds focus through `placementOf` and narrows the visit trail to `tileIds`,
+// and `createBootPick` reads the keys, the records and the session cell —
+// those six reads are the whole surface here.
 vi.mock("../hostScope/createHostWire", () => ({
   createHostWire: () => ({
     terminalKeys: Object.assign(() => w.keys(), {
@@ -116,6 +117,13 @@ vi.mock("../hostScope/createHostWire", () => ({
         ? { kind: "top-level" }
         : { kind: "split", parentId: record.parentId };
     },
+    // This host's live top-level tiles, in census order. A key with no record
+    // is parked or not yet arrived, and is no tile.
+    tileIds: () =>
+      (w.keys() ?? []).filter((id) => {
+        const record = w.records()[id];
+        return record !== undefined && !record.parentId;
+      }),
   }),
 }));
 
@@ -216,10 +224,8 @@ function makeStore() {
       scope?.view.writeFocus(id === null ? null : { id, tileHint: id });
     };
   });
-  const planReconcileLiveIds = vi.fn(view.planReconcileLiveIds);
   const store = {
     ...view,
-    planReconcileLiveIds,
     listSub: Object.assign(() => w.keys()?.map((id) => ({ id })), {
       pending: () => w.keys() === undefined,
     }),
@@ -236,7 +242,7 @@ function makeStore() {
     }),
     planSetActiveSilently,
   } as unknown as TerminalStore;
-  return { store, planSetActiveSilently, planReconcileLiveIds };
+  return { store, planSetActiveSilently };
 }
 
 /** Build the graph inside a root, and hand the body's value and the root's
@@ -270,18 +276,17 @@ describe("the first active tile on a cold boot", () => {
     // A consumer of the active tile, exactly like the app shell's and the
     // palette's: it records every value it is ever shown.
     const seen: (TerminalId | null)[] = [];
-    const [{ planSetActiveSilently, planReconcileLiveIds }, dispose] =
-      mountRoot(() => {
-        const made = makeStore();
-        useSessionRestore({ store: made.store });
-        createEffect(
-          () => made.store.activeId(),
-          (id) => {
-            seen.push(id);
-          },
-        );
-        return made;
-      });
+    const [{ planSetActiveSilently }, dispose] = mountRoot(() => {
+      const made = makeStore();
+      useSessionRestore({ store: made.store });
+      createEffect(
+        () => made.store.activeId(),
+        (id) => {
+          seen.push(id);
+        },
+      );
+      return made;
+    });
 
     flush();
     // The seeded shape shows up as ["…", null, B]: the consumer paints once
@@ -292,11 +297,12 @@ describe("the first active tile on a cold boot", () => {
     expect(seen).toEqual([B]);
     expect(planSetActiveSilently).not.toHaveBeenCalled();
 
-    // The activation's SIDE effects are not derivable and still happen once:
-    // the host hears which tile is active, and the visit trail is seeded with
-    // the pick at its head.
+    // The activation's SIDE effect that is not derivable still happens once:
+    // the host hears which tile is active. The visit trail is NOT one of them
+    // — the derived MRU already leads with the pick, so a cold boot writes
+    // nothing to the durable trail.
     expect(spy.setActive.mock.calls).toEqual([[B]]);
-    expect(planReconcileLiveIds.mock.calls).toEqual([[[B, A]]]);
+    expect(localStorage.getItem("kolu-visit-recency")).toBeNull();
     expect(activeScope()?.view.mruOrder()).toEqual([B, A]);
 
     dispose();

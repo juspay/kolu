@@ -567,11 +567,6 @@ describe("useSessionRestore — multi-terminal restore seeds the server-active t
     const setActiveSilently = vi.fn((id: string | null) => {
       active = id;
     });
-    /** The trail seed's READER half: it records the ids at plan time and hands
-     *  back a no-op actor, so the argument assertion reads as it always did. */
-    const planReconcileLiveIds = vi.fn(
-      (_ids: readonly TerminalId[]) => () => {},
-    );
     const listSub = Object.assign(() => opts.list, { pending: () => false });
     const store = {
       listSub,
@@ -582,12 +577,11 @@ describe("useSessionRestore — multi-terminal restore seeds the server-active t
       // compute calls, and the spy fires when its actor RUNS.
       planSetActiveSilently: (id: string | null) => () => setActiveSilently(id),
       activeId: () => active,
-      planReconcileLiveIds,
       // This double has no view state behind it, so the derived boot pick never
       // covers the seed: every case below asserts the WRITE path.
       seedCovers: () => false,
     } as unknown as TerminalStore;
-    return { store, setActiveSilently, planReconcileLiveIds };
+    return { store, setActiveSilently };
   }
 
   it("activates the server-active terminal (B), not the first-listed (A)", async () => {
@@ -600,7 +594,7 @@ describe("useSessionRestore — multi-terminal restore seeds the server-active t
       savedAt: 1,
       resumableIds: [],
     });
-    const { store, setActiveSilently, planReconcileLiveIds } = makeMetaStore({
+    const { store, setActiveSilently } = makeMetaStore({
       list: [{ id: "A" }, { id: "B" }] as TerminalInfo[],
       meta: { A: activeMeta(), B: activeMeta() },
     });
@@ -612,7 +606,6 @@ describe("useSessionRestore — multi-terminal restore seeds the server-active t
             useSessionRestore({ store });
             await new Promise((r) => setTimeout(r, 0));
             expect(setActiveSilently).toHaveBeenCalledWith("B");
-            expect(planReconcileLiveIds).toHaveBeenCalledWith(["B", "A"]);
             dispose();
             resolve();
           } catch (err) {
@@ -693,7 +686,6 @@ describe("useSessionRestore — the restored active tile does NOT ride the sessi
               planSetActiveSilently: (id: string | null) => () =>
                 setActiveSilently(id),
               activeId: () => null,
-              planReconcileLiveIds: () => () => {},
               // THE REAL derivation, not a `() => false` stand-in: this case
               // drives a restore, which is exactly the window the derived boot
               // pick must answer `null` through (`hostScope/createBootPick`), so
@@ -797,7 +789,6 @@ describe("useSessionRestore — the seed WAITS for the answered tile to reach th
               planSetActiveSilently: (id: string | null) => () =>
                 setActiveSilently(id),
               activeId: () => null,
-              planReconcileLiveIds: () => () => {},
               seedCovers: () => false,
             } as unknown as TerminalStore;
 
@@ -868,7 +859,6 @@ describe("useSessionRestore — that wait is BOUNDED (the answered tile never ar
       setActiveSilently,
       planSetActiveSilently: (id: string | null) => () => setActiveSilently(id),
       activeId: () => null,
-      planReconcileLiveIds: () => () => {},
       seedCovers: () => false,
     } as unknown as TerminalStore;
     /** Deliver a restored tile's row AND its composed record together. */
@@ -1031,7 +1021,6 @@ describe("useSessionRestore — an in-session restore RE-SEEDS the view (viewSee
         active = id;
       },
       activeId: () => active,
-      planReconcileLiveIds: () => () => {},
       seedCovers: () => false,
     } as unknown as TerminalStore;
     return { store, setList, setMeta };

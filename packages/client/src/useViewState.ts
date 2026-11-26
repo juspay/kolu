@@ -81,21 +81,16 @@ export function useViewState() {
    *  setters). So the `plan…` half RESOLVES THE SCOPE — in a compute — and
    *  hands back a write-only actor for the effect phase, where that read would
    *  be STRICT_READ_UNTRACKED. An eager verb beside it is that plan, run, and
-   *  exists only where an event handler (which may read freely) calls it —
-   *  hence `forgetFromMru` has one and the trail seed, driven solely by the
-   *  hydration effect, does not.
+   *  exists only where an event handler (which may read freely) calls it.
    *
    *  Resolving the scope one phase earlier is the behaviour that is wanted:
    *  the trail the effect writes is the one its compute saw, so a host switch
    *  racing the write cannot land a departing host's cleanup on the new host's
-   *  trail. */
-  const planReconcileLiveIds = (
-    liveIds: readonly TerminalId[],
-  ): (() => void) => {
-    const scope = view();
-    return () => scope?.reconcileLiveIds(liveIds);
-  };
-
+   *  trail.
+   *
+   *  There is no SEED verb beside this one. A host's live MRU membership is
+   *  derived from its census where it is read (`hostScope/createViewState`),
+   *  so the trail carries gestures only: a visit, and a kill's forget. */
   const planForgetFromMru = (id: TerminalId): (() => void) => {
     const scope = view();
     return () => scope?.forgetFromMru(id);
@@ -139,7 +134,6 @@ export function useViewState() {
     canvasMaximized,
     toggleCanvasMaximized,
     mruOrder,
-    planReconcileLiveIds,
     forgetFromMru,
     planForgetFromMru,
     centerActiveRequest,

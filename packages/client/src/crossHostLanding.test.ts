@@ -77,6 +77,7 @@ import { useOpenTile } from "./conductor/useOpenTile";
 import { activeScope, hostScopeOf } from "./hostScope/hostScopes";
 import { addHost, resetHosts } from "./hostScope/mockHostMap.testlib";
 import { selectFleetTerminal } from "./palette/fleetActions";
+import { useVisitRecency } from "./terminal/visitRecency";
 
 const HOST_A: HostKey = { kind: "local" };
 const HOST_B: HostKey = { kind: "remote", target: "B" };
@@ -154,11 +155,12 @@ describe("a host switch and a landing in one handler", () => {
     flush();
 
     expect(hostScopeOf(HOST_B)?.view.focusedTerminalId()).toBe(TID_B);
-    expect(hostScopeOf(HOST_B)?.view.mruOrder()).toEqual([TID_B]);
+    expect(useVisitRecency().mruForHost(HOST_B)).toEqual([TID_B]);
     // The host you left keeps its own focus and its own trail — a foreign id
-    // written there is both a wrong landing and a persisted lie.
+    // written there is both a wrong landing and a persisted lie. (The trail is
+    // the FACT; this host's `mruOrder` is that trail narrowed to its census.)
     expect(hostScopeOf(HOST_A)?.view.focusedTerminalId()).toBeNull();
-    expect(hostScopeOf(HOST_A)?.view.mruOrder()).toEqual([]);
+    expect(useVisitRecency().mruForHost(HOST_A)).toEqual([]);
   });
 
   it("a same-host palette row still lands with no switch", () => {

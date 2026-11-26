@@ -350,20 +350,16 @@ export function useSessionRestore(deps: { store: TerminalStore }) {
         : serverActiveId && topIds.includes(serverActiveId as TerminalId)
           ? (serverActiveId as TerminalId)
           : (topIds[0] ?? null);
-    // The durable visit trail, planned here beside the landing: its reader half
-    // resolves the ACTIVE host's view scope, which is a reactive read, and this
-    // planner is the one phase allowed to make it.
-    const seedTrail = store.planReconcileLiveIds(
-      picked ? [picked, ...topIds.filter((x) => x !== picked)] : topIds,
-    );
     // THE BOOT PICK IS DERIVED, NOT SEEDED. The per-host focus fact is the
     // user's OVERRIDE over a memo of this same census (`hostScope/createBootPick`),
     // so on a cold boot the active tile already IS `picked` in the flush this
     // hydration runs in — one frame earlier than a seed could paint it, and with
     // no effect relaying the metadata census into the signal the app shell, the
     // canvas and the command palette all read. What stays is the activation's
-    // SIDE effects, which are not derivable: the unread mark, the visit trail and
-    // the host's active-terminal report.
+    // SIDE effects, which are not derivable: the unread mark and the host's
+    // active-terminal report. The visit TRAIL is not among them either — this
+    // host's live MRU is the trail narrowed to the census, folded where it is
+    // read (`hostScope/createViewState.mruOrder`), with the pick leading it.
     //
     // A pick the derivation does NOT cover still writes through the ordinary
     // path: a restore's answered tile (parked non-reactively on the latch), a
@@ -399,10 +395,6 @@ export function useSessionRestore(deps: { store: TerminalStore }) {
       for (const { rootId, subId } of tabs) {
         subPanel.setActiveSubTab(rootId, subId);
       }
-      // Seed/reconcile the durable visit trail BEFORE activation. writeFocus
-      // noteVisit's the pick; if we seed after, a non-empty one-entry trail
-      // would skip multi-id restore order (Ctrl+Tab would only see the pick).
-      seedTrail();
       land();
     };
   }

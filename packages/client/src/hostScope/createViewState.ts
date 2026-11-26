@@ -51,6 +51,7 @@ import {
   type TerminalFocus,
   type LivePlacement,
 } from "../terminal/focusedTerminal";
+import { sameIdOrder } from "../terminal/terminalTree";
 import { useVisitRecency } from "../terminal/visitRecency";
 import { padiRpcOf } from "../wire";
 
@@ -69,12 +70,14 @@ export interface HostViewState {
   activeId: Accessor<TerminalId | null>;
   isFocused: (id: TerminalId) => boolean;
   isActiveTile: (id: TerminalId) => boolean;
+  /** This host's tile MRU, most-recent-first: the visit trail narrowed to the
+   *  tiles that are live now, with tiles the trail has never seen taking
+   *  census order behind it. DERIVED — no writer seeds membership into the
+   *  trail. */
   mruOrder: Accessor<TerminalId[]>;
   /** The single per-host focus write path. Active-tile side effects use the
    *  ancestor folded from this terminal. */
   writeFocus: (focus: TerminalFocus | null) => void;
-  /** Seed empty host trail / reconcile live membership (order is seed-only). */
-  reconcileLiveIds: (liveIds: readonly TerminalId[]) => void;
   /** Drop one terminal from the durable visit trail (kill path). */
   forgetFromMru: (id: TerminalId) => void;
   /** Does this terminal carry a dock unread mark? Read from this host's saved
@@ -98,8 +101,11 @@ export interface HostViewState {
    *  it must not relay into this signal (see {@link createBootPick}). */
   seedCovers: (tileId: TerminalId) => boolean;
   /** The activation SIDE EFFECTS of a seed the derivation covers — the unread
-   *  mark, the visit trail and the host's active-terminal report, i.e. exactly
-   *  what {@link HostViewState.writeFocus} does besides writing the fact. */
+   *  mark and the host's active-terminal report, i.e. what
+   *  {@link HostViewState.writeFocus} does besides writing the fact and the
+   *  visit. The visit is NOT one of them: the boot pick leads the derived MRU
+   *  on its own, so recording it would be a persisted write relayed out of the
+   *  hydration effect for an answer already visible. */
   noteSeededActivation: (tileId: TerminalId) => void;
 }
 
@@ -110,23 +116,15 @@ function sameFocus(a: TerminalFocus | null, b: TerminalFocus | null): boolean {
   return a.id === b.id && a.tileHint === b.tileHint;
 }
 
-/** Whether two id lists are the same ids in the same order — the same rule as
- *  `useTerminalMetadata`'s `sameTerminalIdOrder`, restated here rather than
- *  imported: that module reaches back into `hostScope/hostScopes`, which builds
- *  this one, and the cycle would decide module-eval order for every consumer. */
-function sameIdOrder(
-  a: readonly TerminalId[],
-  b: readonly TerminalId[],
-): boolean {
-  return a.length === b.length && a.every((id, i) => id === b[i]);
-}
-
 export function createViewState(
   host: HostKey,
   placementOf: (id: TerminalId) => LivePlacement,
   /** This host's DERIVED first active tile (`createBootPick`) — the answer the
    *  focus fact falls back to while nothing has overridden it. */
   seededPick: Accessor<TerminalId | null>,
+  /** This host's live top-level tiles in census order (`HostWire.tileIds`) —
+   *  the membership {@link HostViewState.mruOrder} narrows the visit trail to. */
+  tileIds: Accessor<readonly TerminalId[]>,
 ): HostViewState {
   // THE FOCUS FACT IS A DERIVATION, NOT A SEEDED SIGNAL. What is written here is
   // the user's OVERRIDE — every activation path (canvas, dock, palette, Ctrl+Tab,
@@ -169,13 +167,37 @@ export function createViewState(
   // state may never have been built).
   const attention = attentionRecordOf(encoded);
 
-  // Host-filtered slice of the visit MRU (most-recent first). Replaces the old
-  // per-host in-memory list so cycling order survives reloads.
-  const mruOrder = createMemo(() => visits.mruForHost(host), {
-    // The trail is one cross-host list: a visit on ANOTHER host rewrites it,
-    // and this host's slice comes back a new array holding the same ids.
-    equals: sameIdOrder,
-  });
+  // THIS HOST'S TILE MRU, DERIVED. The persisted trail records GESTURES —
+  // `noteVisit` on an activation, `forgetVisit` on a kill — and nothing else;
+  // which of them are still live, and where a tile the trail has never seen
+  // ranks, are answers this census already carries. Folding them here rather
+  // than writing them back keeps hydration from relaying the census into a
+  // persisted signal the palette, the WebGL budget and Ctrl+Tab all read —
+  // which painted one frame of every reader against the pre-seed trail.
+  const mruOrder = createMemo(
+    () => {
+      const live = tileIds();
+      const liveSet = new Set(live);
+      const visited = visits.mruForHost(host).filter((id) => liveSet.has(id));
+      const seen = new Set(visited);
+      // Never-visited tiles rank below every visit, in the server's order —
+      // the order a seeded-then-reconciled trail gave them.
+      const order = [...visited, ...live.filter((id) => !seen.has(id))];
+      // While nothing has overridden the focus fact, the boot pick IS the
+      // active tile, so it leads: the same place the boot activation's
+      // `noteVisit` used to put it, without the write. Once an activation has
+      // overridden the pick, that activation's own visit leads the trail.
+      const pick = override() === undefined ? seededPick() : null;
+      if (pick === null || !liveSet.has(pick) || order[0] === pick)
+        return order;
+      return [pick, ...order.filter((id) => id !== pick)];
+    },
+    {
+      // The trail is one cross-host list: a visit on ANOTHER host rewrites it,
+      // and this host's slice comes back a new array holding the same ids.
+      equals: sameIdOrder,
+    },
+  );
 
   // View posture: persisted PER HOST so a host's fullscreen posture survives reload —
   // the pre-W7 behavior, restored — but keyed by host (unlike the pre-W7 GLOBAL
@@ -205,13 +227,21 @@ export function createViewState(
     noteActivation(tileId);
   }
 
-  /** Everything an activation does BESIDES writing the focus fact. Split out so
-   *  the hydration seed can perform them for a pick the derivation already shows
-   *  — the fact needs no write there, but the trail and the host's report are
-   *  not derivable and still have to happen exactly once. */
+  /** Everything an activation does BESIDES writing the focus fact — the visit
+   *  that ranks this tile in the trail, and the host's active-terminal
+   *  report. */
   function noteActivation(tileId: TerminalId): void {
     // THE activation choke point — canvas, dock, palette, Ctrl+Tab all land here.
     visits.noteVisit(host, tileId);
+    reportActive(tileId);
+  }
+
+  /** The half a SEEDED activation shares with a gesture: the host's record of
+   *  which tile is active. Split out because the seed's other half — the visit
+   *  — is derivable (the boot pick leads `mruOrder` while nothing has
+   *  overridden it), and writing it from the hydration effect is the relay
+   *  this factory exists not to perform. */
+  function reportActive(tileId: TerminalId): void {
     // Report the active terminal to THIS owner's host for its session snapshot.
     // `writeFocus` only ever runs for the shown host (you focus a terminal on the
     // host you are viewing), so this fixed-host entry IS the active-host client.
@@ -242,13 +272,7 @@ export function createViewState(
 
   function noteSeededActivation(tileId: TerminalId): void {
     attention.clearUnread(tileId);
-    noteActivation(tileId);
-  }
-
-  function reconcileLiveIds(liveIds: readonly TerminalId[]): void {
-    // Empty host trail → seed with liveIds order; non-empty → membership only
-    // (argument order is ignored for survivors). Kill uses forgetFromMru.
-    visits.applyLiveIds(host, liveIds);
+    reportActive(tileId);
   }
 
   function forgetFromMru(id: TerminalId): void {
@@ -282,7 +306,6 @@ export function createViewState(
     isActiveTile,
     mruOrder,
     writeFocus,
-    reconcileLiveIds,
     forgetFromMru,
     isUnread: attention.isUnread,
     canvasMaximized,

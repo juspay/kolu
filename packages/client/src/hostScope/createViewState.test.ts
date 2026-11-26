@@ -24,6 +24,8 @@ import { useVisitRecency } from "../terminal/visitRecency";
 import { createViewState } from "./createViewState";
 
 const A = "11111111-1111-4111-8111-111111111111" as TerminalId;
+const B = "22222222-2222-4222-8222-222222222222" as TerminalId;
+const C = "33333333-3333-4333-8333-333333333333" as TerminalId;
 
 /** Load the page: a fresh module graph, this host's view state in it, and the
  *  host's attention record the engine raises marks on. The dynamic imports
@@ -42,11 +44,13 @@ async function loadPage(): Promise<{
   const { attentionRecordOf } = await import("../attention/savedAttention");
   return {
     view: createRoot(() =>
-      // No boot pick: these cases are about the unread marks, not selection.
+      // No boot pick and no census: these cases are about the unread marks,
+      // not selection.
       createViewState(
         LOCAL_HOST,
         () => ({ kind: "top-level" }),
         () => null,
+        () => [],
       ),
     ),
     marks: attentionRecordOf(encodeHostKey(LOCAL_HOST)),
@@ -90,10 +94,11 @@ describe("a host's unread marks across a reload", () => {
 });
 
 /** THE VIEW-STATE DERIVATIONS are value-stable by construction: the focus fact
- *  is two ids, this host's MRU is a slice of one cross-host trail. Both are
- *  rebuilt from upstream state that moves for unrelated reasons, so without an
- *  equality gate they republish an equal value — Solid's
- *  `UNSTABLE_MEMO_OUTPUT`, which `@kolu/solid-test-setup` fails the test on. */
+ *  is two ids, this host's MRU is one cross-host trail narrowed to this host's
+ *  census. Both are rebuilt from upstream state that moves for unrelated
+ *  reasons, so without an equality gate they republish an equal value —
+ *  Solid's `UNSTABLE_MEMO_OUTPUT`, which `@kolu/solid-test-setup` fails the
+ *  test on. */
 describe("a host's view-state derivations", () => {
   beforeEach(() => localStorage.clear());
 
@@ -109,6 +114,7 @@ describe("a host's view-state derivations", () => {
         LOCAL_HOST,
         () => ({ kind: "top-level" }),
         pick,
+        () => [A],
       );
       createEffect(view.focusedTerminalId, (id) => {
         seen = id;
@@ -125,6 +131,33 @@ describe("a host's view-state derivations", () => {
     held.dispose();
   });
 
+  it("answers the census with no write to the trail — the boot pick leading it", () => {
+    // A host whose durable trail is empty: every id here is one the trail has
+    // never seen, so the whole answer is a fold over the census.
+    const held = createRoot((dispose) => {
+      const view = createViewState(
+        LOCAL_HOST,
+        () => ({ kind: "top-level" }),
+        () => B,
+        () => [A, B, C],
+      );
+      return { dispose, view, visits: useVisitRecency() };
+    });
+    flush();
+    // The boot pick is the active tile, so it leads; the rest keep the
+    // server's order.
+    expect(held.view.mruOrder()).toEqual([B, A, C]);
+    // And nothing was written to make that true: the trail records GESTURES,
+    // and this boot was not one.
+    expect(held.visits.visits()).toEqual([]);
+    expect(localStorage.getItem("kolu-visit-recency")).toBeNull();
+    // A real activation does write, and then leads the trail itself.
+    held.view.writeFocus({ id: C, tileHint: C });
+    flush();
+    expect(held.view.mruOrder()).toEqual([C, A, B]);
+    held.dispose();
+  });
+
   it("holds this host's MRU still while another host's trail moves", () => {
     const other = { kind: "remote", target: "box-1" } as const;
     let seen: TerminalId[] = [];
@@ -133,6 +166,7 @@ describe("a host's view-state derivations", () => {
         LOCAL_HOST,
         () => ({ kind: "top-level" }),
         () => null,
+        () => [A],
       );
       createEffect(view.mruOrder, (ids) => {
         seen = ids;
@@ -141,12 +175,12 @@ describe("a host's view-state derivations", () => {
     });
     flush();
     // Four visits on ANOTHER host rewrite the one trail; this host's slice
-    // comes back the same (empty) list every time.
+    // comes back the same list every time.
     for (let i = 1; i <= 4; i++) {
       held.visits.noteVisit(other, A, i);
       flush();
     }
-    expect(seen).toEqual([]);
+    expect(seen).toEqual([A]);
     held.dispose();
   });
 });

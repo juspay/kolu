@@ -59,6 +59,7 @@ import {
 } from "./terminal/activityWindowFilter";
 import { setShowSleeping, showSleeping } from "./terminal/showSleeping";
 import { useSubPanel } from "./terminal/useSubPanel";
+import { useVisitRecency } from "./terminal/visitRecency";
 import { useViewState } from "./useViewState";
 
 /** Solid drains membership/keying effects on a microtask; a macrotask tick
@@ -187,8 +188,9 @@ describe("per-host view posture + dock filters (W7 TIER A)", () => {
   });
 
   it("reset() clears EVERY reset-on-close-all fact (completeness — a forgotten field fails HERE)", async () => {
-    const { subPanel, dispose } = createRoot((dispose) => ({
+    const { subPanel, visits, dispose } = createRoot((dispose) => ({
       subPanel: useSubPanel(),
+      visits: useVisitRecency(),
       dispose,
     }));
     try {
@@ -198,13 +200,14 @@ describe("per-host view posture + dock filters (W7 TIER A)", () => {
       if (!vs) throw new Error("no active view for HOST_A");
       // Mutate EVERY reset-on-close-all fact this factory owns.
       subPanel.focusMainPane("term-1" as TerminalId);
-      vs.reconcileLiveIds(["term-1", "term-2"] as TerminalId[]);
       attentionRecordOf("local").markUnread("term-1" as TerminalId);
       vs.setCanvasMaximized(true);
       flush();
-      // Sanity: all four facts are non-default.
+      // Sanity: all four facts are non-default. This host's MRU is DERIVED
+      // from its census, so the fact the factory OWNS — and that `reset` must
+      // clear — is the durable trail the focus above wrote.
       expect(vs.activeId()).not.toBeNull();
-      expect(vs.mruOrder().length).toBeGreaterThan(0);
+      expect(visits.mruForHost(HOST_A)).toEqual(["term-1"]);
       expect(vs.isUnread("term-1" as TerminalId)).toBe(true);
       expect(vs.canvasMaximized()).toBe(true);
       // reset() must return EVERY fact to its default. A future reset-on-close-all
@@ -213,7 +216,7 @@ describe("per-host view posture + dock filters (W7 TIER A)", () => {
       vs.reset();
       flush();
       expect(vs.activeId()).toBeNull();
-      expect(vs.mruOrder()).toEqual([]);
+      expect(visits.mruForHost(HOST_A)).toEqual([]);
       expect(vs.isUnread("term-1" as TerminalId)).toBe(false);
       expect(vs.canvasMaximized()).toBe(false);
     } finally {

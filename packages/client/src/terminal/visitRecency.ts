@@ -122,77 +122,6 @@ export function clearHostVisits(
   return prev.filter((e) => e.hostKey !== hostKey);
 }
 
-/**
- * Seed membership for a host that has no trail yet — Ctrl+Tab order only.
- * Stamps are tiny positive ranks (n … 1), never wall-clock times, so they
- * cannot drown real `noteVisit` stamps or server activity in max() ranking.
- */
-export function seedHostVisits(
-  hostKey: string,
-  liveIds: readonly TerminalId[],
-  _now?: number,
-): VisitEntry[] {
-  const n = liveIds.length;
-  return liveIds.map((terminalId, i) => ({
-    hostKey,
-    terminalId,
-    // First live id is most-recent for cycle order; values stay << Date.now().
-    visitedAt: n - i,
-  }));
-}
-
-/**
- * Membership reconcile for a host that already has visits:
- * drop dead, keep survivor timestamps, append missing below oldest survivor.
- */
-export function reconcileHostLiveIds(
-  hostPrev: readonly VisitEntry[],
-  hostKey: string,
-  liveIds: readonly TerminalId[],
-  now: number,
-): VisitEntry[] {
-  const liveSet = new Set(liveIds);
-  const survivors = hostPrev.filter((e) => liveSet.has(e.terminalId));
-  const survivorIds = new Set(survivors.map((e) => e.terminalId));
-  const missing = liveIds.filter((id) => !survivorIds.has(id));
-  const minSurvivor =
-    survivors.length === 0
-      ? now
-      : survivors.reduce(
-          (m, e) => Math.min(m, e.visitedAt),
-          survivors[0]!.visitedAt,
-        );
-  // Append below oldest survivor; never go negative (parse rejects < 0).
-  const appended: VisitEntry[] = missing.map((terminalId, i) => ({
-    hostKey,
-    terminalId,
-    visitedAt: Math.max(0, minSurvivor - 1 - i),
-  }));
-  return [...survivors, ...appended];
-}
-
-/**
- * Apply live top-level ids for one host: seed if empty, else membership
- * reconcile. Merges with other-host visits, sorts by true recency, caps.
- */
-export function applyHostLiveIds(
-  prev: readonly VisitEntry[],
-  hostKey: string,
-  liveIds: readonly TerminalId[],
-  now: number,
-  cap: number = VISIT_MRU_CAP,
-): VisitEntry[] {
-  const others = prev.filter((e) => e.hostKey !== hostKey);
-  const hostPrev = prev.filter((e) => e.hostKey === hostKey);
-  const hostNext =
-    hostPrev.length === 0
-      ? seedHostVisits(hostKey, liveIds, now)
-      : reconcileHostLiveIds(hostPrev, hostKey, liveIds, now);
-  return [...hostNext, ...others]
-    .sort((a, b) => b.visitedAt - a.visitedAt)
-    .slice(0, cap);
-}
-
 /** Active-host visit ids (most-recent first) for Ctrl+Tab / WebGL budget. */
 export function mruIdsForHost(
   visits: readonly VisitEntry[],
@@ -221,12 +150,13 @@ export function visitLiveKey(hostKey: string, terminalId: TerminalId): string {
 const STORAGE_KEY = "kolu-visit-recency";
 
 type VisitRecencyApi = {
+  /** The cross-host trail of GESTURES — an activation, or a kill's forget.
+   *  Membership against a host's live tiles is DERIVED by the reader
+   *  (`hostScope/createViewState.mruOrder`), never written back here. */
   visits: Accessor<VisitEntry[]>;
   noteVisit: (host: HostKey, terminalId: TerminalId, at?: number) => void;
   forgetVisit: (host: HostKey, terminalId: TerminalId) => void;
   clearHost: (host: HostKey) => void;
-  /** Seed empty host trail, or reconcile live membership without restamping. */
-  applyLiveIds: (host: HostKey, liveIds: readonly TerminalId[]) => void;
   mruForHost: (host: HostKey) => TerminalId[];
 };
 
@@ -256,12 +186,6 @@ export const useVisitRecency = createSharedRoot((): VisitRecencyApi => {
     setVisits((prev) => clearHostVisits(prev, encodeHostKey(host)));
   }
 
-  function applyLiveIds(host: HostKey, liveIds: readonly TerminalId[]): void {
-    setVisits((prev) =>
-      applyHostLiveIds(prev, encodeHostKey(host), liveIds, Date.now()),
-    );
-  }
-
   function mruForHost(host: HostKey): TerminalId[] {
     return mruIdsForHost(visits(), encodeHostKey(host));
   }
@@ -271,7 +195,6 @@ export const useVisitRecency = createSharedRoot((): VisitRecencyApi => {
     noteVisit,
     forgetVisit,
     clearHost,
-    applyLiveIds,
     mruForHost,
   };
 });

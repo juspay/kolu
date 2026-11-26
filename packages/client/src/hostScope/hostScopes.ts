@@ -80,6 +80,7 @@ const scopes: () => ScopedByEntry<HostKey, HostScope> = createSharedRoot(() =>
           host,
           wire.placementOf,
           createBootPick(wire, restore.restoreInFlight),
+          wire.tileIds,
         ),
         prefs: createHostPrefs(host),
         camera: createCamera(),
