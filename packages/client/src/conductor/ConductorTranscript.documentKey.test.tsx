@@ -22,6 +22,7 @@ import { openWork, type Work, type WorkId, workIdOf } from "kolu-work";
 import { render } from "@solidjs/web";
 import { flush } from "solid-js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { takeSolidDiagnostics } from "@kolu/solid-test-setup/setup";
 
 const KEY = {
   kind: "branch",
@@ -182,6 +183,8 @@ describe("the document the scroller's place belongs to", () => {
   it("relays the scope into no second fact, over four scope changes", () => {
     const scroller = mount();
     scrollTo(scroller, 300);
+    // The mount's own frame is not the subject.
+    takeSolidDiagnostics();
 
     for (const _ of [0, 1, 2, 3]) {
       column = SCOPED_COLUMN;
@@ -193,8 +196,9 @@ describe("the document the scroller's place belongs to", () => {
       showAllChat();
       flush();
       expect(pill()).not.toBeNull();
+      // EMPTY after every change, advisories included: a mirror written from
+      // an effect fails here at its FIRST sighting, not at the judge's third.
+      expect(takeSolidDiagnostics()).toEqual([]);
     }
-    // `@kolu/solid-test-setup`'s `afterEach` is the other assertion: a mirror
-    // written from an effect is a relay tear by the third sighting.
   });
 });

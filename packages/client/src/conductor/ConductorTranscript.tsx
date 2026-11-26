@@ -42,6 +42,7 @@ import {
   For,
   Match,
   onSettled,
+  runWithOwner,
   Show,
   Switch,
   untrack,
@@ -383,8 +384,36 @@ const ConductorTranscript: Component<{
    *  there" ring compares `signature`, and a diagram replacing its own source
    *  is not new. Opening a folded list writes no HTML and never bumps it, so a
    *  press does not start re-pinning the view. */
-  const [redraws, setRedraws] = createSignal(0);
-  const noteRedrawn = () => setRedraws((n) => n + 1);
+  const [redraws, setRedraws] = createSignal(0, { name: "redraws" });
+  /** Is a note already queued for this flush? Every mounted row's prose
+   *  reports its own rewrite, and one gesture rewrites all of them — the
+   *  follow effect's question is "did the column change", asked once. */
+  let noting = false;
+  /** SETTLED, not immediate. `@kolu/solid-markdown` reports a rewrite from a
+   *  USER effect (`Markdown.tsx`'s `onRendered`), and that rewrite is often
+   *  caused by the same fact the follow effect below reads: opening the
+   *  reader moves the chat aside AND makes a file link read as the open one,
+   *  so the effect has already run for that flush when the note lands.
+   *  Written inline the note is a relay tear — the effect runs a second time
+   *  for one gesture, its first run having placed the view against prose
+   *  about to be replaced (`EFFECT_RELAY_TEAR`, `warn` from its third
+   *  sighting). Settled, the note is a write of its own in a LATER PASS of
+   *  the same flush, so the view still moves in the frame the prose landed
+   *  in and the effect runs once, on the DOM the reader is about to see.
+   *
+   *  Unowned, because an owner here would make `onSettled` a tracked effect
+   *  created under the reporting effect and run inside its frame — the very
+   *  thing this defers. */
+  const noteRedrawn = () => {
+    if (noting) return;
+    noting = true;
+    runWithOwner(null, () =>
+      onSettled(() => {
+        noting = false;
+        setRedraws((n) => n + 1);
+      }),
+    );
+  };
 
   const shown = useShown();
 
@@ -453,6 +482,7 @@ const ConductorTranscript: Component<{
       }
       if (prev !== undefined && prev[0] !== drawn) setUnseen(true);
     },
+    { name: "transcriptFollow" },
   );
 
   return (

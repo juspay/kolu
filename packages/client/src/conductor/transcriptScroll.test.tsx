@@ -19,6 +19,7 @@
 import { createSignal, flush } from "solid-js";
 import { render } from "@solidjs/web";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { takeSolidDiagnostics } from "@kolu/solid-test-setup/setup";
 // A tool card's diffs block drags in the whole code viewer and its Nix-backed
 // grammar aliases; no row here is a tool call. Stub it so this file tests the
 // scroll container.
@@ -223,11 +224,17 @@ describe("the transcript's follow rule", () => {
   it("leaves a reader who scrolled up exactly where they are", () => {
     const scroller = mount();
     scrollTo(scroller, 300);
+    // The mount's own frame is not the subject.
+    takeSolidDiagnostics();
 
     append();
     append();
     expect(scroller.scrollTop).toBe(300);
     expect(pill()).not.toBeNull();
+    // The ring is written from the follow effect's APPLY ARM, and the pill
+    // reads it: EMPTY, advisories included, so a tear fails at its first
+    // sighting rather than at the judge's third.
+    expect(takeSolidDiagnostics()).toEqual([]);
   });
 
   it("re-pins on the pill, and follows again from there", () => {

@@ -19,6 +19,7 @@ import type { Work, WorkId } from "kolu-work";
 import { createSignal, flush } from "solid-js";
 import { render } from "@solidjs/web";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { takeSolidDiagnostics } from "@kolu/solid-test-setup/setup";
 
 vi.mock("@kolu/solid-markdown", async () => {
   // The factory is hoisted above this file's imports, so the primitives it
@@ -150,6 +151,9 @@ describe("a transcript while a reply streams", () => {
     expect(first).toContain("the first reply");
     expect(details).not.toBeNull();
 
+    // The mount's own frame is not the subject.
+    takeSolidDiagnostics();
+
     for (const chunk of ["writ", "writi", "writin", "writing"]) {
       // A CHUNK: the reducer replaces the streaming row's object and leaves
       // every other row's alone.
@@ -161,5 +165,9 @@ describe("a transcript while a reply streams", () => {
     expect(host.textContent).toContain("the first reply");
     // The fold is the SAME element: its run never changed.
     expect(host.querySelector("details")).toBe(details);
+    // Every chunk makes the package report a rewrite from a USER effect, and
+    // the transcript's follow effect reads that note: EMPTY, advisories
+    // included, so a tear fails at its first sighting.
+    expect(takeSolidDiagnostics()).toEqual([]);
   });
 });
