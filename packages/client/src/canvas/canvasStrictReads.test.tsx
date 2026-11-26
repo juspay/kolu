@@ -13,9 +13,15 @@
  * which every other canvas test stubs out — and fails naming the stack of any
  * location-less strict read it provokes.
  *
- * The stores around the canvas are stubbed exactly as
- * `TerminalCanvas.tileContent.test.tsx` stubs them: this is a probe of the
- * canvas's own reactive wiring, not of the stores it reads.
+ * THE THREE COMPONENTS AROUND THOSE HELPERS ARE REAL TOO — `CanvasTile`, the
+ * `Dock` and `CanvasMinimap` all render and re-measure here, which is what
+ * makes the probe an elimination probe rather than a reading of its own
+ * stubs. What is still stood in is everything that is not the canvas's own
+ * reactive wiring: the stores it reads (`useTileStore`, `useTerminalStore`,
+ * `activeWire`'s saved-session subscription), the per-tile presentation
+ * helpers (`tileContent`, `useTileTheme`, `useTileAura`, `useCanvasFocus`,
+ * `useViewPosture`, `staleness`, `useShown`), and `ResizeObserver`, which
+ * happy-dom does not deliver.
  */
 
 import type { TerminalId } from "kolu-common/surface";
