@@ -34,7 +34,12 @@ async function loadPage(): Promise<{
   const { attentionRecordOf } = await import("../attention/savedAttention");
   return {
     view: createRoot(() =>
-      createViewState(LOCAL_HOST, () => ({ kind: "top-level" })),
+      // No boot pick: these cases are about the unread marks, not selection.
+      createViewState(
+        LOCAL_HOST,
+        () => ({ kind: "top-level" }),
+        () => null,
+      ),
     ),
     marks: attentionRecordOf(encodeHostKey(LOCAL_HOST)),
     flush,

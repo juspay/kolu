@@ -110,6 +110,8 @@ const subPanelSpy = vi.hoisted(() => ({ setActiveSubTab: vi.fn() }));
 vi.mock("./useSubPanel", () => ({
   useSubPanel: () => ({
     paneChrome: () => ({ activeSubTab: null }),
+    // No remembered sub pane in these fixtures: a landing lands on the tile.
+    visiblePaneOf: (id: TerminalId) => id,
     setActiveSubTab: subPanelSpy.setActiveSubTab,
   }),
 }));
@@ -176,6 +178,9 @@ function makeStore(): TerminalStore {
     planSetActiveSilently: () => () => {},
     activeId: () => null,
     planReconcileLiveIds: () => () => {},
+    // These doubles pin the SEEDED path: the derivation never covers the pick,
+    // so hydration writes the focus fact exactly as it always did.
+    seedCovers: () => false,
   } as unknown as TerminalStore;
 }
 
@@ -577,6 +582,9 @@ describe("useSessionRestore — multi-terminal restore seeds the server-active t
       planSetActiveSilently: (id: string | null) => () => setActiveSilently(id),
       activeId: () => active,
       planReconcileLiveIds,
+      // This double has no view state behind it, so the derived boot pick never
+      // covers the seed: every case below asserts the WRITE path.
+      seedCovers: () => false,
     } as unknown as TerminalStore;
     return { store, setActiveSilently, planReconcileLiveIds };
   }
@@ -685,6 +693,7 @@ describe("useSessionRestore — the restored active tile does NOT ride the sessi
                 setActiveSilently(id),
               activeId: () => null,
               planReconcileLiveIds: () => () => {},
+              seedCovers: () => false,
             } as unknown as TerminalStore;
 
             // Empty canvas + a saved session → the restore card.
@@ -778,6 +787,7 @@ describe("useSessionRestore — the seed WAITS for the answered tile to reach th
                 setActiveSilently(id),
               activeId: () => null,
               planReconcileLiveIds: () => () => {},
+              seedCovers: () => false,
             } as unknown as TerminalStore;
 
             const session = useSessionRestore({ store });
@@ -848,6 +858,7 @@ describe("useSessionRestore — that wait is BOUNDED (the answered tile never ar
       planSetActiveSilently: (id: string | null) => () => setActiveSilently(id),
       activeId: () => null,
       planReconcileLiveIds: () => () => {},
+      seedCovers: () => false,
     } as unknown as TerminalStore;
     /** Deliver a restored tile's row AND its composed record together. */
     const deliver = (...ids: string[]) => {
@@ -1010,6 +1021,7 @@ describe("useSessionRestore — an in-session restore RE-SEEDS the view (viewSee
       },
       activeId: () => active,
       planReconcileLiveIds: () => () => {},
+      seedCovers: () => false,
     } as unknown as TerminalStore;
     return { store, setList, setMeta };
   }
