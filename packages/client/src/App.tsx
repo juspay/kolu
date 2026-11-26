@@ -144,7 +144,6 @@ const App: Component = () => {
     activeThemeName,
     activeTheme,
     getTerminalTheme,
-    isPreviewingTheme,
     handleSetTheme,
   } = useThemeManager();
 
@@ -428,7 +427,6 @@ const App: Component = () => {
         open={commandPalette.open()}
         onOpenChange={commandPalette.onOpenChange}
         initialPath={commandPalette.initialPath()}
-        transparentOverlay={isPreviewingTheme()}
       />
       <ShortcutsHelp />
       {/* The ONE host-details panel: every opener (a host tab's pip, its

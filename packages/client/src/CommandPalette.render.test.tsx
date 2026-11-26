@@ -12,7 +12,11 @@ vi.mock("@corvu-next/dialog", () => ({
   },
 }));
 vi.mock("./ui/ModalDialog", () => ({
-  default: (props: { children: JSX.Element }) => <div>{props.children}</div>,
+  default: (props: { children: JSX.Element; transparentOverlay?: boolean }) => (
+    <div data-overlay={props.transparentOverlay ? "transparent" : "dimmed"}>
+      {props.children}
+    </div>
+  ),
 }));
 vi.mock("./settings/useTips", () => ({
   useTips: () => ({ peekAmbientTipText: () => "" }),
@@ -454,4 +458,93 @@ it("holds mode and the breadcrumb still across four open/close cycles", () => {
     "Level 1",
   ]);
   expect(document.querySelector('[role="option"]')?.textContent).toBe("Leaf");
+});
+
+it("clears the filter on the open edge, with no write relaying it", () => {
+  // The open edge's resets used to be APPLY-ARM WRITES: `setQuery("")` landed
+  // a flush after `open` changed, so every reader of both — corvu's own
+  // dismiss effect, and the palette's `filterQuery` — ran once against the
+  // previous query and again after the write. Solid grades that
+  // `EFFECT_RELAY_TEAR`, escalating to `warn` on the third sighting, and
+  // `@kolu/solid-test-setup` fails the test on it. Four cycles, each with a
+  // real query to clear, is what drives it past that threshold.
+  const [open, setOpen] = createSignal(true);
+  dispose = render(
+    () => (
+      <CommandPalette
+        commands={() => [
+          { kind: "action", name: "Alpha", onSelect: () => {} },
+          { kind: "action", name: "Beta", onSelect: () => {} },
+        ]}
+        open={open()}
+        onOpenChange={setOpen}
+      />
+    ),
+    document.body,
+  );
+  flush();
+  const rows = (): number =>
+    document.querySelectorAll('[role="option"]').length;
+  const input = () => document.querySelector("input")!;
+  for (let i = 0; i < 4; i++) {
+    input().value = "Beta";
+    input().dispatchEvent(new Event("input", { bubbles: true }));
+    flush();
+    expect(rows()).toBe(1);
+    setOpen(false);
+    flush();
+    setOpen(true);
+    flush();
+    // The whole list is back: the open cleared the filter in the flush `open`
+    // changed, not one behind it.
+    expect(rows()).toBe(2);
+  }
+});
+
+it("drops its backdrop while a row that previews behind it is highlighted", () => {
+  // A theme row paints the terminal BEHIND the dialog, so the dialog goes
+  // transparent. That is a fact about which row is highlighted — read off the
+  // row, not back off the preview signal the row's `onHighlight` writes,
+  // which made the overlay a relay of the open edge.
+  const [open, setOpen] = createSignal(true);
+  dispose = render(
+    () => (
+      <CommandPalette
+        commands={() => [
+          {
+            kind: "action",
+            name: "Theme",
+            previewsBehind: true,
+            onSelect: () => {},
+          },
+          { kind: "action", name: "Plain", onSelect: () => {} },
+        ]}
+        open={open()}
+        onOpenChange={setOpen}
+      />
+    ),
+    document.body,
+  );
+  flush();
+  const overlay = (): string | null =>
+    document.querySelector("[data-overlay]")?.getAttribute("data-overlay") ??
+    null;
+  expect(overlay()).toBe("transparent");
+
+  const input = document.querySelector("input")!;
+  input.dispatchEvent(
+    new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }),
+  );
+  flush();
+  expect(overlay()).toBe("dimmed");
+
+  // A shut palette shows no backdrop of its own, whatever it last highlighted.
+  input.dispatchEvent(
+    new KeyboardEvent("keydown", { key: "ArrowUp", bubbles: true }),
+  );
+  flush();
+  expect(overlay()).toBe("transparent");
+  setOpen(false);
+  flush();
+  expect(overlay()).toBe("dimmed");
 });

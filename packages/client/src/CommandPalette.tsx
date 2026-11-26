@@ -261,6 +261,13 @@ interface PaletteBase {
   onHighlight?: () => void;
   /** Called when leaving this item without executing it (Escape, Backspace, breadcrumb). */
   onCancel?: () => void;
+  /** Highlighting this row previews something painted BEHIND the dialog — the
+   *  active terminal's theme is the one case. The palette drops its backdrop
+   *  while such a row is highlighted, so the preview is visible. Declared on
+   *  the ROW rather than read back off the preview signal the row's
+   *  `onHighlight` writes: the backdrop and the highlight then settle in one
+   *  flush instead of the overlay painting a frame behind the row. */
+  previewsBehind?: boolean;
 }
 
 /** A leaf that runs an action when selected. */
@@ -395,8 +402,6 @@ const CommandPalette: Component<{
    *  `["Terminals", "zest"]`). Tracked reactively — updating while open
    *  re-targets the path. */
   initialPath?: readonly string[];
-  /** When true, the backdrop is transparent so content behind is visible. */
-  transparentOverlay?: boolean;
 }> = (props) => {
   const { peekAmbientTipText } = useTips();
   const view = useViewState();
@@ -410,13 +415,57 @@ const CommandPalette: Component<{
    *  the input the palette actually means. */
   const [inputRef, setInputRef] = createSignal<HTMLInputElement>();
   let listEl!: HTMLDivElement;
-  const [query, setQuery] = createSignal("");
-  const [ambientTip, setAmbientTip] = createSignal("");
-  const [selectedIndex, setSelectedIndex] = createSignal(0);
+  /** THE OPEN EDGE'S RESETS, DERIVED. Each of these facts is "what the user
+   *  has done since the palette opened", so an open is where it goes back to
+   *  nothing. Written from the lifecycle effect's apply arm they would RELAY
+   *  the open: corvu's own dismiss effect and every memo reading `props.open`
+   *  run once in the flush `open` changed — against the previous query, tip
+   *  and hover arm — and again after the write lands, so each open painted a
+   *  torn first frame. As writable memos keyed on the edge (the same idiom as
+   *  `pathState` below) the reset arrives in the SAME flush as the open, and
+   *  the keystroke/pointer writes stay exactly as they were. `open` rides
+   *  along as the edge's memory: the derivation sees only `prev`. */
+  type EdgeReset<T> = { readonly open: boolean; readonly value: T };
+  function onOpenEdge<T>(
+    name: string,
+    empty: T,
+    /** The value this edge leaves behind. Reached only ON an edge, so
+     *  whatever it reads is a snapshot and never a dependency. */
+    next: (prev: T, open: boolean) => T,
+  ): [Accessor<T>, (value: T) => void] {
+    const [state, setState] = createSignal<EdgeReset<T>>(
+      (prev = { open: false, value: empty }): EdgeReset<T> => {
+        const open = props.open;
+        if (open === prev.open) return prev;
+        return { open, value: next(prev.value, open) };
+      },
+      { name: `${name}Edge` },
+    );
+    // A memo, so a reader wakes for a CHANGED value and not for an edge that
+    // left it alone (a close keeps the tip text it was showing).
+    return [
+      createMemo(() => state().value, { name }),
+      (value: T) => setState((prev) => ({ ...prev, value })),
+    ];
+  }
+  const [query, setQuery] = onOpenEdge("paletteQuery", "", (prev, open) =>
+    open ? "" : prev,
+  );
+  // The one-shot ambient tip: picked ONCE per open. `untrack` because the pick
+  // is random and reads the tip preferences — re-rolling it on a preference
+  // tick would change the footer under the reader.
+  const [ambientTip] = onOpenEdge("paletteAmbientTip", "", (prev, open) =>
+    open ? untrack(peekAmbientTipText) : prev,
+  );
   // Hover selection only after a real pointer delta — see pointerHoverGate.
   // Synthetic mousemove/enter under a stationary cursor must not steal the
-  // keyboard highlight (open-under-cursor shimmer).
-  const [mouseActive, setMouseActive] = createSignal(false);
+  // keyboard highlight (open-under-cursor shimmer), so an edge disarms it.
+  const [mouseActive, setMouseActive] = onOpenEdge(
+    "paletteMouseActive",
+    false,
+    () => false,
+  );
+  const [selectedIndex, setSelectedIndex] = createSignal(0);
   let lastPointerPos: PointerPos | null = null;
   /** THE COMMAND TREE AS A SHUT PALETTE SEES IT — the last one it was given.
    *
@@ -991,15 +1040,21 @@ const CommandPalette: Component<{
     return built;
   }
 
-  // Selection-initiated close: signals the close-effect to skip
-  // path.onCancel propagation. External closes (Escape, backdrop click,
-  // parent toggle via setPaletteOpen) leave this false so onCancel fires.
-  // Three close paths converge on the close-effect; this signal is the
-  // single discriminator that distinguishes "completed" from "cancelled".
-  const [closingForSelection, setClosingForSelection] = createSignal(false);
+  // Selection-initiated close: tells the close edge to skip path.onCancel
+  // propagation. External closes (Escape, backdrop click, parent toggle via
+  // setPaletteOpen) leave it false so onCancel fires. Three close paths
+  // converge on that edge; this box is the single discriminator that
+  // distinguishes "completed" from "cancelled".
+  //
+  // A PLAIN BOX, not a signal: its one reader is the lifecycle effect's
+  // compute, which must sample it rather than depend on it (a dependency
+  // would re-run the edge for a flag the edge itself consumes). So there is
+  // nothing reactive to write, and the edge's apply arm clears it without
+  // relaying anything.
+  let closingForSelection = false;
 
   function closeForSelection() {
-    setClosingForSelection(true);
+    closingForSelection = true;
     props.onOpenChange(false);
   }
 
@@ -1083,10 +1138,11 @@ const CommandPalette: Component<{
   // Capture phase: intercept before terminal's keydown handler
   makeEventListener(window, "keydown", handleKeyDown, { capture: true });
 
-  // Open/close lifecycle — the IMPERATIVE half of an edge: the focus, the
-  // one-shot ambient tip, and the cancellation of what a close abandoned. The
-  // path itself is derived (see `pathState`), so nothing here writes it and no
-  // reader of `props.open` sees a stale path first.
+  // Open/close lifecycle — the IMPERATIVE half of an edge: the focus and the
+  // cancellation of what a close abandoned. Everything an edge RESETS is
+  // derived from it instead (the path, `pathState`; the query, the ambient tip
+  // and the hover arm, `onOpenEdge`), so this arm writes no reactive state at
+  // all and no reader of `props.open` sees a stale one first.
   createEffect(
     () => {
       const isOpen = props.open;
@@ -1103,20 +1159,16 @@ const CommandPalette: Component<{
         segments: settled.segments,
         // On a close, the segments the emptied path abandoned.
         abandoned: settled.dropped,
-        // Snapshots, deliberately NOT dependencies: a peeked ambient tip (a
-        // random pick that must not re-roll on every tree tick), and the close
-        // branch's other fact (whether the close completed a selection).
-        ambientTip: untrack(peekAmbientTipText),
-        closedBySelection: untrack(closingForSelection),
+        // A snapshot, deliberately NOT a dependency: whether the close
+        // completed a selection. The box is cleared by the arm below, so a
+        // dependency would re-run this edge for its own bookkeeping.
+        closedBySelection: closingForSelection,
       };
     },
-    ({ isOpen, segments, abandoned, ambientTip, closedBySelection }) => {
+    ({ isOpen, segments, abandoned, closedBySelection }) => {
       if (isOpen) {
-        setQuery("");
-        setAmbientTip(ambientTip);
-        setMouseActive(false);
         lastPointerPos = null;
-        setClosingForSelection(false);
+        closingForSelection = false;
         const leaf = segments.at(-1);
         if (leaf) {
           // A resolved deep link is the sole focus owner — the double-rAF
@@ -1148,7 +1200,7 @@ const CommandPalette: Component<{
         // path onCancel only covers drill segments.
         lastHighlight?.onCancel?.();
         lastHighlight = undefined;
-        setClosingForSelection(false);
+        closingForSelection = false;
       }
     },
     { name: "paletteOpenEdge" },
@@ -1210,6 +1262,18 @@ const CommandPalette: Component<{
   // row it left and the row it reached, not the whole list.
   const isSelected = createKeySelector(effectiveIndex);
 
+  /** THE BACKDROP, DERIVED FROM THE HIGHLIGHT. A row that previews something
+   *  behind the dialog (a theme) wants the overlay out of the way — which is
+   *  a fact about which row is highlighted, not news that has to travel. Read
+   *  back off the preview signal `onHighlight` writes, it was a relay of the
+   *  open edge: the dialog reads `open`, the highlight effect reads `open` and
+   *  wrote the preview, and the overlay painted its previous opacity for one
+   *  frame of every open. The preview signal keeps its tile-chrome readers,
+   *  which do not read `open`. */
+  const transparentOverlay = createMemo(
+    () => props.open && filtered()[effectiveIndex()]?.previewsBehind === true,
+  );
+
   // Notify highlighted item when selection changes. Cancels the previous
   // leaf's onCancel first so root-flattened previews (theme) don't stick.
   // Tracks props.open so the effect re-fires on reopen with the same selection.
@@ -1261,7 +1325,7 @@ const CommandPalette: Component<{
     <ModalDialog
       open={props.open}
       onOpenChange={props.onOpenChange}
-      transparentOverlay={props.transparentOverlay}
+      transparentOverlay={transparentOverlay()}
       initialFocusEl={inputRef()}
       // No `refocusOnClose`: the palette also closes itself programmatically
       // (selection → onOpenChange(false), Cmd+K → toggle()), paths that never

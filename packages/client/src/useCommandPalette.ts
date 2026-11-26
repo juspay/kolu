@@ -1,18 +1,18 @@
-/** Command-palette controller — singleton. Owns the open-state and the
- *  initial drill path. On close it resets the path AND runs the
- *  close-refocus policy (refocus the terminal unless a command opened another
- *  dialog). Unlike the trivial `createDisclosure` dialogs — whose only close
- *  paths are Corvu-driven (Escape / outside click) and so are covered by
- *  `ModalDialog`'s `refocusOnClose` — the palette closes itself programmatically
+/** Command-palette controller — singleton. Owns the open state and the
+ *  initial drill path. On close it runs the close-refocus policy (refocus the
+ *  terminal unless a command opened another dialog). Unlike the trivial
+ *  `createDisclosure` dialogs — whose only close paths are Corvu-driven
+ *  (Escape / outside click) and so are covered by `ModalDialog`'s
+ *  `refocusOnClose` — the palette closes itself programmatically
  *  too: a selected command/workspace row calls `onOpenChange(false)` directly
  *  and the `Cmd+K` chord calls `toggle()`, neither of which re-enters
  *  `ModalDialog.handleOpenChange`. So the palette can't lean on `refocusOnClose`
  *  for those paths. Instead every close path converges on `onOpenChange(false)`
- *  here, which is the ONE home for the palette's path-reset + refocus; the
+ *  here, which is the ONE home for the palette's refocus; the
  *  ModalDialog mount deliberately omits `refocusOnClose` to avoid a double-fire
  *  on the Corvu path (which also funnels through this `onOpenChange`). This is
- *  the one overlay with real internal logic (path reset + self-driven close),
- *  so it earns its own controller; the trivial toggles use `createDisclosure`. */
+ *  the one overlay with real internal logic (self-driven close), so it earns
+ *  its own controller; the trivial toggles use `createDisclosure`. */
 
 import { createSignal } from "solid-js";
 import { createSharedRoot } from "./createSharedRoot";
@@ -29,11 +29,15 @@ export const useCommandPalette = createSharedRoot(() => {
   const [initialPath, setInitialPath] = createSignal<readonly string[]>([]);
 
   /** Close bookkeeping shared by every close path (Corvu dismiss, selection,
-   *  toggle): drop the drilled-in path so the next plain open starts at root,
-   *  then run the guarded terminal refocus. */
+   *  toggle): run the guarded terminal refocus.
+   *
+   *  It does NOT reset `initialPath`. Every open path sets the path before it
+   *  sets `open` (`openDialog`, `openPath`, `openGroup`, `toggle`), so a
+   *  close-time reset changes no answer — and it is one more write on the edge
+   *  corvu's dismiss effect and the palette's own derivations read, i.e. a
+   *  relay of the close for a value nothing reads until the next open. */
   function close() {
     setOpen(false);
-    setInitialPath([]);
     refocusIfNoDialogOpen();
   }
 

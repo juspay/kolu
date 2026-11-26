@@ -26,6 +26,10 @@ export function themePaletteGroup(
           (name): PaletteAction => ({
             kind: "action",
             name,
+            // Highlighting a theme row paints the active terminal in it, and
+            // the terminal is BEHIND the palette: the dialog drops its
+            // backdrop while this row is highlighted.
+            previewsBehind: true,
             onHighlight: () => deps.setPreviewThemeName(name),
             onCancel: restore,
             onSelect: () => {
