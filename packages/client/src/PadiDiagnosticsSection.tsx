@@ -8,7 +8,7 @@
 import type { PadiDiagnostics, TimingSummary } from "@kolu/padi-client/surface";
 import { toError } from "@kolu/surface/run-stream";
 import { Effect } from "effect";
-import type { HostKey } from "kolu-common/hostKey";
+import { type HostKey, hostKeysEqual } from "kolu-common/hostKey";
 import {
   type Accessor,
   type Component,
@@ -71,10 +71,21 @@ export function createPadiDiagnosticsFetch(): PadiDiagnosticsFetcher {
     host: null,
   });
   let generation = 0;
-  const target = createMemo(() => {
-    const host = activeHost();
-    return { host, connection: padiMap.entry(host).state().kind };
-  });
+  /** The question's two inputs. The entry's status is a fresh record on every
+   *  publish — a reconnect countdown ticking, a probe landing — so an
+   *  ungated memo would mint an equal-but-new pair for a host and a
+   *  connection that had not moved. The gate is the two values the ask
+   *  reads. */
+  const target = createMemo(
+    () => {
+      const host = activeHost();
+      return { host, connection: padiMap.entry(host).state().kind };
+    },
+    {
+      equals: (a, b) =>
+        hostKeysEqual(a.host, b.host) && a.connection === b.connection,
+    },
+  );
   const ask = (now: { host: HostKey; connection: string }): void => {
     const { host, connection } = now;
     const mine = ++generation;

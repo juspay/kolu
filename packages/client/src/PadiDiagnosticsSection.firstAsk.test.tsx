@@ -24,7 +24,7 @@ import type { PadiDiagnostics } from "@kolu/padi-client/surface";
 import { render } from "@solidjs/web";
 import { Effect } from "effect";
 import type { HostKey } from "kolu-common/hostKey";
-import { flush, onCleanup } from "solid-js";
+import { createSignal, flush, onCleanup } from "solid-js";
 import { afterEach, expect, it, vi } from "vitest";
 import type {
   PadiDiagnosticsFetch,
@@ -61,10 +61,14 @@ const ANSWER: PadiDiagnostics = {
   },
 };
 
-/** The ref-count the keyed read keeps, and the answer the stub procedure is
- *  holding back until a test releases it. */
+/** The ref-count the keyed read keeps, the asks the stub procedure has taken,
+ *  and the answer it is holding back until a test releases it. */
 let reads = 0;
 let releases = 0;
+let asks = 0;
+/** The entry's own publish count — the keyed status is a fresh record per
+ *  publish, so a test can republish the SAME status. A test installs it. */
+let republish: () => number = () => 0;
 let pending = Promise.withResolvers<PadiDiagnostics>();
 
 vi.mock("./wire", () => ({
@@ -78,10 +82,17 @@ vi.mock("./wire", () => ({
         onCleanup(() => {
           releases++;
         });
+        republish();
+        // A FRESH record, which is what the cache's store publishes.
         return { kind: "connected" };
       },
       procedures: {
-        diagnostics: { read: () => Effect.promise(() => pending.promise) },
+        diagnostics: {
+          read: () => {
+            asks++;
+            return Effect.promise(() => pending.promise);
+          },
+        },
       },
     }),
   },
@@ -101,6 +112,8 @@ afterEach(() => {
   host = undefined;
   reads = 0;
   releases = 0;
+  asks = 0;
+  republish = () => 0;
   pending = Promise.withResolvers<PadiDiagnostics>();
 });
 
@@ -153,4 +166,31 @@ it("releases the entry's ref-count with the dialog", async () => {
   dispose?.();
   dispose = undefined;
   expect(releases).toBe(reads);
+});
+
+it("a status the entry republishes unchanged moves no target", async () => {
+  // Five publishes of the SAME status — a reconnect probe landing, a health
+  // poll answering — each a fresh record off the keyed store. The question's
+  // two inputs have not moved, so the memo between the status and the ask
+  // must not republish; ungated it mints an equal-but-new pair every time,
+  // which Solid's dev attribution reports as UNSTABLE_MEMO_OUTPUT (object).
+  const [publishes, setPublishes] = createSignal(0);
+  republish = publishes;
+  const fetch = mount();
+  expect(asks).toBe(1);
+
+  for (let pass = 1; pass <= 5; pass++) {
+    setPublishes(pass);
+    flush();
+  }
+
+  // One question still, and the host it was put to is unchanged.
+  expect(asks).toBe(1);
+  expect(fetch.state()).toEqual<PadiDiagnosticsFetch>({
+    kind: "loading",
+    host: LOCAL,
+  });
+  pending.resolve(ANSWER);
+  await settle();
+  expect(asks).toBe(1);
 });
