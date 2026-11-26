@@ -102,6 +102,11 @@ const LivePane: Component<{
     openingGrid,
   );
   const [cell, setCell] = createSignal<PeekCell | null>(null);
+  /** THE CELL ONE CHARACTER TAKES AT THE BASE FONT — a measurement KEPT past
+   *  the dispatch it arrived in, and the only such capture the pane holds.
+   *  It is keyed to the screen that produced it by this component: a pane is
+   *  this terminal's for its whole life (`WorkLive.tsx` draws one per member
+   *  ref), so there is no second screen whose measurement could land here. */
   const [baseCell, setBaseCell] = createSignal<PeekCell | null>(null);
   const [pad, setPad] = createSignal<PeekPad | null>(null);
   const [phase, setPhase] = createSignal<ScreenPhase>("reading");

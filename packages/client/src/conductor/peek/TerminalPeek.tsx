@@ -101,6 +101,12 @@ const PeekWindow: Component<{ target: PeekTarget }> = (props) => {
     openingGrid,
   );
   const [cell, setCell] = createSignal<PeekCell | null>(null);
+  /** THE CELL ONE CHARACTER TAKES AT THE BASE FONT — a measurement KEPT past
+   *  the dispatch it arrived in, and the only such capture the window holds.
+   *  It is keyed to the screen that produced it by the keyed
+   *  `<Show when={peekTarget()} keyed>` above: a window moved to another
+   *  terminal is another `PeekWindow`, so no cell of the terminal it was
+   *  moved off can size this one (`baseCellPeers.test.tsx`). */
   const [baseCell, setBaseCell] = createSignal<PeekCell | null>(null);
   const [pad, setPad] = createSignal<PeekPad | null>(null);
   const [phase, setPhase] = createSignal<"reading" | "live" | "reconnecting">(

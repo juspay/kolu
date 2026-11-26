@@ -53,7 +53,14 @@ const PeekTerminal: Component<{
    *  latches a base cell judges the measurement by the font it was taken at
    *  rather than re-deriving one from its own staged state inside this
    *  callback. xterm types its options bag for the caller that SETS it, so
-   *  the font is optional there; a report with no font latches nothing. */
+   *  the font is optional there; a report with no font latches nothing.
+   *
+   *  ONE DIRECTION, UPWARDS: every value in this report is the SCREEN's own
+   *  (xterm's dimensions, its measured box, its option), never a value the
+   *  view published, and the screen reads nothing back out of the view here.
+   *  So the two views one terminal can have at once — a live pane and the
+   *  peek window — cannot drive each other through it, in either order
+   *  (`baseCellPeers.test.tsx`), and no cycle is spellable. */
   onCell: (cell: PeekCell, pad: PeekPad, drawnFont: number | undefined) => void;
   onPhase: (phase: "reading" | "live" | "reconnecting") => void;
   onHeld: (held: boolean) => void;
