@@ -285,6 +285,16 @@ export function useSessionRestore(deps: { store: TerminalStore }) {
         return;
       }
       disarmDeadline();
+      // ONCE, EVEN FOR A PLAN BUILT BEFORE THE LATCH CLOSED. The compute can
+      // answer "seed" twice before either answer is applied — the census
+      // arrives as several writes, and each one re-runs this compute while the
+      // phase is still open — and the second plan then carries a `seed` step
+      // the first application has already performed. Seeding it again re-lands
+      // the pick (a second `chrome.setActive` for the same tile, a second
+      // visit), so the phase the first application closed is the test: a fresh
+      // compute never reaches here with the latch already seeded, because it
+      // returns the idle plan.
+      if (plan.latch.phase === "seeded") return;
       plan.latch.markSeeded();
       step.seed();
     },

@@ -20,45 +20,66 @@ vi.mock("../wire", () => ({
 // cases below are judged by `@kolu/solid-test-setup`, so they must run on the
 // engine this worker installed.
 import { createEffect, createRoot, createSignal, flush } from "solid-js";
+import {
+  defaultSelectionIndex,
+  filterAndRankPaletteItems,
+} from "../palette/rootIndex";
 import type { LivePlacement } from "../terminal/focusedTerminal";
 import {
   useVisitRecency,
   VISIT_MRU_CAP,
   visitedAtOf,
+  type VisitRecencyApi,
 } from "../terminal/visitRecency";
 import { createViewState } from "./createViewState";
 
 const A = "11111111-1111-4111-8111-111111111111" as TerminalId;
 const B = "22222222-2222-4222-8222-222222222222" as TerminalId;
 const C = "33333333-3333-4333-8333-333333333333" as TerminalId;
+// Three warm strangers for the palette's Recent band, below.
+const D = "44444444-4444-4444-8444-444444444444" as TerminalId;
+const E = "55555555-5555-4555-8555-555555555555" as TerminalId;
+const F = "66666666-6666-4666-8666-666666666666" as TerminalId;
 
-/** Load the page: a fresh module graph, this host's view state in it, and the
- *  host's attention record the engine raises marks on. The dynamic imports
- *  after `resetModules` ARE the reload — static imports would share one
- *  in-memory record across every "page" (and Solid itself is part of the graph
- *  being reloaded, so its owner — and the `flush` that drains THAT graph's
- *  staged writes — must come from the same one). */
-async function loadPage(): Promise<{
+/** Load the page: a fresh module graph, this host's view state in it, the
+ *  host's attention record the engine raises marks on, and the visit trail
+ *  that graph parsed out of `localStorage`. The dynamic imports after
+ *  `resetModules` ARE the reload — static imports would share one in-memory
+ *  record across every "page" (and Solid itself is part of the graph being
+ *  reloaded, so its owner — and the `flush` that drains THAT graph's staged
+ *  writes — must come from the same one).
+ *
+ *  `pick` is this page's boot pick and `tiles` its opening census; a case that
+ *  is only about the unread marks passes neither. */
+async function loadPage(
+  opts: { pick?: TerminalId; tiles?: readonly TerminalId[] } = {},
+): Promise<{
   view: HostViewState;
   marks: AttentionRecord;
+  visits: VisitRecencyApi;
+  setTiles: (ids: readonly TerminalId[]) => void;
   flush: () => void;
 }> {
   vi.resetModules();
-  const { createRoot, flush } = await import("solid-js");
+  const { createRoot, createSignal, flush } = await import("solid-js");
   const { createViewState } = await import("./createViewState");
   const { attentionRecordOf } = await import("../attention/savedAttention");
+  const { useVisitRecency } = await import("../terminal/visitRecency");
+  const [tiles, setTiles] = createSignal<readonly TerminalId[]>(
+    opts.tiles ?? [],
+  );
   return {
     view: createRoot(() =>
-      // No boot pick and no census: these cases are about the unread marks,
-      // not selection.
       createViewState(
         LOCAL_HOST,
         () => ({ kind: "top-level" }),
-        () => null,
-        () => [],
+        () => opts.pick ?? null,
+        tiles,
       ),
     ),
     marks: attentionRecordOf(encodeHostKey(LOCAL_HOST)),
+    visits: useVisitRecency(),
+    setTiles,
     flush,
   };
 }
@@ -358,5 +379,83 @@ describe("a host's view-state derivations", () => {
       held.visits.mruForHost(LOCAL_HOST).filter((id) => live.has(id)),
     ).toEqual([A, B]);
     held.dispose();
+  });
+});
+
+/** A visit is what a tile becoming the ACTIVE tile leaves behind, and the two
+ *  landings the derivation makes — the boot pick and the auto-switch — are
+ *  activations like any other. In session nothing shows it: the derived MRU
+ *  leads with the active tile whether or not the trail has heard of it. A
+ *  reload is where the difference is the whole answer, because the trail is
+ *  then the only memory this browser has of where it was. */
+describe("the trail the next boot reads", () => {
+  beforeEach(() => localStorage.clear());
+
+  it("ranks the tile an auto-switch handed the slot to, a reload later", async () => {
+    // PAGE ONE. A cold boot lands on A — an activation, so it leaves a visit
+    // behind like any other.
+    const page = await loadPage({ pick: A, tiles: [A, B, C] });
+    page.view.noteSeededActivation(A);
+    page.flush();
+    expect(page.visits.mruForHost(LOCAL_HOST)).toEqual([A]);
+
+    // The user clicks C; C then exits, and the derivation hands its slot to
+    // B — a tile this browser has never been on — whose imperative half the
+    // removal reconcile takes.
+    page.view.writeFocus({ id: C, tileHint: C });
+    page.flush();
+    page.setTiles([A, B]);
+    page.flush();
+    expect(page.view.takeAutoSwitch(C)).toBe(B);
+    page.view.noteAutoSwitch(B);
+    page.flush();
+
+    // Then the user clicks A — the one landing that was always a gesture.
+    page.view.writeFocus({ id: A, tileHint: A });
+    page.flush();
+
+    // PAGE TWO: a reload, with A restored as the active tile. The trail came
+    // back off the disk, and B — the tile the auto-switch had put you on
+    // before you clicked A — is the one visit behind the live census.
+    const next = await loadPage({ pick: A, tiles: [A, B] });
+    const local = encodeHostKey(LOCAL_HOST);
+    const stampOf = (id: TerminalId) =>
+      visitedAtOf(next.visits.visits(), local, id);
+    expect(stampOf(A)).toBeGreaterThan(stampOf(B));
+    expect(stampOf(B)).toBeGreaterThan(0);
+
+    // And that is what ⌘K ranks by. Three background agents have printed
+    // since you left B, so all three outrank it on warmth and the band's cap
+    // of three would drop it — the reserved seat is what keeps it, and the
+    // highlight is what points at it. With no visit behind B both fall back
+    // to warmth, and Enter lands on the chattiest stranger instead of where
+    // you were.
+    const printedAt = stampOf(A);
+    const row = (id: TerminalId, recencyAt: number) => ({
+      name: id,
+      row: {
+        kind: "terminal" as const,
+        hostKey: local,
+        terminalId: id,
+        recencyAt,
+        visitedAt: stampOf(id),
+      },
+    });
+    const current = { hostKey: local, terminalId: A };
+    const rows = [
+      row(A, 0),
+      row(D, printedAt + 3_000),
+      row(E, printedAt + 2_000),
+      row(F, printedAt + 1_000),
+      // Silent since you left it: its only claim is your visit.
+      row(B, 0),
+    ];
+    const shown = filterAndRankPaletteItems(rows, {
+      query: "",
+      atRoot: true,
+      current,
+    });
+    expect(shown.map((item) => item.name)).toEqual([D, E, B]);
+    expect(defaultSelectionIndex(shown, current, "")).toBe(2);
   });
 });

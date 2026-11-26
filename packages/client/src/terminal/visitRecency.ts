@@ -1,9 +1,16 @@
 /** Client-side visit MRU — "which terminal did the USER just activate?"
  *
- *  A visit is only recorded when a terminal becomes the **active tile**.
- *  Server activity clocks (agent output, etc.) do not count. The store holds
- *  host+terminal keys and timestamps only; labels are joined live from the
- *  fleet index so nothing denormalizes.
+ *  A visit is recorded when a terminal becomes the **active tile** — every
+ *  landing that moves the selection: a gesture (canvas, dock, palette,
+ *  Ctrl+Tab), the boot pick a cold boot lands on, and the survivor the focus
+ *  derivation hands the slot to when the active tile exits. Server activity
+ *  clocks (agent output, etc.) do not count, and neither does a landing that
+ *  re-states the pane already focused: the active tile already holds the
+ *  newest stamp on this host, so refreshing it moves nothing's rank — while
+ *  the callers that re-land most are effect apply arms, where the write would
+ *  tear every reader of the trail. The store holds host+terminal keys and
+ *  timestamps only; labels are joined live from the fleet index so nothing
+ *  denormalizes.
  *
  *  Consumers:
  *  - ⌘K Recent ranks by max(visitedAt, serverActivityAt)
@@ -160,7 +167,7 @@ export type NoteVisitOptions = {
   dead?: readonly TerminalId[];
 };
 
-type VisitRecencyApi = {
+export type VisitRecencyApi = {
   /** The cross-host trail of GESTURES — an activation, and a close-all's
    *  clear. A kill writes nothing of its own: a dead id is dropped where the
    *  trail is READ (`hostScope/createViewState.mruOrder` narrows it to the

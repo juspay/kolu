@@ -100,11 +100,13 @@ export interface HostViewState {
    *  it must not relay into this signal (see {@link createBootPick}). */
   seedCovers: (tileId: TerminalId) => boolean;
   /** The activation SIDE EFFECTS of a seed the derivation covers — the unread
-   *  mark and the host's active-terminal report, i.e. what
-   *  {@link HostViewState.writeFocus} does besides writing the fact and the
-   *  visit. The visit is NOT one of them: the boot pick leads the derived MRU
-   *  on its own, so recording it would be a persisted write relayed out of the
-   *  hydration effect for an answer already visible. */
+   *  mark, the visit, and the host's active-terminal report, i.e. everything
+   *  {@link HostViewState.writeFocus} does besides writing the focus fact,
+   *  which the derivation already carries. The VISIT is one of them: the
+   *  derived MRU leads with the pick in session, but the trail is what the
+   *  NEXT boot reads, and a tile that was the active one with no stamp behind
+   *  it is a tile the palette's no-query Enter and the Recent band's reserved
+   *  seat cannot see. */
   noteSeededActivation: (tileId: TerminalId) => void;
   /** The tile the focus DERIVATION moved to when the census dropped `from` —
    *  the tile whose departure produced that answer — taken once. `undefined`
@@ -116,8 +118,8 @@ export interface HostViewState {
    *  `chrome.setActive` report and its unread clear to an answer about another
    *  tile. */
   takeAutoSwitch: (from: TerminalId) => TerminalId | null | undefined;
-  /** That switch's imperative half: the unread mark and the host's
-   *  active-terminal report. */
+  /** That switch's imperative half: the unread mark, the visit, and the
+   *  host's active-terminal report. */
   noteAutoSwitch: (tileId: TerminalId) => void;
 }
 
@@ -269,7 +271,8 @@ export function createViewState(
   // ranks, are answers this census already carries. Folding them here rather
   // than writing them back keeps hydration from relaying the census into a
   // persisted signal the palette, the WebGL budget and Ctrl+Tab all read —
-  // which painted one frame of every reader against the pre-seed trail.
+  // which made every one of those readers run torn, against the pre-seed
+  // trail.
   const mruOrder = createMemo(
     () => {
       const live = tileIds();
@@ -280,10 +283,11 @@ export function createViewState(
       // the order a seeded-then-reconciled trail gave them.
       const order = [...visited, ...live.filter((id) => !seen.has(id))];
       // The ACTIVE tile leads: it is by definition the most recently activated
-      // one, and it is where the boot pick's and the auto-switch's `noteVisit`
-      // used to be written from an effect's apply arm. A gesture's own visit
-      // already puts its tile at the head of the trail, so this only ever
-      // hoists a tile the derivation chose.
+      // one. A gesture's own visit already puts its tile at the head of the
+      // trail, so this only ever hoists a tile the DERIVATION chose — the boot
+      // pick before hydration's actor records it, and an auto-switch whose
+      // imperative half no eviction has taken yet (a host you are not
+      // viewing). It is the in-flush answer; the trail catches up.
       const pick = activeId();
       if (pick === null || !liveSet.has(pick) || order[0] === pick)
         return order;
@@ -356,10 +360,9 @@ export function createViewState(
   }
 
   /** The half a SEEDED activation shares with a gesture: the host's record of
-   *  which tile is active. Split out because the seed's other half — the visit
-   *  — is derivable (the boot pick leads `mruOrder` while nothing has
-   *  overridden it), and writing it from the hydration effect is the relay
-   *  this factory exists not to perform. */
+   *  which tile is active. Split out from {@link noteActivation} because the
+   *  focus FACT is not written on these paths — the derivation already carries
+   *  it — while the report and the visit still are. */
   function reportActive(tileId: TerminalId): void {
     // Report the active terminal to THIS owner's host for its session snapshot.
     // `writeFocus` only ever runs for the shown host (you focus a terminal on the
@@ -404,16 +407,25 @@ export function createViewState(
     return taken.target;
   }
 
-  /** That switch's imperative half. The visit is NOT among them: the derived
-   *  MRU already leads with the active tile, so the trail needs no write. */
+  /** That switch's imperative half: the unread mark, plus everything an
+   *  activation does — because a tile the derivation hands the slot to IS the
+   *  active tile, and the trail's contract is that becoming the active tile
+   *  records a visit. In session the derived MRU would lead with it anyway;
+   *  across a reload the stamp is the only memory of where you were, which is
+   *  what the palette's no-query Enter and the Recent band's reserved seat
+   *  rank by. */
   function noteAutoSwitch(tileId: TerminalId): void {
     attention.clearUnread(tileId);
-    reportActive(tileId);
+    noteActivation(tileId);
   }
 
+  /** The same for the boot pick the derivation covers: the mark, the visit and
+   *  the host's report. The visit is what gives a cold-booted tile a stamp to
+   *  come back to on the NEXT boot — the trail is this browser's memory of
+   *  where it has been, not of this session's gestures only. */
   function noteSeededActivation(tileId: TerminalId): void {
     attention.clearUnread(tileId);
-    reportActive(tileId);
+    noteActivation(tileId);
   }
 
   function reset(): void {

@@ -289,20 +289,26 @@ describe("the first active tile on a cold boot", () => {
     });
 
     flush();
-    // The seeded shape shows up as ["…", null, B]: the consumer paints once
+    // The seeded shape shows up as ["…", null, B]: the consumer runs once
     // with no active tile, then the effect's write relays the census into it.
     expect(seen).toEqual([B]);
-    // And it settles there — no second frame behind the first.
+    // And it settles there — no second value behind the first.
     flush();
     expect(seen).toEqual([B]);
     expect(planSetActiveSilently).not.toHaveBeenCalled();
 
-    // The activation's SIDE effect that is not derivable still happens once:
-    // the host hears which tile is active. The visit trail is NOT one of them
-    // — the derived MRU already leads with the pick, so a cold boot writes
-    // nothing to the durable trail.
+    // The activation's SIDE effects, which are not derivable, happen ONCE
+    // each: the host hears which tile is active, and the trail records the
+    // tile this boot landed on. The in-session MRU would lead with the pick
+    // either way; the stamp is for the NEXT boot, where it is the only
+    // memory of where this browser was — what the palette's no-query Enter
+    // and the Recent band's reserved seat rank by.
     expect(spy.setActive.mock.calls).toEqual([[B]]);
-    expect(localStorage.getItem("kolu-visit-recency")).toBeNull();
+    expect(
+      JSON.parse(localStorage.getItem("kolu-visit-recency") ?? "[]"),
+    ).toEqual([
+      { hostKey: "local", terminalId: B, visitedAt: expect.any(Number) },
+    ]);
     expect(activeScope()?.view.mruOrder()).toEqual([B, A]);
 
     dispose();
