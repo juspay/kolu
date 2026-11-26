@@ -23,6 +23,14 @@
  * process table, a document set) gains the whole gap. Each block below is one such
  * shape, and vitest prints the two arms' relative speed within it.
  *
+ * RUNS AGAINST SOLID'S PRODUCTION TIER, in its own `bench` vitest project
+ * (`packages/surface/vitest.config.ts`) — production builds, no
+ * `@kolu/solid-test-setup` and so no attribution engine. That is the tier that
+ * ships, and it is the only one this is measurable in: the dev tier with the
+ * engine installed retains a change record, a `WeakRef` and a cost-fold entry
+ * per committed write, so the tens of millions of writes below run out of
+ * memory while measuring bookkeeping no user pays for.
+ *
  * Run: `just bench-collection-deltas`.
  */
 

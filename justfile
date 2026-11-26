@@ -841,6 +841,11 @@ smoke:
 # What a `deltas` frame costs the client, before vs after the store rewrite
 # (juspay/kolu surface deltas frame). Prints the two arms per collection shape and
 # their relative speed — READ THE RATIO, not the absolute number.
+#
+# Runs in the `bench` vitest project, which resolves Solid's PRODUCTION tier —
+# what ships. The test projects' DEV tier carries the attribution engine
+# (`@kolu/solid-test-setup`), which retains a record per committed write: not
+# what any user pays for, and an out-of-memory at this bench's write volume.
 bench-collection-deltas: install
     cd packages/surface && {{ nix_shell }} pnpm exec vitest bench --run src/solid/collectionDeltas.bench.ts
 

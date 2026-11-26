@@ -7,6 +7,18 @@ import { defineConfig } from "vitest/config";
 // project by existing. Every other test runs in the Node project.
 const DOM_TESTS = ["src/solid/**/*.test.{ts,tsx}"];
 
+// The bench project resolves Solid's PRODUCTION tier, which is what ships.
+// `solid({ dev: false })` alone does not get there under vitest: the plugin's
+// `forceProduction` is gated on `!isTestMode`
+// (`@solidjs/vite-plugin/dist/esm/index.mjs:4511`), so the `development|production`
+// placeholder Vite carries in its default conditions would still resolve to
+// `development` (vite `dist/node/chunks/node.js:29556`, since a test run is not
+// `isProduction`). Naming the conditions ourselves removes the placeholder: the
+// plugin only fills conditions in when they are `null` (`:4618-4620`) and
+// otherwise appends ours verbatim (`:4628`).
+const PROD_CLIENT_CONDITIONS = ["module", "browser", "production"];
+const PROD_SERVER_CONDITIONS = ["module", "node", "production"];
+
 export default defineConfig({
   // The Solid JSX transform — so the `.test.tsx` render harness (`SurfaceGate`)
   // compiles its JSX to real DOM. Harmless for the `.test.ts` files (no JSX).
@@ -22,9 +34,10 @@ export default defineConfig({
     // Scrub the production daemon-locator env in every worker so a test can
     // never reach a live daemon (#1334 adversary path). See @kolu/daemon-test-gate.
     setupFiles: ["@kolu/daemon-test-gate/setup"],
-    // Two projects, both inheriting this config: Solid code runs under a DOM
-    // (`happy-dom`, as in the client), the transport/server/reactor tests run in
-    // plain Node.
+    // Two test projects, both inheriting this config: Solid code runs under a
+    // DOM (`happy-dom`, as in the client), the transport/server/reactor tests
+    // run in plain Node. A third project, `bench`, inherits nothing and runs the
+    // benches against Solid's production tier.
     projects: [
       {
         extends: true,
@@ -35,6 +48,11 @@ export default defineConfig({
           // Joins the root `setupFiles` (`extends` concatenates the arrays):
           // fails a test on any Solid dev diagnostic (`@kolu/solid-test-setup`).
           setupFiles: ["@kolu/solid-test-setup/setup"],
+          // The benches belong to the `bench` project below, not to a variant
+          // derived from this one: under `vitest bench` vitest expands a
+          // `<name> (bench)` project out of EVERY project, inheriting its
+          // environment and setup files.
+          benchmark: { include: [] },
         },
       },
       {
@@ -44,6 +62,34 @@ export default defineConfig({
           environment: "node",
           include: ["src/**/*.test.{ts,tsx}"],
           exclude: DOM_TESTS,
+          benchmark: { include: [] },
+        },
+      },
+      {
+        // `extends: false`: since vitest 5 an inline project inherits the
+        // declaring config by default, and the bench must NOT inherit the root
+        // `solid()` dev posture or the dom setup. It measures what SHIPS —
+        // Solid's production builds, with no attribution engine — because the
+        // dev tier under `@kolu/solid-test-setup/setup` retains a change record,
+        // a `WeakRef` and a cost-fold entry per committed write, which no user
+        // ever pays for and which a multi-million-write bench cannot hold in
+        // memory.
+        extends: false,
+        plugins: [solid({ dev: false })],
+        environments: {
+          client: { resolve: { conditions: PROD_CLIENT_CONDITIONS } },
+          ssr: { resolve: { conditions: PROD_SERVER_CONDITIONS } },
+        },
+        test: {
+          name: "bench",
+          environment: "happy-dom",
+          // The daemon gate only — NOT `@kolu/solid-test-setup/setup`, which
+          // enables the attribution engine and throws outright when Solid
+          // resolved to production.
+          setupFiles: ["@kolu/daemon-test-gate/setup"],
+          include: [],
+          benchmark: { include: ["src/solid/**/*.bench.ts"] },
+          server: { deps: { inline: [...SOLID_INLINE_DEPS_SCHEDULED] } },
         },
       },
     ],
