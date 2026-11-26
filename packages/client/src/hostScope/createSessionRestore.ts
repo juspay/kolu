@@ -42,12 +42,36 @@
  *  `decided → seeded` trip — the same span the phase names. Without it the seed
  *  fell back to the saved-session cell, whose post-restore snapshot publishes
  *  behind a synchronous disk write and so routinely arrives AFTER the terminals
- *  it describes. */
+ *  it describes.
+ *
+ *  ── The restore WINDOW ───────────────────────────────────────────────────
+ *  One member here IS reactive, deliberately: {@link HostRestoreLatch.restoreInFlight}
+ *  — true from the click that issues `session.restore` until the seed for that
+ *  restore has run (or the restore failed / its answer expired). It is not a
+ *  gate for this hook's effect (the phase is); it is read by the DERIVED boot
+ *  pick (`createBootPick`), which must answer `null` for the whole window. The
+ *  host re-spawns each parked row under its own id, so mid-restore the census
+ *  shows a live set the marker's row is missing from, and a pick taken then
+ *  names the wrong tile — the camera latches on it, and focus and `isWatched`
+ *  follow it. Reactive because the pick is a memo: it must re-answer on the
+ *  window's edges. */
+import { createSignal } from "solid-js";
+
 export type HydrationPhase = "pending" | "decided" | "seeded";
 
 export interface HostRestoreLatch {
   /** The current phase — a NON-reactive gate the hydration effect reads. */
   readonly phase: HydrationPhase;
+  /** Is a restore this client issued still between its click and its view seed?
+   *  A REACTIVE read, unlike `phase` and `restoredActive` — the derived boot pick
+   *  subscribes to it and answers `null` while it is true. */
+  readonly restoreInFlight: () => boolean;
+  /** Open the restore window (the click that issues `session.restore`). */
+  beginRestore(): void;
+  /** Close it without a seed: the restore failed, was interrupted, or its answer
+   *  never arrived. `markSeeded` and `expireRestoredActive` close it too, so the
+   *  window can never outlive the trip it names. */
+  endRestore(): void;
   /** `pending → decided`: the empty-vs-restore decision has run. Idempotent — a
    *  no-op once past `pending`, so it can never regress a `seeded` host. */
   markDecided(): void;
@@ -89,12 +113,26 @@ export interface HostRestoreLatch {
 export function createSessionRestore(): HostRestoreLatch {
   let phase: HydrationPhase = "pending";
   let restoredActive: { readonly id: string | null } | null = null;
+  // `ownedWrite`: the window's edges are written from exactly the places the
+  // phase is marked — the restore action and the hydration EFFECT's callback
+  // (`markSeeded`) — and an effect callback is an owned scope. The write stages
+  // to the flush either way; the option says the site is intended.
+  const [restoreInFlight, setRestoreInFlight] = createSignal(false, {
+    ownedWrite: true,
+  });
   return {
     get phase() {
       return phase;
     },
     get restoredActive() {
       return restoredActive;
+    },
+    restoreInFlight,
+    beginRestore() {
+      setRestoreInFlight(true);
+    },
+    endRestore() {
+      setRestoreInFlight(false);
     },
     markDecided() {
       if (phase === "pending") phase = "decided";
@@ -105,6 +143,8 @@ export function createSessionRestore(): HostRestoreLatch {
         // The answer has been spent on THIS seed.
         restoredActive = null;
       }
+      // The seed this restore was waiting for has run: the pick may answer again.
+      setRestoreInFlight(false);
     },
     reseedForRestore() {
       if (phase === "seeded") phase = "decided";
@@ -114,6 +154,8 @@ export function createSessionRestore(): HostRestoreLatch {
     },
     expireRestoredActive() {
       restoredActive = null;
+      // Nothing will seed from this answer, so the window ends here instead.
+      setRestoreInFlight(false);
     },
   };
 }

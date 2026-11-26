@@ -29,7 +29,26 @@
  *  What this memo CANNOT see is the answer `session.restore` gives for an
  *  in-session restore: that fact is parked non-reactively on the host's restore
  *  latch. Hydration covers it — a pick the derivation does not already show is
- *  written through the ordinary focus path (`createViewState.seedCovers`). */
+ *  written through the ordinary focus path (`createViewState.seedCovers`).
+ *
+ *  TWO things keep it the answer hydration would have seeded, and not merely a
+ *  function of whatever the census says this instant:
+ *   - it is answered ONCE. The first honest pick is kept for the owner's life —
+ *     "the tile this host's cold boot landed on" is a fact about one moment, not
+ *     a running projection. Without that, the pick re-points when the booted tile
+ *     EXITS, so `planEviction`'s `ports.activeId() === id` (`terminal/useActiveReconcile`)
+ *     reads the survivor instead of the departing tile and the auto-switch — the
+ *     pan, `chrome.setActive`, the visit — never fires. Master's focus held
+ *     `{id: dead, tileHint: dead}` there. It also stops the memo tracking the
+ *     deep-link intent, which hydration deliberately samples untracked.
+ *   - it answers `null` for the whole RESTORE WINDOW (`latch.restoreInFlight`).
+ *     A restore re-spawns each parked row under its own id, so in a flush where
+ *     the marker's row has not come back and the rest are live, the census alone
+ *     would answer `topIds[0]` — and being answered once, that wrong tile would
+ *     then be the pick for good: the camera centres on it (`TerminalCanvas`
+ *     re-centres only while `activeId()` is null), and focus and the attention
+ *     record follow it. Master held focus `null` across that window. The two
+ *     belong together: either alone is wrong. */
 
 import { tileTerminalOf } from "@kolu/padi-client/surface";
 import type { TerminalId } from "kolu-common/surface";
@@ -38,8 +57,17 @@ import { deepLinkFocusIntent } from "../deepLinkFocusIntent";
 import { containingTileOf, type ParentEdge } from "../terminal/terminalTree";
 import type { HostWire } from "./createHostWire";
 
-export function createBootPick(wire: HostWire): Accessor<TerminalId | null> {
-  return createMemo<TerminalId | null>(() => {
+export function createBootPick(
+  wire: HostWire,
+  /** This host's restore window — see {@link HostRestoreLatch.restoreInFlight}. */
+  restoreInFlight: Accessor<boolean>,
+): Accessor<TerminalId | null> {
+  return createMemo<TerminalId | null>((previous) => {
+    // Answered once: a later census cannot move the tile this boot landed on.
+    if (previous != null) return previous;
+    // A restore this client issued is mid-flight: the census is half re-spawned
+    // and no pick taken from it is honest.
+    if (restoreInFlight()) return null;
     const keys = wire.terminalKeys();
     if (keys === undefined || keys.length === 0) return null;
     // The census, in the server's Map insertion order — the canonical ordering

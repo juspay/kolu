@@ -69,11 +69,21 @@ const scopes: () => ScopedByEntry<HostKey, HostScope> = createSharedRoot(() =>
       // so the BOOT PICK, a memo over that same retained census, is the answer
       // the focus fact falls back to instead of a value an effect seeds into it.
       const wire = createHostWire(host);
+      // …and the restore LATCH before the pick, because the pick is `null` for
+      // the whole window a restore-from-card is in flight (`restoreInFlight`):
+      // mid-restore the census is half re-spawned, and a pick taken from it —
+      // answered once, and then the tile the camera and focus follow — would be
+      // the wrong one for the rest of the session.
+      const restore = createSessionRestore();
       return {
-        view: createViewState(host, wire.placementOf, createBootPick(wire)),
+        view: createViewState(
+          host,
+          wire.placementOf,
+          createBootPick(wire, restore.restoreInFlight),
+        ),
         prefs: createHostPrefs(host),
         camera: createCamera(),
-        restore: createSessionRestore(),
+        restore,
         // SR11: `createHostWire` no longer needs `ctx.isActive` — the retained subs'
         // active-toasts / background-logs split now lives in `interpretClientError`'s
         // `scopedSub` arm (grounded enc-compare), so the wire owner opens them bare.

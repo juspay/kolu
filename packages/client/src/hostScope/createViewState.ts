@@ -35,7 +35,13 @@ import { toError } from "@kolu/surface/run-stream";
 import { Effect } from "effect";
 import { encodeHostKey, type HostKey } from "kolu-common/hostKey";
 import type { TerminalId } from "kolu-common/surface";
-import { type Accessor, createMemo, createSignal, type Setter } from "solid-js";
+import {
+  type Accessor,
+  createMemo,
+  createSignal,
+  type Setter,
+  untrack,
+} from "solid-js";
 import { createKeySelector } from "../createKeySelector";
 import { attentionRecordOf } from "../attention/savedAttention";
 import { perHostBoolPref } from "../persistedPref";
@@ -160,7 +166,13 @@ export function createViewState(
     // is the attention engine's episode-end edge. Both clear it on the host's
     // record, so a reload does not bring it back.
     if (next) attention.clearUnread(next.id);
-    const tileId = activeTileOf(next, placementOf);
+    // SAMPLED: which tile this pane belongs to, read to drive the activation's
+    // side effects. `writeFocus` is a WRITE verb — a gesture, or the hydration
+    // seed's landing, which runs in an effect CALLBACK, a strict-read window —
+    // so this lookup must never subscribe anything to the host's terminal
+    // collection. The tracked fold lives in `activeId` above, which is where a
+    // placement change is supposed to re-answer.
+    const tileId = untrack(() => activeTileOf(next, placementOf));
     if (tileId === null) return;
     noteActivation(tileId);
   }

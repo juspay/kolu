@@ -421,6 +421,14 @@ export function useSessionRestore(deps: { store: TerminalStore }) {
       // the canvas replaces the empty state as the restored terminals arrive; on
       // failure the cell is untouched and the card is still there to retry.
       setIsRestoring(true);
+      // The ACTIVE host's latch, captured BEFORE anything else so a mid-flight
+      // host switch cannot misfile this restore's facts onto another host.
+      const latch = activeScope()?.restore;
+      // Open the restore WINDOW on it: the derived boot pick answers `null` until
+      // the seed for THIS restore runs. Without it the pick reads a half
+      // re-spawned census and names a tile the restore is about to replace — and
+      // the pick is answered once, so that tile would stay the active one.
+      latch?.beginRestore();
       // Re-arm the VIEW-STATE seed for THIS restore, on the ACTIVE host's latch. It
       // latches true on the first live load so a reconnect doesn't re-pan/re-seed the
       // canvas — but an in-session restore (the `recycleKaval` recycle→restore, no
@@ -433,7 +441,6 @@ export function useSessionRestore(deps: { store: TerminalStore }) {
       // restored parent's active sub-tab is never set and its split comes back
       // HIDDEN. Clearing it here lets the effect re-seed once the restored terminals
       // arrive; it re-latches true after seeding, so a later reconnect is a no-op.
-      const latch = activeScope()?.restore;
       // Re-arm: this runs from the restore card (already past the decision), so drop
       // back to `decided` via the NAMED transition — the next hydration effect
       // re-seeds the view. (A named `reseedForRestore()` rather than an out-of-band
@@ -447,6 +454,7 @@ export function useSessionRestore(deps: { store: TerminalStore }) {
       // report loudly, never a state this card offers a retry for.
       if (session.resumableIds === undefined) {
         setIsRestoring(false);
+        latch?.endRestore();
         return Effect.die(
           new Error(
             "Saved session missing host-stamped resumableIds — padi must stamp membership on every serve",
@@ -515,7 +523,20 @@ export function useSessionRestore(deps: { store: TerminalStore }) {
               toast.error(`Restore failed: ${toError(err).message}`, { id });
             }),
           ),
-          Effect.ensuring(Effect.sync(() => setIsRestoring(false))),
+          Effect.ensuring(
+            Effect.sync(() => {
+              setIsRestoring(false);
+              // The restore WINDOW ends here only when nothing will seed from it:
+              // a failure, a defect or an interrupt leaves no answer on the latch,
+              // so the pick must be allowed to answer from the census again. A
+              // SUCCESS has pinned `restoredActive`, and the window it opened is
+              // closed by the seed that spends that answer (`markSeeded`) or by the
+              // deadline that expires it — the restored terminals have not arrived
+              // yet at this point, so releasing the pick here is exactly the
+              // half-re-spawned census the window exists for.
+              if (latch?.restoredActive == null) latch?.endRestore();
+            }),
+          ),
         );
     });
   }
