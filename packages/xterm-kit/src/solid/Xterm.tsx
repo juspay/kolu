@@ -591,11 +591,15 @@ export const Xterm: Component<
       // frame) with no effect origin, so the posture and the measurement reach
       // the consumer together.
       //
-      // UNOWNED: under an owner — which an apply arm has — `onSettled` is a
-      // tracked effect created and run right there, carrying the arm's own
-      // frame (the relay) and growing a child per box change. The callback
-      // writes one signal and returns nothing: no children, no cleanup, which
-      // `onSettled` forbids unowned.
+      // UNOWNED, and said so explicitly: an apply arm has no owner of its own
+      // (`getOwner()` is `null` there — the queue drains effect callbacks
+      // outside any owner), so this keeps the settle unowned however this
+      // component is mounted. Under an owner `onSettled` is instead a tracked
+      // effect created and run right there, carrying that scope's frame (the
+      // relay) and growing a child per box change. The callback is a block
+      // that writes one signal and answers with nothing: an unowned settle has
+      // no lifecycle to attach a cleanup to, and a returned value throws
+      // `SETTLED_CLEANUP_UNOWNED` from the drain.
       runWithOwner(null, () =>
         onSettled(() => {
           setWantedGrid(next);

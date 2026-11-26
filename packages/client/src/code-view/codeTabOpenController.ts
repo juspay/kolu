@@ -212,12 +212,17 @@ export function createCodeTabOpenController<Paths, Resolved>(
    *  opens a frame of its own exactly as a click's does, inside the same
    *  flush, so the selection and its highlight still paint together.
    *
-   *  UNOWNED, as `createViewState.noteActivation` is: an owner would make
-   *  `onSettled` a tracked effect created and run right there, carrying the
-   *  arm's own frame and binding a child per open. With no owner it enqueues,
-   *  which is the deferral. The callbacks write plain signals and stores and
-   *  raise toasts; they create no children and register no cleanup, which
-   *  `onSettled` forbids. */
+   *  UNOWNED, as `createViewState.noteActivation` is. An apply arm carries no
+   *  owner of its own — `getOwner()` is `null` there, because the queue drains
+   *  effect callbacks outside any owner — so this `runWithOwner(null, …)` is
+   *  what makes the deferral independent of the CALLER: reached from an owned
+   *  scope, `onSettled` would become a tracked effect created and run right
+   *  there, carrying that scope's frame and binding a child per open. With no
+   *  owner it enqueues, which is the deferral.
+   *
+   *  The callbacks write plain signals and stores and raise toasts; they
+   *  create no children and register no cleanup, which `onSettled` forbids
+   *  unowned. */
   const complete = (request: OpenInCodeTabRequest, apply: () => void): void => {
     stopRefreshing();
     attempt = { kind: "complete", request };
