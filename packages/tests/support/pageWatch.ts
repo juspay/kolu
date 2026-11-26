@@ -25,12 +25,13 @@ import type { SolidDevCheck } from "./solidDevBuild.ts";
 
 /** The part of Playwright's `Page` this watcher uses: its URL, and the two
  *  events a document reports through. Structural, so a test can drive the
- *  wiring with a stub. */
+ *  wiring with a stub. A thrown error carries `stack` when the page's own
+ *  frames are known — the message alone names nothing. */
 export interface WatchedPage {
   url(): string;
   on(
     event: "pageerror",
-    handler: (error: { message: string }) => void,
+    handler: (error: { message: string; stack?: string }) => void,
   ): unknown;
   on(event: "console", handler: (message: { text(): string }) => void): unknown;
 }
@@ -77,8 +78,10 @@ export function watchContextPages(options: {
   const { context, scenarioPage, check, reports } = options;
   const watch = (opened: WatchedPage) => {
     const where = () => (opened === scenarioPage() ? "" : `${opened.url()}: `);
+    // The stack already opens with `Name: message`, so it carries the message
+    // too; a browser that reports none leaves the message as the entry.
     opened.on("pageerror", (error) =>
-      reports.errors.push(where() + error.message),
+      reports.errors.push(where() + (error.stack ?? error.message)),
     );
     if (!check) return;
     opened.on("console", (message) => {

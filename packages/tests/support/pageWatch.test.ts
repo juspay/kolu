@@ -18,8 +18,8 @@ class StubPage extends EventEmitter {
   url(): string {
     return this.href;
   }
-  throws(message: string): void {
-    this.emit("pageerror", { message });
+  throws(message: string, stack?: string): void {
+    this.emit("pageerror", { message, stack });
   }
   says(text: string): void {
     this.emit("console", { text: () => text });
@@ -142,4 +142,29 @@ test("a page the context already holds is watched once", () => {
 
   assert.deepEqual(reports.errors, ["boom"]);
   assert.deepEqual(reports.diagnostics, ["[REACTIVITY_HALTED] Update ignored"]);
+});
+
+test("a thrown error's stack is the entry, naming the frame", () => {
+  // Playwright hands the After hook an Error: its `stack` opens with
+  // `Name: message` and then the page's own frames, which is the only thing
+  // that says WHERE a dependency threw.
+  const { context, reports, setScenarioPage } = harness();
+  const page = new StubPage("http://localhost:1234/");
+  context.emit("page", page);
+  setScenarioPage(page);
+
+  page.throws(
+    "Cannot read properties of null (reading 'appendChild')",
+    [
+      "TypeError: Cannot read properties of null (reading 'appendChild')",
+      "    at mount (http://localhost:1234/assets/preview.js:12:7)",
+    ].join("\n"),
+  );
+
+  assert.deepEqual(reports.errors, [
+    [
+      "TypeError: Cannot read properties of null (reading 'appendChild')",
+      "    at mount (http://localhost:1234/assets/preview.js:12:7)",
+    ].join("\n"),
+  ]);
 });
