@@ -1,5 +1,11 @@
 import { Effect } from "effect";
-import { createEffect, createMemo, createRoot, flush } from "solid-js";
+import {
+  createEffect,
+  createMemo,
+  createRoot,
+  createSignal,
+  flush,
+} from "solid-js";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 // useRightPanel reads `preferences()` and writes via `updatePreferences` from
@@ -409,6 +415,88 @@ describe("useRightPanel — the panel follows the focused pane", () => {
       );
       dispose();
     });
+  });
+
+  // THE PROPERTY, through the real writer. Codetab-B asserted one panel
+  // application per selection write over its OWN root (a hand-driven
+  // `perTerminal.selectedFileByMode` store), which says nothing about this
+  // module's writer: the write here goes through the place mirror, `writeFrom`
+  // and a detached store setter, from the phase the open controller calls it in
+  // (`CodeTab`'s `finishOpenRequest` / `onResolved`). Five writes deep, because
+  // a relay tear only escalates to `warn` on the third sighting.
+  it("one panel application per selection write made from an effect's apply arm", () => {
+    const tile = "fp-panel-tile" as TerminalId;
+    h.activeId = tile;
+    const rp = useRightPanel();
+    // The OTHER mode's standing pick, so a write that replaced the whole map
+    // would have someone to wake — and a gesture pick in the mode under test,
+    // which is the view's own first writer.
+    rp.code.setSelectedFile("local", "ledger.rs");
+    rp.code.setSelectedFile("browse", "seed.ts");
+    flush();
+    const applied: string[] = [];
+    let localRuns = 0;
+    let seededLocalRuns = 0;
+    // The driving signal lives OUTSIDE the root: a plain signal write inside an
+    // owned scope is `REACTIVE_WRITE_IN_OWNED_SCOPE`. The selection write is not
+    // — `writeFrom` runs its store setter detached, which is the point.
+    const [pick, setPick] = createSignal("f0.ts");
+    let dispose!: () => void;
+    createRoot((d) => {
+      dispose = d;
+      // The panel the Code tab writes: the shown pick and the other mode's,
+      // minted by ONE compute and applied once per frame.
+      const panel = createMemo(
+        () =>
+          `${rp.code.selectedFile("browse") ?? "-"}|${
+            rp.code.selectedFile("local") ?? "-"
+          }`,
+      );
+      createEffect(
+        panel,
+        (v) => {
+          applied.push(v);
+        },
+        { name: "recordPanelApply" },
+      );
+      // A reader of the OTHER mode's leaf alone.
+      const localFile = createMemo(() => {
+        localRuns += 1;
+        return rp.code.selectedFile("local");
+      });
+      createEffect(localFile, () => {}, { name: "readLocalLeaf" });
+      flush();
+      seededLocalRuns = localRuns;
+
+      // The real caller's phase: the open controller RESOLVES a ref and lands
+      // the selection from its effect's apply arm.
+      createEffect(
+        pick,
+        (p) => {
+          rp.code.setSelectedFile("browse", `src/${p}`);
+        },
+        { name: "rightPanelArmSelectionWrites" },
+      );
+    });
+    flush();
+    for (const p of ["f1.ts", "f2.ts", "f3.ts", "f4.ts"]) {
+      setPick(p);
+      flush();
+    }
+
+    // One application per selection write, each carrying that write's own
+    // pick — never one frame pairing the new pick with the previous answer.
+    expect(applied).toEqual([
+      "seed.ts|ledger.rs",
+      "src/f0.ts|ledger.rs",
+      "src/f1.ts|ledger.rs",
+      "src/f2.ts|ledger.rs",
+      "src/f3.ts|ledger.rs",
+      "src/f4.ts|ledger.rs",
+    ]);
+    // …and the other mode's leaf was never touched by any of them.
+    expect(localRuns).toBe(seededLocalRuns);
+    dispose();
   });
 
   // Absence is the only spelling of "no selection": the wire's `optionalKey`

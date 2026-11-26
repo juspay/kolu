@@ -226,11 +226,15 @@ interface PlaceMirror {
  *  `CodeViewState` consult instead of the store.
  *
  *  `setSelectedFile` and `recordNavigation` are called from the Code view's
- *  EFFECT PHASE (the inventory-membership clear, and the landing of a
- *  front-door open), where reading a signal, a store property or a memo is
- *  STRICT_READ_UNTRACKED. Both need the same two facts — which pane is focused,
- *  and what its record says — so ONE mirror serves both, and the write path
- *  below takes its merge base from the caller rather than reading it.
+ *  EFFECT PHASE, where reading a signal, a store property or a memo is
+ *  STRICT_READ_UNTRACKED. Those callers are still there: the open controller's
+ *  effect lands a resolved ref through `finishOpenRequest` / `onResolved`
+ *  (`code-view/CodeTab.tsx`), which calls the view's one `select(…)` funnel.
+ *  (The inventory-membership clear is gone — the shown file is derived now —
+ *  but it was never the only one.) Both verbs need the same two facts — which
+ *  pane is focused, and what its record says — so ONE mirror serves both, and
+ *  the write path below takes its merge base from the caller rather than
+ *  reading it.
  *
  *  Kept in step from two sides: one app-lifetime computation that does the
  *  reactive reads (a focus move, a restored record, a write made elsewhere all

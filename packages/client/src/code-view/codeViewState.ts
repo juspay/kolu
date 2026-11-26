@@ -164,7 +164,15 @@ export type SelectedFiles = NonNullable<
  *
  *  The rebuilt map is the DECISION, not necessarily the write: a home whose
  *  record lives in a store writes the one leaf it names, and reads this result
- *  only to tell "unchanged" from "the last selection went away" (`undefined`). */
+ *  only to tell "unchanged" from "the last selection went away" (`undefined`).
+ *
+ *  ONE DIRECTION. The snapshot flows in, the decision flows out, and the
+ *  home's write callback is read DOWNSTREAM of it — snapshot → decision →
+ *  the one leaf written → the home folding the produced record back into its
+ *  own plain copy. Nothing reads this result back into `files`: the next
+ *  decision's base is that copy, never this map and never the store. A home
+ *  that fed its own output back in would be building a cycle, which 2.0.4
+ *  does not report — it crashes. */
 export function selectionWith(
   files: SelectedFiles | undefined,
   mode: CodeTabView,
@@ -196,8 +204,8 @@ export interface CodeViewState {
   readonly selectedFile: (mode: CodeTabView) => string | null;
   /** Select `path` in `mode`; `null` drops the mode's selection.
    *
-   *  Called from the EFFECT PHASE as well as from clicks — a view clears a
-   *  selection its tree no longer holds, and lands a front-door open, there.
+   *  Called from the EFFECT PHASE as well as from clicks — a view lands a
+   *  front-door open there, through the open controller's `onResolved`.
    *  So it may only WRITE: a read of a signal or a store property inside it
    *  is STRICT_READ_UNTRACKED. A home that needs its current record to build
    *  the next one keeps that record in a plain field it updates as it writes,
