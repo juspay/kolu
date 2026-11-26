@@ -319,11 +319,13 @@ const TerminalCanvas: Component<{
   );
 
   // The create-time size is armed for ONE create, so exactly one tile claims
-  // it: the first new tile of the pass, in `props.tileIds` order. The arm
-  // happens before the create's own id exists (`useTerminalCrud.ts:299-301`),
-  // so the slot names no tile; any other tile appearing in the same pass
-  // (another client's create landing in the same push, a restore) is not what
-  // the user sized from, and takes the plain default.
+  // it: the first tile of the pass that needs a FRESH default, in
+  // `props.tileIds` order — a tile already holding an earlier default never
+  // asks. The arm happens before the create's own id exists
+  // (`useTerminalCrud.ts:299-301`), so the slot names no tile; any other tile
+  // appearing in the same pass (another client's create landing in the same
+  // push, a restore) is not what the user sized from, and takes the plain
+  // default.
   function sizeForNewTile(id: TileId): { w: number; h: number } {
     const inherited = pendingLayouts.claimNextDefaultSize(id);
     return {
@@ -337,11 +339,13 @@ const TerminalCanvas: Component<{
   // which nothing renders, and the derived default stands either way until the
   // echo replaces it. Dead ids are dropped with their pending entries above.
   //
-  // A tile LEAVING the map is also recorded: it left because its own layout
-  // landed, so the next time placement derives a default for it — its layout
-  // was withdrawn and it is a new tile again — that fresh position must be
-  // PERSISTED too, not just painted locally. Hence the compute runs (and
-  // returns work) even when there is nothing to write.
+  // A tile LEAVING the map is also recorded. It leaves for three reasons: its
+  // own layout landed, a standing pending gesture now covers it, or its
+  // metadata record went missing and placement DEFERS
+  // (`tilePlacementPlan.ts:45`). So the next time placement derives a default
+  // for it — its layout was withdrawn and it is a new tile again — that fresh
+  // position must be PERSISTED too, not just painted locally. Hence the
+  // compute runs (and returns work) even when there is nothing to write.
   const persistedDefaults = new Set<TileId>();
   createEffect(
     () => {

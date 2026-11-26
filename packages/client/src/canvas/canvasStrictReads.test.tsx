@@ -19,9 +19,10 @@
  * stubs. What is still stood in is everything that is not the canvas's own
  * reactive wiring: the stores it reads (`useTileStore`, `useTerminalStore`,
  * `activeWire`'s saved-session subscription), the per-tile presentation
- * helpers (`tileContent`, `useTileTheme`, `useTileAura`, `useCanvasFocus`,
- * `useViewPosture`, `staleness`, `useShown`), and `ResizeObserver`, which
- * happy-dom does not deliver.
+ * helpers (`useTileTheme`, `useTileAura`, `useCanvasFocus`, `useViewPosture`,
+ * `staleness`, `useShown`), the tile's own chrome and body, handed in as two
+ * `() => null` render props, and `ResizeObserver`, which happy-dom does not
+ * deliver.
  */
 
 import type { TerminalId } from "kolu-common/surface";
