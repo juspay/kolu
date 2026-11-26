@@ -46,7 +46,7 @@ export function useCanvasArrange() {
    *  write seam — so the registry, not arrange, owns where layout lands. */
   function applyLayoutBatch(layouts: Map<TileId, TileLayout>) {
     if (layouts.size === 0) return;
-    pendingLayouts.applyMany(layouts);
+    pendingLayouts.applyMany(layouts, (id) => tileStore.getLayout(id));
     for (const [id, layout] of layouts) {
       const prev = tileStore.getLayout(id);
       if (!prev || !layoutsEqual(prev, layout)) {
@@ -109,7 +109,7 @@ export function useCanvasArrange() {
       w: DEFAULT_TILE_W,
       h: DEFAULT_TILE_H,
     };
-    pendingLayouts.setOne(id, layout);
+    pendingLayouts.setOne(id, layout, tileStore.getLayout(id));
     tileStore.setLayout(id, layout);
     tileStore.activateVisiblePane(id);
   }
