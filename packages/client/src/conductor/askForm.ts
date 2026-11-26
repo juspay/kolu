@@ -2,49 +2,141 @@
  *  its own, the single-answer behaviour every face shares, and THE RULE THAT
  *  TELLS AN UNTOUCHED QUESTION FROM A CLEARED ONE.
  *
- *  WHY A SEED AND A MARK. A setup question opens with what this person chose
+ *  WHY A DEFAULT AT ALL. A setup question opens with what this person chose
  *  last time on this host ({@link SetupMemory}), already selected, so that
  *  with nothing changed one press of Answer sends the whole setup. "Already
- *  selected" is not a highlight drawn over an empty draft: it IS the draft,
- *  written once, which is what makes it travel — `answers()` reads the draft
- *  and nothing has to remember a second kind of selection.
+ *  selected" has to be the ANSWER and not a highlight: `answers()` reads the
+ *  form through {@link draftOf}, so the default travels exactly as a pick
+ *  does and nothing remembers a second kind of selection.
  *
- *  Writing it once is the whole of it. A draft that merely *defaults* while
- *  empty cannot tell "nobody has touched this" from "they took the pick off
- *  on purpose", and would put the default back under their hands. So the mark
- *  ({@link seedAskDefault}) records that this question has been seeded for a
- *  given CONTEXT, and after that the draft is the person's — empty included.
+ *  IT IS READ, NOT WRITTEN. The draft holds what a person did, and nothing
+ *  else: a question with NO ENTRY is one nobody has touched, and an entry of
+ *  no values is one they cleared on purpose. That distinction is the whole
+ *  reason the default cannot be written into the draft — a write makes the
+ *  two look alike a flush later, and the writer has to carry a mark saying
+ *  which it was. Reading through the default keeps them apart for free.
  *
- *  THE CONTEXT IS WHAT THE OPTIONS ARE OF. For a model it is the harness,
- *  because a model is only ever a model of one: switching the harness in the
- *  same form does not carry the old pick across (it is not a model of the new
- *  harness), so that question seeds again, with the harness's own last model.
- *  For every other question the context is a constant and one seeding is all
- *  there ever is.
+ *  THE DEFAULT IS A DERIVATION, PUBLISHED BY THE QUESTION THAT CAN SAY IT.
+ *  What this person may answer with here is a fact about the options drawn —
+ *  and, for a model, about the harness answered beside it and what the host
+ *  says that harness offers, which only the question drawing it knows and
+ *  which changes while the form is open. So the question publishes the
+ *  derivation ({@link offerAskDefault}, for as long as it is drawn) and every
+ *  reader — the chips, the box, and the Answer button's fold — asks it. A
+ *  model question therefore follows the harness beside it in the same flush
+ *  the harness is pressed in, instead of being re-seeded one flush later.
  *
- *  The mark lives in the ask's own draft, so it is shared by the four faces
- *  exactly as the pick is — a form half-filled on the card and finished in
- *  the reader seeds once — and `forgetAskDraft` takes it with everything else
- *  when the question is answered.
+ *  The default is shared by the four faces exactly as the pick is, because
+ *  the ask id and the field are its address — a form half-filled on the card
+ *  and finished in the reader opens on the same values.
  */
 
 import { Option } from "effect";
 import type { Recalled } from "kolu-work";
-import { type Accessor, createEffect, createMemo, untrack } from "solid-js";
+import {
+  type Accessor,
+  createMemo,
+  createSignal,
+  onCleanup,
+  untrack,
+} from "solid-js";
 import { type AskOption, defaultFirst } from "./AskOptions";
-import { askDraft, dropAskFields, setAskDraft } from "./drafts";
+import { askDraftEntry, dropAskFields, setAskDraft } from "./drafts";
 
 /** The free-text half of a question, under its own key beside the decision's
  *  — `~` because a decision id is a uuid and never contains one. */
 export const typedKey = (decision: string): string => `${decision}~typed`;
 
-/** ... and the mark that says this question has already been seeded with its
- *  default, for the options it was seeded against. */
-const seededKey = (decision: string): string => `${decision}~seeded`;
+/** A QUESTION'S DEFAULT, BOXED: `createSignal`'s function form is a writable
+ *  memo, so a derivation has to be carried as a value. */
+interface Standing {
+  readonly of: () => Option.Option<Recalled>;
+  /** The publication it came from. The same ask is drawn by four faces at
+   *  once, and a question re-drawn around a new offer replaces its own
+   *  entry — the one that was replaced must not take the new one away when
+   *  it is disposed. */
+  readonly seq: number;
+}
+
+/** THE DEFAULT EACH QUESTION ON SCREEN OPENS ON, by ask and field — the
+ *  DERIVATION and not a copy of its answer, so a reader is in the same flush
+ *  as the question's own readers: calling `of()` from a memo subscribes that
+ *  memo to the options, the harness answered beside it and the host's list,
+ *  exactly as the question itself is subscribed. A relayed VALUE would put
+ *  the Answer button a flush behind the chips.
+ *
+ *  `ownedWrite`: a question publishes from its body, the way the peek window
+ *  hands up its typing derivation (`peek/usePeek.ts`). A form holds a handful
+ *  of questions, so the map is replaced whole: the moments it changes are the
+ *  moments the form itself is being built or taken down. */
+const [standings, setStandings] = createSignal<ReadonlyMap<string, Standing>>(
+  new Map(),
+  { ownedWrite: true },
+);
+
+let published = 0;
+
+/** One question's address: its form and its field. A decision id is a uuid
+ *  and an ask id a row id, so neither carries a NUL. */
+const atKey = (ask: string, field: string): string => `${ask}\u0000${field}`;
+
+/** PUBLISH THIS QUESTION'S DEFAULT for as long as it is drawn — called from
+ *  the question's own body, so the derivation arrives with the first frame
+ *  and leaves when the question does. */
+function offerAskDefault(
+  at: string,
+  standing: () => Option.Option<Recalled>,
+): void {
+  const seq = ++published;
+  setStandings((all) => new Map(all).set(at, { of: standing, seq }));
+  onCleanup(() =>
+    setStandings((all) => {
+      if (all.get(at)?.seq !== seq) return all;
+      const rest = new Map(all);
+      rest.delete(at);
+      return rest;
+    }),
+  );
+}
+
+/** The default as values of the kind asked for: a default that was PICKED is
+ *  the pick, one that was TYPED is the words in the box, and neither is the
+ *  other. None when no question is publishing one. */
+function defaultOf(
+  ask: string,
+  field: string,
+  chosen: Recalled["chosen"],
+): ReadonlyArray<string> {
+  const entry = standings().get(atKey(ask, field));
+  if (entry === undefined) return [];
+  return Option.toArray(
+    Option.map(
+      Option.filter(entry.of(), (one) => one.chosen === chosen),
+      (one) => one.value,
+    ),
+  );
+}
+
+/** WHAT A QUESTION'S PICK IS: what this person chose in this form, or — while
+ *  nobody has touched it — the default it opens on. A field they CLEARED has
+ *  an entry of no values, which is not untouched and is not defaulted. */
+export function draftOf(ask: string, field: string): ReadonlyArray<string> {
+  return askDraftEntry(ask, field) ?? defaultOf(ask, field, "picked");
+}
+
+/** ... and the words in its box, the same way: a default that was typed goes
+ *  back in the box, so it is sent as typed again. */
+export function typedDraftOf(
+  ask: string,
+  field: string,
+): ReadonlyArray<string> {
+  return askDraftEntry(ask, typedKey(field)) ?? defaultOf(ask, field, "typed");
+}
 
 /** An option pressed on a SINGLE-answer question: it keeps the one pressed
  *  last and empties the box beside it — the options and the box are two
- *  halves of one question. */
+ *  halves of one question. Both keys are written, so the question is touched
+ *  whichever half the answer ends up in. */
 export function pickOnly(ask: string, field: string, value: string): void {
   setAskDraft(ask, field, [value]);
   setAskDraft(ask, typedKey(field), []);
@@ -57,76 +149,27 @@ export function typeOnly(ask: string, field: string, text: string): void {
   if (text !== "") setAskDraft(ask, field, []);
 }
 
-/** SEED THE DEFAULT, ONCE PER CONTEXT — the write {@link seededChips} owns.
- *  `value` is what this person answered last time AND can be answered again
- *  here (an option that is drawn, or any word for a question that takes
- *  words) — none when there is no such answer, which seeds the question
- *  empty rather than leaving it to be seeded later by something stale. A
- *  default that was PICKED goes in as the pick; one that was TYPED goes back
- *  in the box, so it is sent as typed again.
+/** DEFAULT FIRST, AND THE DEFAULT ITSELF — the whole of how a question opens
+ *  on what this person chose last time, in one place because every form does
+ *  both halves or neither: the default leads the options drawn ({@link
+ *  defaultFirst}), and the same derivation is what the draft is read through
+ *  ({@link draftOf}).
  *
- *  It is called only once the options ARE known: a question seeded against a
- *  list that has not arrived would mark itself done and never offer the
- *  default.
- */
-function seedAskDefault(
-  ask: string,
-  field: string,
-  context: string,
-  value: Option.Option<Recalled>,
-  seeded: string | undefined,
-): void {
-  if (seeded === context) return;
-  const as = (chosen: Recalled["chosen"]) =>
-    Option.toArray(
-      Option.map(
-        Option.filter(value, (one) => one.chosen === chosen),
-        (one) => one.value,
-      ),
-    );
-  setAskDraft(ask, seededKey(field), [context]);
-  setAskDraft(ask, field, as("picked"));
-  setAskDraft(ask, typedKey(field), as("typed"));
-}
-
-/** DEFAULT FIRST, SEEDED ONCE — the whole of how a question opens on what
- *  this person chose last time, in one place because every form does both
- *  halves or neither: the default leads the options drawn ({@link
- *  defaultFirst}), and the same value is written into the draft once per
- *  context ({@link seedAskDefault}) so it is also selected.
- *
- *  A context of NONE is a question with no default to seed — the options
- *  have not arrived, or this question has no memory behind it — and nothing
- *  is marked, so it seeds when they do.
- */
+ *  A standing answer of NONE is a question with no default to open on — the
+ *  options have not arrived, or this question has no memory behind it — and
+ *  the question reads as untouched until somebody touches it. */
 export function seededChips(
   ask: () => string,
   field: () => string,
-  context: () => Option.Option<string>,
   options: () => ReadonlyArray<AskOption>,
   standing: () => Option.Option<Recalled>,
 ): Accessor<ReadonlyArray<AskOption>> {
-  // WHICH QUESTION THIS IS is read in the COMPUTE, with everything else the
-  // seeding needs: the callback writes the draft and reads nothing.
-  createEffect(
-    () => {
-      const at = { ask: ask(), field: field() };
-      return {
-        ...at,
-        context: context(),
-        standing: standing(),
-        // READ ONCE, not depended on: the mark is this effect's own write,
-        // and depending on it would re-run the effect on the seeding it just
-        // did.
-        seeded: untrack(() => askDraft(at.ask, seededKey(at.field))[0]),
-      };
-    },
-    ({ ask: on, field: id, context: now, standing: last, seeded }) => {
-      Option.match(now, {
-        onNone: () => {},
-        onSome: (one) => seedAskDefault(on, id, one, last, seeded),
-      });
-    },
+  // THE ADDRESS IS READ ONCE: one drawn question is one field of one form for
+  // as long as it is on screen, so the key is this component's identity
+  // rather than something to follow.
+  offerAskDefault(
+    untrack(() => atKey(ask(), field())),
+    standing,
   );
   return createMemo(
     () =>
@@ -139,19 +182,22 @@ export function seededChips(
 }
 
 /** THE QUESTIONS WHOSE DRAFT IS NO LONGER ANYBODY'S UNSENT TEXT — the ones
- *  the record TOOK. All three of a question's keys go together (its pick,
- *  its words, and the mark that says it was seeded), which is why the
- *  spelling of them lives here rather than at the form that sends.
+ *  the record TOOK, and the model question whose harness has just changed
+ *  under it. Both of a question's keys go together (its pick and its words),
+ *  which is why the spelling of them lives here rather than at the form that
+ *  sends.
  *
  *  A question the record did not take keeps everything: a person who filled
  *  in three of four questions and pressed Answer still has the fourth in
- *  front of them, with whatever they had started typing in it. */
+ *  front of them, with whatever they had started typing in it. A question
+ *  emptied this way is UNTOUCHED again, so it opens on whatever it now
+ *  defaults to. */
 export function forgetAskFields(
   ask: string,
   fields: ReadonlyArray<string>,
 ): void {
   dropAskFields(
     ask,
-    fields.flatMap((field) => [field, typedKey(field), seededKey(field)]),
+    fields.flatMap((field) => [field, typedKey(field)]),
   );
 }

@@ -43,12 +43,14 @@ import {
   type Chosen,
   harnessForModel,
   hostOf,
+  isAsked,
   type KoluChoice,
   type ModelChoices,
   modelNotOffered,
   type Recalled,
   roleOfKey,
   type SentAnswer,
+  setupKeyOf,
   type SetupMemory,
   unofferedWhy,
   type Work,
@@ -56,7 +58,6 @@ import {
 import {
   type Component,
   createMemo,
-  Errored,
   isPending,
   Match,
   Show,
@@ -66,8 +67,14 @@ import { agentDistroListing } from "../agents/useAgentDistro";
 import { runActionPromise } from "../runAction";
 import { padiRpcOf } from "../wire";
 import AskOptions, { type AskOption } from "./AskOptions";
-import { pickOnly, seededChips, typedKey, typeOnly } from "./askForm";
-import { askDraft } from "./drafts";
+import {
+  draftOf,
+  forgetAskFields,
+  pickOnly,
+  seededChips,
+  typedDraftOf,
+  typeOnly,
+} from "./askForm";
 
 /** One option as this question draws it — and how answering with it is
  *  chosen: a pick, or a model typed before, which goes back in the box. */
@@ -106,6 +113,15 @@ type Offer =
        *  answer was nothing. */
       readonly empty: string;
     };
+
+/** WHAT THE HOST ANSWERED about one harness's models: the list it read, or
+ *  why it could not read one. A failure is a VALUE here — a question that
+ *  could not be asked is still answerable, and an exception travelling
+ *  through the graph would reach readers of this question that are nowhere
+ *  near it. */
+type Listed =
+  | { readonly kind: "read"; readonly answer: AgentModels }
+  | { readonly kind: "unread"; readonly why: string };
 
 /** WHERE AND WHAT A MODEL QUESTION IS ASKED OF — the harness it is a model
  *  of, and the checkout to ask it in. */
@@ -147,14 +163,35 @@ const WorkChoiceQuestion: Component<{
    *  role and one of its two. */
   const what = (): "harness" | "model" => roleOfKey(props.decision.key).what;
 
-  /** This form's picks so far, as {@link harnessForModel} reads them: the
-   *  harness answered beside this question counts before it is sent. */
+  /** This form's answers so far, as {@link harnessForModel} reads them: the
+   *  harness answered beside this question counts before it is sent, and so
+   *  does the one it OPENS on while nobody has touched it ({@link draftOf}).
+   *
+   *  This question's own field is left out: what a model question is a model
+   *  OF is read here, and that answer is what this question's own default is
+   *  derived from. */
   const drafted = (): ReadonlyMap<string, SentAnswer> => {
     const values = new Map<string, SentAnswer>();
     for (const one of props.work.decisions)
-      if (one.ask === props.ask)
-        values.set(one.id, askDraft(props.ask, one.id));
+      if (one.ask === props.ask && one.id !== props.decision.id)
+        values.set(one.id, draftOf(props.ask, one.id));
     return values;
+  };
+
+  /** THE MODEL QUESTIONS BESIDE THIS HARNESS that are still being asked —
+   *  what a harness pressed here takes with it, since a model is a model of
+   *  one harness. */
+  const modelsBeside = (): ReadonlyArray<string> => {
+    const key = setupKeyOf(roleOfKey(props.decision.key).role, "model");
+    return props.work.decisions
+      .filter(
+        (one) =>
+          one.ask === props.ask &&
+          one.topic === "setup" &&
+          isAsked(one) &&
+          Option.contains(key, one.key),
+      )
+      .map((one) => one.id);
   };
 
   /** The harness this model is for — read by the host call, by the memory
@@ -335,7 +372,7 @@ const WorkChoiceQuestion: Component<{
      *  is empty or holds a model id — and for a question with no box. */
     const typedWhy = (): Option.Option<string> => {
       const now = choices();
-      const typed = askDraft(props.ask, typedKey(props.decision.id))[0] ?? "";
+      const typed = typedDraftOf(props.ask, props.decision.id)[0] ?? "";
       if (now === null || typed === "") return Option.none();
       return Option.map(
         modelNotOffered(typed, "typed", now.offered),
@@ -355,12 +392,11 @@ const WorkChoiceQuestion: Component<{
       );
     };
 
-    /** The options as they are drawn — the default first, and that default in
-     *  the draft once the list it belongs to is known. */
+    /** The options as they are drawn — the default first, and that same
+     *  default read as the answer until somebody touches this question. */
     const chips = seededChips(
       () => props.ask,
       () => props.decision.id,
-      () => Option.fromNullishOr(choices()?.context),
       () => choices()?.options ?? [],
       standing,
     );
@@ -371,19 +407,26 @@ const WorkChoiceQuestion: Component<{
       choices()?.options.find((one) => one.value === value)?.chosen ?? "picked";
 
     /** A chip pressed: a pick goes in as the pick; a model typed before goes
-     *  back in the box, so it is sent as typed again. */
+     *  back in the box, so it is sent as typed again.
+     *
+     *  A MODEL IS A MODEL OF ONE HARNESS. Naming a different harness here
+     *  takes the model answered beside it with it, so that question is
+     *  untouched again and opens on the new harness's own last model rather
+     *  than carrying a model the new harness does not run. */
     const press = (value: string): void => {
+      const moved = what() === "harness" && !isPressed(value);
       if (chosenOf(value) === "typed")
         typeOnly(props.ask, props.decision.id, value);
       else pickOnly(props.ask, props.decision.id, value);
+      if (moved) forgetAskFields(props.ask, modelsBeside());
     };
 
     /** Whether a chip reads as the answer: the pick, or the words in the
      *  box. */
     const isPressed = (value: string): boolean =>
       chosenOf(value) === "typed"
-        ? (askDraft(props.ask, typedKey(props.decision.id))[0] ?? "") === value
-        : askDraft(props.ask, props.decision.id).includes(value);
+        ? (typedDraftOf(props.ask, props.decision.id)[0] ?? "") === value
+        : draftOf(props.ask, props.decision.id).includes(value);
 
     /** WHAT THIS PERSON ANSWERED THIS BEFORE, most recent first — what a long
      *  list rests on: every model they ran this harness on, or the harness
@@ -463,9 +506,7 @@ const WorkChoiceQuestion: Component<{
                   data-testid="conductor-ask-other"
                   data-field={props.decision.id}
                   placeholder="or name the model yourself"
-                  value={
-                    askDraft(props.ask, typedKey(props.decision.id))[0] ?? ""
-                  }
+                  value={typedDraftOf(props.ask, props.decision.id)[0] ?? ""}
                   class={BOX_CLASS}
                   onInput={(event) =>
                     typeOnly(
@@ -509,10 +550,14 @@ const WorkChoiceQuestion: Component<{
    *  is drawn once, says it is asking in its own words ({@link asking}, as
    *  Solid 1's `models.loading` did), and gains the list in place.
    *
-   *  A FAILED read is NOT swallowed: an async memo throws its rejection at
-   *  whoever reads it, and the `Errored` boundary below catches it and draws
-   *  the question again around what can still be chosen ({@link unread}). */
-  const models = createMemo<AgentModels | undefined>(
+   *  A FAILED read is NOT swallowed and is NOT thrown either: the rejection
+   *  is read into the value as the host's own words, and the question is
+   *  drawn again around what can still be chosen ({@link unread}). Thrown, it
+   *  would reach every reader of this question's offer — including the form's
+   *  Answer fold, which sits outside any boundary this question could put
+   *  around itself, and which an escalated error halts. An offer that carries
+   *  its failure is a value like any other. */
+  const models = createMemo<Listed | undefined>(
     () => {
       const one = subject();
       return one.kind === "unasked"
@@ -521,6 +566,9 @@ const WorkChoiceQuestion: Component<{
             padiRpcOf(decodeHostKey(hostOf(props.work))).agentDistro.models(
               one.where,
             ),
+          ).then(
+            (answer): Listed => ({ kind: "read", answer }),
+            (why): Listed => ({ kind: "unread", why: toError(why).message }),
           );
     },
     { loadingValue: undefined },
@@ -545,8 +593,10 @@ const WorkChoiceQuestion: Component<{
           };
     const named = one.where.harness;
     if (isPending(models)) return asking(named);
-    const answer = models();
-    if (answer === undefined) return asking(named);
+    const listed = models();
+    if (listed === undefined) return asking(named);
+    if (listed.kind === "unread") return unread(listed.why);
+    const answer = listed.answer;
     if (answer.models.kind === "unlisted")
       return {
         kind: "choices",
@@ -569,16 +619,7 @@ const WorkChoiceQuestion: Component<{
     what() === "harness" ? harnessOffer() : modelOffer(),
   );
 
-  return (
-    // THE HOST'S FAILURE IS AN OFFER, not a dead question: the model read
-    // throws it at this reader, inside the boundary, and the question is
-    // drawn again around what can still be chosen.
-    <Errored
-      fallback={(why) => <Offered offer={unread(toError(why()).message)} />}
-    >
-      <Offered offer={offer()} />
-    </Errored>
-  );
+  return <Offered offer={offer()} />;
 };
 
 export default WorkChoiceQuestion;

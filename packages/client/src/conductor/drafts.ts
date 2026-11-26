@@ -185,8 +185,22 @@ const [askDrafts, setAskDrafts] = createStore<
   Record<string, Record<string, string[]>>
 >({});
 
+/** ONE QUESTION'S VALUES AS THE DRAFT HAS THEM — `undefined` when there is no
+ *  entry at all. That is the distinction a form is read by: no entry is a
+ *  question NOBODY HAS TOUCHED, which opens on its default, while an entry of
+ *  no values is one somebody cleared on purpose and stays cleared
+ *  (`askForm.ts`). */
+export function askDraftEntry(
+  askId: string,
+  field: string,
+): readonly string[] | undefined {
+  return askDrafts[askId]?.[field];
+}
+
+/** ... and the same values with those two collapsed, for the readers that do
+ *  not offer a default. */
 export function askDraft(askId: string, field: string): readonly string[] {
-  return askDrafts[askId]?.[field] ?? [];
+  return askDraftEntry(askId, field) ?? [];
 }
 
 /** One question's values, replaced wholesale — a single-answer pick, a box

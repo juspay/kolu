@@ -74,18 +74,15 @@ import {
 import { type Component, createMemo, For, Show } from "solid-js";
 import AskOptions, { askOption } from "./AskOptions";
 import {
+  draftOf,
   forgetAskFields,
   pickOnly,
   seededChips,
+  typedDraftOf,
   typedKey,
   typeOnly,
 } from "./askForm";
-import {
-  askDraft,
-  forgetAskDraft,
-  setAskDraft,
-  toggleAskDraft,
-} from "./drafts";
+import { forgetAskDraft, setAskDraft, toggleAskDraft } from "./drafts";
 import { openReader } from "./reader/useReader";
 import { sameFields, sameItems } from "./sameItems";
 import { useConductor } from "./useConductor";
@@ -190,8 +187,10 @@ const WorkQuestion: Component<{
     { name: "memory" },
   );
 
+  /** Does this question read as answered with `value` — what they chose, or
+   *  the default it opens on while nobody has touched it. */
   const picked = (decision: string, value: string): boolean =>
-    askDraft(props.ask, decision).includes(value);
+    draftOf(props.ask, decision).includes(value);
 
   /** An option pressed. A single-answer question keeps the one pressed last
    *  and empties its box; a `multiple` question toggles. */
@@ -214,10 +213,9 @@ const WorkQuestion: Component<{
   };
 
   /** A QUESTION ITS ASKER DREW THE OPTIONS FOR: the options with what this
-   *  person chose last time first and already in the draft, and — for a
-   *  question about the work, whose answer is words — the box beside them.
-   *  The options are known the moment the form is drawn, so the default seeds
-   *  on the first frame and never again. */
+   *  person chose last time first and read as the answer while nobody has
+   *  touched it, and — for a question about the work, whose answer is words —
+   *  the box beside them. */
   const OfferedQuestion: Component<{ decision: Offered }> = (one) => {
     /** The last answer, when it is one of the options drawn here. A question
      *  about the work has no last time to open on: it is this work's own
@@ -232,8 +230,6 @@ const WorkQuestion: Component<{
     const chips = seededChips(
       () => props.ask,
       () => one.decision.id,
-      () =>
-        one.decision.topic === "setup" ? Option.some("offered") : Option.none(),
       () => one.decision.options.map(askOption),
       standing,
     );
@@ -260,7 +256,7 @@ const WorkQuestion: Component<{
             data-testid="conductor-ask-other"
             data-field={one.decision.id}
             placeholder="or say it in your own words"
-            value={askDraft(props.ask, typedKey(one.decision.id))[0] ?? ""}
+            value={typedDraftOf(props.ask, one.decision.id)[0] ?? ""}
             class="mt-1.5 w-full rounded-md border border-edge-bright bg-surface-0 px-2 py-1 text-fg outline-none focus:border-accent"
             onInput={(event) => type(one.decision, event.currentTarget.value)}
           />
@@ -282,8 +278,8 @@ const WorkQuestion: Component<{
     decision: Asked,
     rider: string,
   ): Option.Option<SentAnswer> => {
-    const chosen = askDraft(props.ask, decision.id);
-    const typed = askDraft(props.ask, typedKey(decision.id))[0] ?? "";
+    const chosen = draftOf(props.ask, decision.id);
+    const typed = typedDraftOf(props.ask, decision.id)[0] ?? "";
     switch (decision.topic) {
       case "setup": {
         // Only a question kolu drew the options for takes a typed answer.
