@@ -37,6 +37,7 @@ import type { HostKey } from "kolu-common/hostKey";
 import {
   type Component,
   createDeferred,
+  createMemo,
   createSignal,
   Errored,
   For,
@@ -210,10 +211,15 @@ const StateBackupsDialog: Component = () => {
     koluStore,
     ...hostKeys().map((host) => padiStore(host)),
   ];
-  const browsing = (): StoreAdapter | null => {
+  /** THE RING BEING BROWSED — memoized, so the listing below subscribes to
+   *  the ring and not to every `view` write. A restore writes `view` twice
+   *  (in flight, then back to the list) with the SAME store, and a plain
+   *  function would re-run the listing on each: three listings for one
+   *  restore, with the rows dimmed throughout. */
+  const browsing = createMemo<StoreAdapter | null>(() => {
     const v = view();
     return v.kind === "stores" ? null : v.store;
-  };
+  });
   /** THE SELECTED RING'S SNAPSHOTS, with the ring they are OF. Asked for the
    *  store being browsed, and only while the dialog is open — a closed
    *  dialog lists nothing. A failed listing is thrown at the reader and

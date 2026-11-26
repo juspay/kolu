@@ -25,6 +25,13 @@ const fixture = vi.hoisted(() => ({
     if (!settle) throw new Error("no listing is pending");
     settle(terminals);
   },
+  /** Resolvers for the restores asked for and not answered. */
+  restores: [] as Array<() => void>,
+  restored() {
+    const land = fixture.restores.shift();
+    if (!land) throw new Error("no restore is pending");
+    land();
+  },
 }));
 
 function listing(): Promise<{
@@ -74,7 +81,15 @@ vi.mock("./wire", () => ({
         state: () => ({ kind: "connected" }),
         clock: { toLocal: (ms: number) => ms },
         procedures: {
-          backups: { list: () => Effect.promise(listing) },
+          backups: {
+            list: () => Effect.promise(listing),
+            restore: () =>
+              Effect.promise(() => {
+                const asked = Promise.withResolvers<void>();
+                fixture.restores.push(() => asked.resolve());
+                return asked.promise;
+              }),
+          },
         },
       };
     },
@@ -113,6 +128,7 @@ afterEach(() => {
   host?.remove();
   host = undefined;
   fixture.pending.length = 0;
+  fixture.restores.length = 0;
 });
 
 async function settle(): Promise<void> {
@@ -163,6 +179,8 @@ it("draws the picked ring at once with Loading…, then its rows", async () => {
   // THE DESTINATION IS THE SCREEN IN THE PRESS'S OWN FRAME: its title, the
   // way back, and "Loading…" where the rows will be. The picker is gone —
   // nothing waits on the listing.
+  // The dialog's own title stays put across the pick.
+  expect(body()).toContain("State backups");
   expect(body()).toContain("padi — h1");
   expect(body()).toContain("← Stores");
   expect(body()).toContain("Loading…");
@@ -199,4 +217,55 @@ it("draws the picked ring at once with Loading…, then its rows", async () => {
   press("kolu-server");
   expect(body()).not.toContain("5 terminals");
   expect(body()).toContain("Loading…");
+});
+
+/** Click a `data-testid`, then flush. */
+function pressTestid(testid: string): void {
+  if (!host) throw new Error("not mounted");
+  const button = host.querySelector<HTMLButtonElement>(
+    `[data-testid="${testid}"]`,
+  );
+  if (!button) throw new Error(`no element at ${testid}`);
+  button.click();
+  flush();
+}
+
+it("re-lists a restored ring ONCE, and leaves the rows undimmed while the restore runs", async () => {
+  const [revision] = createSignal(0);
+  fixture.revision = revision;
+
+  host = document.createElement("div");
+  document.body.append(host);
+  dispose = render(() => <StateBackupsDialog />, host);
+  stateBackupsDialog.openDialog();
+  flush();
+
+  press("h1");
+  fixture.answer(3);
+  await settle();
+  expect(body()).toContain("3 terminals");
+
+  // THE RESTORE IS NOT A RE-LIST. It writes the view twice — in flight, then
+  // back to the list — with the SAME ring both times, and neither write is a
+  // new subject for the listing: nothing is asked for, and the rows the user
+  // is looking at stay as they are (master listed once, at the end, too).
+  pressTestid("state-backup-restore-snap-3");
+  pressTestid("state-backup-restore-snap-3-confirm");
+  await settle();
+  expect(body()).toContain("Restoring…");
+  expect(fixture.pending.length).toBe(0);
+  expect(rowsDimmed()).toBe(false);
+
+  // IT LANDS: exactly ONE listing is asked for, and the rows dim until it
+  // answers.
+  fixture.restored();
+  await settle();
+  expect(fixture.pending.length).toBe(1);
+  expect(rowsDimmed()).toBe(true);
+
+  fixture.answer(7);
+  await settle();
+  expect(body()).toContain("7 terminals");
+  expect(fixture.pending.length).toBe(0);
+  expect(rowsDimmed()).toBe(false);
 });
