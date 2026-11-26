@@ -96,7 +96,7 @@ test("a declarator is the name: every binding spelling passes", () => {
   );
 });
 
-test("an explicit `{ name }` passes, in any argument position", () => {
+test("an explicit `{ name }` in the OPTIONS position passes", () => {
   assert.deepEqual(
     hits(
       withImport(
@@ -108,6 +108,109 @@ test("an explicit `{ name }` passes, in any argument position", () => {
       ),
     ),
     [],
+  );
+});
+
+const solid = (names: string, body: string): string =>
+  `import { ${names} } from "solid-js";\n${body}`;
+
+test("each primitive passes when named at ITS options argument", () => {
+  assert.deepEqual(
+    hits(
+      solid(
+        "createProjection, mapArray, repeat, createDeferred, createOptimistic",
+        [
+          "return createProjection((d) => fill(d), seed, { name: 'classes' });",
+          "return mapArray(list, (one) => row(one), { name: 'rows' });",
+          "return repeat(count, (i) => i, { name: 'slots' });",
+          "return createDeferred(() => slow(), { name: 'listed' });",
+          "return createOptimistic(0, { name: 'staged' });",
+        ].join("\n"),
+      ),
+    ),
+    [],
+  );
+});
+
+test("each primitive is flagged when it passes no options at all", () => {
+  const found = hits(
+    solid(
+      "createProjection, mapArray, repeat, createDeferred, createOptimistic",
+      [
+        "return createProjection((d) => fill(d), seed);",
+        "return mapArray(list, (one) => row(one));",
+        "return repeat(count, (i) => i);",
+        "return createDeferred(() => slow());",
+        "return createOptimistic(0);",
+      ].join("\n"),
+    ),
+  );
+  assert.equal(found.length, 5);
+});
+
+test("the effect primitives are out of scope — their findings carry a loc", () => {
+  assert.deepEqual(
+    hits(
+      solid(
+        "createEffect, createRenderEffect, createTrackedEffect, createReaction",
+        [
+          "createEffect(() => dep(), (v) => { apply(v); });",
+          "createRenderEffect(() => dep(), (v) => { apply(v); });",
+          "createTrackedEffect(() => { watch(); });",
+          "createReaction(() => { fire(); });",
+        ].join("\n"),
+      ),
+    ),
+    [],
+  );
+});
+
+test("a name in the WRONG argument does not pass — the seed is not options", () => {
+  // `createProjection(fn, seed, options)`: a `{ name }` second is the SEED,
+  // so the projection is nameless at runtime.
+  assert.equal(
+    hits(
+      solid(
+        "createProjection",
+        "return createProjection((d) => fill(d), { name: 'classes' });",
+      ),
+    ).length,
+    1,
+  );
+  // `mapArray(list, map, options)` — same shape: a `{ name }` second is the
+  // map callback's slot.
+  assert.equal(
+    hits(solid("mapArray", "return mapArray(list, { name: 'rows' });")).length,
+    1,
+  );
+});
+
+test("the store factories read their form: options second by value, third by function", () => {
+  assert.deepEqual(
+    hits(
+      'import { createStore } from "solid-js/store";\n' +
+        [
+          "foo(createStore({ open: false }, { name: 'ui' }));",
+          "foo(createStore((draft) => fill(draft), seed, { name: 'slots' }));",
+        ].join("\n"),
+    ),
+    [],
+  );
+  // The value form's options are SECOND, so a third argument names nothing…
+  assert.equal(
+    hits(
+      'import { createStore } from "solid-js/store";\n' +
+        "foo(createStore({ open: false }, seed, { name: 'ui' }));",
+    ).length,
+    1,
+  );
+  // …and the projection form's are THIRD, so a `{ name }` second is the seed.
+  assert.equal(
+    hits(
+      'import { createStore } from "solid-js/store";\n' +
+        "foo(createStore((draft) => fill(draft), { name: 'slots' }));",
+    ).length,
+    1,
   );
 });
 

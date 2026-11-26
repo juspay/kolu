@@ -39,7 +39,9 @@ export function createKeyedRoot<K, T>(
   // Single-element keyed array. mapArray re-runs `factory` on a KEY change (not when
   // an incidental value rebuilds under the same key — the identity-keying), disposing
   // the prior key's owner in the same flush that builds the new one.
-  const cells = createMemo(mapArray(() => [key()], factory));
+  const cells = createMemo(
+    mapArray(() => [key()], factory, { name: "keyedRoot" }),
+  );
   // Eager pin: the compute reads the array in a render effect so the re-key
   // (build-then-dispose) happens on the key change's own flush, before any consumer
   // read. The effect phase has nothing to do — the pin IS the dependency.

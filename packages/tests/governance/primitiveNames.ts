@@ -16,22 +16,50 @@
  * to open. Naming them splits the bucket into per-memo, per-file findings; it
  * is the prerequisite that makes every other finding addressable.
  *
- * So the rule: a `createSignal` / `createMemo` / `createStore` call that is
- * not bound to a `const`/`let`/`var` declarator MUST pass a `name` in an
- * options object. The common shapes this catches are `return createMemo(…)`
+ * So the rule: a reactive primitive that YIELDS A NODE other code reads, and
+ * is not bound to a `const`/`let`/`var` declarator, MUST pass a `name` IN ITS
+ * OPTIONS ARGUMENT. The common shapes this catches are `return createMemo(…)`
  * straight out of a factory, a primitive handed to a property of an object
- * literal, and one passed as an argument to another call (`makePersisted(
- * createSignal(…), …)`, where the name has to come from the caller).
+ * literal, and one passed as an argument to another call
+ * (`makePersisted(createSignal(…), …)`, where the name has to come from the
+ * caller).
  *
  * **There is no allowlist.** The two spellings that pass are both one line of
  * work: give the primitive a declarator and return it on the next line, or
  * pass `{ name: "…" }`. Either way the diagnostic gets an address.
  *
- * **What counts as named.** Any argument of the call that is an object
- * literal with a top-level `name` property. The scan deliberately does not
- * police WHICH argument: the options position differs between the primitives
- * and between overloads (`createMemo(fn, initial, options)`), and an object
- * literal carrying a `name` in any position is unambiguously the options bag.
+ * **The primitives, and WHERE their options sit** (`@solidjs/signals@2.0.4`:
+ * `signals.d.ts`, `map.d.ts`, `deferred.d.ts`, `store/index.d.ts`,
+ * `store/projection.d.ts`, `store/optimistic.d.ts`):
+ *
+ * | Primitive | Options argument |
+ * | --- | --- |
+ * | `createSignal`, `createOptimistic`, `createMemo`, `createDeferred` | 2nd |
+ * | `mapArray`, `repeat` | 3rd |
+ * | `createProjection` | 3rd (`fn, seed, options`) |
+ * | `createStore`, `createOptimisticStore` | 2nd for the VALUE form, 3rd for the function (projection) form |
+ *
+ * **The effect primitives are deliberately OUT of scope** — `createEffect`,
+ * `createRenderEffect`, `createTrackedEffect`, `createReaction`. An effect
+ * yields no node for anyone to read, and its findings are already addressed:
+ * the compiler carries a location for them, so the dev lane's rows read
+ * `App.tsx:426:7 effect` / `Terminal.tsx:1393:7 effect` (Run A). No effect
+ * finding was ever location-less. The gap review 41 §3 found was
+ * declarator-less VALUE nodes, whose rows carry neither a name nor a `loc`,
+ * and that is exactly what this scan closes. Banning nameless effects would
+ * instead tax all 169 of them with hand-written names the compiler can never
+ * supply.
+ *
+ * **The position is checked, not merely the presence of a `name`.** A `name`
+ * in the wrong argument is not an options bag: `createProjection(fn, { name },
+ * …)` hands the object over as the SEED, and the function form of
+ * `createStore` does the same. Both read as named to a position-blind scan
+ * and are nameless at runtime, so the scan resolves each call's options index
+ * — for the two store factories, from whether the first argument is a
+ * function literal — and looks for the `name` only there.
+ *
+ * `createSelector` and `createAsync` are NOT covered: `@solidjs/signals`
+ * 2.0.4 exports neither. Add them here if a later Solid brings them back.
  *
  * **Scope: every `.ts`/`.tsx` file under `packages/` and `website/` except
  * `*.test.ts` / `*.test.tsx` / `*.test-d.ts`** — the same tree, and the same
@@ -53,8 +81,24 @@ import { readdirSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
 import { blankComments, blankNonCode } from "./runEdges";
 
-/** The primitives this ban covers. */
-const PRIMITIVES = new Set(["createSignal", "createMemo", "createStore"]);
+/** The primitives this ban covers, and the 0-based index of the argument that
+ *  is their options bag. `"store"` is the two store factories, whose options
+ *  sit second for the value form and third for the function (projection)
+ *  form — see the header's table. */
+const OPTIONS_INDEX: ReadonlyMap<string, number | "store"> = new Map<
+  string,
+  number | "store"
+>([
+  ["createSignal", 1],
+  ["createOptimistic", 1],
+  ["createMemo", 1],
+  ["createDeferred", 1],
+  ["mapArray", 2],
+  ["repeat", 2],
+  ["createProjection", 2],
+  ["createStore", "store"],
+  ["createOptimisticStore", "store"],
+]);
 
 /** The modules whose exports are Solid's own. `solid-js` re-exports the
  *  signals package, `solid-js/store` the store, and a few files reach for
@@ -94,7 +138,7 @@ function solidLocals(code: string): Map<string, string> {
     for (const part of clause.split(",")) {
       const [imported, local] = part.split(" as ").map((s) => s.trim());
       const exported = (imported ?? "").replace(/^type\s+/, "").trim();
-      if (!PRIMITIVES.has(exported)) continue;
+      if (!OPTIONS_INDEX.has(exported)) continue;
       locals.set(
         local !== undefined && local !== "" ? local : exported,
         exported,
@@ -195,6 +239,37 @@ function carriesName(code: string, start: number, end: number): boolean {
   return false;
 }
 
+/** Whether the argument spanning `[start, end)` is a function literal — an
+ *  arrow or a `function` expression. The two store factories take their
+ *  options third when their first argument is one (the projection form) and
+ *  second when it is a plain value. */
+function isFunctionArgument(code: string, start: number, end: number): boolean {
+  const text = code.slice(start, end).trim();
+  if (/^(?:async\s+)?function\b/.test(text)) return true;
+  let depth = 0;
+  for (let i = 0; i < text.length - 1; i += 1) {
+    const ch = text[i] ?? "";
+    if (ch === "(" || ch === "[" || ch === "{") depth += 1;
+    else if (ch === ")" || ch === "]" || ch === "}") depth -= 1;
+    else if (depth === 0 && ch === "=" && text[i + 1] === ">") return true;
+  }
+  return false;
+}
+
+/** The 0-based index of `exported`'s options argument for THIS call. */
+function optionsIndexOf(
+  exported: string,
+  code: string,
+  spans: readonly (readonly [number, number])[],
+): number {
+  const declared = OPTIONS_INDEX.get(exported);
+  if (declared !== "store") return declared ?? 1;
+  const first = spans[0];
+  return first !== undefined && isFunctionArgument(code, first[0], first[1])
+    ? 2
+    : 1;
+}
+
 /** Every unnamed, declarator-less primitive in `source`, with 1-based line
  *  numbers. Comments and string literals are blanked first — this ban is
  *  NAMED in prose in several files, including this one and its test. */
@@ -214,7 +289,9 @@ export function findPrimitiveNameHits(source: string): PrimitiveNameHit[] {
       if (hasDeclarator(code, nameStart)) continue;
       const spans = argumentSpans(code, open);
       if (spans === null) continue;
-      if (spans.some(([s, e]) => carriesName(code, s, e))) continue;
+      const options = spans[optionsIndexOf(exported, code, spans)];
+      if (options !== undefined && carriesName(code, options[0], options[1]))
+        continue;
       hits.push({
         path: "",
         line: lineOf(code, nameStart),
