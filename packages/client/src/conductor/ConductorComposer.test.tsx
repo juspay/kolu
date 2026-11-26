@@ -503,3 +503,20 @@ describe("a work mentioned in the box", () => {
     expect(box.value).not.toContain("@page-chats-open-in-a-pane");
   });
 });
+
+describe("an idle box across fleet ticks", () => {
+  it("arms nothing, four ticks running — the `armed` memo may not republish an equal-but-new list", () => {
+    // Nothing in the box resolves, so `armedMentions` returns a fresh `[]` on
+    // every run, and every fleet metadata tick re-mints the candidates and runs
+    // it again. Four such publishes are Solid's `UNSTABLE_MEMO_OUTPUT`, which
+    // `@kolu/solid-test-setup` fails the test on — so the `sameRows` gate on
+    // `armed` is what this holds.
+    const { el, tick } = mount("nothing to see here", WORKS, NEEDS);
+    expect(rowsIn(el, "conductor-mention-chip")).toHaveLength(0);
+
+    for (const intent of ["second", "third", "fourth", "fifth"])
+      tick([here(), there(intent)]);
+
+    expect(rowsIn(el, "conductor-mention-chip")).toHaveLength(0);
+  });
+});

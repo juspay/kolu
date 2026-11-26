@@ -101,9 +101,14 @@ const openMenu = (
  *  the very objects it was given, so identity is the comparison that is both
  *  right and cheap: a row whose contents changed is a new object, and a row
  *  that did not change is the one that was there. Without this gate every
- *  keystroke in the box republishes a referentially-new-but-equal array (the
- *  `[]` of a closed menu included), rebuilding every row of the menu under it
- *  and re-running everything that counts rows.
+ *  keystroke in the box — and every fleet metadata tick, which re-mints every
+ *  candidate — republishes a referentially-new-but-equal array (the `[]` of a
+ *  closed menu included). The menu's rows survive that either way (they are
+ *  keyed, `:465`/`:515-517`, or reference-keyed, `:598`); what the gate removes
+ *  is the SUBSCRIBER re-runs — `menu`, the completion effect below, `openMenu`,
+ *  and each `For`'s diff — and, for the steady `[]`, Solid's
+ *  `UNSTABLE_MEMO_OUTPUT`, which fires on four re-runs that publish an
+ *  equal-but-new value.
  *
  *  The lists' keys (`work`, `host/terminalId`) would also serve, but they are
  *  coarser: two candidates may share a key and differ in what the row draws,
@@ -193,7 +198,15 @@ const ConductorComposer: Component<{
     },
   );
   onCleanup(() => setCompletionOpen(false));
-  const armed = createMemo(() => armedMentions(composerText(), candidates()));
+  // GATED too, and for the same reason: `armedMentions` returns a fresh `[]`
+  // whenever nothing in the box resolves, and a fleet metadata tick re-runs it
+  // — four idle ticks are four equal-but-new publishes. A NON-empty list mints
+  // fresh mention objects per run, so identity never holds there and the memo
+  // publishes exactly as it did before: that is correct, and it is also why the
+  // diagnostic cannot fire on it (its values are never shallowly equal either).
+  const armed = createMemo(() => armedMentions(composerText(), candidates()), {
+    equals: sameRows,
+  });
 
   /** THE WORK THE CHAT IS POINTED AT: the chip over the box is its face, and
    *  a message sent while it is on carries it whether or not the words named
