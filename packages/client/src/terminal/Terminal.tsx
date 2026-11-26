@@ -206,7 +206,19 @@ const Terminal: Component<{
   let supersedeAttempt: (() => void) | null = null;
   let disposeDiagnostics: (() => void) | null = null;
   let webglTrackerId: number | null = null;
-  const [handle, setHandle] = createSignal<XtermHandle | null>(null);
+  /** `ownedWrite`: this signal is written from `onReady` (and from the cleanup
+   *  registered there), which the kit calls inside the component's own owner,
+   *  re-entered with `runWithOwner` after the font await — an OWNED scope whose
+   *  contract says a signal written there must declare it
+   *  (`xterm-kit/src/solid/xtermLifecycle.ts:74-79`). Without it the write
+   *  throws in a development build, the throw unwinds into the lifecycle's
+   *  `console.error` catch, and the whole rest of `onReady` — the `__xterm`
+   *  bridge, the link provider, the refs, the attach stream, the first focus —
+   *  never runs. The kit's own signals declare it for the same reason
+   *  (`Xterm.tsx`'s two grids, `webgl.ts`). */
+  const [handle, setHandle] = createSignal<XtermHandle | null>(null, {
+    ownedWrite: true,
+  });
   /** The live handle as a PLAIN reference — the imperative half's copy of the
    *  signal above, set and cleared in the very same two places (`onReady`, the
    *  consumer teardown). The SIGNAL is what the JSX reads; this is what the
