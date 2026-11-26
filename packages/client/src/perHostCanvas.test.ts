@@ -223,6 +223,11 @@ function mountTwoHostFixture() {
   const view = useViewState();
   const subPanel = useSubPanel();
   const store = {
+    // Production's `useTerminalStore` SPREADS the view facade, so every member
+    // it publishes (`seedCovers` / `planNoteSeededActivation`, the seed's
+    // derivation seam) is on the store. Spread it here too rather than
+    // hand-listing, so a new facade member cannot go missing from this double.
+    ...view,
     listSub,
     terminalIds,
     getMetadata,
