@@ -1,5 +1,5 @@
 import { encodeHostKey } from "kolu-common/hostKey";
-import { createEffect, createSignal, flush } from "solid-js";
+import { createEffect, createMemo, createSignal, flush } from "solid-js";
 import { type JSX, render } from "@solidjs/web";
 import { afterEach, expect, it, vi } from "vitest";
 import type { PaletteItem } from "./CommandPalette";
@@ -46,6 +46,8 @@ vi.mock("./palette/PaletteRow", () => ({
     );
   },
 }));
+const totalRowWakes = (): number =>
+  [...rowWakes.values()].reduce((sum, n) => sum + n, 0);
 const { default: CommandPalette } = await import("./CommandPalette");
 let dispose: (() => void) | undefined;
 afterEach(() => {
@@ -308,11 +310,13 @@ it("keeps its section headers still across four republished trees", () => {
   expect(sections()).toEqual(["canvas", "ui", "help"]);
 });
 
-it("builds no command tree while it is closed, and a fresh one on open", () => {
+it("does not call its commands prop while it is closed, and reads it on open", () => {
   // The palette's content is force-mounted and merely hidden while closed,
-  // so a palette that read its commands unconditionally held the whole app
-  // tree — every fleet terminal, every work record — subscribed to a surface
-  // nobody is looking at, and rebuilt it on every tick behind it.
+  // so a palette that read its commands unconditionally walked the whole app
+  // tree — every fleet terminal, every work record — for a surface nobody is
+  // looking at. This pins the CALL: the shut palette asks for no tree, and
+  // the open edge asks for the one that stands then. What a live (memo)
+  // source costs behind the gate is the test below.
   const [tick, setTick] = createSignal(0);
   let builds = 0;
   const commands = (): PaletteItem[] => {
@@ -344,6 +348,59 @@ it("builds no command tree while it is closed, and a fresh one on open", () => {
   flush();
   expect(builds).toBe(1);
   expect(document.querySelector('[role="option"]')?.textContent).toBe("Row 4");
+});
+
+it("holds its rows still while shut as a live command tree keeps ticking", () => {
+  // The app hands the palette a MEMO created in `<App>`'s body (`createCommands`,
+  // owned for the app's lifetime), and such a memo recomputes on every source
+  // change whether anyone reads it or not — so the APP tree rebuilds behind a
+  // shut palette no matter what the palette does, and no gate here can stop
+  // that. What the gate does stop is the PALETTE side: holding the last tree it
+  // was handed keeps `currentItems → partitioned → filtered → displayed →
+  // keyedDisplay` and every mounted row out of those ticks. That is what this
+  // measures, so the source is built the way the app builds it — under an owner
+  // in a component body, not as a plain function the palette can decline to
+  // call.
+  const [tick, setTick] = createSignal(0);
+  let appBuilds = 0;
+  const [open, setOpen] = createSignal(true);
+  const Harness = () => {
+    const commands = createMemo<PaletteItem[]>(() => {
+      appBuilds++;
+      return [{ kind: "action", name: `Row ${tick()}`, onSelect: () => {} }];
+    });
+    return (
+      <CommandPalette
+        commands={commands}
+        open={open()}
+        onOpenChange={setOpen}
+      />
+    );
+  };
+  dispose = render(() => <Harness />, document.body);
+  flush();
+  expect(document.querySelector('[role="option"]')?.textContent).toBe("Row 0");
+
+  setOpen(false);
+  flush();
+  const shutAppBuilds = appBuilds;
+  const shutWakes = totalRowWakes();
+
+  for (let i = 0; i < 5; i++) {
+    setTick(i + 1);
+    flush();
+  }
+  // The source really is live: it rebuilt five times with the palette shut and
+  // nobody reading it. So this is not "the prop went uncalled" by another name.
+  expect(appBuilds).toBe(shutAppBuilds + 5);
+  // And not one of those five reached a row.
+  expect(totalRowWakes()).toBe(shutWakes);
+
+  // The open edge takes the tree as it stands then — one row pass, latest text.
+  setOpen(true);
+  flush();
+  expect(document.querySelector('[role="option"]')?.textContent).toBe("Row 5");
+  expect(totalRowWakes()).toBe(shutWakes + 1);
 });
 
 it("holds mode and the breadcrumb still across four open/close cycles", () => {

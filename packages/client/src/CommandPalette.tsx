@@ -421,15 +421,23 @@ const CommandPalette: Component<{
   /** THE COMMAND TREE AS A SHUT PALETTE SEES IT — the last one it was given.
    *
    *  The palette's content is force-mounted and merely hidden while closed
-   *  (`ModalDialog`), so every read of `props.commands()` below — the list,
-   *  the path walk, the footer — is a live subscription to the whole app
-   *  command tree: at kolu's scale that is every fleet terminal and every
-   *  work record, rebuilt on each metadata tick for a palette nobody is
-   *  looking at. Reading it only while open ends that, and changes nothing a
-   *  reader can see: the rows a hidden palette holds are not on screen, and
-   *  opening is itself a change to `props.open`, so the first open frame
-   *  reads the tree fresh. The rows stay MOUNTED meanwhile, which is what
-   *  force-mounting is for. */
+   *  (`ModalDialog`), so without this every read of `props.commands()` below —
+   *  the list, the path walk, the footer — republishes the whole palette chain
+   *  on each metadata tick for a surface nobody is looking at: `currentItems →
+   *  partitioned → filtered → displayed → keyedDisplay`, the per-entry
+   *  narrowings, and every mounted row beneath them. Holding the previous tree
+   *  ends THAT: the gate publishes no new value while shut, so nothing
+   *  downstream of it has a reason to run.
+   *
+   *  It does NOT stop the app's own tree from rebuilding. `createCommands` is a
+   *  memo in `<App>`'s body, owned for the app's lifetime, and such a memo
+   *  recomputes whenever its sources change whether or not anyone is reading
+   *  it. Narrowing that belongs upstream, where the rows are built.
+   *
+   *  Nothing a reader can see changes: the rows a hidden palette holds are not
+   *  on screen, and opening is itself a change to `props.open`, so the first
+   *  open frame reads the tree fresh. The rows stay MOUNTED meanwhile, which is
+   *  what force-mounting is for. */
   const commandTree = createMemo<PaletteItem[]>(
     (prev) => (props.open ? props.commands() : (prev ?? [])),
     { name: "paletteCommandTree" },
@@ -561,6 +569,7 @@ const CommandPalette: Component<{
       for (const g of dropped) g.onCancel?.();
       setQuery("");
     },
+    { name: "paletteDroppedSegments" },
   );
 
   /** Items at the current navigation level (may include hints).
@@ -1139,6 +1148,7 @@ const CommandPalette: Component<{
         setClosingForSelection(false);
       }
     },
+    { name: "paletteOpenEdge" },
   );
 
   // THE default-highlight rule, applied reactively: whenever the SCOPE changes
@@ -1187,6 +1197,7 @@ const CommandPalette: Component<{
       if (!open) return;
       setSelectedIndex(index);
     },
+    { name: "paletteDefaultHighlight" },
   );
 
   const effectiveIndex = createMemo(() =>
@@ -1200,12 +1211,11 @@ const CommandPalette: Component<{
   // leaf's onCancel first so root-flattened previews (theme) don't stick.
   // Tracks props.open so the effect re-fires on reopen with the same selection.
   //
-  // THE LIST IS READ ONLY WHILE THE PALETTE IS OPEN. The apply arm already
-  // did nothing while closed; reading `filtered()` in the compute regardless
-  // kept the whole command tree — every fleet row, every work's record —
-  // subscribed to a shut palette, so a work frame or metadata tick rebuilt
-  // it for nobody. `props.open` is still a dependency, so re-opening
-  // recomputes and the first open frame is what it always was.
+  // THE LIST IS READ ONLY WHILE THE PALETTE IS OPEN. The apply arm already did
+  // nothing while closed, so this changes no outcome; what it drops is the
+  // compute re-running on the list churn a close itself produces (the path
+  // empties, the query clears). `props.open` is still a dependency, so
+  // re-opening recomputes and the first open frame is what it always was.
   let lastHighlight: (PaletteCommand | PaletteLabel) | undefined;
   createEffect(
     () => (props.open ? ([filtered(), effectiveIndex()] as const) : null),
@@ -1221,6 +1231,7 @@ const CommandPalette: Component<{
       lastHighlight = next;
       next?.onHighlight?.();
     },
+    { name: "paletteHighlightNotify" },
   );
 
   // Auto-scroll the highlighted row into view. One effect outside <For>:
@@ -1240,6 +1251,7 @@ const CommandPalette: Component<{
         ?.querySelector<HTMLElement>("[data-selected]")
         ?.scrollIntoView({ block: "nearest" });
     },
+    { name: "paletteHighlightScroll" },
   );
 
   return (
