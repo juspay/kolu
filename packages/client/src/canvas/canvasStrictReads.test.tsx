@@ -28,6 +28,17 @@ import type { TileContent } from "../tile/tileContent";
 const content = vi.hoisted(() => ({
   of: (() => undefined) as (id: string) => TileContent | undefined,
 }));
+const tiles = vi.hoisted(() => ({ ids: (() => []) as () => string[] }));
+// THE TWO FACTS THE CANVAS RE-RENDERS ON, as signals rather than constants:
+// a probe that only mounts never runs an apply arm a second time, and the
+// finding this file hunts lives in the arms that re-run.
+const [activeTile, setActiveTile] = createSignal<string | null>(null);
+const [tileLayout, setTileLayout] = createSignal({
+  x: 0,
+  y: 0,
+  w: 300,
+  h: 200,
+});
 
 vi.mock("../tile/useTileStore", () => ({
   useTileStore: () => ({
