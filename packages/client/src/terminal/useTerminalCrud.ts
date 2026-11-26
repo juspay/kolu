@@ -186,6 +186,8 @@ export const useTerminalCrud = createSharedRoot(() => {
   const evictionPorts: TerminalEvictionPorts = {
     activeId: store.activeId,
     focusedTerminalId: store.focusedTerminalId,
+    takeAutoSwitch: store.takeAutoSwitch,
+    noteAutoSwitch: store.noteAutoSwitch,
     planActivate: store.planActivate,
     planDropFromMru: store.planForgetFromMru,
     planPromoteToTopLevel,

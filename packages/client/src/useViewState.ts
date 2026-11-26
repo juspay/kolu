@@ -126,6 +126,18 @@ export function useViewState() {
     const scope = view();
     return () => scope?.noteSeededActivation(id);
   };
+
+  /** The ACTIVE host's derived auto-switch, taken once — see
+   *  `hostScope/createViewState.takeAutoSwitch`. A departing host has no owner
+   *  to have moved anything, so the removal race reads "nothing moved". */
+  const takeAutoSwitch = (): TerminalId | null | undefined =>
+    view()?.takeAutoSwitch();
+
+  /** Its imperative half, plus the canvas pan the write verb used to carry. */
+  const noteAutoSwitch = (id: TerminalId): void => {
+    view()?.noteAutoSwitch(id);
+    requestCenterActive(id);
+  };
   return {
     focusedTerminalId,
     activeId,
@@ -141,6 +153,8 @@ export function useViewState() {
     isUnread,
     seedCovers,
     planNoteSeededActivation,
+    takeAutoSwitch,
+    noteAutoSwitch,
     reset,
   };
 }

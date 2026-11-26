@@ -495,6 +495,11 @@ function evictionPorts(
   return {
     activeId: () => store.activeId(),
     focusedTerminalId: () => store.focusedTerminalId(),
+    takeAutoSwitch: () => activeScope()?.view.takeAutoSwitch(),
+    noteAutoSwitch: (id: TerminalId) => {
+      panned.push(id);
+      runWithOwner(null, () => activeScope()?.view.noteAutoSwitch(id));
+    },
     planActivate: (id: TerminalId | null) => () => {
       panned.push(id);
       runWithOwner(null, () => {

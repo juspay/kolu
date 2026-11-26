@@ -21,38 +21,10 @@
 
 import type { TerminalId } from "kolu-common/surface";
 import { type Accessor, createEffect, untrack } from "solid-js";
+import { pickAutoSwitchTarget } from "./autoSwitchTarget";
 import { createHostScopedParentSnapshot } from "./parentSnapshot";
 import { containingTileOf, type ParentEdge } from "./terminalTree";
 import { type EvictionSubPanelPorts, planTileTabsRepair } from "./useSubPanel";
-
-/** Pick the tile that inherits focus when the active tile is removed: the
- *  survivor now occupying the removed tile's slot (its old index in the FULL
- *  pre-removal order, clamped to the new last), or `null` when none remain. Owns
- *  the WHOLE focus-fallback policy from raw facts — `topLevelBefore` is the
- *  pre-removal top-level order (still containing `removedId`), `departing` is
- *  every id leaving this frame, and `removedId` is the tile being processed. It
- *  derives the survivor set itself (`topLevelBefore` minus `removedId` and
- *  everyone else departing), so no caller can drift the filter predicate or the
- *  filtered-list/unfiltered-index cross-argument invariant that carried the #1667
- *  bug. The removed tile is provably never its own successor regardless of what
- *  `departing` contains; a `removedId` that was never top-level (`indexOf` of
- *  `-1`) yields `null`. The ONE home for "which sibling does focus fall to" —
- *  both callers of `planEviction` reach it through here, so they can never
- *  diverge. */
-export function pickAutoSwitchTarget(
-  topLevelBefore: readonly TerminalId[],
-  departing: ReadonlySet<TerminalId>,
-  removedId: TerminalId,
-): TerminalId | null {
-  const survivors = topLevelBefore.filter(
-    (x) => x !== removedId && !departing.has(x),
-  );
-  return (
-    survivors[
-      Math.min(topLevelBefore.indexOf(removedId), survivors.length - 1)
-    ] ?? null
-  );
-}
 
 /** The side-effecting seams {@link planEviction} drives — the store, the
  *  sub-panel, the right-panel, the find-bar, and the promote/rehome RPCs.
@@ -65,7 +37,18 @@ export function pickAutoSwitchTarget(
 export interface TerminalEvictionPorts {
   activeId: () => TerminalId | null;
   focusedTerminalId: () => TerminalId | null;
-  /** Reader half of "pan-and-activate a survivor (or `null`)". */
+  /** The tile the focus DERIVATION moved to because this frame's census
+   *  dropped the one that held it, taken once — `undefined` when it moved
+   *  nothing. Read in the plan phase, like every other seam here. */
+  takeAutoSwitch: () => TerminalId | null | undefined;
+  /** The derived auto-switch's imperative half: the unread mark, the host's
+   *  active-terminal report, and the pan to the survivor. */
+  noteAutoSwitch: (id: TerminalId) => void;
+  /** Reader half of "pan-and-activate a survivor (or `null`)" — the
+   *  SYNCHRONOUS close path's auto-switch. That caller runs before the census
+   *  has dropped the tile, so the focus derivation has not answered yet and
+   *  this verb is what moves the selection; the list-driven caller runs after
+   *  it, where `takeAutoSwitch` has. */
   planActivate: (id: TerminalId | null) => () => void;
   /** Reader half of "drop an id from the tile MRU": it resolves the ACTIVE
    *  host's view scope (a reactive read) and hands back the trail write. */
@@ -225,13 +208,29 @@ export function planEviction(
     ports.removeSearch(id);
     dropFromMru();
   });
-  if (ports.activeId() === id) {
-    // `activate` pans the canvas to the survivor — without it the viewport would
-    // stay centered on the just-removed tile.
+
+  // THE AUTO-SWITCH IS DERIVED, NOT WRITTEN. The per-host focus fact already
+  // answers the survivor in the flush the census dropped this tile
+  // (`hostScope/createViewState`), because writing it from here — an effect
+  // apply arm, one flush after the list the compute read — relayed the census
+  // into the signal the canvas, the dock and the palette all read, and every
+  // reader painted one frame with the departed tile still selected. What the
+  // derivation cannot do is the activation's imperative half, so this takes it:
+  // the tile it moved to, once, with the pan and the host's report for it.
+  const autoSwitched = ports.takeAutoSwitch();
+  if (autoSwitched !== undefined) {
+    if (autoSwitched !== null)
+      writes.push(() => ports.noteAutoSwitch(autoSwitched));
+  } else if (ports.activeId() === id) {
+    // THE SYNCHRONOUS CLOSE PATH: the census still holds this tile, so the
+    // derivation has answered nothing and the selection is moved by the write
+    // verb, which pans the canvas to the survivor too — without it the
+    // viewport would stay centred on the tile that just went.
     writes.push(
       ports.planActivate(pickAutoSwitchTarget(topLevelBefore, departing, id)),
     );
   }
+
   return run;
 }
 

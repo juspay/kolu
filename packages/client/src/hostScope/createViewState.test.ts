@@ -227,4 +227,40 @@ describe("a host's view-state derivations", () => {
     expect(seen).toBe(settled);
     held.dispose();
   });
+
+  it("hands the departed tile's slot to its survivor in the same flush", () => {
+    // The removal reconcile used to write this answer from its apply arm, one
+    // flush after the list its compute had read — so the canvas, the dock and
+    // the palette each painted a frame with the departed tile still selected.
+    // It is a function of the census and the pre-removal order, which this
+    // fact keeps as its own memory, so it arrives with the census.
+    const [census, setCensus] = createSignal<TerminalId[]>([A, B, C]);
+    const held = createRoot((dispose) => ({
+      dispose,
+      view: createViewState(
+        LOCAL_HOST,
+        () => ({ kind: "top-level" }),
+        () => null,
+        census,
+      ),
+    }));
+    held.view.writeFocus({ id: B, tileHint: B });
+    flush();
+    expect(held.view.activeId()).toBe(B);
+    // B leaves. Its slot is the middle one, so C takes it — and the MRU leads
+    // with the tile that is active now, with no write to the trail.
+    setCensus([A, C]);
+    flush();
+    expect(held.view.activeId()).toBe(C);
+    expect(held.view.mruOrder()).toEqual([C, A]);
+    // The activation's imperative half is taken ONCE, by the reconcile.
+    expect(held.view.takeAutoSwitch()).toBe(C);
+    expect(held.view.takeAutoSwitch()).toBeUndefined();
+    // The last tile leaving clears the selection rather than naming a ghost.
+    setCensus([]);
+    flush();
+    expect(held.view.activeId()).toBeNull();
+    expect(held.view.takeAutoSwitch()).toBeNull();
+    held.dispose();
+  });
 });

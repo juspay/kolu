@@ -1,9 +1,9 @@
 import type { TerminalId } from "kolu-common/surface";
 import { createRoot, createSignal, flush } from "solid-js";
 import { describe, expect, it, vi } from "vitest";
+import { pickAutoSwitchTarget } from "./autoSwitchTarget";
 import {
   createEvictionDedup,
-  pickAutoSwitchTarget,
   planEviction,
   type TerminalEvictionPorts,
   useActiveReconcile,
@@ -56,12 +56,14 @@ const planPort =
 function makePorts(over: {
   activeId?: () => TerminalId | null;
   focusedTerminalId?: () => TerminalId | null;
+  takeAutoSwitch?: () => TerminalId | null | undefined;
   activeSubTab?: (parentId: TerminalId) => TerminalId | null;
 }) {
   const calls = {
     planPromoteToTopLevel: planSpy<[id: TerminalId, fromTile: TerminalId]>(),
     rehomeUnder: vi.fn<(id: TerminalId, parent: TerminalId) => void>(),
     planActivate: planSpy<[id: TerminalId | null]>(),
+    noteAutoSwitch: vi.fn<(id: TerminalId) => void>(),
     planDropFromMru: planSpy<[id: TerminalId]>(),
     planCollapsePanel: planSpy<[id: TerminalId]>(),
     planCollapsePanelChrome: planSpy<[id: TerminalId]>(),
@@ -78,6 +80,8 @@ function makePorts(over: {
     activeId: over.activeId ?? (() => null),
     focusedTerminalId: over.focusedTerminalId ?? (() => null),
     planActivate: planPort(calls.planActivate),
+    takeAutoSwitch: over.takeAutoSwitch ?? (() => undefined),
+    noteAutoSwitch: calls.noteAutoSwitch,
     planDropFromMru: planPort(calls.planDropFromMru),
     planPromoteToTopLevel: planPort(calls.planPromoteToTopLevel),
     rehomeUnder: calls.rehomeUnder,

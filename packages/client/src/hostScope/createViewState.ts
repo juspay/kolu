@@ -52,6 +52,7 @@ import {
   type LivePlacement,
 } from "../terminal/focusedTerminal";
 import { sameIdOrder } from "../terminal/terminalTree";
+import { pickAutoSwitchTarget } from "../terminal/autoSwitchTarget";
 import { useVisitRecency } from "../terminal/visitRecency";
 import { padiRpcOf } from "../wire";
 
@@ -107,6 +108,13 @@ export interface HostViewState {
    *  on its own, so recording it would be a persisted write relayed out of the
    *  hydration effect for an answer already visible. */
   noteSeededActivation: (tileId: TerminalId) => void;
+  /** The tile the focus DERIVATION moved to when the census dropped the one
+   *  that held it, taken once — `undefined` when it moved nothing. The removal
+   *  reconcile takes it to perform the activation's imperative half. */
+  takeAutoSwitch: () => TerminalId | null | undefined;
+  /** That switch's imperative half: the unread mark and the host's
+   *  active-terminal report. */
+  noteAutoSwitch: (tileId: TerminalId) => void;
 }
 
 /** Whether two focus facts name the same pane and the same tile. `TerminalFocus`
@@ -124,6 +132,18 @@ function sameOverride(
 ): boolean {
   if (a === undefined || b === undefined) return a === b;
   return sameFocus(a, b);
+}
+
+/** The written focus fact AND the census it was last reconciled against. One
+ *  node, because the auto-switch policy needs the PRE-removal order, and the
+ *  only honest memory of that is the derivation's own previous run. */
+type OverrideState = {
+  readonly live: readonly TerminalId[];
+  readonly focus: TerminalFocus | null | undefined;
+};
+const NO_OVERRIDE: OverrideState = { live: [], focus: undefined };
+function sameOverrideState(a: OverrideState, b: OverrideState): boolean {
+  return sameOverride(a.focus, b.focus) && sameIdOrder(a.live, b.live);
 }
 
 export function createViewState(
@@ -152,12 +172,43 @@ export function createViewState(
   // the previous selection. Re-stating a fact is not news: the write is dropped
   // here, and the activation's side effects (the unread mark, the visit, the
   // host's report, the pane's refocus nonce) still run at their call sites.
-  const [override, setOverride] = createSignal<
-    TerminalFocus | null | undefined
-  >(undefined, { equals: sameOverride });
+  //
+  // AND KEYED ON THE CENSUS, so the auto-switch is a DERIVATION too. When the
+  // census drops the tile the written fact names, the survivor occupying its
+  // slot takes it, in that same flush — the answer the removal reconcile used
+  // to write from its apply arm, one flush after the list its compute read,
+  // with every reader painting a frame on the departed tile first. `prev.live`
+  // is the pre-removal order the policy needs; it is this memo's own memory,
+  // which is why the fact and the census ride one node.
+  // What the derivation moved the selection to, for the imperative half the
+  // removal reconcile takes. A plain box: nothing reads it reactively, so a
+  // memo may fill it without writing reactive state.
+  let pendingAutoSwitch: TerminalId | null | undefined;
+  const [override, setOverride] = createSignal<OverrideState>(
+    (prev = NO_OVERRIDE): OverrideState => {
+      const live = tileIds();
+      const written = prev.focus;
+      // Nothing written (the boot pick stands, answered once and deliberately
+      // kept when its tile exits), or an explicit "nothing is selected".
+      if (written == null) return { live, focus: written };
+      const tile = untrack(() => activeTileOf(written, placementOf));
+      if (tile === null || live.includes(tile) || prev.live.length === 0)
+        return { live, focus: written };
+      const departing = new Set(prev.live.filter((id) => !live.includes(id)));
+      const target = pickAutoSwitchTarget(prev.live, departing, tile);
+      // The activation's imperative half is not derivable; it is taken once by
+      // the removal reconcile through `takeAutoSwitch`.
+      pendingAutoSwitch = target;
+      return {
+        live,
+        focus: target === null ? null : { id: target, tileHint: target },
+      };
+    },
+    { equals: sameOverrideState },
+  );
   const focus = createMemo<TerminalFocus | null>(
     () => {
-      const written = override();
+      const written = override().focus;
       if (written !== undefined) return written;
       const picked = seededPick();
       // The boot pick names a TILE, so it is its own pane and its own hint.
@@ -203,11 +254,12 @@ export function createViewState(
       // Never-visited tiles rank below every visit, in the server's order —
       // the order a seeded-then-reconciled trail gave them.
       const order = [...visited, ...live.filter((id) => !seen.has(id))];
-      // While nothing has overridden the focus fact, the boot pick IS the
-      // active tile, so it leads: the same place the boot activation's
-      // `noteVisit` used to put it, without the write. Once an activation has
-      // overridden the pick, that activation's own visit leads the trail.
-      const pick = override() === undefined ? seededPick() : null;
+      // The ACTIVE tile leads: it is by definition the most recently activated
+      // one, and it is where the boot pick's and the auto-switch's `noteVisit`
+      // used to be written from an effect's apply arm. A gesture's own visit
+      // already puts its tile at the head of the trail, so this only ever
+      // hoists a tile the derivation chose.
+      const pick = activeId();
       if (pick === null || !liveSet.has(pick) || order[0] === pick)
         return order;
       return [pick, ...order.filter((id) => id !== pick)];
@@ -236,8 +288,8 @@ export function createViewState(
     // the tile is already at the head of the visit trail, and the host already
     // holds it as active. Sampled, because `writeFocus` runs from effect apply
     // arms (the canvas's placement pass) where a tracked read is forbidden.
-    const moved = !sameOverride(untrack(override), next);
-    setOverride(next);
+    const moved = !sameOverride(untrack(override).focus, next);
+    setOverride((prev) => ({ ...prev, focus: next }));
     // Focusing a terminal is one of the two ways its unread mark ends; the other
     // is the attention engine's episode-end edge. Both clear it on the host's
     // record, so a reload does not bring it back.
@@ -294,7 +346,23 @@ export function createViewState(
   }
 
   function seedCovers(tileId: TerminalId): boolean {
-    return override() === undefined && seededPick() === tileId;
+    return override().focus === undefined && seededPick() === tileId;
+  }
+
+  /** The tile the focus derivation moved to when the census dropped the one
+   *  that held it — taken ONCE, because its imperative half must happen once.
+   *  `undefined` when the derivation moved nothing. */
+  function takeAutoSwitch(): TerminalId | null | undefined {
+    const taken = pendingAutoSwitch;
+    pendingAutoSwitch = undefined;
+    return taken;
+  }
+
+  /** That switch's imperative half. The visit is NOT among them: the derived
+   *  MRU already leads with the active tile, so the trail needs no write. */
+  function noteAutoSwitch(tileId: TerminalId): void {
+    attention.clearUnread(tileId);
+    reportActive(tileId);
   }
 
   function noteSeededActivation(tileId: TerminalId): void {
@@ -320,7 +388,7 @@ export function createViewState(
     // flush later. Dropping to the pick would paint a doomed tile active for
     // that flush; the next activation (or an in-session restore's seed, which
     // asks `seedCovers` and finds the derivation overridden) writes it again.
-    setOverride(null);
+    setOverride((prev) => ({ ...prev, focus: null }));
     visits.clearHost(host);
     attention.clearAllUnread();
     setCanvasMaximized(false);
@@ -340,5 +408,7 @@ export function createViewState(
     reset,
     seedCovers,
     noteSeededActivation,
+    takeAutoSwitch,
+    noteAutoSwitch,
   };
 }
