@@ -89,7 +89,7 @@ import { splitMemberRef } from "../conductor/memberRef";
 import { memorySheet, useMemoryNeed } from "../conductor/memory/useMemory";
 import { useMembership, useNeedsYou, useWorkMap } from "../conductor/useWorks";
 import { showWork } from "../conductor/workListing";
-import { drivenByConductor, drivenRefs } from "../conductor/workReadings";
+import { drivenRefs } from "../conductor/workReadings";
 import { typedReply } from "../conductor/typedReply";
 import { runAction } from "../runAction";
 import type { TerminalSubject } from "../terminal/terminalSubject";
@@ -315,7 +315,10 @@ export function useAttention(deps: AttentionDeps): {
       const canvasShown = !conductorMode();
       const focusedId = deps.focusedId();
       const showing = new Set(conductorScreensShowing());
-      const driving = membership();
+      // The refs the Conductor drives, as STRINGS taken here: `useMembership`
+      // hands out `createProjection` entries, which are store proxies, and a
+      // leaf read off one in the fold's apply arm is a strict-read defect.
+      const driven = new Set(drivenRefs(membership()));
       const alerts = alertsEnabled();
       // The rich copy, for the active host's candidates only (a background
       // host has none — see `AttentionDeps`). `activeSubject` is a
@@ -346,7 +349,7 @@ export function useAttention(deps: AttentionDeps): {
         isActiveHost: active,
         // "Seen with your eyes": in front of you while kolu has focus.
         isWatched: (id) => inFront(id) && document.hasFocus(),
-        isDriven: (id) => drivenByConductor(driving, encHost, id),
+        isDriven: (id) => driven.has(fleetTerminalRef(encHost, id)),
         deliver: (id, asking, loud) =>
           deliver({
             host,

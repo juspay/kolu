@@ -9,7 +9,7 @@
 import type { Preferences } from "kolu-common/surface";
 import type { Membership } from "kolu-work";
 import type { TerminalId } from "kolu-common/surface";
-import { createRoot, createSignal } from "solid-js";
+import { createProjection, createRoot, createSignal } from "solid-js";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const wire = vi.hoisted(() => ({
@@ -321,6 +321,46 @@ describe("a terminal the Conductor drives", () => {
       expect(attentionRecordOf("remote:box-6").isUnread(A)).toBe(false);
       expect(hostMarks("remote:box-6").unseenFinished()).toBe(0);
     });
+  });
+
+  /** THE REAL SHAPE OF THE INDEX. Every case above hands the fold plain
+   *  objects, which no projection ever mints: `useMembership` reads a
+   *  `createProjection`, so each entry is a STORE PROXY, and `driver` read
+   *  off one while the fold runs — its apply arm — is a strict read with no
+   *  observer. The frame MOVES while the member is already driven, so the
+   *  fold asks `isDriven` about a live entry; the setup's `afterEach` fails
+   *  this test on the diagnostic that read raises. */
+  it("reads a membership projection's entries without a strict read in the fold", async () => {
+    vi.spyOn(document, "hasFocus").mockReturnValue(true);
+    vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue(undefined);
+    const [record, setRecord] = createSignal<Record<string, Membership>>({});
+    let disposeIndex = () => {};
+    const index = createRoot((dispose) => {
+      disposeIndex = dispose;
+      return createProjection<Record<string, Membership>>(
+        () => record(),
+        null,
+        {
+          name: "membershipProbe",
+        },
+      );
+    });
+    works.membership = () => new Map(Object.entries(index));
+    const away = drivenHost("remote:box-2");
+    try {
+      await withAttention(null, async () => {
+        setRecord(Object.fromEntries(naming("remote:box-2", "conductor")));
+        await settle();
+        // The frame moves with the membership already in place: the fold
+        // reads this entry rather than an empty index.
+        away.finish(A);
+        await settle();
+        expect(attentionRecordOf("remote:box-2").isUnread(A)).toBe(false);
+        expect(hostMarks("remote:box-2").unseenFinished()).toBe(0);
+      });
+    } finally {
+      disposeIndex();
+    }
   });
 });
 
