@@ -60,6 +60,7 @@ import IntentEditorDialog from "./intent/IntentEditorDialog";
 import { useIntentEditor } from "./intent/useIntentEditor";
 import DegradedCanvas from "./kaval/DegradedCanvas";
 import { type CanvasMode, canvasMode } from "./kaval/useCanvasMode";
+import { sameCanvasMode } from "./kaval/sameCanvasMode";
 import MobileKeyBar from "./MobileKeyBar";
 import MobilePullChrome from "./MobilePullChrome";
 import ConductorPane from "./conductor/ConductorPane";
@@ -329,25 +330,34 @@ const App: Component = () => {
   // The one canvas-surface decision — which surface wins, in what order. The
   // precedence (and the #1034 / F3 correctness it carries) lives in
   // `useCanvasMode`; App just renders the chosen arm's layout.
-  const mode = createMemo<CanvasMode>(() =>
-    canvasMode({
-      isLoading: session.isLoading,
-      // Keyed off the TILE count: a sleeping-only workspace (PR 2) stays on the
-      // canvas instead of falling back to the empty state. Today === terminal
-      // count.
-      terminalCount: () => tileStore.tileCount(),
-      // How many listed terminals' records haven't composed yet — lets the pure
-      // resolver hold `connecting` over `empty` while a reload's live terminals are
-      // still in flight, so the restore card can't flash before they appear.
-      recordsAwaited: () => store.recordPhases().awaited,
-    }),
+  //
+  // GATED on `sameCanvasMode`: the resolve reads the 1 s monotonic tick
+  // unconditionally (boot-deadline accrual), so a steady canvas re-evaluates every
+  // second and mints an equal-but-new arm. Without the gate that frame is published
+  // to every reader under the canvas once a second, which is also what Solid's
+  // attribution engine raises `UNSTABLE_MEMO_OUTPUT` on.
+  const mode = createMemo<CanvasMode>(
+    () =>
+      canvasMode({
+        isLoading: session.isLoading,
+        // Keyed off the TILE count: a sleeping-only workspace (PR 2) stays on the
+        // canvas instead of falling back to the empty state. Today === terminal
+        // count.
+        terminalCount: () => tileStore.tileCount(),
+        // How many listed terminals' records haven't composed yet — lets the pure
+        // resolver hold `connecting` over `empty` while a reload's live terminals are
+        // still in flight, so the restore card can't flash before they appear.
+        recordsAwaited: () => store.recordPhases().awaited,
+      }),
+    { equals: sameCanvasMode },
   );
   // Payload readers for thrash-sensitive canvas arms. Plain functions, not
   // memos — they don't add to the shell's reactive-primitive budget.
-  // Key every Match on `mode().kind === "…"` (stable boolean): `mode()` is a
-  // fresh object every getMonotonicNow tick (boot-deadline accrual), so an
-  // object-valued `when` remounts the arm ~1 Hz and wipes local state (elapsed
-  // baseline on ConnectCanvas #1962; focus/action identity on BootStalledCanvas).
+  // Key every Match on `mode().kind === "…"` (stable boolean): a payload-bearing
+  // arm whose payload is re-minted still publishes a fresh object (the gate
+  // compares payloads by identity), so an object-valued `when` would remount the
+  // arm and wipe local state (elapsed baseline on ConnectCanvas #1962;
+  // focus/action identity on BootStalledCanvas).
   // Fail loud (not `!`) if the arm is active without its payload — unrepresentable.
   const requireKind = <K extends CanvasMode["kind"], T>(
     kind: K,
@@ -514,8 +524,9 @@ const App: Component = () => {
             `useCanvasMode`; only the per-surface layout stays here.
 
             `<Switch>`, NOT a ts-pattern `match(mode())`, is load-bearing: the
-            `mode` memo returns a FRESH `CanvasMode` object every recompute (any
-            daemon-status / terminal-count tick), so a `{match(mode())…}` JSX
+            `mode` memo publishes a FRESH `CanvasMode` object whenever the decision
+            or a payload moves (the `sameCanvasMode` gate only holds frames that are
+            equal arm AND identical payload), so a `{match(mode())…}` JSX
             expression re-runs and RE-CREATES the matched subtree on every such
             tick — remounting `TerminalCanvas`/`TerminalContent`, which makes
             Corvu re-fire `onCollapse` and silently collapses a just-opened
