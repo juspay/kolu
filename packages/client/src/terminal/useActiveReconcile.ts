@@ -20,7 +20,13 @@
  *  CLAIMS the id, and the reconcile skips (draining) a claimed id. */
 
 import type { TerminalId } from "kolu-common/surface";
-import { type Accessor, createEffect, untrack } from "solid-js";
+import {
+  type Accessor,
+  createEffect,
+  onSettled,
+  runWithOwner,
+  untrack,
+} from "solid-js";
 import { pickAutoSwitchTarget } from "./autoSwitchTarget";
 import { createHostScopedParentSnapshot } from "./parentSnapshot";
 import { containingTileOf, type ParentEdge } from "./terminalTree";
@@ -437,7 +443,28 @@ export function useActiveReconcile(deps: {
       };
     },
     (pass) => {
-      for (const evict of pass.evictions) evict();
+      if (pass.evictions.length === 0) return;
+      // SETTLED, AS ONE UNIT. These writes are the eviction's whole write
+      // phase — the tab-strip repair's `activeSubTab`, the focus override, the
+      // refocus nonce — and this arm's compute has just read the terminal
+      // census. Written inline, every reader that folds that same census (the
+      // right panel's subject off the focus override, a pane's reveal fit off
+      // `activeSubTab`) re-runs inside this effect's frame against the list
+      // the compute was answering: the judged `EFFECT_RELAY_TEAR`, `warn` from
+      // its third sighting. An owner-less `onSettled` lands them in a later
+      // pass of the SAME flush, so the frame is their own and no frame is
+      // lost. ONE unit, not one per write: the repair and the refocus nonce
+      // are one answer, and the nonce's consumer is gated on the pane the
+      // repair selects — settling them apart would let it fire at a pane that
+      // is not shown yet. Unowned so the one-shot enqueues instead of becoming
+      // a child effect of this arm (which would carry this very frame); the
+      // writes create no children and register no cleanup, which `onSettled`
+      // forbids.
+      runWithOwner(null, () =>
+        onSettled(() => {
+          for (const evict of pass.evictions) evict();
+        }),
+      );
     },
   );
 }

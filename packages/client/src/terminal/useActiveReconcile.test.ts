@@ -1,8 +1,9 @@
+import { takeSolidDiagnostics } from "@kolu/solid-test-setup/setup";
 import { Effect } from "effect";
 import { LOCAL_HOST } from "kolu-common/hostKey";
 import type { TerminalId } from "kolu-common/surface";
 import { createRoot, createSignal, flush } from "solid-js";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   createViewState,
   type HostViewState,
@@ -30,6 +31,14 @@ vi.mock("../wire", () => ({
     },
   }),
 }));
+
+// RED AT THE FIRST SIGHTING. The cases below drive writes out of the
+// reconcile's apply arm, so an `info EFFECT_RELAY_TEAR` is this suite's
+// subject, not something to let the suite-wide judge wave through until it
+// escalates on its third repeat.
+afterEach(() => {
+  expect(takeSolidDiagnostics()).toEqual([]);
+});
 
 const T = (s: string) => s as TerminalId;
 
