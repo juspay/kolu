@@ -172,18 +172,33 @@ test("the init script subscribes the moment the client hands OBSERVE over", () =
     code: "REACTIVE_WRITE_IN_OWNED_SCOPE",
     kind: "write",
     severity: "error",
+    nodeName: "handle",
+    data: { operation: "set" },
     message: "a signal was written in an owned scope",
     loc: "src/conductor/PaletteRow.tsx:372:9",
     ownerPath: ["<App>", "<PaletteRow>"],
   });
-  assert.deepEqual(reported, [
-    {
-      code: "REACTIVE_WRITE_IN_OWNED_SCOPE",
-      loc: "src/conductor/PaletteRow.tsx:372:9",
-      ownerPath: ["<App>", "<PaletteRow>"],
-      message: "a signal was written in an owned scope",
-    },
-  ]);
+  const [got] = reported;
+  assert.ok(got);
+  // SOLID'S OWN GRADE COMES ACROSS, with the kind, the node's name and the
+  // event's data: the judge fails on `error`/`warn` and prints `info`, and it
+  // cannot do that from a field the page never forwarded.
+  const { stack, ...carried } = got;
+  assert.deepEqual(carried, {
+    code: "REACTIVE_WRITE_IN_OWNED_SCOPE",
+    loc: "src/conductor/PaletteRow.tsx:372:9",
+    ownerPath: ["<App>", "<PaletteRow>"],
+    message: "a signal was written in an owned scope",
+    severity: "error",
+    kind: "write",
+    nodeName: "handle",
+    data: { operation: "set" },
+  });
+  // The stack is captured inside the subscriber, which Solid calls
+  // synchronously inside the read or write that raised the finding — so it
+  // names the frame a location-less finding has no other name for.
+  assert.equal(typeof stack, "string");
+  assert.match(String(stack), /solidDevBuild\.test\.ts/);
 });
 
 test("the verdict names each diagnostic, where it was and what threw", () => {
@@ -191,26 +206,100 @@ test("the verdict names each diagnostic, where it was and what threw", () => {
     events: [
       {
         code: "REACTIVE_WRITE_IN_OWNED_SCOPE",
+        severity: "error",
         loc: "src/conductor/PaletteRow.tsx:372:9",
         ownerPath: ["<App>", "<PaletteRow>"],
         message: "a signal was written in an owned scope",
       },
       // An unowned primitive carries no owner path, and a node compiled
       // without locations no `loc`: neither is printed as `undefined`.
-      { code: "NO_OWNER_EFFECT", message: "an effect with no owner" },
+      {
+        code: "NO_OWNER_EFFECT",
+        severity: "warn",
+        message: "an effect with no owner",
+      },
     ],
     lines: ["useHead: ignoring invalid attribute name"],
     pageErrors: ["TypeError: x is not a function"],
   });
+  assert.equal(verdict?.fails, true);
   assert.equal(
-    verdict,
+    verdict?.words,
     [
       "Solid dev diagnostics (3):",
-      "  REACTIVE_WRITE_IN_OWNED_SCOPE at src/conductor/PaletteRow.tsx:372:9 in <App> > <PaletteRow>: a signal was written in an owned scope",
-      "  NO_OWNER_EFFECT: an effect with no owner",
+      "  [error] REACTIVE_WRITE_IN_OWNED_SCOPE at src/conductor/PaletteRow.tsx:372:9 in <App> > <PaletteRow>: a signal was written in an owned scope",
+      "  [warn] NO_OWNER_EFFECT: an effect with no owner",
       "  useHead: ignoring invalid attribute name",
       "the pages threw (1):",
       "  TypeError: x is not a function",
+    ].join("\n"),
+  );
+});
+
+// SOLID'S `info` IS ADVISORY, and this judge says so too: a measurement's
+// relay tear — the one corvu-next's own setup passes on — is reported and
+// fails nothing.
+test("an info finding is printed as advisory and fails nothing", () => {
+  const verdict = solidDiagnosticVerdict({
+    events: [
+      {
+        code: "EFFECT_RELAY_TEAR",
+        severity: "info",
+        loc: "src/layout/RightPanelDrawer.tsx:81:5",
+        message: "an effect wrote a value another effect reads",
+        scenario: "the drawer opens",
+        step: "I open the right panel",
+      },
+    ],
+    lines: [],
+    pageErrors: [],
+  });
+  assert.equal(verdict?.fails, false);
+  assert.equal(
+    verdict?.words,
+    [
+      "Solid also graded 1 finding(s) info — advisory, failing nothing:",
+      '  [info] EFFECT_RELAY_TEAR at src/layout/RightPanelDrawer.tsx:81:5: an effect wrote a value another effect reads [first in "the drawer opens" at step "I open the right panel"]',
+    ].join("\n"),
+  );
+});
+
+test("a warn finding fails, and carries its info neighbours along", () => {
+  const verdict = solidDiagnosticVerdict({
+    events: [
+      { code: "EFFECT_RELAY_TEAR", severity: "info", loc: "a.tsx:1:1" },
+      { code: "EFFECT_RELAY_TEAR", severity: "warn", loc: "b.tsx:2:2" },
+    ],
+    lines: [],
+    pageErrors: [],
+  });
+  assert.equal(verdict?.fails, true);
+  assert.equal(
+    verdict?.words,
+    [
+      "Solid dev diagnostics (1):",
+      "  [warn] EFFECT_RELAY_TEAR at b.tsx:2:2",
+      "Solid also graded 1 finding(s) info — advisory, failing nothing:",
+      "  [info] EFFECT_RELAY_TEAR at a.tsx:1:1",
+    ].join("\n"),
+  );
+});
+
+// A shape this harness does not know is a finding it must not wave through:
+// every `emitDiagnostic` in 2.0.4 passes a grade, so a missing one means the
+// event lost a field on its way here.
+test("a finding with no severity fails rather than passing as advisory", () => {
+  const verdict = solidDiagnosticVerdict({
+    events: [{ code: "STRICT_READ_UNTRACKED" }],
+    lines: [],
+    pageErrors: [],
+  });
+  assert.equal(verdict?.fails, true);
+  assert.equal(
+    verdict?.words,
+    [
+      "Solid dev diagnostics (1):",
+      "  [(no severity)] STRICT_READ_UNTRACKED",
     ].join("\n"),
   );
 });
@@ -270,9 +359,70 @@ test("identical findings fold into one, keeping the first occurrence", () => {
   );
 });
 
+// TWO LOCATION-LESS FINDINGS ARE TWO FINDINGS. An apply-arm strict read
+// carries neither `loc` nor `ownerPath`, only the name of the value read —
+// so without `nodeName` in the key every unnamed site in the app collapses
+// into one row, which is how site D stayed unnamed.
+test("location-less findings fold apart by the node they name", () => {
+  const read = (nodeName: string) => ({
+    code: "STRICT_READ_UNTRACKED",
+    severity: "warn",
+    nodeName,
+  });
+  assert.deepEqual(
+    foldDiagnostics([
+      read("isMobile"),
+      read("isMobile"),
+      read("resizableContext"),
+    ]).map((f) => [f.count, f.event.nodeName]),
+    [
+      [2, "isMobile"],
+      [1, "resizableContext"],
+    ],
+  );
+});
+
+// THE STACK IS THE NAME a location-less finding has. It is printed for the
+// first occurrence of such a finding, and not for one that already says
+// where it is.
+test("the verdict prints the first stack for a location-less finding", () => {
+  const stack =
+    "Error\n    at read (solid-js/dist/dev.js:591:7)\n    at useMobile (src/hooks/useMobile.ts:43:19)";
+  const verdict = solidDiagnosticVerdict({
+    events: [
+      { code: "STRICT_READ_UNTRACKED", severity: "warn", stack },
+      {
+        code: "STRICT_READ_UNTRACKED",
+        severity: "warn",
+        stack: "Error\n    at somewhere else",
+      },
+      {
+        code: "UNSTABLE_MEMO_OUTPUT",
+        severity: "warn",
+        loc: "a.tsx:1:1",
+        stack,
+      },
+    ],
+    lines: [],
+    pageErrors: [],
+  });
+  assert.equal(
+    verdict?.words,
+    [
+      "Solid dev diagnostics (3):",
+      "  ×2 [warn] STRICT_READ_UNTRACKED",
+      "    first raised from:",
+      "    at read (solid-js/dist/dev.js:591:7)",
+      "    at useMobile (src/hooks/useMobile.ts:43:19)",
+      "  [warn] UNSTABLE_MEMO_OUTPUT at a.tsx:1:1",
+    ].join("\n"),
+  );
+});
+
 test("the verdict folds repeats into one line, naming where the first was", () => {
   const raised = {
     code: "REACTIVE_WRITE_IN_OWNED_SCOPE",
+    severity: "error",
     loc: "src/palette/CommandPalette.tsx:88:3",
     ownerPath: ["<App>", "<CommandPalette>"],
     message: "a signal was written in an owned scope",
@@ -289,27 +439,27 @@ test("the verdict folds repeats into one line, naming where the first was", () =
       ],
       lines: [],
       pageErrors: [],
-    }),
+    })?.words,
     [
       "Solid dev diagnostics (2):",
-      '  ×2 REACTIVE_WRITE_IN_OWNED_SCOPE at src/palette/CommandPalette.tsx:88:3 in <App> > <CommandPalette>: a signal was written in an owned scope [first in "the palette opens" at step "I press the palette key"]',
+      '  ×2 [error] REACTIVE_WRITE_IN_OWNED_SCOPE at src/palette/CommandPalette.tsx:88:3 in <App> > <CommandPalette>: a signal was written in an owned scope [first in "the palette opens" at step "I press the palette key"]',
     ].join("\n"),
   );
 });
 
 test("the headline counts a finding once, not as event AND footer", () => {
   const verdict = solidDiagnosticVerdict({
-    events: [{ code: "REACTIVE_WRITE_IN_OWNED_SCOPE" }],
+    events: [{ code: "REACTIVE_WRITE_IN_OWNED_SCOPE", severity: "error" }],
     lines: [],
     // The console footer of that same finding: Solid prints one per code.
     footers: ["what it means and how to fix it: https://…"],
     pageErrors: [],
   });
   assert.equal(
-    verdict,
+    verdict?.words,
     [
       "Solid dev diagnostics (1):",
-      "  REACTIVE_WRITE_IN_OWNED_SCOPE",
+      "  [error] REACTIVE_WRITE_IN_OWNED_SCOPE",
       "the console footers behind them (1), each already named as an event above:",
       "  what it means and how to fix it: https://…",
     ].join("\n"),
@@ -331,11 +481,24 @@ test("dev-smoke fails on a Solid diagnostic, not only on a console error", () =>
       consoleErrors: [],
       pageErrors: [],
       diagnostics: [
-        { code: "REACTIVE_WRITE_IN_OWNED_SCOPE", loc: "src/App.tsx:3:1" },
-        { code: "REACTIVE_WRITE_IN_OWNED_SCOPE", loc: "src/App.tsx:3:1" },
+        {
+          code: "REACTIVE_WRITE_IN_OWNED_SCOPE",
+          severity: "error",
+          loc: "src/App.tsx:3:1",
+        },
+        {
+          code: "REACTIVE_WRITE_IN_OWNED_SCOPE",
+          severity: "error",
+          loc: "src/App.tsx:3:1",
+        },
       ],
     }),
-    ["solid diagnostic: ×2 REACTIVE_WRITE_IN_OWNED_SCOPE at src/App.tsx:3:1"],
+    {
+      failures: [
+        "solid diagnostic: ×2 [error] REACTIVE_WRITE_IN_OWNED_SCOPE at src/App.tsx:3:1",
+      ],
+      advisories: [],
+    },
   );
   assert.deepEqual(
     devSmokeFailures({
@@ -343,6 +506,31 @@ test("dev-smoke fails on a Solid diagnostic, not only on a console error", () =>
       pageErrors: ["TypeError: x is not a function"],
       diagnostics: [],
     }),
-    ["console.error: boom", "uncaught: TypeError: x is not a function"],
+    {
+      failures: [
+        "console.error: boom",
+        "uncaught: TypeError: x is not a function",
+      ],
+      advisories: [],
+    },
+  );
+});
+
+// The boot judge grades exactly as the scenario judge does: an `info` finding
+// is reported, not a failure, and a `warn` one fails.
+test("dev-smoke reports an info finding and fails on a warn one", () => {
+  assert.deepEqual(
+    devSmokeFailures({
+      consoleErrors: [],
+      pageErrors: [],
+      diagnostics: [
+        { code: "EFFECT_RELAY_TEAR", severity: "info", loc: "a.tsx:1:1" },
+        { code: "EFFECT_RELAY_TEAR", severity: "warn", loc: "b.tsx:2:2" },
+      ],
+    }),
+    {
+      failures: ["solid diagnostic: [warn] EFFECT_RELAY_TEAR at b.tsx:2:2"],
+      advisories: ["solid diagnostic: [info] EFFECT_RELAY_TEAR at a.tsx:1:1"],
+    },
   );
 });

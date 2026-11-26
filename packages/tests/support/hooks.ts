@@ -1706,10 +1706,14 @@ BeforeStep(function (this: KoluWorld, { pickle, pickleStep }) {
   this.currentStep = pickleStep.text;
 });
 
-// THE SOLID-DIAGNOSTICS LANE'S VERDICT: a scenario whose pages raised any Solid
-// dev diagnostic fails, naming each — what the diagnostics channel handed over
-// (code, location, owner path) and what reached the console, plus everything
-// the pages threw, since a diagnostic that throws is also a page error.
+// THE SOLID-DIAGNOSTICS LANE'S VERDICT: a scenario whose pages raised a Solid
+// dev diagnostic Solid itself grades `error` or `warn` fails, naming each —
+// what the diagnostics channel handed over (code, grade, location, owner path,
+// node name) and what reached the console, plus everything the pages threw,
+// since a diagnostic that throws is also a page error. A finding Solid grades
+// `info` is advisory: printed, failing nothing, because that is Solid's own
+// word for "reported, not wrong" (a DOM measurement's relay tear is the
+// standing example).
 // Defined BEFORE the main After hook because Cucumber runs After hooks in
 // reverse definition order, so this runs last — after the teardown and failure
 // artifacts, which a throw here must not skip. On a production server it has
@@ -1722,7 +1726,11 @@ After(function (this: KoluWorld) {
     pageErrors: this.errors,
   });
   if (verdict === undefined) return;
-  throw new Error(verdict);
+  if (!verdict.fails) {
+    console.info(`[worker:${workerId}] ${verdict.words}`);
+    return;
+  }
+  throw new Error(verdict.words);
 });
 
 // Generous timeout: under KOLU_X11CAP this hook transcodes the raw grab (mp4 +

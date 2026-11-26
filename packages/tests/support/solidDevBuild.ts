@@ -129,12 +129,25 @@ const MANIFEST_PATH = "/solid-dev.json";
 export const SOLID_DIAGNOSTIC_BINDING = "__koluSolidDiagnostic";
 
 /** One diagnostic as the page hands it over — the serialisable part of
- *  Solid's `DiagnosticEvent`. */
+ *  Solid's `DiagnosticEvent`, plus the stack the binding captured.
+ *
+ *  `severity` IS SOLID'S OWN GRADE and this harness honours it: every
+ *  `emitDiagnostic` call in 2.0.4 passes one (`dev-shared.js`, `dev.js` and
+ *  `dev.attribution.js` alike), so an event without one is a shape this
+ *  harness does not know and is failed on rather than waved through. */
 export interface PageDiagnostic {
   code?: unknown;
   loc?: unknown;
   ownerPath?: unknown;
   message?: unknown;
+  severity?: unknown;
+  kind?: unknown;
+  nodeName?: unknown;
+  data?: unknown;
+  /** The stack at the moment the page's subscriber ran, which is inside the
+   *  `read()` (or write) that raised it — the only name a finding with no
+   *  `loc` and no `ownerPath` has. */
+  stack?: unknown;
 }
 
 /**
@@ -155,11 +168,18 @@ export function solidObserveInitScript(): string {
   var subscribe = function (observe) {
     if (!observe || !observe.diagnostics) return;
     observe.diagnostics.subscribe(function (event) {
+      var data;
+      try { data = JSON.parse(JSON.stringify(event.data)); } catch (e) { data = undefined; }
       window[${JSON.stringify(SOLID_DIAGNOSTIC_BINDING)}]({
         code: event.code,
         loc: event.loc,
         ownerPath: event.ownerPath,
         message: event.message,
+        severity: event.severity,
+        kind: event.kind,
+        nodeName: event.nodeName,
+        data: data,
+        stack: new Error().stack,
       });
     });
   };
@@ -195,12 +215,29 @@ export function solidObserveInitScript(): string {
  *  whole locator, and the scenario and step stamped below are what place it. */
 export function solidDiagnosticWords(event: PageDiagnostic): string {
   const code = typeof event.code === "string" ? event.code : "(no code)";
+  const grade =
+    typeof event.severity === "string" ? event.severity : "(no severity)";
   const where = typeof event.loc === "string" ? ` at ${event.loc}` : "";
   const path = Array.isArray(event.ownerPath)
     ? ` in ${event.ownerPath.join(" > ")}`
     : "";
+  const named =
+    typeof event.nodeName === "string" ? ` on "${event.nodeName}"` : "";
   const said = typeof event.message === "string" ? `: ${event.message}` : "";
-  return `${code}${where}${path}${said}`;
+  return `[${grade}] ${code}${where}${path}${named}${said}`;
+}
+
+/** IS THIS FINDING ADVISORY? Solid grades every diagnostic it emits, and
+ *  `info` is its own word for "reported, not wrong" — the relay tear of a DOM
+ *  measurement is the standing example (`RightPanelDrawer.tsx:81` through
+ *  corvu-next's `createSize`), and corvu-next's own vitest setup already
+ *  passes on exactly that grade. `error` and `warn` fail, and so does an
+ *  event carrying no grade at all: a shape this harness does not know is a
+ *  finding it must not wave through. This is not a softer gate — a derivable
+ *  relay is `warn` from its first sighting, and a repeated one escalates to
+ *  `warn` at three (`dev.attribution.js:1205-1217,1609`). */
+export function isAdvisoryDiagnostic(event: PageDiagnostic): boolean {
+  return event.severity === "info";
 }
 
 /** One diagnostic with the scenario and step that were running when it
@@ -234,9 +271,12 @@ export interface FoldedDiagnostic {
   count: number;
 }
 
-/** Fold by `(code, loc, ownerPath)`: one site raising on every keystroke is
- *  one line with a count, not a wall. The first occurrence is kept, because
- *  its scenario and step are the ones a reader can reproduce from. */
+/** Fold by `(code, loc, ownerPath, nodeName)`: one site raising on every
+ *  keystroke is one line with a count, not a wall. The first occurrence is
+ *  kept, because its scenario and step — and its stack — are the ones a
+ *  reader can reproduce from. `nodeName` is part of the key because a
+ *  location-less finding has nothing else to tell two sites apart by, and
+ *  distinct sites collapsing into one row is how a finding stays unnamed. */
 export function foldDiagnostics(
   events: readonly StampedDiagnostic[],
 ): FoldedDiagnostic[] {
@@ -246,6 +286,7 @@ export function foldDiagnostics(
       event.code ?? null,
       event.loc ?? null,
       event.ownerPath ?? null,
+      event.nodeName ?? null,
     ]);
     const seen = byKey.get(key);
     if (seen) seen.count += 1;
@@ -255,7 +296,14 @@ export function foldDiagnostics(
 }
 
 /** A folded group in one line: how many there were, what it was, and where
- *  the run was the first time. */
+ *  the run was the first time.
+ *
+ *  A FINDING WITH NO LOCATION GETS ITS STACK. The binding captures
+ *  `new Error().stack` inside the page's subscriber, which runs synchronously
+ *  inside the `read()` that raised the finding, so for the apply-arm strict
+ *  reads that carry neither `loc` nor `ownerPath` the stack is the only thing
+ *  that names the reading frame. It is printed for those alone: a finding
+ *  with a location already says where it is. */
 function foldedWords(folded: FoldedDiagnostic): string {
   const many = folded.count > 1 ? `×${folded.count} ` : "";
   const { scenario, step } = folded.event;
@@ -263,7 +311,12 @@ function foldedWords(folded: FoldedDiagnostic): string {
     scenario === undefined && step === undefined
       ? ""
       : ` [first in "${scenario ?? "(no scenario)"}" at step "${step ?? "(before the first step)"}"]`;
-  return `${many}${solidDiagnosticWords(folded.event)}${first}`;
+  const { loc, stack } = folded.event;
+  const where =
+    typeof loc === "string" || typeof stack !== "string"
+      ? ""
+      : `\n    first raised from:\n${stack.split("\n").slice(1).join("\n")}`;
+  return `${many}${solidDiagnosticWords(folded.event)}${first}${where}`;
 }
 
 /** THE LANE'S VERDICT, or `undefined` when the scenario raised nothing.
@@ -274,37 +327,65 @@ function foldedWords(folded: FoldedDiagnostic): string {
  * for. The page's thrown errors ride along, because a diagnostic that threw
  * is also the throw the page reports.
  *
+ * SOLID'S GRADE DECIDES WHETHER IT FAILS. `error` and `warn` findings — and
+ * any event with no grade — make `fails` true; `info` findings are printed
+ * as advisory under their own heading and fail nothing. A console line is a
+ * Solid warning the console itself printed, so it fails.
+ *
  * THE HEADLINE COUNTS EACH FINDING ONCE. An error-severity diagnostic reaches
  * the console as a footer line AND the channel as an event, so footers are
  * reported apart from the count — they name nothing the events do not. */
+export interface SolidDiagnosticVerdict {
+  /** Does this scenario fail? */
+  readonly fails: boolean;
+  /** The whole report: the failing findings, then the advisory ones. */
+  readonly words: string;
+}
+
 export function solidDiagnosticVerdict(found: {
   events: readonly StampedDiagnostic[];
   lines: readonly string[];
   footers?: readonly string[];
   pageErrors: readonly string[];
-}): string | undefined {
+}): SolidDiagnosticVerdict | undefined {
   const total = found.events.length + found.lines.length;
   if (total === 0) return undefined;
-  const parts = [`Solid dev diagnostics (${total}):`];
-  for (const folded of foldDiagnostics(found.events))
-    parts.push(`  ${foldedWords(folded)}`);
-  for (const line of found.lines) parts.push(`  ${line}`);
-  const footers = found.footers ?? [];
-  if (footers.length > 0) {
+  const advisory = found.events.filter(isAdvisoryDiagnostic);
+  const failing = found.events.filter((e) => !isAdvisoryDiagnostic(e));
+  const fails = failing.length + found.lines.length > 0;
+  const parts: string[] = [];
+  if (fails) {
     parts.push(
-      `the console footers behind them (${footers.length}), each already named as an event above:`,
+      `Solid dev diagnostics (${failing.length + found.lines.length}):`,
     );
-    for (const footer of footers) parts.push(`  ${footer}`);
+    for (const folded of foldDiagnostics(failing))
+      parts.push(`  ${foldedWords(folded)}`);
+    for (const line of found.lines) parts.push(`  ${line}`);
+    const footers = found.footers ?? [];
+    if (footers.length > 0) {
+      parts.push(
+        `the console footers behind them (${footers.length}), each already named as an event above:`,
+      );
+      for (const footer of footers) parts.push(`  ${footer}`);
+    }
+    if (found.pageErrors.length > 0) {
+      parts.push(`the pages threw (${found.pageErrors.length}):`);
+      for (const error of found.pageErrors) parts.push(`  ${error}`);
+    }
   }
-  if (found.pageErrors.length > 0) {
-    parts.push(`the pages threw (${found.pageErrors.length}):`);
-    for (const error of found.pageErrors) parts.push(`  ${error}`);
+  if (advisory.length > 0) {
+    parts.push(
+      `Solid also graded ${advisory.length} finding(s) info — advisory, failing nothing:`,
+    );
+    for (const folded of foldDiagnostics(advisory))
+      parts.push(`  ${foldedWords(folded)}`);
   }
-  return parts.join("\n");
+  return { fails, words: parts.join("\n") };
 }
 
-/** WHAT A DEV-SERVER BOOT FAILS ON (`packages/tests/devSmoke.ts`), as one
- *  pure list so it can be tested without a browser.
+/** WHAT A DEV-SERVER BOOT FAILS ON (`packages/tests/devSmoke.ts`), and what
+ *  it merely reports, as one pure pair so both can be tested without a
+ *  browser.
  *
  *  Console errors are the module-load crash class that check exists for. A
  *  Solid dev diagnostic is a failure too: the Vite dev server serves the SAME
@@ -312,18 +393,29 @@ export function solidDiagnosticVerdict(found: {
  *  is the cheapest answer to "is this finding a boot fact?" — and `ci::dev-
  *  smoke` was green while every e2e scenario raised two, because it looked at
  *  the console alone. Page errors ride along: a diagnostic that throws reaches
- *  the page as a throw. */
+ *  the page as a throw.
+ *
+ *  Solid's grade decides which list a diagnostic lands in, exactly as it does
+ *  for the e2e lane's verdict: `info` is advisory, everything else fails. */
 export function devSmokeFailures(saw: {
   consoleErrors: readonly string[];
   pageErrors: readonly string[];
   diagnostics: readonly StampedDiagnostic[];
-}): string[] {
+}): { failures: string[]; advisories: string[] } {
   const failures: string[] = [];
   for (const text of saw.consoleErrors) failures.push(`console.error: ${text}`);
   for (const message of saw.pageErrors) failures.push(`uncaught: ${message}`);
-  for (const folded of foldDiagnostics(saw.diagnostics))
-    failures.push(`solid diagnostic: ${foldedWords(folded)}`);
-  return failures;
+  const folds = (events: readonly StampedDiagnostic[]) =>
+    foldDiagnostics(events).map(
+      (folded) => `solid diagnostic: ${foldedWords(folded)}`,
+    );
+  failures.push(
+    ...folds(saw.diagnostics.filter((e) => !isAdvisoryDiagnostic(e))),
+  );
+  return {
+    failures,
+    advisories: folds(saw.diagnostics.filter(isAdvisoryDiagnostic)),
+  };
 }
 
 /**
