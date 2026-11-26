@@ -12,12 +12,14 @@ import type { HostKey } from "kolu-common/hostKey";
 import {
   type Accessor,
   type Component,
+  createEffect,
+  createMemo,
   createSignal,
   For,
   Match,
-  onSettled,
   Show,
   Switch,
+  untrack,
 } from "solid-js";
 import type { JSX } from "@solidjs/web";
 import { runAction } from "./runAction";
@@ -27,8 +29,8 @@ import Section from "./ui/Section";
 import { activeHost, padiMap } from "./wire";
 
 export type PadiDiagnosticsFetch =
-  /** `host: null` is the moment before the first ask — the dialog is up and
-   *  the question has not been put yet. */
+  /** `host: null` is the value the fetch is built with, before its first ask
+   *  — replaced in the mount's own flush, so it is never painted. */
   | { readonly kind: "loading"; readonly host: HostKey | null }
   | {
       readonly kind: "not-connected";
@@ -48,24 +50,33 @@ export interface PadiDiagnosticsFetcher {
 }
 
 /** The dialog's one fetch of the active host's diagnostics: asked once as the
- *  dialog settles, and again on `refresh()`. A superseded answer is dropped.
+ *  dialog mounts, and again on `refresh()`. A superseded answer is dropped.
  *
- *  The first ask is NOT made in this factory's body: `refresh` reads the
- *  active host and the entry's connection and then writes this signal, and a
- *  component body (which is where the dialog builds this) is neither a scope
- *  to read reactive state in nor one to write it from. It runs at the settle
- *  that follows the dialog's first render instead — one frame of "Asking
- *  padi…", which is what the section paints while the ask is in flight too. */
+ *  The question's two reads — which host is active, and whether that host's
+ *  padi is connected — are taken in a MEMO, never in the imperative phase.
+ *  A keyed-entry read registers its subscription ref-count through
+ *  `onCleanup` under whatever scope reads it, and a settle callback forbids
+ *  children, so reading the entry there throws. The memo is both a legal
+ *  owner for that cleanup and the right lifetime for it: the ref-count is
+ *  released when the dialog goes away.
+ *
+ *  The ask is the effect's apply arm, where a write belongs, and only its
+ *  FIRST run asks — a later host switch or connection change recomputes the
+ *  memo and asks nothing, so this stays the dialog's one automatic question.
+ *  That run lands in the mount's flush, so the section opens on "Asking
+ *  padi…" with the question already put. */
 export function createPadiDiagnosticsFetch(): PadiDiagnosticsFetcher {
   const [state, setState] = createSignal<PadiDiagnosticsFetch>({
     kind: "loading",
     host: null,
   });
   let generation = 0;
-  const refresh = (): void => {
+  const target = createMemo(() => {
     const host = activeHost();
-    const entry = padiMap.entry(host);
-    const connection = entry.state().kind;
+    return { host, connection: padiMap.entry(host).state().kind };
+  });
+  const ask = (now: { host: HostKey; connection: string }): void => {
+    const { host, connection } = now;
     const mine = ++generation;
     if (connection !== "connected") {
       setState({ kind: "not-connected", host, connection });
@@ -74,21 +85,35 @@ export function createPadiDiagnosticsFetch(): PadiDiagnosticsFetcher {
     setState({ kind: "loading", host });
     runAction(
       "read padi diagnostics",
-      entry.procedures.diagnostics.read().pipe(
-        Effect.match({
-          onSuccess: (answer) => {
-            if (mine === generation) setState({ kind: "answer", host, answer });
-          },
-          onFailure: (err) => {
-            if (mine === generation) {
-              setState({ kind: "error", host, message: toError(err).message });
-            }
-          },
-        }),
-      ),
+      padiMap
+        .entry(host)
+        .procedures.diagnostics.read()
+        .pipe(
+          Effect.match({
+            onSuccess: (answer) => {
+              if (mine === generation) {
+                setState({ kind: "answer", host, answer });
+              }
+            },
+            onFailure: (err) => {
+              if (mine === generation) {
+                setState({
+                  kind: "error",
+                  host,
+                  message: toError(err).message,
+                });
+              }
+            },
+          }),
+        ),
     );
   };
-  onSettled(refresh);
+  createEffect(target, (now, previous) => {
+    if (previous === undefined) ask(now);
+  });
+  /** The Refresh button — a DOM event handler, which may read freely; the
+   *  memo is already owned, so taking its current value registers nothing. */
+  const refresh = (): void => ask(untrack(target));
   return { state, refresh };
 }
 
