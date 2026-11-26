@@ -228,14 +228,20 @@ export function solidDiagnosticWords(event: PageDiagnostic): string {
 }
 
 /** WHO RELAYED, AND WHAT THEY WROTE — the two names that decide whose tear a
- *  relay tear is. `nodeName` on an `EFFECT_RELAY_TEAR` is the VICTIM (the
- *  node that ran twice), so the pair that tells a library's own measurement
- *  apart from a write-back the app made from inside that measurement's report
- *  rides in `data` alone: `relay` is the effect that wrote, `wrote` the
- *  signal or store leaf it wrote (`@solidjs/signals` 2.0.4
- *  `dev.attribution.js:1136-1151,1238-1253`). Both are printed for that code
- *  and for no other; a tear that carries neither is printed as it stands,
- *  because a missing field is not a field worth a placeholder. */
+ *  relay tear is, PUT UP FRONT. `nodeName` on an `EFFECT_RELAY_TEAR` is the
+ *  VICTIM (the node that ran twice), so the pair that tells a library's own
+ *  measurement apart from a write-back the app made from inside that
+ *  measurement's report is `relay` (the effect that wrote) and `wrote` (the
+ *  signal or store leaf it wrote). Solid carries both in `data` AND spells
+ *  them inside `message` (`@solidjs/signals` 2.0.4
+ *  `dev.attribution.js:1136-1151,1238-1253`), but that message is one
+ *  ~600-character sentence that states the victim, the root, the relay, the
+ *  write and the repair in that order, so the pair it decides by sits in the
+ *  middle of it. Reading the pair out of `data` and printing it before the
+ *  message puts the two names where a failure's first line is read and where
+ *  a grep over a run's log can take them. Both are printed for that code and
+ *  for no other; a tear that carries neither is printed as it stands, because
+ *  a missing field is not a field worth a placeholder. */
 function relayWords(event: PageDiagnostic): string {
   if (event.code !== "EFFECT_RELAY_TEAR") return "";
   const data: unknown = event.data;
