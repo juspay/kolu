@@ -37,6 +37,7 @@ import { useWorkPr, type WorkPr } from "./workPr";
 import {
   membersByWork,
   roleRuns,
+  sameStandingLine,
   type StandingLine,
   standingLine,
   type WorkMemberRow,
@@ -151,7 +152,14 @@ export function createWorkFacts(
   );
   const pr = useWorkPr(id, work);
   const checks = createMemo(() => checksTally(pr()));
-  const at = createMemo(() => standingLine(record(), checks()));
+  // GATED: `standingLine` folds the snapshot again on every move of the
+  // record and mints a fresh line — and a fresh `Option` inside it — for a
+  // work standing exactly where it stood, so every face drawn from it (the
+  // rail's clock and its dot, the card's line, the chip's hover card) would
+  // re-run for nothing.
+  const at = createMemo(() => standingLine(record(), checks()), {
+    equals: sameStandingLine,
+  });
   return { record, members, pr, checks, at };
 }
 

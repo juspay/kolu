@@ -14,11 +14,11 @@ import { collection } from "@kolu/surface";
 import { driveDeltas, settle } from "@kolu/surface/solid/testlib";
 import { Schema } from "effect";
 import type { TerminalId } from "kolu-common/surface";
-import type { WorkMember } from "kolu-work";
+import type { Work, WorkId, WorkMember } from "kolu-work";
 import { createEffect, createRoot, createSignal, flush } from "solid-js";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { FleetTerminalStanding } from "../palette/fleetTerminals";
-import type { MemberLine } from "./workFacts";
+import type { MemberLine, WorkFacts } from "./workFacts";
 import type { WorkMemberRow } from "./workReadings";
 
 const P = "11111111-1111-4111-8111-111111111111" as TerminalId;
@@ -48,7 +48,15 @@ vi.mock("../palette/fleetTerminals", () => ({
     fromStore?.(host, id) ?? records().get(`${host}/${id}`) ?? { kind: "gone" },
 }));
 
-import { readWorkFacts } from "./workFacts";
+// The two collection mirrors `createWorkFacts` joins. Empty here: the
+// standing case below is about the WORK's own line, and a work with no
+// members and no PR has the same line a face reads.
+vi.mock("./useWorks", () => ({
+  useWorkMembers: () => () => new Map(),
+  useWorkPrs: () => () => new Map(),
+}));
+
+import { createWorkFacts, readWorkFacts } from "./workFacts";
 
 const here = (state: string): FleetTerminalStanding => ({
   kind: "here",
@@ -221,5 +229,44 @@ describe("one work's reading", () => {
         expect(members()).toHaveLength(2);
       },
     );
+  });
+});
+
+describe("a work's standing line", () => {
+  /** The same work, read again — a fresh record built from the same facts,
+   *  which is what the collection hands a face on every frame. */
+  const reread = (): Work =>
+    ({
+      key: { kind: "watch", host: "local", id: "a" },
+      title: "A work being watched",
+      events: [],
+      decisions: [],
+      startedAt: "2026-01-01T00:00:00Z",
+      state: { kind: "open" },
+      worktree: { kind: "unread" },
+    }) as Work;
+
+  it("keeps the line while the record is read again five times", () => {
+    const [work, setWork] = createSignal<Work>(reread());
+    // The face lives in its own root, and the writes happen OUTSIDE it: a
+    // write from inside an owned scope is a different fault entirely.
+    let facts: WorkFacts | undefined;
+    const dispose = createRoot((off) => {
+      facts = createWorkFacts(() => "w" as WorkId, work);
+      return off;
+    });
+    if (facts === undefined) throw new Error("the face read no facts");
+    const first = facts.at();
+    // Five, not four: the diagnostic names a memo at four equal publishes,
+    // so the run has to go past it rather than stop on it.
+    for (let move = 1; move <= 5; move += 1) {
+      setWork(reread());
+      flush();
+    }
+    // THE SAME OBJECT, so nothing drawn from the line — the rail's clock
+    // and dot, the card's line, the chip's hover card — ran again.
+    expect(facts.at()).toBe(first);
+    expect(facts.at().lead).toBe("Watching");
+    dispose();
   });
 });

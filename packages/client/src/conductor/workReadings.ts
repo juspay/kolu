@@ -531,6 +531,22 @@ export interface StandingLine {
   readonly clock: "for" | "asked" | "green" | "ended";
 }
 
+/** TWO STANDING LINES THAT SAY THE SAME THING. The fold builds a fresh line
+ *  (and a fresh `Option` inside it) on every move of the record, so the only
+ *  comparison that can close a gate on it is this one, field by field. */
+export const sameStandingLine = (
+  a: StandingLine | undefined,
+  b: StandingLine | undefined,
+): boolean =>
+  a === b ||
+  (a !== undefined &&
+    b !== undefined &&
+    a.who === b.who &&
+    a.lead === b.lead &&
+    a.since === b.since &&
+    a.clock === b.clock &&
+    Option.getOrUndefined(a.what) === Option.getOrUndefined(b.what));
+
 /** THE WORDS FOR WHERE A WORK STANDS — the lead beside the dot, by the reason
  *  `standing()` gives. `question` and `merge` share "Needs you": what differs
  *  is what is wanted after it. A work that is over is led by how it ended

@@ -40,6 +40,7 @@ import { resizableWidth } from "../ui/resizableWidth";
 import { useShownClock } from "../ui/shown";
 import { createWidthDrag, WidthResizeHandle } from "../ui/WidthResizeHandle";
 import MemberMarks from "./MemberMarks";
+import { sameFields } from "./sameItems";
 import { createWorkFacts } from "./workFacts";
 import { standingClock } from "./WorkStanding";
 import {
@@ -78,20 +79,30 @@ const Line: Component<{ id: WorkId; work: Work }> = (props) => {
     () => props.id,
     () => props.work,
   );
-  const where = () => {
-    const one = workWhere(props.work);
-    return one.kind === "branch" && one.repo !== "" ? one : undefined;
-  };
+  /** THE REPOSITORY THE WORK IS ON, when it is on one — gated, because the
+   *  reading mints a fresh `{ kind, repo, branch }` for a work that never
+   *  moved repository, and the `<Show>` under it would rebuild its arm. */
+  const where = createMemo(
+    () => {
+      const one = workWhere(props.work);
+      return one.kind === "branch" && one.repo !== "" ? one : undefined;
+    },
+    { equals: sameFields },
+  );
   /** HOW LONG IT HAS STOOD WHERE IT IS: while it waits on you, the Dock's
    *  violet capsule with the bare duration ("6m"); otherwise the card's own
-   *  clock (`standingClock`), so the two say one thing in one way. */
-  const since = createMemo(() =>
-    at().who === "you"
-      ? {
-          wait: true,
-          text: recencyText("wait-chip", Date.parse(at().since), now()),
-        }
-      : { wait: false, text: standingClock(at(), now()) },
+   *  clock (`standingClock`), so the two say one thing in one way. Gated on
+   *  what it says: the line above it is re-folded whenever the record moves,
+   *  and a clock that reads the same is not news. */
+  const since = createMemo(
+    () =>
+      at().who === "you"
+        ? {
+            wait: true,
+            text: recencyText("wait-chip", Date.parse(at().since), now()),
+          }
+        : { wait: false, text: standingClock(at(), now()) },
+    { equals: sameFields },
   );
   /** Where it stands, in words: the lead, then what is wanted. */
   const standing = () => [at().lead, ...Option.toArray(at().what)].join(" · ");
