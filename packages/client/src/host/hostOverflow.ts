@@ -116,3 +116,16 @@ export function computeVisibleHosts(
     overflowed: order.filter((h) => !visibleSet.has(h.key)).map((h) => h.key),
   };
 }
+
+/** Whether two lists of canonical host keys are the same keys in the same
+ *  seats. `computeVisibleHosts` returns fresh arrays on every publish — it
+ *  re-runs whenever the ACTIVE host changes, which usually leaves the outcome
+ *  identical — so dependants that key off the reference need this to tell a
+ *  real seating change from a repeat. Order is significant: the strip's drag
+ *  preview reads index positions off it. */
+export function sameHostKeyOrder(
+  a: readonly string[],
+  b: readonly string[],
+): boolean {
+  return a.length === b.length && a.every((key, i) => key === b[i]);
+}

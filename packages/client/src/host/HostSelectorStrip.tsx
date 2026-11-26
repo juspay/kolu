@@ -113,7 +113,11 @@ import { useHostKavalChain } from "./useHostKaval";
 import { CONTEXTUAL_TIPS } from "../settings/tips";
 import { useTips } from "../settings/useTips";
 import { runAction } from "../runAction";
-import { computeVisibleHosts, type HostFit } from "./hostOverflow";
+import {
+  computeVisibleHosts,
+  type HostFit,
+  sameHostKeyOrder,
+} from "./hostOverflow";
 import { removeHost } from "./removeHost";
 import { createDragClickGuard } from "./dragClickGuard";
 import { isPinnedHostKey, moveHostKey, reorderableHostKeys } from "./hostOrder";
@@ -794,9 +798,13 @@ const HostSelectorStrip: Component = () => {
 
   // ── Drag to re-order (desktop strip only) ─────────────────────────────
   // The sortable ids: the SEATED chips minus the pinned one, in rendered order —
-  // `SortableProvider` reads index positions off this list.
-  const draggableVisible = createMemo(() =>
-    hostFit().visible.filter((key) => !isPinnedHostKey(key)),
+  // `SortableProvider` reads index positions off this list. `hostFit()`
+  // republishes on every host switch, so the filter would mint a fresh array
+  // for an unchanged seating; the gate keeps the prior reference and spares the
+  // whole drag graph below it.
+  const draggableVisible = createMemo(
+    () => hostFit().visible.filter((key) => !isPinnedHostKey(key)),
+    { equals: sameHostKeyOrder },
   );
   // The first strip holding two SEATED remote tabs — the first moment a drag
   // changes anything (one remote beside the pinned local tab has nowhere to
