@@ -44,7 +44,13 @@ import {
   type WorkMember,
   type WorkRow,
 } from "kolu-work";
-import { type Accessor, createMemo, mapArray } from "solid-js";
+import {
+  type Accessor,
+  createMemo,
+  createProjection,
+  mapArray,
+  type Store,
+} from "solid-js";
 import { createSharedRoot } from "../createSharedRoot";
 import { app } from "../wire";
 import { workMentionOf, type WorkMention } from "./mentionCandidates";
@@ -204,20 +210,67 @@ export const useWorkMembers = createSharedRoot<
   Accessor<ReadonlyMap<string, WorkMember>>
 >(() => mapOf(app.collections.workMembers.use(), "workMembers"));
 
+/** Two readings of the membership index: the same terminals, each carrying
+ *  the entry its readers already hold. */
+const sameMembers = (
+  a: ReadonlyMap<string, Membership>,
+  b: ReadonlyMap<string, Membership>,
+): boolean =>
+  a.size === b.size && [...a].every(([ref, one]) => b.get(ref) === one);
+
 /** THE MEMBERSHIP INDEX, derived once — terminal (`host/id`) to the work it is
  *  a member of, and WHO DRIVES it.
  *
  *  Every mark and every person-input site reads this: the dock row, the tile
- *  title, the column, the lock. One memo in one shared root, so a dock of
- *  twenty rows does not walk the works twenty times a frame, and the mark, the
- *  banner and the keystroke gate are the same answer by construction. */
+ *  title, the column, the lock. One derivation in one shared root, so a dock
+ *  of twenty rows does not walk the works twenty times a frame, and the mark,
+ *  the banner and the keystroke gate are the same answer by construction.
+ *
+ *  A PROJECTION, not a `Map` memo, and that is the difference between twenty
+ *  rows waking and one: `membershipOf` folds the whole collection again on any
+ *  change to any work or any member and mints a fresh `Membership` per
+ *  terminal, so a `Map` of them hands every reader a new object for an
+ *  unchanged membership. The reconcile channel commits the fold per key
+ *  instead — a terminal whose membership did not move keeps the very object
+ *  its readers hold, one whose role or driver moved wakes only its own
+ *  readers, and a terminal that left the works reads `undefined`. */
+const useMembershipIndex = createSharedRoot<Store<Record<string, Membership>>>(
+  () => {
+    const works = useWorkMap();
+    const members = useWorkMembers();
+    return createProjection<Record<string, Membership>>(
+      () => Object.fromEntries(membershipOf(works(), members())),
+      null,
+      { name: "membership" },
+    );
+  },
+);
+
+/** IS THIS ONE TERMINAL IN A PIECE OF WORK, and whose is it — the reading a
+ *  mark, a lock or any other per-terminal face takes. Reads ONE key of the
+ *  index, so the other nineteen rows of a dock are not its dependency.
+ *
+ *  The ref is an ACCESSOR because a face is handed it as a prop and a tile
+ *  can be pointed at another terminal without remounting. */
+export const useMembershipAt = (
+  terminal: Accessor<string>,
+): Accessor<Membership | undefined> => {
+  const index = useMembershipIndex();
+  return () => index[terminal()];
+};
+
+/** THE WHOLE INDEX AS A MAP — for the folds that genuinely need every
+ *  membership at once (the composer's mention candidates, the attention
+ *  index, the names of a work's terminals). Re-publishes when a terminal
+ *  joins or leaves; a membership that only MOVES is read through the kept
+ *  entry, so this fold does not re-run for it. */
 export const useMembership = createSharedRoot<
   Accessor<ReadonlyMap<string, Membership>>
 >(() => {
-  const works = useWorkMap();
-  const members = useWorkMembers();
-  return createMemo(() => membershipOf(works(), members()), {
-    name: "membership",
+  const index = useMembershipIndex();
+  return createMemo(() => new Map(Object.entries(index)), {
+    name: "membershipMap",
+    equals: sameMembers,
   });
 });
 

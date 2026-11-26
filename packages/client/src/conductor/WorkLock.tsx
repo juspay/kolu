@@ -40,8 +40,9 @@
 import type { Membership } from "kolu-work";
 import { type Component, createEffect, createMemo, Show } from "solid-js";
 import { dismissLockCard, lockCardShown } from "./personInput";
+import { sameFields } from "./sameItems";
 import { useConductor } from "./useConductor";
-import { useMembership } from "./useWorks";
+import { useMembershipAt } from "./useWorks";
 import { lockCardWords, type Lock, lockWords } from "./workReadings";
 
 const BUTTON_CLASS =
@@ -53,18 +54,23 @@ const WorkLock: Component<{
   terminal: string;
   pill?: boolean;
 }> = (props) => {
-  const membership = useMembership();
+  const membership = useMembershipAt(() => props.terminal);
   const conductor = useConductor();
   /** The membership ONLY while something drives this terminal, with its
    *  driver NARROWED to the two that are a lock — the `nobody` driver (no
    *  lock) and the absent membership (no work) are one case here, and it
-   *  draws nothing. */
+   *  draws nothing.
+   *
+   *  Gated, because the narrowing re-spreads: the frame, its words and the
+   *  card are drawn from the fields, so a reading that says what the last
+   *  one said is not a reason to run them again. */
   const driven = createMemo(
     (): (Membership & { readonly driver: Lock }) | undefined => {
-      const at = membership().get(props.terminal);
+      const at = membership();
       if (at === undefined || at.driver === "nobody") return undefined;
       return { ...at, driver: at.driver };
     },
+    { equals: sameFields },
   );
   const carded = () => driven() !== undefined && lockCardShown(props.terminal);
 
