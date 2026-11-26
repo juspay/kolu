@@ -77,6 +77,7 @@ import { liveArm } from "./terminalStatus";
 import { workFileSource } from "./workFile";
 import {
   cardShown,
+  cardWaiting,
   chooseView,
   chosenView,
   isPicked,
@@ -185,6 +186,10 @@ const WorkCard: Component<{
     () => ({ want: wantedCard(), id: props.id, onScreen: onScreen() }),
     ({ want, id, onScreen: visible }) => {
       if (want === null || want.id !== id || !visible) return;
+      // ANSWERED ALREADY: the request stands after it is served (it names the
+      // work that is still picked), so what tells a new ask from a standing
+      // one is the cards' own cursor, not the request going away.
+      if (!cardWaiting(want.seq)) return;
       cardShown(want.seq);
       // A second ask while the first still flashes starts it over: the mark
       // comes off now and goes back on in the next frame.

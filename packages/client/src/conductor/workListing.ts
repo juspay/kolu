@@ -69,7 +69,7 @@ const [inspected, setInspected] = createSignal<string | null>(null);
 const [finishedOpen, setFinishedOpen] = createSignal(false);
 /** A work asked to come into view — keyed by a counter so asking twice for
  *  the same work scrolls twice, and with the question to bring into view
- *  when the asker named one. Cleared by the work that answered it. */
+ *  when the asker named one. */
 export interface WantedCard {
   readonly id: WorkId;
   readonly ask: string | null;
@@ -77,6 +77,13 @@ export interface WantedCard {
 }
 const [wanted, setWanted] = createSignal<WantedCard | null>(null);
 let asks = 0;
+/** The newest request a card has already answered. A PLAIN NUMBER, not a
+ *  signal: it is the cards' own bookkeeping, read and written from the
+ *  imperative half of the effect that serves the request, and it is nobody's
+ *  reason to run. Clearing the request itself would do that — it is the very
+ *  signal that effect tracks, so every "go to this work" would cost a second
+ *  flush in which each card learns there is nothing left to do. */
+let served = 0;
 
 /** The picked work, or `null` for all the works. */
 export const pickedWork = picked;
@@ -156,13 +163,15 @@ export const toggleFinished = (): void => {
 /** The work a route asked to bring into view, if one is waiting. */
 export const wantedCard = wanted;
 
-/** The work answered: it is in view.
- *
- *  NO READ: the check rides the setter's updater, which is handed the value
- *  in place — the only caller is a card's effect, whose imperative half
- *  reads no reactive state, and a newer request is simply left standing. */
+/** Has this request still to be answered? Asked by a card's effect in its
+ *  imperative half, which reads no reactive state. */
+export const cardWaiting = (seq: number): boolean => seq > served;
+
+/** The work answered: it is in view. The request is LEFT STANDING — it names
+ *  a work that is still picked, and a card mounted after it was served finds
+ *  it answered already. */
 export function cardShown(seq: number): void {
-  setWanted((was) => (was?.seq === seq ? null : was));
+  served = Math.max(served, seq);
 }
 
 /** GO TO A WORK — the one route every face takes: a work chip, a `#/work/…`
