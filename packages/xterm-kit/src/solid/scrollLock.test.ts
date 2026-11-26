@@ -591,4 +591,48 @@ describe("createScrollLock — the write door runs inside the effect phase", () 
     disposeEffect();
     t.dispose();
   });
+
+  it("does not wake the disabled-setting effect for every buffered chunk", () => {
+    // The setting rides a signal the pane's own state moves — that is the
+    // ROOT write in the product: a sub-terminal list length the lock's
+    // `enabled` accessor transitively reads. Buffered output must not join it
+    // as a second dependency, or this effect runs twice for that one write:
+    // once in its flush, once when the door's mirror write lands in the effect
+    // phase (EFFECT_RELAY_TEAR, `warn` from the third sighting).
+    const [panes, setPanes] = createSignal(1);
+    const [setting, setSetting] = createSignal(true);
+    const t = setup(() => setting() && panes() > 0);
+    t.lock.armUserScrollIntent("wheel");
+    t.scrollUp(10);
+    const disposeEffect = createRoot((d) => {
+      createEffect(
+        () => panes(),
+        (n) => {
+          // TWO door writes in the one flush: the second must not be a second
+          // wake-up either.
+          t.lock.writeData(t.term, `a${n}`);
+          t.lock.writeData(t.term, `b${n}`);
+        },
+        { name: "scrollLockOutputSink" },
+      );
+      return d;
+    });
+    flush();
+    // Past the escalation threshold, not at it.
+    for (const n of [2, 3, 4, 5]) {
+      setPanes(n);
+      flush();
+    }
+    expect(t.trace).toEqual([]);
+
+    // Turning the setting off drains everything the door accumulated — the
+    // apply arm reads the buffer at the moment it runs, not at the moment it
+    // subscribed.
+    setSetting(false);
+    flush();
+    expect(t.trace).toEqual(["w:a1b1a2b2a3b3a4b4a5b5"]);
+    expect(t.lock.isLocked()).toBe(false);
+    disposeEffect();
+    t.dispose();
+  });
 });

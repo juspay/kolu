@@ -129,7 +129,7 @@ export function createScrollLock(
    *  signal that answer would still be "unlocked" and the bytes the lock was
    *  just engaged to hold would jump the user's screen — the exact defect this
    *  module exists to prevent. The signal beside it is the REACTIVE MIRROR the
-   *  UI (and the `enabled` effect) re-runs on; one writer moves both. TRACKED
+   *  UI re-runs on; one writer moves both. TRACKED
    *  readers (`isLocked`, `pending`) subscribe to the mirror and answer from
    *  the authority, so a tracked read is never a flush behind an imperative
    *  one. IMPERATIVE readers (`lockedNow`, `pendingNow`) answer from the
@@ -346,8 +346,7 @@ export function createScrollLock(
   /** The imperative façade over {@link drain}: reads the buffer's current
    *  contents and replays them. Every caller is an event handler, a write-door
    *  entry or the public API — never a tracked reader, hence `pendingNow`; the
-   *  `enabled` effect below takes the buffer from its own compute and calls
-   *  `drain` directly. */
+   *  `enabled` effect below drains the same way, from its apply arm. */
   function flush(): void {
     drain(pendingNow());
   }
@@ -366,18 +365,20 @@ export function createScrollLock(
     setLockState(null);
   }
 
-  // Clear scroll lock when the setting is toggled off. The buffer rides the
-  // compute (it is what the drain needs, and an effect callback may read no
-  // reactive source); the extra dependency only adds runs that return
-  // immediately while the setting is on.
+  // Clear scroll lock when the setting is toggled off. The compute reads ONLY
+  // the setting: the buffer is whatever the door has accumulated by the time
+  // this runs, so the apply arm takes it from the plain authority. Riding it
+  // on the compute instead subscribed this effect to every chunk the door
+  // buffers — a write that lands in the effect phase, so one root write ran
+  // this effect twice (EFFECT_RELAY_TEAR) for a dependency it never needed.
   createEffect(
-    () => ({ off: enabled() === false, buffered: pending() }),
-    ({ off, buffered }) => {
+    () => enabled() === false,
+    (off) => {
       if (!off) return;
-      drain(buffered);
+      drain(pendingNow());
       setLockState(null);
     },
-    { defer: true },
+    { defer: true, name: "scrollLockDisabled" },
   );
 
   /** Pure verdict for an off-/at-bottom scroll — the latch decision in
