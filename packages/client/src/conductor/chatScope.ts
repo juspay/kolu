@@ -15,6 +15,7 @@ import { createSignal } from "solid-js";
 import { setPhoneView } from "./phoneView";
 import { closeReader } from "./reader/useReader";
 import { useWorkMap } from "./useWorks";
+import { WHOLE_TRANSCRIPT } from "./transcriptScroll";
 
 const [scope, setScope] = createSignal<WorkId | null>(null);
 
@@ -31,6 +32,14 @@ export const chatScope = (): {
   const record = useWorkMap()().get(id);
   return record === undefined ? null : { id, record };
 };
+
+/** WHICH TRANSCRIPT DOCUMENT THE SCOPE NAMES. The whole conversation and a
+ *  chat about one work are two documents in the same scroller, and where the
+ *  reader is in each is kept per document (`./transcriptScroll.ts`). Derived
+ *  here, beside the scope it is a function of, so the transcript, the
+ *  composer and the pill all name the same document with no copy of it
+ *  anywhere. */
+export const shownDocument = (): string => chatScope()?.id ?? WHOLE_TRANSCRIPT;
 
 /** POINT THE CHAT AT A WORK: the reader gives way, and the chat shows the
  *  turns about it. What picking a work does (`workListing.ts`). */

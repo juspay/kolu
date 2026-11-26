@@ -65,14 +65,12 @@ import {
   applyTranscriptScroll,
   pinTranscript,
   rememberTranscriptScroll,
-  showTranscriptDocument,
   transcriptPinned,
   transcriptPlace,
   unpinTranscript,
-  WHOLE_TRANSCRIPT,
 } from "./transcriptScroll";
 import type { FileHolders } from "./namedFiles";
-import { chatScope } from "./chatScope";
+import { chatScope, shownDocument } from "./chatScope";
 import { sameFields, sameItems } from "./sameItems";
 import { quietChat, type QuietTurn } from "./quietChat";
 import type { Turn } from "./turnWorks";
@@ -349,17 +347,13 @@ const ConductorTranscript: Component<{
     );
   };
 
-  /** The document the scroller's place belongs to: a scoped chat's own, or
-   *  the whole conversation under its own name. */
-  const shownDoc = (): string => chatScope()?.id ?? WHOLE_TRANSCRIPT;
-
   // The mount's own restore, once the first stable render has put the rows in
   // the column. The follow effect below places the container too — on its
   // first run, which is what a conversation that mounts with rows already in
   // hand goes through — and both land on the same remembered place, so the
   // two are idempotent with each other.
   onSettled(() => {
-    applyTranscriptScroll(scroller, transcriptPlace(shownDoc()));
+    applyTranscriptScroll(scroller, transcriptPlace(shownDocument()));
   });
 
   /** New rows arrived while the reader was away from the end — what makes the
@@ -394,24 +388,6 @@ const ConductorTranscript: Component<{
 
   const shown = useShown();
 
-  /** WHICH DOCUMENT THE SCROLLER SHOWS — written here, above the follow
-   *  effect, and NOT behind that effect's `visible` guard: the pane showing a
-   *  work's chat is true whether or not anybody is looking at it, and the
-   *  scroller's place belongs to that document from the moment it is the one
-   *  shown. The write lands for the next run of everything that reads it;
-   *  the follow effect puts the container at a place by the key its own run
-   *  computed, so it never depends on this write being visible yet. */
-  createEffect(
-    shownDoc,
-    (doc) => {
-      showTranscriptDocument(doc);
-    },
-    // An effect takes no name from the compiler, and its findings are
-    // reported at its OWNER's JSX site (`ConductorPane.tsx:395`), so this one
-    // says which effect it is itself.
-    { name: "showTranscriptDocument" },
-  );
-
   /** The document the container was last put at the place of. `undefined`
    *  until the first run, so the mount's restore is not repeated. */
   let atDocument: string | undefined;
@@ -438,12 +414,12 @@ const ConductorTranscript: Component<{
     // remembered offset alone, and coming back re-runs this with the column
     // laid out again.
     () => {
-      const doc = shownDoc();
+      const doc = shownDocument();
       return [
         signature(),
         redraws(),
         workMap(),
-        transcriptPinned(),
+        transcriptPinned(doc),
         shown(),
         doc,
         // READ ONCE, not depended on: the reader's pixel is what this run
@@ -495,7 +471,9 @@ const ConductorTranscript: Component<{
         // the pin above — so there is no path that leaves the remembered
         // position behind. Recording on unmount instead would read a detached
         // element, whose scrollTop browsers are free to have already reset.
-        onScroll={(event) => rememberTranscriptScroll(event.currentTarget)}
+        onScroll={(event) =>
+          rememberTranscriptScroll(event.currentTarget, shownDocument())
+        }
         // A wheel notch UP, read before the browser has moved anything. The
         // `scroll` above is dispatched a frame later, by which time a chunk
         // may have re-pinned the view — and that event would then measure the
@@ -503,7 +481,8 @@ const ConductorTranscript: Component<{
         // transcript and loses. This decides the intent; `scroll` still
         // corrects the pixel.
         onWheel={(event) => {
-          if (event.deltaY < 0) unpinTranscript(event.currentTarget);
+          if (event.deltaY < 0)
+            unpinTranscript(event.currentTarget, shownDocument());
         }}
         // `min-w-0` + `overflow-x-hidden`: this column is a flex child of the
         // pane, and a flex child floors at its CONTENT unless told otherwise —
@@ -667,9 +646,9 @@ const ConductorTranscript: Component<{
           does for an arriving row, so there is no second path to the end that
           could disagree with the first. */}
       <ScrollToBottom
-        visible={!transcriptPinned()}
+        visible={!transcriptPinned(shownDocument())}
         active={unseen()}
-        onClick={pinTranscript}
+        onClick={() => pinTranscript(shownDocument())}
       />
     </div>
   );

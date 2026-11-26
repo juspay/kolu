@@ -74,7 +74,7 @@ import {
   withScopeMention,
   type WorkCandidate,
 } from "./mentions";
-import { chatScope, showAllChat } from "./chatScope";
+import { chatScope, showAllChat, shownDocument } from "./chatScope";
 import WorkChip from "./WorkChip";
 import WorkChipFace from "./WorkChipFace";
 import {
@@ -386,7 +386,7 @@ const ConductorComposer: Component<{
         // SENDING IS ASKING TO WATCH. Whatever the reader had scrolled up to
         // read, they have just spoken — so the answer, which starts arriving
         // in the next frames, must be the thing on screen.
-        pinTranscript();
+        pinTranscript(shownDocument());
         clearComposerAttachments();
         write("", 0);
       },

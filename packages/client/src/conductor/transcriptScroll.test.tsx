@@ -39,7 +39,6 @@ import {
   pinTranscript,
   rememberTranscriptScroll,
   revealTranscriptRow,
-  showTranscriptDocument,
   transcriptPinned,
   transcriptPlace,
   WHOLE_TRANSCRIPT,
@@ -158,15 +157,13 @@ const pill = (): HTMLButtonElement | null =>
 beforeEach(() => {
   column = COLUMN;
   setShown(true);
-  showTranscriptDocument(WHOLE_TRANSCRIPT);
-  pinTranscript();
+  pinTranscript(WHOLE_TRANSCRIPT);
 });
 afterEach(() => {
   unmount();
   column = COLUMN;
   setWorks(new Map());
-  showTranscriptDocument(WHOLE_TRANSCRIPT);
-  pinTranscript();
+  pinTranscript(WHOLE_TRANSCRIPT);
 });
 
 describe("the transcript's scroll position", () => {
@@ -347,53 +344,43 @@ describe("the transcript's follow rule", () => {
 });
 
 describe("each document's own place", () => {
+  /** A work's chat, by the key the scope gives it. */
+  const ONE = "branch:local/%2Fr/one";
+  const TWO = "branch:local/%2Fr/two";
+
   it("keeps a scrolled-up reader's place when a work's chat is shown and left", () => {
-    showTranscriptDocument(WHOLE_TRANSCRIPT);
-    rememberTranscriptScroll({
-      scrollTop: 300,
-      scrollHeight: 1000,
-      clientHeight: VIEWPORT,
-    });
+    rememberTranscriptScroll(
+      { scrollTop: 300, scrollHeight: 1000, clientHeight: VIEWPORT },
+      WHOLE_TRANSCRIPT,
+    );
     flush();
 
-    showTranscriptDocument("branch:local/%2Fr/one");
-    flush();
     // The browser clamps the SHORTER document to its end and fires `scroll`:
     // a movement the reader did not make, but one that is true of the work's
     // chat, not of the whole conversation.
-    rememberTranscriptScroll({
-      scrollTop: 0,
-      scrollHeight: VIEWPORT,
-      clientHeight: VIEWPORT,
-    });
+    rememberTranscriptScroll(
+      { scrollTop: 0, scrollHeight: VIEWPORT, clientHeight: VIEWPORT },
+      ONE,
+    );
     flush();
 
-    showTranscriptDocument(WHOLE_TRANSCRIPT);
-    flush();
-    expect(transcriptPinned()).toBe(false);
+    expect(transcriptPinned(WHOLE_TRANSCRIPT)).toBe(false);
     const el = { scrollTop: 0, scrollHeight: 1000, clientHeight: VIEWPORT };
     applyTranscriptScroll(el, transcriptPlace(WHOLE_TRANSCRIPT));
     expect(el.scrollTop).toBe(300);
   });
 
   it("keeps a follower of the whole conversation following after reading a work", () => {
-    showTranscriptDocument(WHOLE_TRANSCRIPT);
-    flush();
-    expect(transcriptPinned()).toBe(true);
+    expect(transcriptPinned(WHOLE_TRANSCRIPT)).toBe(true);
 
-    showTranscriptDocument("branch:local/%2Fr/two");
+    rememberTranscriptScroll(
+      { scrollTop: 400, scrollHeight: 1200, clientHeight: VIEWPORT },
+      TWO,
+    );
     flush();
-    rememberTranscriptScroll({
-      scrollTop: 400,
-      scrollHeight: 1200,
-      clientHeight: VIEWPORT,
-    });
-    flush();
-    expect(transcriptPinned()).toBe(false);
+    expect(transcriptPinned(TWO)).toBe(false);
 
-    showTranscriptDocument(WHOLE_TRANSCRIPT);
-    flush();
-    expect(transcriptPinned()).toBe(true);
+    expect(transcriptPinned(WHOLE_TRANSCRIPT)).toBe(true);
     const el = { scrollTop: 0, scrollHeight: 5000, clientHeight: VIEWPORT };
     applyTranscriptScroll(el, transcriptPlace(WHOLE_TRANSCRIPT));
     expect(el.scrollTop).toBe(5000);

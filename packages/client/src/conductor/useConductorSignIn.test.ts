@@ -53,7 +53,7 @@ vi.mock("../runAction", () => ({
   },
 }));
 vi.mock("./useConductorFacts", () => ({ useConductorFacts: () => () => ({}) }));
-vi.mock("./transcriptScroll", () => ({ pinTranscript: () => {} }));
+vi.mock("./transcriptScroll", () => ({ forgetTranscriptPlaces: () => {} }));
 vi.mock("../createSharedRoot", () => ({
   createSharedRoot: <T>(build: () => T) => {
     let made: T | undefined;
