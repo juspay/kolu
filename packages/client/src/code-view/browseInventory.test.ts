@@ -30,6 +30,26 @@ describe("mergeBrowseInventory", () => {
       expect(out.pending).toBe(true);
     });
 
+    it("returns ONE empty overlay across ticks that found nothing", () => {
+      // Pierre re-applies a new `lazyDirectories`/dim set by walking it, so a
+      // listing tick with no overlay must hand back the same two objects.
+      const first = mergeBrowseInventory(
+        ["a.ts"],
+        undefined,
+        undefined,
+        settled,
+      );
+      const second = mergeBrowseInventory(
+        ["a.ts", "b.ts"],
+        [],
+        undefined,
+        settled,
+      );
+      expect(first.ignored).toBe(second.ignored);
+      expect(first.lazyDirs).toBe(second.lazyDirs);
+      expect(first.paths).not.toBe(second.paths);
+    });
+
     it("admits NO overlay when tracked is absent and NOT pending — the error path", () => {
       // The case that makes rule 1 independent of readiness, and the one a
       // pending-only gate (`if (trackedPending) …; else tracked ?? []`) would

@@ -87,7 +87,7 @@ export function mergeBrowseInventory(
     readiness.trackedPending ||
     (readiness.showIgnored && readiness.ignoredPending);
   // Rule 1 — no tracked authority, no partition, so no overlay either.
-  if (!tracked) return { paths: [], ignored: [], lazyDirs: [], pending };
+  if (!tracked) return { paths: [], ignored: NONE, lazyDirs: NONE, pending };
   // Nothing to subtract against: skip building the membership set, which would
   // otherwise cost ~10x the rest of this function over a whole repo's file list
   // — paid on every inventory tick by every user with the toggle OFF, which is
@@ -188,7 +188,14 @@ function walkLazyLevels(
     for (const child of children) emit(child);
   };
   for (const entry of entries) emit(entry);
-  return { rows, lazyDirs, substituted };
+  // A walk that found no directory hands back the shared empty, so an
+  // inventory re-derived from unchanged listings keeps one `lazyDirs`
+  // reference and Pierre's expansion reconcile is not re-driven.
+  return {
+    rows,
+    lazyDirs: lazyDirs.length === 0 ? NONE : lazyDirs,
+    substituted,
+  };
 }
 
 /** The tree for a root git cannot list (a bare repository's folder): the
