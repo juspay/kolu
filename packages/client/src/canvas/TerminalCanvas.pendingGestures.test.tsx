@@ -275,3 +275,23 @@ it("leaves the authored trail at the number of committed writes", () => {
   flush();
   expect(authoredTrailLength(TILE)).toBe(2);
 });
+
+/** THE DERIVED DEFAULT IS PUBLISHED TO THE SINGLETON, AND FORGOTTEN.
+ *
+ *  A gesture raised OUTSIDE the canvas component (`useCanvasArrange`'s reset)
+ *  mints against `resolveShownLayout`, so the default this canvas painted has
+ *  to be visible there while it is in flight — and gone once the tile's own
+ *  layout has landed and the tile has left the placement map. */
+it("publishes the painted default to the singleton and forgets it on landing", () => {
+  const canvas = mountCanvas();
+  const derived = canvas.layout() as TileLayout;
+  const pending = usePendingLayouts();
+
+  // In flight: no saved value yet, so the shown layout IS the painted default.
+  expect(pending.resolveShownLayout(TILE, undefined)).toEqual(derived);
+
+  // The default's own echo lands; the tile leaves the placement map.
+  canvas.setSaved(derived);
+  flush();
+  expect(pending.resolveShownLayout(TILE, undefined)).toBeUndefined();
+});
