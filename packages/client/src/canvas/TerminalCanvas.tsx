@@ -32,7 +32,7 @@ import { DragDropProvider, type DropEvent } from "../dnd";
 import { savedSessionSub } from "../hostScope/activeWire";
 import { useStaleCheck } from "../terminal/staleness";
 import { useTerminalStore } from "../terminal/useTerminalStore";
-import type { TileId } from "../tile/tileContent";
+import { sameTileContent, type TileId } from "../tile/tileContent";
 import { useTileStore } from "../tile/useTileStore";
 import { refWithRelease } from "../ui/refWithRelease";
 import { useShown } from "../ui/shown";
@@ -675,7 +675,13 @@ const TerminalCanvas: Component<{
                 // discipline App.tsx's canvas-mode <Switch> relies on. Today the
                 // only kind is `terminal`; PR 2 adds a `sleeping` arm here and
                 // inherits drag / resize / focus / active for free.
-                const content = () => tileStore.contentOf(id);
+                // Memoised on the content's OWN equality: `contentOf` answers a
+                // fresh object per call over the tracked tile set, so a plain
+                // accessor re-published the whole dispatch — the `<Show>`'s
+                // condition and the `<Match>`'s — on every tile add and remove.
+                const content = createMemo(() => tileStore.contentOf(id), {
+                  equals: sameTileContent,
+                });
                 return (
                   <Show when={content()}>
                     {(c) => (

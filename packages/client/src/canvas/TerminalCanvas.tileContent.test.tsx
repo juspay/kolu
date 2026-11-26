@@ -90,9 +90,12 @@ vi.mock("./viewport/useCanvasViewport", () => ({
 vi.mock("./dock/Dock", () => ({ default: () => null }));
 vi.mock("./CanvasMinimap", () => ({ default: () => null }));
 vi.mock("./CanvasTile", () => ({
-  default: (props: { id: string; theme: string }) => (
-    <div data-testid="tile" data-id={props.id} data-theme={props.theme} />
-  ),
+  default: (props: { id: string; theme: string }) => {
+    content.mounts++;
+    return (
+      <div data-testid="tile" data-id={props.id} data-theme={props.theme} />
+    );
+  },
 }));
 
 import TerminalCanvas from "./TerminalCanvas";
