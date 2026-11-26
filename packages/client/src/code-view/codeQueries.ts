@@ -314,6 +314,29 @@ export function buildCodeQueries(input: {
   // between two panes showing the same file must not blank the view — and the
   // one thing that DOES need a terminal, the binary preview URL, is built where
   // the subject's terminal is read (the view), so the URL can never go stale.
+  //
+  // ITS INPUT IS THE STORED PICK, NOT THE SHOWN FILE, and that is a decision
+  // with a cost: once the tree stops showing a condemned pick
+  // (`codeTabShownSelection`), this query stays keyed on it — a refcounted
+  // (repo, file) watcher pair (`git: file-change` = HEAD + working tree) and a
+  // re-read per pulse whose `FileGone` the swallow below discards — until the
+  // user picks another file or the repo/host/mode re-keys it. Master's clear
+  // retired that watcher at the moment the file went away.
+  //
+  // It cannot read the shown file. The shown file is a VIEW derivation over
+  // `treeInventory` (`CodeTab.tsx`), which merges these listings with the
+  // view's OWN lazily-read directory levels; a file reached by expanding a
+  // folder of a root git cannot list, or an ignored directory, is listed
+  // nowhere else, so a query-layer re-derivation would condemn exactly the
+  // files whose content the user just opened. And this set is built per HOST
+  // in `hostCodeTab`, upstream of any Code view and retained while none is
+  // mounted, so the view's derivation is not in scope here — the only way to
+  // bring it in is to write the shown file back into the selection store,
+  // which is the clear-write this group deleted.
+  //
+  // What the standing read buys: the content for a file that comes back is
+  // already there, and nothing paints from it while it is condemned (the
+  // content pane is gated on the shown file).
   const fileContent = createPolledQuery<
     { repoPath: string; filePath: string },
     { repoPath: string; filePath: string },

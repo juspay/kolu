@@ -802,17 +802,20 @@ const CodeTab: Component<{
    *  Adding a third source later changes this memo and nothing else.
    *
    *  The overlay's `pending` leg is gated on the toggle because an idle query
-   *  reports `pending` forever (`createPolledQuery`'s `blank()` on a null
-   *  input) — with the toggle off it is idle by design, not loading. */
+   *  reports `pending` forever (`createPolledQuery`'s faces answer nothing and
+   *  stay pending while the input key is `null`) — with the toggle off it is
+   *  idle by design, not loading. */
   const treeInventory = createMemo<
     BrowseInventory & { scope: CodeTabScope | null }
   >(() => {
     // The slot a listing may be stamped with: the one we are showing, and only
-    // when the listing really was read for that slot's repo. The queries blank on
-    // a key change, but the blank and this read are separate reactive runs — so
-    // the listing's OWN repo is what refuses a value produced for the repo we
-    // left. (Both listings are keyed on the same repo, so in the steady state
-    // either both stamp or neither does.)
+    // when the listing really was read for that slot's repo. An ACTIVE query
+    // re-keys and this read happen in the same flush now, so the live instance
+    // needs no such guard; a PAUSED one does — it answers off the stamp its own
+    // store still carries (`createPolledQuery`'s `shownKey`), which is the whole
+    // point of the pause, so the listing's OWN repo is what refuses a value
+    // produced for the repo we left. (Both listings are keyed on the same repo,
+    // so in the steady state either both stamp or neither does.)
     const stampOf = (
       listing: ScopedCodePaths | undefined,
     ): CodeTabScope | null => {

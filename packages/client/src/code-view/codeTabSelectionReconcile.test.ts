@@ -222,6 +222,40 @@ describe("the Code tab's shown file", () => {
     ).toEqual([]);
     h.dispose();
   });
+
+  it("shows a condemned pick again when its file comes back, in that landing's own frame", () => {
+    // The improvement the derivation hides: the stored slot keeps a condemned
+    // pick, so the pick is re-judged on every frame and a file that RETURNS —
+    // deleted then recreated in browse, committed then re-edited in Local — is
+    // shown again with no user action. Master's reconcile wrote the clear, so
+    // the slot was empty by then and the user got the select hint until they
+    // picked the file a second time.
+    const h = harness({
+      selected: "obsolete.txt",
+      paths: ["keep.txt", "obsolete.txt"],
+    });
+    flush();
+    expect(h.shown()).toBe("obsolete.txt");
+
+    // `rm obsolete.txt`: the settled listing drops it, so it stops being shown
+    // — but the slot keeps the pick.
+    h.setPaths(["keep.txt"]);
+    flush();
+    expect(h.shown()).toBeNull();
+    expect(h.selected()).toBe("obsolete.txt");
+
+    // It is recreated. One frame, carrying the file and the paths that list it.
+    const before = h.frames.length;
+    h.setPaths(["keep.txt", "obsolete.txt"]);
+    flush();
+    expect(h.shown()).toBe("obsolete.txt");
+    expect(h.frames.length - before).toBe(1);
+    expect(h.frames.at(-1)).toEqual({
+      paths: ["keep.txt", "obsolete.txt"],
+      shown: "obsolete.txt",
+    });
+    h.dispose();
+  });
 });
 
 /** The grounded selection funnel. A write that lands on a file the settled

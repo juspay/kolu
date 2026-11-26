@@ -128,9 +128,14 @@ interface CodeTabShownSelection {
  *  removes the frame that used to paint a dead file: an effect that wrote the
  *  clear ran after the readers of the landed paths, so the tree was handed a
  *  `selected` path its own `paths` no longer contained, and corrected on the
- *  next flush (`EFFECT_RELAY_TEAR`). The server-side record keeps the dead
- *  path until the next pick, where this same derivation judges it again — so
- *  nothing observable rides on the write that is gone.
+ *  next flush (`EFFECT_RELAY_TEAR`). The stored slot keeps the dead path, and
+ *  that IS observable: the same derivation judges it again on every frame, so
+ *  a file that comes BACK — the same path recreated, or re-appearing in the
+ *  changed-file list after a re-edit — is shown again with no user action,
+ *  where master's clear had already dropped the slot and showed the select
+ *  hint. It is the behaviour this file wants (the pick belongs to the slot
+ *  until the user moves it), and `codeTabSelectionReconcile.test.ts` pins the
+ *  return leg.
  *
  *  Track membership rather than the `paths` array identity: browse paths come
  *  from a reconciled store array whose contents can change in place. Gate on
@@ -149,16 +154,25 @@ interface CodeTabShownSelection {
  *  holds its request until the next open (nothing consumes it any more). From
  *  that point the normal removal rule is authoritative again.
  *
- *  HOLD THE PICK ON THE FRAME THE REPO SLOT ITSELF MOVES. The shared paths /
- *  pending signals can momentarily expose the previous repo's snapshot before
- *  the query re-keys, so the new slot's pick would be judged against the
- *  previous repo's tree and falsely hidden. The frame that sees both slots
- *  shows the pick; the next one judges it against the values for its own slot.
- *  (A pane switch inside one repo does not move this key — the inventory is
- *  the same repo's — so nothing is held there.) The inventory's own
- *  `scope` stamp cannot serve as this gate: it is minted for the browse
- *  listings alone, and the diff modes' changed-file inventory carries none,
- *  so gating on it would stop ever hiding a committed file in Local/Branch.
+ *  HOLD THE PICK ON THE FRAME THE REPO SLOT ITSELF MOVES. The slot key is
+ *  (host, repo, MODE) (`codeTabRepoSlotKey`), so this fires on a mode switch
+ *  as well as a repo or host one, and the two are not the same frame. On a
+ *  REPO or HOST move the shared paths / pending signals can momentarily expose
+ *  the previous repo's snapshot, so the arriving pick would be judged against
+ *  the repo we left. On a MODE switch nothing is pending at all: the pick
+ *  changes slot while the arriving inventory is already settled, because the
+ *  diff modes read `localStatus`/`branchStatus`, which are always-on and keyed
+ *  on the repo alone (`codeQueries.ts:175-201`) — browse→local therefore hands
+ *  this derivation a finished changed-file list on the switch's own frame, and
+ *  that list is a different inventory from the one the browse pick was made
+ *  against. Either way the frame that sees both slots SHOWS the pick, and the
+ *  next frame the inventory itself moves — a git pulse, a listing landing —
+ *  judges it against the values for its own slot. (A pane switch inside one
+ *  repo and one mode does not move this key, so nothing is held there.) The
+ *  inventory's own `scope` stamp cannot serve as this gate: it is minted for
+ *  the browse listings alone, and the diff modes' changed-file inventory
+ *  carries none, so gating on it would stop ever hiding a committed file in
+ *  Local/Branch.
  *
  *  Every input is read BEFORE that hold returns, so a held frame still
  *  subscribes to the inventory that will settle it. */
