@@ -6,10 +6,15 @@ makes three facts loud:
 - **The tests run on Solid's development build.** It throws at load if
   `OBSERVE` from `solid-js` is undefined, which is what the production build
   answers.
-- **A Solid dev diagnostic fails the test that raised it.** It subscribes to
-  `OBSERVE.diagnostics` and throws from `afterEach` with every event the test
-  produced: strict reads, writes in owned scopes, cleanups in forbidden scopes,
-  any code Solid emits.
+- **A Solid dev diagnostic fails the test that raised it, with one named
+  exception.** It subscribes to `OBSERVE.diagnostics` and throws from
+  `afterEach` with every event the test produced — strict reads, writes in
+  owned scopes, cleanups in forbidden scopes, any code — at any severity, and
+  at none. The single exception is `EFFECT_RELAY_TEAR` graded `info`, a DOM
+  measurement's relay tear, which has no repair: it is printed as advisory and
+  fails nothing. `info` is not a blanket pass — `EFFECT_WRITES_OWN_SOURCE` is
+  `info` for a two-effect cycle, `FALLBACK_FLASH` and `OPTIMISTIC_REVERTED`
+  always are, and all three fail here.
 - **The attribution engine is held for the whole worker, and again for each
   test.** The 19 codes it raises are off until something calls
   `attribution.enable()`, so the worker-long hold is taken at load — before
@@ -63,7 +68,10 @@ The running app gets the same check from the e2e lane `ci::e2e-solid-dev`
 
 ## What not to break
 
-- Never filter codes or severities. A diagnostic that should not fail a test
-  is a defect in the code that raised it.
+- Never widen the advisory list by hand, and never filter on severity alone.
+  Exactly one code is advisory (`EFFECT_RELAY_TEAR` at `info`); a second one is
+  a decision that belongs in `isAdvisorySolidDiagnostic`, written down with the
+  reason that code has no repair. A diagnostic that should not fail a test is
+  otherwise a defect in the code that raised it.
 - Load it only in DOM projects. A Node project gets Solid's server build, where
   `OBSERVE` is undefined, and this file would rightly refuse it.

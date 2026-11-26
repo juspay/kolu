@@ -10,16 +10,19 @@
  *      `development` condition under vitest. If a config ever resolves the
  *      production build, this throws at load instead of every diagnostic below
  *      going silent.
- *   2. **Solid's own grade decides what fails.** Every event on
- *      `OBSERVE.diagnostics` (`@solidjs/signals` 2.0.4
+ *   2. **Solid's grade and the code together decide what fails.** Every event
+ *      on `OBSERVE.diagnostics` (`@solidjs/signals` 2.0.4
  *      `dist/types/core/dev.d.ts`, `Diagnostics.subscribe`) — a strict read,
  *      a write in an owned scope, a cleanup in a forbidden scope, any code —
- *      is collected, and the test's `afterEach` throws with every one Solid
- *      graded `error` or `warn` (or did not grade at all). One graded `info`
- *      is printed as advisory and fails nothing: that is Solid's own word
- *      for "reported, not wrong", and a DOM measurement's relay tear — which
- *      has no repair — is the standing example. The check names no codes, so
- *      a new one is covered the day Solid adds it.
+ *      is collected, and the test's `afterEach` throws with every one that is
+ *      not advisory. EXACTLY ONE finding is advisory: `EFFECT_RELAY_TEAR`
+ *      graded `info`, a DOM measurement's relay tear, which has no repair. It
+ *      is printed and fails nothing. Every OTHER code fails at ANY grade,
+ *      `info` included — Solid grades `EFFECT_WRITES_OWN_SOURCE` `info` for a
+ *      two-effect cycle and `FALLBACK_FLASH`/`OPTIMISTIC_REVERTED` `info`
+ *      always, and all three are defects here — and so does an event carrying
+ *      no grade at all. A second advisory code is a decision, not a default:
+ *      it needs its own disposition in `isAdvisorySolidDiagnostic` below.
  *   3. **The attribution tier is switched on too, once per test.** 19 of
  *      Solid's codes — the feedback family, `EFFECT_WRITES_OWN_SOURCE` among
  *      them — are raised by the attribution ENGINE, which the plain
