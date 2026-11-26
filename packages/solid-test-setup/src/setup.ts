@@ -2,7 +2,7 @@
  * The vitest setup file every Solid DOM test project loads
  * (`setupFiles: ["@kolu/solid-test-setup/setup"]`).
  *
- * Two facts, both loud:
+ * Three facts, all loud:
  *
  *   1. **The tests run on Solid's DEVELOPMENT build.** `OBSERVE` is exported
  *      only by `solid-js`'s dev and observe builds (`types/index.d.ts`:

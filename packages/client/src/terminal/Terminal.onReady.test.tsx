@@ -191,7 +191,7 @@ describe("Terminal onReady", () => {
     // registers, in the order dragover, dragleave, drop. A drag that
     // highlights the pane, a leave that clears it again, and a drop that
     // clears it and rejects the file is the proof that execution reached the
-    // final statement — the `drop` registration at `Terminal.tsx:1265`.
+    // final statement — the `drop` registration at `Terminal.tsx:1264`.
     const drag = (type: string, relatedTarget: Node | null = null): void => {
       const e = new Event(type, { bubbles: true, cancelable: true });
       Object.defineProperty(e, "dataTransfer", {

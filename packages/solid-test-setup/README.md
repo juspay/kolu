@@ -70,8 +70,11 @@ The running app gets the same check from the e2e lane `ci::e2e-solid-dev`
 
 - Never widen the advisory list by hand, and never filter on severity alone.
   Exactly one code is advisory (`EFFECT_RELAY_TEAR` at `info`); a second one is
-  a decision that belongs in `isAdvisorySolidDiagnostic`, written down with the
-  reason that code has no repair. A diagnostic that should not fail a test is
-  otherwise a defect in the code that raised it.
+  a decision that belongs in BOTH predicates that spell this rule out —
+  `isAdvisorySolidDiagnostic` here (`src/setup.ts`) and its e2e twin
+  `isAdvisoryDiagnostic` (`packages/tests/support/solidDevBuild.ts:249`) —
+  written down with the reason that code has no repair, and kept identical so
+  a finding is never advisory in one lane and red in the other. A diagnostic
+  that should not fail a test is otherwise a defect in the code that raised it.
 - Load it only in DOM projects. A Node project gets Solid's server build, where
   `OBSERVE` is undefined, and this file would rightly refuse it.
