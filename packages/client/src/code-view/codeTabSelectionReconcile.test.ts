@@ -1,20 +1,29 @@
-/** The Code tab's selection ↔ inventory reconcile (`CodeTab`'s only writer of
- *  the fresh-read pin), driven over plain signals — the real effect, not a
+/** The Code tab's SHOWN file — the stored pick judged against the retained
+ *  tree inventory — driven over plain signals, the real derivation and not a
  *  replica.
  *
- *  The pin is the point: a direct read can prove a file the retained tree has
- *  not published yet, and the pin holds the selection until it catches up. The
- *  frame that catches up CONSUMES the pin, and that consumption must not be a
- *  reason to decide again — under `@kolu/solid-test-setup`'s attribution tier a
- *  tracked pin fails this file with `EFFECT_WRITES_OWN_SOURCE`. */
+ *  Two things are the point. The pin: a direct read can prove a file the
+ *  retained tree has not published yet, and the pin holds the shown file until
+ *  it catches up, retiring on the frame it does. And the FRAME: the verdict is
+ *  derived, so a file the landed inventory no longer lists stops being shown in
+ *  the same pass that publishes those paths — never one flush later, with a
+ *  dead file painted in between (`EFFECT_RELAY_TEAR`, which under
+ *  `@kolu/solid-test-setup`'s attribution tier fails this file). Nothing here
+ *  writes the selection: the stored slot keeps its pick. */
 
 import type { CodeTabView } from "@kolu/padi-client/surface";
-import { createRoot, createSignal, flush } from "solid-js";
+import {
+  createEffect,
+  createMemo,
+  createRoot,
+  createSignal,
+  flush,
+} from "solid-js";
 import { describe, expect, it } from "vitest";
 import type { OpenInCodeTabRequest } from "./codeTabOpenController";
 import {
+  codeTabShownSelection,
   createCodeTabSelect,
-  createCodeTabSelectionReconcile,
 } from "./codeTabSelectionReconcile";
 
 const SLOT = "slot:local:/srv/code/kestrel:browse";
@@ -31,6 +40,14 @@ const REQUEST = {
   ref: { path: "fresh.txt", startLine: null, endLine: null },
 } as unknown as OpenInCodeTabRequest;
 
+/** One painted frame: what a consumer reading BOTH the landed paths and the
+ *  shown file was handed, recorded once per effect flush — the pair the tree
+ *  is given (`FileTree paths` + `selectedPath`). */
+interface PaintedFrame {
+  paths: readonly string[];
+  shown: string | null;
+}
+
 function harness(init: { selected: string | null; paths: string[] }) {
   const [selected, setSelected] = createSignal<string | null>(init.selected);
   const [paths, setPaths] = createSignal<string[]>(init.paths);
@@ -41,28 +58,39 @@ function harness(init: { selected: string | null; paths: string[] }) {
     path: string;
   } | null>(null);
   const [request, setRequest] = createSignal<OpenInCodeTabRequest | null>(null);
-  const cleared: CodeTabView[] = [];
+  const frames: PaintedFrame[] = [];
+  let shown!: () => string | null;
   let dispose!: () => void;
   createRoot((d) => {
     dispose = d;
-    createCodeTabSelectionReconcile({
+    shown = codeTabShownSelection({
       selectedPath: selected,
       repoSlotKey: slot,
       inventory: () => ({ paths: paths(), pending: pending() }),
       freshSelection: fresh,
       pendingRequest: request,
-      view: () => "browse",
-      consumeFreshSelection: () => setFresh(null),
-      clearSelection: (mode) => {
-        cleared.push(mode);
-        setSelected(null);
-      },
     });
+    // The tree's own frame: the paths it is given and the row it is told to
+    // select, minted together by one compute.
+    const frame = createMemo(
+      (): PaintedFrame => ({
+        paths: paths(),
+        shown: shown(),
+      }),
+    );
+    createEffect(
+      frame,
+      (painted) => {
+        frames.push(painted);
+      },
+      { name: "recordPaintedFrame" },
+    );
   });
   return {
     selected,
+    shown: () => shown(),
     fresh,
-    cleared,
+    frames,
     setSelected,
     setPaths,
     setPending,
@@ -73,8 +101,8 @@ function harness(init: { selected: string | null; paths: string[] }) {
   };
 }
 
-describe("the Code tab's selection ↔ inventory reconcile", () => {
-  it("consumes the pin on the frame the retained inventory publishes the file", () => {
+describe("the Code tab's shown file", () => {
+  it("retires the pin on the frame the retained inventory publishes the file", () => {
     const h = harness({ selected: "notes.txt", paths: ["notes.txt"] });
     flush();
 
@@ -84,26 +112,25 @@ describe("the Code tab's selection ↔ inventory reconcile", () => {
     h.setFresh({ request: REQUEST, path: "fresh.txt" });
     h.setSelected("fresh.txt");
     flush();
-    expect(h.selected()).toBe("fresh.txt");
-    expect(h.cleared).toEqual([]);
+    expect(h.shown()).toBe("fresh.txt");
 
-    // The retained tree catches up: the pin is consumed, and the selection
-    // stands.
+    // The retained tree catches up: the pin is spent, and the file stands.
     h.setPaths(["notes.txt", "fresh.txt"]);
     flush();
-    expect(h.fresh()).toBeNull();
-    expect(h.selected()).toBe("fresh.txt");
-    expect(h.cleared).toEqual([]);
+    expect(h.shown()).toBe("fresh.txt");
 
-    // The normal removal rule is authoritative again.
+    // The normal removal rule is authoritative again — and the pin, still
+    // addressed to the request the door holds, no longer holds the file.
     h.setPaths(["notes.txt"]);
     flush();
-    expect(h.selected()).toBeNull();
-    expect(h.cleared).toEqual(["browse"]);
+    expect(h.shown()).toBeNull();
+    expect(h.fresh()).toEqual({ request: REQUEST, path: "fresh.txt" });
+    // The stored slot kept its pick: the derivation writes nothing.
+    expect(h.selected()).toBe("fresh.txt");
     h.dispose();
   });
 
-  it("holds the pinned path through the stale window, and clears an unpinned missing file", () => {
+  it("holds the pinned path through the stale window, and drops an unpinned missing file", () => {
     const h = harness({ selected: "fresh.txt", paths: ["notes.txt"] });
     h.setRequest(REQUEST);
     h.setFresh({ request: REQUEST, path: "fresh.txt" });
@@ -112,39 +139,94 @@ describe("the Code tab's selection ↔ inventory reconcile", () => {
     // Settled, missing, but pinned: held.
     h.setPaths(["notes.txt", "other.txt"]);
     flush();
-    expect(h.selected()).toBe("fresh.txt");
+    expect(h.shown()).toBe("fresh.txt");
 
     // A pin addressed to a request that is no longer pending gates nothing.
     h.setRequest(null);
     h.setPaths(["notes.txt"]);
     flush();
-    expect(h.selected()).toBeNull();
+    expect(h.shown()).toBeNull();
     h.dispose();
   });
 
   it("does not judge the new slot's selection against the old slot's tree", () => {
     const h = harness({ selected: "notes.txt", paths: ["notes.txt"] });
-    // One settled frame of this slot first: the effect is deferred, so its
-    // first run is the one that establishes the slot it is judging against.
+    // One settled frame of this slot first: it is the frame that establishes
+    // the slot the next one is judged against.
     h.setPaths(["notes.txt", "src/ledger.rs"]);
     flush();
-    expect(h.cleared).toEqual([]);
+    expect(h.shown()).toBe("notes.txt");
 
     // The repo slot moves and the previous repo's snapshot is still exposed:
-    // the tick that sees both bails, rather than clearing the new selection.
+    // the frame that sees both holds the pick rather than hiding it.
     h.setSlot("slot:local:/srv/code/other:browse");
     h.setSelected("elsewhere.rs");
     flush();
-    expect(h.selected()).toBe("elsewhere.rs");
-    expect(h.cleared).toEqual([]);
+    expect(h.shown()).toBe("elsewhere.rs");
+
+    // The new slot's own listing settles it from the next frame on.
+    h.setPaths(["elsewhere.rs"]);
+    flush();
+    expect(h.shown()).toBe("elsewhere.rs");
+    h.setPaths(["other.rs"]);
+    flush();
+    expect(h.shown()).toBeNull();
+    h.dispose();
+  });
+
+  it("hides a dropped file in the landing's own frame, four landings running", () => {
+    const h = harness({ selected: null, paths: [] });
+    flush();
+
+    // FOUR successive landings that each drop the shown file, driven before
+    // anything is asserted: a relay tear escalates to `warn` on the third
+    // sighting, so an assertion that stopped the drive at the first landing
+    // would never reach the grade this file is written against.
+    const landings: Array<{ pick: string; landed: string; frames: number }> =
+      [];
+    for (const [pick, landed] of [
+      ["a.txt", "b.txt"],
+      ["b.txt", "c.txt"],
+      ["c.txt", "d.txt"],
+      ["d.txt", "e.txt"],
+    ] as ReadonlyArray<readonly [string, string]>) {
+      h.setPaths([pick]);
+      h.setSelected(pick);
+      flush();
+      const before = h.frames.length;
+      h.setPaths([landed]);
+      flush();
+      landings.push({
+        pick,
+        landed,
+        frames: h.frames.length - before,
+      });
+    }
+
+    // ONE frame per landing, carrying the verdict already: not one painting
+    // the dead file and a second correcting it. The slot keeps its pick —
+    // nothing here writes the selection.
+    expect(landings).toEqual([
+      { pick: "a.txt", landed: "b.txt", frames: 1 },
+      { pick: "b.txt", landed: "c.txt", frames: 1 },
+      { pick: "c.txt", landed: "d.txt", frames: 1 },
+      { pick: "d.txt", landed: "e.txt", frames: 1 },
+    ]);
+    expect(h.shown()).toBeNull();
+    expect(h.selected()).toBe("d.txt");
+
+    // Every frame the tree was ever handed names a file that frame's own paths
+    // list — the dead-file frame never exists.
+    expect(
+      h.frames.filter((f) => f.shown !== null && !f.paths.includes(f.shown)),
+    ).toEqual([]);
     h.dispose();
   });
 });
 
-/** The grounded selection funnel. The reconcile judges a selection on an
- *  inventory frame and on no other, so a write that lands between frames — a
- *  same-mode back/forward step onto a file the inventory already dropped — is
- *  judged here instead, or it would stand forever. */
+/** The grounded selection funnel. A write that lands on a file the settled
+ *  inventory already dropped — a same-mode back/forward step onto it — is
+ *  judged here, so the SLOT never seats a dead path. */
 describe("the Code tab's selection funnel", () => {
   function selectHarness(init: { paths: string[]; pending?: boolean }) {
     const [paths] = createSignal<string[]>(init.paths);

@@ -118,8 +118,8 @@ import {
   type OpenInCodeTabRequest,
 } from "./codeTabOpenController";
 import {
+  codeTabShownSelection,
   createCodeTabSelect,
-  createCodeTabSelectionReconcile,
 } from "./codeTabSelectionReconcile";
 import type { BrowserLocation, CodeViewState } from "./codeViewState";
 import FileSearchInput from "./FileSearchInput";
@@ -448,41 +448,12 @@ const CodeTab: Component<{
   });
   const repoSlotKey = createMemo(() => codeTabRepoSlotKey(currentScope()));
 
-  // Dismiss any open comment composer when the user navigates away from the
-  // terminal / file / mode / repo the draft was anchored to. Without this, the
-  // composer floats over different content and the user has to dismiss it
-  // manually; worse, a save would attach the stale draft to whatever terminal
-  // is now active. Draft body is lost, which matches every other
-  // modal-on-navigate behavior in kolu.
-  //
-  // Key on the VALUE string, not the raw signals: an effect re-runs on every
-  // INVALIDATION of what its compute read, so a compute returning an array
-  // (a fresh reference each run) re-closes the composer on any incidental
-  // invalidation (a same-repo active-terminal *clock* tick re-evaluates
-  // `repoPath()` to the same string). A primitive-string memo (the
-  // `repoSlotKey` precedent above) notifies only on a real navigation. `terminalId`
-  // is in the key because a comment saves against the subject's terminal:
-  // switching to another terminal (or host — a terminal is host-bound) at the
-  // same file must drop the draft even when repo/file/mode coincide. `\0`
-  // separators keep the key collision-safe without embedding literal NUL bytes
-  // in the source.
-  //
-  // The draft is THIS view's own (`createCommentView`), provided to every
-  // surface drawn inside it — so this close drops this view's draft only, and
-  // another Code view or reader mounted at the same time keeps its own.
+  // This view's own comment draft and its composer (`createCommentView`),
+  // provided to every surface drawn inside it. The composer is dismissed on
+  // navigation, below — the anchor it keys on reads the SHOWN file, which is
+  // derived further down.
   const comments = createCommentView();
   const composer = comments.composer;
-  const composerAnchor = createMemo(
-    () =>
-      `${terminalId() ?? ""}\0${selectedPath() ?? ""}\0${view()}\0${repoPath() ?? ""}`,
-  );
-  createEffect(
-    composerAnchor,
-    () => {
-      composer.close();
-    },
-    { defer: true },
-  );
 
   // Filename filter — drives Pierre's tree filter externally. Reset on
   // mode switch so a stale needle doesn't hide the wrong file set.
@@ -970,7 +941,11 @@ const CodeTab: Component<{
     return `${pierreTreesShadowCss}\n${rowPathsCss(ignored, pierreTreesIgnoredRowDecl)}`;
   });
 
-  createCodeTabSelectionReconcile({
+  /** THE SHOWN FILE — the stored pick of the shown mode, judged against the
+   *  retained inventory in the same pass that publishes it
+   *  (`codeTabShownSelection`). Everything that PAINTS the selection reads
+   *  this; `selectedPath` above is the stored slot, which keeps its pick. */
+  const shownFile = codeTabShownSelection({
     selectedPath,
     repoSlotKey,
     inventory: () => {
@@ -979,10 +954,42 @@ const CodeTab: Component<{
     },
     freshSelection,
     pendingRequest: () => props.door.pending(),
-    view,
-    consumeFreshSelection: () => setFreshSelection(null),
-    clearSelection: (mode) => select(mode, null, { record: false }),
   });
+
+  // Dismiss any open comment composer when the user navigates away from the
+  // terminal / file / mode / repo the draft was anchored to. Without this, the
+  // composer floats over different content and the user has to dismiss it
+  // manually; worse, a save would attach the stale draft to whatever terminal
+  // is now active. Draft body is lost, which matches every other
+  // modal-on-navigate behavior in kolu.
+  //
+  // Key on the VALUE string, not the raw signals: an effect re-runs on every
+  // INVALIDATION of what its compute read, so a compute returning an array
+  // (a fresh reference each run) re-closes the composer on any incidental
+  // invalidation (a same-repo active-terminal *clock* tick re-evaluates
+  // `repoPath()` to the same string). A primitive-string memo (the
+  // `repoSlotKey` precedent above) notifies only on a real navigation.
+  // `terminalId` is in the key because a comment saves against the subject's
+  // terminal: switching to another terminal (or host — a terminal is
+  // host-bound) at the same file must drop the draft even when repo/file/mode
+  // coincide. The file is the SHOWN one, so a draft over a file the tree has
+  // just dropped is dismissed with it. `\0` separators keep the key
+  // collision-safe without embedding literal NUL bytes in the source.
+  //
+  // The draft is THIS view's own (`createCommentView`), provided to every
+  // surface drawn inside it — so this close drops this view's draft only, and
+  // another Code view or reader mounted at the same time keeps its own.
+  const composerAnchor = createMemo(
+    () =>
+      `${terminalId() ?? ""}\0${shownFile() ?? ""}\0${view()}\0${repoPath() ?? ""}`,
+  );
+  createEffect(
+    composerAnchor,
+    () => {
+      composer.close();
+    },
+    { defer: true, name: "closeComposerOnNavigate" },
+  );
 
   const treeGitStatus = createMemo(
     () => {
@@ -1402,7 +1409,7 @@ const CodeTab: Component<{
                               paths: treeSearch().projectedPaths,
                               expanded: treeSearch().expandedAncestors,
                               gitStatus: treeGitStatus(),
-                              selected: selectedPath(),
+                              selected: shownFile(),
                               reveal: revealDir(),
                               lazy: treeInventory().lazyDirs,
                               epoch: repoSlotKey(),
@@ -1545,7 +1552,7 @@ const CodeTab: Component<{
               minSize={MIN_CODE_PANE_SHARE}
             >
               <Show
-                when={selectedPath()}
+                when={shownFile()}
                 keyed
                 fallback={
                   <FileSelectHint
