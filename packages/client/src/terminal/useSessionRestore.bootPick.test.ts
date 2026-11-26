@@ -19,10 +19,12 @@
 
 import { Effect } from "effect";
 import type { TerminalMetadata } from "@kolu/padi-client/surface";
+import { takeSolidDiagnostics } from "@kolu/solid-test-setup/setup";
 import { LOCAL_HOST } from "kolu-common/hostKey";
 import type { TerminalId } from "kolu-common/surface";
 import {
   createEffect,
+  createMemo,
   createRoot,
   createSignal,
   flush,
@@ -156,6 +158,7 @@ import { addHost, resetHosts } from "../hostScope/mockHostMap.testlib";
 import { useViewState } from "../useViewState";
 import { useSessionRestore } from "./useSessionRestore";
 import { planEviction, type TerminalEvictionPorts } from "./useActiveReconcile";
+import { useVisitRecency } from "./visitRecency";
 import type { TerminalStore } from "./useTerminalStore";
 
 const A = "a0000000-0000-4000-8000-000000000001" as TerminalId;
@@ -530,3 +533,152 @@ function evictionPorts(
     removeSearch: () => {},
   };
 }
+
+/** THE VISIT A DERIVED LANDING RECORDS, UNDER THE JUDGE.
+ *
+ *  The boot pick's seed and an auto-switch are both performed from an effect's
+ *  APPLY ARM — hydration's and the removal reconcile's — and both record a
+ *  visit, because becoming the active tile is what the trail records. That
+ *  trail is read by this host's `mruOrder`, by the command palette's two
+ *  biggest memos (`commands.tsx`'s rows and `CommandPalette`'s `partitioned`)
+ *  and by the WebGL budget, every one of which reads the TERMINAL CENSUS too —
+ *  the same census those arms' computes had just read. Written from the arm,
+ *  the visit re-runs all of them inside that effect's frame:
+ *  `EFFECT_RELAY_TEAR`, advisory on the first sighting and `warn` from the
+ *  third against the same (effect, signal), which is why the auto-switch case
+ *  below drives five from ONE effect.
+ *
+ *  The victim is shaped like those readers and nothing else: one memo over the
+ *  census AND the trail, counting its own runs. So each case says both halves
+ *  — the judge saw nothing, and the reader ran once per change rather than
+ *  twice. */
+describe("the visit a derived landing records", () => {
+  const tiles = Array.from(
+    { length: 6 },
+    (_, i) =>
+      `0000000${i}-0000-4000-8000-00000000000${i}` as unknown as TerminalId,
+  );
+  const census = (live: readonly TerminalId[]) => ({
+    keys: [...live],
+    records: Object.fromEntries(live.map((id) => [id, tile()])),
+  });
+
+  /** The palette's shape: the census and the trail in one derivation. A
+   *  scalar, so an equal answer publishes nothing and the count is the
+   *  reader's own work. */
+  function censusAndTrailReader(store: TerminalStore, bump: () => void): void {
+    const reader = createMemo(
+      () => {
+        bump();
+        return `${store.terminalIds().length}:${useVisitRecency().visits().length}`;
+      },
+      { name: "censusAndTrail" },
+    );
+    createEffect(reader, () => {});
+  }
+
+  const raised = () =>
+    takeSolidDiagnostics().map((event) => `${event.code} ${event.message}`);
+
+  it("stamps the boot pick on five cold boots with no tear on that reader", () => {
+    let runs = 0;
+    for (const pick of tiles.slice(0, 5)) {
+      // A fresh page: no census, then a new per-host owner and a new latch.
+      // The order matters — a scope born beside the PREVIOUS boot's census
+      // would answer that boot's pick, since the pick is answered once.
+      w.reset();
+      resetHosts();
+      flush();
+      addHost(LOCAL_HOST);
+      flush();
+      // A reboot: the rows are LISTED first and their records land a flush
+      // later, which is how a real one arrives (and the only shape in which
+      // the seed can relay: a seed inside the create flush is initial sync,
+      // which the judge does not grade). The trail is `localStorage`, so it
+      // carries over exactly as it does between real boots.
+      const saved = { activeTerminalId: pick };
+      w.deliver({ keys: [...tiles], records: {}, session: saved });
+      const [made, dispose] = mountRoot(() => {
+        const built = makeStore();
+        useSessionRestore({ store: built.store });
+        censusAndTrailReader(built.store, () => {
+          runs++;
+        });
+        return built;
+      });
+      try {
+        flush();
+        const before = runs;
+        // The records arrive: the pick is answered and hydration seeds, in
+        // this flush and out of its arm's frame.
+        w.deliver({ ...census(tiles), session: saved });
+        flush();
+        expect(made.store.activeId()).toBe(pick);
+        // The seed is the DERIVATION'S — the pick already stands, so the only
+        // writes are its side effects. (A landing written through the
+        // ordinary focus path is the restore case above.)
+        expect(made.planSetActiveSilently).not.toHaveBeenCalled();
+        expect(useVisitRecency().mruForHost(LOCAL_HOST)[0]).toBe(pick);
+        // Woken by the census, and again by the seed's visit — never twice
+        // for the census alone.
+        expect(runs - before).toBe(2);
+      } finally {
+        dispose();
+      }
+    }
+    expect(raised()).toEqual([]);
+  });
+
+  it("stamps five auto-switches from one effect's apply arm, likewise", () => {
+    // The removal reconcile in miniature, and the part that matters is its
+    // SHAPE: the census in the compute, the auto-switch's imperative half in
+    // the apply arm. Five departures through one effect is five sightings of
+    // the same (effect, signal) pair — the key the judge escalates on.
+    const saved = { activeTerminalId: tiles[0]! };
+    w.deliver({ ...census(tiles), session: saved });
+    let runs = 0;
+    const landed: TerminalId[] = [];
+    const [, dispose] = mountRoot(() => {
+      const made = makeStore();
+      useSessionRestore({ store: made.store });
+      censusAndTrailReader(made.store, () => {
+        runs++;
+      });
+      createEffect(
+        () => made.store.terminalIds(),
+        (live) => {
+          const survivor = live.at(-1);
+          if (survivor === undefined || landed.at(-1) === survivor) return;
+          landed.push(survivor);
+          made.store.noteAutoSwitch(survivor);
+        },
+      );
+      return made.store;
+    });
+    try {
+      flush();
+      const before = runs;
+      const live = [...tiles];
+      for (let i = 0; i < 5; i++) {
+        live.pop();
+        // The SAME saved blob every time: a cell that reconciles in place is
+        // what the app has, and a fresh equal object would publish a new
+        // reference for the session memo on every delivery.
+        w.deliver({ ...census(live), session: saved });
+        flush();
+      }
+      // Each departure handed the slot to the last survivor, and each landing
+      // left its stamp. The trail keeps only what is live: every tile but the
+      // first died, and each visit prunes the host's dead ids.
+      expect(landed).toEqual([...tiles].reverse());
+      expect(useVisitRecency().mruForHost(LOCAL_HOST)).toEqual([tiles[0]]);
+      expect(spy.setActive.mock.calls.at(-1)).toEqual([tiles[0]]);
+      // One census move plus one visit per departure — never a third run for
+      // a tile that had already landed.
+      expect(runs - before).toBe(10);
+      expect(raised()).toEqual([]);
+    } finally {
+      dispose();
+    }
+  });
+});

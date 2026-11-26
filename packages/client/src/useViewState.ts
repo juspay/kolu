@@ -25,7 +25,7 @@
  *  empty, never a crash. */
 
 import type { TerminalId } from "kolu-common/surface";
-import { createSignal } from "solid-js";
+import { createSignal, untrack } from "solid-js";
 import { activeScope } from "./hostScope/hostScopes";
 
 /** A canvas camera pose — the viewport's pan offset (canvas-space) and zoom.
@@ -111,9 +111,13 @@ export function useViewState() {
   const takeAutoSwitch = (from: TerminalId): TerminalId | null | undefined =>
     view()?.takeAutoSwitch(from);
 
-  /** Its imperative half, plus the canvas pan the write verb used to carry. */
+  /** Its imperative half, plus the canvas pan the write verb used to carry.
+   *  SAMPLED: the removal reconcile runs this from its effect's apply arm, a
+   *  strict-read window, so resolving the active scope must not subscribe that
+   *  effect to host membership. The scope the eviction is about is the one
+   *  standing when it is performed. */
   const noteAutoSwitch = (id: TerminalId): void => {
-    view()?.noteAutoSwitch(id);
+    untrack(view)?.noteAutoSwitch(id);
     requestCenterActive(id);
   };
   return {

@@ -39,6 +39,8 @@ import {
   type Accessor,
   createMemo,
   createSignal,
+  onSettled,
+  runWithOwner,
   type Setter,
   untrack,
 } from "solid-js";
@@ -106,7 +108,8 @@ export interface HostViewState {
    *  derived MRU leads with the pick in session, but the trail is what the
    *  NEXT boot reads, and a tile that was the active one with no stamp behind
    *  it is a tile the palette's no-query Enter and the Recent band's reserved
-   *  seat cannot see. */
+   *  seat cannot see. Both callers run from an effect's apply arm, so these
+   *  side effects are deferred to `onSettled` — see `noteDerivedActivation`. */
   noteSeededActivation: (tileId: TerminalId) => void;
   /** The tile the focus DERIVATION moved to when the census dropped `from` —
    *  the tile whose departure produced that answer — taken once. `undefined`
@@ -119,7 +122,8 @@ export interface HostViewState {
    *  tile. */
   takeAutoSwitch: (from: TerminalId) => TerminalId | null | undefined;
   /** That switch's imperative half: the unread mark, the visit, and the
-   *  host's active-terminal report. */
+   *  host's active-terminal report, deferred to `onSettled` like the seed's
+   *  (see `noteDerivedActivation`). */
   noteAutoSwitch: (tileId: TerminalId) => void;
 }
 
@@ -356,11 +360,44 @@ export function createViewState(
 
   /** Everything an activation does BESIDES writing the focus fact — the visit
    *  that ranks this tile in the trail (and prunes the host's dead ids out of
-   *  it), and the host's active-terminal report. */
+   *  it), and the host's active-terminal report.
+   *
+   *  SETTLED, not immediate. This is THE activation choke point — canvas,
+   *  dock, palette and Ctrl+Tab all land here — and three of its callers run
+   *  from an effect's APPLY ARM: the hydration seed's (`useSessionRestore`),
+   *  the removal reconcile's (`useActiveReconcile`, through either
+   *  `noteAutoSwitch` or the synchronous close path's `writeFocus`), and the
+   *  canvas's placement pass. Each of those arms' computes has just read the
+   *  terminal census, and the trail this writes is read by `mruOrder`, by the
+   *  command palette's two biggest memos and by the WebGL budget — which read
+   *  that same census. Written from the arm, every one of them re-runs inside
+   *  the effect's frame against the census the arm was answering: the judged
+   *  `EFFECT_RELAY_TEAR`, advisory once and `warn` from its third sighting
+   *  against the same (effect, signal), so any scenario that seeds or
+   *  auto-switches more than twice fails on it.
+   *
+   *  `onSettled` keeps the visit and loses the relay: the callback fires in
+   *  its own pass of the same flush, so the write opens a frame of its own
+   *  exactly as a gesture's does and those readers run once, settled. Nothing
+   *  is ordered against it — the trail is this browser's memory of where it
+   *  has been, and the in-flush answer is already `mruOrder`'s active-tile
+   *  hoist. The dead-id prune rides along, so it is taken against the census
+   *  as it settled rather than mid-flush.
+   *
+   *  UNOWNED, because the one-shot must not be BOUND: under an owner — which
+   *  an apply arm has — `onSettled` is a tracked effect created and run right
+   *  there, so the write would carry the arm's own frame (the very relay) and
+   *  the owner would grow a child per activation. With no owner it enqueues,
+   *  which is the deferral. The callback creates no children and registers no
+   *  cleanup, which `onSettled` forbids: both writes are plain, and the
+   *  host's report is forked through `runAction`. */
   function noteActivation(tileId: TerminalId): void {
-    // THE activation choke point — canvas, dock, palette, Ctrl+Tab all land here.
-    visits.noteVisit(host, tileId, { dead: deadVisitIds() });
-    reportActive(tileId);
+    runWithOwner(null, () =>
+      onSettled(() => {
+        visits.noteVisit(host, tileId, { dead: deadVisitIds() });
+        reportActive(tileId);
+      }),
+    );
   }
 
   /** The half a SEEDED activation shares with a gesture: the host's record of
@@ -411,13 +448,13 @@ export function createViewState(
     return taken.target;
   }
 
-  /** That switch's imperative half: the unread mark, plus everything an
-   *  activation does — because a tile the derivation hands the slot to IS the
-   *  active tile, and the trail's contract is that becoming the active tile
-   *  records a visit. In session the derived MRU would lead with it anyway;
-   *  across a reload the stamp is the only memory of where you were, which is
-   *  what the palette's no-query Enter and the Recent band's reserved seat
-   *  rank by. */
+  /** That switch's imperative half: the unread mark, the visit, and the
+   *  host's active-terminal report — because a tile the derivation hands the
+   *  slot to IS the active tile, and the trail's contract is that becoming the
+   *  active tile records a visit. In session the derived MRU would lead with
+   *  it anyway; across a reload the stamp is the only memory of where you
+   *  were, which is what the palette's no-query Enter and the Recent band's
+   *  reserved seat rank by. */
   function noteAutoSwitch(tileId: TerminalId): void {
     attention.clearUnread(tileId);
     noteActivation(tileId);

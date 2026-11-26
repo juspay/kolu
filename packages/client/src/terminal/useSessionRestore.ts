@@ -366,10 +366,14 @@ export function useSessionRestore(deps: { store: TerminalStore }) {
     // hydration runs in — one frame earlier than a seed could paint it, and with
     // no effect relaying the metadata census into the signal the app shell, the
     // canvas and the command palette all read. What stays is the activation's
-    // SIDE effects, which are not derivable: the unread mark and the host's
-    // active-terminal report. The visit TRAIL is not among them either — this
-    // host's live MRU is the trail narrowed to the census, folded where it is
-    // read (`hostScope/createViewState.mruOrder`), with the pick leading it.
+    // SIDE effects, which are not derivable: the unread mark, the host's
+    // active-terminal report, and the VISIT — the stamp this browser comes
+    // back to on the NEXT boot, which no fold over this session's census
+    // carries. In session the trail is not what the view reads: this host's
+    // live MRU is the trail narrowed to the census with the pick leading it
+    // (`hostScope/createViewState.mruOrder`), so the stamp changes no answer
+    // here — which is why it is written from `onSettled` rather than from
+    // this arm (`createViewState.noteDerivedActivation`).
     //
     // A pick the derivation does NOT cover still writes through the ordinary
     // path: a restore's answered tile (parked non-reactively on the latch), a
