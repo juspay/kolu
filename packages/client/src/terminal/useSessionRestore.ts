@@ -356,11 +356,28 @@ export function useSessionRestore(deps: { store: TerminalStore }) {
     const seedTrail = store.planReconcileLiveIds(
       picked ? [picked, ...topIds.filter((x) => x !== picked)] : topIds,
     );
-    // `setActiveSilently`: the canvas's first-mount fallback effect pans
-    // the viewport to the picked active when restoring at default origin —
-    // calling `activate` here would double-pan and racing the still-
-    // assembling pendingLayouts.
-    const land = store.planSetActiveSilently(picked);
+    // THE BOOT PICK IS DERIVED, NOT SEEDED. The per-host focus fact is the
+    // user's OVERRIDE over a memo of this same census (`hostScope/createBootPick`),
+    // so on a cold boot the active tile already IS `picked` in the flush this
+    // hydration runs in — one frame earlier than a seed could paint it, and with
+    // no effect relaying the metadata census into the signal the app shell, the
+    // canvas and the command palette all read. What stays is the activation's
+    // SIDE effects, which are not derivable: the unread mark, the visit trail and
+    // the host's active-terminal report.
+    //
+    // A pick the derivation does NOT cover still writes through the ordinary
+    // path: a restore's answered tile (parked non-reactively on the latch), a
+    // tile whose landing pane is a remembered SUB pane, and a host whose
+    // selection was explicitly cleared by a close-all. `setActiveSilently`, not
+    // `activate`: the canvas's first-mount fallback effect pans the viewport to
+    // the picked active when restoring at default origin, so centering here
+    // would double-pan and race the still-assembling pendingLayouts.
+    const land =
+      picked !== null &&
+      store.seedCovers(picked) &&
+      subPanel.visiblePaneOf(picked) === picked
+        ? store.planNoteSeededActivation(picked)
+        : store.planSetActiveSilently(picked);
     return () => {
       // Canvas layouts live on metadata — no client-side seeding needed, and
       // since the split's saved state (collapsed + divider) moved onto the

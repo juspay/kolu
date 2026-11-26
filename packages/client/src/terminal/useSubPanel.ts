@@ -127,16 +127,21 @@ export function useSubPanel() {
     planPaneFocus(parentId, id, remember)();
   }
 
-  function planFocusVisiblePane(parentId: TerminalId): () => void {
+  /** WHICH PANE A LANDING ON THIS TILE LANDS ON: its remembered sub tab when it
+   *  has one and the split is open, else the tile's own main pane. The read half
+   *  of {@link planFocusVisiblePane}, named because the session seed must know
+   *  whether the derived boot pick — which is always the TILE — already names the
+   *  pane a landing would focus (`hostScope/createBootPick`). */
+  function visiblePaneOf(parentId: TerminalId): TerminalId {
     const panel = state[parentId];
     const open = !split.state(parentId).collapsed;
-    return planPaneFocus(
-      parentId,
-      panel?.rememberedPane === "sub" && open && panel.activeSubTab
-        ? panel.activeSubTab
-        : parentId,
-      false,
-    );
+    return panel?.rememberedPane === "sub" && open && panel.activeSubTab
+      ? panel.activeSubTab
+      : parentId;
+  }
+
+  function planFocusVisiblePane(parentId: TerminalId): () => void {
+    return planPaneFocus(parentId, visiblePaneOf(parentId), false);
   }
 
   /** Expanding an existing split is not a tile landing: the newly visible
@@ -250,6 +255,9 @@ export function useSubPanel() {
      *  inside an effect: run it in the compute, run what it returns in the
      *  effect. */
     planFocusVisiblePane,
+
+    /** Reader of the landing pane itself (no write), for the session seed. */
+    visiblePaneOf,
 
     /** Clear selection through the same narrow focus boundary. No pane chrome
      *  exists to update when there is no focused terminal. */

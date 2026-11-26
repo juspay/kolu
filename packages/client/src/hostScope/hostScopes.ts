@@ -35,6 +35,7 @@ import type { HostKey } from "kolu-common/hostKey";
 import type { Accessor } from "solid-js";
 import { createSharedRoot } from "../createSharedRoot";
 import { groundedActiveHost, padiMap } from "../wire";
+import { createBootPick } from "./createBootPick";
 import { createCamera, type HostCamera } from "./createCamera";
 import { createHostPrefs, type HostPrefs } from "./createHostPrefs";
 import { createHostWire, type HostWire } from "./createHostWire";
@@ -64,10 +65,12 @@ const scopes: () => ScopedByEntry<HostKey, HostScope> = createSharedRoot(() =>
     (host: HostKey): HostScope => {
       // The focus fold reads parentId from this host's retained collection. Build
       // the wire first so `createViewState` gets a pure, host-fixed lookup rather
-      // than reaching through the active-host facade or a seeding UI store.
+      // than reaching through the active-host facade or a seeding UI store — and
+      // so the BOOT PICK, a memo over that same retained census, is the answer
+      // the focus fact falls back to instead of a value an effect seeds into it.
       const wire = createHostWire(host);
       return {
-        view: createViewState(host, wire.placementOf),
+        view: createViewState(host, wire.placementOf, createBootPick(wire)),
         prefs: createHostPrefs(host),
         camera: createCamera(),
         restore: createSessionRestore(),

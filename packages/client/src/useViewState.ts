@@ -117,6 +117,20 @@ export function useViewState() {
     view()?.reset();
   }
 
+  /** Does the ACTIVE host's derived boot pick already stand on this tile? The
+   *  hydration seed asks before it writes the focus fact — see
+   *  `hostScope/createBootPick`. Floors the removal race to `false` (a departing
+   *  host's seed writes, and its write is the usual no-op). */
+  const seedCovers = (id: TerminalId): boolean =>
+    view()?.seedCovers(id) ?? false;
+
+  /** Reader/actor pair, like the visit-trail verbs above: the hydration effect's
+   *  COMPUTE resolves the scope, and the actor performs the covered seed's side
+   *  effects (unread mark, visit trail, the host's active-terminal report). */
+  const planNoteSeededActivation = (id: TerminalId): (() => void) => {
+    const scope = view();
+    return () => scope?.noteSeededActivation(id);
+  };
   return {
     focusedTerminalId,
     activeId,
@@ -131,6 +145,8 @@ export function useViewState() {
     centerActiveRequest,
     requestCenterActive,
     isUnread,
+    seedCovers,
+    planNoteSeededActivation,
     reset,
   };
 }

@@ -86,11 +86,23 @@ export interface HostViewState {
   canvasMaximized: Accessor<boolean>;
   setCanvasMaximized: Setter<boolean>;
   reset: () => void;
+  /** True when the derived boot pick ALREADY stands on `tileId`: nothing has
+   *  overridden it on this host, and the census picks exactly that tile. The
+   *  hydration seed asks before it writes — a pick the derivation shows is one
+   *  it must not relay into this signal (see {@link createBootPick}). */
+  seedCovers: (tileId: TerminalId) => boolean;
+  /** The activation SIDE EFFECTS of a seed the derivation covers — the unread
+   *  mark, the visit trail and the host's active-terminal report, i.e. exactly
+   *  what {@link HostViewState.writeFocus} does besides writing the fact. */
+  noteSeededActivation: (tileId: TerminalId) => void;
 }
 
 export function createViewState(
   host: HostKey,
   placementOf: (id: TerminalId) => LivePlacement,
+  /** This host's DERIVED first active tile (`createBootPick`) — the answer the
+   *  focus fact falls back to while nothing has overridden it. */
+  seededPick: Accessor<TerminalId | null>,
 ): HostViewState {
   const [focus, setFocus] = createSignal<TerminalFocus | null>(null);
   const focusedTerminalId = createMemo(() => focus()?.id ?? null);
@@ -128,13 +140,21 @@ export function createViewState(
   });
 
   function writeFocus(next: TerminalFocus | null): void {
-    setFocus(next);
+    setOverride(next);
     // Focusing a terminal is one of the two ways its unread mark ends; the other
     // is the attention engine's episode-end edge. Both clear it on the host's
     // record, so a reload does not bring it back.
     if (next) attention.clearUnread(next.id);
     const tileId = activeTileOf(next, placementOf);
     if (tileId === null) return;
+    noteActivation(tileId);
+  }
+
+  /** Everything an activation does BESIDES writing the focus fact. Split out so
+   *  the hydration seed can perform them for a pick the derivation already shows
+   *  — the fact needs no write there, but the trail and the host's report are
+   *  not derivable and still have to happen exactly once. */
+  function noteActivation(tileId: TerminalId): void {
     // THE activation choke point — canvas, dock, palette, Ctrl+Tab all land here.
     visits.noteVisit(host, tileId);
     // Report the active terminal to THIS owner's host for its session snapshot.
@@ -161,6 +181,15 @@ export function createViewState(
     );
   }
 
+  function seedCovers(tileId: TerminalId): boolean {
+    return override() === undefined && seededPick() === tileId;
+  }
+
+  function noteSeededActivation(tileId: TerminalId): void {
+    attention.clearUnread(tileId);
+    noteActivation(tileId);
+  }
+
   function reconcileLiveIds(liveIds: readonly TerminalId[]): void {
     // Empty host trail → seed with liveIds order; non-empty → membership only
     // (argument order is ignored for survivors). Kill uses forgetFromMru.
@@ -180,7 +209,12 @@ export function createViewState(
     // the tiled posture (matching the pre-per-host `reset` clearing `canvasMaximized`);
     // `setCanvasMaximized(false)` also writes `"false"` through the boolPref, so the
     // persisted posture is floored too — a reload after a close-all stays tiled.
-    setFocus(null);
+    // An EXPLICIT null, not a drop back to the derivation: a close-all is a
+    // written "nothing is selected", and the census it empties is observed a
+    // flush later. Dropping to the pick would paint a doomed tile active for
+    // that flush; the next activation (or an in-session restore's seed, which
+    // asks `seedCovers` and finds the derivation overridden) writes it again.
+    setOverride(null);
     visits.clearHost(host);
     attention.clearAllUnread();
     setCanvasMaximized(false);
@@ -199,5 +233,7 @@ export function createViewState(
     canvasMaximized,
     setCanvasMaximized,
     reset,
+    seedCovers,
+    noteSeededActivation,
   };
 }
