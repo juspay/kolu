@@ -1,4 +1,4 @@
-/** The palette's works section is built PER WORK.
+/** The palette's works section is built PER WORK, and a row is its own memo.
  *
  *  Built the other way — one computation mapping every work — a fleet of
  *  thirty works puts a couple of hundred store leaves (`title`, the key's
@@ -9,14 +9,47 @@
  *
  *  Both are asserted here: the diagnostic (through
  *  `@kolu/solid-test-setup`'s `afterEach`) and the consumer-visible one —
- *  bumping ONE work's title leaves the other twenty-nine row objects
- *  identical. */
+ *  retitling ONE work leaves the other twenty-nine row objects identical.
+ *
+ *  THE WORKS COME FROM THE REAL MIRROR (`./conductor/collectionMirror.testlib`
+ *  into `useWorks()`), because the rows read the app's shared snapshot of
+ *  each work (`useWorkRecords`) rather than minting one of their own: a
+ *  hand-made list of records is not a thing those rows can read, and a fixture
+ *  that pretended otherwise would be judging a graph the browser never
+ *  builds. How WIDE the rows are at fleet scale, and that each work is
+ *  snapshotted once, is `./palette/workActions.wideDeps.test.ts`. */
 
-import type { Work, WorkId, WorkRow } from "kolu-work";
+import { settle } from "@kolu/surface/solid/testlib";
+import type { Work, WorkId } from "kolu-work";
 import { workIdOf } from "kolu-work";
-import { createEffect, createRoot, createStore, flush } from "solid-js";
-import { describe, expect, test } from "vitest";
+import { createEffect, createRoot, flush } from "solid-js";
+import { describe, expect, test, vi } from "vitest";
 import type { PaletteAction } from "./CommandPalette";
+
+const held = vi.hoisted(() => ({
+  works: undefined as unknown,
+  empty: undefined as unknown,
+}));
+
+vi.mock("@kolu/surface/client", async (original) => ({
+  ...(await original<Record<string, unknown>>()),
+  unenrolledStreamCall: (source: (input: unknown) => unknown, input: unknown) =>
+    source(input),
+}));
+
+vi.mock("./wire", () => ({
+  app: {
+    collections: {
+      works: { use: () => held.works },
+      workMembers: { use: () => held.empty },
+      memberReadings: { use: () => held.empty },
+      workPrs: { use: () => held.empty },
+    },
+  },
+}));
+
+import { collectionMirror } from "./conductor/collectionMirror.testlib";
+import { useWorks } from "./conductor/useWorks";
 import { workPaletteRows } from "./palette/workActions";
 
 const WORK_COUNT = 30;
@@ -39,30 +72,26 @@ function aWork(n: number): Work {
   };
 }
 
-/** The work as the mirror would hand it out, with the one field this file
- *  moves left writable — a store a test can retitle. */
-type RetitleableWork = Omit<Work, "title"> & { title: string };
+const mirror = collectionMirror<WorkId, Work>("works");
+held.works = mirror.view;
+held.empty = collectionMirror<string, never>("empty").view;
 
-/** The works as the palette reads them: a mirrored store, and an accessor
- *  that mints a FRESH `[id, work]` tuple per run — exactly what `useWorks`
- *  hands out, and what makes keying the row list necessary. */
-function worksFixture() {
-  const [works, setWorks] = createStore<RetitleableWork[]>(
-    Array.from({ length: WORK_COUNT }, (_, n) => aWork(n)),
-  );
-  const ids: WorkId[] = works.map((work) => workIdOf(work.key));
-  const rows = (): ReadonlyArray<WorkRow> =>
-    works.map((work, i): WorkRow => [ids[i] as WorkId, work]);
-  return { rows, setWorks };
+/** The fleet, served oldest first — which is the order the section draws. */
+const ids: WorkId[] = [];
+for (let n = 0; n < WORK_COUNT; n++) {
+  const work = aWork(n);
+  const id = workIdOf(work.key);
+  ids.push(id);
+  mirror.push(id, work);
 }
+mirror.pushKeys(ids);
 
 /** Mount the rows under a root and keep the last list an effect saw — the
  *  reader's view of the section, which is what the assertions judge. */
-function mounted() {
-  const { rows, setWorks } = worksFixture();
+async function mounted() {
   let seen: ReadonlyArray<PaletteAction> = [];
   const dispose = createRoot((disposeRoot) => {
-    const palette = workPaletteRows(rows);
+    const palette = workPaletteRows(useWorks());
     createEffect(
       () => palette(),
       (items) => {
@@ -71,22 +100,21 @@ function mounted() {
     );
     return disposeRoot;
   });
+  await settle();
   flush();
-  return { setWorks, dispose, items: () => seen };
+  return { dispose, items: () => seen };
 }
 
 describe("workPaletteRows", () => {
-  test("keeps every other row's object when one work's title changes", () => {
-    const { setWorks, dispose, items } = mounted();
+  test("keeps every other row's object when one work's title changes", async () => {
+    const { dispose, items } = await mounted();
     expect(items()).toHaveLength(WORK_COUNT);
     expect(items()[7]?.name).toBe("Work 7");
     const before = items();
 
-    setWorks((draft) => {
-      const one = draft[7];
-      if (one === undefined) throw new Error("fixture: work 7 is absent");
-      one.title = "Work 7, renamed";
-    });
+    const renamed = ids[7] as WorkId;
+    mirror.push(renamed, { ...aWork(7), title: "Work 7, renamed" });
+    await settle();
     flush();
 
     expect(items()[7]?.name).toBe("Work 7, renamed");
@@ -97,8 +125,8 @@ describe("workPaletteRows", () => {
     dispose();
   });
 
-  test("a row says what its work is and where", () => {
-    const { dispose, items } = mounted();
+  test("a row says what its work is and where", async () => {
+    const { dispose, items } = await mounted();
     expect(items()[3]?.name).toBe("Work 3");
     expect(items()[3]?.description).toBe("repo-3 · feature-3 · local");
     dispose();
