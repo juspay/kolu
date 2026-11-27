@@ -4,15 +4,16 @@
  *  The rule is derived (a writable memo keyed on the SCOPE: open, drill, query,
  *  "where the user already is"), which is what keeps it from relaying the
  *  scope change it follows from. But a derivation is a COMPUTE, and in Solid 2
- *  an untracked read answers the last committed value without pulling a dirty
- *  computed current — so reading the list through `untrack` handed the rule the
- *  SHUT-phase list (`[]` on the first open of a session, since a shut palette
- *  freezes its tree), and every open landed on row 0.
+ *  an untracked read is SERVED the last committed value rather than pulling a
+ *  dirty computed current — so reading the list through `untrack` handed the
+ *  rule the SHUT-phase list, which a shut palette freezes. From the SECOND
+ *  open of a session on (once the list memos hold a committed value) the
+ *  highlight was therefore landed on a list the palette was no longer showing.
  *
  *  These cases assert the VALUE SHOWN, not just a silent diagnostics drain:
  *
- *  - an open whose toggle target is NOT row 0 (rows carrying `visitedAt`, with
- *    the warmth order deliberately different from the visit order);
+ *  - an open whose toggle target is NOT row 0, over a list that moved while
+ *    the palette was shut (warmth order deliberately unlike visit order);
  *  - ⌘⇧H, with the host trail's SETTLED switch write and the switch itself in
  *    one flush — the gesture the whole trail exists for;
  *  - each user gesture — arrows, Tab, hover — holding its own row across a

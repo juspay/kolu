@@ -579,6 +579,15 @@ const CommandPalette: Component<{
         return prev.open
           ? { open: false, link, segments: [], dropped: prev.segments }
           : prev;
+      // THE LIVE TREE IS A DEPENDENCY OF EVERY OPEN RUN, deep link or not.
+      // The trim at the bottom of this derivation is only reachable on a run
+      // the tree WAKES it for, so a read it skipped is a trim that never
+      // happens: an empty link resolved without touching the tree left a plain
+      // ⌘K open with no tree dependency at all, and a group drilled into after
+      // that open could leave the live tree with the palette still standing
+      // inside it — dead breadcrumb, empty list — until the next open. (Master
+      // trimmed from a standalone effect, which re-subscribed on every run.)
+      const tree = commandTree();
       // The open edge — and a NEW deep link handed in while it stays open: the
       // path IS the resolved link. Exact resolution only, no prefix fallback (a
       // missing host must not open the broader Terminals list as if the
@@ -587,10 +596,10 @@ const CommandPalette: Component<{
         return {
           open: true,
           link,
-          segments: resolveInitialPath(props.initialPath ?? []) ?? [],
+          segments: resolveInitialPath(props.initialPath ?? [], tree) ?? [],
           dropped: [],
         };
-      const { valid } = resolveLivePath(prev.segments);
+      const { valid } = resolveLivePath(prev.segments, tree);
       if (valid.length === prev.segments.length) return prev;
       return {
         ...prev,
@@ -610,13 +619,17 @@ const CommandPalette: Component<{
     }));
   };
 
-  /** Walk `path` against the live command tree; return the live
-   *  drillable segments that still resolve, in order. */
-  function resolveLivePath(p: DrillableKind[]): {
+  /** Walk `p` against `root` — the tree of record, handed in by the caller
+   *  that read it — and return the live drillable segments that still
+   *  resolve, in order. */
+  function resolveLivePath(
+    p: DrillableKind[],
+    root: PaletteItem[],
+  ): {
     valid: DrillableKind[];
     level: PaletteItem[];
   } {
-    let level: PaletteItem[] = commandTree();
+    let level: PaletteItem[] = root;
     const valid: DrillableKind[] = [];
     for (const segment of p) {
       const match = level.find(
@@ -700,11 +713,12 @@ const CommandPalette: Component<{
    *  snapshot captured in `path()`. */
   const currentItems = createMemo((): PaletteItem[] => {
     const p = path();
-    if (p.length === 0) return commandTree();
-    const { valid, level } = resolveLivePath(p);
+    const tree = commandTree();
+    if (p.length === 0) return tree;
+    const { valid, level } = resolveLivePath(p, tree);
     // While the reconcile effect hasn't trimmed yet, render the deepest
     // still-valid level — never the stale missing segment's children.
-    if (valid.length === 0) return commandTree();
+    if (valid.length === 0) return tree;
     if (valid.length < p.length)
       return resolveChildren(valid[valid.length - 1]!);
     return level;
@@ -1108,14 +1122,15 @@ const CommandPalette: Component<{
     requestAnimationFrame(() => inputRef()?.focus());
   }
 
-  /** Resolve `names` against the live command tree — the read half. **Every**
-   *  segment must resolve — a partial match (e.g. Terminals without a
-   *  missing host) is rejected so deep-links never silently widen; `null` then. */
+  /** Resolve `names` against `root` — the read half. **Every** segment must
+   *  resolve — a partial match (e.g. Terminals without a missing host) is
+   *  rejected so deep-links never silently widen; `null` then. */
   function resolveInitialPath(
     names: readonly string[],
+    root: PaletteItem[],
   ): DrillableKind[] | null {
     if (names.length === 0) return null;
-    let level: PaletteItem[] = commandTree();
+    let level: PaletteItem[] = root;
     const built: DrillableKind[] = [];
     for (const name of names) {
       const match = level.find(

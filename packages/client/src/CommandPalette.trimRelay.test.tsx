@@ -67,6 +67,12 @@ const rows = (): HTMLElement[] => [
   ...document.querySelectorAll<HTMLElement>('[role="option"]'),
 ];
 const rowNames = (): string[] => rows().map((el) => el.textContent ?? "");
+/** The breadcrumb chips, root chip included — the strip is absent entirely at
+ *  the root level, which is what a dropped drill path reads as. */
+const breadcrumbNames = (): string[] =>
+  [...document.querySelectorAll<HTMLElement>("nav button")].map(
+    (el) => el.textContent ?? "",
+  );
 const input = (): HTMLInputElement => {
   const el = document.querySelector("input");
   if (!el) throw new Error("the palette rendered no search input");
@@ -149,4 +155,64 @@ it("clears the query on three live-tree trims without relaying it", () => {
     expect(rowNames()).toEqual(["solo"]);
     expect(drained()).toEqual([]);
   }
+});
+
+/** THE TRIM IS NOT A DEEP LINK'S PRIVILEGE.
+ *
+ *  The path derivation walks the live tree on a run that reaches
+ *  `resolveLivePath` — and the ONE thing that put it there used to be a
+ *  non-empty `initialPath` at the open edge. A plain ⌘K open resolves an empty
+ *  link, so the derivation took no dependency on the tree at all and the trim
+ *  was unreachable for the whole open: drill into a group, let it leave the
+ *  tree, and the palette stayed inside a group that no longer exists —
+ *  breadcrumb, empty list and all — until the next open. Master's trim was a
+ *  standalone effect that subscribed to the tree on every run, so this is a
+ *  regression against it.
+ *
+ *  The gesture is the plain open, which is the common one. */
+it("drops a dead drilled-into group under a plain open", () => {
+  const cancelled = vi.fn();
+  const group = (): PaletteItem => ({
+    kind: "group",
+    name: "Fleet",
+    onCancel: cancelled,
+    children: LEAVES.map((name) => ({
+      kind: "action",
+      name,
+      onSelect: () => {},
+    })),
+  });
+  const solo: PaletteItem = {
+    kind: "action",
+    name: "solo",
+    onSelect: () => {},
+  };
+  const [commands, setCommands] = createSignal<PaletteItem[]>([group(), solo]);
+  // NO `initialPath`: ⌘K, the opening every other chord is a special case of.
+  dispose = render(
+    () => <CommandPalette commands={commands} open onOpenChange={() => {}} />,
+    document.body,
+  );
+  flush();
+  expect(rowNames()).toEqual(["Fleet", "solo"]);
+
+  rows()
+    .find((el) => el.textContent === "Fleet")
+    ?.click();
+  flush();
+  expect(rowNames()).toEqual(LEAVES);
+  expect(breadcrumbNames()).toEqual(["Commands", "Fleet"]);
+  expect(drained()).toEqual([]);
+  // The drill-out's own `onCancel` — the highlight leaving the group row — is
+  // outside the window measured below, exactly as in the case above.
+  const cancelsBefore = cancelled.mock.calls.length;
+
+  // THE GESTURE: the group the user is standing in leaves the live tree.
+  setCommands([solo]);
+  flush();
+
+  expect(breadcrumbNames()).toEqual([]);
+  expect(rowNames()).toEqual(["solo"]);
+  expect(cancelled.mock.calls.length - cancelsBefore).toBe(1);
+  expect(drained()).toEqual([]);
 });
