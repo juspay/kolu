@@ -478,7 +478,20 @@ const CodeTab: Component<{
     return state.slot === repoSlotKey() ? state.needle : "";
   };
   const setSearchQuery = (needle: string): void => {
-    setSearchState({ slot: untrack(repoSlotKey), needle });
+    const slot = untrack(repoSlotKey);
+    // A write of the needle this slot already READS is not a change: retyping
+    // the same text, or the folder reveal below clearing a filter that is
+    // already clear, would otherwise mint a fresh state object and wake every
+    // reader of the projected tree. Hand back the held object instead, so the
+    // signal's identity check keeps them all silent. The comparison is the
+    // one `searchQuery` makes — a stamp from another slot reads as the empty
+    // default, so re-stamping it with that same empty needle changes nothing
+    // on screen either.
+    setSearchState((prev) =>
+      (prev.slot === slot ? prev.needle : "") === needle
+        ? prev
+        : { slot, needle },
+    );
   };
 
   // ── Selection-stability invariants ─────────────────────────────────
@@ -948,6 +961,7 @@ const CodeTab: Component<{
   const treeSearch = createMemo(
     () => projectFileTreeSearch(treePaths(), searchQuery()),
     {
+      name: "codeTabTreeSearch",
       // Equal inventories are not fresh reveal requests. A status refresh must
       // not reopen a folder the user collapsed while the filter stays active.
       equals: (a, b) =>
