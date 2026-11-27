@@ -43,7 +43,8 @@ import type { JSX } from "@solidjs/web";
 import { ChecksIndicator, PrStateIcon } from "@kolu/solid-dockrow";
 import { ProviderUnavailableContent } from "../terminal/PrUnavailablePopover";
 import { assignColors } from "../terminal/terminalDisplay";
-import { sameEach, sameFields } from "../conductor/sameItems";
+import { sameEach, sameFields, sameItems } from "../conductor/sameItems";
+import { foldEach } from "../wideFold";
 import { getClockNow } from "../time/clock";
 import Chip from "../ui/Chip";
 import Disclosure from "../ui/Disclosure";
@@ -555,6 +556,40 @@ const WorkSection: Component<{
     }
     return { git, repoColor, annotationColor };
   });
+  /** THE PR ITSELF, as the record last resolved it — its own fields only. The
+   *  value is the record's, so reading a field of it below is one node; the
+   *  CHECKS are read run by run ({@link checkRuns}), never here. */
+  const resolved = createMemo(
+    () => {
+      const reading = props.subject.pr;
+      return reading === null ? null : prValue(reading);
+    },
+    { name: "workSection.pr" },
+  );
+  /** ONE MEMO PER CHECK RUN, joined in chunks ({@link foldEach}).
+   *
+   *  The subject is a mirrored record, so tallying and sorting the list in
+   *  the bundle below would subscribe that one memo to the list, an index and
+   *  an outcome per lane — a PR of two hundred lanes is past the width the
+   *  development build judges. Each lane is its own row here, so the bundle
+   *  carries ONE dependency and a lane going red re-runs its own row, its
+   *  chunk and the join. */
+  const runIds = createMemo(
+    () =>
+      Array.from({ length: resolved()?.checkRuns.length ?? 0 }, (_, at) => at),
+    { name: "workSection.checkRunIds", equals: sameItems },
+  );
+  const checkRuns = foldEach(
+    "workSection.checkRuns",
+    runIds,
+    (at): PrInfo["checkRuns"][number] | undefined => {
+      const one = resolved()?.checkRuns[at];
+      return one === undefined
+        ? undefined
+        : { name: one.name, outcome: one.outcome };
+    },
+    sameFields,
+  );
   /** The PR facts AND everything folded off them, as ONE value — same reason
    *  `identity()` bundles git with its paint. The rollup's verdict and its
    *  tally now come out of a single read, so they cannot describe two
@@ -568,9 +603,10 @@ const WorkSection: Component<{
       const reading = props.subject.pr;
       if (reading === null) return null;
       const unavailable = prUnavailableSource(reading);
-      const pr = prValue(reading);
+      const pr = resolved();
       if (!pr) return { unavailable, pr: null };
-      const counts = countChecks(pr.checkRuns);
+      const all = checkRuns();
+      const counts = countChecks(all);
       return {
         unavailable,
         pr: {
@@ -579,7 +615,7 @@ const WorkSection: Component<{
           // both `checkRuns` and a sorted `runs` twin let the JSX gate on one and
           // render the other, and nothing stopped a later edit from rendering the
           // unsorted one — which type-checks and silently drops the triage order.
-          checkRuns: [...pr.checkRuns].sort(
+          checkRuns: [...all].sort(
             (a, b) => TRIAGE.indexOf(a.outcome) - TRIAGE.indexOf(b.outcome),
           ),
           summary: checksSummary(counts),

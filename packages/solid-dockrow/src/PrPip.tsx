@@ -22,7 +22,7 @@ import {
   GitPullRequestIcon,
 } from "./forgeIcons.tsx";
 import { dynamic } from "@solidjs/web";
-import { prTooltip } from "./prTooltip.ts";
+import { createPrTooltip } from "./prTooltipFold.ts";
 
 const prStateConfig: Record<
   PrInfo["state"],
@@ -87,18 +87,24 @@ export const PrMarks: Component<{ pr: PrInfo; iconClass?: string }> = (
  *  line-2 geometry without a placeholder. */
 export const PrPip: Component<{ pr: PrInfo | null }> = (props) => (
   <Show when={props.pr}>
-    {(p) => (
-      <a
-        href={p().url}
-        target="_blank"
-        rel="noopener noreferrer"
-        data-testid="dock-row-pr-pip"
-        class="flex items-center gap-1 text-fg-3 hover:text-fg transition-colors shrink-0"
-        title={prTooltip(p())}
-        onClick={(event) => event.stopPropagation()}
-      >
-        <PrMarks pr={p()} />
-      </a>
-    )}
+    {(p) => {
+      // FOLDED RUN BY RUN: a PR a mirror hands over is a store, and naming
+      // every check in this one render effect would subscribe it to four
+      // nodes per lane.
+      const title = createPrTooltip(p);
+      return (
+        <a
+          href={p().url}
+          target="_blank"
+          rel="noopener noreferrer"
+          data-testid="dock-row-pr-pip"
+          class="flex items-center gap-1 text-fg-3 hover:text-fg transition-colors shrink-0"
+          title={title()}
+          onClick={(event) => event.stopPropagation()}
+        >
+          <PrMarks pr={p()} />
+        </a>
+      );
+    }}
   </Show>
 );
