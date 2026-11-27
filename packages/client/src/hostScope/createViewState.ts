@@ -251,7 +251,21 @@ export function createViewState(
         return { live, focus: written };
       }
       const tile = untrack(() => activeTileOf(written, placementOf));
-      if (tile === null || live.includes(tile) || prev.live.length === 0) {
+      // A DEPARTURE, OR NOTHING. The arm answers one question — the focused
+      // tile was here and is gone — so that tile must be one the PREVIOUS
+      // census listed. An id it never listed cannot have departed from it: it
+      // is the CREATION GAP, where a create lands the selection on an id this
+      // host's members do not carry yet (`useTerminalStore`'s
+      // `planSetActiveSilently` accepts exactly such an id, and `tileHint` is
+      // how the fold resolves it). The gap is a real span — a key list drops a
+      // key whose record has not arrived — and this compute wakes inside it,
+      // on the authority fact above as well as on the census. Read as a
+      // departure, that write is clamped to `pickAutoSwitchTarget`'s answer
+      // for an id it never held, which is `null` by that function's own
+      // contract — and an explicit `null` is FINAL, so the tile just created
+      // never takes the selection and no tile holds it at all. Subsumes the
+      // first-ever tile: an empty previous census lists nothing.
+      if (tile === null || live.includes(tile) || !prev.live.includes(tile)) {
         pendingAutoSwitch = undefined;
         return { live, focus: written };
       }

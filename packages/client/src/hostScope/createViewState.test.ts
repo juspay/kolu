@@ -374,6 +374,101 @@ describe("a host's view-state derivations", () => {
     held.dispose();
   });
 
+  /** A HOST IN THE CREATION GAP. One tile `A` is live and selected, and a
+   *  second terminal has just been created: `lifecycle.create` answered its id
+   *  and the create landed the selection on it (`setActiveSilently`, which
+   *  accepts an id with no record), while this host's members still carry only
+   *  `A`. The authority dips and returns across that span, because the host's
+   *  standing names the new terminal before its key list delivers it — and the
+   *  TILE census trails both, since it drops a key whose record has not
+   *  arrived (`createHostWire`'s `tileIds`).
+   *
+   *  The first create is driven in full so the override's compute has run once
+   *  with a written focus: that run is what makes the authority fact one of its
+   *  dependencies, and the gap below is the window that dependency wakes it in.
+   *  Nothing departs anywhere in here. */
+  function inTheCreationGap() {
+    const records = new Set<TerminalId>();
+    const [keys, setKeys] = createSignal<readonly TerminalId[]>([]);
+    const [tiles, setTiles] = createSignal<readonly TerminalId[]>([]);
+    const [authoritative, setAuthoritative] = createSignal(true);
+    const held = createRoot((dispose) => ({
+      dispose,
+      view: createViewState(
+        LOCAL_HOST,
+        (id): LivePlacement =>
+          records.has(id) ? { kind: "top-level" } : { kind: "missing" },
+        () => null,
+        tiles,
+        keys,
+        authoritative,
+      ),
+    }));
+    // The FIRST create, on an empty host: the landing, then the key, then the
+    // record. Nothing can depart from an empty census, which is why this one
+    // survived even with the arm as it stood — the dev lane's own rule (the
+    // first create after opening the app passes; every later one fails).
+    held.view.writeFocus({ id: A, tileHint: A });
+    setKeys([A]);
+    flush();
+    records.add(A);
+    setTiles([A]);
+    flush();
+    expect(held.view.activeId()).toBe(A);
+    // The SECOND create, beside it. The standing names B before the key list
+    // delivers it, so the list is briefly not a census; the create's landing
+    // arrives in that dip; then the key list catches up, making the list a
+    // census again while the tile census still lacks B.
+    setAuthoritative(false);
+    flush();
+    held.view.writeFocus({ id: B, tileHint: B });
+    flush();
+    setKeys([A, B]);
+    setAuthoritative(true);
+    flush();
+    return {
+      ...held,
+      /** B's composed record lands and it becomes a tile of its own. */
+      admitB: () => {
+        records.add(B);
+        setTiles([A, B]);
+        flush();
+      },
+    };
+  }
+
+  it("a create's gap write is not a departure", () => {
+    // Read as one, the write was clamped to `pickAutoSwitchTarget`'s answer for
+    // an id the previous census never held — `null`, which is FINAL (an
+    // explicit `null` is a written fact of its own). So the tile just created
+    // never took the selection, and no tile carried it either: report-S's
+    // Groups A, C and D are one defect, `[data-focused]` and `[data-active]`
+    // both absent and "exactly one focused terminal" answering zero.
+    const held = inTheCreationGap();
+    expect(held.view.focusedTerminalId()).toBe(B);
+    expect(held.view.activeId()).toBe(B);
+    // And it still stands once the record makes B a tile of its own.
+    held.admitB();
+    expect(held.view.focusedTerminalId()).toBe(B);
+    expect(held.view.activeId()).toBe(B);
+    expect(takeSolidDiagnostics()).toEqual([]);
+    held.dispose();
+  });
+
+  it("takes no auto-switch for a tile that never departed", () => {
+    // The arm's other half: the activation's imperative one-shot. A gap write
+    // must not arm it either — a reconcile that took `{ from: B, target: null }`
+    // would land that same clamp through the eviction path, after the
+    // derivation itself had been corrected.
+    const held = inTheCreationGap();
+    expect(held.view.takeAutoSwitch(A)).toBeUndefined();
+    expect(held.view.takeAutoSwitch(B)).toBeUndefined();
+    held.admitB();
+    expect(held.view.takeAutoSwitch(B)).toBeUndefined();
+    expect(takeSolidDiagnostics()).toEqual([]);
+    held.dispose();
+  });
+
   it("needs no kill-time write — a dead id leaves the MRU with the census", () => {
     // The kill path used to write the trail (`forgetVisit`) from the eviction
     // effect's apply arm. It is dead weight now: the MRU is READ narrowed to

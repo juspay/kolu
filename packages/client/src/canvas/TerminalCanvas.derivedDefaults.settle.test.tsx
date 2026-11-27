@@ -98,13 +98,28 @@ vi.mock("../wire", async () => {
       }),
     }),
   };
+  // THE ROSTER, ESTABLISHED over the keys this fixture has pushed: the host
+  // says it holds exactly what its list carries. `listIsCensus` folds the two,
+  // and it is what the focus derivation gates its auto-switch on — a roster
+  // that never establishes would switch that arm off and leave every landing
+  // below ungraded.
+  const rosterCell = {
+    use: () => ({
+      value: () => ({ kind: "established", ids: bag.keys() }),
+      sub: Object.assign(() => undefined, {
+        pending: () => false,
+        error: () => undefined,
+        complete: () => false,
+      }),
+    }),
+  };
   const stubCollection = {
     use: () => ({ keys: () => [], byKey: () => undefined }),
   };
   const entry = () => ({
     clock: { toLocal: (ms: number) => ms },
     collections: { terminals, daemonStatus: stubCollection },
-    cells: { session: stubCell, roster: stubCell, activityFeed: stubCell },
+    cells: { session: stubCell, roster: rosterCell, activityFeed: stubCell },
     procedures: { chrome: { setActive: async () => {} } },
   });
   return {
@@ -349,20 +364,30 @@ it("places and lands new tiles with no tear in the WebGL budget", async () => {
   expect(webgl()).toEqual(["true", "true"]);
   // The landing stands — the active tile's own main pane is the focused one.
   expect(useSubPanel().paneChrome(A).activeSubTab).toBeNull();
+  // THE BEHAVIOUR, not just the absence of a finding: the tile the pass landed
+  // on is the one the canvas and the dock read as active, and the one input
+  // goes to. An empty diagnostics list says the engine saw no tear; it says
+  // nothing about whether the answer survived.
+  expect(tileStore.activeId()).toBe(A);
+  expect(store.focusedTerminalId()).toBe(A);
 
-  // THE SECOND SHAPE — a tile arriving later. Its key comes first and placement
-  // DEFERS it (no record yet, `tilePlacementPlan`); then its record lands and
-  // that flush places it, reports it through the same writer and lands it.
+  // THE SECOND SHAPE — a tile arriving later, the way a create does. The
+  // selection is landed on the new id FIRST (creation answers it a daemon
+  // round trip before any member carries it); then its key arrives and
+  // placement DEFERS it (no record yet, `tilePlacementPlan`); then its record
+  // lands and that flush places it, reports it through the same writer and
+  // lands it. The standing leads the key stream by a tick here exactly as it
+  // does in production — the roster is a cell, the key list a stream.
   bag.saved.length = 0;
   bag.log.length = 0;
   takeSolidDiagnostics();
   const placed = (id: TerminalId): TileLayout =>
     tileStore.getLayout(id) as TileLayout;
   const [savedA, savedB] = [placed(A), placed(B)];
+  tileStore.activate(C);
+  flush();
   pushKeys([A, B, C]);
   await settle();
-  flush();
-  tileStore.activate(C);
   flush();
   bag.log.length = 0;
   takeSolidDiagnostics();
@@ -388,4 +413,8 @@ it("places and lands new tiles with no tear in the WebGL budget", async () => {
   expect(bag.saved.map((w) => w.id)).toEqual([C]);
   expect(bag.saved[0]?.layout.x).toBeGreaterThan(4000);
   expect(webgl()).toEqual(["true", "true", "true"]);
+  // And the tile that arrived is the active, focused one — through the whole
+  // gap between its key and its record.
+  expect(tileStore.activeId()).toBe(C);
+  expect(store.focusedTerminalId()).toBe(C);
 });
