@@ -388,6 +388,20 @@ function sameSelection(a: CurrentSelection, b: CurrentSelection): boolean {
   return a.hostKey === b.hostKey && a.terminalId === b.terminalId;
 }
 
+/** Whether two drill paths name the same segments, by VALUE: a live-tree walk
+ *  rebuilds a path out of the tree's current objects, so segment identity is
+ *  not what "the user is still in the same place" means — the id (or name) a
+ *  segment is addressed by is. */
+function samePath(
+  a: readonly DrillableKind[],
+  b: readonly DrillableKind[],
+): boolean {
+  return (
+    a.length === b.length &&
+    a.every((s, i) => (s.id ?? s.name) === (b[i]!.id ?? b[i]!.name))
+  );
+}
+
 /** The ONE empty list every list memo below returns when it has nothing to
  *  show, so a palette that matches nothing republishes the same reference
  *  rather than a fresh equal array per recompute (`NO_BREADCRUMBS` above is
@@ -1316,31 +1330,77 @@ const CommandPalette: Component<{
    *  point at a row that shifted under it, and Enter would run the wrong one.
    *  Tracking the fact re-lands the highlight instead.
    *
-   *  Still NOT keyed on `filtered` itself — that returns a new array reference
-   *  on every recomputation, so tracking it would reset the index whenever
-   *  upstream data (the commands memo) recomputes in the background.
-   *  `filtered`, `query` and `mode` are therefore read as `untrack` SNAPSHOTS:
-   *  the index is computed from the list as it stands when a scope change
-   *  lands, without making their own churn a trigger. Reading them pulls them
-   *  current, so the snapshot is the list this same flush will paint. */
-  const [selectedIndex, setSelectedIndex] = createSignal<number>(
-    (prev = 0): number => {
-      path();
-      filterQuery();
+   *  AND THE LIST IS TRACKED TOO, with the scope riding along as the edge's
+   *  memory — the same shape as `pathState` and `onOpenEdge`. It cannot be an
+   *  `untrack` snapshot: this is a COMPUTE, and in Solid 2 an untracked read
+   *  is SERVED the last committed value rather than pulling a dirty computed
+   *  current (`read()` reaches `pullComputed` only inside `if (tracking)`).
+   *  `filtered` is never below this node, so from the second open of a
+   *  session on — once the list memos hold a committed value — the snapshot
+   *  was the SHUT-phase list: the previous level's rows at a deep-link open
+   *  (⌘⇧H landed on the first host in pool order instead of the one you came
+   *  from), and a list missing everything that arrived while the palette was
+   *  shut. Tracked, the read pulls and this node sits above the list, so the
+   *  rule sees the rows this very flush will paint.
+   *
+   *  What the tracking does NOT do is re-land the highlight on list churn:
+   *  `filtered` mints a fresh array per recomputation, and a run where no
+   *  SCOPE fact moved returns `prev` untouched. So a commands tick under an
+   *  open palette leaves the arrow keys', Tab's and hover's own row exactly
+   *  where the user put it. */
+  type HighlightState = {
+    readonly open: boolean;
+    /** The drill path this index was landed for, by segment identity. */
+    readonly path: readonly DrillableKind[];
+    readonly filter: string;
+    readonly selection: CurrentSelection;
+    readonly index: number;
+  };
+  const NO_HIGHLIGHT: HighlightState = {
+    open: false,
+    path: NO_SEGMENTS,
+    filter: "",
+    selection: { hostKey: "", terminalId: null },
+    index: 0,
+  };
+  const [highlightState, setHighlightState] = createSignal<HighlightState>(
+    (prev = NO_HIGHLIGHT): HighlightState => {
+      const open = props.open;
+      const drilled = path();
+      const filter = filterQuery();
       const selection = currentSelection();
-      if (!props.open) return prev;
+      // Tracked — see above. Read on every run, scope move or not, so the
+      // dependency stands and the pull is a pull.
+      const rows = filtered();
+      if (
+        open === prev.open &&
+        samePath(drilled, prev.path) &&
+        filter === prev.filter &&
+        sameSelection(selection, prev.selection)
+      )
+        return prev;
       // A value leaf's children are passive labels, not a switcher: nothing
       // there has a recency or a "current" row, so the highlight starts at the
       // top. Keying on `filterQuery` (which is "" throughout value mode) is
       // what keeps a keystroke from re-landing it off the label you picked,
       // while a SCOPE change still does.
-      return untrack(() =>
-        mode().kind === "value"
+      const index = !open
+        ? prev.index
+        : mode().kind === "value"
           ? 0
-          : defaultSelectionIndex(filtered(), selection, query()),
-      );
+          : defaultSelectionIndex(rows, selection, query());
+      return { open, path: drilled, filter, selection, index };
     },
+    { name: "paletteHighlightEdge" },
   );
+  /** A memo, so a reader wakes for a CHANGED index and not for a scope move
+   *  that landed on the row the highlight was already on. */
+  const selectedIndex = createMemo(() => highlightState().index, {
+    name: "paletteSelectedIndex",
+  });
+  const setSelectedIndex = (index: number): void => {
+    setHighlightState((prev) => ({ ...prev, index }));
+  };
 
   const effectiveIndex = createMemo(() =>
     Math.max(0, Math.min(selectedIndex(), filtered().length - 1)),
