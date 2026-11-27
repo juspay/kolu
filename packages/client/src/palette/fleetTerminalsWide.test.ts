@@ -189,3 +189,25 @@ it("drops the rows outside the activity window with no wide memo", async () => {
   expect(rows().map((row) => row.id)).toEqual(TILES.slice(0, 11));
   expect(diagnostics()).toEqual([]);
 });
+
+it("copies 250 keys into row memos as TWO sources flat, not one per key", async () => {
+  // THE PER-KEY `mapArray` (`fleetTerminals.ts`'s `rowOf`). It reads the key
+  // accessor and the array's container, then walks the backing's RAW slots
+  // under its own owner — two sources, whatever the fleet's size. Written as
+  // the user-code walk it looks like (`keys().map(id => createMemo(…))`) the
+  // same scope over this same mirror is subscribed to 502 sources, so this
+  // case would fail on that spelling rather than merely count rows.
+  const { rows, mirror } = await fleet();
+  takeSolidDiagnostics();
+
+  // The KEY LIST moves — the one input that copy is over: the last split
+  // leaves and a fresh TILE joins at the end.
+  const joined = "t252" as TerminalId;
+  mirror.pushKeys([...ids.slice(0, -1), joined]);
+  mirror.pushRecord(joined, recordAt(252));
+  await settle();
+  flush();
+
+  expect(rows().map((row) => row.id)).toEqual([...TILES, joined]);
+  expect(diagnostics()).toEqual([]);
+});

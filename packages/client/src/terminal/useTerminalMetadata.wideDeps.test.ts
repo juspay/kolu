@@ -285,3 +285,28 @@ it("builds the display table for 50 tiles with no wide scope", async () => {
   expect(h.hook.getDisplayInfo(tileAt(TILES - 1))?.subCount).toBe(3);
   expect(diagnostics()).toEqual([]);
 });
+
+it("drives 250 ids through the active host's list sub, copied once", async () => {
+  // THE SEAM: `activeWire.terminalListSub` is a window over the host wire's
+  // retained keys stream, and a windowed sub's mapper runs in the scope of
+  // whoever reads it. A mapper that ITERATED the keys — a store-proxy array
+  // — charged an index leaf per terminal to EVERY consumer. So the sub hands
+  // the proxy through unchanged (one source), and the one consumer that
+  // needs a plain array is this hook's `mapArray` copy, two sources flat.
+  const h = await drive();
+
+  expect([...(terminalListSub() ?? [])]).toEqual(ids);
+  expect(terminalListSub.pending()).toBe(false);
+  // The copy is what feeds the census: every listed id has its record here.
+  expect(ids.filter((id) => h.hook.getMetadata(id) === undefined)).toEqual([]);
+  expect(diagnostics()).toEqual([]);
+
+  // The last pane leaves the host's key list: the sub says so, and so does
+  // the copy below it.
+  h.dropLast();
+  await settle();
+  flush();
+  expect([...(terminalListSub() ?? [])]).toEqual(ids.slice(0, -1));
+  expect(h.hook.getMetadata(ids[ids.length - 1] as TerminalId)).toBeUndefined();
+  expect(diagnostics()).toEqual([]);
+});
