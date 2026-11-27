@@ -9,87 +9,103 @@
  *  a hand-written `{ keys, byKey }` over plain arrays under-measures the graph
  *  about threefold (`hostWireMirror`'s own header states the arithmetic).
  *
- *  Its `view` and `prefs` are plain signals, because they ARE plain signals in
- *  production (`createViewState`, `createHostPrefs`) — no store, no proxy, one
- *  source each. Only the members a reading under test actually asks for are
- *  present; everything else reads through optional chaining and floors.
+ *  Its `view`, `prefs` and `restore` are the PRODUCTION factories, wired as
+ *  `hostScopes.ts` wires them: `createViewState` over this host's own
+ *  `placementOf` / `tileIds` / `terminalKeys` / `listIsCensus` and a real
+ *  `createBootPick` gated on a real `createSessionRestore` latch. So the view
+ *  facts are the ones production publishes — `focus` is a memo over the
+ *  writable memo `override` (NOT a plain signal), `writeFocus` and the
+ *  activation side effects exist, the MRU is derived from the persisted visit
+ *  trail narrowed to the live census, and `isUnread` reads this host's saved
+ *  attention record. A hand-written `view` of plain signals was the blind spot
+ *  review 59 §2 names: with no `override` node and no `writeFocus`, every wide
+ *  suite built on this library was structurally unable to see a landing effect
+ *  relay the census into the view.
+ *
+ *  WHAT IS NOT BUILT HERE, and why:
+ *   - `camera` (`createCamera`): no reading under test asks for it, and it
+ *     holds no state another member derives from. A suite that needs it reads
+ *     through optional chaining, as the facades do.
+ *  Nothing else is stubbed: the two writers below drive the REAL stores the
+ *  view derives from — {@link useVisitRecency}'s trail and this host's
+ *  {@link attentionRecordOf} record — rather than standing in for them.
  *
  *  A suite using this must mock `@kolu/surface/client`'s `unenrolledStreamCall`
  *  to call the procedure it is handed, `../wire`'s `padiMap.entry` to answer the
  *  mirror's entry, and `../hostScope/hostScopes`'s `activeScope` to answer
- *  {@link FleetScope.scope}; and it must build this inside a `createRoot`. */
+ *  {@link FleetScope.scope}; and it must build this inside a `createRoot`. A
+ *  suite that LANDS focus also reaches `../wire`'s `padiRpcOf`, through the
+ *  host's active-terminal report, so its mock must answer that too. */
 
-import { LOCAL_HOST } from "kolu-common/hostKey";
+import { encodeHostKey, LOCAL_HOST } from "kolu-common/hostKey";
 import type { TerminalId } from "kolu-common/surface";
-import { createProjection, createSignal } from "solid-js";
-import type { ActivityWindow } from "../terminal/activityWindow";
-import type { DockOrder } from "../terminal/dockOrder";
+import { attentionRecordOf } from "../attention/savedAttention";
+import { useVisitRecency } from "../terminal/visitRecency";
+import { createBootPick } from "./createBootPick";
+import { createHostPrefs, type HostPrefs } from "./createHostPrefs";
 import { createHostWire } from "./createHostWire";
+import {
+  createSessionRestore,
+  type HostRestoreLatch,
+} from "./createSessionRestore";
+import { createViewState, type HostViewState } from "./createViewState";
 
 export interface FleetScope {
   /** What `activeScope()` must answer. */
   readonly scope: unknown;
-  /** The tile MRU, most-recent first — what the WebGL budget admits from. */
+  /** This host's REAL view state — the member a suite drives focus through
+   *  (`writeFocus`, `noteSeededActivation`) and reads the derived facts off. */
+  readonly view: HostViewState;
+  /** This host's REAL sticky preferences, as `createHostPrefs` builds them. */
+  readonly prefs: HostPrefs;
+  /** This host's restore latch — the one the derived boot pick is gated on,
+   *  so a suite driving hydration drives the latch the scope carries. */
+  readonly restore: HostRestoreLatch;
+  /** The tile MRU, most-recent first — what the WebGL budget admits from.
+   *  Written where production writes it: the persisted visit trail, which
+   *  `view.mruOrder` narrows to the live census. */
   setMruOrder(ids: readonly TerminalId[]): void;
-  /** The terminals carrying an unread mark. */
+  /** The terminals carrying an unread mark, on this host's saved attention
+   *  record — the keyed projection `view.isUnread` reads. */
   setUnread(ids: readonly TerminalId[]): void;
-  setActiveId(id: TerminalId | null): void;
-  setActivityWindow(window: ActivityWindow): void;
-  setShowSleeping(show: boolean): void;
-  setDockOrder(order: DockOrder): void;
 }
 
 /** Build the scope. Call inside a `createRoot`: the wire's subscriptions are
  *  owned by whoever builds them, exactly as the per-host owner owns them. */
 export function fleetScope(): FleetScope {
   const wire = createHostWire(LOCAL_HOST);
-  const [mruOrder, setMruOrder] = createSignal<readonly TerminalId[]>([]);
-  // The unread ledger is a keyed PROJECTION in production
-  // (`savedAttention.ts`), so a row's `isUnread` is that row's own store leaf —
-  // the third source a per-row attention fold pays.
-  const [unreadIds, setUnreadIds] = createSignal<readonly TerminalId[]>([]);
-  const unread = createProjection<Record<string, boolean>>(() => {
-    const next: Record<string, boolean> = {};
-    for (const id of unreadIds()) next[id] = true;
-    return next;
-  });
-  const [activeId, setActiveId] = createSignal<TerminalId | null>(null);
-  const [activityWindow, setActivityWindow] =
-    createSignal<ActivityWindow>("all");
-  const [showSleeping, setShowSleeping] = createSignal(true);
-  const [dockOrder, setDockOrder] = createSignal<DockOrder>([]);
+  // The latch before the pick, and the pick before the view: the order
+  // `hostScopes.ts` builds them in, and the order their dependencies demand.
+  const restore = createSessionRestore();
+  const view = createViewState(
+    LOCAL_HOST,
+    wire.placementOf,
+    createBootPick(wire, restore.restoreInFlight),
+    wire.tileIds,
+    wire.terminalKeys,
+    wire.listIsCensus,
+  );
+  const prefs = createHostPrefs(LOCAL_HOST);
+  const visits = useVisitRecency();
+  const attention = attentionRecordOf(encodeHostKey(LOCAL_HOST));
   return {
-    scope: {
-      wire,
-      view: {
-        activeId,
-        focusedTerminalId: () => null,
-        isFocused: () => false,
-        isActiveTile: (id: TerminalId) => activeId() === id,
-        canvasMaximized: () => false,
-        setCanvasMaximized: () => {},
-        mruOrder,
-        isUnread: (id: TerminalId) => unread[id] === true,
-        seedCovers: () => false,
-        noteSeededActivation: () => {},
-        takeAutoSwitch: () => undefined,
-        noteAutoSwitch: () => {},
-        reset: () => {},
-      },
-      prefs: {
-        activityWindow,
-        setActivityWindow,
-        showSleeping,
-        setShowSleeping,
-        dockOrder,
-        setDockOrder,
-      },
+    scope: { wire, view, prefs, restore },
+    view,
+    prefs,
+    restore,
+    setMruOrder: (ids) => {
+      // The trail is a page-lifetime persisted list, so state the whole order
+      // rather than adding to whatever a previous case left: clear this host's
+      // slice, then visit oldest-first, since each visit goes to the front.
+      visits.clearHost(LOCAL_HOST);
+      for (let at = ids.length - 1; at >= 0; at--) {
+        const id = ids[at];
+        if (id !== undefined) visits.noteVisit(LOCAL_HOST, id);
+      }
     },
-    setMruOrder: (ids) => setMruOrder([...ids]),
-    setUnread: (ids) => setUnreadIds([...ids]),
-    setActiveId,
-    setActivityWindow,
-    setShowSleeping,
-    setDockOrder: (order) => setDockOrder(order),
+    setUnread: (ids) => {
+      attention.clearAllUnread();
+      for (const id of ids) attention.markUnread(id);
+    },
   };
 }

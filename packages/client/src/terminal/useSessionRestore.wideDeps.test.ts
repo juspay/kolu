@@ -18,6 +18,14 @@
  *  `getMetadata` — the two seams the fold is over. The saved-session cell is
  *  the host's own, pushed through the same mirror.
  *
+ *  THE VIEW AND THE PANE CHROME ARE REAL TOO. The scope carries the real
+ *  `createViewState` over that wire — so the focus fact is the writable memo
+ *  `override` under a derivation, and `seedCovers` is the derivation's own
+ *  cover test — and the seed drives the real `useSubPanel`, so its tab writes
+ *  land in the pane-chrome store through `editChrome`. Stubbing either (a
+ *  plain-signal `view`, a `setActiveSubTab: () => {}`) is what made this case
+ *  structurally unable to see the writes the seed makes (review 59 §2).
+ *
  *  What the case holds: the whole drain, `info` included, and the hydration's
  *  published answer — the latch seeded, and the tile the blob named landed
  *  on. Then a realistic change (the landing tile's record moves) and both
@@ -59,13 +67,6 @@ vi.mock("../rpc/rpc", () => ({ lifecycle: () => ({ kind: "connected" }) }));
 vi.mock("../right-panel/useRightPanel", () => ({
   useRightPanel: () => ({ seedHistory: () => {} }),
 }));
-vi.mock("./useSubPanel", () => ({
-  useSubPanel: () => ({
-    paneChrome: () => ({ activeSubTab: null }),
-    visiblePaneOf: (id: TerminalId) => id,
-    setActiveSubTab: () => {},
-  }),
-}));
 vi.mock("solid-sonner", () => ({
   toast: Object.assign(() => {}, {
     loading: () => 0,
@@ -77,10 +78,12 @@ vi.mock("solid-sonner", () => ({
 }));
 
 import { terminalListSub } from "../hostScope/activeWire";
-import { createSessionRestore } from "../hostScope/createSessionRestore";
+import type { HostRestoreLatch } from "../hostScope/createSessionRestore";
+import type { HostViewState } from "../hostScope/createViewState";
 import { fleetScope } from "../hostScope/fleetScope.testlib";
 import { hostWireMirror } from "../hostScope/hostWireMirror.testlib";
 import { useSessionRestore } from "./useSessionRestore";
+import { useSubPanel } from "./useSubPanel";
 import { useTerminalMetadata } from "./useTerminalMetadata";
 import type { TerminalStore } from "./useTerminalStore";
 
@@ -101,6 +104,9 @@ for (let at = 0; at < TILES; at++) {
 /** The tile the saved session says was active — not the first, so landing on
  *  it is a reading of the blob and not of the order. */
 const SAVED = tileAt(17);
+/** The tab hydration seeds that tile's strip with: its first pane, in census
+ *  order — the write the real `useSubPanel` makes through `editChrome`. */
+const SAVED_TAB = paneAt(17, 0);
 
 const recordOf = (
   cwd: string,
@@ -145,6 +151,11 @@ interface Harness {
   /** Where the seed landed — the one write hydration plans. */
   readonly landedOn: () => TerminalId | null | undefined;
   readonly seeded: () => boolean;
+  /** The pane the view state holds focused — the DERIVED answer, off the
+   *  real `createViewState` the scope carries. */
+  readonly focused: () => TerminalId | null;
+  /** One tile's seeded tab, off the real `useSubPanel` store. */
+  readonly activeTab: (tile: TerminalId) => TerminalId | null;
   readonly setCwd: (id: TerminalId, cwd: string) => void;
 }
 
@@ -158,19 +169,25 @@ const drive = async (): Promise<Harness> => {
     ...(mirror.entry as object),
   });
   let landedOn: TerminalId | null | undefined;
-  const latch = createSessionRestore();
+  let view: HostViewState | undefined;
+  let latch: HostRestoreLatch | undefined;
   takeSolidDiagnostics();
   createRoot((disposeRoot) => {
     dispose = disposeRoot;
-    held.scope = { ...(fleetScope().scope as object), restore: latch };
+    const fleet = fleetScope();
+    held.scope = fleet.scope;
+    latch = fleet.restore;
+    view = fleet.view;
     const metadata = useTerminalMetadata({ list: terminalListSub });
     // The store as its composer builds it, for the two members this fold is
     // over: the LIST facade and the metadata census. The landing is a spy,
-    // because where the seed lands is the published answer here.
+    // because where the seed lands is the published answer here — but the
+    // COVER test is the real derivation's (`createViewState.seedCovers`), so
+    // the seed takes the arm a cold boot takes.
     const store = {
       ...metadata,
       listSub: terminalListSub,
-      seedCovers: () => false,
+      seedCovers: fleet.view.seedCovers,
       planSetActiveSilently: (id: TerminalId | null) => () => {
         landedOn = id;
       },
@@ -187,7 +204,9 @@ const drive = async (): Promise<Harness> => {
   flush();
   return {
     landedOn: () => landedOn,
-    seeded: () => latch.phase === "seeded",
+    seeded: () => latch?.phase === "seeded",
+    focused: () => view?.focusedTerminalId() ?? null,
+    activeTab: (tile) => useSubPanel().paneChrome(tile).activeSubTab,
     setCwd: (id, cwd) =>
       mirror.pushRecord(id, recordFor(id, ids.indexOf(id), cwd)),
   };
@@ -197,9 +216,13 @@ it("hydrates a 250-pane saved session with no wide scope", async () => {
   const h = await drive();
 
   // Every listed record arrived, so the view seeded — on the tile the blob
-  // named, not the first of the order.
+  // named, not the first of the order. The view state is the real one, so the
+  // focus fact is the derivation's own answer for that tile, and the tab the
+  // seed wrote is on the real pane-chrome store.
   expect(h.seeded()).toBe(true);
   expect(h.landedOn()).toBe(SAVED);
+  expect(h.focused()).toBe(SAVED);
+  expect(h.activeTab(SAVED)).toBe(SAVED_TAB);
   expect(diagnostics()).toEqual([]);
 
   // The landing tile's record moves: the seed is once-only, so nothing lands
@@ -209,5 +232,7 @@ it("hydrates a 250-pane saved session with no wide scope", async () => {
   flush();
   expect(h.seeded()).toBe(true);
   expect(h.landedOn()).toBe(SAVED);
+  expect(h.focused()).toBe(SAVED);
+  expect(h.activeTab(SAVED)).toBe(SAVED_TAB);
   expect(diagnostics()).toEqual([]);
 });

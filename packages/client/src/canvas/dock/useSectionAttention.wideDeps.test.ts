@@ -67,8 +67,15 @@ import { useSectionAttention } from "./useSectionAttention";
 
 const TILES = 50;
 const PANES = 4;
-const tileAt = (at: number) => `t${at}` as TerminalId;
-const paneAt = (at: number, pane: number) => `t${at}p${pane}` as TerminalId;
+/** The ids are REAL ones — `TerminalIdSchema` UUIDs. The unread ledger under
+ *  test is this host's own `savedAttention` record (reached through the view
+ *  state the fleet scope builds), and that record VALIDATES what it stores:
+ *  a `t3p1`-shaped id is dropped on the next read, taking the whole record's
+ *  marks with it. One digit span per row keeps them readable. */
+const uuidAt = (slot: number): TerminalId =>
+  `00000000-0000-4000-8000-${slot.toString(10).padStart(12, "0")}` as TerminalId;
+const tileAt = (at: number) => uuidAt(at * 10);
+const paneAt = (at: number, pane: number) => uuidAt(at * 10 + pane + 1);
 
 /** One repo, so one section holds the whole fleet. */
 const CWD = "/w/one";
@@ -149,11 +156,13 @@ it("counts one section's 250 rows with no wide scope", async () => {
 
   mirror.pushKeys(ids);
   for (const [n, id] of ids.entries()) {
-    const at = Number(/^t(\d+)/.exec(id)?.[1] ?? 0);
-    const pane = /p(\d+)$/.exec(id);
+    // The order above is one tile then its four panes, so the position says
+    // which row this is — the ids themselves are opaque UUIDs.
+    const at = Math.floor(n / (PANES + 1));
+    const pane = (n % (PANES + 1)) - 1;
     mirror.pushRecord(
       id,
-      recordOf(pane === null ? null : parentOfPane(at, Number(pane[1])), n),
+      recordOf(pane < 0 ? null : parentOfPane(at, pane), n),
     );
   }
   mirror.pushUrgency(
