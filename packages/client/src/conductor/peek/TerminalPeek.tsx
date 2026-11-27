@@ -163,10 +163,36 @@ const PeekWindow: Component<{ target: PeekTarget }> = (props) => {
     },
     { name: "peekDriverKeyboard" },
   );
+  /** THE READER'S KEYBOARD — while the terminal takes no typing the screen
+   *  keeps DOM focus, so the keys a reader uses reach it: the scrollback
+   *  keys, and the Esc xterm's key handler refuses when `mayType()` is false
+   *  (`PeekTerminal.tsx`) so it bubbles out and closes the window. */
   createEffect(
     () => ({ handle: handle(), mayType: mayType() }),
-    ({ handle: h, mayType: allowed }) => {
-      if (h !== undefined && !allowed) h.focus();
+    (now, before) => {
+      const h = now.handle;
+      if (h === undefined || now.mayType) return;
+      // SETTLED, on the HAND BACK — the twin of `peekDriverKeyboard` above
+      // and for the same reason: the screen answers `focus()` SYNCHRONOUSLY
+      // with `onFocus(true)` → `setFocused`, so called inline from this arm
+      // the write lands in the arm's own frame and the foot — which folds
+      // the same `mayType` this compute read with `typing()` off `focused` —
+      // is written twice for one hand back (`EFFECT_RELAY_TEAR`, victim
+      // `p.children`, root `membership.driver`). An owner-less `onSettled`
+      // runs it after the flush settles, in the same task.
+      if (before?.mayType === true)
+        runWithOwner(null, () => {
+          onSettled(() => {
+            h.focus();
+          });
+        });
+      // THE WINDOW OPENING read-only is the other arrival here — the screen's
+      // handle reaching a window that already takes no typing — and it stays
+      // INLINE: the window's own mount focus below is an `onSettled` queued
+      // at mount, so it runs after this flush and the window keeps the
+      // keyboard, exactly as it does today. Settling this arrival too would
+      // queue after that one and take the focus off the window instead.
+      else h.focus();
     },
     { name: "peekReadOnlyFocus" },
   );
