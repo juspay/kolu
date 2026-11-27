@@ -31,7 +31,7 @@ import {
 } from "kolu-work";
 import type { JSX } from "@solidjs/web";
 import { render } from "@solidjs/web";
-import { flush, Show } from "solid-js";
+import { flush, OBSERVE, Show } from "solid-js";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { takeSolidDiagnostics } from "@kolu/solid-test-setup/setup";
 
@@ -219,6 +219,17 @@ const findings = (): ReadonlyArray<string> =>
     (event) => `[${event.severity ?? "none"}] ${event.code} ${event.message}`,
   );
 
+/** HOW MANY TIMES A NAMED MEMO HAS RUN — the engine's own `rerun` record,
+ *  the census `palette/workActions.wideDeps.test.ts` takes of `create`.
+ *  Subscribed at module load, so no run is missed. */
+const runs = new Map<string, number>();
+if (OBSERVE === undefined)
+  throw new Error("this file needs Solid's development build");
+OBSERVE.records.subscribe("rerun", (event) => {
+  runs.set(event.nodeName, (runs.get(event.nodeName) ?? 0) + 1);
+});
+const ranFor = (name: string): number => runs.get(name) ?? 0;
+
 afterEach(() => {
   dispose?.();
   root?.remove();
@@ -345,5 +356,37 @@ describe("a work picked, pressed on and unpicked, round after round", () => {
       flush();
       expect(findings(), `round ${round}: unpick`).toEqual([]);
     }
+  });
+
+  /** THE PRESS THAT ASKS FOR WHAT IS ALREADY SHOWN. Master held the pick and
+   *  the fold in two plain signals, which drop a write equal to what they
+   *  hold; the composite edge below them mints a state object per write, so
+   *  an equal press would wake both published memos for nothing — and a
+   *  child that reported a pick back would make that a loop. The setter
+   *  compares by value instead, so a second press on the pressed box writes
+   *  nothing at all. */
+  it("wakes no reader when a press asks for the stage already pressed", async () => {
+    const el = mount(card);
+    await serve(staged());
+    pickWork(ID);
+    flush();
+
+    const followed = shownStage(el);
+    const other = stageNames(el).find((name) => name !== followed) ?? "";
+    pressStage(el, other);
+    expect(shownStage(el), "the first press moves what is shown").toBe(other);
+    takeSolidDiagnostics();
+
+    const pressedRuns = ranFor("workCardPressed");
+    const wholeRuns = ranFor("workCardWhole");
+    // The SAME box again: `setPressed` is handed an equal pick and
+    // `setWhole` the fold it already holds.
+    pressStage(el, other);
+
+    expect(ranFor("workCardPressed") - pressedRuns, "the pick's memo").toBe(0);
+    expect(ranFor("workCardWhole") - wholeRuns, "the fold's memo").toBe(0);
+    expect(shownStage(el), "the same stage is still shown").toBe(other);
+    expect(wholeOut(el), "the fold is still folded").toBe(false);
+    expect(findings(), "the equal press").toEqual([]);
   });
 });

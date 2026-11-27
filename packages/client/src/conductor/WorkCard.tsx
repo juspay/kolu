@@ -108,6 +108,18 @@ const VIEW_WORD: Record<PickedView, string> = {
   details: "Details",
 };
 
+/** TWO PRESSES THAT ASK FOR THE SAME PART OF THE TIMELINE. A press mints its
+ *  pick, so identity says nothing about what it asked for; the stage or the
+ *  visit it names is the whole of it. */
+const samePick = (
+  a: TimelinePick | undefined,
+  b: TimelinePick | undefined,
+): boolean => {
+  if (a === undefined || b === undefined) return a === b;
+  if (a.kind === "stage") return b.kind === "stage" && a.stage === b.stage;
+  return b.kind === "visit" && a.visit === b.visit;
+};
+
 /** ONE OPEN QUESTION'S PLACE ON THE CARD — what a route onto that question
  *  scrolls to. Whether the question is in view is the question's own to say
  *  (`WorkQuestion`), wherever it is drawn. */
@@ -270,6 +282,12 @@ const WorkCard: Component<{
     /** What this work shows while it is not picked. */
     empty: T,
     seed: T,
+    /** Is a write asking for what the edge already holds? A plain signal —
+     *  what master held these in — drops such a write, and the composite
+     *  must too: a state object minted per write would otherwise wake the
+     *  published memo for nothing, and a child reporting a value back would
+     *  make that a loop (review 64 §6). */
+    same: (a: T, b: T) => boolean = Object.is,
   ): [Accessor<T>, (value: T | ((was: T) => T)) => void] {
     const [state, setState] = createSignal<PickEdge<T>>(
       (prev = { open: untrack(isOpen), value: seed }): PickEdge<T> => {
@@ -285,13 +303,13 @@ const WorkCard: Component<{
     return [
       createMemo(() => state().value, { name }),
       (value: T | ((was: T) => T)) => {
-        setState((prev) => ({
-          ...prev,
-          value:
+        setState((prev) => {
+          const next =
             typeof value === "function"
               ? (value as (was: T) => T)(prev.value)
-              : value,
-        }));
+              : value;
+          return same(next, prev.value) ? prev : { ...prev, value: next };
+        });
       },
     ];
   }
@@ -306,6 +324,7 @@ const WorkCard: Component<{
         ? { kind: "stage", stage: asked }
         : undefined;
     }),
+    samePick,
   );
   const [whole, setWhole] = onPickEdge("workCardWhole", false, false);
   /** ... read ONCE per redraw, for the map, the trail and the timeline. */
