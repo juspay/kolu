@@ -436,8 +436,9 @@ const CommandPalette: Component<{
    *  has done since the palette opened", so an open is where it goes back to
    *  nothing. Written from the lifecycle effect's apply arm they would RELAY
    *  the open: corvu's own dismiss effect and every memo reading `props.open`
-   *  run once in the flush `open` changed — against the previous query, tip
-   *  and hover arm — and again after the write lands, so each open ran TORN.
+   *  run once in the flush `open` changed — against the previous tip and
+   *  hover arm, and the query, whose SECOND edge (the trim) spells it out
+   *  below — and again after the write lands, so each open ran TORN.
    *  (Torn, not painted: the write's continuation drains inside the same
    *  `flush()`, so no stale frame reaches the screen — what the double run
    *  costs is the work, and Solid grades it `EFFECT_RELAY_TEAR`.) As writable
@@ -468,9 +469,6 @@ const CommandPalette: Component<{
       (value: T) => setState((prev) => ({ ...prev, value })),
     ];
   }
-  const [query, setQuery] = onOpenEdge("paletteQuery", "", (prev, open) =>
-    open ? "" : prev,
-  );
   // The one-shot ambient tip: picked ONCE per open. `untrack` because the pick
   // is random and reads the tip preferences — re-rolling it on a preference
   // tick would change the footer under the reader.
@@ -619,10 +617,52 @@ const CommandPalette: Component<{
     return { valid, level };
   }
 
+  /** THE QUERY, reset by TWO DERIVED EDGES. An open clears it (the search you
+   *  left behind is not this one's), and a TRIM clears it (the query that
+   *  filtered inside a departed segment goes with the segment).
+   *
+   *  The trim is why this one is spelled out instead of reaching for
+   *  `onOpenEdge` above. The tree tick that drops a segment is read by the
+   *  LIST as well, so a query cleared from the trim effect's apply arm relayed
+   *  that tick: `partitioned` and the input's own binding ran once in the
+   *  flush the tree changed, against the stale query, and again once the clear
+   *  landed — Solid's `EFFECT_RELAY_TEAR`, `warn` from its third sighting.
+   *  Derived, the empty query arrives in the SAME flush as the popped path.
+   *
+   *  `open` and `dropped` ride along as the two edges' memory: a reset happens
+   *  on the run where one of them MOVED. So a tree tick that dropped nothing
+   *  never undoes what you are typing, a drill — which writes the path and
+   *  then the query itself — is left alone, and a close keeps the term it was
+   *  showing. A SHUT palette reads no path at all: a tree tick behind a closed
+   *  palette is not its business. */
+  type QueryState = {
+    readonly open: boolean;
+    readonly dropped: readonly DrillableKind[];
+    readonly value: string;
+  };
+  const [queryState, setQueryState] = createSignal<QueryState>(
+    (prev = { open: false, dropped: NO_SEGMENTS, value: "" }): QueryState => {
+      const open = props.open;
+      const dropped = open ? pathState().dropped : NO_SEGMENTS;
+      if (open !== prev.open)
+        return { open, dropped, value: open ? "" : prev.value };
+      if (dropped === prev.dropped || dropped.length === 0) return prev;
+      return { open, dropped, value: "" };
+    },
+    { name: "paletteQueryEdge" },
+  );
+  // A memo, so a reader wakes for a CHANGED query and not for an edge that
+  // left it alone.
+  const query = createMemo(() => queryState().value, { name: "paletteQuery" });
+  const setQuery = (value: string): void => {
+    setQueryState((prev) => ({ ...prev, value }));
+  };
+
   /** The TRIM's imperative half: a segment the live tree dropped (host
-   *  disconnect, group hidden) has its `onCancel` run, and the query that
-   *  filtered inside it goes with it. The popping itself is the derivation
-   *  above — nothing here writes the path.
+   *  disconnect, group hidden) has its `onCancel` run. Everything the trim
+   *  RESETS is derived from it instead — the path above, the query just above
+   *  this — so this arm writes no reactive state at all, and no reader of the
+   *  tree tick that dropped the segment sees a stale one first.
    *
    *  A trim of an OPEN palette only: a close drops its segments too, and those
    *  belong to the open/close lifecycle below, which alone knows whether the
@@ -635,7 +675,6 @@ const CommandPalette: Component<{
     (dropped) => {
       if (dropped.length === 0) return;
       for (const g of dropped) g.onCancel?.();
-      setQuery("");
     },
     { name: "paletteDroppedSegments" },
   );
