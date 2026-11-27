@@ -1060,6 +1060,7 @@ Returns a client with a bound accessor per member. It replaces the `source` /
 - A `deltas`-declaring collection's whole-collection `.use()` also carries [`.fold({ init, step })`](#fold-on-a-deltas-collection).
 - A cell's `authority` is `"server"` (the default: every push reconciles) or `"local"` (the local store wins after the first server yield).
 - An `inputFn` that returns `null` pauses a stream or an event.
+- An input change tears the subscription down and opens a fresh one: the accessor reads `undefined`, `error()` clears, `complete()` is `false` and `pending()` is `true` again. Those resets are published when the flush that carried the input change SETTLES, not in the pass that changed the input, so a computation folding the input with the subscription is not torn by them; a fact the fresh subscription has already published (a failure at open) stands, and is not reset over.
 - A cell's `initial` is typed [`NoFn<T>`](#nofnt): a function there is Solid's derived-store spelling, not a value, so a cell whose value is a function cannot be seeded with one.
 
 #### Calling a procedure

@@ -22,6 +22,8 @@ import {
   createSignal,
   createStore,
   getOwner,
+  onSettled,
+  runWithOwner,
 } from "solid-js";
 import {
   createUpdatedTracker,
@@ -81,51 +83,95 @@ export function createReactiveSubscription<I, T>(
   // the new input's first frame is a value, not a change.
   const tracker = createUpdatedTracker<T>();
 
-  createEffect(inputFn, (input) => {
-    // Reset state on every input change; the prior iterator is being
-    // torn down so the previously-yielded value is no longer authoritative —
-    // including `complete`: a fresh input opens a fresh iterator, so the
-    // PRIOR typed end no longer describes the current one.
-    setStore((s) => {
-      s.v = undefined;
-    });
-    setError(undefined);
-    setPending(true);
-    setComplete(false);
-    tracker.reset();
-    if (input === null) return;
+  createEffect(
+    inputFn,
+    (input) => {
+      // Reset state on every input change; the prior iterator is being
+      // torn down so the previously-yielded value is no longer authoritative —
+      // including `complete`: a fresh input opens a fresh iterator, so the
+      // PRIOR typed end no longer describes the current one.
+      //
+      // SETTLED, not inline: a consumer is free to fold this subscription's own
+      // INPUT with what it publishes — one computation reading the selected file
+      // and `sub()`/`pending()` is the ordinary shape — and such a reader has
+      // already answered for the input change by the time this arm writes.
+      // Written inline, the arm relays the input into that reader
+      // (`EFFECT_RELAY_TEAR`, `warn` by the third change), and its first frame
+      // shows the NEW input beside the PRIOR input's value. From `onSettled` the
+      // reset lands in a later pass of the SAME flush, carrying no effect origin,
+      // so the published state once the flush ends is what it always was: no
+      // value, no error, pending, not complete.
+      //
+      // UNOWNED: under an owner — which an apply arm has — `onSettled` is a
+      // tracked effect created and run right there, so the write would carry
+      // this arm's own frame (the relay it is deferring) and this effect would
+      // grow a child per input change. With no owner it enqueues, which is the
+      // deferral. The callback writes signals and returns NOTHING (a returned
+      // value reads as a cleanup, which `onSettled` forbids unowned) — which is
+      // also why the FIBER is opened below rather than here: the subscription's
+      // teardown is this effect's own returned cleanup.
+      //
+      // The drain is NOT ordered against the fresh fiber: a `Stream` runs
+      // synchronously until its first suspension, so a failure at OPEN (and a
+      // frame an already-resolved source has ready) lands BEFORE the settle
+      // drains. So the reset is what it always meant — "the PRIOR input's facts
+      // are no longer authoritative" — and says nothing about a fact THIS run
+      // has already published: each leg is skipped when this run produced its
+      // replacement. The published state at the end of the flush is master's,
+      // case for case, including the failure that opens with the subscription.
+      const produced = { frame: false, ended: false, failed: false };
+      runWithOwner(null, () =>
+        onSettled(() => {
+          if (!produced.frame) {
+            setStore((s) => {
+              s.v = undefined;
+            });
+            tracker.reset();
+          }
+          if (!produced.failed) setError(undefined);
+          if (!produced.ended) setComplete(false);
+          if (!produced.frame && !produced.ended && !produced.failed)
+            setPending(true);
+        }),
+      );
+      if (input === null) return;
 
-    // The prior input's fiber was interrupted by the cleanup this effect RETURNED
-    // on its previous run — Solid runs it BEFORE re-running the effect — so the two
-    // subscriptions never overlap and a stale frame can never land in the fresh
-    // state reset above.
-    return runStreamScoped<T>(factory(input), {
-      // The store write and the `pending` clear happen in one synchronous handler,
-      // so they share a flush (matching `createStreamLifecycle`): no consumer
-      // observes a frame applied while the view still reads pending.
-      onFrame: (item) => {
-        tracker.noteFrame(item);
-        writeWrappedValue(setStore, item, options?.arrayKey);
-        setPending(false);
-        // No clear-on-frame branch for the ERROR: a failure is the fiber's EXIT,
-        // so no frame can follow one on the same subscription (see
-        // `createSubscription`). Here the error clears when the INPUT changes —
-        // the state reset above — which is this primitive's own recovery point.
-      },
-      // Mirrors `createSubscription`'s typed-end handling: an interruption
-      // (a superseding input, an unmount) reports nothing.
-      onEnd: () => {
-        // Unconditional: `false` over `false` is a no-op under the signal's default
-        // equality, and a read-back here would see the pre-flush value anyway.
-        setPending(false);
-        setComplete(true);
-      },
-      onFailure: (err) => {
-        setError(err);
-        setPending(false);
-      },
-    });
-  });
+      // The prior input's fiber was interrupted by the cleanup this effect RETURNED
+      // on its previous run — Solid runs it BEFORE re-running the effect — so the two
+      // subscriptions never overlap and a stale frame can never land in the fresh
+      // state reset above.
+      return runStreamScoped<T>(factory(input), {
+        // The store write and the `pending` clear happen in one synchronous handler,
+        // so they share a flush (matching `createStreamLifecycle`): no consumer
+        // observes a frame applied while the view still reads pending.
+        onFrame: (item) => {
+          produced.frame = true;
+          tracker.noteFrame(item);
+          writeWrappedValue(setStore, item, options?.arrayKey);
+          setPending(false);
+          // No clear-on-frame branch for the ERROR: a failure is the fiber's EXIT,
+          // so no frame can follow one on the same subscription (see
+          // `createSubscription`). Here the error clears when the INPUT changes —
+          // the state reset above — which is this primitive's own recovery point.
+        },
+        // Mirrors `createSubscription`'s typed-end handling: an interruption
+        // (a superseding input, an unmount) reports nothing.
+        onEnd: () => {
+          produced.ended = true;
+          // Unconditional: `false` over `false` is a no-op under the signal's default
+          // equality, and a read-back here would see the pre-flush value anyway.
+          setPending(false);
+          setComplete(true);
+        },
+        onFailure: (err) => {
+          produced.failed = true;
+          setError(err);
+          setPending(false);
+        },
+      });
+    },
+    { name: "reactiveSubscriptionInput" },
+  );
 
   const sub = Object.assign((() => store.v) as Accessor<T | undefined>, {
     error,
