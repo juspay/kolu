@@ -1413,8 +1413,16 @@ const CommandPalette: Component<{
   const selectedIndex = createMemo(() => highlightState().index, {
     name: "paletteSelectedIndex",
   });
+  /** A move that lands on the row the highlight is already on writes
+   *  nothing: `ArrowUp` on the first row, `ArrowDown` on the last, a
+   *  re-hover of the highlighted row. A plain index signal — what this was
+   *  before it became a composite — drops such a write, and the composite
+   *  must too, so nothing wakes for the index it was just given back
+   *  (review 64 §6). */
   const setSelectedIndex = (index: number): void => {
-    setHighlightState((prev) => ({ ...prev, index }));
+    setHighlightState((prev) =>
+      prev.index === index ? prev : { ...prev, index },
+    );
   };
 
   const effectiveIndex = createMemo(() =>
