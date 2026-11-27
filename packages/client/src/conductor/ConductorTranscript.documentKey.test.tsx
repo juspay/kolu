@@ -190,11 +190,18 @@ describe("the document the scroller's place belongs to", () => {
       column = SCOPED_COLUMN;
       pointChatAt(ID);
       flush();
+      // THE VIEW, not only the pill: the work's chat has never been scrolled,
+      // so it opens at its own newest line.
+      expect(scroller.scrollTop).toBe(endOf(SCOPED_COLUMN));
       expect(pill()).toBeNull();
 
       column = WHOLE_COLUMN;
       showAllChat();
       flush();
+      // …and the whole conversation comes back to the pixel the reader left,
+      // every round: a place that leaked across the two documents would drift
+      // to one end or the other.
+      expect(scroller.scrollTop).toBe(300);
       expect(pill()).not.toBeNull();
       // EMPTY after every change, advisories included: a mirror written from
       // an effect fails here at its FIRST sighting, not at the judge's third.

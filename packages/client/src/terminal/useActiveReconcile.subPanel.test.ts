@@ -160,7 +160,14 @@ it("repairs a departed split's tab strip with no reader left torn", () => {
   setIds([P, S2]);
   flush();
 
+  // THE STATE THE REPAIR LEAVES, read off the facts themselves rather than
+  // only off the readers above: the surviving pane holds the strip, it is the
+  // focused terminal, and the TILE it is a split of is still the active one —
+  // a repair that promoted the successor to a tile of its own would move
+  // `activeId` with it.
   expect(subPanel.paneChrome(P).activeSubTab).toBe(S2);
+  expect(h.view?.focusedTerminalId()).toBe(S2);
+  expect(h.view?.activeId()).toBe(P);
   expect(shown.at(-1)).toBe(S2);
   // The departed pane was the focused one, so the successor carries the focus
   // fact too — and the panel's subject follows it.
