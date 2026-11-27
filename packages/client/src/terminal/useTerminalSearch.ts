@@ -86,6 +86,17 @@ export const useTerminalSearch = createSharedRoot(() => {
     );
   };
 
+  /** Open the bar for `id`, under `id`. A plain record — what this state was
+   *  before it became a composite — drops a write of what it already holds,
+   *  and so does this: a second ask on the tile that already has the bar
+   *  (the find button pressed twice) writes nothing, so no tile's binding
+   *  wakes for the bar it is already drawing (review 64 §6). */
+  const show = (id: TerminalId): void => {
+    setBar((prev) =>
+      prev.id === id && prev.scope === id ? prev : { id, scope: id },
+    );
+  };
+
   return {
     /** Is the find bar open for terminal `id`? */
     isOpen(id: TerminalId): boolean {
@@ -94,7 +105,7 @@ export const useTerminalSearch = createSharedRoot(() => {
     /** Open or close the find bar for terminal `id`. Closing a bar that is not
      *  this terminal's leaves the open one alone. */
     setOpen(id: TerminalId, open: boolean) {
-      if (open) setBar({ id, scope: id });
+      if (open) show(id);
       else shut((openFor) => openFor === id);
     },
     /** Open the find bar for terminal `id` — the "find in THIS terminal" intent
@@ -102,7 +113,7 @@ export const useTerminalSearch = createSharedRoot(() => {
      *  true)`. The search singleton owns find-bar state; tile selection stays
      *  with the caller (TileTitleActions' `onTile`). */
     openFor(id: TerminalId) {
-      setBar({ id, scope: id });
+      show(id);
     },
     /** Toggle the find bar for the active terminal — the `Cmd+F` action. */
     toggleActive() {

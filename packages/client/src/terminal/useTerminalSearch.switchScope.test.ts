@@ -20,7 +20,13 @@
 
 import { takeSolidDiagnostics } from "@kolu/solid-test-setup/setup";
 import type { TerminalId } from "kolu-common/surface";
-import { type Accessor, createEffect, createMemo, createRoot } from "solid-js";
+import {
+  type Accessor,
+  createEffect,
+  createMemo,
+  createRoot,
+  OBSERVE,
+} from "solid-js";
 import { flush } from "solid-js";
 import { afterEach, expect, it, vi } from "vitest";
 
@@ -60,6 +66,21 @@ afterEach(() => {
   dispose?.();
   dispose = undefined;
 });
+
+/** HOW MANY TIMES EACH NAMED BINDING HAS RUN — the engine's own `rerun`
+ *  record. Subscribed at module load, so no run is missed. */
+const runs = new Map<string, number>();
+if (OBSERVE === undefined)
+  throw new Error("this file needs Solid's development build");
+OBSERVE.records.subscribe("rerun", (event) => {
+  runs.set(event.nodeName, (runs.get(event.nodeName) ?? 0) + 1);
+});
+/** The runs every tile's find-bar binding has had between them. */
+const barBindingRuns = (): number =>
+  TILES.reduce(
+    (sum, id) => sum + (runs.get(`TerminalContent.searchOpen.${id}`) ?? 0),
+    0,
+  );
 
 /** THE VICTIM, as the canvas mounts it: every tile's find-bar binding, folded
  *  from the active-tile selector and the search root in one computation, each
@@ -191,4 +212,33 @@ it("shuts the bar the SearchBar closes, and the one whose terminal goes", () => 
 
     expect(diagnostics()).toEqual([]);
   }
+});
+
+/** THE FIND BUTTON PRESSED TWICE ON ONE TILE. The bar is a composite — the
+ *  terminal it is open for and the one it was asked under — and its opener
+ *  minted a state object per ask, so a second ask on the tile that already
+ *  has the bar woke every tile's binding with the bar they already saw.
+ *  Master held the open-state in a plain record and dropped such a write;
+ *  the composite compares by value and does the same (review 64 §6). */
+it("wakes no binding when the find button asks for the bar already open", () => {
+  const shown = mountedCanvas();
+  const search = useTerminalSearch();
+  const here = TILES[0] as TerminalId;
+  bag.setActiveId(here);
+  search.reset();
+  search.openFor(here);
+  flush();
+  expect(shown()).toEqual([here]);
+  diagnostics();
+
+  const before = barBindingRuns();
+  // The same tile's find button again — `TileTitleActions`' `onTile` selects
+  // the tile it is already on and asks for the bar it already has.
+  bag.setActiveId(here);
+  search.openFor(here);
+  flush();
+
+  expect(barBindingRuns() - before, "the tiles' find-bar bindings").toBe(0);
+  expect(shown(), "the same tile still has the bar").toEqual([here]);
+  expect(diagnostics(), "the equal ask").toEqual([]);
 });
