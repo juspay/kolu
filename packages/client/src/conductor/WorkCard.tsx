@@ -51,6 +51,7 @@ import {
 } from "kolu-work";
 import type { JSX } from "@solidjs/web";
 import {
+  type Accessor,
   type Component,
   createEffect,
   createMemo,
@@ -246,10 +247,59 @@ const WorkCard: Component<{
    *  map or the visit pressed on the trail (none: the stage the work is in)
    *  and whether the whole timeline is out. The face's own, seeded from the
    *  press that picked it: a work unpicked forgets both, so the next time it
-   *  is picked it follows the work again. */
-  const [pressed, setPressed] = createSignal<TimelinePick | undefined>(
+   *  is picked it follows the work again.
+   *
+   *  DERIVED ON THE PICK EDGE, not reset from an effect's apply arm. Both
+   *  facts are "what has been pressed since this work was picked", and the
+   *  pick is the very thing their readers fold them with: `shownStage()` and
+   *  `shownVisit()` read `isOpen()` AND `view()`, which is `pressed()` and
+   *  `whole()`. Written from an effect, an unpick RELAYED itself — the map's
+   *  boxes and the timeline ran once in the flush the pick changed, against
+   *  the stage still pressed, and again once the reset landed, which Solid
+   *  grades `EFFECT_RELAY_TEAR` and warns about from the third sighting. As
+   *  writable memos keyed on the edge (the palette's `onOpenEdge` idiom) the
+   *  forgetting arrives in the SAME flush as the unpick, while a press on the
+   *  map or the trail still writes them. `open` rides along as the edge's
+   *  memory: the derivation sees only `prev`. */
+  interface PickEdge<T> {
+    readonly open: boolean;
+    readonly value: T;
+  }
+  function onPickEdge<T>(
+    name: string,
+    /** What this work shows while it is not picked. */
+    empty: T,
+    seed: T,
+  ): [Accessor<T>, (value: T | ((was: T) => T)) => void] {
+    const [state, setState] = createSignal<PickEdge<T>>(
+      (prev = { open: untrack(isOpen), value: seed }): PickEdge<T> => {
+        const open = isOpen();
+        if (open === prev.open) return prev;
+        // A pick keeps what the press that made it wrote; an unpick forgets.
+        return { open, value: open ? prev.value : empty };
+      },
+      { name: `${name}Edge` },
+    );
+    // A memo, so a reader wakes for a CHANGED value and not for an edge that
+    // left it alone (a pick keeps the stage its own press asked for).
+    return [
+      createMemo(() => state().value, { name }),
+      (value: T | ((was: T) => T)) => {
+        setState((prev) => ({
+          ...prev,
+          value:
+            typeof value === "function"
+              ? (value as (was: T) => T)(prev.value)
+              : value,
+        }));
+      },
+    ];
+  }
+  const [pressed, setPressed] = onPickEdge<TimelinePick | undefined>(
+    "workCardPressed",
+    undefined,
     // READ ONCE, deliberately: the seed is the press that picked this work,
-    // and a later press writes this signal rather than re-seeding it.
+    // and a later press writes this derivation rather than re-seeding it.
     untrack(() => {
       const asked = stageAskedFor();
       return isOpen() && asked !== undefined
@@ -257,15 +307,7 @@ const WorkCard: Component<{
         : undefined;
     }),
   );
-  const [whole, setWhole] = createSignal(false);
-  createEffect(
-    () => isOpen(),
-    (open) => {
-      if (open) return;
-      setPressed(undefined);
-      setWhole(false);
-    },
-  );
+  const [whole, setWhole] = onPickEdge("workCardWhole", false, false);
   /** ... read ONCE per redraw, for the map, the trail and the timeline. */
   const view = createMemo(() =>
     timelineShown(record(), read(), pressed(), whole()),
