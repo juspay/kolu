@@ -12,8 +12,12 @@
  * build raises `WIDE_SCOPE_DEPS` on it.
  *
  * The fixture is ONE work at the size a months-old work reaches: 250 timeline
- * events and 100 decisions, with a PR, a member and two asks still open. Each
- * case mounts a real face over it, and judges:
+ * events and 100 decisions, with a PR, a member and two asks still open —
+ * served through the REAL collection mirror (`collectionMirror.testlib.ts`:
+ * `useCollection` over `createSubscription` stores), because the number under
+ * judgement is how many sources a scope holds and a hand-written mock serving
+ * plain arrays and plain records under-measures that graph. Each case mounts a
+ * real face over it, and judges:
  *
  *   - every diagnostic Solid raised, `info` graded ones included — the list is
  *     empty or the case says what was raised and on which scope;
@@ -35,13 +39,12 @@ import {
   recordEvent,
   type SentAnswer,
   type Work,
-  type WorkEvent,
   type WorkId,
   workIdOf,
 } from "kolu-work";
 import type { JSX } from "@solidjs/web";
 import { render } from "@solidjs/web";
-import { createStore, flush } from "solid-js";
+import { flush, Show } from "solid-js";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 const HOST = "local";
@@ -63,11 +66,57 @@ const KEY = {
 const ID: WorkId = workIdOf(KEY);
 const REF = `${HOST}/${TERMINAL}`;
 
-/** THE WORKS THE MIRROR HOLDS — empty but for the chat's case, which looks
- *  the work up by id rather than being handed it. */
-const mirror = vi.hoisted(() => ({
-  works: new Map<string, unknown>(),
+/** The bound views this file serves, filled in once the mirrors below are
+ *  built — the mock factory runs when `./useWorks` first reaches for one. */
+const held = vi.hoisted(() => ({
+  works: undefined as unknown,
+  members: undefined as unknown,
+  empty: undefined as unknown,
 }));
+
+// The per-key path opens each key's stream through this one call
+// (`useCollection.ts:142-153`); here it IS the procedure, so this file can
+// push frames down a stream of its own.
+vi.mock("@kolu/surface/client", async (original) => ({
+  ...(await original<Record<string, unknown>>()),
+  unenrolledStreamCall: (source: (input: unknown) => unknown, input: unknown) =>
+    source(input),
+}));
+
+// The collections this card reads, as the client binds them. The readings
+// themselves (`./useWorks`) are the real ones, over the real mirror. The rest
+// of the wire is inert: nothing this card draws dials a host.
+vi.mock("../wire", async () => {
+  // `vi.mock`'s factory is hoisted above this file's imports, so the one
+  // value it needs from another module is reached for here.
+  const { Effect } = await import("effect");
+  return {
+    app: {
+      collections: {
+        works: { use: () => held.works },
+        workMembers: { use: () => held.members },
+        memberReadings: { use: () => held.empty },
+        workPrs: { use: () => held.empty },
+      },
+      // Every other cell the app opens at load — the agents listing, the
+      // profiles — answers nothing here; none of them is a work.
+      cells: new Proxy(
+        {},
+        { get: () => ({ use: () => ({ value: () => undefined }) }) },
+      ),
+    },
+    // The one cosmetic fetch the shell makes at load. It never answers, so
+    // nothing of it writes while a case is drawing.
+    client: { server: { info: () => Effect.never } },
+    activeHost: () => ({ kind: "local" }),
+    encActiveHost: () => "local",
+    hostKeys: () => [],
+    padiMap: { useEntry: () => undefined },
+    padiRpcOf: () => ({}),
+    activePadiRpc: () => ({}),
+    interpretClientError: () => {},
+  };
+});
 // The fleet, as far as this card is concerned: nothing of its terminal is in
 // it — no standing, no rows, so a member's name falls back to its role. The
 // module's pure helpers (the grouping a name reading folds) stay real.
@@ -76,18 +125,6 @@ vi.mock(import("../palette/fleetTerminals"), async (importOriginal) => ({
   fleetTerminalStanding: () => ({ kind: "gone" }) as const,
   useFleetTerminalIndex: () => () => [],
 }));
-vi.mock("./useWorks", () => ({
-  useWorkMap: () => () => mirror.works,
-  useWorkAt: (id: string) => mirror.works.get(id),
-  useWorkMembers: () => () =>
-    new Map([[REF, { work: ID, role: "planner", joinedAt: at(1_000) }]]),
-  useWorkPrs: () => () => new Map(),
-  useSeen: () => () => new Map(),
-  useMembership: () => () => new Map(),
-  useSetupAnswers: () => () => [],
-  useAgentNotes: () => () => [],
-  useFileHolders: () => () => new Map(),
-}));
 vi.mock("./useConductor", () => ({
   useConductor: () => ({ answerWork: vi.fn(), answer: vi.fn(), send: vi.fn() }),
 }));
@@ -95,6 +132,9 @@ vi.mock("./WorkCode", () => ({ default: () => <div /> }));
 vi.mock("./WorkLive", () => ({ default: () => <div /> }));
 vi.mock("./ConductorDiffs", () => ({ default: () => null }));
 
+import { settle } from "@kolu/surface/solid/testlib";
+import type { WorkMember } from "kolu-work";
+import { collectionMirror } from "./collectionMirror.testlib";
 import { Shown } from "../ui/shown";
 import { repoMonogram } from "../ui/monogramGlyph";
 import ConductorTranscript from "./ConductorTranscript";
@@ -227,6 +267,33 @@ const grown = (): Work => {
  *  setup answered and the PR. */
 const SUBTITLE = `${repoMonogram(REPO_NAME)}${REPO_NAME} · ${BRANCH} · ${HOST} · ${MODE} · PR #${PR}`;
 
+/** THE MIRRORS, as the client binds them: the real per-key collection view
+ *  over real subscription stores, so what a face's memo subscribes to here is
+ *  what the browser would count. The work is pushed once, before the first
+ *  case mounts anything. */
+const works = collectionMirror<WorkId, Work>("works");
+const members = collectionMirror<string, WorkMember>("workMembers");
+held.works = works.view;
+held.members = members.view;
+held.empty = collectionMirror<string, never>("empty").view;
+
+/** The work as the mirror serves it — the store proxy a board row is handed,
+ *  not a record this file built. `undefined` until its first frame, which is
+ *  what a face mounted before the mirror has answered sees. */
+const served = (): Work | undefined => works.view.byKey(ID)?.();
+
+/** Seed the mirror and let its frames cross their streams. A subscription
+ *  only runs while something reads it, so a case MOUNTS first and serves
+ *  after — the same order a browser's does. */
+const serve = async (work: Work): Promise<void> => {
+  works.push(ID, work);
+  works.pushKeys([ID]);
+  members.push(REF, { work: ID, role: "planner", joinedAt: at(1_000) });
+  members.pushKeys([REF]);
+  await settle();
+  flush();
+};
+
 let dispose: (() => void) | undefined;
 let root: HTMLElement | undefined;
 
@@ -253,16 +320,22 @@ afterEach(() => {
   root?.remove();
   dispose = undefined;
   root = undefined;
-  mirror.works = new Map();
   unpickWork();
   flush();
 });
 
-describe("a card drawn over a long record", () => {
-  it("says where the work is, with its PR a link, from one read", () => {
-    const [work] = createStore(grown());
+/** The board's own shape: the card is drawn for the work the mirror holds,
+ *  and nothing before its first frame. */
+const cardOf = (shape: "card" | "picked") => () => (
+  <Show when={served()}>
+    {(one) => <WorkCard id={ID} work={one()} shape={shape} />}
+  </Show>
+);
 
-    const el = mount(() => <WorkCard id={ID} work={work} shape="card" />);
+describe("a card drawn over a long record", () => {
+  it("says where the work is, with its PR a link, from one read", async () => {
+    const el = mount(cardOf("card"));
+    await serve(grown());
 
     expect(textOf(el, "work-subtitle")).toBe(SUBTITLE);
     expect(
@@ -271,10 +344,9 @@ describe("a card drawn over a long record", () => {
     expect(findings()).toEqual([]);
   });
 
-  it("draws the question of every open ask", () => {
-    const [work] = createStore(grown());
-
-    const el = mount(() => <WorkCard id={ID} work={work} shape="card" />);
+  it("draws the question of every open ask", async () => {
+    const el = mount(cardOf("card"));
+    await serve(grown());
 
     const asked = [...el.querySelectorAll('[data-testid="work-question"]')].map(
       (one) => one.getAttribute("data-ask"),
@@ -285,11 +357,10 @@ describe("a card drawn over a long record", () => {
     expect(findings()).toEqual([]);
   });
 
-  it("draws its terminals' rows", () => {
-    const [work] = createStore(grown());
+  it("draws its terminals' rows", async () => {
     pickWork(ID);
-
-    const el = mount(() => <WorkCard id={ID} work={work} shape="picked" />);
+    const el = mount(cardOf("picked"));
+    await serve(grown());
 
     expect(
       [...el.querySelectorAll('[data-testid="work-member"]')].map((one) =>
@@ -299,22 +370,24 @@ describe("a card drawn over a long record", () => {
     expect(findings()).toEqual([]);
   });
 
-  it("follows one more event without widening a scope", () => {
-    const [work, setWork] = createStore(grown());
-    const el = mount(() => <WorkCard id={ID} work={work} shape="card" />);
+  it("follows one more event without widening a scope", async () => {
+    const el = mount(cardOf("card"));
+    await serve(grown());
     expect(findings()).toEqual([]);
 
-    setWork((draft: Work) => {
-      (draft.events as WorkEvent[]).push({
+    // THE NEXT FRAME, as the server delivers one: the same record with one
+    // more event on it. The subscription writes it into its store field by
+    // field, so this is the leaf write a browser would see.
+    await serve(
+      recordEvent(grown(), {
         at: at(ROUNDS * 60_000 + 60_000),
         by: "kolu",
         about: ABOUT_WORK,
         kind: "draft-state",
         pr: PR,
         draft: "draft",
-      });
-    });
-    flush();
+      }),
+    );
 
     expect(textOf(el, "work-subtitle")).toBe(
       `${repoMonogram(REPO_NAME)}${REPO_NAME} · ${BRANCH} · ${HOST} · ${MODE} · draft PR #${PR}`,
@@ -324,10 +397,13 @@ describe("a card drawn over a long record", () => {
 });
 
 describe("a work chip's hover card over a long record", () => {
-  it("says the same words, from one read", () => {
-    const [work] = createStore(grown());
-
-    const el = mount(() => <WorkChipCard id={ID} work={work} />);
+  it("says the same words, from one read", async () => {
+    const el = mount(() => (
+      <Show when={served()}>
+        {(one) => <WorkChipCard id={ID} work={one()} />}
+      </Show>
+    ));
+    await serve(grown());
 
     expect(textOf(el, "work-chip-terminal")).not.toBe("(absent)");
     expect(
@@ -357,10 +433,7 @@ const TURNS: ReadonlyMap<string, Turn> = new Map([
 ]);
 
 describe("the chat's own copy of a question", () => {
-  it("draws the form from one read of the work", () => {
-    const [work] = createStore(grown());
-    mirror.works = new Map([[ID, work]]);
-
+  it("draws the form from one read of the work", async () => {
     const el = mount(() => (
       <ConductorTranscript
         rows={ROWS}
@@ -370,7 +443,7 @@ describe("the chat's own copy of a question", () => {
         containerRef={() => {}}
       />
     ));
-
+    await serve(grown());
     const form = el.querySelector(`[data-testid="work-question"]`);
     expect(form?.getAttribute("data-ask")).toBe(CHAT_ASK);
     expect(form?.querySelectorAll("[data-decision]").length).toBe(5);
