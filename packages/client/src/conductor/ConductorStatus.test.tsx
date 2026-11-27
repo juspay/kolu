@@ -25,6 +25,18 @@ vi.mock("../useMobile", () => ({ layoutMode: () => "phone" }));
 let works: WorkRow[] = [];
 vi.mock("./useWorks", () => ({
   useWorks: () => () => works,
+  // The board's two halves over the same fixture: every work here is open,
+  // so the running half is all of them and nothing is finished or watched.
+  useWorkSplit: () => ({
+    live: () => works.filter(([, one]) => one.state.kind === "open"),
+    done: () => works.filter(([, one]) => one.state.kind !== "open"),
+    watching: () =>
+      new Set(
+        works.flatMap(([id, one]) =>
+          one.state.kind === "open" && one.key.kind === "watch" ? [id] : [],
+        ),
+      ),
+  }),
   // The one needs-you reading, over the same works — as the real mirror
   // derives it.
   useNeedsYou: () => () => needsYou(works),

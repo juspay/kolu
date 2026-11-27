@@ -40,6 +40,7 @@ const WORK: Work = openWork({
 // chip's subject is the same object on every read.
 vi.mock("./useWorks", () => ({
   useWorkMap: () => () => new Map([[ID, WORK]]),
+  useWorkAt: (id: WorkId) => (id === ID ? WORK : undefined),
 }));
 // The chip is its own face with its own hover card; what this file judges is
 // the bar's fold, and the chip stands for whatever the bar hands it.

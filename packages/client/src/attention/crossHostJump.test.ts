@@ -63,6 +63,8 @@ vi.mock("../conductor/useWorks", () => ({
   useMembership: () => () => new Map<string, Membership>(),
   useNeedsYou: () => () => [],
   useWorkMap: () => () => new Map(),
+  useWorkKeys: () => () => [],
+  useWorkAt: () => undefined,
 }));
 vi.mock("../conductor/useConductorMode", () => ({
   conductorMode: () => false,

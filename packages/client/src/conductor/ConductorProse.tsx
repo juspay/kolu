@@ -55,7 +55,7 @@ import { OptionMenu } from "../ui/OptionMenu";
 import { type FileHolders, fileTarget } from "./namedFiles";
 import { applyProseListFold, proseListFoldOpen } from "./proseListFold";
 import { openReader, readerTarget } from "./reader/useReader";
-import { useWorkMap } from "./useWorks";
+import { useWorkAt } from "./useWorks";
 import WorkChip from "./WorkChip";
 import WorkChipFace from "./WorkChipFace";
 
@@ -88,7 +88,6 @@ const ConductorProse: Component<{
   onRedrawn?: () => void;
 }> = (props) => {
   let host!: HTMLDivElement;
-  const works = useWorkMap();
 
   /** The works a press offered to choose between, and the link it was
    *  pressed on — which the menu is anchored to. */
@@ -102,11 +101,13 @@ const ConductorProse: Component<{
   const [missingPath, setMissingPath] = createSignal<string | null>(null);
 
   /** The works named, with their records as they stand now. Every id came
-   *  out of the holders index or the turn, both read off this same map in
-   *  this same update, so an id it does not hold is a defect, said loudly. */
+   *  out of the holders index or the turn, both read off the same mirror in
+   *  this same update, so an id it does not hold is a defect, said loudly.
+   *  Each is read BY ITS KEY, so this face holds no dependency on the works
+   *  a link does not name. */
   const named = (ids: NonEmpty<WorkId>): NonEmpty<Named> => {
     const one = (id: WorkId): Named => {
-      const work = works().get(id);
+      const work = useWorkAt(id);
       if (work === undefined)
         throw new Error(`a file link named work ${id}, which is not held`);
       return { id, work };

@@ -20,14 +20,18 @@ vi.mock("./reader/useReader", () => ({
     world.readerClosed += 1;
   },
 }));
-vi.mock("./useWorks", () => ({
-  // Both works are in the list, so the chat's scope resolves to them.
-  useWorkMap: () => () =>
-    new Map([
-      ["branch:local/%2Fr/a", { title: "a" }],
-      ["branch:local/%2Fr/b", { title: "b" }],
-    ]),
-}));
+vi.mock("./useWorks", () => {
+  // Both works are in the list, so the chat's scope resolves to them — the
+  // per-id read and the map answer off the same two records.
+  const works = new Map<string, { title: string }>([
+    ["branch:local/%2Fr/a", { title: "a" }],
+    ["branch:local/%2Fr/b", { title: "b" }],
+  ]);
+  return {
+    useWorkMap: () => () => works,
+    useWorkAt: (id: string) => works.get(id),
+  };
+});
 
 import { chatScope, showAllChat } from "./chatScope";
 import { phoneView, setPhoneView } from "./phoneView";

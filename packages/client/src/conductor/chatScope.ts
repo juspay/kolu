@@ -14,7 +14,7 @@ import type { Work, WorkId } from "kolu-work";
 import { createSignal } from "solid-js";
 import { setPhoneView } from "./phoneView";
 import { closeReader } from "./reader/useReader";
-import { useWorkMap } from "./useWorks";
+import { useWorkAt } from "./useWorks";
 import { WHOLE_TRANSCRIPT } from "./transcriptScroll";
 
 const [scope, setScope] = createSignal<WorkId | null>(null);
@@ -29,7 +29,7 @@ export const chatScope = (): {
 } | null => {
   const id = scope();
   if (id === null) return null;
-  const record = useWorkMap()().get(id);
+  const record = useWorkAt(id);
   return record === undefined ? null : { id, record };
 };
 

@@ -145,9 +145,6 @@ const PickedCard: Component<{ id: WorkId; record: Work | undefined }> = (
   </Show>
 );
 
-/** A watch keeps an eye on a terminal of yours; it is not building anything. */
-const isWatch = (work: Work): boolean => work.key.kind === "watch";
-
 /** THE THREE ASKS THE WELCOME OFFERS — requests, not commands: each one says
  *  what to do and where, which is the shape a waterfall needs to start. */
 const EXAMPLES: ReadonlyArray<string> = [
@@ -218,10 +215,14 @@ const Welcome: Component = () => {
 const WorkColumn: Component = () => {
   const works = useWorks();
   const needs = useNeedsYou();
-  /** THE TWO HALVES OF THE BOARD, as the app reads them once: whether a work
-   *  is still running is that work's own reading, so neither list moves for a
-   *  timeline tick. */
-  const { live, done } = useWorkSplit();
+  /** THE BOARD'S HALVES AND ITS WATCHES, as the app reads them once: whether
+   *  a work is still running, and whether it is a watch rather than work
+   *  being built, are that work's own readings off its snapshot — so neither
+   *  list moves for a timeline tick and this column reads no leaf of any
+   *  record. Reading `work.key.kind` per row here instead put two store
+   *  leaves per open work on the one memo below, past the development
+   *  build's 200-source judge at about a hundred of them. */
+  const { live, done, watching: watches } = useWorkSplit();
   /** On a phone every work is a card: a row needs a side to stand beside. */
   const rowShape = (): "card" | "row" =>
     layoutMode() === "phone" ? "card" : "row";
@@ -233,7 +234,7 @@ const WorkColumn: Component = () => {
     const watching: WorkRow[] = [];
     for (const row of live()) {
       if (waiting.has(row[0])) onYou.push(row);
-      else if (isWatch(row[1])) watching.push(row);
+      else if (watches().has(row[0])) watching.push(row);
       else moving.push(row);
     }
     return { onYou, moving, watching };

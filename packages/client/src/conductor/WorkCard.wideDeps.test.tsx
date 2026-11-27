@@ -47,6 +47,8 @@ vi.mock("../palette/fleetTerminals", () => ({
 }));
 vi.mock("./useWorks", () => ({
   useWorkMap: () => () => new Map(),
+  // No records in this fixture: a card's work arrives as a prop here.
+  useWorkAt: () => undefined,
   useWorkMembers: () => () => new Map(),
   useWorkPrs: () => () => new Map(),
 }));

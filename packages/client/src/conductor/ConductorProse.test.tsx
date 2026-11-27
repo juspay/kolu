@@ -100,6 +100,7 @@ vi.mock("@kolu/solid-markdown", async () => {
 const [works, setWorks] = createSignal<ReadonlyMap<WorkId, Work>>(new Map());
 vi.mock("./useWorks", () => ({
   useWorkMap: () => works,
+  useWorkAt: (id: WorkId) => works().get(id),
   // A work's chip reads its terminals; these works have none.
   useWorkMembers: () => () => new Map(),
   useSeen: () => () => new Map(),

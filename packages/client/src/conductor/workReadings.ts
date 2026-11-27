@@ -557,15 +557,19 @@ export function outcomeWords(outcome: Outcome): string {
  *  root's key already belonged to another work when git first answered for
  *  it keeps its old key, `held`; the line names the work holding the branch
  *  now — by its title, or "another work" once that one has dropped off the
- *  finished list. A key that is not held reads none. */
+ *  finished list. A key that is not held reads none.
+ *
+ *  The holder is asked for BY ITS ID rather than looked up in a map of every
+ *  work, so the card's line depends on the one work it names and not on the
+ *  whole mirror. */
 export const heldWords = (
   work: Work,
-  works: ReadonlyMap<WorkId, Work>,
+  holderOf: (id: WorkId) => Work | undefined,
 ): Option.Option<string> => {
   const key = work.key;
   if (key.kind !== "branch" || key.repoBy.kind !== "held") return Option.none();
   const root = key.repoBy.root;
-  const holder = works.get(workIdOf({ ...key, repo: root }));
+  const holder = holderOf(workIdOf({ ...key, repo: root }));
   const who = holder === undefined ? "another work" : `«${holder.title}»`;
   return Option.some(
     `Kept under its old key: ${who} holds ${key.branch} in ${repoName(root)}`,

@@ -60,7 +60,7 @@ function worksFixture() {
  *  reader's view of the section, which is what the assertions judge. */
 function mounted() {
   const { rows, setWorks } = worksFixture();
-  let seen: PaletteAction[] = [];
+  let seen: ReadonlyArray<PaletteAction> = [];
   const dispose = createRoot((disposeRoot) => {
     const palette = workPaletteRows(rows);
     createEffect(

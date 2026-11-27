@@ -43,6 +43,9 @@ vi.mock("../conductor/useWorks", () => ({
   useMembership: () => () => works.membership(),
   useNeedsYou: () => () => [],
   useWorkMap: () => () => new Map(),
+  // No works records in this fixture: the ids are empty and no title reads.
+  useWorkKeys: () => () => [],
+  useWorkAt: () => undefined,
 }));
 vi.mock("../conductor/useConductorMode", () => ({
   conductorMode: () => conductor.inMode(),

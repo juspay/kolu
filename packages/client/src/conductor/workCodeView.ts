@@ -38,7 +38,7 @@ import {
 } from "../code-view/codeViewState";
 import { runAction } from "../runAction";
 import { app } from "../wire";
-import { useWorkMap } from "./useWorks";
+import { useWorkKeys } from "./useWorks";
 
 /** The views this browser has written, by work — the layer read first. */
 const [written, setWritten] = createStore<Record<WorkId, WorkCodeView>>({});
@@ -55,11 +55,15 @@ const histories = createCodeHistories<WorkId>();
  *  back holding this browser's old view and history and write the old view
  *  back on the next click. Said once: every id the works mirror held and no
  *  longer holds is let go of — its write and its history. Started by the
- *  first view of a work, and app-lifetime from then on. */
+ *  first view of a work, and app-lifetime from then on.
+ *
+ *  MEMBERSHIP ALONE ({@link useWorkKeys}): which works there are is the whole
+ *  question here, so this reads no record and nothing it holds grows with
+ *  the fleet. */
 const forgetGoneWorks = createSharedRoot(() => {
-  const works = useWorkMap();
+  const keys = useWorkKeys();
   createEffect(
-    () => new Set(works().keys()),
+    () => new Set(keys()),
     (now, before) => {
       if (before === undefined) return;
       for (const id of before) {

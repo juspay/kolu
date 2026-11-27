@@ -1368,8 +1368,11 @@ describe("the card's line for a work kept under its old key (T30)", () => {
       at: "2026-11-24T19:00:00.000Z",
       request: { kind: "none" },
     });
-  const mapOf = (...works: Work[]): ReadonlyMap<WorkId, Work> =>
-    new Map(works.map((one) => [workIdOf(one.key), one]));
+  /** The mirror as `heldWords` asks it: one work, by its id. */
+  const lookup =
+    (...works: Work[]) =>
+    (id: WorkId): Work | undefined =>
+      new Map(works.map((one) => [workIdOf(one.key), one])).get(id);
   const held = work(
     keyAt("/repo/.worktrees/csv", { kind: "held", root: "/repo" }),
     "old",
@@ -1377,21 +1380,21 @@ describe("the card's line for a work kept under its old key (T30)", () => {
 
   it("names the work holding the branch", () => {
     const holder = work(keyAt("/repo", { kind: "git" }), "holder");
-    expect(heldWords(held, mapOf(held, holder))).toEqual(
+    expect(heldWords(held, lookup(held, holder))).toEqual(
       Option.some("Kept under its old key: «holder» holds csv in repo"),
     );
   });
 
   it("says another work once the holder is gone", () => {
-    expect(heldWords(held, mapOf(held))).toEqual(
+    expect(heldWords(held, lookup(held))).toEqual(
       Option.some("Kept under its old key: another work holds csv in repo"),
     );
   });
 
   it("is absent for a key that is git's or not said", () => {
     const moved = work(keyAt("/repo", { kind: "git" }), "old");
-    expect(heldWords(moved, mapOf(moved))).toEqual(Option.none());
+    expect(heldWords(moved, lookup(moved))).toEqual(Option.none());
     const written = work(keyAt("/repo/sub", { kind: "as-written" }), "old");
-    expect(heldWords(written, mapOf(written))).toEqual(Option.none());
+    expect(heldWords(written, lookup(written))).toEqual(Option.none());
   });
 });

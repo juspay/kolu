@@ -11,8 +11,16 @@
  *  `WIDE_SCOPE_DEPS`, and `HUGE_FAN_IN` at conductor scale.
  *
  *  So the rows are built per record instead: a keyed `mapArray` over the
- *  works, each item's row minted by its OWN memo. The list memo then tracks N
- *  row memos and nothing else, and a title change wakes one row.
+ *  works, each item's row minted by its OWN memo, and the rows joined in
+ *  chunks (`../wideFold`) so the list itself is not as wide as the fleet
+ *  either. A title change wakes one row.
+ *
+ *  EACH ROW READS THE SNAPSHOT, not the mirror's live record: `workSubtitle`
+ *  walks the work's decisions and events, which off the store proxy is a
+ *  source per event — past the 200-source judge at about 150 of them on ONE
+ *  work, and these rows are live whether or not the palette is open. The
+ *  shared snapshot (`useWorkRecords`) is one dependency however long the
+ *  timeline is.
  *
  *  THE KEY IS REQUIRED, not decoration: `useWorks` mints a fresh `[id, work]`
  *  tuple on every run, so an unkeyed `mapArray` would rebuild every row each
@@ -23,26 +31,33 @@ import type { WorkRow } from "kolu-work";
 import { type Accessor, createMemo, mapArray, untrack } from "solid-js";
 import type { PaletteAction } from "../CommandPalette";
 import { showWork } from "../conductor/workListing";
+import { createWorkRecord } from "../conductor/workRecord";
 import { workHost, workSubtitle } from "../conductor/workReadings";
+import { joinRows } from "../wideFold";
 
 /** One row per work, each one its own memo — the palette's "works" section. */
 export function workPaletteRows(
   works: Accessor<ReadonlyArray<WorkRow>>,
-): Accessor<PaletteAction[]> {
+): Accessor<ReadonlyArray<PaletteAction>> {
   const rows = mapArray(
     works,
-    (row): Accessor<PaletteAction> => {
+    (row): Accessor<PaletteAction | undefined> => {
       // The key, read once: `mapArray` retains this row for as long as that
       // id is in the list, so the id cannot change under it.
       const id = untrack(() => row()[0]);
-      // The record, behind a memo so the tuple churn above stops here: the
-      // mirrored store proxy keeps its identity across publishes, so this
-      // memo re-runs on a new tuple and notifies nothing, and the row below
-      // wakes only for ITS OWN work's leaves.
-      const work = createMemo(() => row()[1], { name: "workPaletteRecord" });
+      // THE WORK AS A SNAPSHOT ({@link createWorkRecord}), not the mirror's
+      // own record: `workSubtitle` walks the decisions and the events, which
+      // off the store proxy is a source apiece on THIS row's scope — past
+      // the 200-source judge at about 150 events on one work, and these rows
+      // are live whether or not the palette is open. The snapshot joins its
+      // rows in chunks, so the row below carries ONE dependency however long
+      // the timeline is, and the tuple churn above stops at it.
+      const work = createWorkRecord(() => row()[1]);
+
       return createMemo(
-        (): PaletteAction => {
+        (): PaletteAction | undefined => {
           const one = work();
+          if (one === undefined) return undefined;
           return {
             kind: "action",
             name: one.title,
@@ -56,7 +71,5 @@ export function workPaletteRows(
     },
     { keyed: ([id]) => id, name: "workPaletteRowsByWork" },
   );
-  return createMemo(() => rows().map((one) => one()), {
-    name: "workPaletteRows",
-  });
+  return joinRows("workPaletteRows", rows);
 }

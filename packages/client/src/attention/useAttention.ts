@@ -87,7 +87,13 @@ import {
 } from "../conductor/useConductorMode";
 import { splitMemberRef } from "../conductor/memberRef";
 import { memorySheet, useMemoryNeed } from "../conductor/memory/useMemory";
-import { useMembership, useNeedsYou, useWorkMap } from "../conductor/useWorks";
+import type { WorkId } from "kolu-work";
+import {
+  useMembership,
+  useNeedsYou,
+  useWorkAt,
+  useWorkKeys,
+} from "../conductor/useWorks";
 import { showWork } from "../conductor/workListing";
 import { drivenRefs } from "../conductor/workReadings";
 import { typedReply } from "../conductor/typedReply";
@@ -213,7 +219,12 @@ export function useAttention(deps: AttentionDeps): {
     }
   }
 
-  const workMap = useWorkMap();
+  const workKeys = useWorkKeys();
+  /** One work's title, by its id — read UNTRACKED, as every view fact beside
+   *  it is: a title is what a ring SAYS, never a reason to fold the feed
+   *  again. */
+  const titleOf = (work: WorkId): string | undefined =>
+    untrack(() => useWorkAt(work)?.title);
   const needs = useNeedsYou();
   /** WHAT NEEDS YOU, handed to the one path.
    *
@@ -252,12 +263,12 @@ export function useAttention(deps: AttentionDeps): {
       // Silence is not an empty list: before the server's first frame there is
       // nothing to compare against, and the real first frame is the baseline.
       if (asks === undefined) return null;
-      const works = workMap();
+      const works = workKeys();
       const reply = typedReply();
       return {
         reading: {
           ...asks,
-          works: new Set(works.keys()),
+          works: new Set(works),
           needs: needs(),
           memory: memoryNeed(),
           reply,
@@ -272,7 +283,7 @@ export function useAttention(deps: AttentionDeps): {
           replyTitle:
             reply === null || reply === undefined || reply.work === null
               ? undefined
-              : works.get(reply.work)?.title,
+              : titleOf(reply.work),
           alertsEnabled: untrack(alertsEnabled),
         },
       };
@@ -315,9 +326,10 @@ export function useAttention(deps: AttentionDeps): {
       const canvasShown = !conductorMode();
       const focusedId = deps.focusedId();
       const showing = new Set(conductorScreensShowing());
-      // The refs the Conductor drives, as STRINGS taken here: `useMembership`
-      // hands out `createProjection` entries, which are store proxies, and a
-      // leaf read off one in the fold's apply arm is a strict-read defect.
+      // The refs the Conductor drives, as STRINGS taken here: the fold's
+      // apply arm reads nothing reactive, and a membership is a snapshot of
+      // the projection's entry rather than the entry itself, so nothing in
+      // this walk can be a strict read of a store.
       const driven = new Set(drivenRefs(membership()));
       const alerts = alertsEnabled();
       // The rich copy, for the active host's candidates only (a background

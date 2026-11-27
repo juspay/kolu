@@ -53,7 +53,8 @@ import { formatMarkdown } from "../../comments/formatMarkdown";
 import { commentsFor } from "../../comments/useComments";
 import { rightPanelCodeDoor } from "../../right-panel/openInCodeTab";
 import { useColorScheme } from "../../settings/useColorScheme";
-import { useWorkMap, useWorkMembers } from "../useWorks";
+import { useWorkAt, useWorkMembers } from "../useWorks";
+import { createWorkRecord } from "../workRecord";
 import WorkChip from "../WorkChip";
 import WorkChipFace from "../WorkChipFace";
 import WorkFileList from "../WorkFileList";
@@ -92,7 +93,6 @@ const WorkReader: Component<{
   class?: string;
 }> = (props) => {
   const { themeTypeLiteral: theme } = useColorScheme();
-  const works = useWorkMap();
   const allMembers = useWorkMembers();
   /** The work's members, each with its standing read once — what the one
    *  "which member stands in the worktree" rule reads. */
@@ -100,13 +100,18 @@ const WorkReader: Component<{
     membersIn(allMembers(), props.target.work),
   );
 
-  /** THE WORK, from the one mirror every surface reads, by the id it is filed
-   *  under. A work that is not in it is one this browser has not been told
-   *  about — which a popped-out window says in a line rather than drawing an
-   *  empty document. */
-  const work = createMemo((): Work | undefined =>
-    works().get(props.target.work),
-  );
+  /** THE WORK, from the one mirror every surface reads, BY THE ID it is
+   *  filed under — one source, so a reader window does not wake for every
+   *  other work's frame. A work that is not in the mirror is one this
+   *  browser has not been told about, which a popped-out window says in a
+   *  line rather than drawing an empty document. */
+  const work = createMemo((): Work | undefined => useWorkAt(props.target.work));
+
+  /** THE SAME WORK AS A SNAPSHOT — what the questions below fold. A form
+   *  handed the mirror's own record walks its decisions and events off the
+   *  store, a source per one of them on that form's scope; the shared
+   *  record is ONE dependency however long the timeline is. */
+  const record = createWorkRecord(work);
 
   /** WHERE THE BYTES COME FROM — the member's worktree while the work runs,
    *  kolu's own copy once it has ended. The SAME derivation the card's list
@@ -296,7 +301,7 @@ const WorkReader: Component<{
         count of comments that will go with the answer. The same asks as on
         the card and in the chat: this is where they are answered by whoever
         is reading the thing they are about. */}
-        <Show when={work()}>
+        <Show when={record()}>
           {(one) => (
             <For each={asks()}>
               {(id) => (

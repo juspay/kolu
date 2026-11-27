@@ -34,7 +34,8 @@ const mirror = vi.hoisted(() => ({
 // file's imports, so the folds it builds on have to be reached inside it.
 vi.mock("./useWorks", async () => {
   // The board's two halves, cut from the SAME rows by the real folds — the
-  // column still draws exactly what these works say it should.
+  // column still draws exactly what these works say it should. The watches
+  // are the third reading the split publishes, cut the same way.
   const { finished, inProgress } = await import("kolu-work");
   return {
     useWorks: () => mirror.works,
@@ -42,6 +43,12 @@ vi.mock("./useWorks", async () => {
     useWorkSplit: () => ({
       live: () => inProgress(mirror.works()),
       done: () => finished(mirror.works()),
+      watching: () =>
+        new Set(
+          inProgress(mirror.works())
+            .filter(([, one]) => one.key.kind === "watch")
+            .map(([id]) => id),
+        ),
     }),
   };
 });

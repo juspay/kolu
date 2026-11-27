@@ -45,6 +45,7 @@ const WORK: Work = openWork({
 vi.mock("./ConductorDiffs", () => ({ default: () => null }));
 vi.mock("./useWorks", () => ({
   useWorkMap: () => () => new Map<WorkId, Work>([[ID, WORK]]),
+  useWorkAt: (id: WorkId) => (id === ID ? WORK : undefined),
   useWorkMembers: () => () => new Map(),
   useSeen: () => () => new Map(),
   useAgentNotes: () => () => [],

@@ -83,6 +83,7 @@ vi.mock("./useWorks", async () => {
     useWorks: () => mirror.works,
     useNeedsYou: () => mirror.needs,
     useWorkMap: () => () => new Map(mirror.works()),
+    useWorkAt: (id: WorkId) => mirror.works().find(([at]) => at === id)?.[1],
     useWorkMentions: () => () =>
       mirror.works().map(([id, record]) => workMentionOf(id, record)),
     useMembership: () => mirror.membership,

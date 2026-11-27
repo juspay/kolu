@@ -62,10 +62,32 @@ vi.mock("../workFile", () => ({
     pending: () => false,
   }),
 }));
-vi.mock("../useWorks", () => ({
-  useWorkMap: () => () => new Map([["w1", { id: "w1" }]]),
-  useWorkMembers: () => () => [],
-}));
+vi.mock("../useWorks", () => {
+  // The one work this reader is pointed at. It carries the leaves the shared
+  // record folds (`createWorkRecord`) — a key, a state and a worktree — so
+  // the fold has something to read; what this file judges is the document.
+  const WORK = {
+    id: "w1",
+    key: {
+      kind: "branch",
+      host: "local",
+      repo: "/r",
+      branch: "w1",
+      repoBy: { kind: "git" },
+    },
+    title: "w1",
+    events: [],
+    decisions: [],
+    startedAt: "2026-01-01T00:00:00.000Z",
+    state: { kind: "open" },
+    worktree: { kind: "unread" },
+  };
+  return {
+    useWorkMap: () => () => new Map([["w1", WORK]]),
+    useWorkAt: (id: string) => (id === "w1" ? WORK : undefined),
+    useWorkMembers: () => () => [],
+  };
+});
 vi.mock("../workFacts", () => ({
   readWorkFacts: () => ({ members: () => [] }),
 }));
