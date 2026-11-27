@@ -18,7 +18,7 @@
  *  modules exactly as the inlined block did. */
 
 import type { TerminalId } from "kolu-common/surface";
-import { createEffect, createSignal } from "solid-js";
+import { createEffect, createMemo } from "solid-js";
 import { activeScope } from "../hostScope/hostScopes";
 import { useTerminalStore } from "../terminal/useTerminalStore";
 import { activeHost } from "../wire";
@@ -32,21 +32,34 @@ export function useCanvasCenterOnSwitch(
   const viewport = useCanvasViewport();
   const store = useTerminalStore();
 
-  // Monotonic switch counter, not a boolean "pending" flag: the resolver below
-  // records the switch it SERVED in a plain variable, so it never writes a
-  // signal its own compute reads (which would make the flush settle twice).
-  const [switchEpoch, setSwitchEpoch] = createSignal(0);
-  createEffect(activeHost, (_curr, prev) => {
-    // A switch invalidates any input still aimed at the host we are leaving: an
-    // in-flight center/pan animation or a queued gesture flush writes pan/zoom
-    // through `activeScope()`, which has just re-keyed to the NEW host — so a
-    // frame-late callback would land the outgoing host's motion in the incoming
-    // host's camera. Drop both up front so the switch cannot corrupt the retained
-    // pose of the host switched to.
-    viewport.abortTransientInput();
-    if (prev === undefined) return; // initial mount — no switch to service yet
-    setSwitchEpoch((n) => n + 1);
-  });
+  // The switch counter is DERIVED from `activeHost`, not written from the
+  // effect below: the resolver's compute reads it alongside `activeScope()` /
+  // `store.activeId()` / the tile layout, all of which move on the same switch
+  // write — so an epoch written in an effect's apply arm reached that compute
+  // one pass LATE, re-running it for the switch it had already seen (a relay
+  // tear). As a memo the epoch lands in the switch's own flush, so the switch
+  // is resolved in one pass. The mount run is epoch 0, which `servedEpoch`
+  // starts on: there is no switch to service yet.
+  const switchEpoch = createMemo(
+    (prev: number | undefined) => {
+      activeHost();
+      return prev === undefined ? 0 : prev + 1;
+    },
+    { name: "useCanvasCenterOnSwitch.switchEpoch" },
+  );
+  createEffect(
+    activeHost,
+    () => {
+      // A switch invalidates any input still aimed at the host we are leaving: an
+      // in-flight center/pan animation or a queued gesture flush writes pan/zoom
+      // through `activeScope()`, which has just re-keyed to the NEW host — so a
+      // frame-late callback would land the outgoing host's motion in the incoming
+      // host's camera. Drop both up front so the switch cannot corrupt the retained
+      // pose of the host switched to.
+      viewport.abortTransientInput();
+    },
+    { name: "useCanvasCenterOnSwitch.abortTransientInput" },
+  );
   let servedEpoch = 0;
   createEffect(
     (): {
@@ -82,5 +95,6 @@ export function useCanvasCenterOnSwitch(
       if (verdict.center && verdict.tileId !== null)
         store.requestCenterActive(verdict.tileId);
     },
+    { name: "useCanvasCenterOnSwitch.resolveSwitchCenter" },
   );
 }
