@@ -8,6 +8,7 @@ import {
   createSignal,
   For,
   onSettled,
+  runWithOwner,
   Show,
   untrack,
 } from "solid-js";
@@ -140,15 +141,34 @@ const PeekWindow: Component<{ target: PeekTarget }> = (props) => {
       handle: untrack(handle),
     }),
     (now, before) => {
+      // SETTLED. The DOM `focus()` is this effect's whole job, and the
+      // screen's own focus listener answers it SYNCHRONOUSLY
+      // (`PeekTerminal.tsx`) with `onFocus(true)` → `setFocused`. Called
+      // inline, that write lands in this apply arm's frame, so the foot —
+      // which folds the same `driver` this arm's compute read with `typing()`
+      // off `focused` — is written twice for one hand-over: the judged
+      // `EFFECT_RELAY_TEAR`, `warn` from its third sighting, and taking the
+      // terminal over three times in one open window is an ordinary thing to
+      // do. An owner-less `onSettled` runs the focus after the flush settles,
+      // in the same task, so nothing visible changes and no frame is lost. It
+      // can never contend with the window's own mount focus below: this arm
+      // requires a hand-over FROM the conductor, which the first run cannot
+      // see.
       if (now.driver === "you" && before?.driver === "conductor")
-        now.handle?.focus();
+        runWithOwner(null, () => {
+          onSettled(() => {
+            now.handle?.focus();
+          });
+        });
     },
+    { name: "peekDriverKeyboard" },
   );
   createEffect(
     () => ({ handle: handle(), mayType: mayType() }),
     ({ handle: h, mayType: allowed }) => {
       if (h !== undefined && !allowed) h.focus();
     },
+    { name: "peekReadOnlyFocus" },
   );
   let contentEl: HTMLDivElement | undefined;
   onSettled(() => {

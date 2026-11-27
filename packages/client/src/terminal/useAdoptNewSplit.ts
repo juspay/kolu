@@ -34,7 +34,13 @@
  *  genuinely-new sub that appears WHILE seeded is adopted. */
 
 import type { TerminalId } from "kolu-common/surface";
-import { type Accessor, createEffect, onSettled, untrack } from "solid-js";
+import {
+  type Accessor,
+  createEffect,
+  onSettled,
+  runWithOwner,
+  untrack,
+} from "solid-js";
 import type { HydrationPhase } from "../hostScope/createSessionRestore";
 import { createHostScopedParentSnapshot } from "./parentSnapshot";
 import { containingTileOf, type ParentEdge } from "./terminalTree";
@@ -163,18 +169,36 @@ export function useAdoptNewSplit(deps: {
       return { snap: curr, adopt };
     },
     ({ adopt }) => {
-      for (const { subId, tileId, seed, expand, takeFocus } of adopt) {
-        // The seed's APPLIER reads the panel's own per-terminal state, and
-        // this is an effect callback (a strict-read window), so it rides
-        // `onSettled` — which is not one. It is ordered against nothing here:
-        // the panel tab it seeds is a different store from the tile's split
-        // chrome the two writes below touch.
+      if (adopt.length === 0) return;
+      // SETTLED, AS ONE UNIT — the departure mirror's rule
+      // (`useActiveReconcile.ts`) applied to the arrival. These three writes
+      // are the adoption's whole write phase: the panel tab the arrival is
+      // seeded with, the tile's `collapsed`, and the tile's `activeSubTab`.
+      // This arm's compute has just folded the terminal census, so any write
+      // left inline re-runs the readers that fold that same census — the
+      // WebGL tile budget reads a tile's `collapsed` and `activeSubTab`
+      // beside the top-level list (`useTerminalStore.ts`) — inside this
+      // effect's frame, against the list the compute was answering: the
+      // judged `EFFECT_RELAY_TEAR`, `warn` from its third sighting, and a
+      // third split arrival in one session is an ordinary thing to do. An
+      // owner-less `onSettled` lands them in a later pass of the SAME flush,
+      // so the frame is their own and no frame is lost. ONE unit, not one per
+      // write: expanding the panel and selecting the arriving tab are one
+      // answer to one arrival, and a reader that folds both must never see
+      // half of it. Unowned so the one-shot enqueues instead of becoming a
+      // child effect of this arm (which would carry this very frame); the
+      // writes create no children and register no cleanup, which `onSettled`
+      // forbids.
+      runWithOwner(null, () => {
         onSettled(() => {
-          seed(subId);
+          for (const { subId, tileId, seed, expand, takeFocus } of adopt) {
+            seed(subId);
+            expand();
+            if (takeFocus) deps.ports.setActiveSubTab(tileId, subId);
+          }
         });
-        expand();
-        if (takeFocus) deps.ports.setActiveSubTab(tileId, subId);
-      }
+      });
     },
+    { name: "adoptNewSplit" },
   );
 }

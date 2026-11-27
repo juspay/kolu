@@ -58,7 +58,9 @@
  * effect Run A reported only by its owner's location, it NAMES that effect by
  * hand — `{ name }` in the 3rd argument of `createEffect`/`createRenderEffect`,
  * the 2nd of `createTrackedEffect`/`createReaction` — and records the name in
- * its group file, exactly as value-node names are recorded. The gap review 41
+ * its group file, exactly as value-node names are recorded. A relay printed
+ * only as `"effect"` in a run's line is the same trigger as a report by owner
+ * location. The gap review 41
  * §3 found was declarator-less VALUE nodes, whose rows carry neither a name
  * nor a `loc`, and that is what this scan closes.
  *

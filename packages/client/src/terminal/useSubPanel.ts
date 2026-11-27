@@ -304,8 +304,13 @@ export function useSubPanel() {
     planCollapsePanel,
 
     /** Chrome-only remembered-tab update for hydration, adoption, and landing
-     *  orchestration. Explicit user selection uses `selectSubTab`. Writes only,
-     *  so an effect may call it directly. */
+     *  orchestration. Explicit user selection uses `selectSubTab`. Writes
+     *  only, so it reads nothing an effect callback's strict-read window
+     *  forbids — but a caller in an effect's APPLY ARM still settles it: both
+     *  mirrors (`useActiveReconcile`'s departure repair and
+     *  `useAdoptNewSplit`'s arrival) write it from an `onSettled` carrying
+     *  their whole write phase, because this leaf is folded with the terminal
+     *  census their compute just read. */
     setActiveSubTab(parentId: TerminalId, subId: TerminalId | null) {
       editChrome(parentId, (p) => {
         p.activeSubTab = subId;
