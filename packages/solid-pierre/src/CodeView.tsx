@@ -270,7 +270,7 @@ export const CodeView: Component<CodeViewProps> = (props) => {
       mountedViews.set(root, instance);
       instance.setItems(versionedItems(props.items));
       if (props.selectedLines !== undefined) {
-        instance.setSelectedLines(props.selectedLines);
+        instance.setSelectedLines(props.selectedLines, { notify: false });
       }
       instance.render(true);
       // An initial selection (e.g. file opened at a terminal `path:line`)
@@ -312,7 +312,18 @@ export const CodeView: Component<CodeViewProps> = (props) => {
     () => ({ selected: props.selectedLines }),
     ({ selected }) => {
       safeApply(() => {
-        instance?.setSelectedLines(selected ?? null);
+        // PROVENANCE, not de-duping: a selection the consumer PUSHED is not a
+        // user selection, so it stops here instead of round-tripping back out
+        // through `onSelectedLinesChange`. Without the gate Pierre answers
+        // this very call synchronously, inside this apply arm, with the range
+        // it was handed (`InteractionManager.setSelection` →
+        // `notifySelectionCommitted`) — and a consumer that treats that echo
+        // as a change is an effect writing its own source. `FileTree` has
+        // gated the same way since the tree's 60-120 Hz ping-pong
+        // (`FileTree.tsx:251-268`, `:872-890`); this viewer never got it.
+        // Pierre's own gutter gestures are unaffected: it reports those from
+        // its pointer paths whatever an apply said.
+        instance?.setSelectedLines(selected ?? null, { notify: false });
         scrollToSelection(selected, "nearest");
       }, reportError);
     },

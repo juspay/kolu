@@ -20,22 +20,43 @@ import type { CodeViewLineSelection } from "@pierre/diffs";
 // "Pierre" emit a selection — through the callback it was CONSTRUCTED with,
 // and through the one a later `setOptions` handed it.
 const { pierre } = vi.hoisted(() => ({
-  pierre: { emit: (_selection: CodeViewLineSelection | null) => {} },
+  pierre: {
+    emit: (_selection: CodeViewLineSelection | null) => {},
+    /** Every selection Pierre reported back on its own — what a prop-driven
+     *  push must NOT produce. */
+    reported: [] as (CodeViewLineSelection | null)[],
+  },
 }));
 
 vi.mock("@pierre/diffs", () => {
   class MockCodeView {
     // biome-ignore lint/suspicious/noExplicitAny: test double for Pierre's options
+    opts: any;
+    // biome-ignore lint/suspicious/noExplicitAny: test double for Pierre's options
     constructor(opts: any) {
+      this.opts = opts;
       pierre.emit = (selection) => opts?.onSelectedLinesChange?.(selection);
     }
     setup() {}
     setItems() {}
-    setSelectedLines() {}
+    setSelectedLines(
+      selection: CodeViewLineSelection | null,
+      options?: { notify?: boolean },
+    ) {
+      // `InteractionManager.setSelection` (`dist/managers/InteractionManager.js:94-105`)
+      // reports a changed range back through `notifySelectionCommitted`
+      // (`:862-864`) unless the write says `notify: false` — which is how a
+      // selection the consumer PUSHED comes straight back as if the user had
+      // made it.
+      if (options?.notify === false) return;
+      pierre.reported.push(selection);
+      this.opts?.onSelectedLinesChange?.(selection);
+    }
     render() {}
     scrollTo() {}
     // biome-ignore lint/suspicious/noExplicitAny: test double for Pierre's options
     setOptions(opts: any) {
+      this.opts = opts;
       pierre.emit = (selection) => opts?.onSelectedLinesChange?.(selection);
     }
     getRenderedItems() {
@@ -57,6 +78,7 @@ import { CodeView, type CodeViewProps } from "./CodeView";
 const disposers: Array<() => void> = [];
 afterEach(() => {
   for (const d of disposers.splice(0)) d();
+  pierre.reported.length = 0;
 });
 
 /** Mount the wrapper the way its callers do: every prop arrives through a
@@ -126,5 +148,36 @@ describe("CodeView — the handler Pierre holds", () => {
     pierre.emit(null);
     expect(first).toEqual([]);
     expect(second).toEqual([null]);
+  });
+
+  it("pushes a selection into Pierre without it being reported back", async () => {
+    // PROVENANCE, the gate `FileTree` already carries (`FileTree.tsx:251-268`,
+    // `:872-890`): a selection the consumer PUSHED is not a user selection, so
+    // the programmatic echo stops at the wrapper rather than round-tripping
+    // through `onSelectedLinesChange` — which is how a controller that holds
+    // one composite state ends up writing its own source.
+    const seen: (CodeViewLineSelection | null)[] = [];
+    const [selected, setSelected] = createSignal<CodeViewLineSelection | null>(
+      null,
+    );
+    mount(() => ({
+      enableLineSelection: true,
+      selectedLines: selected(),
+      onSelectedLinesChange: (s: CodeViewLineSelection | null) => seen.push(s),
+    }));
+    await Promise.resolve();
+    flush();
+    seen.length = 0;
+    pierre.reported.length = 0;
+
+    setSelected(SELECTION);
+    flush();
+
+    expect(pierre.reported).toEqual([]);
+    expect(seen).toEqual([]);
+    // The user's OWN gutter selection still reaches the consumer: Pierre
+    // dispatches that one itself, whatever the apply said.
+    pierre.emit(SELECTION);
+    expect(seen).toEqual([SELECTION]);
   });
 });
