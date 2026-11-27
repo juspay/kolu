@@ -485,7 +485,6 @@ const CommandPalette: Component<{
     false,
     () => false,
   );
-  const [selectedIndex, setSelectedIndex] = createSignal(0);
   let lastPointerPos: PointerPos | null = null;
   /** THE COMMAND TREE AS A SHUT PALETTE SEES IT — the last one it was given.
    *
@@ -1243,53 +1242,65 @@ const CommandPalette: Component<{
     { name: "paletteOpenEdge" },
   );
 
-  // THE default-highlight rule, applied reactively: whenever the SCOPE changes
-  // (open, drill-in, drill-out, path repair, deep-link, typed query) the list is
-  // freshly painted and the highlight re-lands. One rule, zero call sites — a
-  // future `setPath` cannot forget to follow it up, and the index is derived in
-  // one place rather than by read-after-write ordering at eight hand-held sites.
-  //
-  // The open/close lifecycle effect above no longer writes the path — the
-  // derivation settles it, deep link included, in the flush `open` changed —
-  // so this rule reads the FINAL path whichever order the two run in.
-  //
-  // `currentSelection` is a COMPUTE dep, not just an effect-phase read: the
-  // "current" row CAN move while the palette stays open — Ctrl+Tab reaches the
-  // global dispatcher as well as this component, and the host-membership
-  // reconcile can bounce the canvas to local on its own. Both re-derive
-  // `filtered()` (the Recent band drops a different row), so a highlight left
-  // behind would point at a row that shifted under it, and Enter would run the
-  // wrong one. Tracking the fact re-lands the highlight instead.
-  //
-  // Still NOT keyed on `filtered` itself — that returns a new array reference on
-  // every recomputation, so tracking it would reset the index whenever upstream
-  // data (the commands memo) recomputes in the background. `filtered`, `query`
-  // and `mode` are therefore read in the compute as `untrack` SNAPSHOTS: the
-  // index is computed from the list as it stands when a scope change lands,
-  // without making their own churn a trigger.
-  createEffect(
-    () => {
+  /** THE default-highlight rule, DERIVED — and the highlight itself. Whenever
+   *  the SCOPE changes (open, drill-in, drill-out, path repair, deep-link,
+   *  typed query) the list is freshly painted and the highlight re-lands. One
+   *  rule, zero call sites — a future `setPath` cannot forget to follow it up,
+   *  and the index is answered in one place rather than by read-after-write
+   *  ordering at eight hand-held sites.
+   *
+   *  A WRITABLE MEMO, the same idiom as `pathState` and `onOpenEdge` above and
+   *  for the same reason. As an effect this RELAYED the scope change: the
+   *  rule's sources ARE the list's sources, so everything folding the index
+   *  with the list — `effectiveIndex` below, and the highlight notification
+   *  under it — ran once in the flush the query (or the path) changed, against
+   *  the STALE index, and again after the write landed. Every keystroke paid
+   *  for both, and Solid grades it `EFFECT_RELAY_TEAR`. Derived, the new index
+   *  arrives in the SAME flush as the scope change it follows from.
+   *
+   *  Arrow keys, Tab and hover still write it — that is what keeps this a
+   *  writable memo rather than a plain one. Their index is what `prev` holds
+   *  until the scope moves again, which is exactly the lifetime a highlight
+   *  has.
+   *
+   *  The open/close lifecycle effect above no longer writes the path — the
+   *  derivation settles it, deep link included, in the flush `open` changed —
+   *  so this rule reads the FINAL path whichever order the two run in. A SHUT
+   *  palette keeps the index it had: re-opening is itself an edge, so the
+   *  first open frame re-lands it.
+   *
+   *  `currentSelection` is a dependency, not just a read-at-use: the "current"
+   *  row CAN move while the palette stays open — Ctrl+Tab reaches the global
+   *  dispatcher as well as this component, and the host-membership reconcile
+   *  can bounce the canvas to local on its own. Both re-derive `filtered()`
+   *  (the Recent band drops a different row), so a highlight left behind would
+   *  point at a row that shifted under it, and Enter would run the wrong one.
+   *  Tracking the fact re-lands the highlight instead.
+   *
+   *  Still NOT keyed on `filtered` itself — that returns a new array reference
+   *  on every recomputation, so tracking it would reset the index whenever
+   *  upstream data (the commands memo) recomputes in the background.
+   *  `filtered`, `query` and `mode` are therefore read as `untrack` SNAPSHOTS:
+   *  the index is computed from the list as it stands when a scope change
+   *  lands, without making their own churn a trigger. Reading them pulls them
+   *  current, so the snapshot is the list this same flush will paint. */
+  const [selectedIndex, setSelectedIndex] = createSignal<number>(
+    (prev = 0): number => {
       path();
       filterQuery();
-      const open = props.open;
       const selection = currentSelection();
+      if (!props.open) return prev;
       // A value leaf's children are passive labels, not a switcher: nothing
       // there has a recency or a "current" row, so the highlight starts at the
       // top. Keying on `filterQuery` (which is "" throughout value mode) is
       // what keeps a keystroke from re-landing it off the label you picked,
       // while a SCOPE change still does.
-      const index = untrack(() =>
+      return untrack(() =>
         mode().kind === "value"
           ? 0
           : defaultSelectionIndex(filtered(), selection, query()),
       );
-      return { open, index };
     },
-    ({ open, index }) => {
-      if (!open) return;
-      setSelectedIndex(index);
-    },
-    { name: "paletteDefaultHighlight" },
   );
 
   const effectiveIndex = createMemo(() =>
