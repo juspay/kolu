@@ -17,10 +17,13 @@ import type { TerminalId } from "kolu-common/surface";
 import {
   type Accessor,
   createEffect,
+  createMemo,
   createRoot,
   createStore,
   runWithOwner,
 } from "solid-js";
+import { sameItems } from "../conductor/sameItems";
+import { foldEach } from "../wideFold";
 import type { ScrollLockEvent, TerminalGrid } from "@kolu/xterm-kit/solid";
 
 export type Renderer = "webgl" | "dom";
@@ -164,9 +167,76 @@ export function registerDiagnostics(
   };
 }
 
-/** Reactive snapshot of all registered terminals. Consumers that render
- *  per-field only pay the re-render cost for the field they read, thanks
- *  to `createStore`'s fine-grained tracking. */
-export function getDiagnostics(): TerminalDiagnostics[] {
-  return Object.values(store);
+/** Whether two readings of one terminal's diagnostics say the same thing. The
+ *  row memos below mint a fresh record per run, so this is what keeps an
+ *  untouched terminal's row — and the published list — still. */
+function sameDiagnostics(
+  a: TerminalDiagnostics,
+  b: TerminalDiagnostics,
+): boolean {
+  return (
+    a.id === b.id &&
+    a.term.cols === b.term.cols &&
+    a.term.rows === b.term.rows &&
+    a.wanted?.cols === b.wanted?.cols &&
+    a.wanted?.rows === b.wanted?.rows &&
+    (a.wanted === null) === (b.wanted === null) &&
+    a.renderer === b.renderer &&
+    a.scrollLock.locked === b.scrollLock.locked &&
+    a.scrollLock.pendingChunks === b.scrollLock.pendingChunks &&
+    a.scrollLock.lastEvent === b.scrollLock.lastEvent
+  );
+}
+
+/** THE REGISTER, READ ONE TERMINAL AT A TIME.
+ *
+ *  `Object.values(store)` handed back the store's own records, so a consumer
+ *  that read a field off each of them — the Diagnostic dialog's dump, and the
+ *  terminal count in its own render effect — took the container plus a leaf
+ *  per field per terminal on ITS scope: eight to twelve per pane, past Solid's
+ *  200-source `WIDE_SCOPE_DEPS` judge at about twenty terminals. The cost
+ *  belongs here, where it can be paid once and split: `Object.keys` of a store
+ *  is the container node ALONE (one source at any size), each terminal gets a
+ *  row memo holding its own leaves, and the rows are joined a chunk at a time.
+ *  So every consumer below reads ONE source and PLAIN records.
+ *
+ *  An app-lifetime root, like the register itself: these memos outlive every
+ *  terminal and every dialog that reads them. */
+const registered = createRoot(() => {
+  const ids = createMemo(() => Object.keys(store) as TerminalId[], {
+    name: "terminalDiagnostics.ids",
+    equals: sameItems,
+  });
+  return foldEach(
+    "terminalDiagnostics",
+    ids,
+    (id): TerminalDiagnostics | undefined => {
+      const entry = store[id];
+      if (entry === undefined) return undefined;
+      return {
+        id: entry.id,
+        term: { cols: entry.term.cols, rows: entry.term.rows },
+        wanted:
+          entry.wanted === null
+            ? null
+            : { cols: entry.wanted.cols, rows: entry.wanted.rows },
+        renderer: entry.renderer,
+        scrollLock: {
+          locked: entry.scrollLock.locked,
+          pendingChunks: entry.scrollLock.pendingChunks,
+          // The ring's events are replaced whole, never edited, so the latest
+          // one rides by reference: a reader of its fields is that reader's own
+          // narrow scope, and an unchanged event keeps this row still.
+          lastEvent: entry.scrollLock.lastEvent,
+        },
+      };
+    },
+    sameDiagnostics,
+  );
+});
+
+/** Reactive snapshot of all registered terminals, as PLAIN records: ONE source
+ *  for the whole list, whatever a consumer reads off it. */
+export function getDiagnostics(): readonly TerminalDiagnostics[] {
+  return registered();
 }

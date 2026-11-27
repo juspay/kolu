@@ -13,7 +13,10 @@ import { type Component, createMemo, For, Show } from "solid-js";
 import { toast } from "solid-sonner";
 import { useSurfaceApp } from "@kolu/surface-app/solid";
 import type { KoluBuildInfo } from "kolu-common/surface";
-import { attentionDiagnostic } from "./attention/attentionDiagnostics";
+import {
+  type AttentionDiagnostic,
+  attentionDiagnostic,
+} from "./attention/attentionDiagnostics";
 import CopyDiagnosticsButton from "./CopyDiagnosticsButton";
 import WireDiagnosticsSection from "./WireDiagnosticsSection";
 import PadiDiagnosticsSection, {
@@ -44,6 +47,7 @@ import {
   serverRssBytes,
 } from "./ui/useMemoryUsage";
 import { layoutMode } from "./useMobile";
+import { foldEach } from "./wideFold";
 
 /** A per-process RSS display projected for the JSON snapshot — the byte figure
  *  when a live process answered, `"error"` when a believed-up process's read
@@ -92,21 +96,28 @@ const DiagnosticInfoContent: Component<{ activeId: TerminalId | null }> = (
   // same answer, with its fetch state, so a bug report has it.
   const padiDiagnostics = createPadiDiagnosticsFetch();
 
-  /** The attention snapshot — every terminal's paint inputs beside the counts'
-   *  inputs, plus this host's mirrored urgency frame, so a "why does the tab
-   *  say 2 when I see 3 working" report carries its own diagnosis. The two
-   *  sides are captured from the SAME render, so a disagreement in the dump is
-   *  a real disagreement and not two reads a second apart. */
-  const attention = createMemo(() => {
-    const encHost = encodeHostKey(activeHost());
-    const urgency = hostFrame(encHost);
-    const rows = store.terminalIds().map((id) => {
+  /** The active host, encoded — read once for every row of the fold below. */
+  const encHost = createMemo(() => encodeHostKey(activeHost()), {
+    name: "diagnostics.encHost",
+  });
+
+  /** ONE ROW PER PANE: its paint inputs beside the verdict the counts came
+   *  from. A row reads the pane's metadata slot and its projection, the
+   *  attention value, and the dozen leaves the pip binder and the diagnostic
+   *  fold narrow on — twelve to fifteen sources per pane, which on ONE memo
+   *  passed Solid's 200-source `WIDE_SCOPE_DEPS` judge at about FOURTEEN
+   *  panes: the lowest N anywhere in the client. Folded a row at a time, each
+   *  pane's reads are that pane's row alone. */
+  const attentionRows = foldEach(
+    "diagnostics.attentionRows",
+    store.terminalIds,
+    (id): AttentionDiagnostic | undefined => {
       const meta = store.getMetadata(id);
-      if (!meta) return null;
+      if (!meta) return undefined;
       // Bind through the REAL binder, off the REAL attention value, rather
       // than re-deriving either here — a diagnostic that re-spells the rule it
       // is diagnosing can drift from it and quietly report the wrong thing.
-      const attention = facts.attentionOf(encHost, id);
+      const attention = facts.attentionOf(encHost(), id);
       const pip = bindStatePip({ meta, attention, unread: false });
       // `attentionClass` on the row IS padi's own verdict for this terminal —
       // it is read straight back off the mirrored frame's id lists. A blank
@@ -126,123 +137,139 @@ const DiagnosticInfoContent: Component<{ activeId: TerminalId | null }> = (
         shellLive: pip.shellLive,
         attention,
       });
-    });
-    const terminals = rows.filter((r) => r !== null);
-    // Terminals padi COUNTS that this list never even examined. The client
-    // enumerates top-level terminals; padi's urgency folds every terminal
-    // record, INCLUDING split children — so an agent working in a split is
-    // counted by the host tab and has no row here at all. Without this the
-    // section cheerfully reports "paint and counts agree on every terminal"
-    // while an entire working agent is missing from its own audit (that false
-    // green is exactly how a 4-vs-3 mismatch reached a user).
-    //
-    // It folds through `hostActiveIds` — the very function the `active` count
-    // beside it folds through — rather than hand-unioning class lists. Doing
-    // that by hand reproduced the membership rule (and got it wrong): the hand
-    // union ignored `liveIds`, so a PRINTING agentless split, which IS in
-    // `hostActiveIds` and IS in the count, never landed here, and the section
-    // printed a green "paint and counts agree" over exactly the case it exists
-    // to catch. One population, one fold.
-    const seen = new Set(terminals.map((t) => t.id));
-    const uncounted = hostActiveIds(urgency)
-      .filter((id: TerminalId) => !seen.has(id))
-      .map((id: TerminalId) => ({ id, as: frameClassOf(urgency, id) }));
-    return {
-      host: encHost,
-      hostLive: urgency.live,
-      counts: {
-        // The tab renders ACTIVE (working + lingering + printing shells), so
-        // the dump must show the number the tab shows, not a leg of it.
-        active: hostActiveIds(urgency).length,
-        working: urgency.byClass.working.length,
-        lingering: urgency.byClass.linger.length,
-        asking: urgency.byClass.asking.length,
-      },
-      // A terminal this list can't see is a disagreement too — the count says
-      // it exists and every visible surface says it doesn't.
-      disagreements:
-        terminals.filter((t) => t.disagreement !== null).length +
-        uncounted.length,
-      uncounted,
-      terminals,
-    };
-  });
+    },
+  );
 
-  const snapshot = createMemo(() => {
-    const webgl = webglLifecycleSnapshot();
-    return {
-      browser,
-      session: {
-        layout: layoutMode(),
-        wsStatus: wsStatus(),
-        serverProcessId: serverProcessId(),
-        activeId: props.activeId,
-        terminalCount: getDiagnostics().length,
-        jsHeap: readJsHeap(),
-        // The three server-side processes' RSS, off the `processMemory` cell (the
-        // same source the rail reads). `serverRss` is always a real figure (the
-        // server measures itself); `padiRss`/`kavalRss` are the honest three-way —
-        // the byte figure when the process answered, `"error"` when a believed-up
-        // process's read failed, or `null` (nothing to measure) — so the snapshot
-        // never conflates a failed read with no-data. padi owns kaval now, so its
-        // RSS rides padi's readout, folded into this cell server-side.
-        serverRss: serverRssBytes() ?? null,
-        padiRss: rssFigure(padiMemoryDisplay()),
-        kavalRss: rssFigure(kavalMemoryDisplay()),
-        domNodes: document.getElementsByTagName("*").length,
-        canvases: webgl.totalDomCanvases,
-        // Page-attention state AT SNAPSHOT TIME. The parked-rAF freeze
-        // signature is visibility "visible" + hidden false + hasFocus FALSE
-        // (window occluded by app-switch — see renderRecovery.ts). Captured
-        // here, not per-terminal, since it's a whole-document fact.
-        page: {
-          visibility: document.visibilityState,
-          hidden: document.hidden,
-          hasFocus: document.hasFocus(),
+  /** The attention snapshot — every terminal's paint inputs beside the counts'
+   *  inputs, plus this host's mirrored urgency frame, so a "why does the tab
+   *  say 2 when I see 3 working" report carries its own diagnosis. The two
+   *  sides are captured from the SAME render, so a disagreement in the dump is
+   *  a real disagreement and not two reads a second apart. */
+  const attention = createMemo(
+    () => {
+      const host = encHost();
+      const urgency = hostFrame(host);
+      const terminals = attentionRows();
+      // Terminals padi COUNTS that this list never even examined. The client
+      // enumerates top-level terminals; padi's urgency folds every terminal
+      // record, INCLUDING split children — so an agent working in a split is
+      // counted by the host tab and has no row here at all. Without this the
+      // section cheerfully reports "paint and counts agree on every terminal"
+      // while an entire working agent is missing from its own audit (that false
+      // green is exactly how a 4-vs-3 mismatch reached a user).
+      //
+      // It folds through `hostActiveIds` — the very function the `active` count
+      // beside it folds through — rather than hand-unioning class lists. Doing
+      // that by hand reproduced the membership rule (and got it wrong): the hand
+      // union ignored `liveIds`, so a PRINTING agentless split, which IS in
+      // `hostActiveIds` and IS in the count, never landed here, and the section
+      // printed a green "paint and counts agree" over exactly the case it exists
+      // to catch. One population, one fold.
+      const seen = new Set(terminals.map((t) => t.id));
+      const uncounted = hostActiveIds(urgency)
+        .filter((id: TerminalId) => !seen.has(id))
+        .map((id: TerminalId) => ({ id, as: frameClassOf(urgency, id) }));
+      return {
+        host,
+        hostLive: urgency.live,
+        counts: {
+          // The tab renders ACTIVE (working + lingering + printing shells), so
+          // the dump must show the number the tab shows, not a leg of it.
+          active: hostActiveIds(urgency).length,
+          working: urgency.byClass.working.length,
+          lingering: urgency.byClass.linger.length,
+          asking: urgency.byClass.asking.length,
         },
-      },
-      terminals: getDiagnostics().map((d) => {
-        const refs = getTerminalRefs(d.id);
-        const bufferLen = refs?.xterm.buffer.active.length ?? null;
-        return {
-          id: d.id,
-          // What the terminal IS — the grid the bytes in its buffer are laid
-          // out for, which moves only when the pty says its mirror did.
-          cols: d.term.cols,
-          rows: d.term.rows,
-          // What this pane's BOX wants, and has asked the pty for. The two
-          // differ for a settle window plus a round trip after a box change;
-          // stuck apart means the pane's publish is not reaching the pty. Null
-          // is "never measured", which is also "no attach stream has opened".
-          wantedCols: d.wanted?.cols ?? null,
-          wantedRows: d.wanted?.rows ?? null,
-          measured: d.wanted !== null,
-          renderer: d.renderer,
-          bufferLen,
-          scrollback: bufferLen !== null ? bufferLen - d.term.rows : null,
-          atlas: refs?.probes.webglAtlas() ?? null,
-          bufferBytes: refs?.probes.bufferBytes() ?? null,
-          scrollLock: d.scrollLock,
-          // Full transition ring for the JSON dump — the live row above only
-          // shows the latest one (#1272 field diagnosis).
-          scrollLockEvents: refs?.probes.scrollLockEvents() ?? [],
-          // Render-pipeline state — climbing msSinceLastPaint with
-          // debouncerPending=true while bufferBytes grows is the parked-rAF
-          // freeze; debouncerPending=false with a stale paint means refreshRows
-          // was never called (a kolu write-path/routing bug instead).
-          render: {
-            msSinceLastPaint: refs?.probes.msSinceLastPaint() ?? null,
-            debouncerPending: refs?.probes.renderDebouncerPending() ?? null,
-            isPaused: refs?.probes.isPaused() ?? null,
-            syncOutput: refs?.probes.synchronizedOutput() ?? null,
+        // A terminal this list can't see is a disagreement too — the count says
+        // it exists and every visible surface says it doesn't.
+        disagreements:
+          terminals.filter((t) => t.disagreement !== null).length +
+          uncounted.length,
+        uncounted,
+        terminals,
+      };
+    },
+    { name: "diagnostics.attention" },
+  );
+
+  const snapshot = createMemo(
+    () => {
+      const webgl = webglLifecycleSnapshot();
+      return {
+        browser,
+        session: {
+          layout: layoutMode(),
+          wsStatus: wsStatus(),
+          serverProcessId: serverProcessId(),
+          activeId: props.activeId,
+          terminalCount: getDiagnostics().length,
+          jsHeap: readJsHeap(),
+          // The three server-side processes' RSS, off the `processMemory` cell (the
+          // same source the rail reads). `serverRss` is always a real figure (the
+          // server measures itself); `padiRss`/`kavalRss` are the honest three-way —
+          // the byte figure when the process answered, `"error"` when a believed-up
+          // process's read failed, or `null` (nothing to measure) — so the snapshot
+          // never conflates a failed read with no-data. padi owns kaval now, so its
+          // RSS rides padi's readout, folded into this cell server-side.
+          serverRss: serverRssBytes() ?? null,
+          padiRss: rssFigure(padiMemoryDisplay()),
+          kavalRss: rssFigure(kavalMemoryDisplay()),
+          domNodes: document.getElementsByTagName("*").length,
+          canvases: webgl.totalDomCanvases,
+          // Page-attention state AT SNAPSHOT TIME. The parked-rAF freeze
+          // signature is visibility "visible" + hidden false + hasFocus FALSE
+          // (window occluded by app-switch — see renderRecovery.ts). Captured
+          // here, not per-terminal, since it's a whole-document fact.
+          page: {
+            visibility: document.visibilityState,
+            hidden: document.hidden,
+            hasFocus: document.hasFocus(),
           },
-        };
-      }),
-      attention: attention(),
-      webgl,
-      padi: padiDiagnostics.state(),
-    };
-  });
+        },
+        terminals: getDiagnostics().map((d) => {
+          const refs = getTerminalRefs(d.id);
+          const bufferLen = refs?.xterm.buffer.active.length ?? null;
+          return {
+            id: d.id,
+            // What the terminal IS — the grid the bytes in its buffer are laid
+            // out for, which moves only when the pty says its mirror did.
+            cols: d.term.cols,
+            rows: d.term.rows,
+            // What this pane's BOX wants, and has asked the pty for. The two
+            // differ for a settle window plus a round trip after a box change;
+            // stuck apart means the pane's publish is not reaching the pty. Null
+            // is "never measured", which is also "no attach stream has opened".
+            wantedCols: d.wanted?.cols ?? null,
+            wantedRows: d.wanted?.rows ?? null,
+            measured: d.wanted !== null,
+            renderer: d.renderer,
+            bufferLen,
+            scrollback: bufferLen !== null ? bufferLen - d.term.rows : null,
+            atlas: refs?.probes.webglAtlas() ?? null,
+            bufferBytes: refs?.probes.bufferBytes() ?? null,
+            scrollLock: d.scrollLock,
+            // Full transition ring for the JSON dump — the live row above only
+            // shows the latest one (#1272 field diagnosis).
+            scrollLockEvents: refs?.probes.scrollLockEvents() ?? [],
+            // Render-pipeline state — climbing msSinceLastPaint with
+            // debouncerPending=true while bufferBytes grows is the parked-rAF
+            // freeze; debouncerPending=false with a stale paint means refreshRows
+            // was never called (a kolu write-path/routing bug instead).
+            render: {
+              msSinceLastPaint: refs?.probes.msSinceLastPaint() ?? null,
+              debouncerPending: refs?.probes.renderDebouncerPending() ?? null,
+              isPaused: refs?.probes.isPaused() ?? null,
+              syncOutput: refs?.probes.synchronizedOutput() ?? null,
+            },
+          };
+        }),
+        attention: attention(),
+        webgl,
+        padi: padiDiagnostics.state(),
+      };
+    },
+    { name: "diagnostics.snapshot" },
+  );
 
   /** The heap row's value, gated on the three figures: the dump memo mints a
    *  fresh readout on every recompute, so the row's `<Show>` was re-published

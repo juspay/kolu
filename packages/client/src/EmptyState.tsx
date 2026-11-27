@@ -4,7 +4,14 @@ import type { SavedSession, SavedTerminal } from "@kolu/padi-client/surface";
 import type { PwaInstall } from "@kolu/solid-pwa-install";
 import { terminalKey } from "@kolu/terminal-vocab/terminalKey";
 import { resumableCommand } from "kolu-common/surface";
-import { type Component, createMemo, createSignal, For, Show } from "solid-js";
+import {
+  type Component,
+  createMemo,
+  createSignal,
+  For,
+  mapArray,
+  Show,
+} from "solid-js";
 import { showsWelcome } from "./capabilities";
 import ForfeitSessionButton from "./ForfeitSessionButton";
 import { ACTIONS, advertisedNewTerminalKey } from "./input/actions";
@@ -17,8 +24,15 @@ import { surface } from "./ui/Surface";
 import Toggle from "./ui/Toggle";
 import { isDesktop } from "./useMobile";
 import WelcomeMoments from "./WelcomeMoments";
+import { foldEach } from "./wideFold";
 
 const chrome = surface();
+
+/** The empty sources a card with no saved session reads — one frozen array
+ *  each, so an absent session hands `mapArray` the same reference and it has
+ *  nothing to diff. */
+const NO_TERMINALS: readonly SavedTerminal[] = Object.freeze([]);
+const NO_IDS: readonly string[] = Object.freeze([]);
 
 const features = [
   { label: ACTIONS.createTerminal.label, shortcut: advertisedNewTerminalKey },
@@ -41,27 +55,48 @@ interface RepoGroup {
   terminals: SavedTerminal[];
 }
 
+/** ONE saved terminal's grouping facts, read off the session store a row at a
+ *  time. The saved session is a cell frame — a `createStore` — so each of
+ *  these is that record's own store leaf, and a single memo walking the list
+ *  took about six sources per saved terminal: a session of a few dozen was
+ *  already past Solid's 200-source `WIDE_SCOPE_DEPS` judge. Grouping reads
+ *  these PLAIN rows instead; the record rides along for the card's own per-row
+ *  bindings, which are each their own scope. */
+interface SavedRow {
+  terminal: SavedTerminal;
+  /** `terminalKey().group` — the group this terminal belongs to. */
+  group: string;
+  /** Where it sat on the saved canvas, `Infinity` when it had no place. */
+  x: number;
+}
+
+/** Whether two readings of one saved row say the same thing — what keeps an
+ *  untouched row's identity, and so the group list's, across a serve. */
+function sameSavedRow(a: SavedRow, b: SavedRow): boolean {
+  return a.terminal === b.terminal && a.group === b.group && a.x === b.x;
+}
+
 /** Group EVERY saved terminal by `terminalKey().group` — flat walk, no
  *  parented filter. Splits / tree children are first-class rows (the tree is
  *  the tiling; layout-shaped split chrome is not invested here). Groups are
  *  sorted by the minimum `canvasLayout.x` of their members so the restore
  *  card's left-to-right order matches the canvas the user saw. Within-group
  *  order preserves the array order of the saved session. */
-function groupSavedTerminals(terminals: readonly SavedTerminal[]): RepoGroup[] {
-  const minX = (ts: readonly SavedTerminal[]) =>
-    ts.reduce(
-      (acc, t) => Math.min(acc, t.canvasLayout?.x ?? Infinity),
-      Infinity,
-    );
+function groupSavedRows(rows: readonly SavedRow[]): RepoGroup[] {
   const groups = new Map<string, RepoGroup>();
-  for (const t of terminals) {
-    const key = terminalKey(t).group;
-    const existing = groups.get(key);
-    if (existing) existing.terminals.push(t);
-    else groups.set(key, { key, terminals: [t] });
+  const leftmost = new Map<string, number>();
+  for (const row of rows) {
+    const held = groups.get(row.group);
+    if (held) held.terminals.push(row.terminal);
+    else groups.set(row.group, { key: row.group, terminals: [row.terminal] });
+    leftmost.set(
+      row.group,
+      Math.min(leftmost.get(row.group) ?? Infinity, row.x),
+    );
   }
   return [...groups.values()].sort(
-    (a, b) => minX(a.terminals) - minX(b.terminals),
+    (a, b) =>
+      (leftmost.get(a.key) ?? Infinity) - (leftmost.get(b.key) ?? Infinity),
   );
 }
 
@@ -101,16 +136,25 @@ const EmptyState: Component<EmptyStateProps> = (props) => {
   // Host-served resumable set — the client never constructs membership; it only
   // renders this list and may subtract (opt-out). A live host always stamps;
   // absence is a hard error (never soft-empty to "no agents").
-  const resumableIds = createMemo(() => {
-    const session = props.savedSession;
-    if (!session) return [] as string[];
-    if (session.resumableIds === undefined) {
-      throw new Error(
-        "Saved session missing host-stamped resumableIds — padi must stamp membership on every serve",
-      );
-    }
-    return session.resumableIds;
-  });
+  //
+  // COPIED with `mapArray`, never read in place: the stamped ids are a store
+  // array, so `new Set(ids)` below walked a leaf per id on its own scope. The
+  // copy is a flat two sources at any session size and hands back a plain
+  // array, so every reading of it is one source.
+  const resumableIds = mapArray(
+    () => {
+      const session = props.savedSession;
+      if (!session) return NO_IDS;
+      if (session.resumableIds === undefined) {
+        throw new Error(
+          "Saved session missing host-stamped resumableIds — padi must stamp membership on every serve",
+        );
+      }
+      return session.resumableIds;
+    },
+    (id) => id,
+    { name: "emptyState.resumableIds" },
+  );
 
   const resumeCount = () => (resumeAgents() ? resumableIds().length : 0);
 
@@ -119,17 +163,33 @@ const EmptyState: Component<EmptyStateProps> = (props) => {
   // are read outside a single render-prop — the list reads groups, the
   // footer reads hasAnyAgent. Memo the group sort; hasAnyAgent is a trivial
   // single-consumer length check over the resumableIds memo.
-  const groups = createMemo(() => {
-    const session = props.savedSession;
-    return session ? groupSavedTerminals(session.terminals) : [];
+  //
+  // The grouping reads one PLAIN row per saved terminal ({@link SavedRow}),
+  // joined a chunk at a time, so the sort itself is one source for any number
+  // of saved terminals.
+  const savedRows = foldEach(
+    "emptyState.savedRows",
+    () => props.savedSession?.terminals ?? NO_TERMINALS,
+    (terminal): SavedRow => ({
+      terminal,
+      group: terminalKey(terminal).group,
+      x: terminal.canvasLayout?.x ?? Infinity,
+    }),
+    sameSavedRow,
+  );
+  const groups = createMemo(() => groupSavedRows(savedRows()), {
+    name: "emptyState.groups",
   });
   // Stable per-key hues (same `assignColors` as the live dock). Pure
   // function of each group name — co-set membership does not shift hue.
-  const groupColors = createMemo(() =>
-    assignColors(groups().map((g) => g.key)),
+  const groupColors = createMemo(
+    () => assignColors(groups().map((g) => g.key)),
+    { name: "emptyState.groupColors" },
   );
   const hasAnyAgent = () => resumableIds().length > 0;
-  const resumableSet = createMemo(() => new Set(resumableIds()));
+  const resumableSet = createMemo(() => new Set(resumableIds()), {
+    name: "emptyState.resumableSet",
+  });
 
   /** Either card action is in flight — the one fact BOTH action buttons gate on,
    *  so the two can never race. Named once here rather than spelled as a

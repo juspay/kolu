@@ -9,7 +9,10 @@
  *  honest state label — no fake progress bar (remote-hosts.mdx).
  */
 
-import { activePadiTerminal } from "@kolu/padi-client/surface";
+import {
+  activePadiTerminal,
+  type PadiActiveTerminal,
+} from "@kolu/padi-client/surface";
 import { unenrolledStreamCall } from "@kolu/surface/client";
 import { createReactiveSubscription } from "@kolu/surface/solid";
 import { useSurfaceApp } from "@kolu/surface-app/solid";
@@ -18,6 +21,7 @@ import type {
   KoluBuildInfo,
   KoluForward,
   TerminalId,
+  TerminalPorts,
 } from "kolu-common/surface";
 import {
   type Component,
@@ -50,6 +54,7 @@ import {
   padiMap,
   setActiveHost,
 } from "../wire";
+import { foldEach } from "../wideFold";
 import { HostDualDaemonSlot } from "./HostDaemonChips";
 import { hostGlance, hostLabel } from "./hostChipTone";
 import { reconnectHost } from "./reconnectHost";
@@ -105,6 +110,51 @@ const PopoverRow: Component<{
 function isOwnedNestedPortal(node: Node): boolean {
   const el = node instanceof Element ? node : node.parentElement;
   return el?.closest?.('[data-testid="info-popover"]') != null;
+}
+
+/** The ports reading of a pane that has never been scanned — one frozen value,
+ *  so an unscanned pane's row holds still. */
+const UNKNOWN_PORTS: TerminalPorts = Object.freeze({ status: "unknown" });
+
+/** A PLAIN copy of one pane's ports. The port join runs in the consuming
+ *  (render) scope, and a store-proxy `ports` would charge that scope a leaf per
+ *  pane for the status and another for the list. */
+function plainPorts(ports: TerminalPorts | undefined): TerminalPorts {
+  if (ports === undefined || ports.status !== "known") return UNKNOWN_PORTS;
+  return { status: "known", list: ports.list.map((one) => ({ ...one })) };
+}
+
+/** Whether two readings of one pane's ports say the same thing — what keeps an
+ *  unchanged pane's row identity across a frame. */
+function samePorts(a: TerminalPorts, b: TerminalPorts): boolean {
+  if (a.status !== b.status) return false;
+  if (a.status !== "known" || b.status !== "known") return true;
+  return (
+    a.list.length === b.list.length &&
+    a.list.every((one, at) => {
+      const other = b.list[at];
+      return (
+        other !== undefined &&
+        one.port === other.port &&
+        one.name === other.name &&
+        one.command === other.command &&
+        one.scope === other.scope &&
+        one.family === other.family
+      );
+    })
+  );
+}
+
+/** One listed terminal on this host, as the panel reads it: the live arm when
+ *  it has one, the facts the port join needs as PLAIN values, and its activity
+ *  clock either way. */
+interface HostPane {
+  id: TerminalId;
+  arm: PadiActiveTerminal | undefined;
+  /** The tile this pane hangs off, or `null` when it hangs off nothing. */
+  parentId: TerminalId | null;
+  ports: TerminalPorts;
+  lastActivityAt: number | undefined;
 }
 
 export const HostDiagnosticsPopover: Component<{
@@ -166,6 +216,40 @@ export const HostDiagnosticsPopover: Component<{
     .entry(props.host)
     .collections.terminals.use({ keys });
 
+  /** ONE ROW PER TERMINAL on this host, folded a row at a time.
+   *
+   *  A row costs three sources — the index leaf on the store-proxy key list,
+   *  that key's own memo, and its `store.v` — so the two readings below each
+   *  carried three per terminal when they walked the list themselves, and a
+   *  host with a couple of hundred panes put both past Solid's 200-source
+   *  `WIDE_SCOPE_DEPS` judge for as long as the panel was open. One fold, two
+   *  one-source readers.
+   *
+   *  Every listed key gets a row, armed or not: the arm index below wants only
+   *  the live ones, but the activity reading counts a parked record's clock
+   *  too, and a fold that dropped them would have changed what it answers. */
+  const panes = foldEach(
+    "hostDiagnostics.panes",
+    keys,
+    (id): HostPane => {
+      const record = terminals.byKey(id)?.();
+      const arm = activePadiTerminal(record);
+      return {
+        id,
+        arm,
+        parentId: (arm?.parentId as TerminalId | undefined) ?? null,
+        ports: plainPorts(arm?.ports),
+        lastActivityAt: record?.lastActivityAt ?? undefined,
+      };
+    },
+    (a, b) =>
+      a.id === b.id &&
+      a.arm === b.arm &&
+      a.parentId === b.parentId &&
+      a.lastActivityAt === b.lastActivityAt &&
+      samePorts(a.ports, b.ports),
+  );
+
   /** Every terminal on this host with a live arm, by id.
    *
    *  A MEMO, because `ForwardRows` asks its lookup once per row: rebuilt inside
@@ -176,11 +260,37 @@ export const HostDiagnosticsPopover: Component<{
   const arms = createMemo(
     () =>
       new Map(
-        keys().flatMap((id) => {
-          const arm = activePadiTerminal(terminals.byKey(id)?.());
-          return arm === undefined ? [] : [[id, arm] as const];
-        }),
+        panes().flatMap((pane) =>
+          pane.arm === undefined ? [] : [[pane.id, pane.arm] as const],
+        ),
       ),
+    { name: "hostDiagnostics.arms" },
+  );
+
+  /** The port join's candidate list — every ARMED pane, with the containing
+   *  tile already resolved. A memo, over the fold's plain rows: `ForwardRows`
+   *  asks its lookup once per row, inside that row's own render scope, so a
+   *  list assembled there charged that scope two store leaves per pane on the
+   *  host (the parent edge and the ports) — which is a wide scope with no memo
+   *  of its own to name it. */
+  const candidates = createMemo(
+    () => {
+      const armed = panes().filter((pane) => pane.arm !== undefined);
+      const parents = new Map(armed.map((pane) => [pane.id, pane.parentId]));
+      // Containing tile via terminalTree — a nested split's port still links
+      // the root; an orphan falls back to itself (painted top-level).
+      return armed.map((pane) => {
+        const tile = containingTileOf(pane.id, (x) =>
+          parents.has(x) ? (parents.get(x) ?? null) : undefined,
+        );
+        return {
+          id: pane.id,
+          parentId: tile === pane.id ? null : tile,
+          ports: pane.ports,
+        };
+      });
+    },
+    { name: "hostDiagnostics.candidates" },
   );
 
   /** WHICH terminal serves a forwarded port, and how to reach it — the answer to
@@ -191,23 +301,7 @@ export const HostDiagnosticsPopover: Component<{
   const servingFor = (forward: KoluForward) =>
     servingLink({
       port: forward.remotePort,
-      candidates: (() => {
-        const map = arms();
-        // Containing tile via terminalTree — a nested split's port still links
-        // the root; an orphan falls back to itself (painted top-level).
-        return [...map].map(([id, arm]) => {
-          const tile = containingTileOf(id, (x) => {
-            const a = map.get(x);
-            if (a === undefined) return undefined;
-            return a.parentId ?? null;
-          });
-          return {
-            id,
-            parentId: tile === id ? null : tile,
-            ports: arm.ports,
-          };
-        });
-      })(),
+      candidates: candidates(),
       // The join returns the TILE, and the tile is what the row names — a
       // split's own name would point at a pane the user cannot see as a thing.
       armOf: (id) => arms().get(id),
@@ -236,14 +330,15 @@ export const HostDiagnosticsPopover: Component<{
   const lastActivity = (): string => {
     if (!props.open() || state().kind !== "connected") return "—";
     if (terminalKeys.error()) return "error";
-    const idList = terminalKeys();
-    if (idList === undefined || idList.length === 0) return "—";
+    // The fold's rows, not a second walk of the key list: this reading is in a
+    // render effect, and walking the list here put the clock's three sources
+    // per terminal on that effect.
+    const rows = panes();
+    if (rows.length === 0) return "—";
     let max = 0;
-    for (const id of idList) {
-      const meta = terminals.byKey(id)?.();
-      const at = meta?.lastActivityAt;
-      if (typeof at === "number" && at > max) max = at;
-    }
+    for (const pane of rows)
+      if (typeof pane.lastActivityAt === "number" && pane.lastActivityAt > max)
+        max = pane.lastActivityAt;
     return max > 0 ? formatTimeAgo(max) : "—";
   };
 

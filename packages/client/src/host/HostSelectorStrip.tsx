@@ -87,6 +87,7 @@ import { forwardsForHost } from "../forwards/useForwards";
 import { type AnchorSide, useAnchoredPopover } from "../ui/useAnchoredPopover";
 import { useServerIdentity } from "../useServerIdentity";
 import { activeHost, hostKeys, padiMap, updatePreferences } from "../wire";
+import { foldEach } from "../wideFold";
 import { selectHostTab } from "./selectHostTab";
 import { addHost } from "./addHost";
 import { focusOnMount } from "./focusOnMount";
@@ -765,11 +766,19 @@ const HostSelectorStrip: Component = () => {
     },
   );
 
-  const chipFits = createMemo<HostFit[]>(() =>
-    hostKeys().map((h) => {
-      const key = encodeHostKey(h);
-      return { key, width: chipWidths[key] ?? FIRST_FRAME_CHIP_WIDTH_GUESS };
+  // ONE ROW PER HOST, joined a chunk at a time. Each chip's measured width is
+  // its own store leaf, so a single memo mapping the pool took a source per
+  // host — a pool a couple of hundred deep put this scope past Solid's
+  // 200-source `WIDE_SCOPE_DEPS` judge, and every measurement tick re-ran the
+  // whole fit. A row re-runs for its own chip alone.
+  const chipFits = foldEach(
+    "hostStrip.chipFits",
+    () => hostKeys().map(encodeHostKey),
+    (key): HostFit => ({
+      key,
+      width: chipWidths[key] ?? FIRST_FRAME_CHIP_WIDTH_GUESS,
     }),
+    (a, b) => a.key === b.key && a.width === b.width,
   );
   // The "+ add a host" affordance is always present now, so its width is always
   // reserved from the chips' fit budget. Nothing else in the row needs room

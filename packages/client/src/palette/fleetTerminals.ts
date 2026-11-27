@@ -46,6 +46,7 @@ import { containingTileOf, type ParentEdge } from "../terminal/terminalTree";
 import { isParked } from "../terminal/useTerminalMetadata";
 import { getNowTicker } from "../terminal/staleness";
 import { hostKeys, interpretClientError, padiMap } from "../wire";
+import { joinRows } from "../wideFold";
 
 export type FleetTerminalRow = {
   host: HostKey;
@@ -99,31 +100,37 @@ export function createFleetHostRows(opts: {
   };
   const rowOf = mapArray(
     opts.keys,
-    (id): Accessor<FleetTerminalRow | null> =>
+    (id): Accessor<FleetTerminalRow | undefined> =>
       createMemo(
-        (): FleetTerminalRow | null => {
+        (): FleetTerminalRow | undefined => {
           const raw = opts.recordOf(id);
-          if (raw === undefined || isParked(raw)) return null;
+          if (raw === undefined || isParked(raw)) return undefined;
           // Match Dock / `terminalIds`: splits are not independent rows.
-          if (!isTileTerminal(id, parentOf)) return null;
+          if (!isTileTerminal(id, parentOf)) return undefined;
           const meta = opts.project(raw);
           return { host: opts.host, id, meta, recencyAt: rowRecencyAt(meta) };
         },
         { name: "fleetRow" },
       ),
+    { name: "fleetHostRows.byKey" },
   );
+  // The rows are joined a CHUNK at a time: reading every row memo on one scope
+  // put a source per terminal on it, so a host with a few hundred panes was
+  // past Solid's 200-source `WIDE_SCOPE_DEPS` judge. The `mapArray` above is a
+  // flat two sources at any fleet size (it reads the key array's container and
+  // walks its raw slots untracked), so the per-key memo is the affordable half
+  // already — {@link joinRows} is what makes the published list affordable too.
+  const present = joinRows("fleetHostRows.present", rowOf);
+  // The activity window is applied OFF the join, over the plain row list: the
+  // clock ticks on its own cadence, and folding it into each row memo would
+  // wake every row in the fleet on every tick. Three sources, any N.
   return createMemo(
     (): FleetTerminalRow[] => {
       const now = opts.now();
       const thresholdMs = opts.thresholdMs();
-      const out: FleetTerminalRow[] = [];
-      for (const read of rowOf()) {
-        const row = read();
-        if (row === null || isStaleAt(row.recencyAt, now, thresholdMs))
-          continue;
-        out.push(row);
-      }
-      return out;
+      return present().filter(
+        (row) => !isStaleAt(row.recencyAt, now, thresholdMs),
+      );
     },
     { name: "fleetHostRows", equals: sameRowList },
   );
