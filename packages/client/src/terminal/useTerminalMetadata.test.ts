@@ -1,4 +1,4 @@
-import type { TerminalInfo, TerminalMetadata } from "@kolu/padi-client/surface";
+import type { TerminalMetadata } from "@kolu/padi-client/surface";
 import { Stream } from "effect";
 import { decodeHostKey, encodeHostKey, LOCAL_HOST } from "kolu-common/hostKey";
 import type { TerminalId } from "kolu-common/surface";
@@ -151,7 +151,7 @@ describe("root-ancestor flatten vs nested pane tree (#2059)", () => {
         });
       const { terminalIds, getSplitPaneIds, getPaneTree } = useTerminalMetadata(
         {
-          list: () => ids.map((id) => ({ id }) as TerminalInfo),
+          list: () => ids,
         },
       );
       return { terminalIds, getSplitPaneIds, getPaneTree, dispose };
@@ -263,7 +263,7 @@ describe("terminalIds reference stability (the #1422 reactivity keystone)", () =
       bag.metaOf = (id) => store()[id];
 
       const { terminalIds } = useTerminalMetadata({
-        list: () => keys().map((id) => ({ id }) as TerminalInfo),
+        list: keys,
       });
 
       let downstreamRuns = 0;
@@ -297,7 +297,7 @@ describe("terminalIds reference stability (the #1422 reactivity keystone)", () =
       bag.metaOf = (id) => store()[id];
 
       const { terminalIds } = useTerminalMetadata({
-        list: () => keys().map((id) => ({ id }) as TerminalInfo),
+        list: keys,
       });
 
       let downstreamRuns = 0;
@@ -338,7 +338,7 @@ describe("terminalIds reference stability (the #1422 reactivity keystone)", () =
       bag.metaOf = (id) => store()[id];
 
       const { terminalIds } = useTerminalMetadata({
-        list: () => keys().map((id) => ({ id }) as TerminalInfo),
+        list: keys,
       });
 
       let downstreamRuns = 0;
@@ -383,7 +383,7 @@ describe("getMetadata clock reprojection (the foreign-clock ingestion boundary)"
       bag.metaOf = () => meta;
       bag.clockOffset = () => offset;
       const { getMetadata } = useTerminalMetadata({
-        list: () => tids("a").map((id) => ({ id }) as TerminalInfo),
+        list: () => tids("a"),
       });
       const out = getMetadata(tids("a")[0] as TerminalId);
       dispose();
@@ -462,7 +462,7 @@ describe("getMetadata clock reprojection (the foreign-clock ingestion boundary)"
       bag.metaOf = (id) => records[id] as unknown as TestMeta;
       bag.clockOffset = () => 90_000;
       const { getMetadata } = useTerminalMetadata({
-        list: () => tids("a").map((id) => ({ id }) as TerminalInfo),
+        list: () => tids("a"),
       });
       await settle();
       const a = tids("a")[0] as TerminalId;
@@ -538,7 +538,7 @@ describe("getMetadata identity stability (the #1714 right-panel-flicker guard)",
       bag.metaOf = (id) => store()[id];
       bag.clockOffset = () => 0;
       const { getMetadata } = useTerminalMetadata({
-        list: () => tids("a").map((id) => ({ id }) as TerminalInfo),
+        list: () => tids("a"),
       });
       await settle();
       const a = tids("a")[0] as TerminalId;
@@ -575,7 +575,7 @@ describe("getMetadata identity stability (the #1714 right-panel-flicker guard)",
       bag.metaOf = (id) => store()[id];
       bag.clockOffset = offset;
       const { getMetadata } = useTerminalMetadata({
-        list: () => tids("a").map((id) => ({ id }) as TerminalInfo),
+        list: () => tids("a"),
       });
       const a = tids("a")[0] as TerminalId;
 
@@ -648,7 +648,7 @@ describe("getMetadata identity stability (the #1714 right-panel-flicker guard)",
       bag.metaOf = (id) => store()[id];
       bag.clockOffset = () => 0;
       const { getMetadata } = useTerminalMetadata({
-        list: () => tids("a").map((id) => ({ id }) as TerminalInfo),
+        list: () => tids("a"),
       });
       const a = tids("a")[0] as TerminalId;
 
@@ -711,7 +711,7 @@ it("metadata ticks do not wake split-tree or unrelated display readers", async (
     bag.metaOf = (id) => records()[id];
     bag.clockOffset = () => 0;
     const store = useTerminalMetadata({
-      list: () => ids.map((id) => ({ id }) as TerminalInfo),
+      list: () => ids,
     });
     let splitWakes = 0;
     let displayWakes = 0;
@@ -807,7 +807,7 @@ describe("recordPhases — the loading gate's input", () => {
       bag.metaOf = (id) => store()[id];
 
       const { recordPhases } = useTerminalMetadata({
-        list: () => keys().map((id) => ({ id }) as TerminalInfo),
+        list: keys,
       });
 
       let runs = 0;

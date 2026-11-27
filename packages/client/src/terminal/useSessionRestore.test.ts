@@ -1,4 +1,4 @@
-import type { TerminalInfo, TerminalMetadata } from "@kolu/padi-client/surface";
+import type { TerminalMetadata } from "@kolu/padi-client/surface";
 import { Effect } from "effect";
 import { LOCAL_HOST } from "kolu-common/hostKey";
 import type { TerminalId } from "kolu-common/surface";
@@ -13,7 +13,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const h = vi.hoisted(() => ({
   lifecycleKind: (() => "connected") as () => "connected" | "restarted",
   listPending: true,
-  list: undefined as TerminalInfo[] | undefined,
+  list: undefined as TerminalId[] | undefined,
   terminalIds: [] as TerminalId[],
   // How many listed terminals' records haven't composed yet — the `awaited` arm of
   // the metadata census the gate now reads instead of the session cell as a timing
@@ -226,7 +226,7 @@ describe("useSessionRestore — isLoading gate (cold-launch restore race)", () =
     // term must hold loading until the records settle.
     createRoot((dispose) => {
       h.listPending = false;
-      h.list = [{ id: "t1" } as TerminalInfo, { id: "t2" } as TerminalInfo];
+      h.list = ["t1", "t2"] as TerminalId[];
       h.terminalIds = []; // records not composed yet
       h.awaited = 2; // ...both still in flight
       h.sessionPending = false; // session cell already resolved (the old trap)
@@ -246,7 +246,7 @@ describe("useSessionRestore — isLoading gate (cold-launch restore race)", () =
   it("does not wait on the session cell when terminals exist", () => {
     createRoot((dispose) => {
       h.listPending = false;
-      h.list = [{ id: "t1" } as TerminalInfo];
+      h.list = ["t1"] as TerminalId[];
       h.terminalIds = ["t1" as TerminalId];
       h.sessionPending = true; // still in flight — must not delay the canvas
       const session = mount();
@@ -270,7 +270,7 @@ describe("useSessionRestore — isLoading gate (cold-launch restore race)", () =
         void (async () => {
           try {
             h.listPending = false;
-            h.list = [{ id: "p0" } as TerminalInfo]; // parked entry in the raw list
+            h.list = ["p0"] as TerminalId[]; // parked entry in the raw list
             h.terminalIds = []; // ...excluded from the real (canvas) set
             h.awaited = 0; // parked record has ARRIVED (settled) — not awaited
             h.sessionPending = false;
@@ -560,7 +560,7 @@ describe("useSessionRestore — multi-terminal restore seeds the server-active t
   // round-trip completes — the "wait for all listed metadata" gate can never latch
   // on a partial set with the active id missing.
   function makeMetaStore(opts: {
-    list: TerminalInfo[];
+    list: TerminalId[];
     meta: Record<string, TerminalMetadata>;
   }) {
     let active: string | null = null;
@@ -570,7 +570,7 @@ describe("useSessionRestore — multi-terminal restore seeds the server-active t
     const listSub = Object.assign(() => opts.list, { pending: () => false });
     const store = {
       listSub,
-      terminalIds: () => opts.list.map((t) => t.id) as TerminalId[],
+      terminalIds: () => opts.list,
       getMetadata: (id: TerminalId) => opts.meta[id],
       setActiveSilently,
       // The landing comes in a PAIR: the plan half is what the hydration
@@ -595,7 +595,7 @@ describe("useSessionRestore — multi-terminal restore seeds the server-active t
       resumableIds: [],
     });
     const { store, setActiveSilently } = makeMetaStore({
-      list: [{ id: "A" }, { id: "B" }] as TerminalInfo[],
+      list: ["A", "B"] as TerminalId[],
       meta: { A: activeMeta(), B: activeMeta() },
     });
 
@@ -670,17 +670,14 @@ describe("useSessionRestore — the restored active tile does NOT ride the sessi
       createRoot((dispose) => {
         void (async () => {
           try {
-            const [list, setList] = createSignal<TerminalInfo[] | undefined>(
-              [],
-            );
+            const [list, setList] = createSignal<TerminalId[] | undefined>([]);
             const [meta, setMeta] = createSignal<
               Record<string, TerminalMetadata>
             >({});
             const setActiveSilently = vi.fn();
             const store = {
               listSub: Object.assign(() => list(), { pending: () => false }),
-              terminalIds: () =>
-                (list() ?? []).map((t) => t.id) as TerminalId[],
+              terminalIds: () => list() ?? [],
               getMetadata: (id: TerminalId) => meta()[id],
               setActiveSilently,
               planSetActiveSilently: (id: string | null) => () =>
@@ -709,7 +706,7 @@ describe("useSessionRestore — the restored active tile does NOT ride the sessi
             // behind the disk write, so the cell keeps serving the CONSUMED blob.
             await Effect.runPromise(session.handleRestoreSession({}));
             setMeta({ "t-0": activeMeta(), "t-1": activeMeta() });
-            setList([{ id: "t-0" }, { id: "t-1" }] as TerminalInfo[]);
+            setList(["t-0", "t-1"] as TerminalId[]);
             await new Promise((r) => setTimeout(r, 0));
 
             // The SECOND tile is active — the host said so. The `topIds[0]`
@@ -773,17 +770,14 @@ describe("useSessionRestore — the seed WAITS for the answered tile to reach th
       createRoot((dispose) => {
         void (async () => {
           try {
-            const [list, setList] = createSignal<TerminalInfo[] | undefined>(
-              [],
-            );
+            const [list, setList] = createSignal<TerminalId[] | undefined>([]);
             const [meta, setMeta] = createSignal<
               Record<string, TerminalMetadata>
             >({});
             const setActiveSilently = vi.fn();
             const store = {
               listSub: Object.assign(() => list(), { pending: () => false }),
-              terminalIds: () =>
-                (list() ?? []).map((t) => t.id) as TerminalId[],
+              terminalIds: () => list() ?? [],
               getMetadata: (id: TerminalId) => meta()[id],
               setActiveSilently,
               planSetActiveSilently: (id: string | null) => () =>
@@ -802,14 +796,14 @@ describe("useSessionRestore — the seed WAITS for the answered tile to reach th
             // The answered id is not in the list, so the seed must NOT run — and
             // must NOT consume the answer.
             setMeta({ "t-0": activeMeta() });
-            setList([{ id: "t-0" }] as TerminalInfo[]);
+            setList(["t-0"] as TerminalId[]);
             await new Promise((r) => setTimeout(r, 0));
             expect(setActiveSilently).not.toHaveBeenCalled();
 
             // (2) The second tile's delta lands. The seed runs ONCE, on the tile
             // the host named.
             setMeta({ "t-0": activeMeta(), "t-1": activeMeta() });
-            setList([{ id: "t-0" }, { id: "t-1" }] as TerminalInfo[]);
+            setList(["t-0", "t-1"] as TerminalId[]);
             await new Promise((r) => setTimeout(r, 0));
             expect(setActiveSilently).toHaveBeenCalledTimes(1);
             expect(setActiveSilently).toHaveBeenCalledWith("t-1");
@@ -849,12 +843,12 @@ describe("useSessionRestore — that wait is BOUNDED (the answered tile never ar
 
   /** The three reactive inputs the deadline arbitrates, plus the seed spy. */
   function deferringHarness() {
-    const [list, setList] = createSignal<TerminalInfo[] | undefined>([]);
+    const [list, setList] = createSignal<TerminalId[] | undefined>([]);
     const [meta, setMeta] = createSignal<Record<string, TerminalMetadata>>({});
     const setActiveSilently = vi.fn();
     const store = {
       listSub: Object.assign(() => list(), { pending: () => false }),
-      terminalIds: () => (list() ?? []).map((t) => t.id) as TerminalId[],
+      terminalIds: () => list() ?? [],
       getMetadata: (id: TerminalId) => meta()[id],
       setActiveSilently,
       planSetActiveSilently: (id: string | null) => () => setActiveSilently(id),
@@ -864,7 +858,7 @@ describe("useSessionRestore — that wait is BOUNDED (the answered tile never ar
     /** Deliver a restored tile's row AND its composed record together. */
     const deliver = (...ids: string[]) => {
       setMeta(Object.fromEntries(ids.map((id) => [id, activeMeta()])));
-      setList(ids.map((id) => ({ id })) as TerminalInfo[]);
+      setList(ids as TerminalId[]);
     };
     return { store, deliver, setActiveSilently };
   }
@@ -1003,16 +997,14 @@ describe("useSessionRestore — an in-session restore RE-SEEDS the view (viewSee
   // Red-when-reverted: without the reset, the second `setActiveSubTab(P, S)` never
   // fires.
   function reactiveStore() {
-    const [list, setList] = createSignal<TerminalInfo[] | undefined>(undefined);
+    const [list, setList] = createSignal<TerminalId[] | undefined>(undefined);
     const [meta, setMeta] = createSignal<Record<string, TerminalMetadata>>({});
     let active: string | null = null;
     const listSub = Object.assign(() => list(), { pending: () => false });
     const store = {
       listSub,
       terminalIds: () =>
-        (list() ?? [])
-          .map((t) => t.id)
-          .filter((id) => !meta()[id]?.parentId) as TerminalId[],
+        (list() ?? []).filter((id) => !meta()[id]?.parentId),
       getMetadata: (id: TerminalId) => meta()[id],
       setActiveSilently: (id: string | null) => {
         active = id;
@@ -1052,7 +1044,7 @@ describe("useSessionRestore — an in-session restore RE-SEEDS the view (viewSee
 
             // 1) FIRST live load — a parent P0 with a split S0. viewSeeded latches.
             setMeta({ P0: splitMeta(), S0: splitMeta("P0") });
-            setList([{ id: "P0" }, { id: "S0" }] as TerminalInfo[]);
+            setList(["P0", "S0"] as TerminalId[]);
             await new Promise((r) => setTimeout(r, 0));
             expect(subPanelSpy.setActiveSubTab).toHaveBeenCalledWith(
               "P0" as TerminalId,
@@ -1076,7 +1068,7 @@ describe("useSessionRestore — an in-session restore RE-SEEDS the view (viewSee
             // the latch reset, the hydration effect re-seeds the parent's sub-tab;
             // without it, this second pass never runs.
             setMeta({ P0: splitMeta(), S0: splitMeta("P0") });
-            setList([{ id: "P0" }, { id: "S0" }] as TerminalInfo[]);
+            setList(["P0", "S0"] as TerminalId[]);
             await new Promise((r) => setTimeout(r, 0));
 
             expect(subPanelSpy.setActiveSubTab).toHaveBeenCalledWith(

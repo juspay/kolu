@@ -309,7 +309,7 @@ export function createEvictionDedup(
 
 export function useActiveReconcile(deps: {
   /** Raw list keys (all ids — top-level AND sub — membership-driven). */
-  rawList: Accessor<TerminalId[]>;
+  rawList: Accessor<readonly TerminalId[]>;
   /** The store's live parent EDGE (`null` top-level, `undefined` absent) — the
    *  same one every other walk runs on. The snapshot below stores the absent
    *  case as `null`: an id in the list whose record has not arrived has no
@@ -352,11 +352,13 @@ export function useActiveReconcile(deps: {
   // switch is one atomic snapshot step, never seen as departures of the prior
   // host's tiles.
   const snapshot = createHostScopedParentSnapshot<TerminalId | null>(
+    "reconcileParentSnapshot",
     deps.rawList,
     deps.activeHostKey,
-    (ids) => {
+    deps.parentOf,
+    (edges) => {
       const m = new Map<TerminalId, TerminalId | null>();
-      for (const id of ids) m.set(id, deps.parentOf(id) ?? null);
+      for (const { id, parent } of edges) m.set(id, parent ?? null);
       return m;
     },
   );

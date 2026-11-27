@@ -199,7 +199,7 @@ export const useTerminalCrud = createSharedRoot(() => {
   /** Intact parent graph at the moment of eviction — live for the imperative
    *  path (metadata still present), snapshot for the list-driven path. */
   function liveRemovalGraph() {
-    const ids = store.listSub()?.map((t) => t.id) ?? [];
+    const ids = store.listSub() ?? [];
     return {
       ids,
       parentOf: (x: TerminalId) => {

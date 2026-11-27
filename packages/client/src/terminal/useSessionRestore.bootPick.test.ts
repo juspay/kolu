@@ -240,7 +240,7 @@ function makeStore() {
   });
   const store = {
     ...view,
-    listSub: Object.assign(() => w.keys()?.map((id) => ({ id })), {
+    listSub: Object.assign(() => w.keys(), {
       pending: () => w.keys() === undefined,
     }),
     // PARKED rows are listed but have no record — the restore card's rows, which

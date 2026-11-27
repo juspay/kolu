@@ -177,7 +177,7 @@ function isPlainBranch(value: unknown): value is Record<string, unknown> {
 }
 
 export function useTerminalMetadata(deps: {
-  list: Accessor<{ id: TerminalId }[] | undefined>;
+  list: Accessor<readonly TerminalId[] | undefined>;
 }) {
   // W1.R1: a terminal's record is served ALREADY COMPOSED. padi's `terminals`
   // collection folds the two halves that share the one registry entry — the
@@ -187,13 +187,18 @@ export function useTerminalMetadata(deps: {
   // `snapshotSession`). The client's former reader-join collapsed to this single
   // read; there is no client-side re-fusion. R9 (remote snapshots) swaps the
   // snapshot backing remote-side behind the server compose with no change here.
-  // Memoized so the id array is computed once per list change, not re-mapped on
-  // every `.use({ keys })` read, every `terminalIds` recompute, and every
-  // `getSplitPaneIds` call (the last runs O(terminals) times per display
-  // rebuild — which is why the descendant relation is INDEXED once below
-  // rather than re-walked per tile).
-  const keys = createMemo<TerminalId[]>(
-    () => deps.list()?.map((t) => t.id) ?? [],
+  //
+  // THE ONE COPY of the collection's key array, and it is a `mapArray`: the
+  // list a per-key collection serves is a store PROXY, so iterating it in user
+  // code costs `length` plus an index leaf per terminal, on whichever scope
+  // does the iterating — 197 panes to `WIDE_SCOPE_DEPS`, on every consumer
+  // that re-derived its own copy. `mapArray` reads the container and walks the
+  // backing raw, which is two sources flat; from here down every `keys()` fold
+  // is reading a plain array and costs one.
+  const keys = mapArray(
+    () => deps.list() ?? [],
+    (id) => id,
+    { name: "useTerminalMetadata.keys" },
   );
   // The composed `terminals` collection now RIDES the active host's RETAINED per-host
   // owner (`activeScope().wire.terminals`, W9) — opened once per host in `createHostWire`

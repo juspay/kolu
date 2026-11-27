@@ -99,9 +99,9 @@ export function useTerminals() {
   // store's OWN 3-valued edge (absent ≠ root), shared by both hooks so their
   // walks answer exactly what the canvas and the Dock see, and `activeHostKey`
   // the ONE host-scope key both host-scope their snapshot on.
-  const allTerminalIds = createMemo(
-    () => store.listSub()?.map((t) => t.id) ?? [],
-  );
+  const allTerminalIds = createMemo(() => store.listSub() ?? [], {
+    name: "allTerminalIds",
+  });
   const parentOf = store.parentEdge;
   const activeHostKey = () => encodeHostKey(activeHost());
   useTerminalExits({ ids: allTerminalIds, subscribe: subscribeExit });

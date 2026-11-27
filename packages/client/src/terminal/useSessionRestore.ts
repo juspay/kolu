@@ -24,6 +24,7 @@ import { useRightPanel } from "../right-panel/useRightPanel";
 import { lifecycle } from "../rpc/rpc";
 import type { UiAction } from "../runAction";
 import { activePadiRpc } from "../wire";
+import { foldEach } from "../wideFold";
 import { containingTileOf, descendantsByRoot } from "./terminalTree";
 import { useSubPanel } from "./useSubPanel";
 import type { TerminalStore } from "./useTerminalStore";
@@ -92,6 +93,26 @@ export function useSessionRestore(deps: { store: TerminalStore }) {
     deadlineArmedFor = null;
   }
   onCleanup(disarmDeadline);
+
+  /** EVERY LISTED TERMINAL'S COMPOSED RECORD, one row per id. Hydration reads
+   *  `parentId` and `subPanel` off the record for every terminal in the list,
+   *  and a record read costs two store nodes before any field — `WIDE_SCOPE_DEPS`
+   *  at about 100 panes on the effect's own compute. A row holds its id's
+   *  record; the compute reads the joined list and compares its LENGTH against
+   *  the list's, which is the same "every record has arrived" gate the loop was.
+   *  A row reads `undefined` for a PARKED (restore-card) record as well as a
+   *  not-yet-arrived one, so the join naturally waits out the parked set (which
+   *  `session.restore` consumes) and can never seed the view from a parked row
+   *  or a partial set. */
+  const hydrationRows = foldEach(
+    "sessionRestore.record",
+    () => store.listSub() ?? [],
+    (id): HydrationEntry | undefined => {
+      const m = store.getMetadata(id);
+      return m === undefined ? undefined : { t: { id }, m };
+    },
+    (a, b) => a.t.id === b.t.id && a.m === b.m,
+  );
 
   // Hydrate from server state. ONE named `HydrationPhase` (pending → decided →
   // seeded, `hostScope/createSessionRestore`) tracks TWO once-only steps:
@@ -184,19 +205,14 @@ export function useSessionRestore(deps: { store: TerminalStore }) {
       // self-clearing, and the alternative (a second in-flight fact per latch)
       // would state one thing twice.
       if (isRestoring()) return idle;
-      // Wait for the composed record to arrive (via `store.getMetadata`) for EVERY
-      // listed terminal — hydration reads `parentId` and `subPanel` off the record
-      // (since #806 the list snapshot no longer carries `meta`). `getMetadata`
-      // returns `undefined` for a PARKED (restore-card) record as well as a
-      // not-yet-arrived one, so this loop naturally waits out the parked set (which
-      // `session.restore` consumes) and can never seed the view from a parked row or
-      // a partial set. The reads are reactive, so the compute re-runs as values arrive.
-      const joined: HydrationEntry[] = [];
-      for (const t of existing) {
-        const m = store.getMetadata(t.id);
-        if (m === undefined) return idle;
-        joined.push({ t, m });
-      }
+      // Wait for the composed record to arrive for EVERY listed terminal —
+      // hydration reads `parentId` and `subPanel` off the record (since #806 the
+      // list snapshot no longer carries `meta`). A row short of the list is a
+      // record that has not arrived, or a parked one; either way this is not the
+      // set to seed from. The rows are reactive, so the compute re-runs as values
+      // arrive.
+      const joined = hydrationRows();
+      if (joined.length !== existing.length) return idle;
       // Seed only once at least one REAL (active/sleeping) terminal exists — the
       // initial live load, or once a restore has produced them. An all-parked reboot
       // never reaches here: the empty-vs-restore decision above returns first
@@ -221,7 +237,10 @@ export function useSessionRestore(deps: { store: TerminalStore }) {
       // across a retry). An answered `{ id: null }` — the host holds no active
       // terminal — names nothing to wait for and seeds immediately; so does the
       // blob-fallback path (no answer box), whose ids are legitimately stale.
-      if (restored?.id != null && !existing.some((t) => t.id === restored.id)) {
+      if (
+        restored?.id != null &&
+        !joined.some((one) => one.t.id === restored.id)
+      ) {
         // Tracked ONLY on the runs that defer — the deadline's expiry consumes the
         // box non-reactively, so this read is what turns that into a re-run.
         expirations();
@@ -307,7 +326,7 @@ export function useSessionRestore(deps: { store: TerminalStore }) {
    *  strict-read window). Hoisting the reads changes no answer: a Solid 2 write
    *  is staged, so none of these reads could have seen an earlier one anyway. */
   function planHydrationFromTerminals(
-    entries: HydrationEntry[],
+    entries: readonly HydrationEntry[],
     serverActiveId: string | null,
   ): () => void {
     // Parent edge over the hydration census — shared by tab seeding, topIds,

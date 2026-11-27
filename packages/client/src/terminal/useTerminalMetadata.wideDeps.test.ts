@@ -15,14 +15,13 @@
  *  realistic change — a pane's cwd moving, a pane leaving — and both again,
  *  so a narrower graph that stops answering is no fix. */
 
-import type { TerminalInfo } from "@kolu/padi-client/surface";
 import { identityColor } from "@kolu/solid-dockrow/rowValues";
 import { takeSolidDiagnostics } from "@kolu/solid-test-setup/setup";
 import { terminalKey } from "@kolu/terminal-vocab/terminalKey";
 import { Stream } from "effect";
 import { decodeHostKey, encodeHostKey, LOCAL_HOST } from "kolu-common/hostKey";
 import type { TerminalId } from "kolu-common/surface";
-import { createRoot, createSignal, createStore, flush } from "solid-js";
+import { createMemo, createRoot, createStore, flush } from "solid-js";
 import { expect, it, vi } from "vitest";
 
 /** A composed record as the per-key collection serves it — the store row
@@ -36,18 +35,22 @@ type TestRecord = {
 
 const bag = vi.hoisted(() => ({
   keys: (() => [] as TerminalId[]) as () => TerminalId[],
-  recordOf: (() => undefined) as (id: TerminalId) => TestRecord | undefined,
+  lookup: (() => undefined) as (
+    id: TerminalId,
+  ) => (() => TestRecord | undefined) | undefined,
 }));
 
-// The ONE per-key collection this hook reads, driven from the store below —
-// the same mirror shape `useTerminalMetadata.test.ts` uses, so the hook runs
-// its real graph over a real store rather than a stub of itself.
+// THE MIRROR, SHAPED AS THE FRAMEWORK SHAPES IT. A per-key collection holds
+// each value in `createStore<{ v }>` and serves `() => store.v` behind a
+// per-key memo, and its `keys()` is a store-proxy array — so one record read
+// costs two sources before any field and a loop over the keys pays an index
+// leaf per id. Counting anything less would under-measure the graph judged
+// here.
 vi.mock("../wire", () => {
   const terminals = {
     use: () => ({
       keys: () => bag.keys(),
-      byKey: (id: TerminalId) =>
-        bag.recordOf(id) === undefined ? undefined : () => bag.recordOf(id),
+      byKey: (id: TerminalId) => bag.lookup(id),
     }),
     unenrolledKeys: () => Stream.never,
   };
@@ -151,34 +154,48 @@ interface Harness {
   readonly dispose: () => void;
 }
 
-/** The membership list is a PLAIN array behind a signal, as the terminal-keys
- *  stream publishes it; only the RECORDS are a store, which is where the
- *  collection's per-key leaves actually live. */
+/** The membership list and every record live in the stores the framework holds
+ *  them in, read through the per-key lookup it memoizes. */
 const drive = (): Harness => {
   const { ids, records } = fleet();
-  const [keys, setKeys] = createSignal<TerminalId[]>(ids);
+  const [keyStore, setKeyStore] = createStore<{ v: TerminalId[] }>({ v: ids });
   const [state, setState] = createStore<{
-    records: Record<string, TestRecord>;
-  }>({ records });
-  bag.keys = keys;
-  bag.recordOf = (id) => state.records[id];
+    rows: Record<string, { v: TestRecord | undefined }>;
+  }>({
+    rows: Object.fromEntries(
+      Object.entries(records).map(([id, record]) => [id, { v: record }]),
+    ),
+  });
+  bag.keys = () => keyStore.v;
   return createRoot((dispose) => {
-    const hook = useTerminalMetadata({
-      list: () => keys().map((id) => ({ id }) as TerminalInfo),
-    });
+    const lookups = new Map<
+      TerminalId,
+      () => (() => TestRecord | undefined) | undefined
+    >();
+    for (const id of ids) {
+      const value = () => state.rows[id]?.v;
+      lookups.set(
+        id,
+        createMemo(() => (state.rows[id] === undefined ? undefined : value)),
+      );
+    }
+    bag.lookup = (id) => lookups.get(id)?.();
+    const hook = useTerminalMetadata({ list: () => keyStore.v });
     return {
       hook,
       setCwd: (id, cwd) =>
         setState((s) => {
-          const row = s.records[id];
-          if (row !== undefined) row.cwd = cwd;
+          const row = s.rows[id];
+          if (row?.v !== undefined) row.v.cwd = cwd;
         }),
       dropLast: () => {
-        const gone = keys()[keys().length - 1];
+        const gone = keyStore.v[keyStore.v.length - 1];
         if (gone === undefined) return;
-        setKeys((held) => held.slice(0, -1));
+        setKeyStore((s) => {
+          s.v.pop();
+        });
         setState((s) => {
-          delete s.records[gone];
+          delete s.rows[gone];
         });
       },
       dispose,

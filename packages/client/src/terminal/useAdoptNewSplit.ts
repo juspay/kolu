@@ -70,7 +70,7 @@ export interface SplitAdoptPorts {
 
 export function useAdoptNewSplit(deps: {
   /** Raw list keys (all ids — top-level AND sub — membership-driven). */
-  rawList: Accessor<TerminalId[]>;
+  rawList: Accessor<readonly TerminalId[]>;
   /** The store's live parent EDGE: `null` for a top-level tile, `undefined`
    *  when the id is absent from the census. Three-valued on purpose — the walk
    *  below must stop at a departed ancestor instead of climbing through it and
@@ -90,15 +90,16 @@ export function useAdoptNewSplit(deps: {
   // gate (sub membership/parent change or host switch) — one construction with the
   // reconcile sibling, differing only in this map projection.
   const snapshot = createHostScopedParentSnapshot<TerminalId>(
+    "adoptParentSnapshot",
     deps.rawList,
     deps.activeHostKey,
-    (ids) => {
+    deps.parentOf,
+    (edges) => {
       const m = new Map<TerminalId, TerminalId>();
-      for (const id of ids) {
-        const parentId = deps.parentOf(id);
+      for (const { id, parent } of edges) {
         // Both non-sub answers skip: `null` is a top-level tile, `undefined` is
         // an id whose record has not arrived — neither is a split arrival.
-        if (parentId != null) m.set(id, parentId);
+        if (parent != null) m.set(id, parent);
       }
       return m;
     },

@@ -58,14 +58,20 @@ export const savedSessionSub: Subscription<SavedSession | null> = windowedSub(
   null,
 );
 
-/** Subscription handle for the live terminal list of the active host — `{ id }` rows in
- *  server order, derived from the active host's RETAINED `terminals.keys` stream. A STABLE
+/** Subscription handle for the live terminal id list of the active host — server
+ *  order, straight off the active host's RETAINED `terminals.keys` stream. A STABLE
  *  facade (held as `useTerminalStore`'s `list`/`listSub`) delegating to the retained
  *  sub, so a switch-BACK reads the held keys in one frame (no resubscribe, no pending
- *  window). Consumers read `.map(t => t.id)` / `.pending()` exactly as before; `pending()`
- *  floors to `true` and the value to `undefined` during the removal race. */
-export const terminalListSub: Subscription<{ id: TerminalId }[]> = windowedSub(
+ *  window). `pending()` floors to `true` and the value to `undefined` during the
+ *  removal race.
+ *
+ *  IDS, not `{ id }` rows: the mapper of a windowed sub runs in the scope of
+ *  whoever reads it, so a mapper that ITERATED the keys store proxy charged every
+ *  consumer an index leaf per terminal — `WIDE_SCOPE_DEPS` at about 197 panes, on
+ *  each of them. Handing the proxy array through costs one source, and the ONE
+ *  consumer that needs a plain array copies it with `mapArray` (two sources, flat). */
+export const terminalListSub: Subscription<readonly TerminalId[]> = windowedSub(
   () => activeScope()?.wire.terminalKeys,
-  (ids) => ids.map((id) => ({ id })),
+  (ids) => ids,
   undefined,
 );

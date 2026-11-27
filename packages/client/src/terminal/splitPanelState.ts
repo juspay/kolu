@@ -63,6 +63,7 @@ import { createSharedRoot } from "../createSharedRoot";
 import { activeScope } from "../hostScope/hostScopes";
 import { runAction } from "../runAction";
 import { activePadiRpc } from "../wire";
+import { foldEach } from "../wideFold";
 
 /** What a tile's record says about its split. */
 export interface SplitPanelState {
@@ -151,6 +152,14 @@ function stampRecord(
   return saved && { collapsed: saved.collapsed, panelSize: saved.panelSize };
 }
 
+/** One tile's saved split, COPIED out of its record — a row of the fold the
+ *  settle rule subscribes through. `saved` is absent for a record that names
+ *  no split, and for a departed terminal. */
+interface SavedSplitRow {
+  readonly id: TerminalId;
+  readonly saved: SplitPanelState | undefined;
+}
+
 /** Persist a split's state on the server — the ONE `chrome.setSubPanel` call
  *  site in the client, so "who writes this" has a single answer to audit.
  *  `onSettled` runs exactly once per call, with whether the server took it. */
@@ -208,29 +217,35 @@ export const useSplitPanelState = createSharedRoot((): SplitPanelStore => {
     return record && "subPanel" in record ? record.subPanel : undefined;
   };
 
-  /** Read every live record's COMPARED LEAVES, for the SUBSCRIPTION alone. The
-   *  settle rule below is a writable derivation, and a writable derivation does
-   *  not re-derive on its own writes: its dependencies are the ones its last
-   *  run read. An entry armed by a gesture after that run would therefore watch
-   *  nothing — its own record included — and never settle.
+  /** EVERY LIVE RECORD'S COMPARED LEAVES, ONE ROW PER TILE. The settle rule
+   *  below is a writable derivation, and a writable derivation does not
+   *  re-derive on its own writes: its dependencies are the ones its last run
+   *  read. An entry armed by a gesture after that run would therefore watch
+   *  nothing — its own record included — and never settle. So the rule must
+   *  subscribe to every live record's two leaves.
+   *
+   *  Doing that on the RULE's own scope costs an index leaf, the per-key
+   *  lookup, the record and its three nested leaves per tile — seven sources,
+   *  which Solid's development build judges `WIDE_SCOPE_DEPS` past 200, about
+   *  28 tiles. One row memo per tile holds those seven; the rule reads the
+   *  joined list, and looks each entry's record up in it.
    *
    *  The leaves, not the record object: the `terminals` collection is served
    *  per key and merged leaf by leaf, so a `subPanel` written elsewhere (a
    *  second browser, an agent over MCP) keeps the record's identity and
-   *  notifies `subPanel.collapsed`/`.panelSize` alone. Reading exactly what
-   *  {@link settleSplitPending} compares makes "a record moved" wake the rule
-   *  whatever the entries were when it last looked. */
-  const watchRecords = (): void => {
-    const wire = activeScope()?.wire;
-    if (!wire) return;
-    for (const id of wire.terminalKeys() ?? []) {
-      const saved = savedOf(id);
-      if (!saved) continue;
-      // Read for the subscription alone: the leaves the rule compares.
-      void saved.collapsed;
-      void saved.panelSize;
-    }
-  };
+   *  notifies `subPanel.collapsed`/`.panelSize` alone. A row COPIES exactly
+   *  what {@link settleSplitPending} compares, so "a record moved" wakes the
+   *  rule whatever the entries were when it last looked — and the copy is the
+   *  watermark {@link SplitPending.sawRecord} wants anyway. */
+  const savedRows = foldEach(
+    "splitPanel.saved",
+    () => activeScope()?.wire.terminalKeys() ?? [],
+    (id): SavedSplitRow => ({ id, saved: stampRecord(savedOf(id)) }),
+    (a, b) =>
+      a.id === b.id &&
+      a.saved?.collapsed === b.saved?.collapsed &&
+      a.saved?.panelSize === b.saved?.panelSize,
+  );
 
   /** The live entries, and the settle rule that ends them — one writable
    *  derivation rather than a rule that writes the state it reads. A gesture
@@ -241,9 +256,20 @@ export const useSplitPanelState = createSharedRoot((): SplitPanelStore => {
    *  returns the very map it was given, so it notifies nobody. */
   const [pending, setPending] = createSignal<Record<TerminalId, SplitPending>>(
     (prev: Record<TerminalId, SplitPending> = {}) => {
-      watchRecords();
+      // The one read, and the subscription for the whole rule: a record this
+      // census does not hold is a departed terminal, which is what `savedOf`
+      // answered for it too.
+      const live = new Map(savedRows().map((row) => [row.id, row.saved]));
       const readings = Object.entries(prev).flatMap(([id, entry]) =>
-        entry ? [{ id: id as TerminalId, entry, record: savedOf(id) }] : [],
+        entry
+          ? [
+              {
+                id: id as TerminalId,
+                entry,
+                record: live.get(id as TerminalId),
+              },
+            ]
+          : [],
       );
       if (readings.length === 0) return prev;
       const acts = readings.map((r) => ({

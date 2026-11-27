@@ -33,7 +33,7 @@ import { createEffect, createSignal, onSettled } from "solid-js";
 import { toast } from "solid-sonner";
 import { match } from "ts-pattern";
 import { showWork } from "./conductor/workListing";
-import { useWorkMap } from "./conductor/useWorks";
+import { useWorkAt } from "./conductor/useWorks";
 import { type DeepLink, type ParsedDeepLink, parseDeepLink } from "./deepLink";
 import { setDeepLinkFocusIntent } from "./deepLinkFocusIntent";
 import { selectHostTab } from "./host/selectHostTab";
@@ -146,13 +146,15 @@ export function useDeepLinks(): void {
   function routeToWork(work: WorkId): void {
     setWorkLink({ work });
   }
-  const workMap = useWorkMap();
   // The link LANDED: its work reached the mirror, so the bound below has
-  // nothing left to answer.
+  // nothing left to answer. Read BY ITS KEY — one source, and no dependency
+  // on the works the link is not about.
   createEffect(
     () => {
       const link = workLink();
-      return link !== null && link !== answeredWork && workMap().has(link.work)
+      return link !== null &&
+        link !== answeredWork &&
+        useWorkAt(link.work) !== undefined
         ? link
         : null;
     },
@@ -400,7 +402,7 @@ export function useDeepLinks(): void {
       // stamps): a command declared failed must not steer a later hydration.
       if (listError) return { kind: "listError", message: listError.message };
       const id = route.terminalId;
-      const inList = (store.listSub() ?? []).some((t) => t.id === id);
+      const inList = (store.listSub() ?? []).includes(id);
       if (!inList) {
         // A settled snapshot lacking the id is "gone" ONLY once the list is a
         // COMPLETE census. `listIsAuthoritative()` is that fact (the route host's
