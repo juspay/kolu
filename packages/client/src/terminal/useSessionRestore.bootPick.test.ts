@@ -126,6 +126,17 @@ vi.mock("../hostScope/createHostWire", () => ({
         const record = w.records()[id];
         return record !== undefined && !record.parentId;
       }),
+    // The parent edge of every record that has ARRIVED, in census order —
+    // what the boot pick reads instead of walking the records itself.
+    tileParents: () =>
+      new Map(
+        (w.keys() ?? []).flatMap((id) => {
+          const record = w.records()[id];
+          return record === undefined
+            ? []
+            : [[id, record.parentId ?? null] as const];
+        }),
+      ),
   }),
 }));
 

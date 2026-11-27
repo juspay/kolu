@@ -50,7 +50,6 @@
  *     record follow it. Master held focus `null` across that window. The two
  *     belong together: either alone is wrong. */
 
-import { tileTerminalOf } from "@kolu/padi-client/surface";
 import type { TerminalId } from "kolu-common/surface";
 import { type Accessor, createMemo } from "solid-js";
 import { deepLinkFocusIntent } from "../deepLinkFocusIntent";
@@ -62,37 +61,40 @@ export function createBootPick(
   /** This host's restore window — see {@link HostRestoreLatch.restoreInFlight}. */
   restoreInFlight: Accessor<boolean>,
 ): Accessor<TerminalId | null> {
-  const pick = createMemo<TerminalId | null>((previous) => {
-    // Answered once: a later census cannot move the tile this boot landed on.
-    if (previous != null) return previous;
-    // A restore this client issued is mid-flight: the census is half re-spawned
-    // and no pick taken from it is honest.
-    if (restoreInFlight()) return null;
-    const keys = wire.terminalKeys();
-    if (keys === undefined || keys.length === 0) return null;
-    // The census, in the server's Map insertion order — the canonical ordering
-    // the first-tile fallback and the tab strip both key on.
-    const parents = new Map<TerminalId, TerminalId | null>();
-    for (const id of keys) {
-      const record = tileTerminalOf(wire.terminals.byKey(id)?.());
-      // Not arrived, or parked: no honest pick yet. (Both read as `undefined`
-      // here for the same reason hydration waits on both.)
-      if (record === undefined) return null;
-      parents.set(id, record.parentId ?? null);
-    }
-    if (wire.session.sub.pending()) return null;
-    const parentEdge: ParentEdge = (id) => parents.get(id);
-    // Top-level = root of its own chain; a cycle member or orphan is painted
-    // top-level too, exactly as `terminalIds` paints it.
-    const topIds = keys.filter((id) => containingTileOf(id, parentEdge) === id);
-    const intent = deepLinkFocusIntent();
-    const intentTile =
-      intent === null ? null : containingTileOf(intent, parentEdge);
-    if (intentTile !== null && topIds.includes(intentTile)) return intentTile;
-    const saved = wire.session.value()?.activeTerminalId ?? null;
-    if (saved !== null && topIds.includes(saved as TerminalId))
-      return saved as TerminalId;
-    return topIds[0] ?? null;
-  });
+  const pick = createMemo<TerminalId | null>(
+    (previous) => {
+      // Answered once: a later census cannot move the tile this boot landed on.
+      if (previous != null) return previous;
+      // A restore this client issued is mid-flight: the census is half re-spawned
+      // and no pick taken from it is honest.
+      if (restoreInFlight()) return null;
+      const keys = wire.terminalKeys();
+      if (keys === undefined || keys.length === 0) return null;
+      // The census, as the host's wire already folded it: the parent edge of
+      // every record that has ARRIVED and is not parked, in the server's Map
+      // insertion order. Re-walking the records here would put every terminal
+      // on this memo; read whole, it is one source.
+      const parents = wire.tileParents();
+      // A record is missing from the edge when it has not arrived OR is parked
+      // (both read the same here, for the same reason hydration waits on both),
+      // so a short edge is "no honest pick yet".
+      if (parents.size !== keys.length) return null;
+      if (wire.session.sub.pending()) return null;
+      const parentEdge: ParentEdge = (id) => parents.get(id);
+      // Top-level = root of its own chain; a cycle member or orphan is painted
+      // top-level too, exactly as `terminalIds` paints it — which is what
+      // `tileIds` publishes, in the same census order.
+      const topIds = wire.tileIds();
+      const intent = deepLinkFocusIntent();
+      const intentTile =
+        intent === null ? null : containingTileOf(intent, parentEdge);
+      if (intentTile !== null && topIds.includes(intentTile)) return intentTile;
+      const saved = wire.session.value()?.activeTerminalId ?? null;
+      if (saved !== null && topIds.includes(saved as TerminalId))
+        return saved as TerminalId;
+      return topIds[0] ?? null;
+    },
+    { name: "bootPick" },
+  );
   return pick;
 }
