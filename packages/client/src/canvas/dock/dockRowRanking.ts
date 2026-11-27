@@ -283,7 +283,15 @@ export function tsRank(ts: number | null): number {
  *  very rows this projection exists to surface. It is the STORE's pane index —
  *  the same one the canvas flattens into its tab strip — so the Dock and the
  *  canvas cover the same terminals by construction rather than by two walks
- *  that have to be kept in step. */
+ *  that have to be kept in step.
+ *
+ *  WHOLE-LIST, and therefore PURE ONLY. This is the composition of the four
+ *  primitives below — {@link flattenPaneTree}, {@link rankPaneRow},
+ *  {@link prunePaneRows}, {@link rankTileRow} — and it is where the
+ *  classification rules are stated and pinned. A REACTIVE caller must not use
+ *  it: reading every tile's record and every pane's on one scope is what put
+ *  the dock's memo past Solid's 200-source judge at about 29 tiles.
+ *  `useDockOrder` folds the primitives per tile and per pane instead. */
 export function rankDockRows(
   ids: readonly TerminalId[],
   getMeta: (id: TerminalId) => TerminalMetadata | undefined,
