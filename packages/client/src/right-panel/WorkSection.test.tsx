@@ -38,6 +38,7 @@ import {
   assignColors,
   buildTerminalDisplayInfos,
 } from "../terminal/terminalDisplay";
+import { terminalKey } from "@kolu/terminal-vocab/terminalKey";
 import { Shown } from "../ui/shown";
 import WorkSection, { paneSubject } from "./WorkSection";
 
@@ -336,11 +337,9 @@ describe("WorkSection identity chips", () => {
    *  Assert against the dock's own projection rather than restating its rule. */
   it("wears the same hues the dock projection paints for that terminal", () => {
     const id = "t1" as TerminalId;
-    const dock = buildTerminalDisplayInfos(
-      [id],
-      () => RESIZE_BUG,
-      () => [],
-    ).get(id);
+    const dock = buildTerminalDisplayInfos([
+      { id, ...terminalKey(RESIZE_BUG), subCount: 0 },
+    ]).get(id);
     if (!dock) throw new Error("no display info built for the fixture");
 
     mount(RESIZE_BUG);

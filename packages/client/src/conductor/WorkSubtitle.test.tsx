@@ -15,6 +15,7 @@ import { render } from "@solidjs/web";
 import { createSignal, flush } from "solid-js";
 import { afterEach, describe, expect, it } from "vitest";
 import { buildTerminalDisplayInfos } from "../terminal/terminalDisplay";
+import { terminalKey } from "@kolu/terminal-vocab/terminalKey";
 import { workPrOf } from "./workPr";
 import WorkSubtitle from "./WorkSubtitle";
 
@@ -111,11 +112,9 @@ const part = (el: HTMLElement, id: string) =>
 describe("the line under a work's title", () => {
   it("paints the repository and branch in the hues the Dock gives them", () => {
     const id = "t" as TerminalId;
-    const dock = buildTerminalDisplayInfos(
-      [id],
-      () => DOCK_TERMINAL,
-      () => [id],
-    ).get(id);
+    const dock = buildTerminalDisplayInfos([
+      { id, ...terminalKey(DOCK_TERMINAL), subCount: 1 },
+    ]).get(id);
     const el = mount(BRANCH_WORK, undefined);
     expect(part(el, "work-branch")?.textContent).toBe("feat/csv-export");
     expect(

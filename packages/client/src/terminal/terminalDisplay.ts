@@ -15,10 +15,9 @@
 import type { TerminalMetadata } from "@kolu/padi-client/surface";
 import { identityColor } from "@kolu/solid-dockrow/rowValues";
 import {
-  computeTerminalKeys,
   type TerminalKey,
   terminalCaption,
-  terminalKey,
+  terminalKeysOf,
 } from "@kolu/terminal-vocab/terminalKey";
 import type { TerminalId } from "kolu-common/surface";
 
@@ -115,36 +114,40 @@ export function assignColors(keys: Iterable<string>): Map<string, string> {
   return new Map(unique.map((key) => [key, identityColor(key)]));
 }
 
-/** Build display info for all terminals. Resolves stable per-key colours
- *  (`assignColors` — pure function of each name, not of co-set size),
- *  computes collision-aware identity keys in one pass
- *  (`computeTerminalKeys`), and bundles sub-count. Pure — same inputs
- *  produce the same outputs on every client, so suffixes stay in sync
- *  without server broadcast. */
-export function buildTerminalDisplayInfos(
-  ids: TerminalId[],
-  getMeta: (id: TerminalId) => TerminalMetadata | undefined,
+/** ONE TILE, ALREADY PROJECTED — its canonical `(group, label)` pair and the
+ *  flat descendant count its split badge shows. The projection is
+ *  `terminalKey`'s and happens at the READER, one record at a time, because
+ *  `git` and `cwd` are store leaves and a table built by re-reading them for
+ *  the whole fleet on one scope is what Solid's development build judges
+ *  `WIDE_SCOPE_DEPS`. What crosses into the table below is plain strings. */
+export type TerminalDisplayEntry = {
+  id: TerminalId;
+  group: string;
+  label: string;
   /** Every PANE of the tile — the whole subtree, not the one-hop children. The
    *  split badge counts what the canvas tab strip shows, so a grandchild
-   *  counts; a one-hop reader here silently undercounts a nested tile. */
-  getPaneIds: (id: TerminalId) => TerminalId[],
+   *  counts; a one-hop reader silently undercounts a nested tile. */
+  subCount: number;
+};
+
+/** Build display info for the projected tiles. Resolves stable per-key colours
+ *  (`assignColors` — pure function of each name, not of co-set size),
+ *  computes collision-aware identity keys in one pass (`terminalKeysOf`), and
+ *  bundles sub-count. Pure — same inputs produce the same outputs on every
+ *  client, so suffixes stay in sync without server broadcast. */
+export function buildTerminalDisplayInfos(
+  entries: readonly TerminalDisplayEntry[],
 ): Map<TerminalId, TerminalDisplayInfo> {
-  const entries = ids.flatMap((id) => {
-    const meta = getMeta(id);
-    return meta ? [{ id, meta, ...terminalKey(meta) }] : [];
-  });
   const colors = assignColors(
     entries.flatMap(({ group, label }) => [group, label]),
   );
-  const keys = computeTerminalKeys(
-    entries.map(({ id, meta }) => ({ id, git: meta.git, cwd: meta.cwd })),
-  );
+  const keys = terminalKeysOf(entries);
   const result = new Map<TerminalId, TerminalDisplayInfo>();
-  for (const { id, group, label } of entries) {
+  for (const { id, group, label, subCount } of entries) {
     const key = keys.get(id);
     const repoColor = colors.get(group);
     const annotationColor = colors.get(label);
-    // `computeTerminalKeys` and `assignColors` were just built from these
+    // `terminalKeysOf` and `assignColors` were just built from these
     // same ids/group/label strings — a miss is a programmer bug, not a
     // soft skip. Fail loud so a broken projection never silently drops a
     // terminal's decorations.
@@ -153,12 +156,7 @@ export function buildTerminalDisplayInfos(
         `buildTerminalDisplayInfos invariant: missing key/colour for terminal ${id} (group=${group}, label=${label})`,
       );
     }
-    result.set(id, {
-      repoColor,
-      annotationColor,
-      subCount: getPaneIds(id).length,
-      key,
-    });
+    result.set(id, { repoColor, annotationColor, subCount, key });
   }
   return result;
 }

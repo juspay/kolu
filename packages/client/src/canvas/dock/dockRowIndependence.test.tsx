@@ -38,6 +38,7 @@ import {
   buildTerminalDisplayInfos,
   pairDisplayRow,
 } from "../../terminal/terminalDisplay";
+import { terminalKey } from "@kolu/terminal-vocab/terminalKey";
 import { dockRowAttrs, rowSubline } from "@kolu/solid-dockrow/rowValues";
 import { isActiveRow } from "./activeRow";
 
@@ -146,9 +147,10 @@ function renderDock() {
   const ids = [ALICE, BOB];
   const displayInfos = createMemo(() =>
     buildTerminalDisplayInfos(
-      ids,
-      (id) => meta[id],
-      () => [],
+      ids.flatMap((id) => {
+        const one = meta[id];
+        return one ? [{ id, ...terminalKey(one), subCount: 0 }] : [];
+      }),
     ),
   );
 

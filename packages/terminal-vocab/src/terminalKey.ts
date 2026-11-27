@@ -146,20 +146,26 @@ export function terminalCaption(t: TerminalLocation): string {
   return t.git.kind === "repo" ? `${group} (${label})` : group;
 }
 
-/** Compute keys for every terminal in one pass.
+/** A terminal already projected through {@link terminalKey} — its id and the
+ *  `(group, label)` pair the collision pass compares. Named because the
+ *  projection and the collision pass are two STEPS now: a reader whose records
+ *  are fine-grained reactive leaves projects each one where it reads it, and
+ *  hands the plain pairs here. */
+export type ProjectedTerminal = {
+  id: TerminalId;
+  group: string;
+  label: string;
+};
+
+/** Assign collision suffixes over terminals that are ALREADY projected.
  *
  *  Pure: same inputs produce the same outputs on every client, so the
  *  server never has to broadcast suffixes. Suffixes are assigned only
  *  when two terminals collide on `(group, label)`; unique pills get
- *  `suffix: undefined`.
- */
-export function computeTerminalKeys(
-  terminals: readonly TerminalIdentity[],
+ *  `suffix: undefined`. */
+export function terminalKeysOf(
+  projected: readonly ProjectedTerminal[],
 ): Map<TerminalId, TerminalKey> {
-  const projected = terminals.map((t) => ({
-    id: t.id,
-    ...terminalKey(t),
-  }));
   const counts = new Map<string, number>();
   for (const p of projected) {
     const k = join(p.group, p.label);
@@ -174,6 +180,17 @@ export function computeTerminalKeys(
     result.set(p.id, { group: p.group, label: p.label, suffix });
   }
   return result;
+}
+
+/** Compute keys for every terminal in one pass — the projection
+ *  ({@link terminalKey}) and then {@link terminalKeysOf}, for a caller holding
+ *  whole locations rather than fine-grained reactive ones. */
+export function computeTerminalKeys(
+  terminals: readonly TerminalIdentity[],
+): Map<TerminalId, TerminalKey> {
+  return terminalKeysOf(
+    terminals.map((t) => ({ id: t.id, ...terminalKey(t) })),
+  );
 }
 
 /** Delimiter that cannot appear in `group` or `label` (both derived from

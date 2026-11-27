@@ -1,11 +1,13 @@
 import { type ActiveTerminal, LOCAL_LOCATION } from "@kolu/padi-client/surface";
-import { terminalCaption } from "@kolu/terminal-vocab/terminalKey";
+import { terminalCaption, terminalKey } from "@kolu/terminal-vocab/terminalKey";
 import type { GitFact } from "@kolu/terminal-vocab/schema";
+import type { TerminalId } from "kolu-common/surface";
 import type { GitInfo } from "kolu-git/schemas";
 import { describe, expect, it } from "vitest";
 import {
   assignColors,
   buildTerminalDisplayInfos,
+  type TerminalDisplayEntry,
   terminalExportTitle,
 } from "./terminalDisplay";
 
@@ -83,24 +85,27 @@ describe("assignColors", () => {
   });
 });
 
+/** The reader's own projection, as `useTerminalMetadata` does it one record at
+ *  a time: `terminalKey` on the record, plus the tile's flat pane count. */
+const entriesOf = (
+  rows: readonly { id: string; meta: ActiveTerminal; subCount?: number }[],
+): TerminalDisplayEntry[] =>
+  rows.map(({ id, meta, subCount }) => ({
+    id: id as TerminalId,
+    ...terminalKey(meta),
+    subCount: subCount ?? 0,
+  }));
+
 describe("buildTerminalDisplayInfos", () => {
-  it("returns empty map for empty ids", () => {
-    const result = buildTerminalDisplayInfos(
-      [],
-      () => undefined,
-      () => [],
-    );
-    expect(result.size).toBe(0);
+  it("returns empty map for empty entries", () => {
+    expect(buildTerminalDisplayInfos([]).size).toBe(0);
   });
 
   it("builds display info with colors and identity key", () => {
-    const meta = makeMeta({ git: makeGit() });
     const result = buildTerminalDisplayInfos(
-      ["id-1"],
-      () => meta,
-      () => [],
+      entriesOf([{ id: "id-1", meta: makeMeta({ git: makeGit() }) }]),
     );
-    const info = result.get("id-1");
+    const info = result.get("id-1" as TerminalId);
     expect(info?.key.group).toBe("repo");
     expect(info?.key.label).toBe("main");
     expect(info?.repoColor).toMatch(/^oklch\(/);
@@ -109,75 +114,75 @@ describe("buildTerminalDisplayInfos", () => {
   });
 
   it("does NOT carry the live terminal record (stale-snapshot class is unspellable)", () => {
-    // The display info rides the `displayInfos` memo, which only rebuilds on
-    // git / cwd / membership — NOT on pr / agent / foreground. Carrying `meta`
-    // here once let a consumer read those fast fields off a snapshot the memo
-    // never refreshed (the header lagged the dock on PR). This asserts the
-    // photocopy is gone for good: live facts must come from `getMetadata(id)`.
+    // The display info rides the `displayInfos` projection, which only rebuilds
+    // on git / cwd / membership — NOT on pr / agent / foreground. Carrying
+    // `meta` here once let a consumer read those fast fields off a snapshot the
+    // projection never refreshed (the header lagged the dock on PR). This
+    // asserts the photocopy is gone for good: live facts must come from
+    // `getMetadata(id)`.
     const info = buildTerminalDisplayInfos(
-      ["id-1"],
-      () => makeMeta({ git: makeGit() }),
-      () => [],
-    ).get("id-1");
+      entriesOf([{ id: "id-1", meta: makeMeta({ git: makeGit() }) }]),
+    ).get("id-1" as TerminalId);
     expect(info).toBeDefined();
     expect(info).not.toHaveProperty("meta");
   });
 
   it("uses cwd basename for group, shortened cwd for label, on non-git terminals", () => {
     const result = buildTerminalDisplayInfos(
-      ["id-1"],
-      () => makeMeta({ cwd: "/home/alice/projects/foo" }),
-      () => [],
+      entriesOf([
+        { id: "id-1", meta: makeMeta({ cwd: "/home/alice/projects/foo" }) },
+      ]),
     );
-    expect(result.get("id-1")?.key.group).toBe("foo");
-    expect(result.get("id-1")?.key.label).toBe("~/projects/foo");
+    expect(result.get("id-1" as TerminalId)?.key.group).toBe("foo");
+    expect(result.get("id-1" as TerminalId)?.key.label).toBe("~/projects/foo");
   });
 
-  it("counts sub-terminals", () => {
+  it("carries the tile's pane count", () => {
     const result = buildTerminalDisplayInfos(
-      ["id-1"],
-      () => makeMeta(),
-      () => ["sub-1", "sub-2"],
+      entriesOf([{ id: "id-1", meta: makeMeta(), subCount: 2 }]),
     );
-    expect(result.get("id-1")?.subCount).toBe(2);
+    expect(result.get("id-1" as TerminalId)?.subCount).toBe(2);
   });
 
-  it("skips terminals with no metadata", () => {
+  it("builds a row for every entry handed in, and only those", () => {
+    // A terminal whose record has not arrived yields no ENTRY (the reader's
+    // per-id row drops it), so it reaches no row here either.
     const result = buildTerminalDisplayInfos(
-      ["id-1", "id-2"],
-      (id) => (id === "id-1" ? makeMeta() : undefined),
-      () => [],
+      entriesOf([{ id: "id-1", meta: makeMeta() }]),
     );
     expect(result.size).toBe(1);
-    expect(result.has("id-1")).toBe(true);
-    expect(result.has("id-2")).toBe(false);
+    expect(result.has("id-1" as TerminalId)).toBe(true);
+    expect(result.has("id-2" as TerminalId)).toBe(false);
   });
 
   it("leaves unique terminals without a collision suffix", () => {
     const result = buildTerminalDisplayInfos(
-      ["aaaa-1", "bbbb-2"],
-      (id) =>
-        id === "aaaa-1"
-          ? makeMeta({ git: makeGit({ branch: "main" }) })
-          : makeMeta({ git: makeGit({ branch: "feature" }) }),
-      () => [],
+      entriesOf([
+        { id: "aaaa-1", meta: makeMeta({ git: makeGit({ branch: "main" }) }) },
+        {
+          id: "bbbb-2",
+          meta: makeMeta({ git: makeGit({ branch: "feature" }) }),
+        },
+      ]),
     );
-    expect(result.get("aaaa-1")?.key.suffix).toBeUndefined();
-    expect(result.get("bbbb-2")?.key.suffix).toBeUndefined();
+    expect(result.get("aaaa-1" as TerminalId)?.key.suffix).toBeUndefined();
+    expect(result.get("bbbb-2" as TerminalId)?.key.suffix).toBeUndefined();
   });
 
   it("stamps collision suffixes on terminals sharing (group, label)", () => {
     const result = buildTerminalDisplayInfos(
-      ["aaaa-1", "bbbb-2", "cccc-3"],
-      (id) =>
-        id === "cccc-3"
-          ? makeMeta({ git: makeGit({ branch: "feature" }) })
-          : makeMeta({ git: makeGit({ branch: "main" }) }),
-      () => [],
+      entriesOf([
+        { id: "aaaa-1", meta: makeMeta({ git: makeGit({ branch: "main" }) }) },
+        { id: "bbbb-2", meta: makeMeta({ git: makeGit({ branch: "main" }) }) },
+        {
+          id: "cccc-3",
+          meta: makeMeta({ git: makeGit({ branch: "feature" }) }),
+        },
+      ]),
     );
-    expect(result.get("aaaa-1")?.key.suffix).toBe("#aaaa");
-    expect(result.get("bbbb-2")?.key.suffix).toBe("#bbbb");
-    expect(result.get("cccc-3")?.key.suffix).toBeUndefined();
+    expect(result.get("aaaa-1" as TerminalId)?.key.suffix).toBe("#aaaa");
+    expect(result.get("bbbb-2" as TerminalId)?.key.suffix).toBe("#bbbb");
+    expect(result.get("cccc-3" as TerminalId)?.key.suffix).toBeUndefined();
   });
 
   it("does NOT collide non-git terminals at different paths sharing a basename", () => {
@@ -185,32 +190,30 @@ describe("buildTerminalDisplayInfos", () => {
     // (the shortened cwd disambiguates). Suffix only fires when the full
     // (group, label) pair collides — same shape as git.
     const result = buildTerminalDisplayInfos(
-      ["aaaa-1", "bbbb-2"],
-      (id) =>
-        makeMeta({
-          cwd:
-            id === "aaaa-1"
-              ? "/home/alice/projects/foo"
-              : "/home/alice/work/foo",
-        }),
-      () => [],
+      entriesOf([
+        { id: "aaaa-1", meta: makeMeta({ cwd: "/home/alice/projects/foo" }) },
+        { id: "bbbb-2", meta: makeMeta({ cwd: "/home/alice/work/foo" }) },
+      ]),
     );
-    expect(result.get("aaaa-1")?.key.group).toBe("foo");
-    expect(result.get("bbbb-2")?.key.group).toBe("foo");
-    expect(result.get("aaaa-1")?.key.label).toBe("~/projects/foo");
-    expect(result.get("bbbb-2")?.key.label).toBe("~/work/foo");
-    expect(result.get("aaaa-1")?.key.suffix).toBeUndefined();
-    expect(result.get("bbbb-2")?.key.suffix).toBeUndefined();
+    expect(result.get("aaaa-1" as TerminalId)?.key.group).toBe("foo");
+    expect(result.get("bbbb-2" as TerminalId)?.key.group).toBe("foo");
+    expect(result.get("aaaa-1" as TerminalId)?.key.label).toBe(
+      "~/projects/foo",
+    );
+    expect(result.get("bbbb-2" as TerminalId)?.key.label).toBe("~/work/foo");
+    expect(result.get("aaaa-1" as TerminalId)?.key.suffix).toBeUndefined();
+    expect(result.get("bbbb-2" as TerminalId)?.key.suffix).toBeUndefined();
   });
 
   it("collides non-git terminals at the same exact cwd", () => {
     const result = buildTerminalDisplayInfos(
-      ["aaaa-1", "bbbb-2"],
-      () => makeMeta({ cwd: "/home/alice/projects/foo" }),
-      () => [],
+      entriesOf([
+        { id: "aaaa-1", meta: makeMeta({ cwd: "/home/alice/projects/foo" }) },
+        { id: "bbbb-2", meta: makeMeta({ cwd: "/home/alice/projects/foo" }) },
+      ]),
     );
-    expect(result.get("aaaa-1")?.key.suffix).toBe("#aaaa");
-    expect(result.get("bbbb-2")?.key.suffix).toBe("#bbbb");
+    expect(result.get("aaaa-1" as TerminalId)?.key.suffix).toBe("#aaaa");
+    expect(result.get("bbbb-2" as TerminalId)?.key.suffix).toBe("#bbbb");
   });
 });
 
