@@ -35,6 +35,7 @@
 
 import {
   type HostListeners,
+  type HostPort,
   type KoluForward,
   type ListenerAt,
   listenerAt,
@@ -127,6 +128,46 @@ export interface PortGroups {
   elsewhere: PortRow[];
 }
 
+/** ONE PASS over a host reading, so what listens on a port is a LOOKUP rather
+ *  than a re-scan of both its lists. {@link portGroups} asks once per port it
+ *  files, and a working dev box answers `lsof -i` with dozens to a couple of
+ *  hundred listeners — so the straight walk was quadratic in them.
+ *
+ *  The DECISION stays `listenerAt`'s. This indexes the two halves and hands it
+ *  the one-port reading it would have found by scanning, so the printed-URL
+ *  card and the Ports section cannot answer a port differently — there is one
+ *  rule for when an unclaimed bind out-ranks a claimed listener, and it is
+ *  not restated here. First row wins per port, exactly as `Array.find` does. */
+function listenerIndex(host: HostListeners): (port: number) => ListenerAt {
+  if (host.status !== "known") return () => ({ kind: "unknown" });
+  const claimed = new Map<number, HostPort>();
+  for (const info of host.claimed) {
+    if (!claimed.has(info.port)) claimed.set(info.port, info);
+  }
+  const unclaimed = host.unclaimed;
+  const binds = new Map<number, PortBind>();
+  if (unclaimed.status === "known") {
+    for (const bind of unclaimed.list) {
+      if (!binds.has(bind.port)) binds.set(bind.port, bind);
+    }
+  }
+  return (port) => {
+    const info = claimed.get(port);
+    const bind = binds.get(port);
+    return listenerAt(
+      {
+        status: "known",
+        claimed: info === undefined ? [] : [info],
+        unclaimed:
+          unclaimed.status === "known"
+            ? { status: "known", list: bind === undefined ? [] : [bind] }
+            : { status: "unknown" },
+      },
+      port,
+    );
+  };
+}
+
 /** Group what the tile and the host serve, joined to what kolu has opened. */
 export function portGroups(opts: {
   /** The host's terminals, from the inspected tile. */
@@ -140,6 +181,7 @@ export function portGroups(opts: {
    *  host is the kolu server's own, and empty otherwise. */
   doorPorts: ReadonlySet<number>;
 }): PortGroups {
+  const listenerOf = listenerIndex(opts.host);
   const doorOf = new Map(opts.forwards.map((f) => [f.remotePort, f]));
   const taken = new Set<number>();
   const byPort = (a: PortRow, b: PortRow) => a.port - b.port;
@@ -174,7 +216,7 @@ export function portGroups(opts: {
   });
   for (const port of printedHere) {
     if (taken.has(port) || opts.doorPorts.has(port)) continue;
-    const at = listenerAt(opts.host, port);
+    const at = listenerOf(port);
     // A print claims a server only when no terminal's subtree holds it — that
     // is what "detached" means, and the scanner states it on the row. A server
     // another terminal runs stays that terminal's, below. `absent`/`unknown`
@@ -200,7 +242,7 @@ export function portGroups(opts: {
     }
     for (const port of hostPorts) {
       if (taken.has(port) || opts.doorPorts.has(port)) continue;
-      const at = listenerAt(opts.host, port);
+      const at = listenerOf(port);
       // Another user's socket has a story only when printed, forwarded, or
       // sharing its port with one of our own listeners (whose narrower bind it
       // out-ranked — dropping the port would hide our program too).

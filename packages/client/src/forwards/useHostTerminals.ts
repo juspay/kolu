@@ -25,9 +25,11 @@ import {
   type TerminalId,
 } from "kolu-common/surface";
 import { createMemo } from "solid-js";
+import { sameEach, sameItems } from "../conductor/sameItems";
 import { printedPortsOf } from "../terminal/printedPorts";
 import { useTerminalStore } from "../terminal/useTerminalStore";
-import { servingLink } from "./terminalServingPort";
+import { foldEach } from "../wideFold";
+import { type ServingCandidate, servingLink } from "./terminalServingPort";
 
 /** Set equality — the `equals` gate for the printed-port memos, so an unrelated
  *  terminal tick that re-derives the same set does not re-run a join. */
@@ -67,33 +69,122 @@ export interface HostTerminals {
   printedOnHost: () => ReadonlySet<number>;
 }
 
+/** ONE PANE, as the fold's row reads it: which tile holds it, and where in
+ *  the server's order it sits. The RECORD half is folded separately, so this
+ *  is pure membership. */
+interface PaneSlot {
+  id: TerminalId;
+  /** The tile this pane belongs to, or `null` when it IS the tile. */
+  parentId: TerminalId | null;
+}
+
 export function useHostTerminals(): HostTerminals {
   const store = useTerminalStore();
-  const candidates = createMemo(() =>
-    store.terminalIds().flatMap((tileId) =>
-      store.getTilePaneIds(tileId).flatMap((paneId) => {
-        const arm = activeArm(store.getMetadata(paneId));
-        // `parentId` here is the CONTAINING TILE (root), not the true one-hop
-        // parent — the port join returns the tile the user can activate.
-        return arm === undefined
-          ? []
-          : [
-              {
-                id: paneId,
-                parentId: paneId === tileId ? null : tileId,
-                ports: arm.ports,
-              },
-            ];
-      }),
-    ),
+
+  /** EVERY PANE OF EVERY TILE with the tile that holds it — tile, then its
+   *  own panes, which is the order every reading below publishes in.
+   *
+   *  TWO sources for any number of panes: `terminalIds()` is the census's own
+   *  plain array and `getTilePaneIds` reads the one splits index whatever tile
+   *  it is asked about. The per-pane RECORD reads are folded below, one row
+   *  memo each — a single memo that walked the panes and read each one's
+   *  record carried four sources a pane (the slot leaf, the projected record,
+   *  `state` and `ports`), which Solid's development build judges
+   *  `WIDE_SCOPE_DEPS` past 200 sources at about 50 panes. */
+  const panes = createMemo<readonly PaneSlot[]>(
+    () =>
+      store
+        .terminalIds()
+        .flatMap((tileId) =>
+          store
+            .getTilePaneIds(tileId)
+            .map((id) => ({ id, parentId: id === tileId ? null : tileId })),
+        ),
+    {
+      name: "useHostTerminals.panes",
+      equals: sameEach(
+        (a: PaneSlot, b: PaneSlot) =>
+          a.id === b.id && a.parentId === b.parentId,
+      ),
+    },
   );
+
+  /** The same panes as bare ids — the key list both folds are keyed by, so a
+   *  census that moved no pane re-runs no row. */
+  const paneIds = createMemo(() => panes().map((pane) => pane.id), {
+    name: "useHostTerminals.paneIds",
+    equals: sameItems,
+  });
+
+  /** ONE ROW PER PANE — its live arm's port reading, or nothing at all for a
+   *  pane that is sleeping, parked or still in flight. {@link foldEach} keeps
+   *  each pane's record on its own row memo and the join at `1 + ⌈N / 128⌉`.
+   *
+   *  The reading is carried as the record's own `ports` value, not a copy:
+   *  every consumer reads it through {@link knownPorts}, so the known/unknown
+   *  two-way survives the fold rather than collapsing into an empty list. */
+  const panePorts = foldEach(
+    "useHostTerminals.panePorts",
+    paneIds,
+    (id) => {
+      const arm = activeArm(store.getMetadata(id));
+      return arm === undefined ? undefined : { id, ports: arm.ports };
+    },
+    (a, b) => a.id === b.id && a.ports === b.ports,
+  );
+
+  /** The panes a port may be attributed to, in pane order — the folded
+   *  readings paired back with the tile each pane sits in. Two sources.
+   *
+   *  `parentId` here is the CONTAINING TILE (root), not the true one-hop
+   *  parent — the port join returns the tile the user can activate. */
+  const candidates = createMemo<readonly ServingCandidate[]>(
+    () => {
+      const held = new Map(panePorts().map((row) => [row.id, row.ports]));
+      return panes().flatMap((pane) => {
+        const ports = held.get(pane.id);
+        return ports === undefined
+          ? []
+          : [{ id: pane.id, parentId: pane.parentId, ports }];
+      });
+    },
+    {
+      name: "useHostTerminals.candidates",
+      equals: sameEach(
+        (a: ServingCandidate, b: ServingCandidate) =>
+          a.id === b.id && a.parentId === b.parentId && a.ports === b.ports,
+      ),
+    },
+  );
+
   const printedBy = (tileId: TerminalId): ReadonlySet<number> =>
     new Set(store.getTilePaneIds(tileId).flatMap((id) => printedPortsOf(id)));
-  const printedOnHost = createMemo(
-    () =>
-      new Set(store.terminalIds().flatMap((tileId) => [...printedBy(tileId)])),
-    { equals: sameSet },
+
+  /** ONE ROW PER PANE — the ports it printed a loopback URL for, copied out
+   *  of the index into a plain array so the join below reads no store leaf of
+   *  its own. `printedPortsOf` is a leaf per pane, which put the whole-host
+   *  set past the judge at about 200 panes. A pane that printed nothing makes
+   *  no row. */
+  const panePrinted = foldEach(
+    "useHostTerminals.panePrinted",
+    paneIds,
+    (id) => {
+      const ports = printedPortsOf(id);
+      return ports.length === 0 ? undefined : [...ports];
+    },
+    sameItems,
   );
+
+  const printedOnHost = createMemo(
+    () => {
+      const all = new Set<number>();
+      for (const ports of panePrinted())
+        for (const port of ports) all.add(port);
+      return all;
+    },
+    { name: "useHostTerminals.printedOnHost", equals: sameSet },
+  );
+
   return {
     servingFor: (port) =>
       servingLink({

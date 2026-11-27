@@ -35,10 +35,27 @@
  *  effect at the row edge). This file is the section; `PortRow.tsx` is the row.
  */
 
+import { hostListenersEqual } from "@kolu/terminal-vocab/schema";
 import { hostKeysEqual as sameHost } from "kolu-common/hostKey";
-import { samePortList, type TerminalId } from "kolu-common/surface";
-import { type Component, createMemo, createSignal, For, Show } from "solid-js";
+import {
+  type HostListeners,
+  type HostPort,
+  type KoluForward,
+  type PortBind,
+  samePortList,
+  type TerminalId,
+  UNKNOWN_HOST_LISTENERS,
+} from "kolu-common/surface";
+import {
+  type Accessor,
+  type Component,
+  createMemo,
+  createSignal,
+  For,
+  Show,
+} from "solid-js";
 import type { JSX } from "@solidjs/web";
+import { sameFields, sameItems } from "../conductor/sameItems";
 import { rowAction } from "../forwards/portAction";
 import {
   type PortRow as PortRowData,
@@ -60,10 +77,31 @@ import { isActiveHostLocal } from "../kaval/useDaemonStatus";
 import { isTouch } from "../useMobile";
 import { ChevronRightIcon } from "../ui/Icons";
 import Section from "../ui/Section";
+import { foldEach } from "../wideFold";
 import { activeHost } from "../wire";
 import { PortRow } from "./PortRow";
 
 const NO_PORTS: ReadonlySet<number> = new Set();
+const NO_LISTENERS: readonly HostPort[] = [];
+const NO_BINDS: readonly PortBind[] = [];
+/** The unclaimed half when the scanner could not see it — one value, so a
+ *  reading that keeps saying "blind" keeps its identity. */
+const BLIND_UNCLAIMED = { status: "unknown" } as const;
+
+/** One slot per row of a store-backed list, read off its `length` alone — the
+ *  key list each fold below is keyed by. A row is addressed by its SLOT and
+ *  reads the list through it, never off the raw item `mapArray` would hand it:
+ *  a cell merges a frame into the rows standing there (by key where the member
+ *  declares one, by position otherwise), so a row reading the raw item would
+ *  never be told that one of its fields moved. */
+const slotsOf = (
+  name: string,
+  rows: () => readonly unknown[],
+): Accessor<number[]> =>
+  createMemo(() => Array.from({ length: rows().length }, (_, at) => at), {
+    name,
+    equals: sameItems,
+  });
 
 const PortsSection: Component<{ terminalId: TerminalId }> = (props) => {
   const host = () => activeHost();
@@ -100,19 +138,91 @@ const PortsSection: Component<{ terminalId: TerminalId }> = (props) => {
   });
 
   const hostListeners = useHostListeners();
-  const groups = createMemo(() =>
-    portGroups({
-      terminals: {
-        tilePorts: ports(),
-        printedHere: printedHere(),
-        printedOnHost: terminals.printedOnHost(),
-      },
-      host: hostListeners(),
-      forwards: forwardsForHost(host()),
-      // kolu's relay listeners live on the kolu server's own machine, so only
-      // that host's list can contain them.
-      doorPorts: isActiveHostLocal() ? doorLocalPorts() : NO_PORTS,
-    }),
+  // The two halves of the host reading, as the cell's store serves them. Each
+  // read costs the store's `v` plus the arm leaves and nothing per socket —
+  // the SOCKETS are folded below, one row memo each, because a dev box
+  // commonly runs dozens to a couple of hundred and a join that walked them
+  // carried two to three sources each.
+  const claimedList = (): readonly HostPort[] => {
+    const reading = hostListeners();
+    return reading.status === "known" ? reading.claimed : NO_LISTENERS;
+  };
+  const unclaimedList = (): readonly PortBind[] => {
+    const reading = hostListeners();
+    return reading.status === "known" && reading.unclaimed.status === "known"
+      ? reading.unclaimed.list
+      : NO_BINDS;
+  };
+  /** Each listener as a PLAIN row — the join is a pure function of the two
+   *  lists, so a row's fields are read here and never off the store again. */
+  const claimed = foldEach(
+    "PortsSection.claimed",
+    slotsOf("PortsSection.claimedSlots", claimedList),
+    (at): HostPort | undefined => {
+      const row = claimedList()[at];
+      return row === undefined ? undefined : { ...row };
+    },
+    sameFields,
+  );
+  const unclaimed = foldEach(
+    "PortsSection.unclaimed",
+    slotsOf("PortsSection.unclaimedSlots", unclaimedList),
+    (at): PortBind | undefined => {
+      const row = unclaimedList()[at];
+      return row === undefined ? undefined : { ...row };
+    },
+    sameFields,
+  );
+
+  /** The whole host reading, re-assembled from the folded rows — the SAME
+   *  two-way the cell serves, so the join narrows on `status` exactly as it
+   *  did. `hostListenersEqual` is the member's own dedup gate, so a scan pass
+   *  that found the same machine keeps this value's identity and the join
+   *  below does not re-run. */
+  const hostReading = createMemo<HostListeners>(
+    () => {
+      const reading = hostListeners();
+      if (reading.status !== "known") return UNKNOWN_HOST_LISTENERS;
+      return {
+        status: "known",
+        claimed: claimed(),
+        unclaimed:
+          reading.unclaimed.status === "known"
+            ? { status: "known", list: unclaimed() }
+            : BLIND_UNCLAIMED,
+      };
+    },
+    { name: "PortsSection.hostReading", equals: hostListenersEqual },
+  );
+
+  /** This host's doors as plain rows, for the same reason: the join reads a
+   *  `remotePort` off every one of them. */
+  const hostForwards = (): readonly KoluForward[] => forwardsForHost(host());
+  const doors = foldEach(
+    "PortsSection.door",
+    slotsOf("PortsSection.doorSlots", hostForwards),
+    (at): KoluForward | undefined => {
+      const one = hostForwards()[at];
+      return one === undefined ? undefined : { ...one };
+    },
+    sameFields,
+  );
+
+  const groups = createMemo(
+    () =>
+      portGroups({
+        terminals: {
+          tilePorts: ports(),
+          printedHere: printedHere(),
+          printedOnHost: terminals.printedOnHost(),
+        },
+        host: hostReading(),
+        forwards: doors(),
+        // kolu's relay listeners live on the kolu server's own machine, so only
+        // that host's list can contain them.
+        doorPorts: isActiveHostLocal() ? doorLocalPorts() : NO_PORTS,
+      }),
+    { name: "PortsSection.groups" },
   );
 
   const [elsewhereOpen, setElsewhereOpen] = createSignal(false);
