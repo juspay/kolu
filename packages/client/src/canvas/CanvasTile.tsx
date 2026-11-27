@@ -167,8 +167,26 @@ const CanvasTile: Component<{
     // the unguarded spend below costs nothing.
     () => props.sleeping || props.mode !== "tiled" || prefersReducedMotion(),
     (lostEligibility) => {
-      if (lostEligibility) spendLanding();
+      if (!lostEligibility) return;
+      // SETTLED, like the exhale below and for the same reason: the tile's
+      // chrome spread reads `landing` beside `props.mode` and `props.sleeping`
+      // — the very props this arm is answering — so an inline spend relays the
+      // cancel into a render effect that already ran for it, showing one frame
+      // of the new mode with the stale cue. From an UNOWNED `onSettled` the
+      // write lands in a later pass of the SAME flush (no extra frame) and
+      // carries no effect origin, so the attribute and the mode reach the DOM
+      // together. Unowned because an apply arm HAS an owner, under which
+      // `onSettled` would create a tracked effect right here — the relay
+      // again, plus a child per cancel. The callback writes one plain signal
+      // and returns nothing (a returned value reads as a cleanup, which an
+      // unowned `onSettled` forbids).
+      runWithOwner(null, () =>
+        onSettled(() => {
+          spendLanding();
+        }),
+      );
     },
+    { name: "CanvasTile.spendLandingOnLostEligibility" },
   );
   const onLandInAnim: JSX.EventHandlerUnion<HTMLDivElement, AnimationEvent> = (
     e,
