@@ -117,6 +117,7 @@ import { isActiveRow } from "./activeRow";
 import { createDockRowData, dockRowLabel } from "./dockRowData";
 import type { DockBranchCluster, DockGroup, DockTree } from "./dockTree";
 import { arrayMove, moveCluster, moveRepo } from "./dockTree";
+import { rehomePairPossible } from "./dockRehomeTip";
 import {
   dockAccepts,
   dockTargetOf,
@@ -335,19 +336,10 @@ const RailOrCards: Component<{
     },
   );
   // The first repo card holding two LIVE TOP-LEVEL rows — the first moment a
-  // row drop is even possible. Top-level, not "any two live rows": a card with
-  // one tile and its own split has no legal pair at all (child→its parent and
-  // parent→its descendant are both refusals), and a banner that teaches a
-  // gesture the card cannot perform is the same lie the hover verdict exists to
-  // avoid. Live, not merely listed: a sleeping row has no grip.
+  // row drop is even possible. The rule, and why liveness arrives as a folded
+  // LIST rather than a record read per row, are `rehomePairPossible`'s.
   createEffect(
-    () =>
-      props.tree.groups.some(
-        (g) =>
-          g.topRows.filter(
-            (r) => activeArm(store.getMetadata(r.id)) !== undefined,
-          ).length >= 2,
-      ),
+    () => rehomePairPossible(props.tree, store.liveTileIds()),
     (pairPossible) => {
       if (pairPossible) showTipOnce(CONTEXTUAL_TIPS.dockRehome);
     },

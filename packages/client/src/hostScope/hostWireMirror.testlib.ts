@@ -26,7 +26,11 @@ import {
   controllableStream,
 } from "@kolu/surface/solid/testlib";
 import { createSubscription, useCollection } from "@kolu/surface/solid";
-import type { PadiRoster, PadiTerminal } from "@kolu/padi-client/surface";
+import type {
+  PadiRoster,
+  PadiTerminal,
+  PadiUrgency,
+} from "@kolu/padi-client/surface";
 import type { TerminalId } from "kolu-common/surface";
 
 /** The saved-session blob, as far as any reading under test looks into it. */
@@ -44,6 +48,11 @@ export interface HostWireMirror {
   pushRecord(id: TerminalId, record: PadiTerminal): void;
   pushRoster(roster: PadiRoster): void;
   pushSession(blob: SavedSessionBlob | undefined): void;
+  /** Serve this host's attention partition — padi's `urgency` cell. */
+  pushUrgency(urgency: PadiUrgency): void;
+  /** Serve this host's live set — kaval's byte-motion edge, as the
+   *  `activity` stream carries it. */
+  pushActivity(ids: ReadonlyArray<TerminalId>): void;
 }
 
 export function hostWireMirror(): HostWireMirror {
@@ -51,6 +60,8 @@ export function hostWireMirror(): HostWireMirror {
   const rosterStream = controllableStream<PadiRoster>();
   const sessionStream = controllableStream<SavedSessionBlob | undefined>();
   const feedStream = controllableStream<unknown>();
+  const urgencyStream = controllableStream<PadiUrgency>();
+  const activityStream = controllableStream<readonly TerminalId[]>();
   const records = new Map<TerminalId, ControllableStream<PadiTerminal>>();
   const streamOf = (id: TerminalId): ControllableStream<PadiTerminal> => {
     const held = records.get(id);
@@ -94,11 +105,23 @@ export function hostWireMirror(): HostWireMirror {
         session: cell(sessionStream),
         roster: cell(rosterStream),
         activityFeed: cell(feedStream),
+        urgency: cell(urgencyStream),
       },
+      // The live set rides a STREAM, so its use-site hands in an input thunk
+      // and its own `onError` — neither of which changes the subscription the
+      // reader gets back.
+      streams: {
+        activity: { use: () => createSubscription(activityStream.source) },
+      },
+      // The link is up: a mirror that reported anything else would make every
+      // reading STALE, which is a different test.
+      state: () => ({ kind: "connected" as const }),
     },
     pushKeys: (keys) => keysStream.push([...keys]),
     pushRecord: (id, record) => streamOf(id).push(record),
     pushRoster: (roster) => rosterStream.push(roster),
     pushSession: (blob) => sessionStream.push(blob),
+    pushUrgency: (urgency) => urgencyStream.push(urgency),
+    pushActivity: (ids) => activityStream.push([...ids]),
   };
 }

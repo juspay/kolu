@@ -293,29 +293,120 @@ export function rankDockRows(
 ): RankedDockRow[] {
   const rows: RankedDockRow[] = [];
   for (const id of ids) {
-    const meta = getMeta(id);
-    if (!meta) continue;
-    const subRows = rankSubTree(getPaneTree(id), getMeta, classOf, id);
-    let recencyAt = rowRecencyAt(meta);
-    for (const sub of subRows) {
-      if (tsRank(sub.ts) > tsRank(recencyAt)) recencyAt = sub.ts;
+    const subRows: SubDockRow[] = [];
+    for (const pane of flattenPaneTree(getPaneTree(id), id)) {
+      const sub = rankPaneRow(pane, getMeta, classOf);
+      if (sub) subRows.push(sub);
     }
-    const parked = isStale(recencyAt);
-    // Read the attention class ONCE and carry both answers off it: the paint
-    // bucket (class, narrowed by the dormancy overlay) and the raw membership
-    // fact (`asking`). One read, so the row's colour and the strip's membership
-    // can never come off two different frames of the same fold.
-    const klass = classOf(id);
-    rows.push({
+    const row = rankTileRow(
       id,
-      bucket: classifyDockRow(meta, parked),
-      pip: paintDockRow(meta, klass, parked),
-      asking: klass === "asking",
-      ts: recencyAt,
-      subRows,
-    });
+      prunePaneRows(id, subRows),
+      getMeta,
+      isStale,
+      classOf,
+    );
+    if (row) rows.push(row);
   }
   return rows;
+}
+
+/** ONE PANE OF A TILE, lifted out of the tile's pane TREE: which terminal it
+ *  is, which terminal it hangs under, and how deep. The tree is the parent
+ *  fact here — a row's `data-parent-id` must agree with the nesting it was
+ *  built into — so the edge travels with the pane rather than being re-read off
+ *  the metadata projection, which lags a reparent by a frame. */
+export type DockPaneRef = {
+  id: TerminalId;
+  parentId: TerminalId;
+  depth: number;
+};
+
+/** The tile's pane TREE as the DEPTH-FIRST SEQUENCE the dock renders: each
+ *  pane immediately followed by its own panes, one level deeper. A grandchild
+ *  is a real parent→child edge — the Dock keeps that true tree, where the
+ *  canvas flattens the same panes into one tab strip (#2059) — and the depth
+ *  it carries is its indent, the only place the tree is visible once the DOM
+ *  has made every sub-entry a flat sibling.
+ *
+ *  Siblings arrive in the store's own order, never re-sorted: a tile's split
+ *  tabs used to sort needs-you-first-then-recency here, so the canvas and the
+ *  dock could show one tile's panes in two orders, and either could reshuffle
+ *  mid-glance.
+ *
+ *  Pure, and separate from the ranking below, because the ranking is per PANE:
+ *  a tile with ~28 panes whose row read every pane's metadata itself was wide
+ *  on its own row. */
+export function flattenPaneTree(
+  nodes: readonly PaneNode[],
+  parentId: TerminalId,
+  depth = 1,
+): DockPaneRef[] {
+  return nodes.flatMap((node) => [
+    { id: node.id, parentId, depth },
+    ...flattenPaneTree(node.children, node.id, depth + 1),
+  ]);
+}
+
+/** One pane's dock entry, or `undefined` while its record has not arrived.
+ *  IDs and projected metadata are independent reactive reads, so a missing
+ *  slot is this frame's answer, not an error — {@link prunePaneRows} is what
+ *  keeps the omission honest. */
+export function rankPaneRow(
+  pane: DockPaneRef,
+  getMeta: (id: TerminalId) => TerminalMetadata | undefined,
+  classOf: (id: TerminalId) => AttentionClass,
+): RankedDockRow["subRows"][number] | undefined {
+  return rankSubRow(pane.id, pane.parentId, pane.depth, getMeta, classOf);
+}
+
+/** Drop every pane whose PARENT was dropped. A row omitted for want of
+ *  metadata takes its own splits with it — an entry indented under a row that
+ *  isn't there reads as a lie — and because the sequence is depth-first, one
+ *  forward pass carrying the kept set decides it. */
+export function prunePaneRows(
+  tileId: TerminalId,
+  rows: readonly RankedDockRow["subRows"][number][],
+): RankedDockRow["subRows"][number][] {
+  const kept = new Set<TerminalId>([tileId]);
+  const out: RankedDockRow["subRows"][number][] = [];
+  for (const row of rows) {
+    if (!kept.has(row.parentId)) continue;
+    kept.add(row.id);
+    out.push(row);
+  }
+  return out;
+}
+
+/** The TILE's own row, over panes that are already ranked. Its recency is the
+ *  newest clock in the family (its own, or any pane's), which is what the
+ *  activity window parks the whole tile on. */
+export function rankTileRow(
+  id: TerminalId,
+  subRows: readonly RankedDockRow["subRows"][number][],
+  getMeta: (id: TerminalId) => TerminalMetadata | undefined,
+  isStale: (lastActivityAt: number | null) => boolean,
+  classOf: (id: TerminalId) => AttentionClass,
+): RankedDockRow | undefined {
+  const meta = getMeta(id);
+  if (!meta) return undefined;
+  let recencyAt = rowRecencyAt(meta);
+  for (const sub of subRows) {
+    if (tsRank(sub.ts) > tsRank(recencyAt)) recencyAt = sub.ts;
+  }
+  const parked = isStale(recencyAt);
+  // Read the attention class ONCE and carry both answers off it: the paint
+  // bucket (class, narrowed by the dormancy overlay) and the raw membership
+  // fact (`asking`). One read, so the row's colour and the strip's membership
+  // can never come off two different frames of the same fold.
+  const klass = classOf(id);
+  return {
+    id,
+    bucket: classifyDockRow(meta, parked),
+    pip: paintDockRow(meta, klass, parked),
+    asking: klass === "asking",
+    ts: recencyAt,
+    subRows,
+  };
 }
 
 /** Either half of a tile: the top-level row, or one of its splits at any depth.
@@ -378,49 +469,6 @@ export function needsYouEntries(row: RankedDockRow): NeedsYouEntry[] {
   if (row.asking) blocked.push(row);
   for (const sub of row.subRows) if (sub.asking) blocked.push(sub);
   return blocked.map((b) => ({ tile: row, blocked: b }));
-}
-
-/** Fold the tile's pane TREE into its dock sub-entries: siblings in the store's
- *  own order, each one immediately followed by its own splits, one level
- *  deeper. A grandchild is a real parent→child edge — the Dock keeps that true
- *  tree, where the canvas flattens the same panes into one tab strip (#2059).
- *
- *  Siblings used to sort needs-you-first-then-recency here, which meant a
- *  tile's split tabs could sit in one order on the canvas and another in the
- *  dock, and either could reshuffle mid-glance. Taking the store's order
- *  verbatim is what makes the two surfaces agree by construction.
- *
- *  The tree ARRIVES from the store (`getPaneTree`), the same index whose flat
- *  shape the canvas paints; this module only classifies it. Ranking
- *  used to walk the raw one-hop parent edge itself and stopped at depth 1, so a
- *  split of a split had a canvas tab and no dock row at all — a live terminal
- *  the Dock could not reach. Consuming the shared index is what makes that
- *  unspellable here: there is no traversal left to under-walk, and cycles /
- *  orphans are already resolved once, identically for both surfaces. */
-function rankSubTree(
-  nodes: readonly PaneNode[],
-  getMeta: (id: TerminalId) => TerminalMetadata | undefined,
-  classOf: (id: TerminalId) => AttentionClass,
-  /** The parent the nodes in `nodes` hang under — the tile for the first level,
-   *  then each split as the walk descends. Carried down rather than re-read off
-   *  the metadata edge: the tree IS the parent fact here, and a row's
-   *  `data-parent-id` must agree with the nesting it was built into. */
-  parentId: TerminalId,
-  depth = 1,
-): SubDockRow[] {
-  return nodes.flatMap((node) => {
-    const row = rankSubRow(node.id, parentId, depth, getMeta, classOf);
-    // IDs and projected metadata are independent reactive reads. Match the
-    // top-level row contract above: reading a missing slot subscribes this memo
-    // to its arrival, so omit the not-yet-paintable row for this frame; the
-    // reactive recomputation includes it. Its own splits wait with it — an
-    // entry indented under a row that isn't there reads as a lie.
-    if (!row) return [];
-    return [
-      row,
-      ...rankSubTree(node.children, getMeta, classOf, node.id, depth + 1),
-    ];
-  });
 }
 
 /** One split's entry. A sub-entry shares its parent's activity window fate, so

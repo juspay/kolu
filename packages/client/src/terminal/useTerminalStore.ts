@@ -14,6 +14,7 @@ import { activeArm } from "@kolu/padi-client/surface";
 import type { TerminalId } from "kolu-common/surface";
 import { createMemo, createProjection } from "solid-js";
 import { createSharedRoot } from "../createSharedRoot";
+import { foldEach } from "../wideFold";
 import { terminalListSub } from "../hostScope/activeWire";
 import { useViewState } from "../useViewState";
 import { useSubPanel } from "./useSubPanel";
@@ -53,6 +54,23 @@ export const useTerminalStore = createSharedRoot(() => {
     activeSubTab: subPanel.paneChrome(tile).activeSubTab,
   });
 
+  /** THE LIVE TILES — every top-level tile holding an active arm, in
+   *  `terminalIds()` order. One row memo per tile ({@link foldEach}), so the
+   *  joined list is `1 + ⌈N / 128⌉` sources rather than the two store leaves
+   *  per tile a single fold would carry: `getMetadata` is a slot leaf plus the
+   *  projected record, which put any scope that asked "which tiles are alive"
+   *  past Solid's 200-source `WIDE_SCOPE_DEPS` judge at about 66 tiles.
+   *
+   *  Published, because "is this tile alive" has two readers — the WebGL budget
+   *  below and the dock's rehome tip — and a second fold of the same question
+   *  is a second N-wide scope. */
+  const liveTileIds = foldEach(
+    "useTerminalStore.liveTile",
+    metadata.terminalIds,
+    (id) =>
+      activeArm(metadata.getMetadata(id)) !== undefined ? id : undefined,
+  );
+
   /** The tiles entitled to a WebGL context: the most-recently-active *live*
    *  tiles that fit under `WEBGL_CONTEXT_CAP`. Derived from the tile MRU
    *  (`mruOrder`) intersected with the live top-level tiles, so a closed tile is
@@ -62,22 +80,20 @@ export const useTerminalStore = createSharedRoot(() => {
    *  churn nothing (the #1399 fix). */
   const webglTileBudget = createMemo(
     () => {
-      // `terminalIds()` includes sleeping tiles (they are full canvas citizens —
-      // they render, drag, and sit in the MRU), but a sleeping terminal holds NO
-      // live resource, so it must never claim a WebGL context. Narrowing the budget
-      // input to the active arm is the single gate that keeps the budget on the
-      // active arm; `holdsWebgl` inherits it via `budget.includes`.
-      const live = new Set(
-        metadata
-          .terminalIds()
-          .filter((id) => activeArm(metadata.getMetadata(id)) !== undefined),
-      );
+      // `liveTileIds()` narrows `terminalIds()` to the active arm — a sleeping
+      // tile is a full canvas citizen (it renders, drags, sits in the MRU) but
+      // holds NO live resource, so it must never claim a WebGL context. That
+      // narrowing is the single gate keeping the budget on the active arm;
+      // `holdsWebgl` inherits it via `budget.includes`.
+      const live = new Set(liveTileIds());
       const ordered = view.mruOrder().filter((id) => live.has(id));
       // `tileWebglCost` is the one home for a tile's context cost (main pane + an
       // expanded, active split), so the running count is the true number of live
       // WebGL contexts — admitting the full working set churn-free (#1399) while
       // staying under Chrome's per-tab limit (#575). `holdsWebgl` below maps the
       // same split rule down to individual terminals via `isActiveSplit`.
+      // `admitWebglTiles` stops at the cap, so the per-tile chrome leaves
+      // `panelOf` reads are paid for at most `WEBGL_CONTEXT_CAP` tiles.
       return admitWebglTiles(
         ordered,
         (id) => tileWebglCost(panelOf(id)),
@@ -85,6 +101,7 @@ export const useTerminalStore = createSharedRoot(() => {
       );
     },
     {
+      name: "useTerminalStore.webglTileBudget",
       equals: (a, b) =>
         a.length === b.length && a.every((id) => b.includes(id)),
     },
@@ -312,6 +329,9 @@ export const useTerminalStore = createSharedRoot(() => {
     focusTerminal,
     focusMainTerminal,
     planFocusMainTerminal,
+    // The tiles holding a live arm — the one fold of that question, read by
+    // the WebGL budget here and by the dock's rehome tip.
+    liveTileIds,
     // WebGL budget: whether a terminal should hold a WebGL renderer (#1403).
     holdsWebgl,
     // Lifecycle (view-state only — list is server-driven)

@@ -1,10 +1,10 @@
 import type { TerminalId } from "kolu-common/surface";
 import { describe, expect, it } from "vitest";
-import type { TerminalDisplayInfo } from "../../terminal/terminalDisplay";
 import type { RankedDockRow } from "./dockRowRanking";
 import type { DockOrder } from "../../terminal/dockOrder";
 import {
   buildDockTree,
+  type DockRowSection,
   moveCluster,
   moveRepo,
   spliceVisiblePermutation,
@@ -94,16 +94,11 @@ function sleepingSubRow(id: string): SubRow {
 
 function makeGetInfo(
   entries: Record<string, { group: string; color: string; label?: string }>,
-): (id: TerminalId) => TerminalDisplayInfo | undefined {
+): (id: TerminalId) => DockRowSection | undefined {
   return (id) => {
     const e = entries[id as string];
     if (!e) return undefined;
-    return {
-      repoColor: e.color,
-      annotationColor: e.color,
-      subCount: 0,
-      key: { group: e.group, label: e.label ?? "main" },
-    };
+    return { group: e.group, label: e.label ?? "main", color: e.color };
   };
 }
 

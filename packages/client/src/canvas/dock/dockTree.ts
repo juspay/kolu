@@ -79,6 +79,24 @@ import {
 // arrangement as one derived value (`tree.order`); a drop handler writes the
 // moved result back through `setDockOrder`.
 
+/** WHERE ONE ROW FILES — the three facts, and only those three, that a row's
+ *  {@link TerminalDisplayInfo} contributes to the tree: its repo section, its
+ *  branch cluster, and the section's colour.
+ *
+ *  Three plain strings, not the display record itself, because the record is a
+ *  projection STORE row: reading `key.group` / `key.label` / `repoColor` off it
+ *  subscribes the reader to three leaves per tile, which would make the tree
+ *  memo grow with the fleet. The caller reads them per tile, in that tile's own
+ *  scope, and hands this fold the result. */
+export type DockRowSection = {
+  /** `info.key.group` — git repo name or cwd basename. */
+  group: string;
+  /** `info.key.label` — the branch/intent cluster inside that repo. */
+  label: string;
+  /** `info.repoColor` — the section's OKLCH hue. */
+  color: string;
+};
+
 /** One branch/intent cluster — the draggable unit inside a repo section:
  *  a named group of rows that drag together. Named "branch cluster" (not
  *  "section") so the data type never reads like `DockSection` — the repo
@@ -225,7 +243,7 @@ export type DockTree = {
  *  row the window parks leaves but the survivors keep their relative order. */
 export function buildDockTree(
   ranked: readonly RankedDockRow[],
-  getDisplayInfo: (id: TerminalId) => TerminalDisplayInfo | undefined,
+  sectionOf: (id: TerminalId) => DockRowSection | undefined,
   hideSleeping: boolean,
   order: DockOrder = [],
 ): DockTree {
@@ -260,15 +278,15 @@ export function buildDockTree(
   let hiddenCount = 0;
 
   for (const row of ranked) {
-    const info = getDisplayInfo(row.id);
+    const info = sectionOf(row.id);
     if (!info) continue;
-    let group = byName.get(info.key.group);
+    let group = byName.get(info.group);
     if (!group) {
       group = {
-        color: info.repoColor,
+        color: info.color,
         byLabel: new Map(),
       };
-      byName.set(info.key.group, group);
+      byName.set(info.group, group);
     }
     if (row.bucket === "parked") parkedCount++;
     // Count every fresh sleeping row the dock holds — the tile AND every split
@@ -284,9 +302,9 @@ export function buildDockTree(
     // so its splits are hidden rows too.
     if (filteredOut(row)) hiddenCount += 1 + row.subRows.length;
     else hiddenCount += row.subRows.filter(filteredOut).length;
-    const list = group.byLabel.get(info.key.label);
+    const list = group.byLabel.get(info.label);
     if (list) list.push(row);
-    else group.byLabel.set(info.key.label, [row]);
+    else group.byLabel.set(info.label, [row]);
   }
 
   // ---- Step 2: Sequence ---------------------------------------------
