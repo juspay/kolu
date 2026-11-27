@@ -55,7 +55,7 @@
  *  names the wrong tile — the camera latches on it, and focus and `isWatched`
  *  follow it. Reactive because the pick is a memo: it must re-answer on the
  *  window's edges. */
-import { createSignal } from "solid-js";
+import { createSignal, onSettled, runWithOwner } from "solid-js";
 
 export type HydrationPhase = "pending" | "decided" | "seeded";
 
@@ -137,8 +137,28 @@ export function createSessionRestore(): HostRestoreLatch {
         // The answer has been spent on THIS seed.
         restoredActive = null;
       }
-      // The seed this restore was waiting for has run: the pick may answer again.
-      setRestoreInFlight(false);
+      // The seed this restore was waiting for has run: the pick may answer
+      // again — SETTLED, because the one production caller is the hydration
+      // effect's APPLY ARM, whose compute has just read the terminal census.
+      // This flag is read by the DERIVED boot pick, and so by the focus fact,
+      // the tile MRU and the WebGL budget, every one of which folds that same
+      // census: closed inline, they re-run inside the arm's frame against the
+      // list the compute was answering — the judged `EFFECT_RELAY_TEAR`,
+      // advisory once and `warn` from its third sighting, which three restores
+      // in one session reach. An owner-less `onSettled` lands the close in a
+      // later pass of the SAME flush — the pass the seed's own writes land in
+      // — so the window closing and the landing it waited for are one frame
+      // and none is lost. The phase above stays immediate: it is the arm's
+      // non-reactive once-only gate, which a second plan in this same flush
+      // must already find shut. Unowned so the one-shot enqueues instead of
+      // becoming a child effect of the arm (which would carry this very
+      // frame); the write creates no children and registers no cleanup, which
+      // `onSettled` forbids.
+      runWithOwner(null, () => {
+        onSettled(() => {
+          setRestoreInFlight(false);
+        });
+      });
     },
     reseedForRestore() {
       if (phase === "seeded") phase = "decided";

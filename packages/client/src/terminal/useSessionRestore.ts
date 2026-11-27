@@ -10,6 +10,7 @@ import {
   createSignal,
   onCleanup,
   onSettled,
+  runWithOwner,
   untrack,
 } from "solid-js";
 import { toast } from "solid-sonner";
@@ -315,7 +316,27 @@ export function useSessionRestore(deps: { store: TerminalStore }) {
       // returns the idle plan.
       if (plan.latch.phase === "seeded") return;
       plan.latch.markSeeded();
-      step.seed();
+      // SETTLED, AS ONE UNIT. The seed's writes are a RELAY of the census this
+      // compute just read: the tab strips it seeds (`state.<tile>`) and the
+      // landing's focus fact (`createViewState.override`) are folded with that
+      // same census by the WebGL tile budget, the focus derivation and the
+      // chrome bar's panel-open condition — which, written from this arm, all
+      // re-run inside this effect's frame against the list the compute was
+      // answering: the judged `EFFECT_RELAY_TEAR`, advisory once and `warn`
+      // from its third sighting, and three restores in one session is an
+      // ordinary thing to do. An owner-less `onSettled` lands them in a later
+      // pass of the SAME flush, so no frame is lost. ONE unit, because the tab
+      // seeding and the landing are one answer to one restore and no reader
+      // that folds both may see half of it. The latch is marked HERE, not in
+      // the callback: a second plan built before this one settles must not
+      // re-seed. Unowned so the one-shot enqueues instead of becoming a child
+      // effect of this arm (which would carry this very frame); the writes
+      // create no children and register no cleanup, which `onSettled` forbids.
+      runWithOwner(null, () => {
+        onSettled(() => {
+          step.seed();
+        });
+      });
     },
   );
 
