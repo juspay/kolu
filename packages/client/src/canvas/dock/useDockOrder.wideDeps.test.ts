@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 
-/** THE DOCK AT A FLEET'S SIZE — 250 terminals on one host, in 45 tiles, one of
- *  them holding 29 panes of its own.
+/** THE DOCK AT A FLEET'S SIZE — 250 terminals on one host, in 42 tiles, one of
+ *  them holding 44 panes of its own.
  *
  *  The dock is the one always-mounted surface that reads EVERY terminal on the
  *  host, and it reads several facts about each: the metadata slot and its
