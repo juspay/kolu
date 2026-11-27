@@ -73,7 +73,6 @@ import StageMap from "./StageMap";
 import WorkDetails from "./WorkDetails";
 import WorkLive from "./WorkLive";
 import { PICKED_VIEWS, type PickedView, pickedView } from "./livePanes";
-import { liveArm } from "./terminalStatus";
 import { workFileSource } from "./workFile";
 import {
   cardShown,
@@ -305,12 +304,11 @@ const WorkCard: Component<{
     return elapsed === DASH ? "just now" : `${elapsed} ago`;
   };
 
-  /** A terminal of the work is up: there is a screen to watch. */
-  const anyUp = () =>
-    members().some(
-      (one) =>
-        one.standing !== undefined && liveArm(one.standing) !== undefined,
-    );
+  /** A terminal of the work is up: there is a screen to watch. The flag is
+   *  the member line's own ({@link MemberLine.up}, folded a row at a time):
+   *  asking each standing's record here instead put that record's leaves on
+   *  this scope for every member of the work. */
+  const anyUp = () => members().some((one) => one.up);
   /** THE PICKED WORK'S VIEW IN FRONT. A work that is over has no terminals,
    *  so its details are all it has. */
   const shownView = (): PickedView =>

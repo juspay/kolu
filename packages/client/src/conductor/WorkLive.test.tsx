@@ -79,6 +79,8 @@ const line = (
   member: { work: "w1", role, joinedAt: tag } as never,
   split: { host, id },
   standing: { kind: "here", meta: { state: "active" } as never },
+  // An active arm: there is a screen to watch.
+  up: true,
 });
 
 const [members, setMembers] = createSignal<ReadonlyArray<MemberLine>>([]);

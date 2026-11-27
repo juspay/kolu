@@ -30,8 +30,11 @@ import {
   fleetTerminalStanding,
 } from "../palette/fleetTerminals";
 import { agentName } from "../ui/agentDisplay";
+import { foldEach } from "../wideFold";
 import { type MemberRef, splitMemberRef } from "./memberRef";
 import { type ChecksTally, checksTally } from "./prReadings";
+import { sameItems } from "./sameItems";
+import { liveArm } from "./terminalStatus";
 import { useWorkMembers } from "./useWorks";
 import { useWorkPr, type WorkPr } from "./workPr";
 import {
@@ -46,10 +49,17 @@ import { createWorkRecord } from "./workRecord";
 
 /** One member as a face holds it: its row in the work, its ref split into the
  *  keys the fleet index is read by (`null` when this browser cannot read it),
- *  and its live standing, read once. */
+ *  its live standing, read once, and whether that standing has a screen to
+ *  watch. */
 export interface MemberLine extends WorkMemberRow {
   readonly split: MemberRef | null;
   readonly standing: FleetTerminalStanding | undefined;
+  /** THERE IS A SCREEN TO WATCH — the standing's live arm, read HERE with
+   *  the standing rather than by each face that asks. A face asking it per
+   *  member off the standing's record reads that record's leaves on its own
+   *  scope, which for a card asking "is any terminal up?" is the whole
+   *  membership on one scope. */
+  readonly up: boolean;
 }
 
 /** WHAT A MEMBER RUNS, as its row and the chip's hover card say it: the
@@ -112,29 +122,60 @@ export type MemberFacts = Pick<WorkFacts, "members">;
 export function readWorkFacts(
   rows: Accessor<ReadonlyArray<WorkMemberRow>>,
 ): MemberFacts {
-  const members = createMemo(
-    (prev: ReadonlyArray<MemberLine> = []): ReadonlyArray<MemberLine> => {
-      const next = rows().map((row): MemberLine => {
-        const split = splitMemberRef(row.terminal);
-        const standing =
-          split === null
-            ? undefined
-            : fleetTerminalStanding(split.host, split.id);
-        const was = prev.find((one) => one.terminal === row.terminal);
-        return was !== undefined &&
-          was.member === row.member &&
-          sameStanding(was.standing, standing)
-          ? was
-          : { ...row, split, standing };
-      });
-      return next.length === prev.length &&
-        next.every((one, i) => one === prev[i])
-        ? prev
-        : next;
+  // ONE ROW MEMO PER MEMBER, JOINED A CHUNK AT A TIME. A member's standing is
+  // the fleet index's per-key memo and that key's `store.v` on top of the
+  // host's own three reads, so a single memo over the whole list carried two
+  // to four sources per member and was past Solid's 200-source
+  // `WIDE_SCOPE_DEPS` judge at about a hundred of them.
+  //
+  // Keyed by the member's SLOT, not its row object: `membersByWork` mints a
+  // fresh row per run of the one app-wide map, so the object is no identity
+  // to key on. A line that did not move keeps its object through the row
+  // memo's `equals`, and a list in which none did keeps its own through the
+  // join's — so a change to another work's membership, or to another
+  // terminal's record, rebuilds nothing drawn from these lines.
+  const slots = createMemo(() => rows().map((_, at) => at), {
+    name: "workFacts.memberSlots",
+    equals: sameItems,
+  });
+  const members = foldEach(
+    "workFacts.members",
+    slots,
+    (at): MemberLine | undefined => {
+      const row = rows()[at];
+      if (row === undefined) return undefined;
+      const split = splitMemberRef(row.terminal);
+      const standing =
+        split === null
+          ? undefined
+          : fleetTerminalStanding(split.host, split.id);
+      return {
+        ...row,
+        split,
+        standing,
+        up: standing !== undefined && liveArm(standing) !== undefined,
+      };
     },
+    sameLine,
   );
   return { members };
 }
+
+/** The same line: the same member, standing the same way, with the same
+ *  answer to whether there is a screen to watch.
+ *
+ *  `up` IS a test of its own, unlike the fields a face reads off the
+ *  standing's record: the collection MERGES a frame into the record standing
+ *  at that key, so a terminal going to sleep leaves `sameStanding` (whose
+ *  test is `a.meta === b.meta`) saying the standing did not move. A face
+ *  reading a field off that record is woken by the field and reads the new
+ *  value; a flag COPIED onto the line is not, so the copy is what the
+ *  comparison has to check. */
+const sameLine = (a: MemberLine, b: MemberLine): boolean =>
+  a.terminal === b.terminal &&
+  a.member === b.member &&
+  a.up === b.up &&
+  sameStanding(a.standing, b.standing);
 
 /** A face's reading of its work. Call from a component body: it lives as long
  *  as the face, and follows the face's id.

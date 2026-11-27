@@ -72,6 +72,8 @@ const memberIn = (host: string, id: string, repoRoot: string): MemberLine => ({
       promptedAt: null,
     } as TerminalMetadata,
   },
+  // An active arm: there is a screen to watch.
+  up: true,
 });
 
 const POOL: ReadonlyArray<MemberLine> = [

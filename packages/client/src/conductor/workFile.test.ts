@@ -71,6 +71,8 @@ const memberIn = (
       promptedAt: null,
     } as TerminalMetadata,
   },
+  // An active arm: there is a screen to watch.
+  up: true,
 });
 
 const ELSEWHERE = "11111111-1111-4111-8111-111111111111";

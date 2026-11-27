@@ -182,6 +182,8 @@ const inside: MemberLine = {
       },
     },
   } as never,
+  // The standing is an ACTIVE arm, so there is a screen to watch.
+  up: true,
 };
 
 const settle = () => new Promise<void>((resolve) => setTimeout(resolve, 10));

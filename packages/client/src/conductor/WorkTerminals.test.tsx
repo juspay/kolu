@@ -12,6 +12,7 @@ import { render } from "@solidjs/web";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { agentName } from "../ui/agentDisplay";
 import type { FleetTerminalStanding } from "../palette/fleetTerminals";
+import { liveArm } from "./terminalStatus";
 import type { MemberLine } from "./workFacts";
 
 const REMOTE_ID = "11111111-1111-4111-8111-111111111111" as TerminalId;
@@ -151,6 +152,7 @@ const line = (
     member: { work: "w", role, joinedAt: "2026-01-01T00:00:00Z" } as never,
     split: { host, id: id as TerminalId },
     standing,
+    up: standing !== undefined && liveArm(standing) !== undefined,
   };
 };
 

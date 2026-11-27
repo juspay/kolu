@@ -21,6 +21,7 @@ import {
   type PadiRoster,
   type PadiTerminal,
   rosterHolds,
+  rosterIsEstablished,
   type TerminalMetadata,
 } from "@kolu/padi-client/surface";
 import { unenrolledStreamCall } from "@kolu/surface/client";
@@ -240,6 +241,20 @@ const GONE: FleetTerminalStanding = { kind: "gone" };
 const LOADING: FleetTerminalStanding = { kind: "loading" };
 const UNREACHABLE: FleetTerminalStanding = { kind: "unreachable" };
 
+/** The same census: the same arm, stamped at the same moment, over the same
+ *  id list — the list is the `mapArray` copy, which keeps its array while its
+ *  members do, so a roster frame that moved nothing wakes no standing. */
+const sameCensus = (
+  a: PadiRoster | undefined,
+  b: PadiRoster | undefined,
+): boolean => {
+  if (a === b) return true;
+  if (a === undefined || b === undefined) return false;
+  if (a.kind !== "established" || b.kind !== "established")
+    return a.kind === b.kind;
+  return a.at === b.at && a.ids === b.ids;
+};
+
 /** HOW ONE TERMINAL STANDS, from the four reads that decide it — the rule
  *  itself, so it can be driven over a real collection view without a host map
  *  (`fleetStanding.test.ts`).
@@ -332,6 +347,32 @@ const useFleetHosts = createSharedRoot(() => {
       // host beside the list it qualifies. A cheap value cell: one frame when
       // the host finishes adopting, one more if it recycles.
       const roster = entry.cells.roster.use();
+      // THE CENSUS AS A PLAIN VALUE, FOLDED ONCE FOR THE HOST. `rosterHolds`
+      // WALKS the roster's id list, and that list is a subscription's STORE
+      // array — so every reader of a standing paid its `length` leaf and an
+      // index leaf per terminal on the host, on the READER's own scope. A
+      // work with a few hundred members, or any fold asking a standing per
+      // row, was past Solid's 200-source `WIDE_SCOPE_DEPS` judge on that
+      // alone. The copy is a `mapArray` (two sources, flat, raw slots), and
+      // every standing below reads the copy — one source, any fleet size.
+      const censusIds = mapArray(
+        () => {
+          const now = roster.value();
+          return now !== undefined && rosterIsEstablished(now) ? now.ids : [];
+        },
+        (id) => id,
+        { name: "fleetCensusIds" },
+      );
+      const census = createMemo(
+        (): PadiRoster | undefined => {
+          const now = roster.value();
+          if (now === undefined) return undefined;
+          return rosterIsEstablished(now)
+            ? { kind: "established", at: now.at, ids: censusIds() }
+            : now;
+        },
+        { name: "fleetCensus", equals: sameCensus },
+      );
 
       // `keys` is already empty while disconnected, so the row set empties
       // with the host. `byKey` is a method on the use() result, not a signal.
@@ -353,7 +394,7 @@ const useFleetHosts = createSharedRoot(() => {
           // log-tail move while connected, and the census is beside the
           // record it qualifies (`terminalStandingFrom`).
           warming: () => entry.state().kind === "warming",
-          census: () => roster.value(),
+          census,
           record: () => terminals.byKey(id)?.(),
         });
 
