@@ -33,6 +33,12 @@ Part of the kolu monorepo — `"@kolu/surface": "workspace:*"`. The SolidJS laye
 `.use()` views open their stream on the flush after they are created, so a
 value reads `undefined` (and `pending()` reads `true`) until the first frame.
 
+An accessor-input `.use()` resets its value, `error()`, `complete()` and
+`pending()` when its input changes, once that update settles. A failure the
+fresh subscription reports while it opens is not reset over: `error()` keeps
+it. The new input's first frame is a value, never an `updated`/`changed`
+change.
+
 ## Docs
 
 The four-quadrant home is **[kolu.dev/surface](https://kolu.dev/surface)**:
