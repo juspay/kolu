@@ -183,11 +183,14 @@ export interface SubscriptionOptions<T, R = T> {
  *  closes to the SAME counterpart on the OTHER side — so a self-cycle (`a.self === a`)
  *  and a child-cycle (`b.self` points elsewhere) DIVERGE here instead of reading
  *  equal, never suppressing a real change a consumer could observe via `x.self === x`.
- *  Package-private (never on the `./solid` barrel): it is THE frame comparator for
- *  {@link Subscription.updated}, its reactive twin, and `useCollectionDeltas`'s
- *  snapshot arm — the three places this package asks "is this frame the same content
- *  as the last one?". Exported so that question has ONE answer instead of a second
- *  hand-rolled one per store-writing seam.
+ *  It is THE frame comparator for {@link Subscription.updated}, its reactive
+ *  twin, and `useCollectionDeltas`'s snapshot arm — the three places this
+ *  package asks "is this frame the same content as the last one?" — and it is
+ *  on the `./solid` barrel for the same question asked from OUTSIDE: a
+ *  hand-rolled `Subscription` that publishes a wire frame as a value (kolu's
+ *  `createPolledQuery`) must keep an equal re-read silent, and a second
+ *  hand-rolled comparator per such seam is exactly what this one export
+ *  prevents.
  *
  *  EVERY own symbol is content, with no exception carved out for the store, and
  *  that is a fact about Solid 2 rather than a relaxation: a store neither stamps

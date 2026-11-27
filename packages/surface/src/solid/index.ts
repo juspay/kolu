@@ -33,6 +33,14 @@ export {
   type CellChange,
   createSubscription,
   type Dispose,
+  // The frame comparator the change-iff-fired law runs on — exported for the
+  // seam `writeWrappedValue` below serves: a hand-rolled `Subscription` that
+  // publishes a wire frame as a VALUE needs the same "is this the content I
+  // already published?" answer, and a second hand-rolled deep-equal per such
+  // consumer is what this one export prevents. Conservative by construction
+  // (it never claims an equality it cannot prove), so a false answer costs a
+  // spurious republish, never a dropped change.
+  framesEqual,
   type Subscription,
   type SubscriptionOptions,
   // The three lifecycle signals a stream-backed view carries, apart from its value
@@ -173,9 +181,10 @@ export {
 export { type UseEventOptions, useEvent } from "./useEvent";
 export { useStream } from "./useStream";
 // The reconcile-or-assign write into a wrapped `{ v }` store — shared by
-// `createSubscription`/`createReactiveSubscription` internally and by
-// non-framework callers that stitch server data into the same wrapped-store
-// shape (e.g. `@kolu/client`'s `createPolledQuery`).
+// `createSubscription`/`createReactiveSubscription` internally and exported for
+// a non-framework caller that stitches server data into that same wrapped-store
+// shape. A caller that publishes its frame as a plain VALUE instead wants
+// `framesEqual` above, not this.
 export { writeWrappedValue } from "./writeValue";
 // The ONE Effect→Solid run edge (PLAN D10/#25). Exported so a consumer that drives
 // a raw stream OUTSIDE a `Subscription` — kolu's terminal attach, which owns its own

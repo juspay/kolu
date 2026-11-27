@@ -1022,6 +1022,7 @@ one client per surface, and one fold face for a delta stream.
 | [`surfaceClients(transport, map)`](#surfaceclientstransport-map) | `/solid` | Splits one combined transport into a sibling client per surface. |
 | [`surfaceClientsHealth(clients)`](#surfaceclientshealthclients) | `/solid` | And-reduces a record of clients into one health fact. |
 | [`Subscription<T>`](#subscriptiont) | `/solid` | The accessor plus `pending` / `error` / `complete` and the change channel. |
+| [`framesEqual(a, b)`](#framesequala-b) | `/solid` | Value equality for one frame, for a subscription you publish yourself. |
 | [`.streams.X.useCollection(input, descriptor)`](#streamsxusecollectioninput-descriptor) | `/solid` | A keyed, read-only collection view over a stream of snapshots and deltas. |
 | [`fold`](#fold-on-a-deltas-collection) | `/solid` | Folds a `deltas` collection's whole frames into your own accumulator. |
 | [`useCollectionDeltas`](#usecollectiondeltas) | `/solid` | The delta hook `.use()` drives, for an un-enrolled stream. |
@@ -1152,6 +1153,20 @@ pending, error, set, patch, sub }`, where `value` is the accessor and `sub` is t
 - `.changed(handler)` is the same law without the payload: same moments, same `Dispose`, no `{ prev, next }`.
 - `.updated()` must hand its handlers a snapshot, because the store adopts a frame and mutates it on the next write, so a retained pair would change out from under the consumer. That snapshot is two `structuredClone`s of a whole frame, and it is the price of the payload. Subscribing with `.changed()`, the clones do not happen at all.
 - Reach for `.updated()` when you read `prev` / `next`, `.changed()` when you do not. Neither is a raw arrival count: an equal reconnect snapshot is silent on both.
+
+### `framesEqual(a, b)`
+
+Structural value equality for a subscription frame: the comparator the
+change-iff-fired law above answers "is this the frame I already published?"
+with.
+
+`framesEqual(a: unknown, b: unknown): boolean`
+
+- It compares primitives, arrays, plain objects, `Date` (by instant), `Map` and `Set`.
+- It answers `false` for anything it cannot prove equal: a class instance, a `RegExp`, a typed array, an own property under a symbol key.
+- Own property names come from `Object.getOwnPropertyNames`, so a non-enumerable property, an augmented array and a sparse array are all compared.
+- Cycles compare by topology. A frame that loops back to itself reads equal only to one that loops back the same way.
+- Reach for it when your own code publishes a wire frame as a value (a hand-rolled `Subscription` over a plain signal), so a re-read that produced the same content stays silent. A wrong answer here republishes equal content; it never drops a change.
 
 ### `NoFn<T>`
 
