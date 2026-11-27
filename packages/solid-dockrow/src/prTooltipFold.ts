@@ -13,9 +13,13 @@
  *  consumer's server through `./rowValues.ts` and must reach no SolidJS edge
  *  (`rowValues.purity.test.ts`). The string itself is spelled once, there.
  *
- *  It is this package's fold rather than the app's shared one because the pip
- *  is handed the VALUE: the bound has to hold for every consumer of the row
- *  package, and the package cannot depend on an application module. */
+ *  It is this package's OWN copy of the two-level fold rather than the shared
+ *  one at `@kolu/surface/solid` (`joinChunks` / `joinRows` / `foldEach`, which
+ *  every other consumer in the repo imports) because this package must not
+ *  depend on `@kolu/surface`: that would drag `effect` into a leaf row package
+ *  every consumer of the row embeds. The bound has to hold for every one of
+ *  them, and the pip is handed the VALUE, so the fold comes along. Two copies,
+ *  one dependency arrow — the surface module's header names this one back. */
 
 import type { PrInfo } from "anyforge/schemas";
 import { type Accessor, createMemo, mapArray } from "solid-js";

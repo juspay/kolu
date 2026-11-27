@@ -1023,6 +1023,9 @@ one client per surface, and one fold face for a delta stream.
 | [`surfaceClientsHealth(clients)`](#surfaceclientshealthclients) | `/solid` | And-reduces a record of clients into one health fact. |
 | [`Subscription<T>`](#subscriptiont) | `/solid` | The accessor plus `pending` / `error` / `complete` and the change channel. |
 | [`framesEqual(a, b)`](#framesequala-b) | `/solid` | Value equality for one frame, for a subscription you publish yourself. |
+| [`joinChunks(name, length, readRange, options?)`](#joinchunksname-length-readrange-options) | `/solid` | A list folded in chunks, so no memo in it reads more than a chunk. |
+| [`joinRows(name, rows)`](#joinrowsname-rows) | `/solid` | The same fold over rows that already exist as accessors. |
+| [`foldEach(name, keys, read, equals?)`](#foldeachname-keys-read-equals) | `/solid` | One row memo per key, joined in chunks. |
 | [`.streams.X.useCollection(input, descriptor)`](#streamsxusecollectioninput-descriptor) | `/solid` | A keyed, read-only collection view over a stream of snapshots and deltas. |
 | [`fold`](#fold-on-a-deltas-collection) | `/solid` | Folds a `deltas` collection's whole frames into your own accumulator. |
 | [`useCollectionDeltas`](#usecollectiondeltas) | `/solid` | The delta hook `.use()` drives, for an un-enrolled stream. |
@@ -1167,6 +1170,35 @@ with.
 - Own property names come from `Object.getOwnPropertyNames`, so a non-enumerable property, an augmented array and a sparse array are all compared.
 - Cycles compare by topology. A frame that loops back to itself reads equal only to one that loops back the same way.
 - Reach for it when your own code publishes a wire frame as a value (a hand-rolled `Subscription` over a plain signal), so a re-read that produced the same content stays silent. A wrong answer here republishes equal content; it never drops a change.
+
+### `joinChunks(name, length, readRange, options?)`
+
+Folds a range-readable source into one list, a chunk at a time, so no memo in
+the fold crosses Solid's 200-source `WIDE_SCOPE_DEPS` judge.
+
+`joinChunks<T>(name: string, length: Accessor<number>, readRange: (start: number, end: number) => readonly T[], options?: { chunk?: number; equals?: (a: readonly T[], b: readonly T[]) => boolean }): Accessor<readonly T[]>`
+
+- A chunk memo per `chunk` positions (128 by default) reads `length` and its own range; the join reads the chunk list and every chunk, which is `1 + ⌈N / chunk⌉` sources.
+- `readRange(start, end)` is one chunk's reading of a half-open range, and whatever it tracks is that chunk's sources alone.
+- Pass a smaller `chunk` when a row costs more than one source: this package's own health fold reads two accessors per row and takes 64.
+- `equals` gates both a chunk and the join, so an unchanged reading is not republished. It defaults to element identity in order (`sameMembers`); a reading that mints a fresh record per row passes its own.
+- Chunks are keyed by position, so a value moving re-runs its chunk and the join, while an insertion re-runs the chunks at and after it.
+
+### `joinRows(name, rows)`
+
+The same fold over rows that already exist as accessors:
+`joinRows<T>(name: string, rows: Accessor<readonly Accessor<T | undefined>[]>): Accessor<readonly T[]>`.
+
+- The published list is the present values in row order; a row reading `undefined` is dropped.
+
+### `foldEach(name, keys, read, equals?)`
+
+One row memo per key, joined through `joinRows`:
+`foldEach<K, T>(name: string, keys: Accessor<readonly K[]>, read: (key: K) => T | undefined, equals?: (a: T, b: T) => boolean): Accessor<readonly T[]>`.
+
+- `read` is one item's reading, so whatever it tracks is that row's sources alone.
+- `equals` is when two readings of one item are the same thing — for a `read` that builds a fresh value per run.
+- Memo names in dev diagnostics are `<name>` for the join, `<name>.chunk`, `<name>.byChunk`, `<name>.chunks` and `<name>.row`.
 
 ### `NoFn<T>`
 

@@ -28,6 +28,7 @@ import {
   buildSurfaceClient,
   createKeyedRoot,
   isLiveSignalHandle,
+  joinChunks,
   type ReadOnlyBoundCollection,
   resolveTransport,
   type Subscription,
@@ -37,9 +38,7 @@ import { Schema } from "effect";
 import {
   type Accessor,
   createEffect,
-  createMemo,
   getOwner,
-  mapArray,
   runWithOwner,
   untrack,
 } from "solid-js";
@@ -703,19 +702,6 @@ export interface ConnectSurfaceMapOptions<K> {
   onClientError?: (policy: unknown, err: Error, origin?: { key: K }) => void;
 }
 
-/** Encoded member keys per chunk in the membership fold below. A chunk memo
- *  reads the keys accessor plus its own slots — `1 + CHUNK` sources — so 128
- *  keys keeps a chunk at 129, under Solid's 200-source `WIDE_SCOPE_DEPS` judge,
- *  while the join over `⌈N / CHUNK⌉` chunks stays under it below 25,000
- *  members. */
-const MEMBER_CHUNK = 128;
-
-/** Two foldings of the keyset that name the same members in the same order —
- *  what keeps an unchanged membership from handing every reader a fresh array
- *  on each re-fold. */
-const sameKeys = (was: readonly string[], now: readonly string[]): boolean =>
-  was.length === now.length && was.every((key, at) => key === now[at]);
-
 /** Connect a `SurfaceMap` over a transport, producing the typed map client. The
  *  transport is resolved ONCE (via `resolveTransport`, the ONLY liveness source — there
  *  is NO `{ live }` override seam): the resolved `live` threads into the `entries` client
@@ -827,10 +813,11 @@ export function connectSurfaceMap<
   // caught at ~65 hosts folded or ~199 members for a single lookup, over a pool
   // nothing caps.
   //
-  // The walk lives here now, split so no scope in it is wide: one CHUNK memo per
-  // {@link MEMBER_CHUNK} consecutive slots (`1 + CHUNK` sources) and a join over
-  // the chunks (`1 + ⌈N / CHUNK⌉`). What comes out is a PLAIN array, so every
-  // question above it costs ONE source and keeps its own answer.
+  // The walk lives here now, through `joinChunks` (`@kolu/surface/solid`, the
+  // repo's one chunked fold): one chunk memo per 128 consecutive slots
+  // (`1 + CHUNK` sources) and a join over the chunks (`1 + ⌈N / CHUNK⌉`). What
+  // comes out is a PLAIN array, so every question above it costs ONE source
+  // and keeps its own answer.
   //
   // LAZY, and the `.use()` is taken once INSIDE the client owner: the first
   // membership question opens the membership subscription (as the prune effect
@@ -840,35 +827,18 @@ export function connectSurfaceMap<
   const memberKeys = (): readonly string[] => {
     memberKeysFold ??= build(() => {
       const view = rawEntries.use();
-      const chunks = mapArray(
-        () =>
-          Array.from(
-            { length: Math.ceil(view.keys().length / MEMBER_CHUNK) },
-            (_, at) => at * MEMBER_CHUNK,
-          ),
-        (start) =>
-          createMemo(
-            () => {
-              const all = view.keys();
-              const reading: string[] = [];
-              const end = Math.min(start + MEMBER_CHUNK, all.length);
-              for (let at = start; at < end; at++) {
-                const one = all[at];
-                if (one !== undefined) reading.push(one);
-              }
-              return reading;
-            },
-            { name: "surfaceMap.members.chunk", equals: sameKeys },
-          ),
-        { name: "surfaceMap.members.byChunk" },
-      );
-      return createMemo(
-        () => {
+      return joinChunks<string>(
+        "surfaceMap.members",
+        () => view.keys().length,
+        (start, end) => {
+          const all = view.keys();
           const reading: string[] = [];
-          for (const chunk of chunks()) reading.push(...chunk());
+          for (let at = start; at < end; at++) {
+            const one = all[at];
+            if (one !== undefined) reading.push(one);
+          }
           return reading;
         },
-        { name: "surfaceMap.members", equals: sameKeys },
       );
     });
     return memberKeysFold();

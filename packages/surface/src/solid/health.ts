@@ -47,10 +47,10 @@ import {
   createRoot,
   createSignal,
   getOwner,
-  mapArray,
   onCleanup,
   runWithOwner,
 } from "solid-js";
+import { joinChunks, sameMembers } from "./chunkedFold";
 
 /** One enrolled subscription's health, read straight off its own reactive,
  *  self-clearing accessors. */
@@ -175,18 +175,6 @@ export interface SurfaceHealthRegistry {
   health: Accessor<SurfaceHealth>;
 }
 
-/** Rows per chunk in the subs fold below. A chunk memo reads the slot list plus
- *  its own rows' `pending()` and `error()` — `1 + 2·CHUNK` sources — so 64 rows
- *  keeps a chunk at 129, comfortably under Solid's 200-source `WIDE_SCOPE_DEPS`
- *  judge, while the join over `⌈N / 64⌉` chunks stays under it below 12,700
- *  enrolled subscriptions. */
-const CHUNK = 64;
-
-/** Two foldings of the roster that say the same thing. The slot objects are
- *  stable per enrolment, so this is identity on each one. */
-const sameSlots = <T>(was: readonly T[], now: readonly T[]): boolean =>
-  was.length === now.length && was.every((slot, at) => slot === now[at]);
-
 /** Two readings of the same subscriptions. Compared by VALUE — each reading
  *  allocates a fresh record per sub, so without this every re-fold would hand
  *  every bound indicator a new array to re-render on. */
@@ -291,15 +279,10 @@ export function createSurfaceHealthRegistry(
   // open rows. The walk lives here now, split so that no scope in it is wide:
   //
   //   - `slots` reads the membership counter and nothing else (1 source);
-  //   - one CHUNK memo per {@link CHUNK} consecutive slots reads the slot list
-  //     and its own rows' two accessors (`1 + 2·CHUNK`);
-  //   - the JOIN reads the chunk list and every chunk (`1 + ⌈N / CHUNK⌉`);
+  //   - the chunk memos and the join over them are `joinChunks`', the repo's
+  //     one chunked fold (`./chunkedFold`), sized at the call below for a row
+  //     that costs two sources;
   //   - `live` is its own memo, so a transport flip re-folds no sub at all.
-  //
-  // Chunks are keyed by POSITION in the slot list, so an enrolment or a drop
-  // re-runs the chunks at or after it and the join; each holds its previous
-  // value when its own members did not change, so a reader wakes for a fact
-  // that moved and for nothing else.
   //
   // This is NOT the per-subscription fold the readout's docstring rejects (a
   // standing computation per enrolled sub, each writing into a shared set):
@@ -322,44 +305,30 @@ export function createSurfaceHealthRegistry(
             membership(); // track add/remove (subs AND readiness legs)
             return [...entries.values()];
           },
-          { name: "surfaceHealth.slots", equals: sameSlots },
+          { name: "surfaceHealth.slots", equals: sameMembers },
         );
-        const chunks = mapArray(
-          () =>
-            Array.from(
-              { length: Math.ceil(slots().length / CHUNK) },
-              (_, at) => at * CHUNK,
-            ),
-          (start) =>
-            createMemo(
-              () => {
-                const reading: SubHealth[] = [];
-                for (const { name, source } of slots().slice(
-                  start,
-                  start + CHUNK,
-                )) {
-                  // Each read tracks that sub's self-clearing error()/pending(),
-                  // so the fact re-folds the instant any enrolled sub errors OR
-                  // recovers.
-                  reading.push({
-                    name,
-                    pending: source.pending(),
-                    error: source.error(),
-                  });
-                }
-                return reading;
-              },
-              { name: "surfaceHealth.chunk", equals: sameSubs },
-            ),
-          { name: "surfaceHealth.byChunk" },
-        );
-        const subs = createMemo(
-          () => {
+        // 64 slots per chunk rather than the kernel's default 128, because a
+        // row here costs TWO sources (`pending()` and `error()`): a chunk holds
+        // `1 + 2·64 = 129`, under the 200-source judge, while the join over
+        // `⌈N / 64⌉` chunks stays under it below 12,700 enrolled subscriptions.
+        const subs = joinChunks<SubHealth>(
+          "surfaceHealth.subs",
+          () => slots().length,
+          (start, end) => {
             const reading: SubHealth[] = [];
-            for (const chunk of chunks()) reading.push(...chunk());
+            for (const { name, source } of slots().slice(start, end)) {
+              // Each read tracks that sub's self-clearing error()/pending(),
+              // so the fact re-folds the instant any enrolled sub errors OR
+              // recovers.
+              reading.push({
+                name,
+                pending: source.pending(),
+                error: source.error(),
+              });
+            }
             return reading;
           },
-          { name: "surfaceHealth.subs", equals: sameSubs },
+          { chunk: 64, equals: sameSubs },
         );
         // `live` is the conjunction of the transport leg and every readiness
         // leg. Reading each `leg()` tracks the cell value it closes over, so the

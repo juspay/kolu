@@ -25,6 +25,22 @@ export type {
 // change (the switch-abort ordering). Pure solid-generic; `@kolu/surface-map`'s
 // `useEntry` builds on it.
 export { createKeyedRoot } from "./createKeyedRoot";
+// THE CHUNKED FOLD — one list out of more rows than a single memo may read
+// without Solid's development build judging it `WIDE_SCOPE_DEPS` (200 sources).
+// Exported because the bound is a property of the SHAPE, not of one package: a
+// roster, a membership keyset and an app's per-key rows all grow past 200 in
+// ordinary use, and a consumer that hand-rolls the two-level fold per site gets
+// a second convention and a second set of chunk-size mistakes. This package's
+// own `health()` fold and `@kolu/surface-map`'s membership keyset are built on
+// it, as are kolu's client folds.
+export {
+  CHUNK,
+  foldEach,
+  joinChunks,
+  type JoinChunksOptions,
+  joinRows,
+  sameMembers,
+} from "./chunkedFold";
 export {
   createReactiveSubscription,
   type ReactiveSubscriptionOptions,
