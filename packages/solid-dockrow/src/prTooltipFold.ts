@@ -5,34 +5,18 @@
  *  one scope subscribes that scope to four nodes per run (the list, the index,
  *  `outcome`, `name`): a PR of a couple of hundred lanes crosses the 200
  *  sources Solid's development build judges `WIDE_SCOPE_DEPS`. Here each run
- *  is read by a memo of its own, chunks of {@link CHUNK} rows are joined, and
- *  the join joins the chunks — so a lane going red re-runs its own row, its
- *  chunk and the join, and nothing else.
+ *  is read by a memo of its own through `@kolu/surface/solid`'s `foldEach`,
+ *  which joins the rows a chunk at a time — so a lane going red re-runs its
+ *  own row, its chunk and the join, and nothing else.
  *
  *  Its own module beside `./prTooltip.ts` because THAT one is folded by a
  *  consumer's server through `./rowValues.ts` and must reach no SolidJS edge
- *  (`rowValues.purity.test.ts`). The string itself is spelled once, there.
- *
- *  It is this package's OWN copy of the two-level fold rather than the shared
- *  one at `@kolu/surface/solid` (`joinChunks` / `joinRows` / `foldEach`, which
- *  every other consumer in the repo imports) because this package must not
- *  depend on `@kolu/surface`: that would drag `effect` into a leaf row package
- *  every consumer of the row embeds. The bound has to hold for every one of
- *  them, and the pip is handed the VALUE, so the fold comes along. Two copies,
- *  one dependency arrow — the surface module's header names this one back. */
+ *  (`rowValues.purity.test.ts`). The string itself is spelled once, there. */
 
+import { foldEach } from "@kolu/surface/solid";
 import type { PrInfo } from "anyforge/schemas";
-import { type Accessor, createMemo, mapArray } from "solid-js";
+import { type Accessor, createMemo } from "solid-js";
 import { type CheckLine, compose, lineOf } from "./prTooltip.ts";
-
-/** Runs per chunk memo. A chunk reads its rows and the row list, so it holds
- *  `CHUNK + 1` sources, and the join above it holds `1 + ⌈N / CHUNK⌉`. */
-const CHUNK = 128;
-
-const sameLines = (
-  a: ReadonlyArray<CheckLine>,
-  b: ReadonlyArray<CheckLine>,
-): boolean => a.length === b.length && a.every((one, at) => one === b[at]);
 
 const sameLine = (
   a: CheckLine | undefined,
@@ -49,43 +33,14 @@ export function createPrTooltip(pr: Accessor<PrInfo>): Accessor<string> {
     () => Array.from({ length: pr().checkRuns.length }, (_, at) => at),
     { name: "prTooltip.runs", equals: sameCount },
   );
-  const rows = mapArray(
+  const lines = foldEach(
+    "prTooltip.lines",
     runs,
-    (at) =>
-      createMemo(
-        (): CheckLine | undefined => {
-          const one = pr().checkRuns[at];
-          return one === undefined ? undefined : lineOf(one);
-        },
-        { name: "prTooltip.run", equals: sameLine },
-      ),
-    { name: "prTooltip.byRun" },
-  );
-  const starts = createMemo(
-    () =>
-      Array.from(
-        { length: Math.ceil(rows().length / CHUNK) },
-        (_, at) => at * CHUNK,
-      ),
-    { name: "prTooltip.chunks", equals: sameCount },
-  );
-  const chunks = mapArray(
-    starts,
-    (start) =>
-      createMemo(
-        () => {
-          const all = rows();
-          const out: CheckLine[] = [];
-          const end = Math.min(start + CHUNK, all.length);
-          for (let at = start; at < end; at++) {
-            const one = all[at]?.();
-            if (one !== undefined) out.push(one);
-          }
-          return out;
-        },
-        { name: "prTooltip.chunk", equals: sameLines },
-      ),
-    { name: "prTooltip.byChunk" },
+    (at): CheckLine | undefined => {
+      const one = pr().checkRuns[at];
+      return one === undefined ? undefined : lineOf(one);
+    },
+    sameLine,
   );
   return createMemo(
     () => {
@@ -94,9 +49,7 @@ export function createPrTooltip(pr: Accessor<PrInfo>): Accessor<string> {
       // title and the rollup are three nodes however many lanes the PR has.
       const head = { number: one.number, title: one.title, checks: one.checks };
       if (head.checks === null) return compose(head, []);
-      const lines: CheckLine[] = [];
-      for (const chunk of chunks()) lines.push(...chunk());
-      return compose(head, lines);
+      return compose(head, lines());
     },
     { name: "prTooltip" },
   );

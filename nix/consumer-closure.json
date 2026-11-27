@@ -389,6 +389,7 @@
       "workspace": [
         "@kolu/padi-client",
         "@kolu/solid-statepip",
+        "@kolu/surface",
         "@kolu/terminal-vocab",
         "@kolu/theme",
         "anyforge"

@@ -31,6 +31,7 @@
   "dependencies": {
     "@kolu/padi-client": "workspace:*",
     "@kolu/solid-statepip": "workspace:*",
+    "@kolu/surface": "workspace:*",
     "@kolu/terminal-vocab": "workspace:*",
     "@kolu/theme": "workspace:*",
     "@solidjs/web": "^2.0.4",

@@ -27,11 +27,9 @@
  *   - {@link joinRows} takes rows that already exist as accessors;
  *   - {@link foldEach} is the usual entry: a row memo per key, then that join.
  *
- *  THE ONE OTHER COPY IN THIS REPO is `@kolu/solid-dockrow`'s
- *  `src/prTooltipFold.ts`, deliberately: `solid-dockrow` is a leaf row package
- *  and must not depend on `@kolu/surface`, which brings `effect` with it. Every
- *  other consumer — this package's own `health()` fold, `@kolu/surface-map`'s
- *  membership keyset, and the client's folds — imports this module. */
+ *  Every fold of this shape in the repo imports this module: this package's
+ *  own `health()` fold, `@kolu/surface-map`'s membership keyset, the client's
+ *  folds and `@kolu/solid-dockrow`'s PR tooltip. */
 
 import { type Accessor, createMemo, mapArray } from "solid-js";
 
