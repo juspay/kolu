@@ -294,13 +294,13 @@ declared nested sibling (`entry.odu.…`, see
   re-decode of the same membership reads as a no-op, never a re-key.
 - The `{encodedKey, membershipId}` re-key is the reactive `.use()` lifetime
   `useEntry` drives.
-- Its IMPERATIVE half — `procedures`, `rpc`, a collection's `upsert`/`delete`,
-  and the raw un-enrolled refs (`collections.<k>.unenrolledKeys`,
-  `streams.<k>.unenrolled`) — samples the key untracked. A call goes to the key
-  active when it is made and subscribes nobody, so taking a raw ref inside a
-  memo does not make that memo a reader of the key, and a ref re-read inside
-  `unenrolledStreamCall`'s `Stream.suspend` from an effect callback is not a
-  strict read.
+- Its imperative half samples the key untracked: `procedures`, `rpc`, a
+  collection's `upsert`/`delete`, and the raw un-enrolled refs
+  (`collections.<k>.unenrolledKeys`, `streams.<k>.unenrolled`). A call goes to
+  the key active when it is made, and subscribes nobody. Taking a raw ref
+  inside a memo does not make that memo a reader of the key, and a ref re-read
+  inside `unenrolledStreamCall`'s `Stream.suspend` from an effect callback is
+  not a strict read.
 
 <Snippet src="packages/surface/example/snippets/map.ts" region="useentry" />
 
