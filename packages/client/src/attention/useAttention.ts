@@ -70,6 +70,8 @@ import {
   createMemo,
   mapArray,
   onCleanup,
+  onSettled,
+  runWithOwner,
   untrack,
 } from "solid-js";
 import { match } from "ts-pattern";
@@ -463,8 +465,30 @@ export function useAttention(deps: AttentionDeps): {
   createEffect(
     () => encodeHostKey(activeHost()),
     (encHost) => {
-      core.markHostSeen(encHost);
+      // SETTLED, not inline: the host chip's tab binding folds BOTH legs of one
+      // switch in a single computation — `marks.asking()` and
+      // `marks.unseenFinished()`, which this write moves, together with
+      // `isActive()`, read off the same active host this arm is keyed on
+      // (`host/HostSelectorStrip.tsx:262-266`). An inline write relays the
+      // switch into a reader that has already answered for it, so the chip
+      // paints one frame of the host you just arrived on still wearing its
+      // amber dot. From an unowned `onSettled` the write lands in a later pass
+      // of the SAME flush (no extra frame), carrying no effect origin, so the
+      // dot and the switch reach the chip together.
+      //
+      // UNOWNED: under an owner — which an apply arm has — `onSettled` is a
+      // tracked effect created and run right there, so the write would carry
+      // this arm's own frame and the owner would grow a child per switch. With
+      // no owner it enqueues, which is the deferral. The callback returns
+      // NOTHING (a returned value reads as a cleanup, which `onSettled` forbids
+      // unowned).
+      runWithOwner(null, () => {
+        onSettled(() => {
+          core.markHostSeen(encHost);
+        });
+      });
     },
+    { name: "useAttention.markHostSeen" },
   );
 
   /** RUN `onEntered` ONCE PER REF THAT JOINS `refs`, and forget the ones that
