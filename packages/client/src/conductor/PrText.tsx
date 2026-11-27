@@ -13,12 +13,21 @@ import { sameItems } from "./sameItems";
 
 const PR_NUMBER = /(#\d+)/;
 
-const PrText: Component<{ work: Work; text: string }> = (props) => {
-  const links = createMemo(() => prLinks(props.work));
+const PrText: Component<{
+  /** The work's own record as ONE read (`createWorkRecord`): the addresses
+   *  are a walk of the WHOLE timeline, so the proxy would put a node per leaf
+   *  of every event on the memo below. */
+  work: Work;
+  text: string;
+}> = (props) => {
+  const links = createMemo(() => prLinks(props.work), {
+    name: "prText.links",
+  });
   // The same words, split again: the list is new and its parts are the
   // strings it had, so without this gate every `<For>` row re-runs on any
   // move of the record around it.
   const parts = createMemo(() => props.text.split(PR_NUMBER), {
+    name: "prText.parts",
     equals: sameItems,
   });
   // `keyed={false}`: a part is a string, so its POSITION is its identity.

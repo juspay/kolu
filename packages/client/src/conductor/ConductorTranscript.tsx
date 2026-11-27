@@ -81,6 +81,7 @@ import { useAgentNotes, useFileHolders, useWorkMap } from "./useWorks";
 import WorkChip from "./WorkChip";
 import WorkChipFace from "./WorkChipFace";
 import WorkQuestion from "./WorkQuestion";
+import { createWorkRecord } from "./workRecord";
 
 const NO_WORKS: ReadonlyArray<WorkId> = [];
 
@@ -271,7 +272,13 @@ const FoldLine: Component<{
  *  rather than an empty form: the row above it still says what was asked. */
 const ChatWorkQuestion: Component<{ row: ConductorWorkAskRow }> = (props) => {
   const works = useWorkMap();
-  const work = createMemo(() => works().get(props.row.work));
+  const held = createMemo(() => works().get(props.row.work), {
+    name: "chatWorkQuestion.record",
+  });
+  /** THE SNAPSHOT the form folds — the work's decisions read off the store
+   *  are a node per leaf of every one of them, and a work a conversation has
+   *  been asking about all week has hundreds. */
+  const work = createWorkRecord(held);
   return (
     <Show when={work()}>
       {(one) => (

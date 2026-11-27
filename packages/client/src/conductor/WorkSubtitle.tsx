@@ -35,6 +35,10 @@ const sameParts = (a: WorkSubtitleParts, b: WorkSubtitleParts): boolean =>
   sameFields(a.where, b.where) && sameItems(a.rest, b.rest);
 
 const WorkSubtitle: Component<{
+  /** The work's own record as ONE read (`createWorkRecord`): the words below
+   *  are a fold over the whole of it — its setup and its PR — so a face that
+   *  handed this the store's proxy would put a node per leaf of every event
+   *  on the memo below. */
   work: Work;
   /** The work's own PR, live (`useWorkPr`). */
   pr: Option.Option<WorkPr>;
@@ -44,7 +48,7 @@ const WorkSubtitle: Component<{
    *  `<Show>` on the branch below inherits it. */
   const parts = createMemo(
     () => workSubtitleParts(props.work, workHost(props.work)),
-    { equals: sameParts },
+    { name: "workSubtitle.parts", equals: sameParts },
   );
   const branch = () => {
     const where = parts().where;

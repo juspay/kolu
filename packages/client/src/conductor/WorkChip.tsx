@@ -78,10 +78,19 @@ const TerminalLine: Component<{ work: Work; one: MemberLine; now: number }> = (
 };
 
 /** WHAT THE HOVER CARD SAYS — its own component so that nothing in it is
- *  read until it opens. */
-const WorkChipCard: Component<{ id: WorkId; work: Work }> = (props) => {
+ *  read until it opens. Exported so what it subscribes to can be judged
+ *  without a hover, which no test environment has. */
+export const WorkChipCard: Component<{ id: WorkId; work: Work }> = (props) => {
   const now = useShownClock();
-  const { members, at: line } = createWorkFacts(
+  /** The card's own reading of the work, and its SNAPSHOT: every line below
+   *  is a fold over the whole record (its PR's links, its subtitle, how long
+   *  it has run, what each terminal runs, its stages), so each reads the one
+   *  snapshot rather than a node per leaf of the store. */
+  const {
+    record,
+    members,
+    at: line,
+  } = createWorkFacts(
     () => props.id,
     () => props.work,
   );
@@ -92,15 +101,15 @@ const WorkChipCard: Component<{ id: WorkId; work: Work }> = (props) => {
       </span>
       <span class="block truncate font-mono text-[0.62rem] text-fg-3">
         <PrText
-          work={props.work}
+          work={record()}
           text={[
-            ...workSubtitle(props.work, workHost(props.work)),
-            dualPhrase(lifetime(props.work, new Date(now()).toISOString())),
+            ...workSubtitle(record(), workHost(record())),
+            dualPhrase(lifetime(record(), new Date(now()).toISOString())),
           ].join(" · ")}
         />
       </span>
       <WorkStanding
-        work={props.work}
+        work={record()}
         line={line()}
         now={now()}
         testId="work-chip-standing"
@@ -110,14 +119,12 @@ const WorkChipCard: Component<{ id: WorkId; work: Work }> = (props) => {
       <Show when={members().length > 0}>
         <ul class="m-0 mt-1 flex list-none flex-col gap-0.5 p-0">
           <For each={members()} keyed={(one) => one.terminal}>
-            {(one) => (
-              <TerminalLine work={props.work} one={one()} now={now()} />
-            )}
+            {(one) => <TerminalLine work={record()} one={one()} now={now()} />}
           </For>
         </ul>
       </Show>
       <StageMap
-        stages={stagesOf(props.work, new Date(now()).toISOString())}
+        stages={stagesOf(record(), new Date(now()).toISOString())}
         size="mini"
         testId="chip-stage-map"
       />

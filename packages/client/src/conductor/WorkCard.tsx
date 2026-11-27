@@ -360,7 +360,10 @@ const WorkCard: Component<{
   const subtitle = () => (
     <>
       <p class="m-0 mt-0.5 flex min-w-0 items-center gap-2 font-mono text-[0.62rem] text-fg-3">
-        <WorkSubtitle work={props.work} pr={pr()} />
+        {/* THE SNAPSHOT, like every other fold on this card: the subtitle is
+            a fold over the whole record (its setup, its PR), and handed the
+            store's own proxy it would subscribe a node per leaf of it. */}
+        <WorkSubtitle work={record()} pr={pr()} />
         {/* HOW LONG IT HAS WAITED ON YOU, all told — from a whole second, so a
             setup answered in a blink does not read "you 0s". */}
         <Show when={onYou() >= 1000}>
@@ -384,7 +387,7 @@ const WorkCard: Component<{
   );
   const standing = () => (
     <WorkStanding
-      work={props.work}
+      work={record()}
       line={at()}
       now={now()}
       testId="work-standing"
@@ -413,7 +416,7 @@ const WorkCard: Component<{
    *  state sum). */
   const terminals = () => (
     <Show when={live() !== undefined}>
-      <WorkTerminals work={props.work} members={members()} now={now()} />
+      <WorkTerminals work={record()} members={members()} now={now()} />
     </Show>
   );
   /** The face's press: a button laid UNDER the text rather than wrapped
@@ -573,7 +576,7 @@ const WorkCard: Component<{
                 {(ask) => (
                   <AskSlot ask={ask} boxes={askBoxes}>
                     <WorkQuestion
-                      work={props.work}
+                      work={record()}
                       id={props.id}
                       ask={ask}
                       from="card"
@@ -614,7 +617,7 @@ const WorkCard: Component<{
               <Show when={live() !== undefined}>
                 <div class="mb-2">
                   <WorkTerminals
-                    work={props.work}
+                    work={record()}
                     members={members()}
                     now={now()}
                     unfolds

@@ -150,7 +150,10 @@ export function createWorkFacts(
   const { members } = readWorkFacts(() =>
     work().state.kind === "open" ? (byWork().get(id()) ?? NONE) : NONE,
   );
-  const pr = useWorkPr(id, work);
+  // THE SNAPSHOT, not the store: `workPrOf` walks the whole timeline for the
+  // PR the work's own events name, which off the proxy is a node per leaf of
+  // every event.
+  const pr = useWorkPr(id, record);
   const checks = createMemo(() => checksTally(pr()));
   // GATED: `standingLine` folds the snapshot again on every move of the
   // record and mints a fresh line — and a fresh `Option` inside it — for a

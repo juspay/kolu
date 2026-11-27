@@ -128,6 +128,10 @@ const sameAnswers = (
 };
 
 const WorkQuestion: Component<{
+  /** The work's own record as ONE read (`createWorkRecord`), which every
+   *  face that draws this form hands it: the three lists below walk ALL of
+   *  the work's decisions, so off the store's proxy a work asked a hundred
+   *  things would put several hundred nodes on one memo. */
   work: Work;
   /** The id the work is filed under — what answering it names. */
   id: WorkId;
@@ -161,17 +165,18 @@ const WorkQuestion: Component<{
             one.answer.from === "request"
           ),
       ),
-    { equals: sameItems },
+    { name: "workQuestion.questions", equals: sameItems },
   );
   /** The ones still asked — the fields — and the ones already settled, which
    *  are drawn as the record of what was said ABOVE them. A form answered in
    *  parts is both at once. */
   const open = createMemo(() => questions().filter((one) => isAsked(one)), {
+    name: "workQuestion.open",
     equals: sameItems,
   });
   const recorded = createMemo(
     () => questions().filter((one) => isSettled(one)),
-    { equals: sameItems },
+    { name: "workQuestion.recorded", equals: sameItems },
   );
   const settled = () => open().length === 0;
 

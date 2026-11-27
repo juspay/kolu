@@ -55,8 +55,10 @@ vi.mock("./WorkLive", () => ({ default: () => <div /> }));
 // `WorkCardActions` is NOT mocked: its own fold over the record
 // (`needsYouOf`) is one of the scopes this file judges, and it is drawn on
 // the board face below.
+// `WorkTerminals` is mocked (its rows are a terminal's reading, not this
+// work's); `WorkSubtitle` is NOT — the line under the title folds the whole
+// record for its setup and its PR, and the card hands it the snapshot.
 vi.mock("./WorkTerminals", () => ({ default: () => <div /> }));
-vi.mock("./WorkSubtitle", () => ({ default: () => <p /> }));
 
 /** HOW OFTEN A FOLD RAN — counted around the real reading, so what it
  *  subscribes to is unchanged and only the count is this file's. */
