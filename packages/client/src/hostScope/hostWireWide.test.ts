@@ -7,80 +7,41 @@
  *  host with a few hundred panes therefore put every one of them on one scope,
  *  which Solid's development build judges `WIDE_SCOPE_DEPS` past 200 sources.
  *
- *  The fleet here is 250 terminals in server order — one tile in four, the
- *  other three its splits — so the published census is a strict subset in a
+ *  THE MIRROR IS THE REAL ONE (`./hostWireMirror.testlib.ts`): the real keys
+ *  stream, the real per-key `useCollection` view and real subscription stores,
+ *  so `terminalKeys()` is a store array and a record read costs what it costs
+ *  in the browser — five sources per pane on a scope that walks the list.
+ *
+ *  The fleet is 250 terminals in server order — one tile in four, the other
+ *  three its splits — so the published census is a strict subset in a
  *  non-trivial order, and a test that merely counted rows could not pass. */
 
-import type { PadiRoster, PadiTerminal } from "@kolu/padi-client/surface";
+import type { PadiTerminal } from "@kolu/padi-client/surface";
 import { takeSolidDiagnostics } from "@kolu/solid-test-setup/setup";
+import { settle } from "@kolu/surface/solid/testlib";
 import type { HostKey } from "kolu-common/hostKey";
 import type { TerminalId } from "kolu-common/surface";
-import { createRoot, createStore, flush } from "solid-js";
+import { createRoot, flush } from "solid-js";
 import { afterEach, expect, it, vi } from "vitest";
 
-const mirror = vi.hoisted(() => ({
-  /** The host's key list, read off this file's store. */
-  keys: (() => []) as () => TerminalId[],
-  /** One terminal's composed record — the collection's per-key accessor. */
-  record: ((_id: TerminalId) => undefined) as (
-    id: TerminalId,
-  ) => PadiTerminal | undefined,
-  roster: (() => undefined) as () => PadiRoster | undefined,
-  session: (() => undefined) as () => { activeTerminalId: string } | undefined,
-  sessionPending: (() => false) as () => boolean,
+// `useCollection` opens each key's stream through this; the mirror's procedure
+// IS the stream, so calling it is the whole wire.
+vi.mock("@kolu/surface/client", async (original) => ({
+  ...(await original<Record<string, unknown>>()),
+  unenrolledStreamCall: (source: (input: unknown) => unknown, input: unknown) =>
+    source(input),
 }));
 
-// The padi map entry `createHostWire` opens its members through. Values come
-// off a real store, so every read costs what the live subscription's costs.
-vi.mock("../wire", () => {
-  const cell = (value: () => unknown, pending: () => boolean) => ({
-    use: () => ({ value, sub: { pending } }),
-  });
-  return {
-    padiMap: {
-      entry: () => ({
-        collections: {
-          terminals: {
-            unenrolledKeys: {},
-            use: () => ({
-              keys: () => mirror.keys(),
-              byKey: (id: TerminalId) => () => mirror.record(id),
-            }),
-          },
-          daemonStatus: {
-            use: () => ({ keys: () => [], byKey: () => undefined }),
-          },
-        },
-        cells: {
-          session: cell(
-            () => mirror.session(),
-            () => mirror.sessionPending(),
-          ),
-          roster: cell(
-            () => mirror.roster(),
-            () => false,
-          ),
-          activityFeed: cell(
-            () => undefined,
-            () => false,
-          ),
-        },
-      }),
-    },
-    interpretClientError: () => {},
-  };
-});
+const held = vi.hoisted(() => ({ entry: (() => undefined) as () => unknown }));
 
-// The keys STREAM: the real one publishes its value into a store, which is
-// what this stub hands back — the list reads below cost what they cost live.
-vi.mock("@kolu/surface/solid", async (importOriginal) => ({
-  ...(await importOriginal<Record<string, unknown>>()),
-  createReactiveSubscription: () =>
-    Object.assign(() => mirror.keys(), { pending: () => false }),
+vi.mock("../wire", () => ({
+  padiMap: { entry: () => held.entry() },
+  interpretClientError: () => {},
 }));
 
 import { createBootPick } from "./createBootPick";
 import { createHostWire } from "./createHostWire";
+import { hostWireMirror } from "./hostWireMirror.testlib";
 
 const HOST: HostKey = { kind: "local" };
 const TERMINALS = 250;
@@ -94,18 +55,18 @@ const ids = Array.from(
 const parentAt = (n: number): TerminalId | null =>
   n % TILE_EVERY === 0 ? null : (ids[n - (n % TILE_EVERY)] as TerminalId);
 
-/** A composed record as this fleet carries it — the three fields every
- *  reading under test narrows on, held in a shape a leaf write can move. */
-interface FixtureTerminal {
-  state: "active" | "sleeping" | "parked";
-  parentId: TerminalId | null;
-  lastActivityAt: number;
-}
-const recordAt = (n: number): FixtureTerminal => ({
-  state: "active",
-  parentId: parentAt(n),
-  lastActivityAt: n,
-});
+/** A composed record as this fleet serves it — the fields every reading under
+ *  test narrows on. The wire union's other members play no part in any of
+ *  them, so the record is stated at exactly that width. */
+const recordAt = (
+  n: number,
+  over: { state?: string; parentId?: TerminalId | null } = {},
+): PadiTerminal =>
+  ({
+    state: over.state ?? "active",
+    parentId: "parentId" in over ? over.parentId : parentAt(n),
+    lastActivityAt: n,
+  }) as unknown as PadiTerminal;
 
 /** The tiles the census should publish, listed here rather than through the
  *  product's fold. */
@@ -116,68 +77,47 @@ const diagnostics = (): string[] =>
     (event) => `[${event.severity}] ${event.code} ${event.message}`,
   );
 
-interface Fleet {
-  keys: TerminalId[];
-  records: Record<string, FixtureTerminal>;
-  roster: PadiRoster | undefined;
-  session: { activeTerminalId: string } | undefined;
-  pending: boolean;
-}
-
 let dispose: (() => void) | undefined;
 afterEach(() => {
   dispose?.();
   dispose = undefined;
 });
 
-/** One host's retained wire over a 250-terminal store, plus its boot pick.
- *  `inFlight` is a listed id whose record has not arrived — the state the
- *  wire is BUILT in, since the pick is answered on its first run. */
-function fleet(options: { saved?: TerminalId; inFlight?: TerminalId } = {}) {
-  const [state, setState] = createStore<Fleet>({
-    keys: [...ids],
-    records: Object.fromEntries(
-      ids
-        .map((id, n) => [id, recordAt(n)] as const)
-        .filter(([id]) => id !== options.inFlight),
-    ),
-    roster: { kind: "established", at: 0, ids: [...ids] },
-    session:
-      options.saved === undefined
-        ? undefined
-        : { activeTerminalId: options.saved },
-    pending: false,
-  });
-  mirror.keys = () => state.keys;
-  // The fixture record carries exactly the fields the narrows read; the wire
-  // union's other arms play no part in any reading under test.
-  mirror.record = (id) =>
-    state.records[id] as unknown as PadiTerminal | undefined;
-  mirror.roster = () => state.roster;
-  mirror.session = () => state.session;
-  mirror.sessionPending = () => state.pending;
+/** One host's retained wire over a 250-terminal mirror, plus its boot pick.
+ *  `inFlight` is a listed id whose record is never served. */
+async function fleet(
+  options: { saved?: TerminalId; inFlight?: TerminalId } = {},
+) {
+  const mirror = hostWireMirror();
+  held.entry = () => mirror.entry;
   takeSolidDiagnostics();
-  return createRoot((disposeRoot) => {
+  const built = createRoot((disposeRoot) => {
     dispose = disposeRoot;
     const wire = createHostWire(HOST);
-    const pick = createBootPick(wire, () => false);
-    return { wire, pick, state, setState };
+    return { wire, pick: createBootPick(wire, () => false) };
   });
+  mirror.pushKeys(ids);
+  for (const [n, id] of ids.entries())
+    if (id !== options.inFlight) mirror.pushRecord(id, recordAt(n));
+  mirror.pushRoster({ kind: "established", at: 0, ids: [...ids] });
+  mirror.pushSession(
+    options.saved === undefined ? {} : { activeTerminalId: options.saved },
+  );
+  await settle();
+  flush();
+  return { ...built, mirror };
 }
 
-it("publishes a 250-terminal host's tile census with no wide memo", () => {
-  const { wire, setState } = fleet();
-  flush();
+it("publishes a 250-terminal host's tile census with no wide memo", async () => {
+  const { wire, mirror } = await fleet();
 
   expect(wire.tileIds()).toEqual(TILES);
   expect(diagnostics()).toEqual([]);
 
   // One split is re-parented to the canvas: it joins the census in its own
   // place in the server's order, and nothing else moves.
-  setState((s) => {
-    const row = s.records.t1;
-    if (row !== undefined) row.parentId = null;
-  });
+  mirror.pushRecord("t1" as TerminalId, recordAt(1, { parentId: null }));
+  await settle();
   flush();
   expect(wire.tileIds()).toEqual(
     ids.filter((_, n) => n % TILE_EVERY === 0 || n === 1),
@@ -185,18 +125,12 @@ it("publishes a 250-terminal host's tile census with no wide memo", () => {
   expect(diagnostics()).toEqual([]);
 });
 
-it("drops a parked row and a record still in flight from the census", () => {
-  const { wire, setState } = fleet();
-  flush();
+it("drops a parked row and a record still in flight from the census", async () => {
+  const { wire, mirror } = await fleet({ inFlight: "t8" as TerminalId });
   takeSolidDiagnostics();
 
-  setState((s) => {
-    const row = s.records.t4;
-    if (row !== undefined) row.state = "parked";
-  });
-  setState((s) => {
-    delete s.records.t8;
-  });
+  mirror.pushRecord("t4" as TerminalId, recordAt(4, { state: "parked" }));
+  await settle();
   flush();
 
   // Both tiles leave the census — and their splits, whose parent is now
@@ -213,61 +147,70 @@ it("drops a parked row and a record still in flight from the census", () => {
   expect(diagnostics()).toEqual([]);
 });
 
-it("reads a 250-id roster against the key list with no wide memo", () => {
-  const { wire, setState } = fleet();
-  flush();
+it("reads a 250-id roster against the key list with no wide memo", async () => {
+  const { wire, mirror } = await fleet();
 
   expect(wire.listIsCensus()).toBe(true);
   expect(diagnostics()).toEqual([]);
 
   // The standing names an id the list has not delivered: not a census yet.
-  setState((s) => {
-    s.keys.splice(TERMINALS - 1, 1);
-  });
+  mirror.pushKeys(ids.slice(0, TERMINALS - 1));
+  await settle();
   flush();
   expect(wire.listIsCensus()).toBe(false);
   expect(diagnostics()).toEqual([]);
 
   // A roster that is still settling is never a census, however long the list.
-  setState((s) => {
-    s.keys.push(ids[TERMINALS - 1] as TerminalId);
-    s.roster = { kind: "settling" };
-  });
+  mirror.pushKeys(ids);
+  mirror.pushRoster({ kind: "settling" });
+  await settle();
   flush();
   expect(wire.listIsCensus()).toBe(false);
   expect(diagnostics()).toEqual([]);
 });
 
-it("picks the saved tile out of a 250-terminal census with no wide memo", () => {
+it("picks the saved tile out of a 250-terminal census with no wide memo", async () => {
   const saved = "t100" as TerminalId;
-  const { pick, setState } = fleet({ saved });
-  flush();
+  const { pick, mirror } = await fleet({ saved });
 
   expect(pick()).toBe(saved);
   expect(diagnostics()).toEqual([]);
 
   // Answered once: a later census move cannot re-point the booted tile.
-  setState((s) => {
-    const row = s.records.t1;
-    if (row !== undefined) row.parentId = null;
-  });
+  mirror.pushRecord("t1" as TerminalId, recordAt(1, { parentId: null }));
+  await settle();
   flush();
   expect(pick()).toBe(saved);
   expect(diagnostics()).toEqual([]);
 });
 
-it("holds the pick back until every listed record has arrived", () => {
+it("holds the pick back until every listed record has arrived", async () => {
   const inFlight = "t200" as TerminalId;
-  const { pick, setState } = fleet({ saved: "t100" as TerminalId, inFlight });
-  // A record still in flight: there is no honest pick yet.
-  flush();
+  const { pick, mirror } = await fleet({
+    saved: "t100" as TerminalId,
+    inFlight,
+  });
   expect(pick()).toBeNull();
   expect(diagnostics()).toEqual([]);
 
-  setState((s) => {
-    s.records.t200 = recordAt(200);
-  });
+  mirror.pushRecord(inFlight, recordAt(200));
+  await settle();
   flush();
   expect(pick()).toBe("t100");
+  expect(diagnostics()).toEqual([]);
+});
+
+/** A roster shorter than the list, and a record for a key the list dropped:
+ *  the census is the LIST's, and the standing is only the qualifier. */
+it("answers a census when the standing names a subset of the list", async () => {
+  const { wire, mirror } = await fleet();
+  mirror.pushRoster({
+    kind: "established",
+    at: 1,
+    ids: ids.slice(0, 10),
+  });
+  await settle();
+  flush();
+  expect(wire.listIsCensus()).toBe(true);
   expect(diagnostics()).toEqual([]);
 });
