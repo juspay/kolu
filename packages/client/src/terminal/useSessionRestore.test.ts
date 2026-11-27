@@ -1003,8 +1003,7 @@ describe("useSessionRestore — an in-session restore RE-SEEDS the view (viewSee
     const listSub = Object.assign(() => list(), { pending: () => false });
     const store = {
       listSub,
-      terminalIds: () =>
-        (list() ?? []).filter((id) => !meta()[id]?.parentId),
+      terminalIds: () => (list() ?? []).filter((id) => !meta()[id]?.parentId),
       getMetadata: (id: TerminalId) => meta()[id],
       setActiveSilently: (id: string | null) => {
         active = id;

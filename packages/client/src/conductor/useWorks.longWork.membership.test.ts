@@ -40,7 +40,7 @@ import {
   workIdOf,
 } from "kolu-work";
 import { settle } from "@kolu/surface/solid/testlib";
-import { createRoot, flush } from "solid-js";
+import { flush } from "solid-js";
 import { expect, it, vi } from "vitest";
 
 const held = vi.hoisted(() => ({
