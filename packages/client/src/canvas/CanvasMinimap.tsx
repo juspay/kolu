@@ -16,9 +16,14 @@ import {
   startTileDrag,
   startViewportDrag,
 } from "./minimapGestures";
-import type { TileLayout } from "./TileLayout";
+import { foldEach } from "../wideFold";
+import { layoutsEqual, type TileLayout } from "./TileLayout";
 import { useTileTheme } from "./useTileTheme";
 import { useCanvasViewport } from "./viewport/useCanvasViewport";
+
+/** No tiles — a stable reference, so a hidden minimap does not re-key its
+ *  row memos on every read. */
+const NO_TILES: readonly string[] = [];
 
 /** Minimap target dimensions in pixels. */
 const MAP_W = 180;
@@ -131,6 +136,25 @@ const CanvasMinimap: Component<{
   // shortens the window in one place shortens it everywhere.
   const isParked = useStaleCheck();
 
+  /** ONE ROW PER TILE — the box each tile stands in, folded a chunk at a
+   *  time ({@link foldEach}). Walked on the bounds memo itself, the layout
+   *  lookup plus the four corner leaves put five or six sources per tile on
+   *  one scope, and a board is unbounded in tiles: Solid's development build
+   *  judges that past 200.
+   *
+   *  The keys are empty while the minimap is HIDDEN, so a board nobody is
+   *  looking at keeps no row memos and the box below holds its last value —
+   *  the same withdrawal the `shown` gate always made. */
+  const tileBoxes = foldEach<string, TileLayout>(
+    "minimapTiles",
+    () => (props.shown ? props.tileIds : NO_TILES),
+    (id) => {
+      const l = props.getLayout(id);
+      return l === undefined ? undefined : { x: l.x, y: l.y, w: l.w, h: l.h };
+    },
+    layoutsEqual,
+  );
+
   // ── Bounding box of all tiles ──
   const bounds = createMemo(
     (
@@ -148,9 +172,7 @@ const CanvasMinimap: Component<{
         minY = Infinity,
         maxX = -Infinity,
         maxY = -Infinity;
-      for (const id of props.tileIds) {
-        const l = props.getLayout(id);
-        if (!l) continue;
+      for (const l of tileBoxes()) {
         minX = Math.min(minX, l.x);
         minY = Math.min(minY, l.y);
         maxX = Math.max(maxX, l.x + l.w);
@@ -171,6 +193,7 @@ const CanvasMinimap: Component<{
         h: padMaxY - padMinY,
       };
     },
+    { name: "bounds" },
   );
 
   // ── Scale factor: fit bounding box into MAP_W × MAP_H ──

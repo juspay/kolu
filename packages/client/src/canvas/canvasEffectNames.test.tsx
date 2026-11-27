@@ -11,13 +11,16 @@
  * hand-written `{ name }` per effect, and this file is what judges it: a
  * finding raised BY one of those effects must carry that effect's own name.
  *
- * The finding is raised the way the product would raise it — a restored
- * session whose canvas centres on the bounding box of its tiles reads every
- * tile's layout from the layout prop, so the centring effect subscribes to one
- * source per tile. Past `WIDE_SCOPE_DEPS`' 250-subscriber budget here (300
- * tiles, each its own signal) Solid names the subscriber, and the name has to
- * be `centerOnFirstMount` rather than the bare `effect` every other effect in
- * the component would also answer to.
+ * The finding is DRIVEN IN through the one per-tile read that effect still
+ * makes. The canvas's own whole-board folds are chunked now — one row memo
+ * per tile, which `TerminalCanvas.wideDeps.test.tsx` judges — so no read of
+ * the canvas's own is wide any more; what the centring effect does read in
+ * its compute is the ACTIVE tile's layout, through the `getLayout` PROP its
+ * caller owns. The fixture below hands it a caller whose lookup for that one
+ * tile reads 300 signals, and that is what makes the effect's scope wide.
+ * Past `WIDE_SCOPE_DEPS`' budget Solid names the subscriber, and the name
+ * has to be `centerOnFirstMount` rather than the bare `effect` every other
+ * effect in the component would also answer to.
  *
  * Everything around the canvas's own reactive wiring is stood in, as in
  * `canvasStrictReads.test.tsx`: the stores, the per-tile presentation helpers,
@@ -36,15 +39,17 @@ const content = vi.hoisted(() => ({
   of: (() => undefined) as (id: string) => TileContent | undefined,
 }));
 const tiles = vi.hoisted(() => ({ ids: (() => []) as () => string[] }));
+/** The tile the canvas centres on — and the one whose layout lookup is wide. */
+const ACTIVE_TILE = "tile-0";
 
 vi.mock("../tile/useTileStore", () => ({
   useTileStore: () => ({
     contentOf: (id: string) => content.of(id),
-    isActiveTile: () => false,
+    isActiveTile: (id: string) => id === ACTIVE_TILE,
     isFocused: () => false,
-    // NO ACTIVE TILE, and none saved: that is the restored-session arm the
-    // centring effect folds the whole board for.
-    activeId: () => null,
+    // The canvas centres on the ACTIVE tile, and resolves that tile's layout
+    // through the layout prop — the read this file widens.
+    activeId: () => ACTIVE_TILE,
     activate: () => {},
     tileIds: () => tiles.ids(),
     planActivateVisiblePane: () => () => {},
@@ -162,13 +167,27 @@ it("names the centring effect in its own finding", () => {
     });
     layouts.set(id, layout);
   });
+  // The ACTIVE tile's layout, as a caller that cannot answer for one tile
+  // without reading the whole board gives it. The canvas resolves exactly
+  // this tile inside the centring effect, so the effect's scope is the one
+  // that goes wide.
+  const wholeBoard = (): TileLayout => {
+    let answer: TileLayout | undefined;
+    for (const [id, read] of layouts) {
+      const one = read();
+      if (id === ACTIVE_TILE) answer = one;
+    }
+    return answer as TileLayout;
+  };
 
   const host = document.createElement("div");
   dispose = render(
     () => (
       <TerminalCanvas
         tileIds={ids}
-        getLayout={(id: string) => layouts.get(id)?.()}
+        getLayout={(id: string) =>
+          id === ACTIVE_TILE ? wholeBoard() : layouts.get(id)?.()
+        }
         onLayoutChange={() => {}}
         planLayoutChange={() => () => {}}
         onSelect={() => {}}

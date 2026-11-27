@@ -38,6 +38,7 @@ import { sameTileContent, type TileId } from "../tile/tileContent";
 import { useTileStore } from "../tile/useTileStore";
 import { refWithRelease } from "../ui/refWithRelease";
 import { useShown } from "../ui/shown";
+import { foldEach } from "../wideFold";
 import CanvasMinimap from "./CanvasMinimap";
 import CanvasTile, { type CanvasTileMode } from "./CanvasTile";
 import Dock from "./dock/Dock";
@@ -245,8 +246,47 @@ const TerminalCanvas: Component<{
   // ids (a metadata tick must not wake it).
   const isMetadataRecordPresent = (id: TileId): boolean =>
     store.getMetadata(id) !== undefined;
-  const allRecordsSettled = createMemo(() =>
-    props.tileIds.every(isMetadataRecordPresent),
+  /** ONE ROW PER TILE, folded a chunk at a time — the three per-tile facts
+   *  this canvas folds over the whole board: whether the tile's metadata
+   *  RECORD has arrived, and the BOX it stands in (its own layout, or a
+   *  standing gesture over it).
+   *
+   *  Read straight off the board, each of those folds subscribed to every
+   *  tile — one record and one layout per tile — which Solid's development
+   *  build judges `WIDE_SCOPE_DEPS` past 200 sources, and a canvas is
+   *  unbounded in tiles. Through {@link foldEach} each tile is tracked on its
+   *  OWN row memo, and the three readings below cost one source each.
+   *
+   *  The box is read FIELD BY FIELD, and the row holds its previous value
+   *  while those fields are unchanged, so a tile whose layout did not move
+   *  republishes nothing however the record around it ticks. */
+  const tileRows = foldEach<
+    string,
+    { id: TileId; present: boolean; box: TileLayout | undefined }
+  >(
+    "canvasTiles",
+    () => props.tileIds,
+    (id) => {
+      const layout = resolvedLayout(id);
+      return {
+        id: id as TileId,
+        present: isMetadataRecordPresent(id as TileId),
+        box:
+          layout === undefined
+            ? undefined
+            : { x: layout.x, y: layout.y, w: layout.w, h: layout.h },
+      };
+    },
+    (a, b) =>
+      a.id === b.id &&
+      a.present === b.present &&
+      (a.box === undefined || b.box === undefined
+        ? a.box === b.box
+        : layoutsEqual(a.box, b.box)),
+  );
+  const allRecordsSettled = createMemo(
+    () => tileRows().every((row) => row.present),
+    { name: "allRecordsSettled" },
   );
   // The ECHO edge. A tile this canvas default-placed leaves the map when its
   // own layout lands (the `onLayoutChange` write, then the server's echo), and
@@ -255,7 +295,8 @@ const TerminalCanvas: Component<{
   // gains or loses a layout — never when an already-placed tile's layout VALUE
   // changes, so a drag echo or a metadata tick still cannot wake placement.
   const unplacedCount = createMemo(
-    () => props.tileIds.filter((id) => resolvedLayout(id) === undefined).length,
+    () => tileRows().filter((row) => row.box === undefined).length,
+    { name: "unplacedCount" },
   );
   const defaultPlacements = createMemo<Map<TileId, TileLayout>>(
     (previous = new Map()) => {
@@ -550,8 +591,14 @@ const TerminalCanvas: Component<{
         minY = Infinity,
         maxX = -Infinity,
         maxY = -Infinity;
-      for (const id of ids) {
-        const l = layoutOf(id);
+      // The board's own boxes, already folded a chunk at a time, plus the
+      // defaults this canvas derived for the tiles that have none — the same
+      // answer `layoutOf` gives per tile, at two sources instead of one per
+      // tile. A canvas is unbounded in tiles, and this effect used to
+      // subscribe to every one of their layouts.
+      const derived = defaultPlacements();
+      for (const row of tileRows()) {
+        const l = row.box ?? derived.get(row.id);
         if (!l) continue;
         minX = Math.min(minX, l.x);
         minY = Math.min(minY, l.y);
