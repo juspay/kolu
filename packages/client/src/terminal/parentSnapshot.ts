@@ -9,7 +9,7 @@
 
 import type { TerminalId } from "kolu-common/surface";
 import { type Accessor, createMemo } from "solid-js";
-import { foldEach } from "../wideFold";
+import { foldEach } from "@kolu/surface/solid";
 
 /** Whether two parent-snapshots are identical — same ids, same order, same
  *  parentId each. The `equals` gate on the snapshot memo below, so a metadata

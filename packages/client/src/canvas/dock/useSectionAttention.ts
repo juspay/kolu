@@ -27,7 +27,7 @@ import {
   type TerminalAttention,
 } from "@kolu/padi-client/attention";
 import { sameItems } from "../../conductor/sameItems";
-import { foldEach } from "../../wideFold";
+import { foldEach } from "@kolu/surface/solid";
 import { useAttentionFacts } from "../../attention/useAttentionFacts";
 import { useTerminalStore } from "../../terminal/useTerminalStore";
 import { encActiveHost } from "../../wire";

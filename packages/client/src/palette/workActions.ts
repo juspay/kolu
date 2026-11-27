@@ -12,7 +12,7 @@
  *
  *  So the rows are built per record instead: a keyed `mapArray` over the
  *  works, each item's row minted by its OWN memo, and the rows joined in
- *  chunks (`../wideFold`) so the list itself is not as wide as the fleet
+ *  chunks (`@kolu/surface/solid`) so the list is not as wide as the fleet
  *  either. A title change wakes one row.
  *
  *  EACH ROW READS THE SHARED SNAPSHOT, not the mirror's live record and not
@@ -36,7 +36,7 @@ import type { PaletteAction } from "../CommandPalette";
 import { showWork } from "../conductor/workListing";
 import { useWorkRecords } from "../conductor/useWorks";
 import { workHost, workSubtitle } from "../conductor/workReadings";
-import { joinRows } from "../wideFold";
+import { joinRows } from "@kolu/surface/solid";
 
 /** One row per work, each one its own memo — the palette's "works" section. */
 export function workPaletteRows(

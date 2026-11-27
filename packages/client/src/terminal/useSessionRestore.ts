@@ -24,7 +24,7 @@ import { useRightPanel } from "../right-panel/useRightPanel";
 import { lifecycle } from "../rpc/rpc";
 import type { UiAction } from "../runAction";
 import { activePadiRpc } from "../wire";
-import { foldEach } from "../wideFold";
+import { foldEach } from "@kolu/surface/solid";
 import { containingTileOf, descendantsByRoot } from "./terminalTree";
 import { useSubPanel } from "./useSubPanel";
 import type { TerminalStore } from "./useTerminalStore";

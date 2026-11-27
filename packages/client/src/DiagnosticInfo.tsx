@@ -47,7 +47,7 @@ import {
   serverRssBytes,
 } from "./ui/useMemoryUsage";
 import { layoutMode } from "./useMobile";
-import { foldEach } from "./wideFold";
+import { foldEach } from "@kolu/surface/solid";
 
 /** A per-process RSS display projected for the JSON snapshot — the byte figure
  *  when a live process answered, `"error"` when a believed-up process's read

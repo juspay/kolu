@@ -62,6 +62,7 @@ import {
 import { unenrolledStreamCall } from "@kolu/surface/client";
 import {
   createReactiveSubscription,
+  foldEach,
   type Subscription,
 } from "@kolu/surface/solid";
 import { encodeHostKey, type HostKey } from "kolu-common/hostKey";
@@ -73,7 +74,6 @@ import {
   type ParentEdge,
   sameIdOrder,
 } from "../terminal/terminalTree";
-import { foldEach } from "../wideFold";
 import { interpretClientError, padiMap } from "../wire";
 
 /** The empty roster — a stable reference, so a host that has not published a

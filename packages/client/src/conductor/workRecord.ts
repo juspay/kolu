@@ -15,7 +15,7 @@
  *  This splits that one scope the way the record itself is split. Each event
  *  and each decision is read by a memo of ITS OWN (`deep`, which subscribes
  *  a record's container and deep witness rather than every path under it),
- *  and their answers are joined in CHUNKS (`../wideFold`): no scope here
+ *  and their answers are joined in CHUNKS (`@kolu/surface/solid`): no scope
  *  holds more than a chunk of rows, so a timeline of any length stays under
  *  the 200-source judge, each row's scope is the handful that row holds,
  *  and every fold downstream carries ONE — the whole record is subscribed
@@ -36,7 +36,7 @@
 
 import type { Work } from "kolu-work";
 import { type Accessor, createMemo, deep, mapArray } from "solid-js";
-import { joinRows } from "../wideFold";
+import { joinRows } from "@kolu/surface/solid";
 
 /** The rows of a work that is no longer in the mirror: none of anything. */
 const GONE: ReadonlyArray<never> = [];

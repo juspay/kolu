@@ -63,7 +63,7 @@ import { createSharedRoot } from "../createSharedRoot";
 import { activeScope } from "../hostScope/hostScopes";
 import { runAction } from "../runAction";
 import { activePadiRpc } from "../wire";
-import { foldEach } from "../wideFold";
+import { foldEach } from "@kolu/surface/solid";
 
 /** What a tile's record says about its split. */
 export interface SplitPanelState {

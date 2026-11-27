@@ -28,7 +28,7 @@ import { type Accessor, createMemo, createRoot } from "solid-js";
 import { sameItems } from "../conductor/sameItems";
 import { type DaemonScan, daemonScanCause } from "../host/daemonScan";
 import { daemonChannelLive } from "../kaval/useDaemonStatus";
-import { foldEach } from "../wideFold";
+import { foldEach } from "@kolu/surface/solid";
 import { activeHost, padiMap } from "../wire";
 
 /** The empty sources an unserved scan reads — one frozen array each, so a scan

@@ -44,7 +44,7 @@ import { ChecksIndicator, PrStateIcon } from "@kolu/solid-dockrow";
 import { ProviderUnavailableContent } from "../terminal/PrUnavailablePopover";
 import { assignColors } from "../terminal/terminalDisplay";
 import { sameEach, sameFields, sameItems } from "../conductor/sameItems";
-import { foldEach } from "../wideFold";
+import { foldEach } from "@kolu/surface/solid";
 import { getClockNow } from "../time/clock";
 import Chip from "../ui/Chip";
 import Disclosure from "../ui/Disclosure";

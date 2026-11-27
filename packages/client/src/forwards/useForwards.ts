@@ -19,7 +19,7 @@ import { createMemo, createRoot, mapArray } from "solid-js";
 import { toast } from "solid-sonner";
 import { sameItems } from "../conductor/sameItems";
 import { runActionPromise } from "../runAction";
-import { foldEach } from "../wideFold";
+import { foldEach } from "@kolu/surface/solid";
 import { app, client, hostKeys } from "../wire";
 
 /** No doors on this host — the ONE empty array every quiet host's slice

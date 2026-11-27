@@ -16,7 +16,7 @@ import {
   startTileDrag,
   startViewportDrag,
 } from "./minimapGestures";
-import { foldEach } from "../wideFold";
+import { foldEach } from "@kolu/surface/solid";
 import { layoutsEqual, type TileLayout } from "./TileLayout";
 import { useTileTheme } from "./useTileTheme";
 import { useCanvasViewport } from "./viewport/useCanvasViewport";

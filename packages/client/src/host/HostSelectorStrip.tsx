@@ -87,7 +87,7 @@ import { forwardsForHost } from "../forwards/useForwards";
 import { type AnchorSide, useAnchoredPopover } from "../ui/useAnchoredPopover";
 import { useServerIdentity } from "../useServerIdentity";
 import { activeHost, hostKeys, padiMap, updatePreferences } from "../wire";
-import { foldEach } from "../wideFold";
+import { foldEach } from "@kolu/surface/solid";
 import { selectHostTab } from "./selectHostTab";
 import { addHost } from "./addHost";
 import { focusOnMount } from "./focusOnMount";

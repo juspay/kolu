@@ -38,7 +38,7 @@ import { sameTileContent, type TileId } from "../tile/tileContent";
 import { useTileStore } from "../tile/useTileStore";
 import { refWithRelease } from "../ui/refWithRelease";
 import { useShown } from "../ui/shown";
-import { foldEach } from "../wideFold";
+import { foldEach } from "@kolu/surface/solid";
 import CanvasMinimap from "./CanvasMinimap";
 import CanvasTile, { type CanvasTileMode } from "./CanvasTile";
 import Dock from "./dock/Dock";

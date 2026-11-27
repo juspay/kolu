@@ -23,7 +23,7 @@ import {
   runWithOwner,
 } from "solid-js";
 import { sameItems } from "../conductor/sameItems";
-import { foldEach } from "../wideFold";
+import { foldEach } from "@kolu/surface/solid";
 import type { ScrollLockEvent, TerminalGrid } from "@kolu/xterm-kit/solid";
 
 export type Renderer = "webgl" | "dom";

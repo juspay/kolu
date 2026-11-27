@@ -29,7 +29,7 @@ import { sameEach, sameItems } from "../conductor/sameItems";
 import { printedPortsOf } from "../terminal/printedPorts";
 import { useTerminalStore } from "../terminal/useTerminalStore";
 import { plainPorts, samePorts } from "./panePorts";
-import { foldEach } from "../wideFold";
+import { foldEach } from "@kolu/surface/solid";
 import { type ServingCandidate, servingLink } from "./terminalServingPort";
 
 /** Set equality — the `equals` gate for the printed-port memos, so an unrelated

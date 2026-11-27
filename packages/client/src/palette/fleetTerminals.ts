@@ -27,6 +27,7 @@ import {
 import { unenrolledStreamCall } from "@kolu/surface/client";
 import {
   createReactiveSubscription,
+  joinRows,
   type Subscription,
 } from "@kolu/surface/solid";
 import {
@@ -47,7 +48,6 @@ import { containingTileOf, type ParentEdge } from "../terminal/terminalTree";
 import { isParked } from "../terminal/useTerminalMetadata";
 import { getNowTicker } from "../terminal/staleness";
 import { hostKeys, interpretClientError, padiMap } from "../wire";
-import { joinRows } from "../wideFold";
 
 export type FleetTerminalRow = {
   host: HostKey;

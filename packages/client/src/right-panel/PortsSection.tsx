@@ -77,7 +77,7 @@ import { isActiveHostLocal } from "../kaval/useDaemonStatus";
 import { isTouch } from "../useMobile";
 import { ChevronRightIcon } from "../ui/Icons";
 import Section from "../ui/Section";
-import { foldEach } from "../wideFold";
+import { foldEach } from "@kolu/surface/solid";
 import { activeHost } from "../wire";
 import { PortRow } from "./PortRow";
 

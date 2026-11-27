@@ -14,7 +14,7 @@ import {
   type PadiActiveTerminal,
 } from "@kolu/padi-client/surface";
 import { unenrolledStreamCall } from "@kolu/surface/client";
-import { createReactiveSubscription } from "@kolu/surface/solid";
+import { createReactiveSubscription, foldEach } from "@kolu/surface/solid";
 import { useSurfaceApp } from "@kolu/surface-app/solid";
 import { encodeHostKey, type HostKey } from "kolu-common/hostKey";
 import type {
@@ -55,7 +55,6 @@ import {
   padiMap,
   setActiveHost,
 } from "../wire";
-import { foldEach } from "../wideFold";
 import { HostDualDaemonSlot } from "./HostDaemonChips";
 import { hostGlance, hostLabel } from "./hostChipTone";
 import { reconnectHost } from "./reconnectHost";

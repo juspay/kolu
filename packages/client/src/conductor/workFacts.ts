@@ -30,7 +30,7 @@ import {
   fleetTerminalStanding,
 } from "../palette/fleetTerminals";
 import { agentName } from "../ui/agentDisplay";
-import { foldEach } from "../wideFold";
+import { foldEach } from "@kolu/surface/solid";
 import { type MemberRef, splitMemberRef } from "./memberRef";
 import { type ChecksTally, checksTally } from "./prReadings";
 import { sameItems } from "./sameItems";

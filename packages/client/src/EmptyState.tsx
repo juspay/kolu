@@ -24,7 +24,7 @@ import { surface } from "./ui/Surface";
 import Toggle from "./ui/Toggle";
 import { isDesktop } from "./useMobile";
 import WelcomeMoments from "./WelcomeMoments";
-import { foldEach } from "./wideFold";
+import { foldEach } from "@kolu/surface/solid";
 
 const chrome = surface();
 

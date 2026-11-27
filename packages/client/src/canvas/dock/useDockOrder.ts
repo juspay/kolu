@@ -31,7 +31,7 @@ import { showSleeping } from "../../terminal/showSleeping";
 import { useStaleCheck } from "../../terminal/staleness";
 import { useTerminalStore } from "../../terminal/useTerminalStore";
 import { useTileStore } from "../../tile/useTileStore";
-import { foldEach, joinRows } from "../../wideFold";
+import { foldEach, joinRows } from "@kolu/surface/solid";
 import {
   type DockPaneRef,
   flattenPaneTree,

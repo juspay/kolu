@@ -42,9 +42,22 @@ export const CHUNK = 128;
  *  chunk and the join close themselves with, for values that carry their own
  *  identity (rows, keys, strings, numbers). A fold whose reading MINTS a fresh
  *  record per member passes its own `equals` instead, so an unchanged reading
- *  is not published as a new list. */
-export const sameMembers = <T>(a: readonly T[], b: readonly T[]): boolean =>
-  a === b || (a.length === b.length && a.every((one, at) => one === b[at]));
+ *  is not published as a new list.
+ *
+ *  Absent on either side is answered, not thrown on: Solid hands a comparator
+ *  whatever the scope held before, which for a memo that has not computed yet
+ *  is `undefined`. */
+export const sameMembers = <T>(
+  a: readonly T[] | null | undefined,
+  b: readonly T[] | null | undefined,
+): boolean =>
+  a === b ||
+  (a !== undefined &&
+    a !== null &&
+    b !== undefined &&
+    b !== null &&
+    a.length === b.length &&
+    a.every((one, at) => one === b[at]));
 
 /** How a {@link joinChunks} fold is sized and gated. */
 export interface JoinChunksOptions<T> {
@@ -52,7 +65,8 @@ export interface JoinChunksOptions<T> {
    *  more than one source per row takes a smaller one. */
   chunk?: number;
   /** When two readings of one chunk — and two readings of the whole join — are
-   *  the same list. Defaults to {@link sameMembers}. */
+   *  the same list. It is asked about two readings only (absence is answered
+   *  before it). Defaults to {@link sameMembers}. */
   equals?: (a: readonly T[], b: readonly T[]) => boolean;
 }
 
@@ -67,7 +81,15 @@ export const joinChunks = <T>(
   options?: JoinChunksOptions<T>,
 ): Accessor<ReadonlyArray<T>> => {
   const size = options?.chunk ?? CHUNK;
-  const equals = options?.equals ?? sameMembers;
+  const given = options?.equals;
+  // Solid asks a comparator about whatever the scope held before, which for a
+  // scope that has not computed yet is `undefined` — so absence is answered
+  // here and a caller's own `equals` is only ever handed two readings.
+  const equals =
+    given === undefined
+      ? sameMembers
+      : (a: readonly T[] | undefined, b: readonly T[] | undefined): boolean =>
+          a === undefined || b === undefined ? a === b : given(a, b);
   const starts = createMemo(
     () =>
       Array.from({ length: Math.ceil(length() / size) }, (_, at) => at * size),

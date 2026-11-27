@@ -52,7 +52,7 @@ import {
   type Store,
 } from "solid-js";
 import { createSharedRoot } from "../createSharedRoot";
-import { foldEach, joinRows } from "../wideFold";
+import { foldEach, joinRows } from "@kolu/surface/solid";
 import { app } from "../wire";
 import { workMentionOf, type WorkMention } from "./mentionCandidates";
 import { sameItems } from "./sameItems";

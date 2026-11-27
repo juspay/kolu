@@ -14,7 +14,7 @@ import { activeArm } from "@kolu/padi-client/surface";
 import type { TerminalId } from "kolu-common/surface";
 import { createMemo, createProjection } from "solid-js";
 import { createSharedRoot } from "../createSharedRoot";
-import { foldEach } from "../wideFold";
+import { foldEach } from "@kolu/surface/solid";
 import { terminalListSub } from "../hostScope/activeWire";
 import { useViewState } from "../useViewState";
 import { useSubPanel } from "./useSubPanel";

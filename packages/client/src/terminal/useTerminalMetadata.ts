@@ -29,7 +29,7 @@ import {
 } from "solid-js";
 import { sameFields } from "../conductor/sameItems";
 import { activeScope } from "../hostScope/hostScopes";
-import { foldEach } from "../wideFold";
+import { foldEach } from "@kolu/surface/solid";
 import { activeHost, padiMap } from "../wire";
 import { reprojectTerminalClock } from "./reprojectClock";
 import {
