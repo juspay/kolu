@@ -1,3 +1,5 @@
+// @vitest-environment happy-dom
+
 /** THE METADATA WINDOW AT A FLEET'S SIZE — 50 tiles, four panes each, 250
  *  terminals on one host.
  *
@@ -9,84 +11,55 @@
  *  before a single field, so these cross at ~30–100 panes — reachable in a
  *  heavy session.
  *
+ *  THE RECORDS ARE THE REAL STORE. The keys arrive on the real
+ *  `createReactiveSubscription` stream and each record through the real
+ *  per-key `useCollection` view (`hostScope/hostWireMirror.testlib.ts`),
+ *  reached the way production reaches them: `createHostWire` over that mirror
+ *  (`hostScope/fleetScope.testlib.ts`), read through `terminalListSub` — the
+ *  same facade `useTerminalStore` hands this hook. A fixture of plain arrays
+ *  and plain records under-measures that graph about threefold, so it could
+ *  only ever judge an imitation of the scope the browser builds.
+ *
  *  Each test here judges BOTH halves: the diagnostics Solid raised (taken
  *  whole, `info` included) and the published value, computed from the
- *  fixture's own plan rather than from the fold under test. Then one
- *  realistic change — a pane's cwd moving, a pane leaving — and both again,
- *  so a narrower graph that stops answering is no fix. */
+ *  fleet's own plan rather than from the fold under test. Then the realistic
+ *  changes — a tile's cwd moving, a pane leaving the key list — and both
+ *  again, so a narrower graph that stops answering is no fix. */
 
+import type { PadiTerminal } from "@kolu/padi-client/surface";
 import { identityColor } from "@kolu/solid-dockrow/rowValues";
 import { takeSolidDiagnostics } from "@kolu/solid-test-setup/setup";
+import { settle } from "@kolu/surface/solid/testlib";
 import { terminalKey } from "@kolu/terminal-vocab/terminalKey";
-import { Stream } from "effect";
-import { decodeHostKey, encodeHostKey, LOCAL_HOST } from "kolu-common/hostKey";
 import type { TerminalId } from "kolu-common/surface";
-import { createMemo, createRoot, createStore, flush } from "solid-js";
-import { expect, it, vi } from "vitest";
+import { createRoot, flush } from "solid-js";
+import { afterEach, expect, it, vi } from "vitest";
 
-/** A composed record as the per-key collection serves it — the store row
- *  `byKey` hands back whole, so a field read is that field's own node. */
-type TestRecord = {
-  state: "active";
-  git: { kind: "none" };
-  cwd: string;
-  parentId?: TerminalId;
-};
-
-const bag = vi.hoisted(() => ({
-  keys: (() => [] as TerminalId[]) as () => TerminalId[],
-  lookup: (() => undefined) as (
-    id: TerminalId,
-  ) => (() => TestRecord | undefined) | undefined,
+// `useCollection` opens each key's stream through this; the mirror's procedure
+// IS the stream, so calling it is the whole wire.
+vi.mock("@kolu/surface/client", async (original) => ({
+  ...(await original<Record<string, unknown>>()),
+  unenrolledStreamCall: (source: (input: unknown) => unknown, input: unknown) =>
+    source(input),
 }));
 
-// THE MIRROR, SHAPED AS THE FRAMEWORK SHAPES IT. A per-key collection holds
-// each value in `createStore<{ v }>` and serves `() => store.v` behind a
-// per-key memo, and its `keys()` is a store-proxy array — so one record read
-// costs two sources before any field and a loop over the keys pays an index
-// leaf per id. Counting anything less would under-measure the graph judged
-// here.
-vi.mock("../wire", () => {
-  const terminals = {
-    use: () => ({
-      keys: () => bag.keys(),
-      byKey: (id: TerminalId) => bag.lookup(id),
-    }),
-    unenrolledKeys: () => Stream.never,
-  };
-  const stubCell = {
-    use: () => ({
-      value: () => undefined,
-      sub: Object.assign(() => undefined, {
-        pending: () => false,
-        error: () => undefined,
-        complete: () => false,
-      }),
-    }),
-  };
-  const stubCollection = {
-    use: () => ({ keys: () => [], byKey: () => undefined }),
-  };
-  const entry = () => ({
-    clock: { toLocal: (ms: number) => ms },
-    collections: { terminals, daemonStatus: stubCollection },
-    cells: { session: stubCell, roster: stubCell, activityFeed: stubCell },
-    procedures: { chrome: { setActive: async () => {} } },
-  });
-  return {
-    padiMap: {
-      entries: {
-        use: () => ({ keys: () => [LOCAL_HOST], byKey: () => undefined }),
-      },
-      codec: { encode: encodeHostKey, decode: decodeHostKey },
-      live: () => true,
-      entry,
-      useEntry: entry,
-    },
-    activeHost: () => LOCAL_HOST,
-    groundedActiveHost: () => LOCAL_HOST,
-  };
-});
+const held = vi.hoisted(() => ({
+  entry: (() => undefined) as () => unknown,
+  scope: undefined as unknown,
+}));
+
+vi.mock("../wire", () => ({
+  padiMap: { entry: () => held.entry() },
+  activeHost: () => ({ kind: "local" }),
+  encActiveHost: () => "local",
+  hostKeys: () => [{ kind: "local" }],
+  interpretClientError: () => {},
+  activePadiRpc: { chrome: { setSubPanel: async () => {} } },
+}));
+vi.mock("../hostScope/hostScopes", () => ({
+  activeScope: () => held.scope,
+  hostScopeOf: () => held.scope,
+}));
 vi.mock("solid-sonner", () => ({
   toast: Object.assign(() => {}, {
     loading: () => 0,
@@ -97,6 +70,9 @@ vi.mock("solid-sonner", () => ({
   }),
 }));
 
+import { terminalListSub } from "../hostScope/activeWire";
+import { fleetScope } from "../hostScope/fleetScope.testlib";
+import { hostWireMirror } from "../hostScope/hostWireMirror.testlib";
 import type { PaneNode } from "./terminalTree";
 import { useTerminalMetadata } from "./useTerminalMetadata";
 
@@ -118,89 +94,86 @@ const DUPLICATE = "/w/shared";
 const cwdOfTile = (at: number): string =>
   at === 7 || at === 31 ? DUPLICATE : `/w/p${at}`;
 
-interface Fleet {
-  readonly ids: TerminalId[];
-  readonly records: Record<string, TestRecord>;
+/** p0 and p2 hang off the tile; p1 hangs off p0 and p3 off p2. */
+const parentOfPane = (at: number, pane: number): TerminalId =>
+  pane === 1 ? paneAt(at, 0) : pane === 3 ? paneAt(at, 2) : tileAt(at);
+
+/** The server's order: each tile, then its own panes. */
+const ids: TerminalId[] = [];
+for (let at = 0; at < TILES; at++) {
+  ids.push(tileAt(at));
+  for (let pane = 0; pane < 4; pane++) ids.push(paneAt(at, pane));
 }
 
-const fleet = (): Fleet => {
-  const ids: TerminalId[] = [];
-  const records: Record<string, TestRecord> = {};
-  const record = (cwd: string, parentId?: TerminalId): TestRecord => ({
+/** A composed record as this fleet serves one — a live shell with a clock, so
+ *  nothing is parked and nothing is awaited once it has landed. */
+const recordOf = (
+  cwd: string,
+  parentId: TerminalId | null,
+  lastActivityAt: number,
+): PadiTerminal =>
+  ({
     state: "active",
-    git: { kind: "none" },
-    cwd,
     parentId,
-  });
-  for (let at = 0; at < TILES; at++) {
-    const tile = tileAt(at);
-    ids.push(tile);
-    records[tile] = record(cwdOfTile(at));
-    // p0 and p2 hang off the tile; p1 hangs off p0 and p3 off p2.
-    const parents: TerminalId[] = [tile, paneAt(at, 0), tile, paneAt(at, 2)];
-    for (let pane = 0; pane < 4; pane++) {
-      const id = paneAt(at, pane);
-      ids.push(id);
-      records[id] = record(`/w/p${at}/pane${pane}`, parents[pane]);
-    }
-  }
-  return { ids, records };
+    lastActivityAt,
+    cwd,
+    git: { kind: "none" },
+  }) as unknown as PadiTerminal;
+
+/** This id's place in the fleet, so a record can be re-pushed by id alone. */
+const placeOf = (id: TerminalId): { at: number; pane: number | null } => {
+  const at = Number(/^t(\d+)/.exec(id)?.[1] ?? 0);
+  const pane = /p(\d+)$/.exec(id);
+  return { at, pane: pane === null ? null : Number(pane[1]) };
+};
+
+const recordFor = (id: TerminalId, n: number, cwd?: string): PadiTerminal => {
+  const { at, pane } = placeOf(id);
+  return recordOf(
+    cwd ?? (pane === null ? cwdOfTile(at) : `/w/p${at}/pane${pane}`),
+    pane === null ? null : parentOfPane(at, pane),
+    n,
+  );
 };
 
 interface Harness {
   readonly hook: ReturnType<typeof useTerminalMetadata>;
+  /** One record lands again with a new cwd — a frame on a live key. */
   readonly setCwd: (id: TerminalId, cwd: string) => void;
+  /** The last id leaves the host's key list — the whole of a departure. */
   readonly dropLast: () => void;
-  readonly dispose: () => void;
 }
 
-/** The membership list and every record live in the stores the framework holds
- *  them in, read through the per-key lookup it memoizes. */
-const drive = (): Harness => {
-  const { ids, records } = fleet();
-  const [keyStore, setKeyStore] = createStore<{ v: TerminalId[] }>({ v: ids });
-  const [state, setState] = createStore<{
-    rows: Record<string, { v: TestRecord | undefined }>;
-  }>({
-    rows: Object.fromEntries(
-      Object.entries(records).map(([id, record]) => [id, { v: record }]),
-    ),
+let dispose: (() => void) | undefined;
+afterEach(() => {
+  dispose?.();
+  dispose = undefined;
+});
+
+/** The fleet, landed: the real keys stream, the real per-key collection, and
+ *  the hook reading them through the facade production hands it. */
+const drive = async (): Promise<Harness> => {
+  const mirror = hostWireMirror();
+  held.entry = () => ({
+    clock: { toLocal: (at: number) => at },
+    ...(mirror.entry as object),
   });
-  bag.keys = () => keyStore.v;
-  return createRoot((dispose) => {
-    const lookups = new Map<
-      TerminalId,
-      () => (() => TestRecord | undefined) | undefined
-    >();
-    for (const id of ids) {
-      const value = () => state.rows[id]?.v;
-      lookups.set(
-        id,
-        createMemo(() => (state.rows[id] === undefined ? undefined : value)),
-      );
-    }
-    bag.lookup = (id) => lookups.get(id)?.();
-    const hook = useTerminalMetadata({ list: () => keyStore.v });
-    return {
-      hook,
-      setCwd: (id, cwd) =>
-        setState((s) => {
-          const row = s.rows[id];
-          if (row?.v !== undefined) row.v.cwd = cwd;
-        }),
-      dropLast: () => {
-        const gone = keyStore.v[keyStore.v.length - 1];
-        if (gone === undefined) return;
-        setKeyStore((s) => {
-          s.v.pop();
-        });
-        setState((s) => {
-          delete s.rows[gone];
-        });
-      },
-      dispose,
-    };
+  takeSolidDiagnostics();
+  const hook = createRoot((disposeRoot) => {
+    dispose = disposeRoot;
+    held.scope = fleetScope().scope;
+    return useTerminalMetadata({ list: terminalListSub });
   });
+  mirror.pushKeys(ids);
+  for (const [n, id] of ids.entries()) mirror.pushRecord(id, recordFor(id, n));
+  await settle();
+  flush();
+  return {
+    hook,
+    setCwd: (id, cwd) =>
+      mirror.pushRecord(id, recordFor(id, ids.indexOf(id), cwd)),
+    dropLast: () => mirror.pushKeys(ids.slice(0, -1)),
+  };
 };
 
 /** The flat strip the canvas paints for one tile, in server order. */
@@ -217,38 +190,40 @@ const paneTreeAt = (at: number): PaneNode[] => [
   { id: paneAt(at, 2), children: [{ id: paneAt(at, 3), children: [] }] },
 ];
 
-it("counts the record phases of 250 terminals with no wide scope", () => {
-  takeSolidDiagnostics();
-  const h = drive();
-  flush();
+it("counts the record phases of 250 terminals with no wide scope", async () => {
+  const h = await drive();
   expect(h.hook.recordPhases()).toEqual({ awaited: 0, parked: 0, live: 250 });
+  expect(diagnostics()).toEqual([]);
 
   // One pane leaves: the census is one shorter and nothing else moves.
   h.dropLast();
+  await settle();
   flush();
   expect(h.hook.recordPhases()).toEqual({ awaited: 0, parked: 0, live: 249 });
   expect(diagnostics()).toEqual([]);
-  h.dispose();
 });
 
-it("orders 50 tiles and indexes their 200 panes with no wide scope", () => {
-  takeSolidDiagnostics();
-  const h = drive();
-  flush();
+it("orders 50 tiles and indexes their 200 panes with no wide scope", async () => {
+  const h = await drive();
   const tiles = Array.from({ length: TILES }, (_, at) => tileAt(at));
   expect(h.hook.terminalIds()).toEqual(tiles);
   for (let at = 0; at < TILES; at++) {
     expect(h.hook.getSplitPaneIds(tileAt(at))).toEqual(flatPanesOf(at));
     expect(h.hook.getPaneTree(tileAt(at))).toEqual(paneTreeAt(at));
   }
+  expect(diagnostics()).toEqual([]);
+
   // A pane's own leaf moving changes neither index.
-  const held = h.hook.getSplitPaneIds(tileAt(3));
+  const held3 = h.hook.getSplitPaneIds(tileAt(3));
   h.setCwd(paneAt(3, 1), "/w/p3/moved");
+  await settle();
   flush();
-  expect(h.hook.getSplitPaneIds(tileAt(3))).toBe(held);
+  expect(h.hook.getSplitPaneIds(tileAt(3))).toBe(held3);
+  expect(diagnostics()).toEqual([]);
 
   // The last tile's deepest pane leaves: its strip and its tree lose it.
   h.dropLast();
+  await settle();
   flush();
   const last = TILES - 1;
   expect(h.hook.terminalIds()).toEqual(tiles);
@@ -260,13 +235,10 @@ it("orders 50 tiles and indexes their 200 panes with no wide scope", () => {
     { id: paneAt(last, 2), children: [] },
   ]);
   expect(diagnostics()).toEqual([]);
-  h.dispose();
 });
 
-it("builds the display table for 50 tiles with no wide scope", () => {
-  takeSolidDiagnostics();
-  const h = drive();
-  flush();
+it("builds the display table for 50 tiles with no wide scope", async () => {
+  const h = await drive();
   const expected = (at: number, subCount: number) => {
     const cwd = cwdOfTile(at);
     const { group, label } = terminalKey({ git: { kind: "none" }, cwd });
@@ -285,10 +257,12 @@ it("builds the display table for 50 tiles with no wide scope", () => {
     expect(h.hook.getDisplayInfo(tileAt(at))).toEqual(expected(at, 4));
   // Only tiles are display rows; a pane has none.
   expect(h.hook.getDisplayInfo(paneAt(0, 0))).toBeUndefined();
+  expect(diagnostics()).toEqual([]);
 
   // One tile moves to a fresh cwd — its own row re-keys, its neighbours stand.
   const neighbour = h.hook.getDisplayInfo(tileAt(1));
   h.setCwd(tileAt(0), "/w/elsewhere");
+  await settle();
   flush();
   const moved = h.hook.getDisplayInfo(tileAt(0));
   const { group, label } = terminalKey({
@@ -302,11 +276,12 @@ it("builds the display table for 50 tiles with no wide scope", () => {
     key: { group, label, suffix: undefined },
   });
   expect(h.hook.getDisplayInfo(tileAt(1))).toBe(neighbour);
+  expect(diagnostics()).toEqual([]);
 
   // A pane leaving drops its tile's split badge by one.
   h.dropLast();
+  await settle();
   flush();
   expect(h.hook.getDisplayInfo(tileAt(TILES - 1))?.subCount).toBe(3);
   expect(diagnostics()).toEqual([]);
-  h.dispose();
 });
