@@ -16,9 +16,9 @@
  * RESET itself from its poll effect's apply arm wrote the panel twice, once
  * with the NEW selection beside the PREVIOUS file's content, and again after
  * the reset landed (`EFFECT_RELAY_TEAR`, root `perTerminal.selectedFileByMode`,
- * wrote `createPolledQuery.store.v`). Deriving the query's faces against the
- * key the store is stamped with makes it one: a panel written with the new
- * selection and the loading line that honestly answers it.
+ * wrote `createPolledQuery`'s published answer). Deriving the query's faces
+ * against the key that answer is stamped with makes it one: a panel written
+ * with the new selection and the loading line that honestly answers it.
  *
  * A reader that took ONLY the query would not catch this — the reset is the
  * only thing that wakes it, so it applies once either way. The tear is a
@@ -121,9 +121,10 @@ it("writes the split's panel once per selection write, over the real file query"
     });
     // What the panel SHOWS, derived from the query the way the Code tab's own
     // readers are (`treeInventory`, `treeGitStatus`, `browseFile`): a memo
-    // over the query's VALUE, so the frame below carries `createPolledQuery`'s
-    // `store.v` — the write review 44 read off the dev-lane log. No answer for
-    // the standing key yet is the panel's loading line.
+    // over the query's VALUE, so the frame below carries the answer
+    // `createPolledQuery` published — the write review 44 read off the
+    // dev-lane log. No answer for the standing key yet is the panel's loading
+    // line.
     const shown = createMemo(() => fileContent() ?? "loading", {
       name: "shownFileContent",
     });

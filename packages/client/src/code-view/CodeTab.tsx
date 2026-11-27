@@ -827,17 +827,18 @@ const CodeTab: Component<{
         ? current
         : null;
     };
-    // Copy `paths` out rather than returning the store proxy directly:
-    // `fsListAll` lands in a reconciled store whose `paths` array is
-    // mutated in place, so the proxy's reference is stable across an
-    // in-place add/remove. Returning it bare means this memo never reads
-    // the contents (so an in-place add doesn't re-run it) and, even when it
-    // does re-run, the stable reference defeats the downstream
-    // reference-equality memos/effects that feed Pierre — a file created in
-    // a hand-expanded folder would never surface. Spreading tracks every
-    // element + length and mints a fresh reference, matching the diff
-    // branch's `.map()` below. See `createReactiveSubscription` /
-    // `writeValue.ts` for the reconcile strategy.
+    // Copy `paths` out rather than handing a listing's own array on:
+    // everything downstream of this memo — the search projection, the frozen
+    // tree frame, Pierre's own expansion reconcile — decides whether anything
+    // moved by REFERENCE, so each published inventory must be its own array.
+    // `mergeBrowseInventory` spreads for exactly that reason (its own note
+    // says so), matching the diff branch's `.map()` below.
+    //
+    // One source per listing, and a listing that re-read the same content
+    // keeps its reference: `createPolledQuery` publishes the whole answer as a
+    // VALUE gated on `framesEqual`, so this memo tracks one source per query
+    // however many thousand paths a repository has, and a watcher pulse that
+    // changed nothing never re-runs it at all.
     //
     // The gitignored overlay rides its own idle-unless-toggled query, so its
     // entries join here: collapsed paths whose trailing slash marks a

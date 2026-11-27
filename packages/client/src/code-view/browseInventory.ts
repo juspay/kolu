@@ -92,7 +92,7 @@ export function mergeBrowseInventory(
   // otherwise cost ~10x the rest of this function over a whole repo's file list
   // — paid on every inventory tick by every user with the toggle OFF, which is
   // the default. The spread stays: callers depend on a fresh reference (see
-  // `treeInventory`'s note on the reconciled store's in-place mutation).
+  // `treeInventory`'s note on the reference its readers go by).
   if (!ignored?.length)
     return { paths: [...tracked], ignored: NONE, lazyDirs: NONE, pending };
   // Rule 2 — exact overlap and tracked-under-dir both belong to tracked.

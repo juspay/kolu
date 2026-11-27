@@ -211,7 +211,7 @@ describe("createPolledQuery", () => {
   });
 
   it("a round trip BACK to an already-answered key keeps that key's answer (no blank), where master re-blanked", async () => {
-    // The one behaviour difference from master. The store's stamp moves only on a
+    // The one behaviour difference from master. The answer's stamp moves only on a
     // landing, so A → B → A with no landing for B returns to A's OWN answer:
     // value held, `pending()` false, refreshed in place by the pulse's first frame.
     // Master reset the faces on every active run of the poll effect, so the way
@@ -246,7 +246,7 @@ describe("createPolledQuery", () => {
         await settle();
         const onB = { v: q(), pending: q.pending() };
 
-        // …and BACK to A, whose answer the store still carries.
+        // …and BACK to A, whose answer is still the one being held.
         setRepo("A");
         await settle();
         const backAtA = { v: q(), pending: q.pending() };
@@ -259,7 +259,7 @@ describe("createPolledQuery", () => {
     });
     expect(res.onB.v).toBeUndefined(); // a key with no stamped answer is blank…
     expect(res.onB.pending).toBe(true);
-    expect(res.backAtA.v).toBe("A#1"); // …and the key the store answers for is not
+    expect(res.backAtA.v).toBe("A#1"); // …and the key still answered for is not
     expect(res.backAtA.pending).toBe(false);
     expect(res.afterRefresh).toBe("A#2"); // refreshed in place, never blanked
     expect(res.calls).toBe(2); // B never read: it got no pulse frame
@@ -622,14 +622,14 @@ describe("createPolledQuery", () => {
     expect(res.afterResume).toBe("B#2");
   });
 
-  it("active pause gate: an IN-FLIGHT query is aborted on pause — a late resolve never writes the now-background store (no cross-host mix)", async () => {
+  it("active pause gate: an IN-FLIGHT query is aborted on pause — a late resolve never publishes onto the now-background query (no cross-host mix)", async () => {
     // A requery already DISPATCHED when a host is backgrounded must be torn down, not
     // just the pulse: `BrowseFileDispatcher` reads `activeHost()` AFTER its await (the
     // binary URL), so a late resolve would stamp the NEW host's URL with THIS host's tag
-    // into THIS host's retained store — a cross-host mix. Pausing aborts the in-flight
+    // onto THIS host's retained answer — a cross-host mix. Pausing aborts the in-flight
     // query, so its resolve early-returns on `ctl.signal.aborted` and the held value is
     // frozen. (Before the fix, the inactive branch returned WITHOUT aborting, so the late
-    // resolve overwrote the store with "A#LATE".)
+    // resolve published "A#LATE".)
     const res = await new Promise<{
       paused: unknown;
       afterLateResolve: unknown;
@@ -686,7 +686,7 @@ describe("createPolledQuery", () => {
     // compute, equal value or not. Wiring `onError` to `error()` therefore raised
     // a fresh toast on every mode switch once a read had failed, forever — three
     // calls for the one failure here (1 → 2 → 3 over two away-and-back switches:
-    // nothing LANDS in this fixture, so `store.key` stays null, the paused
+    // nothing LANDS in this fixture, so no key is answered for, the paused
     // `shownKey()` matches no failure and only each resume re-raises). A landed-
     // then-failed key pauses onto its own failure too, and makes it five. It is
     // wired to the failure itself, so the callback moves only when a read fails
