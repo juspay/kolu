@@ -138,3 +138,39 @@ it("wakes no reader when a key asks for the row already highlighted", () => {
   ]);
   expect(findings(), "the equal highlight write").toEqual([]);
 });
+
+it("wakes no reader when a drill-in clears a query that is already clear", () => {
+  open([
+    ...ROWS,
+    {
+      kind: "group",
+      name: "a group",
+      children: [
+        { kind: "action", name: "child one", onSelect: () => {} },
+        { kind: "action", name: "child two", onSelect: () => {} },
+      ],
+    },
+  ]);
+  const field = document.querySelector("input");
+  if (!field) throw new Error("the palette rendered no search input");
+  expect(field.value, "nothing is typed yet").toBe("");
+  findings();
+
+  const before = ranFor("paletteQuery");
+  // A drill-in clears the filter it is leaving — and there is nothing to
+  // clear, so the query is handed the empty text it already holds.
+  const group = options().find(
+    (el) => el.getAttribute("data-palette-name") === "a group",
+  );
+  if (!group) throw new Error("the palette drew no group row");
+  group.click();
+  flush();
+
+  expect(ranFor("paletteQuery") - before, "the query's memo").toBe(0);
+  expect(field.value, "the field is still empty").toBe("");
+  expect(shownRows(), "the group's children are shown").toEqual([
+    "child one",
+    "child two",
+  ]);
+  expect(findings(), "the equal query write").toEqual([]);
+});

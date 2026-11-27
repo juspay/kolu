@@ -681,8 +681,13 @@ const CommandPalette: Component<{
   // A memo, so a reader wakes for a CHANGED query and not for an edge that
   // left it alone.
   const query = createMemo(() => queryState().value, { name: "paletteQuery" });
+  /** A write of the text the query already holds writes nothing: a drill-in
+   *  or a breadcrumb walk clears a filter that is already clear. A plain
+   *  string signal — what this was before it became a composite — drops such
+   *  a write, and the composite must too, so nothing wakes for the text it
+   *  was just given back (review 64 §6). */
   const setQuery = (value: string): void => {
-    setQueryState((prev) => ({ ...prev, value }));
+    setQueryState((prev) => (prev.value === value ? prev : { ...prev, value }));
   };
 
   /** The TRIM's imperative half: a segment the live tree dropped (host
