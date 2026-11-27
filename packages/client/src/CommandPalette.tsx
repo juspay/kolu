@@ -477,10 +477,16 @@ const CommandPalette: Component<{
       { name: `${name}Edge` },
     );
     // A memo, so a reader wakes for a CHANGED value and not for an edge that
-    // left it alone (a close keeps the tip text it was showing).
+    // left it alone (a close keeps the tip text it was showing). The setter
+    // holds the same line: a write of the value already held keeps `prev`, so
+    // the composite's identity — and with it the memo and everything under it
+    // — stays put, exactly as the plain signal this replaced did.
     return [
       createMemo(() => state().value, { name }),
-      (value: T) => setState((prev) => ({ ...prev, value })),
+      (value: T) =>
+        setState((prev) =>
+          Object.is(prev.value, value) ? prev : { ...prev, value },
+        ),
     ];
   }
   // The one-shot ambient tip: picked ONCE per open. `untrack` because the pick

@@ -174,3 +174,33 @@ it("wakes no reader when a drill-in clears a query that is already clear", () =>
   ]);
   expect(findings(), "the equal query write").toEqual([]);
 });
+
+it("wakes no reader when a second mouse move re-arms hover", () => {
+  open(ROWS);
+  const list = document.querySelector<HTMLElement>(".overflow-y-auto");
+  if (!list) throw new Error("the palette drew no list container");
+  const move = (x: number, y: number): void => {
+    list.dispatchEvent(
+      new MouseEvent("mousemove", { clientX: x, clientY: y, bubbles: true }),
+    );
+    flush();
+  };
+  // The first move only seeds the gate; the second is the real delta that
+  // arms hover, so the flag is already true before the third.
+  move(10, 10);
+  move(20, 20);
+  expect(highlighted(), "the keyboard row still leads").toBe("first row");
+  findings();
+
+  const before = ranFor("paletteMouseActive");
+  move(30, 30);
+
+  expect(ranFor("paletteMouseActive") - before, "the flag's memo").toBe(0);
+  expect(highlighted(), "the same row is still highlighted").toBe("first row");
+  expect(shownRows(), "the same rows are shown").toEqual([
+    "first row",
+    "second row",
+    "third row",
+  ]);
+  expect(findings(), "the equal hover write").toEqual([]);
+});
