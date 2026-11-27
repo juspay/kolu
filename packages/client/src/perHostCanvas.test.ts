@@ -39,11 +39,7 @@
  *  the fixture is refactored to the real owner. See the commit message for the
  *  fixture old→new map + that red-run record.) */
 
-import type {
-  SavedSession,
-  TerminalInfo,
-  TerminalMetadata,
-} from "@kolu/padi-client/surface";
+import type { SavedSession, TerminalMetadata } from "@kolu/padi-client/surface";
 import { Effect } from "effect";
 import type { HostKey } from "kolu-common/hostKey";
 import type { TerminalId } from "kolu-common/surface";
@@ -169,7 +165,8 @@ const HOST_B: HostKey = { kind: "remote", target: "B" };
 // reassignment would strand the owner's memo on a disposed signal. (Membership is
 // the shared `mockHostMap` signal, driven by `addHost`/`resetHosts`.)
 const [driveHost, setDriveHost] = createSignal<HostKey>(HOST_A);
-const [driveList, setDriveList] = createSignal<TerminalInfo[] | undefined>(
+// The live terminal list is published as IDS (`terminalListSub`), in server order.
+const [driveList, setDriveList] = createSignal<TerminalId[] | undefined>(
   undefined,
 );
 const [driveMeta, setDriveMeta] = createSignal<
@@ -216,9 +213,7 @@ const activeMeta = (): TerminalMetadata =>
 function mountTwoHostFixture() {
   const listSub = Object.assign(() => driveList(), { pending: () => false });
   const terminalIds = () =>
-    (driveList() ?? [])
-      .map((t) => t.id)
-      .filter((id) => !driveMeta()[id]?.parentId) as TerminalId[];
+    (driveList() ?? []).filter((id) => !driveMeta()[id]?.parentId);
   const getMetadata = (id: TerminalId) => driveMeta()[id];
 
   const view = useViewState();
@@ -261,7 +256,7 @@ function mountTwoHostFixture() {
     addHost(target);
     setDriveHost(target);
     setDriveMeta({ [a]: activeMeta(), [b]: activeMeta() });
-    setDriveList([{ id: a }, { id: b }] as TerminalInfo[]);
+    setDriveList([a, b] as TerminalId[]);
     setDriveSaved({
       terminals: [savedTerminal(a), savedTerminal(b)],
       activeTerminalId,
