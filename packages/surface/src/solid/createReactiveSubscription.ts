@@ -119,6 +119,13 @@ export function createReactiveSubscription<I, T>(
       // has already published: each leg is skipped when this run produced its
       // replacement. The published state at the end of the flush is master's,
       // case for case, including the failure that opens with the subscription.
+      //
+      // The CHANGE TRACKER is reset here, first, and inline: it is plain
+      // closure state (no signal, so nothing to relay), and the fresh fiber may
+      // deliver its first frame before the settle drains — that frame must meet
+      // an unseen tracker, or `updated`/`changed` would report the new input's
+      // first value as a change from the prior input's last one.
+      tracker.reset();
       const produced = { frame: false, ended: false, failed: false };
       runWithOwner(null, () =>
         onSettled(() => {
@@ -126,7 +133,6 @@ export function createReactiveSubscription<I, T>(
             setStore((s) => {
               s.v = undefined;
             });
-            tracker.reset();
           }
           if (!produced.failed) setError(undefined);
           if (!produced.ended) setComplete(false);
