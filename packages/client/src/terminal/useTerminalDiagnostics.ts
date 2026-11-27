@@ -67,9 +67,22 @@ function scrollLockSnapshot(sl: {
   };
 }
 
-const [store, setStore] = createStore<Record<TerminalId, TerminalDiagnostics>>(
+/** What the register STORES: every published field except `renderer`, which is
+ *  derived from the caller's own accessor below rather than copied in. A
+ *  stored copy would be a second home for a value the caller already owns —
+ *  written one flush after the source moved, and read by the fold in between. */
+type StoredDiagnostics = Omit<TerminalDiagnostics, "renderer">;
+
+const [store, setStore] = createStore<Record<TerminalId, StoredDiagnostics>>(
   {},
 );
+
+/** THE RENDERER, HELD AS THE CALLER'S ACCESSOR rather than a stored value: the
+ *  row memo below calls it, so the published field tracks the caller's signal
+ *  directly and no flush sits between the two. A plain `Map` because nothing
+ *  reads it except that memo, and membership moves with the store's own keys —
+ *  set before the registration write, deleted after the entry is dropped. */
+const renderers = new Map<TerminalId, Accessor<Renderer>>();
 
 /** Register per-terminal diagnostic tracking. `renderer` is an accessor
  *  so the caller's signal stays the single source of truth — any code
@@ -95,13 +108,13 @@ export function registerDiagnostics(
     };
   },
 ): () => void {
-  const registered: TerminalDiagnostics = {
+  const registered: StoredDiagnostics = {
     id,
     term: term(),
     wanted: wanted(),
-    renderer: renderer(),
     scrollLock: scrollLockSnapshot(scrollLock),
   };
+  renderers.set(id, renderer);
   // DETACHED for the one synchronous write: `registerDiagnostics` is called
   // from `Terminal.tsx`'s `onReady`, which the kit runs inside the pane's own
   // owner — an OWNED scope, where a store setter is
@@ -119,7 +132,7 @@ export function registerDiagnostics(
     }),
   );
   /** Write this terminal's registered entry in place. */
-  const write = (edit: (entry: TerminalDiagnostics) => void): void =>
+  const write = (edit: (entry: StoredDiagnostics) => void): void =>
     setStore((s) => {
       const entry = s[id];
       if (!entry) throw new Error(`diagnostics: ${id} is not registered`);
@@ -132,11 +145,6 @@ export function registerDiagnostics(
   // be a stale read). A grid or snapshot is merged into the one it replaces,
   // so a reader of one field is not woken by another's write.
   const disposeRoot = createRoot((dispose) => {
-    createEffect(renderer, (next) => {
-      write((entry) => {
-        entry.renderer = next;
-      });
-    });
     createEffect(term, (next) => {
       write((entry) => {
         Object.assign(entry.term, next);
@@ -164,6 +172,7 @@ export function registerDiagnostics(
     setStore((s) => {
       delete s[id];
     });
+    renderers.delete(id);
   };
 }
 
@@ -212,7 +221,12 @@ const registered = createRoot(() => {
     ids,
     (id): TerminalDiagnostics | undefined => {
       const entry = store[id];
-      if (entry === undefined) return undefined;
+      // The renderer is READ from the caller's accessor here, so this row —
+      // and every reader of the published list — moves in the same flush as
+      // the WebGL addon's own signal. An id in the store always has one; a
+      // row without both is the same "not registered" answer either way.
+      const renderer = renderers.get(id);
+      if (entry === undefined || renderer === undefined) return undefined;
       return {
         id: entry.id,
         term: { cols: entry.term.cols, rows: entry.term.rows },
@@ -220,7 +234,7 @@ const registered = createRoot(() => {
           entry.wanted === null
             ? null
             : { cols: entry.wanted.cols, rows: entry.wanted.rows },
-        renderer: entry.renderer,
+        renderer: renderer(),
         scrollLock: {
           locked: entry.scrollLock.locked,
           pendingChunks: entry.scrollLock.pendingChunks,
