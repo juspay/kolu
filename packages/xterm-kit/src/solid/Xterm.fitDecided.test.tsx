@@ -24,7 +24,7 @@ import { takeSolidDiagnostics } from "@kolu/solid-test-setup/setup";
 import { type JSX, render } from "@solidjs/web";
 import { createEffect, createSignal, flush } from "solid-js";
 import { afterEach, expect, it, vi } from "vitest";
-import type { TerminalGrid } from "./grid";
+import { type GridBox, gridForBox, type TerminalGrid } from "./grid";
 import { Xterm, type XtermHandle } from "./Xterm";
 
 vi.mock("@xterm/addon-webgl", () => ({
@@ -43,10 +43,14 @@ vi.mock("@xterm/addon-webgl", () => ({
  *  (`gridForBox`), its equality gate and its reactive wiring all run for real
  *  against it, which is what this test is about. The box changes per decided
  *  flip, the way a real re-layout does. */
-const box = vi.hoisted(() => ({ width: 800 }));
-vi.mock("./measureBox", () => ({
-  measureGridBox: () => ({
-    parentWidth: box.width,
+const box = vi.hoisted(() => {
+  const size = { width: 800 };
+  // Read by the mock below AND by the assertion, which asks the kit's own
+  // `gridForBox` what THIS box's grid is rather than restating the
+  // arithmetic: the published measurement must be the one made for the box as
+  // it stands, not an earlier one carried forward by the settle.
+  const read = (): GridBox => ({
+    parentWidth: size.width,
     parentHeight: 600,
     paddingHorizontal: 0,
     paddingVertical: 0,
@@ -55,8 +59,10 @@ vi.mock("./measureBox", () => ({
     letterSpacing: 0,
     deviceCellHeight: 17,
     devicePixelRatio: 1,
-  }),
-}));
+  });
+  return { size, read };
+});
+vi.mock("./measureBox", () => ({ measureGridBox: () => box.read() }));
 
 let dispose: (() => void) | undefined;
 let host: HTMLElement | undefined;
@@ -160,7 +166,7 @@ it("hands the decided box's measurement to its consumer with no tear", async () 
   // The posture moves three times, past the escalation threshold, each on a
   // genuinely different box (a re-layout the gate then measures).
   for (const [turn, next] of [true, false, true].entries()) {
-    box.width = 800 + (turn + 1) * 80;
+    box.size.width = 800 + (turn + 1) * 80;
     setPosture(next);
     flush();
   }
@@ -169,6 +175,16 @@ it("hands the decided box's measurement to its consumer with no tear", async () 
   // The pin only means something if the door actually MOVED: a measurement that
   // stays null writes nothing and so can never relay. At least one real grid,
   // and the gate ends up shown with it.
-  expect(seen.filter((facts) => facts.wanted !== null)).not.toEqual([]);
+  const grids = seen
+    .map((facts) => facts.wanted)
+    .filter((grid): grid is TerminalGrid => grid !== null);
+  expect(grids).not.toEqual([]);
   expect(seen.at(-1)?.shown).toBe(true);
+  // AND THE VALUE THE PUBLICATION CARRIES, not just that one arrived: what the
+  // consumer holds at the end is the grid for the box as it stands NOW. A
+  // settle that published the measurement it was created with — the first
+  // decided box, 160 CSS px narrower — leaves the pane laid out for a box it
+  // no longer has.
+  expect(seen.at(-1)?.wanted).toEqual(gridForBox(box.read()));
+  expect(grids[0]).not.toEqual(grids.at(-1));
 });

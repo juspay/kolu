@@ -297,4 +297,20 @@ it("hands the tree the same frame when a pulse re-emits the SAME paths", () => {
   oneReference(h.expandPaths);
   oneReference(h.lazyDirectories);
   expect(takeSolidDiagnostics()).toEqual([]);
+
+  // AND THE FRAME IS FROZEN, NOT STUCK: a pulse whose status genuinely moved
+  // hands the tree a new decoration set carrying the new word, so the row the
+  // user edited repaints. (The gate is an equality over the eight leaves — a
+  // gate that answered "same" for everything would pass every assertion
+  // above.)
+  const held = h.gitStatus.at(-1);
+  pulseStatus({
+    mode: "local",
+    files: [{ path: "src/ledger.rs", status: "D" }],
+  });
+  flush();
+  expect(h.gitStatus.at(-1)).not.toBe(held);
+  expect(h.gitStatus.at(-1)).toEqual([
+    { path: "src/ledger.rs", status: "deleted" },
+  ]);
 });

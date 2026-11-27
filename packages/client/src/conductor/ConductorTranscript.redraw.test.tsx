@@ -69,17 +69,29 @@ import type { Turn } from "./turnWorks";
 
 const VIEWPORT = 200;
 const COLUMN = 1000;
+/** How much taller the prose stands once the package has marked a link as the
+ *  open file. */
+const GROWTH = 120;
+
+/** The column's height, as a browser laying this prose out would report it:
+ *  the rewrite the note is about puts a marker in the paragraph, and the
+ *  paragraph grows. Read off the DOM the package wrote rather than off the
+ *  gesture, so nothing here grows a column the package did not redraw — the
+ *  same stand-in for happy-dom's missing layout as the clamping `scrollTop`
+ *  below. */
+const columnHeight = (): number =>
+  COLUMN + (root?.querySelector("[aria-current]") == null ? 0 : GROWTH);
 
 /** The three numbers the follow rule reads, with a `scrollTop` that CLAMPS
  *  the way a browser's does — happy-dom lays nothing out. */
 function measure(el: HTMLElement): void {
   let top = 0;
-  Object.defineProperty(el, "scrollHeight", { get: () => COLUMN });
+  Object.defineProperty(el, "scrollHeight", { get: columnHeight });
   Object.defineProperty(el, "clientHeight", { get: () => VIEWPORT });
   Object.defineProperty(el, "scrollTop", {
     get: () => top,
     set: (want: number) => {
-      top = Math.max(0, Math.min(want, COLUMN - VIEWPORT));
+      top = Math.max(0, Math.min(want, columnHeight() - VIEWPORT));
     },
   });
 }
@@ -103,8 +115,11 @@ let root: HTMLElement | undefined;
 
 /** The pane's own reading of whether the conversation is being looked at
  *  (`ConductorPane.tsx`'s `chatShown`), on a phone — where a file open in the
- *  reader is what takes the chat's place. */
-const chatShown = (): boolean =>
+ *  reader is what takes the chat's place. A DESKTOP's reader opens in its own
+ *  pane and the chat keeps its own, so that shape is a plain `() => true`:
+ *  nothing about the gesture reaches the transcript except the prose it
+ *  rewrites, which is the frame the note has to move the view in. */
+const chatShownOnPhone = (): boolean =>
   !chatPutAside({
     phone: true,
     view: "chat",
@@ -112,12 +127,12 @@ const chatShown = (): boolean =>
     filled: false,
   });
 
-function mount(): HTMLElement {
+function mount(shown: () => boolean): HTMLElement {
   root = document.createElement("div");
   document.body.append(root);
   dispose = render(
     () => (
-      <Shown value={chatShown}>
+      <Shown value={shown}>
         <ConductorTranscript
           rows={ROWS}
           turns={TURNS}
@@ -132,6 +147,14 @@ function mount(): HTMLElement {
   return root;
 }
 
+const scrollerOf = (host: HTMLElement): HTMLElement => {
+  const el = host.querySelector<HTMLElement>(
+    '[data-testid="conductor-transcript"]',
+  );
+  if (el === null) throw new Error("the transcript rendered no scroller");
+  return el;
+};
+
 afterEach(() => {
   dispose?.();
   root?.remove();
@@ -145,7 +168,7 @@ afterEach(() => {
 
 describe("a file opened from the prose", () => {
   it("notes the redraw without tearing the follow effect", () => {
-    const host = mount();
+    const host = mount(chatShownOnPhone);
     flush();
     const link = host.querySelector(
       '[data-testid="conductor-transcript"] code',
@@ -165,6 +188,32 @@ describe("a file opened from the prose", () => {
     ).not.toBeNull();
     // EMPTY, advisories included: a relay tear fails here at its first
     // sighting rather than at the judge's third.
+    expect(takeSolidDiagnostics()).toEqual([]);
+  });
+
+  it("moves a follower's view in the frame the prose landed in", () => {
+    // WHAT THE NOTE IS FOR, beside the tear it must not cause: the rewrite
+    // grows the column under a view nobody moved, and no row arrived to say
+    // so — the note is the follow effect's ONLY word that the document it
+    // holds a follower in is taller than it was. The reader opens in its own
+    // pane here, so nothing else about the gesture reaches this effect: the
+    // rows, the works, the pin and the shown fact all stand still.
+    const host = mount(() => true);
+    flush();
+    const scroller = scrollerOf(host);
+    // The mount put the reader at the end: this conversation has no
+    // remembered place, and no place IS following.
+    expect(scroller.scrollTop).toBe(COLUMN - VIEWPORT);
+    takeSolidDiagnostics();
+
+    openReader({ work: ID, path: PATH });
+    flush();
+
+    expect(
+      host.querySelector('[data-testid="conductor-transcript"] [aria-current]'),
+    ).not.toBeNull();
+    // The follower is at the NEW end, in the flush the prose landed in.
+    expect(scroller.scrollTop).toBe(COLUMN + GROWTH - VIEWPORT);
     expect(takeSolidDiagnostics()).toEqual([]);
   });
 });
