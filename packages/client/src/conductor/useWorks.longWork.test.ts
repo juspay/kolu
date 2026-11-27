@@ -11,9 +11,9 @@
  *  So every row folds the SHARED SNAPSHOT instead (`createWorkRecord`, one
  *  node per event and per decision, read once for the app), and this file is
  *  the proof: a work of 102 events, the three deepest readings (`@` menu,
- *  notes, files) plus the answers, and no diagnostic. The sibling
- *  `useWorks.wideDeps.test.ts` judges the other half — thirty works, each
- *  short.
+ *  notes, files) plus the answers, and no diagnostic. The siblings
+ *  `useWorks.fleet.test.ts` and `useWorks.steady.test.ts` judge the other
+ *  half — a fleet of works, each short.
  *
  *  Equality is against the per-work readings themselves, run over the record
  *  the mirror holds: the readings are what ships, and what this file pins is
