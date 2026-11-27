@@ -929,6 +929,12 @@ export async function connectSurfaces(
     // enrolled sub's first frame, so a second walk rides an already-N-shaped
     // startup.
     //
+    // What it costs the readout memo in SOURCES is two per client and the
+    // bundle's membership signal, whatever the enrolment count: each client's
+    // `health()` reads its registry's own chunked fold rather than every
+    // subscription (`@kolu/surface/solid`'s `./health`). So this accessor is
+    // bounded by the ROSTER, which a surface declares, and not by the page.
+    //
     // Building the entries instead also keeps the PREFIXING law in one place:
     // `mergeSurfaceHealth` prefixes each half's subs by the word it is given, so
     // the root arrives under the caller's `core.name` and each sibling under its

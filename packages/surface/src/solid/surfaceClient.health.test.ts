@@ -22,7 +22,13 @@
  */
 
 import { Effect, Schema, Stream } from "effect";
-import { createEffect, createMemo, createRoot } from "solid-js";
+import {
+  createEffect,
+  createMemo,
+  createRoot,
+  createSignal,
+  flush,
+} from "solid-js";
 import { describe, expect, it } from "vitest";
 import { isTransportError, shouldRetryStreamError } from "../client";
 import { defineSurface, defineSurfaceWithPolicy } from "../define";
@@ -309,16 +315,22 @@ describe("surfaceClient health registry — totality", () => {
     // a toggling `live` can be driven together (the public `surfaceClient` collapses
     // dispatch+live into one `LiveSignalHandle` — the end-to-end fold over a real
     // watchdog-backed handle is pinned in `createLiveSignal`/`transportLive` tests).
+    //
+    // The leg is a SIGNAL, as the watchdog's own `live` is: the fact is folded in
+    // the registry's memos now (so no reading scope is wide), and a memo re-folds
+    // for a reactive source — which a plain `let` the test flips behind Solid's
+    // back is not.
     const dispatch = fakeDispatch({
       "surface/conn/get": () => once({ state: "x" }),
     });
     await createRoot(async (dispose) => {
-      let alive = true;
-      const app = buildSurfaceClient(surface, dispatch, () => alive);
+      const [alive, setAlive] = createSignal(true);
+      const app = buildSurfaceClient(surface, dispatch, alive);
       app.cells.conn.use();
       await settle();
       expect(app.health().live).toBe(true);
-      alive = false;
+      setAlive(false);
+      flush();
       expect(app.health().live).toBe(false);
       dispose();
     });
@@ -435,16 +447,19 @@ describe("surfaceClient readiness fold — `liveWhen` completes the fact (round-
     const f = feed<{ state: string }>();
     const dispatch = fakeDispatch({ "surface/connection/get": f.stream });
     await createRoot(async (dispose) => {
-      let transport = true;
+      const [transport, setTransport] = createSignal(true);
       // Internal builder: drive a stub mirror cell (feed) AND a toggling transport
       // leg together — the public `surfaceClient` collapses the pair into a handle.
-      const app = buildSurfaceClient(mirrored, dispatch, () => transport);
+      // The leg is a SIGNAL, as the watchdog's own is: the registry folds the fact
+      // in memos, which re-fold for a reactive source and not for a plain `let`.
+      const app = buildSurfaceClient(mirrored, dispatch, transport);
       f.push({ state: "connected" });
       await settle();
       expect(app.health().live).toBe(true); // transport ∧ mirror both hold
       // Transport dies even though the mirror is still "connected" — a half-open
       // ws over a connected mirror must read NOT live.
-      transport = false;
+      setTransport(false);
+      flush();
       expect(app.health().live).toBe(false);
       app.dispose();
       dispose();

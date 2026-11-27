@@ -203,21 +203,23 @@ export interface SurfaceReadoutHandle {
  * MEMOIZED, which is the whole ergonomic difference between this and the
  * two-call walk every consumer wrote by hand.
  *
- * `health()` is deliberately a plain accessor (`./health`): it re-folds the
- * WHOLE registry — walking every enrolled sub and allocating a record per sub —
- * on each read, and enrolment is per KEY, so a page with a row per document
- * enrols one sub per open row. Read straight from JSX, each expression compiles
- * to its own computation and that walk runs once per expression per update; the
- * reference consumer measured it as a per-row tax on a streaming turn and
- * answered with a hand-rolled memo carrying a hand-rolled `equals` on the name
- * list. That memo is HERE now, folded once per connection: N reads cost one
- * fold, and a fold whose names are unchanged notifies nobody.
+ * `health()` is deliberately a plain accessor (`./health`), but a CHEAP one: the
+ * registry folds its own subscriptions in chunks, so a read costs the reading
+ * scope two sources and one allocation whatever the enrolment count. Read
+ * straight from JSX, each expression still compiles to its own computation and
+ * re-reads the fold once per expression per update; the reference consumer
+ * measured that as a per-row tax on a streaming turn and answered with a
+ * hand-rolled memo carrying a hand-rolled `equals` on the name list. That memo
+ * is HERE now, folded once per connection: N reads cost one fold, and a fold
+ * whose names are unchanged notifies nobody.
  *
- * It is not folded per-SUBSCRIPTION (a computation per enrolled sub, updating a
- * shared set) deliberately: that trades an O(subs) pass that runs only when the
- * fact changes for O(subs) standing computations that must each be created,
- * tracked and disposed — more machinery, more lifecycle, and no cheaper on the
- * path that actually runs.
+ * The registry's own fold is not per-SUBSCRIPTION (a standing computation per
+ * enrolled sub, each updating a shared set) deliberately: that trades an
+ * O(subs) pass that runs only when the fact changes for O(subs) standing
+ * computations that must each be created, tracked and disposed. It is chunked
+ * instead — one computation per 64 subs — which bounds the WIDTH of every
+ * reading scope (`WIDE_SCOPE_DEPS` judged this memo at 603 sources over 300
+ * enrolled subs) without putting a lifetime on each subscription.
  *
  * It takes a `createRoot` of its own because the seams that call it run OUTSIDE
  * any reactive owner (an app's `await connectSurface(...)` at module top level),
@@ -242,6 +244,7 @@ export function createSurfaceReadout(
     // and the final readout. Folded through the same `equals` gate as the final
     // one, so a healthy page's churn notifies neither.
     const raw = createMemo(() => surfaceReadout(status(), health(), false), {
+      name: "surfaceReadout.raw",
       equals: sameReadout,
     });
     // The grace-windowed "should a consumer present its down-state now?" fact.

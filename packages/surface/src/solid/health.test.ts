@@ -24,6 +24,12 @@ describe("createSurfaceHealthRegistry", () => {
     // written from outside it, where a frame arriving writes them (a write under
     // an owner is REACTIVE_WRITE_IN_OWNED_SCOPE), and each write is read back
     // after its `flush()`, which is when a consumer would see it.
+    //
+    // MEMBERSHIP is read back after a `flush()` for the same reason: the fact is
+    // folded in the registry's own memos (so no READING scope is wide), and a
+    // memo re-folds on the flush the enrolment's bump schedules. A consuming
+    // computation is re-run by that same flush, so it never reads the older
+    // roster; an imperative reader asks after it.
     const { reg, drop, dispose } = createRoot((dispose) => {
       const reg = createSurfaceHealthRegistry(live);
       // Empty registry: vacuously live, no subs.
@@ -32,6 +38,7 @@ describe("createSurfaceHealthRegistry", () => {
       return { reg, drop, dispose };
     });
 
+    flush();
     expect(reg.health().subs).toEqual([
       { name: "connection", pending: true, error: undefined },
     ]);
@@ -62,6 +69,10 @@ describe("createSurfaceHealthRegistry", () => {
     drop();
     flush();
     expect(reg.health().subs).toEqual([]);
+    // The fold lives in a DETACHED root (a consumer's owner must not be able to
+    // end it), so the registry's own disposer is what ends it — `surfaceClient`
+    // hands it to its `dispose()`.
+    reg.disposeFold();
     dispose();
   });
 
@@ -77,9 +88,11 @@ describe("createSurfaceHealthRegistry", () => {
       // Both slots survive — a name-keyed map would have clobbered one.
       expect(reg.health().subs).toHaveLength(2);
       dropA();
+      flush();
       expect(reg.health().subs).toEqual([
         { name: "cores[0]", pending: true, error: undefined },
       ]);
+      reg.disposeFold();
       dispose();
     });
   });
@@ -102,6 +115,8 @@ describe("createSurfaceHealthRegistry", () => {
         { name: "hostA/conn", pending: false, error: eA },
         { name: "hostB/conn", pending: true, error: undefined },
       ]);
+      regA.disposeFold();
+      regB.disposeFold();
       dispose();
     });
   });

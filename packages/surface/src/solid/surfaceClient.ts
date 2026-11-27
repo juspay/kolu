@@ -1161,8 +1161,10 @@ export function buildSurfaceClient<const S extends SurfaceSpec>(
   // Build-time standing-root disposers for `liveWhen` cells (the readiness legs
   // `bindCell` → `openReadinessLeg` open EAGERLY, not at `.use()` time, so the
   // mirror-liveness leg folds into `health().live` by construction — independent of
-  // whether any component ever mounts the cell). `dispose()` runs these roots.
-  const standingRoots: Array<() => void> = [];
+  // whether any component ever mounts the cell), and the health registry's own
+  // chunked fold, which is built on the first `health()` read under a DETACHED
+  // root and so has nobody else to end it. `dispose()` runs these roots.
+  const standingRoots: Array<() => void> = [registry.disposeFold];
 
   const cells: Record<string, BoundCell<unknown, unknown>> = {};
   for (const [key, rawSpec] of Object.entries(spec.cells ?? {})) {

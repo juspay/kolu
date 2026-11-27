@@ -2694,6 +2694,8 @@ Returns a fact, not a verdict: `{ live: boolean, subs: [{ name, pending, error }
 
 - `live` is the full conjunction of transport-live and every readiness predicate.
 - A subscription error stays in `subs` and is never folded into `live`. That is what lets the UI stay honest. Why: [Reactive honesty](/surface/reactive-honesty).
+- Reading it costs the reading scope two sources whatever the enrolment count: the registry folds its own subscriptions in chunks, so a page with a row per document cannot widen a caller.
+- The fact is the one as of the last flush. A reading computation is re-run by the flush that lands an enrolment or a frame; an imperative reader that enrols and asks in one breath asks after the flush.
 
 ### The readout
 

@@ -66,17 +66,17 @@ export {
   serverDot,
 } from "./daemonPresentation";
 
-// ONE shared, app-lifetime memo of the liveness boolean. `app.health()` is a plain
-// accessor (not a memo) that re-folds the WHOLE registry — walking every enrolled
-// sub, allocating a fresh `SubHealth[]` — on each read, and reading `.live` tracks
-// every sub's `pending()`/`error()`. The ~dozen status-paint sites that floor on
-// this fact would otherwise each re-fold per render AND re-render on every enrolled
-// subscription's churn (a terminal create re-subscribing, a gitStatus blip), not
-// just on a real liveness flip. Folding once behind a `===`-diffed memo collapses
-// both: consumers track only the boolean and re-paint only when `live` actually
-// changes. The `createSharedRoot` idiom is the same app-lifetime singleton
-// `getClockNow` / the stale-ticker use (dev/skills/kolu-client/SKILL.md "memos for multi-consumer
-// derivations").
+// ONE shared, app-lifetime memo of the liveness boolean — a single `===`-diffed
+// `boolean` for the ~dozen status-paint sites that floor on this fact.
+// `app.health()` is a plain accessor over the client registry's own fold, so
+// reading it is cheap and narrow (`live` is folded in a memo of its own, over
+// the transport leg and any readiness legs, and never over an enrolled
+// subscription's `pending()`/`error()`). What this memo adds is the DIFF: it
+// hands its consumers the boolean rather than the `{ live, subs }` record, so a
+// paint site re-runs only when `live` actually flips, and each site tracks one
+// source instead of re-reading the fact per render. The `createSharedRoot`
+// idiom is the same app-lifetime singleton `getClockNow` / the stale-ticker use
+// (dev/skills/kolu-client/SKILL.md "memos for multi-consumer derivations").
 const sharedDaemonTransportLive = createSharedRoot(() =>
   createMemo(() => app.health().live, { name: "daemonTransportLive" }),
 );

@@ -37,7 +37,9 @@ import { Schema } from "effect";
 import {
   type Accessor,
   createEffect,
+  createMemo,
   getOwner,
+  mapArray,
   runWithOwner,
   untrack,
 } from "solid-js";
@@ -701,6 +703,19 @@ export interface ConnectSurfaceMapOptions<K> {
   onClientError?: (policy: unknown, err: Error, origin?: { key: K }) => void;
 }
 
+/** Encoded member keys per chunk in the membership fold below. A chunk memo
+ *  reads the keys accessor plus its own slots — `1 + CHUNK` sources — so 128
+ *  keys keeps a chunk at 129, under Solid's 200-source `WIDE_SCOPE_DEPS` judge,
+ *  while the join over `⌈N / CHUNK⌉` chunks stays under it below 25,000
+ *  members. */
+const MEMBER_CHUNK = 128;
+
+/** Two foldings of the keyset that name the same members in the same order —
+ *  what keeps an unchanged membership from handing every reader a fresh array
+ *  on each re-fold. */
+const sameKeys = (was: readonly string[], now: readonly string[]): boolean =>
+  was.length === now.length && was.every((key, at) => key === now[at]);
+
 /** Connect a `SurfaceMap` over a transport, producing the typed map client. The
  *  transport is resolved ONCE (via `resolveTransport`, the ONLY liveness source — there
  *  is NO `{ live }` override seam): the resolved `live` threads into the `entries` client
@@ -799,6 +814,66 @@ export function connectSurfaceMap<
   const rawEntries = entriesClient.collections
     .entries as ReadOnlyBoundCollection<string, EntryStatus<Failure, Conn>>;
 
+  // THE MEMBERSHIP KEYSET, FOLDED ONCE AND IN CHUNKS — the one place this client
+  // walks the membership collection's keys.
+  //
+  // `rawEntries.use().keys()` hands back a Solid STORE-PROXY array (the per-key
+  // delivery path holds its value in a store), and walking one is a reactive read
+  // PER INDEX. Every membership question below used to walk it: `foldState` and
+  // `membershipIdOf` asked `.includes(enc)`, the external `entries` view mapped it
+  // to decode, and the departed-member prune spread it. So ONE `state()` read
+  // subscribed its scope to every member in the pool, and a scope folding over the
+  // pool was quadratic in it — which Solid's 200-source `WIDE_SCOPE_DEPS` judge
+  // caught at ~65 hosts folded or ~199 members for a single lookup, over a pool
+  // nothing caps.
+  //
+  // The walk lives here now, split so no scope in it is wide: one CHUNK memo per
+  // {@link MEMBER_CHUNK} consecutive slots (`1 + CHUNK` sources) and a join over
+  // the chunks (`1 + ⌈N / CHUNK⌉`). What comes out is a PLAIN array, so every
+  // question above it costs ONE source and keeps its own answer.
+  //
+  // LAZY, and the `.use()` is taken once INSIDE the client owner: the first
+  // membership question opens the membership subscription (as the prune effect
+  // below already did at client build), and no question opens a second one or
+  // re-registers a view on a re-fold.
+  let memberKeysFold: Accessor<readonly string[]> | undefined;
+  const memberKeys = (): readonly string[] => {
+    memberKeysFold ??= build(() => {
+      const view = rawEntries.use();
+      const chunks = mapArray(
+        () =>
+          Array.from(
+            { length: Math.ceil(view.keys().length / MEMBER_CHUNK) },
+            (_, at) => at * MEMBER_CHUNK,
+          ),
+        (start) =>
+          createMemo(
+            () => {
+              const all = view.keys();
+              const reading: string[] = [];
+              const end = Math.min(start + MEMBER_CHUNK, all.length);
+              for (let at = start; at < end; at++) {
+                const one = all[at];
+                if (one !== undefined) reading.push(one);
+              }
+              return reading;
+            },
+            { name: "surfaceMap.members.chunk", equals: sameKeys },
+          ),
+        { name: "surfaceMap.members.byChunk" },
+      );
+      return createMemo(
+        () => {
+          const reading: string[] = [];
+          for (const chunk of chunks()) reading.push(...chunk());
+          return reading;
+        },
+        { name: "surfaceMap.members", equals: sameKeys },
+      );
+    });
+    return memberKeysFold();
+  };
+
   // A key object has NO reference identity of its own (two independent decodes of
   // the same wire string are logically equal but never `===` — a schema decode
   // mints a fresh object even for an already-valid input). Every consumer that
@@ -839,8 +914,14 @@ export function connectSurfaceMap<
         ? () => opts.keys?.().map((k) => map.codec.encode(k)) ?? []
         : undefined;
       const result = rawEntries.use({ keys: rawKeys, onError: opts?.onError });
+      // The WHOLE-collection view reads the bounded fold rather than the raw
+      // store-proxy keyset: decoding is a walk, and a walk of the proxy charges
+      // this view's CALLER one source per member. A NARROWED view's keyset is
+      // the caller's own plain array (it is what they passed in, encoded), so
+      // there is nothing to terminate there.
+      const encoded = rawKeys === undefined ? memberKeys : result.keys;
       return {
-        keys: () => result.keys().map(decodeKey),
+        keys: () => encoded().map(decodeKey),
         byKey: (key: K) => {
           const sub = result.byKey(map.codec.encode(key));
           return sub === undefined
@@ -856,12 +937,15 @@ export function connectSurfaceMap<
   // `makeReactiveEntry`); `undefined` before the first status frame lands, or for a
   // key that is not a member. Callers that must stay non-reactive (`entry`'s pure
   // lens) read it through `untrack`.
+  //
+  // The membership question goes to the bounded fold, so a re-key driver tracks
+  // ONE source for "is this still a member" however large the pool is.
   const membershipIdOf = (key: K): MembershipId | undefined => {
     const enc = map.codec.encode(key);
-    const view = rawEntries.use();
-    if (!view.keys().includes(enc)) return undefined;
-    return (view.byKey(enc)?.() as EntryStatus<Failure, Conn> | undefined)
-      ?.membershipId;
+    if (!memberKeys().includes(enc)) return undefined;
+    return (
+      rawEntries.use().byKey(enc)?.() as EntryStatus<Failure, Conn> | undefined
+    )?.membershipId;
   };
 
   // The opaque re-key identity composite — an INJECTIVE `[enc, membershipId]` pairing.
@@ -1013,14 +1097,15 @@ export function connectSurfaceMap<
   build(() => {
     let prevMembers: readonly string[] = [];
     createEffect(
-      // MATERIALIZED here, in the tracked compute: `keys()` answers with the
-      // membership store's own array, and walking a store array is a reactive
-      // read per index — which in the untracked effect phase is a strict read
-      // that would never update, and which would leave `prevMembers` holding a
-      // LIVE view of the current keyset instead of the previous frame's (the
-      // `keyCache` prune below compares the two and would find them equal by
-      // construction). The copy is the frame.
-      () => [...rawEntries.use().keys()],
+      // MATERIALIZED here, in the tracked compute: the fold's own array is held
+      // across re-folds when membership did not move, and the untracked effect
+      // phase must not be handed the SAME reference `prevMembers` already holds
+      // (the `keyCache` prune below compares the two and would find them equal
+      // by construction). The copy is the frame. The fold it copies is the
+      // bounded keyset, so this effect tracks one source rather than one per
+      // member — and, as before, it reads only the KEYSET and never a per-key
+      // `byKey`, so no member's status stream is lit by the prune.
+      () => [...memberKeys()],
       (members) => {
         const present = new Set(members);
         for (const enc of [...clients.keys()]) {
@@ -1038,9 +1123,11 @@ export function connectSurfaceMap<
   });
 
   const foldState = (key: K): EntryState<Failure, Conn> => {
-    const view = rawEntries.use();
     const enc = map.codec.encode(key);
-    if (!view.keys().includes(enc)) return { kind: "not-a-member" };
+    // The membership question first, off the bounded fold: a chip that paints
+    // one key tracks ONE source for "is it a member", not one per member.
+    if (!memberKeys().includes(enc)) return { kind: "not-a-member" };
+    const view = rawEntries.use();
     const v = view.byKey(enc)?.() as EntryStatus<Failure, Conn> | undefined;
     // A member whose per-key status frame hasn't landed yet is honestly warming; then
     // FLOOR the claim on the map's OWN transport liveness via {@link floorOnLiveness}: a
