@@ -85,6 +85,20 @@ export function useLineSelection(
     readonly anchor: string | null;
     readonly range: SelectedLineRange | null;
   };
+  /** Two ranges that paint the same highlight — `@pierre/diffs`'
+   *  `areSelectionsEqual` (`dist/utils/areSelectionsEqual.js`), by value so a
+   *  range rebuilt with identical bounds is not a new selection. */
+  const sameRange = (
+    a: SelectedLineRange | null,
+    b: SelectedLineRange | null,
+  ): boolean =>
+    a === b ||
+    (a != null &&
+      b != null &&
+      a.start === b.start &&
+      a.end === b.end &&
+      a.side === b.side &&
+      a.endSide === b.endSide);
   const [state, setState] = createSignal<SelectionState>(
     (prev?: SelectionState): SelectionState => {
       // Reseed on either trigger — a new file replaces the selection scope (a
@@ -111,7 +125,27 @@ export function useLineSelection(
     path,
     range,
     handleSelect: (r, p) => {
-      setState((prev) => ({ ...prev, anchor: p ?? null, range: r }));
+      setState((prev) => {
+        // The anchor is the file a selection landed in when it is NOT `scope`
+        // itself (see `path` above), so a report naming the view's own file is
+        // the state already held — and the file viewer names no file at all
+        // for the same selection the right-click anchored.
+        //
+        // And a viewer re-asserting the selection it was HANDED is not a
+        // change: `@pierre/diffs` answers a prop-driven `setSelectedLines` by
+        // calling `onSelectedLinesChange` back with the very range it was
+        // given (`InteractionManager.setSelection` → `notifySelectionCommitted`),
+        // synchronously, inside the wrapper effect's apply arm. Two
+        // default-equality signals swallowed that echo; one composite state
+        // has to say so by value, or the echo is a change, the bridge memo
+        // (`useCodeViewSelection`, which reads `path` — the raw state) re-runs
+        // and the viewer's own effect re-runs on its own write
+        // (`EFFECT_WRITES_OWN_SOURCE`).
+        const anchor = p != null && p !== prev.scope ? p : null;
+        return anchor === prev.anchor && sameRange(prev.range, r)
+          ? prev
+          : { ...prev, anchor, range: r };
+      });
     },
     buildItems: () => {
       // The menu is line-anchored: every entry refers to a specific

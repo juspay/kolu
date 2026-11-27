@@ -2,6 +2,17 @@ import { SOLID_INLINE_DEPS } from "@kolu/solid-test-setup/vitest";
 import solid from "@solidjs/vite-plugin";
 import { defineConfig } from "vitest/config";
 
+// `@kolu/solid-pierre`'s barrel reaches `languages/rhai` through
+// `workerPool.ts`, which resolves the grammar through a Nix-backed alias —
+// the same line `packages/solid-pierre/vitest.config.ts:15-21` carries, so a
+// client test can mount the real wrapper.
+const rhaiGrammarPath = process.env.KOLU_RHAI_GRAMMAR;
+if (!rhaiGrammarPath) {
+  throw new Error(
+    "KOLU_RHAI_GRAMMAR is not set. Run tests inside the Nix dev shell.",
+  );
+}
+
 export default defineConfig({
   // The Solid JSX transform, so a `.test.tsx` render harness compiles its JSX to
   // real DOM under happy-dom (mirrors `packages/surface/vitest.config.ts`).
@@ -12,6 +23,11 @@ export default defineConfig({
   // the DEVELOPMENT builds of `solid-js` and `@solidjs/web`, so Solid's dev
   // diagnostics fire under test.
   plugins: [solid({ refresh: false })],
+  resolve: {
+    alias: {
+      "kolu-rhai-grammar": rhaiGrammarPath,
+    },
+  },
   test: {
     include: ["src/**/*.test.ts", "src/**/*.test.tsx"],
     // The client is a BROWSER app: run its tests with a DOM so the browser
