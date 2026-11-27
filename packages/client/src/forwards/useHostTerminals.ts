@@ -28,6 +28,7 @@ import { createMemo } from "solid-js";
 import { sameEach, sameItems } from "../conductor/sameItems";
 import { printedPortsOf } from "../terminal/printedPorts";
 import { useTerminalStore } from "../terminal/useTerminalStore";
+import { plainPorts, samePorts } from "./panePorts";
 import { foldEach } from "../wideFold";
 import { type ServingCandidate, servingLink } from "./terminalServingPort";
 
@@ -120,17 +121,28 @@ export function useHostTerminals(): HostTerminals {
    *  pane that is sleeping, parked or still in flight. {@link foldEach} keeps
    *  each pane's record on its own row memo and the join at `1 + ⌈N / 128⌉`.
    *
-   *  The reading is carried as the record's own `ports` value, not a copy:
-   *  every consumer reads it through {@link knownPorts}, so the known/unknown
-   *  two-way survives the fold rather than collapsing into an empty list. */
+   *  The reading is {@link plainPorts}-COPIED out of the projection record here,
+   *  on the pane's own row memo, because the port join runs in its CONSUMER's
+   *  scope: `PortRow`'s `<Show when={props.serving}>` memo and `tilePorts` read
+   *  every candidate through {@link knownPorts}, and the record's `ports` proxy
+   *  would charge those scopes a store leaf per pane for the `status` and
+   *  another for the `list` — past the 200-source judge at about 40 panes. The
+   *  copy keeps the known/unknown two-way, so a pane whose first scan has not
+   *  landed still contributes nothing rather than asserting it serves nothing.
+   *
+   *  {@link samePorts} is the row gate the copy needs: a fresh object every
+   *  recompute, compared by VALUE, so a pane that said the same thing keeps its
+   *  row identity and the join below does not re-run. */
   const panePorts = foldEach(
     "useHostTerminals.panePorts",
     paneIds,
     (id) => {
       const arm = activeArm(store.getMetadata(id));
-      return arm === undefined ? undefined : { id, ports: arm.ports };
+      return arm === undefined
+        ? undefined
+        : { id, ports: plainPorts(arm.ports) };
     },
-    (a, b) => a.id === b.id && a.ports === b.ports,
+    (a, b) => a.id === b.id && samePorts(a.ports, b.ports),
   );
 
   /** The panes a port may be attributed to, in pane order — the folded

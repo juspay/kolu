@@ -35,6 +35,7 @@ import { toast } from "solid-sonner";
 import { hostMarks } from "../attention/attentionMarks";
 import CopyDiagnosticsButton from "../CopyDiagnosticsButton";
 import { ForwardRows } from "../forwards/ForwardRows";
+import { plainPorts, samePorts } from "../forwards/panePorts";
 import { servingLink } from "../forwards/terminalServingPort";
 import { forwardsForHost } from "../forwards/useForwards";
 import { tailOf } from "../kaval/connectCanvasView";
@@ -110,39 +111,6 @@ const PopoverRow: Component<{
 function isOwnedNestedPortal(node: Node): boolean {
   const el = node instanceof Element ? node : node.parentElement;
   return el?.closest?.('[data-testid="info-popover"]') != null;
-}
-
-/** The ports reading of a pane that has never been scanned — one frozen value,
- *  so an unscanned pane's row holds still. */
-const UNKNOWN_PORTS: TerminalPorts = Object.freeze({ status: "unknown" });
-
-/** A PLAIN copy of one pane's ports. The port join runs in the consuming
- *  (render) scope, and a store-proxy `ports` would charge that scope a leaf per
- *  pane for the status and another for the list. */
-function plainPorts(ports: TerminalPorts | undefined): TerminalPorts {
-  if (ports === undefined || ports.status !== "known") return UNKNOWN_PORTS;
-  return { status: "known", list: ports.list.map((one) => ({ ...one })) };
-}
-
-/** Whether two readings of one pane's ports say the same thing — what keeps an
- *  unchanged pane's row identity across a frame. */
-function samePorts(a: TerminalPorts, b: TerminalPorts): boolean {
-  if (a.status !== b.status) return false;
-  if (a.status !== "known" || b.status !== "known") return true;
-  return (
-    a.list.length === b.list.length &&
-    a.list.every((one, at) => {
-      const other = b.list[at];
-      return (
-        other !== undefined &&
-        one.port === other.port &&
-        one.name === other.name &&
-        one.command === other.command &&
-        one.scope === other.scope &&
-        one.family === other.family
-      );
-    })
-  );
 }
 
 /** One listed terminal on this host, as the panel reads it: the live arm when

@@ -29,7 +29,7 @@ import type { PadiTerminal } from "@kolu/padi-client/surface";
 import { takeSolidDiagnostics } from "@kolu/solid-test-setup/setup";
 import { settle } from "@kolu/surface/solid/testlib";
 import type { PortInfo, TerminalId } from "kolu-common/surface";
-import { createRoot, flush } from "solid-js";
+import { createMemo, createRoot, flush } from "solid-js";
 import { afterEach, expect, it, vi } from "vitest";
 
 // `useCollection` opens each key's stream through this; the mirror's procedure
@@ -123,9 +123,12 @@ const diagnostics = (): string[] =>
   );
 
 let dispose: (() => void) | undefined;
+let disposeReader: (() => void) | undefined;
 afterEach(() => {
   stopScans();
+  disposeReader?.();
   dispose?.();
+  disposeReader = undefined;
   dispose = undefined;
   flush();
 });
@@ -245,5 +248,52 @@ it("folds the printed ports of 250 panes into one set with no wide memo", async 
   expect(
     [...terminals.printedBy(ids[100] as TerminalId)].sort((a, b) => a - b),
   ).toEqual([4100, 4101]);
+  expect(diagnostics()).toEqual([]);
+});
+
+it("answers servingFor inside a tracked computation with no wide memo", async () => {
+  held.activated = [];
+  const { terminals, mirror } = await fleet();
+
+  // READ FROM INSIDE A COMPUTATION, which is where every consumer reads it:
+  // `PortRow`'s `<Show when={props.serving}>` memo asks this per elsewhere row.
+  // Asked from a test body the walk is untracked and the judge sees nothing;
+  // asked here, every source the join touches lands on THIS memo's scope.
+  const link = createRoot((disposeRoot) => {
+    disposeReader = disposeRoot;
+    return createMemo(() => terminals.servingFor(20_003), {
+      name: "wideDeps.servingReader",
+    });
+  });
+
+  expect(link()?.name).toBe("/srv/pane-0");
+  link()?.jump();
+  expect(held.activated).toEqual([ids[0]]);
+  expect(diagnostics()).toEqual([]);
+
+  // A MISS is the normal case for a row on a busy host, and it is the dearest
+  // one: nothing matches, so the join walks every pane before it answers.
+  const miss = createRoot((disposeRoot) => {
+    const memo = createMemo(() => terminals.servingFor(9_999), {
+      name: "wideDeps.missingServingReader",
+    });
+    const value = memo();
+    disposeRoot();
+    return value;
+  });
+  expect(miss).toBeUndefined();
+  expect(diagnostics()).toEqual([]);
+
+  // The serving pane hands its port to a sibling split of the SAME tile: the
+  // tracked reader re-runs and still names the tile, which is what the user
+  // can activate.
+  mirror.pushRecord(ids[3] as TerminalId, recordAt(3, { ports: [] }));
+  mirror.pushRecord(ids[4] as TerminalId, recordAt(4, { ports: [portAt(3)] }));
+  await settle();
+  flush();
+  expect(link()?.name).toBe("/srv/pane-0");
+  held.activated = [];
+  link()?.jump();
+  expect(held.activated).toEqual([ids[0]]);
   expect(diagnostics()).toEqual([]);
 });
