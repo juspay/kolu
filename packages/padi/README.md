@@ -262,7 +262,7 @@ handful of habits that paid for nothing; each is now a rule rather than a tuning
   the fork before it.
 - **One `/proc` read per foreground sample, and no re-parse of an unmoved file.**
   `AgentTerminalState.readProcessSnapshot()` is the host's single read, memoised
-  against the sample's identity in `AgentEngineState` and shared by all seven
+  against the sample's identity in `AgentEngineState` and shared by all eight
   adapters; claude-code's session file and omp's breadcrumb ride `kolu-io`'s
   `stampedCache`, keyed on `(mtimeMs, size)`.
 - **Focus is not a dirty source.** `setActiveTerminalId` pulses no

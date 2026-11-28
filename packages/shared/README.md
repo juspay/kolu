@@ -20,7 +20,7 @@ Depends only on `@kolu/log` (for the `Logger` type) and `kolu-io`, plus
 
 `packages/server`, `packages/padi`, and the agent integrations under
 `packages/integrations` (claude-code, codex, git, github, grok, omp, opencode,
-pi, xyne).
+pi, xyne, antigravity).
 
 ## What a maintainer must not break
 

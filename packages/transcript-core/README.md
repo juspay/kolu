@@ -25,7 +25,7 @@ a vendor's wire format. One entry: `.` (`src/index.ts`).
 ## Who uses it
 
 The agent integrations `agents`, `claude-code`, `codex`, `grok`, `omp`, `pi`,
-`opencode` and `xyne`; `kolu-transcript-html`; `padi` and `padi-client`. It
+`opencode`, `xyne` and `antigravity`; `kolu-transcript-html`; `padi` and `padi-client`. It
 depends on `@kolu/log` and `effect` only.
 
 ## What not to break

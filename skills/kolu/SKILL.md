@@ -70,7 +70,7 @@ terminal can move under — that gap is a race, not a formality.
   another's. The answer says what happened: `delivery` is `"submitted"` (it was
   idle, the words start a turn), `"steer"` (they join the turn that is running
   at its next step — codex, omp, pi, xyne) or `"queue"` (they wait for the
-  current turn to end — claude-code, opencode, grok); and `took` says whether it
+  current turn to end — claude-code, opencode, grok, antigravity); and `took` says whether it
   landed — `"began-working"` (its transcript started a turn), `"submit-landed"`
   (an agent that had written nothing yet: kolu saw the Enter reach it; its reply
   comes later — do not say it again), or `"did-not-begin"` within a few

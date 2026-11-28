@@ -1,6 +1,6 @@
 ---
 title: Agent Detection
-description: "How kolu recognizes Claude Code, Codex, Grok, OpenCode, Pi, Xyne and Oh My Pi in a terminal, and reads each one's live state from its own session on disk."
+description: "How kolu recognizes Claude Code, Codex, Grok, OpenCode, Pi, Xyne, Oh My Pi and Antigravity CLI in a terminal, and reads each one's live state from disk."
 order: 80
 section: Agents
 koluHero:
@@ -30,6 +30,7 @@ tile, dock row and minimap light up, whether the agent came from
 | [Pi](https://github.com/earendil-works/pi-mono) | `pi` |
 | [Xyne](https://github.com/xynehq/xyne-cli) | `xyne` |
 | [Oh My Pi](https://github.com/can1357/oh-my-pi) | `omp` |
+| [Antigravity CLI](https://antigravity.google/docs/cli/reference) | `agy` |
 
 ## One state vocabulary
 
@@ -142,9 +143,10 @@ first argument, so kolu recognizes the program the loader loads, which is how
 
 ### When several agents share a directory
 
-Claude Code, Grok and Oh My Pi tie a conversation to one terminal: the first two
-by process id, Oh My Pi by writing a breadcrumb naming the terminal. Codex,
-OpenCode and Pi record no process id. The only thing on disk linking their
+Claude Code, Grok, Oh My Pi and Antigravity CLI tie a conversation to one
+terminal. Claude Code and Grok record its process id, Oh My Pi writes a
+breadcrumb naming the terminal, and Antigravity CLI keeps a lock file open.
+Codex, OpenCode and Pi record no process id. The only thing on disk linking their
 conversations to a terminal is the working directory, which two agents in one
 repository share.
 
@@ -407,12 +409,31 @@ Resume uses `xyne --session <uuid>`, including for a terminal restored after a
 reboot. Transcript export reads the same JSONL, taking token usage from the
 freshest assistant row.
 
+## Antigravity CLI
+
+A running `agy` holds its conversation's lock file,
+`~/.gemini/antigravity-cli/presence/<id>.lock`, open. kolu reads which files
+the process holds, so the tile follows that conversation, also after `/clear`
+or `/fork`. State comes from the last line of the conversation's transcript:
+
+| State | Last line |
+| --- | --- |
+| Thinking | your prompt, a system note or a tool's result |
+| Tool use | a model answer that calls a tool |
+| Waiting | a model answer with no tool call |
+| Awaiting you | read off the screen: the command permission menu |
+
+Resume uses `agy --conversation=<id>` with the launch flags passed again. After
+<kbd>Esc</kbd>, `agy` writes nothing, so the tile shows thinking or tool use
+until your next prompt. On macOS kolu cannot list open files, so it reads
+`cache/last_conversations.json`, which names one conversation per directory.
+
 ## Which agents appear in the palette
 
 Once you have run a known agent in any terminal, it also appears in the
 [command palette](/concepts), as a launch option in the worktree-naming flow and
-in the **Recent agents** group. Aider, Goose, Gemini and Cursor Agent write no
-session kolu can read, so they never appear.
+in the **Recent agents** group. Agents kolu does not detect, such as Aider,
+Goose, Gemini CLI and Cursor Agent, never appear there.
 
 <CardGrid>
   <LinkCard title="Core concepts" href="/concepts" description="the dock, tiles, and how state reaches every navigator" />
