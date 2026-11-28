@@ -123,9 +123,10 @@ jobs:
       # No new exposure: this is `pull_request`, not `pull_request_target`, so a
       # fork PR gets no `ODU_CACHE_TOKEN` and cannot push regardless of which of
       # the two trees is checked out. Both refs already run this PR's Nix code.
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
 
       # Pin by commit (CodeQL: unpinned third-party action). v35 → 9f63be7.
       # Defaults to Nix 2.34.7, which is what the pinned odu client is run with.
@@ -313,10 +314,13 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           # The same tree `build-and-push` warmed — see its `ref:` note.
           ref: ${{ github.event.pull_request.head.sha }}
+          # Kept on purpose: the action's "Push the index" step pushes the
+          # `ca-index` branch with this checkout's credential.
+          persist-credentials: true
 
       # What a remote may resolve from the agent source, DERIVED from the one
       # inventory (`nix/agent-packages.json`'s `expose`), never hand-listed.
@@ -326,7 +330,9 @@ jobs:
 
       # `source` mode: the action reads the declaration, the index key and the
       # caches from the baked agent source itself — nothing here restates them.
-      - uses: ./.github/actions/publish-closure
+      # `$/` loads the action from the commit this workflow runs at, never from
+      # whatever the steps above left in the workspace.
+      - uses: $/.github/actions/publish-closure
         with:
           source: .#agent-flake-source
           installables: ${{ steps.expose.outputs.installables }}
