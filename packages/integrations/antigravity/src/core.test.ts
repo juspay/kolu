@@ -27,6 +27,7 @@ const {
   readStartedAt,
   readTitle,
   resolveAntigravitySessions,
+  subscribeAntigravityDirs,
 } = await import("./core.ts");
 
 const ID_A = "0a1b2c3d-0000-4000-8000-00000000000a";
@@ -336,5 +337,78 @@ describe("start time", () => {
 
   it("is null before the transcript exists", () => {
     expect(readStartedAt(sessionOf(ID_B))).toBeNull();
+  });
+});
+
+// --- The directory wake (externalChanges) ---
+
+// These two drive a REAL directory watch through kolu-io's real coalesce
+// schedule, so they wait on the platform clock: fake timers would not move
+// the kernel's event delivery. Each waits on its condition where it can.
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+/** Replace a file in `agy`'s top directory the way `agy` does: write a temp
+ *  file beside it, then rename it over the real name. The name is invented. */
+let replaced = 0;
+function replaceTopFile(): void {
+  const tmp = path.join(ROOT, `summaries.bin.${++replaced}.tmp`);
+  fs.writeFileSync(tmp, `${replaced}`);
+  fs.renameSync(tmp, path.join(ROOT, "summaries.bin"));
+}
+
+/** Subscribe, and let the attach kick (each watch fires once when it
+ *  attaches) coalesce and fire before the test counts anything. */
+async function settledSubscription(): Promise<{
+  fired: () => number;
+  stop: () => void;
+}> {
+  let count = 0;
+  const stop = subscribeAntigravityDirs(
+    () => {
+      count++;
+    },
+    (err) => {
+      throw err;
+    },
+  );
+  await sleep(1_000);
+  return { fired: () => count, stop };
+}
+
+describe("subscribeAntigravityDirs", () => {
+  it("wakes when a file in agy's top directory is replaced", {
+    timeout: 20_000,
+  }, async () => {
+    const sub = await settledSubscription();
+    try {
+      const before = sub.fired();
+      // FS-event delivery can lag or drop on a loaded darwin host: park on
+      // the condition, landing another replacement between attempts.
+      for (let attempt = 0; attempt < 6 && sub.fired() === before; attempt++) {
+        replaceTopFile();
+        const deadline = Date.now() + 2_000;
+        while (sub.fired() === before && Date.now() < deadline) await sleep(50);
+      }
+      expect(sub.fired()).toBeGreaterThan(before);
+    } finally {
+      sub.stop();
+    }
+  });
+
+  it("fires once for a burst of replacements", {
+    timeout: 20_000,
+  }, async () => {
+    const sub = await settledSubscription();
+    try {
+      const before = sub.fired();
+      for (let i = 0; i < 30; i++) replaceTopFile();
+      const deadline = Date.now() + 5_000;
+      while (sub.fired() === before && Date.now() < deadline) await sleep(50);
+      // Past the debounce and the max wait: a second fire would have landed.
+      await sleep(1_000);
+      expect(sub.fired() - before).toBe(1);
+    } finally {
+      sub.stop();
+    }
   });
 });

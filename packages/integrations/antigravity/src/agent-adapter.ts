@@ -8,10 +8,11 @@
  * and `/fork` switch the conversation inside one process). Elsewhere the
  * directory cache stands in (`core.ts`).
  *
- * `externalChanges` wakes on `presence/` and `cache/`: a lock appears whenever
- * a conversation starts, and the fallback's cache is rewritten. `isPresent`
- * gates the install on `agy` being in the foreground or its directory
- * existing, so a machine that never ran it pays nothing.
+ * `externalChanges` wakes, coalesced, on `presence/` (a lock appears when a
+ * conversation is created), `cache/` (the fallback's source) and `agy`'s top
+ * directory (written after an existing conversation is opened, and at every
+ * submit). `isPresent` gates the install on `agy` being in the foreground or
+ * its directory existing, so a machine that never ran it pays nothing.
  */
 
 import { type AgentAdapter, matchesAgent } from "anyagent";
@@ -20,7 +21,7 @@ import {
   antigravityHomePresent,
   readStartedAt,
   resolveAntigravitySessions,
-  subscribeConversationStarts,
+  subscribeAntigravityDirs,
 } from "./core.ts";
 import { type AntigravityInfo, antigravityVocab } from "./schemas.ts";
 import {
@@ -68,7 +69,7 @@ export const antigravityAdapter: AgentAdapter<
       );
     },
     install(onChange, onError, log) {
-      subscribeConversationStarts(onChange, onError, log);
+      subscribeAntigravityDirs(onChange, onError, log);
     },
   },
 
